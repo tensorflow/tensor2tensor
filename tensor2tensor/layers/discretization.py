@@ -802,7 +802,8 @@ def get_vq_codebook(codebook_size, hidden_size):
   return means, ema_means, ema_count
 
 
-def vq_nearest_neighbor(x, means, soft_em=False, num_samples=10):
+def vq_nearest_neighbor(x, means,
+                        soft_em=False, num_samples=10, temperature=None):
   """Find the nearest element in means to elements in x."""
   bottleneck_size = common_layers.shape_list(means)[0]
   x_norm_sq = tf.reduce_sum(tf.square(x), axis=-1, keepdims=True)
@@ -815,7 +816,15 @@ def vq_nearest_neighbor(x, means, soft_em=False, num_samples=10):
         x_means_idx, depth=common_layers.shape_list(means)[0])
     x_means_hot = tf.reduce_mean(x_means_hot, axis=1)
   else:
-    x_means_idx = tf.argmax(-dist, axis=-1)
+    if temperature is None:
+      x_means_idx = tf.argmax(-dist, axis=-1)
+    else:
+      sm_dist = tf.nn.softmax(-dist)
+      x_means_idx = tf.multinomial(sm_dist / temperature, 1)
+      x_means_idx = tf.squeeze(x_means_idx, axis=-1)
+    if (common_layers.should_generate_summaries() and
+        not common_layers.is_xla_compiled()):
+      tf.summary.histogram("means_idx", tf.reshape(x_means_idx, [-1]))
     x_means_hot = tf.one_hot(x_means_idx, bottleneck_size)
   x_means_hot_flat = tf.reshape(x_means_hot, [-1, bottleneck_size])
   x_means = tf.matmul(x_means_hot_flat, means)
@@ -849,34 +858,45 @@ def vq_body(x,
             decay=0.999,
             epsilon=1e-5,
             soft_em=False,
-            num_samples=10):
+            num_samples=10,
+            temperature=None,
+            do_update=True):
   """Discretize each x into one of codebook_size codes."""
   x_shape = common_layers.shape_list(x)
   hidden_size = x_shape[-1]
   means, ema_means, ema_count = get_vq_codebook(codebook_size, hidden_size)
   x = tf.reshape(x, [-1, hidden_size])
   x_means_hot, e_loss, distances = vq_nearest_neighbor(
-      x, means, soft_em=soft_em, num_samples=num_samples)
+      x, means, soft_em=soft_em, num_samples=num_samples,
+      temperature=temperature)
 
-  # Update the ema variables
-  updated_ema_count = moving_averages.assign_moving_average(
-      ema_count,
-      tf.reduce_sum(tf.reshape(x_means_hot, shape=[-1, codebook_size]), axis=0),
-      decay,
-      zero_debias=False)
+  def loss_with_update():
+    """Update the ema variables and return loss triggering the update."""
+    updated_ema_count = moving_averages.assign_moving_average(
+        ema_count,
+        tf.reduce_sum(tf.reshape(x_means_hot, shape=[-1, codebook_size]),
+                      axis=0),
+        decay,
+        zero_debias=False)
 
-  dw = tf.matmul(x_means_hot, x, transpose_a=True)
-  updated_ema_means = tf.identity(
-      moving_averages.assign_moving_average(
-          ema_means, dw, decay, zero_debias=False))
-  n = tf.reduce_sum(updated_ema_count, axis=-1, keepdims=True)
-  updated_ema_count = (
-      (updated_ema_count + epsilon) / (n + codebook_size * epsilon) * n)
-  updated_ema_means /= tf.expand_dims(updated_ema_count, axis=-1)
-  with tf.control_dependencies([e_loss]):
-    update_means = means.assign(updated_ema_means)
-    with tf.control_dependencies([update_means]):
-      loss = beta * e_loss
+    dw = tf.matmul(x_means_hot, x, transpose_a=True)
+    updated_ema_means = tf.identity(
+        moving_averages.assign_moving_average(
+            ema_means, dw, decay, zero_debias=False))
+    n = tf.reduce_sum(updated_ema_count, axis=-1, keepdims=True)
+    updated_ema_count = (
+        (updated_ema_count + epsilon) / (n + codebook_size * epsilon) * n)
+    updated_ema_means /= tf.expand_dims(updated_ema_count, axis=-1)
+    with tf.control_dependencies([e_loss]):
+      update_means = means.assign(updated_ema_means)
+      with tf.control_dependencies([update_means]):
+        return beta * e_loss
+
+  # Loss, also do update if requested.
+  if do_update is True:
+    loss = loss_with_update()
+  else:
+    loss = tf.cond(do_update, loss_with_update, lambda: beta * e_loss)
 
   d = tf.reshape(x_means_hot, x_shape[:-1] + [codebook_size])
   return d, loss, distances
@@ -889,7 +909,9 @@ def vq_loss(x,
             decay=0.999,
             epsilon=1e-5,
             soft_em=False,
-            num_samples=10):
+            num_samples=10,
+            temperature=None,
+            do_update=True):
   """Compute the loss of large vocab tensors using a VQAE codebook.
 
   Args:
@@ -901,6 +923,8 @@ def vq_loss(x,
     epsilon: scalar float for moving averages
     soft_em: boolean, whether to apply a soft sampling procedure
     num_samples: if soft_em, number of samples to take
+    temperature: temperature if we want to sample nearest neighbors or None
+    do_update: whether to update the means; True by default, can be a Tensor
 
   Returns:
     discrete_x: one-hot Tensor indicating which codebook element is closest to x
@@ -928,7 +952,9 @@ def vq_loss(x,
       decay=decay,
       epsilon=epsilon,
       soft_em=soft_em,
-      num_samples=num_samples)
+      num_samples=num_samples,
+      temperature=temperature,
+      do_update=do_update)
 
   logits = -distances
   targets_loss = tf.losses.sparse_softmax_cross_entropy(

@@ -32,8 +32,8 @@ def lrelu(input_, leak=0.2, name="lrelu"):
   return tf.maximum(input_, leak * input_, name=name)
 
 
-def reverse_gradient(x):
-  return -x + tf.stop_gradient(2 * x)
+def reverse_gradient(x, lr=1.0):
+  return -lr * x + tf.stop_gradient((1.0 + lr) * x)
 
 
 @registry.register_model
@@ -67,6 +67,9 @@ class AutoencoderBasic(t2t_model.T2TModel):
   def embed(self, x):
     """Input embedding with a non-zero bias for uniform inputs."""
     with tf.variable_scope("embed", reuse=tf.AUTO_REUSE):
+      x_shape = common_layers.shape_list(x)
+      # Merge channels and depth before embedding.
+      x = tf.reshape(x, x_shape[:-2] + [x_shape[-2] * x_shape[-1]])
       x = tf.layers.dense(
           x,
           self.hparams.hidden_size,
@@ -182,7 +185,6 @@ class AutoencoderBasic(t2t_model.T2TModel):
       vocab_size = self._problem_hparams.target_modality.top_dimensionality
       shape = common_layers.shape_list(labels)
       x = tf.one_hot(labels, vocab_size)
-      x = tf.reshape(x, shape[:-1] + [shape[-1] * vocab_size])
       x = self.embed(x)
       is1d = shape[2] == 1
       self.is1d = is1d
@@ -230,22 +232,35 @@ class AutoencoderBasic(t2t_model.T2TModel):
     ]
     res = tf.reshape(res, output_shape)
 
-    # Losses.
-    losses = {}
     if hparams.gan_loss_factor != 0.0:
       res_gan, res = tf.split(res, 2, axis=0)
-      with tf.variable_scope("vq"):
-        reconstr_gan, gan_codes, _, code_loss_gan, _ = discretization.vq_loss(
-            res_gan, labels, vocab_size)
-        losses["code_loss_gan"] = (code_loss_gan * hparams.code_loss_factor *
-                                   hparams.gan_loss_factor)
 
-    with tf.variable_scope("vq", reuse=tf.AUTO_REUSE):
+    # Losses.
+    losses = {}
+    vq_temperature = 0.001 / common_layers.inverse_exp_decay(
+        hparams.gan_codes_warmup_steps * 1.2, min_value=0.002)
+    if hparams.mode != tf.estimator.ModeKeys.TRAIN:
+      vq_temperature = None
+
+    with tf.variable_scope("vq_loss"):
       (reconstr, _, target_codes, code_loss,
-       targets_loss) = discretization.vq_loss(res, labels, vocab_size)
+       targets_loss) = discretization.vq_loss(
+           res, labels, vocab_size, temperature=vq_temperature)
 
     losses["code_loss"] = code_loss * hparams.code_loss_factor
     losses["training"] = targets_loss
+
+    # GAN losses.
+    if hparams.gan_loss_factor != 0.0:
+      with tf.variable_scope("vq_loss", reuse=True):
+        update_means_factor = common_layers.inverse_exp_decay(
+            hparams.gan_codes_warmup_steps, min_value=0.0001)
+        update_means = tf.less(tf.random_uniform([]), update_means_factor)
+        reconstr_gan, gan_codes, _, code_loss_gan, _ = discretization.vq_loss(
+            res_gan, labels, vocab_size, do_update=update_means,
+            temperature=vq_temperature)
+        code_loss_gan *= hparams.code_loss_factor * update_means_factor
+        losses["code_loss_gan"] = code_loss_gan
 
     # Add GAN loss if requested.
     gan_loss = 0.0
@@ -261,11 +276,13 @@ class AutoencoderBasic(t2t_model.T2TModel):
                                   tc_shape[:-2] + [tc_shape[-1] * tc_shape[-2]])
         gan_codes = tf.reshape(gan_codes,
                                tc_shape[:-2] + [tc_shape[-1] * tc_shape[-2]])
-      gan_loss = common_layers.sliced_gan_loss(target_codes,
-                                               reverse_gradient(gan_codes),
-                                               discriminate,
-                                               self.hparams.num_sliced_vecs)
-      gan_loss *= hparams.gan_loss_factor
+      gan_lr = common_layers.inverse_exp_decay(
+          hparams.gan_codes_warmup_steps * 1.5)
+      rev_grad_gan_codes = reverse_gradient(gan_codes, lr=gan_lr)
+      gan_loss = common_layers.sliced_gan_loss(
+          target_codes, rev_grad_gan_codes, discriminate,
+          self.hparams.num_sliced_vecs)
+      gan_loss *= hparams.gan_loss_factor  * update_means_factor
 
     self.image_summary("ae", reconstr)
 
@@ -364,12 +381,13 @@ class AutoencoderAutoregressive(AutoencoderBasic):
     if "training" in losses:
       plain_training_loss = losses.pop("training")
       losses["plain"] = plain_training_loss
+    res_shape = common_layers.shape_list(basic_result)
+    vocab_size = self._problem_hparams.target_modality.top_dimensionality
     basic_result = self.embed(basic_result)
     shape = common_layers.shape_list(basic_result)
     basic1d = tf.reshape(basic_result, [shape[0], -1, shape[-1]])
     vocab_size = self._problem_hparams.target_modality.top_dimensionality
     targets = tf.one_hot(features["targets_raw"], vocab_size)
-    targets = tf.reshape(targets, shape[:-2] + [shape[-2] * vocab_size])
     targets = self.embed(targets)
     targets = tf.reshape(targets, common_layers.shape_list(basic_result))
     # During autoregressive inference, don't resample.
@@ -411,7 +429,8 @@ class AutoencoderAutoregressive(AutoencoderBasic):
           padding="LEFT",
           activation=common_layers.belu,
           name="autoregressive_conv3")
-      return tf.reshape(res, shape), losses
+      res = tf.layers.dense(res, vocab_size, "autoregressive_final")
+      return tf.reshape(res, res_shape), losses
     if hparams.autoregressive_mode == "conv5":
       res = common_layers.conv1d(
           concat1d,
@@ -420,7 +439,8 @@ class AutoencoderAutoregressive(AutoencoderBasic):
           padding="LEFT",
           activation=common_layers.belu,
           name="autoregressive_conv5")
-      return tf.reshape(res, shape), losses
+      res = tf.layers.dense(res, vocab_size, "autoregressive_final")
+      return tf.reshape(res, res_shape), losses
     if hparams.autoregressive_mode == "sru":
       res = common_layers.conv1d(
           concat1d,
@@ -430,7 +450,8 @@ class AutoencoderAutoregressive(AutoencoderBasic):
           activation=common_layers.belu,
           name="autoregressive_sru_conv3")
       res = common_layers.sru(res)
-      return tf.reshape(res, shape), losses
+      res = tf.layers.dense(res, vocab_size, "autoregressive_final")
+      return tf.reshape(res, res_shape), losses
 
     raise ValueError(
         "Unsupported autoregressive mode: %s" % hparams.autoregressive_mode)
@@ -817,6 +838,7 @@ def autoencoder_basic():
   hparams.add_hparam("discriminator_batchnorm", True)
   hparams.add_hparam("num_sliced_vecs", 4096)
   hparams.add_hparam("code_loss_factor", 1.0)
+  hparams.add_hparam("gan_codes_warmup_steps", 5000)
   hparams.add_hparam("gan_loss_factor", 0.0)
   hparams.add_hparam("use_vqloss", False)
   return hparams
