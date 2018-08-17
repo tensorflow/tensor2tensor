@@ -190,6 +190,20 @@ class VideoProblem(problem.Problem):
 
     return data_fields, data_items_to_decoders
 
+  def serving_input_fn(self, hparams):
+    """For serving/predict, assume that only video frames are provided."""
+    video_input_frames = tf.placeholder(
+        dtype=tf.float32,
+        shape=[
+            None, hparams.video_num_input_frames, self.frame_width,
+            self.frame_height, self.num_channels
+        ])
+
+    # TODO(michalski): add support for passing input_action and input_reward.
+    return tf.estimator.export.ServingInputReceiver(
+        features={"inputs": video_input_frames},
+        receiver_tensors=video_input_frames)
+
   def preprocess(self, dataset, mode, hparams, interleave=True):
     del interleave
     def split_on_batch(x):
