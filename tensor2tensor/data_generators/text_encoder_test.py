@@ -27,7 +27,6 @@ import shutil
 import string
 
 import mock
-import six
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import text_encoder
@@ -39,8 +38,10 @@ class NativeToUnicodeTest(tf.test.TestCase):
   def test_native_to_unicode(self):
     s = r"foo bar"
     s_unicode = text_encoder.native_to_unicode(s)
-    if six.PY2:
+    try:
       self.assertIsInstance(s_unicode, unicode)
+    except NameError:  # Python 3
+      pass
     self.assertEqual(s_unicode, u"foo bar")
 
 

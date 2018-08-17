@@ -234,7 +234,7 @@ class T2TModel(base.Layer):
                                    datashard_to_features)
           training_loss_dict = average_sharded_losses([{
               "training": l
-          } for l in loss for loss in sharded_losses.values()])
+          } for l in loss for loss in sharded_losses.values()])  # noqa FIXME undefined name
           losses.update(training_loss_dict)
         else:
           sharded_logits = dp(self.top, body_out, datashard_to_features)

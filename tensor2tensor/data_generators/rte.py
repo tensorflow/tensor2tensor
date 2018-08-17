@@ -20,7 +20,6 @@ from __future__ import print_function
 
 import os
 import zipfile
-import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -84,9 +83,9 @@ class RTE(text_problems.TextConcat2ClassProblem):
     label_list = self.class_labels(data_dir=None)
     for idx, line in enumerate(tf.gfile.Open(filename, "rb")):
       if idx == 0: continue  # skip header
-      if six.PY2:
+      try:
         line = unicode(line.strip(), "utf-8")
-      else:
+      except NameError:  # Python 3
         line = line.strip().decode("utf-8")
       _, s1, s2, l = line.split("\t")
       inputs = [s1, s2]

@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import copy
+from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.mesh_tensorflow import mesh_tensorflow as mtf
@@ -921,5 +922,3 @@ def mtf_transformer_lm_baseline():
   hparams.learning_rate_decay_steps = 27200  # one epoch on lm1b
   hparams.mesh_shape = "batch:8"
   return hparams
-
-

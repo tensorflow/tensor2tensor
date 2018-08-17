@@ -63,17 +63,17 @@ def native_to_unicode(s):
 
 
 def unicode_to_native(s):
-  if six.PY2:
+  try:
     return s.encode("utf-8") if is_unicode(s) else s
-  else:
+  except NameError:  # Python 3
     return s
 
 
 def is_unicode(s):
-  if six.PY2:
+  try:
     if isinstance(s, unicode):
       return True
-  else:
+  except NameError:  # Python 3
     if isinstance(s, str):
       return True
   return False
@@ -172,12 +172,12 @@ class ByteTextEncoder(TextEncoder):
 
   def encode(self, s):
     numres = self._num_reserved_ids
-    if six.PY2:
+    try:
       if isinstance(s, unicode):
         s = s.encode("utf-8")
       return [ord(c) + numres for c in s]
-    # Python3: explicitly convert to UTF-8
-    return [c + numres for c in s.encode("utf-8")]
+    except NameError:  # Python 3: explicitly convert to UTF-8
+      return [c + numres for c in s.encode("utf-8")]
 
   def decode(self, ids, strip_extraneous=False):
     if strip_extraneous:
@@ -1056,4 +1056,3 @@ class RealEncoder(object):
     """
     del strip_extraneous
     return " ".join([str(i) for i in ids])
-

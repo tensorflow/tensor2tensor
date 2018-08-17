@@ -22,7 +22,6 @@ import hashlib
 import io
 import os
 import tarfile
-import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -146,9 +145,9 @@ def example_generator(all_files, urls_path, sum_token):
     summary = []
     reading_highlights = False
     for line in tf.gfile.Open(story_file, "rb"):
-      if six.PY2:
+      try:
         line = unicode(line.strip(), "utf-8")
-      else:
+      except NameError:  # Python 3
         line = line.strip().decode("utf-8")
       line = fix_run_on_sents(line)
       if not line:
