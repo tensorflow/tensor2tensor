@@ -97,7 +97,7 @@ class VqaAttentionBaseline(t2t_model.T2TModel):
     return tf.expand_dims(tf.expand_dims(output, axis=1), axis=2)
 
   def infer(self,
-            features,
+            features=None,
             decode_length=1,
             beam_size=1,
             top_beams=1,

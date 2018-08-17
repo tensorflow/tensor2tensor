@@ -3991,7 +3991,7 @@ class WeightNorm(tf.keras.layers.Wrapper):
     self.layer.activation = activation
     self.initialized = True
 
-  def build(self, input_shape):
+  def build(self, input_shape=None):
     """Build `Layer`."""
     input_shape = tf.TensorShape(input_shape).as_list()
     self.input_spec = tf.layers.InputSpec(shape=input_shape)
