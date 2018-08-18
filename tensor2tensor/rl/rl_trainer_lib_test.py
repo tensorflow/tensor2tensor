@@ -45,7 +45,7 @@ class TrainTest(tf.test.TestCase):
         TrainTest.test_config)
 
     hparams.add_hparam(
-        "environment_spec", gym_problems.standard_atari_env_spec("CartPole-v0"))
+        "environment_spec", rl_models.simple_gym_spec("CartPole-v0"))
     rl_trainer_lib.train(hparams)
 
   # This test should successfully train pong.
