@@ -70,6 +70,25 @@ ATARI_WHITELIST_GAMES = [
     "wrapped_full_pong",
 ]
 
+ATARI_ALL_MODES_SHORT_LIST = [
+    "pong",
+    "boxing",
+]
+
+# Different ATARI game modes in OpenAI Gym. Full list here:
+# https://github.com/openai/gym/blob/master/gym/envs/__init__.py
+ATARI_GAME_MODES = [
+    "Deterministic-v0",  # 0.25 repeat action probability, 4 frame skip.
+    "Deterministic-v4",  # 0.00 repeat action probability, 4 frame skip.
+    "NoFrameskip-v0",    # 0.25 repeat action probability, 1 frame skip.
+    "NoFrameskip-v4",    # 0.00 repeat action probability, 1 frame skip.
+    "-v0",               # 0.25 repeat action probability, (2 to 5) frame skip.
+    "-v4"                # 0.00 repeat action probability, (2 to 5) frame skip.
+]
+
+# List of all ATARI envs in all modes.
+ATARI_PROBLEMS = {}
+
 
 @registry.register_problem
 class GymWrappedFullPongRandom(GymDiscreteProblem):
@@ -154,13 +173,17 @@ class GymClippedRewardRandom(GymDiscreteProblem):
     return 3
 
 
-def create_problems_for_game(game_name, clipped_reward=True):
+def create_problems_for_game(
+    game_name,
+    clipped_reward=True,
+    game_mode="Deterministic-v4"):
   """Create and register problems for game_name.
 
   Args:
     game_name: str, one of the games in ATARI_GAMES, e.g. "bank_heist".
     clipped_reward: bool, whether the rewards should be clipped. False is not
       yet supported.
+    game_mode: the frame skip and sticky keys config.
 
   Returns:
     dict of problems with keys ("base", "agent", "simulated").
@@ -173,9 +196,12 @@ def create_problems_for_game(game_name, clipped_reward=True):
                      "yet supported.")
   if game_name not in ATARI_GAMES:
     raise ValueError("Game %s not in ATARI_GAMES" % game_name)
+  if game_mode not in ATARI_GAME_MODES:
+    raise ValueError("Unknown ATARI game mode: %s." % game_mode)
   camel_game_name = "".join(
       [w[0].upper() + w[1:] for w in game_name.split("_")])
-  env_name = "%sDeterministic-v4" % camel_game_name
+  camel_game_name += game_mode
+  env_name = camel_game_name
   wrapped_env_name = "T2T%s" % env_name
 
   # Register an environment that does the reward clipping
@@ -188,8 +214,11 @@ def create_problems_for_game(game_name, clipped_reward=True):
   problem_cls = type("Gym%sRandom" % camel_game_name,
                      (GymClippedRewardRandom,),
                      {"env_name": wrapped_env_name})
+  registry.register_problem(problem_cls)
+
   with_agent_cls = type("GymDiscreteProblemWithAgentOn%s" % camel_game_name,
                         (GymRealDiscreteProblem, problem_cls), {})
+
   registry.register_problem(with_agent_cls)
 
   # Create and register the simulated Problem
@@ -206,3 +235,15 @@ def create_problems_for_game(game_name, clipped_reward=True):
       "agent": with_agent_cls,
       "simulated": simulated_cls,
   }
+
+# Register the atari games with all of the possible modes.
+for game in ATARI_ALL_MODES_SHORT_LIST:
+  ATARI_PROBLEMS[game] = {}
+  for mode in ATARI_GAME_MODES:
+    classes = create_problems_for_game(
+        game,
+        clipped_reward=True,
+        game_mode=mode)
+    ATARI_PROBLEMS[game][mode] = classes
+
+

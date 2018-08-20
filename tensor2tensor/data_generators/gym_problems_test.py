@@ -34,9 +34,10 @@ class GymProblemsTest(tf.test.TestCase):
     shutil.rmtree(cls.tmp_dir)
     os.mkdir(cls.tmp_dir)
 
-  def testGymAtariBoots(self):
-    problem = gym_problems_specs.create_problems_for_game("pong")["base"]()
-    self.assertEqual(210, problem.frame_height)
+  def testGymAtariGameModes(self):
+    for mode in gym_problems_specs.ATARI_GAME_MODES:
+      problem = gym_problems_specs.ATARI_PROBLEMS["pong"][mode]["base"]()
+      self.assertEqual(210, problem.frame_height)
 
 
 if __name__ == "__main__":
