@@ -353,6 +353,8 @@ def update_hparams_for_universal_transformer(hparams):
     hparams with default values for Universal Transformers hyper-parameters
 
   """
+  hparams.daisy_chain_variables = False  # Breaks multi-gpu in while loops.
+
   # If not None, mixes vanilla transformer with Universal Transformer.
   # Options: None, "before_ut", and "after_ut".
   hparams.add_hparam("mix_with_transformer", None)
