@@ -49,7 +49,7 @@ Configure the `gcloud` CLI:
 gcloud components update
 gcloud auth application-default login
 # Set your default zone to a TPU-enabled zone.
-gcloud config set compute/zone us-central1-f
+gcloud config set compute/zone us-central1-b
 ```
 
 Generate data to GCS.
