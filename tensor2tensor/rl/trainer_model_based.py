@@ -347,24 +347,27 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     subdirectories.append("autoencoder")
   directories = setup_directories(output_dir, subdirectories)
 
+  game_with_mode = hparams.game + "deterministic-v4"
   # Problems
   if using_autoencoder:
     problem_name = (
-        "gym_discrete_problem_with_agent_on_%s_with_autoencoder" % hparams.game)
+        "gym_discrete_problem_with_agent_on_%s_with_autoencoder"
+        % game_with_mode)
     world_model_problem = (
-        "gym_discrete_problem_with_agent_on_%s_autoencoded" % hparams.game)
+        "gym_discrete_problem_with_agent_on_%s_autoencoded" % game_with_mode)
     simulated_problem_name = (
         "gym_simulated_discrete_problem_with_agent_on_%s_autoencoded"
-        % hparams.game)
+        % game_with_mode)
   else:
-    problem_name = ("gym_discrete_problem_with_agent_on_%s" % hparams.game)
+    problem_name = ("gym_discrete_problem_with_agent_on_%s" % game_with_mode)
     world_model_problem = problem_name
     simulated_problem_name = ("gym_simulated_discrete_problem_with_agent_on_%s"
-                              % hparams.game)
+                              % game_with_mode)
     if problem_name not in registry.list_problems():
       tf.logging.info("Game Problem %s not found; dynamically registering",
                       problem_name)
-      gym_problems_specs.create_problems_for_game(hparams.game)
+      gym_problems_specs.create_problems_for_game(hparams.game,
+                                                  game_mode="Deterministic-v4")
 
   # Autoencoder model dir
   autoencoder_model_dir = directories.get("autoencoder")
