@@ -344,27 +344,9 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
       return ret_mean, ret_std
 
   def reward_prediction(self, input_image, input_reward, action, latent):
-    """Builds a reward prediction network.
-
-    Args:
-      input_image: image sequences (buffer_size x batch x W x H x C)
-      input_reward: previous reward (batch + reward_size)
-      action: current action (batch + action_size)
-      latent: current latent (batch + latent_size)
-    Returns:
-      latent_mean: predicted latent mean
-      latent_std: predicted latent standard deviation
-      latent_loss: loss of the latent twoer
-      samples: random samples sampled from standard guassian
-    """
-
+    """Builds a reward prediction network."""
     del action
     del latent
-
-    # Unstack buffer images on buffer axis
-    input_image = tf.unstack(input_image, axis=0)
-    # Concat buffer images on channels.
-    input_image = tf.concat(input_image, axis=3)
 
     conv_size = self.tinyify([32, 32, 16, 4])
 
@@ -531,14 +513,12 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
     context_frames = self.hparams.video_num_input_frames
 
     batch_size = common_layers.shape_list(images)[1]
-    reward_buf_size = self.hparams.reward_prediction_buffer_size
     ss_func = self.get_scheduled_sample_func(batch_size)
 
     def process_single_frame(prev_outputs, inputs):
       """Process a single frame of the video."""
       cur_image, cur_reward, action = inputs
-      (time_step, prev_image, prev_reward,
-       lstm_states, frames_buffer) = prev_outputs
+      time_step, prev_image, prev_reward, lstm_states = prev_outputs
 
       generated_items = [prev_image, prev_reward]
       groundtruth_items = [cur_image, cur_reward]
@@ -554,27 +534,15 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
         reward_input_image = pred_image
         if self.hparams.reward_prediction_stop_gradient:
           reward_input_image = tf.stop_gradient(reward_input_image)
-
-        reward_input_image = tf.expand_dims(reward_input_image, axis=0)
-        frames_buffer = tf.concat(
-            [frames_buffer[1:], reward_input_image], axis=0)
-
-        pred_reward = tf.cond(
-            tf.less(time_step, reward_buf_size),
-            lambda: input_reward,  # HACK. just return something.
-            lambda: self.reward_prediction(  # pylint: disable=g-long-lambda
-                frames_buffer, input_reward, action, latent)
-        )
+        pred_reward = self.reward_prediction(
+            reward_input_image, input_reward, action, latent)
       else:
         pred_reward = input_reward
 
       time_step += 1
-      outputs = (time_step, pred_image, pred_reward, lstm_states, frames_buffer)
+      outputs = (time_step, pred_image, pred_reward, lstm_states)
 
       return outputs
-
-    # Create frames buffer for reward prediction
-    frames_buffer = tf.identity(images[:reward_buf_size])
 
     # Latent tower
     latent = None
@@ -588,8 +556,7 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
     prev_outputs = (tf.constant(0),
                     tf.zeros_like(images[0]),
                     tf.zeros_like(rewards[0]),
-                    lstm_states,
-                    frames_buffer)
+                    lstm_states)
 
     initializers = process_single_frame(prev_outputs, inputs)
     first_gen_images = tf.expand_dims(initializers[1], axis=0)

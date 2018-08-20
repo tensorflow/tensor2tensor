@@ -75,7 +75,6 @@ def next_frame_stochastic():
   hparams.add_hparam("stochastic_model", True)
   hparams.add_hparam("reward_prediction", True)
   hparams.add_hparam("reward_prediction_stop_gradient", True)
-  hparams.add_hparam("reward_prediction_buffer_size", 4)
   hparams.add_hparam("model_options", "CDNA")
   hparams.add_hparam("num_masks", 10)
   hparams.add_hparam("latent_channels", 1)
