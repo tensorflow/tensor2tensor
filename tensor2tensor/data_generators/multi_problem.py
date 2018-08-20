@@ -31,6 +31,7 @@ class MixingSchedule(object):
   """Available schedules for mixing datasets."""
   EXPONENTIAL = "exponential"
   CONSTANT = "constant"
+  PRETRAIN = "pretrain"
 
 
 class MultiProblem(problem.Problem):
@@ -190,6 +191,14 @@ class MultiProblem(problem.Problem):
       def get_const_sched_prob():
         return hparams.multiproblem_schedule_threshold
 
+      def get_pretrain_sched_prob():
+        """Pretrain the primary tasks for max examples."""
+        with tf.control_dependencies([problem_step.assign_add(1)]):
+          return tf.cond(
+              tf.greater(problem_step,
+                         hparams.multiproblem_schedule_max_examples),
+              lambda: 1.0, lambda: 0.0)
+
       def mix_data(example):
         """Function to mix the different datasets according to a schedule."""
         del example
@@ -200,6 +209,8 @@ class MultiProblem(problem.Problem):
           prob = get_exp_sched_prob()
         elif hparams.multiproblem_mixing_schedule == MixingSchedule.CONSTANT:
           prob = get_const_sched_prob()
+        elif hparams.multiproblem_mixing_schedule == MixingSchedule.PRETRAIN:
+          prob = get_pretrain_sched_prob()
         else:
           raise ValueError("Unknown schedule %s" % str(
               hparams.multiproblem_mixing_schedule))
@@ -208,6 +219,10 @@ class MultiProblem(problem.Problem):
                             hparams.multiproblem_mixing_schedule))
         tf.logging.info("Schedule mixing threshold "
                         "%.2f" % hparams.multiproblem_schedule_threshold)
+        prob = tf.cond(
+            tf.equal(tf.floormod(problem_step, 5e6), 0),
+            lambda: tf.Print(prob, [prob], message="Probability"),
+            lambda: prob)
 
         def sample_task(curr_task, num_tasks_left, randnum):
           """A recursive function to sample a task.
