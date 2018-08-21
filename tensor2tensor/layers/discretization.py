@@ -819,8 +819,7 @@ def vq_nearest_neighbor(x, means,
     if temperature is None:
       x_means_idx = tf.argmax(-dist, axis=-1)
     else:
-      sm_dist = tf.nn.softmax(-dist)
-      x_means_idx = tf.multinomial(sm_dist / temperature, 1)
+      x_means_idx = tf.multinomial(- dist / temperature, 1)
       x_means_idx = tf.squeeze(x_means_idx, axis=-1)
     if (common_layers.should_generate_summaries() and
         not common_layers.is_xla_compiled()):
