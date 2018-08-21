@@ -249,15 +249,10 @@ def masked_local_attention_1d(query_antecedent,
       first_q = mtf.slice(q, 0, 1, num_blocks.name)
       first_k = mtf.slice(k, 0, 1, num_blocks.name)
       first_v = mtf.slice(v, 0, 1, num_blocks.name)
-      block = first_q.shape.dims[2]
-
-      first_logits = mtf.einsum(
-          [first_q, first_k],
-          mtf.Shape([batch, heads, block, blength, mlength]))
-      weights = mtf.softmax(first_logits, mlength)
-      first_output = mtf.einsum(
-          [weights, first_v],
-          mtf.Shape([batch, heads, block, blength, kv_channels]))
+      first_output = dot_product_attention(first_q,
+                                           first_k,
+                                           first_v,
+                                           mask=None)
       return first_output
 
     # Attention for first block, since query_length = key_length.
@@ -273,31 +268,22 @@ def masked_local_attention_1d(query_antecedent,
 
     local_k = local(k)
     local_v = local(v)
-    mblocks = local_k.shape.dims[2]
-    mlength = local_k.shape.dims[3]
     # Calculate the causal mask to avoid peeking into the future. We compute
     # this once and reuse it for all blocks since the block_size is known.
+    mlength = local_k.shape.dims[3]
     mask = attention_bias_local_block(query_antecedent.mesh,
                                       blength, mlength)
 
     # Remove the first block from q since we already computed that.
     tail_q = mtf.slice(q, 1, num_blocks.size-1, num_blocks.name)
 
-    # Compatibility between q and k for rest of the blocks.
-    # Shape [batch, heads, num_blocks - 1, block_length, local_length]
-    attention = mtf.einsum(
-        [tail_q, local_k],
-        mtf.Shape([batch, heads, mblocks, blength, mlength]))
-    attention += mask
-    attention = mtf.softmax(attention, mlength)
+    tail_output = dot_product_attention(tail_q,
+                                        local_k,
+                                        local_v,
+                                        mask=mask)
 
-    # Run attention for rest of the blocks.
-    # Shape [batch, heads, num_blocks-1, block_length, kv_channels]
-    output = mtf.einsum(
-        [attention, local_v],
-        mtf.Shape([batch, heads, mblocks, blength, kv_channels]))
     # Now concatenate the first and rest of the blocks.
-    final_output = mtf.concat([first_output, output], num_blocks.name)
+    final_output = mtf.concat([first_output, tail_output], num_blocks.name)
     final_output = mtf.reshape(final_output, mtf.Shape(
         [batch, heads, query_length, kv_channels]))
     return mtf.einsum([final_output, o_var],

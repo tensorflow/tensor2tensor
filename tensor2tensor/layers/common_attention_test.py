@@ -68,25 +68,22 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
       res = session.run(a)
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
-  def testMaskedLocalAttention1D(self):
-    q = np.array([[[[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]]])
-    k = np.array([[[[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]]])
-    v = np.ones((1, 1, 8, 1))
+  @parameterized.parameters(
+      (1, 1, 8, 4, 1, 2),
+      (4, 1, 8, 4, 1, 4),
+      (3, 2, 8, 4, 3, 4),
+  )
+  def testMaskedLocalAttention1D(self, batch, heads, length, depth_k, depth_v,
+                                 block_length):
+    q = tf.random_normal([batch, heads, length, depth_k])
+    k = tf.random_normal([batch, heads, length, depth_k])
+    v = tf.random_normal([batch, heads, length, depth_v])
+    output = common_attention.masked_local_attention_1d(
+        q, k, v, block_length=block_length)
     with self.test_session() as session:
-      q_ = tf.constant(q, dtype=tf.float32)
-      k_ = tf.constant(k, dtype=tf.float32)
-      v_ = tf.constant(v, dtype=tf.float32)
-      y = common_attention.masked_local_attention_1d(
-          q_, k_, v_, block_length=tf.constant(2))
-      res = session.run(y)
+      res = session.run(output)
 
-    self.assertEqual(res.shape, (1, 1, 8, 1))
+    self.assertEqual(res.shape, (batch, heads, length, depth_v))
 
   @parameterized.named_parameters(
       ("matching_block_length", 3, 4, 25, 16, 16, 5),

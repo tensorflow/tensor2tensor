@@ -2073,27 +2073,28 @@ def masked_local_attention_1d(q,
                         [batch, heads, num_blocks - 1, block_length, depth_k])
     local_length = common_layers.shape_list(local_k)[3]
 
-    # [batch, heads, num_blocks - 1, block_length, local_length]
-    attention = tf.matmul(tail_q, local_k, transpose_b=True)
-
     # make sure source_pos <= target_pos
-    good_part = common_layers.ones_matrix_band_part(block_length,
-                                                    local_length,
-                                                    -1, block_length)
-    mask = (1.0 - good_part) * -1e9
-    mask = common_layers.cast_like(mask, attention)
-    attention += tf.reshape(mask, [1, 1, 1, block_length, local_length])
-    attention = tf.nn.softmax(attention)
-    attention = common_layers.dropout_with_broadcast_dims(
-        attention, 1.0 - dropout_rate,
-        broadcast_dims=None)
+    good_part = common_layers.ones_matrix_band_part(
+        block_length,
+        local_length,
+        -1,
+        block_length,
+        out_shape=[1, 1, 1, block_length, local_length])
+    bias = (1.0 - good_part) * -1e9
     # TODO(noam): figure out how to show a summary for the remaining blocks.
     # The naive way currently causes errors due to empty tensors.
     # output: [batch, heads, num_blocks-1, block_length, depth_v]
-    output = tf.matmul(attention, local_v)
-    output = tf.reshape(
-        output, [batch, heads, (num_blocks - 1) * block_length, depth_v])
-    output = tf.concat([first_output, output], axis=2)
+    tail_output = dot_product_attention(
+        tail_q,
+        local_k,
+        local_v,
+        bias,
+        dropout_rate=dropout_rate,
+        make_image_summary=False,
+        name="tail_block")
+    tail_output = tf.reshape(
+        tail_output, [batch, heads, (num_blocks - 1) * block_length, depth_v])
+    output = tf.concat([first_output, tail_output], axis=2)
 
     # Remove the padding if introduced.
     output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
