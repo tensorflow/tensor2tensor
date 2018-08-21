@@ -88,33 +88,22 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
 
     self.assertEqual(res.shape, (1, 1, 8, 1))
 
-  def testLocalUnmaskedAttention1D(self):
-    x = np.random.rand(5, 4, 25, 16)
-    y = np.random.rand(5, 4, 25, 16)
+  @parameterized.named_parameters(
+      ("matching_block_length", 3, 4, 25, 16, 16, 5),
+      ("unmatching_block_length", 3, 4, 25, 16, 16, 4),
+      ("different_depth_v", 3, 4, 25, 16, 17, 5),
+  )
+  def testLocalUnmaskedAttention1D(self, batch, heads, length,
+                                   depth_k, depth_v, block_length):
+    q = tf.random_normal([batch, heads, length, depth_k])
+    k = tf.random_normal([batch, heads, length, depth_k])
+    v = tf.random_normal([batch, heads, length, depth_v])
+    output = common_attention.local_attention_1d(
+        q, k, v, block_length=block_length, filter_width=3)
     with self.test_session() as session:
-      a = common_attention.local_attention_1d(
-          tf.constant(x, dtype=tf.float32),
-          tf.constant(y, dtype=tf.float32),
-          tf.constant(y, dtype=tf.float32),
-          block_length=4,
-          filter_width=3)
-      session.run(tf.global_variables_initializer())
-      res = session.run(a)
-    self.assertEqual(res.shape, (5, 4, 25, 16))
+      res = session.run(output)
 
-  def testLocalUnmaskedAttention1DMatchingBlockLength(self):
-    x = np.random.rand(5, 4, 25, 16)
-    y = np.random.rand(5, 4, 25, 16)
-    with self.test_session() as session:
-      a = common_attention.local_attention_1d(
-          tf.constant(x, dtype=tf.float32),
-          tf.constant(y, dtype=tf.float32),
-          tf.constant(y, dtype=tf.float32),
-          block_length=5,
-          filter_width=3)
-      session.run(tf.global_variables_initializer())
-      res = session.run(a)
-    self.assertEqual(res.shape, (5, 4, 25, 16))
+    self.assertEqual(res.shape, (batch, heads, length, depth_v))
 
   def testLocalUnmaskedAttention2D(self):
     x = np.random.rand(5, 4, 25, 25, 16)

@@ -2311,11 +2311,8 @@ def local_attention_1d(q, k, v, block_length=128, filter_width=100, name=None):
   """
   with tf.variable_scope(
       name, default_name="local_self_attention_1d", values=[q, k, v]):
-    v_shape = v.get_shape()
-    depth_v = common_layers.shape_list(v)[3]
-    batch_size = common_layers.shape_list(q)[0]
-    num_heads = common_layers.shape_list(q)[1]
-    original_length = common_layers.shape_list(q)[2]
+    batch_size, num_heads, original_length, _ = common_layers.shape_list(q)
+    depth_v = common_layers.shape_list(v)[-1]
 
     # Pad query, key, value to ensure multiple of corresponding lengths.
     def pad_to_multiple(x, pad_length):
@@ -2331,10 +2328,7 @@ def local_attention_1d(q, k, v, block_length=128, filter_width=100, name=None):
 
     # Set up query blocks.
     new_q_shape = common_layers.shape_list(q)
-    q = tf.reshape(q, [
-        new_q_shape[0], new_q_shape[1], new_q_shape[2] // block_length,
-        block_length, new_q_shape[3]
-    ])
+    q = reshape_by_blocks(q, new_q_shape, block_length)
 
     # Set up key and value blocks.
     # Get gather indices.
@@ -2378,7 +2372,7 @@ def local_attention_1d(q, k, v, block_length=128, filter_width=100, name=None):
 
     # Remove the padding if introduced.
     output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
-    output.set_shape(v_shape)
+    output.set_shape([batch_size, num_heads, original_length, depth_v])
     return output
 
 
