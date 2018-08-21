@@ -347,7 +347,10 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     subdirectories.append("autoencoder")
   directories = setup_directories(output_dir, subdirectories)
 
-  game_with_mode = hparams.game + "deterministic-v4"
+  if hparams.game in gym_problems_specs.ATARI_GAMES:
+    game_with_mode = hparams.game + "_deterministic-v4"
+  else:
+    game_with_mode = hparams.game
   # Problems
   if using_autoencoder:
     problem_name = (
