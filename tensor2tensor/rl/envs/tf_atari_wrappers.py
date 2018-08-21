@@ -20,6 +20,8 @@ from __future__ import print_function
 
 import math
 
+from six.moves import range  # pylint: disable=redefined-builtin
+
 from tensor2tensor.layers import discretization
 from tensor2tensor.models.research import autoencoders
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
@@ -169,7 +171,7 @@ class StackWrapper(WrapperBase):
       new_observ = self._batch_env.observ + 0
       old_observ = tf.gather(
           self._observ.read_value(),
-          range(self.old_shape[-1], self.old_shape[-1] * self.history),
+          list(range(self.old_shape[-1], self.old_shape[-1] * self.history)),
           axis=-1)
       with tf.control_dependencies([new_observ, old_observ]):
         with tf.control_dependencies([self._observ.assign(
