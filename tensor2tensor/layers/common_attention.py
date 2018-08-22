@@ -231,7 +231,7 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
           num_experts=hparams.moe_num_experts,
           k=hparams.moe_k,
           loss_coef=hparams.moe_loss_coef,
-          hparams=hparams),
+      ),
       use_dp=False,
   )
 
