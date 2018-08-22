@@ -2012,10 +2012,8 @@ def masked_local_attention_1d(q,
   """
   with tf.variable_scope(
       name, default_name="local_attention_1d", values=[q, k, v]):
-
-    batch = common_layers.shape_list(q)[0]
-    heads = common_layers.shape_list(q)[1]
-    length = common_layers.shape_list(q)[2]
+    batch, heads, length, depth_k = common_layers.shape_list(q)
+    depth_v = common_layers.shape_list(v)[-1]
     if isinstance(block_length, tf.Tensor):
       const = tf.contrib.util.constant_value(block_length)
       if const is not None:
@@ -2028,8 +2026,6 @@ def masked_local_attention_1d(q,
           tf.less(length, block_length * 2), length, block_length)
 
     # Pad query, key, value to ensure multiple of block length.
-    depth_k = common_layers.shape_list(k)[3]
-    depth_v = common_layers.shape_list(v)[3]
     original_length = length
     padding_size = tf.mod(-length, block_length)
     length += padding_size
