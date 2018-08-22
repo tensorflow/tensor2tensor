@@ -25,6 +25,7 @@ import math
 import time
 import six
 
+from tensor2tensor.data_generators import multi_problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators.problem import problem_hparams_to_features
 from tensor2tensor.layers import common_layers
@@ -440,6 +441,20 @@ class T2TModel(base.Layer):
 
     loss_num, loss_den = target_modality.loss(logits, feature)
     loss_num *= self._problem_hparams.loss_multiplier
+
+    if hasattr(self.hparams, "problem") and hasattr(
+        self.hparams.problem, "task_list"):
+      loss_num, loss_den, summaries = multi_problem.aggregate_task_losses(
+          self.hparams,
+          self._problem_hparams,
+          logits,
+          target_modality,
+          feature
+      )
+
+      for key, val in summaries:
+        tf.summary.scalar(key, val)
+
     return loss_num, loss_den
 
   def loss(self, logits, features):

@@ -168,7 +168,7 @@ class MultiProblem(problem.Problem):
     if is_training:
       problem_step = tf.get_variable("problem_step",
                                      shape=[],
-                                     dtype=tf.float32,
+                                     dtype=tf.int64,
                                      initializer=tf.zeros_initializer(),
                                      trainable=False,
                                      use_resource=True)
@@ -183,7 +183,7 @@ class MultiProblem(problem.Problem):
           inv_exp_decay = common_layers.inverse_exp_decay(
               max_step=hparams.multiproblem_schedule_max_examples,
               min_value=1e-4,
-              step=problem_step
+              step=tf.to_float(problem_step)
           )
           # inv_exp_decay is bounded above by 1.0
           return inv_exp_decay * hparams.multiproblem_schedule_threshold
@@ -196,7 +196,8 @@ class MultiProblem(problem.Problem):
         with tf.control_dependencies([problem_step.assign_add(1)]):
           return tf.cond(
               tf.greater(problem_step,
-                         hparams.multiproblem_schedule_max_examples),
+                         tf.cast(hparams.multiproblem_schedule_max_examples,
+                                 dtype=tf.int64)),
               lambda: 1.0, lambda: 0.0)
 
       def mix_data(example):
@@ -220,7 +221,8 @@ class MultiProblem(problem.Problem):
         tf.logging.info("Schedule mixing threshold "
                         "%.2f" % hparams.multiproblem_schedule_threshold)
         prob = tf.cond(
-            tf.equal(tf.floormod(problem_step, 5e6), 0),
+            tf.equal(tf.floormod(
+                problem_step, tf.cast(5e6, dtype=tf.int64)), 0),
             lambda: tf.Print(prob, [prob], message="Probability"),
             lambda: prob)
 
@@ -306,3 +308,65 @@ class MultiProblem(problem.Problem):
           num = task.num_classes
 
     return num
+
+
+def aggregate_task_losses(hparams,
+                          problem_hparams,
+                          logits,
+                          target_modality,
+                          feature):
+  """Multiproblem loss function."""
+  summaries = []
+  main_task_id = hparams.problem.task_list[0].task_id
+  # Primary task loss
+  loss_num, loss_den = target_modality.loss(
+      logits, feature,
+      weights_fn=
+      lambda x: common_layers.weights_multi_problem_all(x, main_task_id))
+
+  loss_val = loss_num / tf.maximum(1.0, loss_den)
+  summaries.append([hparams.problem.task_list[0].name+"_loss", loss_val])
+
+  for task in hparams.problem.task_list[1:]:
+    if hasattr(task, "num_classes"):
+      task_loss_num_seq, task_loss_den_seq = target_modality.loss(
+          logits, feature,
+          weights_fn=
+          lambda x: common_layers.weights_multi_problem_input(x, task.task_id))  # pylint: disable=cell-var-from-loop
+      task_loss_num_seq *= problem_hparams.loss_multiplier
+
+      task_loss_num_label, task_loss_den_label = target_modality.loss(
+          logits, feature,
+          weights_fn=
+          lambda x: common_layers.weights_multi_problem(x, task.task_id))  # pylint: disable=cell-var-from-loop
+      task_loss_num_label *= problem_hparams.loss_multiplier
+
+      if hparams.multiproblem_reweight_label_loss:
+        task_loss_num = (1 - hparams.multiproblem_label_weight) * \
+                        task_loss_num_seq
+        task_loss_num += hparams.multiproblem_label_weight * task_loss_num_label
+      elif hparams.multiproblem_class_loss_multiplier > 0:
+        task_loss_num = task_loss_num_seq
+        task_loss_num += hparams.multiproblem_class_loss_multiplier * \
+                         task_loss_num_label
+      else:
+        task_loss_num = task_loss_num_seq + task_loss_num_label
+
+      task_loss_den = task_loss_den_seq + task_loss_den_label
+
+      # Log the unscaled versions of the losses to tensorboard.
+      task_loss_val = (task_loss_num_seq + task_loss_num_label) / tf.maximum(
+          1.0, task_loss_den)
+      summaries.append([task.name+"_loss", task_loss_val])
+
+      task_loss_val_label = task_loss_num_label / tf.maximum(
+          1.0, task_loss_den_label)
+      summaries.append([task.name+"_only_label_loss", task_loss_val_label])
+
+      loss_num += task_loss_num
+      loss_den += task_loss_den
+
+    else:
+      raise ValueError("Non-classification secondary tasks are not supported.")
+
+  return loss_num, loss_den, summaries

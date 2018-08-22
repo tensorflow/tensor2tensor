@@ -1956,6 +1956,31 @@ def weights_multi_problem(labels, taskid=-1):
   return tf.to_float(tf.not_equal(past_taskid * non_taskid, 0))
 
 
+def weights_multi_problem_all(labels, taskid=-1):
+  """Assign weight 1.0 to only examples from the given task."""
+  weights = tf.to_float(tf.not_equal(labels, 0))
+  if taskid < 0:
+    raise ValueError("Task ID must be non-negative.")
+
+  past_taskid = tf.cumsum(tf.to_float(tf.equal(labels, taskid)), axis=1)
+  # Additionally zero out the task id location
+  past_taskid *= tf.to_float(tf.not_equal(labels, taskid))
+  non_taskid = tf.to_float(labels)
+  example_mask = tf.to_float(tf.not_equal(past_taskid * non_taskid, 0))
+  example_mask = tf.reduce_sum(example_mask, axis=1)
+  example_mask = tf.to_float(
+      tf.greater(example_mask, tf.zeros_like(example_mask)))
+
+  return weights * tf.expand_dims(example_mask, axis=-1)
+
+
+def weights_multi_problem_input(labels, taskid=-1):
+  """Assign weight 1.0 to only the inputs for the given task."""
+  weights_all_tokens = weights_multi_problem_all(labels, taskid)
+  weights_target = weights_multi_problem(labels, taskid)
+  return weights_all_tokens - weights_target
+
+
 def weights_all(labels):
   """Assign weight 1.0 to all labels."""
   return tf.ones_like(labels, dtype=tf.float32)
