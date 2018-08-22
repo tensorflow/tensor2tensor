@@ -29,6 +29,7 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers.vq_discrete import DiscreteBottleneck
 
 import tensorflow as tf
 
@@ -379,6 +380,27 @@ def _gates_to_load(gates):
   return tf.reduce_sum(tf.to_float(gates > 0), 0)
 
 
+def update_hparams_for_vq_gating(hparams):
+  """VQ Gating hparams."""
+  hparams.add_hparam("z_size", 14)
+  hparams.add_hparam("noise_dev", 0.5)
+  # Bottleneck kinds supported: dense, vae, dvq.
+  hparams.add_hparam("bottleneck_kind", "dvq")
+  hparams.add_hparam("num_blocks", 1)
+  hparams.add_hparam("num_residuals", 1)
+  # Reshape method for DVQ: slice, project
+  hparams.add_hparam("beta", 0.25)
+  hparams.add_hparam("epsilon", 1e-5)
+  hparams.add_hparam("decay", 0.999)
+  hparams.add_hparam("ema", True)
+  hparams.add_hparam("random_top_k", 1)
+  hparams.add_hparam("soft_em", False)
+  hparams.add_hparam("num_samples", 10)
+  hparams.add_hparam("gating_type", "vq")
+  hparams.add_hparam("use_scales", int(True))
+  hparams.add_hparam("residual_centroids", int(False))
+
+
 def _my_top_k(x, k):
   """GPU-compatible version of top-k that works for very small constant k.
 
@@ -409,6 +431,81 @@ def _my_top_k(x, k):
     if i + 1 < k:
       x += tf.one_hot(argmax, depth, -1e9)
   return tf.stack(values, axis=1), tf.to_int32(tf.stack(indices, axis=1))
+
+
+def vq_gating(x,
+              num_experts,
+              k=2,
+              hparams=None,
+              name="vq_gating"):
+  """VQ gating.
+
+  Args:
+    x: input Tensor with shape [batch_size, input_size]
+    num_experts: an integer
+    k: an integer - number of experts per example
+    hparams: optional hparams
+    name: an optional string
+
+  Returns:
+    gates: a Tensor with shape [batch_size, num_experts]
+    load: a Tensor with shape [num_experts]
+  """
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    if hparams.use_scales:
+      scales = tf.get_variable(
+          "scales", [num_experts],
+          tf.float32,
+          initializer=tf.ones_initializer())
+      scales = tf.nn.softmax(scales)
+      hparams.scales = scales
+    input_size = x.get_shape().as_list()[-1]
+    batch_size = common_layers.shape_list(x)[0]
+
+    if k > 1:
+      # first project into two dense layers, chop and discretize, and gate
+      # TODO(avaswani): Maybe scale the embeddings flowing out of the experts.
+      # We might want to do this to match the computation being done by topk
+      x = tf.layers.dense(x, input_size * k)
+      # x goes from [batch_size, input_size*k] to [batch_size*k, input_size]
+      x = tf.reshape(x, [batch_size * k, input_size])
+    inputs = tf.expand_dims(x, axis=1)
+    inputs = tf.expand_dims(inputs, axis=1)
+    # VQ hparams
+    hparams.z_size = int(math.log(num_experts, 2))
+    hparams.hidden_size = input_size
+    hparams.top_k = k
+    bneck = DiscreteBottleneck(hparams)
+    d = bneck.discrete_bottleneck(inputs)
+    centroids = None
+    exp_discrete = d["discrete"]
+    embed_lookup = d["embed"]
+    extra_loss = d["loss"]
+    if hparams.residual_centroids:
+      centroids = embed_lookup(exp_discrete)  # gives the centroids
+    top_k_indices = tf.squeeze(exp_discrete, axis=1)
+    tf.summary.histogram("discrete_counts", top_k_indices)
+    # if k > 1, then we need to reshape top_k_indices from [batch_size*k, 1]
+    # to [batch_size, k]
+    if k > 1:
+      top_k_indices = tf.reshape(top_k_indices, [batch_size, k])
+    # get the top k gates
+    top_k_gates = tf.ones([batch_size, k])
+    # This will be a `Tensor` of shape `[batch_size, n]`, with zeros in the
+    # positions corresponding to all but the top k experts per example.
+    gates = _rowwise_unsorted_segment_sum(top_k_gates, top_k_indices,
+                                          num_experts)
+    # Compute count per expert from the gates.
+    # gates has shape [batch_size, num_experts]
+    # count per expert has shape [num_experts, 1]
+    count_per_expert = tf.reduce_sum(gates, axis=0)
+    if hparams.use_scales:
+      scale_loss = tf.reduce_mean(tf.to_float(count_per_expert) * scales)
+      extra_loss += scale_loss
+    if common_layers.should_generate_summaries():
+      tf.summary.histogram("vq_loss", extra_loss)
+      tf.summary.historgram("scale_loss", scale_loss)
+    return gates, extra_loss, centroids
 
 
 def noisy_top_k_gating(x,
@@ -459,6 +556,7 @@ def noisy_top_k_gating(x,
     else:
       logits = clean_logits
     top_logits, top_indices = _my_top_k(logits, min(k + 1, num_experts))
+    # top k logits has shape [batch, k]
     top_k_logits = tf.slice(top_logits, [0, 0], [-1, k])
     top_k_indices = tf.slice(top_indices, [0, 0], [-1, k])
     top_k_gates = tf.nn.softmax(top_k_logits)
@@ -963,8 +1061,9 @@ def local_moe(x,
               train,
               expert_fn,
               num_experts,
-              k=2,
+              k=1,
               loss_coef=1e-2,
+              hparams=None,
               pass_x=True,
               pass_gates=False,
               additional_dispatch_params=None,
@@ -978,6 +1077,7 @@ def local_moe(x,
     num_experts: an integer - number of experts
     k: an integer - how many experts to use for each batch element
     loss_coef: a scalar - multiplier on load-balancing losses
+    hparams: optional hparams for vq gating
     pass_x: a boolean. If true, x will also be dispatched to the experts.
     pass_gates: a boolean. If true, gates will be passed to experts. Might be
       necessary when dealing with sparse encoder-encoder decoder attention
@@ -996,20 +1096,28 @@ def local_moe(x,
 
   with tf.variable_scope(name, default_name="local_moe"):
     x_flat = flatten_all_but_last(x)
-
-    # The gates indicate which batch elements go to which tensors.
-    # load is a measure of approximately how many examples go to each expert
-    gates, load = noisy_top_k_gating(
-        x_flat,
-        num_experts,
-        train,
-        k,
-        initializer=tf.zeros_initializer(),
-        noisy_gating=True,
-        noise_epsilon=1e-2)
-    # This magic object helps us shuffle data between datashards and experts.
+    if hparams.gating_type == "topk":
+      tf.logging.info("Using noisy top_k with k = {}".format(k))
+      # The gates indicate which batch elements go to which tensors.
+      # load is a measure of approximately how many examples go to each expert
+      gates, load = noisy_top_k_gating(
+          x_flat,
+          num_experts,
+          train,
+          k,
+          initializer=tf.zeros_initializer(),
+          noisy_gating=True,
+          noise_epsilon=1e-2)
+      importance = tf.reduce_sum(gates, 0)
+      loss = loss_coef * (cv_squared(importance) + cv_squared(load))
+    else:
+      assert hparams.gating_type == "vq"
+      tf.logging.info("Using VQ gating")
+      gates, loss, centroids = vq_gating(
+          x_flat, num_experts, k, hparams=hparams)
+    loss *= loss_coef
+    # Shuffle data between datashards and experts.
     dispatcher = SparseDispatcher(num_experts, gates)
-
     # Set up expert_fn arguments
     expert_kwargs = {}
     if pass_x:
@@ -1024,10 +1132,10 @@ def local_moe(x,
     expert_outputs = ep(expert_fn, **expert_kwargs)
 
     y_flat = dispatcher.combine(expert_outputs)
+    if centroids is not None:
+      centroids = tf.squeeze(centroids, axis=[1, 2])
+      y_flat += centroids
     y = common_layers.reshape_like(y_flat, x)
-
-    importance = tf.reduce_sum(gates, 0)
-    loss = loss_coef * (cv_squared(importance) + cv_squared(load))
     return y, loss
 
 
