@@ -68,37 +68,74 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
       res = session.run(a)
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
-  @parameterized.parameters(
-      (1, 1, 8, 4, 1, 2),
-      (4, 1, 8, 4, 1, 4),
-      (3, 2, 8, 4, 3, 4),
+  @parameterized.named_parameters(
+      ("", 1, 1, 8, 4, 1, 2),
+      ("dynamic_batch", None, 1, 8, 4, 1, 2),
+      ("batches", 4, 3, 8, 4, 1, 2),
+      ("depth_v", 1, 1, 8, 4, 3, 2),
+      ("block_length", 1, 1, 8, 4, 1, 4),
+  )
+  def testMaskedWithinBlockLocalAttention1D(self, batch, heads, length,
+                                            depth_k, depth_v, block_length):
+    if batch is None:
+      batch = tf.random_uniform([], minval=0, maxval=5, dtype=tf.int32)
+    q = tf.random_normal([batch, heads, length, depth_k])
+    k = tf.random_normal([batch, heads, length, depth_k])
+    v = tf.random_normal([batch, heads, length, depth_v])
+    output = common_attention.masked_within_block_local_attention_1d(
+        q, k, v, block_length=block_length)
+    with self.test_session() as session:
+      if isinstance(batch, tf.Tensor):
+        batch, res = session.run([batch, output])
+      else:
+        res = session.run(output)
+
+    self.assertEqual(res.shape, (batch, heads, length, depth_v))
+
+  @parameterized.named_parameters(
+      ("", 1, 1, 8, 4, 1, 2),
+      ("dynamic_batch", None, 1, 8, 4, 1, 2),
+      ("batches", 4, 3, 8, 4, 1, 2),
+      ("depth_v", 1, 1, 8, 4, 3, 2),
+      ("block_length", 1, 1, 8, 4, 1, 4),
   )
   def testMaskedLocalAttention1D(self, batch, heads, length, depth_k, depth_v,
                                  block_length):
+    if batch is None:
+      batch = tf.random_uniform([], minval=0, maxval=5, dtype=tf.int32)
     q = tf.random_normal([batch, heads, length, depth_k])
     k = tf.random_normal([batch, heads, length, depth_k])
     v = tf.random_normal([batch, heads, length, depth_v])
     output = common_attention.masked_local_attention_1d(
         q, k, v, block_length=block_length)
     with self.test_session() as session:
-      res = session.run(output)
+      if isinstance(batch, tf.Tensor):
+        batch, res = session.run([batch, output])
+      else:
+        res = session.run(output)
 
     self.assertEqual(res.shape, (batch, heads, length, depth_v))
 
   @parameterized.named_parameters(
       ("matching_block_length", 3, 4, 25, 16, 16, 5),
       ("unmatching_block_length", 3, 4, 25, 16, 16, 4),
+      ("dynamic_batch", None, 4, 25, 16, 16, 5),
       ("different_depth_v", 3, 4, 25, 16, 17, 5),
   )
   def testLocalUnmaskedAttention1D(self, batch, heads, length,
                                    depth_k, depth_v, block_length):
+    if batch is None:
+      batch = tf.random_uniform([], minval=0, maxval=5, dtype=tf.int32)
     q = tf.random_normal([batch, heads, length, depth_k])
     k = tf.random_normal([batch, heads, length, depth_k])
     v = tf.random_normal([batch, heads, length, depth_v])
     output = common_attention.local_attention_1d(
         q, k, v, block_length=block_length, filter_width=3)
     with self.test_session() as session:
-      res = session.run(output)
+      if isinstance(batch, tf.Tensor):
+        batch, res = session.run([batch, output])
+      else:
+        res = session.run(output)
 
     self.assertEqual(res.shape, (batch, heads, length, depth_v))
 
