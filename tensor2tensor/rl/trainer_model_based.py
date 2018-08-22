@@ -517,7 +517,7 @@ def rl_modelrl_base():
       # So to use N frames set steps = N / (epochs * (1 - 1/11)).
       # We set it to use 100k frames for training.
       true_env_generator_num_steps=int(100000 / (6 * (1.0 - 1.0/11.0))),
-      generative_model="next_frame_basic",
+      generative_model="next_frame_basic_deterministic",
       generative_model_params="next_frame_pixel_noise",
       ppo_params="ppo_pong_base",
       autoencoder_train_steps=0,

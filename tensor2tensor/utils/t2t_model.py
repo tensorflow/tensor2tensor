@@ -153,6 +153,10 @@ class T2TModel(base.Layer):
     return self._hparams
 
   @property
+  def is_training(self):
+    return self._hparams.mode == tf.estimator.ModeKeys.TRAIN
+
+  @property
   def has_input(self):
     if self._problem_hparams:
       return "inputs" in self._problem_hparams.input_modality

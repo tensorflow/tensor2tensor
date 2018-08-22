@@ -28,8 +28,8 @@ from functools import partial
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
-from tensor2tensor.models.research import next_frame
-from tensor2tensor.models.research import next_frame_params  # pylint: disable=unused-import
+from tensor2tensor.models.research import next_frame_basic_stochastic
+from tensor2tensor.models.research import next_frame_sv2p_params  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
@@ -38,17 +38,11 @@ tfcl = tf.contrib.layers
 
 
 @registry.register_model
-class NextFrameStochastic(next_frame.NextFrameBasic):
+class NextFrameSv2p(next_frame_basic_stochastic.NextFrameBasicStochastic):
   """Stochastic Variational Video Prediction."""
 
-  @property
-  def is_training(self):
-    return self.hparams.mode == tf.estimator.ModeKeys.TRAIN
-
   def tinyify(self, array):
-    if self.hparams.tiny_mode:
-      return [1 for _ in array]
-    return array
+    return common_video.tinyify(array, self.hparams.tiny_mode)
 
   def visualize_predictions(self, real_frames, gen_frames):
     def concat_on_y_axis(x):
@@ -62,56 +56,6 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
     frames_pd = concat_on_y_axis(frames_pd)
     side_by_side_video = tf.concat([frames_gd, frames_pd], axis=2)
     tf.summary.image("full_video", side_by_side_video)
-
-  def get_gaussian_latent(self, latent_mean, latent_std):
-    latent = tf.random_normal(tf.shape(latent_mean), 0, 1, dtype=tf.float32)
-    latent = latent_mean + tf.exp(latent_std / 2.0) * latent
-    return latent
-
-  def get_iteration_num(self):
-    step_num = tf.train.get_global_step()
-    # TODO(lukaszkaiser): what should it be if it"s undefined?
-    if step_num is None:
-      step_num = 1000000
-    return step_num
-
-  def get_beta(self):
-    """Get KL multiplier (beta) based on the schedule."""
-    step_num = self.get_iteration_num()
-    schedule = self.hparams.latent_loss_multiplier_schedule
-    second_stage = (self.hparams.num_iterations_1st_stage +
-                    self.hparams.num_iterations_2nd_stage)
-    # TODO(mechcoder): Add log_annealing schedule.
-    if schedule == "constant":
-      beta = tf.cond(tf.greater(step_num, second_stage),
-                     lambda: self.hparams.latent_loss_multiplier,
-                     lambda: 0.0)
-    elif schedule == "linear_anneal":
-      # Linearly anneal beta from 0.0 to self.hparams.latent_loss_multiplier.
-      # between self.hparams.num_iterations_2nd_stage to anneal_end.
-      # beta = latent_loss * (1 - (global_step - 2nd_stage) / (anneal_end - 2nd_stage))  # pylint:disable=line-too-long
-      anneal_end = self.hparams.anneal_end
-      latent_multiplier = self.hparams.latent_loss_multiplier
-      if anneal_end < second_stage:
-        raise ValueError("Expected hparams.num_iterations_2nd_stage < "
-                         "hparams.anneal_end %d, got %d." %
-                         (second_stage, anneal_end))
-
-      def anneal_loss(step_num):
-        step_num = tf.cast(step_num, dtype=tf.float32)
-        fraction = (float(anneal_end) - step_num) / (anneal_end - second_stage)
-        return self.hparams.latent_loss_multiplier * (1 - fraction)
-
-      beta = tf.case(
-          pred_fn_pairs={
-              tf.less(step_num, second_stage): lambda: 0.0,
-              tf.greater(step_num, anneal_end): lambda: latent_multiplier},
-          default=lambda: anneal_loss(step_num))
-    else:
-      raise ValueError("Unknown beta schedule.")
-
-    tf.summary.scalar("beta", beta)
-    return beta
 
   def get_scheduled_sample_func(self, batch_size):
     """Creates a function for scheduled sampling based on given hparams."""
@@ -276,72 +220,6 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
     hidden5 = tfcl.layer_norm(hidden5, scope="layer_norm6")
     hidden5 = tile_and_concat(hidden5, latent, concat_latent=concat_latent)
     return hidden5, (enc0, enc1)
-
-  def construct_latent_tower(self, images):
-    """Builds convolutional latent tower for stochastic model.
-
-    At training time this tower generates a latent distribution (mean and std)
-    conditioned on the entire video. This latent variable will be fed to the
-    main tower as an extra variable to be used for future frames prediction.
-    At inference time, the tower is disabled and only returns latents sampled
-    from N(0,1).
-    If the multi_latent flag is on, a different latent for every timestep would
-    be generated.
-
-    Args:
-      images: tensor of ground truth image sequences
-    Returns:
-      latent_mean: predicted latent mean
-      latent_std: predicted latent standard deviation
-      latent_loss: loss of the latent twoer
-      samples: random samples sampled from standard guassian
-    """
-    conv_size = self.tinyify([32, 64, 64])
-    with tf.variable_scope("latent", reuse=tf.AUTO_REUSE):
-      # this allows more predicted frames at inference time
-      latent_num_frames = self.hparams.latent_num_frames
-      if latent_num_frames == 0:  # use all frames by default.
-        latent_num_frames = (self.hparams.video_num_input_frames +
-                             self.hparams.video_num_target_frames)
-      tf.logging.info("Creating latent tower with %d frames."%latent_num_frames)
-      latent_images = tf.unstack(images[:latent_num_frames], axis=0)
-      images = tf.concat(latent_images, 3)
-
-      x = images
-      x = common_layers.make_even_size(x)
-      x = tfl.conv2d(x, conv_size[0], [3, 3], strides=(2, 2),
-                     padding="SAME", activation=tf.nn.relu, name="latent_conv1")
-      x = tfcl.batch_norm(x, updates_collections=None,
-                          is_training=self.is_training, scope="latent_bn1")
-      x = common_layers.make_even_size(x)
-      x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
-                     padding="SAME", activation=tf.nn.relu, name="latent_conv2")
-      x = tfcl.batch_norm(x, updates_collections=None,
-                          is_training=self.is_training, scope="latent_bn2")
-      x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(1, 1),
-                     padding="SAME", activation=tf.nn.relu, name="latent_conv3")
-      x = tfcl.batch_norm(x, updates_collections=None,
-                          is_training=self.is_training, scope="latent_bn3")
-
-      nc = self.hparams.latent_channels
-      mean = tfl.conv2d(x, nc, [3, 3], strides=(2, 2),
-                        padding="SAME", activation=None, name="latent_mean")
-      std = tfl.conv2d(x, nc, [3, 3], strides=(2, 2),
-                       padding="SAME", activation=tf.nn.relu, name="latent_std")
-      std += self.hparams.latent_std_min
-
-      # No latent tower at inference time, just standard gaussian.
-      if not self.is_training:
-        return tf.zeros_like(mean), tf.zeros_like(std)
-
-      # No latent in the first phase
-      iter_num = self.get_iteration_num()
-      ret_mean, ret_std = tf.cond(
-          tf.less(iter_num, self.hparams.num_iterations_1st_stage),
-          lambda: (tf.zeros_like(mean), tf.zeros_like(std)),
-          lambda: (mean, std))
-
-      return ret_mean, ret_std
 
   def reward_prediction(self, input_image, input_reward, action, latent):
     """Builds a reward prediction network."""
@@ -547,8 +425,8 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
     # Latent tower
     latent = None
     if self.hparams.stochastic_model:
-      latent_mean, latent_std = self.construct_latent_tower(images)
-      latent = self.get_gaussian_latent(latent_mean, latent_std)
+      latent_mean, latent_std = self.construct_latent_tower(images, time_axis=0)
+      latent = common_video.get_gaussian_tensor(latent_mean, latent_std)
 
     # HACK: Do first step outside to initialize all the variables
     lstm_states = [None] * 7
@@ -653,7 +531,7 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
 
 
 @registry.register_model
-class NextFrameStochasticTwoFrames(NextFrameStochastic):
+class NextFrameSv2pTwoFrames(NextFrameSv2p):
   """Stochastic next-frame model with 2 frames posterior."""
 
   def construct_model(self, images, actions, rewards):
@@ -687,9 +565,10 @@ class NextFrameStochasticTwoFrames(NextFrameStochastic):
 
       # Latent
       # TODO(mbz): should we use input_image iunstead of image?
-      latent_images = [image, images[timestep+1]]
-      latent_mean, latent_std = self.construct_latent_tower(latent_images)
-      latent = self.get_gaussian_latent(latent_mean, latent_std)
+      latent_images = tf.stack([image, images[timestep+1]], axis=0)
+      latent_mean, latent_std = self.construct_latent_tower(
+          latent_images, time_axis=0)
+      latent = common_video.get_gaussian_tensor(latent_mean, latent_std)
       latent_means.append(latent_mean)
       latent_stds.append(latent_std)
 

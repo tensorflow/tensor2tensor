@@ -46,7 +46,8 @@ from tensor2tensor.models.research import cycle_gan
 from tensor2tensor.models.research import gene_expression
 from tensor2tensor.models.research import lm_experiments
 from tensor2tensor.models.research import multimodel
-from tensor2tensor.models.research import next_frame
+from tensor2tensor.models.research import next_frame_basic_deterministic
+from tensor2tensor.models.research import next_frame_basic_stochastic
 from tensor2tensor.models.research import next_frame_emily
 from tensor2tensor.models.research import next_frame_savp
 from tensor2tensor.models.research import next_frame_sv2p

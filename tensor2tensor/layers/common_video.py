@@ -21,6 +21,7 @@ from tensor2tensor.layers import common_layers
 import tensorflow as tf
 
 tfl = tf.layers
+tfcl = tf.contrib.layers
 
 
 def swap_time_and_batch_axes(inputs):
@@ -268,3 +269,109 @@ def tile_and_concat(image, latent, concat_latent=True):
   return tf.concat([image, latent], axis=-1)
 
 
+
+
+def tinyify(array, tiny_mode):
+  if tiny_mode:
+    return [1 for _ in array]
+  return array
+
+
+def get_gaussian_tensor(mean, log_var):
+  z = tf.random_normal(tf.shape(mean), 0, 1, dtype=tf.float32)
+  z = mean + tf.exp(log_var / 2.0) * z
+  return z
+
+
+def conv_latent_tower(images, time_axis, latent_channels=1, min_logvar=-5,
+                      is_training=False, random_latent=False, tiny_mode=False):
+  """Builds convolutional latent tower for stochastic model.
+
+  At training time this tower generates a latent distribution (mean and std)
+  conditioned on the entire video. This latent variable will be fed to the
+  main tower as an extra variable to be used for future frames prediction.
+  At inference time, the tower is disabled and only returns latents sampled
+  from N(0,1).
+  If the multi_latent flag is on, a different latent for every timestep would
+  be generated.
+
+  Args:
+    images: tensor of ground truth image sequences
+    time_axis: the time axis  in images tensor
+    latent_channels: number of latent channels
+    min_logvar: minimum value for log_var
+    is_training: whether or not it is training mode
+    random_latent: whether or not generate random latents
+    tiny_mode: whether or not it is tiny_mode
+  Returns:
+    latent_mean: predicted latent mean
+    latent_logvar: predicted latent log variance
+  """
+  conv_size = tinyify([32, 64, 64], tiny_mode)
+  with tf.variable_scope("latent", reuse=tf.AUTO_REUSE):
+    images = tf.to_float(images)
+    images = tf.unstack(images, axis=time_axis)
+    images = tf.concat(images, axis=3)
+
+    x = images
+    x = common_layers.make_even_size(x)
+    x = tfl.conv2d(x, conv_size[0], [3, 3], strides=(2, 2),
+                   padding="SAME", activation=tf.nn.relu, name="latent_conv1")
+    x = tfcl.batch_norm(x, updates_collections=None,
+                        is_training=is_training, scope="latent_bn1")
+    x = common_layers.make_even_size(x)
+    x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
+                   padding="SAME", activation=tf.nn.relu, name="latent_conv2")
+    x = tfcl.batch_norm(x, updates_collections=None,
+                        is_training=is_training, scope="latent_bn2")
+    x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(1, 1),
+                   padding="SAME", activation=tf.nn.relu, name="latent_conv3")
+    x = tfcl.batch_norm(x, updates_collections=None,
+                        is_training=is_training, scope="latent_bn3")
+
+    nc = latent_channels
+    mean = tfl.conv2d(x, nc, [3, 3], strides=(2, 2),
+                      padding="SAME", activation=None, name="latent_mean")
+    logv = tfl.conv2d(x, nc, [3, 3], strides=(2, 2),
+                      padding="SAME", activation=tf.nn.relu, name="latent_std")
+    logvar = logv + min_logvar
+
+    # No latent tower at inference time, just standard gaussian.
+    if not is_training:
+      return tf.zeros_like(mean), tf.zeros_like(logvar)
+
+    # No latent in the first phase
+    ret_mean, ret_logvar = tf.cond(
+        random_latent,
+        lambda: (tf.zeros_like(mean), tf.zeros_like(logvar)),
+        lambda: (mean, logvar))
+
+    return ret_mean, ret_logvar
+
+
+def beta_schedule(schedule, global_step, final_beta, decay_start, decay_end):
+  """Get KL multiplier (beta) based on the schedule."""
+  # TODO(mechcoder): Add log_annealing schedule.
+  if schedule == "constant":
+    beta = tf.cond(
+        tf.less(global_step, decay_start), lambda: 0.0, lambda: final_beta)
+  elif schedule == "linear_anneal":
+    # Linearly anneal beta from 0.0 to self.hparams.latent_loss_multiplier.
+    # between self.hparams.num_iterations_2nd_stage to anneal_end.
+    # beta = latent_loss * (1 - (global_step - 2nd_stage) / (anneal_end - 2nd_stage))  # pylint:disable=line-too-long
+    if decay_start > decay_end:
+      raise ValueError("decay_end is smaller than decay_end.")
+
+    def anneal_loss(step_num):
+      step_num = tf.cast(step_num, dtype=tf.float32)
+      fraction = (float(decay_end) - step_num) / (decay_end - decay_start)
+      return final_beta * (1 - fraction)
+
+    beta = tf.case(
+        pred_fn_pairs={
+            tf.less(global_step, decay_start): lambda: 0.0,
+            tf.greater(global_step, decay_end): lambda: final_beta},
+        default=lambda: anneal_loss(global_step))
+  else:
+    raise ValueError("Unknown beta schedule.")
+  return beta
