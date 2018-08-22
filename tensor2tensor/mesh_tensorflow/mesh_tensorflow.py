@@ -1298,6 +1298,20 @@ def exp(x, name="exp"):
                grad_function=lambda op, dy: [dy * op.outputs[0]])
 
 
+def sigmoid(x, name="sigmoid"):
+  def grad_function(op, dy):
+    y = op.outputs[0]
+    return [y * (1.0 - y) * dy]
+  return cwise(tf.sigmoid, [x], name=name, grad_function=grad_function)
+
+
+def tanh(x, name="tanh"):
+  def grad_function(op, dy):
+    y = op.outputs[0]
+    return [(1.0 - square(y)) * dy]
+  return cwise(tf.tanh, [x], name=name, grad_function=grad_function)
+
+
 def pow(x, y):  # pylint: disable=redefined-builtin
   return exp(log(x) * y)
 
@@ -1482,16 +1496,6 @@ def binary_op_with_broadcasting(
       output_dtype).outputs[0]
 
 
-def maximum(x1, x2, output_shape=None):
-  return binary_op_with_broadcasting(
-      tf.maximum, x1, x2, output_shape=output_shape)
-
-
-def minimum(x1, x2, output_shape=None):
-  return binary_op_with_broadcasting(
-      tf.minimum, x1, x2, output_shape=output_shape)
-
-
 def less(x1, x2, output_shape=None):
   return binary_op_with_broadcasting(
       tf.less, x1, x2, output_dtype=tf.bool, output_shape=output_shape)
@@ -1557,6 +1561,59 @@ class AddOperation(BinaryOpWithBroadcasting):
     dy = grad_ys[0]
     return [reduce_sum(dy, output_shape=self.inputs[0].shape),
             reduce_sum(dy, output_shape=self.inputs[1].shape)]
+
+
+class MinMaxOperation(BinaryOpWithBroadcasting):
+  """Binary minimum/maximum with broadcasting."""
+
+  def __init__(self, tf_fn, x1, x2, output_shape, name=None):
+    super(MinMaxOperation, self).__init__(
+        tf_fn, x1, x2, output_shape, x1.dtype, name=name or "add")
+    if x1.dtype != x2.dtype:
+      raise ValueError("Dtypes must be equal.")
+
+  def gradient(self, grad_ys):
+    dy = grad_ys[0]
+    return [dy * cast(equal(self.inputs[0], self.outputs[0]), dy.dtype),
+            dy * cast(equal(self.inputs[1], self.outputs[0]), dy.dtype)]
+
+
+def minimum(x1, x2, output_shape=None, name=None):
+  """Binary minimum with broadcsting.
+
+  Args:
+    x1: a Tensor
+    x2: a Tensor
+    output_shape: an optional Shape
+    name: an optional string
+  Returns:
+    a Tensor
+  """
+  output_shape = convert_to_shape(output_shape)
+  with tf.name_scope(name, default_name="minimum"):
+    x1, x2 = binary_arguments_to_tensors(x1, x2)
+    return MinMaxOperation(
+        tf.minimum, x1, x2, output_shape=_infer_binary_broadcast_shape(
+            x1.shape, x2.shape, output_shape)).outputs[0]
+
+
+def maximum(x1, x2, output_shape=None, name=None):
+  """Binary maximum with broadcsting.
+
+  Args:
+    x1: a Tensor
+    x2: a Tensor
+    output_shape: an optional Shape
+    name: an optional string
+  Returns:
+    a Tensor
+  """
+  output_shape = convert_to_shape(output_shape)
+  with tf.name_scope(name, default_name="maximum"):
+    x1, x2 = binary_arguments_to_tensors(x1, x2)
+    return MinMaxOperation(
+        tf.maximum, x1, x2, output_shape=_infer_binary_broadcast_shape(
+            x1.shape, x2.shape, output_shape)).outputs[0]
 
 
 class BroadcastOperation(Operation):
