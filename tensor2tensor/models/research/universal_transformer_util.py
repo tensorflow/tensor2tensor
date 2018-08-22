@@ -1642,7 +1642,7 @@ def universal_transformer_act_random(x, hparams, ffn_unit, attention_unit):
 
     # update running part in the weighted state and keep the rest
     new_state = ((transformed_state * update_weights) +
-                 (previous_state * 1 - update_weights))
+                 (previous_state * (1 - update_weights)))
 
     # remind TensorFlow of everything's shape
     transformed_state.set_shape(state_shape)
