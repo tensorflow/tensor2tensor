@@ -12,7 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Mnist using mesh-tensrflow and tf.Estimator."""
+"""Mnist using mesh-tensorflow and tf.Estimator.
+
+This is an illustration of mesh-tensorflow, not a good model.
+"""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -40,7 +43,7 @@ tf.flags.DEFINE_integer("eval_steps", 0,
                         "Total number of evaluation steps. If `0`, evaluation "
                         "after training is skipped.")
 tf.flags.DEFINE_string("mesh_shape", "rows:2;cols:2", "mesh shape")
-tf.flags.DEFINE_string("layout", "batch:rows;hidden1:cols",
+tf.flags.DEFINE_string("layout", "batch:rows;hidden1:cols,filters1:cols",
                        "layout rules")
 
 FLAGS = tf.flags.FLAGS
@@ -62,11 +65,31 @@ def mnist_model(image, labels, mesh):
   rows_dim = mtf.Dimension("rows", 28)
   cols_dim = mtf.Dimension("cols", 28)
   classes_dim = mtf.Dimension("classes", 10)
-  hidden_dim1 = mtf.Dimension("hidden1", FLAGS.hidden_size)
-  hidden_dim2 = mtf.Dimension("hidden2", FLAGS.hidden_size)
+  one_channel_dim = mtf.Dimension("one_channel", 1)
 
   x = mtf.import_tf_tensor(mesh, tf.reshape(image, [-1, 28, 28]),
                            mtf.Shape([batch_dim, rows_dim, cols_dim]))
+  x = mtf.reshape(x, [batch_dim, rows_dim, cols_dim, one_channel_dim])
+
+  # add some convolutional layers to demonstrate that convolution works.
+  # TODO(noam): get spatially-partitioned convolution working.
+  fh_dim = mtf.Dimension("fh", 3)
+  fw_dim = mtf.Dimension("fw", 3)
+  filters1_dim = mtf.Dimension("filters1", 32)
+  filters2_dim = mtf.Dimension("filters2", 32)
+  kernel1 = mtf.get_variable(
+      mesh, "kernel1", [fh_dim, fw_dim, one_channel_dim, filters1_dim])
+  kernel2 = mtf.get_variable(
+      mesh, "kernel2", [fh_dim, fw_dim, filters1_dim, filters2_dim])
+
+  f1 = mtf.relu(mtf.conv2d(x, kernel1))
+  f2 = mtf.relu(mtf.conv2d(f1, kernel2))
+  x = mtf.reduce_mean(f2, reduced_dim=filters2_dim)
+
+  # add some fully-connected dense layers.
+  hidden_dim1 = mtf.Dimension("hidden1", FLAGS.hidden_size)
+  hidden_dim2 = mtf.Dimension("hidden2", FLAGS.hidden_size)
+
   h1 = mtf_layers.dense(
       x, hidden_dim1, reduced_dims=[rows_dim, cols_dim],
       activation=mtf.relu, name="hidden1")

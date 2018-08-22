@@ -193,6 +193,8 @@ class SimdMeshImpl(mtf.MeshImpl):
   def allconcat(self, x, mesh_axis, concat_axis, stack=False):
     """Grouped allconcat (like MPI allgather followed by concat).
 
+    TODO(noam): inefficient - replace with a XLA allconcat when available
+
     Args:
       x: a LaidOutTensor
       mesh_axis: an integer - the mesh axis along which to group
@@ -234,6 +236,47 @@ class SimdMeshImpl(mtf.MeshImpl):
     x = x.to_laid_out_tensor()
     x = self.allconcat(x, mesh_axis, concat_axis)
     x = self.allsplit(x, mesh_axis, split_axis)
+    return x
+
+  def receive(self, x, mesh_axis, source_pcoord):
+    """Collective receive in groups.
+
+    TODO(noam): inefficient - replace with XLA collective-receive when available
+
+    Each group contains the processors that differ only in mesh_axis.
+
+    ```python
+    group_size = self.shape[mesh_axis].size
+    ```
+
+    Args:
+      x: a LaidOutTensor
+      mesh_axis: an integer
+      source_pcoord: a list of optional integers. Each element is either None
+        or an integer in [0, group_size). If source_pcoord[k] is None, then the
+        output for the k-th processor in each group is a zero tensor. If
+        source_pcoord[k] is not None, then the output for the k-th processor in
+        each group is equal to the input for the source_pcoord[k]-th processor
+        in that group.
+
+    Returns:
+      a LaidOutTensor
+    """
+    x = x.to_laid_out_tensor()
+    x = self.allconcat(x, mesh_axis, concat_axis=0)
+    pcoord = self.laid_out_pcoord(mesh_axis).one_slice
+    # allsplit will barf on Nones, so replace them with something legal.
+    # we will zero out below.
+    source_pcoord_no_nones = [
+        i if c is None else c for i, c in enumerate(source_pcoord)]
+    which = tf.gather(source_pcoord_no_nones, pcoord)
+    x = self.allsplit(
+        x, mesh_axis, split_axis=0, which=self.LaidOutTensor([which]))
+    if None in source_pcoord:
+      # zero out the outputs for which source_pcoord[pcoord]==None
+      source_pcoord_mask = [0.0 if c is None else 1.0 for c in source_pcoord]
+      gathered_mask = tf.gather(source_pcoord_mask, pcoord)
+      x = self.LaidOutTensor([x.one_slice * gathered_mask])
     return x
 
   def slice(self, tf_tensor, tensor_shape):

@@ -203,6 +203,43 @@ class PlacementMeshImpl(mtf.MeshImpl):
         functools.partial(
             alltoall_ring, split_axis=split_axis, concat_axis=concat_axis))
 
+  def receive(self, x, mesh_axis, source_pcoord):
+    """Collective receive in groups.
+
+    Each group contains the processors that differ only in mesh_axis.
+
+    ```python
+    group_size = self.shape[mesh_axis].size
+    ```
+
+    Args:
+      x: a LaidOutTensor
+      mesh_axis: an integer
+      source_pcoord: a list of optional integers. Each element is either None
+        or an integer in [0, group_size). If source_pcoord[k] is None, then the
+        output for the k-th processor in each group is a zero tensor. If
+        source_pcoord[k] is not None, then the output for the k-th processor in
+        each group is equal to the input for the source_pcoord[k]-th processor
+        in that group.
+
+    Returns:
+      a LaidOutTensor
+    """
+    x = x.to_laid_out_tensor()
+    shape = x.tensor_list[0].shape
+    dtype = x.tensor_list[0].dtype
+    def _collective_receive(tensor_list, device_list):
+      ret = []
+      for pcoord, device in enumerate(device_list):
+        with tf.device(device):
+          if source_pcoord[pcoord] is None:
+            ret.append(tf.zeros(shape, dtype))
+          else:
+            ret.append(tf.identity(tensor_list[source_pcoord[pcoord]]))
+      return ret
+    return self._collective_with_groups(
+        x, [mesh_axis], _collective_receive)
+
   def _collective_with_groups(self, x, mesh_axes, collective):
     """Grouped collective, (across the given dimensions).
 
