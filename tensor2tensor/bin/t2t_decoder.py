@@ -135,7 +135,11 @@ def score_file(filename):
     saver.restore(sess, ckpt)
     # Run on each line.
     results = []
-    for line in open(filename):
+    lines = []
+    with tf.gfile.Open(filename) as f:
+      text = f.read()
+      lines = [l.strip() for l in text.split("\n")]
+    for line in lines:
       tab_split = line.split("\t")
       if len(tab_split) > 2:
         raise ValueError("Each line must have at most one tab separator.")
@@ -173,7 +177,7 @@ def main(_):
     results = score_file(filename)
     if not FLAGS.decode_to_file:
       raise ValueError("To score a file, specify --decode_to_file for results.")
-    write_file = open(os.path.expanduser(FLAGS.decode_to_file), "w")
+    write_file = tf.gfile.Open(os.path.expanduser(FLAGS.decode_to_file), "w")
     for score in results:
       write_file.write("%.6f\n" % score)
     write_file.close()
