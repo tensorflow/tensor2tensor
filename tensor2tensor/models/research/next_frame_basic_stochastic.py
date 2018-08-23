@@ -37,8 +37,9 @@ class NextFrameBasicStochastic(
   def inject_latent(self, layer, features, filters):
     """Do nothing for deterministic model."""
     # Latent for stochastic model
-    full_video = tf.concat(
-        [features["inputs_raw"], features["targets_raw"]], axis=1)
+    input_frames = tf.to_float(features["inputs_raw"])
+    target_frames = tf.to_float(features["targets_raw"])
+    full_video = tf.concat([input_frames, target_frames], axis=1)
     latent_mean, latent_std = self.construct_latent_tower(
         full_video, time_axis=1)
     latent = common_video.get_gaussian_tensor(latent_mean, latent_std)
