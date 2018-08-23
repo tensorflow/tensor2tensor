@@ -549,8 +549,8 @@ def rl_modelrl_base():
 def rl_modelrl_base_stochastic():
   """Base setting with a stochastic next-frame model."""
   hparams = rl_modelrl_base()
-  hparams.generative_model = "next_frame_stochastic"
-  hparams.generative_model_params = "next_frame_stochastic_cutoff"
+  hparams.generative_model = "next_frame_basic_stochastic"
+  hparams.generative_model_params = "next_frame_basic_stochastic"
   return hparams
 
 
