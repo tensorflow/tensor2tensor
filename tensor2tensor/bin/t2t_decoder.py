@@ -134,11 +134,9 @@ def score_file(filename):
     ckpt = ckpts.model_checkpoint_path
     saver.restore(sess, ckpt)
     # Run on each line.
-    results = []
-    lines = []
     with tf.gfile.Open(filename) as f:
-      text = f.read()
-      lines = [l.strip() for l in text.split("\n")]
+      lines = f.readlines()
+    results = []
     for line in lines:
       tab_split = line.split("\t")
       if len(tab_split) > 2:
