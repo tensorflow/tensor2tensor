@@ -696,7 +696,7 @@ class MeshImpl(object):
     """
     raise NotImplementedError("Allreduce not implemented")
 
-  def allsplit(self, x, mesh_axis, split_axis):
+  def allsplit(self, x, mesh_axis, split_axis, which=None):
     """Inverse of allconcat - split each slice and keep only one piece of it.
 
     The number of ways to split is the number of processors in the group.
@@ -706,20 +706,24 @@ class MeshImpl(object):
       x: LaidOutTensor.
       mesh_axis: int, the mesh axis along which to split.
       split_axis: int, the Tensor axis along which to split.
+      which: an optional LaidOutTensor of integer scalars. Selects the slice to
+        to keep, instead of the coordinate.
 
     Returns:
       LaidOutTensor.
     """
+    if which is None:
+      which = self.laid_out_pcoord(mesh_axis)
     num_splits = self.shape[mesh_axis].size
-    def my_fn(x, coordinate):
+    def my_fn(x, which):
       slice_begin = [
-          dimsize // num_splits * coordinate if i == split_axis
+          dimsize // num_splits * which if i == split_axis
           else 0 for i, dimsize in enumerate(x.shape.as_list())]
       slice_size = [
           dimsize // num_splits if i == split_axis
           else dimsize for i, dimsize in enumerate(x.shape.as_list())]
       return tf.slice(x, slice_begin, slice_size)
-    return self.slicewise(my_fn, x, self.laid_out_pcoord(mesh_axis))
+    return self.slicewise(my_fn, x, which)
 
   def allconcat(self, x, mesh_axis, concat_axis):
     """Grouped allconcat (like MPI allgather followed by concat).
@@ -747,6 +751,51 @@ class MeshImpl(object):
       LaidOutTensor.
     """
     raise NotImplementedError("Alltoall not implemented")
+
+  def receive(self, x, mesh_axis, source_pcoord):
+    """Collective receive in groups.
+
+    Each group contains the processors that differ only in mesh_axis.
+
+    ```python
+    group_size = self.shape[mesh_axis].size
+    ```
+
+    Args:
+      x: a LaidOutTensor
+      mesh_axis: an integer
+      source_pcoord: a list of optional integers. Each element is either None
+        or an integer in [0, group_size). If source_pcoord[k] is None, then the
+        output for the k-th processor in each group is a zero tensor. If
+        source_pcoord[k] is not None, then the output for the k-th processor in
+        each group is equal to the input for the source_pcoord[k]-th processor
+        in that group.
+
+    Returns:
+      a LaidOutTensor
+    """
+    raise NotImplementedError("Alltoall not implemented")
+
+  def shift_by_n_processors(self, x, mesh_axis, offset, wrap):
+    """Receive the slice from processor pcoord - offset.
+
+    Args:
+      x: a LaidOutTensor
+      mesh_axis: an integer
+      offset: an integer
+      wrap: a boolean. If True, then wrap around. Otherwise, pad with zeros.
+    """
+    n = self.shape[mesh_axis].size
+    source_pcoord = []
+    for i in xrange(n):
+      c = i - offset
+      if c != c % n:
+        if wrap:
+          c = c % n
+        else:
+          c = None
+      source_pcoord.append(c)
+    return self.receive(x, mesh_axis, source_pcoord)
 
   def laid_out_pnum(self):
     """Returns a LaidOutTensor containing the processor number.
@@ -1249,6 +1298,20 @@ def exp(x, name="exp"):
                grad_function=lambda op, dy: [dy * op.outputs[0]])
 
 
+def sigmoid(x, name="sigmoid"):
+  def grad_function(op, dy):
+    y = op.outputs[0]
+    return [y * (1.0 - y) * dy]
+  return cwise(tf.sigmoid, [x], name=name, grad_function=grad_function)
+
+
+def tanh(x, name="tanh"):
+  def grad_function(op, dy):
+    y = op.outputs[0]
+    return [(1.0 - square(y)) * dy]
+  return cwise(tf.tanh, [x], name=name, grad_function=grad_function)
+
+
 def pow(x, y):  # pylint: disable=redefined-builtin
   return exp(log(x) * y)
 
@@ -1433,16 +1496,6 @@ def binary_op_with_broadcasting(
       output_dtype).outputs[0]
 
 
-def maximum(x1, x2, output_shape=None):
-  return binary_op_with_broadcasting(
-      tf.maximum, x1, x2, output_shape=output_shape)
-
-
-def minimum(x1, x2, output_shape=None):
-  return binary_op_with_broadcasting(
-      tf.minimum, x1, x2, output_shape=output_shape)
-
-
 def less(x1, x2, output_shape=None):
   return binary_op_with_broadcasting(
       tf.less, x1, x2, output_dtype=tf.bool, output_shape=output_shape)
@@ -1508,6 +1561,59 @@ class AddOperation(BinaryOpWithBroadcasting):
     dy = grad_ys[0]
     return [reduce_sum(dy, output_shape=self.inputs[0].shape),
             reduce_sum(dy, output_shape=self.inputs[1].shape)]
+
+
+class MinMaxOperation(BinaryOpWithBroadcasting):
+  """Binary minimum/maximum with broadcasting."""
+
+  def __init__(self, tf_fn, x1, x2, output_shape, name=None):
+    super(MinMaxOperation, self).__init__(
+        tf_fn, x1, x2, output_shape, x1.dtype, name=name or "add")
+    if x1.dtype != x2.dtype:
+      raise ValueError("Dtypes must be equal.")
+
+  def gradient(self, grad_ys):
+    dy = grad_ys[0]
+    return [dy * cast(equal(self.inputs[0], self.outputs[0]), dy.dtype),
+            dy * cast(equal(self.inputs[1], self.outputs[0]), dy.dtype)]
+
+
+def minimum(x1, x2, output_shape=None, name=None):
+  """Binary minimum with broadcsting.
+
+  Args:
+    x1: a Tensor
+    x2: a Tensor
+    output_shape: an optional Shape
+    name: an optional string
+  Returns:
+    a Tensor
+  """
+  output_shape = convert_to_shape(output_shape)
+  with tf.name_scope(name, default_name="minimum"):
+    x1, x2 = binary_arguments_to_tensors(x1, x2)
+    return MinMaxOperation(
+        tf.minimum, x1, x2, output_shape=_infer_binary_broadcast_shape(
+            x1.shape, x2.shape, output_shape)).outputs[0]
+
+
+def maximum(x1, x2, output_shape=None, name=None):
+  """Binary maximum with broadcsting.
+
+  Args:
+    x1: a Tensor
+    x2: a Tensor
+    output_shape: an optional Shape
+    name: an optional string
+  Returns:
+    a Tensor
+  """
+  output_shape = convert_to_shape(output_shape)
+  with tf.name_scope(name, default_name="maximum"):
+    x1, x2 = binary_arguments_to_tensors(x1, x2)
+    return MinMaxOperation(
+        tf.maximum, x1, x2, output_shape=_infer_binary_broadcast_shape(
+            x1.shape, x2.shape, output_shape)).outputs[0]
 
 
 class BroadcastOperation(Operation):
@@ -1929,6 +2035,225 @@ class EinsumOperation(Operation):
     computation_shape = Shape(list(input_shape_set))
     lowering.add_counter("einsum", mesh_impl.laid_out_size(computation_shape))
     lowering.add_counter("einsum_unique", computation_shape.size)
+
+
+class Conv2dOperation(Operation):
+  """like tf.nn.conv2d.
+
+  Always "NHWC".
+  Always padding="SAME"
+  Always stride 1
+  Always dilation 1
+
+  TODO(noam): implement more options.
+  """
+
+  def __init__(self, conv_input, conv_filter, is_backprop=False, name=None):
+    super(Conv2dOperation, self).__init__(
+        [conv_input, conv_filter], name=name or "conv2d")
+    self._n_dim, self._h_dim, self._w_dim, self._in_dim = conv_input.shape.dims
+    self._fh_dim, self._fw_dim = conv_filter.shape.dims[:2]
+    if is_backprop:
+      self._out_dim, f_in_dim = conv_filter.shape.dims[2:]
+    else:
+      f_in_dim, self._out_dim = conv_filter.shape.dims[2:]
+    self._is_backprop = is_backprop
+    if f_in_dim != self._in_dim:
+      raise ValueError("Dimensions do not match input=%s filter=%s"
+                       % (conv_input, conv_filter))
+    output_shape = Shape([self._n_dim, self._h_dim, self._w_dim, self._out_dim])
+    self._outputs = [Tensor(self, output_shape, conv_input.dtype)]
+
+  def gradient(self, grad_ys):
+    if self._is_backprop:
+      raise ValueError("Gradient not implemented for conv backprop")
+    dy = grad_ys[0]
+    conv_input, conv_filter = self.inputs
+    return [
+        conv2d(dy, conv_filter, is_backprop=True),
+        conv2d_backprop_filter(conv_input, self.inputs[1].shape, dy)]
+
+  def lower(self, lowering):
+    mesh_impl = lowering.mesh_impl(self)
+    conv_input, conv_filter = self.inputs
+    # TODO(noam): support splitting h_dim, w_dim
+    if mesh_impl.tensor_dimension_to_mesh_axis(self._h_dim) is not None:
+      raise ValueError("can't slice along dimension h")
+    if mesh_impl.tensor_dimension_to_mesh_axis(self._w_dim) is not None:
+      raise ValueError("can't slice along dimension w")
+    if mesh_impl.tensor_dimension_to_mesh_axis(self._fh_dim) is not None:
+      raise ValueError("can't slice along dimension fh")
+    if mesh_impl.tensor_dimension_to_mesh_axis(self._fw_dim) is not None:
+      raise ValueError("can't slice along dimension fw")
+    def tf_fn(tf_input, tf_filter):
+      if self._is_backprop:
+        input_sizes = mesh_impl.slice_shape(self.outputs[0].shape)
+        return tf.nn.conv2d_backprop_input(
+            input_sizes, tf_filter, tf_input,
+            strides=[1, 1, 1, 1], padding="SAME")
+      else:
+        return tf.nn.conv2d(
+            tf_input, tf_filter, strides=[1, 1, 1, 1], padding="SAME")
+    y = mesh_impl.slicewise(
+        tf_fn, lowering.tensors[conv_input], lowering.tensors[conv_filter])
+    out_mesh_axis = mesh_impl.tensor_dimension_to_mesh_axis(self._out_dim)
+    if out_mesh_axis is not None:
+      def add_counter_fn():
+        lowering.add_counter(
+            "allreduce/%s/conv2d_op" % [out_mesh_axis],
+            mesh_impl.laid_out_size(self.outputs[0].shape))
+      y = LazyAllreduceSum(mesh_impl, y, [out_mesh_axis], add_counter_fn)
+    lowering.set_tensor_lowering(self.outputs[0], y)
+    input_shape_set = set(sum([x.shape.dims for x in self.inputs], []))
+    computation_shape = Shape(list(input_shape_set))
+    lowering.add_counter("conv2d", mesh_impl.laid_out_size(computation_shape))
+    lowering.add_counter("conv2d_unique", computation_shape.size)
+
+
+def conv2d(conv_input, conv_filter, is_backprop=False, name=None):
+  """conv2d."""
+  return Conv2dOperation(
+      conv_input, conv_filter, is_backprop, name=name).outputs[0]
+
+
+class Conv2dBackpropFilterOperation(Operation):
+  """like tf.nn.conv2d_backprop_filter."""
+
+  def __init__(self, conv_input, filter_shape, dy, name=None):
+    super(Conv2dBackpropFilterOperation, self).__init__(
+        [conv_input, dy], name=name or "conv2d_backprop_filter")
+    self._n_dim, self._h_dim, self._w_dim, self._in_dim = conv_input.shape.dims
+    dy_n_dim, dy_h_dim, dy_w_dim, self._out_dim = dy.shape.dims
+    self._fh_dim, self._fw_dim, f_in_dim, f_out_dim = filter_shape.dims
+    if (dy_n_dim != self._n_dim or
+        dy_h_dim != self._h_dim or
+        dy_w_dim != self._w_dim or
+        f_in_dim != self._in_dim or
+        f_out_dim != self._out_dim):
+      raise ValueError("Dimensions do not match input=%s dy=%s filter=%s"
+                       % (conv_input, dy, filter_shape))
+    self._outputs = [Tensor(self, filter_shape, conv_input.dtype)]
+
+  def lower(self, lowering):
+    mesh_impl = lowering.mesh_impl(self)
+    conv_input, dy = self.inputs
+    # TODO(noam): support splitting h_dim, w_dim
+    if mesh_impl.tensor_dimension_to_mesh_axis(self._h_dim) is not None:
+      raise ValueError("can't slice along dimension h")
+    if mesh_impl.tensor_dimension_to_mesh_axis(self._w_dim) is not None:
+      raise ValueError("can't slice along dimension w")
+    if mesh_impl.tensor_dimension_to_mesh_axis(self._fh_dim) is not None:
+      raise ValueError("can't slice along dimension fh")
+    if mesh_impl.tensor_dimension_to_mesh_axis(self._fw_dim) is not None:
+      raise ValueError("can't slice along dimension fw")
+    filter_sizes = mesh_impl.slice_shape(self.outputs[0].shape)
+    def tf_fn(tf_input, tf_dy):
+      return tf.nn.conv2d_backprop_filter(
+          tf_input, filter_sizes, tf_dy, strides=[1, 1, 1, 1], padding="SAME")
+    y = mesh_impl.slicewise(
+        tf_fn, lowering.tensors[conv_input], lowering.tensors[dy])
+    reduced_mesh_axes = [
+        mesh_impl.tensor_dimension_to_mesh_axis(d)
+        for d in [self._n_dim, self._h_dim, self._w_dim]]
+    reduced_mesh_axes = [a for a in reduced_mesh_axes if a is not None]
+    if reduced_mesh_axes:
+      def add_counter_fn():
+        lowering.add_counter(
+            "allreduce/%s/conv2d_op" % (reduced_mesh_axes,),
+            mesh_impl.laid_out_size(self.outputs[0].shape))
+      y = LazyAllreduceSum(mesh_impl, y, reduced_mesh_axes, add_counter_fn)
+    lowering.set_tensor_lowering(self.outputs[0], y)
+    input_shape_set = set(sum([x.shape.dims for x in self.inputs], []))
+    computation_shape = Shape(list(input_shape_set))
+    lowering.add_counter("conv2d", mesh_impl.laid_out_size(computation_shape))
+    lowering.add_counter("conv2d_unique", computation_shape.size)
+
+
+def conv2d_backprop_filter(
+    conv_input, filter_shape, dy, name=None):
+  """conv2d."""
+  return Conv2dBackpropFilterOperation(
+      conv_input, filter_shape, dy, name=name).outputs[0]
+
+
+class ShiftOperation(Operation):
+  """Shift by a static offset in one dimension."""
+
+  def __init__(self, x, offset, dim, wrap, name=None):
+    """Create a shift operation.
+
+    Shift x right by +offset in dimension dim.
+    If offset is negative, shift left.
+    If wrap is true then wrap-around.  Else, pad with zeros.
+
+    Args:
+      x: a Tensor
+      offset: an integer
+      dim: a Dimension of x
+      wrap: a boolean - whether to wrap or pad.
+      name: an optional string
+    """
+    super(ShiftOperation, self).__init__([x], name=name or "shift")
+    self._dim = dim
+    self._axis = x.shape.dims.index(dim)
+    self._offset = offset
+    self._wrap = wrap
+    self._outputs = [Tensor(self, x.shape, x.dtype)]
+
+  def gradient(self, grad_ys):
+    return [shift(grad_ys[0], -self._offset, self._dim, self._wrap)]
+
+  def lower(self, lowering):
+    mesh_impl = lowering.mesh_impl(self)
+    mesh_axis = mesh_impl.tensor_dimension_to_mesh_axis(self._dim)
+    inputs = self._inputs[0]
+    ndims = self._inputs[0].shape.ndims
+    axis = self._axis
+    dim = self._dim
+    if mesh_axis is None:
+      def slicewise_fn(x):
+        """Slicewise function."""
+        def my_slice(start, size):
+          begin = [0] * axis + [start] + [0] * (ndims - axis - 1)
+          size = [-1] * axis + [size] + [-1] * (ndims - axis - 1)
+          return tf.slice(x, begin, size)
+        def my_pad(s, begin_pad, end_pad):
+          paddings = ([[0, 0]] * axis + [begin_pad, end_pad]
+                      + [[0, 0]] * (ndims - axis - 1))
+          return tf.pad(s, paddings)
+        if self._wrap:
+          offset = self._offset % dim.size
+          return tf.concat([my_slice(dim.size - offset, offset),
+                            my_slice(0, dim.size - offset)], axis=axis)
+        elif self._offset > 0:
+          return my_pad(my_slice(0, dim.size - self._offset), self._offset, 0)
+        else:
+          neg_offset = -self._offset
+          return my_pad(
+              my_slice(neg_offset, dim.size - neg_offset), 0, neg_offset)
+      y = mesh_impl.slicewise(slicewise_fn, lowering.tensors[inputs])
+    else:
+      raise NotImplementedError(
+          "TODO(noam): implement this using mesh_impl.shift_by_n_processors")
+    lowering.set_tensor_lowering(self.outputs[0], y)
+
+
+def shift(x, offset, dim, wrap, name=None):
+  """Shift operation.
+
+  Shift x right by +offset in dimension dim.
+
+  Args:
+    x: a Tensor
+    offset: an integer. If negative, shift left instead of right.
+    dim: a Dimension of x
+    wrap: a boolean - whether to wrap (True) or pad with zeros (False).
+    name: an optional string
+
+  Returns:
+    a Tensor with the same shape and dtype as x
+  """
+  return ShiftOperation(x, offset, dim, wrap, name=name).outputs[0]
 
 
 class SliceOperation(Operation):

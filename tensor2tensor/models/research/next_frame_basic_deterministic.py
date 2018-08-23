@@ -22,16 +22,25 @@ import six
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
-from tensor2tensor.models.research import next_frame_params  # pylint: disable=unused-import
+from tensor2tensor.models.research import next_frame_basic_deterministic_params  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
 
+tfl = tf.layers
+tfcl = tf.contrib.layers
+
+
 @registry.register_model
-class NextFrameBasic(t2t_model.T2TModel):
+class NextFrameBasicDeterministic(t2t_model.T2TModel):
   """Basic next-frame model, may take actions and predict rewards too."""
+
+  def inject_latent(self, layer, features, filters):
+    """Do nothing for deterministic model."""
+    del features, filters
+    return layer, 0.0
 
   def body(self, features):
     hparams = self.hparams
@@ -70,6 +79,8 @@ class NextFrameBasic(t2t_model.T2TModel):
       else:
         x *= action_mask + zeros_mask
 
+    x, extra_loss = self.inject_latent(x, features, filters)
+
     # Run a stack of convolutions.
     for i in range(hparams.num_hidden_layers):
       with tf.variable_scope("layer%d" % i):
@@ -103,7 +114,7 @@ class NextFrameBasic(t2t_model.T2TModel):
     if "target_reward" not in features:
       return x
     reward_pred = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
-    return {"targets": x, "target_reward": reward_pred}
+    return {"targets": x, "target_reward": reward_pred}, extra_loss
 
   def infer(self, features, *args, **kwargs):  # pylint: disable=arguments-differ
     """Produce predictions from the model by running it."""
@@ -158,3 +169,4 @@ class NextFrameBasic(t2t_model.T2TModel):
 
     # Return results.
     return results
+

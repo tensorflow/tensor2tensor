@@ -46,7 +46,8 @@ def compress_self_attention_layer(x, hparams, name):
     return tf.reshape(res, xshape)
 
 
-def multinomial_sample(x, vocab_size, sampling_method, temperature):
+def multinomial_sample(x, vocab_size=None, sampling_method="random",
+                       temperature=1.0):
   """Multinomial sampling from a n-dimensional tensor.
 
   Args:
@@ -58,7 +59,8 @@ def multinomial_sample(x, vocab_size, sampling_method, temperature):
   Returns:
     Tensor of shape [...].
   """
-  if sampling_method == "random":
+  vocab_size = vocab_size or common_layers.shape_list(x)[-1]
+  if sampling_method == "random" and temperature > 0.0:
     samples = tf.multinomial(tf.reshape(x, [-1, vocab_size]) / temperature, 1)
   else:
     samples = tf.argmax(x, axis=-1)

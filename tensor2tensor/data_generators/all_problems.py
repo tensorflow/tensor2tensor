@@ -63,6 +63,7 @@ MODULES = [
     "tensor2tensor.data_generators.quora_qpairs",
     "tensor2tensor.data_generators.rte",
     "tensor2tensor.data_generators.snli",
+    "tensor2tensor.data_generators.stanford_nli",
     "tensor2tensor.data_generators.style_transfer",
     "tensor2tensor.data_generators.squad",
     "tensor2tensor.data_generators.sst_binary",

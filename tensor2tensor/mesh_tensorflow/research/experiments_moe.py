@@ -12,25 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Experiments with mixture-of-experts architectures.
-
-For all of these architectures, we run on languagemodel_lm1b8k_packed
-for 32k-96 steps (1-3 epochs) on one TPU (8 cores).
-
-All log-perplexities are per-token - multiply by 1.298 for per-word
-
-Results:
-model      params(M)  einsum  alltoall  mxu-util  log-ppl(1ep) (3ep)
-dense_4k   30         3.0e12  0         45%        3.31
-dense_8k   46         4.7e12  0         49%        3.24
-dense_64k                     0                    3.06
-v0         282        4.9e12  5.4e8     35%        3.06
-v0_o75     282        4.0e12  4.0e8     34%
-k_means    282        4.0e12  4.0e8                3.12
-k_means_o2 282        4.9e12  5.4e8     33%
-
-Note: configurations and code are likely to change without notice.
-"""
+"""Experiments with mixture-of-experts architectures."""
 
 
 from __future__ import absolute_import
@@ -38,12 +20,32 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.mesh_tensorflow import mtf_transformer
+from tensor2tensor.mesh_tensorflow.research import moe
 from tensor2tensor.utils import registry
 
 
 @registry.register_hparams
 def xmoe_dense_4k():
-  """Small transformer language model."""
+  """Series of architectural experiments on cheap language models.
+
+  For all of these architectures, we run on languagemodel_lm1b8k_packed
+  for 32k-96 steps (1-3 epochs) on one TPU (8 cores).
+
+  All log-perplexities are per-token - multiply by 1.298 for per-word
+
+  Results:
+  model             params(M)  einsum  alltoall  mxu-util  log-ppl(1ep) (3ep)
+  xmoe_dense_4k     30         3.0e12  0         45%        3.31
+  xmoe_dense_8k     46         4.7e12  0         49%        3.24
+  xmoe_dense_64k                       0                    3.06
+  xmoe_top_2        282        4.0e12  3.4e8     36%
+  xmoe_top_2_c15    282        4.5e12  4.0e8     38%
+
+  Note: configurations and code are likely to change without notice.
+
+  Returns:
+    a hparams
+  """
   hparams = mtf_transformer.mtf_transformer_base()
 
   # The following hparams are constant across all these experiments.
@@ -59,10 +61,6 @@ def xmoe_dense_4k():
   # We will vary the following parameters related to the ffn/moe layers.
   hparams.feedforward_layer = "dense_relu_dense"
   hparams.d_ff = 4096
-  hparams.moe_num_experts = 16
-  hparams.moe_overhead_train = 1.0
-  hparams.moe_overhead_eval = 2.0
-  hparams.moe_loss_coef = 1e-3
   hparams.layout = "batch:batch;vocab:model;d_ff:model;heads:model"
   hparams.mesh_shape = "batch:8"
   return hparams
@@ -84,20 +82,44 @@ def xmoe_dense_64k():
 
 
 @registry.register_hparams
-def xmoe_v0():
+def xmoe_top_2():
   """Mixture of experts."""
   hparams = xmoe_dense_4k()
-  hparams.feedforward_layer = "moe"
+  moe.set_default_moe_hparams(hparams)
   hparams.mesh_shape = "all:8"
   hparams.layout = "batch:all;experts:all"
   return hparams
 
 
 @registry.register_hparams
-def xmoe_v0_o75():
+def xmoe_top_2_c15():
   """Mixture of experts."""
-  hparams = xmoe_v0()
-  hparams.moe_overhead_train = 0.75
+  hparams = xmoe_top_2()
+  hparams.moe_capacity_factor_train = 1.5
+  return hparams
+
+
+@registry.register_hparams
+def mtf_transformer_lm_moe():
+  """Mixture of experts language model.
+
+  Compare to mtf_transformer.mtf_transformer_lm_baseline()
+
+  Run this on 2x2 on languagemodel_lm1b32k_packed for 272000 steps (10 epochs)
+  900M params.
+
+  Results on LM1B:
+         params/10^9  log-ppl(per-token)
+         0.90         TODO(noam): rerun experiment
+
+  Returns:
+    a hparams
+  """
+  hparams = mtf_transformer.mtf_transformer_lm_baseline()
+  moe.set_default_moe_hparams(hparams)
+  hparams.mesh_shape = "all:8"
+  hparams.layout = "batch:all;experts:all"
+  hparams.feedforward_layer = "moe"
   return hparams
 
 

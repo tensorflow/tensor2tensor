@@ -130,7 +130,7 @@ def simple_gym_spec(env):
     env_lambda = lambda: gym.make(env)
   if callable(env):
     env_lambda = env
-  assert env is not None, "Unknown specification of environment"
+  assert env_lambda is not None, "Unknown specification of environment"
 
   return tf.contrib.training.HParams(env_lambda=env_lambda,
                                      wrappers=standard_wrappers,

@@ -25,6 +25,7 @@ from tensor2tensor.mesh_tensorflow import mesh_tensorflow as mtf
 from tensor2tensor.mesh_tensorflow import mtf_beam_search
 from tensor2tensor.mesh_tensorflow import mtf_layers
 from tensor2tensor.mesh_tensorflow import mtf_model
+from tensor2tensor.mesh_tensorflow.research import moe
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
@@ -73,10 +74,6 @@ class MtfTransformer(mtf_model.MtfModel):
   @property
   def feedforward_dim(self):
     return mtf.Dimension("d_ff", self._hparams.d_ff)
-
-  @property
-  def experts_dim(self):
-    return mtf.Dimension("experts", self._hparams.moe_num_experts)
 
   @property
   def activation_dtype(self):
@@ -292,17 +289,11 @@ class MtfTransformer(mtf_model.MtfModel):
           x, self.feedforward_dim, dropout=hparams.relu_dropout,
           dropout_broadcast_dims=[self.length_dim])
     elif feedforward_layer == "moe":
-      overhead = (
-          hparams.moe_overhead_train
-          if hparams.mode == tf.estimator.ModeKeys.TRAIN else
-          hparams.moe_overhead_eval)
-      output, loss = mtf_layers.moe_v0(
+      output, loss = moe.transformer_moe_layer_v1(
           x,
-          self.feedforward_dim,
           self.model_dim,
-          self.experts_dim,
-          loss_coef=hparams.moe_loss_coef,
-          overhead=overhead)
+          hparams,
+          hparams.mode == tf.estimator.ModeKeys.TRAIN)
       if losses is not None:
         losses.append(loss)
         return output
@@ -628,12 +619,7 @@ def mtf_transformer_base():
   # round up vocab sizes to be a multiple of this value
   hparams.vocab_divisor = 128
 
-  # mixture of experts hparams
   hparams.add_hparam("feedforward_layer", "dense_relu_dense")
-  hparams.add_hparam("moe_overhead_train", 1.0)
-  hparams.add_hparam("moe_overhead_eval", 2.0)
-  hparams.moe_num_experts = 16
-  hparams.moe_loss_coef = 1e-3
 
   # Use targets_embedding_var * rsqrt(d_model) as softmax_var
   hparams.shared_embedding_and_softmax_weights = True
@@ -679,15 +665,6 @@ def mtf_transformer_tiny():
 def mtf_transformer_single():
   hparams = mtf_transformer_tiny()
   hparams.mesh_shape = ""
-  return hparams
-
-
-@registry.register_hparams
-def mtf_transformer_tiny_moe():
-  hparams = mtf_transformer_tiny()
-  hparams.mesh_shape = "all:4"
-  hparams.layout = "batch:all;experts:all"
-  hparams.feedforward_layer = "moe"
   return hparams
 
 
@@ -918,27 +895,6 @@ def mtf_transformer_lm_baseline():
   hparams.batch_size = 128
   hparams.learning_rate_decay_steps = 27200  # one epoch on lm1b
   hparams.mesh_shape = "batch:8"
-  return hparams
-
-
-@registry.register_hparams
-def mtf_transformer_lm_moe():
-  """Mixture of experts language model.
-
-  Run this on 2x2 on languagemodel_lm1b32k_packed for 272000 steps (10 epochs)
-  900M params.
-
-  Results on LM1B:
-         params/10^9  log-ppl(per-token)
-         0.90         3.002
-
-  Returns:
-    a hparams
-  """
-  hparams = mtf_transformer_lm_baseline()
-  hparams.mesh_shape = "all:8"
-  hparams.layout = "batch:all;experts:all"
-  hparams.feedforward_layer = "moe"
   return hparams
 
 

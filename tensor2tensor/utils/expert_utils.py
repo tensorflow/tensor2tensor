@@ -181,7 +181,6 @@ class Parallelism(object):
           v = tf.identity(last_device_v)
         else:
           var = getter(name, *args, **kwargs)
-          # v = tf.identity(var._ref())  # pylint: disable=protected-access
           v = var.read_value()
 
         # keep track of the original variable
@@ -203,7 +202,6 @@ class Parallelism(object):
 
         v = getter(name, *args, **kwargs)
         with tf.device(self._caching_devices[i]):
-          # ret = tf.identity(v._ref())  # pylint: disable=protected-access
           ret = v.read_value()
         _add_variable_proxy_methods(v, ret)
         cache[key] = ret

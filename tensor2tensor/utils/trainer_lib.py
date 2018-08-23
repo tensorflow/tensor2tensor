@@ -105,7 +105,6 @@ def is_cloud_async_distributed():
 
 def create_run_config(master="",
                       model_dir=None,
-                      warm_start_from=None,
                       iterations_per_loop=1000,
                       num_shards=8,
                       log_device_placement=False,
@@ -197,7 +196,6 @@ def create_run_config(master="",
     del run_config_args["evaluation_master"]
 
   config = run_config_cls(**run_config_args)
-  config.warm_start_from = warm_start_from
 
   # If not using TPU, add device info for data_parallelism
   config.use_tpu = use_tpu
@@ -259,7 +257,6 @@ def create_estimator(model_name,
         model_fn=model_fn,
         model_dir=run_config.model_dir,
         config=run_config,
-        warm_start_from=run_config.warm_start_from
     )
   return estimator
 
@@ -432,7 +429,8 @@ def create_experiment(
     use_tpu_estimator=False,
     use_xla=False,
     additional_train_hooks=None,
-    additional_eval_hooks=None):
+    additional_eval_hooks=None,
+    warm_start_from=None):
   """Create Experiment."""
   # HParams
   hparams.add_hparam("model_dir", run_config.model_dir)
@@ -440,6 +438,7 @@ def create_experiment(
   hparams.add_hparam("train_steps", train_steps)
   hparams.add_hparam("eval_steps", eval_steps)
   hparams.add_hparam("schedule", schedule)
+  hparams.add_hparam("warm_start_from", warm_start_from)
   add_problem_hparams(hparams, problem_name)
 
   # Estimator
@@ -461,9 +460,17 @@ def create_experiment(
                                                   hparams)
 
   # Export
+  exporter = None
   if export:
-    tf.logging.warn("Exporting from the trainer is deprecated. "
-                    "See serving/export.py.")
+    def compare_fn(best_eval_result, current_eval_result):
+      metric = eval_early_stopping_metric or "loss"
+      return current_eval_result[metric] < best_eval_result[metric]
+
+    exporter = tf.estimator.BestExporter(
+        name="best",
+        serving_input_receiver_fn=lambda: problem.serving_input_fn(hparams),
+        compare_fn=compare_fn,
+        assets_extra=problem.export_assets)
 
   # Hooks
   validation_monitor_kwargs = dict(
@@ -523,7 +530,8 @@ def create_experiment(
       steps=eval_steps,
       hooks=eval_hooks,
       start_delay_secs=0 if hparams.schedule == "evaluate" else 120,
-      throttle_secs=eval_throttle_seconds)
+      throttle_secs=eval_throttle_seconds,
+      exporters=exporter)
 
   if autotune:
     hooks_kwargs = {"train_monitors": train_hooks, "eval_hooks": eval_hooks}

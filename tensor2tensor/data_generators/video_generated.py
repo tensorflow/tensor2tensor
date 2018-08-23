@@ -29,6 +29,8 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 try:
+  import matplotlib  # pylint: disable=g-import-not-at-top
+  matplotlib.use("agg")
   import matplotlib.pyplot as plt  # pylint: disable=g-import-not-at-top
 except ImportError:
   pass

@@ -180,6 +180,7 @@ def create_experiment_fn(**kwargs):
       use_tpu=FLAGS.use_tpu,
       use_tpu_estimator=FLAGS.use_tpu_estimator,
       use_xla=FLAGS.xla_compile,
+      warm_start_from=FLAGS.warm_start_from,
       **kwargs)
 
 
@@ -214,7 +215,6 @@ def create_run_config(hp):
       hp.weight_dtype == "float32")
   return trainer_lib.create_run_config(
       model_dir=os.path.expanduser(FLAGS.output_dir),
-      warm_start_from=FLAGS.warm_start_from,
       master=FLAGS.master,
       iterations_per_loop=FLAGS.iterations_per_loop,
       num_shards=FLAGS.tpu_num_shards,

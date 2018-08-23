@@ -347,24 +347,30 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     subdirectories.append("autoencoder")
   directories = setup_directories(output_dir, subdirectories)
 
+  if hparams.game in gym_problems_specs.ATARI_GAMES:
+    game_with_mode = hparams.game + "_deterministic-v4"
+  else:
+    game_with_mode = hparams.game
   # Problems
   if using_autoencoder:
     problem_name = (
-        "gym_discrete_problem_with_agent_on_%s_with_autoencoder" % hparams.game)
+        "gym_discrete_problem_with_agent_on_%s_with_autoencoder"
+        % game_with_mode)
     world_model_problem = (
-        "gym_discrete_problem_with_agent_on_%s_autoencoded" % hparams.game)
+        "gym_discrete_problem_with_agent_on_%s_autoencoded" % game_with_mode)
     simulated_problem_name = (
         "gym_simulated_discrete_problem_with_agent_on_%s_autoencoded"
-        % hparams.game)
+        % game_with_mode)
   else:
-    problem_name = ("gym_discrete_problem_with_agent_on_%s" % hparams.game)
+    problem_name = ("gym_discrete_problem_with_agent_on_%s" % game_with_mode)
     world_model_problem = problem_name
     simulated_problem_name = ("gym_simulated_discrete_problem_with_agent_on_%s"
-                              % hparams.game)
+                              % game_with_mode)
     if problem_name not in registry.list_problems():
       tf.logging.info("Game Problem %s not found; dynamically registering",
                       problem_name)
-      gym_problems_specs.create_problems_for_game(hparams.game)
+      gym_problems_specs.create_problems_for_game(hparams.game,
+                                                  game_mode="Deterministic-v4")
 
   # Autoencoder model dir
   autoencoder_model_dir = directories.get("autoencoder")
@@ -511,7 +517,7 @@ def rl_modelrl_base():
       # So to use N frames set steps = N / (epochs * (1 - 1/11)).
       # We set it to use 100k frames for training.
       true_env_generator_num_steps=int(100000 / (6 * (1.0 - 1.0/11.0))),
-      generative_model="next_frame_basic",
+      generative_model="next_frame_basic_deterministic",
       generative_model_params="next_frame_pixel_noise",
       ppo_params="ppo_pong_base",
       autoencoder_train_steps=0,
@@ -543,8 +549,8 @@ def rl_modelrl_base():
 def rl_modelrl_base_stochastic():
   """Base setting with a stochastic next-frame model."""
   hparams = rl_modelrl_base()
-  hparams.generative_model = "next_frame_stochastic"
-  hparams.generative_model_params = "next_frame_stochastic_cutoff"
+  hparams.generative_model = "next_frame_basic_stochastic"
+  hparams.generative_model_params = "next_frame_basic_stochastic"
   return hparams
 
 

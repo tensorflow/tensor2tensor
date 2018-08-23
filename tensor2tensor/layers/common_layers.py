@@ -1956,6 +1956,31 @@ def weights_multi_problem(labels, taskid=-1):
   return tf.to_float(tf.not_equal(past_taskid * non_taskid, 0))
 
 
+def weights_multi_problem_all(labels, taskid=-1):
+  """Assign weight 1.0 to only examples from the given task."""
+  weights = tf.to_float(tf.not_equal(labels, 0))
+  if taskid < 0:
+    raise ValueError("Task ID must be non-negative.")
+
+  past_taskid = tf.cumsum(tf.to_float(tf.equal(labels, taskid)), axis=1)
+  # Additionally zero out the task id location
+  past_taskid *= tf.to_float(tf.not_equal(labels, taskid))
+  non_taskid = tf.to_float(labels)
+  example_mask = tf.to_float(tf.not_equal(past_taskid * non_taskid, 0))
+  example_mask = tf.reduce_sum(example_mask, axis=1)
+  example_mask = tf.to_float(
+      tf.greater(example_mask, tf.zeros_like(example_mask)))
+
+  return weights * tf.expand_dims(example_mask, axis=-1)
+
+
+def weights_multi_problem_input(labels, taskid=-1):
+  """Assign weight 1.0 to only the inputs for the given task."""
+  weights_all_tokens = weights_multi_problem_all(labels, taskid)
+  weights_target = weights_multi_problem(labels, taskid)
+  return weights_all_tokens - weights_target
+
+
 def weights_all(labels):
   """Assign weight 1.0 to all labels."""
   return tf.ones_like(labels, dtype=tf.float32)
@@ -3360,6 +3385,34 @@ def belu(x):
   return tf.reshape(tf.concat([y1, y2], axis=-1), x_shape)
 
 
+def nac(x, depth, name=None, reuse=None):
+  """NAC as in https://arxiv.org/abs/1808.00508."""
+  with tf.variable_scope(
+      name, default_name="nac", values=[x], reuse=reuse):
+    x_shape = shape_list(x)
+    w = tf.get_variable("w", [x_shape[-1], depth])
+    m = tf.get_variable("m", [x_shape[-1], depth])
+    w = tf.tanh(w) * tf.nn.sigmoid(m)
+    x_flat = tf.reshape(x, [-1, x_shape[-1]])
+    res_flat = tf.matmul(x_flat, w)
+    return tf.reshape(res_flat, x_shape[:-1] + [depth])
+
+
+def nalu(x, depth, epsilon=1e-30, name=None, reuse=None):
+  """NALU as in https://arxiv.org/abs/1808.00508."""
+  with tf.variable_scope(
+      name, default_name="nalu", values=[x], reuse=reuse):
+    x_shape = shape_list(x)
+    x_flat = tf.reshape(x, [-1, x_shape[-1]])
+    gw = tf.get_variable("w", [x_shape[-1], depth])
+    g = tf.nn.sigmoid(tf.matmul(x_flat, gw))
+    g = tf.reshape(g, x_shape[:-1] + [depth])
+    a = nac(x, depth, name="nac_lin")
+    log_x = tf.log(tf.abs(x) + epsilon)
+    m = nac(log_x, depth, name="nac_log")
+    return g * a + (1 - g) * tf.exp(m)
+
+
 def argmax_with_score(logits, axis=None):
   """Argmax along with the value."""
   axis = axis or len(logits.get_shape()) - 1
@@ -3963,7 +4016,7 @@ class WeightNorm(tf.keras.layers.Wrapper):
     self.layer.activation = activation
     self.initialized = True
 
-  def build(self, input_shape):
+  def build(self, input_shape=None):
     """Build `Layer`."""
     input_shape = tf.TensorShape(input_shape).as_list()
     self.input_spec = tf.layers.InputSpec(shape=input_shape)

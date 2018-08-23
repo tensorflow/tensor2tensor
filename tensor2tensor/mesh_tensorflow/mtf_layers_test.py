@@ -28,6 +28,7 @@ from tensor2tensor.mesh_tensorflow import placement_mesh_impl
 import tensorflow as tf
 
 
+@tf.contrib.eager.run_all_tests_in_graph_and_eager_modes
 class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
@@ -62,10 +63,9 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
                                              use_bias=use_bias)(inputs)
     tf_group = lowering.copy_masters_to_slices()
     init = tf.global_variables_initializer()
-    with self.test_session() as sess:
-      sess.run(init)
-      sess.run(tf_group)
-      actual, expected = sess.run([actual_outputs, expected_outputs])
+    self.evaluate(init)
+    self.evaluate(tf_group)
+    actual, expected = self.evaluate([actual_outputs, expected_outputs])
 
     self.assertEqual(actual.shape, expected.shape)
 
@@ -91,10 +91,9 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
     expected_outputs = common_layers.layer_norm(inputs)
     tf_group = lowering.copy_masters_to_slices()
     init = tf.global_variables_initializer()
-    with self.test_session() as sess:
-      sess.run(init)
-      sess.run(tf_group)
-      actual, expected = sess.run([actual_outputs, expected_outputs])
+    self.evaluate(init)
+    self.evaluate(tf_group)
+    actual, expected = self.evaluate([actual_outputs, expected_outputs])
 
     self.assertEqual(actual.shape, expected.shape)
 
@@ -116,9 +115,8 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
 
     expected_outputs = common_layers.weights_nonzero(inputs)
     tf_group = lowering.copy_masters_to_slices()
-    with self.test_session() as sess:
-      sess.run(tf_group)
-      actual, expected = sess.run([actual_outputs, expected_outputs])
+    self.evaluate(tf_group)
+    actual, expected = self.evaluate([actual_outputs, expected_outputs])
 
     self.assertAllEqual(actual, expected)
 
@@ -145,45 +143,44 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
 
     tf_group = lowering.copy_masters_to_slices()
     init = tf.global_variables_initializer()
-    with self.test_session() as sess:
-      sess.run(init)
-      sess.run(tf_group)
-      actual = sess.run(actual_outputs)
+    self.evaluate(init)
+    self.evaluate(tf_group)
+    actual = self.evaluate(actual_outputs)
 
     self.assertEqual(actual.shape, inputs.shape)
 
   @parameterized.parameters(
-      (4, 2),
+      (2, 16, 3, 4, 2, 2),
+      (1, 8, 5, 3, 1, 4),
   )
-  def testMaskedLocalAttention1D(self, kv_channels, heads):
-    batch = 2
-    length_q = 16
-    length_m = 16
-    channels = 3
-    query = tf.random_normal([batch, length_q, channels])
-    memory = tf.random_normal([batch, length_m, channels])
+  def testMaskedLocalAttention1D(self, batch, length, io_channels, kv_channels,
+                                 heads, block_length):
+    length_q = length
+    length_m = length
+    query = tf.random_normal([batch, length_q, io_channels])
+    memory = tf.random_normal([batch, length_m, io_channels])
 
     graph = mtf.Graph()
     mesh = mtf.Mesh(graph, "my_mesh")
     batch_dim = mtf.Dimension("batch", batch)
     length_q_dim = mtf.Dimension("length_q", length_q)
     length_m_dim = mtf.Dimension("length_m", length_m)
-    channels_dim = mtf.Dimension("channels", channels)
+    io_channels_dim = mtf.Dimension("io_channels", io_channels)
     kv_channels_dim = mtf.Dimension("kv_channels", kv_channels)
     heads_dim = mtf.Dimension("heads", heads)
 
     mtf_query = mtf.import_tf_tensor(
         mesh, query,
-        shape=mtf.Shape([batch_dim, length_q_dim, channels_dim]))
+        shape=mtf.Shape([batch_dim, length_q_dim, io_channels_dim]))
     mtf_memory = mtf.import_tf_tensor(
         mesh, memory,
-        shape=mtf.Shape([batch_dim, length_m_dim, channels_dim]))
+        shape=mtf.Shape([batch_dim, length_m_dim, io_channels_dim]))
     mtf_outputs = mtf_layers.masked_local_attention_1d(
         mtf_query,
         mtf_memory,
         kv_channels=kv_channels_dim,
         heads=heads_dim,
-        block_length=2)
+        block_length=block_length)
     mesh_impl = placement_mesh_impl.PlacementMeshImpl(
         shape=[], layout={}, devices=[""])
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
@@ -191,12 +188,11 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
 
     tf_group = lowering.copy_masters_to_slices()
     init = tf.global_variables_initializer()
-    with self.test_session() as sess:
-      sess.run(init)
-      sess.run(tf_group)
-      actual = sess.run(actual_outputs)
+    self.evaluate(init)
+    self.evaluate(tf_group)
+    actual = self.evaluate(actual_outputs)
 
-    self.assertEqual(actual.shape, (batch, length_q, channels))
+    self.assertEqual(actual.shape, (batch, length_q, io_channels))
 
   @parameterized.parameters(
       (2, 4, 5, 7, 3, 1),
@@ -240,10 +236,9 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
 
     tf_group = lowering.copy_masters_to_slices()
     init = tf.global_variables_initializer()
-    with self.test_session() as sess:
-      sess.run(init)
-      sess.run(tf_group)
-      actual = sess.run(actual_outputs)
+    self.evaluate(init)
+    self.evaluate(tf_group)
+    actual = self.evaluate(actual_outputs)
 
     self.assertEqual(actual.shape, (batch, heads, length_q, depth_v))
 
@@ -281,10 +276,9 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
 
     tf_group = lowering.copy_masters_to_slices()
     init = tf.global_variables_initializer()
-    with self.test_session() as sess:
-      sess.run(init)
-      sess.run(tf_group)
-      actual = sess.run(actual_outputs)
+    self.evaluate(init)
+    self.evaluate(tf_group)
+    actual = self.evaluate(actual_outputs)
 
     self.assertEqual(actual.shape, query.shape)
 

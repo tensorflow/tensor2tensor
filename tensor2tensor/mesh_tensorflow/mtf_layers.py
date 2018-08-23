@@ -249,15 +249,10 @@ def masked_local_attention_1d(query_antecedent,
       first_q = mtf.slice(q, 0, 1, num_blocks.name)
       first_k = mtf.slice(k, 0, 1, num_blocks.name)
       first_v = mtf.slice(v, 0, 1, num_blocks.name)
-      block = first_q.shape.dims[2]
-
-      first_logits = mtf.einsum(
-          [first_q, first_k],
-          mtf.Shape([batch, heads, block, blength, mlength]))
-      weights = mtf.softmax(first_logits, mlength)
-      first_output = mtf.einsum(
-          [weights, first_v],
-          mtf.Shape([batch, heads, block, blength, kv_channels]))
+      first_output = dot_product_attention(first_q,
+                                           first_k,
+                                           first_v,
+                                           mask=None)
       return first_output
 
     # Attention for first block, since query_length = key_length.
@@ -273,31 +268,22 @@ def masked_local_attention_1d(query_antecedent,
 
     local_k = local(k)
     local_v = local(v)
-    mblocks = local_k.shape.dims[2]
-    mlength = local_k.shape.dims[3]
     # Calculate the causal mask to avoid peeking into the future. We compute
     # this once and reuse it for all blocks since the block_size is known.
+    mlength = local_k.shape.dims[3]
     mask = attention_bias_local_block(query_antecedent.mesh,
                                       blength, mlength)
 
     # Remove the first block from q since we already computed that.
     tail_q = mtf.slice(q, 1, num_blocks.size-1, num_blocks.name)
 
-    # Compatibility between q and k for rest of the blocks.
-    # Shape [batch, heads, num_blocks - 1, block_length, local_length]
-    attention = mtf.einsum(
-        [tail_q, local_k],
-        mtf.Shape([batch, heads, mblocks, blength, mlength]))
-    attention += mask
-    attention = mtf.softmax(attention, mlength)
+    tail_output = dot_product_attention(tail_q,
+                                        local_k,
+                                        local_v,
+                                        mask=mask)
 
-    # Run attention for rest of the blocks.
-    # Shape [batch, heads, num_blocks-1, block_length, kv_channels]
-    output = mtf.einsum(
-        [attention, local_v],
-        mtf.Shape([batch, heads, mblocks, blength, kv_channels]))
     # Now concatenate the first and rest of the blocks.
-    final_output = mtf.concat([first_output, output], num_blocks.name)
+    final_output = mtf.concat([first_output, tail_output], num_blocks.name)
     final_output = mtf.reshape(final_output, mtf.Shape(
         [batch, heads, query_length, kv_channels]))
     return mtf.einsum([final_output, o_var],
@@ -599,228 +585,3 @@ def attention_bias_local_block(mesh, block_length, memory_length,
                   dtype=dtype)
   mask = mtf.cast(mask, dtype=tf.float32)  * -1e9
   return mask
-
-
-
-
-def moe_v0(inputs,
-           hidden_dim,
-           output_dim,
-           experts_dim,
-           loss_coef=1e-3,
-           overhead=1.0):
-  """Local mixture of experts that works well on TPU.
-
-  See https://arxiv.org/abs/1701.06538
-
-  There are num_experts expert networks, each containing a relu-activated
-  hidden layer of size hidden_size, followed by an output projection.
-
-  The number of parameters is thus:
-    num_experts * (input_size * hidden_size + hidden_size * output_size)
-
-  The input is 3d: [batch, length, depth], consisting of the representations
-  of all positions in a batch of sequences.
-
-  Each position of each sequence is sent to 0-2 experts.  The expert
-  choices and the combination weights are determined by a learned gating
-  function.
-
-  This function returns a small auxiliary loss that should be added to the
-  training loss of the model.  This loss helps to balance expert usage.
-  Without the loss, it is very likely that a few experts will be trained and
-  the rest will starve.
-
-  Several hacks are necessary to get around current TPU limitations:
-
-  - To ensure static shapes, we enforce (by truncation/padding)
-    that each sequence send the same number of elements to each expert.
-
-    It would make more sense to enforce this equality over the entire batch,
-    as opposed to on individual sequences.  This would allow more freedom
-    for individual sequences to be unbalanced.  Unfortunately, that would
-    slow down our hacked-up gather-by-matmul implementation.
-
-    TODO(noam): There is no real reason for a single sequence to be the unit
-      of equal allocation.  Reshaping the inputs would allow us to pick a
-      different unit of equal allocation.
-
-  TODO(noam): Factor this code better.  We want to be able to substitute
-  different code for the experts themselves.  We also want to integrate this
-  gating/dispatching logic into multi-device mixtures-of-experts.
-
-  Args:
-    inputs: a mtf.Tensor with shape [batch_dim, length_dim, input_dim]
-    hidden_dim: a mtf.Dimension
-    output_dim: a mtf.Dimension
-    experts_dim: a mtf.Dimension
-    loss_coef: a float scalar
-    overhead: multiplicative factor of how much spare capacity to assign
-
-  Returns:
-    outputs: a Tensor with shape [batch_dim, length_dim, output_dim]
-    loss: a mtf scalar
-  """
-  batch_dim, length_dim, input_dim = inputs.shape.dims
-
-  # Each sequence sends expert_capacity positions to each expert.
-  expert_capacity = min(
-      length_dim.size,
-      int((length_dim.size * 2 * overhead) / experts_dim.size))
-  expert_capacity_dim = mtf.Dimension("expert_capacity", expert_capacity)
-
-  experts_dim_unsplit = mtf.Dimension("expert_unsplit", experts_dim.size)
-  batch_dim_unsplit = mtf.Dimension("batch_unsplit", batch_dim.size)
-
-  # This is the learned gating function.
-  # shape = [batch_dim, length_dim, experts_dim_unsplit]
-  gates = mtf.softmax(dense(inputs, experts_dim_unsplit), experts_dim_unsplit)
-
-  backward_assignment = _truncated_top_2_gating_mtf(
-      gates, length_dim, experts_dim_unsplit, expert_capacity_dim)
-
-  forward_assignment = mtf.cast(
-      mtf.cast(backward_assignment, tf.bool), inputs.dtype)
-
-  # put num_experts dimension first to make split easier in alltoall
-  expert_inputs = mtf.einsum([inputs, forward_assignment], mtf.Shape(
-      [experts_dim_unsplit, batch_dim, expert_capacity_dim, input_dim]))
-
-  expert_inputs = mtf.reshape(expert_inputs, mtf.Shape(
-      [experts_dim, batch_dim_unsplit, expert_capacity_dim, input_dim]))
-
-  # Now feed the expert inputs through the experts.
-  h = dense(expert_inputs, hidden_dim, expert_dims=[experts_dim],
-            activation=mtf.relu, name="x0")
-  expert_output = dense(h, output_dim, expert_dims=[experts_dim], name="x1")
-
-  expert_output = mtf.reshape(expert_output, mtf.Shape(
-      [experts_dim_unsplit, batch_dim, expert_capacity_dim, input_dim]))
-
-  output = mtf.einsum([expert_output, backward_assignment], mtf.Shape(
-      [batch_dim, length_dim, output_dim]))
-
-  importance = mtf.reduce_sum(backward_assignment, output_shape=mtf.Shape(
-      [batch_dim, experts_dim_unsplit]))
-
-  loss = cv_squared(importance) * loss_coef
-  return output, loss
-
-
-def cv_squared(x):
-  """The squared coefficient of variation of a sample.
-
-  Useful as a loss to encourage a positive distribution to be more uniform.
-  Epsilons added for numerical stability.
-  Returns 0 for an empty Tensor.
-
-  Args:
-    x: a mtf.Tensor
-
-  Returns:
-    a mtf Scalar
-  """
-  epsilon = 1e-10
-  mean = mtf.reduce_mean(x)
-  variance = mtf.reduce_mean(mtf.square(x - mean))
-  return variance / (mtf.square(mean) + epsilon)
-
-
-def _truncated_top_2_gating_mtf(
-    gates, group_dim, experts_dim, expert_capacity_dim):
-  """Compute gating for mixture-of-experts in TensorFlow.
-
-  gates is usually the output of a softmax function.
-  The return value is a dense representation of the mapping between
-  the input positions in the positions in the batches sent to the experts.
-
-  TODO(noam): this function contains code factored out of
-  expert_utils.local_moe_tpu.  Move this function to that file and
-  call it from both places.
-
-  Args:
-    gates: a Tensor
-    group_dim: one dimension of gates
-    experts_dim: one dimension of gates
-    expert_capacity_dim: a Dimension not in gates
-
-  Returns:
-    a Tensor with shape gates.shape + expert_capacity_dim
-
-  Raises:
-    ValueError: if group_dim has size >256
-  """
-  gates = mtf.to_float(gates)
-  expert_capacity_f = float(expert_capacity_dim.size)
-  # Find the top expert for each position. shape=[batch, group]
-  index_1, gate_1 = mtf.top_1(gates, experts_dim)
-  # [batch, group, experts]
-  mask_1 = mtf.one_hot(index_1, experts_dim, dtype=gates.dtype)
-
-  if expert_capacity_dim.size > 256:
-    # using mtf.cumsum (implemented on TPU as bfloat16 matmul) to compute
-    # position in the mini-batch sent to the expert.  This will cause
-    # very bad things to happen if expert_capacity_dim > 256.
-    raise ValueError(
-        "expert_capacity_dim.size must be <=256 to avoid roundoff errors in"
-        " indices - got %s" % (expert_capacity_dim,))
-  # [batch, group, experts]
-  # This is the position within the expert's mini-batch for this sequence
-  position_in_expert_1 = mtf.cumsum(mask_1, group_dim, exclusive=True) * mask_1
-  # Remove the elements that don't fit. [batch, group, experts]
-  mask_1 *= mtf.to_float(mtf.less(position_in_expert_1, expert_capacity_f))
-  # [batch, experts]
-  # How many examples in this sequence go to this expert
-  mask_1_count = mtf.reduce_sum(mask_1, reduced_dim=group_dim)
-  # [batch, group] - mostly ones, but zeros where something didn't fit
-  mask_1_flat = mtf.reduce_sum(mask_1, reduced_dim=experts_dim)
-  # [batch, group]
-  position_in_expert_1 = mtf.reduce_sum(
-      position_in_expert_1, reduced_dim=experts_dim)
-  # Weight assigned to first expert.  [batch, group]
-  gate_1 *= mask_1_flat
-
-  # Pick a second-place expert for each position.
-  # We first mask out the experts that we expect to be over-capacity
-  # [batch, experts]
-  space_remaining = expert_capacity_f - mask_1_count
-  use_rate = (mask_1_count + 1.0) / float(group_dim.size)
-  # At what point in the sequence do we expect the expert to be full.
-  # [batch, experts]
-  expected_exhaustion_pos = space_remaining / use_rate
-  # A Tensor with shape [batch, group, experts] representing a boolean
-  #   - whether we expect that the expert will already be full.
-  expected_exhausted = mtf.to_float(mtf.greater(
-      mtf.range(gates.mesh, group_dim, tf.float32), expected_exhaustion_pos))
-  masked_gates = gates - mask_1 - expected_exhausted
-  # This section is similar to the section above.
-  # [batch, group]
-  index_2, gate_2 = mtf.top_1(masked_gates, experts_dim)
-  # [batch, group, experts]
-  mask_2 = mtf.one_hot(index_2, experts_dim, dtype=gates.dtype)
-  # [batch, group, experts]
-  position_in_expert_2 = (
-      mtf.cumsum(mask_2, group_dim, exclusive=True) + mask_1_count)
-  position_in_expert_2 *= mask_2
-  mask_2 *= mtf.to_float(mtf.less(position_in_expert_2, expert_capacity_f))
-  # mask_2_count = mtf.reduce_sum(mask_2, reduced_dim=experts_dim)
-  mask_2_flat = mtf.reduce_sum(mask_2, reduced_dim=experts_dim)
-  position_in_expert_2 = mtf.reduce_sum(
-      position_in_expert_2, reduced_dim=experts_dim)
-  gate_2 *= mask_2_flat
-
-  # renormalize the two gate values to add up to 1
-  denom = gate_1 + gate_2 + 1e-9
-  gate_1 /= denom
-  gate_2 /= denom
-
-  # [batch, group, experts, expert_capacity]
-  assignment = (
-      gate_1 * mask_1_flat
-      * mtf.one_hot(index_1, experts_dim)
-      * mtf.one_hot(mtf.to_int32(position_in_expert_1), expert_capacity_dim) +
-      gate_2 * mask_2_flat
-      * mtf.one_hot(index_2, experts_dim)
-      * mtf.one_hot(mtf.to_int32(position_in_expert_2), expert_capacity_dim))
-
-  return assignment

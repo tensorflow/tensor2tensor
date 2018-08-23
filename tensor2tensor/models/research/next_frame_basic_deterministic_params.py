@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Param sets for next frame prediction models."""
+"""Param sets for deterministic basic next frame prediction model."""
 
 from __future__ import division
 from __future__ import print_function
@@ -22,7 +22,7 @@ from tensor2tensor.utils import registry
 
 
 @registry.register_hparams
-def next_frame():
+def next_frame_basic_deterministic():
   """Basic 2-frame conv model."""
   hparams = common_hparams.basic_params1()
   hparams.video_num_input_frames = 4
@@ -45,119 +45,24 @@ def next_frame():
   hparams.add_hparam("video_modality_loss_cutoff", 0.02)
   hparams.add_hparam("preprocess_resize_frames", None)
   hparams.add_hparam("concatenate_actions", True)
-  hparams.add_hparam("tiny_mode", False)
   hparams.add_hparam("shuffle_buffer_size", 128)
+  hparams.add_hparam("tiny_mode", False)
+  hparams.add_hparam("stochastic_model", False)
   return hparams
 
 
 @registry.register_hparams
 def next_frame_pixel_noise():
   """Basic 2-frame conv model with pixel noise."""
-  hparams = next_frame()
+  hparams = next_frame_basic_deterministic()
   hparams.add_hparam("video_modality_input_noise", 0.05)
   hparams.input_modalities = "inputs:video:pixel_noise"
   return hparams
 
 
 @registry.register_hparams
-def next_frame_stochastic():
-  """SV2P model."""
-  hparams = next_frame()
-  hparams.optimizer = "TrueAdam"
-  hparams.learning_rate_schedule = "constant"
-  hparams.learning_rate_constant = 1e-3
-  hparams.video_num_input_frames = 1
-  hparams.video_num_target_frames = 3
-  hparams.batch_size = 16
-  hparams.target_modality = "video:l2raw"
-  hparams.input_modalities = "inputs:video:l2raw"
-  hparams.video_modality_loss_cutoff = 0.0
-  hparams.add_hparam("stochastic_model", True)
-  hparams.add_hparam("reward_prediction", True)
-  hparams.add_hparam("reward_prediction_stop_gradient", True)
-  hparams.add_hparam("model_options", "CDNA")
-  hparams.add_hparam("num_masks", 10)
-  hparams.add_hparam("latent_channels", 1)
-  hparams.add_hparam("latent_std_min", -5.0)
-  hparams.add_hparam("num_iterations_1st_stage", 10000)
-  hparams.add_hparam("num_iterations_2nd_stage", 10000)
-  hparams.add_hparam("latent_loss_multiplier", 1e-3)
-  hparams.add_hparam("latent_loss_multiplier_schedule", "constant")
-  hparams.add_hparam("multi_latent", False)
-  hparams.add_hparam("relu_shift", 1e-12)
-  hparams.add_hparam("dna_kernel_size", 5)
-  # Scheduled sampling method. Choose between prob or count.
-  hparams.add_hparam("scheduled_sampling_mode", "count")
-  hparams.add_hparam("scheduled_sampling_decay_steps", 10000)
-  hparams.add_hparam("scheduled_sampling_k", 900.0)
-  hparams.add_hparam("latent_num_frames", 0)  # 0 means use all frames.
-  hparams.add_hparam("anneal_end", 100000)
-  hparams.add_hparam("upsample_method", "conv2d_transpose")
-  hparams.add_hparam("internal_loss", False)
-  return hparams
-
-
-@registry.register_hparams
-def next_frame_stochastic_emily():
-  """Emily's model."""
-  hparams = next_frame_stochastic()
-  hparams.latent_loss_multiplier = 1e-4
-  hparams.learning_rate_constant = 0.002
-  hparams.add_hparam("z_dim", 10)
-  hparams.add_hparam("g_dim", 128)
-  hparams.add_hparam("rnn_size", 256)
-  hparams.add_hparam("posterior_rnn_layers", 1)
-  hparams.add_hparam("predictor_rnn_layers", 2)
-  return hparams
-
-
-@registry.register_hparams
-def next_frame_savp():
-  """SAVP model."""
-  hparams = next_frame_stochastic()
-  hparams.add_hparam("z_dim", 8)
-  hparams.add_hparam("num_discriminator_filters", 32)
-  hparams.add_hparam("use_vae", True)
-  hparams.add_hparam("use_gan", False)
-  hparams.add_hparam("use_spectral_norm", True)
-  hparams.add_hparam("gan_loss", "cross_entropy")
-  hparams.add_hparam("gan_loss_multiplier", 0.01)
-  hparams.add_hparam("gan_vae_loss_multiplier", 0.01)
-  hparams.add_hparam("gan_optimization", "joint")
-  hparams.target_modality = "video:l1raw"
-  hparams.input_modalities = "inputs:video:l1raw"
-  hparams.latent_loss_multiplier_schedule = "linear_anneal"
-  hparams.anneal_end = 100000
-  hparams.upsample_method = "bilinear_upsample_conv"
-  return hparams
-
-
-@registry.register_hparams
-def next_frame_stochastic_cutoff():
-  """SV2P model with additional cutoff in L2 loss for environments like pong."""
-  hparams = next_frame_stochastic()
-  hparams.video_modality_loss_cutoff = 0.4
-  hparams.video_num_input_frames = 4
-  hparams.video_num_target_frames = 1
-  return hparams
-
-
-@registry.register_hparams
-def next_frame_stochastic_tiny():
-  """SV2P model with additional cutoff in L2 loss for environments like pong."""
-  hparams = next_frame_stochastic()
-  hparams.batch_size = 2
-  hparams.tiny_mode = True
-  hparams.num_masks = 1
-  hparams.video_modality_loss_cutoff = 0.4
-  hparams.video_num_input_frames = 4
-  hparams.video_num_target_frames = 1
-  return hparams
-
-
-@registry.register_hparams
 def next_frame_tpu():
-  hparams = next_frame()
+  hparams = next_frame_basic_deterministic()
   hparams.batch_size = 1
   return hparams
 
@@ -165,7 +70,7 @@ def next_frame_tpu():
 @registry.register_hparams
 def next_frame_ae():
   """Conv autoencoder."""
-  hparams = next_frame()
+  hparams = next_frame_basic_deterministic()
   hparams.input_modalities = "inputs:video:bitwise"
   hparams.hidden_size = 256
   hparams.batch_size = 8
@@ -178,7 +83,7 @@ def next_frame_ae():
 @registry.register_hparams
 def next_frame_small():
   """Small conv model."""
-  hparams = next_frame()
+  hparams = next_frame_basic_deterministic()
   hparams.hidden_size = 32
   return hparams
 
@@ -186,7 +91,7 @@ def next_frame_small():
 @registry.register_hparams
 def next_frame_tiny():
   """Tiny for testing."""
-  hparams = next_frame()
+  hparams = next_frame_basic_deterministic()
   hparams.hidden_size = 32
   hparams.num_hidden_layers = 1
   hparams.num_compress_steps = 2
@@ -197,7 +102,7 @@ def next_frame_tiny():
 @registry.register_hparams
 def next_frame_l1():
   """Basic conv model with L1 modality."""
-  hparams = next_frame()
+  hparams = next_frame_basic_deterministic()
   hparams.target_modality = "video:l1"
   hparams.video_modality_loss_cutoff = 2.4
   return hparams
@@ -206,7 +111,7 @@ def next_frame_l1():
 @registry.register_hparams
 def next_frame_l2():
   """Basic conv model with L2 modality."""
-  hparams = next_frame()
+  hparams = next_frame_basic_deterministic()
   hparams.target_modality = "video:l2"
   hparams.video_modality_loss_cutoff = 2.4
   return hparams

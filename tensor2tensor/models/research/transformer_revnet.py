@@ -19,7 +19,6 @@ from __future__ import division
 from __future__ import print_function
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
-from tensor2tensor.layers import rev_block
 from tensor2tensor.models import transformer
 from tensor2tensor.utils import registry
 
@@ -120,7 +119,7 @@ def transformer_revnet_encoder(encoder_input,
   x1, x2 = tf.split(encoder_input, 2, axis=-1)
 
   with tf.variable_scope(name):
-    y1, y2 = rev_block.rev_block(
+    y1, y2 = tf.contrib.layers.rev_block(
         x1,
         x2,
         f,
@@ -198,7 +197,7 @@ def transformer_revnet_decoder(decoder_input,
   x1, x2 = tf.split(decoder_input, 2, axis=-1)
 
   with tf.variable_scope(name):
-    y1, y2 = rev_block.rev_block(
+    y1, y2 = tf.contrib.layers.rev_block(
         x1,
         x2,
         f,

@@ -35,7 +35,7 @@ import tensorflow as tf
 
 @registry.register_model
 class MtfImageTransformer(mtf_model.MtfModel):
-  """Transformer in mesh_tensorflow."""
+  """Image Transformer in mesh_tensorflow."""
 
   def set_activation_type(self):
     hparams = self._hparams
@@ -66,10 +66,11 @@ class MtfImageTransformer(mtf_model.MtfModel):
     shifted_targets = common_layers.shift_right_2d(targets)
 
     # Declare all the dimensions
-    model_dim = mtf.Dimension("model", hparams.hidden_size)
+    model_dim = mtf.Dimension("d_model", hparams.hidden_size)
     batch_dim = mtf.Dimension("batch", hparams.batch_size)
     length_dim = mtf.Dimension("length", length)
-    filter_dim = mtf.Dimension("filter_size", hparams.filter_size)
+    max_length_dim = mtf.Dimension("max_length", hparams.max_length)
+    filter_dim = mtf.Dimension("d_ff", hparams.d_ff)
     kv_channels = mtf.Dimension("kv_channels", hparams.d_kv)
     heads = mtf.Dimension("heads", hparams.num_heads)
 
@@ -116,12 +117,12 @@ class MtfImageTransformer(mtf_model.MtfModel):
 
     positional_embedding_var = mtf.get_variable(
         mesh, "positional_embedding",
-        mtf.Shape([targets_vocab_dim, model_dim]),
+        mtf.Shape([max_length_dim, model_dim]),
         initializer=tf.random_normal_initializer(),
         activation_dtype=activation_dtype)
     x = (mtf.gather(targets_embedding_var, shifted_targets, targets_vocab_dim) +
          mtf.gather(
-             positional_embedding_var, targets_position, targets_vocab_dim))
+             positional_embedding_var, targets_position, max_length_dim))
 
     # Image Transformer Decoder
     # [ self attention - ffn - residual + dropout] x n
@@ -164,14 +165,15 @@ def mtf_image_transformer_base():
   hparams.no_data_parallelism = True
   hparams.use_fixed_batch_size = True
   hparams.batch_size = 1
-  hparams.max_length = 256
+  hparams.max_length = 3072
   hparams.hidden_size = 256
   hparams.label_smoothing = 0.0
   # 8-way model-parallelism
-  hparams.add_hparam("mesh_shape", "8")
-  hparams.add_hparam("layout", "vocab:0;filter_size:0;heads:0")
+  hparams.add_hparam("mesh_shape", "batch:8")
+  hparams.add_hparam("layout", "batch:batch")
+  hparams.add_hparam("mtf_mode", True)
   hparams.add_hparam("num_heads", 8)
-  hparams.add_hparam("filter_size", 512)
+  hparams.add_hparam("filter_size", 1024)
   hparams.add_hparam("num_encoder_layers", 0)
   hparams.add_hparam("num_decoder_layers", 6)
   hparams.add_hparam("attention_key_size", 256)
@@ -191,6 +193,7 @@ def mtf_image_transformer_base():
   hparams.learning_rate_schedule = "rsqrt_decay"
   hparams.learning_rate_warmup_steps = 10000
   hparams.add_hparam("d_kv", 32)
+  hparams.add_hparam("d_ff", 2048)
 
   # Image related hparams
   hparams.add_hparam("img_len", 32)
@@ -205,7 +208,7 @@ def mtf_image_transformer_tiny():
   """Catch bugs locally..."""
   hparams = mtf_image_transformer_base()
   hparams.hidden_size = 128
-  hparams.filter_size = 256
+  hparams.d_ff = 256
   hparams.batch_size = 4
   hparams.num_encoder_layers = 1
   hparams.num_decoder_layers = 1
@@ -245,6 +248,61 @@ def mtf_image_transformer_base_single():
   hparams.block_length = 128
   hparams.mesh_shape = ""
   hparams.layout = ""
+  return hparams
+
+
+@registry.register_hparams
+def mtf_image_transformer_base_cifar():
+  """Data parallel CIFAR parameters."""
+  hparams = mtf_image_transformer_base()
+  hparams.mesh_shape = "batch:32"
+  hparams.layout = "batch:batch"
+  hparams.batch_size = 128
+  hparams.num_heads = 4
+  hparams.num_decoder_layers = 12
+  hparams.block_length = 256
+  hparams.hidden_size = 512
+  hparams.d_ff = 2048
+  hparams.learning_rate = 0.5
+  hparams.learning_rate_warmup_steps = 6000
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.layer_prepostprocess_dropout = 0.3
+  hparams.unconditional = True
+  return hparams
+
+
+@registry.register_hparams
+def mtf_image_transformer_base_imagenet():
+  """Data parallel CIFAR parameters."""
+  hparams = mtf_image_transformer_base_cifar()
+  hparams.mesh_shape = "batch:32"
+  hparams.layout = "batch:batch"
+  hparams.batch_size = 64
+  hparams.d_ff = 2048
+  hparams.hidden_size = 512
+  hparams.num_decoder_layers = 12
+  hparams.learning_rate = 0.5
+  hparams.learning_rate_warmup_steps = 6000
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.layer_prepostprocess_dropout = 0.1
+  hparams.unconditional = True
+  return hparams
+
+
+@registry.register_hparams
+def mtf_image_transformer_base_imagenet_mp():
+  """Model parallel ImageNet parameters."""
+  hparams = mtf_image_transformer_base_imagenet()
+  hparams.mesh_shape = "model:4;batch:8"
+  hparams.layout = "batch:batch;d_ff:model;heads:model"
+  hparams.batch_size = 32
+  hparams.num_heads = 4
+  hparams.d_ff = 8192
+  hparams.learning_rate_warmup_steps = 6000
+  hparams.layer_prepostprocess_dropout = 0.1
+  hparams.unconditional = True
   return hparams
 
 

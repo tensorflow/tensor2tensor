@@ -20,6 +20,8 @@ from __future__ import print_function
 
 import math
 
+from six.moves import range  # pylint: disable=redefined-builtin
+
 from tensor2tensor.layers import discretization
 from tensor2tensor.models.research import autoencoders
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
@@ -158,6 +160,47 @@ class StackAndSkipWrapper(WrapperBase):
         [
             tf.ones(tf.size(tf.shape(new_values)), dtype=tf.int32)[:-1],
             [self.skip]
+        ],
+        axis=0)
+    assign_op = tf.scatter_update(self._observ, indices, tf.tile(
+        new_values, inx))
+    with tf.control_dependencies([assign_op]):
+      return tf.gather(self.observ, indices)
+
+
+class StackWrapper(WrapperBase):
+  """ A wrapper which stacks previously seen frames. """
+
+  def __init__(self, batch_env, history=4):
+    super(StackWrapper, self).__init__(batch_env)
+    self.history = history
+    self.old_shape = batch_env.observ.shape.as_list()
+    observs_shape = self.old_shape[:-1] + [self.old_shape[-1] * self.history]
+    observ_dtype = tf.float32
+    self._observ = tf.Variable(tf.zeros(observs_shape, observ_dtype),
+                               trainable=False)
+
+  def simulate(self, action):
+    reward, done = self._batch_env.simulate(action)
+    with tf.control_dependencies([reward, done]):
+      new_observ = self._batch_env.observ + 0
+      old_observ = tf.gather(
+          self._observ.read_value(),
+          list(range(self.old_shape[-1], self.old_shape[-1] * self.history)),
+          axis=-1)
+      with tf.control_dependencies([new_observ, old_observ]):
+        with tf.control_dependencies([self._observ.assign(
+            tf.concat([old_observ, new_observ], axis=-1))]):
+          return tf.identity(reward), tf.identity(done)
+
+  def _reset_non_empty(self, indices):
+    # pylint: disable=protected-access
+    new_values = self._batch_env._reset_non_empty(indices)
+    # pylint: enable=protected-access
+    inx = tf.concat(
+        [
+            tf.ones(tf.size(tf.shape(new_values)), dtype=tf.int32)[:-1],
+            [self.history]
         ],
         axis=0)
     assign_op = tf.scatter_update(self._observ, indices, tf.tile(

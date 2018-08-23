@@ -36,23 +36,29 @@ https://arxiv.org/pdf/1707.04585.pdf
 
 import functools
 from tensor2tensor.layers import common_hparams
-from tensor2tensor.layers import rev_block
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
+
+def wrapped_partial(fn, *args, **kwargs):
+  partial = functools.partial(fn, *args, **kwargs)
+  wrapped = functools.update_wrapper(partial, fn)
+  return wrapped
+
+
 conv_initializer = tf.contrib.layers.variance_scaling_initializer(
     factor=2.0, mode='FAN_OUT')
 
-CONFIG = {'2d': {'conv': functools.partial(
+CONFIG = {'2d': {'conv': wrapped_partial(
     tf.layers.conv2d, kernel_initializer=conv_initializer),
                  'max_pool': tf.layers.max_pooling2d,
                  'avg_pool': tf.layers.average_pooling2d,
                  'split_axis': 3,
                  'reduction_dimensions': [1, 2]
                 },
-          '3d': {'conv': functools.partial(
+          '3d': {'conv': wrapped_partial(
               tf.layers.conv3d, kernel_initializer=conv_initializer),
                  'max_pool': tf.layers.max_pooling3d,
                  'avg_pool': tf.layers.average_pooling2d,
@@ -225,9 +231,9 @@ def unit(x1, x2, block_num, depth, num_layers, dim='2d',
   else:
     depth1 = depth2 = depth
 
-  residual = functools.partial(f,
-                               depth1=depth1, depth2=depth2, dim=dim,
-                               training=training, bottleneck=bottleneck)
+  residual = wrapped_partial(f,
+                             depth1=depth1, depth2=depth2, dim=dim,
+                             training=training, bottleneck=bottleneck)
 
   with tf.variable_scope(scope_name):
     downsample = downsample_bottleneck if bottleneck else downsample_residual
@@ -244,10 +250,10 @@ def unit(x1, x2, block_num, depth, num_layers, dim='2d',
 
     # Full block using memory-efficient rev_block implementation.
     with tf.variable_scope('full_block'):
-      x1, x2 = rev_block.rev_block(x1, x2,
-                                   residual,
-                                   residual,
-                                   num_layers=num_layers)
+      x1, x2 = tf.contrib.layers.rev_block(x1, x2,
+                                           residual,
+                                           residual,
+                                           num_layers=num_layers)
       return x1, x2
 
 

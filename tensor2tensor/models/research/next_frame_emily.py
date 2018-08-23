@@ -29,8 +29,8 @@ from __future__ import print_function
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
-from tensor2tensor.models.research import next_frame_params  # pylint: disable=unused-import
 from tensor2tensor.models.research import next_frame_sv2p
+from tensor2tensor.models.research import next_frame_sv2p_params
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
@@ -39,7 +39,7 @@ tfcl = tf.contrib.layers
 
 
 @registry.register_model
-class NextFrameStochasticEmily(next_frame_sv2p.NextFrameStochastic):
+class NextFrameEmily(next_frame_sv2p.NextFrameSv2p):
   """Stochastic Variational Video Prediction Without Learned Prior."""
 
   def encoder(self, inputs, nout):
@@ -261,3 +261,17 @@ class NextFrameStochasticEmily(next_frame_sv2p.NextFrameStochastic):
     tf.logging.info(">>>> Done")
     gen_images = tf.stack(gen_images, axis=0)
     return gen_images, fake_reward_prediction, pred_mu, pred_logvar
+
+
+@registry.register_hparams
+def next_frame_emily():
+  """Emily's model hparams."""
+  hparams = next_frame_sv2p_params.next_frame_sv2p()
+  hparams.latent_loss_multiplier = 1e-4
+  hparams.learning_rate_constant = 0.002
+  hparams.add_hparam("z_dim", 10)
+  hparams.add_hparam("g_dim", 128)
+  hparams.add_hparam("rnn_size", 256)
+  hparams.add_hparam("posterior_rnn_layers", 1)
+  hparams.add_hparam("predictor_rnn_layers", 2)
+  return hparams

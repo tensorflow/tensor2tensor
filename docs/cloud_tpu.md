@@ -20,7 +20,7 @@ for some examples and try out your own problems.
 
 You can train an Automatic Speech Recognition (ASR) model with Transformer
 on TPU by using `transformer` as `model` with `transformer_librispeech_tpu` as
-`hparams_set` and `librispeech` as `problem`. See this [tutorial](tutorials/ast_with_transformer.md) for more details on training it and this
+`hparams_set` and `librispeech` as `problem`. See this [tutorial](tutorials/asr_with_transformer.md) for more details on training it and this
 [notebook](https://colab.research.google.com/github/tensorflow/tensor2tensor/blob/master/tensor2tensor/notebooks/asr_transformer.ipynb) to see how the resulting model transcribes your speech to text.
 
 Image Transformer:
@@ -49,7 +49,7 @@ Configure the `gcloud` CLI:
 gcloud components update
 gcloud auth application-default login
 # Set your default zone to a TPU-enabled zone.
-gcloud config set compute/zone us-central1-f
+gcloud config set compute/zone us-central1-b
 ```
 
 Generate data to GCS.

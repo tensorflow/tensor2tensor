@@ -117,6 +117,7 @@ class MeshTensorFlowTest(parameterized.TestCase, tf.test.TestCase):
     self.assertLen(graph.trainable_variables, 1)
     self.assertLen(graph.all_variables, 2)
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes
   def testLowering(self):
     graph = mtf.Graph()
     mesh = mtf.Mesh(graph, "my_mesh")
@@ -129,8 +130,7 @@ class MeshTensorFlowTest(parameterized.TestCase, tf.test.TestCase):
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
 
     outputs = lowering.export_to_tf_tensor(mtf_inputs)
-    with self.test_session() as sess:
-      inputs_value, outputs_value = sess.run([inputs, outputs])
+    inputs_value, outputs_value = self.evaluate([inputs, outputs])
     self.assertEqual(inputs_value, outputs_value)
 
     # Check that methods run without error.

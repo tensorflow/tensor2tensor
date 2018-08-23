@@ -25,7 +25,7 @@ import numpy as np
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
-from tensor2tensor.models.research import next_frame_params  # pylint: disable=unused-import
+from tensor2tensor.models.research import next_frame_savp_params  # pylint: disable=unused-import
 from tensor2tensor.models.research import next_frame_sv2p
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import update_ops_hook
@@ -35,7 +35,7 @@ gan_losses = tf.contrib.gan.losses.wargs
 
 
 @registry.register_model
-class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
+class NextFrameSAVP(next_frame_sv2p.NextFrameSv2p):
   """Stochastic Adversarial Video Prediction."""
 
   def encoder(self, inputs, n_layers=3):
@@ -397,7 +397,7 @@ class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
 
       for step, (image, action, reward, mu, log_sigma_sq) in enumerate(iterable):  # pylint:disable=line-too-long
         # Sample latents using a gaussian centered at conditional mu and std.
-        latent = self.get_gaussian_latent(mu, log_sigma_sq)
+        latent = common_video.get_gaussian_tensor(mu, log_sigma_sq)
 
         # Sample prior latents from isotropic normal distribution.
         prior_latent = tf.random_normal(tf.shape(latent), dtype=tf.float32)
