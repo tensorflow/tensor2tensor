@@ -35,8 +35,18 @@ class MtfTransformer(mtf_model.MtfModel):
   """Transformer in mesh_tensorflow."""
 
   @property
-  def batch_dim(self):
-    return mtf.Dimension("batch", self._hparams.batch_size)
+  def batch_dims(self):
+    hparams = self._hparams
+    if hparams.outer_batch_size == 0:
+      return [mtf.Dimension("batch", hparams.batch_size)]
+    else:
+      if hparams.batch_size % hparams.outer_batch_size != 0:
+        raise ValueError(
+            "hparams.outer_batch_size must divide hparams.batch_size")
+      return [
+          mtf.Dimension("outer_batch", hparams.outer_batch_size),
+          mtf.Dimension("inner_batch",
+                        hparams.batch_size // hparams.outer_batch_size)]
 
   @property
   def inputs_vocab_dim(self):
@@ -88,9 +98,9 @@ class MtfTransformer(mtf_model.MtfModel):
 
   def _import_to_batch_by_length(self, x, name, mesh, hparams):
     del hparams
-    x = tf.reshape(x, [self.batch_dim.size, self.length_dim.size])
-    return mtf.import_fully_replicated(
-        mesh, x, mtf.Shape([self.batch_dim, self.length_dim]), name=name)
+    mtf_shape = mtf.Shape(self.batch_dims + [self.length_dim])
+    x = tf.reshape(x, mtf_shape.to_integer_list)
+    return mtf.import_fully_replicated(mesh, x, mtf_shape, name=name)
 
   def _embedding_and_softmax_vars(self, mesh):
     hparams = self._hparams
@@ -173,7 +183,7 @@ class MtfTransformer(mtf_model.MtfModel):
     def layer_prepostprocess_dropout(x):
       return mtf.dropout(
           x, keep_prob=1.0 - hparams.layer_prepostprocess_dropout,
-          noise_shape=mtf.Shape([self.batch_dim, self.model_dim]))
+          noise_shape=mtf.Shape(self.batch_dims + [self.model_dim]))
 
     extra_losses = []
     (inputs_embedding_var,
@@ -275,10 +285,10 @@ class MtfTransformer(mtf_model.MtfModel):
     """Feed-forward layer.
 
     Args:
-      x: a mtf.Tensor with shape [batch_dim, length_dim, model_dim]
+      x: a mtf.Tensor with shape [<batch_dims>, length_dim, model_dim]
       losses: a list to be appended-to
     Returns:
-      a mtf.Tensor with shape [batch_dim, length_dim, model_dim]
+      a mtf.Tensor with shape [<batch_dims>, length_dim, model_dim]
     Raises:
       ValueError: if hparams make no sense
     """
@@ -294,9 +304,15 @@ class MtfTransformer(mtf_model.MtfModel):
           self.model_dim,
           hparams,
           hparams.mode == tf.estimator.ModeKeys.TRAIN)
+    elif feedforward_layer == "hmoe":
+      output, loss = moe.transformer_moe_layer_v2(
+          x,
+          self.model_dim,
+          hparams,
+          hparams.mode == tf.estimator.ModeKeys.TRAIN)
       if losses is not None:
         losses.append(loss)
-        return output
+      return output
     else:
       raise ValueError(
           "hparams.feedforward_layer not recognized %s" % feedforward_layer)
@@ -311,26 +327,25 @@ class MtfTransformer(mtf_model.MtfModel):
     """Encoder or decoder stack.
 
     Args:
-      x: a mtf.Tensor with shape [batch_dim, length_dim, model_dim]
+      x: a mtf.Tensor with shape [<batch_dims>, length_dim, model_dim]
       num_layers: an integer
       encoder_output: an optional mtf.Tensor with shape
-        [batch_dim, encoder_length_dim, model_dim]
+        [<batch_dims>, encoder_length_dim, model_dim]
       self_attention_mask: an optional mtf.Tensor with shape
         [batch, length_dim, memory_length_dim] containing values 0 or -inf.
       encdec_attention_mask: an optional mtf.Tensor with shape
         [batch, length_dim, encoder_length_dim] containing values 0 or -inf.
       losses: a list to be appended-to
     Returns:
-      a mtf.Tensor with shape [batch_dim, length_dim, model_dim]
+      a mtf.Tensor with shape [<batch_dims>, length_dim, model_dim]
     Raises:
       ValueError: if hparams make no sense
     """
     hparams = self._hparams
-
     def layer_prepostprocess_dropout(x):
       return mtf.dropout(
           x, keep_prob=1.0 - hparams.layer_prepostprocess_dropout,
-          noise_shape=mtf.Shape([self.batch_dim, self.model_dim]))
+          noise_shape=mtf.Shape(self.batch_dims + [self.model_dim]))
     num_layer_norms = num_layers * (2 if encoder_output is None else 3) + 1
     layer_norms_dim = mtf.Dimension("layer_norms", num_layer_norms)
     layer_norm_combined_var = mtf.get_variable(
@@ -413,13 +428,13 @@ class MtfTransformer(mtf_model.MtfModel):
           k = mtf.einsum(
               [encoder_output, k_var],
               mtf.Shape(
-                  [self.batch_dim, self.heads_dim,
-                   self.memory_length_dim, self.kv_dim]))
+                  self.batch_dims + [self.heads_dim,
+                                     self.memory_length_dim, self.kv_dim]))
           v = mtf.einsum(
               [encoder_output, v_var],
               mtf.Shape(
-                  [self.batch_dim, self.heads_dim,
-                   self.memory_length_dim, self.kv_dim]))
+                  self.batch_dims + [self.heads_dim,
+                                     self.memory_length_dim, self.kv_dim]))
         encdec_tensors.append((q_var, o_var, k, v))
       partial_targets = None
     else:
@@ -444,13 +459,15 @@ class MtfTransformer(mtf_model.MtfModel):
             partial_targets, "partial_targets", mesh, hparams)
 
     if hparams.beam_size == 1:
-      ids_shape = mtf.Shape([self.batch_dim, self.length_dim])
-      kv_shape = mtf.Shape([self.batch_dim, self.heads_dim,
+      ids_shape = mtf.Shape(self.batch_dims + [self.length_dim])
+      kv_shape = mtf.Shape(self.batch_dims +
+                           [self.heads_dim,
                             self.memory_length_dim, self.kv_dim])
     else:
       beam_dim = mtf.Dimension("beam", hparams.beam_size)
-      ids_shape = mtf.Shape([self.batch_dim, beam_dim, self.length_dim])
-      kv_shape = mtf.Shape([self.batch_dim, beam_dim, self.heads_dim,
+      ids_shape = mtf.Shape(self.batch_dims + [beam_dim, self.length_dim])
+      kv_shape = mtf.Shape(self.batch_dims +
+                           [beam_dim, self.heads_dim,
                             self.memory_length_dim, self.kv_dim])
 
     initial_ids = mtf.constant(mesh, 0, ids_shape, dtype=tf.int32)
@@ -527,7 +544,7 @@ class MtfTransformer(mtf_model.MtfModel):
     attention as well as the weight matrices q_var and o_var.
 
     Args:
-      x: a mtf.Tensor with shape [batch_dim, model_dim]
+      x: a mtf.Tensor with shape [<batch_dims>, model_dim]
       step_num: an mtf integer Scalar
       encdec_tensors: an optional list of num_layers tuples, each of the form
         (q_var, o_var, k, v)
@@ -539,7 +556,7 @@ class MtfTransformer(mtf_model.MtfModel):
         [batch, length_dim, encoder_length_dim] containing values 0 or -inf.
 
     Returns:
-      y: a mtf.Tensor with shape [batch_dim, model_dim]
+      y: a mtf.Tensor with shape [<batch_dims>, model_dim]
       new_self_attention_k: a list of num_layers mtf.Tensors, with the same
         shapes as the elements of self_attention_k
       new_self_attention_v: a list of num_layers mtf.Tensors, with the same
@@ -619,6 +636,7 @@ def mtf_transformer_base():
   # round up vocab sizes to be a multiple of this value
   hparams.vocab_divisor = 128
 
+  # options are dense_relu_dense, moe, hmoe
   hparams.add_hparam("feedforward_layer", "dense_relu_dense")
 
   # Use targets_embedding_var * rsqrt(d_model) as softmax_var
@@ -642,6 +660,13 @@ def mtf_transformer_base():
   #        decode_length_multiplier * input_length + decode_length_constant)
   hparams.add_hparam("decode_length_multiplier", 1.5)
   hparams.add_hparam("decode_length_constant", 10.0)
+
+  # If nonzero, we split the batch across two tensor-dimensions named
+  # "outer_batch" and "inner_batch", allowing for splitting across two mesh
+  # dimensions.  This is necessary for hierarchical mixture of experts.
+  # The two tensor dimensions have sizes hparams.outer_batch_size and
+  # hparams.batch_size // hparams.outer_batch_size.
+  hparams.add_hparam("outer_batch_size", 0)
 
   return hparams
 

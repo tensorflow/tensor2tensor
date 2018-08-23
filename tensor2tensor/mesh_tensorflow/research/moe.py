@@ -99,27 +99,28 @@ def transformer_moe_layer_v1(inputs, output_dim, hparams, train):
   input_dim = inputs.shape.dims[-1]
   hidden_dim = mtf.Dimension("expert_hidden", hparams.moe_hidden_size)
   experts_dim = mtf.Dimension("experts", hparams.moe_num_experts)
-  group_dim = mtf.Dimension("group", hparams.moe_group_size)
+  group_size_dim = mtf.Dimension("group", hparams.moe_group_size)
   batch_dim = mtf.Dimension(
       orig_inputs.shape[0].name,
-      orig_inputs.shape.size // (group_dim.size * input_dim.size))
-  inputs = mtf.reshape(inputs, [batch_dim, group_dim, input_dim])
+      orig_inputs.shape.size // (group_size_dim.size * input_dim.size))
+  inputs = mtf.reshape(inputs, [batch_dim, group_size_dim, input_dim])
 
   # Each sequence sends expert_capacity positions to each expert.
   capacity_factor = (
       hparams.moe_capacity_factor_train if train else
       hparams.moe_capacity_factor_eval)
   expert_capacity = min(
-      group_dim.size,
-      int((group_dim.size * capacity_factor) / experts_dim.size))
+      group_size_dim.size,
+      int((group_size_dim.size * capacity_factor) / experts_dim.size))
   expert_capacity_dim = mtf.Dimension("expert_capacity", expert_capacity)
 
   experts_dim_unsplit = mtf.Dimension("expert_unsplit", experts_dim.size)
   batch_dim_unsplit = mtf.Dimension("batch_unsplit", batch_dim.size)
 
   if hparams.moe_gating == "top_2":
-    forward_assignment, backward_assignment, loss = _top_2_gating(
+    dispatch_tensor, combine_tensor, loss = _top_2_gating(
         inputs=inputs,
+        outer_expert_dims=None,
         experts_dim=experts_dim_unsplit,
         expert_capacity_dim=expert_capacity_dim,
         max_experts=None,
@@ -129,7 +130,7 @@ def transformer_moe_layer_v1(inputs, output_dim, hparams, train):
     raise ValueError("unknown hparams.moe_gating=%s" % hparams.moe_gating)
 
   # put num_experts dimension first to make split easier in alltoall
-  expert_inputs = mtf.einsum([inputs, forward_assignment], mtf.Shape(
+  expert_inputs = mtf.einsum([inputs, dispatch_tensor], mtf.Shape(
       [experts_dim_unsplit, batch_dim, expert_capacity_dim, input_dim]))
 
   expert_inputs = mtf.reshape(expert_inputs, mtf.Shape(
@@ -145,16 +146,239 @@ def transformer_moe_layer_v1(inputs, output_dim, hparams, train):
   expert_output = mtf.reshape(expert_output, mtf.Shape(
       [experts_dim_unsplit, batch_dim, expert_capacity_dim, input_dim]))
 
-  output = mtf.einsum([expert_output, backward_assignment], mtf.Shape(
-      [batch_dim, group_dim, output_dim]))
+  output = mtf.einsum([expert_output, combine_tensor], mtf.Shape(
+      [batch_dim, group_size_dim, output_dim]))
 
   output = mtf.reshape(output, orig_inputs.shape.dims[:-1] + [output_dim])
 
   return output, loss * hparams.moe_loss_coef
 
 
+def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
+  """2-level mixture of experts.
+
+  Adapted from the paper https://arxiv.org/abs/1701.06538
+
+  Note: until the algorithm and inferface solidify, we pass in a hyperparameters
+  dictionary in order not to complicate the interface in mtf_transformer.py .
+  Once this code moves out of "research", we should pass the hyperparameters
+  separately.
+
+  Hyperparameters used:
+    hparams.moe_num_experts: number of experts
+    hparams.moe_hidden_size: size of hidden layer in each expert
+    hparams.moe_group_size: size of each "group" for gating purposes
+    hparams.moe_capacity_factor_train: a float
+    hparams.moe_capacity_factor_eval: a float
+    hparams.moe_gating: a string
+    + all hyperparmeters used by _top_2_gating()
+
+  One set of params for experts in first level and different of hparams
+  per expert in the second level.
+  The number of parameters in the gating network is:
+    (input_dim.size * (hparams.num_experts) +
+      (moe_hidden_size * hparams.num_experts) * hparams.num_experts
+
+
+  The number of parameters in the experts themselves is:
+    (hparams.num_experts
+     * (input_dim.size + output_dim.size)
+     * hparams.moe_hidden_size)
+
+  The input is n-dimensional: [<batch_and_length_dims>, input_dim], consisting
+  of the representations of all positions in a batch of sequences.
+
+  Each position of each sequence is sent to 0-2 experts.  The expert
+  choices and the combination weights are determined by a learned gating
+  function.
+
+  This function returns a small auxiliary loss that should be added to the
+  training loss of the model.  This loss helps to balance expert usage.
+  Without the loss, it is very likely that a few experts will be trained and
+  the rest will starve.
+
+  Several hacks are necessary to get around current TPU limitations:
+
+  - To ensure static shapes, we enforce (by truncation/padding)
+    that each sequence send the same number of elements to each expert.
+
+    It would make more sense to enforce this equality over the entire batch,
+    but due to our hacked-up gather-by-matmul implementation, we need to divide
+    the batch into "groups".  For each group, the same number of elements
+    are sent to each expert.
+
+  TODO(noam): Factor this code better.  We want to be able to substitute
+  different code for the experts themselves.
+
+  Dimensions cheat sheet:
+  a, b: batch size
+  l: original sequence length
+  m: input depth
+  n: output depth
+  g, h: number of groups
+  s, t: group size
+  x, y: number of experts
+  c, d: expert capacity
+
+  input: [a0, b1, l, m]
+  input: [a0, g1, s, m]
+  dispatch_tensor_x: [a0, g1, s, x, c]
+  expert_input: [a0, g1, x, c, m]
+  alltoall: [a0, g, x1, c, m]
+  alltoall: [a0, g, x1, c, m]
+  transpose: [x1, a0, g, c, m]
+  reshape: [x1, h0, s, m]
+  assignment2: [x1, h0, t, y, d]
+  expert_input2: [x1, h0, y, d, m]
+  alltoall: [x1, h, y0, d, m]
+  ...
+  reverse of that
+
+  gating params 0: [m, x]
+  gating params 1: [x1, m, y]
+
+  expert params:
+     [x1, y0, m, hidden]
+     [x1, y0, hidden, n]
+
+  Args:
+    inputs: a mtf.Tensor with shape [a, b, l, m]
+    output_dim: a mtf.Dimension (for Transformer, this is input_dim)
+    hparams: model hyperparameters
+    train: a boolean
+
+  Returns:
+    outputs: a Tensor with shape [a, b, l, n]
+    loss: a mtf scalar
+
+  Raises:
+    ValueError: on unrecognized hparams.moe_gating
+  """
+  assert len(hparams.moe_num_experts) == 2
+  a0, b1, l, m = inputs.shape.dims
+  # a = mtf.Dimension("a_unsplit", a0.size)
+  # b = mtf.Dimension("b_unsplit", b1.size)
+  hidden_dim = mtf.Dimension("expert_hidden", hparams.moe_hidden_size)
+  x1 = mtf.Dimension("expert_x", hparams.moe_num_experts[0])
+  y0 = mtf.Dimension("expert_y", hparams.moe_num_experts[1])
+  x = mtf.Dimension("expert_x_unsplit", hparams.moe_num_experts[0])
+  y = mtf.Dimension("expert_y_unsplit", hparams.moe_num_experts[1])
+  s = mtf.Dimension("group_size_x", hparams.moe_group_size[0])
+  t = mtf.Dimension("group_size_y", hparams.moe_group_size[1])
+  g1 = mtf.Dimension(b1.name, b1.size * l.size // s.size)
+  g = mtf.Dimension(b1.name + "_unsplit", b1.size * l.size // s.size)
+  n = output_dim
+
+  # First level of expert routing
+  inputs = mtf.reshape(inputs, [a0, g1, s, m])
+
+  # Each sequence sends (at most?) expert_capacity positions to each expert.
+  # Static expert_capacity dimension is needed for expert batch sizes
+  capacity_factor = (
+      hparams.moe_capacity_factor_train if train else
+      hparams.moe_capacity_factor_eval)
+  expert_capacity = min(
+      s.size,
+      int((s.size * capacity_factor) / x.size))
+  c = mtf.Dimension("expert_capacity_x", expert_capacity)
+
+  # Get the assignments for the first level.
+  # dispatch_tensor_x has shape [a0, g1, s, x, c]
+  if hparams.moe_gating == "top_2":
+    dispatch_tensor_x, combine_tensor_x, loss_outer = _top_2_gating(
+        inputs=inputs,
+        outer_expert_dims=None,
+        experts_dim=x,
+        expert_capacity_dim=c,
+        max_experts=None,
+        hparams=hparams,
+        train=train)
+  else:
+    raise ValueError("unknown hparams.moe_gating=%s" % hparams.moe_gating)
+
+  # Now create expert_inputs based on the assignments.
+  # put num_experts dimension first to make split easier in alltoall
+  expert_inputs_x = mtf.einsum([inputs, dispatch_tensor_x], mtf.Shape(
+      [x, a0, g1, c, m]))
+
+  # First level, all to all. Here we change the split dimension from g1 to x1.
+  expert_inputs_x = mtf.reshape(expert_inputs_x, mtf.Shape(
+      [x1, a0, g, c, m]))
+
+  # Second level of expert routing
+
+  numerator = a0.size * g.size * c.size
+  if numerator % t.size != 0:
+    raise ValueError("cannont divide evenly %s / %s" % (numerator, t.size))
+  h0 = mtf.Dimension(a0.name, numerator // t.size)
+  h = mtf.Dimension(a0.name + "_unsplit", h0.size)
+  inputs_y = mtf.reshape(expert_inputs_x, [x1, h0, t, m])
+
+  expert_capacity = min(
+      t.size,
+      int((t.size * capacity_factor) / y.size))
+  d = mtf.Dimension("expert_capacity_y", expert_capacity)
+
+  # Get the assignments for the second level.
+  # dispatch_tensor_x has shape [x1, h0, t, y, d]
+  if hparams.moe_gating == "top_2":
+    dispatch_tensor_y, combine_tensor_y, loss_inner = _top_2_gating(
+        inputs=inputs_y,
+        outer_expert_dims=[x1],
+        experts_dim=y,
+        expert_capacity_dim=d,
+        max_experts=None,
+        hparams=hparams,
+        train=train)
+  else:
+    raise ValueError("unknown hparams.moe_gating=%s" % hparams.moe_gating)
+
+  # Now create expert_inputs based on the assignments.
+  # put num_experts dimension first to make split easier in alltoall
+  expert_inputs_y = mtf.einsum([inputs_y, dispatch_tensor_y], mtf.Shape(
+      [y, x1, h0, d, m]))
+
+  # Second level, all to all. Here we change the split dimension from h0 to y0.
+  expert_inputs_y = mtf.reshape(expert_inputs_y, mtf.Shape(
+      [y0, x1, h, d, m]))
+
+  # Now feed the expert inputs through the experts.
+  hidden_output = mtf_layers.dense(
+      expert_inputs_y, hidden_dim, expert_dims=[y0, x1],
+      activation=mtf.relu, use_bias=False, name="expert0")
+  expert_output = mtf_layers.dense(
+      hidden_output, output_dim, expert_dims=[y0, x1],
+      use_bias=False, name="expert1")
+
+  # NOW COMBINE EXPERT OUTPUTS (reversing everything we have done)
+  # expert_output has shape [y0, x1, h, d, n]
+
+  # alltoall
+  expert_output = mtf.reshape(expert_output, mtf.Shape(
+      [y, x1, h0, d, n]))
+
+  # combine results from inner level
+  output_y = mtf.einsum([expert_output, combine_tensor_y], mtf.Shape(
+      [x1, h0, t, n]))
+
+  # simple reshape
+  output = mtf.reshape(output_y, [x1, a0, g, c, n])
+
+  # alltoall
+  expert_output_x = mtf.reshape(output, mtf.Shape([x, a0, g1, c, n]))
+
+  # combine results from outer level
+  output_x = mtf.einsum([expert_output_x, combine_tensor_x], mtf.Shape(
+      [a0, g1, s, m]))
+
+  # simple reshape
+  output = mtf.reshape(output_x, [a0, b1, l, n])
+  return output, (loss_outer + loss_inner) * hparams.moe_loss_coef
+
+
 def _top_2_gating(
-    inputs, experts_dim, expert_capacity_dim, max_experts, hparams, train):
+    inputs, outer_expert_dims, experts_dim, expert_capacity_dim, max_experts,
+    hparams, train):
   """Compute gating for mixture-of-experts in TensorFlow.
 
   Note: until the algorithm and inferface solidify, we pass in a hyperparameters
@@ -168,46 +392,52 @@ def _top_2_gating(
     hparams.moe_second_policy_eval: a string
     hparams.moe_second_threshold: a float
 
-  max_experts is an float tensor with shape [batch_dim, group_dim]
+  max_experts is an float tensor with shape [<batch_dims>, group_size_dim]
   indicating at most how many experts to use per example.  This can be
   used to prevent padding from going to experts.
 
   The returned forward assignment is a tensor used to map (via einsum) from the
-  inputs to the expert_inputs.  Likewise, the returned backward_assignment is
+  inputs to the expert_inputs.  Likewise, the returned combine_tensor is
   used to map (via einsum) from the expert outputs to the outputs.  Both the
   forward and backward assignments are mostly zeros.  The shapes of all of these
   are as follows.
 
-  inputs: [batch_dim, group_dim, input_dim]
-  forward_assignment: [batch_dim, group_dim, experts_dim, expert_capacity_dim]
-  expert_inputs: [batch_dim, experts_dim, expert_capacity_dim, input_dim]
+  inputs: [<batch_dims>, group_size_dim, input_dim]
+  dispatch_tensor:
+    [<batch_dims>, group_size_dim, experts_dim, expert_capacity_dim]
+  expert_inputs:
+    [<batch_dims>, experts_dim, expert_capacity_dim, input_dim]
 
-  expert_outputs: [batch_dim, experts_dim, expert_capacity_dim, output_dim]
-  backward_assignment: [batch_dim, group_dim, experts_dim, expert_capacity_dim]
-  outputs: [batch_dim, group_dim, output_dim]
+  expert_outputs: [<batch_dims>, experts_dim, expert_capacity_dim, output_dim]
+  combine_tensor:
+    [<batch_dims>, group_size_dim, experts_dim, expert_capacity_dim]
+  outputs: [<batch_dims>, group_size_dim, output_dim]
 
   Args:
-    inputs: a mtf.Tensor with shape [batch_dim, group_dim, input_dim]
+    inputs: a mtf.Tensor with shape [<batch_dims>, group_size_dim, input_dim]
+    outer_expert_dims: an optional list of dimensions.  This is for the case
+      where we are at an inner level of a hierarchical MoE.
     experts_dim: a Dimension (the number of experts)
     expert_capacity_dim: a Dimension (number of examples per group per expert)
-    max_experts: optional mtf.Tensor with shape [batch_dim, group_dim]
+    max_experts: optional mtf.Tensor with shape [<batch_dims>, group_size_dim]
     hparams: model hyperparameters.
     train: a boolean
 
   Returns:
-    forward_assignment: a Tensor with shape
-      [batch_dim, group_dim, experts_dim, expert_capacity_dim]
-    backward_assignment: a Tensor with shape
-      [batch_dim, group_dim, experts_dim, expert_capacity_dim]
+    dispatch_tensor: a Tensor with shape
+      [<batch_dims>, group_size_dim, experts_dim, expert_capacity_dim]
+    combine_tensor: a Tensor with shape
+      [<batch_dims>, group_size_dim, experts_dim, expert_capacity_dim]
     loss: a mtf scalar
 
   Raises:
     ValueError: on illegal hyperparameters
   """
-  unused_batch_dim, group_dim, unused_input_dim = inputs.shape.dims
+  group_size_dim, unused_input_dim = inputs.shape.dims[-2:]
 
   raw_gates = mtf.softmax(mtf_layers.dense(
-      inputs, experts_dim, use_bias=False), experts_dim)
+      inputs, experts_dim, use_bias=False,
+      expert_dims=outer_expert_dims), experts_dim)
 
   expert_capacity_f = float(expert_capacity_dim.size)
 
@@ -233,9 +463,9 @@ def _top_2_gating(
   # BALANCING LOSSES
   # shape = [batch, experts]
   # We want to equalize the fraction of the batch assigned to each expert
-  density_1 = mtf.reduce_mean(mask_1, reduced_dim=group_dim)
+  density_1 = mtf.reduce_mean(mask_1, reduced_dim=group_size_dim)
   # Something continuous that is correlated with what we want to equalize.
-  density_1_proxy = mtf.reduce_mean(raw_gates, reduced_dim=group_dim)
+  density_1_proxy = mtf.reduce_mean(raw_gates, reduced_dim=group_size_dim)
   density_1 = mtf.Print(
       density_1, [mtf.reduce_mean(density_1, output_shape=[experts_dim])],
       "density_1", summarize=1000)
@@ -246,12 +476,12 @@ def _top_2_gating(
     # Also add a loss to encourage all experts to be used equally also as the
     # second-place expert.  Experimentally, this seems to be a wash.
     # We want to equalize the fraction of the batch assigned to each expert:
-    density_2 = mtf.reduce_mean(mask_2, reduced_dim=group_dim)
+    density_2 = mtf.reduce_mean(mask_2, reduced_dim=group_size_dim)
     # As a proxy for density_2, we renormalize the raw gates after the top one
     # has been removed.
     normalized = gates_without_top_1 / (
         mtf.reduce_sum(gates_without_top_1, reduced_dim=experts_dim) + 1e-9)
-    density_2_proxy = mtf.reduce_mean(normalized, reduced_dim=group_dim)
+    density_2_proxy = mtf.reduce_mean(normalized, reduced_dim=group_size_dim)
     loss_2 = (mtf.reduce_mean(density_2_proxy * density_2)
               * float(experts_dim.size * experts_dim.size))
     loss += loss_2 * 0.5
@@ -287,12 +517,13 @@ def _top_2_gating(
   # COMPUTE ASSIGNMENT TO EXPERTS
   # [batch, group, experts]
   # This is the position within the expert's mini-batch for this sequence
-  position_in_expert_1 = mtf.cumsum(mask_1, group_dim, exclusive=True) * mask_1
+  position_in_expert_1 = mtf.cumsum(
+      mask_1, group_size_dim, exclusive=True) * mask_1
   # Remove the elements that don't fit. [batch, group, experts]
   mask_1 *= mtf.to_float(mtf.less(position_in_expert_1, expert_capacity_f))
   # [batch, experts]
   # How many examples in this sequence go to this expert
-  mask_1_count = mtf.reduce_sum(mask_1, reduced_dim=group_dim)
+  mask_1_count = mtf.reduce_sum(mask_1, reduced_dim=group_size_dim)
   # [batch, group] - mostly ones, but zeros where something didn't fit
   mask_1_flat = mtf.reduce_sum(mask_1, reduced_dim=experts_dim)
   # [batch, group]
@@ -303,7 +534,7 @@ def _top_2_gating(
 
   # [batch, group, experts]
   position_in_expert_2 = (
-      mtf.cumsum(mask_2, group_dim, exclusive=True) + mask_1_count)
+      mtf.cumsum(mask_2, group_size_dim, exclusive=True) + mask_1_count)
   position_in_expert_2 *= mask_2
   mask_2 *= mtf.to_float(mtf.less(position_in_expert_2, expert_capacity_f))
   # mask_2_count = mtf.reduce_sum(mask_2, reduced_dim=experts_dim)
@@ -318,7 +549,7 @@ def _top_2_gating(
   gate_2 /= denom
 
   # [batch, group, experts, expert_capacity]
-  backward_assignment = (
+  combine_tensor = (
       gate_1 * mask_1_flat
       * mtf.one_hot(index_1, experts_dim)
       * mtf.one_hot(mtf.to_int32(position_in_expert_1), expert_capacity_dim) +
@@ -326,10 +557,10 @@ def _top_2_gating(
       * mtf.one_hot(index_2, experts_dim)
       * mtf.one_hot(mtf.to_int32(position_in_expert_2), expert_capacity_dim))
 
-  forward_assignment = mtf.cast(
-      mtf.cast(backward_assignment, tf.bool), backward_assignment.dtype)
+  dispatch_tensor = mtf.cast(
+      mtf.cast(combine_tensor, tf.bool), combine_tensor.dtype)
 
-  return forward_assignment, backward_assignment, loss
+  return dispatch_tensor, combine_tensor, loss
 
 
 def set_default_moe_hparams(hparams):

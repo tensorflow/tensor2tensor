@@ -123,3 +123,16 @@ def mtf_transformer_lm_moe():
   return hparams
 
 
+@registry.register_hparams
+def xmoe_2d():
+  """Two-dimensional hierarchical mixture of experts."""
+  hparams = xmoe_top_2()
+  hparams.mesh_shape = "b0:2;b1:4"
+  hparams.outer_batch_size = 4
+  hparams.layout = "outer_batch:b0;inner_batch:b1,expert_x:b1,expert_y:b0"
+  hparams.moe_num_experts = [4, 4]
+  hparams.moe_group_size = [256, 256]
+  hparams.feedforward_layer = "hmoe"
+  return hparams
+
+
