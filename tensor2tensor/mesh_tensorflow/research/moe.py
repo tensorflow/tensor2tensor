@@ -254,6 +254,11 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
   Raises:
     ValueError: on unrecognized hparams.moe_gating
   """
+  insert_outer_batch_dim = (len(inputs.shape.dims) == 3)
+  if insert_outer_batch_dim:
+    inputs = mtf.reshape(
+        inputs, [mtf.Dimension("outer_batch", 1)] + inputs.shape.dims)
+
   assert len(hparams.moe_num_experts) == 2
   a0, b1, l, m = inputs.shape.dims
   hidden_dim = mtf.Dimension("expert_hidden", hparams.moe_hidden_size)
@@ -261,9 +266,13 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
   y0 = mtf.Dimension("expert_y", hparams.moe_num_experts[1])
   x = mtf.Dimension("expert_x_unsplit", hparams.moe_num_experts[0])
   y = mtf.Dimension("expert_y_unsplit", hparams.moe_num_experts[1])
-  s = mtf.Dimension("group_size_x", hparams.moe_group_size[0])
-  t = mtf.Dimension("group_size_y", hparams.moe_group_size[1])
   n = output_dim
+
+  numerator = b1.size * l.size
+  s = mtf.Dimension("group_size_x", _largest_divisor_leq(
+      numerator, hparams.moe_group_size))
+  g1 = mtf.Dimension(b1.name, numerator // s.size)
+  g = mtf.Dimension(b1.name + "_unsplit", g1.size)
 
   # Each sequence sends (at most?) expert_capacity positions to each expert.
   # Static expert_capacity dimension is needed for expert batch sizes
@@ -274,19 +283,17 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
       s.size,
       int((s.size * capacity_factor) / x.size))
   c = mtf.Dimension("expert_capacity_x", expert_capacity)
+
+  numerator = a0.size * g.size * c.size
+  t = mtf.Dimension("group_size_y", _largest_divisor_leq(
+      numerator, hparams.moe_group_size))
+  h0 = mtf.Dimension(a0.name, numerator // t.size)
+  h = mtf.Dimension(a0.name + "_unsplit", h0.size)
+
   expert_capacity = min(
       t.size,
       int((t.size * capacity_factor) / y.size))
   d = mtf.Dimension("expert_capacity_y", expert_capacity)
-
-  g1 = mtf.Dimension(b1.name, b1.size * l.size // s.size)
-  g = mtf.Dimension(b1.name + "_unsplit", b1.size * l.size // s.size)
-
-  numerator = a0.size * g.size * c.size
-  if numerator % t.size != 0:
-    raise ValueError("cannot divide evenly %s / %s" % (numerator, t.size))
-  h0 = mtf.Dimension(a0.name, numerator // t.size)
-  h = mtf.Dimension(a0.name + "_unsplit", h0.size)
 
   # First level of expert routing
   # Reshape the inner batch size to a multiple of group_dim g1 and
@@ -377,6 +384,8 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
   # Reshape the combined tensor to now contain inner_batch_dim
   # b1 and the original sequence length
   output = mtf.reshape(output_x, [a0, b1, l, n])
+  if insert_outer_batch_dim:
+    output = mtf.reshape(output, [b1, l, n])
   return output, (loss_outer + loss_inner) * hparams.moe_loss_coef
 
 
@@ -598,3 +607,10 @@ def set_default_moe_hparams(hparams):
   hparams.add_hparam("moe_second_policy_eval", "random")
   hparams.add_hparam("moe_second_threshold_train", 0.2)
   hparams.add_hparam("moe_second_threshold_eval", 0.2)
+
+
+def _largest_divisor_leq(numerator, maximum):
+  x = maximum
+  while numerator % x != 0:
+    x -= 1
+  return x

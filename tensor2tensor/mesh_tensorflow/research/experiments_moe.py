@@ -37,9 +37,9 @@ def xmoe_dense_4k():
   model             params(M)  einsum  alltoall  mxu-util  log-ppl(1ep) (3ep)
   xmoe_dense_4k     30         3.0e12  0         45%        3.31
   xmoe_dense_8k     46         4.7e12  0         49%        3.24
-  xmoe_dense_64k                       0                    3.06
-  xmoe_top_2        282        4.0e12  3.4e8     36%
-  xmoe_top_2_c15    282        4.5e12  4.0e8     38%
+  xmoe_dense_64k    282        2.8e13  0                    3.06
+  xmoe_top_2        282        4.0e12  3.4e8     36%        3.07
+  xmoe_top_2_c15    282        4.5e12  4.0e8     38%        3.07
 
   Note: configurations and code are likely to change without notice.
 
@@ -131,8 +131,18 @@ def xmoe_2d():
   hparams.outer_batch_size = 4
   hparams.layout = "outer_batch:b0;inner_batch:b1,expert_x:b1,expert_y:b0"
   hparams.moe_num_experts = [4, 4]
-  hparams.moe_group_size = [256, 256]
   hparams.feedforward_layer = "hmoe"
+  return hparams
+
+
+@registry.register_hparams
+def xmoe_2d_88():
+  """Two-dimensional hierarchical mixture of experts."""
+  hparams = xmoe_2d()
+  hparams.mesh_shape = "b0:4;b1:8"
+  hparams.batch_size = 512
+  hparams.outer_batch_size = 4
+  hparams.moe_num_experts = [8, 8]
   return hparams
 
 
