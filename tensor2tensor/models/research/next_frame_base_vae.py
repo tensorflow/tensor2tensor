@@ -50,12 +50,11 @@ class NextFrameBaseVae(object):
 
   def get_extra_loss(self, mean, std):
     """Losses in addition to the default modality losses."""
-    if self.is_training:
-      beta = self.get_beta()
-      kl_loss = common_layers.kl_divergence(mean, std)
-      tf.summary.histogram("posterior_mean", mean)
-      tf.summary.histogram("posterior_std", std)
-      tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
+    beta = self.get_beta()
+    kl_loss = common_layers.kl_divergence(mean, std)
+    tf.summary.histogram("posterior_mean", mean)
+    tf.summary.histogram("posterior_std", std)
+    tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
     return beta * kl_loss
 
   def construct_latent_tower(self, images, time_axis):
