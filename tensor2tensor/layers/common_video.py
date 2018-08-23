@@ -33,7 +33,7 @@ def swap_time_and_batch_axes(inputs):
 def encode_to_shape(inputs, shape, scope):
   """Encode the given tensor to given image shape."""
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
-    w, h = shape[1].value, shape[2].value
+    w, h = shape[1], shape[2]
     x = inputs
     x = tf.contrib.layers.flatten(x)
     x = tfl.dense(x, w * h, activation=None, name="enc_dense")
@@ -46,7 +46,7 @@ def decode_to_shape(inputs, shape, scope):
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
     x = inputs
     x = tf.contrib.layers.flatten(x)
-    x = tfl.dense(x, shape[2].value, activation=None, name="dec_dense")
+    x = tfl.dense(x, shape[2], activation=None, name="dec_dense")
     x = tf.expand_dims(x, axis=1)
     return x
 

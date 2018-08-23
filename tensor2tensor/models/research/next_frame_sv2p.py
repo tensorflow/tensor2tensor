@@ -123,6 +123,21 @@ class NextFrameSv2p(next_frame_basic_stochastic.NextFrameBasicStochastic):
       x = tf.zeros((batch_size, num_frames, 1, self.hparams.hidden_size))
     return common_video.swap_time_and_batch_axes(x)
 
+  def inject_additional_input(self, layer, inputs, scope, concatenate=True):
+    layer_shape = common_layers.shape_list(layer)
+    input_shape = common_layers.shape_list(inputs)
+    if concatenate:
+      emb = common_video.encode_to_shape(inputs, layer_shape, scope)
+      layer = tf.concat(values=[layer, emb], axis=-1)
+    else:
+      filters = layer_shape[-1]
+      input_reshaped = tf.reshape(inputs, [-1, 1, 1, input_shape[-1]])
+      input_mask = tf.layers.dense(input_reshaped, filters, name=scope)
+      zeros_mask = tf.zeros(layer_shape, dtype=tf.float32)
+      input_broad = input_mask + zeros_mask
+      layer *= input_broad
+    return layer
+
   def bottom_part_tower(self, input_image, input_reward, action, latent,
                         lstm_state, lstm_size, conv_size, concat_latent=False):
     """The bottom part of predictive towers.
@@ -186,28 +201,11 @@ class NextFrameSv2p(next_frame_basic_stochastic.NextFrameBasicStochastic):
     enc2 = tfl.conv2d(hidden4, hidden4.get_shape()[3], [3, 3], strides=(2, 2),
                       padding="SAME", activation=tf.nn.relu, name="conv3")
 
-    # Pass in action if exists.
     if action is not None:
-      if self.hparams.concatenate_actions:
-        emb_action = common_video.encode_to_shape(
-            action, enc2.get_shape(), "action_enc")
-        enc2 = tf.concat(values=[enc2, emb_action], axis=3)
-      else:
-        action_shape = common_layers.shape_list(action)
-        enc2_shape = common_layers.shape_list(enc2)
-        filters = enc2_shape[-1]
-        action_reshaped = tf.reshape(action, [-1, 1, 1, action_shape[-1]])
-        action_mask = tf.layers.dense(action_reshaped, filters)
-        zeros_mask = tf.zeros(enc2_shape, dtype=tf.float32)
-        action_broad = action_mask + zeros_mask
-        enc2 *= action_broad
-
-    # Pass in reward if exists.
+      enc2 = self.inject_additional_input(
+          enc2, action, "action_enc", self.hparams.concatenate_actions)
     if input_reward is not None:
-      emb_reward = common_video.encode_to_shape(
-          input_reward, enc2.get_shape(), "reward_enc")
-      enc2 = tf.concat(values=[enc2, emb_reward], axis=3)
-
+      enc2 = self.inject_additional_input(enc2, input_reward, "reward_enc")
     if latent is not None and not concat_latent:
       with tf.control_dependencies([latent]):
         enc2 = tf.concat([enc2, latent], axis=3)
@@ -221,32 +219,38 @@ class NextFrameSv2p(next_frame_basic_stochastic.NextFrameBasicStochastic):
     hidden5 = tile_and_concat(hidden5, latent, concat_latent=concat_latent)
     return hidden5, (enc0, enc1)
 
-  def reward_prediction(self, input_image, input_reward, action, latent):
+  def reward_prediction(self, input_images, input_reward, action, latent):
     """Builds a reward prediction network."""
-    del action
-    del latent
-
-    conv_size = self.tinyify([32, 32, 16, 4])
+    conv_size = self.tinyify([32, 32, 16, 8])
 
     with tf.variable_scope("reward_pred", reuse=tf.AUTO_REUSE):
-      x = input_image
+      x = tf.concat(input_images, axis=3)
       x = tfcl.batch_norm(x, updates_collections=None,
                           is_training=self.is_training, scope="reward_bn0")
       x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
-                     padding="SAME", activation=tf.nn.relu, name="reward_conv1")
+                     activation=tf.nn.relu, name="reward_conv1")
       x = tfcl.batch_norm(x, updates_collections=None,
                           is_training=self.is_training, scope="reward_bn1")
+
+      # Inject additional inputs
+      if action is not None:
+        x = self.inject_additional_input(
+            x, action, "action_enc", self.hparams.concatenate_actions)
+      if input_reward is not None:
+        x = self.inject_additional_input(x, input_reward, "reward_enc")
+      if latent is not None:
+        latent = tfl.flatten(latent)
+        latent = tf.expand_dims(latent, axis=1)
+        latent = tf.expand_dims(latent, axis=1)
+        x = self.inject_additional_input(x, latent, "latent_enc")
+
       x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(2, 2),
-                     padding="SAME", activation=tf.nn.relu, name="reward_conv2")
+                     activation=tf.nn.relu, name="reward_conv2")
       x = tfcl.batch_norm(x, updates_collections=None,
                           is_training=self.is_training, scope="reward_bn2")
       x = tfl.conv2d(x, conv_size[3], [3, 3], strides=(2, 2),
-                     padding="SAME", activation=tf.nn.relu, name="reward_conv3")
-
-      pred_reward = common_video.decode_to_shape(
-          x, input_reward.shape, "reward_dec")
-
-      return pred_reward
+                     activation=tf.nn.relu, name="reward_conv3")
+      return x
 
   def construct_predictive_tower(
       self, input_image, input_reward, action, lstm_state, latent,
@@ -389,36 +393,45 @@ class NextFrameSv2p(next_frame_basic_stochastic.NextFrameBasicStochastic):
       ValueError: if more than 1 mask specified for DNA model.
     """
     context_frames = self.hparams.video_num_input_frames
+    buffer_size = self.hparams.reward_prediction_buffer_size
+    if buffer_size == 0:
+      buffer_size = context_frames
+    if buffer_size > context_frames:
+      raise ValueError("Buffer size is bigger than context frames %d %d." %
+                       (buffer_size, context_frames))
 
     batch_size = common_layers.shape_list(images)[1]
     ss_func = self.get_scheduled_sample_func(batch_size)
 
     def process_single_frame(prev_outputs, inputs):
       """Process a single frame of the video."""
-      cur_image, cur_reward, action = inputs
-      time_step, prev_image, prev_reward, lstm_states = prev_outputs
+      cur_image, input_reward, action = inputs
+      time_step, prev_image, prev_reward, frame_buf, lstm_states = prev_outputs
 
-      generated_items = [prev_image, prev_reward]
-      groundtruth_items = [cur_image, cur_reward]
+      generated_items = [prev_image]
+      groundtruth_items = [cur_image]
       done_warm_start = tf.greater(time_step, context_frames - 1)
-      input_image, input_reward = self.get_scheduled_sample_inputs(
+      input_image, = self.get_scheduled_sample_inputs(
           done_warm_start, groundtruth_items, generated_items, ss_func)
 
       # Prediction
       pred_image, lstm_states = self.construct_predictive_tower(
-          input_image, input_reward, action, lstm_states, latent)
+          input_image, None, action, lstm_states, latent)
 
       if self.hparams.reward_prediction:
         reward_input_image = pred_image
         if self.hparams.reward_prediction_stop_gradient:
           reward_input_image = tf.stop_gradient(reward_input_image)
-        pred_reward = self.reward_prediction(
-            reward_input_image, input_reward, action, latent)
+        with tf.control_dependencies([time_step]):
+          frame_buf = [reward_input_image] + frame_buf[:-1]
+        pred_reward = self.reward_prediction(frame_buf, None, action, latent)
+        pred_reward = common_video.decode_to_shape(
+            pred_reward, common_layers.shape_list(input_reward), "reward_dec")
       else:
-        pred_reward = input_reward
+        pred_reward = prev_reward
 
       time_step += 1
-      outputs = (time_step, pred_image, pred_reward, lstm_states)
+      outputs = (time_step, pred_image, pred_reward, frame_buf, lstm_states)
 
       return outputs
 
@@ -430,10 +443,12 @@ class NextFrameSv2p(next_frame_basic_stochastic.NextFrameBasicStochastic):
 
     # HACK: Do first step outside to initialize all the variables
     lstm_states = [None] * 7
+    frame_buffer = [tf.zeros_like(images[0])] * buffer_size
     inputs = images[0], rewards[0], actions[0]
     prev_outputs = (tf.constant(0),
                     tf.zeros_like(images[0]),
                     tf.zeros_like(rewards[0]),
+                    frame_buffer,
                     lstm_states)
 
     initializers = process_single_frame(prev_outputs, inputs)
@@ -579,6 +594,8 @@ class NextFrameSv2pTwoFrames(NextFrameSv2p):
       if self.hparams.reward_prediction:
         pred_reward = self.reward_prediction(
             pred_image, input_reward, action, latent)
+        pred_reward = common_video.decode_to_shape(
+            pred_reward, common_layers.shape_list(input_reward), "reward_dec")
       else:
         pred_reward = input_reward
 

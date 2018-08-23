@@ -36,6 +36,7 @@ def next_frame_sv2p():
   hparams.video_modality_loss_cutoff = 0.0
   hparams.add_hparam("reward_prediction", True)
   hparams.add_hparam("reward_prediction_stop_gradient", True)
+  hparams.add_hparam("reward_prediction_buffer_size", 0)
   hparams.add_hparam("model_options", "CDNA")
   hparams.add_hparam("num_masks", 10)
   hparams.add_hparam("multi_latent", False)
