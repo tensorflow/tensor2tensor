@@ -236,3 +236,37 @@ class Img2imgCeleba64(Img2imgCeleba):
     example["inputs"] = image_8
     example["targets"] = image_64
     return example
+
+
+@registry.register_problem
+class ImageCeleba32(Img2imgCeleba):
+  """CelebA resized to spatial dims [32, 32]."""
+
+  def preprocess_example(self, example, unused_mode, unused_hparams):
+    image = example["inputs"]
+    # Remove boundaries in CelebA images. Remove 40 pixels each side
+    # vertically and 20 pixels each side horizontally.
+    image = tf.image.crop_to_bounding_box(image, 40, 20, 218 - 80, 178 - 40)
+    image = image_utils.resize_by_area(image, 32)
+
+    example["inputs"] = image
+    example["targets"] = image
+    return example
+
+
+@registry.register_problem
+class ImageCeleba64(Img2imgCeleba):
+  """CelebA resized to spatial dims [64, 64]."""
+
+  def preprocess_example(self, example, unused_mode, unused_hparams):
+    image = example["inputs"]
+    # Remove boundaries in CelebA images. Remove 40 pixels each side
+    # vertically and 20 pixels each side horizontally.
+    image = tf.image.crop_to_bounding_box(image, 40, 20, 218 - 80, 178 - 40)
+    image = image_utils.resize_by_area(image, 64)
+
+    example["inputs"] = image
+    example["targets"] = image
+    return example
+
+

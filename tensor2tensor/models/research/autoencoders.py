@@ -29,10 +29,6 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
-def lrelu(input_, leak=0.2, name="lrelu"):
-  return tf.maximum(input_, leak * input_, name=name)
-
-
 def reverse_gradient(x, lr=1.0):
   return -lr * x + tf.stop_gradient((1.0 + lr) * x)
 
@@ -88,45 +84,6 @@ class AutoencoderBasic(t2t_model.T2TModel):
         noise = 2.0 * tf.random_uniform(common_layers.shape_list(x)) - 1.0
         return tf.tanh(x) + noise * hparams.bottleneck_noise, 0.0
       return tf.tanh(x), 0.0
-
-  def discriminator(self, x, is_training):
-    """Discriminator architecture based on InfoGAN.
-
-    Args:
-      x: input images, shape [bs, h, w, channels]
-      is_training: boolean, are we in train or eval model.
-
-    Returns:
-      out_logit: the output logits (before sigmoid).
-    """
-    hparams = self.hparams
-    with tf.variable_scope(
-        "discriminator", initializer=tf.random_normal_initializer(stddev=0.02)):
-      batch_size, height, width = common_layers.shape_list(x)[:3]
-      # Mapping x from [bs, h, w, c] to [bs, 1]
-      net = tf.layers.conv2d(
-          x, 64, (4, 4), strides=(2, 2), padding="SAME", name="d_conv1")
-      # [bs, h/2, w/2, 64]
-      net = lrelu(net)
-      net = tf.layers.conv2d(
-          net, 128, (4, 4), strides=(2, 2), padding="SAME", name="d_conv2")
-      # [bs, h/4, w/4, 128]
-      if hparams.discriminator_batchnorm:
-        net = tf.layers.batch_normalization(
-            net, training=is_training, momentum=0.999, name="d_bn2")
-      net = lrelu(net)
-      size = height * width
-      x_shape = x.get_shape().as_list()
-      if x_shape[1] is None or x_shape[2] is None:
-        net = tf.reduce_mean(net, axis=[1, 2])  # [bs, 128]
-      else:
-        net = tf.reshape(net, [batch_size, size * 8])  # [bs, h * w * 8]
-      net = tf.layers.dense(net, 1024, name="d_fc3")  # [bs, 1024]
-      if hparams.discriminator_batchnorm:
-        net = tf.layers.batch_normalization(
-            net, training=is_training, momentum=0.999, name="d_bn3")
-      net = lrelu(net)
-      return net
 
   def unbottleneck(self, x, res_size, reuse=None):
     with tf.variable_scope("unbottleneck", reuse=reuse):
@@ -194,8 +151,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
       reconstr_gan += gumbel_samples
       reconstr_sample = latent_layers.multinomial_sample(
           reconstr_gan, temperature=hparams.gumbel_temperature)
-      reconstr_gan = tf.nn.softmax(
-          reconstr_gan / hparams.gumbel_temperature)
+      reconstr_gan = tf.nn.softmax(reconstr_gan / hparams.gumbel_temperature)
     else:
       reconstr_sample = tf.argmax(reconstr_gan, axis=-1)
       reconstr_gan = tf.nn.softmax(reconstr_gan / 0.1)  # Sharpen a bit.
@@ -251,7 +207,8 @@ class AutoencoderBasic(t2t_model.T2TModel):
         # Add a purely sampled batch on which we'll compute the GAN loss.
         g = self.unbottleneck(
             self.sample(shape=b_shape),
-            common_layers.shape_list(x)[-1], reuse=True)
+            common_layers.shape_list(x)[-1],
+            reuse=True)
         x = tf.concat([g, x], axis=0)
         encoder_layers = [tf.concat([l, l], axis=0) for l in encoder_layers]
     else:
@@ -281,8 +238,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
 
     if hparams.mode == tf.estimator.ModeKeys.PREDICT:
       if hparams.use_vq_loss:
-        (reconstr, _, _, _, _) = discretization.vq_loss(
-            res, labels, vocab_size)
+        (reconstr, _, _, _, _) = discretization.vq_loss(res, labels, vocab_size)
       else:
         reconstr = tf.layers.dense(res, vocab_size, name="autoencoder_final")
       return reconstr, {"bottleneck_loss": 0.0}
@@ -291,8 +247,10 @@ class AutoencoderBasic(t2t_model.T2TModel):
       res_gan, res = tf.split(res, 2, axis=0)
 
     # Losses.
-    losses = {"bottleneck_extra": b_loss,
-              "bottleneck_l2": hparams.bottleneck_l2_factor * xb_loss}
+    losses = {
+        "bottleneck_extra": b_loss,
+        "bottleneck_l2": hparams.bottleneck_l2_factor * xb_loss
+    }
 
     if hparams.use_vq_loss:
       vq_temperature = hparams.vq_temperature / common_layers.inverse_exp_decay(
@@ -320,7 +278,10 @@ class AutoencoderBasic(t2t_model.T2TModel):
         with tf.variable_scope("vq_loss", reuse=True):
           update_means = tf.less(tf.random_uniform([]), update_means_factor)
           reconstr_gan, gan_codes, _, code_loss_gan, _ = discretization.vq_loss(
-              res_gan, labels, vocab_size, do_update=update_means,
+              res_gan,
+              labels,
+              vocab_size,
+              do_update=update_means,
               temperature=vq_temperature)
           code_loss_gan *= hparams.code_loss_factor * update_means_factor
           losses["code_loss_gan"] = code_loss_gan
@@ -337,7 +298,15 @@ class AutoencoderBasic(t2t_model.T2TModel):
       self.image_summary("gan", reconstr_gan)
 
       def discriminate(x):
-        return self.discriminator(x, is_training=is_training)
+        if hparams.discriminator == "default":
+          return common_layers.deep_discriminator(
+              x, hparams.discriminator_batchnorm, is_training)
+        elif hparams.discriminator == "patched":
+          return common_layers.patch_discriminator(x)
+        elif hparams.discriminator == "simple":
+          return common_layers.simple_discriminator(x)
+        else:
+          raise Exception("Unknown discriminator %s" % hparams.discriminator)
 
       tc_shape = common_layers.shape_list(target_codes)
       if len(tc_shape) > 4:
@@ -348,10 +317,10 @@ class AutoencoderBasic(t2t_model.T2TModel):
       gan_lr = common_layers.inverse_exp_decay(
           hparams.gan_codes_warmup_steps * 1.5)
       rev_grad_gan_codes = reverse_gradient(gan_codes, lr=gan_lr)
-      gan_loss = common_layers.sliced_gan_loss(
-          target_codes, rev_grad_gan_codes, discriminate,
-          self.hparams.num_sliced_vecs)
-      gan_loss *= hparams.gan_loss_factor  * update_means_factor
+      gan_loss = common_layers.sliced_gan_loss(target_codes, rev_grad_gan_codes,
+                                               discriminate,
+                                               self.hparams.num_sliced_vecs)
+      gan_loss *= hparams.gan_loss_factor * update_means_factor
       losses["gan_loss"] = -gan_loss
 
     self.image_summary("ae", reconstr)
@@ -705,8 +674,10 @@ class AutoencoderResidualVAE(AutoencoderResidual):
     hparams = self.hparams
     div_x = 2**hparams.num_hidden_layers
     div_y = 1 if self.is1d else 2**hparams.num_hidden_layers
-    size = [hparams.batch_size, hparams.sample_height // div_x,
-            hparams.sample_width // div_y, hparams.bottleneck_bits]
+    size = [
+        hparams.batch_size, hparams.sample_height // div_x,
+        hparams.sample_width // div_y, hparams.bottleneck_bits
+    ]
     size = size if shape is None else shape
     return tf.random_normal(size)
 
@@ -927,7 +898,7 @@ def autoencoder_basic():
   hparams.add_hparam("sample_height", 32)
   hparams.add_hparam("sample_width", 32)
   hparams.add_hparam("discriminator_batchnorm", True)
-  hparams.add_hparam("num_sliced_vecs", 4096)
+  hparams.add_hparam("num_sliced_vecs", 20000)
   hparams.add_hparam("code_loss_factor", 1.0)
   hparams.add_hparam("gan_codes_warmup_steps", 6000)
   hparams.add_hparam("gan_loss_factor", 0.0)
@@ -936,6 +907,7 @@ def autoencoder_basic():
   hparams.add_hparam("gumbel_noise_factor", 0.4)
   hparams.add_hparam("vq_temperature", 0.001)
   hparams.add_hparam("use_vq_loss", int(False))
+  hparams.add_hparam("discriminator", "default")
   return hparams
 
 
@@ -1035,6 +1007,22 @@ def autoencoder_ordered_discrete():
   hparams.bottleneck_noise = 0.8
   hparams.gan_loss_factor = 0.02
   hparams.add_hparam("unordered", False)
+  return hparams
+
+
+@registry.register_hparams
+def autoencoder_ordered_discrete_patched():
+  """Ordered discrete autoencoder model."""
+  hparams = autoencoder_ordered_discrete()
+  hparams.discriminator = "patched"
+  return hparams
+
+
+@registry.register_hparams
+def autoencoder_ordered_discrete_simple():
+  """Ordered discrete autoencoder model."""
+  hparams = autoencoder_ordered_discrete()
+  hparams.discriminator = "simple"
   return hparams
 
 
