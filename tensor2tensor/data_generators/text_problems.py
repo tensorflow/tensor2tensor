@@ -646,9 +646,34 @@ class Text2textTmpdir(Text2TextProblem):
     del data_dir
     is_training = dataset_split == problem.DatasetSplit.TRAIN
     files = self.TRAIN_FILES if is_training else self.EVAL_FILES
-    files = [os.path.join(tmp_dir, f) for f in files]
+    files = [os.path.join(self._tmp_dir_override or tmp_dir, f) for f in files]
     inputs_file, targets_file = files
     return text2text_txt_iterator(inputs_file, targets_file)
+
+  @property
+  def _tmp_dir_override(self):
+    return None
+
+
+class Text2TextRemotedir(Text2textTmpdir):
+  """Text2TextProblem from files in a remote directory.
+
+  SRC_REMOTE_DIR should be a remote directory, e.g. a GCS bucket (gs://...),
+  that contains the following files, 1 record per line:
+
+    * inputs.train.txt
+    * targets.train.txt
+    * inputs.eval.txt
+    * targets.eval.txt
+
+  """
+  # Override in subclass.
+  SRC_REMOTE_DIR = None
+
+  @property
+  def _tmp_dir_override(self):
+    assert self.SRC_REMOTE_DIR
+    return self.SRC_REMOTE_DIR
 
 
 @registry.register_problem
