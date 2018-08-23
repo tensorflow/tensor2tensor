@@ -401,6 +401,23 @@ class GymDiscreteProblemWithAutoencoder(GymRealDiscreteProblem):
       ckpt = ckpts.model_checkpoint_path
       autoencoder_saver.restore(sess, ckpt)
 
+  def hparams(self, defaults, unused_model_hparams):
+    """Overrides VideoProblem.hparams to work on images instead of videos."""
+    p = defaults
+    p.input_modality = {
+        "inputs": ("image", 256),
+    }
+    p.target_modality = ("image", 256)
+    p.input_space_id = problem.SpaceID.IMAGE
+    p.target_space_id = problem.SpaceID.IMAGE
+
+  def preprocess(self, dataset, mode, hparams, interleave=True):
+    """Overrides VideoProblem.preprocess to work on images instead of videos."""
+    def set_targets(example):
+      example["targets"] = example["frame"]
+      return example
+    return dataset.map(set_targets)
+
 
 class GymDiscreteProblemAutoencoded(GymRealDiscreteProblem):
   """Gym discrete problem with frames already autoencoded."""
