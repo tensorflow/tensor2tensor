@@ -136,7 +136,6 @@ def data_parallelism(daisy_chain_variables=True,
     datashard_devices = [""]
     caching_devices = None
   elif is_single_machine:
-    assert not sync
     tf.logging.warn(
         "Schedule=%s. Assuming that training is running on a single machine.",
         schedule)
