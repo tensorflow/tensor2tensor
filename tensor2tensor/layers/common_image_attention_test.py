@@ -24,7 +24,6 @@ from tensor2tensor.layers import common_image_attention
 import tensorflow as tf
 
 
-@tf.contrib.eager.run_all_tests_in_graph_and_eager_modes
 class CommonImageAttentionTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(

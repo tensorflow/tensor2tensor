@@ -701,7 +701,7 @@ def add_positional_embedding_nd(x, max_length, name):
           name + "_%d" % i,
           shape,
           initializer=tf.random_normal_initializer(0, depth**-0.5))
-      var = var * depth**0.5
+      var *= depth**0.5
       x += tf.slice(var, start, size)
     return x
 

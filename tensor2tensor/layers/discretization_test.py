@@ -23,7 +23,6 @@ from tensor2tensor.layers import discretization
 import tensorflow as tf
 
 
-@tf.contrib.eager.run_all_tests_in_graph_and_eager_modes
 class DiscretizationTest(tf.test.TestCase):
   """Tests for discretization layers."""
 
@@ -35,29 +34,37 @@ class DiscretizationTest(tf.test.TestCase):
     x_bit = tf.zeros(shape=[1, 10], dtype=tf.float32)
     x_int = tf.zeros(shape=[1], dtype=tf.int32)
     diff = discretization.bit_to_int(x_bit, num_bits=10) - x_int
-    d = self.evaluate(diff)
-    self.assertEqual(d, 0)
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      d = sess.run(diff)
+      self.assertEqual(d, 0)
 
   def testBitToIntOnes(self):
     x_bit = tf.ones(shape=[1, 3], dtype=tf.float32)
     x_int = 7 * tf.ones(shape=[1], dtype=tf.int32)
     diff = discretization.bit_to_int(x_bit, num_bits=3) - x_int
-    d = self.evaluate(diff)
-    self.assertEqual(d, 0)
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      d = sess.run(diff)
+      self.assertEqual(d, 0)
 
   def testIntToBitZeros(self):
     x_bit = tf.zeros(shape=[1, 10], dtype=tf.float32)
     x_int = tf.zeros(shape=[1], dtype=tf.int32)
     diff = discretization.int_to_bit(x_int, num_bits=10) - x_bit
-    d = self.evaluate(diff)
-    self.assertTrue(np.all(d == 0))
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      d = sess.run(diff)
+      self.assertTrue(np.all(d == 0))
 
   def testIntToBitOnes(self):
     x_bit = tf.ones(shape=[1, 3], dtype=tf.float32)
     x_int = 7 * tf.ones(shape=[1], dtype=tf.int32)
     diff = discretization.int_to_bit(x_int, num_bits=3) - x_bit
-    d = self.evaluate(diff)
-    self.assertTrue(np.all(d == 0))
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      d = sess.run(diff)
+      self.assertTrue(np.all(d == 0))
 
   def testProjectHidden(self):
     hidden_size = 60
@@ -68,9 +75,11 @@ class DiscretizationTest(tf.test.TestCase):
         shape=[num_blocks, hidden_size, block_dim], dtype=tf.float32)
     x_projected = discretization.project_hidden(x, projection_tensors,
                                                 hidden_size, num_blocks)
-    x_projected_eval = self.evaluate(x_projected)
-    self.assertEqual(np.shape(x_projected_eval), (1, num_blocks, block_dim))
-    self.assertTrue(np.all(x_projected_eval == 0))
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      x_projected_eval = sess.run(x_projected)
+      self.assertEqual(np.shape(x_projected_eval), (1, num_blocks, block_dim))
+      self.assertTrue(np.all(x_projected_eval == 0))
 
   def testSliceHiddenZeros(self):
     hidden_size = 60
@@ -78,9 +87,11 @@ class DiscretizationTest(tf.test.TestCase):
     num_blocks = 3
     x = tf.zeros(shape=[1, hidden_size], dtype=tf.float32)
     x_sliced = discretization.slice_hidden(x, hidden_size, num_blocks)
-    x_sliced_eval = self.evaluate(x_sliced)
-    self.assertEqual(np.shape(x_sliced_eval), (num_blocks, block_dim))
-    self.assertTrue(np.all(x_sliced_eval == 0))
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      x_sliced_eval = sess.run(x_sliced)
+      self.assertEqual(np.shape(x_sliced_eval), (num_blocks, block_dim))
+      self.assertTrue(np.all(x_sliced_eval == 0))
 
   def testSliceHiddenOnes(self):
     hidden_size = 60
@@ -88,9 +99,11 @@ class DiscretizationTest(tf.test.TestCase):
     num_blocks = 3
     x = tf.ones(shape=[1, hidden_size], dtype=tf.float32)
     x_sliced = discretization.slice_hidden(x, hidden_size, num_blocks)
-    x_sliced_eval = self.evaluate(x_sliced)
-    self.assertEqual(np.shape(x_sliced_eval), (num_blocks, block_dim))
-    self.assertTrue(np.all(x_sliced_eval == 1))
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      x_sliced_eval = sess.run(x_sliced)
+      self.assertEqual(np.shape(x_sliced_eval), (num_blocks, block_dim))
+      self.assertTrue(np.all(x_sliced_eval == 1))
 
   def testNearestNeighbors(self):
     x = tf.constant([[0, 0.9, 0], [0.8, 0., 0.]], dtype=tf.float32)
@@ -102,14 +115,13 @@ class DiscretizationTest(tf.test.TestCase):
         x, means, block_v_size=4)
     x_means_hot_test = np.array([[0, 1, 0, 0], [1, 0, 0, 0]])
     x_means_hot_test = np.expand_dims(x_means_hot_test, axis=0)
-    x_means_hot_eval = self.evaluate(x_means_hot)
-    self.assertEqual(np.shape(x_means_hot_eval), (1, 2, 4))
-    self.assertTrue(np.all(x_means_hot_eval == x_means_hot_test))
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      x_means_hot_eval = sess.run(x_means_hot)
+      self.assertEqual(np.shape(x_means_hot_eval), (1, 2, 4))
+      self.assertTrue(np.all(x_means_hot_eval == x_means_hot_test))
 
   def testGetVQBottleneck(self):
-    if tf.executing_eagerly():
-      return  # don't run test in Eager mode
-
     bottleneck_bits = 2
     bottleneck_size = 2**bottleneck_bits
     hidden_size = 3
@@ -118,7 +130,7 @@ class DiscretizationTest(tf.test.TestCase):
     assign_op = means.assign(tf.zeros(shape=[bottleneck_size, hidden_size]))
     means_new, _, _ = discretization.get_vq_codebook(bottleneck_size,
                                                      hidden_size)
-    with self.session() as sess:
+    with self.test_session() as sess:
       tf.global_variables_initializer().run()
       sess.run(assign_op)
       self.assertTrue(np.all(sess.run(means_new) == 0))
@@ -130,32 +142,37 @@ class DiscretizationTest(tf.test.TestCase):
         [[1, 0, 0], [0, 1, 0], [0, 0, 1], [9, 9, 9]], dtype=tf.float32)
     x_means_hot, _, _ = discretization.vq_nearest_neighbor(x, means)
     x_means_hot_test = np.array([[0, 1, 0, 0], [1, 0, 0, 0]])
-    x_means_hot_eval = self.evaluate(x_means_hot)
-    self.assertEqual(np.shape(x_means_hot_eval), (2, 4))
-    self.assertTrue(np.all(x_means_hot_eval == x_means_hot_test))
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      x_means_hot_eval = sess.run(x_means_hot)
+      self.assertEqual(np.shape(x_means_hot_eval), (2, 4))
+      self.assertTrue(np.all(x_means_hot_eval == x_means_hot_test))
 
   def testVQDiscreteBottleneck(self):
     x = tf.constant([[0, 0.9, 0], [0.8, 0., 0.]], dtype=tf.float32)
     x_means_hot, _ = discretization.vq_discrete_bottleneck(x, bottleneck_bits=2)
-    self.evaluate(tf.global_variables_initializer())
-    x_means_hot_eval = self.evaluate(x_means_hot)
-    self.assertEqual(np.shape(x_means_hot_eval), (2, 4))
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      x_means_hot_eval = sess.run(x_means_hot)
+      self.assertEqual(np.shape(x_means_hot_eval), (2, 4))
 
   def testVQDiscreteUnbottlenck(self):
     x = tf.constant([[1, 0, 0, 0], [0, 0, 1, 0]], dtype=tf.int32)
     x_means = discretization.vq_discrete_unbottleneck(x, hidden_size=3)
-    self.evaluate(tf.global_variables_initializer())
-    x_means_eval = self.evaluate(x_means)
-    self.assertEqual(np.shape(x_means_eval), (2, 3))
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      x_means_eval = sess.run(x_means)
+      self.assertEqual(np.shape(x_means_eval), (2, 3))
 
   def testGumbelSoftmaxDiscreteBottleneck(self):
     x = tf.constant([[0, 0.9, 0], [0.8, 0., 0.]], dtype=tf.float32)
     tf.add_to_collection(tf.GraphKeys.GLOBAL_STEP, tf.constant(1))
     x_means_hot, _ = discretization.gumbel_softmax_discrete_bottleneck(
         x, bottleneck_bits=2)
-    self.evaluate(tf.global_variables_initializer())
-    x_means_hot_eval = self.evaluate(x_means_hot)
-    self.assertEqual(np.shape(x_means_hot_eval), (2, 4))
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      x_means_hot_eval = sess.run(x_means_hot)
+      self.assertEqual(np.shape(x_means_hot_eval), (2, 4))
 
 
 if __name__ == '__main__':
