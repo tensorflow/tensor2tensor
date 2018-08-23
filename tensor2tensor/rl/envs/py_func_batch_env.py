@@ -41,13 +41,13 @@ class PyFuncBatchEnv(InGraphBatchEnv):
       batch_env: Batch environment.
     """
     self._batch_env = batch_env
-    observ_shape = utils.parse_shape(self._batch_env.observation_space)
+    self._observ_shape = utils.parse_shape(self._batch_env.observation_space)
     observ_dtype = utils.parse_dtype(self._batch_env.observation_space)
     self.action_shape = list(utils.parse_shape(self._batch_env.action_space))
     self.action_dtype = utils.parse_dtype(self._batch_env.action_space)
     with tf.variable_scope('env_temporary'):
       self._observ = tf.Variable(
-          tf.zeros((len(self._batch_env),) + observ_shape, observ_dtype),
+          tf.zeros((len(self._batch_env),) + self._observ_shape, observ_dtype),
           name='observ', trainable=False)
 
   def __getattr__(self, name):
@@ -90,7 +90,6 @@ class PyFuncBatchEnv(InGraphBatchEnv):
       observ, reward, done = tf.py_func(
           lambda a: self._batch_env.step(a)[:3], [action],
           [observ_dtype, tf.float32, tf.bool], name='step')
-      observ = tf.check_numerics(observ, 'observ')
       reward = tf.check_numerics(reward, 'reward')
       reward.set_shape((len(self),))
       done.set_shape((len(self),))
@@ -109,7 +108,7 @@ class PyFuncBatchEnv(InGraphBatchEnv):
     observ_dtype = utils.parse_dtype(self._batch_env.observation_space)
     observ = tf.py_func(
         self._batch_env.reset, [indices], observ_dtype, name='reset')
-    observ = tf.check_numerics(observ, 'observ')
+    observ.set_shape(indices.get_shape().concatenate(self._observ_shape))
     with tf.control_dependencies([
         tf.scatter_update(self._observ, indices, observ)]):
       return tf.identity(observ)

@@ -45,14 +45,14 @@ class HistoryBuffer(object):
     self.length = length
     initial_frames = self.get_initial_observations()
     initial_shape = [length] + common_layers.shape_list(initial_frames)[1:]
-    self._history_buff = tf.Variable(tf.zeros(initial_shape, tf.float32),
+    self._history_buff = tf.Variable(tf.zeros(initial_shape, tf.int32),
                                      trainable=False)
 
   def initialize(self, sess):
     sess.run(self.input_data_iterator.initializer)
 
   def get_initial_observations(self):
-    return tf.cast(self.input_data_iterator.get_next(), tf.float32)
+    return tf.cast(self.input_data_iterator.get_next(), tf.int32)
 
   def get_all_elements(self):
     return self._history_buff.read_value()
@@ -138,7 +138,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     shape = (self.length, initial_frames_problem.frame_height,
              initial_frames_problem.frame_width,
              initial_frames_problem.num_channels)
-    self._observ = tf.Variable(tf.zeros(shape, tf.float32), trainable=False)
+    self._observ = tf.Variable(tf.zeros(shape, tf.int32), trainable=False)
 
   def initialize(self, sess):
     self.history_buffer.initialize(sess)
@@ -156,7 +156,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
         model_output = self._model.infer(
             {"inputs": history, "input_action": actions})
 
-      observ = tf.to_float(tf.squeeze(model_output["targets"], axis=1))
+      observ = tf.cast(tf.squeeze(model_output["targets"], axis=1), tf.int32)
 
       reward = tf.to_float(model_output["target_reward"])
       reward = tf.reshape(reward, shape=(self.length,)) + self._min_reward

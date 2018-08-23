@@ -96,8 +96,8 @@ class BatchEnv(object):
       transitions = [transition() for transition in transitions]
     observs, rewards, dones, infos = zip(*transitions)
 
+    observ = np.stack(observs).astype(np.int32)
     # TODO(piotrmilos): Do we really want cast to float32
-    observ = np.stack(observs).astype(np.float32)
     reward = np.stack(rewards).astype(np.float32)
     done = np.stack(dones)
     info = tuple(infos)
@@ -119,9 +119,7 @@ class BatchEnv(object):
     else:
       observs = [self._envs[index].reset(blocking=False) for index in indices]
       observs = [observ() for observ in observs]
-    observ = np.stack(observs)
-    # TODO(piotrmilos): Do we really want this?
-    observ = observ.astype(np.float32)
+    observ = np.stack(observs).astype(np.int32)
     return observ
 
   def close(self):

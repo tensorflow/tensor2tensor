@@ -33,7 +33,7 @@ def _rollout_metadata(batch_env):
   batch_size = [batch_env_shape[0]]
   shapes_types_names = [
       # TODO(piotrmilos): possibly retrieve the observation type for batch_env
-      (batch_size + batch_env_shape[1:], tf.float32, "observation"),
+      (batch_size + batch_env_shape[1:], tf.int32, "observation"),
       (batch_size, tf.float32, "reward"),
       (batch_size, tf.bool, "done"),
       (batch_size + batch_env.action_shape, batch_env.action_dtype, "action"),
@@ -57,7 +57,7 @@ class _MemoryWrapper(WrapperBase):
     self.speculum = tf.FIFOQueue(infinity, shapes=shapes, dtypes=dtypes)
     observs_shape = batch_env.observ.shape
     # TODO(piotrmilos): possibly retrieve the observation type for batch_env
-    observ_dtype = tf.float32
+    observ_dtype = tf.int32
     self._observ = tf.Variable(tf.zeros(observs_shape, observ_dtype),
                                trainable=False)
 

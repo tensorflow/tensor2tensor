@@ -25,6 +25,7 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import discretization
 from tensor2tensor.models.research import autoencoders
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
+from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
 
@@ -70,7 +71,7 @@ class MaxAndSkipWrapper(WrapperBase):
     super(MaxAndSkipWrapper, self).__init__(batch_env)
     self.skip = skip
     observs_shape = batch_env.observ.shape
-    observ_dtype = tf.float32
+    observ_dtype = tf.int32
     self._observ = tf.Variable(tf.zeros(observs_shape, observ_dtype),
                                trainable=False)
 
@@ -110,13 +111,13 @@ class StackAndSkipWrapper(WrapperBase):
     self._observ = None
     self.old_shape = batch_env.observ.shape.as_list()
     observs_shape = self.old_shape[:-1] + [self.old_shape[-1] * self.skip]
-    observ_dtype = tf.float32
+    observ_dtype = tf.int32
     self._observ = tf.Variable(tf.zeros(observs_shape, observ_dtype),
                                trainable=False)
 
   def simulate(self, action):
     with tf.name_scope("environment/simulate"):  # Do we need this?
-      initializer = (tf.zeros(self.old_shape, dtype=tf.float32),
+      initializer = (tf.zeros(self.old_shape, dtype=tf.int32),
                      tf.fill((len(self),), 0.0), tf.fill((len(self),), False))
 
       def not_done_step(a, _):
@@ -206,9 +207,12 @@ class AutoencoderWrapper(WrapperBase):
     ae_channels = 24  # TODO(piotrmilos): make it better
     observ_shape = (batch_size, ae_height, ae_width, ae_channels)
     self._observ = self._observ = tf.Variable(
-        tf.zeros(observ_shape, tf.float32), trainable=False)
+        tf.zeros(observ_shape, tf.int32), trainable=False)
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       autoencoder_hparams = autoencoders.autoencoder_discrete_pong()
+      trainer_lib.add_problem_hparams(autoencoder_hparams,
+          "gym_discrete_problem_with_agent_on_wrapped_full_pong_with"
+          "_autoencoder")
       self.autoencoder_model = autoencoders.AutoencoderOrderedDiscrete(
           autoencoder_hparams, tf.estimator.ModeKeys.EVAL)
     self.autoencoder_model.set_mode(tf.estimator.ModeKeys.EVAL)
@@ -224,6 +228,7 @@ class AutoencoderWrapper(WrapperBase):
     with tf.control_dependencies([reward, done]):
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
         ret = self.autoencoder_model.encode(self._batch_env.observ)
+        ret = tf.cast(ret, tf.int32)
         assign_op = self._observ.assign(ret)
         with tf.control_dependencies([assign_op]):
           return tf.identity(reward), tf.identity(done)
@@ -232,6 +237,7 @@ class AutoencoderWrapper(WrapperBase):
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       new_values = self._batch_env._reset_non_empty(indices)  # pylint: disable=protected-access
       ret = self.autoencoder_model.encode(new_values)
+      ret = tf.cast(ret, tf.int32)
       assign_op = tf.scatter_update(self._observ, indices, ret)
       with tf.control_dependencies([assign_op]):
         return tf.gather(self.observ, indices)
@@ -247,7 +253,7 @@ class IntToBitWrapper(WrapperBase):
     # We treat each channel as 8-bit integer to be expanded to 8 channels
     self.observ_shape = (height, width, channels*8)
     self._observ = self._observ = tf.Variable(
-        tf.zeros((batch_size,) + self.observ_shape, tf.float32),
+        tf.zeros((batch_size,) + self.observ_shape, tf.int32),
         trainable=False)
 
   def simulate(self, action):
@@ -259,6 +265,7 @@ class IntToBitWrapper(WrapperBase):
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
         unpacked = discretization.int_to_bit(self._batch_env.observ, 8)
         unpacked = tf.reshape(unpacked, (-1,)+self.observ_shape)
+        unpacked = tf.cast(unpacked, tf.int32)
         assign_op = self._observ.assign(unpacked)
         with tf.control_dependencies([assign_op]):
           return tf.identity(reward), tf.identity(done)
@@ -269,6 +276,7 @@ class IntToBitWrapper(WrapperBase):
     new_values_unpacked = discretization.int_to_bit(new_values, 8)
     new_values_unpacked = tf.reshape(new_values_unpacked, (-1,)
                                      +self.observ_shape)
+    new_values_unpacked = tf.cast(new_values_unpacked, tf.int32)
     # pylint: enable=protected-access
     assign_op = tf.scatter_update(self._observ, indices, new_values_unpacked)
     with tf.control_dependencies([assign_op]):
