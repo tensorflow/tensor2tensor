@@ -17,6 +17,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+import shutil
+
 from tensor2tensor.rl import trainer_model_based
 
 import tensorflow as tf
@@ -26,10 +29,19 @@ FLAGS = tf.flags.FLAGS
 
 class ModelRLExperimentTest(tf.test.TestCase):
 
-  def test_basic(self):
+  def setUp(self):
+    super(ModelRLExperimentTest, self).setUp()
     FLAGS.output_dir = tf.test.get_temp_dir()
-    FLAGS.loop_hparams_set = "rl_modelrl_tiny"
+    shutil.rmtree(FLAGS.output_dir)
+    os.mkdir(FLAGS.output_dir)
     FLAGS.schedule = "train"  # skip evaluation for world model training
+
+  def test_basic(self):
+    FLAGS.loop_hparams_set = "rl_modelrl_tiny"
+    trainer_model_based.main(None)
+
+  def test_ae(self):
+    FLAGS.loop_hparams_set = "rl_modelrl_ae_tiny"
     trainer_model_based.main(None)
 
 
