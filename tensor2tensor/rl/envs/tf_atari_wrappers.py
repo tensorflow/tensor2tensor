@@ -162,7 +162,7 @@ class StackWrapper(WrapperBase):
     self.history = history
     self.old_shape = batch_env.observ.shape.as_list()
     observs_shape = self.old_shape[:-1] + [self.old_shape[-1] * self.history]
-    observ_dtype = tf.float32
+    observ_dtype = tf.int32
     self._observ = tf.Variable(tf.zeros(observs_shape, observ_dtype),
                                trainable=False)
 
