@@ -1102,6 +1102,7 @@ def autoencoder_discrete_pong():
   hparams.bottleneck_noise = 0.2
   hparams.max_hidden_size = 1024
   hparams.unordered = True
+  hparams.gan_loss_factor = 0.0
   return hparams
 
 
