@@ -178,6 +178,22 @@ class ImageCifar10PlainGen(ImageCifar10Plain):
 
 
 @registry.register_problem
+class ImageCifar10PlainRandomShift(ImageCifar10Plain):
+  """CIFAR-10 32x32 for image generation with random shift data-augmentation."""
+
+  def dataset_filename(self):
+    return "image_cifar10_plain"  # Reuse CIFAR-10 plain data.
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
+    example["inputs"] = tf.to_int64(example["inputs"])
+    if mode == tf.estimator.ModeKeys.TRAIN:
+      example["inputs"] = image_utils.random_shift(
+          example["inputs"], wsr=0.1, hsr=0.1)
+    return example
+
+
+@registry.register_problem
 class ImageCifar10PlainGenDmol(ImageCifar10PlainGen):
   """Discretized mixture of logistics problem."""
 

@@ -19,8 +19,13 @@ from __future__ import division
 from __future__ import print_function
 
 import numpy as np
+from tensor2tensor.models.research import glow
 from tensor2tensor.models.research import glow_ops
 import tensorflow as tf
+
+
+arg_scope = tf.contrib.framework.arg_scope
+add_arg_scope = tf.contrib.framework.add_arg_scope
 
 
 class GlowOpsTest(tf.test.TestCase):
@@ -29,7 +34,7 @@ class GlowOpsTest(tf.test.TestCase):
     with tf.Graph().as_default():
       x_t = tf.random_normal((5, 5))
       ddi = glow_ops.get_variable_ddi(
-          "x", (5, 5), x_t, init=True)
+          "x", (5, 5), initial_value=x_t, init=True)
       with tf.Session() as session:
         diff = ddi - x_t
         self.assertTrue(np.allclose(session.run(diff), 0.0))
@@ -77,12 +82,13 @@ class GlowOpsTest(tf.test.TestCase):
   def test_conv2d(self):
     with tf.Graph().as_default():
       x = 10.0 * tf.random_uniform(shape=(16, 5, 5, 32))
-      actnorm_conv2d = glow_ops.conv2d(
-          "actnorm_conv2d", x, output_channels=64, init=True,
-          apply_actnorm=True)
-      actnorm_zeros2d = glow_ops.conv2d(
-          "actnorm_zeros2d", x, output_channels=64, init=True,
-          apply_actnorm=False)
+
+      with arg_scope([glow_ops.actnorm], init=True):
+        actnorm_conv2d = glow_ops.conv2d(
+            "actnorm_conv2d", x, output_channels=64, apply_actnorm=True)
+        actnorm_zeros2d = glow_ops.conv2d(
+            "actnorm_zeros2d", x, output_channels=64, apply_actnorm=False)
+
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
 
@@ -136,7 +142,7 @@ class GlowOpsTest(tf.test.TestCase):
 
   def check_revnet_reversibility(self, op, name):
     with tf.Graph().as_default():
-      hparams = glow_ops.glow_hparams()
+      hparams = glow.glow_hparams()
       hparams.depth = 2
       x = tf.random_uniform(shape=(16, 32, 32, 4), seed=0)
       x_inv, _ = op(name, x, hparams, reverse=False)
@@ -144,7 +150,7 @@ class GlowOpsTest(tf.test.TestCase):
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
         diff = session.run(x - x_inv_inv)
-        self.assertTrue(np.allclose(diff, 0.0, atol=1e-3))
+        self.assertTrue(np.allclose(diff, 0.0, atol=1e-2))
 
   def test_revnet_reversibility(self):
     ops = [glow_ops.revnet_step, glow_ops.revnet]
@@ -154,7 +160,7 @@ class GlowOpsTest(tf.test.TestCase):
 
   def test_encoder_decoder(self):
     with tf.Graph().as_default():
-      hparams = glow_ops.glow_hparams()
+      hparams = glow.glow_hparams()
       hparams.n_levels = 2
       hparams.depth = 2
 
@@ -168,7 +174,7 @@ class GlowOpsTest(tf.test.TestCase):
         session.run(tf.global_variables_initializer())
         diff, x_inv_np = session.run([x - x_inv_inv, x_inv])
         self.assertTrue(x_inv_np.shape, (16, 8, 8, 64))
-        self.assertTrue(np.allclose(diff, 0.0, atol=1e-2))
+        self.assertTrue(np.allclose(diff, 0.0, atol=1e-3))
 
 
 if __name__ == "__main__":

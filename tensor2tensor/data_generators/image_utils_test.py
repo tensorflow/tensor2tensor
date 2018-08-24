@@ -112,6 +112,10 @@ class ImageTest(tf.test.TestCase):
     with self.assertRaisesRegexp(ValueError, "strides.* must be non-zero"):
       _ = image_utils.make_multiscale_dilated(image, resolutions)
 
+  def testRandomShift(self):
+    image = tf.random_normal([256, 256, 3])
+    image_shift = image_utils.random_shift(image, wsr=0.1, hsr=0.1)
+    self.assertEqual(image_shift.shape, [256, 256, 3])
 
 if __name__ == "__main__":
   tf.test.main()

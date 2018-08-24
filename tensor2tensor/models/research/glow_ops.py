@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Glow generative model."""
+"""Various reversible ops for the glow generative model."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -21,25 +21,11 @@ from __future__ import print_function
 from functools import partial
 import numpy as np
 import scipy
-from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
-from tensor2tensor.utils import registry
 import tensorflow as tf
 
 arg_scope = tf.contrib.framework.arg_scope
 add_arg_scope = tf.contrib.framework.add_arg_scope
-
-
-@registry.register_hparams
-def glow_hparams():
-  """Glow Hparams."""
-  hparams = common_hparams.basic_params1()
-  hparams.add_hparam("n_levels", 3)
-  hparams.add_hparam("n_bits_x", 8)
-  hparams.add_hparam("depth", 32)
-  hparams.add_hparam("affine_coupling_width", 512)
-  hparams.add_hparam("learn_prior", True)
-  return hparams
 
 
 def default_initializer(std=0.05):
@@ -57,15 +43,21 @@ def set_eps(dist, eps):
 
 
 @add_arg_scope
+def assign(w, initial_value):
+  w = w.assign(initial_value)
+  with tf.control_dependencies([w]):
+    return w
+
+
+@add_arg_scope
 def get_variable_ddi(name, shape, initial_value, dtype=tf.float32, init=False,
                      trainable=True):
   """Wrapper for data-dependent initialization."""
+  # Cast from python bool to TF bool for usage in tf.cond
+  if isinstance(init, bool):
+    init = tf.constant(init, dtype=tf.bool)
   w = tf.get_variable(name, shape, dtype, None, trainable=trainable)
-  if init:
-    w = w.assign(initial_value)
-    with tf.control_dependencies([w]):
-      return w
-  return w
+  return tf.cond(init, lambda: assign(w, initial_value), lambda: w)
 
 
 @add_arg_scope
@@ -92,6 +84,7 @@ def actnorm(name, x, logscale_factor=3., reverse=False, init=False,
   """
   var_arg_scope = arg_scope([get_variable_ddi], trainable=trainable)
   var_scope = tf.variable_scope(name, reuse=tf.AUTO_REUSE)
+
   with var_scope, var_arg_scope:
     if not reverse:
       x = actnorm_center(name + "_center", x, reverse, init=init)
@@ -127,8 +120,8 @@ def actnorm_center(name, x, reverse=False, init=False):
     assert len(shape) == 2 or len(shape) == 4
     if len(shape) == 2:
       x_mean = tf.reduce_mean(x, [0], keepdims=True)
-      b = get_variable_ddi(
-          "b", (1, shape[1]), initial_value=-x_mean, init=init)
+      b = get_variable_ddi("b", (1, shape[1]), initial_value=-x_mean,
+                           init=init)
     elif len(shape) == 4:
       x_mean = tf.reduce_mean(x, [0, 1, 2], keepdims=True)
       b = get_variable_ddi(
@@ -159,8 +152,8 @@ def actnorm_scale(name, x, logscale_factor=3., reverse=False, init=False):
       var_shape = (1, 1, 1, x_shape[3])
 
     init_value = tf.log(1.0 / (tf.sqrt(x_var) + 1e-6)) / logscale_factor
-    logs = get_variable_ddi(
-        "logs", var_shape, initial_value=init_value, init=init)
+    logs = get_variable_ddi("logs", var_shape, initial_value=init_value,
+                            init=init)
     logs = logs * logscale_factor
 
     # Function and reverse function.
@@ -269,8 +262,7 @@ def add_edge_bias(x, filter_size):
 
 @add_arg_scope
 def conv2d(name, x, output_channels, filter_size=None, stride=None,
-           logscale_factor=3.0, init=True, apply_actnorm=True,
-           conv_init="default"):
+           logscale_factor=3.0, apply_actnorm=True, conv_init="default"):
   """conv2d layer with edge bias padding and optional actnorm.
 
   Args:
@@ -280,8 +272,6 @@ def conv2d(name, x, output_channels, filter_size=None, stride=None,
     filter_size:
     stride:
     logscale_factor: see actnorm for parameter meaning.
-    init: Whether to apply data-dependent initialization Valid only if
-          apply_actnorm is set to True.
     apply_actnorm: if apply_actnorm the activations of the first minibatch
                    have zero mean and unit variance. Else, there is no scaling
                    applied.
@@ -291,7 +281,7 @@ def conv2d(name, x, output_channels, filter_size=None, stride=None,
   Raises:
     ValueError: if init is set to "zeros" and apply_actnorm is set to True.
   """
-  if init == "zeros" and apply_actnorm:
+  if conv_init == "zeros" and apply_actnorm:
     raise ValueError("apply_actnorm is unstable when init is set to zeros.")
 
   if filter_size is None:
@@ -317,7 +307,7 @@ def conv2d(name, x, output_channels, filter_size=None, stride=None,
     x = tf.nn.conv2d(x, w, stride_shape, padding="VALID", data_format="NHWC")
 
     if apply_actnorm:
-      x, _ = actnorm("actnorm", x, logscale_factor=logscale_factor, init=init,
+      x, _ = actnorm("actnorm", x, logscale_factor=logscale_factor,
                      trainable=True)
     else:
       x += tf.get_variable("b", [1, 1, 1, output_channels],
@@ -529,11 +519,35 @@ def revnet(name, x, hparams, reverse=True):
     objective = 0.0
     for step in steps:
       x, curr_obj = revnet_step(
-          "revnet_%d" % step, x, hparams, reverse=reverse)
+          "revnet_step_%d" % step, x, hparams, reverse=reverse)
       objective += curr_obj
     return x, objective
 
 
+@add_arg_scope
+def top_prior(name, x, learn_prior=False):
+  """Log probability of x being gaussian.
+
+  Args:
+    name: variable scope
+    x: input, 4-D Tensor shape=(batch_size, width, height, channels)
+    learn_prior: If set to true, then the mean and the standard deviation
+                 are the output of a single conv layer initialized with
+                 zeros. Otherwise the mean and logstd are zeros and ones
+                 respectively.
+  Returns:
+    objective: 1-D Tensor shape=(batch_size,) summed across spatial components.
+  """
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    h = tf.zeros_like(x)
+    if not learn_prior:
+      prior_dist = tf.distributions.Normal(h, tf.exp(h))
+    else:
+      prior_dist = split_prior("top_learn_prior", h)
+    return tf.reduce_sum(prior_dist.log_prob(x), axis=[1, 2, 3])
+
+
+@add_arg_scope
 def encoder_decoder(name, x, hparams, eps=None, reverse=False):
   """Glow encoder-decoder. n_levels of (Squeeze + Flow + Split.) operations."""
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):

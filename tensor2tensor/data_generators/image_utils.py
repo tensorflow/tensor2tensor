@@ -337,3 +337,23 @@ def cifar_image_augmentation(images):
   images = tf.random_crop(images, [32, 32, 3])
   images = tf.image.random_flip_left_right(images)
   return images
+
+
+def random_shift(image, wsr=0.1, hsr=0.1):
+  """Apply random horizontal and vertical shift to images.
+
+  This is the default data-augmentation strategy used on CIFAR in Glow.
+
+  Args:
+    image: a 3-D Tensor
+    wsr: Width shift range, as a float fraction of the width.
+    hsr: Height shift range, as a float fraction of the width.
+  Returns:
+    images: images translated by the provided wsr and hsr.
+  """
+  height, width, _ = common_layers.shape_list(image)
+  width_range, height_range = wsr*width, hsr*height
+  height_translations = tf.random_uniform((1,), -height_range, height_range)
+  width_translations = tf.random_uniform((1,), -width_range, width_range)
+  translations = tf.concat((height_translations, width_translations), axis=0)
+  return tf.contrib.image.translate(image, translations=translations)
