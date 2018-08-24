@@ -95,7 +95,7 @@ def actnorm(name, x, logscale_factor=3., reverse=False, init=False,
       x, objective = actnorm_scale(
           name + "_scale", x, logscale_factor=logscale_factor,
           reverse=reverse, init=init)
-      x = actnorm_center(name + "_center", x, reverse)
+      x = actnorm_center(name + "_center", x, reverse, init=init)
     return x, objective
 
 
@@ -138,7 +138,7 @@ def actnorm_center(name, x, reverse=False, init=False):
 def actnorm_scale(name, x, logscale_factor=3., reverse=False, init=False):
   """Per-channel scaling of x."""
   x_shape = common_layers.shape_list(x)
-  with tf.variable_scope(name):
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
 
     # Variance initialization logic.
     assert len(x_shape) == 2 or len(x_shape) == 4
@@ -410,8 +410,9 @@ def squeeze(name, x, factor=2, reverse=True):
     height = int(shape[1])
     width = int(shape[2])
     n_channels = int(shape[3])
-    assert height % factor == 0 and width % factor == 0
+
     if not reverse:
+      assert height % factor == 0 and width % factor == 0
       x = tf.reshape(x, [-1, height//factor, factor,
                          width//factor, factor, n_channels])
       x = tf.transpose(x, [0, 1, 3, 5, 2, 4])

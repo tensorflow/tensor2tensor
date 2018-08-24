@@ -18,10 +18,15 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+import tempfile
 import numpy as np
 from tensor2tensor.models.research import glow
 from tensor2tensor.models.research import glow_ops
 import tensorflow as tf
+
+arg_scope = tf.contrib.framework.arg_scope
+add_arg_scope = tf.contrib.framework.add_arg_scope
 
 
 arg_scope = tf.contrib.framework.arg_scope
@@ -174,6 +179,54 @@ class GlowOpsTest(tf.test.TestCase):
         session.run(tf.global_variables_initializer())
         diff, x_inv_np = session.run([x - x_inv_inv, x_inv])
         self.assertTrue(x_inv_np.shape, (16, 8, 8, 64))
+        self.assertTrue(np.allclose(diff, 0.0, atol=1e-3))
+
+  def test_encoder_decoder_practical_usage(self):
+    """Tests the following sequence of operations.
+
+    1. Define forward network with arg_scope(init=True).
+    2. Run one-forward pass to do data-dependent initialization and save.
+    3. Define forward and reverse network with arg_scope(init=False)
+    4. Check that reverse(forward(x)) == x
+    """
+    hparams = glow.glow_hparams()
+    hparams.n_levels = 2
+    hparams.depth = 12
+
+    with tf.Graph().as_default():
+      rng = np.random.RandomState(0)
+      x_rand = np.asarray(rng.rand(1, 4, 4, 4), dtype=np.float32)
+      x_t = tf.convert_to_tensor(x_rand)
+
+      ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
+      with arg_scope(ops, init=True):
+        x_inv, _, _ = glow_ops.encoder_decoder(
+            "revnet", x_t, hparams, reverse=False)
+      curr_dir = tempfile.mkdtemp()
+      model_path = os.path.join(curr_dir, "model")
+
+      with tf.Session() as session:
+        saver = tf.train.Saver()
+        session.run(tf.global_variables_initializer())
+        session.run(x_inv)
+        saver.save(session, model_path)
+
+    with tf.Graph().as_default():
+      rng = np.random.RandomState(0)
+      x_rand = np.asarray(rng.rand(1, 4, 4, 4), dtype=np.float32)
+      x_t = tf.convert_to_tensor(x_rand)
+      ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
+      with arg_scope(ops, init=False):
+        x_inv2, _, all_eps = glow_ops.encoder_decoder(
+            "revnet", x_t, hparams, reverse=False)
+        x_inv_inv_, _ = glow_ops.encoder_decoder(
+            "revnet", x_inv2, hparams, eps=all_eps, reverse=True)
+
+      with tf.Session() as session:
+        saver = tf.train.Saver()
+        saver.restore(session, model_path)
+        x_inv_inv_np = session.run(x_inv_inv_)
+        diff = np.abs(x_inv_inv_np - x_rand)
         self.assertTrue(np.allclose(diff, 0.0, atol=1e-3))
 
 
