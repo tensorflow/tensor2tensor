@@ -124,5 +124,5 @@ def parse_dtype(space):
   if isinstance(space, gym.spaces.Discrete):
     return tf.int32
   if isinstance(space, gym.spaces.Box):
-    return tf.float32
+    return tf.as_dtype(space.dtype)
   raise NotImplementedError()
