@@ -40,6 +40,10 @@ def xmoe_dense_4k():
   xmoe_dense_64k    282        2.8e13  0                    3.06
   xmoe_top_2        282        4.0e12  3.4e8     36%        3.07
   xmoe_top_2_c15    282        4.5e12  4.0e8     38%        3.07
+  xmoe_2d           282        5.3e12  7.6e8     34%        3.06
+
+  Trained at 4x the batch size:
+  xmoe_2d_88        1090       2.1e13  3.0e9     24%
 
   Note: configurations and code are likely to change without notice.
 

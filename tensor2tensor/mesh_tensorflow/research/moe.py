@@ -268,11 +268,15 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
   y = mtf.Dimension("expert_y_unsplit", hparams.moe_num_experts[1])
   n = output_dim
 
-  numerator = b1.size * l.size
-  s = mtf.Dimension("group_size_x", _largest_divisor_leq(
-      numerator, hparams.moe_group_size))
-  g1 = mtf.Dimension(b1.name, numerator // s.size)
+  # We "cheat" here and look at the mesh shape and layout. This is to ensure
+  # that the number of groups (g.size) is a multiple of the mesh dimension
+  # over which those groups are split.
+  num_groups, group_size = _split_into_groups(
+      b1.size * l.size, hparams.moe_group_size,
+      _tensor_dim_to_mesh_dim_size(hparams, b1))
+  g1 = mtf.Dimension(b1.name, num_groups)
   g = mtf.Dimension(b1.name + "_unsplit", g1.size)
+  s = mtf.Dimension("group_size_x", group_size)
 
   # Each sequence sends (at most?) expert_capacity positions to each expert.
   # Static expert_capacity dimension is needed for expert batch sizes
@@ -284,10 +288,15 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
       int((s.size * capacity_factor) / x.size))
   c = mtf.Dimension("expert_capacity_x", expert_capacity)
 
-  numerator = a0.size * g.size * c.size
-  t = mtf.Dimension("group_size_y", _largest_divisor_leq(
-      numerator, hparams.moe_group_size))
-  h0 = mtf.Dimension(a0.name, numerator // t.size)
+  # We "cheat" here and look at the mesh shape and layout. This is to ensure
+  # that the number of groups (h.size) is a multiple of the mesh dimension
+  # over which those groups are split.
+  num_groups, group_size = _split_into_groups(
+      a0.size * g.size * c.size,
+      hparams.moe_group_size,
+      _tensor_dim_to_mesh_dim_size(hparams, a0))
+  t = mtf.Dimension("group_size_y", group_size)
+  h0 = mtf.Dimension(a0.name, num_groups)
   h = mtf.Dimension(a0.name + "_unsplit", h0.size)
 
   expert_capacity = min(
@@ -609,8 +618,48 @@ def set_default_moe_hparams(hparams):
   hparams.add_hparam("moe_second_threshold_eval", 0.2)
 
 
-def _largest_divisor_leq(numerator, maximum):
-  x = maximum
-  while numerator % x != 0:
-    x -= 1
-  return x
+def _split_into_groups(n, max_group_size, mesh_dim_size):
+  """Helper function for figuring out how to split a dimensino into groups.
+
+  We have a dimension with size n and we want to split it into
+  two dimensions: n = num_groups * group_size
+
+  group_size should be the largest possible value meeting the constraints:
+    group_size <= max_group_size
+    (num_groups = n/group_size) is a multiple of mesh_dim_size
+
+  Args:
+    n: an integer
+    max_group_size: an integer
+    mesh_dim_size: an integer
+
+  Returns:
+    num_groups: an integer
+    group_size: an integer
+
+  Raises:
+    ValueError: if n is not a multiple of mesh_dim_size
+  """
+  if n % mesh_dim_size != 0:
+    raise ValueError(
+        "n=%d is not a multiple of mesh_dim_size=%d" % (n, mesh_dim_size))
+  num_groups = max(1, n // max_group_size)
+  while (num_groups % mesh_dim_size != 0 or n % num_groups != 0):
+    num_groups += 1
+  group_size = n // num_groups
+  tf.logging.info(
+      "_split_into_groups(n=%d, max_group_size=%d, mesh_dim_size=%d)"
+      " = (num_groups=%d group_size=%d)" %
+      (n, max_group_size, mesh_dim_size, num_groups, group_size))
+  return num_groups, group_size
+
+
+def _tensor_dim_to_mesh_dim_size(hparams, tensor_dim):
+  """Inspect hparams to figure out how many ways tensor_dim gets split."""
+  layout_rules = mtf.convert_to_layout_rules(hparams.layout)
+  mesh_shape = mtf.convert_to_shape(hparams.mesh_shape)
+  mesh_axis = layout_rules.tensor_dimension_to_mesh_axis(tensor_dim, mesh_shape)
+  if mesh_axis is None:
+    return 1
+  else:
+    return mesh_shape.dims[mesh_axis].size
