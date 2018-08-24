@@ -197,7 +197,7 @@ def universal_transformer_layer(x,
                                 ffn_unit,
                                 attention_unit,
                                 pad_remover=None):
-  """Core function applying the universal transforemr layer.
+  """Core function applying the universal transformer layer.
 
   Args:
     x: input
