@@ -117,6 +117,34 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     self.assertEqual(res.shape, (batch, heads, length, depth_v))
 
   @parameterized.named_parameters(
+      ("", 1, 1, 8, 4, 4, (2, 2)),
+      ("dynamic_batch", None, 1, 8, 4, 4, (2, 2)),
+      ("batches", 3, 2, 8, 4, 4, (2, 2)),
+      # TODO(trandustin): Extend function to enable depth_k != depth_v.
+      # ("depth_v", 1, 1, 8, 4, 1, (2, 2)),
+      ("query_shape", 1, 1, 8, 4, 4, (4, 4)),
+  )
+  def testMaskedLocalAttention2D(self, batch, heads, length, depth_k, depth_v,
+                                 query_shape):
+    if batch is None:
+      batch = tf.random_uniform([], minval=0, maxval=5, dtype=tf.int32)
+    q = tf.random_normal([batch, heads, length, length, depth_k])
+    k = tf.random_normal([batch, heads, length, length, depth_k])
+    v = tf.random_normal([batch, heads, length, length, depth_v])
+    output = common_attention.masked_local_attention_2d(
+        q,
+        k,
+        v,
+        query_shape=query_shape,
+        memory_flange=(2, 2))
+    if isinstance(batch, tf.Tensor):
+      batch, res = self.evaluate([batch, output])
+    else:
+      res = self.evaluate(output)
+
+    self.assertEqual(res.shape, (batch, heads, length, length, depth_v))
+
+  @parameterized.named_parameters(
       ("matching_block_length", 3, 4, 25, 16, 16, 5),
       ("unmatching_block_length", 3, 4, 25, 16, 16, 4),
       ("dynamic_batch", None, 4, 25, 16, 16, 5),
@@ -139,33 +167,32 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
 
     self.assertEqual(res.shape, (batch, heads, length, depth_v))
 
-  def testLocalUnmaskedAttention2D(self):
-    x = np.random.rand(5, 4, 25, 25, 16)
-    y = np.random.rand(5, 4, 25, 25, 16)
-    with self.test_session() as session:
-      a = common_attention.local_attention_2d(
-          tf.constant(x, dtype=tf.float32),
-          tf.constant(y, dtype=tf.float32),
-          tf.constant(y, dtype=tf.float32),
-          query_shape=(4, 4),
-          memory_flange=(3, 3))
-      session.run(tf.global_variables_initializer())
-      res = session.run(a)
-    self.assertEqual(res.shape, (5, 4, 25, 25, 16))
+  @parameterized.named_parameters(
+      ("matching_block_length", 3, 4, 25, 16, 16, (4, 4)),
+      ("unmatching_block_length", 3, 4, 25, 16, 16, (5, 5)),
+      ("dynamic_batch", None, 4, 25, 16, 16, (4, 4)),
+      # TODO(trandustin): Extend function to enable depth_k != depth_v.
+      # ("different_depth_v", 3, 4, 25, 16, 17, (4, 4)),
+  )
+  def testLocalUnmaskedAttention2D(self, batch, heads, length,
+                                   depth_k, depth_v, query_shape):
+    if batch is None:
+      batch = tf.random_uniform([], minval=0, maxval=5, dtype=tf.int32)
+    q = tf.random_normal([batch, heads, length, length, depth_k])
+    k = tf.random_normal([batch, heads, length, length, depth_k])
+    v = tf.random_normal([batch, heads, length, length, depth_v])
+    output = common_attention.local_attention_2d(
+        q,
+        k,
+        v,
+        query_shape=query_shape,
+        memory_flange=(3, 3))
+    if isinstance(batch, tf.Tensor):
+      batch, res = self.evaluate([batch, output])
+    else:
+      res = self.evaluate(output)
 
-  def testLocalUnmaskedAttention2DMatchingBlockLength(self):
-    x = np.random.rand(5, 4, 25, 25, 16)
-    y = np.random.rand(5, 4, 25, 25, 16)
-    with self.test_session() as session:
-      a = common_attention.local_attention_2d(
-          tf.constant(x, dtype=tf.float32),
-          tf.constant(y, dtype=tf.float32),
-          tf.constant(y, dtype=tf.float32),
-          query_shape=(5, 5),
-          memory_flange=(3, 3))
-      session.run(tf.global_variables_initializer())
-      res = session.run(a)
-    self.assertEqual(res.shape, (5, 4, 25, 25, 16))
+    self.assertEqual(res.shape, (batch, heads, length, length, depth_v))
 
   def testMultiheadSelfAttentionMemoryEfficient(self):
     num_heads = 4

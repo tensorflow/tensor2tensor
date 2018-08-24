@@ -2689,7 +2689,8 @@ def local_attention_2d(q,
   Args:
     q: a Tensor with shape [batch, heads, h, w, depth_k]
     k: a Tensor with shape [batch, heads, h, w, depth_k]
-    v: a Tensor with shape [batch, heads, h, w, depth_v]
+    v: a Tensor with shape [batch, heads, h, w, depth_v]. In the current
+      implementation, depth_v must be equal to depth_k.
     query_shape: an tuple indicating the height and width of each query block.
     memory_flange: an integer indicating how much to look in height and width
       from each query block.
@@ -2700,14 +2701,12 @@ def local_attention_2d(q,
   """
   with tf.variable_scope(
       name, default_name="local_self_attention_2d", values=[q, k, v]):
-    q_shape = q.get_shape().as_list()
     v_shape = common_layers.shape_list(v)
 
     # Pad query, key, value to ensure multiple of corresponding lengths.
     q = pad_to_multiple_2d(q, query_shape)
     k = pad_to_multiple_2d(k, query_shape)
     v = pad_to_multiple_2d(v, query_shape)
-    padded_q_shape = common_layers.shape_list(q)
     paddings = [[0, 0], [0, 0], [memory_flange[0], memory_flange[1]],
                 [memory_flange[0], memory_flange[1]], [0, 0]]
     k = tf.pad(k, paddings)
@@ -2726,7 +2725,6 @@ def local_attention_2d(q,
 
     attention_bias = tf.expand_dims(
         tf.to_float(embedding_to_padding(k_new)) * -1e9, axis=-2)
-
     output = dot_product_attention(
         q_new,
         k_new,
@@ -2736,12 +2734,12 @@ def local_attention_2d(q,
         name="local_2d",
         make_image_summary=False)
     # Put representations back into original shapes.
+    padded_q_shape = common_layers.shape_list(q)
     output = scatter_blocks_2d(output, q_indices, padded_q_shape)
 
     # Remove the padding if introduced.
     output = tf.slice(output, [0, 0, 0, 0, 0],
                       [-1, -1, v_shape[2], v_shape[3], -1])
-    output.set_shape(q_shape)
     return output
 
 
@@ -2949,19 +2947,19 @@ def right_shift_blockwise(x, query_shape, name=None):
       name, default_name="right_shift_blockwise", values=[x]):
     x_list_shape = x.get_shape().as_list()
     x_shape = common_layers.shape_list(x)
-    # Add a dummy dimension for heads
+    # Add a dummy dimension for heads.
     x = tf.expand_dims(x, axis=1)
     x = pad_to_multiple_2d(x, query_shape)
     padded_x_shape = common_layers.shape_list(x)
-    # Setting up q blocks
+    # Set up q blocks.
     x_indices = gather_indices_2d(x, query_shape, query_shape)
     x_new = get_shifted_center_blocks(x, x_indices)
 
-    # putting the representations back in the right place
+    # Put representations back into original shapes.
     output = scatter_blocks_2d(x_new, x_indices, padded_x_shape)
-    # Removing the dummy head dimension
+    # Remove the dummy head dimension.
     output = tf.squeeze(output, axis=1)
-    # Remove the padding if introduced
+    # Remove the padding if introduced.
     output = tf.slice(output, [0, 0, 0, 0], [-1, x_shape[1], x_shape[2], -1])
     output.set_shape(x_list_shape)
     return output
@@ -2975,17 +2973,18 @@ def masked_local_attention_2d(q,
                               name=None):
   """Strided block local self-attention.
 
-    Each position in a query block can attend to all the generated queries in
-    the query block, which are generated in raster scan, and positions that are
-    generated to the left and top. The shapes are specified by query shape and
-    memory flange. Note that if you're using this function, you do not need to
-    right shift. Right shifting happens inside this function separately for each
-    block.
+  Each position in a query block can attend to all the generated queries in
+  the query block, which are generated in raster scan, and positions that are
+  generated to the left and top. The shapes are specified by query shape and
+  memory flange. Note that if you're using this function, you do not need to
+  right shift. Right shifting happens inside this function separately for each
+  block.
 
   Args:
     q: a Tensor with shape [batch, heads, h, w, depth_k]
     k: a Tensor with shape [batch, heads, h, w, depth_k]
-    v: a Tensor with shape [batch, heads, h, w, depth_v]
+    v: a Tensor with shape [batch, heads, h, w, depth_v]. In the current
+      implementation, depth_v must be equal to depth_k.
     query_shape: an tuple indicating the height and width of each query block.
       query_shape = block_shape
     memory_flange: an integer indicating how much to look in height and width
@@ -2998,12 +2997,10 @@ def masked_local_attention_2d(q,
   """
   with tf.variable_scope(
       name, default_name="local_masked_self_attention_2d", values=[q, k, v]):
-    q_shape = q.get_shape().as_list()
     v_shape = common_layers.shape_list(v)
 
     # Pad query to ensure multiple of corresponding lengths.
     q = pad_to_multiple_2d(q, query_shape)
-    padded_q_shape = common_layers.shape_list(q)
 
     # Set up query blocks.
     q_indices = gather_indices_2d(q, query_shape, query_shape)
@@ -3051,14 +3048,13 @@ def masked_local_attention_2d(q,
         dropout_rate=0.,
         name="masked_local_2d",
         make_image_summary=False)
-
     # Put representations back into original shapes.
+    padded_q_shape = common_layers.shape_list(q)
     output = scatter_blocks_2d(output, q_indices, padded_q_shape)
 
     # Remove the padding if introduced.
     output = tf.slice(output, [0, 0, 0, 0, 0],
                       [-1, -1, v_shape[2], v_shape[3], -1])
-    output.set_shape(q_shape)
     return output
 
 
