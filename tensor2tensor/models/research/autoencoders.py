@@ -625,10 +625,11 @@ class AutoencoderResidual(AutoencoderAutoregressive):
       # Up-convolutions.
       for i in range(hparams.num_hidden_layers):
         j = hparams.num_hidden_layers - i - 1
-        nomix_p = common_layers.inverse_lin_decay(
-            int(hparams.bottleneck_warmup_steps * 0.25 * 2**j)) + 0.01
-        if common_layers.should_generate_summaries():
-          tf.summary.scalar("nomix_p_%d" % j, nomix_p)
+        if is_training:
+          nomix_p = common_layers.inverse_lin_decay(
+              int(hparams.bottleneck_warmup_steps * 0.25 * 2**j)) + 0.01
+          if common_layers.should_generate_summaries():
+            tf.summary.scalar("nomix_p_%d" % j, nomix_p)
         filters = hparams.hidden_size * 2**j
         filters = min(filters, hparams.max_hidden_size)
         with tf.variable_scope("layer_%d" % i):
