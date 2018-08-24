@@ -41,6 +41,7 @@ def fill_hparams(hparams, in_frames, out_frames):
   hparams.problem = problem
   hparams.problem_hparams = p_hparams
   hparams.tiny_mode = True
+  hparams.reward_prediction = False
   return hparams
 
 
@@ -155,6 +156,7 @@ class NextFrameTest(tf.test.TestCase):
                                          expected_last_dim):
     hparams = fill_hparams(hparams, in_frames, out_frames)
     hparams = full_modalities(hparams)
+    hparams.reward_prediction = True
 
     features = create_full_features(in_frames, out_frames)
 

@@ -24,12 +24,12 @@ import tensorflow as tf
 FLAGS = tf.flags.FLAGS
 
 
-class ModelRLExperimentStochasticTest(tf.test.TestCase):
+class ModelRLExperimentSv2pTest(tf.test.TestCase):
 
-  def test_basic_stochastic(self):
+  def test_sv2p(self):
     FLAGS.output_dir = tf.test.get_temp_dir()
-    FLAGS.loop_hparams_set = "rl_modelrl_tiny_stochastic"
-    FLAGS.schedule = "train"  # skip evaluation for world model training
+    FLAGS.loop_hparams_set = "rl_modelrl_tiny_sv2p"
+    FLAGS.schedule = "train"
     trainer_model_based.main(None)
 
 

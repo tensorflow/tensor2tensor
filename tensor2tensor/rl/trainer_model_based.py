@@ -609,8 +609,17 @@ def rl_modelrl_tiny():
 def rl_modelrl_tiny_stochastic():
   """Tiny setting with a stochastic next-frame model."""
   hparams = rl_modelrl_tiny()
-  hparams.generative_model = "next_frame_stochastic"
-  hparams.generative_model_params = "next_frame_stochastic_tiny"
+  hparams.generative_model = "next_frame_basic_stochastic"
+  hparams.generative_model_params = "next_frame_basic_stochastic"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_tiny_sv2p():
+  """Tiny setting with a sv2p model."""
+  hparams = rl_modelrl_tiny()
+  hparams.generative_model = "next_frame_sv2p"
+  hparams.generative_model_params = "next_frame_sv2p_tiny"
   return hparams
 
 

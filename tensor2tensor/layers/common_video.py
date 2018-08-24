@@ -102,8 +102,13 @@ def scheduled_sample_count(ground_truth_x,
 
   ground_truth_examps = tf.gather(ground_truth_x, ground_truth_idx)
   generated_examps = tf.gather(generated_x, generated_idx)
-  return tf.dynamic_stitch([ground_truth_idx, generated_idx],
-                           [ground_truth_examps, generated_examps])
+
+  output = tf.dynamic_stitch([ground_truth_idx, generated_idx],
+                             [ground_truth_examps, generated_examps])
+  # if batch size is known set it.
+  if isinstance(batch_size, int):
+    output.set_shape([batch_size] + common_layers.shape_list(output)[1:])
+  return output
 
 
 def scheduled_sample_prob(ground_truth_x,

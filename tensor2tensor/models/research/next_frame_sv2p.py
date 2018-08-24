@@ -479,6 +479,29 @@ class NextFrameSv2p(next_frame_basic_stochastic.NextFrameBasicStochastic):
       tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
     return beta * kl_loss
 
+  def infer(self, features, *args, **kwargs):
+    """Produce predictions from the model by running it."""
+    del args, kwargs
+    if "targets" not in features:
+      if "infer_targets" in features:
+        targets_shape = common_layers.shape_list(features["infer_targets"])
+      elif "inputs" in features:
+        targets_shape = common_layers.shape_list(features["inputs"])
+        targets_shape[1] = self.hparams.video_num_target_frames
+      else:
+        raise ValueError("no inputs are given.")
+      features["targets"] = tf.zeros(targets_shape, dtype=tf.float32)
+
+    output, _ = self(features)  # pylint: disable=not-callable
+
+    output["targets"] = tf.squeeze(output["targets"], axis=-1)
+    output["target_reward"] = tf.argmax(output["target_reward"], axis=-1)
+
+    # only required for decoding.
+    output["outputs"] = output["targets"]
+    output["scores"] = output["targets"]
+    return output
+
   def body(self, features):
     hparams = self.hparams
     batch_size = common_layers.shape_list(features["inputs"])[0]
@@ -528,14 +551,15 @@ class NextFrameSv2p(next_frame_basic_stochastic.NextFrameBasicStochastic):
     # This is NOT the same as original paper/implementation.
     predictions = gen_images[hparams.video_num_input_frames-1:]
     reward_pred = gen_rewards[hparams.video_num_input_frames-1:]
-    reward_pred = tf.squeeze(reward_pred, axis=2)  # Remove undeeded dimension.
+    if self.is_training:
+      reward_pred = tf.squeeze(reward_pred, axis=2)  # Remove extra dimension.
 
     # Swap back time and batch axes.
     predictions = common_video.swap_time_and_batch_axes(predictions)
     reward_pred = common_video.swap_time_and_batch_axes(reward_pred)
 
     return_targets = predictions
-    if "target_reward" in features:
+    if hparams.reward_prediction:
       return_targets = {"targets": predictions, "target_reward": reward_pred}
 
     if hparams.internal_loss:
