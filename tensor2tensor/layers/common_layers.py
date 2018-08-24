@@ -3639,7 +3639,7 @@ def sliced_gan_loss(input1,
       batch_size = shape_list(x)[0]
       if do_random_vecs and do_tanh:
         n = tf.nn.l2_normalize(x, axis=1)
-        proj = tf.concat([tf.matmul(n, random_vecs), tf.tanh(x)], axis=1)
+        proj = tf.concat([tf.matmul(n, random_vecs), tf.tanh(n)], axis=1)
       elif do_random_vecs:
         n = tf.nn.l2_normalize(x, axis=1)
         proj = tf.matmul(n, random_vecs)
@@ -3685,7 +3685,7 @@ def deep_discriminator(x,
       "discriminator", initializer=tf.random_normal_initializer(stddev=0.02)):
     batch_size, height, width = shape_list(x)[:3]
     net = tf.layers.conv2d(
-        x, filters, filter_size, strides=stride, padding="SAME", name="d_conv1")
+        x, filters, filter_size, strides=stride, padding="SAME", name="conv1")
     net = lrelu(net)
     net = tf.layers.conv2d(
         net,
@@ -3693,7 +3693,7 @@ def deep_discriminator(x,
         filter_size,
         strides=stride,
         padding="SAME",
-        name="d_conv2")
+        name="conv2")
     # [bs, h/4, w/4, 128]
     if batch_norm:
       net = tf.layers.batch_normalization(
@@ -3786,14 +3786,41 @@ def patch_discriminator(x, filters=64, filter_size=5, n=4,
     return x
 
 
-def simple_discriminator(x, filters=128, filter_size=7, stride=4):
+def simple_discriminator(x, filters=128, kernel_size=7,
+                         strides=4, do_mean=True):
   """A very simple convolutional discriminator."""
   with tf.variable_scope("discriminator"):
     net = tf.layers.conv2d(
-        x, filters, filter_size, strides=stride, padding="SAME", name="d_conv1")
-    net = tf.nn.relu(net)
-    net = tf.reduce_mean(net, [1, 2])
+        x, filters, kernel_size, strides=strides, padding="SAME", name="conv1")
+    if do_mean:
+      net = tf.reduce_mean(net, [1, 2])
+    else:
+      batch_size = shape_list(x)[0]
+      net = tf.reshape(net, [batch_size, -1])
     return net
+
+
+def double_discriminator(x, filters1=128, filters2=None,
+                         kernel_size=7, strides=4, do_mean=True):
+  """A convolutional discriminator with 2 layers and concatenated output."""
+  if filters2 is None:
+    filters2 = 4 * filters1
+  with tf.variable_scope("discriminator"):
+    batch_size = shape_list(x)[0]
+    net = tf.layers.conv2d(
+        x, filters1, kernel_size, strides=strides, padding="SAME", name="conv1")
+    if do_mean:
+      net1 = tf.reduce_mean(net, [1, 2])
+    else:
+      net1 = tf.reshape(net, [batch_size, -1])
+    net = tf.nn.relu(net)
+    net = tf.layers.conv2d(
+        x, filters2, kernel_size, strides=strides, padding="SAME", name="conv2")
+    if do_mean:
+      net2 = tf.reduce_mean(net, [1, 2])
+    else:
+      net2 = tf.reshape(net, [batch_size, -1])
+    return tf.concat([net1, net2], axis=-1)
 
 
 def upscale(inputs, f, method=tf.image.ResizeMethod.NEAREST_NEIGHBOR):

@@ -283,11 +283,13 @@ class AutoencoderBasic(t2t_model.T2TModel):
               vocab_size,
               do_update=update_means,
               temperature=vq_temperature)
+          reconstr_gan_nonoise = reconstr_gan
           code_loss_gan *= hparams.code_loss_factor * update_means_factor
           losses["code_loss_gan"] = code_loss_gan
       else:
         reconstr_gan = tf.layers.dense(
             res_gan, vocab_size, name="autoencoder_final", reuse=True)
+        reconstr_gan_nonoise = reconstr_gan
         reconstr_gan = self.gumbel_sample(reconstr_gan)
         # Embed to codes.
         gan_codes = self.embed(reconstr_gan)
@@ -295,16 +297,29 @@ class AutoencoderBasic(t2t_model.T2TModel):
     # Add GAN loss if requested.
     gan_loss = 0.0
     if hparams.gan_loss_factor != 0.0:
-      self.image_summary("gan", reconstr_gan)
+      self.image_summary("gan", reconstr_gan_nonoise)
 
       def discriminate(x):
+        """Run a dioscriminator depending on the hparams."""
         if hparams.discriminator == "default":
           return common_layers.deep_discriminator(
               x, hparams.discriminator_batchnorm, is_training)
         elif hparams.discriminator == "patched":
           return common_layers.patch_discriminator(x)
         elif hparams.discriminator == "simple":
-          return common_layers.simple_discriminator(x)
+          return common_layers.simple_discriminator(
+              x,
+              hparams.discriminator_size,
+              hparams.discriminator_kernel_size,
+              hparams.discriminator_strides,
+              do_mean=hparams.discriminator_do_mean)
+        elif hparams.discriminator == "double":
+          return common_layers.double_discriminator(
+              x,
+              hparams.discriminator_size,
+              hparams.discriminator_kernel_size,
+              hparams.discriminator_strides,
+              do_mean=hparams.discriminator_do_mean)
         else:
           raise Exception("Unknown discriminator %s" % hparams.discriminator)
 
@@ -317,9 +332,9 @@ class AutoencoderBasic(t2t_model.T2TModel):
       gan_lr = common_layers.inverse_exp_decay(
           hparams.gan_codes_warmup_steps * 1.5)
       rev_grad_gan_codes = reverse_gradient(gan_codes, lr=gan_lr)
-      gan_loss = common_layers.sliced_gan_loss(target_codes, rev_grad_gan_codes,
-                                               discriminate,
-                                               self.hparams.num_sliced_vecs)
+      gan_loss = common_layers.sliced_gan_loss(
+          target_codes, rev_grad_gan_codes, discriminate,
+          self.hparams.num_sliced_vecs, do_tanh=hparams.sliced_do_tanh)
       gan_loss *= hparams.gan_loss_factor * update_means_factor
       losses["gan_loss"] = -gan_loss
 
@@ -899,6 +914,11 @@ def autoencoder_basic():
   hparams.add_hparam("sample_width", 32)
   hparams.add_hparam("discriminator_batchnorm", True)
   hparams.add_hparam("num_sliced_vecs", 20000)
+  hparams.add_hparam("sliced_do_tanh", int(True))
+  hparams.add_hparam("discriminator_size", 256)
+  hparams.add_hparam("discriminator_kernel_size", 6)
+  hparams.add_hparam("discriminator_strides", 4)
+  hparams.add_hparam("discriminator_do_mean", int(True))
   hparams.add_hparam("code_loss_factor", 1.0)
   hparams.add_hparam("gan_codes_warmup_steps", 6000)
   hparams.add_hparam("gan_loss_factor", 0.0)
@@ -907,7 +927,7 @@ def autoencoder_basic():
   hparams.add_hparam("gumbel_noise_factor", 0.4)
   hparams.add_hparam("vq_temperature", 0.001)
   hparams.add_hparam("use_vq_loss", int(False))
-  hparams.add_hparam("discriminator", "default")
+  hparams.add_hparam("discriminator", "simple")
   return hparams
 
 
@@ -1053,10 +1073,11 @@ def autoencoder_ordered_text():
 def autoencoder_ordered_text_small():
   """Ordered discrete autoencoder model for text, small version."""
   hparams = autoencoder_ordered_text()
-  hparams.bottleneck_bits = 64
+  hparams.bottleneck_bits = 14
+  hparams.num_hidden_layers = 2
   hparams.hidden_size = 64
   hparams.max_hidden_size = 512
-  hparams.bottleneck_noise = 0.3
+  hparams.bottleneck_noise = 0.0
   hparams.autoregressive_mode = "conv5"
   return hparams
 
