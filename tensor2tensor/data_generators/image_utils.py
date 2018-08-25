@@ -18,7 +18,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+
+import io
 import os
+import matplotlib.pyplot as plt
+import numpy as np
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -27,6 +31,51 @@ from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+
+
+def image_to_tf_summary_value(image, tag):
+  """Converts a NumPy image to a tf.Summary.Value object.
+
+  Args:
+    image: 3-D NumPy array.
+    tag: name for tf.Summary.Value for display in tensorboard.
+  Returns:
+    image_summary: A tf.Summary.Value object.
+  """
+  curr_image = np.asarray(image, dtype=np.uint8)
+  height, width, n_channels = curr_image.shape
+  s = io.BytesIO()
+  plt.imsave(s, curr_image, format="png")
+  img_sum = tf.Summary.Image(encoded_image_string=s.getvalue(),
+                             height=height, width=width,
+                             colorspace=n_channels)
+  return tf.Summary.Value(tag=tag, image=img_sum)
+
+
+def convert_predictions_to_image_summaries(hook_args):
+  """Optionally converts images from hooks_args to image summaries.
+
+  Args:
+    hook_args: DecodeHookArgs namedtuple
+  Returns:
+    summaries: list of tf.Summary values if hook_args.decode_hpara
+  """
+  decode_hparams = hook_args.decode_hparams
+  if not decode_hparams.display_decoded_images:
+    return []
+  predictions = hook_args.predictions[0]
+
+  # Display ten random inputs and outputs so that tensorboard does not hang.
+  all_summaries = []
+  rand_predictions = np.random.choice(predictions, size=10)
+  for ind, prediction in enumerate(rand_predictions):
+    output_summary = image_to_tf_summary_value(
+        prediction["outputs"], tag="%d_output" % ind)
+    input_summary = image_to_tf_summary_value(
+        prediction["inputs"], tag="%d_input" % ind)
+    all_summaries.append(input_summary)
+    all_summaries.append(output_summary)
+  return all_summaries
 
 
 def resize_by_area(img, size):
@@ -134,6 +183,10 @@ class ImageProblem(problem.Problem):
     if self._was_reversed:
       eval_metrics += [metrics.Metrics.IMAGE_SUMMARY]
     return eval_metrics
+
+  @property
+  def decode_hooks(self):
+    return [convert_predictions_to_image_summaries]
 
 
 class Image2ClassProblem(ImageProblem):

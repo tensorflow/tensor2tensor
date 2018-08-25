@@ -29,6 +29,9 @@ import tensorflow as tf
 arg_scope = tf.contrib.framework.arg_scope
 add_arg_scope = tf.contrib.framework.add_arg_scope
 
+GLOW_DECODE_HPARAMS = ("identity_output=True,log_results=False,"
+                       "decode_in_memory=True,display_decoded_images=True")
+
 
 @registry.register_hparams
 def glow_hparams():
@@ -69,9 +72,30 @@ class Glow(t2t_model.T2TModel):
     x = x / n_bins - 0.5
     return x
 
+  def scale(self, x):
+    """Scale x from -0.5 - 0.5 to 0 - 255."""
+    x = (x + 0.5) * 2**self.hparams.n_bits_x
+    return tf.cast(tf.clip_by_value(x, 0, 255), dtype=tf.uint8)
+
   @property
   def is_training(self):
     return self.hparams.mode == tf.estimator.ModeKeys.TRAIN
+
+  def infer(self, features, *args, **kwargs):  # pylint: disable=arguments-differ
+    del args, kwargs
+    x = features["inputs"]
+    batch_size = common_layers.shape_list(x)[0]
+    features["targets"] = tf.zeros(shape=(batch_size, 1, 1, 1))
+    _, _ = self(features)  # pylint: disable=not-callable
+
+    ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
+    var_scope = tf.variable_scope("glow/body", reuse=True)
+    # If eps=None, images are sampled from the prior.
+    with arg_scope(ops, init=False), var_scope:
+      predictions, _ = glow_ops.encoder_decoder(
+          "codec", self.z_sample, self.hparams, eps=None, reverse=True)
+
+    return self.scale(predictions)
 
   def body(self, features):
     x = features["inputs"]
@@ -96,12 +120,13 @@ class Glow(t2t_model.T2TModel):
     init_op = tf.logical_and(tf.equal(global_step, 0), self.is_training)
     ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
     with arg_scope(ops, init=init_op):
-      z, encoder_objective, _ = glow_ops.encoder_decoder(
+      self.z, encoder_objective, self.eps = glow_ops.encoder_decoder(
           "codec", x, self.hparams, eps=None, reverse=False)
       objective += encoder_objective
 
-      prior_objective = glow_ops.top_prior(
-          "top_prior", z, learn_prior=self.hparams.learn_prior)
+      prior_objective, prior_dist = glow_ops.top_prior(
+          "top_prior", self.z, learn_prior=self.hparams.learn_prior)
+      self.z_sample = prior_dist.sample()
       objective += prior_objective
 
     # bits per pixel

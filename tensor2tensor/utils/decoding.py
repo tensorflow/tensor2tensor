@@ -63,7 +63,8 @@ def decode_hparams(overrides=""):
       shards=1,
       shard_id=0,
       num_decodes=1,
-      force_decode_length=False)
+      force_decode_length=False,
+      display_decoded_images=False)
   hp.parse(overrides)
   return hp
 

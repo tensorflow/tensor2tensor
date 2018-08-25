@@ -545,7 +545,8 @@ def top_prior(name, x, learn_prior=False):
       prior_dist = tf.distributions.Normal(h, tf.exp(h))
     else:
       prior_dist = split_prior("top_learn_prior", h)
-    return tf.reduce_sum(prior_dist.log_prob(x), axis=[1, 2, 3])
+    objective = tf.reduce_sum(prior_dist.log_prob(x), axis=[1, 2, 3])
+    return objective, prior_dist
 
 
 @add_arg_scope

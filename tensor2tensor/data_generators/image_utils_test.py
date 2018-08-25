@@ -19,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 import numpy as np
 from tensor2tensor.data_generators import image_utils
+from tensor2tensor.utils import decoding
 
 import tensorflow as tf
 
@@ -116,6 +117,34 @@ class ImageTest(tf.test.TestCase):
     image = tf.random_normal([256, 256, 3])
     image_shift = image_utils.random_shift(image, wsr=0.1, hsr=0.1)
     self.assertEqual(image_shift.shape, [256, 256, 3])
+
+  def testImageToSummaryValue(self):
+    rng = np.random.RandomState(0)
+    x = rng.randint(0, 255, (32, 32, 3))
+    x_summary = image_utils.image_to_tf_summary_value(x, "X_image")
+    self.assertEqual(x_summary.tag, "X_image")
+
+  def testConvertPredictionsToImageSummaries(self):
+    # Initialize predictions.
+    rng = np.random.RandomState(0)
+    x = rng.randint(0, 255, (32, 32, 3))
+    predictions = [[{"outputs": x, "inputs": x}] * 50]
+
+    decode_hparams = decoding.decode_hparams()
+    # should return 20 summaries of images, 10 outputs and 10 inputs if
+    # display_decoded_images is set to True.
+    for display, summaries_length in zip([True, False], [20, 0]):
+      decode_hparams.display_decoded_images = display
+      decode_hooks = decoding.DecodeHookArgs(
+          estimator=None, problem=None, output_dirs=None,
+          hparams=decode_hparams, decode_hparams=decode_hparams,
+          predictions=predictions)
+      summaries = image_utils.convert_predictions_to_image_summaries(
+          decode_hooks)
+      self.assertEqual(len(summaries), summaries_length)
+      if summaries:
+        self.assertTrue(isinstance(summaries[0], tf.Summary.Value))
+
 
 if __name__ == "__main__":
   tf.test.main()

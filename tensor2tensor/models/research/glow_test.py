@@ -18,6 +18,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+import tempfile
 import numpy as np
 from tensor2tensor import problems
 from tensor2tensor.data_generators import cifar  # pylint: disable=unused-import
@@ -59,6 +61,49 @@ class GlowModelTest(tf.test.TestCase):
         is_undefined = np.isnan(mean_obj) or np.isinf(mean_obj)
         self.assertTrue(not is_undefined)
 
+  def test_glow_inference(self):
+    hparams = glow.glow_hparams()
+    hparams.depth = 15
+    hparams.n_levels = 2
+    curr_dir = tempfile.mkdtemp()
+
+    # Training pipeline
+    with tf.Graph().as_default():
+      model = glow.Glow(hparams, tf.estimator.ModeKeys.TRAIN)
+      cifar_problem = problems.problem('image_cifar10_plain_random_shift')
+      train_dataset = cifar_problem.dataset(MODES.TRAIN)
+      one_shot = train_dataset.make_one_shot_iterator()
+      x_batch, y_batch = self.batch(one_shot)
+      features = {'inputs': x_batch, 'targets': y_batch}
+      model_path = os.path.join(curr_dir, 'model')
+
+      model(features)
+      with tf.Session() as session:
+        saver = tf.train.Saver()
+        session.run(tf.global_variables_initializer())
+        z = session.run([model.z])
+        mean_z = np.mean(z)
+        is_undefined = np.isnan(mean_z) or np.isinf(mean_z)
+        self.assertTrue(not is_undefined)
+        saver.save(session, model_path)
+
+    # Inference pipeline
+    with tf.Graph().as_default():
+      model = glow.Glow(hparams, tf.estimator.ModeKeys.PREDICT)
+      cifar_problem = problems.problem('image_cifar10_plain_random_shift')
+      test_dataset = cifar_problem.dataset(MODES.EVAL)
+      one_shot = test_dataset.make_one_shot_iterator()
+      x_batch, y_batch = self.batch(one_shot)
+      features = {'inputs': x_batch, 'targets': y_batch}
+      model_path = os.path.join(curr_dir, 'model')
+
+      predictions = model.infer(features)
+      with tf.Session() as session:
+        saver = tf.train.Saver()
+        saver.restore(session, model_path)
+        predictions_np = session.run(predictions)
+        self.assertTrue(np.all(predictions_np <= 255))
+        self.assertTrue(np.all(predictions_np >= 0))
 
 if __name__ == '__main__':
   tf.test.main()
