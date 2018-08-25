@@ -814,7 +814,7 @@ class SubwordTextEncoder(TextEncoder):
           start += len(subtoken)
         iter_time_secs = time.time() - iter_start_time
         if iter_time_secs > 0.1:
-          tf.logging.info("Processing token [{0}] took {1} seconds, consider "
+          tf.logging.info(u"Processing token [{0}] took {1} seconds, consider "
                           "setting Text2TextProblem.max_subtoken_length to a "
                           "smaller value.".format(token, iter_time_secs))
 
