@@ -65,8 +65,20 @@ class EvalVideoWrapper(gym.Wrapper):
     return self._last_returned[0]
 
 
+def get_observation_space(environment_spec):
+  """Get observation space associated with environment spec.
+
+  Args:
+     environment_spec:  EnvironmentSpec object
+
+  Returns:
+    OpenAi Gym observation space
+  """
+  return environment_spec.env_lambda().observation_space
+
+
 def get_action_space(environment_spec):
-  """Get action spece associated with environment spec.
+  """Get action space associated with environment spec.
 
   Args:
      environment_spec:  EnvironmentSpec object
@@ -74,11 +86,7 @@ def get_action_space(environment_spec):
   Returns:
     OpenAi Gym action space
   """
-  action_space = environment_spec.env_lambda().action_space
-  action_shape = list(parse_shape(action_space))
-  action_dtype = parse_dtype(action_space)
-
-  return action_space, action_shape, action_dtype
+  return environment_spec.env_lambda().action_space
 
 
 def get_policy(observations, hparams):
@@ -92,7 +100,7 @@ def get_policy(observations, hparams):
     Tensor with policy and value function output
   """
   policy_network_lambda = hparams.policy_network
-  action_space, _, _ = get_action_space(hparams.environment_spec)
+  action_space = get_action_space(hparams.environment_spec)
   return policy_network_lambda(action_space, hparams, observations)
 
 
@@ -124,5 +132,5 @@ def parse_dtype(space):
   if isinstance(space, gym.spaces.Discrete):
     return tf.int32
   if isinstance(space, gym.spaces.Box):
-    return tf.float32
+    return tf.as_dtype(space.dtype)
   raise NotImplementedError()
