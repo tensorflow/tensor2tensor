@@ -71,7 +71,7 @@ class InGraphBatchEnv(object):
     """
     return tf.cond(
         tf.cast(tf.reduce_sum(indices + 1), tf.bool),
-        lambda: self._reset_non_empty(indices), lambda: 0.0)
+        lambda: self._reset_non_empty(indices), lambda: 0)
 
   @property
   def observ(self):

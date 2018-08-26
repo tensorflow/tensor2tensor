@@ -29,7 +29,7 @@ class WarmupWrapper(gym.Wrapper):
     self.warm_up_examples = warm_up_examples
     self.warm_up_action = warmup_action
     self.observation_space = gym.spaces.Box(
-        low=0, high=255, shape=(210, 160, 3), dtype=np.uint8)
+        low=0, high=255, shape=(210, 160, 3), dtype=np.int32)
 
   def get_starting_data(self, num_frames):
     self.reset()
@@ -68,7 +68,7 @@ class PongWrapper(WarmupWrapper):
       self.action_space = gym.spaces.Discrete(2)
     self.warm_up_examples = warm_up_examples
     self.observation_space = gym.spaces.Box(
-        low=0, high=255, shape=(210, 160, 3), dtype=np.uint8)
+        low=0, high=255, shape=(210, 160, 3), dtype=np.int32)
     self.reward_skip_steps = reward_skip_steps
     self.big_ball = big_ball
 
@@ -147,7 +147,7 @@ class BreakoutWrapper(WarmupWrapper):
     self.warm_up_examples = warm_up_examples
     self.observation_space = gym.spaces.Box(low=0, high=255,
                                             shape=(210, 160, 3),
-                                            dtype=np.uint8)
+                                            dtype=np.int32)
     self.ball_down_skip = ball_down_skip
     self.big_ball = big_ball
     self.reward_clipping = reward_clipping
