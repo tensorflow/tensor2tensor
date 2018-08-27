@@ -29,9 +29,10 @@ from __future__ import print_function
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
-from tensor2tensor.models.research import next_frame_sv2p
-from tensor2tensor.models.research import next_frame_sv2p_params
+from tensor2tensor.models.video import sv2p
+from tensor2tensor.models.video import sv2p_params
 from tensor2tensor.utils import registry
+
 import tensorflow as tf
 
 tfl = tf.layers
@@ -39,7 +40,7 @@ tfcl = tf.contrib.layers
 
 
 @registry.register_model
-class NextFrameEmily(next_frame_sv2p.NextFrameSv2p):
+class NextFrameEmily(sv2p.NextFrameSv2p):
   """Stochastic Variational Video Prediction Without Learned Prior."""
 
   def encoder(self, inputs, nout):
@@ -266,7 +267,7 @@ class NextFrameEmily(next_frame_sv2p.NextFrameSv2p):
 @registry.register_hparams
 def next_frame_emily():
   """Emily's model hparams."""
-  hparams = next_frame_sv2p_params.next_frame_sv2p()
+  hparams = sv2p_params.next_frame_sv2p()
   hparams.latent_loss_multiplier = 1e-4
   hparams.learning_rate_constant = 0.002
   hparams.add_hparam("z_dim", 10)

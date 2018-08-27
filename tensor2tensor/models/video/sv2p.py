@@ -28,9 +28,11 @@ from functools import partial
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
-from tensor2tensor.models.research import next_frame_basic_stochastic
-from tensor2tensor.models.research import next_frame_sv2p_params  # pylint: disable=unused-import
+
+from tensor2tensor.models.video import basic_stochastic
+from tensor2tensor.models.video import sv2p_params  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
+
 import tensorflow as tf
 
 tfl = tf.layers
@@ -38,7 +40,7 @@ tfcl = tf.contrib.layers
 
 
 @registry.register_model
-class NextFrameSv2p(next_frame_basic_stochastic.NextFrameBasicStochastic):
+class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
   """Stochastic Variational Video Prediction."""
 
   def tinyify(self, array):

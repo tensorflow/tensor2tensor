@@ -17,14 +17,14 @@
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.models.research import next_frame_sv2p_params
+from tensor2tensor.models.video import sv2p_params
 from tensor2tensor.utils import registry
 
 
 @registry.register_hparams
 def next_frame_savp():
   """SAVP model hparams."""
-  hparams = next_frame_sv2p_params.next_frame_sv2p()
+  hparams = sv2p_params.next_frame_sv2p()
   hparams.add_hparam("z_dim", 8)
   hparams.add_hparam("num_discriminator_filters", 32)
   hparams.add_hparam("use_vae", True)

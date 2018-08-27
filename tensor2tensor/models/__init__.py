@@ -47,11 +47,6 @@ from tensor2tensor.models.research import gene_expression
 from tensor2tensor.models.research import glow
 from tensor2tensor.models.research import lm_experiments
 from tensor2tensor.models.research import multimodel
-from tensor2tensor.models.research import next_frame_basic_deterministic
-from tensor2tensor.models.research import next_frame_basic_stochastic
-from tensor2tensor.models.research import next_frame_emily
-from tensor2tensor.models.research import next_frame_savp
-from tensor2tensor.models.research import next_frame_sv2p
 from tensor2tensor.models.research import rl
 from tensor2tensor.models.research import similarity_transformer
 from tensor2tensor.models.research import super_lm
@@ -65,5 +60,11 @@ from tensor2tensor.models.research import universal_transformer
 from tensor2tensor.models.research import vqa_attention
 from tensor2tensor.models.research import vqa_recurrent_self_attention
 from tensor2tensor.models.research import vqa_self_attention
+
+from tensor2tensor.models.video import basic_deterministic
+from tensor2tensor.models.video import basic_stochastic
+from tensor2tensor.models.video import emily
+from tensor2tensor.models.video import savp
+from tensor2tensor.models.video import sv2p
 
 # pylint: enable=unused-import

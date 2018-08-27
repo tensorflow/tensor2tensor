@@ -22,7 +22,7 @@ import six
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
-from tensor2tensor.models.research import next_frame_basic_deterministic_params  # pylint: disable=unused-import
+from tensor2tensor.models.video import basic_deterministic_params  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -169,4 +169,3 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
 
     # Return results.
     return results
-

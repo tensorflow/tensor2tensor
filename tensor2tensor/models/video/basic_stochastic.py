@@ -20,9 +20,11 @@ from __future__ import print_function
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
-from tensor2tensor.models.research import next_frame_base_vae
-from tensor2tensor.models.research import next_frame_basic_deterministic
-from tensor2tensor.models.research import next_frame_basic_deterministic_params
+
+from tensor2tensor.models.video import base_vae
+from tensor2tensor.models.video import basic_deterministic
+from tensor2tensor.models.video import basic_deterministic_params
+
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -30,8 +32,8 @@ import tensorflow as tf
 
 @registry.register_model
 class NextFrameBasicStochastic(
-    next_frame_basic_deterministic.NextFrameBasicDeterministic,
-    next_frame_base_vae.NextFrameBaseVae):
+    basic_deterministic.NextFrameBasicDeterministic,
+    base_vae.NextFrameBaseVae):
   """Stochastic version of basic next-frame model."""
 
   def inject_latent(self, layer, features, filters):
@@ -57,8 +59,7 @@ class NextFrameBasicStochastic(
 @registry.register_hparams
 def next_frame_basic_stochastic():
   """Basic 2-frame conv model with stochastic tower."""
-  base = next_frame_basic_deterministic_params
-  hparams = base.next_frame_basic_deterministic()
+  hparams = basic_deterministic_params.next_frame_basic_deterministic()
   hparams.stochastic_model = True
   hparams.add_hparam("latent_channels", 1)
   hparams.add_hparam("latent_std_min", -5.0)
@@ -70,5 +71,3 @@ def next_frame_basic_stochastic():
   hparams.add_hparam("anneal_end", 100000)
   hparams.add_hparam("information_capacity", 0.0)
   return hparams
-
-
