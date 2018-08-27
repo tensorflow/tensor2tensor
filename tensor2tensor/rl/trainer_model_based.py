@@ -608,6 +608,7 @@ def rl_modelrl_tiny():
 def rl_modelrl_tiny_stochastic():
   """Tiny setting with a stochastic next-frame model."""
   hparams = rl_modelrl_tiny()
+  hparams.epochs = 1  # Too slow with 2 for regular runs.
   hparams.generative_model = "next_frame_basic_stochastic"
   hparams.generative_model_params = "next_frame_basic_stochastic"
   return hparams
