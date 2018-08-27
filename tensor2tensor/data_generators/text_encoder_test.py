@@ -363,5 +363,22 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     self.assertEqual(corpus, reconstructed_corpus)
 
 
+class OneHotClassLabelEncoderTest(tf.test.TestCase):
+
+  def test_one_hot_encode(self):
+    encoder = text_encoder.OneHotClassLabelEncoder(
+        class_labels=["zero", "one", "two"])
+    self.assertEqual(encoder.encode("zero"), [1, 0, 0])
+    self.assertEqual(encoder.encode("one"), [0, 1, 0])
+    self.assertEqual(encoder.encode("two"), [0, 0, 1])
+
+  def test_one_hot_decode(self):
+    encoder = text_encoder.OneHotClassLabelEncoder(
+        class_labels=["zero", "one", "two"])
+    self.assertEqual(encoder.decode([1, 0, 0]), "zero")
+    self.assertEqual(encoder.decode([0, 1, 0]), "one")
+    self.assertEqual(encoder.decode([0, 0, 1]), "two")
+
+
 if __name__ == "__main__":
   tf.test.main()

@@ -251,7 +251,7 @@ class OneHotClassLabelEncoder(ClassLabelEncoder):
   """One-hot encoder for class labels."""
 
   def encode(self, label_str, on_value=1, off_value=0):  # pylint: disable=arguments-differ
-    e = np.fill(self.vocab_size, off_value, dtype=np.int32)
+    e = np.full(self.vocab_size, off_value, dtype=np.int32)
     e[self._class_labels.index(label_str)] = on_value
     return e.tolist()
 
