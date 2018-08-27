@@ -322,17 +322,13 @@ def conv_latent_tower(images, time_axis, latent_channels=1, min_logvar=-5,
     x = common_layers.make_even_size(x)
     x = tfl.conv2d(x, conv_size[0], [3, 3], strides=(2, 2),
                    padding="SAME", activation=tf.nn.relu, name="latent_conv1")
-    x = tfcl.batch_norm(x, updates_collections=None,
-                        is_training=is_training, scope="latent_bn1")
-    x = common_layers.make_even_size(x)
+    x = tfcl.layer_norm(x)
     x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
                    padding="SAME", activation=tf.nn.relu, name="latent_conv2")
-    x = tfcl.batch_norm(x, updates_collections=None,
-                        is_training=is_training, scope="latent_bn2")
+    x = tfcl.layer_norm(x)
     x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(1, 1),
                    padding="SAME", activation=tf.nn.relu, name="latent_conv3")
-    x = tfcl.batch_norm(x, updates_collections=None,
-                        is_training=is_training, scope="latent_bn3")
+    x = tfcl.layer_norm(x)
 
     nc = latent_channels
     mean = tfl.conv2d(x, nc, [3, 3], strides=(2, 2),
