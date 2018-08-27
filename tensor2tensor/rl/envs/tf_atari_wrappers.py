@@ -59,6 +59,21 @@ class WrapperBase(InGraphBatchEnv):
     with tf.control_dependencies([assign_op]):
       return tf.identity(new_values)
 
+class RewardClippingWrapper(WrapperBase):
+  """ Reward clipping wrapper.
+      The rewards are clipped to -1, 0, 1
+      This is a common strategy to ensure learning stability
+      of rl algorithms
+  """
+
+  def __init__(self, batch_env):
+    super(RewardClippingWrapper, self).__init__(batch_env)
+
+  def simulate(self, action):
+    reward, done = self._batch_env.simulate(action)
+    with tf.control_dependencies([reward, done]):
+      return tf.sign(reward), tf.identity(done)
+
 
 class MaxAndSkipWrapper(WrapperBase):
   """ Max and skip wrapper.
