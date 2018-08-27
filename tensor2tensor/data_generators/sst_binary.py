@@ -60,10 +60,6 @@ class SentimentSSTBinary(text_problems.Text2ClassProblem):
     return 2**14
 
   @property
-  def vocab_filename(self):
-    return "vocab.sst_binary.%d" % self.approx_vocab_size
-
-  @property
   def num_classes(self):
     return 2
 

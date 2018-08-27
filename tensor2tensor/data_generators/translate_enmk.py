@@ -54,10 +54,6 @@ class TranslateEnmkSetimes32k(translate.TranslateProblem):
   def approx_vocab_size(self):
     return 2**15  # 32768
 
-  @property
-  def vocab_filename(self):
-    return "vocab.enmk.%d" % self.approx_vocab_size
-
   def source_data_files(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN
     return _ENMK_TRAIN_DATASETS if train else _ENMK_DEV_DATASETS

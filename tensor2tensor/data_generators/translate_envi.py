@@ -52,10 +52,6 @@ class TranslateEnviIwslt32k(translate.TranslateProblem):
   def approx_vocab_size(self):
     return 2**15  # 32768
 
-  @property
-  def vocab_filename(self):
-    return "vocab.envi.%d" % self.approx_vocab_size
-
   def source_data_files(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN
     return _ENVI_TRAIN_DATASETS if train else _ENVI_TEST_DATASETS

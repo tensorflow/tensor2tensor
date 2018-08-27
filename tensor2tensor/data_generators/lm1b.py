@@ -111,10 +111,6 @@ class LanguagemodelLm1b32k(text_problems.Text2SelfProblem):
   """
 
   @property
-  def vocab_filename(self):
-    return "vocab.lm1b.en.%d" % self.approx_vocab_size
-
-  @property
   def approx_vocab_size(self):
     return 2**15  # 32768
 
@@ -148,6 +144,10 @@ class LanguagemodelLm1b32kPacked(LanguagemodelLm1b32k):
   @property
   def packed_length(self):
     return 256
+
+  @property
+  def vocab_filename(self):
+    return LanguagemodelLm1b32k().vocab_filename
 
 
 @registry.register_problem

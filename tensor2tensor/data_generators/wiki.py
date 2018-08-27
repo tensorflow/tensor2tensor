@@ -86,10 +86,6 @@ class LanguagemodelWikiXmlV8kL1k(text_problems.ChoppedTextProblem):
             "enwiki-20171201-pages-articles.xml.bz2")
 
   @property
-  def vocab_filename(self):
-    return "vocab.wiki_xml.%d" % self.approx_vocab_size
-
-  @property
   def approx_vocab_size(self):
     return 2**13  # 8192
 
@@ -218,10 +214,6 @@ class LanguagemodelWikiNorefV8kL1k(LanguagemodelWikiXmlV8kL1k):
   Result is chopped arbitrarily into sequences of length 1024 tokens,
   without regard to article boundaries.
   """
-
-  @property
-  def vocab_filename(self):
-    return "vocab.wiki_noref.%d" % self.approx_vocab_size
 
   def filepath_to_unicode_strings(self, filepath):
     """Overrides the base class to clean up the xml dump before tokenizing."""

@@ -22,6 +22,7 @@ import os
 import zipfile
 import six
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.data_generators import lm1b
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
@@ -55,10 +56,6 @@ class StanfordNLI(text_problems.TextConcat2ClassProblem):
   @property
   def approx_vocab_size(self):
     return 2**15
-
-  @property
-  def vocab_filename(self):
-    return "vocab.snli.%d" % self.approx_vocab_size
 
   @property
   def num_classes(self):
@@ -131,4 +128,4 @@ class StanfordNLISharedVocab(StanfordNLI):
 
   @property
   def vocab_filename(self):
-    return "vocab.lm1b.en.%d" % 2**15
+    return lm1b.LanguagemodelLm1b32k().vocab_filename

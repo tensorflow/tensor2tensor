@@ -59,10 +59,6 @@ class TranslateEnetWmt32k(translate.TranslateProblem):
   def approx_vocab_size(self):
     return 2**15  # 32768
 
-  @property
-  def vocab_filename(self):
-    return "vocab.enet.%d" % self.approx_vocab_size
-
   def source_data_files(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN
     return _ENET_TRAIN_DATASETS if train else _ENET_TEST_DATASETS

@@ -147,6 +147,8 @@ def main(_):
       problems = [p for p in problems if exclude not in p]
   if FLAGS.problem and FLAGS.problem[-1] == "*":
     problems = [p for p in problems if p.startswith(FLAGS.problem[:-1])]
+  elif FLAGS.problem and "," in FLAGS.problem:
+    problems = [p for p in problems if p in FLAGS.problem.split(",")]
   elif FLAGS.problem:
     problems = [p for p in problems if p == FLAGS.problem]
   else:

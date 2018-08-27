@@ -32,8 +32,8 @@ import tensorflow as tf
 _ENDE_TRAIN_DATASETS = [
     [
         "http://data.statmt.org/wmt18/translation-task/training-parallel-nc-v13.tgz",  # pylint: disable=line-too-long
-        ("training/news-commentary-v13.de-en.en",
-         "training/news-commentary-v13.de-en.de")
+        ("training-parallel-nc-v13/news-commentary-v13.de-en.en",
+         "training-parallel-nc-v13/news-commentary-v13.de-en.de")
     ],
     [
         "http://www.statmt.org/wmt13/training-parallel-commoncrawl.tgz",
@@ -71,18 +71,12 @@ class TranslateEndeWmtBpe32k(translate.TranslateProblem):
   """Problem spec for WMT En-De translation, BPE version."""
 
   @property
-  def approx_vocab_size(self):
-    return 32000
+  def vocab_type(self):
+    return text_problems.VocabType.TOKEN
 
   @property
-  def vocab_filename(self):
-    return "vocab.bpe.%d" % self.approx_vocab_size
-
-  def get_or_create_vocab(self, data_dir, tmp_dir, force_get=False):
-    vocab_filename = os.path.join(data_dir, self.vocab_filename)
-    if not tf.gfile.Exists(vocab_filename) and force_get:
-      raise ValueError("Vocab %s not found" % vocab_filename)
-    return text_encoder.TokenTextEncoder(vocab_filename, replace_oov="UNK")
+  def oov_token(self):
+    return "UNK"
 
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
     """Instance of token generator for the WMT en->de task, training set."""
@@ -92,14 +86,14 @@ class TranslateEndeWmtBpe32k(translate.TranslateProblem):
     train_path = _get_wmt_ende_bpe_dataset(tmp_dir, dataset_path)
 
     # Vocab
-    token_path = os.path.join(data_dir, self.vocab_filename)
-    if not tf.gfile.Exists(token_path):
-      token_tmp_path = os.path.join(tmp_dir, self.vocab_filename)
-      tf.gfile.Copy(token_tmp_path, token_path)
-      with tf.gfile.GFile(token_path, mode="r") as f:
-        vocab_data = "<pad>\n<EOS>\n" + f.read() + "UNK\n"
-      with tf.gfile.GFile(token_path, mode="w") as f:
-        f.write(vocab_data)
+    vocab_path = os.path.join(data_dir, self.vocab_filename)
+    if not tf.gfile.Exists(vocab_path):
+      bpe_vocab = os.path.join(tmp_dir, "vocab.bpe.32000")
+      with tf.gfile.Open(bpe_vocab) as f:
+        vocab_list = f.read().split("\n")
+      vocab_list.append(self.oov_token)
+      text_encoder.TokenTextEncoder(
+          None, vocab_list=vocab_list).store_to_file(vocab_path)
 
     return text_problems.text2text_txt_iterator(train_path + ".en",
                                                 train_path + ".de")
@@ -112,10 +106,6 @@ class TranslateEndeWmt8k(translate.TranslateProblem):
   @property
   def approx_vocab_size(self):
     return 2**13  # 8192
-
-  @property
-  def vocab_filename(self):
-    return "vocab.ende.%d" % self.approx_vocab_size
 
   def source_data_files(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN
@@ -137,6 +127,10 @@ class TranslateEndeWmt32kPacked(TranslateEndeWmt32k):
   def packed_length(self):
     return 256
 
+  @property
+  def vocab_filename(self):
+    return TranslateEndeWmt32k().vocab_filename
+
 
 @registry.register_problem
 class TranslateEndeWmt8kPacked(TranslateEndeWmt8k):
@@ -145,9 +139,13 @@ class TranslateEndeWmt8kPacked(TranslateEndeWmt8k):
   def packed_length(self):
     return 256
 
+  @property
+  def vocab_filename(self):
+    return TranslateEndeWmt8k().vocab_filename
+
 
 @registry.register_problem
-class TranslateEndeWmtCharacters(translate.TranslateProblem):
+class TranslateEndeWmtCharacters(TranslateEndeWmt8k):
   """Problem spec for WMT En-De translation."""
 
   @property

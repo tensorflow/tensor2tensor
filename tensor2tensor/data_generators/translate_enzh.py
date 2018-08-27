@@ -42,8 +42,8 @@ EOS = text_encoder.EOS_ID
 _STAT_MT_URL = "http://data.statmt.org/wmt18/translation-task/"
 _NC_TRAIN_DATASETS = [[
     _STAT_MT_URL + "training-parallel-nc-v13.tgz", [
-        "training/news-commentary-v13.zh-en.en",
-        "training/news-commentary-v13.zh-en.zh"
+        "training-parallel-nc-v13/news-commentary-v13.zh-en.en",
+        "training-parallel-nc-v13/news-commentary-v13.zh-en.zh"
     ]
 ]]
 
@@ -182,11 +182,11 @@ class TranslateEnzhWmt32k(translate.TranslateProblem):
 
   @property
   def source_vocab_name(self):
-    return "vocab.enzh-en.%d" % self.approx_vocab_size
+    return "%s.en" % self.vocab_filename
 
   @property
   def target_vocab_name(self):
-    return "vocab.enzh-zh.%d" % self.approx_vocab_size
+    return "%s.zh" % self.vocab_filename
 
   def get_training_dataset(self, tmp_dir):
     """UN Parallel Corpus and CWMT Corpus need to be downloaded manually.

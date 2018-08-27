@@ -313,7 +313,7 @@ class Image2TextProblem(ImageProblem):
     raise NotImplementedError()
 
   @property
-  def targeted_vocab_size(self):
+  def vocab_problem(self):
     raise NotImplementedError()  # Not needed if self.is_character_level.
 
   @property
@@ -345,7 +345,7 @@ class Image2TextProblem(ImageProblem):
       encoder = text_encoder.ByteTextEncoder()
     else:
       vocab_filename = os.path.join(
-          data_dir, "vocab.ende.%d" % self.targeted_vocab_size)
+          data_dir, self.vocab_problem.vocab_filename)
       encoder = text_encoder.SubwordTextEncoder(vocab_filename)
     input_encoder = text_encoder.ImageEncoder(channels=self.num_channels)
     return {"inputs": input_encoder, "targets": encoder}

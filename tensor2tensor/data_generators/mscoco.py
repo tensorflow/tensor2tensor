@@ -28,6 +28,7 @@ from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import imagenet
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import translate_ende
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -180,8 +181,8 @@ class ImageMsCocoTokens32k(ImageMsCocoCharacters):
     return False
 
   @property
-  def targeted_vocab_size(self):
-    return 2**15  # 32768
+  def vocab_problem(self):
+    return translate_ende.TranslateEndeWmt32k()
 
   @property
   def target_space_id(self):
@@ -199,7 +200,7 @@ class ImageMsCocoTokens32k(ImageMsCocoCharacters):
     # We use the translate vocab file as the vocabulary for captions.
     # This requires having the vocab file present in the data_dir for the
     # generation pipeline to succeed.
-    vocab_filename = "vocab.ende.%d" % self.targeted_vocab_size
+    vocab_filename = self.vocab_problem.vocab_filename
     if is_training:
       return mscoco_generator(
           data_dir,

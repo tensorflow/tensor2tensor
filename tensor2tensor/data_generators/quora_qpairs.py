@@ -60,10 +60,6 @@ class QuoraQuestionPairs(text_problems.TextConcat2ClassProblem):
     return 2**15
 
   @property
-  def vocab_filename(self):
-    return "vocab.qqp.%d" % self.approx_vocab_size
-
-  @property
   def num_classes(self):
     return 2
 

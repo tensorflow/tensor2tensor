@@ -203,10 +203,6 @@ def write_raw_text_to_files(all_files, urls_path, tmp_dir, is_training):
 class SummarizeCnnDailymail32k(text_problems.Text2TextProblem):
   """Summarize CNN and Daily Mail articles to their summary highlights."""
 
-  @property
-  def vocab_filename(self):
-    return "vocab.cnndailymail.%d" % self.approx_vocab_size
-
   def generate_text_for_vocab(self, data_dir, tmp_dir):
     del data_dir
     all_files, urls_path = _maybe_download_corpora(tmp_dir, True)

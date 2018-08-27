@@ -85,11 +85,6 @@ class TranslateEnfrWmtSmall8k(translate.TranslateProblem):
     return 2**13  # 8192
 
   @property
-  def vocab_filename(self):
-    return "vocab.enfr.%s.%d" % (
-        "small" if self.use_small_dataset else "large", self.approx_vocab_size)
-
-  @property
   def use_small_dataset(self):
     return True
 
@@ -137,6 +132,10 @@ class TranslateEnfrWmt32kPacked(TranslateEnfrWmt32k):
   def packed_length(self):
     return 256
 
+  @property
+  def vocab_filename(self):
+    return TranslateEnfrWmt32k().vocab_filename
+
 
 @registry.register_problem
 class TranslateEnfrWmtSmallCharacters(translate.TranslateProblem):
@@ -149,10 +148,6 @@ class TranslateEnfrWmtSmallCharacters(translate.TranslateProblem):
   @property
   def use_small_dataset(self):
     return True
-
-  @property
-  def vocab_filename(self):
-    return "vocab.enfr.%d" % self.approx_vocab_size
 
   def source_data_files(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN
