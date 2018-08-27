@@ -55,6 +55,9 @@ class NextFrameBaseVae(object):
     tf.summary.histogram("posterior_mean", mean)
     tf.summary.histogram("posterior_std", std)
     tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
+    # information capacity from "Understanding disentangling in beta-VAE"
+    if self.hparams.information_capacity > 0.0:
+      kl_loss = tf.abs(kl_loss - self.hparams.information_capacity)
     return beta * kl_loss
 
   def construct_latent_tower(self, images, time_axis):

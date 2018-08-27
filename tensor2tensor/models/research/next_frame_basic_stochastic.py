@@ -68,6 +68,7 @@ def next_frame_basic_stochastic():
   hparams.add_hparam("latent_loss_multiplier_schedule", "constant")
   hparams.add_hparam("latent_num_frames", 0)  # 0 means use all frames.
   hparams.add_hparam("anneal_end", 100000)
+  hparams.add_hparam("information_capacity", 0.0)
   return hparams
 
 
