@@ -40,7 +40,7 @@ flags.DEFINE_string("data_dir", "/tmp/t2t/data_dir",
 flags.DEFINE_string("tmp_dir", "/tmp/t2t/tmp_dir",
                     "Temporary storage directory.")
 
-flags.DEFINE_string("problem", "",
+flags.DEFINE_string("problem", None,
                     "Problem to generate the vocabulary file for.")
 
 flags.mark_flag_as_required("problem")
