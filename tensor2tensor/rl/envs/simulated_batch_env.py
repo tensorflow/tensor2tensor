@@ -125,7 +125,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
                                                FLAGS.data_dir,
                                                shuffle_files=True,
                                                hparams=hparams)
-      dataset = dataset.shuffle(buffer_size=100)
+      dataset = dataset.shuffle(buffer_size=1000)
     else:
       dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN,
                                                FLAGS.data_dir,

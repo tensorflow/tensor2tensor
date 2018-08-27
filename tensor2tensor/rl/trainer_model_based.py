@@ -19,7 +19,7 @@ Example invocation:
 python -m tensor2tensor.rl.trainer_model_based \
     --output_dir=$HOME/t2t/rl_v1 \
     --loop_hparams_set=rl_modelrl_base \
-    --loop_hparams='true_env_generator_num_steps=10000,epochs=3'
+    --loop_hparams='num_real_env_frames=10000,epochs=3'
 """
 from __future__ import absolute_import
 from __future__ import division
@@ -103,7 +103,9 @@ def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
       "autoencoder_path": autoencoder_path,
   }):
     gym_problem = registry.problem(problem_name)
-    gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
+    env_steps_per_epoch = (
+        hparams.num_real_env_frames / (hparams.epochs * (1. - 1./11.)))
+    gym_problem.settable_num_steps = env_steps_per_epoch
     gym_problem.settable_eval_phase = eval_phase
     gym_problem.generate_data(data_dir, tmp_dir)
     mean_reward = None
@@ -511,12 +513,9 @@ def combine_training_data(problem, final_data_dir, old_data_dirs,
 def rl_modelrl_base():
   return tf.contrib.training.HParams(
       epochs=6,
-      # Total frames used for training =
-      # steps * (1 - 1/11) * epochs
-      # 1/11 steps are used for evaluation data.
-      # So to use N frames set steps = N / (epochs * (1 - 1/11)).
-      # We set it to use 100k frames for training.
-      true_env_generator_num_steps=int(100000 / (6 * (1.0 - 1.0/11.0))),
+      # Total frames used for training. This will be distributed evenly across
+      # hparams.epochs.
+      num_real_env_frames=100000,
       generative_model="next_frame_basic_deterministic",
       generative_model_params="next_frame_pixel_noise",
       ppo_params="ppo_pong_base",
@@ -525,14 +524,14 @@ def rl_modelrl_base():
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,
       intrinsic_reward_scale=0.,
-      ppo_epochs_num=200,  # This should be enough to see something
+      ppo_epochs_num=2000,  # This should be enough to see something
       # Our simulated envs do not know how to reset.
       # You should set ppo_time_limit to the value you believe that
       # the simulated env produces a reasonable output.
       ppo_time_limit=200,  # TODO(blazej): this param is unused
       # It makes sense to have ppo_time_limit=ppo_epoch_length,
       # though it is not necessary.
-      ppo_epoch_length=30,
+      ppo_epoch_length=50,
       ppo_num_agents=16,
       ppo_learning_rate=2e-4,  # Will be changed, just so it exists.
       # Whether the PPO agent should be restored from the previous iteration, or
@@ -558,7 +557,7 @@ def rl_modelrl_base_stochastic():
 def rl_modelrl_medium():
   """Small set for larger testing."""
   hparams = rl_modelrl_base()
-  hparams.true_env_generator_num_steps //= 2
+  hparams.num_real_env_frames //= 2
   return hparams
 
 
@@ -566,7 +565,7 @@ def rl_modelrl_medium():
 def rl_modelrl_25k():
   """Small set for larger testing."""
   hparams = rl_modelrl_medium()
-  hparams.true_env_generator_num_steps //= 2
+  hparams.num_real_env_frames //= 2
   return hparams
 
 
@@ -574,7 +573,7 @@ def rl_modelrl_25k():
 def rl_modelrl_short():
   """Small set for larger testing."""
   hparams = rl_modelrl_base()
-  hparams.true_env_generator_num_steps //= 5
+  hparams.num_real_env_frames //= 5
   hparams.model_train_steps //= 10
   hparams.ppo_epochs_num //= 10
   return hparams
@@ -594,7 +593,7 @@ def rl_modelrl_tiny():
   return rl_modelrl_base().override_from_dict(
       tf.contrib.training.HParams(
           epochs=2,
-          true_env_generator_num_steps=64,
+          num_real_env_frames=128,
           simulated_env_generator_num_steps=64,
           model_train_steps=2,
           ppo_epochs_num=2,
@@ -700,7 +699,7 @@ def rl_modelrl_ae_base():
 @registry.register_hparams
 def rl_modelrl_ae_25k():
   hparams = rl_modelrl_ae_base()
-  hparams.true_env_generator_num_steps //= 4
+  hparams.num_real_env_frames //= 4
   return hparams
 
 
@@ -724,7 +723,7 @@ def rl_modelrl_ae_l2_base():
 def rl_modelrl_ae_medium():
   """Medium parameter set for autoencoders."""
   hparams = rl_modelrl_ae_base()
-  hparams.true_env_generator_num_steps //= 2
+  hparams.num_real_env_frames //= 2
   return hparams
 
 
@@ -733,7 +732,7 @@ def rl_modelrl_ae_short():
   """Small parameter set for autoencoders."""
   hparams = rl_modelrl_ae_base()
   hparams.autoencoder_train_steps //= 10
-  hparams.true_env_generator_num_steps //= 5
+  hparams.num_real_env_frames //= 5
   hparams.model_train_steps //= 10
   hparams.ppo_epochs_num //= 10
   return hparams
@@ -768,11 +767,10 @@ def rl_modelrl_grid(rhp):
   rhp.set_categorical("loop.game",
                       ["breakout", "wrapped_long_pong", "freeway"])
 
-  # 100k, 50k, 25k frames
-  base = 36666
+  base = 100000
   medium = base // 2
   small = medium // 2
-  rhp.set_discrete("loop.true_env_generator_num_steps", [base, medium, small])
+  rhp.set_discrete("loop.num_real_env_frames", [base, medium, small])
 
   # Dummy parameter to get 5 runs for each configuration
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
@@ -810,10 +808,9 @@ def rl_modelrl_ae_variance(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_categorical("loop.game",
                       ["breakout", "wrapped_long_pong", "freeway"])
-  # 100k, 25k frames
-  base = 36666
+  base = 100000
   small = base // 4
-  rhp.set_discrete("loop.true_env_generator_num_steps", [base, small])
+  rhp.set_discrete("loop.num_real_env_frames", [base, small])
 
 
 @registry.register_ranged_hparams
@@ -873,6 +870,35 @@ def rl_modelrl_pixel_noise(rhp):
 def rl_modelrl_dummy_range(rhp):
   """Dummy tuning grid just to get the variance."""
   rhp.set_float("model.moe_loss_coef", 0.01, 0.02)
+
+
+@registry.register_ranged_hparams
+def rl_modelrl_epochs_num(rhp):
+  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
+  rhp.set_discrete("model.moe_loss_coef", list(range(5)))
+  rhp.set_discrete("loop.epochs", [3, 6, 12])
+
+
+@registry.register_ranged_hparams
+def rl_modelrl_ppo_epochs_num(rhp):
+  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
+  rhp.set_discrete("model.moe_loss_coef", list(range(5)))
+  rhp.set_discrete("loop.ppo_epochs_num", [200, 1000, 2000, 4000])
+
+
+@registry.register_ranged_hparams
+def rl_modelrl_ppo_epoch_len(rhp):
+  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
+  rhp.set_discrete("model.moe_loss_coef", list(range(5)))
+  rhp.set_discrete("loop.ppo_epoch_length", [25, 50, 100])
+
+
+@registry.register_ranged_hparams
+def rl_modelrl_num_frames(rhp):
+  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
+  rhp.set_discrete("model.moe_loss_coef", list(range(5)))
+  rhp.set_discrete("loop.num_real_env_frames",
+                   [1000*el for el in [30, 100, 500, 1000]])
 
 
 def merge_unscoped_hparams(scopes_and_hparams):

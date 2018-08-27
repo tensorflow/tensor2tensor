@@ -112,7 +112,7 @@ def ppo_pong_base():
   hparams.gae_lambda = 0.985
   hparams.entropy_loss_coef = 0.003
   hparams.value_loss_coef = 1
-  hparams.optimization_epochs = 2
+  hparams.optimization_epochs = 3
   hparams.epochs_num = 1000
   hparams.num_eval_agents = 1
   hparams.policy_network = feed_forward_cnn_small_categorical_fun
