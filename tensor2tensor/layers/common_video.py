@@ -356,27 +356,35 @@ def conv_latent_tower(images, time_axis, latent_channels=1, min_logvar=-5,
 
 def beta_schedule(schedule, global_step, final_beta, decay_start, decay_end):
   """Get KL multiplier (beta) based on the schedule."""
-  # TODO(mechcoder): Add log_annealing schedule.
+  if decay_start > decay_end:
+    raise ValueError("decay_end is smaller than decay_end.")
+
+  # Since some of the TF schedules do not support incrementing a value,
+  # in all of the schedules, we anneal the beta from final_beta to zero
+  # and then reverse it at the bottom.
   if schedule == "constant":
-    beta = tf.cond(
-        tf.less(global_step, decay_start), lambda: 0.0, lambda: final_beta)
-  elif schedule == "linear_anneal":
-    # Linearly anneal beta from 0.0 to self.hparams.latent_loss_multiplier.
-    # between self.hparams.num_iterations_2nd_stage to anneal_end.
-    # beta = latent_loss * (1 - (global_step - 2nd_stage) / (anneal_end - 2nd_stage))  # pylint:disable=line-too-long
-    if decay_start > decay_end:
-      raise ValueError("decay_end is smaller than decay_end.")
-
-    def anneal_loss(step_num):
-      step_num = tf.cast(step_num, dtype=tf.float32)
-      fraction = (float(decay_end) - step_num) / (decay_end - decay_start)
-      return final_beta * (1 - fraction)
-
-    beta = tf.case(
-        pred_fn_pairs={
-            tf.less(global_step, decay_start): lambda: 0.0,
-            tf.greater(global_step, decay_end): lambda: final_beta},
-        default=lambda: anneal_loss(global_step))
+    decayed_value = 0.0
+  elif schedule == "linear":
+    decayed_value = tf.train.polynomial_decay(
+        learning_rate=final_beta,
+        global_step=global_step - decay_start,
+        decay_steps=decay_end - decay_start,
+        end_learning_rate=0.0)
+  elif schedule == "noisy_linear_cosine_decay":
+    decayed_value = tf.train.noisy_linear_cosine_decay(
+        learning_rate=final_beta,
+        global_step=global_step - decay_start,
+        decay_steps=decay_end - decay_start)
+  # TODO(mechcoder): Add log_annealing schedule.
   else:
     raise ValueError("Unknown beta schedule.")
+
+  increased_value = final_beta - decayed_value
+  increased_value = tf.maximum(0.0, increased_value)
+
+  beta = tf.case(
+      pred_fn_pairs={
+          tf.less(global_step, decay_start): lambda: 0.0,
+          tf.greater(global_step, decay_end): lambda: final_beta},
+      default=lambda: increased_value)
   return beta

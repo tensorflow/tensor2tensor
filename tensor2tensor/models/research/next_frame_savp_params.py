@@ -36,6 +36,6 @@ def next_frame_savp():
   hparams.add_hparam("gan_optimization", "joint")
   hparams.target_modality = "video:l1raw"
   hparams.input_modalities = "inputs:video:l1raw"
-  hparams.latent_loss_multiplier_schedule = "linear_anneal"
+  hparams.latent_loss_multiplier_schedule = "linear"
   hparams.upsample_method = "bilinear_upsample_conv"
   return hparams
