@@ -49,7 +49,7 @@ flags.DEFINE_string("autoencoder_path", None,
 def standard_atari_env_spec(env):
   """Parameters of environment specification."""
   standard_wrappers = [[tf_atari_wrappers.RewardClippingWrapper, {}],
-                       [tf_atari_wrappers.StackAndSkipWrapper, {"skip": 4}]]
+                       [tf_atari_wrappers.StackWrapper, {"history": 4}]]
   env_lambda = None
   if isinstance(env, str):
     env_lambda = lambda: gym.make(env)
