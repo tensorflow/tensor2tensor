@@ -28,7 +28,6 @@ from tensor2tensor.mesh_tensorflow import placement_mesh_impl
 import tensorflow as tf
 
 
-@tf.contrib.eager.run_all_tests_in_graph_and_eager_modes
 class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
@@ -69,6 +68,7 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
 
     self.assertEqual(actual.shape, expected.shape)
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testLayerNorm(self):
     batch = 2
     channels = 3
@@ -97,6 +97,7 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
 
     self.assertEqual(actual.shape, expected.shape)
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testWeightsNonzero(self):
     inputs = tf.constant([[3, 1, 0], [1, 0, 0]])
 
@@ -120,6 +121,7 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
 
     self.assertAllEqual(actual, expected)
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testDenseReluDense(self):
     batch = 2
     channels = 3

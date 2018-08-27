@@ -29,43 +29,42 @@ import tensorflow as tf
 
 class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testAddPositionalEmbedding(self):
     x = np.random.rand(5, 3, 12)
-    with self.test_session() as session:
-      y = common_attention.add_positional_embedding(
-          tf.constant(x, dtype=tf.float32),
-          max_length=4,
-          name="pos_embedding")
-      session.run(tf.global_variables_initializer())
-      res = session.run(y)
+    y = common_attention.add_positional_embedding(
+        tf.constant(x, dtype=tf.float32),
+        max_length=4,
+        name="pos_embedding")
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 3, 12))
 
   @parameterized.parameters(
-      ((5, 3, 12),),
-      ((5, 5, 5, 12),),
-      ((5, 3, 3, 3, 12),),
+      {"input_shape": (5, 3, 12)},
+      {"input_shape": (5, 5, 5, 12)},
+      {"input_shape": (5, 3, 3, 3, 12)},
   )
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testAddPositionalEmbeddingNd(self, input_shape):
     x = np.random.rand(*input_shape)
-    with self.test_session() as session:
-      y = common_attention.add_positional_embedding_nd(
-          tf.constant(x, dtype=tf.float32),
-          max_length=5,
-          name="pos_embedding")
-      session.run(tf.global_variables_initializer())
-      res = session.run(y)
+    y = common_attention.add_positional_embedding_nd(
+        tf.constant(x, dtype=tf.float32),
+        max_length=5,
+        name="pos_embedding")
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(y)
     self.assertEqual(res.shape, input_shape)
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testDotProductAttention(self):
     x = np.random.rand(5, 7, 12, 32)
     y = np.random.rand(5, 7, 12, 32)
-    with self.test_session() as session:
-      a = common_attention.dot_product_attention(
-          tf.constant(x, dtype=tf.float32),
-          tf.constant(y, dtype=tf.float32),
-          tf.constant(y, dtype=tf.float32), None)
-      session.run(tf.global_variables_initializer())
-      res = session.run(a)
+    a = common_attention.dot_product_attention(
+        tf.constant(x, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32), None)
+    res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
   @parameterized.named_parameters(
@@ -84,11 +83,10 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     v = tf.random_normal([batch, heads, length, depth_v])
     output = common_attention.masked_within_block_local_attention_1d(
         q, k, v, block_length=block_length)
-    with self.test_session() as session:
-      if isinstance(batch, tf.Tensor):
-        batch, res = session.run([batch, output])
-      else:
-        res = session.run(output)
+    if isinstance(batch, tf.Tensor):
+      batch, res = self.evaluate([batch, output])
+    else:
+      res = self.evaluate(output)
 
     self.assertEqual(res.shape, (batch, heads, length, depth_v))
 
@@ -108,11 +106,10 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     v = tf.random_normal([batch, heads, length, depth_v])
     output = common_attention.masked_local_attention_1d(
         q, k, v, block_length=block_length)
-    with self.test_session() as session:
-      if isinstance(batch, tf.Tensor):
-        batch, res = session.run([batch, output])
-      else:
-        res = session.run(output)
+    if isinstance(batch, tf.Tensor):
+      batch, res = self.evaluate([batch, output])
+    else:
+      res = self.evaluate(output)
 
     self.assertEqual(res.shape, (batch, heads, length, depth_v))
 
@@ -159,11 +156,10 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     v = tf.random_normal([batch, heads, length, depth_v])
     output = common_attention.local_attention_1d(
         q, k, v, block_length=block_length, filter_width=3)
-    with self.test_session() as session:
-      if isinstance(batch, tf.Tensor):
-        batch, res = session.run([batch, output])
-      else:
-        res = session.run(output)
+    if isinstance(batch, tf.Tensor):
+      batch, res = self.evaluate([batch, output])
+    else:
+      res = self.evaluate(output)
 
     self.assertEqual(res.shape, (batch, heads, length, depth_v))
 
@@ -238,6 +234,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(dnorm_bias, dnorm_bias_f)
     self.assertAllClose(dx, dx_f)
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def test2dGatherAndScatterInvertibility(self):
     """2d gather and scatter invertibility test."""
     batch_size = 2
@@ -247,25 +244,23 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     depth = 8
     query_shape = (2, 3)
     x = np.random.rand(batch_size, num_heads, height, width, depth)
-    with self.test_session() as session:
-      x_indices = common_attention.gather_indices_2d(
-          x, query_shape, query_shape)
-      gathered_x = common_attention.gather_blocks_2d(x, x_indices)
-      x_shape = tf.constant([batch_size, num_heads, height, width, depth])
-      scattered_x = common_attention.scatter_blocks_2d(
-          gathered_x, x_indices, x_shape)
-      session.run(tf.global_variables_initializer())
-      res = session.run(scattered_x)
+    x_indices = common_attention.gather_indices_2d(
+        x, query_shape, query_shape)
+    gathered_x = common_attention.gather_blocks_2d(x, x_indices)
+    x_shape = tf.constant([batch_size, num_heads, height, width, depth])
+    scattered_x = common_attention.scatter_blocks_2d(
+        gathered_x, x_indices, x_shape)
+    res = self.evaluate(scattered_x)
     self.assertAllClose(x, res)
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def test2dBlockRasterScanMask(self):
     """Testing the 2d block raster scan mask."""
     query_shape = (2, 3)
     memory_flange = (2, 1)
-    with self.test_session() as session:
-      mask = common_attention.make_2d_block_raster_mask(
-          query_shape, memory_flange)
-      res = session.run(mask)
+    mask = common_attention.make_2d_block_raster_mask(
+        query_shape, memory_flange)
+    res = self.evaluate(mask)
     correct_mask = np.array(
         [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0,
           1.0, 0.0, 1.0, 1.0, 1.0, 1.0],
@@ -281,6 +276,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
           1.0, 0.0, 0.0, 0.0, 0.0, 1.0]])
     self.assertAllClose(correct_mask, res)
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def test2dGather(self):
     """Testing 2d index gather and block gather functions."""
     batch_size = 2
@@ -312,14 +308,14 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
                             y[1, 1, correct_indices[2]],
                             y[1, 1, correct_indices[3]]]]]
 
-    with self.test_session() as session:
-      x_indices = common_attention.gather_indices_2d(
-          x, query_shape, query_shape)
-      gathered_x = common_attention.gather_blocks_2d(x, x_indices)
-      x_indices, gathered_x = session.run([x_indices, gathered_x])
+    x_indices = common_attention.gather_indices_2d(
+        x, query_shape, query_shape)
+    gathered_x = common_attention.gather_blocks_2d(x, x_indices)
+    x_indices, gathered_x = self.evaluate([x_indices, gathered_x])
     self.assertAllEqual(correct_indices, x_indices)
     self.assertAllClose(correct_gathered_x, gathered_x)
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testGetMemoryRegion(self):
     """Testing the function that gathers the flanged memory region."""
     np.set_printoptions(threshold=np.inf)
@@ -385,19 +381,18 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
                           y[1, 1, [12, 13, 14, 18, 19, 20]],
                           y[1, 1, [15, 16, 17, 21, 22, 23]]]]]
     correct_x_center = np.array(correct_x_center)
-    with self.test_session() as session:
-      x_indices = common_attention.gather_indices_2d(
-          x, query_shape, query_shape)
-      x_flange, x_center = common_attention.get_memory_region(
-          tf.constant(x, dtype=tf.float32),
-          query_shape,
-          memory_flange,
-          x_indices)
-      session.run(tf.global_variables_initializer())
-      [x_flange, x_center] = session.run([x_flange, x_center])
+    x_indices = common_attention.gather_indices_2d(
+        x, query_shape, query_shape)
+    x_flange, x_center = common_attention.get_memory_region(
+        tf.constant(x, dtype=tf.float32),
+        query_shape,
+        memory_flange,
+        x_indices)
+    [x_flange, x_center] = self.evaluate([x_flange, x_center])
     self.assertAllClose(correct_x_flange, x_flange)
     self.assertAllClose(correct_x_center, x_center)
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testGetShiftedCenterBlocks(self):
     """Testing the function that gathers the flanged memory region."""
     np.set_printoptions(threshold=np.inf)
@@ -454,44 +449,43 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
                                             y[1, 1, [15, 16, 17, 21, 22]]),
                                            axis=0)]]]
     correct_gathered_x = np.array(correct_gathered_x)
-    with self.test_session() as session:
-      x_indices = common_attention.gather_indices_2d(
-          x, query_shape, query_shape)
-      gathered_x = common_attention.get_shifted_center_blocks(
-          tf.constant(x, dtype=tf.float32),
-          x_indices)
-      session.run(tf.global_variables_initializer())
-      x_indices, gathered_x = session.run([x_indices, gathered_x])
+    x_indices = common_attention.gather_indices_2d(
+        x, query_shape, query_shape)
+    gathered_x = common_attention.get_shifted_center_blocks(
+        tf.constant(x, dtype=tf.float32),
+        x_indices)
+    x_indices, gathered_x = self.evaluate([x_indices, gathered_x])
     self.assertAllClose(correct_gathered_x, gathered_x)
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testDotProductAttentionRelative(self):
     x = np.random.rand(5, 7, 12, 32)
     y = np.random.rand(5, 7, 12, 32)
-    with self.test_session() as session:
-      a = common_attention.dot_product_attention_relative(
-          tf.constant(x, dtype=tf.float32),
-          tf.constant(y, dtype=tf.float32),
-          tf.constant(y, dtype=tf.float32),
-          None,
-          max_relative_position=3)
-      session.run(tf.global_variables_initializer())
-      res = session.run(a)
+    a = common_attention.dot_product_attention_relative(
+        tf.constant(x, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        None,
+        max_relative_position=3)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testDotProductUnMaskedAttentionRelativeV2(self):
     x = np.random.rand(5, 7, 12, 32)
     y = np.random.rand(5, 7, 12, 32)
-    with self.test_session() as session:
-      a = common_attention.dot_product_unmasked_self_attention_relative_v2(
-          tf.constant(x, dtype=tf.float32),
-          tf.constant(y, dtype=tf.float32),
-          tf.constant(y, dtype=tf.float32),
-          None,
-          35)
-      session.run(tf.global_variables_initializer())
-      res = session.run(a)
+    a = common_attention.dot_product_unmasked_self_attention_relative_v2(
+        tf.constant(x, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        None,
+        35)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testBiasBatchCoordinates(self):
     """Testing the batch coordinates mask."""
     q = tf.constant([0, 0, 1, 1, 1, 1, 2, 2, 2], dtype=tf.int32)
@@ -513,14 +507,9 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     ], np.float32) * -1e9
 
     bias = common_attention.attention_bias_coordinates(q, k)
+    self.assertAllClose(self.evaluate(bias), ground_truth)
 
-    with self.test_session() as session:
-      session.run(tf.global_variables_initializer())
-      self.assertAllClose(
-          bias.eval(),
-          ground_truth,
-      )
-
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testBiasFuture(self):
     """Testing the sequence order mask."""
     q = tf.constant([0, 1, 2, 3, 0, 1, 2, 0, 1], dtype=tf.int32)
@@ -542,13 +531,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     ], np.float32) * -1e9
 
     bias = common_attention.attention_bias_future(q, k)
-
-    with self.test_session() as session:
-      session.run(tf.global_variables_initializer())
-      self.assertAllClose(
-          bias.eval(),
-          ground_truth,
-      )
+    self.assertAllClose(self.evaluate(bias), ground_truth)
 
 
 if __name__ == "__main__":

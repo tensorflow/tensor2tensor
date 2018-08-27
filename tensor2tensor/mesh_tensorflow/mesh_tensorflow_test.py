@@ -117,7 +117,7 @@ class MeshTensorFlowTest(parameterized.TestCase, tf.test.TestCase):
     self.assertLen(graph.trainable_variables, 1)
     self.assertLen(graph.all_variables, 2)
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testLowering(self):
     graph = mtf.Graph()
     mesh = mtf.Mesh(graph, "my_mesh")
