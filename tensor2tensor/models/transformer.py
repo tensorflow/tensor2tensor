@@ -292,6 +292,8 @@ class Transformer(t2t_model.T2TModel):
     dp = self._data_parallelism
     hparams = self._hparams
     target_modality = self._problem_hparams.target_modality
+    if isinstance(target_modality, dict):
+      target_modality = target_modality["targets"]
 
     if self.has_input:
       inputs = features["inputs"]
@@ -499,6 +501,8 @@ class Transformer(t2t_model.T2TModel):
     dp = self._data_parallelism
     hparams = self._hparams
     target_modality = self._problem_hparams.target_modality
+    if isinstance(target_modality, dict):
+      target_modality = target_modality["targets"]
     if "targets_segmentation" in features:
       raise NotImplementedError(
           "Decoding not supported on packed datasets "

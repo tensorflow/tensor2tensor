@@ -100,10 +100,12 @@ class T2TModel(base.Layer):
     # If vocabularies differ, unset shared_embedding_and_softmax_weights.
     hparams = copy.copy(hparams)
     if self._problem_hparams and hparams.shared_embedding_and_softmax_weights:
+      target_modality = self._problem_hparams.target_modality
+      if isinstance(target_modality, dict):
+        target_modality = target_modality["targets"]
       same_vocab_sizes = True
       if "inputs" in self._problem_hparams.input_modality:
-        if (self._problem_hparams.input_modality["inputs"] !=
-            self._problem_hparams.target_modality):
+        if self._problem_hparams.input_modality["inputs"] != target_modality:
           same_vocab_sizes = False
       if not same_vocab_sizes:
         log_info("Unsetting shared_embedding_and_softmax_weights.")
@@ -181,6 +183,8 @@ class T2TModel(base.Layer):
   def _target_modality_is_real(self):
     """Whether the target modality is real-valued."""
     target_modality = self._problem_hparams.target_modality
+    if isinstance(target_modality, dict):
+      target_modality = target_modality["targets"]
     return target_modality.name.startswith("real_")
 
   def call(self, inputs, **kwargs):
@@ -633,6 +637,8 @@ class T2TModel(base.Layer):
 
       if self._problem_hparams:
         target_modality = self._problem_hparams.target_modality
+        if isinstance(target_modality, dict):
+          target_modality = target_modality["targets"]
         if target_modality.is_class_modality:
           beam_size = 1  # No use to run beam-search for a single class.
       if beam_size == 1:
@@ -701,8 +707,10 @@ class T2TModel(base.Layer):
       # it has shape [batch_size] and contains floats between 0 and
       # source_length.
       if self._problem_hparams:
-        modality = self._problem_hparams.target_modality
-        if modality.top_is_pointwise:
+        target_modality = self._problem_hparams.target_modality
+        if isinstance(target_modality, dict):
+          target_modality = target_modality["targets"]
+        if target_modality.top_is_pointwise:
           return tf.squeeze(logits, axis=[1, 2, 3])
       # -1 due to the pad above.
       current_output_position = common_layers.shape_list(ids)[1] - 1
@@ -723,6 +731,8 @@ class T2TModel(base.Layer):
                                       [s[0] * s[1], s[2], s[3], s[4]])
 
     target_modality = self._problem_hparams.target_modality
+    if isinstance(target_modality, dict):
+      target_modality = target_modality["targets"]
     vocab_size = target_modality.top_dimensionality
     # Setting decode length to input length + decode_length
     decode_length = tf.constant(decode_length)
@@ -814,6 +824,8 @@ class T2TModel(base.Layer):
     targets_old = features.get("targets", None)
 
     target_modality = self._problem_hparams.target_modality
+    if isinstance(target_modality, dict):
+      target_modality = target_modality["targets"]
 
     def infer_step(i, recent_output, recent_logits, unused_loss):
       """Inference step."""
@@ -860,7 +872,6 @@ class T2TModel(base.Layer):
     # input shape, so we confuse it about the input shape.
     initial_output = tf.slice(initial_output, [0, 0, 0, 0],
                               common_layers.shape_list(initial_output))
-    target_modality = self._problem_hparams.target_modality
     if target_modality.is_class_modality:
       decode_length = 1
     else:
@@ -981,12 +992,14 @@ class T2TModel(base.Layer):
     targets_old = features.get("targets", None)
 
     target_modality = self._problem_hparams.target_modality
+    if isinstance(target_modality, dict):
+      target_modality = target_modality["targets"]
 
     def infer_step(recent_output, recent_logits, unused_loss):
       """Inference step."""
       if not tf.contrib.eager.in_eager_mode():
         if self._target_modality_is_real:
-          dim = self._problem_hparams.target_modality.top_dimensionality
+          dim = target_modality.top_dimensionality
           recent_output.set_shape([None, None, None, dim])
         else:
           recent_output.set_shape([None, None, None, 1])
@@ -1026,7 +1039,7 @@ class T2TModel(base.Layer):
     else:
       batch_size = common_layers.shape_list(features["inputs"])[0]
       if self._target_modality_is_real:
-        dim = self._problem_hparams.target_modality.top_dimensionality
+        dim = target_modality.top_dimensionality
         initial_output = tf.zeros((batch_size, 0, 1, dim), dtype=tf.float32)
       else:
         initial_output = tf.zeros((batch_size, 0, 1, 1), dtype=tf.int64)
@@ -1034,7 +1047,6 @@ class T2TModel(base.Layer):
     # input shape, so we confuse it about the input shape.
     initial_output = tf.slice(initial_output, [0, 0, 0, 0],
                               common_layers.shape_list(initial_output))
-    target_modality = self._problem_hparams.target_modality
     if target_modality.is_class_modality:
       decode_length = 1
     else:
@@ -1701,6 +1713,8 @@ def scheduled_sampling(hparams, problem_hparams, dp, sharded_logits, losses,
                        sharded_features, transformed_features, model):
   """Scheduled sampling."""
   target_modality = problem_hparams.target_modality
+  if isinstance(target_modality, dict):
+    target_modality = target_modality["targets"]
 
   def sample(x):
     """Multinomial sampling from a n-dimensional tensor."""
