@@ -3786,22 +3786,36 @@ def patch_discriminator(x, filters=64, filter_size=5, n=4,
     return x
 
 
-def simple_discriminator(x, filters=128, kernel_size=7,
-                         strides=4, do_mean=True):
-  """A very simple convolutional discriminator."""
+def mean_with_attention(x, name, num_heads=4):
+  """Mean and attention to reduce spatial dimensions."""
+  with tf.variable_scope(name):
+    shape = shape_list(x)
+    m = tf.reduce_mean(x, [1, 2])
+    a = tf.layers.dense(x, num_heads, name="mean_attn")
+    s = tf.reshape(a, [shape[0], -1, num_heads])
+    s = tf.nn.softmax(s, axis=1)
+    s = tf.reshape(s, shape[:-1] + [1, num_heads])
+    am = tf.reduce_mean(tf.expand_dims(x, axis=-1) * s, [1, 2])
+    l = tf.concat([am, tf.expand_dims(m, axis=-1)], axis=-1)
+    return tf.layers.dense(tf.reshape(l, [shape[0], (num_heads+1) * shape[-1]]),
+                           2 * shape[-1], name="mean_attn_final")
+
+
+def single_discriminator(x, filters=128, kernel_size=7,
+                         strides=4, pure_mean=True):
+  """A simple single-layer convolutional discriminator."""
   with tf.variable_scope("discriminator"):
     net = tf.layers.conv2d(
         x, filters, kernel_size, strides=strides, padding="SAME", name="conv1")
-    if do_mean:
+    if pure_mean:
       net = tf.reduce_mean(net, [1, 2])
     else:
-      batch_size = shape_list(x)[0]
-      net = tf.reshape(net, [batch_size, -1])
+      net = mean_with_attention(net, "mean_with_attention")
     return net
 
 
 def double_discriminator(x, filters1=128, filters2=None,
-                         kernel_size=7, strides=4, do_mean=True):
+                         kernel_size=7, strides=4, pure_mean=True):
   """A convolutional discriminator with 2 layers and concatenated output."""
   if filters2 is None:
     filters2 = 4 * filters1
@@ -3809,17 +3823,18 @@ def double_discriminator(x, filters1=128, filters2=None,
     batch_size = shape_list(x)[0]
     net = tf.layers.conv2d(
         x, filters1, kernel_size, strides=strides, padding="SAME", name="conv1")
-    if do_mean:
+    if pure_mean:
       net1 = tf.reduce_mean(net, [1, 2])
     else:
-      net1 = tf.reshape(net, [batch_size, -1])
+      net1 = mean_with_attention(net, "mean_with_attention1")
+      tf.reshape(net, [batch_size, -1])
     net = tf.nn.relu(net)
     net = tf.layers.conv2d(
         x, filters2, kernel_size, strides=strides, padding="SAME", name="conv2")
-    if do_mean:
+    if pure_mean:
       net2 = tf.reduce_mean(net, [1, 2])
     else:
-      net2 = tf.reshape(net, [batch_size, -1])
+      net2 = mean_with_attention(net, "mean_with_attention2")
     return tf.concat([net1, net2], axis=-1)
 
 
