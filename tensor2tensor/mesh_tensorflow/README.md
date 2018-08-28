@@ -279,6 +279,59 @@ the number of cores.  The differences between cores are as follows:
   this by requiring that all imported/exported tensors be fully-replicated.  In
   the future, we should handle this correctly.
 
+# Instructions for running on cloud-tpu
+
+Note: It will be available in `tensorflow>=1.11.0`. For early adoption, use
+`tf-nightly`. Please contact the Google Cloud TPU team if you need to obtain
+`tf-nightly`.
+
+## Prerequisite
+
+Please go through the
+[Transformer tutorial](https://cloud.google.com/tpu/docs/tutorials/transformer).
+
+## Create VM and TPU instance in Cloud console
+
+```sh
+ctpu up -name=ylc-mtf-donut -tf-version=nightly -tpu-size=v2-8 -zone=us-central1-b
+```
+
+## SSH into VM
+
+```sh
+git clone https://github.com/tensorflow/tensor2tensor.git
+cd tensor2tensor/
+pip install --user .
+```
+
+## Run the model
+
+Before run the model, you need to prepare the training data and bucket for
+storing checkpoints. Refer to the
+[Transformer tutorial](https://cloud.google.com/tpu/docs/tutorials/transformer)
+to learn how to generate the training data and create buckets.
+
+```sh
+CONF=mtf_transformer_paper_tr_0_mesh_8
+NAME=ende_$CONF\_0828
+MODEL=mtf_transformer
+PROBLEM=translate_ende_wmt32k_packed
+
+DATA_DIR=gs://xxxx
+OUT_DIR=gs://xxxx
+TPU_NAME=ylc-mtf-donut
+
+tensor2tensor/bin/t2t-trainer \
+  --model=$MODEL \
+  --hparams_set=$CONF \
+  --problem=$PROBLEM \
+  --train_steps=10000 \
+  --eval_steps=200 \
+  --data_dir=$DATA_DIR \
+  --output_dir=$OUT_DIR \
+  --use_tpu=True \
+  --cloud_tpu_name=$TPU_NAME
+```
 
 # TODO LIST (please add items)
 
@@ -286,7 +339,6 @@ We are actively working on improving Mesh-TensorFlow in a variety of ways.  Some
 of the top-priority items are:
 `Contact us if you'd like to help!`
 
-* Instructions for running on cloud-tpu.
 * Operations necessary for spatial-partitioning (spatially-partitioned
   convolution, etc)
 * Examples of image-classification models.
