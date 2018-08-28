@@ -138,6 +138,14 @@ class LanguagemodelLm1b32k(text_problems.Text2SelfProblem):
 
 
 @registry.register_problem
+class LanguagemodelLm1b8k(LanguagemodelLm1b32k):
+
+  @property
+  def approx_vocab_size(self):
+    return 2**13  # 8192
+
+
+@registry.register_problem
 class LanguagemodelLm1b32kPacked(LanguagemodelLm1b32k):
   """Packed version for TPU training."""
 
@@ -151,7 +159,7 @@ class LanguagemodelLm1b32kPacked(LanguagemodelLm1b32k):
 
 
 @registry.register_problem
-class LanguagemodelLm1b8kPacked(LanguagemodelLm1b32kPacked):
+class LanguagemodelLm1b8kPacked(LanguagemodelLm1b8k):
   """Packed version, 8k vocabulary.
 
   Ratio of dev tokens (including eos) to dev words (including eos)
@@ -159,8 +167,12 @@ class LanguagemodelLm1b8kPacked(LanguagemodelLm1b32kPacked):
   """
 
   @property
-  def approx_vocab_size(self):
-    return 2**13  # 8192
+  def packed_length(self):
+    return 256
+
+  @property
+  def vocab_filename(self):
+    return LanguagemodelLm1b8k().vocab_filename
 
 
 @registry.register_problem
