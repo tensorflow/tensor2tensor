@@ -47,7 +47,7 @@ install:
   - pip install "gym[atari]"
   # Make sure we have the latest version of numpy - avoid problems we were
   # seeing with Python 3
-  - pip install -q -U numpy
+  - pip install -q --upgrade matplotlib numpy
 script:
   # Check import
   - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
