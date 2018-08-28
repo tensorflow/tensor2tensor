@@ -201,7 +201,7 @@ def decode_from_dataset(estimator,
       hparams=hparams,
       decode_hparams=decode_hp,
       predictions=predictions
-  ))
+  ), dataset_split)
   return predictions
 
 
@@ -785,7 +785,7 @@ class DecodeHookArgs(collections.namedtuple(
   pass
 
 
-def run_postdecode_hooks(decode_hook_args):
+def run_postdecode_hooks(decode_hook_args, dataset_split):
   """Run hooks after decodes have run."""
   hooks = decode_hook_args.problem.decode_hooks
   if not hooks:
@@ -797,7 +797,10 @@ def run_postdecode_hooks(decode_hook_args):
     return
   tf.logging.info("Running decode hooks.")
   parent_dir = os.path.join(decode_hook_args.output_dirs[0], os.pardir)
-  final_dir = os.path.join(parent_dir, "decode")
+  child_dir = "decode"
+  if dataset_split is not None:
+    child_dir += "_{}".format(dataset_split)
+  final_dir = os.path.join(parent_dir, child_dir)
   summary_writer = tf.summary.FileWriter(final_dir)
 
   for hook in hooks:

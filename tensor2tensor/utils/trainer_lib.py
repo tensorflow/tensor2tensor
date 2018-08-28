@@ -394,15 +394,21 @@ class T2TExperiment(object):
         task_index=config.task_id)
     server.join()
 
-  def decode(self):
+  def decode(self, dataset_split=None):
     """Decodes from dataset."""
     decoding.decode_from_dataset(self._estimator, self._hparams.problem.name,
-                                 self._hparams, self._decode_hparams)
+                                 self._hparams, self._decode_hparams,
+                                 dataset_split=dataset_split)
 
   def continuous_decode(self):
     """Decode from dataset on new checkpoint."""
     for _ in next_checkpoint(self._hparams.model_dir):
       self.decode()
+
+  def continuous_decode_on_train_data(self):
+    """Decode from dataset on new checkpoint."""
+    for _ in next_checkpoint(self._hparams.model_dir):
+      self.decode(dataset_split=tf.estimator.ModeKeys.TRAIN)
 
 
 def create_experiment(
