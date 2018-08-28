@@ -82,19 +82,19 @@ class InGraphBatchEnv(object):
 
   @property
   def observ_dtype(self):
-      return utils.parse_dtype(self.observ_space)
+    return utils.parse_dtype(self.observ_space)
 
   @property
   def observ_shape(self):
-      return utils.parse_shape(self.observ_space)
+    return utils.parse_shape(self.observ_space)
 
   @property
   def action_dtype(self):
-      return utils.parse_dtype(self.action_space)
+    return utils.parse_dtype(self.action_space)
 
   @property
   def action_shape(self):
-      return utils.parse_shape(self.action_space)
+    return utils.parse_shape(self.action_space)
 
   @property
   def observ(self):

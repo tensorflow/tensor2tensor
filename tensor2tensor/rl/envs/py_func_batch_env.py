@@ -40,12 +40,12 @@ class PyFuncBatchEnv(InGraphBatchEnv):
       batch_env: Batch environment.
     """
     super(PyFuncBatchEnv, self).__init__(batch_env.observation_space,
-        batch_env.action_space)
+                                         batch_env.action_space)
     self._batch_env = batch_env
     with tf.variable_scope('env_temporary'):
       self._observ = tf.Variable(
           tf.zeros((len(self._batch_env),) + self.observ_shape,
-              self.observ_dtype),
+                   self.observ_dtype),
           name='observ', trainable=False)
 
   def __getattr__(self, name):

@@ -45,7 +45,7 @@ class BatchEnv(object):
     self._blocking = blocking
     self.observ_space = self._envs[0].observation_space
     if not all(env.observation_space == self.observ_space
-        for env in self._envs):
+               for env in self._envs):
       raise ValueError('All environments must use the same observation space.')
     self.action_space = self._envs[0].action_space
     if not all(env.action_space == self.action_space for env in self._envs):

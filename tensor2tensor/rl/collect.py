@@ -36,7 +36,8 @@ def _rollout_metadata(batch_env):
       (batch_size + batch_env_shape[1:], batch_env.observ_dtype, "observation"),
       (batch_size, tf.float32, "reward"),
       (batch_size, tf.bool, "done"),
-      (batch_size + list(batch_env.action_shape), batch_env.action_dtype, "action"),
+      (batch_size + list(batch_env.action_shape), batch_env.action_dtype,
+       "action"),
       (batch_size, tf.float32, "pdf"),
       (batch_size, tf.float32, "value_function"),
   ]

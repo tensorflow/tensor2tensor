@@ -30,8 +30,6 @@ import tensorflow as tf
 
 from tensorflow.contrib.training import HParams
 
-import gym
-
 
 flags = tf.flags
 FLAGS = flags.FLAGS

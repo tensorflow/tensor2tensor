@@ -130,7 +130,8 @@ class StackAndSkipWrapper(WrapperBase):
 
   def simulate(self, action):
     with tf.name_scope("environment/simulate"):  # Do we need this?
-      initializer = (tf.zeros((len(self),) + self.old_shape, dtype=self.observ_dtype),
+      initializer = (tf.zeros((len(self),) + self.old_shape,
+                              dtype=self.observ_dtype),
                      tf.fill((len(self),), 0.0), tf.fill((len(self),), False))
 
       def not_done_step(a, _):
@@ -158,7 +159,7 @@ class StackAndSkipWrapper(WrapperBase):
     inx = tf.concat(
         [
             tf.ones(tf.size(tf.shape(new_values)),
-                dtype=tf.int32)[:-1],
+                    dtype=tf.int32)[:-1],
             [self.skip]
         ],
         axis=0)
@@ -203,7 +204,7 @@ class StackWrapper(WrapperBase):
     inx = tf.concat(
         [
             tf.ones(tf.size(tf.shape(new_values)),
-                dtype=tf.int32)[:-1],
+                    dtype=tf.int32)[:-1],
             [self.history]
         ],
         axis=0)
