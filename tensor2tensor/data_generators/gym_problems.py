@@ -40,6 +40,8 @@ from tensorflow.contrib.training import HParams
 flags = tf.flags
 FLAGS = flags.FLAGS
 
+
+
 flags.DEFINE_string("agent_policy_path", None, "File with model for agent.")
 
 flags.DEFINE_string("autoencoder_path", None,

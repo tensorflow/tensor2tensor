@@ -54,7 +54,6 @@ except ImportError:
 import tensorflow as tf  # pylint: disable=g-import-not-at-top
 
 
-
 flags = tf.flags
 FLAGS = flags.FLAGS
 
