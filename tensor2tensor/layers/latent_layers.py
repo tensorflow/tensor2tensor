@@ -14,14 +14,11 @@
 # limitations under the License.
 """Utils for latent variable models."""
 
-import functools
-
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
-from tensor2tensor.layers import discretization
 from tensor2tensor.models import transformer
 from tensor2tensor.utils import beam_search
 
@@ -463,18 +460,19 @@ def transformer_latent_decoder(x,
     return decoder_output
 
 
-def bottleneck_layer(targets_c, hparams):
+def bottleneck_layer(targets_c,
+                     hparams,
+                     name="bottleneck_d"):
   """Compute latents from compressed targets."""
-  latents_discrete_hot, extra_loss = discretization.parametrized_bottleneck(
-      targets_c, hparams)
-  latents_dense = discretization.parametrized_unbottleneck(
-      latents_discrete_hot, hparams.hidden_size, hparams)
-  latents_dense = targets_c + tf.stop_gradient(latents_dense - targets_c)
-  latents_discrete = tf.argmax(latents_discrete_hot, axis=-1)
-
+  latents_dense, latents_discrete, extra_loss, embed_func = (
+      hparams.bottleneck(
+          inputs=targets_c,
+          filter_size=hparams.compress_filter_size,
+          name=name,
+          mode=hparams.mode))
   if DO_SUMMARIES:
-    tf.summary.histogram("discrete_latents", tf.reshape(latents_discrete, [-1]))
-  return latents_dense, latents_discrete_hot, extra_loss
+    tf.summary.histogram("b0", tf.reshape(latents_discrete, [-1]))
+  return latents_dense, latents_discrete, extra_loss, embed_func
 
 
 def latent_prediction_model(inputs,
@@ -557,7 +555,7 @@ def transformer_autoencoder(inputs,
   # Call bottleneck layer, that takes encoder output and outputs the latents.
   # Returns embedded latents, discrete latent codes, loss.
   if hparams.mode != tf.estimator.ModeKeys.PREDICT:
-    latents_dense, latents_discrete, extra_loss = (
+    latents_dense, latents_discrete, extra_loss, _ = (
         bottleneck_layer(targets_c, hparams))
     extra_loss = tf.reduce_mean(extra_loss) * tf.to_float(cond)
 
@@ -586,8 +584,8 @@ def transformer_autoencoder(inputs,
     latent_len = (
         hparams.img_len * hparams.img_len * hparams.num_latents) / 2**(
             hparams.num_compress_steps)
-    embed = functools.partial(
-        discretization.parametrized_unbottleneck, hparams=hparams)
+    _, _, _, embed = (
+        bottleneck_layer(targets_c, hparams))
     latents_dense = tf.zeros([batch_size, latent_len, 1, hparams.hidden_size])
     if cache is None:
       cache = ae_latent_sample_beam(latents_dense, inputs, ed_attention_bias,
