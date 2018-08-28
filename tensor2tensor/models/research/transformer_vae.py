@@ -354,7 +354,10 @@ def ae_transformer_internal(inputs,
     if hparams.task == "image":
       cia.maybe_reshape_4d_to_3d(targets)
     if hparams.task == "translate":
-      max_targets_len_from_inputs = tf.concat([inputs, inputs], axis=1)
+      if inputs is not None:
+        max_targets_len_from_inputs = tf.concat([inputs, inputs], axis=1)
+      else:
+        max_targets_len_from_inputs = targets
     else:
       assert hparams.task == "image"
       max_targets_len_from_inputs = targets
@@ -454,7 +457,7 @@ def ae_transformer_internal(inputs,
     for i in range(hparams.num_compress_steps):
       j = hparams.num_compress_steps - i - 1
       d = residual_conv(d, 1, (3, 1), hparams, "decompress_rc_%d" % j)
-      if hparams.do_attend_decompress:
+      if inputs is not None and hparams.do_attend_decompress:
         d = attend(d, inputs, hparams, "decompress_attend_%d" % j)
       d = decompress_step(d, hparams, i > 0, False, "decompress_%d" % j)
 
@@ -497,6 +500,11 @@ def ae_transformer_internal(inputs,
     latent_time = tf.less(nonlatent_steps,
                           tf.to_int32(tf.train.get_global_step()))
     losses["latent_pred"] *= tf.to_float(latent_time)
+
+  # res was generated from padded targets, which means it has some extra
+  # elements. These can cause shape problems when computing loss with respect to
+  # the original (unpadded) targets. So we remove their extra elements here.
+  res = res[:, :original_targets_shape[1], :, :]
   return res, losses, cache
 
 
