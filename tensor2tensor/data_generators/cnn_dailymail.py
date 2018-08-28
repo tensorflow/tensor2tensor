@@ -57,12 +57,12 @@ END_TOKENS = [
 ]
 
 
-def _maybe_download_corpora(tmp_dir, is_training):
+def _maybe_download_corpora(tmp_dir, dataset_split):
   """Download corpora if necessary and unzip them.
 
   Args:
     tmp_dir: directory containing dataset.
-    is_training: whether we're in training mode or not.
+    dataset_split: whether we're in train/dev/test mode.
 
   Returns:
     List of all files generated and path to file containing
@@ -87,12 +87,15 @@ def _maybe_download_corpora(tmp_dir, is_training):
   dailymail_files = tf.gfile.Glob(dailymail_finalpath + "*")
   all_files = cnn_files + dailymail_files
 
-  if is_training:
+  if dataset_split == problem.DatasetSplit.TRAIN:
     urls_path = generator_utils.maybe_download(tmp_dir, "all_train.txt",
                                                _TRAIN_URLS)
-  else:
+  elif dataset_split == problem.DatasetSplit.EVAL:
     urls_path = generator_utils.maybe_download(tmp_dir, "all_val.txt",
                                                _DEV_URLS)
+  else:
+    urls_path = generator_utils.maybe_download(tmp_dir, "all_test.txt",
+                                               _TEST_URLS)
 
   return all_files, urls_path
 
@@ -175,7 +178,7 @@ def _story_summary_split(story):
   return story[:split_pos], story[split_pos + split_str_len:]  # story, summary
 
 
-def write_raw_text_to_files(all_files, urls_path, tmp_dir, is_training):
+def write_raw_text_to_files(all_files, urls_path, dataset_split, tmp_dir):
   """Write text to files."""
 
   def write_to_file(all_files, urls_path, tmp_dir, filename):
@@ -187,16 +190,15 @@ def write_raw_text_to_files(all_files, urls_path, tmp_dir, is_training):
           fstory.write(story + "\n")
           fsummary.write(summary + "\n")
 
-  filename = "cnndm.train" if is_training else "cnndm.dev"
+  if dataset_split == problem.DatasetSplit.TRAIN:
+    filename = "cnndm.train"
+  elif dataset_split == problem.DatasetSplit.EVAL:
+    filename = "cnndm.dev"
+  else:
+    filename = "cnndm.test"
+
   tf.logging.info("Writing %s" % filename)
   write_to_file(all_files, urls_path, tmp_dir, filename)
-
-  if not is_training:
-    test_urls_path = generator_utils.maybe_download(tmp_dir, "all_test.txt",
-                                                    _TEST_URLS)
-    filename = "cnndm.test"
-    tf.logging.info("Writing %s" % filename)
-    write_to_file(all_files, test_urls_path, tmp_dir, filename)
 
 
 @registry.register_problem
@@ -205,17 +207,31 @@ class SummarizeCnnDailymail32k(text_problems.Text2TextProblem):
 
   def generate_text_for_vocab(self, data_dir, tmp_dir):
     del data_dir
-    all_files, urls_path = _maybe_download_corpora(tmp_dir, True)
+    all_files, urls_path = _maybe_download_corpora(tmp_dir,
+                                                   problem.DatasetSplit.TRAIN)
     return example_generator(all_files, urls_path, sum_token=False)
+
+  @property
+  def dataset_splits(self):
+    """Splits of data to produce and number of output shards for each."""
+    return [{
+        "split": problem.DatasetSplit.TRAIN,
+        "shards": 100,
+    }, {
+        "split": problem.DatasetSplit.EVAL,
+        "shards": 10,
+    }, {
+        "split": problem.DatasetSplit.TEST,
+        "shards": 10,
+    }]
 
   def is_generate_per_split(self):
     return True
 
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
     del data_dir
-    is_training = dataset_split == problem.DatasetSplit.TRAIN
-    all_files, urls_path = _maybe_download_corpora(tmp_dir, is_training)
-    write_raw_text_to_files(all_files, urls_path, tmp_dir, is_training)
+    all_files, urls_path = _maybe_download_corpora(tmp_dir, dataset_split)
+    write_raw_text_to_files(all_files, urls_path, dataset_split, tmp_dir)
     for example in example_generator(all_files, urls_path, sum_token=True):
       story, summary = _story_summary_split(example)
       yield {"inputs": story, "targets": summary}
