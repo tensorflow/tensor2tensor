@@ -173,10 +173,8 @@ class Transformer(t2t_model.T2TModel):
     targets = features["targets"]
     targets_shape = common_layers.shape_list(targets)
     targets = common_layers.flatten4d3d(targets)
-
     decoder_input, decoder_self_attention_bias = transformer_prepare_decoder(
         targets, hparams, features=features)
-
     decoder_output = self.decode(
         decoder_input,
         encoder_output,
@@ -1453,10 +1451,19 @@ def transformer_ffn_layer(x,
         hparams.moe_num_experts,
         overhead=overhead,
         loss_coef=hparams.moe_loss_coef)
-    if losses is None:
-      raise ValueError(
-          "transformer_ffn_layer with type local_moe_tpu must pass in "
-          "a losses list")
+  elif ffn_layer == "local_moe":
+    overhead = (
+        hparams.moe_overhead_train
+        if hparams.mode == tf.estimator.ModeKeys.TRAIN else
+        hparams.moe_overhead_eval)
+    ret, loss = expert_utils.local_moe(
+        x,
+        True,
+        expert_utils.ffn_expert_fn(hparams.hidden_size, [hparams.filter_size],
+                                   hparams.hidden_size),
+        hparams.moe_num_experts,
+        k=hparams.moe_k,
+        hparams=hparams)
     losses.append(loss)
     return ret
   else:
@@ -1536,6 +1543,97 @@ def transformer_base_v2():
   hparams.relu_dropout = 0.1
   hparams.learning_rate_warmup_steps = 8000
   hparams.learning_rate = 0.2
+  return hparams
+
+
+@registry.register_hparams
+def transformer_base_vq_ada_32ex_packed():
+  """Set of hyperparameters for lm1b packed following tpu params."""
+  hparams = transformer_base_v2()
+  expert_utils.update_hparams_for_vq_gating(hparams)
+  hparams.moe_num_experts = 32
+  hparams.gating_type = "vq"
+  # this gives us a batch size of 16 because each seq is len 256
+  hparams.batch_size = 5072
+  hparams.ffn_layer = "local_moe"
+  hparams.shared_embedding_and_softmax_weights = False
+  hparams.learning_rate_warmup_steps = 10000
+  # one epoch for languagemodel_lm1b32k_packed = 27200 steps w/ bsize 128
+  hparams.learning_rate_decay_steps = 27200
+  hparams.num_heads = 4
+  hparams.num_blocks = 1
+  hparams.moe_k = 1
+  hparams.num_decoder_layers = 6
+  hparams.label_smoothing = 0.
+  hparams.layer_prepostprocess_dropout = 0.1
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.layer_preprocess_sequence = "none"
+  hparams.weight_decay = 1e-06
+  hparams.attention_dropout = 0.1
+  hparams.optimizer = "Adafactor"
+  hparams.learning_rate_schedule = "linear_warmup*rsqrt_decay*linear_decay"
+  hparams.activation_dtype = "float32"
+  hparams.learning_rate = 0.1
+  hparams.learning_rate_constant = 1.0
+  return hparams
+
+
+@registry.register_hparams
+def transformer_topk_16_packed():
+  hparams = transformer_base_vq_ada_32ex_packed()
+  hparams.gating_type = "topk"
+  hparams.moe_num_experts = 16
+  hparams.moe_k = 2
+  return hparams
+
+
+@registry.register_hparams
+def transformer_base_vq1_16_nb1_packed_nda_b01_scales():
+  """Set of hyperparameters."""
+  hparams = transformer_base_vq_ada_32ex_packed()
+  hparams.use_scales = int(True)
+  hparams.moe_num_experts = 16
+  hparams.moe_k = 1
+  hparams.beta = 0.1
+  hparams.layer_preprocess_sequence = "n"
+  hparams.layer_postprocess_sequence = "da"
+  hparams.ema = False
+  return hparams
+
+
+@registry.register_hparams
+def transformer_base_vq1_16_nb1_packed_nda_b01_scales_dialog():
+  """Set of hyperparameters."""
+  hparams = transformer_base_vq1_16_nb1_packed_nda_b01_scales()
+  hparams.batch_size = 2048
+  hparams.max_length = 1024
+  hparams.filter_size = 3072
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ada_lmpackedbase():
+  """Set of hyperparameters."""
+  hparams = transformer_base_vq_ada_32ex_packed()
+  hparams.ffn_layer = "dense_relu_dense"
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ada_lmpackedbase_dialog():
+  """Set of hyperparameters."""
+  hparams = transformer_base_vq_ada_32ex_packed()
+  hparams.max_length = 1024
+  hparams.ffn_layer = "dense_relu_dense"
+  hparams.batch_size = 4096
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ada_lmpackedbase_relative():
+  """Set of hyperparameters."""
+  hparams = transformer_base_vq_ada_32ex_packed()
+  hparams.ffn_layer = "dense_relu_dense"
   return hparams
 
 
