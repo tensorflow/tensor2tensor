@@ -178,11 +178,18 @@ class SimdMeshImpl(mtf.MeshImpl):
       return x
     x = x.to_laid_out_tensor()
     if reduction_fn_string == "SUM":
-      partitioning = [
-          mtf.pnum_to_group(self.shape, mesh_axes, pnum)
-          for pnum in xrange(self.size)]
+      partitioning = {}
+      for pnum in xrange(self.size):
+        group = mtf.pnum_to_group(self.shape, mesh_axes, pnum)
+        if group not in partitioning:
+          partitioning[group] = []
+        partitioning[group].append(pnum)
+      group_assignment = []
+      for group, pnums in partitioning.items():
+        group_assignment.append(pnums)
+
       return self.LaidOutTensor(
-          [tpu_ops.cross_replica_sum(x.one_slice, partitioning)])
+          [tpu_ops.cross_replica_sum(x.one_slice, group_assignment)])
     else:
       for axis in mesh_axes:
         x = self.allconcat(x, axis, 0, stack=True)
