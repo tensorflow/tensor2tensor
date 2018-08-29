@@ -221,7 +221,6 @@ def image_transformer_base():
   hparams.add_hparam("block_width", 128)
   hparams.add_hparam("num_encoder_layers", 4)
   hparams.add_hparam("num_decoder_layers", 12)
-  hparams.sep_rgb_embed = False
   hparams.add_hparam("dec_attention_type", cia.AttentionType.LOCAL_1D)
   hparams.add_hparam("block_raster_scan", False)
 
@@ -789,7 +788,6 @@ def imagetransformer_sep_channels_16l_16h_imgnet_lrg_loc_128():
 def imagetransformer_sep_output_channels_8l_local_and_global_att():
   """separate rgb embeddings."""
   hparams = imagetransformer_sep_channels_8l()
-  hparams.sep_rgb_embed = True
   hparams.sampling_method = "random"
   hparams.local_and_global_att = True
   return hparams

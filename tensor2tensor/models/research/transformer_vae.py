@@ -829,7 +829,6 @@ def imagetransformer_ae_cifar():
   hparams.add_hparam("block_width", 128)
   hparams.num_encoder_layers = 4
   hparams.num_decoder_layers = 12
-  hparams.sep_rgb_embed = False
   hparams.add_hparam("dec_attention_type", cia.AttentionType.LOCAL_1D)
   hparams.add_hparam("block_raster_scan", False)
   hparams.add_hparam("shared_rel", False)
