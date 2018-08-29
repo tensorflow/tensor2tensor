@@ -392,7 +392,7 @@ def update_hparams_for_vq_gating(hparams):
   hparams.add_hparam("beta", 0.25)
   hparams.add_hparam("epsilon", 1e-5)
   hparams.add_hparam("decay", 0.999)
-  hparams.add_hparam("ema", True)
+  hparams.add_hparam("ema", False)  # default is false until ema is implemented
   hparams.add_hparam("random_top_k", 1)
   hparams.add_hparam("soft_em", False)
   hparams.add_hparam("num_samples", 10)

@@ -23,8 +23,6 @@ from tensor2tensor.layers import common_layers
 
 import tensorflow as tf
 
-from tensorflow.python.training import moving_averages
-
 
 class DiscreteBottleneck(object):
   """Discrete bottleneck class."""
@@ -42,12 +40,13 @@ class DiscreteBottleneck(object):
         self.hparams.z_size_per_residual / self.hparams.num_blocks)
     self.hparams.block_v_size = int(self.hparams.block_v_size)
     # TODO(avaswani): Figure out why tf.get_variable doesn't work with assign
-    self.hparams.means = tf.Variable(
-        tf.random_normal([
+    self.hparams.means = tf.get_variable(
+        name="means",
+        shape=[
             self.hparams.num_residuals, self.hparams.num_blocks,
             self.hparams.block_v_size, self.hparams.block_dim
-        ], stddev=0.1),
-        name="means")
+            ],
+        initializer=tf.uniform_unit_scaling_initializer())
     tf.logging.info("means = {}".format(self.hparams.means))
     tf.logging.info("Done creating means")
 
@@ -55,24 +54,7 @@ class DiscreteBottleneck(object):
     self.hparams.ema_count = None
     self.hparams.ema_means = None
     if self.hparams.ema:
-      self.hparams.ema_count = []
-      self.hparams.ema_means = []
-      for i in range(hparams.num_residuals):
-        ema_count_i = tf.get_variable(
-            "ema_count_{}".format(i),
-            [self.hparams.num_blocks, self.hparams.block_v_size],
-            initializer=tf.constant_initializer(0),
-            trainable=False)
-        self.hparams.ema_count.append(ema_count_i)
-
-      with tf.colocate_with(self.hparams.means):
-        self.ema_means = []
-        for i in range(hparams.num_residuals):
-          ema_means_i = tf.get_variable(
-              "ema_means_{}".format(i),
-              initializer=self.hparams.means.initialized_value()[i],
-              trainable=False)
-          self.hparams.ema_means.append(ema_means_i)
+      raise NotImplementedError("ema updates not implemented")
 
   def slice_hidden(self, x):
     """Slice encoder hidden state into block_dim.
@@ -281,43 +263,9 @@ class DiscreteBottleneck(object):
         x_means_hot_res, x_means_res, q_loss_res, e_loss_res = \
             self.embedding_lookup(x_reshaped, self.hparams.means[i])
 
-        # Update the ema variables
+        # TODO(avaswani,nikip,aurkor): Implement ema
         if self.hparams.ema:
-          tf.logging.info("Using EMA with beta = {}".format(self.hparams.beta))
-          updated_ema_count_res = \
-              moving_averages.assign_moving_average(
-                  self.hparams.ema_count[i],
-                  tf.reduce_sum(
-                      tf.reshape(
-                          x_means_hot_res,
-                          shape=[-1, self.hparams.num_blocks,
-                                 self.hparams.block_v_size]),
-                      axis=0),
-                  self.hparams.decay,
-                  zero_debias=False)
-
-          dw = tf.matmul(
-              tf.transpose(x_means_hot_res, perm=[1, 2, 0]),
-              tf.transpose(x_res, perm=[1, 0, 2]))
-
-          updated_ema_means_res = \
-              moving_averages.assign_moving_average(
-                  self.hparams.ema_means[i], dw, self.hparams.decay,
-                  zero_debias=False)
-          n = tf.reduce_sum(updated_ema_count_res, axis=-1, keep_dims=True)
-          updated_ema_count_res = (
-              (updated_ema_count_res + self.hparams.epsilon) /
-              (n + 2**self.hparams.z_size * self.hparams.epsilon) * n)
-          updated_ema_means_res = updated_ema_means_res/tf.expand_dims(
-              updated_ema_count_res, axis=-1)
-          with tf.control_dependencies([e_loss_res]):
-            print ("self.hparams.means[i]", self.hparams.means[i])
-            # raw_input()
-            update_means_res = tf.assign(self.hparams.means[i],
-                                         updated_ema_means_res)
-            # update_means_res = self.hparams.means[i]
-            with tf.control_dependencies([update_means_res]):
-              loss += self.hparams.beta * e_loss_res
+          raise NotImplementedError("ema updates not implemented")
         else:
           loss += q_loss_res + self.hparams.beta * e_loss_res
 

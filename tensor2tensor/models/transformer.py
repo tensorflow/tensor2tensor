@@ -1602,6 +1602,18 @@ def transformer_base_vq1_16_nb1_packed_nda_b01_scales():
 
 
 @registry.register_hparams
+def transformer_base_vq1_16_nb1_packed_dan_b01_scales():
+  """Set of hyperparameters."""
+  hparams = transformer_base_vq_ada_32ex_packed()
+  hparams.use_scales = int(True)
+  hparams.moe_num_experts = 16
+  hparams.moe_k = 1
+  hparams.beta = 0.1
+  hparams.ema = False
+  return hparams
+
+
+@registry.register_hparams
 def transformer_base_vq1_16_nb1_packed_nda_b01_scales_dialog():
   """Set of hyperparameters."""
   hparams = transformer_base_vq1_16_nb1_packed_nda_b01_scales()
