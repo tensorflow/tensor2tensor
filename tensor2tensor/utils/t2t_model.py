@@ -57,7 +57,28 @@ _no_problem_err = (
 class T2TModel(base.Layer):
   """Abstract base class for models.
 
-  Subclassess generally only need to override `body`.
+  `T2TModel` has three typical usages:
+
+  1. Estimator: The method `make_estimator_model_fn` builds a `model_fn` for
+     the tf.Estimator workflow of training, evaluation, and prediction.
+     Its core computation comes from the method `call`, which proceeds to call
+     the following methods:
+
+     * `bottom`, which transforms features according to `problem_hparams`' input
+       and target `Modality`s;
+     * `body`, which takes features and performs the core model computation to
+        return output and any auxiliary loss terms;
+     * `top`, which takes features and the body output, and transforms them
+       according to `problem_hparams`' input and target `Modality`s to return
+       the final logits;
+     * `loss`, which takes the logits, forms any missing training loss, and sums
+       all loss terms.
+  2. Layer: The method `call` enables `T2TModel` to be used a callable by
+     itself. For example, it can be composed with any other Keras layer.
+  3. Inference: The method `infer` enables `T2TModel` to make sequence
+     predictions by itself.
+
+  Subclasses generally only need to override `body`.
   """
   REGISTERED_NAME = None  # Updated on registration.
 
@@ -68,7 +89,7 @@ class T2TModel(base.Layer):
                data_parallelism=None,
                decode_hparams=None,
                **kwargs):
-    """Create a T2TModel.
+    """Creates a T2TModel.
 
     Args:
       hparams: tf.contrib.training.HParams, model hyperparameters.
@@ -82,9 +103,6 @@ class T2TModel(base.Layer):
       decode_hparams: a hyperparameter object with decoding parameters.
         See decoding.decode_hparams.
       **kwargs: arguments to pass to base.Layer constructor.
-
-    Returns:
-      a T2TModel
     """
     # Determine name first: use registered name if possible, class name else.
     default_name = registry.default_name(type(self))
@@ -353,19 +371,22 @@ class T2TModel(base.Layer):
     return transformed_features
 
   def body(self, features):
-    """Most models will override this function.
+    """Computes the targets' logits for one shard given transformed inputs.
 
-    Compute label logits for one shard as a function of the transformed
-    features.
+    Most `T2TModel` subclasses will override this method.
 
     Args:
-      features: A dictionary of key to Tensor.  Each Tensor has shape
-         [batch_size, ?, ?, hidden_size].
+      features: dict of str to Tensor, where each Tensor has shape [batch_size,
+        ..., hidden_size]. It typically contains keys `inputs` and `targets`.
 
     Returns:
-      output: tensor of logits with shape [batch_size, O, P, body_output_size.
-      losses: either single loss as a scalar, a list, a tensor (to be averaged)
-              or a dictionary of losses.
+      output: Tensor of pre-logit activations with shape [batch_size, ...,
+              hidden_size].
+      losses: Either single loss as a scalar, a list, a Tensor (to be averaged),
+              or a dictionary of losses. If losses is a dictionary with the key
+              "training", losses["training"] is considered the final training
+              loss and output is considered logits; self.top and self.loss will
+              be skipped.
     """
     raise NotImplementedError("Abstract Method")
 
@@ -406,6 +427,7 @@ class T2TModel(base.Layer):
     return logits
 
   def top(self, body_output, features):
+    """Returns `logits` given body output and features."""
     if isinstance(body_output, dict):
       if self._problem_hparams:
         target_modality = self._problem_hparams.target_modality
