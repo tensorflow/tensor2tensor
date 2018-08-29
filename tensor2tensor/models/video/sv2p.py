@@ -493,8 +493,12 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
 
     output, _ = self(features)  # pylint: disable=not-callable
 
+    if not isinstance(output, dict):
+      output = {"targets": output}
+
     output["targets"] = tf.squeeze(output["targets"], axis=-1)
-    output["target_reward"] = tf.argmax(output["target_reward"], axis=-1)
+    if self.hparams.reward_prediction:
+      output["target_reward"] = tf.argmax(output["target_reward"], axis=-1)
 
     # only required for decoding.
     output["outputs"] = output["targets"]
