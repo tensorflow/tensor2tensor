@@ -525,11 +525,13 @@ def create_evaluation_metrics(problems, model_hparams):
     """Reduce dimensions for high-dimensional predictions and labels."""
     # We will treat first dimensions as batch. One example are video frames.
     if len(predictions.get_shape()) > 5:
+      predictions_shape = common_layers.shape_list(predictions)
       predictions = tf.reshape(
-          predictions, [-1] + common_layers.shape_list(predictions)[-4:])
-    if len(labels.get_shape()) > 4:
+          predictions, [predictions_shape[0], predictions_shape[1], -1,
+                        predictions_shape[-1]])
+      labels_shape = common_layers.shape_list(labels)
       labels = tf.reshape(
-          labels, [-1] + common_layers.shape_list(labels)[-3:])
+          labels, [labels_shape[0], labels_shape[1], -1])
     return predictions, labels
 
   def make_problem_specific_metric_fn(metric_fn, weights_fn):

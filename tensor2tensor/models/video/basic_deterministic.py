@@ -42,7 +42,7 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
     del features, filters
     return layer, 0.0
 
-  def body(self, features):
+  def body_single(self, features):
     hparams = self.hparams
     filters = hparams.hidden_size
     kernel1, kernel2 = (3, 3), (4, 4)
@@ -109,12 +109,83 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
 
     # Cut down to original size.
     x = x[:, :inputs_shape[1], :inputs_shape[2], :]
+    x = tf.layers.dense(x, hparams.problem.num_channels * 256, name="logits")
 
     # Reward prediction if needed.
     if "target_reward" not in features:
       return x
-    reward_pred = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
+    reward_pred = tf.expand_dims(  # Add a fake channels dim.
+        tf.reduce_mean(x, axis=[1, 2], keepdims=True), axis=3)
     return {"targets": x, "target_reward": reward_pred}, extra_loss
+
+  def body(self, features):
+    hparams = self.hparams
+    is_predicting = hparams.mode == tf.estimator.ModeKeys.PREDICT
+    if hparams.video_num_target_frames < 2:
+      res = self.body_single(features)
+      return res
+
+    # TODO(lukaszkaiser): the split axes and the argmax below heavily depend on
+    # using the default (a bit strange) video modality - we should change that.
+
+    # Split inputs and targets into lists.
+    input_frames = list(tf.split(
+        features["inputs"], hparams.video_num_input_frames, axis=-1))
+    target_frames = list(tf.split(
+        features["targets"], hparams.video_num_target_frames, axis=-1))
+    all_frames = input_frames + target_frames
+    if "input_action" in features:
+      input_actions = list(tf.split(
+          features["input_action"], hparams.video_num_input_frames, axis=1))
+      target_actions = list(tf.split(
+          features["target_action"], hparams.video_num_target_frames, axis=1))
+      all_actions = input_actions + target_actions
+
+    # Run a number of steps.
+    res_frames = []
+    if "target_reward" in features:
+      res_rewards, extra_loss = [], 0.0
+    sample_prob = common_layers.inverse_exp_decay(
+        hparams.scheduled_sampling_warmup_steps)
+    sample_prob *= hparams.scheduled_sampling_prob
+    for i in range(hparams.video_num_target_frames):
+      cur_frames = all_frames[i:i + hparams.video_num_input_frames]
+      features["inputs"] = tf.concat(cur_frames, axis=-1)
+      if "input_action" in features:
+        cur_actions = all_actions[i:i + hparams.video_num_input_frames]
+        features["input_action"] = tf.concat(cur_actions, axis=1)
+
+      # Run model.
+      with tf.variable_scope(tf.get_variable_scope(), reuse=i > 0):
+        if "target_reward" not in features:
+          res_frames.append(self.body_single(features))
+        else:
+          res_dict, res_extra_loss = self.body_single(features)
+          extra_loss += res_extra_loss
+          res_frames.append(res_dict["targets"])
+          res_rewards.append(res_dict["target_reward"])
+
+      # When predicting, use the generated frame.
+      orig_frame = all_frames[i + hparams.video_num_input_frames]
+      shape = common_layers.shape_list(orig_frame)
+      sampled_frame = tf.reshape(
+          res_frames[-1], shape[:-1] + [hparams.problem.num_channels, 256])
+      sampled_frame = tf.to_float(tf.argmax(sampled_frame, axis=-1))
+      if is_predicting:
+        all_frames[i + hparams.video_num_input_frames] = sampled_frame
+
+      # Scheduled sampling during training.
+      if (hparams.scheduled_sampling_prob > 0.0 and self.is_training):
+        do_sample = tf.less(tf.random_uniform([shape[0]]), sample_prob)
+        sampled_frame = tf.where(do_sample, sampled_frame, orig_frame)
+        all_frames[i + hparams.video_num_input_frames] = sampled_frame
+
+    # Concatenate results and return them.
+    frames = tf.concat(res_frames, axis=-1)
+    if "target_reward" not in features:
+      return frames
+    rewards = tf.concat(res_rewards, axis=1)
+    return {"targets": frames, "target_reward": rewards}, extra_loss
 
   def infer(self, features, *args, **kwargs):  # pylint: disable=arguments-differ
     """Produce predictions from the model by running it."""
@@ -150,6 +221,7 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
       tf.logging.warn("Guessing targets shape as no inputs are given.")
       targets_shape = [self.hparams.batch_size,
                        self.hparams.video_num_target_frames, 1, 1, num_channels]
+
     features["targets"] = tf.zeros(targets_shape, dtype=tf.int32)
     if "target_reward" in self.hparams.problem_hparams.target_modality:
       features["target_reward"] = tf.zeros(

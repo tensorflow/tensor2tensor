@@ -1062,13 +1062,16 @@ def autoencoder_ordered_discrete_hs256():
 def autoencoder_ordered_text():
   """Ordered discrete autoencoder model for text."""
   hparams = autoencoder_ordered_discrete()
-  hparams.bottleneck_bits = 2048
+  hparams.bottleneck_bits = 1024
+  hparams.unordered = True
+  hparams.bottleneck_noise = 0.05
   hparams.num_hidden_layers = 7
   hparams.batch_size = 1024
   hparams.autoregressive_mode = "conv5"
   hparams.max_hidden_size = 1024
   hparams.target_modality = "symbol:identity"
   hparams.input_modalities = "symbol:identity"
+  hparams.sample_height = 128
   hparams.sample_width = 1
   return hparams
 
@@ -1083,6 +1086,7 @@ def autoencoder_ordered_text_small():
   hparams.max_hidden_size = 512
   hparams.bottleneck_noise = 0.0
   hparams.autoregressive_mode = "conv5"
+  hparams.sample_height = 4
   return hparams
 
 

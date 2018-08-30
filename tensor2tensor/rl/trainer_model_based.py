@@ -512,7 +512,7 @@ def combine_training_data(problem, final_data_dir, old_data_dirs,
 @registry.register_hparams
 def rl_modelrl_base():
   return tf.contrib.training.HParams(
-      epochs=6,
+      epochs=2,
       # Total frames used for training. This will be distributed evenly across
       # hparams.epochs.
       num_real_env_frames=100000,
@@ -524,7 +524,7 @@ def rl_modelrl_base():
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,
       intrinsic_reward_scale=0.,
-      ppo_epochs_num=2000,  # This should be enough to see something
+      ppo_epochs_num=1000,  # This should be enough to see something
       # Our simulated envs do not know how to reset.
       # You should set ppo_time_limit to the value you believe that
       # the simulated env produces a reasonable output.
@@ -559,6 +559,14 @@ def rl_modelrl_base_sv2p():
   hparams = rl_modelrl_base()
   hparams.generative_model = "next_frame_sv2p"
   hparams.generative_model_params = "next_frame_sv2p_atari"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_base_sampling():
+  """Base setting with a stochastic next-frame model."""
+  hparams = rl_modelrl_base()
+  hparams.generative_model_params = "next_frame_sampling"
   return hparams
 
 
@@ -599,7 +607,7 @@ def rl_modelrl_model_only():
 @registry.register_hparams
 def rl_modelrl_tiny():
   """Tiny set for testing."""
-  return rl_modelrl_base().override_from_dict(
+  return rl_modelrl_base_sampling().override_from_dict(
       tf.contrib.training.HParams(
           epochs=2,
           num_real_env_frames=128,
@@ -798,6 +806,11 @@ def rl_modelrl_variance(rhp):
 def rl_modelrl_variance_nogame(rhp):
   # Dummy parameter to get 5 runs for each configuration
   rhp.set_discrete("model.moe_loss_coef", list(range(500)))
+
+
+@registry.register_ranged_hparams
+def rl_modelrl_scheduled_sampling(rhp):
+  rhp.set_float("model.scheduled_sampling_prob", 0.0, 1.0)
 
 
 @registry.register_ranged_hparams

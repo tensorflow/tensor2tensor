@@ -61,6 +61,16 @@ def next_frame_pixel_noise():
 
 
 @registry.register_hparams
+def next_frame_sampling():
+  """Basic conv model with scheduled sampling."""
+  hparams = next_frame_basic_deterministic()
+  hparams.video_num_target_frames = 2
+  hparams.scheduled_sampling_warmup_steps = 30000
+  hparams.scheduled_sampling_prob = 0.1
+  return hparams
+
+
+@registry.register_hparams
 def next_frame_tpu():
   hparams = next_frame_basic_deterministic()
   hparams.batch_size = 1

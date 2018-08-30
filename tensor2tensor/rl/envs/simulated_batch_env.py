@@ -153,8 +153,12 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
                           axis=1)
       history = self.history_buffer.get_all_elements()
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+        # We only need 1 target frame here, set it.
+        hparams_target_frames = self._model.hparams.video_num_target_frames
+        self._model.hparams.video_num_target_frames = 1
         model_output = self._model.infer(
             {"inputs": history, "input_action": actions})
+        self._model.hparams.video_num_target_frames = hparams_target_frames
 
       observ = tf.to_float(tf.squeeze(model_output["targets"], axis=1))
 

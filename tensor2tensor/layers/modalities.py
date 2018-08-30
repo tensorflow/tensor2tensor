@@ -511,14 +511,13 @@ class AudioSpectralModality(modality.Modality):
                            "compress_block_final")
 
 
-@registry.register_video_modality("default")
 class VideoModality(modality.Modality):
   """Modality for videos, i.e., time-sequences of frames."""
   PIXEL_EMBEDDING_SIZE = 64
 
   def bottom(self, x):
     inputs = x
-    with tf.variable_scope(self.name):
+    with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
       common_layers.summarize_video(inputs, "inputs")
       inputs_shape = common_layers.shape_list(inputs)
       # Standardize frames.
@@ -553,24 +552,20 @@ class VideoModality(modality.Modality):
           self._body_input_depth,
           name="merge_pixel_embedded_frames")
 
-  def top(self, body_output, _):
+  def top(self, body_output, targets):
     num_channels = self._model_hparams.problem.num_channels
-    num_frames = self._model_hparams.video_num_target_frames
-    with tf.variable_scope("rgb_softmax"):
-      body_output_shape = common_layers.shape_list(body_output)
-      reshape_shape = body_output_shape[:3]
-      reshape_shape.extend([num_channels, num_frames, self.top_dimensionality])
-      res = tf.layers.dense(body_output,
-                            self.top_dimensionality * num_channels * num_frames)
-      res = tf.reshape(res, reshape_shape)
-      res = tf.transpose(res, [0, 4, 1, 2, 3, 5])
-      if not tf.get_variable_scope().reuse:
-        res_argmax = tf.argmax(res[:, -1, :, :, :, :], axis=-1)
-        tf.summary.image(
-            "result",
-            common_layers.tpu_safe_image_summary(res_argmax),
-            max_outputs=1)
-      return res
+    num_frames = common_layers.shape_list(targets)[1]
+    body_output_shape = common_layers.shape_list(body_output)
+    # We assume the body output is of this shape and layout.
+    reshape_shape = body_output_shape[:-1] + [
+        num_channels, self.top_dimensionality, num_frames]
+    res = tf.reshape(body_output, reshape_shape)
+    res = tf.transpose(res, [0, 5, 1, 2, 3, 4])
+    res_shape = common_layers.shape_list(res)
+    res_argmax = tf.argmax(tf.reshape(res, [-1, res_shape[-1]]), axis=-1)
+    res_argmax = tf.reshape(res_argmax, res_shape[:-1])
+    common_layers.summarize_video(res_argmax, "result")
+    return res
 
   def loss(self, top_out, targets):
     """Compute loss numerator and denominator for one shard of output."""
@@ -584,6 +579,14 @@ class VideoModality(modality.Modality):
         self._model_hparams.label_smoothing,
         cutoff=cutoff,
         weights_fn=self.targets_weights_fn)
+
+
+@registry.register_video_modality("default")
+class VideoModalityNoEmbed(VideoModality):
+  """Video Modality where target_bottom does not embeds pixels."""
+
+  def targets_bottom(self, x):
+    return super(VideoModalityNoEmbed, self).bottom(x)
 
 
 @registry.register_video_modality("embed")
