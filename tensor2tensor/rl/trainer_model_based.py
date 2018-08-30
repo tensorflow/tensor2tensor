@@ -554,6 +554,15 @@ def rl_modelrl_base_stochastic():
 
 
 @registry.register_hparams
+def rl_modelrl_base_sv2p():
+  """Base setting with sv2p as world model."""
+  hparams = rl_modelrl_base()
+  hparams.generative_model = "next_frame_sv2p"
+  hparams.generative_model_params = "next_frame_sv2p_atari"
+  return hparams
+
+
+@registry.register_hparams
 def rl_modelrl_medium():
   """Small set for larger testing."""
   hparams = rl_modelrl_base()
