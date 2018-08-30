@@ -23,10 +23,16 @@ from __future__ import print_function
 
 import tensorflow as tf
 
+from tensor2tensor.rl.envs import utils
+
 
 class InGraphBatchEnv(object):
   """Abstract class for batch of environments inside the TensorFlow graph.
   """
+
+  def __init__(self, observ_space, action_space):
+    self.observ_space = observ_space
+    self.action_space = action_space
 
   def __getattr__(self, name):
     """Forward unimplemented attributes to one of the original environments.
@@ -71,7 +77,24 @@ class InGraphBatchEnv(object):
     """
     return tf.cond(
         tf.cast(tf.reduce_sum(indices + 1), tf.bool),
-        lambda: self._reset_non_empty(indices), lambda: 0.0)
+        lambda: self._reset_non_empty(indices),
+        lambda: tf.cast(0, self.observ_dtype))
+
+  @property
+  def observ_dtype(self):
+    return utils.parse_dtype(self.observ_space)
+
+  @property
+  def observ_shape(self):
+    return utils.parse_shape(self.observ_space)
+
+  @property
+  def action_dtype(self):
+    return utils.parse_dtype(self.action_space)
+
+  @property
+  def action_shape(self):
+    return utils.parse_shape(self.action_space)
 
   @property
   def observ(self):
