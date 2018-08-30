@@ -20,7 +20,6 @@ to have both SoX (http://sox.sourceforge.net) and on Linux, the libsox-fmt-mp3
 package installed. The original samples will be downsampled by the encoder.
 """
 
-import six
 import csv
 import os
 import tarfile
@@ -57,11 +56,7 @@ def _collect_data(directory):
     transcript_path = os.path.join(directory, transcript)
     with open(transcript_path, "r") as transcript_file:
       transcript_reader = csv.reader(transcript_file)
-      # skip header
-      if six.PY3:
-        _ = next(transcript_reader)
-      else:
-        _ = transcript_reader.next()
+      _ = transcript_reader.next()  # Skip headers.
       for transcript_line in transcript_reader:
         media_name, label = transcript_line[0:2]
         filename = os.path.join(directory, media_name)
