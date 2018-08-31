@@ -67,13 +67,13 @@ class DiscretizationTest(tf.test.TestCase):
     hidden_size = 60
     block_dim = 20
     num_blocks = 3
-    x = tf.zeros(shape=[1, hidden_size], dtype=tf.float32)
+    x = tf.zeros(shape=[1, 1, hidden_size], dtype=tf.float32)
     projection_tensors = tf.random_normal(
         shape=[num_blocks, hidden_size, block_dim], dtype=tf.float32)
     x_projected = discretization.project_hidden(x, projection_tensors,
                                                 hidden_size, num_blocks)
     x_projected_eval = self.evaluate(x_projected)
-    self.assertEqual(np.shape(x_projected_eval), (1, num_blocks, block_dim))
+    self.assertEqual(np.shape(x_projected_eval), (1, 1, num_blocks, block_dim))
     self.assertTrue(np.all(x_projected_eval == 0))
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
@@ -81,10 +81,10 @@ class DiscretizationTest(tf.test.TestCase):
     hidden_size = 60
     block_dim = 20
     num_blocks = 3
-    x = tf.zeros(shape=[1, hidden_size], dtype=tf.float32)
+    x = tf.zeros(shape=[1, 1, hidden_size], dtype=tf.float32)
     x_sliced = discretization.slice_hidden(x, hidden_size, num_blocks)
     x_sliced_eval = self.evaluate(x_sliced)
-    self.assertEqual(np.shape(x_sliced_eval), (num_blocks, block_dim))
+    self.assertEqual(np.shape(x_sliced_eval), (1, 1, num_blocks, block_dim))
     self.assertTrue(np.all(x_sliced_eval == 0))
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
@@ -92,10 +92,10 @@ class DiscretizationTest(tf.test.TestCase):
     hidden_size = 60
     block_dim = 20
     num_blocks = 3
-    x = tf.ones(shape=[1, hidden_size], dtype=tf.float32)
+    x = tf.ones(shape=[1, 1, hidden_size], dtype=tf.float32)
     x_sliced = discretization.slice_hidden(x, hidden_size, num_blocks)
     x_sliced_eval = self.evaluate(x_sliced)
-    self.assertEqual(np.shape(x_sliced_eval), (num_blocks, block_dim))
+    self.assertEqual(np.shape(x_sliced_eval), (1, 1, num_blocks, block_dim))
     self.assertTrue(np.all(x_sliced_eval == 1))
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()

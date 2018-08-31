@@ -22,7 +22,8 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.layers import common_layers
-from tensor2tensor.rl.envs import in_graph_batch_env, utils
+from tensor2tensor.rl.envs import in_graph_batch_env
+from tensor2tensor.rl.envs.utils import get_action_space
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
@@ -38,21 +39,20 @@ FLAGS = flags.FLAGS
 class HistoryBuffer(object):
   """History Buffer."""
 
-  def __init__(self, input_dataset, length, observ_dtype):
+  def __init__(self, input_dataset, length):
     self.input_data_iterator = (
         input_dataset.batch(length).make_initializable_iterator())
     self.length = length
-    self._observ_dtype = observ_dtype
     initial_frames = self.get_initial_observations()
     initial_shape = [length] + common_layers.shape_list(initial_frames)[1:]
-    self._history_buff = tf.Variable(tf.zeros(initial_shape, observ_dtype),
+    self._history_buff = tf.Variable(tf.zeros(initial_shape, tf.float32),
                                      trainable=False)
 
   def initialize(self, sess):
     sess.run(self.input_data_iterator.initializer)
 
   def get_initial_observations(self):
-    return tf.cast(self.input_data_iterator.get_next(), self._observ_dtype)
+    return tf.cast(self.input_data_iterator.get_next(), tf.float32)
 
   def get_all_elements(self):
     return self._history_buff.read_value()
@@ -100,16 +100,8 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   def __init__(self, environment_spec, length):
     """Batch of environments inside the TensorFlow graph."""
 
-    observ_space = utils.get_observation_space(environment_spec)
-    initial_frames_problem = environment_spec.initial_frames_problem
-    observ_shape = (initial_frames_problem.frame_height,
-                    initial_frames_problem.frame_width,
-                    initial_frames_problem.num_channels)
-    observ_space.shape = observ_shape
-    action_space = utils.get_action_space(environment_spec)
-    super(SimulatedBatchEnv, self).__init__(observ_space, action_space)
-
     self.length = length
+    initial_frames_problem = environment_spec.initial_frames_problem
     self._min_reward = initial_frames_problem.min_reward
     self._num_frames = environment_spec.video_num_input_frames
     self._intrinsic_reward_scale = environment_spec.intrinsic_reward_scale
@@ -119,6 +111,8 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     model_hparams.force_full_predict = True
     self._model = registry.model(FLAGS.model)(
         model_hparams, tf.estimator.ModeKeys.PREDICT)
+
+    _, self.action_shape, self.action_dtype = get_action_space(environment_spec)
 
     hparams = HParams(video_num_input_frames=
                       environment_spec.video_num_input_frames,
@@ -139,11 +133,12 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
                                                hparams=hparams).take(1)
 
     dataset = dataset.map(lambda x: x["inputs"]).repeat()
-    self.history_buffer = HistoryBuffer(dataset, self.length, self.observ_dtype)
+    self.history_buffer = HistoryBuffer(dataset, self.length)
 
-    self._observ = tf.Variable(
-        tf.zeros((len(self),) + observ_shape, self.observ_dtype),
-        trainable=False)
+    shape = (self.length, initial_frames_problem.frame_height,
+             initial_frames_problem.frame_width,
+             initial_frames_problem.num_channels)
+    self._observ = tf.Variable(tf.zeros(shape, tf.float32), trainable=False)
 
   def initialize(self, sess):
     self.history_buffer.initialize(sess)
@@ -165,8 +160,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
             {"inputs": history, "input_action": actions})
         self._model.hparams.video_num_target_frames = hparams_target_frames
 
-      observ = tf.cast(tf.squeeze(model_output["targets"], axis=1),
-                       self.observ_dtype)
+      observ = tf.to_float(tf.squeeze(model_output["targets"], axis=1))
 
       reward = tf.to_float(model_output["target_reward"])
       reward = tf.reshape(reward, shape=(self.length,)) + self._min_reward
