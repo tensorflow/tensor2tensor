@@ -293,7 +293,7 @@ def conv2d(name, x, output_channels, filter_size=None, stride=None,
   _, _, _, in_channels = common_layers.shape_list(x)
 
   filter_shape = filter_size + [in_channels, output_channels]
-  stride_shape = [1, 1] + stride
+  stride_shape = [1] + stride + [1]
 
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
 
@@ -526,25 +526,32 @@ def revnet(name, x, hparams, reverse=True):
 
 
 @add_arg_scope
-def top_prior(name, x, learn_prior=False):
+def top_prior(name, x, learn_prior="normal"):
   """Log probability of x being gaussian.
 
   Args:
     name: variable scope
     x: input, 4-D Tensor shape=(batch_size, width, height, channels)
-    learn_prior: If set to true, then the mean and the standard deviation
-                 are the output of a single conv layer initialized with
-                 zeros. Otherwise the mean and logstd are zeros and ones
-                 respectively.
+    learn_prior: Possible options are "normal" and "single_conv".
+                 If set to "single_conv", the gaussian is parametrized by a
+                 single convolutional layer whose input are an array of zeros
+                 and initialized such that the mean and std are zero and one.
+                 If set to "normal", the prior is just a Gaussian with zero
+                 mean and unit variance.
   Returns:
     objective: 1-D Tensor shape=(batch_size,) summed across spatial components.
+  Raises:
+    ValueError: If learn_prior not in "normal" or "single_conv"
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     h = tf.zeros_like(x)
-    if not learn_prior:
+    if learn_prior == "normal":
       prior_dist = tf.distributions.Normal(h, tf.exp(h))
-    else:
+    elif learn_prior == "single_conv":
       prior_dist = split_prior("top_learn_prior", h)
+    else:
+      raise ValueError("Expected learn_prior to be normal or single_conv "
+                       "got %s" % learn_prior)
     objective = tf.reduce_sum(prior_dist.log_prob(x), axis=[1, 2, 3])
     return objective, prior_dist
 
