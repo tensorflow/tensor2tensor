@@ -89,40 +89,46 @@ flags.DEFINE_string("t2t_usr_dir", "",
 _SUPPORTED_PROBLEM_GENERATORS = {
     "algorithmic_algebra_inverse": (
         lambda: algorithmic_math.algebra_inverse(26, 0, 2, 100000),
-        lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000)),
+        lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000),
+        lambda: None),  # test set
     "parsing_english_ptb8k": (
         lambda: wsj_parsing.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 2**13, 2**9),
         lambda: wsj_parsing.parsing_token_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**13, 2**9)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**13, 2**9),
+        lambda: None),  # test set
     "parsing_english_ptb16k": (
         lambda: wsj_parsing.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 2**14, 2**9),
         lambda: wsj_parsing.parsing_token_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**14, 2**9)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**14, 2**9),
+        lambda: None),  # test set
     "inference_snli32k": (
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, False, 2**15),
-    ),
+        lambda: None),  # test set
     "audio_timit_characters_test": (
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 1718),
         lambda: audio.timit_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 626)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 626),
+        lambda: None),  # test set
     "audio_timit_tokens_8k_test": (
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 1718,
             vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13),
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
-            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13)),
+            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13),
+        lambda: None),  # test set
     "audio_timit_tokens_32k_test": (
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 1718,
             vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15),
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
-            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15)),
+            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15),
+        lambda: None),  # test set
 }
 
 # pylint: enable=g-long-lambda
@@ -193,19 +199,31 @@ def main(_):
 
 def generate_data_for_problem(problem):
   """Generate data for a problem in _SUPPORTED_PROBLEM_GENERATORS."""
-  training_gen, dev_gen = _SUPPORTED_PROBLEM_GENERATORS[problem]
+  training_gen, dev_gen, test_gen = _SUPPORTED_PROBLEM_GENERATORS[problem]
 
-  num_shards = FLAGS.num_shards or 10
+  num_train_shards = FLAGS.num_shards or 10
   tf.logging.info("Generating training data for %s.", problem)
   train_output_files = generator_utils.train_data_filenames(
-      problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir, num_shards)
+      problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir,
+      num_train_shards)
   generator_utils.generate_files(training_gen(), train_output_files,
                                  FLAGS.max_cases)
+  num_dev_shards = int(num_train_shards * 0.1)
   tf.logging.info("Generating development data for %s.", problem)
   dev_output_files = generator_utils.dev_data_filenames(
-      problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir, 1)
+      problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir,
+      num_dev_shards)
   generator_utils.generate_files(dev_gen(), dev_output_files)
-  all_output_files = train_output_files + dev_output_files
+  num_test_shards = int(num_train_shards * 0.1)
+  test_output_files = []
+  test_gen_data = test_gen()
+  if test_gen_data is not None:
+    tf.logging.info("Generating test data for %s.", problem)
+    test_output_files = generator_utils.test_data_filenames(
+        problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir,
+        num_test_shards)
+    generator_utils.generate_files(test_gen_data, test_output_files)
+  all_output_files = train_output_files + dev_output_files + test_output_files
   generator_utils.shuffle_dataset(all_output_files)
 
 
