@@ -1345,7 +1345,7 @@ class T2TModel(base.Layer):
     tf.train.init_from_checkpoint(ckpt_dir, variable_map)
 
   def estimator_spec_train(self, loss, num_async_replicas=1, use_tpu=False):
-    """Construct EstimatorSpec for TRAIN mode."""
+    """Constructs `tf.estimator.EstimatorSpec` for TRAIN (training) mode."""
     train_op = self.optimize(loss, num_async_replicas=num_async_replicas,
                              use_tpu=use_tpu)
 
@@ -1365,7 +1365,7 @@ class T2TModel(base.Layer):
           tf.estimator.ModeKeys.TRAIN, loss=loss, train_op=train_op)
 
   def estimator_spec_eval(self, features, logits, labels, loss, losses_dict):
-    """Construct EstimatorSpec for EVAL mode."""
+    """Constructs `tf.estimator.EstimatorSpec` for EVAL (evaluation) mode."""
     del losses_dict
     hparams = self.hparams
 
@@ -1425,7 +1425,7 @@ class T2TModel(base.Layer):
           loss=loss)
 
   def estimator_spec_predict(self, features, use_tpu=False):
-    """Construct EstimatorSpec for PREDICT mode."""
+    """Constructs `tf.estimator.EstimatorSpec` for PREDICT (inference) mode."""
     decode_hparams = self._decode_hparams
     infer_out = self.infer(
         features,
