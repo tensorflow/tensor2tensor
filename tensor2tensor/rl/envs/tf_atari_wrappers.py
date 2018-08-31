@@ -179,9 +179,7 @@ class AutoencoderWrapper(WrapperBase):
         trainable=False)
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       autoencoder_hparams = autoencoders.autoencoder_discrete_pong()
-      problem = registry.problem(
-          "gym_discrete_problem_with_agent_on_wrapped_full_pong_with"
-          "_autoencoder")
+      problem = registry.problem("dummy_autoencoder_problem")
       autoencoder_hparams.problem_hparams = problem.get_hparams(
           autoencoder_hparams)
       autoencoder_hparams.problem = problem

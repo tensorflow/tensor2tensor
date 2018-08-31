@@ -642,3 +642,12 @@ class GymSimulatedDiscreteProblemAutoencoded(GymSimulatedDiscreteProblem):
   def frame_width(self):
     width = self.env.observation_space.shape[1]
     return int(math.ceil(width / self.autoencoder_factor))
+
+
+@registry.register_problem
+class DummyAutoencoderProblem(GymDiscreteProblemWithAutoencoder):
+  """Dummy problem for running the autoencoder inside AutoencoderWrapper."""
+
+  @property
+  def env_name(self):
+    return "DummyAutoencoder"
