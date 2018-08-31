@@ -33,10 +33,10 @@ class WrapperBase(InGraphBatchEnv):
   """Base wrapper class."""
 
   def __init__(self, batch_env):
+    super(WrapperBase, self).__init__(
+        batch_env.observ_space, batch_env.action_space)
     self._length = len(batch_env)
     self._batch_env = batch_env
-    self.action_shape = batch_env.action_shape
-    self.action_dtype = batch_env.action_dtype
 
   def initialize(self, sess):
     """Initializations to be run once the tf.Session is available."""
@@ -83,8 +83,7 @@ class MaxAndSkipWrapper(WrapperBase):
     super(MaxAndSkipWrapper, self).__init__(batch_env)
     self.skip = skip
     observs_shape = batch_env.observ.shape
-    observ_dtype = tf.float32
-    self._observ = tf.Variable(tf.zeros(observs_shape, observ_dtype),
+    self._observ = tf.Variable(tf.zeros(observs_shape, self.observ_dtype),
                                trainable=False)
 
   def simulate(self, action):
@@ -120,16 +119,19 @@ class StackAndSkipWrapper(WrapperBase):
   def __init__(self, batch_env, skip=4):
     super(StackAndSkipWrapper, self).__init__(batch_env)
     self.skip = skip
-    self._observ = None
-    self.old_shape = batch_env.observ.shape.as_list()
-    observs_shape = self.old_shape[:-1] + [self.old_shape[-1] * self.skip]
-    observ_dtype = tf.float32
-    self._observ = tf.Variable(tf.zeros(observs_shape, observ_dtype),
-                               trainable=False)
+    self.old_shape = self._batch_env.observ_shape
+    self._observ = tf.Variable(
+        tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
+        trainable=False)
+
+  @property
+  def observ_shape(self):
+    return self.old_shape[:-1] + (self.old_shape[-1] * self.skip,)
 
   def simulate(self, action):
     with tf.name_scope("environment/simulate"):  # Do we need this?
-      initializer = (tf.zeros(self.old_shape, dtype=tf.float32),
+      initializer = (tf.zeros((len(self),) + self.old_shape,
+                              dtype=self.observ_dtype),
                      tf.fill((len(self),), 0.0), tf.fill((len(self),), False))
 
       def not_done_step(a, _):
@@ -156,7 +158,8 @@ class StackAndSkipWrapper(WrapperBase):
     # pylint: enable=protected-access
     inx = tf.concat(
         [
-            tf.ones(tf.size(tf.shape(new_values)), dtype=tf.int32)[:-1],
+            tf.ones(tf.size(tf.shape(new_values)),
+                    dtype=tf.int32)[:-1],
             [self.skip]
         ],
         axis=0)
@@ -172,11 +175,14 @@ class StackWrapper(WrapperBase):
   def __init__(self, batch_env, history=4):
     super(StackWrapper, self).__init__(batch_env)
     self.history = history
-    self.old_shape = batch_env.observ.shape.as_list()
-    observs_shape = self.old_shape[:-1] + [self.old_shape[-1] * self.history]
-    observ_dtype = tf.float32
-    self._observ = tf.Variable(tf.zeros(observs_shape, observ_dtype),
-                               trainable=False)
+    self.old_shape = batch_env.observ_shape
+    self._observ = tf.Variable(
+        tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
+        trainable=False)
+
+  @property
+  def observ_shape(self):
+    return self.old_shape[:-1] + (self.old_shape[-1] * self.history,)
 
   def simulate(self, action):
     reward, done = self._batch_env.simulate(action)
@@ -197,7 +203,8 @@ class StackWrapper(WrapperBase):
     # pylint: enable=protected-access
     inx = tf.concat(
         [
-            tf.ones(tf.size(tf.shape(new_values)), dtype=tf.int32)[:-1],
+            tf.ones(tf.size(tf.shape(new_values)),
+                    dtype=tf.int32)[:-1],
             [self.history]
         ],
         axis=0)
@@ -213,18 +220,22 @@ class AutoencoderWrapper(WrapperBase):
 
   def __init__(self, batch_env):
     super(AutoencoderWrapper, self).__init__(batch_env)
-    batch_size, height, width, _ = self._batch_env.observ.get_shape().as_list()
-    ae_height = int(math.ceil(height / self.autoencoder_factor))
-    ae_width = int(math.ceil(width / self.autoencoder_factor))
-    ae_channels = 24  # TODO(piotrmilos): make it better
-    observ_shape = (batch_size, ae_height, ae_width, ae_channels)
     self._observ = self._observ = tf.Variable(
-        tf.zeros(observ_shape, tf.float32), trainable=False)
+        tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
+        trainable=False)
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       autoencoder_hparams = autoencoders.autoencoder_discrete_pong()
       self.autoencoder_model = autoencoders.AutoencoderOrderedDiscrete(
           autoencoder_hparams, tf.estimator.ModeKeys.EVAL)
     self.autoencoder_model.set_mode(tf.estimator.ModeKeys.EVAL)
+
+  @property
+  def observ_shape(self):
+    height, width, _ = self._batch_env.observ_shape
+    ae_height = int(math.ceil(height / self.autoencoder_factor))
+    ae_width = int(math.ceil(width / self.autoencoder_factor))
+    ae_channels = 24  # TODO(piotrmilos): make it better
+    return (ae_height, ae_width, ae_channels)
 
   @property
   def autoencoder_factor(self):
@@ -237,6 +248,7 @@ class AutoencoderWrapper(WrapperBase):
     with tf.control_dependencies([reward, done]):
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
         ret = self.autoencoder_model.encode(self._batch_env.observ)
+        ret = tf.cast(ret, self.observ_dtype)
         assign_op = self._observ.assign(ret)
         with tf.control_dependencies([assign_op]):
           return tf.identity(reward), tf.identity(done)
@@ -245,6 +257,7 @@ class AutoencoderWrapper(WrapperBase):
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       new_values = self._batch_env._reset_non_empty(indices)  # pylint: disable=protected-access
       ret = self.autoencoder_model.encode(new_values)
+      ret = tf.cast(ret, self.observ_dtype)
       assign_op = tf.scatter_update(self._observ, indices, ret)
       with tf.control_dependencies([assign_op]):
         return tf.gather(self.observ, indices)
@@ -255,13 +268,15 @@ class IntToBitWrapper(WrapperBase):
 
   def __init__(self, batch_env):
     super(IntToBitWrapper, self).__init__(batch_env)
-    batch_size, height, width, channels = \
-      self._batch_env.observ.get_shape().as_list()
-    # We treat each channel as 8-bit integer to be expanded to 8 channels
-    self.observ_shape = (height, width, channels*8)
     self._observ = self._observ = tf.Variable(
-        tf.zeros((batch_size,) + self.observ_shape, tf.float32),
+        tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
         trainable=False)
+
+  @property
+  def observ_shape(self):
+    height, width, channels = self._batch_env.observ_shape
+    # We treat each channel as 8-bit integer to be expanded to 8 channels
+    return (height, width, channels*8)
 
   def simulate(self, action):
     action = tf.Print(action, [action], message="action=", summarize=200)
@@ -272,6 +287,7 @@ class IntToBitWrapper(WrapperBase):
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
         unpacked = discretization.int_to_bit(self._batch_env.observ, 8)
         unpacked = tf.reshape(unpacked, (-1,)+self.observ_shape)
+        unpacked = tf.cast(unpacked, self.observ_dtype)
         assign_op = self._observ.assign(unpacked)
         with tf.control_dependencies([assign_op]):
           return tf.identity(reward), tf.identity(done)
@@ -282,6 +298,7 @@ class IntToBitWrapper(WrapperBase):
     new_values_unpacked = discretization.int_to_bit(new_values, 8)
     new_values_unpacked = tf.reshape(new_values_unpacked, (-1,)
                                      +self.observ_shape)
+    new_values_unpacked = tf.cast(new_values_unpacked, self.observ_dtype)
     # pylint: enable=protected-access
     assign_op = tf.scatter_update(self._observ, indices, new_values_unpacked)
     with tf.control_dependencies([assign_op]):
