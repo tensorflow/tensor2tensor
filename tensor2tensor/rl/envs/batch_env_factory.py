@@ -81,6 +81,7 @@ class ExternalProcessEnv(object):
   _RESULT = 3
   _EXCEPTION = 4
   _CLOSE = 5
+  _ATTRIBUTE_EXCEPTION = 6
 
   def __init__(self, constructor, xvfb):
     """Step environment in a separate process for lock free parallelism.
@@ -226,6 +227,8 @@ class ExternalProcessEnv(object):
     if message == self._EXCEPTION:
       stacktrace = payload
       raise Exception(stacktrace)
+    if message == self._ATTRIBUTE_EXCEPTION:
+      raise AttributeError(payload)
     if message == self._RESULT:
       return payload
     raise KeyError("Received message of unexpected type {}".format(message))
@@ -249,8 +252,11 @@ class ExternalProcessEnv(object):
           break
         if message == self._ACCESS:
           name = payload
-          result = getattr(env, name)
-          conn.send((self._RESULT, result))
+          try:
+            result = getattr(env, name)
+            conn.send((self._RESULT, result))
+          except AttributeError as err:
+            conn.send((self._ATTRIBUTE_EXCEPTION, err.args))
           continue
         if message == self._CALL:
           name, args, kwargs = payload

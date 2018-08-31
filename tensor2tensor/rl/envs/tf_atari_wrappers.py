@@ -110,65 +110,6 @@ class MaxAndSkipWrapper(WrapperBase):
         return tf.identity(simulate_ret[1]), tf.identity(simulate_ret[2])
 
 
-class StackAndSkipWrapper(WrapperBase):
-  """ Stack and skip wrapper.
-      The wrapper works under assumptions that issuing an action
-      to an environment with done=True has not effect.
-  """
-
-  def __init__(self, batch_env, skip=4):
-    super(StackAndSkipWrapper, self).__init__(batch_env)
-    self.skip = skip
-    self.old_shape = self._batch_env.observ_shape
-    self._observ = tf.Variable(
-        tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
-        trainable=False)
-
-  @property
-  def observ_shape(self):
-    return self.old_shape[:-1] + (self.old_shape[-1] * self.skip,)
-
-  def simulate(self, action):
-    with tf.name_scope("environment/simulate"):  # Do we need this?
-      initializer = (tf.zeros((len(self),) + self.old_shape,
-                              dtype=self.observ_dtype),
-                     tf.fill((len(self),), 0.0), tf.fill((len(self),), False))
-
-      def not_done_step(a, _):
-        reward, done = self._batch_env.simulate(action)
-        with tf.control_dependencies([reward, done]):
-          r0 = self._batch_env.observ + 0
-          r1 = tf.add(a[1], reward)
-          r2 = tf.logical_or(a[2], done)
-          return (r0, r1, r2)
-
-      simulate_ret = tf.scan(not_done_step, tf.range(self.skip),
-                             initializer=initializer, parallel_iterations=1,
-                             infer_shape=False)
-      observations, rewards, dones = simulate_ret
-      split_observations = tf.split(observations, self.skip, axis=0)
-      split_observations = [tf.squeeze(o, axis=0) for o in split_observations]
-      observation = tf.concat(split_observations, axis=-1)
-      with tf.control_dependencies([self._observ.assign(observation)]):
-        return tf.identity(rewards[-1, ...]), tf.identity(dones[-1, ...])
-
-  def _reset_non_empty(self, indices):
-    # pylint: disable=protected-access
-    new_values = self._batch_env._reset_non_empty(indices)
-    # pylint: enable=protected-access
-    inx = tf.concat(
-        [
-            tf.ones(tf.size(tf.shape(new_values)),
-                    dtype=tf.int32)[:-1],
-            [self.skip]
-        ],
-        axis=0)
-    assign_op = tf.scatter_update(self._observ, indices, tf.tile(
-        new_values, inx))
-    with tf.control_dependencies([assign_op]):
-      return tf.gather(self.observ, indices)
-
-
 class StackWrapper(WrapperBase):
   """ A wrapper which stacks previously seen frames. """
 
@@ -201,15 +142,27 @@ class StackWrapper(WrapperBase):
     # pylint: disable=protected-access
     new_values = self._batch_env._reset_non_empty(indices)
     # pylint: enable=protected-access
-    inx = tf.concat(
-        [
-            tf.ones(tf.size(tf.shape(new_values)),
-                    dtype=tf.int32)[:-1],
-            [self.history]
-        ],
-        axis=0)
-    assign_op = tf.scatter_update(self._observ, indices, tf.tile(
-        new_values, inx))
+    history_buffer = getattr(self._batch_env, "history_buffer", None)
+    if history_buffer:
+      # Using history buffer frames for initialization, if they are available.
+      # This assumes that wrappers don't alter the observations.
+      with tf.control_dependencies([new_values]):
+        initial_frames = history_buffer.get_all_elements()
+        # Transpose to [batch, height, width, history, channels] and merge
+        # history and channels into one dimension.
+        initial_frames = tf.transpose(initial_frames, [0, 2, 3, 1, 4])
+        initial_frames = tf.reshape(initial_frames,
+                                    (len(self),) + self.observ_shape)
+    else:
+      inx = tf.concat(
+          [
+              tf.ones(tf.size(tf.shape(new_values)),
+                      dtype=tf.int32)[:-1],
+              [self.history]
+          ],
+          axis=0)
+      initial_frames = tf.tile(new_values, inx)
+    assign_op = tf.scatter_update(self._observ, indices, initial_frames)
     with tf.control_dependencies([assign_op]):
       return tf.gather(self.observ, indices)
 
