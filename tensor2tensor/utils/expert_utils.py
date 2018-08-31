@@ -478,7 +478,7 @@ def vq_gating(x,
     hparams.z_size = int(math.log(num_experts, 2))
     hparams.hidden_size = input_size
     hparams.top_k = k
-    d = bneck.discrete_bottleneck(inputs, scope=name)
+    d = bneck.discrete_bottleneck(inputs)
     centroids = None
     exp_discrete = d["discrete"]
     embed_lookup = d["embed"]
@@ -1095,7 +1095,7 @@ def local_moe(x,
       training loss of the model.  The backpropagation of this loss
       encourages all experts to be approximately equally used across a batch.
   """
-
+  bneck = DiscreteBottleneck(hparams)
   with tf.variable_scope(name, default_name="local_moe"):
     centroids = None
     x_flat = flatten_all_but_last(x)
@@ -1116,7 +1116,6 @@ def local_moe(x,
     else:
       assert hparams.gating_type == "vq"
       tf.logging.info("Using VQ gating")
-      bneck = DiscreteBottleneck(hparams)
       gates, loss, centroids = vq_gating(
           x_flat, num_experts, k, bneck, hparams=hparams)
     loss *= loss_coef

@@ -13,15 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Clean discrete bottleneck as in https://arxiv.org/abs/1805.11063."""
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from functools import partial
-
 from tensor2tensor.layers import common_layers
-
 import tensorflow as tf
+from tensorflow.python.training import moving_averages
 
 
 class DiscreteBottleneck(object):
@@ -39,22 +37,25 @@ class DiscreteBottleneck(object):
     self.hparams.block_v_size = 2**(
         self.hparams.z_size_per_residual / self.hparams.num_blocks)
     self.hparams.block_v_size = int(self.hparams.block_v_size)
-    # TODO(avaswani): Figure out why tf.get_variable doesn't work with assign
-    self.hparams.means = tf.get_variable(
+    self.means = tf.get_variable(
         name="means",
         shape=[
-            self.hparams.num_residuals, self.hparams.num_blocks,
-            self.hparams.block_v_size, self.hparams.block_dim
-            ],
-        initializer=tf.uniform_unit_scaling_initializer())
-    tf.logging.info("means = {}".format(self.hparams.means))
-    tf.logging.info("Done creating means")
+            self.hparams.num_blocks, self.hparams.block_v_size,
+            self.hparams.block_dim
+        ],
+        initializer=tf.initializers.variance_scaling(distribution="uniform"))
 
     # Create the shadow variables if we are using EMA
-    self.hparams.ema_count = None
-    self.hparams.ema_means = None
     if self.hparams.ema:
-      raise NotImplementedError("ema updates not implemented")
+      self.ema_count = tf.get_variable(
+          "ema_count", [self.hparams.num_blocks, self.hparams.block_v_size],
+          initializer=tf.constant_initializer(0),
+          trainable=False)
+      with tf.colocate_with(self.means):
+        self.ema_means = tf.get_variable(
+            "ema_means",
+            initializer=self.means.initialized_value(),
+            trainable=False)
 
   def slice_hidden(self, x):
     """Slice encoder hidden state into block_dim.
@@ -182,65 +183,47 @@ class DiscreteBottleneck(object):
     res = tf.concat(x_labels, axis=-1)
     return tf.to_float(res)
 
-  def embed(self, x, scope="bottleneck"):
+  def embed(self, x):
     """Embedding function that takes discrete latent and returns embedding.
 
     Args:
         x: Input to the discretization bottleneck.
-        scope: Scope name of the function.
-
     Returns:
         Continuous embedding to be passed on to the decoder.
 
     Raises:
         ValueError: For unknown or missing arguments.
     """
-    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
-      shape_x = common_layers.shape_list(x)
-      x_flat = tf.reshape(x, [-1, 1])
-      c = self.int_to_bit(x_flat, num_bits=self.hparams.z_size, base=2)
-      shape = common_layers.shape_list(c)
-      new_shape = shape
-      new_shape[-1] = self.hparams.num_residuals
-      new_shape.append(self.hparams.num_blocks)
-      new_shape.append(
-          int(self.hparams.z_size /
-              (self.hparams.num_residuals * self.hparams.num_blocks)))
-      c = tf.to_int32(tf.reshape(c, shape=new_shape))
-      h1_shape = shape_x
-      h1_shape.append(self.hparams.hidden_size)
-      h1 = tf.zeros(dtype=tf.float32, shape=h1_shape)
-      for i in range(self.hparams.num_residuals):
-        c_residual = self.bit_to_int(
-            c[:, :, i, :, :],
-            num_bits=int(
-                self.hparams.z_size /
-                (self.hparams.num_residuals * self.hparams.num_blocks)),
-            base=2)
-        c_hot = tf.one_hot(c_residual, depth=self.hparams.block_v_size, axis=-1)
-        c_hot_flat = tf.reshape(
-            c_hot,
-            shape=[-1, self.hparams.num_blocks, self.hparams.block_v_size])
-        h1_residual = tf.matmul(
-            tf.transpose(c_hot_flat, perm=[1, 0, 2]), self.hparams.means[i])
-        h1_residual = tf.transpose(h1_residual, perm=[1, 0, 2])
-        h1_residual = tf.reshape(h1_residual, shape=h1_shape)
-        h1 += h1_residual
+    shape_x = common_layers.shape_list(x)
+    x_flat = tf.reshape(x, [-1, 1])
+    c = self.int_to_bit(x_flat, num_bits=self.hparams.z_size, base=2)
+    shape = common_layers.shape_list(c)
+    new_shape = shape
+    new_shape.append(self.hparams.num_blocks)
+    new_shape.append(int(self.hparams.z_size / self.hparams.num_blocks))
+    c = tf.to_int32(tf.reshape(c, shape=new_shape))
+    h1_shape = shape_x
+    h1_shape.append(self.hparams.hidden_size)
+    h1 = tf.zeros(dtype=tf.float32, shape=h1_shape)
+    c_int = self.bit_to_int(
+        c, num_bits=int(self.hparams.z_size / self.hparams.num_blocks), base=2)
+    c_hot = tf.one_hot(c_int, depth=self.hparams.block_v_size, axis=-1)
+    c_hot_flat = tf.reshape(
+        c_hot, shape=[-1, self.hparams.num_blocks, self.hparams.block_v_size])
+    h1 = tf.matmul(tf.transpose(c_hot_flat, perm=[1, 0, 2]), self.means)
+    h1 = tf.transpose(h1, perm=[1, 0, 2])
+    h1 = tf.reshape(h1, shape=h1_shape)
+    h1_shape[0] = self.hparams.batch_size
+    h2 = tf.layers.dense(tf.nn.relu(h1), self.hparams.filter_size, name="vch2")
+    res = tf.layers.dense(
+        tf.nn.relu(h2), self.hparams.hidden_size, name="vcfin")
+    return res
 
-      # Add Gaussian noise
-      h1_shape[0] = self.hparams.batch_size
-      h2 = tf.layers.dense(
-          tf.nn.relu(h1), self.hparams.filter_size, name="vch2")
-      res = tf.layers.dense(
-          tf.nn.relu(h2), self.hparams.hidden_size, name="vcfin")
-      return res
-
-  def discrete_bottleneck(self, x, scope="bottleneck"):
+  def discrete_bottleneck(self, x):
     """Discretization bottleneck for latent variables.
 
     Args:
         x: Input to the discretization bottleneck.
-        scope: Scope of the function.
 
     Returns:
         Embedding to pass to the decoder, discrete latent, loss, and the
@@ -253,58 +236,72 @@ class DiscreteBottleneck(object):
         ema_count or ema_means is None if we are using ema, or unknown
         args.
     """
-    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
-      x_reshaped = self.slice_hidden(x)
-      x_res = x_reshaped
-      x_means_hot = []
-      x_means = 0
-      loss = 0
-      for i in range(self.hparams.num_residuals):
-        x_means_hot_res, x_means_res, q_loss_res, e_loss_res = \
-            self.embedding_lookup(x_reshaped, self.hparams.means[i])
+    x_reshaped = self.slice_hidden(x)
+    x_means_hot = []
+    x_means = 0
+    loss = 0
+    x_means_hot, x_means, q_loss, e_loss = self.embedding_lookup(
+        x_reshaped, self.means)
 
-        # TODO(avaswani,nikip,aurkor): Implement ema
-        if self.hparams.ema:
-          raise NotImplementedError("ema updates not implemented")
-        else:
-          loss += q_loss_res + self.hparams.beta * e_loss_res
+    if self.hparams.ema:
+      tf.logging.info("Using EMA with beta = {}".format(self.hparams.beta))
+      updated_ema_count = \
+          moving_averages.assign_moving_average(
+              self.ema_count,
+              tf.reduce_sum(
+                  tf.reshape(
+                      x_means_hot,
+                      shape=[-1, self.hparams.num_blocks,
+                             self.hparams.block_v_size]),
+                  axis=0),
+              self.hparams.decay,
+              zero_debias=False)
 
-        # Update the residuals
-        x_res -= x_means_res
-        x_means += x_means_res
-        x_means_hot.append(x_means_hot_res)
+      dw = tf.matmul(
+          tf.transpose(x_means_hot, perm=[1, 2, 0]),
+          tf.transpose(x_reshaped, perm=[1, 0, 2]))
 
-      # Get the discrete latent representation
-      x_means_hot = tf.stack(x_means_hot, axis=1)
-      x_means_idx = tf.argmax(x_means_hot, axis=-1)
+      updated_ema_means = \
+          moving_averages.assign_moving_average(
+              self.ema_means, dw, self.hparams.decay,
+              zero_debias=False)
+      n = tf.reduce_sum(updated_ema_count, axis=-1, keep_dims=True)
+      updated_ema_count = ((updated_ema_count + self.hparams.epsilon) / (
+          n + 2**self.hparams.z_size * self.hparams.epsilon) * n)
+      updated_ema_means = updated_ema_means / tf.expand_dims(
+          updated_ema_count, axis=-1)
 
-      # Get the binary representation
-      num_bits = int(self.hparams.z_size //
-                     (self.hparams.num_blocks * self.hparams.num_residuals))
-      x_means_bits = self.int_to_bit(x_means_idx, num_bits=num_bits, base=2)
-      shape = common_layers.shape_list(x_means_bits)
-      new_shape = shape[:-2]
-      new_shape[0] = -1
-      new_shape[-1] = self.hparams.z_size
-      x_means_bits = tf.reshape(x_means_bits, new_shape)
-      x_discrete = self.bit_to_int(
-          tf.to_int32(x_means_bits), num_bits=self.hparams.z_size, base=2)
+      with tf.control_dependencies([e_loss]):
+        update_means = tf.assign(self.means, updated_ema_means)
+        with tf.control_dependencies([update_means]):
+          loss += self.hparams.beta * e_loss
+    else:
+      # Use a gradient based loss for learning the cluster centers
+      loss += q_loss + self.hparams.beta * e_loss
 
-      # Reshape x_discrete
-      shape_x = common_layers.shape_list(x)
-      shape_discrete = shape_x[:-1]
-      x_discrete = tf.reshape(x_discrete, shape_discrete)
-      x_means = tf.reshape(x_means, shape=shape_x)
-      h1 = x + tf.stop_gradient(x_means - x)
+    # Get the discrete latent representation
+    x_means_idx = tf.argmax(x_means_hot, axis=-1)
 
-      h2 = tf.layers.dense(
-          tf.nn.relu(h1), self.hparams.filter_size, name="vch2")
-      res = tf.layers.dense(
-          tf.nn.relu(h2), self.hparams.hidden_size, name="vcfin")
-      embed_fn = partial(self.embed, scope=scope)
-      return {
-          "dense": res,
-          "discrete": x_discrete,
-          "loss": loss,
-          "embed": embed_fn
-      }
+    # Get the binary representation
+    num_bits = int(self.hparams.z_size // self.hparams.num_blocks)
+    x_means_bits = self.int_to_bit(x_means_idx, num_bits=num_bits, base=2)
+    x_discrete = self.bit_to_int(
+        tf.to_int32(x_means_bits), num_bits=self.hparams.z_size, base=2)
+
+    # Reshape x_discrete
+    shape_x = common_layers.shape_list(x)
+    shape_discrete = shape_x[:-1]
+    x_discrete = tf.reshape(x_discrete, shape_discrete)
+    x_means = tf.reshape(x_means, shape=shape_x)
+    h1 = x + tf.stop_gradient(x_means - x)
+
+    h2 = tf.layers.dense(tf.nn.relu(h1), self.hparams.filter_size, name="vch2")
+    res = tf.layers.dense(
+        tf.nn.relu(h2), self.hparams.hidden_size, name="vcfin")
+    embed_fn = partial(self.embed)
+    return {
+        "dense": res,
+        "discrete": x_discrete,
+        "loss": loss,
+        "embed": embed_fn
+    }
