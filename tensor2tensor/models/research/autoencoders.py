@@ -584,6 +584,7 @@ class AutoencoderResidual(AutoencoderAutoregressive):
           x = self.dropout(x)
           filters = hparams.hidden_size * 2**(i + 1)
           filters = min(filters, hparams.max_hidden_size)
+          x = common_attention.add_timing_signal_nd(x)
           x = tf.layers.conv2d(
               x,
               filters,
@@ -990,7 +991,7 @@ def autoencoder_basic_discrete():
   hparams = autoencoder_autoregressive()
   hparams.num_hidden_layers = 5
   hparams.hidden_size = 64
-  hparams.bottleneck_bits = 4096
+  hparams.bottleneck_bits = 1024
   hparams.bottleneck_noise = 0.1
   hparams.add_hparam("discretize_warmup_steps", 16000)
   return hparams
@@ -1000,8 +1001,8 @@ def autoencoder_basic_discrete():
 def autoencoder_residual_discrete():
   """Residual discrete autoencoder model."""
   hparams = autoencoder_residual()
-  hparams.bottleneck_bits = 4096
-  hparams.bottleneck_noise = 0.1
+  hparams.bottleneck_bits = 1024
+  hparams.bottleneck_noise = 0.05
   hparams.add_hparam("discretize_warmup_steps", 16000)
   hparams.add_hparam("bottleneck_kind", "tanh_discrete")
   hparams.add_hparam("isemhash_noise_dev", 0.5)
@@ -1028,9 +1029,9 @@ def autoencoder_residual_discrete_big():
 def autoencoder_ordered_discrete():
   """Ordered discrete autoencoder model."""
   hparams = autoencoder_residual_discrete()
-  hparams.bottleneck_noise = 0.8
+  hparams.bottleneck_noise = 0.05  # Use 0.8 for ordered.
   hparams.gan_loss_factor = 0.05
-  hparams.add_hparam("unordered", False)
+  hparams.add_hparam("unordered", True)
   return hparams
 
 
@@ -1062,9 +1063,7 @@ def autoencoder_ordered_discrete_hs256():
 def autoencoder_ordered_text():
   """Ordered discrete autoencoder model for text."""
   hparams = autoencoder_ordered_discrete()
-  hparams.bottleneck_bits = 1024
-  hparams.unordered = True
-  hparams.bottleneck_noise = 0.05
+  hparams.bottleneck_bits = 512
   hparams.num_hidden_layers = 7
   hparams.batch_size = 1024
   hparams.autoregressive_mode = "conv5"
@@ -1108,7 +1107,6 @@ def autoencoder_discrete_pong():
   hparams.batch_size = 2
   hparams.bottleneck_noise = 0.2
   hparams.max_hidden_size = 1024
-  hparams.unordered = True
   return hparams
 
 
@@ -1118,7 +1116,6 @@ def autoencoder_discrete_cifar():
   hparams = autoencoder_ordered_discrete()
   hparams.bottleneck_noise = 0.0
   hparams.bottleneck_bits = 90
-  hparams.unordered = True
   hparams.num_hidden_layers = 2
   hparams.hidden_size = 256
   hparams.num_residual_layers = 4

@@ -63,6 +63,7 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
         x = common_layers.make_even_size(x)
         if i < hparams.filter_double_steps:
           filters *= 2
+        x = common_attention.add_timing_signal_nd(x)
         x = tf.layers.conv2d(x, filters, kernel2, activation=common_layers.belu,
                              strides=(2, 2), padding="SAME")
         x = common_layers.layer_norm(x)

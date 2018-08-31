@@ -512,7 +512,7 @@ def combine_training_data(problem, final_data_dir, old_data_dirs,
 @registry.register_hparams
 def rl_modelrl_base():
   return tf.contrib.training.HParams(
-      epochs=2,
+      epochs=6,
       # Total frames used for training. This will be distributed evenly across
       # hparams.epochs.
       num_real_env_frames=100000,
@@ -524,7 +524,7 @@ def rl_modelrl_base():
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,
       intrinsic_reward_scale=0.,
-      ppo_epochs_num=1000,  # This should be enough to see something
+      ppo_epochs_num=2000,  # This should be enough to see something
       # Our simulated envs do not know how to reset.
       # You should set ppo_time_limit to the value you believe that
       # the simulated env produces a reasonable output.
