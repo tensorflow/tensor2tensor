@@ -533,7 +533,7 @@ class TextConcat2ClassProblem(Text2ClassProblem):
       for idx, inp in enumerate(sample["inputs"]):
         inputs += encoder.encode(inp)
         inputs.append(text_encoder.EOS_ID)
-        if idx < len(sample["inputs"])-1:
+        if idx < len(sample["inputs"]) - 1:
           inputs.append(encoder.encode(self.CONCAT_TOKEN)[0])
       label = sample["label"]
       yield {"inputs": inputs, "targets": [label]}
@@ -947,3 +947,221 @@ class ChoppedTextProblem(Text2SelfProblem):
 
   def eval_metrics(self):
     return [metrics.Metrics.ACC, metrics.Metrics.NEG_LOG_PERPLEXITY]
+
+
+class DistributedText2TextProblem(Text2TextProblem):
+  """Base class for text-to-text problems for large-datasets.
+
+  Text2TextProblem doesn't support data generation in a distributed manner.
+
+  Use DistributedText2TextProblem if you have a sharded dataset(s) and want to
+  create tf.Examples from them in a distributed manner.
+
+  Every task will write to one output shard and will read from specific input
+  shards.
+
+  Subclasses should override `generate_samples`, `input_dataset_files`
+  and `is_generate_per_split` as described below.
+
+  Users need to generate the vocabulary before generating data.
+  See tensor2tensor/bin/build_vocab.py.
+  """
+
+  # START: Subclass interface
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split, input_files):
+    """Generate samples of input text and target text pairs.
+
+    Subclasses should generate the samples using only files from `input_files`.
+
+    Please see Text2TextProblem.generate_samples for a fuller explanation.
+
+    Args:
+      data_dir: final data directory.
+      tmp_dir: temporary directory that you can use for downloading and scratch.
+      dataset_split: problem.DatasetSplit, which data split to generate samples
+        for (for example, training and evaluation).
+      input_files: Generate samples using only these input dataset files.
+
+    Yields:
+      {"inputs": text, "targets": text}
+    """
+    raise NotImplementedError()
+
+  def input_files(self, dataset_split=problem.DatasetSplit.TRAIN):
+    """The input files of the input dataset.
+
+    If you don't have a separate dev/test split then returning []
+    suffices for dataset_split != problem.DatasetSplit.TRAIN
+
+    Args:
+      dataset_split: The split for which to return the input files for.
+
+    Returns:
+      list of strings: The files for the supplied datasplit
+    """
+
+    raise NotImplementedError()
+
+  # END: Subclass interface
+
+  @property
+  def num_output_shards(self):
+    # Returns the total number of output shards.
+    num_output_shards = 0
+    for split in self.dataset_splits:
+      num_output_shards += split["shards"]
+    return num_output_shards
+
+  @property
+  def split_to_input_filenames(self):
+    # Dictionary of dataset split to input dataset filenames.
+    split_to_input_filenames = {}
+    num_input_files = 0
+    if not self.is_generate_per_split:
+      # We just have a single input dataset file.
+      split_to_input_filenames[problem.DatasetSplit.TRAIN] = (
+          self.input_files(problem.DatasetSplit.TRAIN))
+      num_input_files += len(
+          split_to_input_filenames[problem.DatasetSplit.TRAIN])
+    else:
+      # We have separate input dataset files.
+      for dataset_split in self.dataset_splits:
+        split = dataset_split["split"]
+        split_to_input_filenames[split] = self.input_files(split)
+        num_input_files += len(split_to_input_filenames[split])
+
+    # Number of input files >= number of output files. So that every task should
+    # have some work to do!
+    assert num_input_files >= self.num_output_shards
+
+    return split_to_input_filenames
+
+  def _task_id_to_output_split(self, task_id):
+    # Takes a task_id and returns a tuple of
+    # (split of the dataset to operate on, number of shards in that split,
+    # offset of this task from the first task to operate on that split)
+    num_output_shards = 0
+    for dataset_split in self.dataset_splits:
+      num_output_shards += dataset_split["shards"]
+      if task_id < num_output_shards:
+        return (dataset_split["split"], dataset_split["shards"],
+                (task_id - num_output_shards + dataset_split["shards"]))
+
+  def _task_id_to_output_file(self, data_dir, task_id):
+    # Returns the output filename that this task will write.
+
+    dataset_split, shards, offset = self._task_id_to_output_split(task_id)
+
+    filepath_fns = {
+        problem.DatasetSplit.TRAIN: self.training_filepaths,
+        problem.DatasetSplit.EVAL: self.dev_filepaths,
+        problem.DatasetSplit.TEST: self.test_filepaths,
+    }
+
+    return filepath_fns[dataset_split](data_dir, shards, False)[offset]
+
+  @staticmethod
+  def _divide_equally(input_files, num_tasks, task_id):
+    # There are num_tasks total tasks, we need to divide these
+    # input files among them equally and return the slice that task_id should
+    # read from.
+    task_load, remainder = divmod(len(input_files), num_tasks)
+
+    # This is the slice of almost equal sized chunks of files for a task_id to
+    # handle -- this distributes the excess remainder tasks among the first
+    # "remainder" task_ids.
+
+    # The extra min(task_id, remainder) in the end comes from assigning the
+    # remainder of the tasks to task_ids [0, remainder), so we need to advance
+    # the start by how many ever remainder tasks already assigned.
+    start_idx = task_id * task_load + min(task_id, remainder)
+
+    # This will handle atleast `task_load` files, plus an extra one if `task_id`
+    # is still less than remainder.
+    num_elements = task_load + int(task_id < remainder)
+
+    return input_files[start_idx : start_idx + num_elements]
+
+  def _task_id_to_input_files(self, task_id):
+    # Returns a list of input files that this task should read and process.
+
+    if not self.is_generate_per_split:
+      # We just have one unified input dataset to handle, so all tasks will read
+      # from the TRAIN dataset.
+      input_files = self.split_to_input_filenames[problem.DatasetSplit.TRAIN]
+
+      return self._divide_equally(input_files, self.num_output_shards, task_id)
+
+    # self.is_generate_per_split is True.
+    dataset_split, num_shards, offset = self._task_id_to_output_split(task_id)
+    input_files = self.split_to_input_filenames[dataset_split]
+    return self._divide_equally(input_files, num_shards, offset)
+
+  def generate_text_for_vocab(self, data_dir, tmp_dir):
+    # We need to override this because we'll be reading from specific files
+    # instead
+
+    # What files should we read for creating the vocabulary?
+    input_files_for_vocab = []
+    if self.is_generate_per_split:
+      input_files_for_vocab = (
+          self.split_to_input_filenames[problem.DatasetSplit.TRAIN])
+    else:
+      # We need to compute the 'train' shards from the whole input.
+      # Go over all task_ids that output training data, collect their input
+      # files.
+      for task_id in range(self.num_output_shards):
+        split, _, _ = self._task_id_to_output_split(task_id)
+        if split == problem.DatasetSplit.TRAIN:
+          input_files_for_vocab.extend(self._task_id_to_input_files(task_id))
+
+    # Generate samples only from the above generated files.
+    for i, sample in enumerate(
+        self.generate_samples(data_dir, tmp_dir, problem.DatasetSplit.TRAIN,
+                              input_files_for_vocab)):
+      if self.has_inputs:
+        yield sample["inputs"]
+      yield sample["targets"]
+      if self.max_samples_for_vocab and (i + 1) >= self.max_samples_for_vocab:
+        break
+
+  def generate_encoded_samples(self,
+                               data_dir,
+                               tmp_dir,
+                               dataset_split,
+                               input_files):
+    # Since this is a distributed problem, we don't want every task to create
+    # its own vocabulary, so we assume that the dictionary is already created
+    # for example by using build_vocab.py
+    vocab_filepath = os.path.join(data_dir, self.vocab_filename)
+    if not tf.gfile.Exists(vocab_filepath):
+      raise ValueError("Vocab file: %s doesn't exist, please use "
+                       "build_vocab.py to create one." % vocab_filepath)
+    encoder = self.get_or_create_vocab(data_dir, tmp_dir, force_get=True)
+    generator = self.generate_samples(data_dir, tmp_dir, dataset_split,
+                                      input_files)
+    return text2text_generate_encoded(
+        generator, encoder, has_inputs=self.has_inputs)
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    # task_id should be in [0, self.num_output_shards)
+    assert (0 <= task_id) and (task_id < self.num_output_shards)
+
+    # A task_id is only supposed to write only one output shard, it can operate
+    # over multiple *input* shards.
+    input_files = self._task_id_to_input_files(task_id)
+    output_file = self._task_id_to_output_file(data_dir, task_id)
+
+    # Which output split is this task writing to?
+    split, _, _ = self._task_id_to_output_split(task_id)
+
+    # Actually generate examples.
+    generator_utils.generate_files(
+        self._maybe_pack_examples(
+            self.generate_encoded_samples(
+                data_dir, tmp_dir, split, input_files)),
+        [output_file])
+
+    # Shuffle the output.
+    generator_utils.shuffle_dataset([output_file])
