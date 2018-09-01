@@ -304,6 +304,9 @@ class MtfTransformer(mtf_model.MtfModel):
           self.model_dim,
           hparams,
           hparams.mode == tf.estimator.ModeKeys.TRAIN)
+      if losses is not None:
+        losses.append(loss)
+      return output
     elif feedforward_layer == "hmoe":
       output, loss = moe.transformer_moe_layer_v2(
           x,
