@@ -24,7 +24,6 @@ from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.data_generators import problem  # pylint: disable=unused-import
 from tensor2tensor.utils import cloud_mlengine
-from tensor2tensor.utils import cloud_tpu
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
@@ -81,15 +80,8 @@ except:  # pylint: disable=bare-except
   pass
 
 # Google Cloud TPUs
-flags.DEFINE_bool("cloud_tpu", False, "Whether to launch on Cloud TPUs.")
-flags.DEFINE_string("cloud_vm_name", "%s-vm" % os.getenv("USER"),
-                    "Name of Cloud VM to use or create.")
 flags.DEFINE_string("cloud_tpu_name", "%s-tpu" % os.getenv("USER"),
                     "Name of Cloud TPU instance to use or create.")
-flags.DEFINE_bool("cloud_delete_on_done", False,
-                  "Whether to delete the VM and TPU instance when done.")
-flags.DEFINE_bool("cloud_skip_confirmation", False,
-                  "Whether to skip launch confirmations.")
 
 # Google Cloud ML Engine
 flags.DEFINE_bool("cloud_mlengine", False,
@@ -151,7 +143,7 @@ def set_hparams_from_args(args):
 
 
 def create_hparams():
-  if (FLAGS.cloud_tpu or FLAGS.use_tpu) and "tpu" not in FLAGS.hparams_set:
+  if FLAGS.use_tpu and "tpu" not in FLAGS.hparams_set:
     tf.logging.warn("Not all hyperparameter sets work on TPU. "
                     "Prefer hparams_sets with a '_tpu' suffix, "
                     "e.g. transformer_tpu, if available for your model.")
@@ -326,30 +318,6 @@ def execute_schedule(exp):
     getattr(exp, FLAGS.schedule)()
 
 
-@contextlib.contextmanager
-def maybe_cloud_tpu():
-  """If FLAGS.cloud_tpu is set, setup Cloud instances."""
-  if not FLAGS.cloud_tpu:
-    yield
-    return
-
-  tf.logging.info("Running on Cloud TPU")
-
-  if (not FLAGS.data_dir.startswith("gs://") or
-      not FLAGS.output_dir.startswith("gs://")):
-    raise ValueError("To run on Cloud TPUs, data_dir and output_dir need to "
-                     "be gs:// paths, i.e. on Google Cloud Storage.")
-
-  FLAGS.use_tpu = True
-  with cloud_tpu.cloud_tpu(
-      FLAGS.cloud_vm_name,
-      FLAGS.cloud_tpu_name,
-      delete_on_done=FLAGS.cloud_delete_on_done,
-      skip_confirmation=FLAGS.cloud_skip_confirmation) as tpu_master:
-    FLAGS.master = tpu_master
-    yield
-
-
 def run_std_server():
   exp = trainer_lib.T2TExperiment(*([None] * 5))
   exp.run_std_server()
@@ -377,12 +345,11 @@ def main(argv):
     set_hparams_from_args(argv[1:])
   hparams = create_hparams()
 
-  with maybe_cloud_tpu():
-    exp_fn = create_experiment_fn()
-    exp = exp_fn(create_run_config(hparams), hparams)
-    if is_chief():
-      save_metadata(hparams)
-    execute_schedule(exp)
+  exp_fn = create_experiment_fn()
+  exp = exp_fn(create_run_config(hparams), hparams)
+  if is_chief():
+    save_metadata(hparams)
+  execute_schedule(exp)
 
 
 if __name__ == "__main__":

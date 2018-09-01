@@ -51,7 +51,7 @@ import socket
 import subprocess as sp
 import time
 
-from tensor2tensor.utils import cloud_tpu as cloud
+from tensor2tensor.utils import cloud_mlengine as cloud
 import tensorflow as tf
 
 flags = tf.flags
