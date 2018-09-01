@@ -1954,13 +1954,12 @@ def _einsum_helper(input_shapes, output_shape, mesh_impl):
     einsum_slice_fn: a function from tf.Tensors to tf.Tensor
     reduced_mesh_axes: a list of integers
   """
-  input_shape_set = set(sum([s.dims for s in input_shapes], []))
-  total_num_dims = len(input_shape_set)
+  input_shape_union = _shape_union(input_shapes)
+  total_num_dims = input_shape_union.ndims
   # list of input shapes that contain all dimensions.
   full_shapes = [
       s for s in input_shapes + [output_shape] if s.ndims == total_num_dims]
-  full_shape = (
-      full_shapes[0] if full_shapes else Shape(list(input_shape_set)))
+  full_shape = full_shapes[0] if full_shapes else input_shape_union
   reduce_slice_fn, reduced_mesh_axes = _reduce_helper(
       full_shape, output_shape, mesh_impl.tensor_layout(full_shape))
   def einsum_slice_fn_naive(*slices):
@@ -2040,140 +2039,200 @@ class EinsumOperation(Operation):
 class Conv2dOperation(Operation):
   """like tf.nn.conv2d.
 
-  Always "NHWC".
-  Always padding="SAME"
-  Always stride 1
-  Always dilation 1
+  Always data format "NHWC".
+  # TODO(nikip): support dilations
+  Always dilation rate of 1
+  padding: "SAME" or "VALID"
 
   TODO(noam): implement more options.
   """
 
-  def __init__(self, conv_input, conv_filter, is_backprop=False, name=None):
+  def __init__(self, conv_input, conv_filter, strides, padding, name=None):
     super(Conv2dOperation, self).__init__(
         [conv_input, conv_filter], name=name or "conv2d")
-    self._n_dim, self._h_dim, self._w_dim, self._in_dim = conv_input.shape.dims
+    self._padding = padding
+    self._batch_dims = conv_input.shape.dims[:-3]
+    self._in_h_dim, self._in_w_dim, self._in_dim = conv_input.shape.dims[-3:]
     self._fh_dim, self._fw_dim = conv_filter.shape.dims[:2]
-    if is_backprop:
-      self._out_dim, f_in_dim = conv_filter.shape.dims[2:]
-    else:
-      f_in_dim, self._out_dim = conv_filter.shape.dims[2:]
-    self._is_backprop = is_backprop
+    f_in_dim, self._out_dim = conv_filter.shape.dims[2:]
     if f_in_dim != self._in_dim:
       raise ValueError("Dimensions do not match input=%s filter=%s"
                        % (conv_input, conv_filter))
-    output_shape = Shape([self._n_dim, self._h_dim, self._w_dim, self._out_dim])
+    out_h = self._in_h_dim.size
+    out_w = self._in_w_dim.size
+    if padding == "VALID":
+      out_h -= (self._fh_dim.size - 1)
+      out_w -= (self._fw_dim.size - 1)
+
+    self._strides = strides
+    if strides is not None:
+      out_h //= strides[1]
+      out_w //= strides[2]
+    self._out_h_dim = Dimension(self._in_h_dim.name, out_h)
+    self._out_w_dim = Dimension(self._in_w_dim.name, out_w)
+    output_shape = Shape(
+        self._batch_dims + [self._out_h_dim, self._out_w_dim, self._out_dim])
     self._outputs = [Tensor(self, output_shape, conv_input.dtype)]
 
   def gradient(self, grad_ys):
-    if self._is_backprop:
-      raise ValueError("Gradient not implemented for conv backprop")
     dy = grad_ys[0]
     conv_input, conv_filter = self.inputs
     return [
-        conv2d(dy, conv_filter, is_backprop=True),
-        conv2d_backprop_filter(conv_input, self.inputs[1].shape, dy)]
+        conv2d_backprop_input(self._inputs[0].shape,
+                              conv_filter,
+                              dy,
+                              self._strides,
+                              self._padding),
+        conv2d_backprop_filter(conv_input,
+                               self._inputs[1].shape,
+                               dy,
+                               self._strides,
+                               self._padding)]
 
   def lower(self, lowering):
     mesh_impl = lowering.mesh_impl(self)
     conv_input, conv_filter = self.inputs
-    # TODO(noam): support splitting h_dim, w_dim
-    if mesh_impl.tensor_dimension_to_mesh_axis(self._h_dim) is not None:
+    if mesh_impl.tensor_dimension_to_mesh_axis(self._in_h_dim) is not None:
       raise ValueError("can't slice along dimension h")
-    if mesh_impl.tensor_dimension_to_mesh_axis(self._w_dim) is not None:
+    if mesh_impl.tensor_dimension_to_mesh_axis(self._in_w_dim) is not None:
       raise ValueError("can't slice along dimension w")
     if mesh_impl.tensor_dimension_to_mesh_axis(self._fh_dim) is not None:
       raise ValueError("can't slice along dimension fh")
     if mesh_impl.tensor_dimension_to_mesh_axis(self._fw_dim) is not None:
       raise ValueError("can't slice along dimension fw")
     def tf_fn(tf_input, tf_filter):
-      if self._is_backprop:
-        input_sizes = mesh_impl.slice_shape(self.outputs[0].shape)
-        return tf.nn.conv2d_backprop_input(
-            input_sizes, tf_filter, tf_input,
-            strides=[1, 1, 1, 1], padding="SAME")
-      else:
-        return tf.nn.conv2d(
-            tf_input, tf_filter, strides=[1, 1, 1, 1], padding="SAME")
+      output = tf.nn.conv2d(
+          _tf_flatten_batch_dims(tf_input, 3),
+          tf_filter, self._strides, self._padding)
+      return _tf_restore_batch_dims(output, 3, tf_input)
     y = mesh_impl.slicewise(
         tf_fn, lowering.tensors[conv_input], lowering.tensors[conv_filter])
-    out_mesh_axis = mesh_impl.tensor_dimension_to_mesh_axis(self._out_dim)
+    # reducing out input channels - may need to allreduce
+    in_mesh_axis = mesh_impl.tensor_dimension_to_mesh_axis(self._in_dim)
+    if in_mesh_axis is not None:
+      def add_counter_fn():
+        lowering.add_counter(
+            "allreduce/%s/conv2d_op" % [in_mesh_axis],
+            mesh_impl.laid_out_size(self.outputs[0].shape))
+      y = LazyAllreduceSum(mesh_impl, y, [in_mesh_axis], add_counter_fn)
+    lowering.set_tensor_lowering(self.outputs[0], y)
+    computation_shape = _shape_union([conv_filter.shape, self.outputs[0].shape])
+    lowering.add_counter("conv2d/forward",
+                         mesh_impl.laid_out_size(computation_shape))
+    lowering.add_counter("conv2d_unique/forward", computation_shape.size)
+
+
+def conv2d(conv_input, conv_filter, strides, padding, name=None):
+  """conv2d."""
+  return Conv2dOperation(
+      conv_input, conv_filter, strides, padding, name=name).outputs[0]
+
+
+class Conv2dBackpropInputOperation(Operation):
+  """like tf.nn.conv2d_backprop_input"""
+
+  def __init__(self, input_shape, conv_filter, dy, strides, padding, name=None):
+    super(Conv2dBackpropInputOperation, self).__init__(
+        [dy, conv_filter], name=name or "conv2d_backprop")
+    self._padding = padding
+    self._strides = strides
+    self._input_shape = input_shape
+    self._outputs = [Tensor(self, input_shape, dy.dtype)]
+
+  def lower(self, lowering):
+    mesh_impl = lowering.mesh_impl(self)
+    dy, conv_filter = self.inputs
+    input_sizes = mesh_impl.slice_shape(self.outputs[0].shape)
+    input_sizes = [list_product(input_sizes[:-3])] + input_sizes[-3:]
+    def tf_fn(tf_dy, tf_filter):
+      return _tf_restore_batch_dims(
+          tf.nn.conv2d_backprop_input(
+              input_sizes, tf_filter, _tf_flatten_batch_dims(tf_dy, 3),
+              self._strides, self._padding), 3, tf_dy)
+    dx = mesh_impl.slicewise(
+        tf_fn, lowering.tensors[dy], lowering.tensors[conv_filter])
+    # reducing out output channels - may need to allreduce
+    out_mesh_axis = mesh_impl.tensor_dimension_to_mesh_axis(dy.shape.dims[-1])
     if out_mesh_axis is not None:
       def add_counter_fn():
         lowering.add_counter(
             "allreduce/%s/conv2d_op" % [out_mesh_axis],
             mesh_impl.laid_out_size(self.outputs[0].shape))
-      y = LazyAllreduceSum(mesh_impl, y, [out_mesh_axis], add_counter_fn)
-    lowering.set_tensor_lowering(self.outputs[0], y)
-    input_shape_set = set(sum([x.shape.dims for x in self.inputs], []))
-    computation_shape = Shape(list(input_shape_set))
-    lowering.add_counter("conv2d", mesh_impl.laid_out_size(computation_shape))
-    lowering.add_counter("conv2d_unique", computation_shape.size)
+      dx = LazyAllreduceSum(mesh_impl, dx, [out_mesh_axis], add_counter_fn)
+    lowering.set_tensor_lowering(self.outputs[0], dx)
+    computation_shape = _shape_union([conv_filter.shape, dy.shape])
+    lowering.add_counter("conv2d/backprop_input",
+                         mesh_impl.laid_out_size(computation_shape))
+    lowering.add_counter("conv2d_unique/backprop_input", computation_shape.size)
 
 
-def conv2d(conv_input, conv_filter, is_backprop=False, name=None):
-  """conv2d."""
-  return Conv2dOperation(
-      conv_input, conv_filter, is_backprop, name=name).outputs[0]
+def conv2d_backprop_input(input_shape,
+                          conv_filter,
+                          dy,
+                          strides,
+                          padding, name=None):
+  return Conv2dBackpropInputOperation(input_shape,
+                                      conv_filter,
+                                      dy,
+                                      strides,
+                                      padding,
+                                      name=name).outputs[0]
 
 
 class Conv2dBackpropFilterOperation(Operation):
-  """like tf.nn.conv2d_backprop_filter."""
+  """like tf.nn.conv2d_backprop_input"""
 
-  def __init__(self, conv_input, filter_shape, dy, name=None):
+  def __init__(self, conv_input, filter_shape, dy, strides, padding, name=None):
     super(Conv2dBackpropFilterOperation, self).__init__(
         [conv_input, dy], name=name or "conv2d_backprop_filter")
-    self._n_dim, self._h_dim, self._w_dim, self._in_dim = conv_input.shape.dims
-    dy_n_dim, dy_h_dim, dy_w_dim, self._out_dim = dy.shape.dims
-    self._fh_dim, self._fw_dim, f_in_dim, f_out_dim = filter_shape.dims
-    if (dy_n_dim != self._n_dim or
-        dy_h_dim != self._h_dim or
-        dy_w_dim != self._w_dim or
-        f_in_dim != self._in_dim or
-        f_out_dim != self._out_dim):
-      raise ValueError("Dimensions do not match input=%s dy=%s filter=%s"
-                       % (conv_input, dy, filter_shape))
-    self._outputs = [Tensor(self, filter_shape, conv_input.dtype)]
+    self._padding = padding
+    self._strides = strides
+    self._filter_shape = filter_shape
+    self._outputs = [Tensor(self, filter_shape, dy.dtype)]
 
   def lower(self, lowering):
     mesh_impl = lowering.mesh_impl(self)
     conv_input, dy = self.inputs
-    # TODO(noam): support splitting h_dim, w_dim
-    if mesh_impl.tensor_dimension_to_mesh_axis(self._h_dim) is not None:
-      raise ValueError("can't slice along dimension h")
-    if mesh_impl.tensor_dimension_to_mesh_axis(self._w_dim) is not None:
-      raise ValueError("can't slice along dimension w")
-    if mesh_impl.tensor_dimension_to_mesh_axis(self._fh_dim) is not None:
-      raise ValueError("can't slice along dimension fh")
-    if mesh_impl.tensor_dimension_to_mesh_axis(self._fw_dim) is not None:
-      raise ValueError("can't slice along dimension fw")
     filter_sizes = mesh_impl.slice_shape(self.outputs[0].shape)
     def tf_fn(tf_input, tf_dy):
       return tf.nn.conv2d_backprop_filter(
-          tf_input, filter_sizes, tf_dy, strides=[1, 1, 1, 1], padding="SAME")
-    y = mesh_impl.slicewise(
+          _tf_flatten_batch_dims(tf_input, 3), filter_sizes,
+          _tf_flatten_batch_dims(tf_dy, 3), self._strides, self._padding)
+    df = mesh_impl.slicewise(
         tf_fn, lowering.tensors[conv_input], lowering.tensors[dy])
+
+    # reducing out batch dimensions - may need to allreduce
     reduced_mesh_axes = [
         mesh_impl.tensor_dimension_to_mesh_axis(d)
-        for d in [self._n_dim, self._h_dim, self._w_dim]]
+        for d in dy.shape.dims[:-3]]
     reduced_mesh_axes = [a for a in reduced_mesh_axes if a is not None]
+
     if reduced_mesh_axes:
       def add_counter_fn():
         lowering.add_counter(
-            "allreduce/%s/conv2d_op" % (reduced_mesh_axes,),
+            "allreduce/%s/conv2d_backprop_filter" % (reduced_mesh_axes,),
             mesh_impl.laid_out_size(self.outputs[0].shape))
-      y = LazyAllreduceSum(mesh_impl, y, reduced_mesh_axes, add_counter_fn)
-    lowering.set_tensor_lowering(self.outputs[0], y)
-    input_shape_set = set(sum([x.shape.dims for x in self.inputs], []))
-    computation_shape = Shape(list(input_shape_set))
-    lowering.add_counter("conv2d", mesh_impl.laid_out_size(computation_shape))
-    lowering.add_counter("conv2d_unique", computation_shape.size)
+      df = LazyAllreduceSum(mesh_impl, df, reduced_mesh_axes, add_counter_fn)
+
+    lowering.set_tensor_lowering(self.outputs[0], df)
+    computation_shape = _shape_union([self.outputs[0].shape, dy.shape])
+    lowering.add_counter("conv2d/backprop_filter",
+                         mesh_impl.laid_out_size(computation_shape))
+    lowering.add_counter(
+        "conv2d_unique/backprop_filter", computation_shape.size)
 
 
-def conv2d_backprop_filter(
-    conv_input, filter_shape, dy, name=None):
-  """conv2d."""
-  return Conv2dBackpropFilterOperation(
-      conv_input, filter_shape, dy, name=name).outputs[0]
+def conv2d_backprop_filter(conv_input,
+                           filter_shape,
+                           dy,
+                           strides,
+                           padding, name=None):
+  return Conv2dBackpropFilterOperation(conv_input,
+                                       filter_shape,
+                                       dy,
+                                       strides,
+                                       padding,
+                                       name=name).outputs[0]
 
 
 class ShiftOperation(Operation):
@@ -2210,32 +2269,60 @@ class ShiftOperation(Operation):
     ndims = self._inputs[0].shape.ndims
     axis = self._axis
     dim = self._dim
+    lowered_x = lowering.tensors[inputs]
+    def my_slice(x, start, size):
+      begin = [0] * axis + [start] + [0] * (ndims - axis - 1)
+      size = [-1] * axis + [size] + [-1] * (ndims - axis - 1)
+      return tf.slice(x, begin, size)
     if mesh_axis is None:
       def slicewise_fn(x):
         """Slicewise function."""
-        def my_slice(start, size):
-          begin = [0] * axis + [start] + [0] * (ndims - axis - 1)
-          size = [-1] * axis + [size] + [-1] * (ndims - axis - 1)
-          return tf.slice(x, begin, size)
         def my_pad(s, begin_pad, end_pad):
-          paddings = ([[0, 0]] * axis + [begin_pad, end_pad]
+          paddings = ([[0, 0]] * axis + [[begin_pad, end_pad]]
                       + [[0, 0]] * (ndims - axis - 1))
           return tf.pad(s, paddings)
         if self._wrap:
           offset = self._offset % dim.size
-          return tf.concat([my_slice(dim.size - offset, offset),
-                            my_slice(0, dim.size - offset)], axis=axis)
+          return tf.concat([my_slice(x, dim.size - offset, offset),
+                            my_slice(x, 0, dim.size - offset)], axis=axis)
         elif self._offset > 0:
-          return my_pad(my_slice(0, dim.size - self._offset), self._offset, 0)
+          return my_pad(
+              my_slice(x, 0, dim.size - self._offset), self._offset, 0)
         else:
           neg_offset = -self._offset
           return my_pad(
-              my_slice(neg_offset, dim.size - neg_offset), 0, neg_offset)
-      y = mesh_impl.slicewise(slicewise_fn, lowering.tensors[inputs])
+              my_slice(x, neg_offset, dim.size - neg_offset), 0, neg_offset)
+      lowered_y = mesh_impl.slicewise(slicewise_fn, lowered_x)
     else:
-      raise NotImplementedError(
-          "TODO(noam): implement this using mesh_impl.shift_by_n_processors")
-    lowering.set_tensor_lowering(self.outputs[0], y)
+      mesh_dim_size = mesh_impl.shape.dims[mesh_axis].size
+      tensor_dim_size = self._dim.size
+      block_size = tensor_dim_size // mesh_dim_size
+      odiv = self._offset // block_size
+      omod = self._offset % block_size
+      laid_out_size = mesh_impl.laid_out_size(inputs.shape)
+      if omod == 0:
+        # shift by an integral number of processors.
+        lowered_y = mesh_impl.shift_by_n_processors(
+            lowered_x, mesh_axis, odiv, self._wrap)
+        lowering.add_counter("shift[%d]" % odiv, laid_out_size)
+      else:
+        # shift by odiv processors + omod positions
+        sliced = mesh_impl.slicewise(
+            lambda x: my_slice(x, 0, block_size - omod), lowered_x)
+        second_part = mesh_impl.shift_by_n_processors(
+            sliced, mesh_axis, odiv, self._wrap)
+        lowering.add_counter(
+            "shift[%d]" % odiv,
+            laid_out_size * (block_size - omod) // block_size)
+        sliced = mesh_impl.slicewise(
+            lambda x: my_slice(x, block_size - omod, omod), lowered_x)
+        first_part = mesh_impl.shift_by_n_processors(
+            sliced, mesh_axis, odiv + 1, self._wrap)
+        lowered_y = mesh_impl.slicewise(
+            lambda a, b: tf.concat([a, b], axis), first_part, second_part)
+        lowering.add_counter(
+            "shift[%d]" % (odiv + 1), laid_out_size * omod // block_size)
+    lowering.set_tensor_lowering(self.outputs[0], lowered_y)
 
 
 def shift(x, offset, dim, wrap, name=None):
@@ -2289,7 +2376,7 @@ class SliceOperation(Operation):
     ndims = self._inputs[0].shape.ndims
     axis = self._axis
     begin = [0] * axis + [self._begin] + [0] * (ndims - axis - 1)
-    size = [-1] * axis + [self._slice_dim[1]] + [-1] * (ndims - axis - 1)
+    size = [-1] * axis + [self._slice_dim.size] + [-1] * (ndims - axis - 1)
 
     def slicewise_fn(x, begin, size):
       return tf.slice(x, begin, size, name="slice")
@@ -2323,7 +2410,6 @@ class PadOperation(Operation):
     self._outputs = [Tensor(self, output_shape, x.dtype)]
 
   def gradient(self, grad_ys):
-    # slice_dim = self._inputs[0].shape.dims[self._axis]
     slice_dim_name = self._output_dim.name
     slice_size = self._inputs[0].shape.dims[self._axis].size
     return [slice(grad_ys[0], self._paddings[0], slice_size, slice_dim_name)]
@@ -3801,3 +3887,157 @@ def where(condition, if_true, if_false):
   return (
       if_true * cast(condition, dtype) +
       if_false * cast(logical_not(condition), dtype))
+
+
+def _shape_union(shapes):
+  """A shape containing the union of all dimensions in the input shapes.
+
+  Args:
+    shapes: a list of Shapes
+
+  Returns:
+    a Shape
+  """
+  return Shape(list(set(sum([s.dims for s in shapes], []))))
+
+
+def _tf_flatten_batch_dims(x, num_nonbatch_dims):
+  """Flatten all but last num_nonbatch_dims into one dimension.
+
+  Args:
+    x: a tf.Tensor:
+    num_nonbatch_dims: an integer
+
+  Returns:
+    a tf.Tensor with 1 + num_nonbatch_dims dimensions.
+  """
+  shape = x.shape.as_list()
+  assert None not in shape
+  new_shape = ([list_product(shape[:-num_nonbatch_dims])]
+               + shape[-num_nonbatch_dims:])
+  if new_shape != shape:
+    x = tf.reshape(x, new_shape)
+  return x
+
+
+def _tf_restore_batch_dims(x, num_nonbatch_dims, prototype):
+  """Reverse op of _tf_flatten_batch_dims.
+
+  Un-flatten the first dimension of x to match all but the last
+  num_nonbatch_dims dimensions of prototype.
+
+  Args:
+    x: a tf.Tensor with 1 + num_nonbatch_dims dimensions
+    num_nonbatch_dims: an integer
+    prototype: a tf.Tensor
+
+  Returns:
+    a tf.Tensor
+  """
+  assert x.shape.ndims == 1 + num_nonbatch_dims
+  new_shape = (
+      prototype.shape.as_list()[:-num_nonbatch_dims] + x.shape.as_list()[1:])
+  assert None not in new_shape
+  if new_shape != x.shape.as_list():
+    x = tf.reshape(x, new_shape)
+  return x
+
+
+def halo_exchange(x, blocks_dim, block_size_dim, halo_size, wrap=False):
+  """Concat each block with the margins of adjacent blocks.
+
+  Get left and right blocks_dim and concatenate along block_size_dim.
+
+  Args:
+    x: a Tensor.
+    blocks_dim: a Dimension in x.shape
+    block_size_dim: a Dimension in x.shape
+    halo_size: an integer
+    wrap: a boolean
+
+  Returns:
+    a Tensor with the same shape as x, other than in block_size_dim, whose
+    size is increased by 2*halo_size.
+  """
+  if halo_size == 0:
+    return x
+
+  block_size = block_size_dim.size
+  partial_size = halo_size % block_size
+  num_complete_blocks = halo_size // block_size
+  parts = [x]
+
+  for i in xrange(1, num_complete_blocks + 1):
+    parts = ([shift(x, i, blocks_dim, wrap)] + parts +
+             [shift(x, -i, blocks_dim, wrap)])
+  if partial_size > 0:
+    left_margin = slice(x, 0, partial_size, block_size_dim.name)
+    right_margin = slice(x, block_size_dim.size - partial_size, partial_size,
+                         block_size_dim.name)
+    parts = (
+        [shift(right_margin, num_complete_blocks + 1, blocks_dim, wrap)]
+        + parts +
+        [shift(left_margin, -(num_complete_blocks + 1), blocks_dim, wrap)])
+  return concat(parts, block_size_dim.name)
+
+
+def conv2d_with_blocks(
+    conv_input,
+    conv_filter,
+    strides,
+    padding,
+    h_blocks_dim=None,
+    w_blocks_dim=None,
+    name=None):
+  """conv2d operation with spatial partitioning.
+
+  Spatial partitioning is implemented by decomposing the image into blocks.
+  Block dimensions represented as h_blocks_dim and w_blocks_dim can be split
+  along the mesh axis. If split, then we do a halo exchange where each block
+  receives the part of the image from its left and right neighbors necessary to
+  do the convolution. Exchange can involve complete or partial blocks depending
+  on the filter height and width.
+
+  Currently, only "SAME" padding with dilation rate of 1 is supported.
+
+  Args:
+    conv_input: a Tensor of shape
+      [batch, h_blocks_dim, w_blocks_dim, h_dim, w_dim, in_channels_dim]
+    conv_filter: a Tensor of shape
+      [filter_height, filter_width, in_channels_dim, out_channels_dim]
+    strides: A list of ints. 1-D tensor of length 4.
+    padding: string, "SAME". The type of padding algorithm to use.
+      Valid is not currently supported.
+    h_blocks_dim: Dimension representing number of height blocks.
+    w_blocks_dim: Dimension representing number of height blocks.
+    name: A name for the operation (optional).
+
+  Returns:
+    A Tensor of shape
+      [batch, h_blocks_dim, w_blocks_dim, h_dim, w_dim, out_channels_dim]
+  """
+  filter_h_dim, filter_w_dim = conv_filter.shape.dims[:2]
+  assert filter_h_dim.size % 2 == 1
+  assert filter_w_dim.size % 2 == 1
+  h_dim, w_dim = conv_input.shape.dims[-3:-1]
+
+  # If h_blocks_dim and w_blocks_dim is not split, directly call conv2d.
+  if h_blocks_dim is None and w_blocks_dim is None:
+    return conv2d(conv_input, conv_filter, strides, padding, name)
+
+  # Padding 'VALID' is not supported yet.
+  if padding != "SAME":
+    raise NotImplementedError("conv2d_with_blocks requires padding=SAME")
+
+  # Halo exchange for h_blocks and w_blocks.
+  for blocks_dim, block_size_dim, halo_size in [
+      (h_blocks_dim, h_dim, filter_h_dim.size // 2),
+      (w_blocks_dim, w_dim, filter_w_dim.size // 2)]:
+    if halo_size > 0:
+      if blocks_dim is not None:
+        conv_input = halo_exchange(
+            conv_input, blocks_dim, block_size_dim, halo_size)
+      else:
+        conv_input = pad(
+            conv_input, [halo_size, halo_size], block_size_dim.name)
+  return conv2d(conv_input, conv_filter, strides, "VALID", name)

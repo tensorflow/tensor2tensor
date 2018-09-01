@@ -48,6 +48,7 @@ def dense(x, output_dim, reduced_dims=None, expert_dims=None,
   w_shape = mtf.Shape(expert_dims + reduced_dims + [output_dim])
   output_shape = mtf.Shape(
       [d for d in x.shape.dims if d not in reduced_dims] + [output_dim])
+
   with tf.variable_scope(name, default_name="dense"):
     stddev = mtf.list_product(d.size for d in reduced_dims) ** -0.5
     w = mtf.get_variable(
@@ -56,7 +57,7 @@ def dense(x, output_dim, reduced_dims=None, expert_dims=None,
         w_shape,
         initializer=tf.random_normal_initializer(stddev=stddev),
         activation_dtype=x.dtype)
-    y = mtf.matmul(x, w, output_shape=output_shape)
+    y = mtf.einsum([x, w], output_shape)
     if use_bias:
       b = mtf.get_variable(
           x.mesh,

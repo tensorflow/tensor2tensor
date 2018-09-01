@@ -42,8 +42,8 @@ tf.flags.DEFINE_integer("epochs_between_evals", 1,
 tf.flags.DEFINE_integer("eval_steps", 0,
                         "Total number of evaluation steps. If `0`, evaluation "
                         "after training is skipped.")
-tf.flags.DEFINE_string("mesh_shape", "rows:2;cols:2", "mesh shape")
-tf.flags.DEFINE_string("layout", "batch:rows;hidden1:cols,filters1:cols",
+tf.flags.DEFINE_string("mesh_shape", "b1:2;b2:2", "mesh shape")
+tf.flags.DEFINE_string("layout", "col_blocks:b1;hidden1:b2;filters2:b2",
                        "layout rules")
 
 FLAGS = tf.flags.FLAGS
@@ -62,28 +62,40 @@ def mnist_model(image, labels, mesh):
     loss: a mtf.Tensor with shape []
   """
   batch_dim = mtf.Dimension("batch", FLAGS.batch_size)
-  rows_dim = mtf.Dimension("rows", 28)
-  cols_dim = mtf.Dimension("cols", 28)
+  row_blocks_dim = mtf.Dimension("row_blocks", 4)
+  col_blocks_dim = mtf.Dimension("col_blocks", 4)
+  rows_dim = mtf.Dimension("rows_size", 7)
+  cols_dim = mtf.Dimension("cols_size", 7)
+
   classes_dim = mtf.Dimension("classes", 10)
   one_channel_dim = mtf.Dimension("one_channel", 1)
 
-  x = mtf.import_tf_tensor(mesh, tf.reshape(image, [-1, 28, 28]),
-                           mtf.Shape([batch_dim, rows_dim, cols_dim]))
-  x = mtf.reshape(x, [batch_dim, rows_dim, cols_dim, one_channel_dim])
+  x = mtf.import_tf_tensor(
+      mesh, tf.reshape(image, [FLAGS.batch_size, 4, 7, 4, 7]),
+      mtf.Shape(
+          [batch_dim, row_blocks_dim, rows_dim, col_blocks_dim, cols_dim]))
+  x = mtf.reshape(x, [
+      batch_dim, row_blocks_dim, col_blocks_dim,
+      rows_dim, cols_dim, one_channel_dim])
 
   # add some convolutional layers to demonstrate that convolution works.
-  # TODO(noam): get spatially-partitioned convolution working.
-  fh_dim = mtf.Dimension("fh", 3)
-  fw_dim = mtf.Dimension("fw", 3)
-  filters1_dim = mtf.Dimension("filters1", 32)
-  filters2_dim = mtf.Dimension("filters2", 32)
+  # TODO(nikip): Currently spatial conv works only when splitting column blocks.
+  # Make it work for both height and width dimension of the image.
+  fh_dim = mtf.Dimension("fh", 9)
+  fw_dim = mtf.Dimension("fw", 9)
+  filters1_dim = mtf.Dimension("filters1", 16)
+  filters2_dim = mtf.Dimension("filters2", 16)
   kernel1 = mtf.get_variable(
       mesh, "kernel1", [fh_dim, fw_dim, one_channel_dim, filters1_dim])
   kernel2 = mtf.get_variable(
       mesh, "kernel2", [fh_dim, fw_dim, filters1_dim, filters2_dim])
 
-  f1 = mtf.relu(mtf.conv2d(x, kernel1))
-  f2 = mtf.relu(mtf.conv2d(f1, kernel2))
+  f1 = mtf.relu(mtf.conv2d_with_blocks(
+      x, kernel1, strides=[1, 1, 1, 1], padding="SAME",
+      h_blocks_dim=None, w_blocks_dim=col_blocks_dim))
+  f2 = mtf.relu(mtf.conv2d_with_blocks(
+      f1, kernel2, strides=[1, 1, 1, 1], padding="SAME",
+      h_blocks_dim=None, w_blocks_dim=None))
   x = mtf.reduce_mean(f2, reduced_dim=filters2_dim)
 
   # add some fully-connected dense layers.
@@ -91,15 +103,18 @@ def mnist_model(image, labels, mesh):
   hidden_dim2 = mtf.Dimension("hidden2", FLAGS.hidden_size)
 
   h1 = mtf_layers.dense(
-      x, hidden_dim1, reduced_dims=[rows_dim, cols_dim],
+      x, hidden_dim1,
+      reduced_dims=x.shape.dims[-4:],
       activation=mtf.relu, name="hidden1")
   h2 = mtf_layers.dense(
-      h1, hidden_dim2, activation=mtf.relu, name="hidden2")
+      h1, hidden_dim2,
+      activation=mtf.relu, name="hidden2")
   logits = mtf_layers.dense(h2, classes_dim, name="logits")
   if labels is None:
     loss = None
   else:
-    labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim]))
+    labels = mtf.import_tf_tensor(
+        mesh, tf.reshape(labels, [FLAGS.batch_size]), mtf.Shape([batch_dim]))
     loss = mtf_layers.softmax_cross_entropy_with_logits(
         logits, mtf.one_hot(labels, classes_dim), classes_dim)
     loss = mtf.reduce_mean(loss)
