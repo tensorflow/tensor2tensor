@@ -50,6 +50,39 @@ class MtfImageTransformer(mtf_model.MtfModel):
           "unknown hparams.activation_dtype %s" % hparams.activation_dtype)
     return activation_dtype
 
+  def create_positional_emb_2d(self, targets, max_length_dim, model_dim):
+    """Learned 2d positional embedding for images."""
+    mesh = targets.mesh
+    hparams = self._hparams
+    activation_dtype = self.set_activation_type()
+
+    rows_dim = mtf.Dimension("rows", hparams.img_len)
+    cols_dim = mtf.Dimension("cols", hparams.img_len*hparams.num_channels)
+
+    positional_emb_rows_var = mtf.get_variable(
+        mesh, "positional_emb_rows",
+        mtf.Shape([max_length_dim, model_dim]),
+        initializer=tf.random_normal_initializer(),
+        activation_dtype=activation_dtype)
+    positional_emb_cols_var = mtf.get_variable(
+        mesh, "positional_emb_cols",
+        mtf.Shape([max_length_dim, model_dim]),
+        initializer=tf.random_normal_initializer(),
+        activation_dtype=activation_dtype)
+
+    targets_position_x = mtf.range(mesh, rows_dim, dtype=tf.int32)
+    targets_position_y = mtf.range(mesh, cols_dim, dtype=tf.int32)
+    position_x = mtf.broadcast(
+        mtf.gather(positional_emb_rows_var, targets_position_x,
+                   max_length_dim),
+        mtf.Shape([rows_dim, cols_dim, model_dim]))
+
+    position_y = mtf.broadcast(
+        mtf.gather(positional_emb_cols_var, targets_position_y,
+                   max_length_dim),
+        mtf.Shape([rows_dim, cols_dim, model_dim]))
+    return position_x + position_y
+
   def mtf_model_fn(self, features, mesh):
     features = copy.copy(features)
     tf.logging.info("features = %s" % features)
@@ -89,21 +122,7 @@ class MtfImageTransformer(mtf_model.MtfModel):
 
     extra_losses = []
 
-    # TODO(nikip): Verify conditional.
-    if self.has_input and not hparams.unconditional:
-      vocab_size = hparams.num_classes
-      inputs_vocab_dim = mtf.Dimension("vocab", vocab_size)
-      inputs = tf.squeeze(tf.to_int32(features["inputs"]), [2, 3])
-      inputs = import_to_batch_by_length(inputs, "inputs")
-
-      # Input embeddings
-      inputs, _ = mtf_layers.embedding(
-          inputs, inputs_vocab_dim, model_dim,
-          activation_dtype=activation_dtype,
-          name="inputs_embedding")
-
     # Create targets content and position embeddings.
-    targets_position = mtf.range(mesh, length_dim, dtype=tf.int32)
     targets_vocab_size = 256 * hparams.num_channels
     targets_vocab_dim = mtf.Dimension("vocab", targets_vocab_size)
     outputs_vocab_dim = mtf.Dimension("output_vocab", 256)
@@ -115,14 +134,27 @@ class MtfImageTransformer(mtf_model.MtfModel):
         initializer=tf.random_normal_initializer(),
         activation_dtype=activation_dtype)
 
-    positional_embedding_var = mtf.get_variable(
-        mesh, "positional_embedding",
-        mtf.Shape([max_length_dim, model_dim]),
-        initializer=tf.random_normal_initializer(),
-        activation_dtype=activation_dtype)
-    x = (mtf.gather(targets_embedding_var, shifted_targets, targets_vocab_dim) +
-         mtf.gather(
-             positional_embedding_var, targets_position, max_length_dim))
+    x = mtf.gather(targets_embedding_var, shifted_targets, targets_vocab_dim)
+    # Add positional embeddings
+    x += mtf.reshape(
+        self.create_positional_emb_2d(targets, max_length_dim, model_dim),
+        [length_dim, model_dim])
+
+    # If conditional and input is given, add the input embedding to the target.
+    # TODO(nikip): Verify conditional.
+    if self.has_input and not hparams.unconditional:
+      vocab_size = hparams.num_classes
+      inputs_vocab_dim = mtf.Dimension("vocab", vocab_size)
+      inputs = tf.squeeze(tf.to_int32(features["inputs"]), [2, 3])
+      inputs = import_to_batch_by_length(inputs, "inputs")
+
+      # Input embeddings
+      inputs_embedding_var = mtf_layers.embedding(
+          mesh, "input_embedding",
+          mtf.Shape([inputs_vocab_dim, model_dim]),
+          activation_dtype=activation_dtype)
+      inputs_emb = mtf.gather(inputs_embedding_var, inputs, inputs_vocab_dim)
+      x += inputs_emb
 
     # Image Transformer Decoder
     # [ self attention - ffn - residual + dropout] x n
@@ -211,13 +243,13 @@ def mtf_image_transformer_tiny():
   hparams.d_ff = 256
   hparams.batch_size = 4
   hparams.num_encoder_layers = 1
-  hparams.num_decoder_layers = 1
+  hparams.num_decoder_layers = 2
   hparams.num_heads = 4
   hparams.attention_key_size = 128
   hparams.attention_value_size = 128
   # data parallelism and model-parallelism
-  hparams.mesh_shape = "2.2"
-  hparams.layout = "batch:0;filter_size:1"
+  hparams.mesh_shape = "batch:2"
+  hparams.layout = "batch:batch"
   return hparams
 
 
@@ -255,9 +287,9 @@ def mtf_image_transformer_base_single():
 def mtf_image_transformer_base_cifar():
   """Data parallel CIFAR parameters."""
   hparams = mtf_image_transformer_base()
-  hparams.mesh_shape = "batch:32"
+  hparams.mesh_shape = "batch:8"
   hparams.layout = "batch:batch"
-  hparams.batch_size = 128
+  hparams.batch_size = 32
   hparams.num_heads = 4
   hparams.num_decoder_layers = 12
   hparams.block_length = 256
@@ -309,8 +341,8 @@ def mtf_image_transformer_base_imagenet_mp():
 @registry.register_hparams
 def mtf_image_transformer_tiny_moe():
   hparams = mtf_image_transformer_tiny()
-  hparams.mesh_shape = "4"
-  hparams.layout = "batch:0,experts:0"
+  hparams.mesh_shape = "all:4"
+  hparams.layout = "batch:all,experts:all"
   hparams.ffn_layer = "moe"
   return hparams
 
@@ -318,14 +350,14 @@ def mtf_image_transformer_tiny_moe():
 @registry.register_hparams
 def mtf_image_transformer_tiny_8gpu():
   hparams = mtf_image_transformer_tiny()
-  hparams.mesh_shape = "8"
-  hparams.layout = "vocab:0;filter_size:0;heads:0"
+  hparams.mesh_shape = "all:8"
+  hparams.layout = "vocab:all;filter_size:all;heads:all"
   return hparams
 
 
 @registry.register_hparams
 def mtf_image_transformer_length_sharded():
   hparams = mtf_image_transformer_tiny()
-  hparams.mesh_shape = "2"
-  hparams.layout = "length:0"
+  hparams.mesh_shape = "all:2"
+  hparams.layout = "length:all"
   return hparams
