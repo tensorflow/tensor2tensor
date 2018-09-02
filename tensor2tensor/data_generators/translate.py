@@ -24,6 +24,7 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
+from tensor2tensor.utils import bleu_hook
 
 import tensorflow as tf
 
@@ -59,6 +60,33 @@ class TranslateProblem(text_problems.Text2TextProblem):
   def generate_text_for_vocab(self, data_dir, tmp_dir):
     return generator_utils.generate_lines_for_vocab(tmp_dir,
                                                     self.vocab_data_files())
+
+  @property
+  def decode_hooks(self):
+    return [compute_bleu_summaries]
+
+
+def compute_bleu_summaries(hook_args):
+  """Compute BLEU core summaries using the decoder output.
+
+  Args:
+    hook_args: DecodeHookArgs namedtuple
+  Returns:
+    A list of tf.Summary values if hook_args.hparams contains the
+    reference file and the translated file.
+  """
+  decode_hparams = hook_args.decode_hparams
+
+  if (decode_hparams.decode_reference is None or
+      decode_hparams.decode_to_file is None):
+    return None
+
+  values = []
+  bleu = 100 * bleu_hook.bleu_wrapper(
+      decode_hparams.decode_reference, decode_hparams.decode_to_file)
+  values.append(tf.Summary.Value(tag="BLEU", simple_value=bleu))
+  tf.logging.info("%s: BLEU = %6.2f" % (decode_hparams.decode_to_file, bleu))
+  return values
 
 
 def _preprocess_sgm(line, is_sgm):

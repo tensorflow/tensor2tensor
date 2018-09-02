@@ -173,6 +173,9 @@ def create_experiment_fn(**kwargs):
       use_tpu_estimator=FLAGS.use_tpu_estimator,
       use_xla=FLAGS.xla_compile,
       warm_start_from=FLAGS.warm_start_from,
+      decode_from_file=FLAGS.decode_from_file,
+      decode_to_file=FLAGS.decode_to_file,
+      decode_reference=FLAGS.decode_reference,
       **kwargs)
 
 
