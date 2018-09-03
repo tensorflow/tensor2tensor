@@ -37,7 +37,7 @@ The recurrent transition function in fact controls how steps communicate with
 each other in depth. For instance, the recurrent transition, can be a simple
 identity function which passes the output of a step as the input to next step.
 Or it can be an LSTM (filliped vertically) next to the transformer which
-controls how state  of the model changes in depth, Or even another transformer.
+controls how state of the model changes in depth.
 
 """
 
@@ -250,7 +250,7 @@ def universal_transformer_layer(x,
       output, _, extra_output = tf.foldl(
           ut_function, tf.range(hparams.num_rec_steps), initializer=initializer)
 
-      # This can be the if we use universal_transformer_lstm layer.
+      # This is possible only when we are using lstm as transition function.
       if hparams.get("use_memory_as_final_state", False):
         output = extra_output
 
@@ -324,20 +324,12 @@ def get_ut_layer(x,
         ffn_unit=ffn_unit,
         attention_unit=attention_unit)
 
-  elif hparams.recurrence_type == "rnn":
-    ut_initializer = (x, x, x)  # (state, input, memory)
-    ut_function = functools.partial(
-        universal_transformer_rnn,
-        hparams=hparams,
-        ffn_unit=ffn_unit,
-        attention_unit=attention_unit,
-        pad_remover=pad_remover)
-
   elif hparams.recurrence_type == "gru":
     ut_initializer = (x, x, x)  # (state, input, memory)
     ut_function = functools.partial(
-        universal_transformer_gru,
+        universal_transformer_with_gru_as_transition_function,
         hparams=hparams,
+        ffn_unit=ffn_unit,
         attention_unit=attention_unit,
         pad_remover=pad_remover)
 
@@ -345,8 +337,9 @@ def get_ut_layer(x,
     memory = tf.zeros(common_layers.shape_list(x))
     ut_initializer = (x, x, memory)  # (state, input, memory)
     ut_function = functools.partial(
-        universal_transformer_lstm,
+        universal_transformer_with_lstm_as_transition_function,
         hparams=hparams,
+        ffn_unit=ffn_unit,
         attention_unit=attention_unit,
         pad_remover=pad_remover)
 
@@ -559,17 +552,17 @@ def universal_transformer_basic(layer_inputs,
                                 step, hparams,
                                 ffn_unit,
                                 attention_unit):
-  """Basic universal_transformer.
+  """Basic Universal Transformer.
 
-  This is in fact vanilla transformer in which weights are shared between
-  layers. For some tasks, this simple idea brings a generalization that is not
-  achievable by playing with the size of the model or drop_out parameters in
-  the vanilla transformer.
+  This model is pretty similar to the vanilla transformer in which weights are
+  shared between layers. For some tasks, this simple idea brings a
+  generalization that is not achievable by playing with the size of the model
+  or drop_out parameters in the vanilla transformer.
 
   Args:
     layer_inputs:
         - state: state
-    step: indicating number of steps take so far
+    step: indicates number of steps taken so far
     hparams: model hyper-parameters
     ffn_unit: feed-forward unit
     attention_unit: multi-head attention unit
@@ -592,12 +585,13 @@ def universal_transformer_highway(layer_inputs,
                                   ffn_unit,
                                   attention_unit,
                                   pad_remover=None):
-  """universal_transformer with highway connection.
+  """Universal Transformer with highway connection.
 
 
-  It transforms the state using attention and ffn and wrap this transformation
-  with a highway connection. (the new state is a combination of the state and
-  the transformed-state based on cary/transform gates.)
+  It transforms the state using a block contaaining sel-attention and transition
+  function  and wrap the whole block with a highway connection.
+  (the new state is a combination of the state and the transformed-state
+  based on cary/transform gates.)
 
   Interesting observation:
     Controlling the cary/transform gate with the original inputs works usually
@@ -607,7 +601,7 @@ def universal_transformer_highway(layer_inputs,
     layer_inputs:
       - state: state
       - inputs: the original embedded inputs (= inputs to the first step)
-    step: indicating number of steps take so far
+    step: indicates number of steps taken so far
     hparams: model hyper-parameters.
     ffn_unit: feed-forward unit
     attention_unit: multi-head attention unit
@@ -681,7 +675,7 @@ def universal_transformer_skip(layer_inputs,
                                ffn_unit,
                                attention_unit,
                                pad_remover=None):
-  """universal_transformer with highway connection.
+  """Universal Transformer with highway connection.
 
 
   It transforms the state using attention and ffn and wrap this transformation
@@ -696,7 +690,7 @@ def universal_transformer_skip(layer_inputs,
     layer_inputs:
       - state: state
       - inputs: the original embedded inputs (= inputs to the first step)
-    step: indicating number of steps take so far
+    step: indicates number of steps taken so far
     hparams: model hyper-parameters.
     ffn_unit: feed-forward unit
     attention_unit: multi-head attention unit
@@ -820,234 +814,209 @@ def universal_transformer_depthwise_attention(layer_inputs,
   return new_state, inputs, memory
 
 
-def universal_transformer_rnn(layer_inputs,
-                              step,
-                              hparams,
-                              ffn_unit,
-                              attention_unit,
-                              pad_remover=None):
-  """The UT layer which models recurencey similar to basic RNN cell.
+def universal_transformer_with_gru_as_transition_function(
+    layer_inputs, step, hparams, ffn_unit, attention_unit, pad_remover=None):
+  """Universal Transformer which uses a gru as transition function.
 
-    It's an U-Transformer with an RNN applied over the stats on depth.
+  It's kind of like having a gru, filliped vertically next to the Universal
+  Transformer that controls the flow of the information in depth,
+  over different steps of the Universal Transformer.
 
   Args:
     layer_inputs:
       - state: state
-      - inputs: the original embedded inputs (= inputs to the first step)
-    step: indicating number of steps take so far
+      - inputs: not used here
+      - memory: not used here
+    step: indicates number of steps taken so far
     hparams: model hyper-parameters.
     ffn_unit: feed-forward unit
     attention_unit: multi-head attention unit
     pad_remover: to mask out padding in convolutional layers (efficiency).
-
   Returns:
     layer_output:
-      new_state: new state
-      inputs: the original embedded inputs (= inputs to the first step)
-
-  Raises:
-    ValueError: Unknown inputs_states_combination type
-
+        new_state: new state
+        inputs: not uesed
+        memory: not used
   """
 
-  state, inputs, memory = layer_inputs
-  state = step_preprocess(state, step, hparams)
+  state, unused_inputs, unused_memory = tf.unstack(
+      layer_inputs, num=None, axis=0, name="unstack")
 
-  # TODO(dehghani) keep only the meaningful cases:
-  if hparams.inputs_states_combination == "mh_attention_ffn_add":
-    state.get_shape().assert_is_compatible_with(inputs.get_shape())
-    state = ffn_unit(attention_unit(state))
-    new_state = state + inputs
+  # state (ut_state): output of the gru in the previous step
 
-  elif hparams.inputs_states_combination == "add_mh_attention_ffn":
-    state.get_shape().assert_is_compatible_with(inputs.get_shape())
-    state += inputs
-    new_state = ffn_unit(attention_unit(state))
+  # Multi_head_attention:
+  assert not hparams.add_step_timing_signal   # Let gru count for us!
+  mh_attention_input = step_preprocess(state, step, hparams)
+  transition_function_input = attention_unit(mh_attention_input)
 
-  elif hparams.inputs_states_combination == "dense_mh_attention":
-    state = _ffn_layer_multi_inputs(
-        [state, inputs],
-        hparams=hparams,
-        ffn_layer_type="dense_relu_dense",
-        name="rnn",
+  # Transition Function:
+  if hparams.add_ffn_unit_to_the_transition_function:
+    transition_function_input = ffn_unit(transition_function_input)
+
+  transition_function_input = common_layers.layer_preprocess(
+      transition_function_input, hparams)
+  with tf.variable_scope("gru"):
+    # gru update gate: z_t = sigmoid(W_z.x_t + U_z.h_{t-1})
+    transition_function_update_gate = _ffn_layer_multi_inputs(
+        [transition_function_input, state],
+        hparams,
+        name="update",
+        bias_initializer=tf.constant_initializer(1.0),
+        activation=tf.sigmoid,
+        pad_remover=pad_remover,
+        preprocess=False,
+        postprocess=False)
+
+    tf.contrib.summary.scalar("gru_update_gate",
+                              tf.reduce_mean(transition_function_update_gate))
+
+    # gru reset gate: r_t = sigmoid(W_r.x_t + U_r.h_{t-1})
+    transition_function_reset_gate = _ffn_layer_multi_inputs(
+        [transition_function_input, state],
+        hparams,
+        name="reset",
+        bias_initializer=tf.constant_initializer(1.0),
+        activation=tf.sigmoid,
+        pad_remover=pad_remover,
+        preprocess=False,
+        postprocess=False)
+
+    tf.contrib.summary.scalar("gru_reset_gate",
+                              tf.reduce_mean(transition_function_reset_gate))
+    reset_state = transition_function_reset_gate * state
+
+    # gru_candidate_activation: h' = tanh(W_{x_t} + U (r_t h_{t-1})
+    transition_function_candidate = _ffn_layer_multi_inputs(
+        [transition_function_input, reset_state],
+        hparams,
+        name="candidate",
+        bias_initializer=tf.zeros_initializer(),
         activation=tf.tanh,
-        pad_remover=pad_remover)
+        pad_remover=pad_remover,
+        preprocess=False,
+        postprocess=False)
 
-    new_state = attention_unit(state)
+    transition_function_output = (
+        (1 - transition_function_update_gate) * transition_function_input +
+        transition_function_update_gate * transition_function_candidate)
 
-  elif hparams.inputs_states_combination == "mh_attention_dense":
-    state = attention_unit(state)
-    new_state = _ffn_layer_multi_inputs(
-        [state, inputs],
-        hparams=hparams,
-        ffn_layer_type="dense_relu_dense",
-        name="rnn",
-        activation=tf.tanh,
-        pad_remover=pad_remover)
+  transition_function_output = common_layers.layer_preprocess(
+      transition_function_output, hparams)
 
-  else:
-    raise ValueError("Unknown inputs_states_combination type: %s" %
-                     hparams.inputs_states_combination)
-
-  return new_state, inputs, memory
+  return transition_function_output, unused_inputs, unused_memory
 
 
-def universal_transformer_gru(layer_inputs,
-                              step,
-                              hparams,
-                              attention_unit,
-                              pad_remover=None):
-  """The RT layer which models recurencey similar to GRU cell.
+def universal_transformer_with_lstm_as_transition_function(
+    layer_inputs, step, hparams, ffn_unit, attention_unit, pad_remover=None):
+  """Universal Transformer which uses a lstm as transition function.
 
-    It's an R-transformer with a gru applied over the stats on depth.
-    Based on GRU paper: http://arxiv.org/abs/1406.1078
-
-  Args:
-    layer_inputs:
-      - state: state
-      - inputs: the original embedded inputs (= inputs to the first step)
-    step: indicating number of steps take so far
-    hparams: model hyper-parameters.
-    attention_unit: multi-head attention unit
-    pad_remover: to mask out padding in convolutional layers (efficiency).
-
-
-  Returns:
-    layer_output:
-      new_state: new state
-      inputs: the original embedded inputs (= inputs to the first step)
-  """
-
-  state, inputs, memory = layer_inputs
-  state = step_preprocess(state, step, hparams)
-
-  # TODO(dehghani): do we need preprocess here?
-  state = common_layers.layer_preprocess(state, hparams)
-  inputs = common_layers.layer_preprocess(inputs, hparams)
-
-  update_gate = _ffn_layer_multi_inputs(
-      [inputs, state],
-      hparams,
-      name="update",
-      bias_initializer=tf.constant_initializer(1.0),
-      activation=tf.sigmoid,
-      pad_remover=pad_remover)
-
-  reset_gate = _ffn_layer_multi_inputs(
-      [inputs, state],
-      hparams,
-      name="reset",
-      bias_initializer=tf.constant_initializer(1.0),
-      activation=tf.sigmoid,
-      pad_remover=pad_remover)
-
-  reset_state = reset_gate * state
-
-  candidate = _ffn_layer_multi_inputs(
-      [inputs, reset_state],
-      hparams,
-      name="candidate",
-      bias_initializer=tf.zeros_initializer(),
-      activation=tf.tanh,
-      pad_remover=pad_remover)
-
-  if "candidate_transformation" in hparams.gru_transformation:
-    candidate = attention_unit(candidate)
-
-  if "state_transformation" in hparams.gru_transformation:
-    state = attention_unit(state)
-
-  state = update_gate * state + (1 - update_gate) * candidate
-
-  if "state_transformation" in hparams.gru_transformation:
-    state = attention_unit(state)
-  # normalization on the output
-  new_state = common_layers.layer_preprocess(state, hparams)
-
-  return new_state, inputs, memory
-
-
-def universal_transformer_lstm(layer_inputs,
-                               step,
-                               hparams,
-                               attention_unit,
-                               pad_remover=None):
-  """The UT layer which models recurencey similar to GRU cell.
-
-  It's an R-transformer with a gru applied over the stats on depth.
-  based on LSTM paper: https://arxiv.org/pdf/1409.2329.pdf
+  It's kind of like having a lstm, filliped vertically next to the Universal
+  Transformer that controls the flow of the  information in depth,
+  over different steps of the Universal Transformer.
 
   Args:
     layer_inputs:
       - state: state
       - inputs: the original embedded inputs (= inputs to the first step)
       - memory: memory used in lstm.
-    step: indicating number of steps take so far
+    step: indicates number of steps taken so far
     hparams: model hyper-parameters.
+    ffn_unit: feed-forward unit
     attention_unit: multi-head attention unit
     pad_remover: to mask out padding in convolutional layers (efficiency).
-
   Returns:
     layer_output:
         new_state: new state
         inputs: the original embedded inputs (= inputs to the first step)
-        memory: contains states from all the previous steps.
+        memory: contains information of state from all the previous steps.
   """
-  state, inputs, memory = layer_inputs
-  state = step_preprocess(state, step, hparams)
 
-  state = common_layers.layer_preprocess(state, hparams)
-  inputs = common_layers.layer_preprocess(inputs, hparams)
+  state, unused_inputs, memory = tf.unstack(
+      layer_inputs, num=None, axis=0, name="unstack")
+  # NOTE:
+  # state (ut_state): output of the lstm in the previous step
+  # inputs (ut_input): original input --> we don't use it here
+  # memory: lstm memory
 
-  input_gate = _ffn_layer_multi_inputs(
-      [inputs, state],
-      hparams,
-      name="input_g",
-      bias_initializer=tf.zeros_initializer(),
-      activation=tf.sigmoid,
-      pad_remover=pad_remover)
+  # Multi_head_attention:
+  assert not hparams.add_step_timing_signal  # Let lstm count for us!
+  mh_attention_input = step_preprocess(state, step, hparams)
+  transition_function_input = attention_unit(mh_attention_input)
 
-  forget_gate = _ffn_layer_multi_inputs(
-      [inputs, state],
-      hparams,
-      name="forget_g",
-      bias_initializer=tf.zeros_initializer(),
-      activation=None,
-      pad_remover=pad_remover)
+  # Transition Function:
+  if hparams.add_ffn_unit_to_the_transition_function:
+    transition_function_input = ffn_unit(transition_function_input)
 
-  output_gate = _ffn_layer_multi_inputs(
-      [inputs, state],
-      hparams,
-      name="output_g",
-      bias_initializer=tf.zeros_initializer(),
-      activation=tf.sigmoid,
-      pad_remover=pad_remover)
+  transition_function_input = common_layers.layer_preprocess(
+      transition_function_input, hparams)
+  with tf.variable_scope("lstm"):
+    # lstm input gate: i_t = sigmoid(W_i.x_t + U_i.h_{t-1})
+    transition_function_input_gate = _ffn_layer_multi_inputs(
+        [transition_function_input, state],
+        hparams,
+        name="input",
+        bias_initializer=tf.zeros_initializer(),
+        activation=tf.sigmoid,
+        pad_remover=pad_remover,
+        preprocess=False,
+        postprocess=False)
 
-  input_modulation = _ffn_layer_multi_inputs(
-      [inputs, state],
-      hparams,
-      name="input_modulation",
-      bias_initializer=tf.zeros_initializer(),
-      activation=tf.tanh,
-      pad_remover=pad_remover)
+    tf.contrib.summary.scalar("lstm_input_gate",
+                              tf.reduce_mean(transition_function_input_gate))
 
-  forget_bias_tensor = tf.constant(hparams.lstm_forget_bias)
-  forget_gate = tf.sigmoid(forget_gate + forget_bias_tensor)
+    # lstm forget gate: f_t = sigmoid(W_f.x_t + U_f.h_{t-1})
+    transition_function_forget_gate = _ffn_layer_multi_inputs(
+        [transition_function_input, state],
+        hparams,
+        name="forget",
+        bias_initializer=tf.zeros_initializer(),
+        activation=None,
+        pad_remover=pad_remover,
+        preprocess=False,
+        postprocess=False)
+    forget_bias_tensor = tf.constant(hparams.lstm_forget_bias)
+    transition_function_forget_gate = tf.sigmoid(
+        transition_function_forget_gate + forget_bias_tensor)
 
-  if "modulated_input_transformation" in hparams.lstm_transformation:
-    input_modulation = attention_unit(input_modulation)
+    tf.contrib.summary.scalar("lstm_forget_gate",
+                              tf.reduce_mean(transition_function_forget_gate))
 
-  memory = memory * forget_gate + input_gate * input_modulation
+    # lstm output gate: o_t = sigmoid(W_o.x_t + U_o.h_{t-1})
+    transition_function_output_gate = _ffn_layer_multi_inputs(
+        [transition_function_input, state],
+        hparams,
+        name="output",
+        bias_initializer=tf.zeros_initializer(),
+        activation=tf.sigmoid,
+        pad_remover=pad_remover,
+        preprocess=False,
+        postprocess=False)
 
-  if "memory_transformation" in hparams.lstm_transformation:
-    memory = attention_unit(memory)
+    tf.contrib.summary.scalar("lstm_output_gate",
+                              tf.reduce_mean(transition_function_output_gate))
 
-  new_state = tf.tanh(memory) * output_gate
+    # lstm input modulation
+    transition_function_input_modulation = _ffn_layer_multi_inputs(
+        [transition_function_input, state],
+        hparams,
+        name="input_modulation",
+        bias_initializer=tf.zeros_initializer(),
+        activation=tf.tanh,
+        pad_remover=pad_remover,
+        preprocess=False,
+        postprocess=False)
 
-  if "state_transformation" in hparams.lstm_transformation:
-    new_state = attention_unit(new_state)
+    transition_function_memory = (
+        memory * transition_function_forget_gate +
+        transition_function_input_gate * transition_function_input_modulation)
 
-  return new_state, inputs, memory
+    transition_function_output = (
+        tf.tanh(transition_function_memory) * transition_function_output_gate)
+
+  transition_function_output = common_layers.layer_preprocess(
+      transition_function_output, hparams)
+
+  return transition_function_output, unused_inputs, transition_function_memory
 
 
 def universal_transformer_act(x, hparams, ffn_unit, attention_unit):
@@ -1068,7 +1037,7 @@ def universal_transformer_act(x, hparams, ffn_unit, attention_unit):
     ValueError: Unknown act type
 
   """
-  # TODO(dehghani): Use pad_remover for the act computations.
+  # TODO(dehghani): Enable pad_remover for the act computations.
   if hparams.act_type == "basic":
     return universal_transformer_act_basic(
         x, hparams, ffn_unit, attention_unit)
@@ -1139,7 +1108,7 @@ def universal_transformer_act_basic(x, hparams, ffn_unit, attention_unit):
 
     Args:
       state: 3-D Tensor: [batch_size, length, channel]
-      step: indicating number of steps take so far
+      step: indicates number of steps taken so far
       halting_probability: halting probability
       remainders: act remainders
       n_updates: act n_updates
@@ -1291,7 +1260,7 @@ def universal_transformer_act_accumulated(x, hparams, ffn_unit, attention_unit):
 
     Args:
       state: 3-D Tensor: [batch_size, length, channel]
-      step: indicating number of steps take so far
+      step: indicates number of steps taken so far
       halting_probability: halting probability
       remainders: act remainders
       n_updates: act n_updates
@@ -1427,7 +1396,7 @@ def universal_transformer_act_global(x, hparams, ffn_unit, attention_unit):
 
     Args:
       state: 3-D Tensor: [batch_size, length, channel]
-      step: indicating number of steps take so far
+      step: indicates number of steps taken so far
       halting_probability: halting probability
       remainders: act remainders
       n_updates: act n_updates
@@ -1583,7 +1552,7 @@ def universal_transformer_act_random(x, hparams, ffn_unit, attention_unit):
 
     Args:
       state: 3-D Tensor: [batch_size, length, channel]
-      step: indicating number of steps take so far
+      step: indicates number of steps taken so far
       halting_probability: halting probability
       remainders: act remainders
       n_updates: act n_updates
@@ -1688,8 +1657,8 @@ def _ffn_layer_multi_inputs(inputs_list,
                             bias_initializer=None,
                             activation=None,
                             pad_remover=None,
-                            preprocess=True,
-                            postprocess=True):
+                            preprocess=False,
+                            postprocess=False):
   """Implements a Feed-forward layer with multiple inputs, pad-removing, etc.
 
   Args:
