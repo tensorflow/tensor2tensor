@@ -86,6 +86,7 @@ class UniversalTransformer(transformer.Transformer):
 
     return encoder_output, encoder_decoder_attention_bias, encoder_extra_output
 
+
   def decode(self,
              decoder_input,
              encoder_output,
@@ -93,6 +94,7 @@ class UniversalTransformer(transformer.Transformer):
              decoder_self_attention_bias,
              hparams,
              cache=None,
+             decode_loop_step=None,
              nonpadding=None,
              losses=None):
     """Decode Universal Transformer outputs from encoder representation.
@@ -112,6 +114,7 @@ class UniversalTransformer(transformer.Transformer):
         self-attention. [batch_size, decoder_length]
       hparams: hyperparmeters for model.
       cache: Unimplemented.
+      decode_loop_step: Unused.
       nonpadding: optional Tensor with shape [batch_size, decoder_length]
       losses: Unused.
 
@@ -123,6 +126,7 @@ class UniversalTransformer(transformer.Transformer):
             variants of the model (e.g. in ACT, to pass the ponder-time to body)
 
     """
+    del decode_loop_step
     del losses
     # TODO(dehghani): enable caching.
     del cache
@@ -409,20 +413,12 @@ def update_hparams_for_universal_transformer(hparams):
   # With dense_relu_dense, the bias/kernel initializations will not be applied.
   hparams.add_hparam("gate_ffn_layer", "dense")
 
-  # Config for all rnn style recurrencies (rnn, lstm, gru):
-  # Input of the gate functions: i:input/s:state/t:transformed state.
-  # or any combination: e.g. is, ts, ist, etc.
-  hparams.add_hparam("gates_inputs", "i")
-
-  # LSTEM forget bias.
+  # LSTM forget bias for lstm style recurrence.
   hparams.add_hparam("lstm_forget_bias", 1.0)
-
-  # How to combine state and input in each step:
-  # "mh_attention_ffn_add" or "add_mh_attention_ffn" or "dense_mh_attention"
-  # or "mh_attention_dense".
-  # Interpretation for e.g. "mh_attention_ffn_add":
-  # Apply transformer attention then transformer ffn, then add.
-  hparams.add_hparam("inputs_states_combination", "mh_attention_ffn_add")
+  # Uses the memory at the last step as the final ouput, if true.
+  hparams.add_hparam("use_memory_as_final_state", True)
+  # if also add a ffn unit to the transition function when using gru/lstm
+  hparams.add_hparam("add_ffn_unit_to_the_transition_function", False)
 
   # Config for gru_style recurrency:
   # What to transform in gru: state/output/candidate/combination of them.
@@ -734,23 +730,17 @@ def universal_transformer_dwa_tiny_test():
 
 
 @registry.register_hparams
-def universal_transformer_rnn_small():
-  hparams = universal_transformer_small()
-  hparams.recurrence_type = "rnn"
-  return hparams
-
-
-@registry.register_hparams
-def universal_transformer_gru_small():
-  hparams = universal_transformer_small()
+def universal_transformer_gru_base():
+  hparams = universal_transformer_base()
   hparams.recurrence_type = "gru"
+  hparams.add_step_timing_signal = False  # Let gru count in depth for us!
   return hparams
 
-
 @registry.register_hparams
-def universal_transformer_lstm_small():
-  hparams = universal_transformer_small()
+def universal_transformer_lstm_base():
+  hparams = universal_transformer_base()
   hparams.recurrence_type = "lstm"
+  hparams.add_step_timing_signal = False  # Let lstm count in depth for us!
   return hparams
 
 
