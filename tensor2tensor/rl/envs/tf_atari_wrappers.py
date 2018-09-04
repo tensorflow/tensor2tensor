@@ -38,6 +38,9 @@ class WrapperBase(InGraphBatchEnv):
         batch_env.observ_space, batch_env.action_space)
     self._length = len(batch_env)
     self._batch_env = batch_env
+    self._observ = self._observ = tf.Variable(
+        tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
+        trainable=False)
 
   def initialize(self, sess):
     """Initializations to be run once the tf.Session is available."""
@@ -52,26 +55,57 @@ class WrapperBase(InGraphBatchEnv):
     """Number of combined environments."""
     return self._length
 
+  def simulate(self, action):
+    reward, done = self._batch_env.simulate(action)
+    with tf.control_dependencies([reward, done]):
+      observations = self._batch_env.observ
+      observations = self._transform_observations(observations)
+      assign_op = self._observ.assign(observations)
+      with tf.control_dependencies([assign_op]):
+        return tf.identity(reward), tf.identity(done)
+
   def _reset_non_empty(self, indices):
     # pylint: disable=protected-access
     new_values = self._batch_env._reset_non_empty(indices)
     # pylint: enable=protected-access
+    new_values = self._transform_observations(new_values)
     assign_op = tf.scatter_update(self._observ, indices, new_values)
     with tf.control_dependencies([assign_op]):
       return tf.identity(new_values)
 
-  def _transform_history_observations(self, frames):
-    """Applies a wrapper-specific transformation to the history observations.
+  def _transform_observations(self, observations):
+    """Applies a wrapper-specific transformation to the batch of observations.
 
     Overridden in wrappers that alter observations.
 
     Args:
-      frames: A tensor of history frames to transform.
+      observations: A tensor of history frames to transform. Shape:
+        [batch_size, ...].
+
+    Returns a tensor of transformed observations.
+    """
+    return observations
+
+  def _transform_history_observations(self, observations):
+    """Applies a wrapper-specific transformation to the history observations.
+
+    Overridden in wrappers that alter the history of observations.
+
+    Args:
+      frames: A tensor of history frames to transform. Shape:
+        [batch_size, history_size, ...].
 
     Returns:
       a tensor of transformed frames.
     """
-    return frames
+    batch_size, history_size = observations.get_shape().as_list()[:2]
+    observations = tf.reshape(
+        observations, (-1,) + self._batch_env.observ_shape
+    )
+    observations = self._transform_observations(observations)
+    return tf.reshape(
+        observations, (batch_size, history_size) + self.observ_shape
+    )
 
   @property
   def history_observations(self):
@@ -110,9 +144,6 @@ class MaxAndSkipWrapper(WrapperBase):
   def __init__(self, batch_env, skip=4):
     super(MaxAndSkipWrapper, self).__init__(batch_env)
     self.skip = skip
-    observs_shape = batch_env.observ.shape
-    self._observ = tf.Variable(tf.zeros(observs_shape, self.observ_dtype),
-                               trainable=False)
 
   def simulate(self, action):
     with tf.name_scope("environment/simulate"):  # Do we need this?
@@ -147,12 +178,9 @@ class StackWrapper(WrapperBase):
   """ A wrapper which stacks previously seen frames. """
 
   def __init__(self, batch_env, history=4):
-    super(StackWrapper, self).__init__(batch_env)
     self.history = history
     self.old_shape = batch_env.observ_shape
-    self._observ = tf.Variable(
-        tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
-        trainable=False)
+    super(StackWrapper, self).__init__(batch_env)
 
   @property
   def observ_shape(self):
@@ -208,9 +236,6 @@ class AutoencoderWrapper(WrapperBase):
 
   def __init__(self, batch_env):
     super(AutoencoderWrapper, self).__init__(batch_env)
-    self._observ = self._observ = tf.Variable(
-        tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
-        trainable=False)
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       autoencoder_hparams = autoencoders.autoencoder_discrete_pong()
       problem = registry.problem("dummy_autoencoder_problem")
@@ -234,44 +259,15 @@ class AutoencoderWrapper(WrapperBase):
     hparams = autoencoders.autoencoder_discrete_pong()
     return 2**hparams.num_hidden_layers
 
-  def simulate(self, action):
-    reward, done = self._batch_env.simulate(action)
-    with tf.control_dependencies([reward, done]):
-      with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-        observ = tf.cast(self._batch_env.observ, tf.int32)
-        ret = self.autoencoder_model.encode(observ)
-        ret = tf.cast(ret, self.observ_dtype)
-        assign_op = self._observ.assign(ret)
-        with tf.control_dependencies([assign_op]):
-          return tf.identity(reward), tf.identity(done)
-
-  def _reset_non_empty(self, indices):
+  def _transform_observations(self, observations):
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      new_values = self._batch_env._reset_non_empty(indices)  # pylint: disable=protected-access
-      new_values = tf.cast(new_values, tf.int32)
-      ret = self.autoencoder_model.encode(new_values)
-      ret = tf.cast(ret, self.observ_dtype)
-      assign_op = tf.scatter_update(self._observ, indices, ret)
-      with tf.control_dependencies([assign_op]):
-        return tf.gather(self.observ, indices)
-
-  def _transform_history_observations(self, frames):
-    batch_size, history_size = frames.get_shape().as_list()[:2]
-    new_frames = tf.reshape(frames, (-1,) + self._batch_env.observ_shape)
-    new_frames = tf.cast(new_frames, tf.int32)
-    new_frames = self.autoencoder_model.encode(new_frames)
-    new_frames = tf.cast(new_frames, self.observ_dtype)
-    return new_frames.reshape((batch_size, history_size) + self.observ_shape)
+      observations = tf.cast(observations, tf.int32)
+      observations = self.autoencoder_model.encode(observations)
+    return tf.cast(observations, self.observ_dtype)
 
 
 class IntToBitWrapper(WrapperBase):
   """Unpacks the observations from integer values to bit values"""
-
-  def __init__(self, batch_env):
-    super(IntToBitWrapper, self).__init__(batch_env)
-    self._observ = self._observ = tf.Variable(
-        tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
-        trainable=False)
 
   @property
   def observ_shape(self):
@@ -279,36 +275,8 @@ class IntToBitWrapper(WrapperBase):
     # We treat each channel as 8-bit integer to be expanded to 8 channels
     return (height, width, channels*8)
 
-  def simulate(self, action):
-    action = tf.Print(action, [action], message="action=", summarize=200)
-
-    # action = tf.zeros_like(action) #Temporary hacked bugfix
-    reward, done = self._batch_env.simulate(action)
-    with tf.control_dependencies([reward, done]):
-      with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-        unpacked = discretization.int_to_bit(self._batch_env.observ, 8)
-        unpacked = tf.reshape(unpacked, (-1,)+self.observ_shape)
-        unpacked = tf.cast(unpacked, self.observ_dtype)
-        assign_op = self._observ.assign(unpacked)
-        with tf.control_dependencies([assign_op]):
-          return tf.identity(reward), tf.identity(done)
-
-  def _reset_non_empty(self, indices):
-    # pylint: disable=protected-access
-    new_values = self._batch_env._reset_non_empty(indices)
-    new_values_unpacked = discretization.int_to_bit(new_values, 8)
-    new_values_unpacked = tf.reshape(new_values_unpacked, (-1,)
-                                     +self.observ_shape)
-    new_values_unpacked = tf.cast(new_values_unpacked, self.observ_dtype)
-    # pylint: enable=protected-access
-    assign_op = tf.scatter_update(self._observ, indices, new_values_unpacked)
-    with tf.control_dependencies([assign_op]):
-      return tf.identity(new_values_unpacked)
-
-  def _transform_history_observations(self, frames):
-    batch_size, history_size = frames.get_shape().as_list()[:2]
-    new_frames = discretization.int_to_bit(frames, 8)
-    new_frames = tf.reshape(
-        new_frames, (batch_size, history_size) + self.observ_shape
-    )
-    return tf.cast(new_frames, self.observ_dtype)
+  def _transform_observations(self, observations):
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      observations = discretization.int_to_bit(observations, 8)
+      observations = tf.reshape(observations, (-1,) + self.observ_shape)
+      return tf.cast(observations, self.observ_dtype)
