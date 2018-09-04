@@ -217,5 +217,5 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     return self._observ.read_value()
 
   @property
-  def history_frames(self):
+  def history_observations(self):
     return self.history_buffer.get_all_elements()

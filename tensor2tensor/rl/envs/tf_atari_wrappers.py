@@ -59,8 +59,8 @@ class WrapperBase(InGraphBatchEnv):
     with tf.control_dependencies([assign_op]):
       return tf.identity(new_values)
 
-  def _transform_history_frames(self, frames):
-    """Applies a wrapper-specific transformation to the history frames.
+  def _transform_history_observations(self, frames):
+    """Applies a wrapper-specific transformation to the history observations.
 
     Overridden in wrappers that alter observations.
 
@@ -72,8 +72,8 @@ class WrapperBase(InGraphBatchEnv):
     return frames
 
   @property
-  def history_frames(self):
-    """Returns frames from the root simulated env's history_buffer.
+  def history_observations(self):
+    """Returns observations from the root simulated env's history_buffer.
 
     Transforms them with a wrapper-specific function if necessary.
 
@@ -81,7 +81,9 @@ class WrapperBase(InGraphBatchEnv):
       AttributeError: if root env doesn't have a history_buffer (i.e. is not
         simulated).
     """
-    return self._transform_history_frames(self._batch_env.history_frames)
+    return self._transform_history_observations(
+        self._batch_env.history_observations
+    )
 
 
 class RewardClippingWrapper(WrapperBase):
@@ -133,7 +135,7 @@ class MaxAndSkipWrapper(WrapperBase):
       with tf.control_dependencies([self._observ.assign(simulate_ret[0])]):
         return tf.identity(simulate_ret[1]), tf.identity(simulate_ret[2])
 
-  def _transform_history_frames(self, frames):
+  def _transform_history_observations(self, frames):
     # Should be implemented if ever MaxAndSkipWrapper and StackWrapper are to
     # be used together.
     raise NotImplementedError
@@ -171,7 +173,7 @@ class StackWrapper(WrapperBase):
     # pylint: disable=protected-access
     new_values = self._batch_env._reset_non_empty(indices)
     # pylint: enable=protected-access
-    initial_frames = getattr(self._batch_env, "history_frames", None)
+    initial_frames = getattr(self._batch_env, "history_observations", None)
     if initial_frames is not None:
       # Using history buffer frames for initialization, if they are available.
       with tf.control_dependencies([new_values]):
@@ -193,7 +195,7 @@ class StackWrapper(WrapperBase):
     with tf.control_dependencies([assign_op]):
       return tf.gather(self.observ, indices)
 
-  def _transform_history_frames(self, frames):
+  def _transform_history_observations(self, frames):
     # Should be implemented if ever two StackWrappers are to be used together.
     raise NotImplementedError
 
@@ -246,7 +248,7 @@ class AutoencoderWrapper(WrapperBase):
       with tf.control_dependencies([assign_op]):
         return tf.gather(self.observ, indices)
 
-  def _transform_history_frames(self, frames):
+  def _transform_history_observations(self, frames):
     batch_size, history_size = frames.get_shape().as_list()[:2]
     new_frames = tf.reshape(frames, (-1,) + self._batch_env.observ_shape)
     new_frames = tf.cast(new_frames, tf.int32)
@@ -296,7 +298,7 @@ class IntToBitWrapper(WrapperBase):
     with tf.control_dependencies([assign_op]):
       return tf.identity(new_values_unpacked)
 
-  def _transform_history_frames(self, frames):
+  def _transform_history_observations(self, frames):
     batch_size, history_size = frames.get_shape().as_list()[:2]
     new_frames = discretization.int_to_bit(frames, 8)
     new_frames = tf.reshape(
