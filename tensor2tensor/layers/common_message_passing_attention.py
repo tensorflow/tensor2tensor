@@ -367,6 +367,8 @@ def sparse_message_pass_batched(node_states,
                                 adjacency_matrices,
                                 num_edge_types,
                                 hidden_size,
+                                use_bias=True,
+                                average_aggregation=False,
                                 name="sparse_ggnn_batched"):
   """Identical to sparse_ggnn except that each input has a batch dimension.
 
@@ -381,6 +383,10 @@ def sparse_message_pass_batched(node_states,
       type and batch. Shape: [B, N, N, T] (sparse).
     num_edge_types: The number of edge types. T.
     hidden_size: The size of the hidden layer. H.
+    use_bias: Whether to use bias in the hidden layer.
+    average_aggregation: How to aggregate the incoming node messages. If
+      average_aggregation is true, the messages are averaged. If it is false,
+      they are summed.
     name: (optional) The scope within which tf variables should be created.
 
   Returns:
@@ -410,8 +416,14 @@ def sparse_message_pass_batched(node_states,
                                        dense_shape=new_shape)
 
   # Run a message-passing step and return the result with the batch dimension.
-  node_states = sparse_message_pass(node_states, adjacency_matrices,
-                                    num_edge_types, hidden_size, name)
+  node_states = sparse_message_pass(
+      node_states,
+      adjacency_matrices,
+      num_edge_types,
+      hidden_size,
+      use_bias=use_bias,
+      average_aggregation=average_aggregation,
+      name=name)
   return tf.reshape(node_states, [b, n, hidden_size])
 
 
@@ -419,6 +431,8 @@ def sparse_message_pass(node_states,
                         adjacency_matrices,
                         num_edge_types,
                         hidden_size,
+                        use_bias=True,
+                        average_aggregation=False,
                         name="sparse_ggnn"):
   """One message-passing step for a GNN with a sparse adjacency matrix.
 
@@ -435,6 +449,10 @@ def sparse_message_pass(node_states,
       type. Shape is [N, N, T] (sparse tensor).
     num_edge_types: The number of edge types. T.
     hidden_size: The size of the hidden state. H.
+    use_bias: Whether to use bias in the hidden layer.
+    average_aggregation: How to aggregate the incoming node messages. If
+      average_aggregation is true, the messages are averaged. If it is false,
+      they are summed.
     name: (optional) The scope within which tf variables should be created.
 
   Returns:
@@ -443,6 +461,7 @@ def sparse_message_pass(node_states,
   """
   n = tf.shape(node_states)[0]
   t = num_edge_types
+  incoming_edges_per_type = tf.sparse_reduce_sum(adjacency_matrices, axis=1)
 
   # Convert the adjacency matrix into shape [T, N, N] - one [N, N] adjacency
   # matrix for each edge type. Since sparse tensor multiplication only supports
@@ -475,7 +494,18 @@ def sparse_message_pass(node_states,
   # adding everything at the end.
   with tf.variable_scope(name, default_name="sparse_ggnn"):
     final_node_states = common_layers.dense(
-        messages, hidden_size, use_bias=True)
+        messages, hidden_size, use_bias=False)
+
+    # Multiply the bias by for each edge type by the number of incoming nodes
+    # of that edge type.
+    if use_bias:
+      bias = tf.get_variable("bias", initializer=tf.zeros([t, hidden_size]))
+      final_node_states += tf.matmul(incoming_edges_per_type, bias)
+
+    if average_aggregation:
+      incoming_edges = tf.reduce_sum(incoming_edges_per_type, -1, keepdims=True)
+      incoming_edges = tf.tile(incoming_edges, [1, hidden_size])
+      final_node_states /= incoming_edges + 1e-7
 
   return final_node_states
 

@@ -51,7 +51,9 @@ def ppo_base_v1():
   hparams.add_hparam("optimization_batch_size", 50)
   hparams.add_hparam("max_gradients_norm", 0.5)
   hparams.add_hparam("simulation_random_starts", False)
+  hparams.add_hparam("simulation_flip_first_random_for_beginning", False)
   hparams.add_hparam("intrinsic_reward_scale", 0.)
+  hparams.add_hparam("logits_clip", 0.)
   return hparams
 
 
@@ -117,7 +119,7 @@ def ppo_pong_base():
   hparams.num_eval_agents = 1
   hparams.policy_network = feed_forward_cnn_small_categorical_fun
   hparams.clipping_coef = 0.2
-  hparams.optimization_batch_size = 4
+  hparams.optimization_batch_size = 20
   hparams.max_gradients_norm = 0.5
   return hparams
 
@@ -191,6 +193,15 @@ def feed_forward_gaussian_fun(action_space, config, observations):
   return NetworkOutput(policy, value, lambda a: tf.clip_by_value(a, -2., 2))
 
 
+def clip_logits(logits, config):
+  logits_clip = getattr(config, "logits_clip", 0.)
+  if logits_clip > 0:
+    min_logit = tf.reduce_min(logits)
+    return tf.minimum(logits - min_logit, logits_clip)
+  else:
+    return logits
+
+
 def feed_forward_categorical_fun(action_space, config, observations):
   """Feed-forward categorical."""
   if not isinstance(action_space, gym.spaces.Discrete):
@@ -210,13 +221,13 @@ def feed_forward_categorical_fun(action_space, config, observations):
       for size in config.value_layers:
         x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
       value = tf.contrib.layers.fully_connected(x, 1, None)[..., 0]
+  logits = clip_logits(logits, config)
   policy = tf.contrib.distributions.Categorical(logits=logits)
   return NetworkOutput(policy, value, lambda a: a)
 
 
 def feed_forward_cnn_small_categorical_fun(action_space, config, observations):
   """Small cnn network with categorical output."""
-  del config
   obs_shape = common_layers.shape_list(observations)
   x = tf.reshape(observations, [-1] + obs_shape[2:])
 
@@ -236,6 +247,7 @@ def feed_forward_cnn_small_categorical_fun(action_space, config, observations):
 
       logits = tf.contrib.layers.fully_connected(x, action_space.n,
                                                  activation_fn=None)
+      logits = clip_logits(logits, config)
 
       value = tf.contrib.layers.fully_connected(
           x, 1, activation_fn=None)[..., 0]

@@ -150,3 +150,91 @@ def xmoe_2d_88():
   return hparams
 
 
+@registry.register_hparams
+def xmoe_wiki_base():
+  """Series of architectural experiments on wikipedia text.
+
+  For all of these architectures, we run on languagemodel_wiki_noref_v8k_l1k
+  for 3 epochs.  (training set has ~7390100 sequences each of length 1024)
+  1 epoch = 115000 steps at batch_size=64
+
+  Results:
+  model             params(M)  einsum  alltoall  mxu-util  log-ppl(1ep) (3ep)
+
+  Note: configurations and code are likely to change without notice.
+
+  Returns:
+    a hparams
+  """
+  hparams = mtf_transformer.mtf_transformer_base()
+
+  # The following hparams are constant across all these experiments.
+  hparams.label_smoothing = 0.0
+  hparams.max_length = 1024
+  hparams.batch_size = 64
+  hparams.d_model = 1024
+  hparams.d_kv = 128
+  hparams.num_heads = 8
+  hparams.shared_embedding_and_softmax_weights = False
+  hparams.learning_rate_decay_steps = 115000
+
+  # We will vary the following parameters related to the ffn/moe layers.
+  hparams.feedforward_layer = "dense_relu_dense"
+  hparams.d_ff = 8192
+  hparams.layout = "batch:batch;vocab:model;d_ff:model;heads:model"
+  hparams.mesh_shape = "batch:32"
+  return hparams
+
+
+@registry.register_hparams
+def xmoe_wiki_f64k():
+  """d_ff = 64k.
+
+  Returns:
+    a hparams object.
+  """
+  hparams = xmoe_wiki_base()
+  hparams.moe_hidden_size = 8192
+  hparams.d_ff = 65536
+  hparams.mesh_shape = "model:8;batch:16"
+  return hparams
+
+
+@registry.register_hparams
+def xmoe_wiki_x64():
+  """Two-dimensional hierarchical mixture of experts.
+
+  (8x8 experts) * (16M params/expert) * 6 layers = 6B params
+
+  Returns:
+    a hparams object.
+  """
+  hparams = xmoe_wiki_base()
+  moe.set_default_moe_hparams(hparams)
+  hparams.feedforward_layer = "hmoe"
+  hparams.moe_hidden_size = 8192
+  hparams.mesh_shape = "b0:4;b1:8"
+  hparams.layout = "outer_batch:b0;inner_batch:b1,expert_x:b1,expert_y:b0"
+  hparams.outer_batch_size = 4
+  hparams.moe_num_experts = [8, 8]
+  return hparams
+
+
+@registry.register_hparams
+def xmoe_wiki_x256():
+  """Two-dimensional hierarchical mixture of experts.
+
+  (16x16 experts) * (16M params/expert) * 6 layers = 24B params
+
+  Returns:
+    a hparams object.
+  """
+  hparams = xmoe_wiki_x64()
+  hparams.mesh_shape = "b0:8;b1:16"
+  hparams.outer_batch_size = 8
+  hparams.moe_num_experts = [16, 16]
+  hparams.batch_size = 256
+  hparams.learning_rate_decay_steps = 28750
+  return hparams
+
+

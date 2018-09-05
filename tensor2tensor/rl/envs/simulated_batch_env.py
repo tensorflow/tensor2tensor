@@ -39,9 +39,13 @@ FLAGS = flags.FLAGS
 class HistoryBuffer(object):
   """History Buffer."""
 
-  def __init__(self, input_dataset, length, observ_dtype):
-    self.input_data_iterator = (
-        input_dataset.batch(length).make_initializable_iterator())
+  def __init__(self, input_dataset, length, observ_dtype, start_frame=None):
+    if start_frame is None:
+      dataset = input_dataset.batch(length)
+    else:
+      dataset = input_dataset.batch(length - 1)
+      dataset = dataset.map(lambda x: tf.concat([start_frame, x], axis=0))
+    self.input_data_iterator = dataset.make_initializable_iterator()
     self.length = length
     self._observ_dtype = observ_dtype
     initial_frames = self.get_initial_observations()
@@ -127,20 +131,26 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
                       environment_spec.video_num_target_frames,
                       environment_spec=environment_spec)
 
+    initial_frames_dataset = initial_frames_problem.dataset(
+        tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir, shuffle_files=False,
+        hparams=hparams).take(1)
+    start_frame = None
     if environment_spec.simulation_random_starts:
       dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN,
                                                FLAGS.data_dir,
                                                shuffle_files=True,
                                                hparams=hparams)
       dataset = dataset.shuffle(buffer_size=1000)
+      if environment_spec.simulation_flip_first_random_for_beginning:
+        # Later flip the first random frame in PPO batch for the true beginning.
+        start = initial_frames_dataset.make_one_shot_iterator().get_next()
+        start_frame = tf.expand_dims(start["inputs"], axis=0)
     else:
-      dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN,
-                                               FLAGS.data_dir,
-                                               shuffle_files=False,
-                                               hparams=hparams).take(1)
+      dataset = initial_frames_dataset
 
     dataset = dataset.map(lambda x: x["inputs"]).repeat()
-    self.history_buffer = HistoryBuffer(dataset, self.length, self.observ_dtype)
+    self.history_buffer = HistoryBuffer(
+        dataset, self.length, self.observ_dtype, start_frame=start_frame)
 
     self._observ = tf.Variable(
         tf.zeros((len(self),) + observ_shape, self.observ_dtype),

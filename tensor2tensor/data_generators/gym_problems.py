@@ -164,8 +164,6 @@ class GymDiscreteProblem(video_utils.VideoProblem):
         data = [memory[i][memory_index][0] for i in range(4)]
         memory_index += 1
         observation, reward, done, action = data
-        # TODO(piotrmilos): cleanup types management
-        observation = observation.astype(np.uint8)
 
         debug_image = self.collect_statistics_and_generate_debug_image(
             pieces_generated, *data)
@@ -530,6 +528,7 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     env_spec = standard_atari_env_spec(self.env_name)
     env_spec.simulated_env = True
     env_spec.add_hparam("simulation_random_starts", False)
+    env_spec.add_hparam("simulation_flip_first_random_for_beginning", False)
     env_spec.add_hparam("intrinsic_reward_scale", 0.0)
     initial_frames_problem = registry.problem(self.initial_frames_problem)
     env_spec.add_hparam("initial_frames_problem", initial_frames_problem)

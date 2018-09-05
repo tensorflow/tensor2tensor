@@ -67,7 +67,8 @@ class WrapperBase(InGraphBatchEnv):
     Args:
       frames: A tensor of history frames to transform.
 
-    Returns a tensor of transformed frames.
+    Returns:
+      a tensor of transformed frames.
     """
     return frames
 

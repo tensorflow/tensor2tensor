@@ -170,6 +170,8 @@ def train_agent(problem_name, agent_model_dir,
 
   environment_spec = copy.copy(gym_problem.environment_spec)
   environment_spec.simulation_random_starts = hparams.simulation_random_starts
+  do_flip = hparams.simulation_flip_first_random_for_beginning
+  environment_spec.simulation_flip_first_random_for_beginning = do_flip
   environment_spec.intrinsic_reward_scale = hparams.intrinsic_reward_scale
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)
@@ -522,7 +524,9 @@ def rl_modelrl_base():
       autoencoder_train_steps=0,
       model_train_steps=50000,
       simulated_env_generator_num_steps=2000,
-      simulation_random_starts=True,
+      simulation_random_starts=True,  # Use random starts in PPO.
+      # Flip the first random frame in PPO batch for the true beginning.
+      simulation_flip_first_random_for_beginning=True,
       intrinsic_reward_scale=0.,
       ppo_epochs_num=2000,  # This should be enough to see something
       # Our simulated envs do not know how to reset.
@@ -542,6 +546,15 @@ def rl_modelrl_base():
       # the model_reward_accuracy metric.
       eval_world_model=True,
   )
+
+
+@registry.register_hparams
+def rl_modelrl_base_quick():
+  """Base setting with only 2 epochs and 500 PPO steps per epoch."""
+  hparams = rl_modelrl_base()
+  hparams.epochs = 2
+  hparams.ppo_epochs_num = 500
+  return hparams
 
 
 @registry.register_hparams
@@ -922,6 +935,20 @@ def rl_modelrl_num_frames(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_discrete("loop.num_real_env_frames",
                    [1000*el for el in [30, 100, 500, 1000]])
+
+
+@registry.register_ranged_hparams
+def rl_modelrl_ppo_optimization_batch_size(rhp):
+  rhp.set_categorical("loop.game", ["pong", "wrapped_full_pong", "seaquest"])
+  rhp.set_discrete("model.moe_loss_coef", list(range(10)))
+  rhp.set_discrete("ppo.optimization_batch_size", [4, 10, 20])
+
+
+@registry.register_ranged_hparams
+def rl_modelrl_logits_clip(rhp):
+  rhp.set_categorical("loop.game", ["pong", "wrapped_full_pong", "seaquest"])
+  rhp.set_discrete("model.moe_loss_coef", list(range(10)))
+  rhp.set_discrete("ppo.logits_clip", [0., 5.])
 
 
 def merge_unscoped_hparams(scopes_and_hparams):
