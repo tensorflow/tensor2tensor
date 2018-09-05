@@ -225,3 +225,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   def observ(self):
     """Access the variable holding the current observation."""
     return self._observ.read_value()
+
+  @property
+  def history_observations(self):
+    return self.history_buffer.get_all_elements()
