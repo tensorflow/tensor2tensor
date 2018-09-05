@@ -86,7 +86,6 @@ class UniversalTransformer(transformer.Transformer):
 
     return encoder_output, encoder_decoder_attention_bias, encoder_extra_output
 
-
   def decode(self,
              decoder_input,
              encoder_output,
@@ -415,11 +414,10 @@ def update_hparams_for_universal_transformer(hparams):
 
   # LSTM forget bias for lstm style recurrence.
   hparams.add_hparam("lstm_forget_bias", 1.0)
-  # Uses the memory at the last step as the final ouput, if true.
+  # Uses the memory at the last step as the final output, if true.
   hparams.add_hparam("use_memory_as_final_state", True)
   # if also add a ffn unit to the transition function when using gru/lstm
   hparams.add_hparam("add_ffn_unit_to_the_transition_function", False)
-
 
   # Type of act: basic/accumulated/global (instead of position-wise!)/random.
   hparams.add_hparam("act_type", "basic")
@@ -501,6 +499,7 @@ def adaptive_universal_transformer_base():
   hparams.recurrence_type = "act"
   return hparams
 
+
 @registry.register_hparams
 def adaptive_universal_transformer_small():
   hparams = universal_transformer_small()
@@ -555,7 +554,6 @@ def adaptive_universal_transformer_tall_actlossw001():
   return hparams
 
 
-
 @registry.register_hparams
 def adaptive_universal_transformer_base_dropout03():
   hparams = universal_transformer_base()
@@ -576,7 +574,6 @@ def adaptive_universal_transformer_base_dropout05():
   return hparams
 
 
-
 @registry.register_hparams
 def universal_transformer_skip_base():
   hparams = universal_transformer_base()
@@ -590,11 +587,13 @@ def universal_transformer_highway_base():
   hparams.recurrence_type = "highway"
   return hparams
 
+
 @registry.register_hparams
 def universal_transformer_dwa_base():
   hparams = universal_transformer_base()
   hparams.recurrence_type = "dwa"
   return hparams
+
 
 @registry.register_hparams
 def universal_transformer_lstm_base():
@@ -707,6 +706,7 @@ def universal_transformer_sepconv_base():
   hparams = universal_transformer_base()
   hparams.transformer_ffn_type = "sepconv"
   return hparams
+
 
 @registry.register_ranged_hparams
 def universal_transformer_base_range(rhp):
