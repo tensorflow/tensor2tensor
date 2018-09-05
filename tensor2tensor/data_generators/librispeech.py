@@ -16,6 +16,7 @@
 
 import os
 import tarfile
+import tqdm  # pylint: disable=g-bad-import-order
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import speech_recognition
@@ -141,7 +142,8 @@ class Librispeech(speech_recognition.SpeechRecognitionProblem):
       audio_encoder = encoders["waveforms"]
       text_encoder = encoders["targets"]
 
-      for utt_id, media_file, text_data in sorted(data_pairs)[start_from:]:
+      for utt_id, media_file, text_data in tqdm.tqdm(
+          sorted(data_pairs)[start_from:]):
         if how_many > 0 and i == how_many:
           return
         i += 1
