@@ -944,6 +944,13 @@ def rl_modelrl_ppo_optimization_batch_size(rhp):
   rhp.set_discrete("ppo.optimization_batch_size", [4, 10, 20])
 
 
+@registry.register_ranged_hparams
+def rl_modelrl_logits_clip(rhp):
+  rhp.set_categorical("loop.game", ["pong", "wrapped_full_pong", "seaquest"])
+  rhp.set_discrete("model.moe_loss_coef", list(range(10)))
+  rhp.set_discrete("ppo.logits_clip", [0., 5.])
+
+
 def merge_unscoped_hparams(scopes_and_hparams):
   """Merge multiple HParams into one with scopes."""
   merged_values = {}
