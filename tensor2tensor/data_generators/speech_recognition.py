@@ -22,8 +22,8 @@ import functools
 import numpy as np
 import scipy.signal
 
-from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import audio_encoder
+from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers

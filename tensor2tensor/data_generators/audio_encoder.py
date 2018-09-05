@@ -15,11 +15,10 @@
 """Encoder for audio data."""
 
 import os
+from subprocess import call
 import tempfile
 import numpy as np
-
 from scipy.io import wavfile
-from subprocess import call
 
 
 class AudioEncoder(object):
