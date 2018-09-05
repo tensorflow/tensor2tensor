@@ -558,6 +558,15 @@ def rl_modelrl_base_quick():
 
 
 @registry.register_hparams
+def rl_modelrl_base_quick_sd():
+  """Quick setting with stochastic discrete model."""
+  hparams = rl_modelrl_base_quick()
+  hparams.generative_model = "next_frame_basic_stochastic_discrete"
+  hparams.generative_model_params = "next_frame_basic_stochastic_discrete"
+  return hparams
+
+
+@registry.register_hparams
 def rl_modelrl_base_stochastic():
   """Base setting with a stochastic next-frame model."""
   hparams = rl_modelrl_base()
