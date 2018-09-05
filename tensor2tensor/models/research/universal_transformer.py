@@ -86,6 +86,7 @@ class UniversalTransformer(transformer.Transformer):
 
     return encoder_output, encoder_decoder_attention_bias, encoder_extra_output
 
+
   def decode(self,
              decoder_input,
              encoder_output,
@@ -93,6 +94,7 @@ class UniversalTransformer(transformer.Transformer):
              decoder_self_attention_bias,
              hparams,
              cache=None,
+             decode_loop_step=None,
              nonpadding=None,
              losses=None):
     """Decode Universal Transformer outputs from encoder representation.
@@ -112,6 +114,7 @@ class UniversalTransformer(transformer.Transformer):
         self-attention. [batch_size, decoder_length]
       hparams: hyperparmeters for model.
       cache: Unimplemented.
+      decode_loop_step: Unused.
       nonpadding: optional Tensor with shape [batch_size, decoder_length]
       losses: Unused.
 
@@ -123,6 +126,7 @@ class UniversalTransformer(transformer.Transformer):
             variants of the model (e.g. in ACT, to pass the ponder-time to body)
 
     """
+    del decode_loop_step
     del losses
     # TODO(dehghani): enable caching.
     del cache
@@ -392,7 +396,7 @@ def update_hparams_for_universal_transformer(hparams):
 
   # Default ffn layer is separable convolution.
   # Options: "fc" and "sepconv".
-  hparams.add_hparam("transformer_ffn_type", "sepconv")
+  hparams.add_hparam("transformer_ffn_type", "fc")
 
   # Transform bias (in models with highway or skip connection).
   hparams.add_hparam("transform_bias_init", -1.0)
@@ -409,30 +413,13 @@ def update_hparams_for_universal_transformer(hparams):
   # With dense_relu_dense, the bias/kernel initializations will not be applied.
   hparams.add_hparam("gate_ffn_layer", "dense")
 
-  # Config for all rnn style recurrencies (rnn, lstm, gru):
-  # Input of the gate functions: i:input/s:state/t:transformed state.
-  # or any combination: e.g. is, ts, ist, etc.
-  hparams.add_hparam("gates_inputs", "i")
-
-  # LSTEM forget bias.
+  # LSTM forget bias for lstm style recurrence.
   hparams.add_hparam("lstm_forget_bias", 1.0)
+  # Uses the memory at the last step as the final ouput, if true.
+  hparams.add_hparam("use_memory_as_final_state", True)
+  # if also add a ffn unit to the transition function when using gru/lstm
+  hparams.add_hparam("add_ffn_unit_to_the_transition_function", False)
 
-  # How to combine state and input in each step:
-  # "mh_attention_ffn_add" or "add_mh_attention_ffn" or "dense_mh_attention"
-  # or "mh_attention_dense".
-  # Interpretation for e.g. "mh_attention_ffn_add":
-  # Apply transformer attention then transformer ffn, then add.
-  hparams.add_hparam("inputs_states_combination", "mh_attention_ffn_add")
-
-  # Config for gru_style recurrency:
-  # What to transform in gru: state/output/candidate/combination of them.
-  hparams.add_hparam("gru_transformation", ["state_transformation"])
-
-  # Config for lstm_style Recurrency:
-  # What to transform in lstm: state/modulated_input/memory.
-  hparams.add_hparam("lstm_transformation", ["state_transformation"])
-  # Uses the mememory at the last step as the final touput, if true.
-  hparams.add_hparam("use_memory_as_final_state", False)
 
   # Type of act: basic/accumulated/global (instead of position-wise!)/random.
   hparams.add_hparam("act_type", "basic")
@@ -494,12 +481,25 @@ def universal_transformer_teeny():
 
 
 @registry.register_hparams
+def universal_transformer_tall():
+  hparams = universal_transformer_small()
+  hparams.num_rec_steps = 16
+  return hparams
+
+
+@registry.register_hparams
 def universal_transformer_small_dropconnect():
   hparams = universal_transformer_small()
   hparams.gate_ffn_layer = "dense_dropconnect"
   hparams.add_hparam("dropconnect_dropout", 0.5)
   return hparams
 
+
+@registry.register_hparams
+def adaptive_universal_transformer_base():
+  hparams = universal_transformer_base()
+  hparams.recurrence_type = "act"
+  return hparams
 
 @registry.register_hparams
 def adaptive_universal_transformer_small():
@@ -516,75 +516,10 @@ def adaptive_universal_transformer_tiny():
 
 
 @registry.register_hparams
-def adaptive_universal_transformer_base():
+def adaptive_universal_transformer_global_base():
   hparams = universal_transformer_base()
   hparams.recurrence_type = "act"
-  return hparams
-
-
-@registry.register_hparams
-def adaptive_universal_transformer_random_small():
-  hparams = universal_transformer_small()
-  hparams.recurrence_type = "act"
-  hparams.act_type = "random"
-  return hparams
-
-
-@registry.register_hparams
-def adaptive_universal_transformer_accumulated_small():
-  hparams = universal_transformer_small()
-  hparams.recurrence_type = "act"
-  hparams.act_type = "accumulated"
-  return hparams
-
-
-@registry.register_hparams
-def adaptive_universal_transformer_global_small():
-  hparams = universal_transformer_small()
-  hparams.recurrence_type = "act"
   hparams.act_type = "global"
-  return hparams
-
-
-@registry.register_hparams
-def adaptive_universal_transformer_accumulated_tiny():
-  hparams = universal_transformer_tiny()
-  hparams.recurrence_type = "act"
-  hparams.act_type = "accumulated"
-  return hparams
-
-
-@registry.register_hparams
-def adaptive_universal_transformer_global_tiny():
-  hparams = universal_transformer_tiny()
-  hparams.recurrence_type = "act"
-  hparams.act_type = "global"
-  return hparams
-
-
-@registry.register_hparams
-def adaptive_universal_transformer_random_tiny():
-  hparams = universal_transformer_tiny()
-  hparams.recurrence_type = "act"
-  hparams.act_type = "random"
-  return hparams
-
-
-@registry.register_hparams
-def adaptive_universal_transformer_small_sb():
-  hparams = universal_transformer_small()
-  hparams.recurrence_type = "act"
-  hparams.batch_size = 2048
-  return hparams
-
-
-@registry.register_hparams
-def adaptive_universal_transformer_large():
-  hparams = universal_transformer_small()
-  hparams.recurrence_type = "act"
-  hparams.hidden_size = 1024
-  hparams.batch_size = 2048
-  hparams.filter_size = 2048
   return hparams
 
 
@@ -605,6 +540,7 @@ def adaptive_universal_transformer_tall_actlossw0():
   hparams.num_hidden_layers = 16
   hparams.batch_size = 1024
   hparams.act_max_steps = 24
+  hparams.act_loss_weight = 0.0
   return hparams
 
 
@@ -615,21 +551,13 @@ def adaptive_universal_transformer_tall_actlossw001():
   hparams.num_hidden_layers = 16
   hparams.batch_size = 1024
   hparams.act_max_steps = 24
+  hparams.act_loss_weight = 0.001
   return hparams
 
 
-@registry.register_hparams
-def adaptive_universal_transformer_small_d03():
-  hparams = universal_transformer_small()
-  hparams.recurrence_type = "act"
-  hparams.layer_prepostprocess_dropout = 0.3
-  hparams.attention_dropout = 0.3
-  hparams.relu_dropout = 0.3
-  return hparams
-
 
 @registry.register_hparams
-def adaptive_universal_transformer_base_d03():
+def adaptive_universal_transformer_base_dropout03():
   hparams = universal_transformer_base()
   hparams.recurrence_type = "act"
   hparams.layer_prepostprocess_dropout = 0.3
@@ -639,37 +567,8 @@ def adaptive_universal_transformer_base_d03():
 
 
 @registry.register_hparams
-def adaptive_universal_transformer_tiny_d02():
-  hparams = universal_transformer_tiny()
-  hparams.recurrence_type = "act"
-  hparams.layer_prepostprocess_dropout = 0.2
-  hparams.attention_dropout = 0.2
-  hparams.relu_dropout = 0.2
-  return hparams
-
-
-@registry.register_hparams
-def adaptive_universal_transformer_tiny_d02_sb():
-  hparams = universal_transformer_tiny()
-  hparams.recurrence_type = "act"
-  hparams.layer_prepostprocess_dropout = 0.2
-  hparams.attention_dropout = 0.2
-  hparams.relu_dropout = 0.2
-  hparams.batch_size = 2048
-  return hparams
-
-
-@registry.register_hparams
-def adaptive_universal_transformer_tiny_sb():
-  hparams = universal_transformer_tiny()
-  hparams.recurrence_type = "act"
-  hparams.batch_size = 2048
-  return hparams
-
-
-@registry.register_hparams
-def adaptive_universal_transformer_tiny_d05():
-  hparams = universal_transformer_tiny()
+def adaptive_universal_transformer_base_dropout05():
+  hparams = universal_transformer_base()
   hparams.recurrence_type = "act"
   hparams.layer_prepostprocess_dropout = 0.5
   hparams.attention_dropout = 0.5
@@ -677,87 +576,47 @@ def adaptive_universal_transformer_tiny_d05():
   return hparams
 
 
-@registry.register_hparams
-def universal_transformer_small_sb():
-  hparams = universal_transformer_small()
-  hparams.batch_size = 2048
-  return hparams
-
 
 @registry.register_hparams
-def universal_transformer_skip_small():
-  hparams = universal_transformer_small()
+def universal_transformer_skip_base():
+  hparams = universal_transformer_base()
   hparams.recurrence_type = "skip"
   return hparams
 
 
 @registry.register_hparams
-def universal_transformer_skip_tiny():
-  hparams = universal_transformer_tiny()
-  hparams.recurrence_type = "skip"
-  return hparams
-
-
-@registry.register_hparams
-def universal_transformer_highway_small():
-  hparams = universal_transformer_small()
+def universal_transformer_highway_base():
+  hparams = universal_transformer_base()
   hparams.recurrence_type = "highway"
   return hparams
 
-
 @registry.register_hparams
-def universal_transformer_highway_tiny():
-  hparams = universal_transformer_tiny()
-  hparams.recurrence_type = "highway"
-  return hparams
-
-
-@registry.register_hparams
-def universal_transformer_dwa_small():
-  hparams = universal_transformer_small()
+def universal_transformer_dwa_base():
+  hparams = universal_transformer_base()
   hparams.recurrence_type = "dwa"
   return hparams
 
-
 @registry.register_hparams
-def universal_transformer_dwa_tiny():
-  hparams = universal_transformer_tiny()
-  hparams.recurrence_type = "dwa"
-  return hparams
-
-
-@registry.register_hparams
-def universal_transformer_dwa_tiny_test():
-  hparams = universal_transformer_tiny()
-  hparams.recurrence_type = "dwa"
-  return hparams
-
-
-@registry.register_hparams
-def universal_transformer_rnn_small():
-  hparams = universal_transformer_small()
-  hparams.recurrence_type = "rnn"
-  return hparams
-
-
-@registry.register_hparams
-def universal_transformer_gru_small():
-  hparams = universal_transformer_small()
-  hparams.recurrence_type = "gru"
-  return hparams
-
-
-@registry.register_hparams
-def universal_transformer_lstm_small():
-  hparams = universal_transformer_small()
+def universal_transformer_lstm_base():
+  hparams = universal_transformer_base()
   hparams.recurrence_type = "lstm"
+  hparams.add_step_timing_signal = False  # Let lstm count in depth for us!
   return hparams
 
 
 @registry.register_hparams
-def universal_transformer_position_random_timing_small():
-  hparams = universal_transformer_small()
-  hparams.position_start_index = "random"
+def universal_transformer_gru_base():
+  hparams = universal_transformer_base()
+  hparams.recurrence_type = "gru"
+  hparams.add_step_timing_signal = False  # Let gru count in depth for us!
+  return hparams
+
+
+@registry.register_hparams
+def universal_transformer_lstm_tall():
+  hparams = universal_transformer_tall()
+  hparams.recurrence_type = "lstm"
+  hparams.add_step_timing_signal = False  # Let lstm count in depth for us!
   return hparams
 
 
@@ -791,39 +650,30 @@ def adaptive_universal_transformer_position_random_timing_tiny():
 
 
 @registry.register_hparams
-def adaptive_universal_transformer_position_step_timing_tiny():
-  hparams = universal_transformer_tiny()
-  hparams.recurrence_type = "act"
-  hparams.position_start_index = "step"
-  return hparams
-
-
-@registry.register_hparams
-def adaptive_universal_transformer_step_sinusoid_timing_tiny():
-  hparams = universal_transformer_tiny()
-  hparams.recurrence_type = "act"
-  hparams.step_timing_signal_type = "sinusoid"
-  return hparams
-
-
-@registry.register_hparams
-def universal_transformer_mix_after_ut_small():
-  hparams = universal_transformer_small()
+def universal_transformer_mix_before_ut_base():
+  hparams = universal_transformer_base()
   hparams.mix_with_transformer = "before_ut"
   return hparams
 
 
 @registry.register_hparams
-def adaptive_universal_transformer_mix_before_ut_small():
-  hparams = universal_transformer_small()
+def universal_transformer_mix_after_ut_base():
+  hparams = universal_transformer_base()
+  hparams.mix_with_transformer = "after_ut"
+  return hparams
+
+
+@registry.register_hparams
+def adaptive_universal_transformer_mix_before_ut_base():
+  hparams = universal_transformer_base()
   hparams.mix_with_transformer = "before_ut"
   hparams.recurrence_type = "act"
   return hparams
 
 
 @registry.register_hparams
-def adaptive_universal_transformer_mix_after_ut_small():
-  hparams = universal_transformer_small()
+def adaptive_universal_transformer_mix_after_ut_base():
+  hparams = universal_transformer_base()
   hparams.mix_with_transformer = "after_ut"
   hparams.recurrence_type = "act"
   return hparams
@@ -838,45 +688,29 @@ def adaptive_universal_transformer_concat_tiny():
 
 
 @registry.register_hparams
-def adaptive_universal_transformer_concat_small():
-  hparams = universal_transformer_small()
-  hparams.recurrence_type = "act"
-  hparams.add_or_concat_timing_signal = "concat"
-  return hparams
-
-
-@registry.register_hparams
-def adaptive_universal_transformer_with_sru_small():
-  hparams = universal_transformer_small()
+def adaptive_universal_transformer_with_sru_base():
+  hparams = universal_transformer_base()
   hparams.recurrence_type = "act"
   hparams.add_sru = True
   return hparams
 
 
 @registry.register_hparams
-def universal_transformer_fc_small():
-  hparams = universal_transformer_small()
-  hparams.transformer_ffn_type = "fc"
-  return hparams
-
-
-@registry.register_hparams
-def universal_transformer_fc_base():
-  hparams = universal_transformer_base()
-  hparams.transformer_ffn_type = "fc"
-  return hparams
-
-
-@registry.register_hparams
-def universal_transformer_fc_big():
+def universal_transformer_sepconv_big():
   hparams = universal_transformer_big()
-  hparams.transformer_ffn_type = "fc"
+  hparams.transformer_ffn_type = "sepconv"
   return hparams
 
+
+@registry.register_hparams
+def universal_transformer_sepconv_base():
+  hparams = universal_transformer_base()
+  hparams.transformer_ffn_type = "sepconv"
+  return hparams
 
 @registry.register_ranged_hparams
 def universal_transformer_base_range(rhp):
-  """Small range of hyperparameters."""
+  """Range of hyperparameters."""
   # After starting from base, set intervals for some parameters.
   rhp.set_discrete("num_rec_steps", [6, 8, 10])
   rhp.set_discrete("hidden_size", [1024, 2048, 4096])
@@ -889,7 +723,7 @@ def universal_transformer_base_range(rhp):
 
 @registry.register_ranged_hparams
 def adaptive_universal_transformer_base_range(rhp):
-  """Small range of hyperparameters."""
+  """Range of hyperparameters."""
   # After starting from base, set intervals for some parameters.
   rhp.set_discrete("act_max_steps", [8, 16, 32])
   rhp.set_float("act_loss_weight", 0.0, 0.5)
