@@ -119,7 +119,7 @@ def ppo_pong_base():
   hparams.num_eval_agents = 1
   hparams.policy_network = feed_forward_cnn_small_categorical_fun
   hparams.clipping_coef = 0.2
-  hparams.optimization_batch_size = 4
+  hparams.optimization_batch_size = 20
   hparams.max_gradients_norm = 0.5
   return hparams
 
