@@ -90,73 +90,6 @@ ATARI_GAME_MODES = [
 ATARI_PROBLEMS = {}
 
 
-@registry.register_problem
-class GymWrappedFullPongRandom(GymDiscreteProblem):
-  """Pong game, random actions."""
-
-  @property
-  def env_name(self):
-    return "T2TPongWarmUp20RewSkipFull-v1"
-
-  @property
-  def min_reward(self):
-    return -1
-
-  @property
-  def num_rewards(self):
-    return 3
-
-  @property
-  def num_testing_steps(self):
-    return 100
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedFullPong(GymRealDiscreteProblem,
-                                                   GymWrappedFullPongRandom):
-  pass
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedFullPongWithAutoencoder(
-    GymDiscreteProblemWithAutoencoder, GymWrappedFullPongRandom):
-  pass
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedFullPongAutoencoded(
-    GymDiscreteProblemAutoencoded, GymWrappedFullPongRandom):
-  pass
-
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnWrappedFullPong(
-    GymSimulatedDiscreteProblem, GymWrappedFullPongRandom):
-  """Simulated pong."""
-
-  @property
-  def initial_frames_problem(self):
-    return "gym_discrete_problem_with_agent_on_wrapped_full_pong"
-
-  @property
-  def num_testing_steps(self):
-    return 100
-
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnWrappedFullPongAutoencoded(
-    GymSimulatedDiscreteProblemAutoencoded, GymWrappedFullPongRandom):
-  """GymSimulatedDiscreteProblemWithAgentOnWrappedFullPongAutoencoded."""
-
-  @property
-  def initial_frames_problem(self):
-    return "gym_discrete_problem_with_agent_on_wrapped_full_pong_autoencoded"
-
-  @property
-  def num_testing_steps(self):
-    return 100
-
-
 class GymClippedRewardRandom(GymDiscreteProblem):
   """Abstract base class for clipped reward games."""
 
@@ -173,7 +106,67 @@ class GymClippedRewardRandom(GymDiscreteProblem):
     return 3
 
 
-def create_problems_for_game(
+def _snake_case_to_camel_case(snake_case):
+  return "".join([w[0].upper() + w[1:] for w in snake_case.split("_")])
+
+
+def create_problems_for_env(game_name, entry_point, env_name_suffix=None,
+                            base_problem=GymClippedRewardRandom,
+                            env_register_kwargs=None):
+  """Create and register problems for environment with given entry_point.
+
+  Args:
+    game_name: str, snake case name to identify the env by in the flags
+    entry_point: argumentless function returning the environment
+    env_name_suffix: str or None, appended to the name of the wrapped env,
+        if None then appends "-v1" to the env name to keep the gym convention
+    base_problem: type, class to derive the base env Problem from
+    env_register_kwargs: dict, kwargs to pass to gym.envs.register
+
+  Returns:
+    dict of problems with keys ("base", "agent", "simulated").
+  """
+  camel_game_name = _snake_case_to_camel_case(game_name)
+  if env_name_suffix is not None:
+    camel_game_name += env_name_suffix
+  wrapped_env_name = "T2T%s" % camel_game_name
+  if env_name_suffix is None:
+    wrapped_env_name += "-v1"
+  if env_register_kwargs is None:
+    env_register_kwargs = {}
+
+  # Register an environment with the given entry_point
+  gym.envs.register(
+      id=wrapped_env_name, entry_point=entry_point, **env_register_kwargs
+  )
+
+  # Create and register the Random and WithAgent Problem classes
+  problem_cls = type("Gym%sRandom" % camel_game_name, (base_problem,),
+                     {"env_name": wrapped_env_name})
+  registry.register_problem(problem_cls)
+
+  with_agent_cls = type("GymDiscreteProblemWithAgentOn%s" % camel_game_name,
+                        (GymRealDiscreteProblem, problem_cls), {})
+
+  registry.register_problem(with_agent_cls)
+
+  # Create and register the simulated Problem
+  simulated_cls = type(
+      "GymSimulatedDiscreteProblemWithAgentOn%s" % camel_game_name,
+      (GymSimulatedDiscreteProblem, problem_cls), {
+          "initial_frames_problem": with_agent_cls.name,
+          "num_testing_steps": 100
+      })
+  registry.register_problem(simulated_cls)
+
+  return {
+      "base": problem_cls,
+      "agent": with_agent_cls,
+      "simulated": simulated_cls,
+  }
+
+
+def create_problems_for_atari_game(
     game_name,
     clipped_reward=True,
     game_mode="Deterministic-v4"):
@@ -198,52 +191,96 @@ def create_problems_for_game(
     raise ValueError("Game %s not in ATARI_GAMES" % game_name)
   if game_mode not in ATARI_GAME_MODES:
     raise ValueError("Unknown ATARI game mode: %s." % game_mode)
-  camel_game_name = "".join(
-      [w[0].upper() + w[1:] for w in game_name.split("_")])
-  camel_game_name += game_mode
-  env_name = camel_game_name
-  wrapped_env_name = "T2T%s" % env_name
 
-  # Register an environment that does the reward clipping
-  gym.envs.register(
-      id=wrapped_env_name,
+  env_name = _snake_case_to_camel_case(game_name) + game_mode
+
+  return create_problems_for_env(
+      game_name, env_name_suffix=game_mode,
       entry_point=lambda: gym_utils.wrapped_factory(  # pylint: disable=g-long-lambda
           env=env_name, reward_clipping=True))
 
-  # Create and register the Random and WithAgent Problem classes
-  problem_cls = type("Gym%sRandom" % camel_game_name,
-                     (GymClippedRewardRandom,),
-                     {"env_name": wrapped_env_name})
-  registry.register_problem(problem_cls)
-
-  with_agent_cls = type("GymDiscreteProblemWithAgentOn%s" % camel_game_name,
-                        (GymRealDiscreteProblem, problem_cls), {})
-
-  registry.register_problem(with_agent_cls)
-
-  # Create and register the simulated Problem
-  simulated_cls = type(
-      "GymSimulatedDiscreteProblemWithAgentOn%s" % camel_game_name,
-      (GymSimulatedDiscreteProblem, problem_cls), {
-          "initial_frames_problem": with_agent_cls.name,
-          "num_testing_steps": 100
-      })
-  registry.register_problem(simulated_cls)
-
-  return {
-      "base": problem_cls,
-      "agent": with_agent_cls,
-      "simulated": simulated_cls,
-  }
 
 # Register the atari games with all of the possible modes.
 for game in ATARI_ALL_MODES_SHORT_LIST:
   ATARI_PROBLEMS[game] = {}
   for mode in ATARI_GAME_MODES:
-    classes = create_problems_for_game(
+    classes = create_problems_for_atari_game(
         game,
         clipped_reward=True,
         game_mode=mode)
     ATARI_PROBLEMS[game][mode] = classes
 
 
+@registry.register_problem
+class GymClippedRewardRandom100TestSteps(GymClippedRewardRandom):
+
+  @property
+  def num_testing_steps(self):
+    return 100
+
+
+create_problems_for_env(
+    "wrapped_long_pong",
+    entry_point=lambda: gym_utils.wrapped_pong_factory(  # pylint: disable=g-long-lambda
+        warm_up_examples=20, reward_skip_steps=15
+    ),
+    env_register_kwargs={"max_episode_steps": 200}
+)
+
+
+full_pong_problems = create_problems_for_env(
+    "wrapped_full_pong",
+    entry_point=lambda: gym_utils.wrapped_pong_factory(  # pylint: disable=g-long-lambda
+        warm_up_examples=20, reward_skip_steps=15
+    )
+)
+
+
+@registry.register_problem
+class GymDiscreteProblemWithAgentOnWrappedFullPongWithAutoencoder(
+    GymDiscreteProblemWithAutoencoder, full_pong_problems["base"]):
+  pass
+
+
+@registry.register_problem
+class GymDiscreteProblemWithAgentOnWrappedFullPongAutoencoded(
+    GymDiscreteProblemAutoencoded, full_pong_problems["base"]):
+  pass
+
+
+@registry.register_problem
+class GymSimulatedDiscreteProblemWithAgentOnWrappedFullPongAutoencoded(
+    GymSimulatedDiscreteProblemAutoencoded, full_pong_problems["base"]):
+  """GymSimulatedDiscreteProblemWithAgentOnWrappedFullPongAutoencoded."""
+
+  @property
+  def initial_frames_problem(self):
+    return "gym_discrete_problem_with_agent_on_wrapped_full_pong_autoencoded"
+
+  @property
+  def num_testing_steps(self):
+    return 100
+
+
+create_problems_for_env(
+    "wrapped_long_freeway",
+    entry_point=lambda: gym_utils.wrapped_freeway_factory(  # pylint: disable=g-long-lambda
+        warm_up_examples=1,
+        reward_clipping=True,
+        easy_freeway=False
+    ),
+    env_register_kwargs={"max_episode_steps": 500}
+)
+
+
+create_problems_for_env(
+    "wrapped_long_breakout",
+    entry_point=lambda: gym_utils.wrapped_breakout_factory(  # pylint: disable=g-long-lambda
+        warm_up_examples=1,
+        ball_down_skip=9,
+        big_ball=False,
+        include_direction_info=True,
+        reward_clipping=True
+    ),
+    env_register_kwargs={"max_episode_steps": 500}
+)

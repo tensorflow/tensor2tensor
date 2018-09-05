@@ -120,17 +120,6 @@ def wrapped_pong_factory(warm_up_examples=0, action_space_reduction=False,
   return env
 
 
-gym.envs.register(id="T2TPongWarmUp20RewSkip200Steps-v1",
-                  entry_point=lambda: wrapped_pong_factory(  # pylint: disable=g-long-lambda
-                      warm_up_examples=20, reward_skip_steps=15),
-                  max_episode_steps=200)
-
-
-gym.envs.register(id="T2TPongWarmUp20RewSkipFull-v1",
-                  entry_point=lambda: wrapped_pong_factory(  # pylint: disable=g-long-lambda
-                      warm_up_examples=20, reward_skip_steps=15))
-
-
 class BreakoutWrapper(WarmupWrapper):
   """Breakout Wrapper."""
 
@@ -230,17 +219,6 @@ def wrapped_breakout_factory(warm_up_examples=0,
   return env
 
 
-gym.envs.register(id="T2TBreakoutWarmUp20RewSkip500Steps-v1",
-                  entry_point=lambda: wrapped_breakout_factory(  # pylint: disable=g-long-lambda
-                      warm_up_examples=1,
-                      ball_down_skip=9,
-                      big_ball=False,
-                      include_direction_info=True,
-                      reward_clipping=True
-                  ),
-                  max_episode_steps=500)
-
-
 class FreewayWrapper(WarmupWrapper):
   """Wrapper for Freeway."""
 
@@ -291,14 +269,6 @@ def wrapped_freeway_factory(warm_up_examples=0,
                        easy_freeway=easy_freeway)
 
   return env
-
-gym.envs.register(id="T2TFreewayWarmUp20RewSkip500Steps-v1",
-                  entry_point=lambda: wrapped_freeway_factory(  # pylint: disable=g-long-lambda
-                      warm_up_examples=1,
-                      reward_clipping=True,
-                      easy_freeway=False
-                  ),
-                  max_episode_steps=500)
 
 
 class DefaultGymWrapper(gym.Wrapper):
