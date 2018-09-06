@@ -575,6 +575,10 @@ def attention_bias_local_block(mesh, block_length, memory_length,
                                dtype=tf.int32):
   """Bias for attention for local blocks where attention to right is disallowed.
 
+  Create the bias matrix by using two separate masks, one for the memory part
+  which doesn't overlap with the query and second which interacts with the query
+  and should be disallowed to look to the right of the current query position.
+
   Args:
     mesh: a MeshTensorflow object
     block_length: a mtf.Dimension
@@ -582,10 +586,14 @@ def attention_bias_local_block(mesh, block_length, memory_length,
     dtype: a tf.dtype
 
   Returns:
-    a mtf.Tensor with shape [rows, cols]
+    a mtf.Tensor with shape [block_length, memory_length]
   """
+  memory_length = mtf.Dimension(memory_length.name, block_length.size)
+  memory_mask = mtf.zeros(mesh, [block_length, memory_length], dtype=dtype)
+
   mask = mtf.cast(mtf.less(mtf.range(mesh, block_length, dtype=dtype),
                            mtf.range(mesh, memory_length, dtype=dtype)),
                   dtype=dtype)
-  mask = mtf.cast(mask, dtype=tf.float32)  * -1e9
+  mask = mtf.cast(mtf.concat([memory_mask, mask], memory_length.name),
+                  dtype=tf.float32)  * -1e9
   return mask
