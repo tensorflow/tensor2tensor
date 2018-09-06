@@ -38,7 +38,7 @@ set_status
 #   * allen_brain_test
 #   * models/research
 # algorithmic_math_test: flaky
-pytest
+pytest \
   --ignore=tensor2tensor/utils/registry_test.py \
   --ignore=tensor2tensor/utils/trainer_lib_test.py \
   --ignore=tensor2tensor/visualization/visualization_test.py \
