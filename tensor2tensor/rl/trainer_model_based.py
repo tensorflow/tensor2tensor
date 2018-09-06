@@ -185,10 +185,12 @@ def train_agent(problem_name, agent_model_dir,
   }):
     rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir, epoch=epoch)
 
-def train_agent_real_env(problem_name, agent_model_dir,
-                event_dir, world_model_dir, epoch_data_dir, hparams, epoch=0,
-                is_final_epoch=False):
-  """Train the PPO agent in the simulated environment."""
+
+def train_agent_real_env(
+    problem_name, agent_model_dir, event_dir, world_model_dir, epoch_data_dir,
+    hparams, epoch=0, is_final_epoch=False):
+  """Train the PPO agent in the real environment."""
+  del epoch, is_final_epoch
   gym_problem = registry.problem(problem_name)
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_params_names = ["epochs_num", "epoch_length",
@@ -204,7 +206,7 @@ def train_agent_real_env(problem_name, agent_model_dir,
   if ppo_epochs_num == 0:
     return
 
-  ppo_hparams.save_models_every_epochs = ppo_epochs_num #check this
+  ppo_hparams.save_models_every_epochs = ppo_epochs_num
 
   environment_spec = copy.copy(gym_problem.environment_spec)
 
@@ -215,8 +217,9 @@ def train_agent_real_env(problem_name, agent_model_dir,
       "output_dir": world_model_dir,
       "data_dir": epoch_data_dir,
   }):
-    # epoch = 0 is a hackish way to avoid skiping training
-    rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir, epoch=0)
+    # epoch = 10**20 is a hackish way to avoid skiping training
+    rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir, epoch=10**20)
+
 
 def evaluate_world_model(simulated_problem_name, problem_name, hparams,
                          world_model_dir, epoch_data_dir, tmp_dir):
@@ -476,7 +479,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       log("World model reward accuracy: %.4f", model_reward_accuracy)
 
     # Train PPO
-    log("Training PPO")
+    log("Training PPO in simulated environment.")
     ppo_event_dir = os.path.join(directories["world_model"],
                                  "ppo_summaries", str(epoch))
     ppo_model_dir = directories["ppo"]
@@ -487,10 +490,11 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
                 hparams, epoch=epoch, is_final_epoch=is_final_epoch)
 
     # Train PPO on real env (short)
-    train_agent_real_env(problem_name, ppo_model_dir,
-                ppo_event_dir, directories["world_model"], epoch_data_dir,
-                hparams, epoch=epoch, is_final_epoch=is_final_epoch)
-
+    log("Training PPO in real environment.")
+    train_agent_real_env(
+        problem_name, ppo_model_dir,
+        ppo_event_dir, directories["world_model"], epoch_data_dir,
+        hparams, epoch=epoch, is_final_epoch=is_final_epoch)
 
     # Collect data from the real environment.
     log("Generating real environment data")
@@ -676,7 +680,7 @@ def rl_modelrl_tiny():
   """Tiny set for testing."""
   return rl_modelrl_base_sampling().override_from_dict(
       tf.contrib.training.HParams(
-          epochs=2,
+          epochs=1,
           num_real_env_frames=128,
           simulated_env_generator_num_steps=64,
           model_train_steps=2,
@@ -684,7 +688,9 @@ def rl_modelrl_tiny():
           ppo_time_limit=5,
           ppo_epoch_length=5,
           ppo_num_agents=2,
-          real_ppo_epochs_num=4,
+          real_ppo_epochs_num=1,
+          real_ppo_epoch_length=5,
+          real_ppo_num_agents=2,
           generative_model_params="next_frame_tiny",
       ).values())
 
