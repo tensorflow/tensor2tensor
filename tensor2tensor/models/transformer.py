@@ -219,7 +219,8 @@ class Transformer(t2t_model.T2TModel):
       NotImplementedError: If there are multiple data shards.
     """
     # For real-valued modalities use the slow decode path for now.
-    if self._target_modality_is_real:
+    if (self._target_modality_is_real or
+        self._hparams.self_attention_type != "dot_product"):
       return  super(Transformer, self)._greedy_infer(features, decode_length)
     with tf.variable_scope(self.name):
       return (self._fast_decode_tpu(features, decode_length) if use_tpu else
@@ -1221,8 +1222,11 @@ def transformer_encoder(encoder_input,
               hparams.num_heads,
               hparams.attention_dropout,
               attention_type=hparams.self_attention_type,
-              save_weights_to=save_weights_to,
               max_relative_position=hparams.max_relative_position,
+              heads_share_relative_embedding=(
+                  hparams.heads_share_relative_embedding),
+              add_relative_to_values=hparams.add_relative_to_values,
+              save_weights_to=save_weights_to,
               make_image_summary=make_image_summary,
               dropout_broadcast_dims=attention_dropout_broadcast_dims,
               max_length=hparams.get("max_length"),
@@ -1304,8 +1308,11 @@ def transformer_decoder(decoder_input,
               hparams.num_heads,
               hparams.attention_dropout,
               attention_type=hparams.self_attention_type,
-              save_weights_to=save_weights_to,
               max_relative_position=hparams.max_relative_position,
+              heads_share_relative_embedding=(
+                  hparams.heads_share_relative_embedding),
+              add_relative_to_values=hparams.add_relative_to_values,
+              save_weights_to=save_weights_to,
               cache=layer_cache,
               make_image_summary=make_image_summary,
               dropout_broadcast_dims=attention_dropout_broadcast_dims,
@@ -1324,6 +1331,10 @@ def transformer_decoder(decoder_input,
                 hparams.hidden_size,
                 hparams.num_heads,
                 hparams.attention_dropout,
+                max_relative_position=hparams.max_relative_position,
+                heads_share_relative_embedding=(
+                    hparams.heads_share_relative_embedding),
+                add_relative_to_values=hparams.add_relative_to_values,
                 save_weights_to=save_weights_to,
                 cache=layer_cache,
                 make_image_summary=make_image_summary,
@@ -1520,7 +1531,6 @@ def transformer_base_v1():
   hparams.add_hparam("causal_decoder_self_attention", True)
   hparams.add_hparam("use_pad_remover", True)
   hparams.add_hparam("self_attention_type", "dot_product")
-  hparams.add_hparam("max_relative_position", 0)
   hparams.add_hparam("conv_first_kernel", 3)
   hparams.add_hparam("attention_variables_3d", False)
   hparams.add_hparam("use_target_space_embedding", True)

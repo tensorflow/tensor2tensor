@@ -472,6 +472,57 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testRelativeAttentionV2(self):
+    # (batch, heads, length, depth)
+    x = np.random.rand(5, 4, 16, 7)
+    y = np.random.rand(5, 4, 16, 7)
+    max_relative_position = 3
+    a = common_attention.dot_product_self_attention_relative_v2(
+        tf.constant(x, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        None,
+        max_relative_position=max_relative_position,
+        heads_share_relative_embedding=False)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(a)
+    self.assertEqual(res.shape, (5, 4, 16, 7))
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testRelativeAttentionV2SharedRel(self):
+    # (batch, heads, length, depth)
+    x = np.random.rand(5, 4, 16, 7)
+    y = np.random.rand(5, 4, 16, 7)
+    max_relative_position = 3
+    a = common_attention.dot_product_self_attention_relative_v2(
+        tf.constant(x, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        None,
+        max_relative_position=max_relative_position,
+        heads_share_relative_embedding=True)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(a)
+    self.assertEqual(res.shape, (5, 4, 16, 7))
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testRelativeAttentionV2MaxRelativeLargerThanLength(self):
+    # (batch, heads, length, depth)
+    x = np.random.rand(5, 4, 3, 7)
+    y = np.random.rand(5, 4, 3, 7)
+    max_relative_position = 16
+    a = common_attention.dot_product_self_attention_relative_v2(
+        tf.constant(x, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        None,
+        max_relative_position=max_relative_position,
+        heads_share_relative_embedding=False)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(a)
+    self.assertEqual(res.shape, (5, 4, 3, 7))
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testDotProductUnMaskedAttentionRelativeV2(self):
     x = np.random.rand(5, 7, 12, 32)
     y = np.random.rand(5, 7, 12, 32)
@@ -486,6 +537,126 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testRelativeAttentionV2Unmasked(self):
+    # (batch, heads, length, depth)
+    x = np.random.rand(5, 4, 16, 7)
+    y = np.random.rand(5, 4, 16, 7)
+    max_relative_position = 3
+    a = common_attention.dot_product_unmasked_self_attention_relative_v2(
+        tf.constant(x, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        None,
+        max_relative_position=max_relative_position,
+        heads_share_relative_embedding=False)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(a)
+    self.assertEqual(res.shape, (5, 4, 16, 7))
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testRelativeAttentionV2UnmaskedSharedRel(self):
+    # (batch, heads, length, depth)
+    x = np.random.rand(5, 4, 16, 7)
+    y = np.random.rand(5, 4, 16, 7)
+    max_relative_position = 3
+    a = common_attention.dot_product_unmasked_self_attention_relative_v2(
+        tf.constant(x, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        None,
+        max_relative_position=max_relative_position,
+        heads_share_relative_embedding=True)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(a)
+    self.assertEqual(res.shape, (5, 4, 16, 7))
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testRelativeAttentionV2UnmaskedRelativeLargerThanLength(self):
+    # (batch, heads, length, depth)
+    x = np.random.rand(5, 4, 3, 7)
+    y = np.random.rand(5, 4, 3, 7)
+    max_relative_position = 16
+    a = common_attention.dot_product_unmasked_self_attention_relative_v2(
+        tf.constant(x, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        None,
+        max_relative_position=max_relative_position,
+        heads_share_relative_embedding=False)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(a)
+    self.assertEqual(res.shape, (5, 4, 3, 7))
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testMaskedRelativeLocalAttentionV2(self):
+    # (batch, heads, length, depth)
+    x = np.random.rand(5, 4, 16, 7)
+    y = np.random.rand(5, 4, 16, 7)
+    block_length = 3
+    a = common_attention.masked_relative_local_attention_1d(
+        tf.constant(x, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        block_length=block_length,
+        heads_share_relative_embedding=True,
+        add_relative_to_values=False,
+        name="masked_relative_local_attention_1d")
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(a)
+    self.assertEqual(res.shape, (5, 4, 16, 7))
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testMaskedRelativeLocalAttentionV2AddRelativeValues(self):
+    # (batch, heads, length, depth)
+    x = np.random.rand(5, 4, 16, 7)
+    y = np.random.rand(5, 4, 16, 7)
+    block_length = 3
+    a = common_attention.masked_relative_local_attention_1d(
+        tf.constant(x, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        block_length=block_length,
+        heads_share_relative_embedding=True,
+        add_relative_to_values=False,
+        name="masked_relative_local_attention_1d")
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(a)
+    self.assertEqual(res.shape, (5, 4, 16, 7))
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testMaskedRelativeLocalAttentionV2SeqShorterThanBlockLength(self):
+    # (batch, heads, length, depth)
+    x = np.random.rand(5, 7, 2, 7)
+    y = np.random.rand(5, 7, 2, 7)
+    block_length = 3
+    a = common_attention.masked_relative_local_attention_1d(
+        tf.constant(x, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        block_length=block_length,
+        heads_share_relative_embedding=True,
+        name="masked_relative_local_attention_1d")
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(a)
+    self.assertEqual(res.shape, (5, 7, 2, 7))
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testMaskedRelativeLocalAttentionV2SeqShorterThanTwiceBlockLength(self):
+    # (batch, heads, length, depth)
+    x = np.random.rand(5, 7, 5, 7)
+    y = np.random.rand(5, 7, 5, 7)
+    block_length = 3
+    a = common_attention.masked_relative_local_attention_1d(
+        tf.constant(x, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        tf.constant(y, dtype=tf.float32),
+        block_length=block_length,
+        heads_share_relative_embedding=True,
+        name="masked_relative_local_attention_1d")
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(a)
+    self.assertEqual(res.shape, (5, 7, 5, 7))
+
   def testBiasBatchCoordinates(self):
     """Testing the batch coordinates mask."""
     q = tf.constant([0, 0, 1, 1, 1, 1, 2, 2, 2], dtype=tf.int32)
@@ -536,3 +707,4 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
 
 if __name__ == "__main__":
   tf.test.main()
+

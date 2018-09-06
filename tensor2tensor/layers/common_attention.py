@@ -1678,16 +1678,68 @@ def _absolute_position_to_relative_position_masked(x):
   return x
 
 
+def get_relative_embeddings_left(max_relative_position, length, depth,
+                                 num_heads, heads_share_relative_embedding,
+                                 name):
+  """Instantiate or retrieve relative embeddings, sliced according to length.
+
+  Use for masked case where the relative attention is only looking left.
+
+  Args:
+    max_relative_position: an Integer for the number of entries in the relative
+      embedding, which corresponds to the max relative distance that is
+      considered.
+    length: an Integer, specifies the length of the input sequence for which
+      this relative embedding is retrieved for.
+    depth: an Integer, specifies the depth for relative embeddings.
+    num_heads: an Integer, specifies the number of heads.
+    heads_share_relative_embedding: a Boolean specifying if the relative
+      embedding is shared across heads.
+    name: a string giving the name of the embedding variables.
+
+  Returns:
+    a Tensor with shape [length, depth]
+  """
+  initializer_stddev = depth**-0.5
+  if heads_share_relative_embedding:
+    embedding_shape = (max_relative_position, depth)
+  else:
+    embedding_shape = (num_heads, max_relative_position, depth)
+  relative_embeddings = tf.get_variable(
+      name=name, shape=embedding_shape,
+      initializer=tf.random_normal_initializer(stddev=initializer_stddev))
+  # Pad first before slice to avoid using tf.cond.
+  pad_length = tf.maximum(length - max_relative_position, 0)
+  start_slice_position = tf.maximum(max_relative_position - length, 0)
+  if heads_share_relative_embedding:
+    padded_relative_embeddings = tf.pad(
+        relative_embeddings,
+        [[pad_length, 0], [0, 0]])
+    used_relative_embeddings = tf.slice(
+        padded_relative_embeddings,
+        [start_slice_position, 0], [length, -1])
+  else:
+    padded_relative_embeddings = tf.pad(
+        relative_embeddings,
+        [[0, 0], [pad_length, 0], [0, 0]])
+    used_relative_embeddings = tf.slice(
+        padded_relative_embeddings,
+        [0, start_slice_position, 0], [-1, length, -1])
+  return used_relative_embeddings
+
+
 def dot_product_self_attention_relative_v2(q,
                                            k,
                                            v,
                                            bias,
-                                           max_length=None,
+                                           max_relative_position=None,
                                            dropout_rate=0.0,
                                            image_shapes=None,
                                            name=None,
                                            make_image_summary=True,
-                                           dropout_broadcast_dims=None):
+                                           dropout_broadcast_dims=None,
+                                           heads_share_relative_embedding=False,
+                                           add_relative_to_values=False):
   """Calculate relative position-aware dot-product self-attention.
 
   Only works for masked self-attention (no looking forward).
@@ -1700,7 +1752,8 @@ def dot_product_self_attention_relative_v2(q,
     k: a Tensor with shape [batch, heads, length, depth].
     v: a Tensor with shape [batch, heads, length, depth].
     bias: bias Tensor.
-    max_length: an integer - changing this invalidates checkpoints
+    max_relative_position: an integer indicating the maximum relative distance
+      to look back - changing this invalidates checkpoints
     dropout_rate: a floating point number.
     image_shapes: optional tuple of integer scalars.
     name: an optional string.
@@ -1708,10 +1761,20 @@ def dot_product_self_attention_relative_v2(q,
     dropout_broadcast_dims:  an optional list of integers less than 4
       specifying in which dimensions to broadcast the dropout decisions.
       saves memory.
+    heads_share_relative_embedding: a boolean indicating wheather to share
+      relative embeddings between attention heads.
+    add_relative_to_values: a boolean for whether to add relative component to
+      values.
 
   Returns:
     A Tensor.
+
+  Raises:
+    ValueError: if max_relative_position is not > 0.
   """
+  if not max_relative_position:
+    raise ValueError("Max relative position (%s) should be > 0 when using "
+                     "relative self attention." % (max_relative_position))
   with tf.variable_scope(
       name,
       default_name="dot_product_self_attention_relative_v2",
@@ -1723,39 +1786,39 @@ def dot_product_self_attention_relative_v2(q,
     q.get_shape().assert_is_compatible_with(v.get_shape())
 
     # Use separate embeddings suitable for keys and values.
-    length = common_layers.shape_list(q)[2]
-    assert max_length is not None
+    _, num_heads, length, depth_k = common_layers.shape_list(k)
 
     # [batch, num_heads, query_length, memory_length]
     logits = tf.matmul(q, k, transpose_b=True)
+    key_relative_embeddings = get_relative_embeddings_left(
+        max_relative_position, length, depth_k, num_heads,
+        heads_share_relative_embedding, "key_relative_embededings")
 
-    # now add relative logits
-    # [batch, num_heads, query_length, max_length]
-    rel_logits = common_layers.dense(q, max_length, name="rel0")
-    # [batch, num_heads, query_length, max_length]
-    rel_logits = tf.slice(rel_logits, [0, 0, 0, max_length - length],
-                          [-1, -1, -1, -1])
+    rel_logits = matmul_with_relative_keys(q, key_relative_embeddings,
+                                           heads_share_relative_embedding)
     rel_logits = _relative_position_to_absolute_position_masked(rel_logits)
     logits += rel_logits
-
     if bias is not None:
       logits += bias
+
     weights = tf.nn.softmax(logits, name="attention_weights")
-    # dropping out the attention links for each of the heads
+    # Dropping out the attention links for each of the heads.
     weights = common_layers.dropout_with_broadcast_dims(
         weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
     if common_layers.should_generate_summaries() and make_image_summary:
       attention_image_summary(weights, image_shapes)
-    ret = tf.matmul(weights, v)
-    # [batch, num_heads, query_length, memory_length]
-    relative_weights = _absolute_position_to_relative_position_masked(weights)
-    # [batch, num_heads, query_length, memory_length]
-    relative_weights = tf.pad(
-        relative_weights, [[0, 0], [0, 0], [0, 0], [max_length - length, 0]])
-    relative_weights.set_shape([None, None, None, max_length])
-    depth_v = common_layers.shape_list(v)[3]
-    ret += common_layers.dense(relative_weights, depth_v, name="rel1")
-    return ret
+    output = tf.matmul(weights, v)
+    if add_relative_to_values:
+      # [batch, num_heads, query_length, memory_length]
+      relative_weights = _absolute_position_to_relative_position_masked(weights)
+      depth_v = common_layers.shape_list(v)[3]
+      value_relative_embeddings = get_relative_embeddings_left(
+          max_relative_position, length, depth_v, num_heads,
+          heads_share_relative_embedding, "value_relative_embeddings")
+      output += matmul_with_relative_values(
+          relative_weights, value_relative_embeddings,
+          heads_share_relative_embedding)
+    return output
 
 
 def _absolute_position_to_relative_position_unmasked(x):
@@ -1789,9 +1852,63 @@ def _absolute_position_to_relative_position_unmasked(x):
   return x
 
 
+def get_relative_embeddings_left_right(max_relative_position, length, depth,
+                                       num_heads,
+                                       heads_share_relative_embedding,
+                                       name):
+  """Instantiate or retrieve relative embeddings, sliced according to length.
+
+  Use for unmasked case where the relative attention looks both left and right.
+
+  Args:
+    max_relative_position: an Integer for the number of entries in the relative
+      embedding, which corresponds to the max relative distance that is
+      considered.
+    length: an Integer, specifies the length of the input sequence for which
+      this relative embedding is retrieved for.
+    depth: an Integer, specifies the depth for relative embeddings.
+    num_heads: an Integer, specifies the number of heads.
+    heads_share_relative_embedding: a Boolean specifying if the relative
+      embedding is shared across heads.
+    name: a string giving the name of the embedding variables.
+
+  Returns:
+    a Tensor with shape [length, depth]
+  """
+  initializer_stddev = depth**-0.5
+  max_relative_position_unmasked = 2 * max_relative_position - 1
+  if heads_share_relative_embedding:
+    embedding_shape = (max_relative_position_unmasked, depth)
+  else:
+    embedding_shape = (num_heads, max_relative_position_unmasked, depth)
+  relative_embeddings = tf.get_variable(
+      name=name, shape=embedding_shape,
+      initializer=tf.random_normal_initializer(stddev=initializer_stddev))
+  # Pad first before slice to avoid using tf.cond.
+  pad_length = tf.maximum(length - max_relative_position, 0)
+  slice_start_position = tf.maximum(max_relative_position-length, 0)
+  if heads_share_relative_embedding:
+    padded_relative_embeddings = tf.pad(
+        relative_embeddings,
+        [[pad_length, pad_length], [0, 0]])
+    used_relative_embeddings = tf.slice(
+        padded_relative_embeddings,
+        [slice_start_position, 0], [2 * length - 1, -1])
+  else:
+    padded_relative_embeddings = tf.pad(
+        relative_embeddings,
+        [[0, 0], [pad_length, pad_length], [0, 0]])
+    used_relative_embeddings = tf.slice(
+        padded_relative_embeddings,
+        [0, slice_start_position, 0], [-1, 2 * length - 1, -1])
+  return used_relative_embeddings
+
+
 def dot_product_unmasked_self_attention_relative_v2(
-    q, k, v, bias, max_length=None, dropout_rate=0.0, image_shapes=None,
-    name=None, make_image_summary=True, dropout_broadcast_dims=None):
+    q, k, v, bias, max_relative_position=None, dropout_rate=0.0,
+    image_shapes=None, name=None, make_image_summary=True,
+    dropout_broadcast_dims=None, heads_share_relative_embedding=False,
+    add_relative_to_values=False):
   """Calculate relative position-aware dot-product self-attention.
 
   The attention calculation is augmented with learned representations for the
@@ -1802,7 +1919,8 @@ def dot_product_unmasked_self_attention_relative_v2(
     k: a Tensor with shape [batch, heads, length, depth].
     v: a Tensor with shape [batch, heads, length, depth].
     bias: bias Tensor.
-    max_length: an integer - changing this invalidates checkpoints
+    max_relative_position: an integer the max relative embedding considered.
+      Changing this invalidates checkpoints.
     dropout_rate: a floating point number.
     image_shapes: optional tuple of integer scalars.
     name: an optional string.
@@ -1810,10 +1928,21 @@ def dot_product_unmasked_self_attention_relative_v2(
     dropout_broadcast_dims:  an optional list of integers less than 4
       specifying in which dimensions to broadcast the dropout decisions.
       saves memory.
+    heads_share_relative_embedding: a boolean indicating wheather to share
+      relative embeddings between attention heads.
+    add_relative_to_values: a boolean for whether to add relative component to
+      values.
 
   Returns:
     A Tensor.
+
+  Raises:
+    ValueError: if max_relative_position is not > 0.
   """
+  if not max_relative_position:
+    raise ValueError("Max relative position (%s) should be > 0 when using "
+                     "relative self attention." % (max_relative_position))
+
   with tf.variable_scope(
       name,
       default_name="dot_product_unmasked_self_attention_relative_v2",
@@ -1824,37 +1953,20 @@ def dot_product_unmasked_self_attention_relative_v2(
     q.get_shape().assert_is_compatible_with(k.get_shape())
     q.get_shape().assert_is_compatible_with(v.get_shape())
 
-    # Use separate embeddings suitable for keys and values.
-    length = common_layers.shape_list(q)[2]
-    assert max_length is not None
-    k_shape = common_layers.shape_list(k)
-    depth_k = k_shape[-1]
-    initializer_stddev = depth_k**-0.5
-    # TODO(avaswani): Add option for unshared relative embeddings
-    key_relative_embeddings = (
-        tf.get_variable(name="key_relative_embeddings",
-                        shape=(2*max_length-1, depth_k),
-                        initializer=tf.random_normal_initializer(
-                            stddev=initializer_stddev)))
     # [batch, num_heads, query_length, memory_length]
     logits = tf.matmul(q, k, transpose_b=True)
-    # slice out the right band of rel embeddings to save computation
-    # First pad the relative embeddings with zeros if the sequence length
-    # is longer than max length
-    padded_key_relative_embeddings = tf.pad(key_relative_embeddings,
-                                            [[tf.maximum(
-                                                length-max_length, 0),
-                                              tf.maximum(
-                                                  length-max_length, 0)],
-                                             [0, 0]])
-    used_key_relative_embeddings = tf.slice(padded_key_relative_embeddings,
-                                            [tf.maximum(
-                                                max_length-length,
-                                                length-max_length),
-                                             0],
-                                            [2*length -1, -1])
-    unmasked_rel_logits = tf.einsum("bhld,md->bhlm", q,
-                                    used_key_relative_embeddings)
+
+    length = common_layers.shape_list(q)[2]
+    k_shape = common_layers.shape_list(k)
+    num_heads = k_shape[1]
+    depth_k = k_shape[-1]
+
+    key_relative_embeddings = get_relative_embeddings_left_right(
+        max_relative_position, length, depth_k, num_heads,
+        heads_share_relative_embedding,
+        "key_relative_embeddings")
+    unmasked_rel_logits = matmul_with_relative_keys(
+        q, key_relative_embeddings, heads_share_relative_embedding)
     unmasked_rel_logits = _relative_position_to_absolute_position_unmasked(
         unmasked_rel_logits)
     logits += unmasked_rel_logits
@@ -1869,33 +1981,18 @@ def dot_product_unmasked_self_attention_relative_v2(
     if common_layers.should_generate_summaries() and make_image_summary:
       attention_image_summary(weights, image_shapes)
     ret = tf.matmul(weights, v)
-    # getting the contribution of the relative embeddings to the values
-    # [batch, num_heads, query_length, 2*memory_length-1]
-    relative_weights = _absolute_position_to_relative_position_unmasked(
-        weights)
-    depth_v = common_layers.shape_list(v)[3]
-    initializer_stddev = depth_v**-0.5
-    value_relative_embeddings = (
-        tf.get_variable(name="value_relative_embeddings",
-                        shape=(2*max_length-1, depth_v),
-                        initializer=tf.random_normal_initializer(
-                            stddev=initializer_stddev)))
-    # slice out the right band of rel embeddings to save computation
-    padded_value_relative_embeddings = tf.pad(value_relative_embeddings,
-                                              [[tf.maximum(
-                                                  length-max_length, 0),
-                                                tf.maximum(
-                                                    length-max_length, 0)],
-                                               [0, 0]])
-    used_value_relative_embeddings = tf.slice(padded_value_relative_embeddings,
-                                              [tf.maximum(
-                                                  max_length-length,
-                                                  length-max_length),
-                                               0],
-                                              [2*length -1, -1])
-
-    ret += tf.einsum("bhlm,md->bhld", relative_weights,
-                     used_value_relative_embeddings)
+    if add_relative_to_values:
+      # Adds the contribution of the weighted relative embeddings to the values.
+      # [batch, num_heads, query_length, 2*memory_length-1]
+      relative_weights = _absolute_position_to_relative_position_unmasked(
+          weights)
+      depth_v = common_layers.shape_list(v)[3]
+      value_relative_embeddings = get_relative_embeddings_left_right(
+          max_relative_position, length, depth_v, num_heads,
+          heads_share_relative_embedding, "value_relative_embeddings")
+      ret += matmul_with_relative_values(
+          relative_weights, value_relative_embeddings,
+          heads_share_relative_embedding)
     return ret
 
 
@@ -2106,14 +2203,15 @@ def _make_local_block(x, depth, batch, heads, num_blocks, block_length):
                     [batch, heads, num_blocks - 1, block_length * 2, depth])
 
 
-def masked_rel_local_attention_1d(q,
-                                  k,
-                                  v,
-                                  block_length=128,
-                                  make_image_summary=False,
-                                  dropout_rate=0.,
-                                  share_rel_embed=False,
-                                  name=None):
+def masked_relative_local_attention_1d(q,
+                                       k,
+                                       v,
+                                       block_length=128,
+                                       make_image_summary=False,
+                                       dropout_rate=0.,
+                                       heads_share_relative_embedding=False,
+                                       add_relative_to_values=False,
+                                       name=None):
   """Masked local 1d attention with relative positions.
 
   The sequence is divided into blocks of length block_size.
@@ -2131,21 +2229,38 @@ def masked_rel_local_attention_1d(q,
     block_length: an integer
     make_image_summary: a boolean, whether to make an attention image summary.
     dropout_rate: Dropout rate for attention dropout
-    share_rel_embed: Boolean for sharing relative embeddings
+    heads_share_relative_embedding: a boolean for sharing relative embeddings.
+    add_relative_to_values: a boolean for whether to add relative component to
+        values.
     name: an optional string
 
   Returns:
     a Tensor of shape [batch, heads, length, depth_v]
+
+  Raises:
+    ValueError: wwhen the name for the variable scope is not passed.
   """
+  if not name:
+    raise ValueError("Name must be assigned since reuse for variable scope is "
+                     "set to tf.AUTO_REUSE, in order to reuse relative "
+                     "embeddings of keys and values.")
+
+  # Reuse flag is set to auto_reuse to reuse relative embeddings of keys and
+  # values across blocks (first and tail blocks).
   with tf.variable_scope(
-      name, default_name="local_attention_1d", values=[q, k, v]):
+      name, default_name="masked_relative_local_attention_1d",
+      values=[q, k, v], reuse=tf.AUTO_REUSE):
 
     default_block_length = block_length
     batch = common_layers.shape_list(q)[0]
     heads = common_layers.shape_list(q)[1]
     length = common_layers.shape_list(q)[2]
     # If (length < 2 * block_length), then we use only one block.
-    block_length = length if length < block_length * 2 else block_length
+    if isinstance(length, int) and isinstance(block_length, int):
+      block_length = length if length < block_length * 2 else block_length
+    else:
+      block_length = tf.where(
+          tf.less(length, block_length * 2), length, block_length)
     depth_k = common_layers.shape_list(k)[3]
     depth_v = common_layers.shape_list(v)[3]
     original_length = length
@@ -2163,35 +2278,18 @@ def masked_rel_local_attention_1d(q,
     first_v = tf.slice(v, [0, 0, 0, 0], [-1, -1, block_length, -1])
     # Relative embeddings will be used later as well.
     # TODO(avaswani,annahuang): check why 2*bl was breaking for music
-    # We only multiply with the needed embeddings as we slice them out.
+    # Needs to be known at static shape inference time, hence cannot be
+    # 2 * block_length.
     rel_embed_length = 4 * default_block_length
-    # Relative embeddings can be shared or unshared
+    # We only multiply with the needed embeddings as we slice them out.
+    first_rel_embeddings = get_relative_embeddings_left(
+        rel_embed_length, block_length, depth_k, heads,
+        heads_share_relative_embedding, "relative_embeddings")
+    first_rel_logits = matmul_with_relative_keys(
+        first_q, first_rel_embeddings, heads_share_relative_embedding)
     first_logits = tf.matmul(first_q, first_k, transpose_b=True)
-    initializer_stddev = depth_k**-0.5
-    if share_rel_embed:
-      relative_embeddings = (
-          tf.get_variable(name="relative_embeddings",
-                          shape=(rel_embed_length, depth_k),
-                          initializer=tf.random_normal_initializer(
-                              stddev=initializer_stddev)))
-      masked_relative_embeddings = tf.slice(
-          relative_embeddings,
-          [rel_embed_length - block_length, 0], [-1, -1])
-      first_relative_logits = tf.einsum(
-          "bhld,md->bhlm", first_q, masked_relative_embeddings)
-    else:
-      relative_embeddings = (
-          tf.get_variable(name="relative_embeddings",
-                          shape=(heads, rel_embed_length, depth_k),
-                          initializer=tf.random_normal_initializer(
-                              stddev=initializer_stddev)))
-      masked_relative_embeddings = tf.slice(
-          relative_embeddings,
-          [0, rel_embed_length - block_length, 0], [-1, -1, -1])
-      first_relative_logits = tf.einsum(
-          "bhld,hmd->bhlm", first_q, masked_relative_embeddings)
     first_logits += (
-        _relative_position_to_absolute_position_masked(first_relative_logits))
+        _relative_position_to_absolute_position_masked(first_rel_logits))
     # adding a mask
     first_logits += (
         common_layers.cast_like(attention_bias_lower_triangle(block_length),
@@ -2232,21 +2330,13 @@ def masked_rel_local_attention_1d(q,
     rel_tail_q = _reshape_for_relative(tail_q)
     rel_k = _reshape_for_relative(local_k)
     rel_v = _reshape_for_relative(local_v)
+    rel_embeddings = get_relative_embeddings_left(
+        rel_embed_length, 2 * block_length, depth_k, heads,
+        heads_share_relative_embedding, "relative_embeddings")
+    rel_logits = matmul_with_relative_keys(
+        rel_tail_q, rel_embeddings, heads_share_relative_embedding)
     # Computing relative logits separately for the masked and unmasked parts
     # because the reshaping logic is different for both
-    if share_rel_embed:
-      used_relative_embeddings = tf.slice(
-          relative_embeddings,
-          [rel_embed_length - 2*block_length, 0], [-1, -1])
-      rel_logits = tf.einsum(
-          "bhld,md->bhlm", rel_tail_q, used_relative_embeddings)
-    else:
-      used_relative_embeddings = tf.slice(
-          relative_embeddings,
-          [0, rel_embed_length - 2*block_length, 0], [-1, -1, -1])
-      rel_logits = tf.einsum(
-          "bhld,hmd->bhlm", rel_tail_q, used_relative_embeddings)
-
     masked_rel_logits = tf.slice(rel_logits, [0, 0, 0, block_length],
                                  [-1, -1, -1, -1])
     masked_rel_logits = _relative_position_to_absolute_position_masked(
@@ -2266,11 +2356,50 @@ def masked_rel_local_attention_1d(q,
     mask = (1.0 - good_part) * -1e9
     mask = common_layers.cast_like(mask, all_logits)
     all_logits += tf.reshape(mask, [1, 1, block_length, local_length])
-    attention = tf.nn.softmax(all_logits)
-    attention = common_layers.dropout_with_broadcast_dims(
-        attention, 1.0 - dropout_rate,
+    weights = tf.nn.softmax(all_logits, name="attention_weights")
+    # [batch (* num_blocks), heads, query_length (=block_length),
+    # key_length (=2*block_length)]
+    weights = common_layers.dropout_with_broadcast_dims(
+        weights, 1.0 - dropout_rate,
         broadcast_dims=None)
-    output = tf.matmul(attention, rel_v)
+
+    output = tf.matmul(weights, rel_v)
+    if add_relative_to_values:
+      # Adds the contribution of the weighted relative embeddings to the values.
+      weights_for_unmasked, weights_for_masked = (
+          tf.split(weights, 2, axis=3))
+      rel_weights_unmasked = _absolute_position_to_relative_position_unmasked(
+          weights_for_unmasked)
+      rel_weights_masked = _absolute_position_to_relative_position_masked(
+          weights_for_masked)
+
+      value_rel_embeddings_unmasked = get_relative_embeddings_left(
+          rel_embed_length, 2 * block_length, depth_v,
+          heads, heads_share_relative_embedding,
+          "value_relative_embeddings")
+      # The unmasked part starts with index -1 as opposed 0 has take uptil last.
+      if heads_share_relative_embedding:
+        value_rel_embeddings_unmasked = value_rel_embeddings_unmasked[:-1, :]
+      else:
+        value_rel_embeddings_unmasked = value_rel_embeddings_unmasked[:, :-1, :]
+      value_rel_embeddings_masked = get_relative_embeddings_left(
+          rel_embed_length, block_length, depth_v,
+          heads, heads_share_relative_embedding,
+          "value_relative_embeddings")
+
+      # [batch (*num_blocks), heads, query length, key length]
+      rel_weights = tf.concat(
+          [rel_weights_unmasked, rel_weights_masked], axis=3)
+      if heads_share_relative_embedding:
+        value_rel_embeddings_concat_axis = 0
+      else:
+        value_rel_embeddings_concat_axis = 1
+      value_rel_embeddings = tf.concat(
+          [value_rel_embeddings_unmasked, value_rel_embeddings_masked],
+          axis=value_rel_embeddings_concat_axis)
+      output_rel = matmul_with_relative_values(
+          rel_weights, value_rel_embeddings, heads_share_relative_embedding)
+      output += output_rel
 
     # bring to [batch, heads, num_blocks-1, block_length, depth]
     output = tf.reshape(output,
@@ -2282,8 +2411,23 @@ def masked_rel_local_attention_1d(q,
     output = tf.concat([first_output, output], axis=2)
     output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
     output = tf.reshape(output, [batch, heads, original_length, depth_v])
-
     return output
+
+
+def matmul_with_relative_values(x, y, heads_share_relative_embedding):
+  if heads_share_relative_embedding:
+    ret = tf.einsum("bhlm,md->bhld", x, y)
+  else:
+    ret = tf.einsum("bhlm,hmd->bhld", x, y)
+  return ret
+
+
+def matmul_with_relative_keys(x, y, heads_share_relative_embedding):
+  if heads_share_relative_embedding:
+    ret = tf.einsum("bhld,md->bhlm", x, y)
+  else:
+    ret = tf.einsum("bhld,hmd->bhlm", x, y)
+  return ret
 
 
 def local_attention_1d(q, k, v, block_length=128, filter_width=100, name=None):
@@ -3161,10 +3305,11 @@ def multihead_attention(query_antecedent,
                         output_depth,
                         num_heads,
                         dropout_rate,
-                        shared_rel=False,
-                        max_relative_position=None,
-                        image_shapes=None,
                         attention_type="dot_product",
+                        max_relative_position=None,
+                        heads_share_relative_embedding=False,
+                        add_relative_to_values=False,
+                        image_shapes=None,
                         block_length=128,
                         block_width=128,
                         q_filter_width=1,
@@ -3178,7 +3323,6 @@ def multihead_attention(query_antecedent,
                         save_weights_to=None,
                         make_image_summary=True,
                         dropout_broadcast_dims=None,
-                        max_length=None,
                         vars_3d=False,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
@@ -3189,19 +3333,21 @@ def multihead_attention(query_antecedent,
     bias: bias Tensor (see attention_bias())
     total_key_depth: an integer
     total_value_depth: an integer
-    output_depth: an integer
+    output_depth: an integerg
     num_heads: an integer dividing total_key_depth and total_value_depth
     dropout_rate: a floating point number
-    shared_rel: boolean to share relative embeddings
-    max_relative_position: Maximum distance between inputs to generate
-                           unique relation embeddings for. Only relevant
-                           when using "dot_product_relative" attention.
-    image_shapes: optional tuple of integer scalars.
-                  see comments for attention_image_summary()
     attention_type: a string, either "dot_product", "dot_product_relative",
                     "local_mask_right", "local_unmasked", "masked_dilated_1d",
                     "unmasked_dilated_1d", graph, or any attention function
                     with the signature (query, key, value, **kwargs)
+    max_relative_position: Maximum distance between inputs to generate
+                           unique relation embeddings for. Only relevant
+                           when using "dot_product_relative" attention.
+    heads_share_relative_embedding: boolean to share relative embeddings
+    add_relative_to_values: a boolean for whether to add relative component to
+                            values.
+    image_shapes: optional tuple of integer scalars.
+                  see comments for attention_image_summary()
     block_length: an integer - relevant for "local_mask_right"
     block_width: an integer - relevant for "local_unmasked"
     q_filter_width: An integer specifying how wide you want the query to be.
@@ -3228,7 +3374,6 @@ def multihead_attention(query_antecedent,
     dropout_broadcast_dims:  an optional list of integers less than 4
       specifying in which dimensions to broadcast the dropout decisions.
       saves memory.
-    max_length: an integer - needed by relative attention
     vars_3d: use 3-dimensional variables for input/output transformations
     **kwargs (dict): Parameters for the attention function
 
@@ -3343,30 +3488,40 @@ def multihead_attention(query_antecedent,
           k,
           v,
           bias,
-          max_length,
+          max_relative_position,
           dropout_rate,
           image_shapes,
           make_image_summary=make_image_summary,
-          dropout_broadcast_dims=dropout_broadcast_dims)
+          dropout_broadcast_dims=dropout_broadcast_dims,
+          heads_share_relative_embedding=heads_share_relative_embedding,
+          add_relative_to_values=add_relative_to_values)
     elif attention_type == "dot_product_relative_v2":
       x = dot_product_self_attention_relative_v2(
           q,
           k,
           v,
           bias,
-          max_length,
+          max_relative_position,
           dropout_rate,
           image_shapes,
           make_image_summary=make_image_summary,
-          dropout_broadcast_dims=dropout_broadcast_dims)
+          dropout_broadcast_dims=dropout_broadcast_dims,
+          heads_share_relative_embedding=heads_share_relative_embedding,
+          add_relative_to_values=add_relative_to_values)
     elif attention_type == "local_within_block_mask_right":
       x = masked_within_block_local_attention_1d(
           q, k, v, block_length=block_length)
-    elif attention_type == "rel_local_mask_right":
-      x = masked_rel_local_attention_1d(q, k, v, block_length=block_length,
-                                        make_image_summary=make_image_summary,
-                                        dropout_rate=dropout_rate,
-                                        share_rel_embed=shared_rel)
+    elif attention_type == "local_relative_mask_right":
+      x = masked_relative_local_attention_1d(
+          q,
+          k,
+          v,
+          block_length=block_length,
+          make_image_summary=make_image_summary,
+          dropout_rate=dropout_rate,
+          heads_share_relative_embedding=heads_share_relative_embedding,
+          add_relative_to_values=add_relative_to_values,
+          name="masked_relative_local_attention_1d")
     elif attention_type == "local_mask_right":
       x = masked_local_attention_1d(
           q,

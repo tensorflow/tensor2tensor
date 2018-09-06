@@ -274,7 +274,14 @@ def basic_params1():
       multiproblem_reweight_label_loss=False,
       # How much weight the targets in classification problems receive. Inputs
       # receive 1 minus this weight.
-      multiproblem_label_weight=0.5
+      multiproblem_label_weight=0.5,
+      # Hyperparameters for relative attention.
+      # The maximum relative positional distance to learn an embedding for.
+      max_relative_position=0,
+      # If heads share the same relative embedding.
+      heads_share_relative_embedding=False,
+      # If relative embedding terms are added to values too.
+      add_relative_to_values=False,
   )
 
 
