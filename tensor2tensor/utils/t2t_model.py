@@ -1304,10 +1304,7 @@ class T2TModel(base.Layer):
       return logits
 
     # Summarize losses
-    if common_layers.should_generate_summaries():
-      with tf.name_scope("losses"):
-        for loss_name, loss_val in sorted(losses_dict.items()):
-          tf.summary.scalar(loss_name, loss_val)
+    model._summarize_losses(losses_dict)  # pylint: disable=protected-access
 
     # Accumulate losses
     loss = sum(losses_dict[key] for key in sorted(losses_dict.keys()))
@@ -1500,6 +1497,13 @@ class T2TModel(base.Layer):
       losses = {"extra": 0.0}
 
     return output, losses
+
+  def _summarize_losses(self, losses_dict):
+    """Adds `tf.summary`s to all terms in the losses dictionary."""
+    if common_layers.should_generate_summaries():
+      with tf.name_scope("losses"):
+        for loss_name, loss_val in sorted(losses_dict.items()):
+          tf.summary.scalar(loss_name, loss_val)
 
 
 def _warn_changed_modality_type(new_name, old_name, feature_name):
