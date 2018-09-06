@@ -99,6 +99,25 @@ class CommonVideoTest(tf.test.TestCase):
          [90, 90, 90, 90],
          [100, 100, 100, 100]])
 
+  def testGifSummary(self):
+    for c in (1, 3):
+      images_shape = (1, 12, 48, 64, c)  # batch, time, height, width, channels
+      images = np.random.randint(256, size=images_shape).astype(np.uint8)
+
+      with self.test_session():
+        summary = common_video.gif_summary(
+            "gif", tf.convert_to_tensor(images), fps=10)
+        summary_string = summary.eval()
+
+      summary = tf.Summary()
+      summary.ParseFromString(summary_string)
+
+      self.assertEqual(1, len(summary.value))
+      self.assertTrue(summary.value[0].HasField("image"))
+      encoded = summary.value[0].image.encoded_image_string
+
+      self.assertEqual(encoded, common_video._encode_gif(images[0], fps=10))  # pylint: disable=protected-access
+
 
 if __name__ == "__main__":
   tf.test.main()
