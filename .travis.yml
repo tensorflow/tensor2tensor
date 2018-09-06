@@ -1,7 +1,8 @@
 sudo: required
 language: python
 git:
-  depth: 3
+  depth: 10
+  quiet: true
 services:
   - docker
 python:
@@ -32,91 +33,13 @@ before_install:
   - sudo apt-get update -qq
   - sudo apt-get install -qq libhdf5-dev
 install:
-  - if [[ "$TF_VERSION" == "tf-nightly"  ]];
-    then
-      pip install tf-nightly;
-    else
-      pip install -q "tensorflow==$TF_VERSION";
-    fi
-  # First ensure that the base dependencies are sufficient for a full import
-  - pip install -q .
-  - t2t-trainer --registry_help 2>&1 >/dev/null
-  # Then install the test dependencies
-  - pip install -q .[tests,allen]
-  # Make sure to install the atari extras for gym
-  - pip install "gym[atari]"
-  # Make sure we have the latest version of numpy - avoid problems we were
-  # seeing with Python 3
-  - pip install -q -U numpy
+  - ./oss_scripts/oss_pip_install.sh
 script:
-  # Check import
-  - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
+  - ./oss_scripts/oss_tests.sh
+  - ./oss_scripts/oss_integration_test.sh
 
-  # Run tests
-  # Ignores:
-  # Tested separately:
-  #   * registry_test
-  #   * trainer_lib_test
-  #   * visualization_test
-  #   * trainer_model_based_test
-  #   * allen_brain_test
-  #   * models/research
-  # algorithmic_math_test: flaky
-  # universal_transformer_test: requires new feature in tf.foldl (rm with TF 1.9)
-  - pytest
-    --ignore=tensor2tensor/utils/registry_test.py
-    --ignore=tensor2tensor/utils/trainer_lib_test.py
-    --ignore=tensor2tensor/visualization/visualization_test.py
-    --ignore=tensor2tensor/bin/t2t_trainer_test.py
-    --ignore=tensor2tensor/data_generators/algorithmic_math_test.py
-    --ignore=tensor2tensor/models/research/universal_transformer_test.py
-    --ignore=tensor2tensor/rl/trainer_model_based_test.py
-    --ignore=tensor2tensor/data_generators/allen_brain_test.py
-    --ignore=tensor2tensor/rl/trainer_model_based_stochastic_test.py
-    --ignore=tensor2tensor/rl/trainer_model_based_sv2p_test.py
-    --ignore=tensor2tensor/models/research
-    --deselect=tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary
-  - pytest tensor2tensor/utils/registry_test.py
-  - pytest tensor2tensor/utils/trainer_lib_test.py
-  - pytest tensor2tensor/visualization/visualization_test.py
-  - pytest tensor2tensor/data_generators/allen_brain_test.py
-  - if [[ "$TF_VERSION" == "$TF_LATEST"  ]] || [[ "$TF_VERSION" == "tf-nightly"  ]];
-    then
-      pytest tensor2tensor/models/research --ignore=tensor2tensor/models/research/glow_test.py;
-    fi
-
-  # Run installed scripts
-  - t2t-datagen 2>&1 | grep translate && echo passed
-  - t2t-trainer --registry_help
-
-  # Test --t2t_usr_dir
-  - t2t-trainer --registry_help --t2t_usr_dir=./tensor2tensor/test_data/example_usr_dir 2>&1 | grep my_very_own_hparams && echo passed
-
-  # Run data generation, training, and decoding on a dummy problem
-  - t2t-datagen --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR
-  - t2t-trainer --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --train_steps=5 --eval_steps=5 --output_dir=$T2T_TRAIN_DIR
-  - t2t-decoder --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR --decode_hparams='num_samples=10'
-
-  # Do some things only on Python 2 and the latest TF version
-  # Each should be in a separate block to get proper errors on Travis.
+  # Conditional commands should each be in a separate block to get proper
+  # errors on Travis.
   - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "tf-nightly"  ]]; then
         pylint -j 2 tensor2tensor;
-    fi
-  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
-        pytest tensor2tensor/rl/trainer_model_based_test.py;
-    fi
-  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
-        jupyter nbconvert --ExecutePreprocessor.timeout=600 --to notebook --execute tensor2tensor/notebooks/hello_t2t.ipynb;
-    fi
-  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
-        jupyter nbconvert --ExecutePreprocessor.timeout=600 --to notebook --execute tensor2tensor/notebooks/t2t_problem.ipynb;
-    fi
-
-  # Export and query
-  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
-        t2t-exporter --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR;
-        pip install tensorflow-serving-api;
-        docker run -d -p 8500:8500 --mount type=bind,source=$T2T_TRAIN_DIR/export/Servo,target=/models/my_model -e MODEL_NAME=my_model -t tensorflow/serving;
-        sleep 10;
-        t2t-query-server --problem=$T2T_PROBLEM --server=localhost:8500 --servable_name=my_model --data_dir=$T2T_DATA_DIR --inputs_once='1 0 1 0 1 0';
     fi
