@@ -361,6 +361,20 @@ def ae_transformer_internal(inputs,
     else:
       assert hparams.task == "image"
       max_targets_len_from_inputs = targets
+    if hparams.word_shuffle:
+      tf.logging.info("Using word shuffle with rate = {}".format(
+          hparams.word_shuffle))
+      targets_idx = tf.range(start=0,
+                             limit=common_layers.shape_list(targets)[1],
+                             delta=1)
+      targets_idx = tf.to_float(targets_idx)
+      noise = tf.random_uniform(shape=common_layers.shape_list(targets_idx),
+                                minval=0,
+                                maxval=1 + hparams.word_shuffle)
+      targets_idx += noise
+      permutation = tf.contrib.framework.argsort(targets_idx)
+      targets_permuted = tf.gather(targets, indices=permutation, axis=1)
+      targets = targets_permuted
     targets, _ = common_layers.pad_to_same_length(
         targets, max_targets_len_from_inputs,
         final_length_divisible_by=2**hparams.num_compress_steps)
@@ -720,7 +734,7 @@ def transformer_ae_small():
   hparams.add_hparam("noise_dev", 0.5)
   hparams.add_hparam("d_mix", 0.5)
   hparams.add_hparam("logit_normalization", True)
-  hparams.add_hparam("word_dropout", 0.0)
+  hparams.add_hparam("word_dropout", True)
   # Bottleneck kinds supported: dense, vae, semhash, gumbel-softmax, dvq.
   hparams.add_hparam("bottleneck_kind", "semhash")
   hparams.add_hparam("num_blocks", 1)
@@ -728,6 +742,7 @@ def transformer_ae_small():
   # Add an hparam for number of reiduals
   hparams.add_hparam("num_residuals", 1)
   # Reshape method for DVQ: slice, project
+  hparams.add_hparam("word_shuffle", 0.5)
   hparams.add_hparam("causal", True)
   hparams.add_hparam("reshape_method", "slice")
   hparams.add_hparam("trainable_projections", False)
@@ -912,6 +927,20 @@ def transformer_ae_base_tpu():
 def transformer_ae_base_noatt():
   """Set of hyperparameters."""
   hparams = transformer_ae_base()
+  hparams.reshape_method = "slice"
+  hparams.bottleneck_kind = "dvq"
+  hparams.hidden_size = 512
+  hparams.num_blocks = 1
+  hparams.num_decode_blocks = 1
+  hparams.z_size = 12
+  hparams.do_attend_decompress = False
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ae_small_noatt():
+  """Set of hyperparameters."""
+  hparams = transformer_ae_small()
   hparams.reshape_method = "slice"
   hparams.bottleneck_kind = "dvq"
   hparams.hidden_size = 512
