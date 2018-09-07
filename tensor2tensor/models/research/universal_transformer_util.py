@@ -767,13 +767,12 @@ def universal_transformer_stepwise_separable_attention(layer_inputs,
   this either for all the steps, or just the final step.
 
   We can imagine a grid universal transformer, where to encode each position in
-  each step, we can attend over all the positions in all the steps.
-  UT stepwise separable attention is a simple version of this idea and the
-  simplification is similar to the idea of separable
-  convolution as heren we first do the attention over all the position in each
-  step (step-wise attention) and then for each position, we do a point-wise
-  attention to attend over embeddings of that position learned in all the
-  previous steps.
+  each step, we can attend over all the positions in all the steps.  UT stepwise
+  separable attention is a simple version of this idea and the simplification is
+  similar to the idea of separable convolution as here we first do the attention
+  over all the positions in each step (step-wise attention) and then for each
+  position, we do a point-wise attention to attend over embeddings of that
+  position learned in all the  previous steps.
 
 
   Args:
