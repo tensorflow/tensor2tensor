@@ -32,7 +32,7 @@ then
   server_port=8500
   model_name=my_model
   docker run -d -p $server_port:$server_port \
-      --mount type=bind,source=$T2T_TRAIN_DIR/export/Servo,target=/models/$model_name \
+      --mount type=bind,source=$T2T_TRAIN_DIR/export,target=/models/$model_name \
       -e MODEL_NAME=$model_name -t tensorflow/serving
   sleep 10
 

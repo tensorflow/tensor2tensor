@@ -58,13 +58,17 @@ def main(_):
   estimator = create_estimator(run_config, hparams)
 
   problem = hparams.problem
-  strategy = trainer_lib.create_export_strategy(problem, hparams)
 
-  export_dir = os.path.join(ckpt_dir, "export", strategy.name)
-  strategy.export(
+  exporter = tf.estimator.FinalExporter(
+      "exporter", lambda: problem.serving_input_fn(hparams), as_text=True)
+
+  export_dir = os.path.join(ckpt_dir, "export")
+  exporter.export(
       estimator,
       export_dir,
-      checkpoint_path=tf.train.latest_checkpoint(ckpt_dir))
+      checkpoint_path=tf.train.latest_checkpoint(ckpt_dir),
+      eval_result=None,
+      is_the_final_export=True)
 
 
 if __name__ == "__main__":

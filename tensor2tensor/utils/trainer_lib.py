@@ -585,11 +585,6 @@ def create_experiment_fn(*args, **kwargs):
   return experiment_fn
 
 
-def create_export_strategy(problem, hparams):
-  return tf.contrib.learn.make_export_strategy(
-      lambda: problem.serving_input_fn(hparams), as_text=True)
-
-
 def add_problem_hparams(hparams, problem_name):
   """Add problem hparams for the problems."""
   problem = registry.problem(problem_name)
