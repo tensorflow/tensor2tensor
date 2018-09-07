@@ -33,7 +33,7 @@ from tensorflow.contrib.eager.python import tfe
 
 class Metrics(object):
   """Available evaluation metrics."""
-  # Entries here should match the keys in METRICS_FN below
+  # Entries here should match the keys in METRICS_FNS below
   ACC = "accuracy"
   ACC_TOP5 = "accuracy_top5"
   ACC_PER_SEQ = "accuracy_per_sequence"
