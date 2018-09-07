@@ -292,31 +292,9 @@ def _encode_gif(images, fps):
   Raises:
     IOError: If the ffmpeg command returns an error.
   """
-  from subprocess import Popen, PIPE  # pylint: disable=g-import-not-at-top,g-multiple-import
-  ffmpeg = "ffmpeg"
-  height, width, channels = images[0].shape
-  cmd = [
-      ffmpeg, "-y",
-      "-f", "rawvideo",
-      "-vcodec", "rawvideo",
-      "-r", "%.02f" % fps,
-      "-s", "%dx%d" % (width, height),
-      "-pix_fmt", {1: "gray", 3: "rgb24"}[channels],
-      "-i", "-",
-      "-filter_complex", "[0:v]split[x][z];[z]palettegen[y];[x][y]paletteuse",
-      "-r", "%.02f" % fps,
-      "-f", "gif",
-      "-"
-  ]
-  proc = Popen(cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
-  for image in images:
-    proc.stdin.write(image.tostring())
-  out, err = proc.communicate()
-  if proc.returncode:
-    err = "\n".join([" ".join(cmd), err.decode("utf8")])
-    raise IOError(err)
-  del proc
-  return out
+  writer = VideoWriter(fps)
+  writer.write_multi(images)
+  return writer.finish()
 
 
 def py_gif_summary(tag, images, max_outputs, fps):
@@ -521,3 +499,89 @@ def beta_schedule(schedule, global_step, final_beta, decay_start, decay_end):
           tf.greater(global_step, decay_end): lambda: final_beta},
       default=lambda: increased_value)
   return beta
+
+
+class VideoWriter(object):
+  """Helper class for writing videos."""
+
+  def __init__(self, fps, file_format="gif"):
+    self.fps = fps
+    self.file_format = file_format
+    self.proc = None
+
+  def __init_ffmpeg(self, image_shape):
+    """Initializes ffmpeg to write frames."""
+    from subprocess import Popen, PIPE  # pylint: disable=g-import-not-at-top,g-multiple-import
+    ffmpeg = "ffmpeg"
+    height, width, channels = image_shape
+    self.cmd = [
+        ffmpeg, "-y",
+        "-f", "rawvideo",
+        "-vcodec", "rawvideo",
+        "-r", "%.02f" % self.fps,
+        "-s", "%dx%d" % (width, height),
+        "-pix_fmt", {1: "gray", 3: "rgb24"}[channels],
+        "-i", "-",
+        "-filter_complex", "[0:v]split[x][z];[z]palettegen[y];[x][y]paletteuse",
+        "-r", "%.02f" % self.fps,
+        "-f", self.file_format,
+        "-"
+    ]
+    self.proc = Popen(self.cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
+
+  def write(self, frame):
+    if self.proc is None:
+      self.__init_ffmpeg(frame.shape)
+    self.proc.stdin.write(frame.tostring())
+
+  def write_multi(self, frames):
+    for frame in frames:
+      self.write(frame)
+
+  def finish(self):
+    if self.proc is None:
+      return None
+    out, err = self.proc.communicate()
+    if self.proc.returncode:
+      err = "\n".join([" ".join(self.cmd), err.decode("utf8")])
+      raise IOError(err)
+    del self.proc
+    self.proc = None
+    return out
+
+  def finish_to_file(self, path):
+    with tf.gfile.open(path) as f:
+      f.write(self.finish())
+
+  def __del__(self):
+    self.finish()
+
+
+class BatchVideoWriter(object):
+  """Helper class for writing videos in batch."""
+
+  def __init__(self, fps, file_format="gif"):
+    self.fps = fps
+    self.file_format = file_format
+    self.writers = None
+
+  def write(self, batch_frame):
+    if self.writers is None:
+      self.writers = [
+          VideoWriter(self.fps, self.file_format) for _ in batch_frame]
+    for i, frame in enumerate(batch_frame):
+      self.writers[i].write(frame)
+
+  def write_multi(self, batch_frames):
+    for batch_frame in batch_frames:
+      self.write(batch_frame)
+
+  def finish(self):
+    outs = [w.finish() for w in self.writers]
+    return outs
+
+  def finish_to_files(self, path_template):
+    for i, writer in enumerate(self.writers):
+      path = path_template.format(i)
+      writer.finish_to_file(path)
+
