@@ -49,6 +49,7 @@ pytest \
   --ignore=tensor2tensor/rl/trainer_model_based_stochastic_test.py \
   --ignore=tensor2tensor/rl/trainer_model_based_sv2p_test.py \
   --ignore=tensor2tensor/models/research \
+  --ignore=tensor2tensor/models/video/base_test.py \
   --deselect=tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary
 set_status
 
@@ -77,6 +78,8 @@ fi
 if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]
 then
     pytest tensor2tensor/rl/trainer_model_based_test.py
+    set_status
+    pytest tensor2tensor/models/video/base_test.py
     set_status
     jupyter nbconvert --ExecutePreprocessor.timeout=600 --to notebook --execute tensor2tensor/notebooks/hello_t2t.ipynb
     set_status
