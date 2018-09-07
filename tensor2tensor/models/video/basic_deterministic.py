@@ -85,9 +85,9 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
     # Run a stack of convolutions.
     for i in range(hparams.num_hidden_layers):
       with tf.variable_scope("layer%d" % i):
-        y = tf.layers.conv2d(x, filters, kernel1, activation=common_layers.belu,
+        y = tf.nn.dropout(x, 1.0 - hparams.dropout)
+        y = tf.layers.conv2d(y, filters, kernel1, activation=common_layers.belu,
                              strides=(1, 1), padding="SAME")
-        y = tf.nn.dropout(y, 1.0 - hparams.dropout)
         if i == 0:
           x = y
         else:
@@ -172,6 +172,7 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
       sampled_frame = tf.reshape(
           res_frames[-1], shape[:-1] + [hparams.problem.num_channels, 256])
       sampled_frame = tf.to_float(tf.argmax(sampled_frame, axis=-1))
+      sampled_frame = common_layers.standardize_images(sampled_frame)
       if is_predicting:
         all_frames[i + hparams.video_num_input_frames] = sampled_frame
 

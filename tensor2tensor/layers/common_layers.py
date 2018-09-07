@@ -253,16 +253,16 @@ def expand_squeeze_to_nd(x, n, squeeze_dim=2, expand_dim=-1):
 
 
 def standardize_images(x):
-  """Image standardization on batches."""
+  """Image standardization on batches and videos."""
   with tf.name_scope("standardize_images", [x]):
-    x = tf.to_float(x)
+    x_shape = shape_list(x)
+    x = tf.to_float(tf.reshape(x, [-1] + x_shape[-3:]))
     x_mean = tf.reduce_mean(x, axis=[1, 2, 3], keepdims=True)
     x_variance = tf.reduce_mean(
         tf.square(x - x_mean), axis=[1, 2, 3], keepdims=True)
-    x_shape = shape_list(x)
-    num_pixels = tf.to_float(x_shape[1] * x_shape[2] * x_shape[3])
+    num_pixels = tf.to_float(x_shape[-1] * x_shape[-2] * x_shape[-3])
     x = (x - x_mean) / tf.maximum(tf.sqrt(x_variance), tf.rsqrt(num_pixels))
-    return x
+    return tf.reshape(x, x_shape)
 
 
 def flatten4d3d(x):

@@ -594,6 +594,7 @@ class AutoencoderResidual(AutoencoderAutoregressive):
               activation=common_layers.belu,
               name="strided")
           y = x
+          y = tf.nn.dropout(y, 1.0 - hparams.residual_dropout)
           for r in range(hparams.num_residual_layers):
             residual_filters = filters
             if r < hparams.num_residual_layers - 1:
@@ -606,7 +607,7 @@ class AutoencoderResidual(AutoencoderAutoregressive):
                 padding="SAME",
                 activation=common_layers.belu,
                 name="residual_%d" % r)
-          x += tf.nn.dropout(y, 1.0 - hparams.residual_dropout)
+          x += y
           x = common_layers.layer_norm(x, name="ln")
       return x, layers
 

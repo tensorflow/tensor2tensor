@@ -183,7 +183,8 @@ def train_agent(problem_name, agent_model_dir,
       "output_dir": world_model_dir,
       "data_dir": epoch_data_dir,
   }):
-    rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir, epoch=epoch)
+    rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir, epoch=epoch,
+                         name_scope="ppo_sim")
 
 
 def train_agent_real_env(
@@ -218,7 +219,8 @@ def train_agent_real_env(
       "data_dir": epoch_data_dir,
   }):
     # epoch = 10**20 is a hackish way to avoid skiping training
-    rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir, epoch=10**20)
+    rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir, epoch=10**20,
+                         name_scope="ppo_real")
 
 
 def evaluate_world_model(simulated_problem_name, problem_name, hparams,
@@ -266,6 +268,7 @@ def train_world_model(problem_name, data_dir, output_dir, hparams, epoch):
       "hparams_set": hparams.generative_model_params,
       "hparams": "learning_rate_constant=%.6f" % learning_rate,
       "eval_steps": 100,
+      "local_eval_frequency": 2000,
       "train_steps": train_steps,
   }):
     t2t_trainer.main([])
@@ -519,6 +522,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     mean_reward_summary.value[0].simple_value = mean_reward
     eval_metrics_writer.add_summary(model_reward_accuracy_summary, epoch)
     eval_metrics_writer.add_summary(mean_reward_summary, epoch)
+    eval_metrics_writer.flush()
 
     # Report metrics
     eval_metrics = {"model_reward_accuracy": model_reward_accuracy,
@@ -599,10 +603,12 @@ def rl_modelrl_base():
 
 @registry.register_hparams
 def rl_modelrl_base_quick():
-  """Base setting with only 2 epochs and 500 PPO steps per epoch."""
+  """Base setting but quicker with only 2 epochs."""
   hparams = rl_modelrl_base()
   hparams.epochs = 2
-  hparams.ppo_epochs_num = 500
+  hparams.ppo_epochs_num = 1000
+  hparams.ppo_epoch_length = 50
+  hparams.real_ppo_epochs_num = 10
   return hparams
 
 
@@ -612,6 +618,14 @@ def rl_modelrl_base_quick_sd():
   hparams = rl_modelrl_base_quick()
   hparams.generative_model = "next_frame_basic_stochastic_discrete"
   hparams.generative_model_params = "next_frame_basic_stochastic_discrete"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_base_quick_sm():
+  """Quick setting with sampling."""
+  hparams = rl_modelrl_base_quick()
+  hparams.generative_model_params = "next_frame_sampling"
   return hparams
 
 

@@ -535,17 +535,8 @@ class VideoModality(modality.Modality):
     inputs = x
     with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
       common_layers.summarize_video(inputs, "inputs")
-      inputs_shape = common_layers.shape_list(inputs)
-      # Standardize frames.
-      inputs = tf.reshape(inputs, [-1] + inputs_shape[2:])
       inputs = common_layers.standardize_images(inputs)
-      inputs = tf.reshape(inputs, inputs_shape)
-      # Concatenate the time dimension on channels for image models to work.
-      transposed = tf.transpose(inputs, [0, 2, 3, 1, 4])
-      return tf.reshape(transposed, [
-          inputs_shape[0], inputs_shape[2], inputs_shape[3],
-          inputs_shape[1] * inputs_shape[4]
-      ])
+      return common_layers.time_to_channels(inputs)
 
   def targets_bottom(self, x, summary_prefix="targets_bottom"):  # pylint: disable=arguments-differ
     inputs = x
@@ -573,10 +564,13 @@ class VideoModality(modality.Modality):
     num_frames = common_layers.shape_list(targets)[1]
     body_output_shape = common_layers.shape_list(body_output)
     # We assume the body output is of this shape and layout.
+    # Note: if you tf.concat([frames], axis=-1) at the end of your model,
+    # then you need to reshape to [..., num_frames, depth] like below, not
+    # into [..., depth, num_frames] due to memory layout of concat/reshape.
     reshape_shape = body_output_shape[:-1] + [
-        num_channels, self.top_dimensionality, num_frames]
+        num_channels, num_frames, self.top_dimensionality]
     res = tf.reshape(body_output, reshape_shape)
-    res = tf.transpose(res, [0, 5, 1, 2, 3, 4])
+    res = tf.transpose(res, [0, 4, 1, 2, 3, 5])
     res_shape = common_layers.shape_list(res)
     res_argmax = tf.argmax(tf.reshape(res, [-1, res_shape[-1]]), axis=-1)
     res_argmax = tf.reshape(res_argmax, res_shape[:-1])
