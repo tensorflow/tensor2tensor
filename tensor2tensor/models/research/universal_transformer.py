@@ -404,8 +404,8 @@ def update_hparams_for_universal_transformer(hparams):
   # Hparams for swsa :
   # Learns the step weights for elements (instead of positions), if true.
   hparams.add_hparam("element_wise", True)
-  # If taking all the previuse steps into account, just in the final step (Flase)
-  # or in all the intermediate steps (True)
+  # Taking all the previuse steps into account, just in the final step (Flase)
+  # or in all the intermediate steps as well (True).
   hparams.add_hparam("swsa_on_every_step", False)
 
   # Type of ffn_layer used for gate in skip, highway, etc.
