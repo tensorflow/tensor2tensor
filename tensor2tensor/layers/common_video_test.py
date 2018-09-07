@@ -24,7 +24,7 @@ import tensorflow as tf
 
 class CommonVideoTest(tf.test.TestCase):
 
-  def runScheduledSampleFunc(self, func, var, batch_size):
+  def _run_scheduled_sample_func(self, func, var, batch_size):
     ground_truth_x = list(range(1, batch_size+1))
     generated_x = [-x for x in ground_truth_x]
     ground_truth_x = tf.convert_to_tensor(ground_truth_x)
@@ -35,39 +35,39 @@ class CommonVideoTest(tf.test.TestCase):
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testScheduledSampleProbStart(self):
-    ground_truth_x, _, ss_out = self.runScheduledSampleFunc(
+    ground_truth_x, _, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_prob, 1.0, 10)
     self.assertAllEqual(ground_truth_x, ss_out)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testScheduledSampleProbMid(self):
-    _, _, ss_out = self.runScheduledSampleFunc(
+    _, _, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_prob, 0.5, 1000)
     positive_count = np.sum(ss_out > 0)
     self.assertAlmostEqual(positive_count / 1000.0, 0.5, places=1)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testScheduledSampleProbEnd(self):
-    _, generated_x, ss_out = self.runScheduledSampleFunc(
+    _, generated_x, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_prob, 0.0, 10)
     self.assertAllEqual(generated_x, ss_out)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testScheduledSampleCountStart(self):
-    ground_truth_x, _, ss_out = self.runScheduledSampleFunc(
+    ground_truth_x, _, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_count, 10, 10)
     self.assertAllEqual(ground_truth_x, ss_out)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testScheduledSampleCountMid(self):
-    _, _, ss_out = self.runScheduledSampleFunc(
+    _, _, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_count, 5, 10)
     positive_count = np.sum(ss_out > 0)
     self.assertEqual(positive_count, 5)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testScheduledSampleCountEnd(self):
-    _, generated_x, ss_out = self.runScheduledSampleFunc(
+    _, generated_x, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_count, 0, 10)
     self.assertAllEqual(generated_x, ss_out)
 
