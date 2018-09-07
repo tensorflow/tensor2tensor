@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Note that this test script requires docker to be installed and running.
+
 set -v  # print commands as they're executed
 set -e  # fail and exit on any command erroring
 

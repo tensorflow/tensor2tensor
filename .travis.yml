@@ -33,10 +33,10 @@ before_install:
   - sudo apt-get update -qq
   - sudo apt-get install -qq libhdf5-dev
 install:
-  - ./tensor2tensor/oss_scripts/oss_pip_install.sh
+  - ./oss_scripts/oss_pip_install.sh
 script:
-  - ./tensor2tensor/oss_scripts/oss_tests.sh
-  - ./tensor2tensor/oss_scripts/oss_integration_test.sh
+  - ./oss_scripts/oss_tests.sh
+  - ./oss_scripts/oss_integration_test.sh
 
   # Conditional commands should each be in a separate block to get proper
   # errors on Travis.
