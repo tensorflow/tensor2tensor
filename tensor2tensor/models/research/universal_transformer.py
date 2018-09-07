@@ -366,7 +366,7 @@ def update_hparams_for_universal_transformer(hparams):
   hparams.add_hparam("num_mixedin_layers", 2)
 
   # Type of recurrency:
-  # basic, highway, skip, dwa, act, rnn, gru, lstm.
+  # basic, act, highway, swsa, skip, gru, lstm.
   hparams.add_hparam("recurrence_type", "basic")
 
   # Number of steps (which is equivalent to num layer in transformer).
@@ -401,11 +401,12 @@ def update_hparams_for_universal_transformer(hparams):
   hparams.add_hparam("transform_bias_init", -1.0)
   hparams.add_hparam("couple_carry_transform_gates", True)
 
-  # Depth-wise attention (grid-transformer!) hparams:
-  # Adds depth embedding, if true.
-  hparams.add_hparam("depth_embedding", True)
-  # Learns attention weights for elements (instead of positions), if true.
-  hparams.add_hparam("dwa_elements", True)
+  # Hparams for swsa :
+  # Learns the step weights for elements (instead of positions), if true.
+  hparams.add_hparam("element_wise", True)
+  # If taking all the previuse steps into account, just in the final step (Flase)
+  # or in all the intermediate steps (True)
+  hparams.add_hparam("swsa_on_every_step", False)
 
   # Type of ffn_layer used for gate in skip, highway, etc.
   # "dense" or "dense_dropconnect".
@@ -415,7 +416,7 @@ def update_hparams_for_universal_transformer(hparams):
   # LSTM forget bias for lstm style recurrence.
   hparams.add_hparam("lstm_forget_bias", 1.0)
   # Uses the memory at the last step as the final output, if true.
-  hparams.add_hparam("use_memory_as_final_state", True)
+  hparams.add_hparam("use_memory_as_final_state", False)
   # if also add a ffn unit to the transition function when using gru/lstm
   hparams.add_hparam("add_ffn_unit_to_the_transition_function", False)
 
@@ -589,13 +590,6 @@ def universal_transformer_highway_base():
 
 
 @registry.register_hparams
-def universal_transformer_dwa_base():
-  hparams = universal_transformer_base()
-  hparams.recurrence_type = "dwa"
-  return hparams
-
-
-@registry.register_hparams
 def universal_transformer_lstm_base():
   hparams = universal_transformer_base()
   hparams.recurrence_type = "lstm"
@@ -618,6 +612,20 @@ def universal_transformer_lstm_tall():
   hparams.add_step_timing_signal = False  # Let lstm count in depth for us!
   return hparams
 
+
+@registry.register_hparams
+def universal_transformer_swsa_base():
+  hparams = universal_transformer_base()
+  hparams.recurrence_type = "swsa"
+  return hparams
+
+
+@registry.register_hparams
+def universal_transformer_swsa_every_step_base():
+  hparams = universal_transformer_base()
+  hparams.recurrence_type = "swsa"
+  hparams.swsa_on_every_step = True
+  return hparams
 
 @registry.register_hparams
 def universal_transformer_position_random_timing_tiny():

@@ -124,8 +124,6 @@ def universal_transformer_encoder(encoder_input,
     x, extra_output = universal_transformer_layer(
         x, hparams, ffn_unit, attention_unit, pad_remover=pad_remover)
 
-    if hparams.get("use_memory_as_last_state", False):
-      x = extra_output  # which is memory
     return common_layers.layer_preprocess(x, hparams), extra_output
 
 
@@ -307,19 +305,19 @@ def get_ut_layer(x,
         attention_unit=attention_unit,
         pad_remover=pad_remover)
 
-  elif hparams.recurrence_type == "dwa":
+  elif hparams.recurrence_type == "swsa":
+    # just to avoid accidental True value for use_memory_as_final_state.
+    hparams.use_memory_as_final_state = False
+    # prepare initializer:
     # memory contains the original input + all the states
     memory_size = hparams.num_rec_steps + 1
-
-    # prepare initializer:
     memory_empty = tf.zeros([memory_size] + common_layers.shape_list(x))
-
     # filling the first slot with the original input
     memory = fill_memory_slot(memory_empty, x, 0)
-
     ut_initializer = (x, x, memory)  # (state, input, memory)
+
     ut_function = functools.partial(
-        universal_transformer_depthwise_attention,
+        universal_transformer_stepwise_separable_attention,
         hparams=hparams,
         ffn_unit=ffn_unit,
         attention_unit=attention_unit)
@@ -757,20 +755,33 @@ def universal_transformer_skip(layer_inputs,
   return new_state, inputs, memory
 
 
-def universal_transformer_depthwise_attention(layer_inputs,
-                                              step, hparams,
-                                              ffn_unit,
-                                              attention_unit):
-  """universal_transformer with depth-wise attention.
+def universal_transformer_stepwise_separable_attention(layer_inputs,
+                                                       step,
+                                                       hparams,
+                                                       ffn_unit,
+                                                       attention_unit):
+  """Universal Transformer with stepwise separable attention.
 
-  It uses an attention mechanism-flipped vertically-
-  over all the states from previous steps to generate the new_state.
+  In transition function, on top of a ffn/sepconv layer, we calculate the
+  weighted average of the output of all the previous steps so far.  We can do
+  this either for all the steps, or just the final step.
+
+  We can imagine a grid universal transformer, where to encode each position in
+  each step, we can attend over all the positions in all the steps.
+  UT stepwise separable attention is a simple version of this idea and the
+  simplification is similar to the idea of separable
+  convolution as heren we first do the attention over all the position in each
+  step (step-wise attention) and then for each position, we do a point-wise
+  attention to attend over embeddings of that position learned in all the
+  previous steps.
+
 
   Args:
     layer_inputs:
       - state: state
+      - unused_inputs: unused
       - memory: contains states from all the previous steps.
-    step: indicating number of steps take so far
+    step: indicates number of steps taken so far
     hparams: model hyper-parameters.
     ffn_unit: feed-forward unit
     attention_unit: multi-head attention unit
@@ -782,36 +793,35 @@ def universal_transformer_depthwise_attention(layer_inputs,
         memory: contains states from all the previous steps.
 
   """
-  _, inputs, memory = layer_inputs
-  all_states = memory
 
-  # add depth signal
-  if hparams.depth_embedding:
-    all_states = add_depth_embedding(all_states)
+  state, unused_inputs, memory = layer_inputs
+  current_memory_index = step + 1
 
-  # get the states up to the current step (non-zero part of the memory)
-  states_so_far = all_states[:step, :, :, :]
+  state = step_preprocess(state, step, hparams)
+  new_state = ffn_unit(attention_unit(state))
 
-  states_so_far_weights = tf.nn.softmax(
-      common_layers.dense(
-          states_so_far, (hparams.hidden_size if hparams.dwa_elements else 1),
-          activation=None,
-          use_bias=True),
-      axis=-1)
-
-  # prepare the state tensor that will be transformed
-  state_to_be_transformed = tf.reduce_sum(
-      (states_so_far * states_so_far_weights), axis=0)
-
-  state_to_be_transformed = step_preprocess(state_to_be_transformed, step,
-                                            hparams)
-
-  new_state = ffn_unit(attention_unit(state_to_be_transformed))
 
   # add the new state to the memory
-  memory = fill_memory_slot(memory, new_state, step + 1)
+  memory = fill_memory_slot(memory, new_state, current_memory_index)
 
-  return new_state, inputs, memory
+  if (not hparams.swsa_just_final_step # if iether we are doing it in every step
+      or step == hparams.num_rec_steps): # or we are at the final step
+
+    # get the states up to the current step (non-zero part of the memory)
+    states_so_far = memory[:current_memory_index, :, :, :]
+    # calculate the weights for each steps
+    step_weights = tf.nn.softmax(
+        common_layers.dense(
+            states_so_far,
+            hparams.hidden_size if hparams.element_wise else 1,
+            activation=None,
+            use_bias=True),
+        axis=-1)
+
+    # prepare the new_state tensor given all the previous steps based on weights
+    new_state = tf.reduce_sum((states_so_far * step_weights), axis=0)
+
+  return new_state, unused_inputs, memory
 
 
 def universal_transformer_with_gru_as_transition_function(
@@ -1781,33 +1791,6 @@ def fill_memory_slot(memory, value, index):
                  tf.shape(memory)[0])[:, None, None, None])
   fill_memory = (1 - mask) * memory + mask * value[None, ...]
   return fill_memory
-
-
-def add_depth_embedding(x):
-  """Add n-dimensional embedding as the depth embedding (timing signal).
-
-  Adds embeddings to represent the position of the step in the recurrent
-  tower.
-
-  Args:
-    x: a tensor with shape [max_step, batch, length, depth]
-
-  Returns:
-    a Tensor the same shape as x.
-  """
-  x_shape = common_layers.shape_list(x)
-  depth = x_shape[-1]
-  num_steps = x_shape[0]
-  shape = [num_steps, 1, 1, depth]
-  depth_embedding = (
-      tf.get_variable(
-          "depth_embedding",
-          shape,
-          initializer=tf.random_normal_initializer(0, depth**-0.5)) * (depth**
-                                                                       0.5))
-
-  x += depth_embedding
-  return x
 
 
 def step_preprocess(x, step, hparams):
