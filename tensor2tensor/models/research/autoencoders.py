@@ -168,6 +168,10 @@ class AutoencoderBasic(t2t_model.T2TModel):
     self.is1d = hparams.sample_width == 1
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
       labels = features["targets_raw"]
+      labels_shape = common_layers.shape_list(labels)
+      # handle videos
+      if len(labels.shape) == 5:
+        labels = common_layers.time_to_channels(labels)
       shape = common_layers.shape_list(labels)
       x = tf.one_hot(labels, vocab_size)
       x = self.embed(x)
@@ -216,6 +220,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
         b = self.sample()
       else:
         b = self._cur_bottleneck_tensor
+      self._cur_bottleneck_tensor = b
       res_size = self.hparams.hidden_size * 2**self.hparams.num_hidden_layers
       res_size = min(res_size, hparams.max_hidden_size)
       x = self.unbottleneck(b, res_size)
@@ -267,7 +272,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
     else:
       reconstr = tf.layers.dense(res, vocab_size, name="autoencoder_final")
       targets_loss = tf.losses.sparse_softmax_cross_entropy(
-          logits=reconstr, labels=labels)
+          logits=reconstr, labels=tf.reshape(labels, labels_shape))
       losses["training"] = targets_loss
 
     # GAN losses.
@@ -339,7 +344,8 @@ class AutoencoderBasic(t2t_model.T2TModel):
       losses["gan_loss"] = -gan_loss
 
     self.image_summary("ae", reconstr)
-    logits = reconstr
+
+    logits = tf.reshape(reconstr, labels_shape + [vocab_size])
     return logits, losses
 
   def sample(self, features=None, shape=None):
@@ -1034,6 +1040,18 @@ def autoencoder_ordered_discrete():
   hparams.bottleneck_noise = 0.05  # Use 0.8 for ordered.
   hparams.gan_loss_factor = 0.05
   hparams.add_hparam("unordered", True)
+  return hparams
+
+
+@registry.register_hparams
+def autoencoder_ordered_discrete_image64():
+  """Ordered discrete autoencoder model."""
+  hparams = autoencoder_ordered_discrete()
+  hparams.batch_size = 32
+  hparams.num_hidden_layers = 6
+  hparams.target_modality = "video:default"
+  hparams.input_modalities = "video:default"
+
   return hparams
 
 
