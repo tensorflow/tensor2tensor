@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Basic tests for video prediction models."""
+"""Utilties for testing video models."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -20,14 +20,6 @@ from __future__ import print_function
 import numpy as np
 
 from tensor2tensor.data_generators import video_generated  # pylint: disable=unused-import
-from tensor2tensor.models.video import basic_deterministic
-from tensor2tensor.models.video import basic_deterministic_params
-from tensor2tensor.models.video import basic_stochastic
-from tensor2tensor.models.video import emily
-from tensor2tensor.models.video import savp
-from tensor2tensor.models.video import savp_params
-from tensor2tensor.models.video import sv2p
-from tensor2tensor.models.video import sv2p_params
 
 from tensor2tensor.utils import registry
 
@@ -59,6 +51,7 @@ def action_modalities(hparams):
 
 
 def full_modalities(hparams):
+  """Full modalities with actions and rewards."""
   hparams.problem_hparams.input_modality = {
       "inputs": ("video:l2raw", 256),
       "input_reward": ("symbol:one_hot", 3),
@@ -105,7 +98,8 @@ def get_tensor_shape(tensor):
   return tuple([d.value for d in tensor.shape])
 
 
-class NextFrameTest(tf.test.TestCase):
+class BaseNextFrameTest(tf.test.TestCase):
+  """Base helper class for next frame tests."""
 
   def RunModel(self, model, hparams, features):
     with tf.Session() as session:
@@ -278,81 +272,3 @@ class NextFrameTest(tf.test.TestCase):
                         upsample_method="bilinear_upsample_conv")
     self.TestVideoModel(4, 1, hparams, model, expected_last_dim,
                         upsample_method="nn_upsample_conv")
-
-  def testBasicDeterministic(self):
-    self.TestOnVariousInputOutputSizes(
-        basic_deterministic_params.next_frame_basic_deterministic(),
-        basic_deterministic.NextFrameBasicDeterministic,
-        256,
-        False)
-
-  def testBasicStochastic(self):
-    self.TestOnVariousInputOutputSizes(
-        basic_stochastic.next_frame_basic_stochastic(),
-        basic_stochastic.NextFrameBasicStochastic,
-        256,
-        False)
-
-  def testSv2p(self):
-    self.TestOnVariousInputOutputSizes(
-        sv2p_params.next_frame_sv2p(),
-        sv2p.NextFrameSv2p,
-        1)
-
-  def testSv2pWithActions(self):
-    self.TestWithActions(
-        sv2p_params.next_frame_sv2p(),
-        sv2p.NextFrameSv2p,
-        1)
-
-  def testSv2pWithActionsAndRewards(self):
-    self.TestWithActionAndRewards(
-        sv2p_params.next_frame_sv2p(),
-        sv2p.NextFrameSv2p,
-        1)
-
-  def testSv2pTwoFrames(self):
-    self.TestOnVariousInputOutputSizes(
-        sv2p_params.next_frame_sv2p(),
-        sv2p.NextFrameSv2pTwoFrames,
-        1)
-
-  def testEmily(self):
-    self.TestOnVariousInputOutputSizes(
-        emily.next_frame_emily(),
-        emily.NextFrameEmily,
-        1)
-
-  def testSavpVAE(self):
-    savp_hparams = savp_params.next_frame_savp()
-    savp_hparams.use_vae = True
-    savp_hparams.use_gan = False
-    self.TestOnVariousInputOutputSizes(
-        savp_hparams, savp.NextFrameSAVP, 1)
-    self.TestOnVariousUpSampleLayers(
-        savp_hparams, savp.NextFrameSAVP, 1)
-
-  def testSavpGAN(self):
-    hparams = savp_params.next_frame_savp()
-    hparams.use_gan = True
-    hparams.use_vae = False
-    self.TestVideoModel(7, 5, hparams, savp.NextFrameSAVP, 1)
-
-    hparams.gan_optimization = "sequential"
-    self.TestVideoModel(7, 5, hparams, savp.NextFrameSAVP, 1)
-
-  def testSavpGANVAE(self):
-    hparams = savp_params.next_frame_savp()
-    hparams.use_vae = True
-    hparams.use_gan = True
-    self.TestVideoModel(7, 5, hparams, savp.NextFrameSAVP, 1)
-
-  def testInvalidVAEGANCombinations(self):
-    hparams = savp_params.next_frame_savp()
-    hparams.use_gan = False
-    hparams.use_vae = False
-    self.assertRaises(ValueError, self.TestVideoModel,
-                      7, 5, hparams, savp.NextFrameSAVP, 1)
-
-if __name__ == "__main__":
-  tf.test.main()
