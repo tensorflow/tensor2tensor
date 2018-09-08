@@ -24,11 +24,11 @@ import tensorflow as tf
 FLAGS = tf.flags.FLAGS
 
 
-class ModelRLExperimentTest(tf.test.TestCase):
+class ModelRLExperimentTestAe(tf.test.TestCase):
 
-  def test_basic(self):
+  def test_ae(self):
     FLAGS.output_dir = tf.test.get_temp_dir()
-    FLAGS.loop_hparams_set = "rl_modelrl_tiny"
+    FLAGS.loop_hparams_set = "rl_modelrl_ae_tiny"
     FLAGS.schedule = "train"  # skip evaluation for world model training
     trainer_model_based.main(None)
 
