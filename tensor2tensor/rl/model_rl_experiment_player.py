@@ -9,8 +9,12 @@ import datetime
 import math
 import os
 import time
+from gym.spaces import Box
+import numpy as np
 
 import six
+from gym.spaces import Discrete
+from gym.utils.play import PlayPlot
 
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import generator_utils
@@ -21,49 +25,12 @@ from tensor2tensor.rl.envs.batch_env_factory import batch_env_factory
 from tensor2tensor.rl.envs.utils import get_policy
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
-from tensor2tensor.rl.trainer_model_based import FLAGS
+from tensor2tensor.rl.trainer_model_based import FLAGS, setup_directories, temporary_flags
 
 import tensorflow as tf
 
 
 HP_SCOPES = ["loop", "model", "ppo"]
-
-
-def setup_directories(base_dir, subdirs):
-  base_dir = os.path.expanduser(base_dir)
-  tf.gfile.MakeDirs(base_dir)
-
-  all_dirs = {}
-  for subdir in subdirs:
-    dir_name = os.path.join(base_dir, subdir)
-    tf.gfile.MakeDirs(dir_name)
-    all_dirs[subdir] = dir_name
-  return all_dirs
-
-
-def make_relative_timing_fn():
-  """Make a function that logs the duration since it was made."""
-  start_time = time.time()
-
-  def format_relative_time():
-    time_delta = time.time() - start_time
-    return str(datetime.timedelta(seconds=time_delta))
-
-  def log_relative_time():
-    tf.logging.info("Timing: %s", format_relative_time())
-
-  return log_relative_time
-
-
-@contextlib.contextmanager
-def temporary_flags(flag_settings):
-  old_values = {}
-  for flag_name, flag_value in flag_settings.items():
-    old_values[flag_name] = getattr(FLAGS, flag_name)
-    setattr(FLAGS, flag_name, flag_value)
-  yield
-  for flag_name, flag_value in old_values.items():
-    setattr(FLAGS, flag_name, flag_value)
 
 
 def train_agent(problem_name, agent_model_dir,
@@ -81,8 +48,6 @@ def train_agent(problem_name, agent_model_dir,
     if ppo_param_name in hparams:
       ppo_hparams.set_hparam(param_name, hparams.get(ppo_param_name))
 
-  # ppo_hparams.epochs_num = _ppo_training_epochs(hparams, epoch,
-  #                                                 is_final_epoch, False)
   ppo_hparams.save_models_every_epochs = 10
   ppo_hparams.world_model_dir = world_model_dir
   ppo_hparams.add_hparam("force_beginning_resets", True)
@@ -113,9 +78,9 @@ def train_agent(problem_name, agent_model_dir,
     sess.run(tf.global_variables_initializer())
     env.initialize()
 
-    r = env.step(0)
-    r = env.reset()
-    print("R:{}".format(r))
+    key_mapping = {(ord('q'),):1, (ord('a'),):2}
+    from gym.utils import play
+    play.play(env, zoom=4, fps=40, keys_to_action=key_mapping)
 
 from gym.core import Env
 
@@ -127,6 +92,9 @@ class DebugBatchEnv(Env):
       self.sess = tf.Session()
     else:
       self.sess = sess
+
+    self.action_space = Discrete(6)
+    self.observation_space = Box(low=0, high=255, shape=(210, 160, 3), dtype=np.uint8)
 
     batch_env = batch_env_factory(hparams)
 
@@ -155,7 +123,7 @@ class DebugBatchEnv(Env):
     actor_critic = get_policy(tf.expand_dims(obs_copy, 0), hparams)
     self.policy_probs = actor_critic.policy.probs[0, 0, :]
     self.value = actor_critic.value[0, :]
-    x = 1
+    self._tmp = 1
 
   def render(self, mode='human'):
     raise NotImplemented()
@@ -166,8 +134,13 @@ class DebugBatchEnv(Env):
 
 
   def _step_fake(self, action):
-    import numpy as np
-    observ = np.zeros(shape=(210, 160, 3), dtype=np.uint8)
+
+    print("Action:{}".format(action))
+    observ = np.ones(shape=(210, 160, 3), dtype=np.uint8)*10*self._tmp
+    self._tmp += 1
+    if self._tmp>20:
+      self._tmp = 0
+
     rew = 1
     done = False
     probs = np.ones(shape=(6,), dtype=np.float32)/6
@@ -183,11 +156,8 @@ class DebugBatchEnv(Env):
     return observ[0, ...], rew[0, ...], done[0, ...], probs, vf
 
   def step(self, action):
-    observ, rew, done, probs, vf = self.sess.\
-      run([self.observation, self.reward, self.done, self.policy_probs, self.value],
-          feed_dict={self.action: [action]})
-
-    return observ[0, ...], rew[0, ...], done[0, ...], probs, vf
+    observ, rew, done, probs, vf = self._step_fake(action)
+    return observ, rew, done, {"probs": probs, "vf": vf}
 
 
 
@@ -232,9 +202,6 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   # Autoencoder model dir
   autoencoder_model_dir = directories.get("autoencoder")
-
-  # Timing log function
-  log_relative_time = make_relative_timing_fn()
 
   # Per-epoch state
   epoch_metrics = []
