@@ -66,17 +66,6 @@ def temporary_flags(flag_settings):
     setattr(FLAGS, flag_name, flag_value)
 
 
-def make_log_fn(epoch, log_relative_time_fn):
-
-  def log(msg, *args):
-    msg %= args
-    tf.logging.info("%s Epoch %d: %s", ">>>>>>>", epoch, msg)
-    log_relative_time_fn()
-
-  return log
-
-
-
 def train_agent(problem_name, agent_model_dir,
                 event_dir, world_model_dir, epoch_data_dir, hparams, epoch=0,
                 is_final_epoch=False):
@@ -175,6 +164,24 @@ class DebugBatchEnv(Env):
     observ = self.sess.run(self.reset_op)
     return observ
 
+
+  def _step_fake(self, action):
+    import numpy as np
+    observ = np.zeros(shape=(210, 160, 3), dtype=np.uint8)
+    rew = 1
+    done = False
+    probs = np.ones(shape=(6,), dtype=np.float32)/6
+    vf = 0.0
+
+    return observ, rew, done, probs, vf
+
+  def _env_step_fake(self, action):
+    observ, rew, done, probs, vf = self.sess.\
+      run([self.observation, self.reward, self.done, self.policy_probs, self.value],
+          feed_dict={self.action: [action]})
+
+    return observ[0, ...], rew[0, ...], done[0, ...], probs, vf
+
   def step(self, action):
     observ, rew, done, probs, vf = self.sess.\
       run([self.observation, self.reward, self.done, self.policy_probs, self.value],
@@ -240,7 +247,6 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   for epoch in range(hparams.epochs):
     is_final_epoch = (epoch + 1) == hparams.epochs
-    # log = make_log_fn(epoch, log_relative_time)
 
     # Combine all previously collected environment data
     epoch_data_dir = os.path.join(directories["data"], str(epoch))
