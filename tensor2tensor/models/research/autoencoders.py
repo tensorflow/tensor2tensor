@@ -272,7 +272,8 @@ class AutoencoderBasic(t2t_model.T2TModel):
     else:
       reconstr = tf.layers.dense(res, vocab_size, name="autoencoder_final")
       targets_loss = tf.losses.sparse_softmax_cross_entropy(
-          logits=reconstr, labels=tf.reshape(labels, labels_shape))
+          logits=tf.reshape(reconstr, labels_shape + [vocab_size]),
+          labels=tf.reshape(labels, labels_shape))
       losses["training"] = targets_loss
 
     # GAN losses.
@@ -338,8 +339,11 @@ class AutoencoderBasic(t2t_model.T2TModel):
           hparams.gan_codes_warmup_steps * 1.5)
       rev_grad_gan_codes = reverse_gradient(gan_codes, lr=gan_lr)
       gan_loss = common_layers.sliced_gan_loss(
-          target_codes, rev_grad_gan_codes, discriminate,
-          self.hparams.num_sliced_vecs, do_tanh=hparams.sliced_do_tanh)
+          target_codes,
+          rev_grad_gan_codes,
+          discriminate,
+          self.hparams.num_sliced_vecs,
+          do_tanh=hparams.sliced_do_tanh)
       gan_loss *= hparams.gan_loss_factor * update_means_factor
       losses["gan_loss"] = -gan_loss
 
@@ -544,8 +548,8 @@ class AutoencoderAutoregressive(AutoencoderBasic):
         samples = common_layers.sample_with_temperature(
             logits, self.hparams.sampling_temp)
         samples1d = tf.reshape(samples, [shape[0], -1, shape[3]])
-        samples1d = tf.concat(
-            [old_samples1d[:, :i, :], samples1d[:, i:, :]], axis=1)
+        samples1d = tf.concat([old_samples1d[:, :i, :], samples1d[:, i:, :]],
+                              axis=1)
         samples = tf.reshape(samples1d, shape)
 
     # Restore inputs to not confuse Estimator in edge cases.
