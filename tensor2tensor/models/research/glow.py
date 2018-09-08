@@ -41,6 +41,9 @@ def glow_hparams():
   hparams.weight_decay = 0.0
   hparams.learning_rate_constant = 3e-4
   hparams.batch_size = 32
+  # can be prev_level, prev_step or normal.
+  # see: glow_ops.merge_level_and_latent_dist
+  hparams.add_hparam("level_prior_scale", "prev_level")
   hparams.add_hparam("n_levels", 3)
   hparams.add_hparam("n_bits_x", 8)
   hparams.add_hparam("depth", 32)
@@ -118,15 +121,7 @@ class Glow(t2t_model.T2TModel):
 
     # Scale x such that the pixels lie in-between -0.5 and.0.5
     x = self.preprocess(x)
-
-    n_bins = 2**self.hparams.n_bits_x
-    batch_size, height, width, n_channels = common_layers.shape_list(x)
-    hwc = float(height * width * n_channels)
-
-    x = x + tf.random_uniform(
-        shape=(batch_size, height, width, n_channels),
-        minval=0.0, maxval=1.0/n_bins)
-    objective = -np.log(n_bins) * hwc * tf.ones(batch_size)
+    x, objective = glow_ops.uniform_binning_correction(x)
 
     # The arg_scope call ensures that the actnorm parameters are set such that
     # the per-channel output activations have zero mean and unit variance
@@ -136,7 +131,7 @@ class Glow(t2t_model.T2TModel):
     init_op = tf.logical_and(tf.equal(global_step, 0), self.is_training)
     ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
     with arg_scope(ops, init=init_op):
-      self.z, encoder_objective, self.eps = glow_ops.encoder_decoder(
+      self.z, encoder_objective, self.eps, _ = glow_ops.encoder_decoder(
           "codec", x, self.hparams, eps=None, reverse=False)
       objective += encoder_objective
 
@@ -146,5 +141,6 @@ class Glow(t2t_model.T2TModel):
       objective += prior_objective
 
     # bits per pixel
-    objective = -objective / (np.log(2) * hwc)
+    _, h, w, c = common_layers.shape_list(x)
+    objective = -objective / (np.log(2) * h * w * c)
     return tf.zeros_like(features["targets"]), {"training": objective}

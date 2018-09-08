@@ -440,41 +440,98 @@ def split_prior(name, x):
 
 
 @add_arg_scope
-def split(name, x, reverse=False, eps=None, eps_std=None):
+def merge_level_and_latent_dist(level_dist, latent_dist,
+                                merge_std="prev_level"):
+  """Merge level_dist and latent_dist.
+
+  new_dist ~ N(level_dist.mean + latent_dis.mean, std) where std is determined
+  according to merge_std.
+
+  Args:
+    level_dist: instance of tf.distributions.Normal
+    latent_dist: instance of tf.distributions.Normal
+    merge_std: can be "prev_level", "prev_step" or "normal".
+  Returns:
+    merged_dist: instance of tf.distributions.Normal
+  """
+  level_mean, level_std = level_dist.loc, level_dist.scale
+  latent_mean, latent_std = latent_dist.loc, latent_dist.scale
+  new_mean = level_mean + latent_mean
+  if merge_std == "normal":
+    z_shape = common_layers.shape_list(latent_mean)
+    log_scale = tf.get_variable(
+        "merge_std", shape=z_shape, dtype=tf.float32,
+        initializer=tf.zeros_initializer(), trainable=False)
+    scale = tf.exp(log_scale * 3.0)
+  elif merge_std == "prev_level":
+    scale = level_std
+  elif merge_std == "prev_step":
+    scale = latent_std
+  tf.summary.scalar("latent_scale", tf.reduce_mean(scale))
+  return tf.distributions.Normal(loc=new_mean, scale=scale)
+
+
+@add_arg_scope
+def compute_prior(name, z, latent, merge_std):
+  """Distribution condtioned on both z and latent."""
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    prior_dist = split_prior("level_prior", z)
+    if latent is not None:
+      latent_shape = common_layers.shape_list(latent)
+      z_shape = common_layers.shape_list(z)
+      if latent_shape != z_shape:
+        raise ValueError("Expected latent_shape to be %s, got %s" %
+                         (latent_shape, z_shape))
+      latent_dist = scale_gaussian_prior(
+          "latent_prior", latent, logscale_factor=3.0)
+      prior_dist = merge_level_and_latent_dist(prior_dist, latent_dist,
+                                               merge_std=merge_std)
+  return prior_dist
+
+
+@add_arg_scope
+def split(name, x, reverse=False, eps=None, eps_std=None, cond_latent=None,
+          merge_std="normal"):
   """Splits / concatenates x into x1 and x2 across number of channels.
 
   For the forward pass, x2 is assumed be gaussian,
   i.e P(x2 | x1) ~ N(mu(x1), sigma(x1)) where mu and sigma are the outputs of
-  a network. For the reverse pass, x2 is determined from mu(x1) and sigma(x1).
-  This is deterministic/stochastic depending on whether eps is provided.
+  a one-layer network. For the reverse pass, x2 is determined
+  from mu(x1) and sigma(x1). This is deterministic/stochastic depending on
+  whether eps is provided.
 
   Args:
     name:
     x:
     reverse: Forward or reverse pass.
-    eps: If eps is provided, x2
-    eps_std: Sample x2
+    eps: If eps is provided, x2 is set to be
+    eps_std: Sample x2.
+    cond_latent: optionally condition x2 on cond_latent.
+    merge_std: used to determine the std of the gaussian prior on x2 if
+               cond_latent is provided.
 
   Returns:
+  Raises:
+    ValueError: If latent is provided and shape is not equal to NHW(C/2)
+                where (NHWC) is the size of x.
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     if not reverse:
       x1, x2 = tf.split(x, num_or_size_splits=2, axis=-1)
 
       # objective: P(x2|x1) ~N(x2 ; NN(x1))
-      x1_dist = split_prior("split_prior", x1)
-      logpb = tf.reduce_sum(x1_dist.log_prob(x2), axis=[1, 2, 3])
-
-      eps = get_eps(x1_dist, x2)
-      return x1, logpb, eps
+      prior_dist = compute_prior("prior_on_z2", x1, cond_latent, merge_std)
+      logpb = tf.reduce_sum(prior_dist.log_prob(x2), axis=[1, 2, 3])
+      eps = get_eps(prior_dist, x2)
+      return x1, logpb, eps, x2
     else:
-      x1_dist = split_prior("split_prior", x)
+      prior_dist = compute_prior("prior_on_z2", x, cond_latent, merge_std)
       if eps is not None:
-        x2 = set_eps(x1_dist, eps)
+        x2 = set_eps(prior_dist, eps)
       elif eps_std is not None:
         x2 = eps_std * tf.random_normal(common_layers.shape_list(x))
       else:
-        x2 = x1_dist.sample()
+        x2 = prior_dist.sample()
       return tf.concat([x, x2], 3)
 
 
@@ -526,6 +583,34 @@ def revnet(name, x, hparams, reverse=True):
 
 
 @add_arg_scope
+def scale_gaussian_prior(name, z, logscale_factor=3.0, trainable=True):
+  """Returns N(s^i * z^i, std^i) where s^i and std^i are pre-component.
+
+  s^i is a learnable parameter with identity initialization.
+  std^i is optionally learnable with identity initialization.
+
+  Args:
+    name: variable scope.
+    z: input_tensor
+    logscale_factor: equivalent to scaling up the learning_rate by a factor
+                     of logscale_factor.
+    trainable: Whether or not std^i is learnt.
+  """
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    z_shape = common_layers.shape_list(z)
+    latent_multiplier = tf.get_variable(
+        "latent_multiplier", shape=z_shape, dtype=tf.float32,
+        initializer=tf.ones_initializer())
+    log_scale = tf.get_variable(
+        "log_scale_latent", shape=z_shape, dtype=tf.float32,
+        initializer=tf.zeros_initializer(), trainable=trainable)
+    log_scale = log_scale * logscale_factor
+    tf.summary.scalar("gaussian_log_scale", tf.reduce_mean(log_scale))
+    return tf.distributions.Normal(
+        loc=latent_multiplier * z, scale=tf.exp(log_scale))
+
+
+@add_arg_scope
 def top_prior(name, x, learn_prior="normal"):
   """Log probability of x being gaussian.
 
@@ -556,13 +641,43 @@ def top_prior(name, x, learn_prior="normal"):
     return objective, prior_dist
 
 
+def uniform_binning_correction(x, n_bits=8):
+  """Replaces x^i with q^i(x) = U(x, x + 1.0 / 256.0).
+
+  Args:
+    x: 4-D Tensor of shape (NHWC)
+    n_bits: optional.
+  Returns:
+    x: x ~ U(x, x + 1.0 / 256)
+    objective: Equivalent to -q(x)*log(q(x)).
+  """
+  n_bins = 2**n_bits
+  batch_size, height, width, n_channels = common_layers.shape_list(x)
+  hwc = float(height * width * n_channels)
+
+  x = x + tf.random_uniform(
+      shape=(batch_size, height, width, n_channels),
+      minval=0.0, maxval=1.0/n_bins)
+  objective = -np.log(n_bins) * hwc * tf.ones(batch_size)
+  return x, objective
+
+
 @add_arg_scope
-def encoder_decoder(name, x, hparams, eps=None, reverse=False):
+def encoder_decoder(name, x, hparams, eps=None, reverse=False,
+                    cond_latents=None):
   """Glow encoder-decoder. n_levels of (Squeeze + Flow + Split.) operations."""
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
 
+    if eps and len(eps) != hparams.n_levels - 1:
+      raise ValueError("Expected length of eps to be %d, got %d" %
+                       (hparams.n_levels - 1, len(eps)))
+    if cond_latents and len(cond_latents) != hparams.n_levels - 1:
+      raise ValueError("Expected level_latets to be %d, got %d" %
+                       (hparams.n_levels - 1, len(cond_latents)))
+
     objective = 0.0
     all_eps = []
+    all_latents = []
 
     if not reverse:
       # Squeeze + Flow + Split
@@ -573,23 +688,34 @@ def encoder_decoder(name, x, hparams, eps=None, reverse=False):
         objective += obj
 
         if level < hparams.n_levels - 1:
-          x, obj, eps = split("split_%d" % level, x, reverse=False)
+
+          curr_latent = None
+          if cond_latents is not None:
+            curr_latent = cond_latents[level]
+
+          x, obj, eps, z = split(
+              "split_%d" % level, x, reverse=False, cond_latent=curr_latent,
+              merge_std=hparams.level_prior_scale)
           objective += obj
           all_eps.append(eps)
-      return x, objective, all_eps
+          all_latents.append(z)
+      return x, objective, all_eps, all_latents
 
     else:
-      if eps and len(eps) != hparams.n_levels - 1:
-        raise ValueError("Expected length of eps to be %d, got %d" %
-                         (hparams.n_levels - 1, len(eps)))
-
       for level in reversed(range(hparams.n_levels)):
         if level < hparams.n_levels - 1:
 
           curr_eps = None
           if eps:
             curr_eps = eps[level]
-          x = split("split_%d" % level, x, eps=curr_eps, reverse=True)
+
+          curr_latent = None
+          if cond_latents is not None:
+            curr_latent = cond_latents[level]
+
+          x = split("split_%d" % level, x, eps=curr_eps, reverse=True,
+                    cond_latent=curr_latent,
+                    merge_std=hparams.level_prior_scale)
 
         x, obj = revnet(
             "revnet_%d" % level, x, hparams=hparams, reverse=True)
