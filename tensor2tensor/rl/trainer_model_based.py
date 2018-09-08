@@ -141,6 +141,20 @@ def train_autoencoder(problem_name, data_dir, output_dir, hparams, epoch):
     t2t_trainer.main([])
 
 
+def _ppo_training_epochs(hparams, epoch, is_final_epoch, real_env_training):
+  real_training_ppo_epochs_num = hparams.real_ppo_epochs_num
+  simulated_training_ppo_epochs_num = hparams.ppo_epochs_num
+
+  ppo_training_epochs = (epoch + 1)*simulated_training_ppo_epochs_num + \
+                        epoch * real_training_ppo_epochs_num
+  if real_env_training:
+    ppo_training_epochs += real_training_ppo_epochs_num
+  if is_final_epoch:
+    ppo_training_epochs += simulated_training_ppo_epochs_num
+
+  return ppo_training_epochs
+
+
 def train_agent(problem_name, agent_model_dir,
                 event_dir, world_model_dir, epoch_data_dir, hparams, epoch=0,
                 is_final_epoch=False):
@@ -152,15 +166,13 @@ def train_agent(problem_name, agent_model_dir,
                       "optimization_epochs"]
 
   for param_name in ppo_params_names:
-    ppo_param_name = "ppo_"+ param_name
+    ppo_param_name = "ppo_" + param_name
     if ppo_param_name in hparams:
       ppo_hparams.set_hparam(param_name, hparams.get(ppo_param_name))
 
-  ppo_epochs_num = hparams.ppo_epochs_num
-  if is_final_epoch:
-    ppo_epochs_num *= 2
-    ppo_hparams.epoch_length *= 2
-  ppo_hparams.save_models_every_epochs = ppo_epochs_num
+  ppo_hparams.epochs_num = _ppo_training_epochs(hparams, epoch,
+                                                  is_final_epoch, False)
+  ppo_hparams.save_models_every_epochs = 10
   ppo_hparams.world_model_dir = world_model_dir
   ppo_hparams.add_hparam("force_beginning_resets", True)
 
@@ -183,15 +195,14 @@ def train_agent(problem_name, agent_model_dir,
       "output_dir": world_model_dir,
       "data_dir": epoch_data_dir,
   }):
-    rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir, epoch=epoch,
-                         name_scope="ppo_sim")
+    rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir, name_scope="ppo_sim")
 
 
 def train_agent_real_env(
     problem_name, agent_model_dir, event_dir, world_model_dir, epoch_data_dir,
     hparams, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the real environment."""
-  del epoch, is_final_epoch
+
   gym_problem = registry.problem(problem_name)
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_params_names = ["epochs_num", "epoch_length",
@@ -203,11 +214,9 @@ def train_agent_real_env(
     if ppo_param_name in hparams:
       ppo_hparams.set_hparam(param_name, hparams.get(ppo_param_name))
 
-  ppo_epochs_num = hparams.real_ppo_epochs_num
-  if ppo_epochs_num == 0:
-    return
-
-  ppo_hparams.save_models_every_epochs = ppo_epochs_num
+  ppo_hparams.epochs_num = _ppo_training_epochs(hparams, epoch,
+                                                is_final_epoch, True)
+  ppo_hparams.save_models_every_epochs = 10
 
   environment_spec = copy.copy(gym_problem.environment_spec)
 
@@ -219,8 +228,7 @@ def train_agent_real_env(
       "data_dir": epoch_data_dir,
   }):
     # epoch = 10**20 is a hackish way to avoid skiping training
-    rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir, epoch=10**20,
-                         name_scope="ppo_real")
+    rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir, name_scope="ppo_real")
 
 
 def evaluate_world_model(simulated_problem_name, problem_name, hparams,
@@ -694,7 +702,7 @@ def rl_modelrl_tiny():
   """Tiny set for testing."""
   return rl_modelrl_base_sampling().override_from_dict(
       tf.contrib.training.HParams(
-          epochs=1,
+          epochs=2,
           num_real_env_frames=128,
           simulated_env_generator_num_steps=64,
           model_train_steps=2,

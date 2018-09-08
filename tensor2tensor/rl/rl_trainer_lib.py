@@ -41,7 +41,7 @@ def define_train(hparams):
 
 
 def train(hparams, event_dir=None, model_dir=None,
-          restore_agent=True, epoch=0, name_scope="rl_train"):
+          restore_agent=True, name_scope="rl_train"):
   """Train."""
   with tf.Graph().as_default():
     with tf.name_scope(name_scope):
@@ -78,13 +78,15 @@ def train(hparams, event_dir=None, model_dir=None,
           start_step = trainer_lib.restore_checkpoint(
               model_dir, model_saver, sess)
 
-        # Fail-friendly, don't train if already trained for this epoch
-        if start_step >= ((hparams.epochs_num * (epoch + 1))):
-          tf.logging.info("Skipping PPO training for epoch %d as train steps "
-                          "(%d) already reached", epoch, start_step)
+        # Fail-friendly, complete only unfinished epoch
+        steps_to_go = hparams.epochs_num - start_step
+
+        if steps_to_go <= 0:
+          tf.logging.info("Skipping PPO training. Requested %d steps while %d train steps "
+                          "already reached", hparams.epochs_num, start_step)
           return
 
-        for epoch_index in range(hparams.epochs_num):
+        for epoch_index in range(steps_to_go):
           summary = sess.run(train_summary_op)
           if summary_writer:
             summary_writer.add_summary(summary, epoch_index)
@@ -95,8 +97,8 @@ def train(hparams, event_dir=None, model_dir=None,
             else:
               tf.logging.info("Eval summary not saved")
           if (model_saver and hparams.save_models_every_epochs and
-              (epoch_index % hparams.save_models_every_epochs == 0 or
-               (epoch_index + 1) == hparams.epochs_num)):
+              ((epoch_index + start_step) % hparams.save_models_every_epochs == 0 or
+               (epoch_index + 1) == steps_to_go)):
             ckpt_path = os.path.join(
                 model_dir, "model.ckpt-{}".format(epoch_index + 1 + start_step))
             model_saver.save(sess, ckpt_path)
