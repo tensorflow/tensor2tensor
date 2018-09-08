@@ -19,11 +19,13 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import numpy as np
 import six
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.layers import common_video
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import video_metrics
@@ -38,6 +40,33 @@ def resize_video_frames(images, size):
         tf.to_int64(tf.image.resize_images(
             image, [size, size], tf.image.ResizeMethod.BILINEAR)))
   return resized_images
+
+
+def display_video_hooks(hook_args):
+  """Hooks to display videos at decode time."""
+  predictions = hook_args.predictions
+
+  all_summaries = []
+  for decode_ind, decode in enumerate(predictions):
+
+    target_videos = video_metrics.stack_data_given_key(decode, "targets")
+    output_videos = video_metrics.stack_data_given_key(decode, "outputs")
+    input_videos = video_metrics.stack_data_given_key(decode, "inputs")
+    target_videos = np.asarray(target_videos, dtype=np.uint8)
+    output_videos = np.asarray(output_videos, dtype=np.uint8)
+    input_videos = np.asarray(input_videos, dtype=np.uint8)
+
+    input_videos = np.concatenate((input_videos, target_videos), axis=1)
+    output_videos = np.concatenate((input_videos, output_videos), axis=1)
+    input_summ_vals, _ = common_video.py_gif_summary(
+        "decode_%d/input" % decode_ind, input_videos, max_outputs=10, fps=10,
+        return_summary_value=True)
+    output_summ_vals, _ = common_video.py_gif_summary(
+        "decode_%d/output" % decode_ind, output_videos, max_outputs=10, fps=10,
+        return_summary_value=True)
+    all_summaries.extend(input_summ_vals)
+    all_summaries.extend(output_summ_vals)
+  return all_summaries
 
 
 def summarize_video_metrics(hook_args):
@@ -149,7 +178,7 @@ class VideoProblem(problem.Problem):
 
   @property
   def decode_hooks(self):
-    return [summarize_video_metrics]
+    return [summarize_video_metrics, display_video_hooks]
 
   @property
   def is_generate_per_split(self):

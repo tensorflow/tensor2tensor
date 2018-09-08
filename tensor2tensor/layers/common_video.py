@@ -297,7 +297,7 @@ def _encode_gif(images, fps):
   return writer.finish()
 
 
-def py_gif_summary(tag, images, max_outputs, fps):
+def py_gif_summary(tag, images, max_outputs, fps, return_summary_value=False):
   """Outputs a `Summary` protocol buffer with gif animations.
 
   Args:
@@ -305,7 +305,9 @@ def py_gif_summary(tag, images, max_outputs, fps):
     images: A 5-D `uint8` `np.array` of shape `[batch_size, time, height, width,
       channels]` where `channels` is 1 or 3.
     max_outputs: Max number of batch elements to generate gifs for.
-    fps: frames per second of the animation
+    fps: frames per second of the animation.
+    return_summary_value: If set to True, return a list of tf.Summary.Value
+                          objects in addition to the protocol buffer.
 
   Returns:
     The serialized `Summary` protocol buffer.
@@ -323,6 +325,7 @@ def py_gif_summary(tag, images, max_outputs, fps):
     raise ValueError("Tensors must have 1 or 3 channels for gif summary.")
 
   summ = tf.Summary()
+  all_summ_values = []
   num_outputs = min(batch_size, max_outputs)
   for i in range(num_outputs):
     image_summ = tf.Summary.Image()
@@ -350,8 +353,12 @@ def py_gif_summary(tag, images, max_outputs, fps):
       summ_tag = "{}/gif".format(tag)
     else:
       summ_tag = "{}/gif/{}".format(tag, i)
+    curr_summ_value = tf.Summary.Value(tag=summ_tag, image=image_summ)
+    all_summ_values.append(curr_summ_value)
     summ.value.add(tag=summ_tag, image=image_summ)
   summ_str = summ.SerializeToString()
+  if return_summary_value:
+    return all_summ_values, summ_str
   return summ_str
 
 
