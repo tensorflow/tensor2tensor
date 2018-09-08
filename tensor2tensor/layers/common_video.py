@@ -532,6 +532,7 @@ class VideoWriter(object):
         "-filter_complex", "[0:v]split[x][z];[z]palettegen[y];[x][y]paletteuse",
         "-r", "%.02f" % self.fps,
         "-f", self.file_format,
+        "-qscale", "0",
         "-"
     ]
     self.proc = Popen(self.cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
@@ -557,8 +558,10 @@ class VideoWriter(object):
     return out
 
   def finish_to_file(self, path):
-    with tf.gfile.open(path) as f:
-      f.write(self.finish())
+    out = self.finish()
+    if out is not None:
+      with tf.gfile.Open(path, "w") as f:
+        f.write(out)
 
   def __del__(self):
     self.finish()

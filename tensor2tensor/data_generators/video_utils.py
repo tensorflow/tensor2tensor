@@ -352,6 +352,19 @@ class VideoProblem(problem.Problem):
         metrics.Metrics.NEG_LOG_PERPLEXITY, metrics.Metrics.IMAGE_SUMMARY]
     return eval_metrics
 
+  def validate_frame(self, frame):
+    height, width, channels = frame.shape
+    if channels != self.num_channels:
+      raise ValueError("Generated frame has %d channels while the class "
+                       "assumes %d channels." % (channels,
+                                                 self.num_channels))
+    if height != self.frame_height:
+      raise ValueError("Generated frame has height %d while the class "
+                       "assumes height %d." % (height, self.frame_height))
+    if width != self.frame_width:
+      raise ValueError("Generated frame has width %d while the class "
+                       "assumes width %d." % (width, self.frame_width))
+
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
     """Generate samples of the frames with possible extra data.
 
@@ -391,6 +404,9 @@ class VideoProblem(problem.Problem):
     Raises:
       ValueError: if the frame has a different number of channels than required.
     """
+    if self.debug_dump_frames_path:
+      writer = common_video.VideoWriter(fps=10, file_format="avi")
+
     with tf.Graph().as_default():
       image_t = tf.placeholder(
           dtype=tf.uint8, shape=(None, None, None))
@@ -398,48 +414,33 @@ class VideoProblem(problem.Problem):
       with tf.Session() as sess:
         for features in self.generate_samples(data_dir, tmp_dir, dataset_split):
           unencoded_frame = features.pop("frame")
-          height, width, channels = unencoded_frame.shape
-          if channels != self.num_channels:
-            raise ValueError("Generated frame has %d channels while the class "
-                             "assumes %d channels." % (channels,
-                                                       self.num_channels))
-          if height != self.frame_height:
-            raise ValueError("Generated frame has height %d while the class "
-                             "assumes height %d." % (height, self.frame_height))
-          if width != self.frame_width:
-            raise ValueError("Generated frame has width %d while the class "
-                             "assumes width %d." % (width, self.frame_width))
+          self.validate_frame(unencoded_frame)
+          height, width, _ = unencoded_frame.shape
           encoded_frame = sess.run(encoded_image_t, feed_dict={
               image_t: unencoded_frame})
           features["image/encoded"] = [encoded_frame]
           features["image/format"] = ["png"]
           features["image/height"] = [height]
           features["image/width"] = [width]
-          if "image/debug" in features:
+
+          has_debug_image = "image/debug" in features
+          if has_debug_image:
             unencoded_debug = features.pop("image/debug")
             encoded_debug = sess.run(encoded_image_t, feed_dict={
                 image_t: unencoded_debug})
             features["image/encoded_debug"] = [encoded_debug]
+
+          if self.debug_dump_frames_path:
+            img = unencoded_debug if has_debug_image else unencoded_frame
+            writer.write(img)
+
           yield features
 
-  def generate_encoded_samples_debug(self, data_dir, tmp_dir, dataset_split):
-    """Generate samples of the encoded frames and dump for debug if needed."""
-    counter = 0
-    for sample in self.generate_encoded_samples(
-        data_dir, tmp_dir, dataset_split):
-      if self.debug_dump_frames_path:
-        if not tf.gfile.Exists(self.debug_dump_frames_path):
-          tf.gfile.MkDir(self.debug_dump_frames_path)
-        path = os.path.join(self.debug_dump_frames_path,
-                            "frame_%05d.png" % counter)
-        with tf.gfile.Open(path, "wb") as f:
-          if "image/encoded_debug" in sample:
-            img_to_save = sample["image/encoded_debug"][0]
-          else:
-            img_to_save = sample["image/encoded"][0]
-          f.write(img_to_save)
-        counter += 1
-      yield sample
+    if self.debug_dump_frames_path:
+      if not tf.gfile.Exists(self.debug_dump_frames_path):
+        tf.gfile.MkDir(self.debug_dump_frames_path)
+      path = os.path.join(self.debug_dump_frames_path, "video.avi")
+      writer.finish_to_file(path)
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     """The function generating the data."""
@@ -460,12 +461,12 @@ class VideoProblem(problem.Problem):
     if self.is_generate_per_split:
       for split, paths in split_paths:
         generator_utils.generate_files(
-            self.generate_encoded_samples_debug(
+            self.generate_encoded_samples(
                 data_dir, tmp_dir, split), paths,
             cycle_every_n=self.total_number_of_frames // len(paths))
     else:
       generator_utils.generate_files(
-          self.generate_encoded_samples_debug(
+          self.generate_encoded_samples(
               data_dir, tmp_dir, problem.DatasetSplit.TRAIN),
           all_paths,
           cycle_every_n=self.total_number_of_frames // len(all_paths))
