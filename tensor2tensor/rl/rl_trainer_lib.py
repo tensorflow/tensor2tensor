@@ -82,8 +82,9 @@ def train(hparams, event_dir=None, model_dir=None,
         steps_to_go = hparams.epochs_num - start_step
 
         if steps_to_go <= 0:
-          tf.logging.info("Skipping PPO training. Requested %d steps while %d train steps "
-                          "already reached", hparams.epochs_num, start_step)
+          tf.logging.info("Skipping PPO training. Requested %d steps while "
+                          "%d train steps already reached",
+                          hparams.epochs_num, start_step)
           return
 
         for epoch_index in range(steps_to_go):
@@ -96,8 +97,9 @@ def train(hparams, event_dir=None, model_dir=None,
               summary_writer.add_summary(summary, epoch_index)
             else:
               tf.logging.info("Eval summary not saved")
+          epoch_index_and_start = epoch_index + start_step
           if (model_saver and hparams.save_models_every_epochs and
-              ((epoch_index + start_step) % hparams.save_models_every_epochs == 0 or
+              (epoch_index_and_start % hparams.save_models_every_epochs == 0 or
                (epoch_index + 1) == steps_to_go)):
             ckpt_path = os.path.join(
                 model_dir, "model.ckpt-{}".format(epoch_index + 1 + start_step))
