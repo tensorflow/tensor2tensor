@@ -281,7 +281,7 @@ def encode_dataset(model, dataset, problem, ae_hparams, autoencoder_path,
   dataset = dataset.batch(batch_size)
   examples = dataset.make_one_shot_iterator().get_next()
   images = examples.pop("frame")
-  images = tf.expand_dims(images, 1)
+  images = tf.cast(images, tf.int32)
 
   encoded = model.encode(images)
   encoded_frame_height = int(

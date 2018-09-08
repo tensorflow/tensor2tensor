@@ -65,8 +65,8 @@ def standard_atari_env_spec(env):
 
 def standard_atari_ae_env_spec(env):
   """Parameters of environment specification."""
-  standard_wrappers = [[tf_atari_wrappers.StackWrapper, {"history": 4}],
-                       [tf_atari_wrappers.AutoencoderWrapper, {}]]
+  standard_wrappers = [[tf_atari_wrappers.AutoencoderWrapper, {}],
+                       [tf_atari_wrappers.StackWrapper, {"history": 4}]]
   env_lambda = None
   if isinstance(env, str):
     env_lambda = lambda: gym.make(env)
@@ -399,6 +399,23 @@ class GymDiscreteProblemWithAutoencoder(GymRealDiscreteProblem):
       ckpt = ckpts.model_checkpoint_path
       autoencoder_saver.restore(sess, ckpt)
 
+  def hparams(self, defaults, unused_model_hparams):
+    """Overrides VideoProblem.hparams to work on images instead of videos."""
+    p = defaults
+    p.input_modality = {
+        "inputs": ("image", 256),
+    }
+    p.target_modality = ("image", 256)
+    p.input_space_id = problem.SpaceID.IMAGE
+    p.target_space_id = problem.SpaceID.IMAGE
+
+  def preprocess(self, dataset, mode, hparams, interleave=True):
+    """Overrides VideoProblem.preprocess to work on images instead of videos."""
+    def set_targets(example):
+      example["targets"] = example["frame"]
+      return example
+    return dataset.map(set_targets)
+
 
 class GymDiscreteProblemAutoencoded(GymRealDiscreteProblem):
   """Gym discrete problem with frames already autoencoded."""
@@ -593,7 +610,10 @@ class GymSimulatedDiscreteProblemAutoencoded(GymSimulatedDiscreteProblem):
 
   def get_environment_spec(self):
     env_spec = standard_atari_env_spec(self.env_name)
-    env_spec.wrappers = [[tf_atari_wrappers.IntToBitWrapper, {}]]
+    env_spec.wrappers = [
+        [tf_atari_wrappers.IntToBitWrapper, {}],
+        [tf_atari_wrappers.StackWrapper, {"history": 4}]
+    ]
     env_spec.simulated_env = True
     env_spec.add_hparam("simulation_random_starts", False)
 
@@ -621,3 +641,12 @@ class GymSimulatedDiscreteProblemAutoencoded(GymSimulatedDiscreteProblem):
   def frame_width(self):
     width = self.env.observation_space.shape[1]
     return int(math.ceil(width / self.autoencoder_factor))
+
+
+@registry.register_problem
+class DummyAutoencoderProblem(GymDiscreteProblemWithAutoencoder):
+  """Dummy problem for running the autoencoder inside AutoencoderWrapper."""
+
+  @property
+  def env_name(self):
+    return "DummyAutoencoder"

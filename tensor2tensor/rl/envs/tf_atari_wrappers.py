@@ -25,6 +25,7 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import discretization
 from tensor2tensor.models.research import autoencoders
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -212,9 +213,12 @@ class AutoencoderWrapper(WrapperBase):
         trainable=False)
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       autoencoder_hparams = autoencoders.autoencoder_discrete_pong()
+      problem = registry.problem("dummy_autoencoder_problem")
+      autoencoder_hparams.problem_hparams = problem.get_hparams(
+          autoencoder_hparams)
+      autoencoder_hparams.problem = problem
       self.autoencoder_model = autoencoders.AutoencoderOrderedDiscrete(
           autoencoder_hparams, tf.estimator.ModeKeys.EVAL)
-    self.autoencoder_model.set_mode(tf.estimator.ModeKeys.EVAL)
 
   @property
   def observ_shape(self):
@@ -234,7 +238,8 @@ class AutoencoderWrapper(WrapperBase):
     reward, done = self._batch_env.simulate(action)
     with tf.control_dependencies([reward, done]):
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-        ret = self.autoencoder_model.encode(self._batch_env.observ)
+        observ = tf.cast(self._batch_env.observ, tf.int32)
+        ret = self.autoencoder_model.encode(observ)
         ret = tf.cast(ret, self.observ_dtype)
         assign_op = self._observ.assign(ret)
         with tf.control_dependencies([assign_op]):
@@ -243,6 +248,7 @@ class AutoencoderWrapper(WrapperBase):
   def _reset_non_empty(self, indices):
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       new_values = self._batch_env._reset_non_empty(indices)  # pylint: disable=protected-access
+      new_values = tf.cast(new_values, tf.int32)
       ret = self.autoencoder_model.encode(new_values)
       ret = tf.cast(ret, self.observ_dtype)
       assign_op = tf.scatter_update(self._observ, indices, ret)
