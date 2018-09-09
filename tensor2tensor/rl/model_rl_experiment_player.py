@@ -137,7 +137,7 @@ class DebugBatchEnv(Env):
       self.sess = sess
 
     self.action_space = Discrete(6)
-    self.observation_space = Box(low=0, high=255, shape=(210, 160, 3), dtype=np.uint8)
+    self.observation_space = Box(low=0, high=255, shape=(210, 320, 3), dtype=np.uint8)
 
     # batch_env = batch_env_factory(hparams)
 
@@ -185,7 +185,7 @@ class DebugBatchEnv(Env):
 
   def _step_fake(self, action):
 
-    observ = np.ones(shape=(210, 160, 3), dtype=np.uint8)*10*self._tmp
+    observ = np.ones(shape=(210, 320, 3), dtype=np.uint8)*10*self._tmp
     observ[0, 0, 0] = 0
     observ[0, 0, 1] = 255
 
@@ -210,15 +210,20 @@ class DebugBatchEnv(Env):
   def _augment_observation(self):
     _observ, rew, probs, probs, vf = self.res
     info_pane = np.zeros_like(_observ)
-    write_on_image(info_pane, "Policy:{}".format(probs))
-    write_on_image(info_pane, "Value function:{}".format(vf), positon=(0, 10))
-    write_on_image(info_pane, "Rew:{}".format(rew), positon=(0, 20))
+    info_str = "Policy:{}\nValue function:{}\nReward:{}".format(probs, vf, rew)
+    info_pane = write_on_image(info_pane, info_str)
+
+    augmented_observ = concatenate_images(_observ, info_pane)
+    augmented_observ = np.array(augmented_observ)
+    return augmented_observ
+
 
   def step(self, action):
     #Special codes
     if action==100:
       #Skip action
-      observ, rew, done, _, _ = self.res
+      _, rew, done, _, _ = self.res
+      observ = self._augment_observation()
       return observ, rew, done, {}
 
     if action == 101:
@@ -235,8 +240,6 @@ class DebugBatchEnv(Env):
     self.res = (_observ, rew, done, probs, vf)
 
     observ = self._augment_observation()
-
-
     return observ, rew, done, {"probs": probs, "vf": vf}
 
 
