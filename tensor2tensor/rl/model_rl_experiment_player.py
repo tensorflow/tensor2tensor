@@ -123,7 +123,7 @@ def train_agent(problem_name, agent_model_dir,
                    (ord('r'),):101,
                    (ord('p'),):102}
 
-    play.play(env, zoom=2, fps=10, keys_to_action=key_mapping)
+    play.play(env, zoom=1, fps=10, keys_to_action=key_mapping)
 
 from gym.core import Env
 
@@ -178,14 +178,14 @@ class DebugBatchEnv(Env):
     _observ = np.ones(shape=(210, 160, 3), dtype=np.uint8) * 10 * self._tmp
     _observ[0, 0, 0] = 0
     _observ[0, 0, 1] = 255
-    self.res = (_observ, 0, False, "a", "b")
+    self.res = (_observ, 0, False, [0.1, 0.5, 0.5], 1.1)
     observ = self._augment_observation()
     return observ
 
 
   def _step_fake(self, action):
 
-    observ = np.ones(shape=(210, 320, 3), dtype=np.uint8)*10*self._tmp
+    observ = np.ones(shape=(210, 160+250, 3), dtype=np.uint8)*10*self._tmp
     observ[0, 0, 0] = 0
     observ[0, 0, 1] = 255
 
@@ -208,9 +208,16 @@ class DebugBatchEnv(Env):
     return observ[0, ...], rew[0, ...], done[0, ...], probs, vf
 
   def _augment_observation(self):
-    _observ, rew, probs, probs, vf = self.res
-    info_pane = np.zeros_like(_observ)
-    info_str = "Policy:{}\nValue function:{}\nReward:{}".format(probs, vf, rew)
+    _observ, rew, done, probs, vf = self.res
+    info_pane = np.zeros(shape=(210, 250, 3), dtype=np.uint8)
+    probs_str = ""
+    for p in probs:
+      probs_str += "%.2f" % p +", "
+
+    action = np.argmax(probs)
+
+    info_str = "Policy:{}\nAction:{}\nValue function:{}\nReward:{}".format(probs_str, action,
+                                                                           vf, rew)
     info_pane = write_on_image(info_pane, info_str)
 
     augmented_observ = concatenate_images(_observ, info_pane)
@@ -246,10 +253,6 @@ class DebugBatchEnv(Env):
 
 def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   """Run the main training loop."""
-  if report_fn:
-    assert report_metric is not None
-
-  # Global state
 
   # Directories
   subdirectories = ["data", "tmp", "world_model", "ppo"]
