@@ -188,23 +188,22 @@ class DebugBatchEnv(Env):
     _observ[0, 0, 0] = 0
     _observ[0, 0, 1] = 255
     self.res = (_observ, 0, False, [0.1, 0.5, 0.5], 1.1)
-    observ = self._augment_observation()
-    return observ
+
+  def _reset_env(self):
+    _observ = self.sess.run(self.reset_op)[0, ...]
+    _observ[0, 0, 0] = 0
+    _observ[0, 0, 1] = 255
+    #TODO:(put correct numbers)
+    self.res = (_observ, 0, False, [0.1, 0.5, 0.5], 1.1)
 
 
   def reset(self):
-    # observ = self.sess.run(self.reset_op)
-    self._tmp = 0
-    _observ = np.ones(shape=(210, 160, 3), dtype=np.uint8) * 10 * self._tmp
-    _observ[0, 0, 0] = 0
-    _observ[0, 0, 1] = 255
-    self.res = (_observ, 0, False, [0.1, 0.5, 0.5], 1.1)
+    self._reset_env()
     observ = self._augment_observation()
     return observ
 
 
   def _step_fake(self, action):
-
     observ = np.ones(shape=(210, 160, 3), dtype=np.uint8)*10*self._tmp
     observ[0, 0, 0] = 0
     observ[0, 0, 1] = 255
