@@ -137,7 +137,7 @@ class DebugBatchEnv(Env):
       self.sess = sess
 
     self.action_space = Discrete(6)
-    self.observation_space = Box(low=0, high=255, shape=(210, 320, 3), dtype=np.uint8)
+    self.observation_space = Box(low=0, high=255, shape=(210, 160+250, 3), dtype=np.uint8)
 
     # batch_env = batch_env_factory(hparams)
 
@@ -185,7 +185,7 @@ class DebugBatchEnv(Env):
 
   def _step_fake(self, action):
 
-    observ = np.ones(shape=(210, 160+250, 3), dtype=np.uint8)*10*self._tmp
+    observ = np.ones(shape=(210, 160, 3), dtype=np.uint8)*10*self._tmp
     observ[0, 0, 0] = 0
     observ[0, 0, 1] = 255
 
@@ -235,8 +235,10 @@ class DebugBatchEnv(Env):
 
     if action == 101:
       #reset
-      observ, rew, _ = self.res
-      return observ, rew, True, {}
+      self.reset()
+      _, rew, done, _, _ = self.res
+      observ = self._augment_observation()
+      return observ, rew, done, {}
 
     if action == 102:
       #play
