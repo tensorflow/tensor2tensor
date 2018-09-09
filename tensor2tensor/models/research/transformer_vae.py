@@ -675,24 +675,15 @@ class TransformerAE(t2t_model.T2TModel):
     if "partial_targets" in features:
       initial_output = tf.convert_to_tensor(features["partial_targets"])
     else:
-      # inputs might not be present in features (e.g.: language modeling),
-      # in which case we fallback to 'infer_targets' for calculating initial
-      # input shape, type, etc.
-      inputs_or_targets = features.get("inputs", features["infer_targets"])
-      batch_size = common_layers.shape_list(inputs_or_targets)[0]
-      length = common_layers.shape_list(inputs_or_targets)[1]
-      hidden_dim = common_layers.shape_list(inputs_or_targets)[-1]
+      batch_size = common_layers.shape_list(features["inputs"])[0]
+      length = common_layers.shape_list(features["inputs"])[1]
       target_length = tf.to_int32(2.0 * tf.to_float(length))
-      initial_output = tf.zeros((batch_size, target_length, 1, hidden_dim),
-                                dtype=inputs_or_targets.dtype)
+      initial_output = tf.zeros((batch_size, target_length, 1, 1),
+                                dtype=tf.int64)
 
     features["targets"] = initial_output
     logits, _ = self(features)  # pylint: disable=not-callable
-    # this should only happen if we're doing target_modality not real
-    if inputs_or_targets.dtype == tf.float32:
-      samples = logits
-    else:
-      samples = tf.argmax(logits, axis=-1)
+    samples = tf.argmax(logits, axis=-1)
 
     # More steps.
     self.predict_mask = 0.0  # Use the provided targets this time.
@@ -701,12 +692,7 @@ class TransformerAE(t2t_model.T2TModel):
       with tf.variable_scope(tf.get_variable_scope(), reuse=True):
         features["targets"] = samples
         logits, _ = self(features)  # pylint: disable=not-callable
-        if inputs_or_targets.dtype == tf.float32:
-          # When target_modality is real, the last axis does not represent
-          # classes, so it should not be argmax'ed
-          samples = logits
-        else:
-          samples = tf.argmax(logits, axis=-1)
+        samples = tf.argmax(logits, axis=-1)
 
     self.predict_mask = 1.0
     if inputs_old is not None:  # Restore to not confuse Estimator.
