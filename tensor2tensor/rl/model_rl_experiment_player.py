@@ -56,13 +56,13 @@ def _assert_image(img):
   return img
 
 
-def write_on_image(img, text="", positon=(0,0), color=(255,255,255)):
+def write_on_image(img, text="", position=(0, 0), color=(255, 255, 255)):
   img = _assert_image(img)
   if text=="":
     return img
   draw = ImageDraw.Draw(img)
   font = _get_font()
-  draw.text(positon, text, color, font=font)
+  draw.text(position, text, color, font=font)
 
   return img
 
@@ -117,13 +117,18 @@ def train_agent(problem_name, agent_model_dir,
     sess = tf.Session()
     env = DebugBatchEnv(ppo_hparams, sess)
     sess.run(tf.global_variables_initializer())
-    # env.initialize()
+    env.initialize()
+    env_model_loader = tf.train.Saver(
+      tf.global_variables("next_frame*"))
+
+    trainer_lib.restore_checkpoint(world_model_dir, env_model_loader, sess,
+      must_restore=True)
 
     key_mapping = {(): 100, (ord('q'),):1, (ord('a'),):2,
                    (ord('r'),):101,
                    (ord('p'),):102}
 
-    play.play(env, zoom=1, fps=10, keys_to_action=key_mapping)
+    play.play(env, zoom=2, fps=10, keys_to_action=key_mapping)
 
 from gym.core import Env
 
@@ -138,39 +143,50 @@ class DebugBatchEnv(Env):
 
     self.action_space = Discrete(6)
     self.observation_space = Box(low=0, high=255, shape=(210, 160+250, 3), dtype=np.uint8)
+    self._tmp = 1
+    self.res = None
+    self._prepare_networks(hparams, self.sess)
 
-    # batch_env = batch_env_factory(hparams)
-
+  def _prepare_networks(self, hparams, sess):
     self.action = tf.placeholder(shape=(1,), dtype=tf.int32)
-
-    # self.reward, self.done = batch_env.simulate(self.action)
-    # self.observation = batch_env.observ
-    # self.reset_op = batch_env.reset(tf.constant([0], dtype=tf.int32))
+    batch_env = batch_env_factory(hparams)
+    self.reward, self.done = batch_env.simulate(self.action)
+    self.observation = batch_env.observ
+    self.reset_op = batch_env.reset(tf.constant([0], dtype=tf.int32))
 
     environment_wrappers = hparams.environment_spec.wrappers
     wrappers = copy.copy(environment_wrappers) if environment_wrappers else []
 
-    # to_initialize = [batch_env]
-    # for w in wrappers:
-    #   batch_env = w[0](batch_env, **w[1])
-    #   to_initialize.append(batch_env)
-    #
-    # def initialization_lambda():
-    #   for batch_env in to_initialize:
-    #     batch_env.initialize(sess)
+    to_initialize = [batch_env]
+    for w in wrappers:
+      batch_env = w[0](batch_env, **w[1])
+      to_initialize.append(batch_env)
 
-    # self.initialize = initialization_lambda
+    def initialization_lambda():
+      for batch_env in to_initialize:
+        batch_env.initialize(sess)
 
-    # obs_copy = batch_env.observ + 0
+    self.initialize = initialization_lambda
 
-    # actor_critic = get_policy(tf.expand_dims(obs_copy, 0), hparams)
-    # self.policy_probs = actor_critic.policy.probs[0, 0, :]
-    # self.value = actor_critic.value[0, :]
-    self._tmp = 1
-    self.res = None
+    obs_copy = batch_env.observ + 0
+
+    actor_critic = get_policy(tf.expand_dims(obs_copy, 0), hparams)
+    self.policy_probs = actor_critic.policy.probs[0, 0, :]
+    self.value = actor_critic.value[0, :]
+
 
   def render(self, mode='human'):
     raise NotImplemented()
+
+  def _fake_reset(self):
+    self._tmp = 0
+    _observ = np.ones(shape=(210, 160, 3), dtype=np.uint8) * 10 * self._tmp
+    _observ[0, 0, 0] = 0
+    _observ[0, 0, 1] = 255
+    self.res = (_observ, 0, False, [0.1, 0.5, 0.5], 1.1)
+    observ = self._augment_observation()
+    return observ
+
 
   def reset(self):
     # observ = self.sess.run(self.reset_op)
@@ -200,7 +216,7 @@ class DebugBatchEnv(Env):
 
     return observ, rew, done, probs, vf
 
-  def _env_step_fake(self, action):
+  def _step_env(self, action):
     observ, rew, done, probs, vf = self.sess.\
       run([self.observation, self.reward, self.done, self.policy_probs, self.value],
           feed_dict={self.action: [action]})
@@ -216,7 +232,7 @@ class DebugBatchEnv(Env):
 
     action = np.argmax(probs)
 
-    info_str = "Policy:{}\nAction:{}\nValue function:{}\nReward:{}".format(probs_str, action,
+    info_str = " Policy:{}\n Action:{}\n Value function:{}\n Reward:{}".format(probs_str, action,
                                                                            vf, rew)
     info_pane = write_on_image(info_pane, info_str)
 
@@ -245,7 +261,7 @@ class DebugBatchEnv(Env):
       raise NotImplemented()
 
     #standard codes
-    _observ, rew, done, probs, vf = self._step_fake(action)
+    _observ, rew, done, probs, vf = self._step_env(action)
     self.res = (_observ, rew, done, probs, vf)
 
     observ = self._augment_observation()
@@ -280,26 +296,19 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   data_dir = os.path.join(directories["data"], "random")
   epoch_data_dirs.append(data_dir)
 
-  for epoch in range(hparams.epochs):
-    is_final_epoch = (epoch + 1) == hparams.epochs
+  epoch = hparams.epochs-1
 
-    # Combine all previously collected environment data
-    epoch_data_dir = os.path.join(directories["data"], str(epoch))
+  # Combine all previously collected environment data
+  epoch_data_dir = os.path.join(directories["data"], str(epoch))
 
-
-    ppo_event_dir = os.path.join(directories["world_model"],
-                                 "ppo_summaries", str(epoch))
-    ppo_model_dir = directories["ppo"]
-    if not hparams.ppo_continue_training:
-      ppo_model_dir = ppo_event_dir
-    train_agent(simulated_problem_name, ppo_model_dir,
-                ppo_event_dir, directories["world_model"], epoch_data_dir,
-                hparams, epoch=epoch, is_final_epoch=is_final_epoch)
-
-
-  raise NotImplementedError()
-  return 1
-
+  ppo_event_dir = os.path.join(directories["world_model"],
+                               "ppo_summaries", str(epoch))
+  ppo_model_dir = directories["ppo"]
+  if not hparams.ppo_continue_training:
+    ppo_model_dir = ppo_event_dir
+  train_agent(simulated_problem_name, ppo_model_dir,
+              ppo_event_dir, directories["world_model"], epoch_data_dir,
+              hparams, epoch=epoch, is_final_epoch=False)
 
 
 def create_loop_hparams():
