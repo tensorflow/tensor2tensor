@@ -462,7 +462,10 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     gen_images = tf.concat((first_gen_images, gen_images), axis=0)
     gen_rewards = tf.concat((first_gen_rewards, gen_rewards), axis=0)
 
-    return gen_images, gen_rewards, [latent_mean], [latent_std]
+    if self.hparams.stochastic_model:
+      return gen_images, gen_rewards, [latent_mean], [latent_std]
+    else:
+      return gen_images, gen_rewards, None, None
 
   def get_extra_loss(self, latent_means=None, latent_stds=None,
                      true_frames=None, gen_frames=None, beta=1.0):
@@ -470,7 +473,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     del true_frames
     del gen_frames
     kl_loss = 0.0
-    if self.is_training:
+    if self.is_training and self.hparams.stochastic_model:
       for i, (mean, std) in enumerate(zip(latent_means, latent_stds)):
         kl_loss += common_layers.kl_divergence(mean, std)
         tf.summary.histogram("posterior_mean_%d" % i, mean)
