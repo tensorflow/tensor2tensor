@@ -74,24 +74,12 @@ def concatenate_images(*imgs, axis=1):
   return _assert_image(concatenated_im_np)
 
 
-def train_agent(problem_name, agent_model_dir,
+def show_agent(problem_name, agent_model_dir,
                 event_dir, world_model_dir, epoch_data_dir, hparams, epoch=0,
                 is_final_epoch=False):
   """Train the PPO agent in the simulated environment."""
   gym_problem = registry.problem(problem_name)
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
-  ppo_params_names = ["epochs_num", "epoch_length",
-                      "learning_rate", "num_agents",
-                      "optimization_epochs"]
-
-  for param_name in ppo_params_names:
-    ppo_param_name = "ppo_" + param_name
-    if ppo_param_name in hparams:
-      ppo_hparams.set_hparam(param_name, hparams.get(ppo_param_name))
-
-  ppo_hparams.save_models_every_epochs = 10
-  ppo_hparams.world_model_dir = world_model_dir
-  ppo_hparams.add_hparam("force_beginning_resets", True)
 
   # Adding model hparams for model specific adjustments
   model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
@@ -309,7 +297,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   ppo_model_dir = directories["ppo"]
   if not hparams.ppo_continue_training:
     ppo_model_dir = ppo_event_dir
-  train_agent(simulated_problem_name, ppo_model_dir,
+  show_agent(simulated_problem_name, ppo_model_dir,
               ppo_event_dir, directories["world_model"], epoch_data_dir,
               hparams, epoch=epoch, is_final_epoch=False)
 
