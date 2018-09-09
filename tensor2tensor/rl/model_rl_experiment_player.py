@@ -118,11 +118,15 @@ def train_agent(problem_name, agent_model_dir,
     env = DebugBatchEnv(ppo_hparams, sess)
     sess.run(tf.global_variables_initializer())
     env.initialize()
+
     env_model_loader = tf.train.Saver(
       tf.global_variables("next_frame*"))
-
     trainer_lib.restore_checkpoint(world_model_dir, env_model_loader, sess,
       must_restore=True)
+
+    model_saver = tf.train.Saver(
+      tf.global_variables(".*network_parameters.*"))
+    trainer_lib.restore_checkpoint(agent_model_dir, model_saver, sess)
 
     key_mapping = {(): 100, (ord('q'),):1, (ord('a'),):2,
                    (ord('r'),):101,
