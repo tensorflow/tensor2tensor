@@ -76,7 +76,7 @@ def concatenate_images(*imgs, axis=1):
   return _assert_image(concatenated_im_np)
 
 
-def show_agent(problem_name, agent_model_dir, world_model_dir, epoch_data_dir, hparams, epoch=0, is_final_epoch=False):
+def show_agent(problem_name, agent_model_dir, world_model_dir, epoch_data_dir, hparams):
   """Train the PPO agent in the simulated environment."""
   gym_problem = registry.problem(problem_name)
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
@@ -283,13 +283,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     simulated_problem_name = ("gym_simulated_discrete_problem_with_agent_on_%s"
                               % game_with_mode)
 
-  epoch_data_dirs = []
-  data_dir = os.path.join(directories["data"], "random")
-  epoch_data_dirs.append(data_dir)
-
   epoch = hparams.epochs-1
-
-
   epoch_data_dir = os.path.join(directories["data"], str(epoch))
 
   ppo_event_dir = os.path.join(directories["world_model"],
@@ -297,8 +291,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   ppo_model_dir = directories["ppo"]
   if not hparams.ppo_continue_training:
     ppo_model_dir = ppo_event_dir
-  show_agent(simulated_problem_name, ppo_model_dir, directories["world_model"], epoch_data_dir, hparams, epoch=epoch,
-             is_final_epoch=False)
+  show_agent(simulated_problem_name, ppo_model_dir, directories["world_model"], epoch_data_dir, hparams)
 
 
 def create_loop_hparams():
