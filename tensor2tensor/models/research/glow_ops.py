@@ -532,7 +532,7 @@ def split(name, x, reverse=False, eps=None, eps_std=None, cond_latent=None,
         x2 = eps_std * tf.random_normal(common_layers.shape_list(x))
       else:
         x2 = prior_dist.sample()
-      return tf.concat([x, x2], 3)
+      return tf.concat([x, x2], 3), x2
 
 
 @add_arg_scope
@@ -713,12 +713,13 @@ def encoder_decoder(name, x, hparams, eps=None, reverse=False,
           if cond_latents is not None:
             curr_latent = cond_latents[level]
 
-          x = split("split_%d" % level, x, eps=curr_eps, reverse=True,
-                    cond_latent=curr_latent,
-                    merge_std=hparams.level_prior_scale)
+          x, latent = split("split_%d" % level, x, eps=curr_eps, reverse=True,
+                            cond_latent=curr_latent,
+                            merge_std=hparams.level_prior_scale)
+          all_latents.append(latent)
 
         x, obj = revnet(
             "revnet_%d" % level, x, hparams=hparams, reverse=True)
         objective += obj
         x = squeeze("squeeze_%d" % level, x, reverse=True)
-      return x, objective
+      return x, objective, all_latents[::-1]

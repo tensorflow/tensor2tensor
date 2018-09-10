@@ -138,7 +138,7 @@ class GlowOpsTest(tf.test.TestCase):
     with tf.Graph().as_default():
       x = tf.random_uniform(shape=(16, 5, 5, 32))
       x_inv, _, eps, z = glow_ops.split("split", x)
-      x_inv_inv = glow_ops.split("split", x_inv, reverse=True, eps=eps)
+      x_inv_inv, _ = glow_ops.split("split", x_inv, reverse=True, eps=eps)
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
         x_inv_np, diff, z_np = session.run([x_inv, x - x_inv_inv, z])
@@ -173,17 +173,21 @@ class GlowOpsTest(tf.test.TestCase):
       x = tf.random_uniform(shape=(16, 64, 64, 4), seed=0)
       x_inv, _, eps, z_levels = glow_ops.encoder_decoder(
           "encoder_decoder", x, hparams, reverse=False)
-      x_inv_inv, _ = glow_ops.encoder_decoder(
+      x_inv_inv, _, z_inv_levels = glow_ops.encoder_decoder(
           "encoder_decoder", x_inv, hparams, eps=eps, reverse=True)
 
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
-        diff, x_inv_np, z_levels_np = session.run(
-            [x - x_inv_inv, x_inv, z_levels])
+        diff, x_inv_np, z_levels_np, z_inv_levels_np = session.run(
+            [x - x_inv_inv, x_inv, z_levels, z_inv_levels])
+
         self.assertEqual(len(z_levels_np), 2)
+        self.assertEqual(len(z_inv_levels_np), 2)
         # (h_i, w_i, c_i) = (h_{i-1}/f, w_{i-1}/f, c_{i-1}*(2f)/2) where (f=2)
         self.assertEqual(z_levels_np[0].shape, (16, 32, 32, 8))
         self.assertEqual(z_levels_np[1].shape, (16, 16, 16, 16))
+        self.assertEqual(z_inv_levels_np[0].shape, (16, 32, 32, 8))
+        self.assertEqual(z_inv_levels_np[1].shape, (16, 16, 16, 16))
         self.assertTrue(x_inv_np.shape, (16, 8, 8, 64))
         self.assertTrue(np.allclose(diff, 0.0, atol=1e-2))
 
@@ -225,7 +229,7 @@ class GlowOpsTest(tf.test.TestCase):
       with arg_scope(ops, init=False):
         x_inv2, _, all_eps, _ = glow_ops.encoder_decoder(
             "revnet", x_t, hparams, reverse=False)
-        x_inv_inv_, _ = glow_ops.encoder_decoder(
+        x_inv_inv_, _, _ = glow_ops.encoder_decoder(
             "revnet", x_inv2, hparams, eps=all_eps, reverse=True)
 
       with tf.Session() as session:
@@ -266,8 +270,8 @@ class GlowOpsTest(tf.test.TestCase):
       x_inv, _, eps, x2_t = glow_ops.split(merge_std, x_t, cond_latent=latent_t,
                                            merge_std=merge_std)
       # Test reversibility.
-      x_inv_inv = glow_ops.split(merge_std, x_inv, cond_latent=latent_t,
-                                 merge_std=merge_std, eps=eps, reverse=True)
+      x_inv_inv, _ = glow_ops.split(merge_std, x_inv, cond_latent=latent_t,
+                                    merge_std=merge_std, eps=eps, reverse=True)
       with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         actual_eps, actual_x2, diff_np = sess.run([eps, x2_t, x_inv_inv - x_t])
