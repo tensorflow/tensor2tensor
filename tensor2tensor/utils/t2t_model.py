@@ -209,6 +209,7 @@ class T2TModel(base.Layer):
         optimize.get_variable_initializer(self.hparams))
     with self._eager_var_store.as_default():
       self._fill_problem_hparams_features(features)
+      summarize_features(features, num_shards=self._num_datashards)
       sharded_features = self._shard_features(features)
       sharded_logits, losses = self.model_fn_sharded(sharded_features)
       if isinstance(sharded_logits, dict):
@@ -230,7 +231,6 @@ class T2TModel(base.Layer):
 
   def model_fn_sharded(self, sharded_features):
     dp = self._data_parallelism
-    summarize_features(sharded_features, num_shards=dp.n)
     datashard_to_features = self._to_features_per_datashard(sharded_features)
     if self.use_body_sharded:
       # MoE models override body_sharded
