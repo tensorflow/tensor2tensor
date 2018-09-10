@@ -259,9 +259,8 @@ class DebugBatchEnv(Env):
     return observ, rew, done, {"probs": probs, "vf": vf}
 
 
-
-def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
-  """Run the main training loop."""
+def setup_show_metadata(hparams, output_dir):
+  """Setup metadata"""
 
   # Directories
   subdirectories = ["data", "tmp", "world_model", "ppo"]
@@ -282,28 +281,19 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   else:
     simulated_problem_name = ("gym_simulated_discrete_problem_with_agent_on_%s"
                               % game_with_mode)
-
   epoch = hparams.epochs-1
   epoch_data_dir = os.path.join(directories["data"], str(epoch))
-
-  ppo_event_dir = os.path.join(directories["world_model"],
-                               "ppo_summaries", str(epoch))
   ppo_model_dir = directories["ppo"]
-  if not hparams.ppo_continue_training:
-    ppo_model_dir = ppo_event_dir
-  show_agent(simulated_problem_name, ppo_model_dir, directories["world_model"], epoch_data_dir, hparams)
 
-
-def create_loop_hparams():
-  hparams = registry.hparams(FLAGS.loop_hparams_set)
-  hparams.parse(FLAGS.loop_hparams)
-  return hparams
+  show_agent(simulated_problem_name, ppo_model_dir,
+             directories["world_model"], epoch_data_dir, hparams)
 
 
 def main(_):
-  hp = create_loop_hparams()
+  hparams = registry.hparams(FLAGS.loop_hparams_set)
+  hparams.parse(FLAGS.loop_hparams)
   output_dir = FLAGS.output_dir
-  training_loop(hp, output_dir)
+  setup_show_metadata(hparams, output_dir)
 
 
 if __name__ == "__main__":
