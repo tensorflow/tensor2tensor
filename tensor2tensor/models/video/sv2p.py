@@ -569,8 +569,15 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       return_targets = {"targets": predictions, "target_reward": reward_pred}
 
     if hparams.internal_loss:
-      loss = tf.losses.mean_squared_error(all_frames[1:], gen_images)
-      extra_loss = {"training": loss + extra_loss}
+      recon_loss = tf.losses.mean_squared_error(all_frames[1:], gen_images)
+      rew_loss = 0.0
+      if hparams.reward_prediction:
+        rew_loss = tf.losses.softmax_cross_entropy(all_rewards[1:], gen_rewards)
+        tf.summary.scalar("loss/reward", rew_loss)
+      tf.summary.scalar("loss/recon", recon_loss)
+      tf.summary.scalar("loss/kl", extra_loss)
+
+      extra_loss = {"training": recon_loss + rew_loss + extra_loss}
 
     return return_targets, extra_loss
 
