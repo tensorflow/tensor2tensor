@@ -1,3 +1,5 @@
+#--output_dir=/Users/piotr.milos/Downloads/18 --alsologtostderr --loop_hparams_set=rl_modelrl_base_quick
+#--output_dir=/Users/piotr.milos/t2t/rl_v1 --alsologtostderr --loop_hparams_set=rl_modelrl_tiny
 
 from __future__ import absolute_import
 from __future__ import division
@@ -74,9 +76,7 @@ def concatenate_images(*imgs, axis=1):
   return _assert_image(concatenated_im_np)
 
 
-def show_agent(problem_name, agent_model_dir,
-                event_dir, world_model_dir, epoch_data_dir, hparams, epoch=0,
-                is_final_epoch=False):
+def show_agent(problem_name, agent_model_dir, world_model_dir, epoch_data_dir, hparams, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the simulated environment."""
   gym_problem = registry.problem(problem_name)
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
@@ -289,7 +289,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   epoch = hparams.epochs-1
 
-  # Combine all previously collected environment data
+
   epoch_data_dir = os.path.join(directories["data"], str(epoch))
 
   ppo_event_dir = os.path.join(directories["world_model"],
@@ -297,9 +297,8 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   ppo_model_dir = directories["ppo"]
   if not hparams.ppo_continue_training:
     ppo_model_dir = ppo_event_dir
-  show_agent(simulated_problem_name, ppo_model_dir,
-              ppo_event_dir, directories["world_model"], epoch_data_dir,
-              hparams, epoch=epoch, is_final_epoch=False)
+  show_agent(simulated_problem_name, ppo_model_dir, directories["world_model"], epoch_data_dir, hparams, epoch=epoch,
+             is_final_epoch=False)
 
 
 def create_loop_hparams():
