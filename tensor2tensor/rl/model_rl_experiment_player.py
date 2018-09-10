@@ -13,15 +13,8 @@ import os
 from gym.spaces import Box
 import numpy as np
 
-import six
 from gym.spaces import Discrete
-from gym.utils.play import PlayPlot
-
-from tensor2tensor.bin import t2t_trainer
-from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import gym_problems_specs
-from tensor2tensor.layers import discretization
-from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.rl.envs.batch_env_factory import batch_env_factory
 from tensor2tensor.rl.envs.utils import get_policy
 from tensor2tensor.utils import registry
@@ -100,8 +93,6 @@ def show_agent(problem_name, agent_model_dir, world_model_dir, epoch_data_dir, h
       "output_dir": world_model_dir,
       "data_dir": epoch_data_dir,
   }):
-
-
     sess = tf.Session()
     env = DebugBatchEnv(ppo_hparams, sess)
     sess.run(tf.global_variables_initializer())
