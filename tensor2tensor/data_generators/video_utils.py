@@ -45,6 +45,7 @@ def resize_video_frames(images, size):
 def display_video_hooks(hook_args):
   """Hooks to display videos at decode time."""
   predictions = hook_args.predictions
+  fps = hook_args.decode_hparams.frames_per_second
 
   all_summaries = []
   for decode_ind, decode in enumerate(predictions):
@@ -59,10 +60,10 @@ def display_video_hooks(hook_args):
     input_videos = np.concatenate((input_videos, target_videos), axis=1)
     output_videos = np.concatenate((input_videos, output_videos), axis=1)
     input_summ_vals, _ = common_video.py_gif_summary(
-        "decode_%d/input" % decode_ind, input_videos, max_outputs=10, fps=10,
+        "decode_%d/input" % decode_ind, input_videos, max_outputs=10, fps=fps,
         return_summary_value=True)
     output_summ_vals, _ = common_video.py_gif_summary(
-        "decode_%d/output" % decode_ind, output_videos, max_outputs=10, fps=10,
+        "decode_%d/output" % decode_ind, output_videos, max_outputs=10, fps=fps,
         return_summary_value=True)
     all_summaries.extend(input_summ_vals)
     all_summaries.extend(output_summ_vals)

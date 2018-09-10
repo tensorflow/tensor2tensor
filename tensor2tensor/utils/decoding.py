@@ -64,7 +64,9 @@ def decode_hparams(overrides=""):
       shard_id=0,
       num_decodes=1,
       force_decode_length=False,
-      display_decoded_images=False)
+      display_decoded_images=False,
+      # Used for video decoding.
+      frames_per_second=10)
   hp.parse(overrides)
   return hp
 
