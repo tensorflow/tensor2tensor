@@ -37,7 +37,63 @@ import tensorflow as tf
 class MtfImageTransformer(mtf_model.MtfModel):
   """Image Transformer in mesh_tensorflow."""
 
-  def set_activation_type(self):
+  @property
+  def inputs_vocab_dim(self):
+    assert self.has_input
+    return mtf.Dimension("inputs_vocab", self._hparams.num_classes)
+
+  @property
+  def targets_vocab_dim(self):
+    return mtf.Dimension(
+        "vocab", self._problem_hparams.target_modality._vocab_size)  # pylint: disable=protected-access
+
+  @property
+  def outputs_vocab_dim(self):
+    return mtf.Dimension("output_vocab", 256)
+
+  @property
+  def rows_dim(self):
+    return mtf.Dimension("rows", self._hparams.img_len)
+
+  @property
+  def cols_dim(self):
+    return mtf.Dimension(
+        "cols", self._hparams.img_len*self._hparams.num_channels)
+
+  @property
+  def orig_cols_dim(self):
+    return mtf.Dimension("orig_cols", self._hparams.img_len)
+
+  @property
+  def channels_dim(self):
+    return mtf.Dimension("channels", self._hparams.num_channels)
+
+  @property
+  def model_dim(self):
+    return mtf.Dimension("d_model", self._hparams.hidden_size)
+
+  @property
+  def max_length_dim(self):
+    return mtf.Dimension("max_length", self._hparams.max_length)
+
+  @property
+  def length_dim(self):
+    return mtf.Dimension("length", self._hparams.max_length)
+
+  @property
+  def heads_dim(self):
+    return mtf.Dimension("heads", self._hparams.num_heads)
+
+  @property
+  def kv_dim(self):
+    return mtf.Dimension("d_kv", self._hparams.d_kv)
+
+  @property
+  def feedforward_dim(self):
+    return mtf.Dimension("d_ff", self._hparams.d_ff)
+
+  @property
+  def activation_type(self):
     hparams = self._hparams
     if hparams.activation_dtype == "float32":
       activation_dtype = tf.float32
@@ -50,47 +106,41 @@ class MtfImageTransformer(mtf_model.MtfModel):
           "unknown hparams.activation_dtype %s" % hparams.activation_dtype)
     return activation_dtype
 
-  def create_positional_emb_2d(self, targets, max_length_dim, model_dim):
+  def create_positional_emb_2d(self, targets):
     """Learned 2d positional embedding for images."""
     mesh = targets.mesh
-    hparams = self._hparams
-    activation_dtype = self.set_activation_type()
-
-    rows_dim = mtf.Dimension("rows", hparams.img_len)
-    cols_dim = mtf.Dimension("cols", hparams.img_len*hparams.num_channels)
 
     positional_emb_rows_var = mtf.get_variable(
         mesh, "positional_emb_rows",
-        mtf.Shape([max_length_dim, model_dim]),
+        mtf.Shape([self.max_length_dim, self.model_dim]),
         initializer=tf.random_normal_initializer(),
-        activation_dtype=activation_dtype)
+        activation_dtype=self.activation_type)
     positional_emb_cols_var = mtf.get_variable(
         mesh, "positional_emb_cols",
-        mtf.Shape([max_length_dim, model_dim]),
+        mtf.Shape([self.max_length_dim, self.model_dim]),
         initializer=tf.random_normal_initializer(),
-        activation_dtype=activation_dtype)
+        activation_dtype=self.activation_type)
 
-    targets_position_x = mtf.range(mesh, rows_dim, dtype=tf.int32)
-    targets_position_y = mtf.range(mesh, cols_dim, dtype=tf.int32)
+    targets_position_x = mtf.range(mesh, self.rows_dim, dtype=tf.int32)
+    targets_position_y = mtf.range(mesh, self.cols_dim, dtype=tf.int32)
     position_x = mtf.broadcast(
         mtf.gather(positional_emb_rows_var, targets_position_x,
-                   max_length_dim),
-        mtf.Shape([rows_dim, cols_dim, model_dim]))
+                   self.max_length_dim),
+        mtf.Shape([self.rows_dim, self.cols_dim, self.model_dim]))
 
     position_y = mtf.broadcast(
         mtf.gather(positional_emb_cols_var, targets_position_y,
-                   max_length_dim),
-        mtf.Shape([rows_dim, cols_dim, model_dim]))
+                   self.max_length_dim),
+        mtf.Shape([self.rows_dim, self.cols_dim, self.model_dim]))
     return position_x + position_y
 
   def mtf_model_fn(self, features, mesh):
     features = copy.copy(features)
     tf.logging.info("features = %s" % features)
     hparams = self._hparams
-    activation_dtype = self.set_activation_type()
+    activation_dtype = self.activation_type
 
     # We assume fixed vocab size for targets
-    targets_vocab_size = self._problem_hparams.target_modality._vocab_size  # pylint: disable=protected-access
     targets = tf.to_int32(features["targets"])
 
     # Image preprocessing, reshape into a 1D sequence and shift right.
@@ -99,22 +149,16 @@ class MtfImageTransformer(mtf_model.MtfModel):
     shifted_targets = common_layers.shift_right_2d(targets)
 
     # Declare all the dimensions
-    model_dim = mtf.Dimension("d_model", hparams.hidden_size)
     batch_dim = mtf.Dimension("batch", hparams.batch_size)
-    length_dim = mtf.Dimension("length", length)
-    max_length_dim = mtf.Dimension("max_length", hparams.max_length)
-    filter_dim = mtf.Dimension("d_ff", hparams.d_ff)
-    kv_channels = mtf.Dimension("kv_channels", hparams.d_kv)
-    heads = mtf.Dimension("heads", hparams.num_heads)
 
     def import_to_batch_by_length(x, name):
       return mtf.import_tf_tensor(
-          mesh, x, mtf.Shape([batch_dim, length_dim]), name=name)
+          mesh, x, mtf.Shape([batch_dim, self.length_dim]), name=name)
 
     def layer_prepostprocess_dropout(x):
       return mtf.dropout(
           x, keep_prob=1.0 - hparams.layer_prepostprocess_dropout,
-          noise_shape=mtf.Shape([batch_dim, model_dim]))
+          noise_shape=mtf.Shape([batch_dim, self.model_dim]))
 
     targets = import_to_batch_by_length(targets, "targets")
     shifted_targets = import_to_batch_by_length(
@@ -123,37 +167,32 @@ class MtfImageTransformer(mtf_model.MtfModel):
     extra_losses = []
 
     # Create targets content and position embeddings.
-    targets_vocab_size = 256 * hparams.num_channels
-    targets_vocab_dim = mtf.Dimension("vocab", targets_vocab_size)
-    outputs_vocab_dim = mtf.Dimension("output_vocab", 256)
-
     # Create embedding var for targets and positions and do a gather.
     targets_embedding_var = mtf.get_variable(
         mesh, "targets_embedding",
-        mtf.Shape([targets_vocab_dim, model_dim]),
+        mtf.Shape([self.targets_vocab_dim, self.model_dim]),
         initializer=tf.random_normal_initializer(),
         activation_dtype=activation_dtype)
 
-    x = mtf.gather(targets_embedding_var, shifted_targets, targets_vocab_dim)
+    x = mtf.gather(targets_embedding_var,
+                   shifted_targets, self.targets_vocab_dim)
     # Add positional embeddings
-    x += mtf.reshape(
-        self.create_positional_emb_2d(targets, max_length_dim, model_dim),
-        [length_dim, model_dim])
+    x += mtf.reshape(self.create_positional_emb_2d(targets),
+                     [self.length_dim, self.model_dim])
 
     # If conditional and input is given, add the input embedding to the target.
     # TODO(nikip): Verify conditional.
     if self.has_input and not hparams.unconditional:
-      vocab_size = hparams.num_classes
-      inputs_vocab_dim = mtf.Dimension("vocab", vocab_size)
       inputs = tf.squeeze(tf.to_int32(features["inputs"]), [2, 3])
       inputs = import_to_batch_by_length(inputs, "inputs")
 
       # Input embeddings
       inputs_embedding_var = mtf_layers.embedding(
           mesh, "input_embedding",
-          mtf.Shape([inputs_vocab_dim, model_dim]),
+          mtf.Shape([self.inputs_vocab_dim, self.model_dim]),
           activation_dtype=activation_dtype)
-      inputs_emb = mtf.gather(inputs_embedding_var, inputs, inputs_vocab_dim)
+      inputs_emb = mtf.gather(
+          inputs_embedding_var, inputs, self.inputs_vocab_dim)
       x += inputs_emb
 
     # Image Transformer Decoder
@@ -164,29 +203,37 @@ class MtfImageTransformer(mtf_model.MtfModel):
         # Self attention layer
         x += layer_prepostprocess_dropout(
             mtf_layers.masked_local_attention_1d(
-                mtf_layers.layer_norm(x, model_dim, name="layer_norm_self_att"),
+                mtf_layers.layer_norm(x, self.model_dim, name="layer_norm_att"),
                 None,
-                kv_channels,
-                heads,
+                self.kv_dim,
+                self.heads_dim,
                 block_length=hparams.block_length,
                 name="self_att"))
         # ffn layer
         x += layer_prepostprocess_dropout(mtf_layers.dense_relu_dense(
-            mtf_layers.layer_norm(x, model_dim, name="layer_norm_ffn"),
-            filter_dim, hparams.dropout, dropout_broadcast_dims=[length_dim]))
+            mtf_layers.layer_norm(x, self.model_dim, name="layer_norm_ffn"),
+            self.feedforward_dim,
+            hparams.dropout,
+            dropout_broadcast_dims=[self.length_dim]))
 
-    x = mtf_layers.layer_norm(x, model_dim, name="decoder_final_layer_norm")
+    x = mtf_layers.layer_norm(x, self.model_dim, name="final_layer_norm")
 
     # Calculate the logits and loss.
-    logits = mtf_layers.dense(x, outputs_vocab_dim, name="logits")
+    logits = mtf_layers.dense(x, self.outputs_vocab_dim, name="logits")
     soft_targets = mtf.one_hot(
-        targets, outputs_vocab_dim, dtype=activation_dtype)
+        targets, self.outputs_vocab_dim, dtype=activation_dtype)
     loss = mtf_layers.softmax_cross_entropy_with_logits(
-        logits, soft_targets, outputs_vocab_dim)
-
+        logits, soft_targets, self.outputs_vocab_dim)
     loss = mtf.reduce_mean(loss)
     for l in extra_losses:
       loss += l
+
+    # Reshape logits to original target shape.
+    logits = mtf.reshape(
+        logits,
+        mtf.Shape([batch_dim, self.rows_dim, self.orig_cols_dim,
+                   self.channels_dim, self.outputs_vocab_dim]))
+
     return logits, loss
 
 
@@ -224,7 +271,7 @@ def mtf_image_transformer_base():
   hparams.optimizer = "Adafactor"
   hparams.learning_rate_schedule = "rsqrt_decay"
   hparams.learning_rate_warmup_steps = 10000
-  hparams.add_hparam("d_kv", 32)
+  hparams.add_hparam("d_kv", 64)
   hparams.add_hparam("d_ff", 2048)
 
   # Image related hparams
@@ -243,10 +290,11 @@ def mtf_image_transformer_tiny():
   hparams.d_ff = 256
   hparams.batch_size = 4
   hparams.num_encoder_layers = 1
-  hparams.num_decoder_layers = 2
+  hparams.num_decoder_layers = 4
   hparams.num_heads = 4
   hparams.attention_key_size = 128
   hparams.attention_value_size = 128
+  hparams.block_length = 32
   # data parallelism and model-parallelism
   hparams.mesh_shape = "batch:2"
   hparams.layout = "batch:batch"
@@ -289,6 +337,7 @@ def mtf_image_transformer_base_cifar():
   hparams = mtf_image_transformer_base()
   hparams.mesh_shape = "batch:8"
   hparams.layout = "batch:batch"
+  hparams.learning_rate_decay_steps = 13600  # one epoch
   hparams.batch_size = 32
   hparams.num_heads = 4
   hparams.num_decoder_layers = 12
@@ -296,11 +345,32 @@ def mtf_image_transformer_base_cifar():
   hparams.hidden_size = 512
   hparams.d_ff = 2048
   hparams.learning_rate = 0.5
-  hparams.learning_rate_warmup_steps = 6000
   hparams.layer_preprocess_sequence = "none"
   hparams.layer_postprocess_sequence = "dan"
   hparams.layer_prepostprocess_dropout = 0.3
   hparams.unconditional = True
+  return hparams
+
+
+@registry.register_hparams
+def mtf_image_transformer_cifar_4x():
+  """Data parallel CIFAR parameters."""
+  hparams = mtf_image_transformer_base_cifar()
+  hparams.mesh_shape = "batch:32"
+  hparams.layout = "batch:batch"
+  hparams.batch_size = 128
+  return hparams
+
+
+@registry.register_hparams
+def mtf_image_transformer_cifar_mp_4x():
+  """Data parallel CIFAR parameters."""
+  hparams = mtf_image_transformer_base_cifar()
+  hparams.mesh_shape = "model:4;batch:8"
+  hparams.layout = "batch:batch;d_ff:model;heads:model"
+  hparams.batch_size = 32
+  hparams.num_heads = 8
+  hparams.d_ff = 8192
   return hparams
 
 
@@ -310,12 +380,12 @@ def mtf_image_transformer_base_imagenet():
   hparams = mtf_image_transformer_base_cifar()
   hparams.mesh_shape = "batch:32"
   hparams.layout = "batch:batch"
-  hparams.batch_size = 64
+  hparams.batch_size = 128
   hparams.d_ff = 2048
   hparams.hidden_size = 512
   hparams.num_decoder_layers = 12
   hparams.learning_rate = 0.5
-  hparams.learning_rate_warmup_steps = 6000
+  hparams.learning_rate_warmup_steps = 31250
   hparams.layer_preprocess_sequence = "none"
   hparams.layer_postprocess_sequence = "dan"
   hparams.layer_prepostprocess_dropout = 0.1
@@ -330,10 +400,9 @@ def mtf_image_transformer_base_imagenet_mp():
   hparams.mesh_shape = "model:4;batch:8"
   hparams.layout = "batch:batch;d_ff:model;heads:model"
   hparams.batch_size = 32
-  hparams.num_heads = 4
+  hparams.num_heads = 8
   hparams.d_ff = 8192
-  hparams.learning_rate_warmup_steps = 6000
-  hparams.layer_prepostprocess_dropout = 0.1
+  hparams.learning_rate_warmup_steps = 31250
   hparams.unconditional = True
   return hparams
 

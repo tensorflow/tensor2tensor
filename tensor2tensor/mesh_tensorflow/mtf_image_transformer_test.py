@@ -29,7 +29,6 @@ import tensorflow as tf
 
 # Constants shared between all functions.
 BATCH_SIZE = 8
-INPUT_LENGTH = 8
 IMG_LENGTH = 8
 VOCAB_SIZE = 256
 
@@ -39,7 +38,7 @@ def get_model(hparams=None,
               model_cls=mtf_image_transformer.MtfImageTransformer):
   if hparams is None:
     hparams = mtf_image_transformer.mtf_image_transformer_single()
-  hparams.max_length = INPUT_LENGTH
+  hparams.max_length = IMG_LENGTH*IMG_LENGTH
   hparams.batch_size = BATCH_SIZE
   hparams.img_len = IMG_LENGTH
   hparams.num_channels = 1
@@ -49,7 +48,7 @@ def get_model(hparams=None,
   hparams.problem_hparams = p_hparams
 
   targets = -1 + np.random.random_integers(
-      VOCAB_SIZE, size=(BATCH_SIZE, IMG_LENGTH*IMG_LENGTH, 1, 1))
+      VOCAB_SIZE, size=(BATCH_SIZE, IMG_LENGTH, IMG_LENGTH, 1, 1))
   features = {
       "targets": tf.constant(targets, dtype=tf.int32, name="targets"),
   }
@@ -87,7 +86,9 @@ class MtfImageTransformerTest(tf.test.TestCase):
       session.run(tf.global_variables_initializer())
       session.run(tf_group)
       res = session.run(tf_logits)
-    self.assertEqual(res.shape, (BATCH_SIZE, IMG_LENGTH*IMG_LENGTH, VOCAB_SIZE))
+    self.assertEqual(res.shape,
+                     (BATCH_SIZE, IMG_LENGTH, IMG_LENGTH,
+                      hparams.num_channels, VOCAB_SIZE))
 
   def testMtfImageTransformerDataParallel(self):
     hparams = mtf_image_transformer.mtf_image_transformer_single()
@@ -106,7 +107,9 @@ class MtfImageTransformerTest(tf.test.TestCase):
       session.run(tf.global_variables_initializer())
       session.run(tf_group)
       res = session.run(tf_logits)
-    self.assertEqual(res.shape, (BATCH_SIZE, IMG_LENGTH*IMG_LENGTH, VOCAB_SIZE))
+    self.assertEqual(res.shape,
+                     (BATCH_SIZE, IMG_LENGTH, IMG_LENGTH,
+                      hparams.num_channels, VOCAB_SIZE))
 
   def testMtfImageTransformerModelParallel(self):
     hparams = mtf_image_transformer.mtf_image_transformer_single()
@@ -125,8 +128,9 @@ class MtfImageTransformerTest(tf.test.TestCase):
       session.run(tf.global_variables_initializer())
       session.run(tf_group)
       res = session.run(tf_logits)
-    self.assertEqual(res.shape, (BATCH_SIZE, IMG_LENGTH*IMG_LENGTH, VOCAB_SIZE))
-
+    self.assertEqual(
+        res.shape,
+        (BATCH_SIZE, IMG_LENGTH, IMG_LENGTH, hparams.num_channels, VOCAB_SIZE))
 
 if __name__ == "__main__":
   tf.test.main()
