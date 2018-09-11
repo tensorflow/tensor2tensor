@@ -25,8 +25,6 @@ import tensorflow as tf
 from gym.core import Env
 
 
-HP_SCOPES = ["loop", "model", "ppo"]
-
 _font = None
 FONT_SIZE = 20
 
@@ -72,16 +70,14 @@ def concatenate_images(*imgs, axis=1):
 
 class DebugBatchEnv(Env):
 
-  def __init__(self, hparams, sess = None):
-    if sess == None:
-      self.sess = tf.Session()
-    else:
-      self.sess = sess
+  INFO_PANE_WIDTH = 250
 
+  def __init__(self, hparams, sess=None):
     self.action_space = Discrete(6)
-    self.observation_space = Box(low=0, high=255, shape=(210, 160+250, 3), dtype=np.uint8)
+    self.observation_space = Box(low=0, high=255, shape=(210, 160+DebugBatchEnv.INFO_PANE_WIDTH, 3), dtype=np.uint8)
     self._tmp = 1
     self.res = None
+    self.sess = sess if sess is not None else tf.Session()
     self._prepare_networks(hparams, self.sess)
 
   def _prepare_networks(self, hparams, sess):
@@ -129,12 +125,10 @@ class DebugBatchEnv(Env):
     #TODO:(put correct numbers)
     self.res = (_observ, 0, False, [0.1, 0.5, 0.5], 1.1)
 
-
   def reset(self):
     self._reset_env()
     observ = self._augment_observation()
     return observ
-
 
   def _step_fake(self, action):
     observ = np.ones(shape=(210, 160, 3), dtype=np.uint8)*10*self._tmp
@@ -161,12 +155,12 @@ class DebugBatchEnv(Env):
 
   def _augment_observation(self):
     _observ, rew, done, probs, vf = self.res
-    info_pane = np.zeros(shape=(210, 250, 3), dtype=np.uint8)
+    info_pane = np.zeros(shape=(210, DebugBatchEnv.INFO_PANE_WIDTH, 3), dtype=np.uint8)
     probs_str = ""
     for p in probs:
       probs_str += "%.2f" % p +", "
 
-    probs_str = probs_str[:-1]
+    probs_str = probs_str[:-2]
 
     action = np.argmax(probs)
     info_str = " Policy:{}\n Action:{}\n Value function:{}\n Reward:{}".format(probs_str, action,
@@ -220,7 +214,7 @@ def main(_):
     game_with_mode = hparams.game + "_deterministic-v4"
   else:
     game_with_mode = hparams.game
-  # Problems
+
   if using_autoencoder:
     simulated_problem_name = (
         "gym_simulated_discrete_problem_with_agent_on_%s_autoencoded"
@@ -235,16 +229,15 @@ def main(_):
   world_model_dir = directories["world_model"]
 
   gym_problem = registry.problem(simulated_problem_name)
-  ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
 
   model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
-  ppo_hparams.add_hparam("model_hparams", model_hparams)
-
   environment_spec = copy.copy(gym_problem.environment_spec)
   environment_spec.simulation_random_starts = hparams.simulation_random_starts
 
-  ppo_hparams.add_hparam("environment_spec", environment_spec)
-  ppo_hparams.num_agents = 1
+  batch_env_hparams = trainer_lib.create_hparams(hparams.ppo_params)
+  batch_env_hparams.add_hparam("model_hparams", model_hparams)
+  batch_env_hparams.add_hparam("environment_spec", environment_spec)
+  batch_env_hparams.num_agents = 1
 
   with temporary_flags({
       "problem": simulated_problem_name,
@@ -254,7 +247,7 @@ def main(_):
       "data_dir": epoch_data_dir,
   }):
     sess = tf.Session()
-    env = DebugBatchEnv(ppo_hparams, sess)
+    env = DebugBatchEnv(batch_env_hparams, sess)
     sess.run(tf.global_variables_initializer())
     env.initialize()
 
@@ -267,12 +260,13 @@ def main(_):
       tf.global_variables(".*network_parameters.*"))
     trainer_lib.restore_checkpoint(ppo_model_dir, model_saver, sess)
 
-    key_mapping = {(): 100, (ord('q'),):1, (ord('a'),):2,
-                   (ord('r'),):101,
-                   (ord('p'),):102}
+    key_mapping = gym_problem.env.env.get_keys_to_action()
+    #map special codes
+    key_mapping[()] = 100
+    key_mapping[(ord('r'),)] = 101
+    key_mapping[(ord('p'),)] = 102
 
     play.play(env, zoom=2, fps=10, keys_to_action=key_mapping)
-
 
 
 if __name__ == "__main__":
