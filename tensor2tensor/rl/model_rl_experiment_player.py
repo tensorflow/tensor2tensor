@@ -22,6 +22,7 @@ from tensor2tensor.utils import trainer_lib
 from tensor2tensor.rl.trainer_model_based import FLAGS, setup_directories, temporary_flags
 from gym.utils import play
 import tensorflow as tf
+from gym.core import Env
 
 
 HP_SCOPES = ["loop", "model", "ppo"]
@@ -67,53 +68,6 @@ def concatenate_images(*imgs, axis=1):
   concatenated_im_np = np.concatenate(imgs_np, axis=axis)
 
   return _assert_image(concatenated_im_np)
-
-
-def show_agent(problem_name, agent_model_dir, world_model_dir, epoch_data_dir, hparams):
-  """Train the PPO agent in the simulated environment."""
-  gym_problem = registry.problem(problem_name)
-  ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
-
-  # Adding model hparams for model specific adjustments
-  model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
-  ppo_hparams.add_hparam("model_hparams", model_hparams)
-
-  environment_spec = copy.copy(gym_problem.environment_spec)
-  environment_spec.simulation_random_starts = hparams.simulation_random_starts
-  environment_spec.simulation_flip_first_random_for_beginning = False
-  environment_spec.intrinsic_reward_scale = hparams.intrinsic_reward_scale
-
-  ppo_hparams.add_hparam("environment_spec", environment_spec)
-  ppo_hparams.num_agents = 1
-
-  with temporary_flags({
-      "problem": problem_name,
-      "model": hparams.generative_model,
-      "hparams_set": hparams.generative_model_params,
-      "output_dir": world_model_dir,
-      "data_dir": epoch_data_dir,
-  }):
-    sess = tf.Session()
-    env = DebugBatchEnv(ppo_hparams, sess)
-    sess.run(tf.global_variables_initializer())
-    env.initialize()
-
-    env_model_loader = tf.train.Saver(
-      tf.global_variables("next_frame*"))
-    trainer_lib.restore_checkpoint(world_model_dir, env_model_loader, sess,
-      must_restore=True)
-
-    model_saver = tf.train.Saver(
-      tf.global_variables(".*network_parameters.*"))
-    trainer_lib.restore_checkpoint(agent_model_dir, model_saver, sess)
-
-    key_mapping = {(): 100, (ord('q'),):1, (ord('a'),):2,
-                   (ord('r'),):101,
-                   (ord('p'),):102}
-
-    play.play(env, zoom=2, fps=10, keys_to_action=key_mapping)
-
-from gym.core import Env
 
 
 class DebugBatchEnv(Env):
@@ -212,8 +166,9 @@ class DebugBatchEnv(Env):
     for p in probs:
       probs_str += "%.2f" % p +", "
 
-    action = np.argmax(probs)
+    probs_str = probs_str[:-1]
 
+    action = np.argmax(probs)
     info_str = " Policy:{}\n Action:{}\n Value function:{}\n Reward:{}".format(probs_str, action,
                                                                            vf, rew)
     info_pane = write_on_image(info_pane, info_str)
@@ -250,7 +205,7 @@ class DebugBatchEnv(Env):
     return observ, rew, done, {"probs": probs, "vf": vf}
 
 
-def setup_show_metadata(hparams, output_dir):
+def play_agent(hparams, output_dir):
   """Setup metadata"""
 
   # Directories
@@ -276,9 +231,46 @@ def setup_show_metadata(hparams, output_dir):
   epoch_data_dir = os.path.join(directories["data"], str(epoch))
   ppo_model_dir = directories["ppo"]
 
-  show_agent(simulated_problem_name, ppo_model_dir,
-             directories["world_model"], epoch_data_dir, hparams)
+  world_model_dir = directories["world_model"]
 
+  gym_problem = registry.problem(simulated_problem_name)
+  ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
+
+  model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
+  ppo_hparams.add_hparam("model_hparams", model_hparams)
+
+  environment_spec = copy.copy(gym_problem.environment_spec)
+  environment_spec.simulation_random_starts = hparams.simulation_random_starts
+
+  ppo_hparams.add_hparam("environment_spec", environment_spec)
+  ppo_hparams.num_agents = 1
+
+  with temporary_flags({
+      "problem": simulated_problem_name,
+      "model": hparams.generative_model,
+      "hparams_set": hparams.generative_model_params,
+      "output_dir": world_model_dir,
+      "data_dir": epoch_data_dir,
+  }):
+    sess = tf.Session()
+    env = DebugBatchEnv(ppo_hparams, sess)
+    sess.run(tf.global_variables_initializer())
+    env.initialize()
+
+    env_model_loader = tf.train.Saver(
+      tf.global_variables("next_frame*"))
+    trainer_lib.restore_checkpoint(world_model_dir, env_model_loader, sess,
+      must_restore=True)
+
+    model_saver = tf.train.Saver(
+      tf.global_variables(".*network_parameters.*"))
+    trainer_lib.restore_checkpoint(ppo_model_dir, model_saver, sess)
+
+    key_mapping = {(): 100, (ord('q'),):1, (ord('a'),):2,
+                   (ord('r'),):101,
+                   (ord('p'),):102}
+
+    play.play(env, zoom=2, fps=10, keys_to_action=key_mapping)
 
 def main(_):
   hparams = registry.hparams(FLAGS.loop_hparams_set)
