@@ -1660,7 +1660,7 @@ def transformer_ada_lmpackedbase_relative():
 
 
 @registry.register_hparams
-def transformer_base():
+def transformer_base_v3():
   """Base parameters for Transformer model."""
   # Update parameters here, then occasionally cut a versioned set, e.g.
   # transformer_base_v2.
@@ -1671,6 +1671,13 @@ def transformer_base():
   hparams.learning_rate_schedule = (
       "constant*linear_warmup*rsqrt_decay*rsqrt_hidden_size")
   hparams.learning_rate_constant = 2.0
+  return hparams
+
+
+@registry.register_hparams
+def transformer_base():
+  """Base parameters for Transformer model."""
+  hparams = transformer_base_v3()
   return hparams
 
 
@@ -2026,6 +2033,19 @@ def transformer_timeseries():
   hparams = transformer_small()
   hparams.batch_size = 256
   hparams.learning_rate_warmup_steps = 2000
+  return hparams
+
+
+@registry.register_hparams
+def transformer_mlperf_tpu():
+  """HParams for Transformer model on TPU for MLPerf on TPU 2x2."""
+  hparams = transformer_base_v3()
+  hparams.symbol_modality_num_shards = 1
+  hparams.max_length = 64  # ignored when using "_packed" problems
+  hparams.batch_size = 512  # gloabl batch size matches the reference model
+  hparams.attention_dropout_broadcast_dims = "0,1"  # batch, heads
+  hparams.relu_dropout_broadcast_dims = "1"  # length
+  hparams.layer_prepostprocess_dropout_broadcast_dims = "1"  # length
   return hparams
 
 
