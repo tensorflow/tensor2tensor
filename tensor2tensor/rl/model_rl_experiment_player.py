@@ -205,10 +205,11 @@ class DebugBatchEnv(Env):
     return observ, rew, done, {"probs": probs, "vf": vf}
 
 
-def play_agent(hparams, output_dir):
-  """Setup metadata"""
+def main(_):
+  hparams = registry.hparams(FLAGS.loop_hparams_set)
+  hparams.parse(FLAGS.loop_hparams)
+  output_dir = FLAGS.output_dir
 
-  # Directories
   subdirectories = ["data", "tmp", "world_model", "ppo"]
   using_autoencoder = hparams.autoencoder_train_steps > 0
   if using_autoencoder:
@@ -272,11 +273,6 @@ def play_agent(hparams, output_dir):
 
     play.play(env, zoom=2, fps=10, keys_to_action=key_mapping)
 
-def main(_):
-  hparams = registry.hparams(FLAGS.loop_hparams_set)
-  hparams.parse(FLAGS.loop_hparams)
-  output_dir = FLAGS.output_dir
-  setup_show_metadata(hparams, output_dir)
 
 
 if __name__ == "__main__":
