@@ -1,3 +1,18 @@
+# coding=utf-8
+# Copyright 2018 The Tensor2Tensor Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 #--output_dir=/Users/piotr.milos/Downloads/18 --alsologtostderr --loop_hparams_set=rl_modelrl_base_quick
 #--output_dir=/Users/piotr.milos/t2t/rl_v1 --alsologtostderr --loop_hparams_set=rl_modelrl_tiny
 
@@ -165,7 +180,8 @@ class DebugBatchEnv(Env):
     action = np.argmax(probs)
     info_str = " Policy:{}\n Action:{}\n Value function:{}\n Reward:{}".format(probs_str, action,
                                                                            vf, rew)
-    info_pane = write_on_image(info_pane, info_str)
+    print("Info str:{}".format(info_str))
+    # info_pane = write_on_image(info_pane, info_str)
 
     augmented_observ = concatenate_images(_observ, info_pane)
     augmented_observ = np.array(augmented_observ)
@@ -250,15 +266,10 @@ def main(_):
     sess.run(tf.global_variables_initializer())
     env.initialize()
 
-    # env_model_loader = tf.train.Saver(
-    #   tf.global_variables("next_frame*"))
-    # trainer_lib.restore_checkpoint(world_model_dir, env_model_loader, sess,
-    #   must_restore=True)
-
-    ckpt = tf.train.get_checkpoint_state(world_model_dir)
-    new_saver = tf.train.import_meta_graph("/Users/piotr.milos/Downloads/18/world_model/model.ckpt-130000.meta", clear_devices=True)
-    new_saver.restore(sess, "/Users/piotr.milos/Downloads/18/world_model/model.ckpt-130000")
-
+    env_model_loader = tf.train.Saver(
+      tf.global_variables("next_frame*"))
+    trainer_lib.restore_checkpoint(world_model_dir, env_model_loader, sess,
+      must_restore=True)
 
     model_saver = tf.train.Saver(
       tf.global_variables(".*network_parameters.*"))
