@@ -410,7 +410,7 @@ class T2TModel(base.Layer):
           last_position_body_output = tf.expand_dims(
               body_output[:, -1, :, :], axis=[1])
           last_position_targets = tf.expand_dims(
-              features["targets"][:, -1:, :, :], axis=[1])
+              features["targets"][:, -1, :, :], axis=[1])
         else:
           body_output_shape = body_output.shape.as_list()
           last_position_body_output = tf.slice(
