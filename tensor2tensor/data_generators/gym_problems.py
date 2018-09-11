@@ -23,6 +23,7 @@ import math
 import os
 import gym
 import numpy as np
+import six
 
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
@@ -30,12 +31,11 @@ from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import collect
 from tensor2tensor.rl.envs import tf_atari_wrappers
+from tensor2tensor.rl.envs.utils import InitialFrameChooser
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
-
-from tensorflow.contrib.training import HParams
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -106,30 +106,40 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     self._use_dumper_data = False
     self._dumper_data_index = 0
 
-  def _setup(self, data_dir):
-    # TODO(piotrmilos):this should be consistent with
-    # ppo_params in model_rl_experiment
+  def _setup(self, data_dir, extra_collect_hparams=None,
+             override_collect_hparams=None):
     dumper_path = os.path.join(data_dir, "dumper")
     if os.path.isdir(dumper_path):
       self._use_dumper_data = True
       self._dumper_data_index = 0
       self._dumper_path = dumper_path
     else:
-
+      # TODO(piotrmilos):this should be consistent with
+      # ppo_params in model_rl_experiment
       collect_hparams = rl.ppo_pong_base()
       collect_hparams.add_hparam("environment_spec", self.environment_spec)
       collect_hparams.add_hparam("force_beginning_resets",
                                  self._internal_memory_force_beginning_resets)
       collect_hparams.epoch_length = self._internal_memory_size
       collect_hparams.num_agents = 1
-
+  
       if not FLAGS.agent_policy_path:
         collect_hparams.policy_network = rl.random_policy_fun
-
+  
+      if extra_collect_hparams is not None:
+        for (key, value) in six.iteritems(extra_collect_hparams):
+          collect_hparams.add_hparam(key, value)
+  
+      if override_collect_hparams is not None:
+        # Override hparams manually - HParams.override_from_dict does not work
+        # with functions.
+        for (key, value) in six.iteritems(override_collect_hparams):
+          setattr(collect_hparams, key, value)
+  
       policy_to_actions_lambda = None
       if self.settable_eval_phase:
         policy_to_actions_lambda = lambda policy: policy.mode()
-
+  
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
         self.collect_memory, self.collect_trigger_op, collect_init = (
             collect.define_collect(
@@ -138,7 +148,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
                 eval_phase=False,
                 collect_level=0,
                 policy_to_actions_lambda=policy_to_actions_lambda))
-
+  
       self._session = tf.Session()
       collect_init(self._session)
       self._session.run(tf.global_variables_initializer())
@@ -493,8 +503,8 @@ class RewardPerSequenceStatistics(BasicStatistics):
     self.report_reward_statistics_every = 10
 
     # auxiliary objects
-    self.real_env = None
-    self.real_ob = None
+    self.real_obs = None
+    self.real_rewards = None
 
   def to_dict(self):
     stats_dict = super(RewardPerSequenceStatistics, self).to_dict()
@@ -522,34 +532,24 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     # the amount of skips induced but wrappers
     self._internal_memory_size = self.num_testing_steps
     self._internal_memory_force_beginning_resets = True
-    env_spec = standard_atari_env_spec(self.env_name)
-    real_env = env_spec.env_lambda()
 
-    self.statistics = RewardPerSequenceStatistics()
-    self.statistics.real_env = real_env
+    self.statistics = BasicStatistics()
+    self._initial_frame_chooser = None
 
-  def _setup(self, data_dir):
-    super(GymSimulatedDiscreteProblem, self)._setup(data_dir)
+  def _setup(self, data_dir, extra_collect_hparams=None,
+             override_collect_hparams=None):
+    if extra_collect_hparams is None:
+      extra_collect_hparams = {}
 
-    environment_spec = self.environment_spec
-    hparams = HParams(
-        video_num_input_frames=environment_spec.video_num_input_frames,
-        video_num_target_frames=environment_spec.video_num_target_frames,
-        environment_spec=environment_spec)
+    if self._initial_frame_chooser is None:
+      self._initial_frame_chooser = InitialFrameChooser(
+          self.environment_spec, mode=tf.estimator.ModeKeys.EVAL
+      )
+    extra_collect_hparams["initial_frame_chooser"] = self._initial_frame_chooser
 
-    initial_frames_problem = environment_spec.initial_frames_problem
-    dataset = initial_frames_problem.dataset(
-        tf.estimator.ModeKeys.TRAIN,
-        FLAGS.data_dir,
-        shuffle_files=False,
-        hparams=hparams)
-    dataset = dataset.map(lambda x: x["input_action"]).take(1)
-    input_data_iterator = (dataset.batch(1).make_initializable_iterator())
-    self._session.run(input_data_iterator.initializer)
-
-    res = self._session.run(input_data_iterator.get_next())
-    self._initial_actions = res[0, :, 0][:-1]
-    self._reset_real_env()
+    super(GymSimulatedDiscreteProblem, self)._setup(
+        data_dir, extra_collect_hparams, override_collect_hparams
+    )
 
   @property
   def initial_frames_problem(self):
@@ -576,8 +576,8 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
   def get_environment_spec(self):
     env_spec = standard_atari_env_spec(self.env_name)
     env_spec.simulated_env = True
-    env_spec.add_hparam("simulation_random_starts", False)
-    env_spec.add_hparam("simulation_flip_first_random_for_beginning", False)
+    env_spec.add_hparam("simulation_random_starts", True)
+    env_spec.add_hparam("simulation_flip_first_random_for_beginning", True)
     env_spec.add_hparam("intrinsic_reward_scale", 0.0)
     initial_frames_problem = registry.problem(self.initial_frames_problem)
     env_spec.add_hparam("initial_frames_problem", initial_frames_problem)
@@ -586,11 +586,68 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
 
     return env_spec
 
-  def _reset_real_env(self):
-    stat = self.statistics
-    stat.real_env.reset()
-    for a in self._initial_actions:
-      stat.real_ob, _, _, _ = stat.real_env.step(a)
+  def restore_networks(self, sess):
+    super(GymSimulatedDiscreteProblem, self).restore_networks(sess)
+    # TODO(blazej): adjust regexp for different models.
+    # TODO(piotrmilos): move restoring networks to SimulatedBatchEnv.initialize
+    env_model_loader = tf.train.Saver(tf.global_variables("next_frame*"))
+    ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)
+    ckpt = ckpts.model_checkpoint_path
+    env_model_loader.restore(sess, ckpt)
+
+
+class GymSimulatedDiscreteProblemForWorldModelEval(GymSimulatedDiscreteProblem):
+
+  def __init__(self, *args, **kwargs):
+    super(GymSimulatedDiscreteProblemForWorldModelEval, self).__init__(
+        *args, **kwargs
+    )
+    self.statistics = RewardPerSequenceStatistics()
+
+  def get_environment_spec(self):
+    env_spec = super(
+        GymSimulatedDiscreteProblemForWorldModelEval, self
+    ).get_environment_spec()
+    env_spec.simulation_flip_first_random_for_beginning = False
+    return env_spec
+
+  def _setup(self):
+    trajectory_length = self.num_testing_steps
+    if self.num_steps < 1200:
+      # Decrease the trajectory length for tiny experiments, otherwise we don't
+      # have enough data to run the evaluation.
+      trajectory_length = 2
+    self._initial_frame_chooser = InitialFrameChooser(
+        self.environment_spec, mode=tf.estimator.ModeKeys.EVAL,
+        trajectory_length=trajectory_length
+    )
+
+    frame_index = tf.Variable(0, trainable=False)
+
+    def fixed_action_policy_fun(action_space, unused_config, observations):
+      action = self._initial_frame_chooser.trajectory["action"].read_value()[
+          :, frame_index.read_value(), :
+      ]
+      inc_frame_index = frame_index.assign(
+          (frame_index.read_value() + 1) % trajectory_length
+      )
+      with tf.control_dependencies([inc_frame_index]):
+        action = tf.identity(action)
+
+      obs_shape = observations.shape.as_list()
+      with tf.variable_scope("network_parameters"):
+        probs = tf.one_hot(
+            tf.transpose(action), depth=action_space.n
+        )
+        policy = tf.distributions.Categorical(probs=probs)
+        value = tf.zeros(obs_shape[:2])
+      return rl.NetworkOutput(policy, value, lambda a: a)
+
+    super(GymSimulatedDiscreteProblemForWorldModelEval, self)._setup(
+        override_collect_hparams={
+            "policy_network": fixed_action_policy_fun
+        }
+    )
 
   def collect_statistics_and_generate_debug_image(self, index,
                                                   observation,
@@ -602,10 +659,23 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     stat.sum_of_rewards += reward
     stat.episode_sim_reward += reward
 
+    if index % self._internal_memory_size == 0:
+      real_frame_tensor = {
+          key: var.read_value()[0, ...]
+          for (key, var) in six.iteritems(
+              self._initial_frame_chooser.trajectory
+          )
+      }
+      (stat.real_obs, stat.real_rewards) = self._session.run((
+          real_frame_tensor["inputs"], real_frame_tensor["reward"]
+      ))
+      stat.real_rewards += self.min_reward
+
+    real_ob = stat.real_obs[index % stat.real_obs.shape[0], ...]
     ob = np.ndarray.astype(observation, np.int)
     err = np.ndarray.astype(
-        np.maximum(np.abs(stat.real_ob - ob, dtype=np.int) - 10, 0), np.uint8)
-    debug_im = np.concatenate([observation, stat.real_ob, err], axis=1)
+        np.maximum(np.abs(real_ob - ob, dtype=np.int) - 10, 0), np.uint8)
+    debug_im = np.concatenate([observation, real_ob, err], axis=1)
 
     assert (self._internal_memory_size == self.num_testing_steps and
             self._internal_memory_force_beginning_resets), (
@@ -616,25 +686,15 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
 
       if stat.episode_sim_reward == stat.episode_real_reward:
         stat.successful_episode_reward_predictions += 1
-        stat.episode_sim_reward = 0.0
-        stat.episode_real_reward = 0.0
 
+      stat.episode_sim_reward = 0.0
+      stat.episode_real_reward = 0.0
       stat.number_of_dones += 1
-      self._reset_real_env()
     else:
-      stat.real_ob, real_reward, _, _ = stat.real_env.step(action)
+      real_reward = stat.real_rewards[index % stat.real_rewards.shape[0], 0]
       stat.episode_real_reward += real_reward
 
     return debug_im
-
-  def restore_networks(self, sess):
-    super(GymSimulatedDiscreteProblem, self).restore_networks(sess)
-    # TODO(blazej): adjust regexp for different models.
-    # TODO(piotrmilos): move restoring networks to SimulatedBatchEnv.initialize
-    env_model_loader = tf.train.Saver(tf.global_variables("next_frame*"))
-    ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)
-    ckpt = ckpts.model_checkpoint_path
-    env_model_loader.restore(sess, ckpt)
 
 
 class GymSimulatedDiscreteProblemAutoencoded(GymSimulatedDiscreteProblem):
@@ -647,7 +707,7 @@ class GymSimulatedDiscreteProblemAutoencoded(GymSimulatedDiscreteProblem):
         [tf_atari_wrappers.StackWrapper, {"history": 4}]
     ]
     env_spec.simulated_env = True
-    env_spec.add_hparam("simulation_random_starts", False)
+    env_spec.add_hparam("simulation_random_starts", True)
 
     env_spec.add_hparam("intrinsic_reward_scale", 0.0)
     initial_frames_problem = registry.problem(self.initial_frames_problem)
