@@ -467,8 +467,9 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     else:
       return gen_images, gen_rewards, None, None
 
-  def get_extra_loss(self, latent_means=None, latent_stds=None,
-                     true_frames=None, gen_frames=None, beta=1.0):
+  def get_extra_loss(self,
+                     latent_means=None, latent_stds=None,
+                     true_frames=None, gen_frames=None):
     """Losses in addition to the default modality losses."""
     del true_frames
     del gen_frames
@@ -479,7 +480,10 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
         tf.summary.histogram("posterior_mean_%d" % i, mean)
         tf.summary.histogram("posterior_std_%d" % i, std)
       tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
-    return beta * kl_loss
+
+    beta = self.get_beta(kl_loss)
+    extra_loss = beta * kl_loss
+    return extra_loss
 
   def infer(self, features, *args, **kwargs):
     """Produce predictions from the model by running it."""
@@ -544,10 +548,10 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
         rewards=all_rewards,
     )
 
-    beta = self.get_beta()
     extra_loss = self.get_extra_loss(
         latent_means=latent_means,
-        latent_stds=latent_stds, beta=beta, true_frames=all_frames,
+        latent_stds=latent_stds,
+        true_frames=all_frames,
         gen_frames=gen_images)
 
     # Visualize predictions in Tensorboard

@@ -114,6 +114,9 @@ def next_frame_basic_stochastic():
   hparams.add_hparam("num_iterations_1st_stage", 25000)
   hparams.add_hparam("num_iterations_2nd_stage", 25000)
   hparams.add_hparam("latent_loss_multiplier", 1e-3)
+  hparams.add_hparam("latent_loss_multiplier_dynamic", False)
+  hparams.add_hparam("latent_loss_multiplier_alpha", 1e-5)
+  hparams.add_hparam("latent_loss_multiplier_epsilon", 1.0)
   hparams.add_hparam("latent_loss_multiplier_schedule", "constant")
   hparams.add_hparam("latent_num_frames", 0)  # 0 means use all frames.
   hparams.add_hparam("anneal_end", 100000)
