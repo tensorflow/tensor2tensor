@@ -33,6 +33,17 @@ tfl = tf.layers
 tfcl = tf.contrib.layers
 
 
+def inject_action(action, x):
+  """Inject the action into x."""
+  x_shape = common_layers.shape_list(x)
+  filters = x_shape[-1]
+  action_mask = tf.layers.dense(action, filters, name="action_mask")
+  action_add = tf.layers.dense(action, filters, name="action_add")
+  x *= tf.nn.sigmoid(action_mask)
+  x += action_add
+  return x
+
+
 @registry.register_model
 class NextFrameBasicDeterministic(t2t_model.T2TModel):
   """Basic next-frame model, may take actions and predict rewards too."""
@@ -72,13 +83,7 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
     if "input_action" in features:
       action = tf.reshape(features["input_action"][:, -1, :],
                           [-1, 1, 1, hparams.hidden_size])
-      action_mask = tf.layers.dense(action, filters, name="action_mask")
-      zeros_mask = tf.zeros(common_layers.shape_list(x)[:-1] + [filters],
-                            dtype=tf.float32)
-      if hparams.concatenate_actions:
-        x = tf.concat([x, action_mask + zeros_mask], axis=-1)
-      else:
-        x *= action_mask + zeros_mask
+      x = inject_action(action, x)
 
     x, extra_loss = self.inject_latent(x, features, filters)
 
@@ -97,6 +102,8 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
     layer_inputs = list(reversed(layer_inputs))
     for i in range(hparams.num_compress_steps):
       with tf.variable_scope("upstride%d" % i):
+        if "input_action" in features:
+          x = inject_action(action, x)
         if i >= hparams.num_compress_steps - hparams.filter_double_steps:
           filters //= 2
         x = tf.layers.conv2d_transpose(

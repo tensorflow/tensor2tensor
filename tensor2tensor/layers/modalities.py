@@ -527,9 +527,9 @@ class AudioSpectralModality(modality.Modality):
                            "compress_block_final")
 
 
+@registry.register_video_modality("default")
 class VideoModality(modality.Modality):
   """Modality for videos, i.e., time-sequences of frames."""
-  PIXEL_EMBEDDING_SIZE = 64
 
   def bottom(self, x):
     inputs = x
@@ -538,26 +538,8 @@ class VideoModality(modality.Modality):
       inputs = common_layers.standardize_images(inputs)
       return common_layers.time_to_channels(inputs)
 
-  def targets_bottom(self, x, summary_prefix="targets_bottom"):  # pylint: disable=arguments-differ
-    inputs = x
-    with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
-      common_layers.summarize_video(inputs, summary_prefix)
-      inputs_shape = common_layers.shape_list(inputs)
-      # We embed each of 256=self.top_dimensionality possible pixel values.
-      embedding_var = tf.get_variable(
-          "pixel_embedding",
-          [self.top_dimensionality, self.PIXEL_EMBEDDING_SIZE])
-      hot_inputs = tf.one_hot(tf.to_int32(inputs), self.top_dimensionality)
-      hot_inputs = tf.reshape(hot_inputs, [-1, self.top_dimensionality])
-      embedded = tf.matmul(hot_inputs, embedding_var)
-      # Let's now merge all channels that were embedded into a single vector.
-      merged_size = self.PIXEL_EMBEDDING_SIZE * inputs_shape[4]
-      embedded = tf.reshape(embedded, inputs_shape[:4] + [merged_size])
-      transposed = common_layers.time_to_channels(embedded)
-      return tf.layers.dense(
-          transposed,
-          self._body_input_depth,
-          name="merge_pixel_embedded_frames")
+  def targets_bottom(self, x):
+    return self.bottom(x)
 
   def top(self, body_output, targets):
     num_channels = self._model_hparams.problem.num_channels
@@ -568,9 +550,9 @@ class VideoModality(modality.Modality):
     # then you need to reshape to [..., num_frames, depth] like below, not
     # into [..., depth, num_frames] due to memory layout of concat/reshape.
     reshape_shape = body_output_shape[:-1] + [
-        num_channels, num_frames, self.top_dimensionality]
+        num_frames, num_channels, self.top_dimensionality]
     res = tf.reshape(body_output, reshape_shape)
-    res = tf.transpose(res, [0, 4, 1, 2, 3, 5])
+    res = tf.transpose(res, [0, 3, 1, 2, 4, 5])
     res_shape = common_layers.shape_list(res)
     res_argmax = tf.argmax(tf.reshape(res, [-1, res_shape[-1]]), axis=-1)
     res_argmax = tf.reshape(res_argmax, res_shape[:-1])
@@ -591,26 +573,10 @@ class VideoModality(modality.Modality):
         weights_fn=self.targets_weights_fn)
 
 
-@registry.register_video_modality("default")
-class VideoModalityNoEmbed(VideoModality):
-  """Video Modality where target_bottom does not embeds pixels."""
-
-  def targets_bottom(self, x):
-    return super(VideoModalityNoEmbed, self).bottom(x)
-
-
-@registry.register_video_modality("embed")
-class VideoModalityEmbed(VideoModality):
-  """Video Modality where bottom embeds pixels."""
-
-  def bottom(self, x):
-    return super(VideoModalityEmbed, self).targets_bottom(
-        x, summary_prefix="bottom")
-
-
 @registry.register_video_modality("bitwise")
 class VideoModalityBitwise(VideoModality):
   """Video Modality where bottom embeds pixels bitwise."""
+  PIXEL_EMBEDDING_SIZE = 64
 
   def bottom(self, x):
     inputs = x

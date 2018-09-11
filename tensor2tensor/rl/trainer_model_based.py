@@ -570,7 +570,7 @@ def combine_training_data(problem, final_data_dir, old_data_dirs,
 @registry.register_hparams
 def rl_modelrl_base():
   return tf.contrib.training.HParams(
-      epochs=6,
+      epochs=3,
       # Total frames used for training. This will be distributed evenly across
       # hparams.epochs.
       num_real_env_frames=100000,
@@ -598,7 +598,7 @@ def rl_modelrl_base():
       # should start fresh each time.
       ppo_continue_training=True,
 
-      real_ppo_epochs_num=30,
+      real_ppo_epochs_num=10,
       real_ppo_epoch_length=200,
       real_ppo_num_agents=16,
       real_ppo_learning_rate=2e-4,

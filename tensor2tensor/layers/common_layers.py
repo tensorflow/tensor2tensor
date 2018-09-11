@@ -257,10 +257,10 @@ def standardize_images(x):
   with tf.name_scope("standardize_images", [x]):
     x_shape = shape_list(x)
     x = tf.to_float(tf.reshape(x, [-1] + x_shape[-3:]))
-    x_mean = tf.reduce_mean(x, axis=[1, 2, 3], keepdims=True)
+    x_mean = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
     x_variance = tf.reduce_mean(
-        tf.square(x - x_mean), axis=[1, 2, 3], keepdims=True)
-    num_pixels = tf.to_float(x_shape[-1] * x_shape[-2] * x_shape[-3])
+        tf.square(x - x_mean), axis=[1, 2], keepdims=True)
+    num_pixels = tf.to_float(x_shape[-2] * x_shape[-3])
     x = (x - x_mean) / tf.maximum(tf.sqrt(x_variance), tf.rsqrt(num_pixels))
     return tf.reshape(x, x_shape)
 

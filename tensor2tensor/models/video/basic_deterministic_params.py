@@ -44,7 +44,6 @@ def next_frame_basic_deterministic():
   hparams.add_hparam("filter_double_steps", 2)
   hparams.add_hparam("video_modality_loss_cutoff", 0.02)
   hparams.add_hparam("preprocess_resize_frames", None)
-  hparams.add_hparam("concatenate_actions", True)
   hparams.add_hparam("shuffle_buffer_size", 128)
   hparams.add_hparam("tiny_mode", False)
   hparams.add_hparam("stochastic_model", False)
@@ -64,7 +63,7 @@ def next_frame_pixel_noise():
 def next_frame_sampling():
   """Basic conv model with scheduled sampling."""
   hparams = next_frame_basic_deterministic()
-  hparams.video_num_target_frames = 2
+  hparams.video_num_target_frames = 4
   hparams.scheduled_sampling_warmup_steps = 50000
   hparams.scheduled_sampling_prob = 0.5
   return hparams

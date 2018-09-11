@@ -48,6 +48,7 @@ def next_frame_sv2p():
   hparams.add_hparam("scheduled_sampling_k", 900.0)
   hparams.add_hparam("upsample_method", "conv2d_transpose")
   hparams.add_hparam("internal_loss", False)
+  hparams.add_hparam("concatenate_actions", True)
   return hparams
 
 

@@ -53,7 +53,7 @@ def ppo_base_v1():
   hparams.add_hparam("simulation_random_starts", False)
   hparams.add_hparam("simulation_flip_first_random_for_beginning", False)
   hparams.add_hparam("intrinsic_reward_scale", 0.)
-  hparams.add_hparam("logits_clip", 0.)
+  hparams.add_hparam("logits_clip", 3.0)
   return hparams
 
 
