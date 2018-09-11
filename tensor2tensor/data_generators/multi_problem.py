@@ -68,6 +68,9 @@ class MultiProblem(problem.Problem):
       concat_list = [[task.task_id], example["targets"]]
 
     example["targets"] = tf.concat(concat_list, 0)
+    min_task_id = min([t.task_id for t in self.task_list])
+    example["task_id"] = tf.constant([task.task_id - min_task_id],
+                                     dtype=tf.int64)
     return example
 
   def filepattern(self, data_dir, mode, shard=None):
@@ -153,10 +156,11 @@ class MultiProblem(problem.Problem):
       task_dataset = task_dataset.map(lambda x: self.add_task_id(task, x, enc))
 
       if not is_training:
+        zeros = tf.zeros([self._ADDED_EVAL_COUNT, 1], dtype=tf.int64)
         pad_data = tf.data.Dataset.from_tensor_slices({
-            "targets": tf.zeros([self._ADDED_EVAL_COUNT, 1], dtype=tf.int64),
-            "batch_prediction_key": tf.zeros(
-                [self._ADDED_EVAL_COUNT, 1], dtype=tf.int64),
+            "targets": zeros,
+            "batch_prediction_key": zeros,
+            "task_id": zeros,
         })
         task_dataset = task_dataset.concatenate(pad_data)
 
