@@ -28,6 +28,7 @@ from gym.core import Env
 _font = None
 FONT_SIZE = 20
 
+
 def _get_font():
   global _font
   if _font is None:
@@ -107,7 +108,6 @@ class DebugBatchEnv(Env):
     self.policy_probs = actor_critic.policy.probs[0, 0, :]
     self.value = actor_critic.value[0, :]
 
-
   def render(self, mode='human'):
     raise NotImplemented()
 
@@ -158,7 +158,7 @@ class DebugBatchEnv(Env):
     info_pane = np.zeros(shape=(210, DebugBatchEnv.INFO_PANE_WIDTH, 3), dtype=np.uint8)
     probs_str = ""
     for p in probs:
-      probs_str += "%.2f" % p +", "
+      probs_str += "%.2f" % p + ", "
 
     probs_str = probs_str[:-2]
 
@@ -170,7 +170,6 @@ class DebugBatchEnv(Env):
     augmented_observ = concatenate_images(_observ, info_pane)
     augmented_observ = np.array(augmented_observ)
     return augmented_observ
-
 
   def step(self, action):
     #Special codes
@@ -251,10 +250,15 @@ def main(_):
     sess.run(tf.global_variables_initializer())
     env.initialize()
 
-    env_model_loader = tf.train.Saver(
-      tf.global_variables("next_frame*"))
-    trainer_lib.restore_checkpoint(world_model_dir, env_model_loader, sess,
-      must_restore=True)
+    # env_model_loader = tf.train.Saver(
+    #   tf.global_variables("next_frame*"))
+    # trainer_lib.restore_checkpoint(world_model_dir, env_model_loader, sess,
+    #   must_restore=True)
+
+    ckpt = tf.train.get_checkpoint_state(world_model_dir)
+    new_saver = tf.train.import_meta_graph("/Users/piotr.milos/Downloads/18/world_model/model.ckpt-130000.meta", clear_devices=True)
+    new_saver.restore(sess, "/Users/piotr.milos/Downloads/18/world_model/model.ckpt-130000")
+
 
     model_saver = tf.train.Saver(
       tf.global_variables(".*network_parameters.*"))
@@ -267,6 +271,7 @@ def main(_):
     key_mapping[(ord('p'),)] = 102
 
     play.play(env, zoom=2, fps=10, keys_to_action=key_mapping)
+
 
 
 if __name__ == "__main__":
