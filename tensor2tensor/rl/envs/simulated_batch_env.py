@@ -131,6 +131,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
                       environment_spec.video_num_target_frames,
                       environment_spec=environment_spec)
 
+    #TODO(piotrmilos): check if this should not be tf.estimator.ModeKeys.Predict
     initial_frames_dataset = initial_frames_problem.dataset(
         tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir, shuffle_files=False,
         hparams=hparams).take(1)
