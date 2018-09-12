@@ -18,6 +18,8 @@ from __future__ import division
 from __future__ import print_function
 from six.moves import range  # pylint: disable=redefined-builtin
 
+from tensor2tensor.layers import common_attention
+from tensor2tensor.layers import common_audio
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
 from tensor2tensor.utils import modality
@@ -525,6 +527,89 @@ class AudioSpectralModality(modality.Modality):
         x = xnet_resblock(x, 2**(i + 1), True, "compress_block_%d" % i)
       return xnet_resblock(x, self._body_input_depth, False,
                            "compress_block_final")
+
+
+@registry.register_audio_modality
+class SpeechRecognitionModality(modality.Modality):
+  """Common ASR filterbank processing."""
+
+  def bottom(self, x):
+    """Use batchnorm instead of CMVN and shorten the stft with strided convs.
+
+    Args:
+      x: float32 tensor with shape [batch_size, len, 1, freqs * channels]
+
+    Returns:
+      float32 tensor with shape [batch_size, shorter_len, 1, hidden_size]
+    """
+    inputs = x
+    p = self._model_hparams
+
+    num_mel_bins = p.audio_num_mel_bins
+    num_channels = 3 if p.audio_add_delta_deltas else 1
+
+    with tf.variable_scope(self.name):
+      if p.audio_preproc_in_bottom:
+        # Compute filterbanks
+        with tf.variable_scope("fbanks"):
+          waveforms = tf.squeeze(inputs, [2, 3])
+          mel_fbanks = common_audio.compute_mel_filterbank_features(
+              waveforms,
+              sample_rate=p.audio_sample_rate,
+              dither=p.audio_dither,
+              preemphasis=p.audio_preemphasis,
+              frame_length=p.audio_frame_length,
+              frame_step=p.audio_frame_step,
+              lower_edge_hertz=p.audio_lower_edge_hertz,
+              upper_edge_hertz=p.audio_upper_edge_hertz,
+              num_mel_bins=p.audio_num_mel_bins,
+              apply_mask=True)
+          if p.audio_add_delta_deltas:
+            mel_fbanks = common_audio.add_delta_deltas(mel_fbanks)
+          x = tf.reshape(mel_fbanks,
+                         common_layers.shape_list(mel_fbanks)[:2] +
+                         [num_mel_bins, num_channels])
+
+          nonpadding_mask = 1. - common_attention.embedding_to_padding(x)
+          num_of_nonpadding_elements = tf.reduce_sum(
+              nonpadding_mask) * num_mel_bins * num_channels
+
+          # This replaces CMVN estimation on data
+          var_epsilon = 1e-09
+          mean = tf.reduce_sum(
+              x, axis=[1], keepdims=True) / num_of_nonpadding_elements
+          variance = (num_of_nonpadding_elements * mean**2. -
+                      2. * mean * tf.reduce_sum(x, axis=[1], keepdims=True) +
+                      tf.reduce_sum(x**2, axis=[1], keepdims=True)
+                     ) / num_of_nonpadding_elements
+          x = (x - mean) * tf.rsqrt(variance + var_epsilon) * tf.expand_dims(
+              nonpadding_mask, -1)
+      else:
+        x = inputs
+
+      # The convention is that the models are flattened along the spatial,
+      # dimensions, thus the speech preprocessor treats frequencies and
+      # channels as image colors (last axis)
+      x.set_shape([None, None, num_mel_bins, num_channels])
+
+      # TODO(chorowski): how to specify bottom's hparams and avoid hardcoding?
+      x = tf.pad(x, [[0, 0], [0, 8], [0, 0], [0, 0]])
+      for _ in range(2):
+        x = tf.layers.conv2d(
+            x, 128, (3, 3), (2, 2), use_bias=False)
+        x = common_layers.layer_norm(x)
+        x = tf.nn.relu(x)
+
+      xshape = common_layers.shape_list(x)
+      # apply a conv that will remove all frequencies and at the same time
+      # project the output into desired hidden_size
+      x = tf.pad(x, [[0, 0], [0, 2], [0, 0], [0, 0]])
+      x = tf.layers.conv2d(x, p.hidden_size, (3, xshape[2]), use_bias=False)
+
+      assert common_layers.shape_list(x)[2] == 1
+      x = common_layers.layer_norm(x)
+      x = tf.nn.relu(x)
+    return x
 
 
 @registry.register_video_modality("default")
