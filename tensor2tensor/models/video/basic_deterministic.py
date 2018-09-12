@@ -48,27 +48,25 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
     del features, filters
     return layer, 0.0
 
-  def inject_additional_input(self, layer, inputs, scope, mode="concat"):
+  def inject_additional_input(self, layer, inputs, name, mode="concat"):
     layer_shape = common_layers.shape_list(layer)
     input_shape = common_layers.shape_list(inputs)
     zeros_mask = tf.zeros(layer_shape, dtype=tf.float32)
     if mode == "concat":
-      emb = common_video.encode_to_shape(inputs, layer_shape, scope)
+      emb = common_video.encode_to_shape(inputs, layer_shape, name)
       layer = tf.concat(values=[layer, emb], axis=-1)
     elif mode == "multiplicative":
       filters = layer_shape[-1]
       input_reshaped = tf.reshape(inputs, [-1, 1, 1, input_shape[-1]])
-      input_mask = tf.layers.dense(input_reshaped, filters, name=scope)
+      input_mask = tf.layers.dense(input_reshaped, filters, name=name)
       input_broad = input_mask + zeros_mask
       layer *= input_broad
     elif mode == "multi_additive":
       filters = layer_shape[-1]
       input_reshaped = tf.reshape(inputs, [-1, 1, 1, input_shape[-1]])
-      input_mul_mask = tf.layers.dense(input_reshaped, filters, name=scope+"_m")
-      input_mul = input_mul_mask + zeros_mask
-      layer *= input_mul
-      input_add_mask = tf.layers.dense(input_reshaped, filters, name=scope+"_a")
-      input_add = input_add_mask + zeros_mask
+      input_mul = tf.layers.dense(input_reshaped, filters, name=name + "_mul")
+      layer *= tf.nn.sigmoid(input_mul)
+      input_add = tf.layers.dense(input_reshaped, filters, name=name + "_add")
       layer += input_add
     else:
       raise ValueError("Unknown injection mode: %s" % mode)
