@@ -61,8 +61,11 @@ class T2TModel(base.Layer):
 
   1. Estimator: The method `make_estimator_model_fn` builds a `model_fn` for
      the tf.Estimator workflow of training, evaluation, and prediction.
-     Its core computation comes from the method `call`, which proceeds to call
-     the following methods:
+     It performs the method `call`, which performs the core computation,
+     followed by `estimator_spec_train`, `estimator_spec_eval`, or
+     `estimator_spec_predict` depending on the tf.Estimator mode.
+  2. Layer: The method `call` enables `T2TModel` to be used a callable by
+     itself. It calls the following methods:
 
      * `bottom`, which transforms features according to `problem_hparams`' input
        and target `Modality`s;
@@ -73,8 +76,6 @@ class T2TModel(base.Layer):
        the final logits;
      * `loss`, which takes the logits, forms any missing training loss, and sums
        all loss terms.
-  2. Layer: The method `call` enables `T2TModel` to be used a callable by
-     itself. For example, it can be composed with any other Keras layer.
   3. Inference: The method `infer` enables `T2TModel` to make sequence
      predictions by itself.
 
