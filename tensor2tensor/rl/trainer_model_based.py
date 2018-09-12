@@ -421,8 +421,9 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     if problem_name not in registry.list_problems():
       tf.logging.info("Game Problem %s not found; dynamically registering",
                       problem_name)
-      gym_problems_specs.create_problems_for_game(hparams.game,
-                                                  game_mode="Deterministic-v4")
+      gym_problems_specs.create_problems_for_atari_game(
+          hparams.game, game_mode="Deterministic-v4"
+      )
 
   # Autoencoder model dir
   autoencoder_model_dir = directories.get("autoencoder")
