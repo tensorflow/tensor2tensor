@@ -12,32 +12,36 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-#--output_dir=/Users/piotr.milos/Downloads/18 --alsologtostderr --loop_hparams_set=rl_modelrl_base_quick
-#--output_dir=/Users/piotr.milos/t2t/rl_v1 --alsologtostderr --loop_hparams_set=rl_modelrl_tiny
+"""Play with a world model."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from PIL import Image
-from PIL import ImageFont
-from PIL import ImageDraw
 import copy
 import os
+
+from gym.core import Env
 from gym.spaces import Box
+from gym.spaces import Discrete
+from gym.utils import play
+
 import numpy as np
 
-from gym.spaces import Discrete
+from PIL import Image
+from PIL import ImageDraw
+from PIL import ImageFont
+
 from tensor2tensor.data_generators import gym_problems_specs
 from tensor2tensor.rl.envs.batch_env_factory import batch_env_factory
 from tensor2tensor.rl.envs.utils import get_policy
+from tensor2tensor.rl.trainer_model_based import FLAGS
+from tensor2tensor.rl.trainer_model_based import setup_directories
+from tensor2tensor.rl.trainer_model_based import temporary_flags
+
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
-from tensor2tensor.rl.trainer_model_based import FLAGS, setup_directories, temporary_flags
-from gym.utils import play
 import tensorflow as tf
-from gym.core import Env
 
 
 _font = None
@@ -47,16 +51,12 @@ FONT_SIZE = 20
 def _get_font():
   global _font
   if _font is None:
-    #weirdness due to various working dirs
-    FONT_PATHS = ["tensor-2-tensor-with-mrunner/tensor-2-tensor-with-mrunner/deepsense_experiments/Xerox Serif Narrow.ttf",
-                  "tensor-2-tensor-with-mrunner/deepsense_experiments/Xerox Serif Narrow.ttf",
-                  "deepsense_experiments/Xerox Serif Narrow.ttf"]
-
-    for path in FONT_PATHS:
+    font_paths = []
+    for path in font_paths:
       try:
         _font = ImageFont.truetype(path, FONT_SIZE)
         return _font
-      except:
+      except:  # pylint: disable=bare-except
         pass
 
 
@@ -68,29 +68,30 @@ def _assert_image(img):
 
 def write_on_image(img, text="", position=(0, 0), color=(255, 255, 255)):
   img = _assert_image(img)
-  if text=="":
+  if not text:
     return img
   draw = ImageDraw.Draw(img)
   font = _get_font()
   draw.text(position, text, color, font=font)
-
   return img
 
-def concatenate_images(*imgs, axis=1):
+
+def concatenate_images(imgs, axis=1):
   imgs = [_assert_image(img) for img in imgs]
   imgs_np = [np.array(img) for img in imgs]
   concatenated_im_np = np.concatenate(imgs_np, axis=axis)
-
   return _assert_image(concatenated_im_np)
 
 
 class DebugBatchEnv(Env):
-
+  """Debugging Environment."""
   INFO_PANE_WIDTH = 250
 
   def __init__(self, hparams, sess=None):
     self.action_space = Discrete(6)
-    self.observation_space = Box(low=0, high=255, shape=(210, 160+DebugBatchEnv.INFO_PANE_WIDTH, 3), dtype=np.uint8)
+    self.observation_space = Box(
+        low=0, high=255, shape=(210, 160+DebugBatchEnv.INFO_PANE_WIDTH, 3),
+        dtype=np.uint8)
     self._tmp = 1
     self.res = None
     self.sess = sess if sess is not None else tf.Session()
@@ -123,22 +124,22 @@ class DebugBatchEnv(Env):
     self.policy_probs = actor_critic.policy.probs[0, 0, :]
     self.value = actor_critic.value[0, :]
 
-  def render(self, mode='human'):
-    raise NotImplemented()
+  def render(self, mode="human"):
+    raise NotImplementedError()
 
   def _fake_reset(self):
     self._tmp = 0
-    _observ = np.ones(shape=(210, 160, 3), dtype=np.uint8) * 10 * self._tmp
-    _observ[0, 0, 0] = 0
-    _observ[0, 0, 1] = 255
-    self.res = (_observ, 0, False, [0.1, 0.5, 0.5], 1.1)
+    observ = np.ones(shape=(210, 160, 3), dtype=np.uint8) * 10 * self._tmp
+    observ[0, 0, 0] = 0
+    observ[0, 0, 1] = 255
+    self.res = (observ, 0, False, [0.1, 0.5, 0.5], 1.1)
 
   def _reset_env(self):
-    _observ = self.sess.run(self.reset_op)[0, ...]
-    _observ[0, 0, 0] = 0
-    _observ[0, 0, 1] = 255
-    #TODO:(put correct numbers)
-    self.res = (_observ, 0, False, [0.1, 0.5, 0.5], 1.1)
+    observ = self.sess.run(self.reset_op)[0, ...]
+    observ[0, 0, 0] = 0
+    observ[0, 0, 1] = 255
+    # TODO(pmilos): put correct numbers
+    self.res = (observ, 0, False, [0.1, 0.5, 0.5], 1.1)
 
   def reset(self):
     self._reset_env()
@@ -151,7 +152,7 @@ class DebugBatchEnv(Env):
     observ[0, 0, 1] = 255
 
     self._tmp += 1
-    if self._tmp>20:
+    if self._tmp > 20:
       self._tmp = 0
 
     rew = 1
@@ -163,14 +164,16 @@ class DebugBatchEnv(Env):
 
   def _step_env(self, action):
     observ, rew, done, probs, vf = self.sess.\
-      run([self.observation, self.reward, self.done, self.policy_probs, self.value],
+      run([self.observation, self.reward, self.done, self.policy_probs,
+           self.value],
           feed_dict={self.action: [action]})
 
     return observ[0, ...], rew[0, ...], done[0, ...], probs, vf
 
   def _augment_observation(self):
-    _observ, rew, done, probs, vf = self.res
-    info_pane = np.zeros(shape=(210, DebugBatchEnv.INFO_PANE_WIDTH, 3), dtype=np.uint8)
+    observ, rew, _, probs, vf = self.res
+    info_pane = np.zeros(shape=(210, DebugBatchEnv.INFO_PANE_WIDTH, 3),
+                         dtype=np.uint8)
     probs_str = ""
     for p in probs:
       probs_str += "%.2f" % p + ", "
@@ -178,37 +181,37 @@ class DebugBatchEnv(Env):
     probs_str = probs_str[:-2]
 
     action = np.argmax(probs)
-    info_str = " Policy:{}\n Action:{}\n Value function:{}\n Reward:{}".format(probs_str, action,
-                                                                           vf, rew)
+    info_str = " Policy:{}\n Action:{}\n Value function:{}\n Reward:{}".format(
+        probs_str, action, vf, rew)
     print("Info str:{}".format(info_str))
     # info_pane = write_on_image(info_pane, info_str)
 
-    augmented_observ = concatenate_images(_observ, info_pane)
+    augmented_observ = concatenate_images(observ, info_pane)
     augmented_observ = np.array(augmented_observ)
     return augmented_observ
 
   def step(self, action):
-    #Special codes
-    if action==100:
-      #Skip action
+    # Special codes
+    if action == 100:
+      # skip action
       _, rew, done, _, _ = self.res
       observ = self._augment_observation()
       return observ, rew, done, {}
 
     if action == 101:
-      #reset
+      # reset
       self.reset()
       _, rew, done, _, _ = self.res
       observ = self._augment_observation()
       return observ, rew, done, {}
 
     if action == 102:
-      #play
-      raise NotImplemented()
+      # play
+      raise NotImplementedError()
 
-    #standard codes
-    _observ, rew, done, probs, vf = self._step_env(action)
-    self.res = (_observ, rew, done, probs, vf)
+    # standard codes
+    observ, rew, done, probs, vf = self._step_env(action)
+    self.res = (observ, rew, done, probs, vf)
 
     observ = self._augment_observation()
     return observ, rew, done, {"probs": probs, "vf": vf}
@@ -267,22 +270,21 @@ def main(_):
     env.initialize()
 
     env_model_loader = tf.train.Saver(
-      tf.global_variables("next_frame*"))
+        tf.global_variables("next_frame*"))
     trainer_lib.restore_checkpoint(world_model_dir, env_model_loader, sess,
-      must_restore=True)
+                                   must_restore=True)
 
     model_saver = tf.train.Saver(
-      tf.global_variables(".*network_parameters.*"))
+        tf.global_variables(".*network_parameters.*"))
     trainer_lib.restore_checkpoint(ppo_model_dir, model_saver, sess)
 
     key_mapping = gym_problem.env.env.get_keys_to_action()
-    #map special codes
+    # map special codes
     key_mapping[()] = 100
-    key_mapping[(ord('r'),)] = 101
-    key_mapping[(ord('p'),)] = 102
+    key_mapping[(ord("r"),)] = 101
+    key_mapping[(ord("p"),)] = 102
 
     play.play(env, zoom=2, fps=10, keys_to_action=key_mapping)
-
 
 
 if __name__ == "__main__":
