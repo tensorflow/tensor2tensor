@@ -728,7 +728,7 @@ def rl_modelrl_tiny():
   """Tiny set for testing."""
   return rl_modelrl_base_sampling().override_from_dict(
       tf.contrib.training.HParams(
-          epochs=1,
+          epochs=2,
           num_real_env_frames=128,
           simulated_env_generator_num_steps=64,
           model_train_steps=2,
@@ -736,8 +736,8 @@ def rl_modelrl_tiny():
           ppo_time_limit=5,
           ppo_epoch_length=5,
           ppo_num_agents=2,
-          real_ppo_epochs_num=1,
-          real_ppo_epoch_length=10,
+          real_ppo_epochs_num=2,
+          real_ppo_epoch_length=36,
           real_ppo_num_agents=1,
           real_ppo_effective_num_agents=2,
           generative_model_params="next_frame_tiny",
