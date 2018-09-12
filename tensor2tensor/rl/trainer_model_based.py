@@ -208,8 +208,10 @@ def train_agent_real_env(
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_params_names = ["epochs_num", "epoch_length",
                       "learning_rate", "num_agents",
-                      "optimization_epochs"]
+                      "optimization_epochs", "effective_num_agents"]
 
+  # This should be overriden
+  ppo_hparams.add_hparam("effective_num_agents", None)
   for param_name in ppo_params_names:
     ppo_param_name = "real_ppo_"+ param_name
     if ppo_param_name in hparams:
@@ -599,10 +601,11 @@ def rl_modelrl_base():
       ppo_continue_training=True,
 
       real_ppo_epochs_num=10,
-      real_ppo_epoch_length=200,
-      real_ppo_num_agents=16,
+      real_ppo_epoch_length=16*200,
+      real_ppo_num_agents=1,
       real_ppo_learning_rate=2e-4,
       real_ppo_continue_training=True,
+      real_ppo_effective_num_agents=16,
 
       game="wrapped_full_pong",
       # Whether to evaluate the world model in each iteration of the loop to get
@@ -713,8 +716,9 @@ def rl_modelrl_tiny():
           ppo_epoch_length=5,
           ppo_num_agents=2,
           real_ppo_epochs_num=1,
-          real_ppo_epoch_length=5,
-          real_ppo_num_agents=2,
+          real_ppo_epoch_length=10,
+          real_ppo_num_agents=1,
+          real_ppo_effective_num_agents=2,
           generative_model_params="next_frame_tiny",
       ).values())
 
