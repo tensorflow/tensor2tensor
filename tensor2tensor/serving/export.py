@@ -32,6 +32,11 @@ FLAGS = tf.flags.FLAGS
 tf.flags.DEFINE_bool("export_as_tfhub", False,
                      "If True, the model will be exported as tfHub module.")
 
+tf.flags.DEFINE_string(
+    "export_dir", None, "Directory, where export model should be stored."
+    "If None, the model will be stored in subdirectory "
+    "where checkpoints are: --output_dir")
+
 
 def create_estimator(run_config, hparams):
   return trainer_lib.create_estimator(
@@ -73,7 +78,7 @@ def export_module_spec_with_checkpoint(module_spec,
       m.export(export_path, session)
 
 
-def export_as_tfhub_module(hparams, problem, ckpt_dir):
+def export_as_tfhub_module(hparams, problem, ckpt_dir, export_dir):
   """Exports the last checkpoint from the directory as tfhub module.
 
   It creates the Module spec and signature (based on T2T problem information),
@@ -83,8 +88,8 @@ def export_as_tfhub_module(hparams, problem, ckpt_dir):
   Args:
     hparams: T2T parameters, model graph will be based on them.
     problem: the name of the problem
-    ckpt_dir: directory with the checkpoints. The final model will be exported
-      there too.
+    ckpt_dir: directory with the checkpoints.
+    export_dir: Directory to write the exported model to.
   """
 
   def hub_module_fn():
@@ -101,7 +106,6 @@ def export_as_tfhub_module(hparams, problem, ckpt_dir):
         inputs=features, outputs=spec.export_outputs["serving_default"].outputs)
 
   module_spec = hub.create_module_spec(hub_module_fn)
-  export_dir = os.path.join(ckpt_dir, "export_tfhub")
   # Loads the weights from the checkpoint using the model above
   # and saves it in the export_path.
   export_module_spec_with_checkpoint(
@@ -122,8 +126,10 @@ def main(_):
   hparams.no_data_parallelism = True  # To clear the devices
   problem = hparams.problem
 
+  export_dir = FLAGS.export_dir or os.path.join(ckpt_dir, "export")
+
   if FLAGS.export_as_tfhub:
-    export_as_tfhub_module(hparams, problem, ckpt_dir)
+    export_as_tfhub_module(hparams, problem, ckpt_dir, export_dir)
     return
 
   run_config = t2t_trainer.create_run_config(hparams)
@@ -133,7 +139,6 @@ def main(_):
   exporter = tf.estimator.FinalExporter(
       "exporter", lambda: problem.serving_input_fn(hparams), as_text=True)
 
-  export_dir = os.path.join(ckpt_dir, "export")
   exporter.export(
       estimator,
       export_dir,
