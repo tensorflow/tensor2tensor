@@ -553,10 +553,6 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     predictions = common_video.swap_time_and_batch_axes(predictions)
     reward_pred = common_video.swap_time_and_batch_axes(reward_pred)
 
-    return_targets = predictions
-    if hparams.reward_prediction:
-      return_targets = {"targets": predictions, "target_reward": reward_pred}
-
     if hparams.internal_loss:
       recon_loss = tf.losses.mean_squared_error(all_frames[1:], gen_images)
       rew_loss = 0.0
@@ -565,8 +561,14 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
         tf.summary.scalar("loss/reward", rew_loss)
       tf.summary.scalar("loss/recon", recon_loss)
       tf.summary.scalar("loss/kl", extra_loss)
-
       extra_loss = {"training": recon_loss + rew_loss + extra_loss}
+      # also expand the last dimension of prediction since
+      # we all the modalities will be bypassed.
+      predictions = tf.expand_dims(predictions, axis=-1)
+
+    return_targets = predictions
+    if hparams.reward_prediction:
+      return_targets = {"targets": predictions, "target_reward": reward_pred}
 
     return return_targets, extra_loss
 

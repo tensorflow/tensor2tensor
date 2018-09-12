@@ -32,6 +32,12 @@ class ModelRLExperimentSv2pTest(tf.test.TestCase):
     FLAGS.schedule = "train"
     trainer_model_based.main(None)
 
+  def test_sv2p_external_loss(self):
+    FLAGS.output_dir = tf.test.get_temp_dir() + "_external"
+    FLAGS.loop_hparams_set = "rl_modelrl_tiny_sv2p_external"
+    FLAGS.schedule = "train"
+    trainer_model_based.main(None)
+
 
 if __name__ == "__main__":
   tf.test.main()
