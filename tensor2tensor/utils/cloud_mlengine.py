@@ -333,7 +333,6 @@ def configure_usr_dir(job_spec, usr_tar):
 
 def validate_flags():
   """Validates flags are set to acceptable values for CloudML Engine runs."""
-  assert not FLAGS.cloud_tpu
   assert not job_dir()
   assert FLAGS.output_dir.startswith("gs://")
   assert FLAGS.data_dir.startswith("gs://")
