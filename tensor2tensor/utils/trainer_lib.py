@@ -391,7 +391,8 @@ class T2TExperiment(object):
     server = tf.train.Server(
         config.cluster_spec,
         job_name=config.task_type,
-        task_index=config.task_id)
+        task_index=config.task_id,
+        protocol=self._hparams.protocol)
     server.join()
 
   def decode(self, dataset_split=None, decode_from_file=False):
@@ -452,7 +453,8 @@ def create_experiment(
     warm_start_from=None,
     decode_from_file=None,
     decode_to_file=None,
-    decode_reference=None):
+    decode_reference=None,
+    protocol="grpc"):
   """Create Experiment."""
   # HParams
   hparams.add_hparam("model_dir", run_config.model_dir)
@@ -461,6 +463,7 @@ def create_experiment(
   hparams.add_hparam("eval_steps", eval_steps)
   hparams.add_hparam("schedule", schedule)
   hparams.add_hparam("warm_start_from", warm_start_from)
+  hparams.add_hparam("protocol", protocol)
   if decode_hparams is not None:
     decode_hparams.add_hparam("decode_from_file", decode_from_file)
     decode_hparams.add_hparam("decode_to_file", decode_to_file)
