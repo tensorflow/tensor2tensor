@@ -48,7 +48,6 @@ def next_frame_sv2p():
   hparams.add_hparam("scheduled_sampling_k", 900.0)
   hparams.add_hparam("upsample_method", "conv2d_transpose")
   hparams.add_hparam("internal_loss", False)
-  hparams.add_hparam("concatenate_actions", True)
   return hparams
 
 
@@ -58,12 +57,12 @@ def next_frame_sv2p_atari():
   hparams = next_frame_sv2p()
   hparams.video_num_input_frames = 4
   hparams.video_num_target_frames = 4
-  hparams.concatenate_actions = False
+  hparams.action_injection = "multiplicative"
   hparams.num_iterations_1st_stage = 15000
   hparams.num_iterations_2nd_stage = 15000
+  hparams.anneal_end = 50000
   hparams.latent_loss_multiplier_schedule = "noisy_linear_cosine_decay"
   hparams.latent_loss_multiplier = 1e-3
-  hparams.anneal_end = 50000
   hparams.preprocess_resize_frames = [96, 96]
   hparams.information_capacity = 0.0
   return hparams

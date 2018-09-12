@@ -621,27 +621,17 @@ class VideoModality(modality.Modality):
     with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
       common_layers.summarize_video(inputs, "inputs")
       inputs = common_layers.standardize_images(inputs)
-      return common_layers.time_to_channels(inputs)
+      return inputs
 
   def targets_bottom(self, x):
     return self.bottom(x)
 
   def top(self, body_output, targets):
     num_channels = self._model_hparams.problem.num_channels
-    num_frames = common_layers.shape_list(targets)[1]
     body_output_shape = common_layers.shape_list(body_output)
-    # We assume the body output is of this shape and layout.
-    # Note: if you tf.concat([frames], axis=-1) at the end of your model,
-    # then you need to reshape to [..., num_frames, depth] like below, not
-    # into [..., depth, num_frames] due to memory layout of concat/reshape.
     reshape_shape = body_output_shape[:-1] + [
-        num_frames, num_channels, self.top_dimensionality]
+        num_channels, self.top_dimensionality]
     res = tf.reshape(body_output, reshape_shape)
-    res = tf.transpose(res, [0, 3, 1, 2, 4, 5])
-    res_shape = common_layers.shape_list(res)
-    res_argmax = tf.argmax(tf.reshape(res, [-1, res_shape[-1]]), axis=-1)
-    res_argmax = tf.reshape(res_argmax, res_shape[:-1])
-    common_layers.summarize_video(res_argmax, "result")
     return res
 
   def loss(self, top_out, targets):
@@ -671,10 +661,9 @@ class VideoModalityBitwise(VideoModality):
       assert self.top_dimensionality == 256
       embedded = discretization.int_to_bit_embed(inputs, 8,
                                                  self.PIXEL_EMBEDDING_SIZE)
-      # Transpose and project.
-      transposed = common_layers.time_to_channels(embedded)
+      # Project.
       return tf.layers.dense(
-          transposed,
+          embedded,
           self._body_input_depth,
           name="merge_pixel_embedded_frames")
 

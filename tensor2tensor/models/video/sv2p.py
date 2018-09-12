@@ -125,21 +125,6 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       x = tf.zeros((batch_size, num_frames, 1, self.hparams.hidden_size))
     return common_video.swap_time_and_batch_axes(x)
 
-  def inject_additional_input(self, layer, inputs, scope, concatenate=True):
-    layer_shape = common_layers.shape_list(layer)
-    input_shape = common_layers.shape_list(inputs)
-    if concatenate:
-      emb = common_video.encode_to_shape(inputs, layer_shape, scope)
-      layer = tf.concat(values=[layer, emb], axis=-1)
-    else:
-      filters = layer_shape[-1]
-      input_reshaped = tf.reshape(inputs, [-1, 1, 1, input_shape[-1]])
-      input_mask = tf.layers.dense(input_reshaped, filters, name=scope)
-      zeros_mask = tf.zeros(layer_shape, dtype=tf.float32)
-      input_broad = input_mask + zeros_mask
-      layer *= input_broad
-    return layer
-
   def bottom_part_tower(self, input_image, input_reward, action, latent,
                         lstm_state, lstm_size, conv_size, concat_latent=False):
     """The bottom part of predictive towers.
@@ -205,7 +190,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
 
     if action is not None:
       enc2 = self.inject_additional_input(
-          enc2, action, "action_enc", self.hparams.concatenate_actions)
+          enc2, action, "action_enc", self.hparams.action_injection)
     if input_reward is not None:
       enc2 = self.inject_additional_input(enc2, input_reward, "reward_enc")
     if latent is not None and not concat_latent:
@@ -235,7 +220,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       # Inject additional inputs
       if action is not None:
         x = self.inject_additional_input(
-            x, action, "action_enc", self.hparams.concatenate_actions)
+            x, action, "action_enc", self.hparams.action_injection)
       if input_reward is not None:
         x = self.inject_additional_input(x, input_reward, "reward_enc")
       if latent is not None:
