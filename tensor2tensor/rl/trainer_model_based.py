@@ -39,8 +39,10 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import gym_problems_specs
 from tensor2tensor.layers import discretization
 from tensor2tensor.rl import rl_trainer_lib
+from tensor2tensor.rl.envs.tf_atari_wrappers import PyFuncWrapper
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
+import numpy as np
 
 import tensorflow as tf
 
@@ -198,11 +200,22 @@ def train_agent(problem_name, agent_model_dir,
     rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir,
                          name_scope="ppo_sim")
 
+ppo_data_dumper_counter = 0
+dumper_path = None
+
+def ppo_data_dumper(observ, reward, done, action):
+  global ppo_data_dumper_counter, dumper_path
+  np.savez_compressed("{}/frame_{}".format(dumper_path,
+                                           ppo_data_dumper_counter),
+                      observ=observ, reward=reward, done=done, action=action)
+  ppo_data_dumper_counter += 1
+  return 0.0
 
 def train_agent_real_env(
     problem_name, agent_model_dir, event_dir, world_model_dir, epoch_data_dir,
     hparams, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the real environment."""
+  global dumper_path, ppo_data_dumper_counter
 
   gym_problem = registry.problem(problem_name)
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
@@ -222,6 +235,14 @@ def train_agent_real_env(
   ppo_hparams.save_models_every_epochs = 10
 
   environment_spec = copy.copy(gym_problem.environment_spec)
+
+  #TODO(piotrmilos):This should be refactored
+  ppo_data_dumper_counter = 0
+  dumper_path = os.path.join(epoch_data_dir, "dumper")
+  tf.gfile.MakeDirs(dumper_path)
+  dumper_spec = [PyFuncWrapper, {"process_fun": ppo_data_dumper}]
+  environment_spec.wrappers.insert(1, dumper_spec)
+
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)
 
