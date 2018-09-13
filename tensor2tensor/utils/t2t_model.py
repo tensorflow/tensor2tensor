@@ -323,7 +323,16 @@ class T2TModel(base.Layer):
       return logits, losses
 
   def bottom(self, features):
-    """Transform features to feed into body."""
+    """Transforms features to feed into body.
+
+    Args:
+      features: dict of str to Tensor. Typically it is the preprocessed data
+        batch after Problem's preprocess_example().
+
+    Returns:
+      transformed_features: dict of same key-value pairs as features. The value
+        Tensors are newly transformed.
+    """
     if not self._problem_hparams:
       log_warn("Without a Problem, T2TModel.bottom is a passthrough.")
       return features
@@ -376,7 +385,7 @@ class T2TModel(base.Layer):
     return transformed_features
 
   def body(self, features):
-    """Computes the targets' logits for one shard given transformed inputs.
+    """Computes the targets' pre-logit activations given transformed inputs.
 
     Most `T2TModel` subclasses will override this method.
 
@@ -432,7 +441,20 @@ class T2TModel(base.Layer):
     return logits
 
   def top(self, body_output, features):
-    """Returns `logits` given body output and features."""
+    """Computes logits given body output and features.
+
+    Args:
+      body_output: dict of str to Tensor, comprising one key-value pair for each
+        target. Each value denotes the target's pre-logit activations.
+        Alternatively, it may be a single Tensor denoting the pre-logits for
+        that target.
+      features: dict of str to Tensor. Typically it is the preprocessed data
+        batch after Problem's preprocess_example().
+
+    Returns:
+      logits: dict of str to Tensor, denoting each logits for each target; or
+        a single Tensor denoting the logits for that target.
+    """
     if isinstance(body_output, dict):
       if self._problem_hparams:
         target_modality = self._problem_hparams.target_modality
