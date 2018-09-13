@@ -99,13 +99,19 @@ def export_as_tfhub_module(hparams, problem, ckpt_dir, export_dir):
         hparams,
         decode_hparams=decoding.decode_hparams(FLAGS.decode_hparams))
     features = problem.serving_input_fn(hparams).features
+
+    # we must do a copy of the features, as the model_fn can add additional
+    # entries there (like hyperparameter settings etc).
+    original_features = features.copy()
     spec = model_fn(features, labels=None, mode=tf.estimator.ModeKeys.PREDICT)
 
-    # Currently only supports a single input and single output.
     hub.add_signature(
-        inputs=features, outputs=spec.export_outputs["serving_default"].outputs)
+        inputs=original_features,
+        outputs=spec.export_outputs["serving_default"].outputs)
 
-  module_spec = hub.create_module_spec(hub_module_fn)
+  # TFHub doesn't support LOSSES collections.
+  module_spec = hub.create_module_spec(
+      hub_module_fn, drop_collections=[tf.GraphKeys.LOSSES])
   # Loads the weights from the checkpoint using the model above
   # and saves it in the export_path.
   export_module_spec_with_checkpoint(
