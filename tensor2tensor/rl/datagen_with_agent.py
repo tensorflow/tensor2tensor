@@ -38,7 +38,6 @@ flags.DEFINE_boolean("eval", False, "Whether to run in eval mode.")
 
 
 def main(_):
-
   tf.gfile.MakeDirs(FLAGS.data_dir)
   tf.gfile.MakeDirs(FLAGS.tmp_dir)
 
