@@ -36,7 +36,9 @@ class XceptionTest(tf.test.TestCase):
     y = np.random.random_integers(
         1, high=vocab_size - 1, size=(batch_size, 1, 1, 1))
     hparams = xception.xception_tiny()
-    p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
+    p_hparams = problem_hparams.test_problem_hparams(vocab_size,
+                                                     vocab_size,
+                                                     hparams)
     p_hparams.input_modality["inputs"] = (registry.Modalities.IMAGE, None)
     p_hparams.target_modality = (registry.Modalities.CLASS_LABEL, vocab_size)
     with self.test_session() as session:

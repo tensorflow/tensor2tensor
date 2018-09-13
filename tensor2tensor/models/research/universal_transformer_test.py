@@ -40,7 +40,9 @@ class UniversalTransformerTest(tf.test.TestCase):
     hparams.num_heads = 1
     hparams.layer_prepostprocess_dropout = 0.0
 
-    p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE, VOCAB_SIZE)
+    p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE,
+                                                     VOCAB_SIZE,
+                                                     hparams)
     if not has_input:
       p_hparams.input_modality = {}
     hparams.problems = [p_hparams]
