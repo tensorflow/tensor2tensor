@@ -147,11 +147,13 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
   def _get_data(self):
     if self._use_dumper_data:
-      file_path = os.path.join(self._dumper_path, "frame_{}.npz".format(self._dumper_data_index))
+      file_path = os.path.join(self._dumper_path,
+                               "frame_{}.npz".format(self._dumper_data_index))
       print(file_path)
       data = np.load(file_path)
       self._dumper_data_index += 1
-      return data["observ"][0, ...], data["reward"][0], data["done"][0], data["action"][0]
+      return data["observ"][0, ...], data["reward"][0], \
+             data["done"][0], data["action"][0]
     else:
       if self.memory is None or self.memory_index >= self._internal_memory_size:
         self.memory = self._session.run(self.collect_memory)

@@ -535,10 +535,9 @@ class VideoWriter(object):
         "-qscale", "0",
         "-"
     ]
-    # self.proc = Popen(self.cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    self.proc = Popen(self.cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
 
   def write(self, frame):
-    return
     if self.proc is None:
       self.__init_ffmpeg(frame.shape)
     self.proc.stdin.write(frame.tostring())

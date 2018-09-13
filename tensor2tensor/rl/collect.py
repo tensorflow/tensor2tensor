@@ -275,7 +275,7 @@ def define_collect(hparams, scope, eval_phase,
         mem = tf.reshape(mem, shape=new_shape)
         mem = tf.transpose(mem, perm=perm,
                            name="collect_memory_%d_%s"
-                                % (new_epoch_length, name))
+                           % (new_epoch_length, name))
         new_memory.append(mem)
       memory = new_memory
 
