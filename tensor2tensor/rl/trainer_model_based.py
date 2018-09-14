@@ -105,8 +105,11 @@ def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
       "autoencoder_path": autoencoder_path,
   }):
     gym_problem = registry.problem(problem_name)
-    env_steps_per_epoch = (
-        hparams.num_real_env_frames / (hparams.epochs * (1. - 1./11.)))
+    if hparams.gather_ppo_real_env_data:
+      env_steps_per_epoch = int(hparams.num_real_env_frames / hparams.epochs)
+    else:
+      env_steps_per_epoch = (
+          hparams.num_real_env_frames / (hparams.epochs * (1. - 1./11.)))
     gym_problem.settable_num_steps = env_steps_per_epoch
     gym_problem.settable_eval_phase = eval_phase
     gym_problem.generate_data(data_dir, tmp_dir)
@@ -145,7 +148,15 @@ def train_autoencoder(problem_name, data_dir, output_dir, hparams, epoch):
 
 def _ppo_training_epochs(hparams, epoch, is_final_epoch, real_env_training):
   """Helper for PPO restarts."""
-  real_training_ppo_epochs_num = hparams.real_ppo_epochs_num
+  if hparams.gather_ppo_real_env_data:
+    assert hparams.real_ppo_epochs_num is 0, \
+      "Should be put to 0 to enforce better readability"
+    real_training_ppo_epochs_num = \
+      math.ceil(hparams.num_real_env_frames/
+                (hparams.epochs*hparams.real_ppo_epoch_length))
+  else:
+    real_training_ppo_epochs_num = hparams.real_ppo_epochs_num
+
   simulated_training_ppo_epochs_num = hparams.ppo_epochs_num
 
   ppo_training_epochs = (epoch + 1)*simulated_training_ppo_epochs_num + \
@@ -236,12 +247,16 @@ def train_agent_real_env(
 
   environment_spec = copy.copy(gym_problem.environment_spec)
 
-  #TODO(piotrmilos):This should be refactored
-  ppo_data_dumper_counter = 0
-  dumper_path = os.path.join(epoch_data_dir, "dumper")
-  tf.gfile.MakeDirs(dumper_path)
-  dumper_spec = [PyFuncWrapper, {"process_fun": ppo_data_dumper}]
-  environment_spec.wrappers.insert(1, dumper_spec)
+  if hparams.gather_ppo_real_env_data:
+    #TODO(piotrmilos):This should be refactored
+    assert hparams.real_ppo_num_agents == 1, \
+      "It is required to use collect with pyfunc_wrapper"
+
+    ppo_data_dumper_counter = 0
+    dumper_path = os.path.join(epoch_data_dir, "dumper")
+    tf.gfile.MakeDirs(dumper_path)
+    dumper_spec = [PyFuncWrapper, {"process_fun": ppo_data_dumper}]
+    environment_spec.wrappers.insert(1, dumper_spec)
 
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)
@@ -621,7 +636,8 @@ def rl_modelrl_base():
       # should start fresh each time.
       ppo_continue_training=True,
 
-      real_ppo_epochs_num=10,
+      gather_ppo_real_env_data=True,
+      real_ppo_epochs_num=0,
       real_ppo_epoch_length=16*200,
       real_ppo_num_agents=1,
       real_ppo_learning_rate=2e-4,
@@ -642,7 +658,6 @@ def rl_modelrl_base_quick():
   hparams.epochs = 2
   hparams.ppo_epochs_num = 1000
   hparams.ppo_epoch_length = 50
-  hparams.real_ppo_epochs_num = 10
   return hparams
 
 
@@ -736,7 +751,6 @@ def rl_modelrl_tiny():
           ppo_time_limit=5,
           ppo_epoch_length=5,
           ppo_num_agents=2,
-          real_ppo_epochs_num=2,
           real_ppo_epoch_length=36,
           real_ppo_num_agents=1,
           real_ppo_effective_num_agents=2,
