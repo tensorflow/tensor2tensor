@@ -264,6 +264,9 @@ def define_collect(hparams, scope, eval_phase,
     new_memory = []
     if hasattr(hparams, "effective_num_agents"):
       effective_num_agents = hparams.effective_num_agents
+      assert hparams.epoch_length % effective_num_agents == 0, \
+        "The rollout of hparams.epoch_length will be distributed amongst" \
+        "effective_num_agents of agents"
       new_epoch_length = int(hparams.epoch_length / effective_num_agents)
       for mem, info in zip(memory, rollout_metadata):
         shape, _, name = info
