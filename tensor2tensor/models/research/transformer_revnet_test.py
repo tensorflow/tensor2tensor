@@ -42,7 +42,9 @@ class TransformerRevnetTest(tf.test.TestCase):
     target_length = 7
     vocab_size = 9
     hparams = transformer_revnet_test()
-    p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
+    p_hparams = problem_hparams.test_problem_hparams(vocab_size,
+                                                     vocab_size,
+                                                     hparams)
     hparams.problem_hparams = p_hparams
     inputs = -1 + np.random.random_integers(
         vocab_size, size=(batch_size, input_length, 1, 1))

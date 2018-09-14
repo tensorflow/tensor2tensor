@@ -45,6 +45,14 @@ class NextFrameTest(tests_utils.BaseNextFrameTest):
         sv2p.NextFrameSv2p,
         1)
 
+  def testSv2pWithActionsAndRewardsExternalLoss(self):
+    hp = sv2p_params.next_frame_sv2p()
+    hp.internal_loss = False
+    self.TestWithActionAndRewards(
+        hp,
+        sv2p.NextFrameSv2p,
+        1)
+
   def testSv2pTwoFrames(self):
     self.TestOnVariousInputOutputSizes(
         sv2p_params.next_frame_sv2p(),

@@ -61,8 +61,11 @@ class T2TModel(base.Layer):
 
   1. Estimator: The method `make_estimator_model_fn` builds a `model_fn` for
      the tf.Estimator workflow of training, evaluation, and prediction.
-     Its core computation comes from the method `call`, which proceeds to call
-     the following methods:
+     It performs the method `call`, which performs the core computation,
+     followed by `estimator_spec_train`, `estimator_spec_eval`, or
+     `estimator_spec_predict` depending on the tf.Estimator mode.
+  2. Layer: The method `call` enables `T2TModel` to be used a callable by
+     itself. It calls the following methods:
 
      * `bottom`, which transforms features according to `problem_hparams`' input
        and target `Modality`s;
@@ -73,8 +76,6 @@ class T2TModel(base.Layer):
        the final logits;
      * `loss`, which takes the logits, forms any missing training loss, and sums
        all loss terms.
-  2. Layer: The method `call` enables `T2TModel` to be used a callable by
-     itself. For example, it can be composed with any other Keras layer.
   3. Inference: The method `infer` enables `T2TModel` to make sequence
      predictions by itself.
 
@@ -322,7 +323,16 @@ class T2TModel(base.Layer):
       return logits, losses
 
   def bottom(self, features):
-    """Transform features to feed into body."""
+    """Transforms features to feed into body.
+
+    Args:
+      features: dict of str to Tensor. Typically it is the preprocessed data
+        batch after Problem's preprocess_example().
+
+    Returns:
+      transformed_features: dict of same key-value pairs as features. The value
+        Tensors are newly transformed.
+    """
     if not self._problem_hparams:
       log_warn("Without a Problem, T2TModel.bottom is a passthrough.")
       return features
@@ -375,7 +385,7 @@ class T2TModel(base.Layer):
     return transformed_features
 
   def body(self, features):
-    """Computes the targets' logits for one shard given transformed inputs.
+    """Computes the targets' pre-logit activations given transformed inputs.
 
     Most `T2TModel` subclasses will override this method.
 
@@ -431,7 +441,20 @@ class T2TModel(base.Layer):
     return logits
 
   def top(self, body_output, features):
-    """Returns `logits` given body output and features."""
+    """Computes logits given body output and features.
+
+    Args:
+      body_output: dict of str to Tensor, comprising one key-value pair for each
+        target. Each value denotes the target's pre-logit activations.
+        Alternatively, it may be a single Tensor denoting the pre-logits for
+        that target.
+      features: dict of str to Tensor. Typically it is the preprocessed data
+        batch after Problem's preprocess_example().
+
+    Returns:
+      logits: dict of str to Tensor, denoting each logits for each target; or
+        a single Tensor denoting the logits for that target.
+    """
     if isinstance(body_output, dict):
       if self._problem_hparams:
         target_modality = self._problem_hparams.target_modality

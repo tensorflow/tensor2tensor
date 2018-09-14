@@ -41,7 +41,9 @@ def get_model(hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
   hparams.max_length = INPUT_LENGTH
   hparams.batch_size = BATCH_SIZE
 
-  p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE, VOCAB_SIZE)
+  p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE,
+                                                   VOCAB_SIZE,
+                                                   hparams)
   if not has_input:
     p_hparams.input_modality = {}
   hparams.problem_hparams = p_hparams

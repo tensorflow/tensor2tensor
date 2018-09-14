@@ -43,7 +43,9 @@ class VqaAttentionBaselineTest(tf.test.TestCase):
     a = np.random.random_integers(
         0, high=num_classes, size=(batch_size, answer_length, 1, 1))
     hparams = vqa_attention.vqa_attention_base()
-    p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
+    p_hparams = problem_hparams.test_problem_hparams(vocab_size,
+                                                     vocab_size,
+                                                     hparams)
     p_hparams.input_modality["inputs"] = (registry.Modalities.IMAGE, None)
     p_hparams.input_modality["question"] = (registry.Modalities.SYMBOL,
                                             vocab_size)

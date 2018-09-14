@@ -3547,20 +3547,6 @@ def summarize_video(video, prefix, max_outputs=1):
           max_outputs=max_outputs)
 
 
-def time_to_channels(embedded_video):
-  """Put time dimension on channels in an embedded video."""
-  video_shape = shape_list(embedded_video)
-  if len(video_shape) != 5:
-    raise ValueError("Assuming videos given as tensors in the format "
-                     "[batch, time, height, width, channels] but got one "
-                     "of shape: %s" % str(video_shape))
-  transposed = tf.transpose(embedded_video, [0, 2, 3, 1, 4])
-  return tf.reshape(transposed, [
-      video_shape[0], video_shape[2], video_shape[3],
-      video_shape[1] * video_shape[4]
-  ])
-
-
 def cast_like(x, y):
   """Cast x to y's dtype, if necessary."""
   x = tf.convert_to_tensor(x)

@@ -65,6 +65,35 @@ def basic_lstm(inputs, state, num_units, name=None):
   return outputs, new_state
 
 
+def lstm_cell(inputs,
+              state,
+              num_units,
+              use_peepholes=False,
+              cell_clip=0.0,
+              initializer=None,
+              num_proj=None,
+              num_unit_shards=None,
+              num_proj_shards=None,
+              reuse=None,
+              name=None):
+  """Full LSTM cell."""
+  input_shape = common_layers.shape_list(inputs)
+  cell = tf.contrib.rnn.LSTMCell(num_units,
+                                 use_peepholes=use_peepholes,
+                                 cell_clip=cell_clip,
+                                 initializer=initializer,
+                                 num_proj=num_proj,
+                                 num_unit_shards=num_unit_shards,
+                                 num_proj_shards=num_proj_shards,
+                                 reuse=reuse,
+                                 name=name,
+                                 state_is_tuple=False)
+  if state is None:
+    state = cell.zero_state(input_shape[0], tf.float32)
+  outputs, new_state = cell(inputs, state)
+  return outputs, new_state
+
+
 def conv_lstm_2d(inputs, state, output_channels,
                  kernel_size=5, name=None, spatial_dims=None):
   """2D Convolutional LSTM."""

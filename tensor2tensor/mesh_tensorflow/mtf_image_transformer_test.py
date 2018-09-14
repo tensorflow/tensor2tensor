@@ -43,7 +43,9 @@ def get_model(hparams=None,
   hparams.img_len = IMG_LENGTH
   hparams.num_channels = 1
 
-  p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE, VOCAB_SIZE)
+  p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE,
+                                                   VOCAB_SIZE,
+                                                   hparams)
   p_hparams.input_modality = {}
   hparams.problem_hparams = p_hparams
 

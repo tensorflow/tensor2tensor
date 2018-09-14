@@ -3333,7 +3333,7 @@ def multihead_attention(query_antecedent,
     bias: bias Tensor (see attention_bias())
     total_key_depth: an integer
     total_value_depth: an integer
-    output_depth: an integerg
+    output_depth: an integer
     num_heads: an integer dividing total_key_depth and total_value_depth
     dropout_rate: a floating point number
     attention_type: a string, either "dot_product", "dot_product_relative",

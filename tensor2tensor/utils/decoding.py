@@ -66,7 +66,8 @@ def decode_hparams(overrides=""):
       force_decode_length=False,
       display_decoded_images=False,
       # Used for video decoding.
-      frames_per_second=10)
+      frames_per_second=10,
+      skip_eos_postprocess=False)
   hp.parse(overrides)
   return hp
 
@@ -485,7 +486,8 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
   is_image = "image" in hparams.problem.name
   is_text2class = isinstance(hparams.problem,
                              text_problems.Text2ClassProblem)
-  skip_eos_postprocess = is_image or is_text2class
+  skip_eos_postprocess = (
+      is_image or is_text2class or decode_hp.skip_eos_postprocess)
 
   def input_fn():
     gen_fn = make_input_fn_from_generator(
