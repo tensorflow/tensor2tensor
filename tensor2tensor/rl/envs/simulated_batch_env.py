@@ -140,7 +140,8 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
       dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN,
                                                FLAGS.data_dir,
                                                shuffle_files=True,
-                                               hparams=hparams)
+                                               hparams=hparams,
+                                               only_last=True)
       dataset = dataset.shuffle(buffer_size=1000)
       if environment_spec.simulation_flip_first_random_for_beginning:
         # Later flip the first random frame in PPO batch for the true beginning.
