@@ -33,6 +33,20 @@ def reverse_gradient(x, lr=1.0):
   return -lr * x + tf.stop_gradient((1.0 + lr) * x)
 
 
+def time_to_channels(embedded_video):
+  """Put time dimension on channels in an embedded video."""
+  video_shape = common_layers.shape_list(embedded_video)
+  if len(video_shape) != 5:
+    raise ValueError("Assuming videos given as tensors in the format "
+                     "[batch, time, height, width, channels] but got one "
+                     "of shape: %s" % str(video_shape))
+  transposed = tf.transpose(embedded_video, [0, 2, 3, 1, 4])
+  return tf.reshape(transposed, [
+      video_shape[0], video_shape[2], video_shape[3],
+      video_shape[1] * video_shape[4]
+  ])
+
+
 @registry.register_model
 class AutoencoderBasic(t2t_model.T2TModel):
   """A basic autoencoder, try with image_mnist_rev or image_cifar10_rev."""
@@ -142,7 +156,11 @@ class AutoencoderBasic(t2t_model.T2TModel):
   def gumbel_sample(self, reconstr_gan):
     hparams = self.hparams
     is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
-    vocab_size = self._problem_hparams.target_modality.top_dimensionality
+    if isinstance(self._problem_hparams.target_modality, dict):
+      vocab_size = self._problem_hparams.target_modality[
+          "targets"].top_dimensionality
+    else:
+      vocab_size = self._problem_hparams.target_modality.top_dimensionality
     reconstr_gan = tf.nn.log_softmax(reconstr_gan)
     if is_training and hparams.gumbel_temperature > 0.0:
       gumbel_samples = discretization.gumbel_sample(
@@ -163,7 +181,11 @@ class AutoencoderBasic(t2t_model.T2TModel):
   def body(self, features):
     hparams = self.hparams
     is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
-    vocab_size = self._problem_hparams.target_modality.top_dimensionality
+    if isinstance(self._problem_hparams.target_modality, dict):
+      vocab_size = self._problem_hparams.target_modality[
+          "targets"].top_dimensionality
+    else:
+      vocab_size = self._problem_hparams.target_modality.top_dimensionality
     encoder_layers = None
     self.is1d = hparams.sample_width == 1
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
@@ -171,7 +193,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
       labels_shape = common_layers.shape_list(labels)
       # handle videos
       if len(labels.shape) == 5:
-        labels = common_layers.time_to_channels(labels)
+        labels = time_to_channels(labels)
       shape = common_layers.shape_list(labels)
       x = tf.one_hot(labels, vocab_size)
       x = self.embed(x)
@@ -1126,12 +1148,12 @@ def autoencoder_ordered_discrete_vq():
 def autoencoder_discrete_pong():
   """Discrete autoencoder model for compressing pong frames."""
   hparams = autoencoder_ordered_discrete()
-  hparams.num_hidden_layers = 2
+  hparams.num_hidden_layers = 3
   hparams.bottleneck_bits = 24
   hparams.batch_size = 2
-  hparams.bottleneck_noise = 0.2
-  hparams.max_hidden_size = 1024
-  hparams.gan_loss_factor = 0.0
+  hparams.gan_loss_factor = 0.01
+  hparams.bottleneck_l2_factor = 0.001
+  hparams.add_hparam("video_modality_loss_cutoff", 0.02)
   return hparams
 
 

@@ -1279,8 +1279,11 @@ def gumbel_softmax_discrete_bottleneck(x,
 def tanh_discrete_bottleneck(x, bottleneck_bits, bottleneck_noise,
                              discretize_warmup_steps, mode):
   """Simple discretization through tanh, flip bottleneck_noise many bits."""
-  x = tf.tanh(
-      tf.layers.dense(x, bottleneck_bits, name="tanh_discrete_bottleneck"))
+  x = tf.layers.dense(x, bottleneck_bits, name="tanh_discrete_bottleneck")
+  if mode == tf.estimator.ModeKeys.TRAIN:
+    x += tf.truncated_normal(
+        common_layers.shape_list(x), mean=0.0, stddev=0.2)
+  x = tf.tanh(x)
   d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
   if mode == tf.estimator.ModeKeys.TRAIN:
     noise = tf.random_uniform(common_layers.shape_list(x))

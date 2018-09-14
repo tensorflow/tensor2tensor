@@ -756,22 +756,6 @@ def rl_modelrl_l1_base():
 
 
 @registry.register_hparams
-def rl_modelrl_l1_medium():
-  """Medium parameter set with L1 loss."""
-  hparams = rl_modelrl_medium()
-  hparams.generative_model_params = "next_frame_l1"
-  return hparams
-
-
-@registry.register_hparams
-def rl_modelrl_l1_short():
-  """Short parameter set with L1 loss."""
-  hparams = rl_modelrl_short()
-  hparams.generative_model_params = "next_frame_l1"
-  return hparams
-
-
-@registry.register_hparams
 def rl_modelrl_l1_tiny():
   """Tiny parameter set with L1 loss."""
   hparams = rl_modelrl_tiny()
@@ -783,22 +767,6 @@ def rl_modelrl_l1_tiny():
 def rl_modelrl_l2_base():
   """Parameter set with L2 loss."""
   hparams = rl_modelrl_base()
-  hparams.generative_model_params = "next_frame_l2"
-  return hparams
-
-
-@registry.register_hparams
-def rl_modelrl_l2_medium():
-  """Medium parameter set with L2 loss."""
-  hparams = rl_modelrl_medium()
-  hparams.generative_model_params = "next_frame_l2"
-  return hparams
-
-
-@registry.register_hparams
-def rl_modelrl_l2_short():
-  """Short parameter set with L2 loss."""
-  hparams = rl_modelrl_short()
   hparams.generative_model_params = "next_frame_l2"
   return hparams
 
@@ -817,49 +785,7 @@ def rl_modelrl_ae_base():
   hparams = rl_modelrl_base()
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "next_frame_ae"
-  hparams.autoencoder_train_steps = 50000
-  return hparams
-
-
-@registry.register_hparams
-def rl_modelrl_ae_25k():
-  hparams = rl_modelrl_ae_base()
-  hparams.num_real_env_frames //= 4
-  return hparams
-
-
-@registry.register_hparams
-def rl_modelrl_ae_l1_base():
-  """Parameter set for autoencoders and L1 loss."""
-  hparams = rl_modelrl_ae_base()
-  hparams.generative_model_params = "next_frame_l1"
-  return hparams
-
-
-@registry.register_hparams
-def rl_modelrl_ae_l2_base():
-  """Parameter set for autoencoders and L2 loss."""
-  hparams = rl_modelrl_ae_base()
-  hparams.generative_model_params = "next_frame_l2"
-  return hparams
-
-
-@registry.register_hparams
-def rl_modelrl_ae_medium():
-  """Medium parameter set for autoencoders."""
-  hparams = rl_modelrl_ae_base()
-  hparams.num_real_env_frames //= 2
-  return hparams
-
-
-@registry.register_hparams
-def rl_modelrl_ae_short():
-  """Small parameter set for autoencoders."""
-  hparams = rl_modelrl_ae_base()
-  hparams.autoencoder_train_steps //= 10
-  hparams.num_real_env_frames //= 5
-  hparams.model_train_steps //= 10
-  hparams.ppo_epochs_num //= 10
+  hparams.autoencoder_train_steps = 30000
   return hparams
 
 

@@ -235,7 +235,6 @@ class VideoProblem(problem.Problem):
         receiver_tensors=video_input_frames)
 
   def preprocess(self, dataset, mode, hparams, interleave=True):
-    del interleave
     def split_on_batch(x):
       """Split x on batch dimension into x[:size, ...] and x[size:, ...]."""
       length = len(x.get_shape())
@@ -335,7 +334,7 @@ class VideoProblem(problem.Problem):
     num_frames = (hparams.video_num_input_frames +
                   hparams.video_num_target_frames)
     # We jump by a random position at the beginning to add variety.
-    if self.random_skip:
+    if self.random_skip and interleave:
       random_skip = tf.random_uniform([], maxval=num_frames, dtype=tf.int64)
       preprocessed_dataset = preprocessed_dataset.skip(random_skip)
     if self.use_not_breaking_batching:
@@ -344,7 +343,8 @@ class VideoProblem(problem.Problem):
       batch_dataset = preprocessed_dataset.apply(
           tf.contrib.data.batch_and_drop_remainder(num_frames))
     dataset = batch_dataset.map(features_from_batch)
-    dataset = dataset.shuffle(hparams.get("shuffle_buffer_size", 128))
+    if interleave:
+      dataset = dataset.shuffle(hparams.get("shuffle_buffer_size", 128))
     return dataset
 
   def eval_metrics(self):

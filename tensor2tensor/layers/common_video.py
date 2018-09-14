@@ -409,8 +409,16 @@ def gif_summary(name, tensor, max_outputs=3, fps=10, collections=None,
   Returns:
     A scalar `Tensor` of type `string`. The serialized `Summary` protocol
     buffer.
+
+  Raises:
+    ValueError: if the given tensor has the wrong shape.
   """
   tensor = tf.convert_to_tensor(tensor)
+  if len(tensor.get_shape()) != 5:
+    raise ValueError("Assuming videos given as tensors in the format "
+                     "[batch, time, height, width, channels] but got one "
+                     "of shape: %s" % str(tensor.get_shape()))
+  tensor = tf.cast(tensor, tf.uint8)
   if summary_op_util.skip_summary():
     return tf.constant("")
   with summary_op_util.summary_scope(
@@ -623,4 +631,3 @@ class BatchVideoWriter(object):
     for i, writer in enumerate(self.writers):
       path = path_template.format(i)
       writer.finish_to_file(path)
-

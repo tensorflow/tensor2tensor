@@ -224,12 +224,6 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
     # Concatenate results and return them.
     frames = tf.stack(res_frames, axis=1)
 
-    if self.is_per_pixel_softmax:
-      def make_gif_ready(tensor_list):
-        return tf.cast(tf.stack(tensor_list, axis=1), tf.uint8)
-      summary = common_video.gif_summary
-      summary("pred", make_gif_ready(sampled_frames_raw))
-
     if "target_reward" not in features:
       return frames
     rewards = tf.concat(res_rewards, axis=1)

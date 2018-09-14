@@ -21,6 +21,7 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_audio
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import common_video
 from tensor2tensor.layers import discretization
 from tensor2tensor.utils import modality
 from tensor2tensor.utils import registry
@@ -289,10 +290,12 @@ class ImageModality(modality.Modality):
   def loss(self, top_out, targets):
     """Compute loss numerator and denominator for one shard of output."""
     logits = top_out
+    cutoff = getattr(self._model_hparams, "video_modality_loss_cutoff", 0.0)
     return common_layers.padded_cross_entropy(
         logits,
         targets,
         self._model_hparams.label_smoothing,
+        cutoff=cutoff,
         weights_fn=self.targets_weights_fn)
 
 
@@ -617,21 +620,24 @@ class VideoModality(modality.Modality):
   """Modality for videos, i.e., time-sequences of frames."""
 
   def bottom(self, x):
-    inputs = x
-    with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
-      common_layers.summarize_video(inputs, "inputs")
-      inputs = common_layers.standardize_images(inputs)
-      return inputs
+    common_video.gif_summary("inputs", x, max_outputs=1)
+    x = common_layers.standardize_images(x)
+    return x
 
   def targets_bottom(self, x):
-    return self.bottom(x)
+    common_video.gif_summary("targets", x, max_outputs=1)
+    x = common_layers.standardize_images(x)
+    return x
 
   def top(self, body_output, targets):
     num_channels = self._model_hparams.problem.num_channels
-    body_output_shape = common_layers.shape_list(body_output)
-    reshape_shape = body_output_shape[:-1] + [
-        num_channels, self.top_dimensionality]
+    shape = common_layers.shape_list(body_output)
+    reshape_shape = shape[:-1] + [num_channels, self.top_dimensionality]
     res = tf.reshape(body_output, reshape_shape)
+    # Calculate argmax so as to have a summary with the produced images.
+    x = tf.argmax(tf.reshape(res, [-1, self.top_dimensionality]), axis=-1)
+    x = tf.reshape(x, shape[:-1] + [num_channels])
+    common_video.gif_summary("results", x, max_outputs=1)
     return res
 
   def loss(self, top_out, targets):
@@ -768,11 +774,11 @@ class VideoModalityL2Raw(VideoModalityL2):
     return prediction, targets
 
   def bottom(self, x):
-    common_layers.summarize_video(x, "inputs")
+    common_video.gif_summary("inputs", x)
     return common_layers.convert_rgb_to_real(x)
 
   def targets_bottom(self, x):  # pylint: disable=arguments-differ
-    common_layers.summarize_video(x, "targets_bottom")
+    common_video.gif_summary("targets_bottom", x)
     return common_layers.convert_rgb_to_real(x)
 
   def top(self, body_output, _):
@@ -780,7 +786,7 @@ class VideoModalityL2Raw(VideoModalityL2):
     if isinstance(body_output, list):
       frames = tf.stack(body_output, axis=1)
     rgb_frames = common_layers.convert_real_to_rgb(frames)
-    common_layers.summarize_video(rgb_frames, "body_output")
+    common_video.gif_summary("body_output", rgb_frames)
     return tf.expand_dims(rgb_frames, axis=-1)
 
   def loss(self, top_out, targets):
