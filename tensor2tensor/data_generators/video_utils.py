@@ -23,6 +23,7 @@ import numpy as np
 import six
 
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import common_video
@@ -58,22 +59,36 @@ def display_video_hooks(hook_args):
     output_videos = np.asarray(output_videos, dtype=np.uint8)
     input_videos = np.asarray(input_videos, dtype=np.uint8)
 
-    input_videos = np.concatenate((input_videos, target_videos), axis=1)
-    output_videos = np.concatenate((input_videos, output_videos), axis=1)
+    # Video gif.
+    all_input = np.concatenate((input_videos, target_videos), axis=1)
+    all_output = np.concatenate((input_videos, output_videos), axis=1)
     input_summ_vals, _ = common_video.py_gif_summary(
         "decode_%d/input" % decode_ind,
-        input_videos,
-        max_outputs=10,
+        all_input, max_outputs=10,
         fps=fps,
         return_summary_value=True)
     output_summ_vals, _ = common_video.py_gif_summary(
         "decode_%d/output" % decode_ind,
-        output_videos,
+        all_output,
         max_outputs=10,
         fps=fps,
         return_summary_value=True)
     all_summaries.extend(input_summ_vals)
     all_summaries.extend(output_summ_vals)
+
+    # Frame-by-frame summaries
+    iterable = zip(all_input[:10], all_output[:10])
+    for ind, (input_video, output_video) in enumerate(iterable):
+      t, h, w, c = input_video.shape
+      # Tile vertically
+      input_frames = np.reshape(input_video, (t*h, w, c))
+      output_frames = np.reshape(output_video, (t*h, w, c))
+
+      # Concat across width.
+      all_frames = np.concatenate((input_frames, output_frames), axis=1)
+      frame_by_frame_summ = image_utils.image_to_tf_summary_value(
+          all_frames, tag="input/output/decode_%d" % ind)
+      all_summaries.append(frame_by_frame_summ)
   return all_summaries
 
 

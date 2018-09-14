@@ -43,8 +43,8 @@ class VideoUtilsTest(tf.test.TestCase):
         hparams=decode_hparams, decode_hparams=decode_hparams,
         predictions=predictions)
     summaries = video_utils.display_video_hooks(decode_hooks)
-    # ground_truth + output.
-    self.assertEqual(len(summaries), 20)
+    # 10 input vids + 10 output vids + 10 frame-by-frame.
+    self.assertEqual(len(summaries), 30)
     for summary in summaries:
       self.assertTrue(isinstance(summary, tf.Summary.Value))
 
