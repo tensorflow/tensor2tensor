@@ -1378,7 +1378,7 @@ class T2TModel(base.Layer):
 
     if use_tpu:
       host_call = _create_host_call(self.hparams.model_dir)
-      _remove_summaries()
+      remove_summaries()
       return tf.contrib.tpu.TPUEstimatorSpec(
           tf.estimator.ModeKeys.TRAIN,
           loss=loss,
@@ -1398,9 +1398,9 @@ class T2TModel(base.Layer):
 
     problem = hparams.problem
     if common_layers.is_xla_compiled():
-      _remove_summaries()
+      remove_summaries()
       if isinstance(logits, dict):
-        eval_metrics_fn = _create_tpu_eval_metrics_fn(problem, hparams)
+        eval_metrics_fn = create_tpu_eval_metrics_fn(problem, hparams)
         # For TPU, logits dict will be passed as keyword arguments to
         # eval_metrics_fn. Here we add the labels to those arguments.
         logits.update({"labels": labels})
@@ -1409,7 +1409,7 @@ class T2TModel(base.Layer):
             eval_metrics=(eval_metrics_fn, logits),
             loss=loss)
       else:
-        eval_metrics_fn = _create_tpu_eval_metrics_fn(problem, hparams)
+        eval_metrics_fn = create_tpu_eval_metrics_fn(problem, hparams)
         return tf.contrib.tpu.TPUEstimatorSpec(
             tf.estimator.ModeKeys.EVAL,
             eval_metrics=(eval_metrics_fn, [logits, labels]),
@@ -1497,7 +1497,7 @@ class T2TModel(base.Layer):
     if "batch_prediction_key" in predictions:
       export_out["batch_prediction_key"] = predictions["batch_prediction_key"]
 
-    _remove_summaries()
+    remove_summaries()
 
     export_outputs = {
         tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
@@ -1578,7 +1578,7 @@ TPU_METRIC_BLACKLIST = set([
 ])
 
 
-def _create_tpu_eval_metrics_fn(problem, hparams):
+def create_tpu_eval_metrics_fn(problem, hparams):
   """Create the metrics_fn that TPUEstimatorSpec expects."""
 
   metric_fns = []
@@ -1649,7 +1649,7 @@ def _create_tpu_eval_metrics_fn(problem, hparams):
   return all_metrics_fn
 
 
-def _remove_summaries():
+def remove_summaries():
   g = tf.get_default_graph()
   key = tf.GraphKeys.SUMMARIES
   del g.get_collection_ref(key)[:]
