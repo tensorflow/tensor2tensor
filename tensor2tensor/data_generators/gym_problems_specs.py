@@ -27,7 +27,8 @@ from tensor2tensor.data_generators.gym_problems import GymDiscreteProblem,\
   GymSimulatedDiscreteProblem, GymRealDiscreteProblem, \
   GymDiscreteProblemWithAutoencoder, GymDiscreteProblemAutoencoded, \
   GymSimulatedDiscreteProblemAutoencoded, \
-  GymSimulatedDiscreteProblemForWorldModelEval
+  GymSimulatedDiscreteProblemForWorldModelEval, \
+  GymSimulatedDiscreteProblemForWorldModelEvalAutoencoded
 # pylint: enable=g-multiple-import
 from tensor2tensor.utils import registry
 
@@ -162,6 +163,21 @@ class GymSimulatedDiscreteProblemForWorldModelEvalWithAgentOnWrappedFullPong(
 class GymSimulatedDiscreteProblemWithAgentOnWrappedFullPongAutoencoded(
     GymSimulatedDiscreteProblemAutoencoded, GymWrappedFullPongRandom):
   """GymSimulatedDiscreteProblemWithAgentOnWrappedFullPongAutoencoded."""
+
+  @property
+  def initial_frames_problem(self):
+    return "gym_discrete_problem_with_agent_on_wrapped_full_pong_autoencoded"
+
+  @property
+  def num_testing_steps(self):
+    return 100
+
+
+@registry.register_problem
+class GymSimulatedDiscreteProblemForWorldModelEvalWithAgentOnWrappedFullPongAutoencoded(  # pylint: disable=line-too-long
+    GymSimulatedDiscreteProblemForWorldModelEvalAutoencoded,
+    GymWrappedFullPongRandom):
+  """Simulated pong for world model evaluation with encoded frames."""
 
   @property
   def initial_frames_problem(self):

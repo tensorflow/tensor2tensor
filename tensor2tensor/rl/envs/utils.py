@@ -167,7 +167,8 @@ class InitialFrameChooser(object):
       return {
           "mode": mode,
           "data_dir": tf.flags.FLAGS.data_dir,
-          "hparams": dataset_hparams
+          "hparams": dataset_hparams,
+          "only_last": True
       }
 
     self._dataset_kwargs_lambda = dataset_kwargs_lambda

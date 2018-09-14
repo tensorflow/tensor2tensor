@@ -611,7 +611,7 @@ class GymSimulatedDiscreteProblemForWorldModelEval(GymSimulatedDiscreteProblem):
     env_spec.simulation_flip_first_random_for_beginning = False
     return env_spec
 
-  def _setup(self):
+  def _setup(self, data_dir):
     trajectory_length = self.num_testing_steps
     if self.num_steps < 1200:
       # Decrease the trajectory length for tiny experiments, otherwise we don't
@@ -644,7 +644,7 @@ class GymSimulatedDiscreteProblemForWorldModelEval(GymSimulatedDiscreteProblem):
       return rl.NetworkOutput(policy, value, lambda a: a)
 
     super(GymSimulatedDiscreteProblemForWorldModelEval, self)._setup(
-        override_collect_hparams={
+        data_dir, override_collect_hparams={
             "policy_network": fixed_action_policy_fun
         }
     )
@@ -672,10 +672,7 @@ class GymSimulatedDiscreteProblemForWorldModelEval(GymSimulatedDiscreteProblem):
       stat.real_rewards += self.min_reward
 
     real_ob = stat.real_obs[index % stat.real_obs.shape[0], ...]
-    ob = np.ndarray.astype(observation, np.int)
-    err = np.ndarray.astype(
-        np.maximum(np.abs(real_ob - ob, dtype=np.int) - 10, 0), np.uint8)
-    debug_im = np.concatenate([observation, real_ob, err], axis=1)
+    debug_im = self._generate_debug_image(real_ob, observation)
 
     assert (self._internal_memory_size == self.num_testing_steps and
             self._internal_memory_force_beginning_resets), (
@@ -696,6 +693,12 @@ class GymSimulatedDiscreteProblemForWorldModelEval(GymSimulatedDiscreteProblem):
 
     return debug_im
 
+  def _generate_debug_image(self, real_ob, sim_ob):
+    ob = np.ndarray.astype(sim_ob, np.int)
+    err = np.ndarray.astype(
+        np.maximum(np.abs(real_ob - ob, dtype=np.int) - 10, 0), np.uint8)
+    return np.concatenate([sim_ob, real_ob, err], axis=1)
+
 
 class GymSimulatedDiscreteProblemAutoencoded(GymSimulatedDiscreteProblem):
   """Gym simulated discrete problem with frames already autoencoded."""
@@ -708,7 +711,7 @@ class GymSimulatedDiscreteProblemAutoencoded(GymSimulatedDiscreteProblem):
     ]
     env_spec.simulated_env = True
     env_spec.add_hparam("simulation_random_starts", True)
-
+    env_spec.add_hparam("simulation_flip_first_random_for_beginning", True)
     env_spec.add_hparam("intrinsic_reward_scale", 0.0)
     initial_frames_problem = registry.problem(self.initial_frames_problem)
     env_spec.add_hparam("initial_frames_problem", initial_frames_problem)
@@ -733,6 +736,15 @@ class GymSimulatedDiscreteProblemAutoencoded(GymSimulatedDiscreteProblem):
   def frame_width(self):
     width = self.env.observation_space.shape[1]
     return int(math.ceil(width / self.autoencoder_factor))
+
+
+class GymSimulatedDiscreteProblemForWorldModelEvalAutoencoded(
+    GymSimulatedDiscreteProblemForWorldModelEval,
+    GymSimulatedDiscreteProblemAutoencoded):
+
+  def _generate_debug_image(self, real_ob, sim_ob):
+    # TODO(koz4k): Implement.
+    pass
 
 
 @registry.register_problem

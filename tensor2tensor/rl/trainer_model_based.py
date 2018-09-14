@@ -468,6 +468,10 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     simulated_problem_name = (
         "gym_simulated_discrete_problem_with_agent_on_%s_autoencoded"
         % game_with_mode)
+    world_model_eval_problem_name = (
+        "gym_simulated_discrete_problem_for_world_model_eval_with_agent_on_%s" \
+        "_autoencoded"
+        % game_with_mode)
   else:
     problem_name = ("gym_discrete_problem_with_agent_on_%s" % game_with_mode)
     world_model_problem = problem_name
@@ -872,7 +876,6 @@ def rl_modelrl_ae_tiny():
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "next_frame_ae"
   hparams.autoencoder_train_steps = 2
-  hparams.eval_world_model = False
   return hparams
 
 
