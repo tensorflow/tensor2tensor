@@ -236,7 +236,6 @@ class AutoencoderBasic(t2t_model.T2TModel):
             common_layers.shape_list(x)[-1],
             reuse=True)
         x = tf.concat([g, x], axis=0)
-        encoder_layers = [tf.concat([l, l], axis=0) for l in encoder_layers]
     else:
       if self._cur_bottleneck_tensor is None:
         b = self.sample()
@@ -694,10 +693,15 @@ class AutoencoderResidual(AutoencoderAutoregressive):
           if encoder_layers is not None:
             enc_x = encoder_layers[j]
             enc_shape = common_layers.shape_list(enc_x)
-            x = x[:, :enc_shape[1], :enc_shape[2], :]
+            x_mix = x[:enc_shape[0], :enc_shape[1], :enc_shape[2], :]
             if is_training:  # Mix at the beginning of training.
-              rand = tf.random_uniform(common_layers.shape_list(x))
-              x = tf.where(tf.less(rand, nomix_p), x, enc_x)
+              rand = tf.random_uniform(common_layers.shape_list(x_mix))
+              x_mix = tf.where(tf.less(rand, nomix_p), x_mix, enc_x)
+            if hparams.gan_loss_factor != 0:
+              x_gan = x[enc_shape[0]:, :enc_shape[1], :enc_shape[2], :]
+              x = tf.concat([x_mix, x_gan], axis=0)
+            else:
+              x = x_mix
       return x
 
 
@@ -1075,8 +1079,8 @@ def autoencoder_ordered_discrete_image64():
   hparams = autoencoder_ordered_discrete()
   hparams.batch_size = 32
   hparams.num_hidden_layers = 6
-  hparams.target_modality = "video:default"
-  hparams.input_modalities = "video:default"
+  hparams.bottleneck_warmup_steps *= 2
+  hparams.gan_codes_warmup_steps *= 2
 
   return hparams
 
@@ -1125,8 +1129,8 @@ def autoencoder_ordered_text():
 def autoencoder_ordered_text_small():
   """Ordered discrete autoencoder model for text, small version."""
   hparams = autoencoder_ordered_text()
-  hparams.bottleneck_bits = 14
-  hparams.num_hidden_layers = 2
+  hparams.bottleneck_bits = 32
+  hparams.num_hidden_layers = 3
   hparams.hidden_size = 64
   hparams.max_hidden_size = 512
   hparams.bottleneck_noise = 0.0
