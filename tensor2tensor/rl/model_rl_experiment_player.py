@@ -186,7 +186,7 @@ class DebugBatchEnv(Env):
     print("Info str:{}".format(info_str))
     # info_pane = write_on_image(info_pane, info_str)
 
-    augmented_observ = concatenate_images(observ, info_pane)
+    augmented_observ = concatenate_images([observ, info_pane])
     augmented_observ = np.array(augmented_observ)
     return augmented_observ
 
@@ -240,6 +240,12 @@ def main(_):
   else:
     simulated_problem_name = ("gym_simulated_discrete_problem_with_agent_on_%s"
                               % game_with_mode)
+    if simulated_problem_name not in registry.list_problems():
+      tf.logging.info("Game Problem %s not found; dynamically registering",
+                      simulated_problem_name)
+      gym_problems_specs.create_problems_for_game(hparams.game,
+                                                  game_mode="Deterministic-v4")
+
   epoch = hparams.epochs-1
   epoch_data_dir = os.path.join(directories["data"], str(epoch))
   ppo_model_dir = directories["ppo"]
