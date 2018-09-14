@@ -149,7 +149,6 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     if self._use_dumper_data:
       file_path = os.path.join(self._dumper_path,
                                "frame_{}.npz".format(self._dumper_data_index))
-      print(file_path)
       data = np.load(file_path)
       self._dumper_data_index += 1
       return data["observ"][0, ...], data["reward"][0], \
