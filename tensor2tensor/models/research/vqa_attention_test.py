@@ -21,8 +21,8 @@ from __future__ import print_function
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
+from tensor2tensor.layers import modalities
 from tensor2tensor.models.research import vqa_attention
-from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -46,11 +46,11 @@ class VqaAttentionBaselineTest(tf.test.TestCase):
     p_hparams = problem_hparams.test_problem_hparams(vocab_size,
                                                      vocab_size,
                                                      hparams)
-    p_hparams.input_modality["inputs"] = (registry.Modalities.IMAGE, None)
-    p_hparams.input_modality["question"] = (registry.Modalities.SYMBOL,
-                                            vocab_size)
-    p_hparams.target_modality = (registry.Modalities.CLASS_LABEL
-                                 + ":multi_label", num_classes + 1)
+    p_hparams.input_modality["inputs"] = modalities.ImageModality(hparams)
+    p_hparams.input_modality["question"] = modalities.SymbolModality(
+        hparams, vocab_size)
+    p_hparams.target_modality = modalities.MultiLabelModality(
+        hparams, num_classes + 1)
     with self.test_session() as session:
       features = {
           "inputs": tf.constant(x, dtype=tf.float32),

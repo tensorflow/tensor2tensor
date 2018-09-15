@@ -48,7 +48,11 @@ class TestProblem(problem_mod.Problem):
         self.generator(data_dir, tmp_dir, False), dev_paths)
 
   def hparams(self, defaults, model_hparams):
-    pass
+    hp = defaults
+    hp.input_modality = {
+        "inputs": (registry.Modalities.SYMBOL, 30)
+    }
+    hp.target_modality = (registry.Modalities.SYMBOL, 30)
 
   def example_reading_spec(self):
     data_fields = {

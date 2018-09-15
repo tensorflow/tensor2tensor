@@ -21,6 +21,7 @@ import numpy as np
 
 from tensor2tensor.data_generators import video_generated  # pylint: disable=unused-import
 
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -40,12 +41,12 @@ def fill_hparams(hparams, in_frames, out_frames):
 
 def action_modalities(hparams):
   hparams.problem_hparams.input_modality = {
-      "inputs": ("video:l2raw", 256),
-      "input_action": ("symbol:one_hot", 5)
+      "inputs": modalities.VideoModalityL2Raw(hparams, 256),
+      "input_action": modalities.SymbolModalityOneHot(hparams, 5),
   }
   hparams.problem_hparams.target_modality = {
-      "targets": ("video:l2raw", 256),
-      "target_action": ("symbol:one_hot", 5),
+      "targets": modalities.VideoModalityL2Raw(hparams, 256),
+      "target_action": modalities.SymbolModalityOneHot(hparams, 5),
   }
   return hparams
 
@@ -53,14 +54,14 @@ def action_modalities(hparams):
 def full_modalities(hparams):
   """Full modalities with actions and rewards."""
   hparams.problem_hparams.input_modality = {
-      "inputs": ("video:l2raw", 256),
-      "input_reward": ("symbol:one_hot", 3),
-      "input_action": ("symbol:one_hot", 5)
+      "inputs": modalities.VideoModalityL2Raw(hparams, 256),
+      "input_reward": modalities.SymbolModalityOneHot(hparams, 3),
+      "input_action": modalities.SymbolModalityOneHot(hparams, 5),
   }
   hparams.problem_hparams.target_modality = {
-      "targets": ("video:l2raw", 256),
-      "target_reward": ("symbol:one_hot", 3),
-      "target_action": ("symbol:one_hot", 5),
+      "targets": modalities.VideoModalityL2Raw(hparams, 256),
+      "target_reward": modalities.SymbolModalityOneHot(hparams, 3),
+      "target_action": modalities.SymbolModalityOneHot(hparams, 5),
   }
   hparams.force_full_predict = True
   return hparams

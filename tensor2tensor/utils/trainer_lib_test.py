@@ -82,10 +82,12 @@ class TrainerLibTest(tf.test.TestCase):
     hparams = trainer_lib.create_hparams(
         "transformer_tiny", data_dir=algorithmic.TinyAlgo.data_dir,
         problem_name="tiny_algo")
+    # Manually turn off sharing. It is not currently supported for multitargets.
+    hparams.shared_embedding_and_softmax_weights = 0  # pylint: disable=line-too-long
     hparams.problem_hparams.target_modality = {
         "targets": hparams.problem_hparams.target_modality,
         "A": hparams.problem_hparams.target_modality,
-        "B": hparams.problem_hparams.target_modality
+        "B": hparams.problem_hparams.target_modality,
     }
     hparams.problem._hparams = hparams.problem_hparams
 

@@ -29,12 +29,12 @@ from tensor2tensor.data_generators import multi_problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators.problem import problem_hparams_to_features
 from tensor2tensor.layers import common_layers
-from tensor2tensor.layers import modalities  # pylint: disable=unused-import
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import expert_utils as eu
 from tensor2tensor.utils import learning_rate
 from tensor2tensor.utils import metrics
+from tensor2tensor.utils import modality
 from tensor2tensor.utils import optimize
 from tensor2tensor.utils import quantization
 from tensor2tensor.utils import registry
@@ -116,15 +116,15 @@ class T2TModel(base.Layer):
     self._problem_hparams = problem_hparams
 
     # Setup hparams
-    # If vocabularies differ, unset shared_embedding_and_softmax_weights.
     hparams = copy.copy(hparams)
     if self._problem_hparams and hparams.shared_embedding_and_softmax_weights:
-      same_vocab_sizes = True
-      if "inputs" in self._problem_hparams.input_modality:
-        if (self._problem_hparams.input_modality["inputs"] !=
-            self._problem_hparams.target_modality):
-          same_vocab_sizes = False
-      if not same_vocab_sizes:
+      # If vocabularies differ, unset shared_embedding_and_softmax_weights.
+      input_modality = self._problem_hparams.input_modality.get("inputs")
+      target_modality = self._problem_hparams.target_modality
+      if (isinstance(input_modality, modality.Modality) and
+          isinstance(target_modality, modality.Modality) and
+          input_modality.top_dimensionality !=
+          target_modality.top_dimensionality):
         log_info("Unsetting shared_embedding_and_softmax_weights.")
         hparams.shared_embedding_and_softmax_weights = 0
     self._original_hparams = hparams
@@ -136,8 +136,6 @@ class T2TModel(base.Layer):
     self._num_datashards = self._data_parallelism.n
     self._ps_devices = self._data_parallelism.ps_devices
     self._eager_var_store = create_eager_var_store()
-    if self._problem_hparams:
-      self._create_modalities(self._problem_hparams, self._hparams)
     if not common_layers.is_xla_compiled():
       self.summarize_hparams()
     self._variable_scopes = {}
@@ -566,47 +564,16 @@ class T2TModel(base.Layer):
           setattr(hparams, key, 0.0)
     self._hparams = hparams
 
-  def _create_modalities(self, problem_hparams, hparams):
-    """Construct modalities in problem_hparams."""
+    if self._problem_hparams:
+      # Set model hparams in problem_hparams' modalities, which also store them.
+      for im in six.itervalues(self._problem_hparams.input_modality):
+        im._model_hparams = self._hparams  # pylint: disable=protected-access
 
-    input_modality_overrides = {}
-    for override_str in hparams.input_modalities.split(";"):
-      if override_str != "default":
-        parts = override_str.split(":")
-        feature_name = parts[0]
-        modality_name = ":".join(parts[1:])
-        input_modality_overrides[feature_name] = modality_name
-
-    target_modality_name = None
-    if hparams.target_modality and hparams.target_modality != "default":
-      target_modality_name = hparams.target_modality
-
-    input_modality = {}
-    for f, modality_spec in six.iteritems(problem_hparams.input_modality):
-      if f in input_modality_overrides:
-        _warn_changed_modality_type(input_modality_overrides[f],
-                                    modality_spec[0], f)
-        modality_spec = (input_modality_overrides[f], modality_spec[1])
-      input_modality[f] = registry.create_modality(modality_spec, hparams)
-    problem_hparams.input_modality = input_modality
-
-    if isinstance(problem_hparams.target_modality, dict):
-      target_modality = {}
-      for f, modality_spec in six.iteritems(problem_hparams.target_modality):
-        # TODO(lukaszkaiser): allow overriding other target modalities.
-        if target_modality_name and f == "targets":
-          _warn_changed_modality_type(target_modality_name, modality_spec[0],
-                                      "target_modality/%s" % f)
-          modality_spec = (target_modality_name, modality_spec[1])
-        target_modality[f] = registry.create_modality(modality_spec, hparams)
-    else:
-      target_modality_spec = problem_hparams.target_modality
-      if target_modality_name:
-        _warn_changed_modality_type(target_modality_name,
-                                    target_modality_spec[0], "target")
-        target_modality_spec = (target_modality_name, target_modality_spec[1])
-      target_modality = registry.create_modality(target_modality_spec, hparams)
-    problem_hparams.target_modality = target_modality
+      if isinstance(self._problem_hparams.target_modality, dict):
+        for tm in six.itervalues(self._problem_hparams.target_modality):
+          tm._model_hparams = self._hparams  # pylint: disable=protected-access
+      elif self._problem_hparams.target_modality is not None:
+        self._problem_hparams.target_modality._model_hparams = self._hparams  # pylint: disable=protected-access
 
   def prepare_features_for_infer(self, features):
     """Called before inference to allow adding infer-specific features."""
@@ -750,8 +717,7 @@ class T2TModel(base.Layer):
       # it has shape [batch_size] and contains floats between 0 and
       # source_length.
       if self._problem_hparams:
-        modality = self._problem_hparams.target_modality
-        if modality.top_is_pointwise:
+        if self._problem_hparams.target_modality.top_is_pointwise:
           return tf.squeeze(logits, axis=[1, 2, 3])
       # -1 due to the pad above.
       current_output_position = common_layers.shape_list(ids)[1] - 1
@@ -1533,16 +1499,6 @@ class T2TModel(base.Layer):
           tf.summary.scalar(loss_name, loss_val)
 
 
-def _warn_changed_modality_type(new_name, old_name, feature_name):
-  new_type, new_name = registry.parse_modality_name(new_name)
-  old_type, old_name = registry.parse_modality_name(old_name)
-  if new_type != old_type:
-    log_warn(
-        "%s has a designated modality type %s (%s) but has been "
-        "overridden with a modality of type %s (%s).", feature_name, old_type,
-        old_name, new_type, new_name)
-
-
 def _with_timing(fn, msg, silent=False):
 
   def fn_with_timing(*args, **kwargs):
@@ -1578,17 +1534,15 @@ TPU_METRIC_BLACKLIST = set([
 ])
 
 
-def create_tpu_eval_metrics_fn(problem, hparams):
+def create_tpu_eval_metrics_fn(problem, model_hparams):
   """Create the metrics_fn that TPUEstimatorSpec expects."""
 
   metric_fns = []
   eval_metrics = problem.eval_metrics()
 
-  tm = problem.get_hparams().target_modality
+  tm = problem.get_hparams(model_hparams).target_modality
   if isinstance(tm, dict):
     for k, v in six.iteritems(tm):
-      if isinstance(v, tuple):
-        v = registry.create_modality(v, hparams)
       weights_fn = v.targets_weights_fn
 
       def make_metric_fn(metric_fn):
@@ -1606,8 +1560,6 @@ def create_tpu_eval_metrics_fn(problem, hparams):
         name = "%s/metrics-%s/%s" % (k, problem.name, metric)
         metric_fns.append((name, make_metric_fn(metrics.METRICS_FNS[metric])))
   else:
-    if isinstance(tm, tuple):
-      tm = registry.create_modality(tm, hparams)
     weights_fn = tm.targets_weights_fn
 
     def make_metric_fn(metric_fn):

@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import collections
+import copy
 import functools
 import multiprocessing
 import os
@@ -25,8 +26,11 @@ import random
 import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
+# Import modalities: they must be registered before we look them up here.
+from tensor2tensor.layers import modalities  # pylint: disable=unused-import
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import metrics
+from tensor2tensor.utils import registry
 import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
@@ -467,6 +471,8 @@ class Problem(object):
 
   def get_hparams(self, model_hparams=None):
     """Returns problem_hparams."""
+    if model_hparams is None:
+      model_hparams = default_model_hparams()
     if self._hparams is not None:
       return self._hparams
 
@@ -490,6 +496,17 @@ class Problem(object):
     if self._was_copy:
       _copy_problem_hparams(hp)
 
+    model_hparams = copy.copy(model_hparams)
+    if (hasattr(model_hparams, "shared_embedding_and_softmax_weights") and
+        model_hparams.shared_embedding_and_softmax_weights):
+      # If vocabularies differ, unset shared_embedding_and_softmax_weights.
+      input_vocab_size = hp.input_modality.get("inputs")[1]
+      target_vocab_size = hp.target_modality[1]
+      if input_vocab_size != target_vocab_size:
+        tf.logging.warn("Unsetting shared_embedding_and_softmax_weights.")
+        model_hparams.shared_embedding_and_softmax_weights = 0
+
+    _create_modalities(hp, model_hparams)
     self._hparams = hp
     return self._hparams
 
@@ -1076,6 +1093,71 @@ def _reverse_problem_hparams(p_hparams):
 
   # Mark that p was reversed.
   p.was_reversed = True
+
+
+def _create_modalities(problem_hparams, hparams):
+  """Converts string-type modalities to their modality object.
+
+  Args:
+    problem_hparams: tf.contrib.training.HParams for the Problem. It must have
+      input_modality and target_modality.
+    hparams: tf.contrib.training.HParams for the model. It may have
+      input_modalities and target_modality, which will override
+      problem_hparams's modalities.
+  """
+  input_modality_overrides = {}
+  if hasattr(hparams, "input_modalities"):
+    for override_str in hparams.input_modalities.split(";"):
+      if override_str != "default":
+        parts = override_str.split(":")
+        feature_name = parts[0]
+        modality_name = ":".join(parts[1:])
+        input_modality_overrides[feature_name] = modality_name
+
+  input_modality = {}
+  for f, modality_spec in six.iteritems(problem_hparams.input_modality):
+    if f in input_modality_overrides:
+      _warn_changed_modality_type(input_modality_overrides[f],
+                                  modality_spec[0], f)
+      modality_spec = (input_modality_overrides[f], modality_spec[1])
+    input_modality[f] = registry.create_modality(modality_spec, hparams)
+  problem_hparams.input_modality = input_modality
+
+  target_modality_name = None
+  if (hasattr(hparams, "target_modality") and
+      hparams.target_modality != "default"):
+    target_modality_name = hparams.target_modality
+
+  if problem_hparams.target_modality is None:
+    target_modality = None
+  elif isinstance(problem_hparams.target_modality, dict):
+    target_modality = {}
+    for f, modality_spec in six.iteritems(problem_hparams.target_modality):
+      # TODO(lukaszkaiser): allow overriding other target modalities.
+      if target_modality_name and f == "targets":
+        _warn_changed_modality_type(target_modality_name, modality_spec[0],
+                                    "target_modality/%s" % f)
+        modality_spec = (target_modality_name, modality_spec[1])
+      target_modality[f] = registry.create_modality(modality_spec, hparams)
+  else:
+    target_modality_spec = problem_hparams.target_modality
+    if target_modality_name:
+      _warn_changed_modality_type(target_modality_name,
+                                  target_modality_spec[0], "target")
+      target_modality_spec = (target_modality_name, target_modality_spec[1])
+    target_modality = registry.create_modality(target_modality_spec,
+                                               hparams)
+  problem_hparams.target_modality = target_modality
+
+
+def _warn_changed_modality_type(new_name, old_name, feature_name):
+  new_type, new_name = registry.parse_modality_name(new_name)
+  old_type, old_name = registry.parse_modality_name(old_name)
+  if new_type != old_type:
+    tf.logging.warn(
+        "%s has a designated modality type %s (%s) but has been "
+        "overridden with a modality of type %s (%s).", feature_name, old_type,
+        old_name, new_type, new_name)
 
 
 def _default_hparams():

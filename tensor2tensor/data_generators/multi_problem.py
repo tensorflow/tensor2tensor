@@ -22,8 +22,8 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
-from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
@@ -88,8 +88,8 @@ class MultiProblem(problem.Problem):
     vocab_size = self._hparams.vocabulary["targets"].vocab_size
     tf.logging.info("Old vocabulary size: %d" % vocab_size)
     tf.logging.info("New vocabulary size: %d" % (vocab_size + vocab_size_inc))
-    self._hparams.target_modality = (registry.Modalities.SYMBOL,
-                                     vocab_size + vocab_size_inc)
+    self._hparams.target_modality = modalities.SymbolModality(
+        vocab_size + vocab_size_inc)
 
     return self._hparams
 

@@ -23,7 +23,6 @@ import six
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import bleu_hook
-from tensor2tensor.utils import registry
 from tensor2tensor.utils import rouge
 
 import tensorflow as tf
@@ -584,13 +583,11 @@ def create_evaluation_metrics(problems, model_hparams):
                                     metrics,
                                     list(METRICS_FNS.keys())))
 
-    tm = problem_instance.get_hparams().target_modality
+    tm = problem_instance.get_hparams(model_hparams).target_modality
     if not isinstance(tm, dict):
       tm = {"targets": tm}
 
     for target_name, modality in six.iteritems(tm):
-      if isinstance(modality, tuple):
-        modality = registry.create_modality(modality, model_hparams)
       weights_fn = modality.targets_weights_fn
       if hasattr(model_hparams.problem, "task_list"):
         ptid = problem_instance.task_id  # pylint: disable=cell-var-from-loop
@@ -608,13 +605,10 @@ def create_evaluation_metrics(problems, model_hparams):
   return eval_metrics
 
 
-def create_eager_metrics_for_problem(problem, model_hparams=None):
+def create_eager_metrics_for_problem(problem, model_hparams):
   """See create_eager_metrics."""
   metric_names = problem.eval_metrics()
-  tm = problem.get_hparams().target_modality
-  if isinstance(tm, tuple):
-    assert model_hparams is not None
-    tm = registry.create_modality(tm, model_hparams)
+  tm = problem.get_hparams(model_hparams).target_modality
   return create_eager_metrics(metric_names, weights_fn=tm.targets_weights_fn)
 
 
