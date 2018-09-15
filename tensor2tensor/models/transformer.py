@@ -2041,8 +2041,11 @@ def transformer_mlperf_tpu():
   """HParams for Transformer model on TPU for MLPerf on TPU 2x2."""
   hparams = transformer_base_v3()
   hparams.symbol_modality_num_shards = 1
-  hparams.max_length = 64  # ignored when using "_packed" problems
-  hparams.batch_size = 512  # gloabl batch size matches the reference model
+  hparams.max_length = 256  # ignored when using "_packed" problems
+  hparams.batch_size = 2048  # per-chip batch size matches the reference model
+  hparams.hidden_size = 1024
+  hparams.filter_size = 4096
+  hparams.num_heads = 16
   hparams.attention_dropout_broadcast_dims = "0,1"  # batch, heads
   hparams.relu_dropout_broadcast_dims = "1"  # length
   hparams.layer_prepostprocess_dropout_broadcast_dims = "1"  # length
