@@ -136,7 +136,7 @@ class Shape(object):
   @property
   def cumprod(self):
     """Cumulative product (exclusive) of Dimension sizes."""
-    return _cumprod(self.to_integer_list)[::-1]
+    return _cumprod(self.to_integer_list)[:-1]
 
   def cumprod_to_tensor_axis(self, cumprod):
     """Tensor axis i such that self.cumprod[i] == cumprod, or None."""
