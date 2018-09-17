@@ -1096,14 +1096,20 @@ def _reverse_problem_hparams(p_hparams):
 
 
 def _create_modalities(problem_hparams, hparams):
-  """Converts string-type modalities to their modality object.
+  """Converts string-type modalities to their corresponding Modality.
 
   Args:
     problem_hparams: tf.contrib.training.HParams for the Problem. It must have
-      input_modality and target_modality.
+      input_modality and target_modality as attributes. Modalities are either
+      tuples of type ("modality_type:modality_name", vocab_size), and they will
+      be converted to Modality objects; or they are already Modality objects,
+      and they remain the same.
     hparams: tf.contrib.training.HParams for the model. It may have
       input_modalities and target_modality, which will override
-      problem_hparams's modalities.
+      problem_hparams' modalities.
+
+  Returns:
+    None
   """
   input_modality_overrides = {}
   if hasattr(hparams, "input_modalities"):
@@ -1115,12 +1121,15 @@ def _create_modalities(problem_hparams, hparams):
         input_modality_overrides[feature_name] = modality_name
 
   input_modality = {}
-  for f, modality_spec in six.iteritems(problem_hparams.input_modality):
-    if f in input_modality_overrides:
-      _warn_changed_modality_type(input_modality_overrides[f],
-                                  modality_spec[0], f)
-      modality_spec = (input_modality_overrides[f], modality_spec[1])
-    input_modality[f] = registry.create_modality(modality_spec, hparams)
+  for feature_name, modality in six.iteritems(problem_hparams.input_modality):
+    if isinstance(modality, (list, tuple)):
+      if feature_name in input_modality_overrides:
+        _warn_changed_modality_type(input_modality_overrides[feature_name],
+                                    modality[0],
+                                    feature_name)
+        modality = (input_modality_overrides[feature_name], modality[1])
+      modality = registry.create_modality(modality, hparams)
+    input_modality[feature_name] = modality
   problem_hparams.input_modality = input_modality
 
   target_modality_name = None
@@ -1128,26 +1137,29 @@ def _create_modalities(problem_hparams, hparams):
       hparams.target_modality != "default"):
     target_modality_name = hparams.target_modality
 
-  if problem_hparams.target_modality is None:
-    target_modality = None
-  elif isinstance(problem_hparams.target_modality, dict):
+  if isinstance(problem_hparams.target_modality, dict):
     target_modality = {}
-    for f, modality_spec in six.iteritems(problem_hparams.target_modality):
-      # TODO(lukaszkaiser): allow overriding other target modalities.
-      if target_modality_name and f == "targets":
-        _warn_changed_modality_type(target_modality_name, modality_spec[0],
-                                    "target_modality/%s" % f)
-        modality_spec = (target_modality_name, modality_spec[1])
-      target_modality[f] = registry.create_modality(modality_spec, hparams)
-  else:
-    target_modality_spec = problem_hparams.target_modality
+    for feature_name, modality in six.iteritems(
+        problem_hparams.target_modality):
+      if isinstance(modality, (list, tuple)):
+        # TODO(lukaszkaiser): allow overriding other target modalities.
+        if target_modality_name and feature_name == "targets":
+          _warn_changed_modality_type(target_modality_name,
+                                      modality[0],
+                                      "target_modality/%s" % feature_name)
+          modality = (target_modality_name, modality[1])
+        modality = registry.create_modality(modality, hparams)
+      target_modality[feature_name] = modality
+    problem_hparams.target_modality = target_modality
+  elif isinstance(problem_hparams.target_modality, (list, tuple)):
+    modality = problem_hparams.target_modality
     if target_modality_name:
       _warn_changed_modality_type(target_modality_name,
-                                  target_modality_spec[0], "target")
-      target_modality_spec = (target_modality_name, target_modality_spec[1])
-    target_modality = registry.create_modality(target_modality_spec,
-                                               hparams)
-  problem_hparams.target_modality = target_modality
+                                  modality[0],
+                                  "target")
+      modality = (target_modality_name, modality[1])
+    modality = registry.create_modality(modality, hparams)
+    problem_hparams.target_modality = modality
 
 
 def _warn_changed_modality_type(new_name, old_name, feature_name):

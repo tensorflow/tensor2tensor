@@ -89,6 +89,22 @@ class ProblemTest(tf.test.TestCase):
     self.assertIsInstance(p_hparams.target_modality, modalities.SymbolModality)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testProblemHparamsModalityObj(self):
+    class ModalityObjProblem(problem_module.Problem):
+
+      def hparams(self, defaults, model_hparams):
+        hp = defaults
+        hp.input_modality = {
+            "inputs": modalities.SymbolModality(model_hparams, 2)}
+        hp.target_modality = modalities.SymbolModality(model_hparams, 3)
+
+    problem = ModalityObjProblem(False, False)
+    p_hparams = problem.get_hparams()
+    self.assertIsInstance(p_hparams.input_modality["inputs"],
+                          modalities.SymbolModality)
+    self.assertIsInstance(p_hparams.target_modality, modalities.SymbolModality)
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testProblemHparamsInputOnlyModality(self):
     class InputOnlyProblem(problem_module.Problem):
 
