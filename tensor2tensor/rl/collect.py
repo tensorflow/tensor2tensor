@@ -261,12 +261,15 @@ def define_collect(hparams, scope, eval_phase,
   printing = tf.Print(0, [mean_score, scores_sum, scores_num], "mean_score: ")
   with tf.control_dependencies([index, printing]):
     memory = [mem.read_value() for mem in memory]
-    new_memory = []
-    if hasattr(hparams, "effective_num_agents"):
+    # When generating real data together with PPO training we must use single
+    # agent. For PPO to work we reshape the history, as if it was generated
+    # by real_ppo_effective_num_agents.
+    if getattr(hparams, "effective_num_agents", None):
+      new_memory = []
       effective_num_agents = hparams.effective_num_agents
-      assert hparams.epoch_length % effective_num_agents == 0, \
-        "The rollout of hparams.epoch_length will be distributed amongst" \
-        "effective_num_agents of agents"
+      assert hparams.epoch_length % effective_num_agents == 0, (
+          "The rollout of hparams.epoch_length will be distributed amongst"
+          "effective_num_agents of agents")
       new_epoch_length = int(hparams.epoch_length / effective_num_agents)
       for mem, info in zip(memory, rollout_metadata):
         shape, _, name = info

@@ -31,7 +31,7 @@ import datetime
 import math
 import os
 import time
-
+import numpy as np
 import six
 
 from tensor2tensor.bin import t2t_trainer
@@ -42,7 +42,6 @@ from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.rl.envs.tf_atari_wrappers import PyFuncWrapper
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
-import numpy as np
 
 import tensorflow as tf
 
@@ -149,18 +148,18 @@ def train_autoencoder(problem_name, data_dir, output_dir, hparams, epoch):
 def _ppo_training_epochs(hparams, epoch, is_final_epoch, real_env_training):
   """Helper for PPO restarts."""
   if hparams.gather_ppo_real_env_data:
-    assert hparams.real_ppo_epochs_num is 0, \
-      "Should be put to 0 to enforce better readability"
-    real_training_ppo_epochs_num = \
-      math.ceil(hparams.num_real_env_frames/
-                (hparams.epochs*hparams.real_ppo_epoch_length))
+    assert hparams.real_ppo_epochs_num is 0, (
+        "Should be put to 0 to enforce better readability")
+    real_training_ppo_epochs_num = int(math.ceil(
+        hparams.num_real_env_frames /
+        (hparams.epochs*hparams.real_ppo_epoch_length)))
   else:
     real_training_ppo_epochs_num = hparams.real_ppo_epochs_num
 
   simulated_training_ppo_epochs_num = hparams.ppo_epochs_num
 
-  ppo_training_epochs = (epoch + 1)*simulated_training_ppo_epochs_num + \
-                        epoch * real_training_ppo_epochs_num
+  ppo_training_epochs = ((epoch + 1)*simulated_training_ppo_epochs_num
+                         + epoch * real_training_ppo_epochs_num)
   if real_env_training:
     ppo_training_epochs += real_training_ppo_epochs_num
   if is_final_epoch:
@@ -214,13 +213,21 @@ def train_agent(problem_name, agent_model_dir,
 ppo_data_dumper_counter = 0
 dumper_path = None
 
+
 def ppo_data_dumper(observ, reward, done, action):
+  """Save frames from PPO to a numpy file."""
   global ppo_data_dumper_counter, dumper_path
-  np.savez_compressed("{}/frame_{}".format(dumper_path,
-                                           ppo_data_dumper_counter),
-                      observ=observ, reward=reward, done=done, action=action)
+  file_path = "{}/frame_{}.npz".format(dumper_path, ppo_data_dumper_counter)
+  # np.savez_compressed can't create a tf.gfile, so we need to creat it
+  # beforehand.
+  with tf.gfile.Open(file_path, mode="wb+") as gfile:
+    gfile.write("1")
+  with tf.gfile.Open(file_path, mode="wb+") as gfile:
+    np.savez_compressed(gfile,
+                        observ=observ, reward=reward, done=done, action=action)
   ppo_data_dumper_counter += 1
   return 0.0
+
 
 def train_agent_real_env(
     problem_name, agent_model_dir, event_dir, world_model_dir, epoch_data_dir,
@@ -234,7 +241,7 @@ def train_agent_real_env(
                       "learning_rate", "num_agents",
                       "optimization_epochs", "effective_num_agents"]
 
-  # This should be overriden
+  # This should be overridden.
   ppo_hparams.add_hparam("effective_num_agents", None)
   for param_name in ppo_params_names:
     ppo_param_name = "real_ppo_"+ param_name
@@ -248,16 +255,15 @@ def train_agent_real_env(
   environment_spec = copy.copy(gym_problem.environment_spec)
 
   if hparams.gather_ppo_real_env_data:
-    #TODO(piotrmilos):This should be refactored
-    assert hparams.real_ppo_num_agents == 1, \
-      "It is required to use collect with pyfunc_wrapper"
+    # TODO(piotrmilos):This should be refactored
+    assert hparams.real_ppo_num_agents == 1, (
+        "It is required to use collect with pyfunc_wrapper")
 
     ppo_data_dumper_counter = 0
     dumper_path = os.path.join(epoch_data_dir, "dumper")
     tf.gfile.MakeDirs(dumper_path)
     dumper_spec = [PyFuncWrapper, {"process_fun": ppo_data_dumper}]
     environment_spec.wrappers.insert(1, dumper_spec)
-
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)
 
@@ -611,7 +617,9 @@ def rl_modelrl_base():
       epochs=3,
       # Total frames used for training. This will be distributed evenly across
       # hparams.epochs.
-      num_real_env_frames=100000,
+      # This number should be divisible by real_ppo_epoch_length*epochs
+      # for our frame accounting to be preceise.
+      num_real_env_frames=96000,
       generative_model="next_frame_basic_deterministic",
       generative_model_params="next_frame_pixel_noise",
       ppo_params="ppo_pong_base",
@@ -638,6 +646,7 @@ def rl_modelrl_base():
 
       gather_ppo_real_env_data=True,
       real_ppo_epochs_num=0,
+      # This needs to be divisible by real_ppo_effective_num_agents.
       real_ppo_epoch_length=16*200,
       real_ppo_num_agents=1,
       real_ppo_learning_rate=2e-4,
@@ -743,7 +752,7 @@ def rl_modelrl_tiny():
   """Tiny set for testing."""
   return rl_modelrl_base_sampling().override_from_dict(
       tf.contrib.training.HParams(
-          epochs=2,
+          epochs=1,
           num_real_env_frames=128,
           simulated_env_generator_num_steps=64,
           model_train_steps=2,
@@ -753,6 +762,7 @@ def rl_modelrl_tiny():
           ppo_num_agents=2,
           real_ppo_epoch_length=36,
           real_ppo_num_agents=1,
+          real_ppo_epochs_num=0,
           real_ppo_effective_num_agents=2,
           generative_model_params="next_frame_tiny",
       ).values())

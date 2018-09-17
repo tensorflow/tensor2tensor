@@ -140,7 +140,6 @@ class GymDiscreteProblem(video_utils.VideoProblem):
       self.memory_index = 0
       self.memory = None
 
-
   @property
   def random_skip(self):
     return False
@@ -149,10 +148,11 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     if self._use_dumper_data:
       file_path = os.path.join(self._dumper_path,
                                "frame_{}.npz".format(self._dumper_data_index))
-      data = np.load(file_path)
+      with tf.gfile.Open(file_path) as gfile:
+        data = np.load(gfile)
       self._dumper_data_index += 1
-      return data["observ"][0, ...], data["reward"][0], \
-             data["done"][0], data["action"][0]
+      return (data["observ"][0, ...], data["reward"][0], data["done"][0],
+              data["action"][0])
     else:
       if self.memory is None or self.memory_index >= self._internal_memory_size:
         self.memory = self._session.run(self.collect_memory)

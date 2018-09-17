@@ -320,24 +320,16 @@ class PyFuncWrapper(WrapperBase):
   def __init__(self, batch_env, process_fun):
     super(PyFuncWrapper, self).__init__(batch_env)
     self.process_fun = process_fun
+    observs_shape = batch_env.observ.shape
+    self._observ = tf.Variable(tf.zeros(observs_shape, self.observ_dtype),
+                               trainable=False)
 
   def simulate(self, action):
     reward, done = self._batch_env.simulate(action)
     with tf.control_dependencies([reward, done]):
-      inputs = [self._batch_env.observ, reward, done, action]
+      inputs = [self._observ.read_value(), reward, done, action]
       ret = tf.py_func(self.process_fun, inputs, tf.double)
-      with tf.control_dependencies([ret]):
-        return tf.identity(reward), tf.identity(done)
-
-  @property
-  def observ(self):
-    """Access the variable holding the current observation."""
-    return self._batch_env.observ
-
-  def __len__(self):
-    """Number of combined environments."""
-    return len(self._batch_env)
-
-  def _reset_non_empty(self, indices):
-    # pylint: disable=protected-access
-    return self._batch_env._reset_non_empty(indices)
+    with tf.control_dependencies([ret]):
+      assign = self._observ.assign(self._batch_env.observ)
+    with tf.control_dependencies([assign]):
+      return tf.identity(reward), tf.identity(done)
