@@ -80,6 +80,12 @@ def standard_atari_ae_env_spec(env):
                                      simulated_env=False)
 
 
+frame_dumper_use_disk = False  # Whether to use memory or disk to dump frames.
+
+
+frame_dumper = {}
+
+
 class GymDiscreteProblem(video_utils.VideoProblem):
   """Gym environment with discrete actions and rewards."""
 
@@ -148,8 +154,11 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     if self._use_dumper_data:
       file_path = os.path.join(self._dumper_path,
                                "frame_{}.npz".format(self._dumper_data_index))
-      with tf.gfile.Open(file_path) as gfile:
-        data = np.load(gfile)
+      if frame_dumper_use_disk:
+        with tf.gfile.Open(file_path) as gfile:
+          data = np.load(gfile)
+      else:
+        data = frame_dumper.pop(file_path)
       self._dumper_data_index += 1
       return (data["observ"][0, ...], data["reward"][0], data["done"][0],
               data["action"][0])

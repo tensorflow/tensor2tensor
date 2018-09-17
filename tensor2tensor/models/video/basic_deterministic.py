@@ -187,6 +187,8 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
     for i in range(hparams.video_num_target_frames):
       cur_frames = all_frames[i:i + hparams.video_num_input_frames]
       features["inputs"] = tf.concat(cur_frames, axis=-1)
+      features["cur_target_frame"] = all_frames[
+          i + hparams.video_num_input_frames]
       if "input_action" in features:
         cur_actions = all_actions[i:i + hparams.video_num_input_frames]
         features["input_action"] = tf.concat(cur_actions, axis=1)

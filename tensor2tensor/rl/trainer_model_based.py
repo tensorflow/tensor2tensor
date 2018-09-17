@@ -31,11 +31,14 @@ import datetime
 import math
 import os
 import time
+
 import numpy as np
 import six
 
+
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.data_generators import gym_problems
 from tensor2tensor.data_generators import gym_problems_specs
 from tensor2tensor.layers import discretization
 from tensor2tensor.rl import rl_trainer_lib
@@ -218,13 +221,17 @@ def ppo_data_dumper(observ, reward, done, action):
   """Save frames from PPO to a numpy file."""
   global ppo_data_dumper_counter, dumper_path
   file_path = "{}/frame_{}.npz".format(dumper_path, ppo_data_dumper_counter)
-  # np.savez_compressed can't create a tf.gfile, so we need to creat it
-  # beforehand.
-  with tf.gfile.Open(file_path, mode="wb+") as gfile:
-    gfile.write("1")
-  with tf.gfile.Open(file_path, mode="wb+") as gfile:
-    np.savez_compressed(gfile,
-                        observ=observ, reward=reward, done=done, action=action)
+  if gym_problems.frame_dumper_use_disk:
+    # np.savez_compressed can't create a tf.gfile, so we need to create it
+    # beforehand.
+    with tf.gfile.Open(file_path, mode="wb+") as gfile:
+      gfile.write("1")
+    with tf.gfile.Open(file_path, mode="wb+") as gfile:
+      np.savez_compressed(
+          gfile, observ=observ, reward=reward, done=done, action=action)
+  else:
+    data = {"observ": observ, "reward": reward, "done": done, "action": action}
+    gym_problems.frame_dumper[file_path] = data
   ppo_data_dumper_counter += 1
   return 0.0
 
@@ -621,7 +628,7 @@ def rl_modelrl_base():
       # hparams.epochs.
       # This number should be divisible by real_ppo_epoch_length*epochs
       # for our frame accounting to be preceise.
-      num_real_env_frames=96000,
+      num_real_env_frames=96000 * 2,
       generative_model="next_frame_basic_deterministic",
       generative_model_params="next_frame_pixel_noise",
       ppo_params="ppo_pong_base",
@@ -696,6 +703,15 @@ def rl_modelrl_base_stochastic():
   hparams = rl_modelrl_base()
   hparams.generative_model = "next_frame_basic_stochastic"
   hparams.generative_model_params = "next_frame_basic_stochastic"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_base_stochastic_discrete():
+  """Base setting with stochastic discrete model."""
+  hparams = rl_modelrl_base()
+  hparams.generative_model = "next_frame_basic_stochastic_discrete"
+  hparams.generative_model_params = "next_frame_basic_stochastic_discrete"
   return hparams
 
 
@@ -869,7 +885,7 @@ def rl_modelrl_tiny_simulation_deterministic_starts():
 def rl_modelrl_grid(rhp):
   """Grid over games and frames, and 5 runs each for variance."""
   rhp.set_categorical("loop.game",
-                      ["breakout", "wrapped_long_pong", "freeway"])
+                      ["breakout", "wrapped_full_pong", "freeway"])
 
   base = 100000
   medium = base // 2
@@ -885,13 +901,22 @@ def rl_modelrl_variance(rhp):
   # Dummy parameter to get 5 runs for each configuration
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_categorical("loop.game",
-                      ["breakout", "wrapped_long_pong", "freeway"])
+                      ["breakout", "wrapped_full_pong", "freeway"])
 
 
 @registry.register_ranged_hparams
 def rl_modelrl_variance_nogame(rhp):
   # Dummy parameter to get 5 runs for each configuration
   rhp.set_discrete("model.moe_loss_coef", list(range(500)))
+
+
+@registry.register_ranged_hparams
+def rl_modelrl_test1(rhp):
+  rhp.set_discrete("model.moe_loss_coef", list(range(10)))
+  rhp.set_categorical("loop.game", ["breakout", "wrapped_full_pong", "boxing"])
+  rhp.set_discrete("loop.ppo_learning_rate", [1e-4, 2e-4, 4e-4])
+  rhp.set_discrete("ppo.optimization_batch_size", [20, 40])
+  rhp.set_discrete("loop.epochs", [3, 6])
 
 
 @registry.register_ranged_hparams
@@ -916,7 +941,7 @@ def rl_modelrl_ae_variance(rhp):
   # Dummy parameter to get 5 runs for each configuration
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_categorical("loop.game",
-                      ["breakout", "wrapped_long_pong", "freeway"])
+                      ["breakout", "wrapped_full_pong", "freeway"])
   base = 100000
   small = base // 4
   rhp.set_discrete("loop.num_real_env_frames", [base, small])
@@ -925,7 +950,7 @@ def rl_modelrl_ae_variance(rhp):
 @registry.register_ranged_hparams
 def rl_modelrl_ppolr_game(rhp):
   rhp.set_categorical("loop.game",
-                      ["breakout", "wrapped_long_pong", "freeway"])
+                      ["breakout", "wrapped_full_pong", "freeway"])
   base_lr = 2e-4
   rhp.set_float("loop.ppo_learning_rate", base_lr / 2, base_lr * 2)
 
@@ -939,7 +964,7 @@ def rl_modelrl_ppolr(rhp):
 @registry.register_ranged_hparams
 def rl_modelrl_ae_ppo_lr(rhp):
   rhp.set_categorical("loop.game",
-                      ["breakout", "wrapped_long_pong", "freeway"])
+                      ["breakout", "wrapped_full_pong", "freeway"])
   base_lr = 2e-4
   rhp.set_float("loop.ppo_learning_rate", base_lr / 2, base_lr * 2)
 

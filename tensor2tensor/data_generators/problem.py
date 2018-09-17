@@ -723,15 +723,13 @@ class Problem(object):
 
     features = collections.defaultdict(FeatureInfo)
 
-    for name, mod_spec in six.iteritems(input_mods):
-      mod, vocab_size = mod_spec
+    for name, mod in six.iteritems(input_mods):
       finfo = features[name]
       finfo.modality = mod
-      finfo.vocab_size = vocab_size
+      finfo.vocab_size = mod.top_dimensionality
 
-    mod, vocab_size = target_mod
-    features["targets"].modality = mod
-    features["targets"].vocab_size = vocab_size
+    features["targets"].modality = target_mod
+    features["targets"].vocab_size = target_mod.top_dimensionality
 
     for name, encoder in six.iteritems(vocabs):
       features[name].encoder = encoder

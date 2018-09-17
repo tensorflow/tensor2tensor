@@ -79,20 +79,24 @@ class NextFrameBasicStochasticDiscrete(
 
     # Embed.
     x = tf.layers.dense(
-        features["targets"], filters, name="latent_embed",
+        features["cur_target_frame"], filters, name="latent_embed",
         bias_initializer=tf.random_normal_initializer(stddev=0.01))
     x = common_attention.add_timing_signal_nd(x)
 
-    for i in range(hparams.num_compress_steps):
-      with tf.variable_scope("latent_downstride%d" % i):
-        x = common_layers.make_even_size(x)
-        if i < hparams.filter_double_steps:
-          filters *= 2
-        x = common_attention.add_timing_signal_nd(x)
-        x = tf.layers.conv2d(x, filters, kernel, activation=common_layers.belu,
-                             strides=(2, 2), padding="SAME")
-        x = common_layers.layer_norm(x)
-
+    if hparams.full_latent_tower:
+      for i in range(hparams.num_compress_steps):
+        with tf.variable_scope("latent_downstride%d" % i):
+          x = common_layers.make_even_size(x)
+          if i < hparams.filter_double_steps:
+            filters *= 2
+          x = common_attention.add_timing_signal_nd(x)
+          x = tf.layers.conv2d(x, filters, kernel,
+                               activation=common_layers.belu,
+                               strides=(2, 2), padding="SAME")
+          x = common_layers.layer_norm(x)
+    else:
+      x = common_layers.double_discriminator(x)
+      x = tf.expand_dims(tf.expand_dims(x, axis=1), axis=1)
     x = tf.tanh(tf.layers.dense(x, hparams.bottleneck_bits, name="bottleneck"))
     d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
     if hparams.mode == tf.estimator.ModeKeys.TRAIN:
@@ -127,9 +131,10 @@ def next_frame_basic_stochastic():
 @registry.register_hparams
 def next_frame_basic_stochastic_discrete():
   """Basic 2-frame conv model with stochastic discrete latent."""
-  hparams = basic_deterministic_params.next_frame_basic_deterministic()
+  hparams = basic_deterministic_params.next_frame_sampling()
   hparams.num_compress_steps = 8
   hparams.filter_double_steps = 3
-  hparams.add_hparam("bottleneck_bits", 32)
-  hparams.add_hparam("bottleneck_noise", 0.05)
+  hparams.add_hparam("bottleneck_bits", 16)
+  hparams.add_hparam("bottleneck_noise", 0.02)
+  hparams.add_hparam("full_latent_tower", False)
   return hparams

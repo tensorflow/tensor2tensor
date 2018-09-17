@@ -3793,8 +3793,8 @@ def mean_with_attention(x, name, num_heads=4):
                            2 * shape[-1], name="mean_attn_final")
 
 
-def single_discriminator(x, filters=128, kernel_size=7,
-                         strides=4, pure_mean=True):
+def single_discriminator(x, filters=128, kernel_size=8,
+                         strides=4, pure_mean=False):
   """A simple single-layer convolutional discriminator."""
   with tf.variable_scope("discriminator"):
     net = tf.layers.conv2d(
@@ -3807,7 +3807,7 @@ def single_discriminator(x, filters=128, kernel_size=7,
 
 
 def double_discriminator(x, filters1=128, filters2=None,
-                         kernel_size=7, strides=4, pure_mean=True):
+                         kernel_size=8, strides=4, pure_mean=False):
   """A convolutional discriminator with 2 layers and concatenated output."""
   if filters2 is None:
     filters2 = 4 * filters1
