@@ -39,8 +39,10 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import gym_problems_specs
 from tensor2tensor.layers import discretization
 from tensor2tensor.rl import rl_trainer_lib
+from tensor2tensor.rl.envs.tf_atari_wrappers import PyFuncWrapper
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
+import numpy as np
 
 import tensorflow as tf
 
@@ -103,8 +105,11 @@ def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
       "autoencoder_path": autoencoder_path,
   }):
     gym_problem = registry.problem(problem_name)
-    env_steps_per_epoch = (
-        hparams.num_real_env_frames / (hparams.epochs * (1. - 1./11.)))
+    if hparams.gather_ppo_real_env_data:
+      env_steps_per_epoch = int(hparams.num_real_env_frames / hparams.epochs)
+    else:
+      env_steps_per_epoch = (
+          hparams.num_real_env_frames / (hparams.epochs * (1. - 1./11.)))
     gym_problem.settable_num_steps = env_steps_per_epoch
     gym_problem.settable_eval_phase = eval_phase
     gym_problem.generate_data(data_dir, tmp_dir)
@@ -143,7 +148,15 @@ def train_autoencoder(problem_name, data_dir, output_dir, hparams, epoch):
 
 def _ppo_training_epochs(hparams, epoch, is_final_epoch, real_env_training):
   """Helper for PPO restarts."""
-  real_training_ppo_epochs_num = hparams.real_ppo_epochs_num
+  if hparams.gather_ppo_real_env_data:
+    assert hparams.real_ppo_epochs_num is 0, \
+      "Should be put to 0 to enforce better readability"
+    real_training_ppo_epochs_num = \
+      math.ceil(hparams.num_real_env_frames/
+                (hparams.epochs*hparams.real_ppo_epoch_length))
+  else:
+    real_training_ppo_epochs_num = hparams.real_ppo_epochs_num
+
   simulated_training_ppo_epochs_num = hparams.ppo_epochs_num
 
   ppo_training_epochs = (epoch + 1)*simulated_training_ppo_epochs_num + \
@@ -198,18 +211,31 @@ def train_agent(problem_name, agent_model_dir,
     rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir,
                          name_scope="ppo_sim")
 
+ppo_data_dumper_counter = 0
+dumper_path = None
+
+def ppo_data_dumper(observ, reward, done, action):
+  global ppo_data_dumper_counter, dumper_path
+  np.savez_compressed("{}/frame_{}".format(dumper_path,
+                                           ppo_data_dumper_counter),
+                      observ=observ, reward=reward, done=done, action=action)
+  ppo_data_dumper_counter += 1
+  return 0.0
 
 def train_agent_real_env(
     problem_name, agent_model_dir, event_dir, world_model_dir, epoch_data_dir,
     hparams, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the real environment."""
+  global dumper_path, ppo_data_dumper_counter
 
   gym_problem = registry.problem(problem_name)
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_params_names = ["epochs_num", "epoch_length",
                       "learning_rate", "num_agents",
-                      "optimization_epochs"]
+                      "optimization_epochs", "effective_num_agents"]
 
+  # This should be overriden
+  ppo_hparams.add_hparam("effective_num_agents", None)
   for param_name in ppo_params_names:
     ppo_param_name = "real_ppo_"+ param_name
     if ppo_param_name in hparams:
@@ -220,6 +246,18 @@ def train_agent_real_env(
   ppo_hparams.save_models_every_epochs = 10
 
   environment_spec = copy.copy(gym_problem.environment_spec)
+
+  if hparams.gather_ppo_real_env_data:
+    #TODO(piotrmilos):This should be refactored
+    assert hparams.real_ppo_num_agents == 1, \
+      "It is required to use collect with pyfunc_wrapper"
+
+    ppo_data_dumper_counter = 0
+    dumper_path = os.path.join(epoch_data_dir, "dumper")
+    tf.gfile.MakeDirs(dumper_path)
+    dumper_spec = [PyFuncWrapper, {"process_fun": ppo_data_dumper}]
+    environment_spec.wrappers.insert(1, dumper_spec)
+
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)
 
@@ -598,11 +636,13 @@ def rl_modelrl_base():
       # should start fresh each time.
       ppo_continue_training=True,
 
-      real_ppo_epochs_num=10,
-      real_ppo_epoch_length=200,
-      real_ppo_num_agents=16,
+      gather_ppo_real_env_data=True,
+      real_ppo_epochs_num=0,
+      real_ppo_epoch_length=16*200,
+      real_ppo_num_agents=1,
       real_ppo_learning_rate=2e-4,
       real_ppo_continue_training=True,
+      real_ppo_effective_num_agents=16,
 
       game="wrapped_full_pong",
       # Whether to evaluate the world model in each iteration of the loop to get
@@ -618,7 +658,6 @@ def rl_modelrl_base_quick():
   hparams.epochs = 2
   hparams.ppo_epochs_num = 1000
   hparams.ppo_epoch_length = 50
-  hparams.real_ppo_epochs_num = 10
   return hparams
 
 
@@ -704,7 +743,7 @@ def rl_modelrl_tiny():
   """Tiny set for testing."""
   return rl_modelrl_base_sampling().override_from_dict(
       tf.contrib.training.HParams(
-          epochs=1,
+          epochs=2,
           num_real_env_frames=128,
           simulated_env_generator_num_steps=64,
           model_train_steps=2,
@@ -712,9 +751,9 @@ def rl_modelrl_tiny():
           ppo_time_limit=5,
           ppo_epoch_length=5,
           ppo_num_agents=2,
-          real_ppo_epochs_num=1,
-          real_ppo_epoch_length=5,
-          real_ppo_num_agents=2,
+          real_ppo_epoch_length=36,
+          real_ppo_num_agents=1,
+          real_ppo_effective_num_agents=2,
           generative_model_params="next_frame_tiny",
       ).values())
 

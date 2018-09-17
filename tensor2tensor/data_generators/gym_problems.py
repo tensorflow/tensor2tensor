@@ -97,44 +97,73 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     self._internal_memory_force_beginning_resets = False
     self._session = None
     self.statistics = BasicStatistics()
+    self._use_dumper_data = False
+    self._dumper_data_index = 0
 
-  def _setup(self):
+  def _setup(self, data_dir):
     # TODO(piotrmilos):this should be consistent with
     # ppo_params in model_rl_experiment
-    collect_hparams = rl.ppo_pong_base()
-    collect_hparams.add_hparam("environment_spec", self.environment_spec)
-    collect_hparams.add_hparam("force_beginning_resets",
-                               self._internal_memory_force_beginning_resets)
-    collect_hparams.epoch_length = self._internal_memory_size
-    collect_hparams.num_agents = 1
+    dumper_path = os.path.join(data_dir, "dumper")
+    if os.path.isdir(dumper_path):
+      self._use_dumper_data = True
+      self._dumper_data_index = 0
+      self._dumper_path = dumper_path
+    else:
 
-    if not FLAGS.agent_policy_path:
-      collect_hparams.policy_network = rl.random_policy_fun
+      collect_hparams = rl.ppo_pong_base()
+      collect_hparams.add_hparam("environment_spec", self.environment_spec)
+      collect_hparams.add_hparam("force_beginning_resets",
+                                 self._internal_memory_force_beginning_resets)
+      collect_hparams.epoch_length = self._internal_memory_size
+      collect_hparams.num_agents = 1
 
-    policy_to_actions_lambda = None
-    if self.settable_eval_phase:
-      policy_to_actions_lambda = lambda policy: policy.mode()
+      if not FLAGS.agent_policy_path:
+        collect_hparams.policy_network = rl.random_policy_fun
 
-    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      self.collect_memory, self.collect_trigger_op, collect_init = (
-          collect.define_collect(
-              collect_hparams,
-              scope="gym_problems",
-              eval_phase=False,
-              collect_level=0,
-              policy_to_actions_lambda=policy_to_actions_lambda))
+      policy_to_actions_lambda = None
+      if self.settable_eval_phase:
+        policy_to_actions_lambda = lambda policy: policy.mode()
 
-    self._session = tf.Session()
-    collect_init(self._session)
-    self._session.run(tf.global_variables_initializer())
-    self.restore_networks(self._session)
+      with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+        self.collect_memory, self.collect_trigger_op, collect_init = (
+            collect.define_collect(
+                collect_hparams,
+                scope="gym_problems",
+                eval_phase=False,
+                collect_level=0,
+                policy_to_actions_lambda=policy_to_actions_lambda))
+
+      self._session = tf.Session()
+      collect_init(self._session)
+      self._session.run(tf.global_variables_initializer())
+      self.restore_networks(self._session)
+      self.memory_index = 0
+      self.memory = None
+
 
   @property
   def random_skip(self):
     return False
 
+  def _get_data(self):
+    if self._use_dumper_data:
+      file_path = os.path.join(self._dumper_path,
+                               "frame_{}.npz".format(self._dumper_data_index))
+      data = np.load(file_path)
+      self._dumper_data_index += 1
+      return data["observ"][0, ...], data["reward"][0], \
+             data["done"][0], data["action"][0]
+    else:
+      if self.memory is None or self.memory_index >= self._internal_memory_size:
+        self.memory = self._session.run(self.collect_memory)
+        self.memory_index = 0
+      data = [self.memory[i][self.memory_index][0] for i in range(4)]
+      self.memory_index += 1
+
+      return data
+
   def generate_samples(self, data_dir, tmp_dir, unused_dataset_split):
-    self._setup()
+    self._setup(data_dir)
 
     # We only want to save frames for eval and simulated experience, not the
     # frames used for world model training.
@@ -148,51 +177,44 @@ class GymDiscreteProblem(video_utils.VideoProblem):
       # Disable frame saving
       self.debug_dump_frames_path = ""
 
-    with self._session as sess:
-      frame_counter = 0
-      memory_index = 0
-      memory = None
-      pieces_generated = 0
-      prev_reward = 0
-      prev_done = False
+    frame_counter = 0
+    pieces_generated = 0
+    prev_reward = 0
+    prev_done = False
 
-      # TODO(piotrmilos): self.settable_eval_phase possibly violates sematics
-      # of VideoProblem
-      while pieces_generated < self.num_steps or self.settable_eval_phase:
-        if memory is None or memory_index >= self._internal_memory_size:
-          memory = sess.run(self.collect_memory)
-          memory_index = 0
-        data = [memory[i][memory_index][0] for i in range(4)]
-        memory_index += 1
-        observation, reward, done, action = data
+    # TODO(piotrmilos): self.settable_eval_phase possibly violates sematics
+    # of VideoProblem
+    while pieces_generated < self.num_steps or self.settable_eval_phase:
+      data = self._get_data()
+      observation, reward, done, action = data
 
-        debug_image = self.collect_statistics_and_generate_debug_image(
-            pieces_generated, *data)
-        ret_dict = {
-            "frame": observation,
-            "frame_number": [int(frame_counter)],
-            "image/format": ["png"],
-            "image/height": [self.frame_height],
-            "image/width": [self.frame_width],
-            "action": [int(action)],
-            "done": [int(prev_done)],
-            "reward": [int(prev_reward - self.min_reward)]
-        }
+      debug_image = self.collect_statistics_and_generate_debug_image(
+          pieces_generated, *data)
+      ret_dict = {
+          "frame": observation,
+          "frame_number": [int(frame_counter)],
+          "image/format": ["png"],
+          "image/height": [self.frame_height],
+          "image/width": [self.frame_width],
+          "action": [int(action)],
+          "done": [int(prev_done)],
+          "reward": [int(prev_reward - self.min_reward)]
+      }
 
-        if debug_image is not None:
-          ret_dict["image/debug"] = debug_image
+      if debug_image is not None:
+        ret_dict["image/debug"] = debug_image
 
-        yield ret_dict
+      yield ret_dict
 
-        if done and self.settable_eval_phase:
-          return
+      if done and self.settable_eval_phase:
+        return
 
-        prev_done, prev_reward = done, reward
+      prev_done, prev_reward = done, reward
 
-        pieces_generated += 1
-        frame_counter += 1
-        if done:
-          frame_counter = 0
+      pieces_generated += 1
+      frame_counter += 1
+      if done:
+        frame_counter = 0
 
   def restore_networks(self, sess):
     if FLAGS.agent_policy_path:
@@ -497,8 +519,8 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     self.statistics = RewardPerSequenceStatistics()
     self.statistics.real_env = real_env
 
-  def _setup(self):
-    super(GymSimulatedDiscreteProblem, self)._setup()
+  def _setup(self, data_dir):
+    super(GymSimulatedDiscreteProblem, self)._setup(data_dir)
 
     environment_spec = self.environment_spec
     hparams = HParams(

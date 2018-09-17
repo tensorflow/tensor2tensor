@@ -312,3 +312,32 @@ class IntToBitWrapper(WrapperBase):
         new_frames, (batch_size, history_size) + self.observ_shape
     )
     return tf.cast(new_frames, self.observ_dtype)
+
+
+class PyFuncWrapper(WrapperBase):
+  """Calls arbitrary python function on passing data"""
+
+  def __init__(self, batch_env, process_fun):
+    super(PyFuncWrapper, self).__init__(batch_env)
+    self.process_fun = process_fun
+
+  def simulate(self, action):
+    reward, done = self._batch_env.simulate(action)
+    with tf.control_dependencies([reward, done]):
+      inputs = [self._batch_env.observ, reward, done, action]
+      ret = tf.py_func(self.process_fun, inputs, tf.double)
+      with tf.control_dependencies([ret]):
+        return tf.identity(reward), tf.identity(done)
+
+  @property
+  def observ(self):
+    """Access the variable holding the current observation."""
+    return self._batch_env.observ
+
+  def __len__(self):
+    """Number of combined environments."""
+    return len(self._batch_env)
+
+  def _reset_non_empty(self, indices):
+    # pylint: disable=protected-access
+    return self._batch_env._reset_non_empty(indices)

@@ -100,6 +100,10 @@ def define_ppo_epoch(memory, hparams):
   number_of_batches = (hparams.epoch_length * hparams.optimization_epochs
                        / hparams.optimization_batch_size)
 
+  if hasattr(hparams, "effective_num_agents"):
+    number_of_batches *= hparams.num_agents
+    number_of_batches /= hparams.effective_num_agents
+
   dataset = tf.data.Dataset.from_tensor_slices(
       (observation, action, discounted_reward, advantage_normalized, old_pdf))
   dataset = dataset.shuffle(buffer_size=hparams.epoch_length,
