@@ -661,6 +661,7 @@ def transformer_autoencoder(inputs,
 
 def iaf_flow(one_hot_assignments,
              scale_weights,
+             scale_bias,
              num_codes,
              summary=True,
              name=None):
@@ -673,6 +674,9 @@ def iaf_flow(one_hot_assignments,
       autoregressively generate scale matrix from assignments. To ensure the
       lower-triangular matrix has length of latent_size, scale_weights should
       be a rank-one tensor with size latent_size * (latent_size + 1) / 2.
+    scale_bias: Bias tensor to be added to scale tensor, with shape
+      [latent_size, num_codes]. If scale weights are zero, initialize scale_bias
+      to be log(exp(1.) / 2. - 1) so initial transformation is identity.
     num_codes: Number of codes in codebook.
     summary: Whether to save summaries.
     name: String used for name scope.
@@ -694,6 +698,7 @@ def iaf_flow(one_hot_assignments,
     # Transpose the bijector output since it performs a batch matmul.
     scale = tf.transpose(scale, [0, 1, 3, 2])
     scale = tf.nn.softplus(scale)
+    scale = scale + tf.nn.softplus(scale_bias[tf.newaxis, tf.newaxis, ...])
     # Don't need last dimension since the transformation keeps it constant.
     scale = scale[..., :-1]
 
