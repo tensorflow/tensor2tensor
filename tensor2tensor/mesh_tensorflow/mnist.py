@@ -43,7 +43,7 @@ tf.flags.DEFINE_integer("eval_steps", 0,
                         "Total number of evaluation steps. If `0`, evaluation "
                         "after training is skipped.")
 tf.flags.DEFINE_string("mesh_shape", "b1:2;b2:2", "mesh shape")
-tf.flags.DEFINE_string("layout", "col_blocks:b1;hidden1:b2;filters2:b2",
+tf.flags.DEFINE_string("layout", "row_blocks:b1;col_blocks:b2",
                        "layout rules")
 
 FLAGS = tf.flags.FLAGS
@@ -71,16 +71,15 @@ def mnist_model(image, labels, mesh):
   one_channel_dim = mtf.Dimension("one_channel", 1)
 
   x = mtf.import_tf_tensor(
-      mesh, tf.reshape(image, [FLAGS.batch_size, 4, 7, 4, 7]),
+      mesh, tf.reshape(image, [FLAGS.batch_size, 4, 7, 4, 7, 1]),
       mtf.Shape(
-          [batch_dim, row_blocks_dim, rows_dim, col_blocks_dim, cols_dim]))
-  x = mtf.reshape(x, [
+          [batch_dim, row_blocks_dim, rows_dim,
+           col_blocks_dim, cols_dim, one_channel_dim]))
+  x = mtf.transpose(x, [
       batch_dim, row_blocks_dim, col_blocks_dim,
       rows_dim, cols_dim, one_channel_dim])
 
   # add some convolutional layers to demonstrate that convolution works.
-  # TODO(nikip): Currently spatial conv works only when splitting column blocks.
-  # Make it work for both height and width dimension of the image.
   fh_dim = mtf.Dimension("fh", 9)
   fw_dim = mtf.Dimension("fw", 9)
   filters1_dim = mtf.Dimension("filters1", 16)
@@ -92,10 +91,10 @@ def mnist_model(image, labels, mesh):
 
   f1 = mtf.relu(mtf.conv2d_with_blocks(
       x, kernel1, strides=[1, 1, 1, 1], padding="SAME",
-      h_blocks_dim=None, w_blocks_dim=col_blocks_dim))
+      h_blocks_dim=row_blocks_dim, w_blocks_dim=col_blocks_dim))
   f2 = mtf.relu(mtf.conv2d_with_blocks(
       f1, kernel2, strides=[1, 1, 1, 1], padding="SAME",
-      h_blocks_dim=None, w_blocks_dim=None))
+      h_blocks_dim=row_blocks_dim, w_blocks_dim=col_blocks_dim))
   x = mtf.reduce_mean(f2, reduced_dim=filters2_dim)
 
   # add some fully-connected dense layers.

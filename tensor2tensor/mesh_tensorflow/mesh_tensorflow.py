@@ -2817,6 +2817,10 @@ def reshape(x, new_shape):
   return ReshapeOperation(x, convert_to_shape(new_shape)).outputs[0]
 
 
+def transpose(x, new_shape):
+  return einsum([x], output_shape=convert_to_shape(new_shape))
+
+
 def rename_dimension(x, old_name, new_name):
   """Reshape a Tensor, renaming one dimension.
 
