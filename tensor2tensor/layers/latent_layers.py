@@ -657,3 +657,56 @@ def transformer_autoencoder(inputs,
   else:
     decoder_output = output
   return decoder_output, losses, cache
+
+
+def iaf_flow(one_hot_assignments,
+             scale_weights,
+             num_codes,
+             summary=True,
+             name=None):
+  """Performs a single IAF flow using scale and normalization transformations.
+
+  Args:
+    one_hot_assignments: Assignments Tensor with shape [num_samples, batch_size,
+      latent_size, num_codes].
+    scale_weights: Tensor corresponding to lower triangular matrix used to
+      autoregressively generate scale matrix from assignments. To ensure the
+      lower-triangular matrix has length of latent_size, scale_weights should
+      be a rank-one tensor with size latent_size * (latent_size + 1) / 2.
+    num_codes: Number of codes in codebook.
+    summary: Whether to save summaries.
+    name: String used for name scope.
+
+  Returns:
+    flow_output: Transformed one-hot assignments.
+    inverse_log_det_jacobian: Inverse log deteriminant of Jacobian corresponding
+      to transformation.
+  """
+  with tf.name_scope(name, default_name="iaf"):
+    # Pad the one_hot_assignments by zeroing out the first latent dimension and
+    # shifting the rest down by one (and removing the last dimension).
+    padded_assignments = tf.pad(
+        one_hot_assignments, [[0, 0], [0, 0], [1, 0], [0, 0]])[:, :, :-1, :]
+    scale_bijector = tf.contrib.distributions.bijectors.Affine(
+        scale_tril=tf.contrib.distributions.fill_triangular(scale_weights))
+    scale = scale_bijector.forward(
+        tf.transpose(padded_assignments, [0, 1, 3, 2]))
+    # Transpose the bijector output since it performs a batch matmul.
+    scale = tf.transpose(scale, [0, 1, 3, 2])
+    scale = tf.nn.softplus(scale)
+    # Don't need last dimension since the transformation keeps it constant.
+    scale = scale[..., :-1]
+
+    z = one_hot_assignments[..., :-1]
+    unnormalized_probs = tf.concat([z * scale,
+                                    one_hot_assignments[..., -1, tf.newaxis]],
+                                   axis=-1)
+    normalizer = tf.reduce_sum(unnormalized_probs, axis=-1)
+    flow_output = unnormalized_probs / (normalizer[..., tf.newaxis])
+    inverse_log_det_jacobian = (-tf.reduce_sum(tf.log(scale), axis=-1)
+                                + num_codes * tf.log(normalizer))
+    if summary:
+      tf.summary.histogram("iaf/scale", tf.reshape(scale, [-1]))
+      tf.summary.histogram("iaf/inverse_log_det_jacobian",
+                           tf.reshape(inverse_log_det_jacobian, [-1]))
+    return flow_output, inverse_log_det_jacobian
