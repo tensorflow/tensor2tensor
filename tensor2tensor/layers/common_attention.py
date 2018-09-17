@@ -4675,8 +4675,7 @@ def multihead_self_attention_memory_efficient(x,
 
   def forward_internal(x, wqkv, wo, attention_bias, norm_scale, norm_bias):
     """Forward function."""
-    n = common_layers.layer_norm_compute_python(x, epsilon, norm_scale,
-                                                norm_bias)
+    n = common_layers.layer_norm_compute(x, epsilon, norm_scale, norm_bias)
     wqkv_split = tf.unstack(wqkv, num=num_heads)
     wo_split = tf.unstack(wo, num=num_heads)
     y = 0
@@ -4700,8 +4699,7 @@ def multihead_self_attention_memory_efficient(x,
     def grad_fn(x, wqkv, wo, attention_bias, norm_scale, norm_bias, dy):
       """Custom gradient function."""
       with tf.control_dependencies([dy]):
-        n = common_layers.layer_norm_compute_python(x, epsilon, norm_scale,
-                                                    norm_bias)
+        n = common_layers.layer_norm_compute(x, epsilon, norm_scale, norm_bias)
         wqkv_split = tf.unstack(wqkv, num=num_heads)
         wo_split = tf.unstack(wo, num=num_heads)
         deps = []

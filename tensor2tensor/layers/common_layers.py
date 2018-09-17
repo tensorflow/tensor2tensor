@@ -34,9 +34,6 @@ from tensorflow.python.framework import ops
 from tensorflow.python.ops import control_flow_util
 from tensorflow.python.ops import inplace_ops
 
-# This is a global setting. When turned off, no @function.Defun is used.
-allow_defun = False
-
 
 @function.Defun(
     python_grad_func=lambda x, dy: tf.convert_to_tensor(dy),
@@ -633,7 +630,7 @@ def layer_norm_vars(filters):
   return scale, bias
 
 
-def layer_norm_compute_python(x, epsilon, scale, bias):
+def layer_norm_compute(x, epsilon, scale, bias):
   """Layer norm raw computation."""
   epsilon, scale, bias = [cast_like(t, x) for t in [epsilon, scale, bias]]
   mean = tf.reduce_mean(x, axis=[-1], keepdims=True)
@@ -642,37 +639,14 @@ def layer_norm_compute_python(x, epsilon, scale, bias):
   return norm_x * scale + bias
 
 
-@function.Defun(compiled=True)
-def layer_norm_compute_grad(x, epsilon, scale, bias, dy):
-  y = layer_norm_compute_python(x, epsilon, scale, bias)
-  dx = tf.gradients(ys=[y], xs=[x, epsilon, scale, bias], grad_ys=[dy])
-  return dx
-
-
-@function.Defun(
-    compiled=True,
-    separate_compiled_gradients=True,
-    grad_func=layer_norm_compute_grad)
-def layer_norm_compute(x, epsilon, scale, bias):
-  return layer_norm_compute_python(x, epsilon, scale, bias)
-
-
 def layer_norm(x, filters=None, epsilon=1e-6, name=None, reuse=None):
   """Layer normalize the tensor x, averaging over the last dimension."""
   if filters is None:
     filters = shape_list(x)[-1]
   with tf.variable_scope(
       name, default_name="layer_norm", values=[x], reuse=reuse):
-    scale = tf.get_variable(
-        "layer_norm_scale", [filters], initializer=tf.ones_initializer())
-    bias = tf.get_variable(
-        "layer_norm_bias", [filters], initializer=tf.zeros_initializer())
-    if allow_defun:
-      result = layer_norm_compute(x, tf.constant(epsilon), scale, bias)
-      result.set_shape(x.get_shape())
-    else:
-      result = layer_norm_compute_python(x, epsilon, scale, bias)
-    return result
+    scale, bias = layer_norm_vars(filters)
+    return layer_norm_compute(x, epsilon, scale, bias)
 
 
 def group_norm(x, filters=None, num_groups=8, epsilon=1e-5):
@@ -1103,240 +1077,6 @@ def conv_block_downsample(x,
     return x
 
 
-def decompress_seqcnn(x,
-                      targets,
-                      targets_vocab_size,
-                      dilations_and_kernels,
-                      block_size,
-                      is_2d=False,
-                      embedding_var=None,
-                      name=None,
-                      reuse=None):
-  """Decompress x into targets size using a Sequence CNN at every element."""
-  with tf.variable_scope(
-      name,
-      default_name="decompress_batch_seqcnn",
-      values=[x, targets],
-      reuse=reuse):
-    # We assume targets are [batch x block_size * N x block_size * N x C] if
-    # is_2d=True or [batch, block_size * N, 1, C] otherwise, and C is static.
-    # Let's shift targets to depth and embed.
-    targets_shape = shape_list(targets)
-    channels = targets_shape[-1]
-    hidden_size = x.get_shape()[-1]
-    if is_2d:
-      depth_targets = tf.space_to_depth(targets, block_size)
-      factor = channels * block_size * block_size
-    else:
-      depth_targets = tf.reshape(targets, [
-          targets_shape[0], targets_shape[1] // block_size, 1,
-          channels * block_size
-      ])
-      factor = channels * block_size
-    if embedding_var is None:
-      embedding_var = tf.get_variable("targets_embedding",
-                                      [targets_vocab_size, hidden_size])
-    targets_emb = tf.gather(embedding_var, depth_targets)
-    # Flatten x and embedded targets. Flat targets are factor* larger on axis=1.
-    flat_x = tf.reshape(x, [-1, 1, 1, hidden_size])
-    flat_targets = tf.reshape(targets_emb, [-1, factor, 1, hidden_size])
-    shifted_targets = shift_right(flat_targets)
-    # Run a SeqCNN large-batch to produce factor outputs out of every target.
-    flat_x += tf.zeros_like(shifted_targets)  # Broadcast on axis=1.
-    flat_outputs = conv_block(
-        tf.concat([flat_x, shifted_targets], axis=3),
-        hidden_size,
-        dilations_and_kernels,
-        padding="LEFT")
-    # Reshape back to embedded targets shape.
-    targets_emb_shape = shape_list(targets_emb)
-    outputs = tf.reshape(flat_outputs, [
-        targets_emb_shape[0], targets_emb_shape[1], targets_emb_shape[2],
-        factor * hidden_size
-    ])
-    # Move depth back to target space.
-    if is_2d:
-      outputs = tf.depth_to_space(outputs, 2)
-    else:
-      outputs = tf.reshape(outputs, [
-          shape_list(outputs)[0], block_size * shape_list(outputs)[1], 1,
-          hidden_size
-      ])
-    # Final reshape before prediction to ensure target size.
-    outputs = tf.reshape(outputs, [
-        targets_shape[0], targets_shape[1], targets_shape[2], channels,
-        hidden_size
-    ])
-    return dense(outputs, targets_vocab_size)
-
-
-def simple_attention(target, source, bias=None):
-  """A simple attention function.
-
-  Args:
-    target: a `Tensor` with shape `[batch, target_timesteps, depth]` or
-     `[batch, target_timesteps_1, target_timesteps_2, depth]`
-    source: a `Tensor` with shape `[batch, source_timesteps, depth]` or
-     `[batch, source_timesteps_1, source_timesteps_2, depth]`
-    bias: an optional `Tensor` with shape `[batch, timesteps, 1, 1]` used
-     to mask the attention to not attend to padding of input.
-
-  Returns:
-    a `Tensor` with same shape as `target`
-  """
-  with tf.name_scope("simple_attention", values=[target, source]):
-    target_shape = shape_list(target)
-    source_shape = shape_list(source)
-    target = tf.reshape(
-        target,
-        [target_shape[0], target_shape[1] * target_shape[2], target_shape[3]])
-    source = tf.reshape(
-        source,
-        [source_shape[0], source_shape[1] * source_shape[2], source_shape[3]])
-    attention = tf.matmul(target, source, transpose_b=True)
-    attention *= tf.rsqrt(tf.to_float(shape_list(target)[2]))
-    if bias is not None:
-      attention += tf.expand_dims(tf.squeeze(bias, axis=[2, 3]), axis=1)
-    attention = tf.nn.softmax(attention)
-    if should_generate_summaries():
-      tf.summary.image("attention", tf.expand_dims(attention, 3), max_outputs=5)
-    attended = tf.matmul(attention, source)
-    return tf.reshape(attended, target_shape)
-
-
-def multiscale_conv_sum(inputs, output_size, dilation_rates_and_kernel_sizes,
-                        pooling_type, **kwargs):
-  """Sum of several dilated convolutions.
-
-  For all convolutions with dilation_rate > 1, we first pool the input with
-  width dilation_rate.
-
-  Args:
-    inputs: a Tensor
-    output_size: an Integer
-    dilation_rates_and_kernel_sizes: a list of pairs (dilation, kernel_size)
-    pooling_type: "AVG" or "MAX"
-    **kwargs: additional
-
-  Returns:
-     a Tensor.
-  """
-  name = kwargs.pop("name") if "name" in kwargs else None
-  with tf.variable_scope(name, "multiscale_conv_sum", [inputs]):
-    padding = kwargs["padding"]
-    results, counter = [], -1
-    for dilation_rate, kernel_size in dilation_rates_and_kernel_sizes:
-      counter += 1
-      if dilation_rate[0] > 1:
-        pooled = pool(inputs, kernel_size, pooling_type, padding)
-      else:
-        pooled = inputs
-      results.append(
-          conv(
-              pooled,
-              output_size,
-              kernel_size,
-              dilation_rate=dilation_rate,
-              name="conv_layer%d" % counter,
-              **kwargs))
-    return tf.add_n(results) * (len(results)**-0.5)
-
-
-def multiscale_conv_and_attention(x, padding, hparams, source=None):
-  """A common part of t2t layers.
-
-  First, do a linear multiscale convolution
-  Second, do attention (if source is not None)
-
-  Applies residuals and normalization on both steps.
-
-  Args:
-    x: a Tensor.
-    padding: a padding type
-    hparams: hyperparameters for model
-    source: optional source tensor for attention. (encoder output)
-
-  Returns:
-    a Tensor.
-  """
-  # TODO(noam): The number of different scales should be a hyperparameter.
-  conv_sum = multiscale_conv_sum(
-      x,
-      hparams.hidden_size,
-      [((hparams.kernel_height**i, hparams.kernel_width**i),
-        (hparams.kernel_height, hparams.kernel_width)) for i in range(3)],
-      "AVG",
-      padding=padding)
-  # For residuals a rescale if necessary if channels differ.
-  if x.get_shape().as_list()[-1] != conv_sum.get_shape().as_list()[-1]:
-    x = conv(x, hparams.hidden_size, (1, 1))
-  x = noam_norm(x + conv_sum)
-  if source is not None:
-    x = noam_norm(x + simple_attention(x, source))
-  return x
-
-
-def conv_with_pools(inputs, output_size, kernel_size, pool_sizes, pooling_type,
-                    **kwargs):
-  """Convolution plus 1x1 convolution applied to specified pools.
-
-  For example we might do a regular convolution with kernel size (3, 1),
-  and pools of sizes [(9, 1), (27, 1)].
-
-  Args:
-    inputs: a Tensor
-    output_size: an Integer
-    kernel_size: a tuple of integers
-    pool_sizes: a list of tuples of integers.
-    pooling_type: "AVG" or "MAX"
-    **kwargs: additional keyword args for conv
-
-  Returns:
-     a Tensor.
-  """
-  name = kwargs.pop("name") if "name" in kwargs else None
-  with tf.variable_scope(name, "conv_with_pools", [inputs]):
-    padding = kwargs["padding"]
-    results = []
-    results.append(conv(inputs, output_size, kernel_size, **kwargs))
-    for i, pool_size in enumerate(pool_sizes):
-      pooled = pool(inputs, pool_size, pooling_type, padding)
-      results.append(
-          conv(pooled, output_size, (1, 1), name="pool_%d" % i, **kwargs))
-    return tf.add_n(results) * (len(results)**-0.5)
-
-
-def conv_with_pools_and_attention(x, padding, hparams, source=None):
-  """A common part of t2t layers.
-
-  First, do conv_with_pools
-  Second, do attention (if source is not None)
-
-  Applies residuals and normalization on both steps.
-
-  Args:
-    x: a Tensor.
-    padding: a padding type
-    hparams: hyperparameters for model
-    source: optional source tensor for attention. (encoder output)
-
-  Returns:
-    a Tensor.
-  """
-  conv_sum = conv_with_pools(
-      x,
-      hparams.hidden_size, (hparams.kernel_height, hparams.kernel_width),
-      hparams.pool_sizes,
-      "AVG",
-      padding=padding)
-  if x.get_shape().as_list()[-1] == conv_sum.get_shape().as_list()[-1]:
-    conv_sum += x
-  x = noam_norm(conv_sum)
-  if source is not None:
-    x = noam_norm(x + simple_attention(x, source))
-  return x
-
-
 def get_timing_signal(length,
                       min_timescale=1,
                       max_timescale=1e4,
@@ -1435,97 +1175,6 @@ def mask_leq(target_length, source_length):
       -1,
       0,
       out_shape=[1, target_length, source_length])
-
-
-def attention_1d_v0(source,
-                    target,
-                    attention_size,
-                    output_size,
-                    num_heads,
-                    mask=None,
-                    transform_source=True,
-                    transform_target=True,
-                    transform_output=True,
-                    name=None):
-  """multi-headed attention.
-
-  TODO(noam): this could probably be extended to 2d.
-
-  Args:
-    source: a Tensor of shape [batch, source_length, source_depth]
-    target: a Tensor of shape [batch, target_length, target_depth]
-    attention_size: an integer
-    output_size: an integer
-    num_heads: an integer divisor of attention_size
-    mask: a float32 Tensor of shape [batch, target_length, source_length]
-          1.0 means can-see; 0.0 means can't-see.
-          Any dimension can be 1 (supports broadcasting).
-    transform_source: a boolean
-    transform_target: a boolean
-    transform_output: a boolean
-    name: an optional string
-
-  Returns:
-    a Tensor of shape [batch, length, output_size]
-  """
-  with tf.variable_scope(name, default_name="attention", values=[target]):
-    source_shape = shape_list(source)
-    source_length = source_shape[1]
-    target_length = shape_list(target)[1]
-    batch = source_shape[0]
-
-    def _maybe_transform(t, size, should_transform, name):
-      if should_transform:
-        return conv1d(t, size, 1, name=name)
-      else:
-        assert t.get_shape()[-1] == size
-        return t
-
-    source_attention = _maybe_transform(source, attention_size,
-                                        transform_source, "source_attention")
-    target_attention = _maybe_transform(target, attention_size,
-                                        transform_target, "target_attention")
-    assert attention_size % num_heads == 0
-    size_per_head = attention_size // num_heads
-    source_attention = tf.reshape(
-        source_attention, [batch, source_length, num_heads, size_per_head])
-    target_attention = tf.reshape(
-        target_attention, [batch, target_length, num_heads, size_per_head])
-    # [batch, num_heads, length, size_per_head]
-    source_attention = tf.transpose(source_attention, [0, 2, 1, 3])
-    target_attention = tf.transpose(target_attention, [0, 2, 1, 3])
-
-    # [batch, num_heads, target_length, source_length]
-    attention = tf.matmul(target_attention, source_attention, transpose_b=True)
-    attention *= size_per_head**-0.5
-
-    if mask is not None:
-      mask = tf.expand_dims(mask, 1)
-      mask = (1.0 - mask) * -1e9
-      attention += mask
-    attention = tf.nn.softmax(attention)
-    if should_generate_summaries():
-      # Compute a color image summary.
-      image = tf.reshape(attention,
-                         [batch, num_heads, target_length, source_length])
-      image = tf.transpose(image, [0, 2, 3, 1])
-      image = tf.pow(image, 0.2)  # for high-dynamic-range
-      # Each head will correspond to one of RGB.
-      # pad the heads to be a multiple of 3
-      extra_heads = -num_heads % 3
-      image = tf.pad(image, [[0, 0], [0, 0], [0, 0], [0, -num_heads % 3]])
-      image = tf.reshape(image, [
-          batch, target_length, source_length, 3, (num_heads + extra_heads) // 3
-      ])
-      image = tf.reduce_max(image, 4)
-      tf.summary.image("local_attention", image, max_outputs=1)
-    # output: [batch, num_heads, target_length, size_per_head]
-    output = tf.matmul(attention, source_attention)
-    output = tf.transpose(output, [0, 2, 1, 3])
-    output = tf.reshape(output, [batch, target_length, attention_size])
-    output = _maybe_transform(output, output_size, transform_output,
-                              "attention_output")
-    return output
 
 
 def relu_density_logit(x, reduce_dims):
@@ -3043,7 +2692,7 @@ def conv_hidden_relu_memory_efficient(x,
     ys = []
     for i in range(num_splits):
       with tf.control_dependencies(ys[-1:]):
-        n = layer_norm_compute_python(xs[i], epsilon, scale, bias)
+        n = layer_norm_compute(xs[i], epsilon, scale, bias)
         y = tf.nn.conv1d(n, f1, 1, "SAME")
         y = tf.nn.relu(y)
         y = tf.nn.conv1d(y, f2, 1, "SAME")
@@ -3078,7 +2727,7 @@ def conv_hidden_relu_memory_efficient(x,
         deps = []
         for i in range(num_splits):
           with tf.control_dependencies(deps):
-            n = layer_norm_compute_python(xs[i], epsilon, scale, bias)
+            n = layer_norm_compute(xs[i], epsilon, scale, bias)
             y = tf.nn.conv1d(n, f1, 1, "SAME")
             y = tf.nn.relu(y)
             y = tf.nn.conv1d(y, f2, 1, "SAME")

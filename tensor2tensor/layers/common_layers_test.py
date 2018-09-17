@@ -161,15 +161,6 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     self.assertEqual(res.shape, (5, 4, 1, 27))
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
-  def testSimpleAttention(self):
-    x = np.random.rand(5, 7, 1, 11)
-    y = np.random.rand(5, 9, 1, 11)
-    a = common_layers.simple_attention(
-        tf.constant(x, dtype=tf.float32), tf.constant(y, dtype=tf.float32))
-    res = self.evaluate(a)
-    self.assertEqual(res.shape, (5, 7, 1, 11))
-
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testGetTimingSignal(self):
     length = 7
     num_timescales = 10
@@ -187,39 +178,6 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     a = common_layers.add_timing_signal(tf.constant(x, dtype=tf.float32))
     res = self.evaluate(a)
     self.assertEqual(res.shape, (batch, length, height, depth))
-
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
-  def testAttention1D(self):
-    batch = 5
-    target_length = 7
-    source_length = 13
-    source_depth = 9
-    target_depth = 11
-    attention_size = 21
-    output_size = 15
-    num_heads = 7
-    source = np.random.rand(batch, source_length, source_depth)
-    target = np.random.rand(batch, target_length, target_depth)
-    mask = np.random.rand(batch, target_length, source_length)
-    a = common_layers.attention_1d_v0(
-        tf.constant(source, dtype=tf.float32),
-        tf.constant(target, dtype=tf.float32), attention_size, output_size,
-        num_heads, tf.constant(mask, dtype=tf.float32))
-    self.evaluate(tf.global_variables_initializer())
-    res = self.evaluate(a)
-    self.assertEqual(res.shape, (batch, target_length, output_size))
-
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
-  def testMultiscaleConvSum(self):
-    x = np.random.rand(5, 9, 1, 11)
-    y = common_layers.multiscale_conv_sum(
-        tf.constant(x, dtype=tf.float32),
-        13, [((1, 1), (5, 5)), ((2, 2), (3, 3))],
-        "AVG",
-        padding="SAME")
-    self.evaluate(tf.global_variables_initializer())
-    res = self.evaluate(y)
-    self.assertEqual(res.shape, (5, 9, 1, 13))
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testConvGRU(self):
