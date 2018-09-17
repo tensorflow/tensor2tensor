@@ -16,21 +16,21 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
 import collections
 import copy
 import functools
 import multiprocessing
 import os
 import random
-
 import six
+
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
-# Import modalities: they must be registered before we look them up here.
-from tensor2tensor.layers import modalities  # pylint: disable=unused-import
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import metrics
-from tensor2tensor.utils import registry
+
 import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
@@ -1126,7 +1126,7 @@ def _create_modalities(problem_hparams, hparams):
                                     modality[0],
                                     feature_name)
         modality = (input_modality_overrides[feature_name], modality[1])
-      modality = registry.create_modality(modality, hparams)
+      modality = modalities.create_modality(modality, hparams)
     input_modality[feature_name] = modality
   problem_hparams.input_modality = input_modality
 
@@ -1146,7 +1146,7 @@ def _create_modalities(problem_hparams, hparams):
                                       modality[0],
                                       "target_modality/%s" % feature_name)
           modality = (target_modality_name, modality[1])
-        modality = registry.create_modality(modality, hparams)
+        modality = modalities.create_modality(modality, hparams)
       target_modality[feature_name] = modality
     problem_hparams.target_modality = target_modality
   elif isinstance(problem_hparams.target_modality, (list, tuple)):
@@ -1156,13 +1156,13 @@ def _create_modalities(problem_hparams, hparams):
                                   modality[0],
                                   "target")
       modality = (target_modality_name, modality[1])
-    modality = registry.create_modality(modality, hparams)
+    modality = modalities.create_modality(modality, hparams)
     problem_hparams.target_modality = modality
 
 
 def _warn_changed_modality_type(new_name, old_name, feature_name):
-  new_type, new_name = registry.parse_modality_name(new_name)
-  old_type, old_name = registry.parse_modality_name(old_name)
+  new_type, new_name = modalities.parse_modality_name(new_name)
+  old_type, old_name = modalities.parse_modality_name(old_name)
   if new_type != old_type:
     tf.logging.warn(
         "%s has a designated modality type %s (%s) but has been "

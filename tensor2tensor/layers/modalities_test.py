@@ -16,11 +16,13 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
 import numpy as np
 
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import expert_utils
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -109,6 +111,22 @@ class ModalityTest(tf.test.TestCase):
       res1, res2 = session.run((logits, train_loss))
     self.assertEqual(res1.shape, (batch_size, length, height, 1, vocab_size))
     self.assertEqual(res2.shape, ())
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testCreateModality(self):
+    model_hparams = tf.contrib.training.HParams()
+
+    modality_spec = (registry.Modalities.SYMBOL, 2)
+    modality = modalities.create_modality(modality_spec, model_hparams)
+    self.assertIsInstance(modality, modalities.SymbolModality)
+
+    modality_spec = (registry.Modalities.CLASS_LABEL + ":onehot", None)
+    modality = modalities.create_modality(modality_spec, model_hparams)
+    self.assertIsInstance(modality, modalities.OneHotClassLabelModality)
+
+    modality_spec = (registry.Modalities.VIDEO + ":identity", None)
+    modality = modalities.create_modality(modality_spec, model_hparams)
+    self.assertIsInstance(modality, modalities.IdentityModality)
 
 
 if __name__ == "__main__":

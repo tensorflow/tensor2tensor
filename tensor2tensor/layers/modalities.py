@@ -29,7 +29,6 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
-@registry.register_symbol_modality("default")
 class SymbolModality(modality.Modality):
   """Modality for sets of discrete symbols.
 
@@ -171,7 +170,6 @@ class SymbolModality(modality.Modality):
                             body_output_shape[:-1] + [1, self._vocab_size])
 
 
-@registry.register_symbol_modality("weights_all")
 class SymbolModalityWeightsAll(SymbolModality):
   """SymbolModality for features that do not have 0-padding."""
 
@@ -180,7 +178,6 @@ class SymbolModalityWeightsAll(SymbolModality):
     return common_layers.weights_all
 
 
-@registry.register_symbol_modality("one_hot")
 class SymbolModalityOneHot(SymbolModality):
   """Simple SymbolModality with one hot as embeddings."""
 
@@ -200,7 +197,6 @@ class SymbolModalityOneHot(SymbolModality):
     return tf.reduce_mean(loss), tf.constant(1.0)
 
 
-@registry.register_symbol_modality("ctc")
 class CTCSymbolModality(SymbolModality):
   """SymbolModality that uses CTC loss."""
 
@@ -230,7 +226,6 @@ class CTCSymbolModality(SymbolModality):
       return tf.reduce_sum(xent), tf.reduce_sum(weights)
 
 
-@registry.register_image_modality("default")
 class ImageModality(modality.Modality):
   """Modality for images."""
   PIXEL_EMBEDDING_SIZE = 64
@@ -299,7 +294,6 @@ class ImageModality(modality.Modality):
         weights_fn=self.targets_weights_fn)
 
 
-@registry.register_image_modality("image_channel_compress")
 class ImageChannelCompressModality(modality.Modality):
   """Modality for images using channel compression for generation."""
 
@@ -388,14 +382,12 @@ class ImageChannelCompressModality(modality.Modality):
       return x
 
 
-@registry.register_image_modality("image_channel_bottom_identity")
 class ImageChannelBottomIdentityModality(ImageChannelCompressModality):
 
   def top(self, body_output, _):
     return body_output
 
 
-@registry.register_image_modality("channel_embeddings_bottom")
 class ImageChannelEmbeddingsBottom(modality.Modality):
   """Modality for images using channel compression for generation."""
 
@@ -441,7 +433,6 @@ class ImageChannelEmbeddingsBottom(modality.Modality):
       return x
 
 
-@registry.register_audio_modality("default")
 class AudioModality(modality.Modality):
   """Performs strided conv compressions for audio data."""
 
@@ -486,7 +477,6 @@ class AudioModality(modality.Modality):
                            "compress_block_final")
 
 
-@registry.register_audio_modality
 class AudioSpectralModality(modality.Modality):
   """Performs strided conv compressions for audio spectral data."""
 
@@ -532,7 +522,6 @@ class AudioSpectralModality(modality.Modality):
                            "compress_block_final")
 
 
-@registry.register_audio_modality
 class SpeechRecognitionModality(modality.Modality):
   """Common ASR filterbank processing."""
 
@@ -615,7 +604,6 @@ class SpeechRecognitionModality(modality.Modality):
     return x
 
 
-@registry.register_video_modality("default")
 class VideoModality(modality.Modality):
   """Modality for videos, i.e., time-sequences of frames."""
 
@@ -654,7 +642,6 @@ class VideoModality(modality.Modality):
         weights_fn=self.targets_weights_fn)
 
 
-@registry.register_video_modality("bitwise")
 class VideoModalityBitwise(VideoModality):
   """Video Modality where bottom embeds pixels bitwise."""
   PIXEL_EMBEDDING_SIZE = 64
@@ -689,7 +676,6 @@ class VideoModalityBitwise(VideoModality):
           name="merge_pixel_embedded_frames")
 
 
-@registry.register_video_modality("pixel_noise")
 class VideoModalityPixelNoise(VideoModality):
   """Video modality that introduces pixel noise on input during training."""
 
@@ -712,7 +698,6 @@ class VideoModalityPixelNoise(VideoModality):
     return getattr(self._model_hparams, "video_modality_input_noise", 0.25)
 
 
-@registry.register_video_modality("l1")
 class VideoModalityL1(VideoModality):
   """Video modality that predicts a scalar per channel with an L1 loss."""
 
@@ -754,7 +739,6 @@ class VideoModalityL1(VideoModality):
     return tf.reduce_sum(loss * weights), tf.reduce_sum(weights)
 
 
-@registry.register_video_modality("l2")
 class VideoModalityL2(VideoModalityL1):
   """Modality for videos with L2 loss."""
 
@@ -762,7 +746,6 @@ class VideoModalityL2(VideoModalityL1):
     return tf.nn.relu((logits - targets)**2 - self.cutoff * self.cutoff)
 
 
-@registry.register_video_modality("l2raw")
 class VideoModalityL2Raw(VideoModalityL2):
   """Modality with L2 loss and raw input (sequences of frames)."""
 
@@ -795,7 +778,6 @@ class VideoModalityL2Raw(VideoModalityL2):
     return loss, tf.constant(1.0)
 
 
-@registry.register_video_modality("l1raw")
 class VideoModalityL1Raw(VideoModalityL2Raw):
   """Modality with L1 loss and raw input (sequences of frames)."""
 
@@ -805,7 +787,6 @@ class VideoModalityL1Raw(VideoModalityL2Raw):
     return loss, tf.constant(1.0)
 
 
-@registry.register_class_label_modality("default")
 class ClassLabelModality(modality.Modality):
   """Used for label data."""
 
@@ -846,7 +827,6 @@ class ClassLabelModality(modality.Modality):
       return tf.expand_dims(res, 3)
 
 
-@registry.register_class_label_modality("multi_label")
 class MultiLabelModality(ClassLabelModality):
   """Used for multi label task."""
 
@@ -879,7 +859,6 @@ class MultiLabelModality(ClassLabelModality):
     return tf.reduce_sum(loss*weights), tf.reduce_sum(weights)
 
 
-@registry.register_class_label_modality("onehot")
 class OneHotClassLabelModality(ClassLabelModality):
   """Used for one-hot encoded class labels."""
 
@@ -899,12 +878,6 @@ class OneHotClassLabelModality(ClassLabelModality):
     return loss_scale, loss_denom
 
 
-@registry.register_generic_modality("default")
-@registry.register_audio_modality("identity")
-@registry.register_image_modality("identity")
-@registry.register_video_modality("identity")
-@registry.register_class_label_modality("identity")
-@registry.register_real_modality("identity")
 class IdentityModality(modality.Modality):
   """Does nothing."""
 
@@ -915,7 +888,6 @@ class IdentityModality(modality.Modality):
     return body_output
 
 
-@registry.register_generic_modality("l2_loss")
 class GenericL2LossModality(IdentityModality):
   """Generic modality with L2 as Loss."""
 
@@ -951,8 +923,6 @@ class RealModality(modality.Modality):
     raise NotImplementedError()
 
 
-@registry.register_real_modality("default")
-@registry.register_real_modality("l2_loss")
 class RealL2LossModality(RealModality):
   """Modality for real (i.e. float) vectors with L2 (Gaussian) loss."""
 
@@ -967,7 +937,6 @@ class RealL2LossModality(RealModality):
       return tf.reduce_sum(l2 * weights), tf.reduce_sum(weights)
 
 
-@registry.register_real_modality("log_poisson_loss")
 class RealLogPoissonLossModality(RealModality):
   """Modality for real (i.e. float) vectors with log Poisson regression loss."""
 
@@ -982,7 +951,6 @@ class RealLogPoissonLossModality(RealModality):
       return tf.reduce_sum(lp_loss * weights), tf.reduce_sum(weights)
 
 
-@registry.register_symbol_modality("identity")
 class IdentitySymbolModality(SymbolModality):
   """Symbol modality with identity top and bottom transformations.
 
@@ -1005,7 +973,6 @@ class IdentitySymbolModality(SymbolModality):
     return False
 
 
-@registry.register_class_label_modality("sigmoid")
 class SigmoidClassLabelModality(ClassLabelModality):
   """Sigmoid cross-entropy for independent class labels."""
 
@@ -1025,7 +992,6 @@ class SigmoidClassLabelModality(ClassLabelModality):
     return loss_scale, loss_denom
 
 
-@registry.register_class_label_modality("sigmoid_max_pooling")
 class SigmoidMaxPoolingClassLabelModality(ClassLabelModality):
   """Sigmoid cross-entropy applied on max-pooling over timesteps."""
 
@@ -1061,7 +1027,6 @@ class SigmoidMaxPoolingClassLabelModality(ClassLabelModality):
     return loss_scale, loss_denom
 
 
-@registry.register_class_label_modality("onehot_softmax_max_pooling")
 class SoftmaxMaxPoolingClassLabelModality(OneHotClassLabelModality):
   """Softmax cross-entropy applied on max-pooling over timesteps."""
 
@@ -1077,7 +1042,6 @@ class SoftmaxMaxPoolingClassLabelModality(OneHotClassLabelModality):
       return tf.layers.dense(x, self._vocab_size)
 
 
-@registry.register_class_label_modality("onehot_softmax_average_pooling")
 class SoftmaxAveragePoolingClassLabelModality(OneHotClassLabelModality):
   """Softmax cross-entropy applied on average-pooling over timesteps."""
 
@@ -1093,7 +1057,6 @@ class SoftmaxAveragePoolingClassLabelModality(OneHotClassLabelModality):
       return tf.layers.dense(x, self._vocab_size)
 
 
-@registry.register_class_label_modality("onehot_softmax_last_timestep")
 class SoftmaxLastTimestepClassLabelModality(OneHotClassLabelModality):
   """Softmax cross-entropy applied on last-timestep encoding."""
 
@@ -1107,3 +1070,96 @@ class SoftmaxLastTimestepClassLabelModality(OneHotClassLabelModality):
       x = body_output
       x = tf.expand_dims(x[:, -1], 1)  # Pick the last timestep
       return tf.layers.dense(x, self._vocab_size)
+
+
+def create_modality(modality_spec, model_hparams):
+  """Creates modality.
+
+  Args:
+    modality_spec: tuple ("modality_type:modality_name", vocab_size).
+    model_hparams: tf.contrib.training.HParams.
+
+  Returns:
+    Modality.
+
+  Raises:
+    LookupError: if modality_type is not recognized. See registry.Modalities for
+      accepted types.
+  """
+  modality_full_name, vocab_size = modality_spec
+  modality_type, modality_name = parse_modality_name(modality_full_name)
+
+  if modality_type == registry.Modalities.SYMBOL:
+    modality_collection = {
+        "default": SymbolModality,
+        "identity": IdentitySymbolModality,
+        "weights_all": SymbolModalityWeightsAll,
+        "one_hot": SymbolModalityOneHot,
+        "ctc": CTCSymbolModality,
+    }
+  elif modality_type == registry.Modalities.IMAGE:
+    modality_collection = {
+        "default": ImageModality,
+        "identity": IdentityModality,
+        "image_channel_compress": ImageChannelCompressModality,
+        "image_channel_bottom_identity": ImageChannelBottomIdentityModality,
+        "channel_embeddings_bottom": ImageChannelEmbeddingsBottom,
+    }
+  elif modality_type == registry.Modalities.AUDIO:
+    modality_collection = {
+        "default": SpeechRecognitionModality,
+        "identity": IdentityModality,
+        "spectral": AudioSpectralModality,
+        "speech": SpeechRecognitionModality,
+    }
+  elif modality_type == registry.Modalities.VIDEO:
+    modality_collection = {
+        "default": VideoModality,
+        "identity": IdentityModality,
+        "bitwise": VideoModalityBitwise,
+        "pixel_noise": VideoModalityPixelNoise,
+        "l1": VideoModalityL1,
+        "l2": VideoModalityL2,
+        "l2raw": VideoModalityL2Raw,
+        "l1raw": VideoModalityL1Raw,
+    }
+  elif modality_type == registry.Modalities.CLASS_LABEL:
+    modality_collection = {
+        "default": ClassLabelModality,
+        "identity": IdentityModality,
+        "multi_label": MultiLabelModality,
+        "onehot": OneHotClassLabelModality,
+        "sigmoid": SigmoidClassLabelModality,
+        "sigmoid_max_pooling": SigmoidMaxPoolingClassLabelModality,
+        "onehot_softmax_max_pooling": SoftmaxMaxPoolingClassLabelModality,
+        "onehot_softmax_average_pooling":
+            SoftmaxAveragePoolingClassLabelModality,
+        "onehot_softmax_last_timestep": SoftmaxLastTimestepClassLabelModality,
+    }
+  elif modality_type == registry.Modalities.GENERIC:
+    modality_collection = {
+        "default": IdentityModality,
+        "l2_loss": GenericL2LossModality,
+    }
+  elif modality_type == registry.Modalities.REAL:
+    modality_collection = {
+        "default": RealL2LossModality,
+        "identity": IdentityModality,
+        "l2_loss": RealL2LossModality,
+        "log_poisson_loss": RealLogPoissonLossModality,
+    }
+  else:
+    modality_types = ("symbol", "image", "audio", "video", "class_label",
+                      "generic", "real")
+    raise LookupError("Modality type %s not recognized. Options are: %s" %
+                      (modality_type, list(modality_types)))
+
+  return modality_collection[modality_name](model_hparams, vocab_size)
+
+
+def parse_modality_name(name):
+  name_parts = name.split(":")
+  if len(name_parts) < 2:
+    name_parts.append("default")
+  modality_type, modality_name = name_parts
+  return modality_type, modality_name

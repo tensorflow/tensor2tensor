@@ -17,7 +17,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-from tensor2tensor.utils import modality
+
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -204,73 +204,6 @@ class HParamRegistryTest(tf.test.TestCase):
       @registry.register_ranged_hparams
       def rhp_bad2(a, b):  # pylint: disable=unused-argument
         pass
-
-
-class ModalityRegistryTest(tf.test.TestCase):
-
-  def setUp(self):
-    registry._reset()
-
-  def testModalityRegistration(self):
-
-    @registry.register_symbol_modality
-    class MySymbolModality(modality.Modality):
-      pass
-
-    @registry.register_audio_modality
-    class MyAudioModality(modality.Modality):
-      pass
-
-    @registry.register_image_modality
-    class MyImageModality(modality.Modality):
-      pass
-
-    @registry.register_class_label_modality
-    class MyClassLabelModality(modality.Modality):
-      pass
-
-    self.assertTrue(
-        registry.symbol_modality("my_symbol_modality") is MySymbolModality)
-    self.assertTrue(
-        registry.audio_modality("my_audio_modality") is MyAudioModality)
-    self.assertTrue(
-        registry.image_modality("my_image_modality") is MyImageModality)
-    self.assertTrue(
-        registry.class_label_modality("my_class_label_modality") is
-        MyClassLabelModality)
-
-  def testDefaultNameLookup(self):
-
-    @registry.register_symbol_modality("default")
-    class MyDefaultModality(modality.Modality):
-      pass
-
-    self.assertTrue(registry.symbol_modality() is MyDefaultModality)
-
-  def testList(self):
-
-    @registry.register_symbol_modality
-    class MySymbolModality(modality.Modality):
-      pass
-
-    @registry.register_audio_modality
-    class MyAudioModality(modality.Modality):
-      pass
-
-    @registry.register_image_modality
-    class MyImageModality(modality.Modality):
-      pass
-
-    @registry.register_class_label_modality
-    class MyClassLabelModality(modality.Modality):
-      pass
-
-    expected = [
-        "symbol:my_symbol_modality", "audio:my_audio_modality",
-        "image:my_image_modality", "class_label:my_class_label_modality"
-    ]
-
-    self.assertSetEqual(set(registry.list_modalities()), set(expected))
 
 
 class RegistryTest(tf.test.TestCase):

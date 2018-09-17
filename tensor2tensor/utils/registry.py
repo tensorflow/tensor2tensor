@@ -45,7 +45,6 @@ from __future__ import print_function
 
 import inspect
 import re
-import six
 import tensorflow as tf
 
 _ATTACKS = {}
@@ -58,7 +57,10 @@ _PRUNING_STRATEGY = {}
 _RANGED_HPARAMS = {}
 
 
+# TODO(trandustin): Many files depend on this to specify modality strings; let's
+# remove it in the future.
 class Modalities(object):
+  """An enum-like object carrying the set of available modality types."""
   SYMBOL = "symbol"
   IMAGE = "image"
   AUDIO = "audio"
@@ -67,16 +69,6 @@ class Modalities(object):
   GENERIC = "generic"
   REAL = "real"
 
-
-_MODALITIES = {
-    Modalities.SYMBOL: {},
-    Modalities.IMAGE: {},
-    Modalities.AUDIO: {},
-    Modalities.VIDEO: {},
-    Modalities.CLASS_LABEL: {},
-    Modalities.GENERIC: {},
-    Modalities.REAL: {},
-}
 
 # Camel case to snake case utils
 _first_cap_re = re.compile("(.)([A-Z][a-z0-9]+)")
@@ -89,8 +81,7 @@ def _convert_camel_to_snake(name):
 
 
 def _reset():
-  for ctr in [_MODELS, _HPARAMS, _RANGED_HPARAMS, _ATTACK_PARAMS] + list(
-      _MODALITIES.values()):
+  for ctr in [_MODELS, _HPARAMS, _RANGED_HPARAMS, _ATTACK_PARAMS]:
     ctr.clear()
 
 
@@ -441,164 +432,6 @@ def list_pruning_strategies(prefix=None):
   return list(_PRUNING_STRATEGY)
 
 
-def _internal_get_modality(name, mod_collection, collection_str):
-  if name is None:
-    name = "default"
-  if name not in mod_collection:
-    raise LookupError(
-        "%s modality %s never registered." % (collection_str, name))
-  return mod_collection[name]
-
-
-def symbol_modality(name=None):
-  return _internal_get_modality(name, _MODALITIES[Modalities.SYMBOL],
-                                Modalities.SYMBOL.capitalize())
-
-
-def generic_modality(name=None):
-  return _internal_get_modality(name, _MODALITIES[Modalities.GENERIC],
-                                Modalities.GENERIC.capitalize())
-
-
-def video_modality(name=None):
-  return _internal_get_modality(name, _MODALITIES[Modalities.VIDEO],
-                                Modalities.VIDEO.capitalize())
-
-
-def audio_modality(name=None):
-  return _internal_get_modality(name, _MODALITIES[Modalities.AUDIO],
-                                Modalities.AUDIO.capitalize())
-
-
-def image_modality(name=None):
-  return _internal_get_modality(name, _MODALITIES[Modalities.IMAGE],
-                                Modalities.IMAGE.capitalize())
-
-
-def class_label_modality(name=None):
-  return _internal_get_modality(name, _MODALITIES[Modalities.CLASS_LABEL],
-                                Modalities.CLASS_LABEL.capitalize())
-
-
-def real_modality(name=None):
-  return _internal_get_modality(name, _MODALITIES[Modalities.REAL],
-                                Modalities.REAL.capitalize())
-
-
-def _internal_register_modality(name, mod_collection, collection_str):
-  """Register a modality into mod_collection."""
-
-  def decorator(mod_cls, registration_name=None):
-    """Registers & returns mod_cls with registration_name or default name."""
-    mod_name = registration_name or default_name(mod_cls)
-    if mod_name in mod_collection and not tf.contrib.eager.in_eager_mode():
-      raise LookupError(
-          "%s modality %s already registered." % (collection_str, mod_name))
-    mod_collection[mod_name] = mod_cls
-    return mod_cls
-
-  # Handle if decorator was used without parens
-  if callable(name):
-    mod_cls = name
-    return decorator(mod_cls, registration_name=default_name(mod_cls))
-
-  return lambda mod_cls: decorator(mod_cls, name)
-
-
-def register_symbol_modality(name=None):
-  """Register a symbol modality. name defaults to class name snake-cased."""
-  return _internal_register_modality(name, _MODALITIES[Modalities.SYMBOL],
-                                     Modalities.SYMBOL.capitalize())
-
-
-def register_generic_modality(name=None):
-  """Register a generic modality. name defaults to class name snake-cased."""
-  return _internal_register_modality(name, _MODALITIES[Modalities.GENERIC],
-                                     Modalities.GENERIC.capitalize())
-
-
-def register_real_modality(name=None):
-  """Register a real modality. name defaults to class name snake-cased."""
-  return _internal_register_modality(name, _MODALITIES[Modalities.REAL],
-                                     Modalities.REAL.capitalize())
-
-
-def register_audio_modality(name=None):
-  """Register an audio modality. name defaults to class name snake-cased."""
-  return _internal_register_modality(name, _MODALITIES[Modalities.AUDIO],
-                                     Modalities.AUDIO.capitalize())
-
-
-def register_image_modality(name=None):
-  """Register an image modality. name defaults to class name snake-cased."""
-  return _internal_register_modality(name, _MODALITIES[Modalities.IMAGE],
-                                     Modalities.IMAGE.capitalize())
-
-
-def register_video_modality(name=None):
-  """Register a video modality. name defaults to class name snake-cased."""
-  return _internal_register_modality(name, _MODALITIES[Modalities.VIDEO],
-                                     Modalities.VIDEO.capitalize())
-
-
-def register_class_label_modality(name=None):
-  """Register an image modality. name defaults to class name snake-cased."""
-  return _internal_register_modality(name, _MODALITIES[Modalities.CLASS_LABEL],
-                                     Modalities.CLASS_LABEL.capitalize())
-
-
-def list_modalities():
-  all_modalities = []
-  for modality_type, modalities in six.iteritems(_MODALITIES):
-    all_modalities.extend([
-        "%s:%s" % (mtype, modality)
-        for mtype, modality in zip([modality_type] *
-                                   len(modalities), modalities)
-    ])
-  return all_modalities
-
-
-def parse_modality_name(name):
-  name_parts = name.split(":")
-  if len(name_parts) < 2:
-    name_parts.append("default")
-  modality_type, modality_name = name_parts
-  return modality_type, modality_name
-
-
-def create_modality(modality_spec, model_hparams):
-  """Create modality.
-
-  Args:
-    modality_spec: tuple, ("modality_type:modality_name", vocab_size).
-    model_hparams: HParams object.
-
-  Returns:
-    Modality instance.
-
-  Raises:
-    LookupError: if modality_type is not recognized. See Modalities class for
-    accepted types.
-  """
-  retrieval_fns = {
-      Modalities.SYMBOL: symbol_modality,
-      Modalities.IMAGE: image_modality,
-      Modalities.AUDIO: audio_modality,
-      Modalities.VIDEO: video_modality,
-      Modalities.CLASS_LABEL: class_label_modality,
-      Modalities.GENERIC: generic_modality,
-      Modalities.REAL: real_modality,
-  }
-
-  modality_full_name, vocab_size = modality_spec
-  modality_type, modality_name = parse_modality_name(modality_full_name)
-  if modality_type not in retrieval_fns:
-    raise LookupError("Modality type %s not recognized. Options are: %s" %
-                      (modality_type, list(_MODALITIES)))
-
-  return retrieval_fns[modality_type](modality_name)(model_hparams, vocab_size)
-
-
 def display_list_by_prefix(names_list, starting_spaces=0):
   """Creates a help string for names_list grouped by prefix."""
   cur_prefix, result_lines = None, []
@@ -628,9 +461,6 @@ Registry contents:
   RangedHParams:
 %s
 
-  Modalities:
-%s
-
   Problems:
 %s
 
@@ -646,12 +476,11 @@ Registry contents:
   Pruning Strategies:
 %s
 """
-  m, hp, rhp, mod, probs, atks, ap, pp, ps = [
+  m, hp, rhp, probs, atks, ap, pp, ps = [
       display_list_by_prefix(entries, starting_spaces=4) for entries in [
           list_models(),
           list_hparams(),
           list_ranged_hparams(),
-          list_modalities(),
           list_problems(),
           list_attacks(),
           list_attack_params(),
@@ -659,4 +488,4 @@ Registry contents:
           list_pruning_strategies(),
       ]
   ]
-  return help_str % (m, hp, rhp, mod, probs, atks, ap, pp, ps)
+  return help_str % (m, hp, rhp, probs, atks, ap, pp, ps)
