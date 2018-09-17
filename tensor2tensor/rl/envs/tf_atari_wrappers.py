@@ -48,6 +48,10 @@ class WrapperBase(InGraphBatchEnv):
     """Access the variable holding the current observation."""
     return self._observ.read_value()
 
+  @property
+  def observ_shape(self):
+    return self._batch_env.observ_shape
+
   def __len__(self):
     """Number of combined environments."""
     return self._length
