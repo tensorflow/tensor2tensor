@@ -89,7 +89,7 @@ class MultiProblem(problem.Problem):
     tf.logging.info("Old vocabulary size: %d" % vocab_size)
     tf.logging.info("New vocabulary size: %d" % (vocab_size + vocab_size_inc))
     self._hparams.target_modality = modalities.SymbolModality(
-        vocab_size + vocab_size_inc)
+        model_hparams, vocab_size + vocab_size_inc)
 
     return self._hparams
 

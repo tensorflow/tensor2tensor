@@ -31,7 +31,7 @@ class TestMultiProblem(multi_problem.MultiProblem):
   def __init__(self):
     super(TestMultiProblem, self).__init__()
     self.task_list.append(problem_hparams.TestProblem(2, 3))
-    self.task_list.append(problem_hparams.TestProblem(4, 5))
+    self.task_list.append(problem_hparams.TestProblem(4, 6))
 
 
 class MultiProblemTest(tf.test.TestCase):
@@ -42,7 +42,9 @@ class MultiProblemTest(tf.test.TestCase):
     p_hparams = problem.get_hparams()
     self.assertIsInstance(p_hparams.input_modality["inputs"],
                           modalities.SymbolModality)
+    self.assertEqual(p_hparams.input_modality["inputs"].top_dimensionality, 3)
     self.assertIsInstance(p_hparams.target_modality, modalities.SymbolModality)
+    self.assertEqual(p_hparams.target_modality.top_dimensionality, 5)
 
 if __name__ == "__main__":
   tf.test.main()
