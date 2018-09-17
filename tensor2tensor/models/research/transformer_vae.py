@@ -20,12 +20,14 @@ from __future__ import print_function
 
 import functools
 import math
+import os
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
+from tensor2tensor.layers import latent_layers
 from tensor2tensor.models import transformer
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import expert_utils
@@ -350,7 +352,8 @@ def ae_transformer_internal(inputs,
             "neg_q_entropy": tf.constant(0.0)}
   if hparams.do_ae:
     # flatten here
-    original_targets_shape = tf.shape(targets)
+    original_targets = targets
+    original_targets_shape = tf.shape(original_targets)
     if hparams.task == "image":
       cia.maybe_reshape_4d_to_3d(targets)
     if hparams.task == "translate":
@@ -519,7 +522,10 @@ def ae_transformer_internal(inputs,
   # elements. These can cause shape problems when computing loss with respect to
   # the original (unpadded) targets. So we remove their extra elements here.
   res = res[:, :original_targets_shape[1], :, :]
-  return res, losses, cache
+
+  data_dim = common_layers.shape_list(res)[1]
+  latent_dim = common_layers.shape_list(targets_c)[1]
+  return res, losses, cache, data_dim, latent_dim
 
 
 @registry.register_model
@@ -633,7 +639,7 @@ class TransformerAE(t2t_model.T2TModel):
       inputs = None
     reuse = "cache_raw" in features
     with tf.variable_scope(tf.get_variable_scope(), reuse=reuse):
-      res, loss, _ = ae_transformer_internal(
+      res, loss, _, self._data_dim, self._latent_dim = ae_transformer_internal(
           inputs,
           features["targets"],
           features["target_space_id"],
@@ -653,7 +659,7 @@ class TransformerAE(t2t_model.T2TModel):
       inputs = None
     targets = tf.zeros([beam_batch_size, 1, 1, self._hparams.hidden_size])
     with tf.variable_scope("body"):
-      _, _, cache = ae_transformer_internal(
+      _, _, cache, _, _ = ae_transformer_internal(
           inputs, targets, features["target_space_id"], self._hparams)
     features["cache_raw"] = cache
 
@@ -712,6 +718,34 @@ class TransformerAE(t2t_model.T2TModel):
     if inputs_old is not None:  # Restore to not confuse Estimator.
       features["inputs"] = inputs_old
     return samples
+
+  def estimator_spec_eval(self, features, logits, labels, loss, losses_dict):
+    """Constructs `tf.estimator.EstimatorSpec` for EVAL (evaluation) mode."""
+    estimator_spec = super(TransformerAE, self).estimator_spec_eval(
+        features, logits, labels, loss, losses_dict)
+
+    summary_op = tf.get_collection(tf.GraphKeys.SUMMARIES, scope="losses")
+    summary_op.extend(tf.get_collection(tf.GraphKeys.SUMMARIES, scope="loss"))
+    summary_op.append(tf.summary.scalar("loss", loss))
+    summary_saver_hook = tf.train.SummarySaverHook(
+        save_steps=100,
+        summary_op=summary_op,
+        output_dir=os.path.join(self.hparams.model_dir, "eval"))
+
+    hooks = list(estimator_spec.evaluation_hooks)
+    hooks.append(summary_saver_hook)
+    return estimator_spec._replace(evaluation_hooks=hooks)
+
+  def _summarize_losses(self, losses_dict):
+    """Adds `tf.summary`s to all terms in the losses dictionary."""
+    super(TransformerAE, self)._summarize_losses(losses_dict)
+    nats_per_dim, bits_per_dim = latent_layers.compute_nats_and_bits_per_dim(
+        data_dim=self._data_dim,
+        latent_dim=self._latent_dim,
+        average_reconstruction=losses_dict["training"],
+        average_prior=losses_dict["latent_pred"])
+    tf.summary.scalar("loss/nats_per_dim", nats_per_dim)
+    tf.summary.scalar("loss/bits_per_dim", bits_per_dim)
 
 
 @registry.register_hparams

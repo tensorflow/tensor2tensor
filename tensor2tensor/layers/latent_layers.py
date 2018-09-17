@@ -43,6 +43,35 @@ def compress_self_attention_layer(x, hparams, name):
     return tf.reshape(res, xshape)
 
 
+def compute_nats_and_bits_per_dim(data_dim,
+                                  latent_dim,
+                                  average_reconstruction,
+                                  average_prior):
+  """Computes negative ELBO, which is an upper bound on the negative likelihood.
+
+  Args:
+    data_dim: int-like indicating data dimensionality.
+    latent_dim: int-like indicating latent dimensionality.
+    average_reconstruction: Scalar Tensor indicating the reconstruction cost
+      averaged over all data dimensions and any data batches.
+    average_prior: Scalar Tensor indicating the negative log-prior probability
+      averaged over all latent dimensions and any data batches.
+
+  Returns:
+    Tuple of scalar Tensors, representing the nats and bits per data dimension
+    (e.g., subpixels) respectively.
+  """
+  with tf.name_scope(None, default_name="compute_nats_per_dim"):
+    data_dim = tf.cast(data_dim, average_reconstruction.dtype)
+    latent_dim = tf.cast(latent_dim, average_prior.dtype)
+    negative_log_likelihood = data_dim * average_reconstruction
+    negative_log_prior = latent_dim * average_prior
+    negative_elbo = negative_log_likelihood + negative_log_prior
+    nats_per_dim = tf.divide(negative_elbo, data_dim, name="nats_per_dim")
+    bits_per_dim = tf.divide(nats_per_dim, tf.log(2.), name="bits_per_dim")
+    return nats_per_dim, bits_per_dim
+
+
 def multinomial_sample(x, vocab_size=None, sampling_method="random",
                        temperature=1.0):
   """Multinomial sampling from a n-dimensional tensor.
