@@ -122,24 +122,24 @@ class GymDiscreteProblem(video_utils.VideoProblem):
                                  self._internal_memory_force_beginning_resets)
       collect_hparams.epoch_length = self._internal_memory_size
       collect_hparams.num_agents = 1
-  
+
       if not FLAGS.agent_policy_path:
         collect_hparams.policy_network = rl.random_policy_fun
-  
+
       if extra_collect_hparams is not None:
         for (key, value) in six.iteritems(extra_collect_hparams):
           collect_hparams.add_hparam(key, value)
-  
+
       if override_collect_hparams is not None:
         # Override hparams manually - HParams.override_from_dict does not work
         # with functions.
         for (key, value) in six.iteritems(override_collect_hparams):
           setattr(collect_hparams, key, value)
-  
+
       policy_to_actions_lambda = None
       if self.settable_eval_phase:
         policy_to_actions_lambda = lambda policy: policy.mode()
-  
+
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
         self.collect_memory, self.collect_trigger_op, collect_init = (
             collect.define_collect(
@@ -148,7 +148,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
                 eval_phase=False,
                 collect_level=0,
                 policy_to_actions_lambda=policy_to_actions_lambda))
-  
+
       self._session = tf.Session()
       collect_init(self._session)
       self._session.run(tf.global_variables_initializer())
