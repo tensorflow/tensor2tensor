@@ -553,6 +553,8 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
         ppo_event_dir, directories["world_model"], epoch_data_dir,
         hparams, epoch=epoch, is_final_epoch=is_final_epoch)
 
+    if hparams.stop_loop_early:
+      return 0.0
     # Collect data from the real environment.
     log("Generating real environment data")
     eval_data_dir = os.path.join(epoch_data_dir, "eval")
@@ -657,6 +659,7 @@ def rl_modelrl_base():
       # Whether to evaluate the world model in each iteration of the loop to get
       # the model_reward_accuracy metric.
       eval_world_model=True,
+      stop_loop_early=False,  # To speed-up tests.
   )
 
 
@@ -765,6 +768,7 @@ def rl_modelrl_tiny():
           real_ppo_epochs_num=0,
           real_ppo_effective_num_agents=2,
           generative_model_params="next_frame_tiny",
+          stop_loop_early=True,
       ).values())
 
 
