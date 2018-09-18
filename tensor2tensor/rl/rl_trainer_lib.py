@@ -35,13 +35,15 @@ def define_train(hparams):
       = collect.define_collect(
           hparams, "ppo_train", eval_phase=False)
     ppo_summary = ppo.define_ppo_epoch(memory, hparams)
-    _, eval_collect_summary, eval_initialization\
-      = collect.define_collect(
-          hparams, "ppo_eval", eval_phase=True)
+    train_summary = tf.summary.merge([collect_summary, ppo_summary])
 
-    summary = tf.summary.merge([collect_summary, ppo_summary])
-
-  return summary, eval_collect_summary, (tain_initialization, eval_initialization)
+    if not hparams.eval_every_epochs:
+      _, eval_collect_summary, eval_initialization\
+        = collect.define_collect(
+            hparams, "ppo_eval", eval_phase=True)
+      return train_summary, eval_collect_summary, (tain_initialization, eval_initialization)
+    else:
+      return train_summary, None, (tain_initialization, )
 
 
 def train(hparams, event_dir=None, model_dir=None,
