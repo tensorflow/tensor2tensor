@@ -105,7 +105,8 @@ def define_collect(hparams, scope, eval_phase,
     environment_spec = hparams.environment_spec
     num_agents = hparams.num_agents
     if eval_phase:
-      environment_spec = getattr(hparams, "environment_eval_spec", environment_spec)
+      environment_spec = getattr(hparams, "environment_eval_spec",
+                                 environment_spec)
       num_agents = getattr(hparams, "num_eval_agents", num_agents)
       batch_env = batch_env_factory(environment_spec, num_agents)
     else:

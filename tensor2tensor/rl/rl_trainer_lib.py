@@ -41,9 +41,10 @@ def define_train(hparams):
       _, eval_collect_summary, eval_initialization\
         = collect.define_collect(
             hparams, "ppo_eval", eval_phase=True)
-      return train_summary, eval_collect_summary, (tain_initialization, eval_initialization)
+      return train_summary, eval_collect_summary, \
+             (tain_initialization, eval_initialization)
     else:
-      return train_summary, None, (tain_initialization, )
+      return train_summary, None, (tain_initialization,)
 
 
 def train(hparams, event_dir=None, model_dir=None,
