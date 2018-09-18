@@ -1693,6 +1693,32 @@ def transformer_big():
 
 
 @registry.register_hparams
+def transformer_tall():
+  """Hparams for transformer on LM+MNLI."""
+  hparams = transformer_base()
+  hparams.batch_size = 2048
+  hparams.hidden_size = 768
+  hparams.filter_size = 3072
+  hparams.num_hidden_layers = 12
+  hparams.num_heads = 12
+  hparams.learning_rate_schedule = (
+      "constant*linear_warmup*rsqrt_hidden_size")
+  hparams.learning_rate_constant = 2e-3
+  hparams.label_smoothing = 0.0
+  hparams.max_length = 512
+  hparams.eval_drop_long_sequences = True
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tall_big():
+  """Hparams for transformer on LM+MNLI."""
+  hparams = transformer_tall()
+  hparams.num_hidden_layers = 18
+  return hparams
+
+
+@registry.register_hparams
 def transformer_big_single_gpu():
   """HParams for transformer big model for single GPU."""
   hparams = transformer_big()
