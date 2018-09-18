@@ -42,7 +42,7 @@ BatchInfo = collections.namedtuple("BatchInfo", "coordinates, order")
 _expert_count = 0
 
 
-def get_standardized_layers(hparams, dp=None, ps_devices=None):
+def get_standardized_layers(hparams, dp=None):
   """Get the common attention and feed-forward layers.
 
   The returned layer functions will have the following signature:
@@ -57,7 +57,6 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
     hparams (tf.HParams): the model hparameters
     dp (expert_utils.Parallelism): A data parallelism object. If not given,
       the dp calls are simply ignored.
-    ps_devices: a reference to model._ps_devices (only used by the MOE layer)
 
   Returns:
     dict[str:fct]: A dictionary containing the standardized functions
@@ -119,14 +118,6 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
 
   total_key_depth = hparams.attention_key_channels or hparams.hidden_size
   total_value_depth = hparams.attention_value_channels or hparams.hidden_size
-  is_train = hparams.mode == tf.estimator.ModeKeys.TRAIN
-
-  moe_hidden_sizes = [int(s) for s in hparams.moe_hidden_sizes.split(",")]
-  # Use filter size if moe_hidden_sizes was not given
-  if not moe_hidden_sizes:
-    moe_hidden_sizes = [hparams.filter_size]
-  expert_fn = expert_utils.ffn_expert_fn(hparams.hidden_size, moe_hidden_sizes,
-                                         hparams.hidden_size)
 
   # Attention layers:
 
@@ -217,24 +208,6 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
 
   # Feed-forwards layers:
 
-  # === Mixture of expert layer ===
-  distributed_moe = register_layer(
-      expert_utils.distributed_moe,
-      default_args=[
-          dp,
-          ps_devices,
-      ],
-      default_kwargs=dict(
-          train=is_train,
-          input_size=hparams.hidden_size,
-          expert_fn=expert_fn,
-          num_experts=hparams.moe_num_experts,
-          k=hparams.moe_k,
-          loss_coef=hparams.moe_loss_coef,
-      ),
-      use_dp=False,
-  )
-
   # === FC layer ===
   conv_hidden_relu = register_layer(
       common_layers.conv_hidden_relu,
@@ -276,7 +249,6 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
       fc=conv_hidden_relu,  # Fully connected
       sep=sep_conv_relu,  # Separable convolution (unmasked)
       sepm=sep_conv_relu_masked,  # Separable convolution (masked)
-      moe=distributed_moe,  # Mixture of expert layer
   )
   return layers
 

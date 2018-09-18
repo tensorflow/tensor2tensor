@@ -28,7 +28,6 @@ from __future__ import print_function
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
-from tensor2tensor.utils import diet
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -69,7 +68,6 @@ class Aligned(t2t_model.T2TModel):
     x = dp(tf.nn.dropout, x, 1.0 - hparams.layer_prepostprocess_dropout)
     extra_loss = 0.0
     ffn_hidden_sizes = [int(s) for s in hparams.ffn_hidden_sizes.split(",")]
-    moe_hidden_sizes = [int(s) for s in hparams.moe_hidden_sizes.split(",")]
     if hparams.mask_right:
 
       def _bias(x):
@@ -79,16 +77,6 @@ class Aligned(t2t_model.T2TModel):
       bias = dp(_bias, x)
     else:
       bias = tf.zeros([1, 1, 1, 1])
-    if hparams.diet_experts:
-      hsize, = moe_hidden_sizes
-
-      def _diet_expert(x):
-        return diet.diet_expert(x, hsize, diet.diet_adam_optimizer_params())
-
-      expert_fn = _diet_expert
-    else:
-      expert_fn = expert_utils.ffn_expert_fn(
-          hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
 
     batch_coordinate = dp(get_batch_coordinate, x)
 
@@ -209,18 +197,6 @@ class Aligned(t2t_model.T2TModel):
               use_map_fn=False,
               experts_params=dict(nb_hyperplanes=4,))
           extra_loss += tf.add_n(loss) / dp.n
-        elif layer_type == "moe":
-          y, loss = expert_utils.distributed_moe(
-              dp,
-              self._ps_devices,
-              x,
-              hparams.mode == ModeKeys.TRAIN,
-              input_size=hparams.hidden_size,
-              expert_fn=expert_fn,
-              num_experts=hparams.moe_num_experts,
-              k=hparams.moe_k,
-              loss_coef=hparams.moe_loss_coef)
-          extra_loss += loss
         elif layer_type == "ffn":
           y = dp(
               expert_utils.ffn_expert_fn(hparams.hidden_size, ffn_hidden_sizes,

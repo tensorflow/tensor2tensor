@@ -30,7 +30,6 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
-from tensor2tensor.utils import diet
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -106,17 +105,6 @@ class AttentionLmMoe(t2t_model.T2TModel):
     x = dp(tf.nn.dropout, decoder_input,
            1.0 - hparams.layer_prepostprocess_dropout)
     extra_loss = 0.0
-    moe_hidden_sizes = [int(s) for s in hparams.moe_hidden_sizes.split(",")]
-    if hparams.diet_experts:
-      hsize, = moe_hidden_sizes
-
-      def _diet_expert(x):
-        return diet.diet_expert(x, hsize, diet.diet_adam_optimizer_params())
-
-      expert_fn = _diet_expert
-    else:
-      expert_fn = expert_utils.ffn_expert_fn(
-          hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
 
     if not hparams.use_inputs:
       # As preprocess and postprocess are called with batch of size one (all
@@ -312,19 +300,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 AttentionType.get_choices()))
           x = postprocess(x, y)
         with tf.variable_scope("ffn"):
-          if str(layer) in hparams.moe_layers.split(","):
-            y, loss = expert_utils.distributed_moe(
-                dp,
-                self._ps_devices,
-                preprocess(x),
-                hparams.mode == ModeKeys.TRAIN,
-                input_size=hparams.hidden_size,
-                expert_fn=expert_fn,
-                num_experts=hparams.moe_num_experts,
-                k=hparams.moe_k,
-                loss_coef=hparams.moe_loss_coef)
-            extra_loss += loss
-          elif hparams.memory_efficient_ffn:
+          if hparams.memory_efficient_ffn:
             assert hparams.layer_preprocess_sequence == "n"
             y = dp(
                 common_layers.conv_hidden_relu_memory_efficient,
