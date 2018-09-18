@@ -178,7 +178,7 @@ def train_agent(problem_name, agent_model_dir,
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_params_names = ["epochs_num", "epoch_length",
                       "learning_rate", "num_agents",
-                      "optimization_epochs"]
+                      "optimization_epochs", "eval_every_epochs"]
 
   for param_name in ppo_params_names:
     ppo_param_name = "ppo_" + param_name
@@ -245,7 +245,7 @@ def train_agent_real_env(
   gym_problem = registry.problem(problem_name)
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_params_names = ["epochs_num", "epoch_length",
-                      "learning_rate", "num_agents",
+                      "learning_rate", "num_agents", "eval_every_epochs",
                       "optimization_epochs", "effective_num_agents"]
 
   # This should be overridden.
@@ -648,6 +648,8 @@ def rl_modelrl_base():
       # though it is not necessary.
       ppo_epoch_length=50,
       ppo_num_agents=16,
+      #Do not eval since simulated batch env does not produce dones
+      ppo_eval_every_epochs=0,
       ppo_learning_rate=2e-4,  # Will be changed, just so it exists.
       # Whether the PPO agent should be restored from the previous iteration, or
       # should start fresh each time.
@@ -661,6 +663,7 @@ def rl_modelrl_base():
       real_ppo_learning_rate=2e-4,
       real_ppo_continue_training=True,
       real_ppo_effective_num_agents=16,
+      real_ppo_eval_every_epochs=0,
 
       game="wrapped_full_pong",
       # Whether to evaluate the world model in each iteration of the loop to get

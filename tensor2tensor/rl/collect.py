@@ -143,7 +143,7 @@ def define_collect(hparams, scope, eval_phase,
     cumulative_rewards = tf.get_variable("cumulative_rewards", len(batch_env),
                                          trainable=False)
 
-    eval_phase = tf.convert_to_tensor(eval_phase)
+    eval_phase_t = tf.convert_to_tensor(eval_phase)
     should_reset_var = tf.Variable(True, trainable=False)
     zeros_tensor = tf.zeros(len(batch_env))
 
@@ -181,7 +181,7 @@ def define_collect(hparams, scope, eval_phase,
         if policy_to_actions_lambda:
           action = policy_to_actions_lambda(policy)
         else:
-          action = tf.cond(eval_phase,
+          action = tf.cond(eval_phase_t,
                            policy.mode,
                            policy.sample)
 
@@ -239,7 +239,7 @@ def define_collect(hparams, scope, eval_phase,
                 scores_num + scores_num_delta]
 
     def stop_condition(i, _, resets):
-      return tf.cond(eval_phase,
+      return tf.cond(eval_phase_t,
                      lambda: resets < num_agents,
                      lambda: i < hparams.epoch_length)
 

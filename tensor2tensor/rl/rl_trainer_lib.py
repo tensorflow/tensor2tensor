@@ -37,7 +37,7 @@ def define_train(hparams):
     ppo_summary = ppo.define_ppo_epoch(memory, hparams)
     train_summary = tf.summary.merge([collect_summary, ppo_summary])
 
-    if not hparams.eval_every_epochs:
+    if hparams.eval_every_epochs:
       _, eval_collect_summary, eval_initialization\
         = collect.define_collect(
             hparams, "ppo_eval", eval_phase=True)
