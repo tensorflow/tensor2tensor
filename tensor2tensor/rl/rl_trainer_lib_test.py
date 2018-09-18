@@ -74,6 +74,9 @@ class TrainTest(tf.test.TestCase):
     hparams.add_hparam(
         "environment_spec",
         gym_problems.standard_atari_env_spec("PongNoFrameskip-v4"))
+    hparams.add_hparam(
+        "environment_eval_spec",
+        gym_problems.standard_atari_env_eval_spec("PongNoFrameskip-v4"))
     # TODO(lukaszkaiser): enable tests with Atari.
     # rl_trainer_lib.train(hparams)
 
