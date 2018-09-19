@@ -18,8 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import gym
-
 # We need gym_utils for the game environments defined there.
 from tensor2tensor.data_generators import gym_utils  # pylint: disable=unused-import
 # pylint: disable=g-multiple-import
@@ -175,7 +173,6 @@ class GymClippedRewardRandom(GymDiscreteProblem):
 
 def create_problems_for_game(
     game_name,
-    clipped_reward=True,
     resize_height_factor=2,
     resize_width_factor=2,
     game_mode="Deterministic-v4"):
@@ -183,8 +180,6 @@ def create_problems_for_game(
 
   Args:
     game_name: str, one of the games in ATARI_GAMES, e.g. "bank_heist".
-    clipped_reward: bool, whether the rewards should be clipped. False is not
-      yet supported.
     resize_height_factor: factor by which to resize the height of frames.
     resize_width_factor: factor by which to resize the width of frames.
     game_mode: the frame skip and sticky keys config.
@@ -195,9 +190,6 @@ def create_problems_for_game(
   Raises:
     ValueError: if clipped_reward=False or game_name not in ATARI_GAMES.
   """
-  if not clipped_reward:
-    raise ValueError("Creating problems without clipped reward is not "
-                     "yet supported.")
   if game_name not in ATARI_GAMES:
     raise ValueError("Game %s not in ATARI_GAMES" % game_name)
   if game_mode not in ATARI_GAME_MODES:
@@ -206,18 +198,11 @@ def create_problems_for_game(
       [w[0].upper() + w[1:] for w in game_name.split("_")])
   camel_game_name += game_mode
   env_name = camel_game_name
-  wrapped_env_name = "T2T%s" % env_name
-
-  # Register an environment that does the reward clipping
-  gym.envs.register(
-      id=wrapped_env_name,
-      entry_point=lambda: gym_utils.wrapped_factory(  # pylint: disable=g-long-lambda
-          env=env_name, reward_clipping=True))
 
   # Create and register the Random and WithAgent Problem classes
   problem_cls = type("Gym%sRandom" % camel_game_name,
                      (GymClippedRewardRandom,),
-                     {"env_name": wrapped_env_name,
+                     {"env_name": env_name,
                       "resize_height_factor": resize_height_factor,
                       "resize_width_factor": resize_width_factor})
   registry.register_problem(problem_cls)
@@ -248,6 +233,5 @@ for game in ATARI_ALL_MODES_SHORT_LIST:
   for mode in ATARI_GAME_MODES:
     classes = create_problems_for_game(
         game,
-        clipped_reward=True,
         game_mode=mode)
     ATARI_PROBLEMS[game][mode] = classes
