@@ -829,15 +829,6 @@ def rl_modelrl_tiny_sv2p():
 
 
 @registry.register_hparams
-def rl_modelrl_tiny_sv2p_external():
-  """Tiny setting with a tiny sv2p model and external loss."""
-  hparams = rl_modelrl_tiny()
-  hparams.generative_model = "next_frame_sv2p"
-  hparams.generative_model_params = "next_frame_sv2p_tiny_external"
-  return hparams
-
-
-@registry.register_hparams
 def rl_modelrl_l1_base():
   """Parameter set with L1 loss."""
   hparams = rl_modelrl_base()
