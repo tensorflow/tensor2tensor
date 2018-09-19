@@ -1423,6 +1423,14 @@ class T2TModel(base.Layer):
         "targets": features.get("infer_targets"),
     }
 
+    # Fathom start
+    # pass through multiple outputs from target modality
+    if isinstance(infer_out, dict):
+      for key, value in infer_out.items():
+        if key not in predictions:
+          predictions[key] = value
+    # Fathom end
+
     # Pass through remaining features
     for name, feature in features.items():
       if name not in list(predictions.keys()) + ["infer_targets"]:
