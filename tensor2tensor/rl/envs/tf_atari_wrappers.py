@@ -99,6 +99,9 @@ class RewardClippingWrapper(WrapperBase):
       of rl algorithms
   """
 
+  def __str__(self):
+    return "RewardClippingWrapper(%s)" % str(self._batch_env)
+
   def simulate(self, action):
     reward, done = self._batch_env.simulate(action)
     with tf.control_dependencies([reward, done]):
@@ -117,6 +120,9 @@ class MaxAndSkipWrapper(WrapperBase):
     observs_shape = batch_env.observ.shape
     self._observ = tf.Variable(tf.zeros(observs_shape, self.observ_dtype),
                                trainable=False)
+
+  def __str__(self):
+    return "MaxAndSkipWrapper(%s)" % str(self._batch_env)
 
   def simulate(self, action):
     with tf.name_scope("environment/simulate"):  # Do we need this?
@@ -158,6 +164,9 @@ class StackWrapper(WrapperBase):
         tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
         trainable=False)
 
+  def __str__(self):
+    return "StackWrapper(%s)" % str(self._batch_env)
+
   @property
   def observ_shape(self):
     return self.old_shape[:-1] + (self.old_shape[-1] * self.history,)
@@ -192,7 +201,7 @@ class StackWrapper(WrapperBase):
       inx = tf.concat(
           [
               tf.ones(tf.size(tf.shape(new_values)),
-                      dtype=tf.int32)[:-1],
+                      dtype=tf.int64)[:-1],
               [self.history]
           ],
           axis=0)
@@ -207,12 +216,11 @@ class StackWrapper(WrapperBase):
 
 
 class AutoencoderWrapper(WrapperBase):
-  """ Transforms the observations taking the bottleneck
-      state of an autoencoder"""
+  """Transforms the observations taking the bottleneck of an autoencoder."""
 
   def __init__(self, batch_env):
     super(AutoencoderWrapper, self).__init__(batch_env)
-    self._observ = self._observ = tf.Variable(
+    self._observ = tf.Variable(
         tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
         trainable=False)
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
@@ -223,6 +231,9 @@ class AutoencoderWrapper(WrapperBase):
       autoencoder_hparams.problem = problem
       self.autoencoder_model = autoencoders.AutoencoderOrderedDiscrete(
           autoencoder_hparams, tf.estimator.ModeKeys.EVAL)
+
+  def __str__(self):
+    return "AutoencoderWrapper(%s)" % str(self._batch_env)
 
   @property
   def observ_shape(self):
@@ -242,7 +253,7 @@ class AutoencoderWrapper(WrapperBase):
     reward, done = self._batch_env.simulate(action)
     with tf.control_dependencies([reward, done]):
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-        observ = tf.cast(self._batch_env.observ, tf.int32)
+        observ = tf.cast(self._batch_env.observ, tf.int64)
         ret = self.autoencoder_model.encode(observ)
         ret = tf.cast(ret, self.observ_dtype)
         assign_op = self._observ.assign(ret)
@@ -252,7 +263,7 @@ class AutoencoderWrapper(WrapperBase):
   def _reset_non_empty(self, indices):
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       new_values = self._batch_env._reset_non_empty(indices)  # pylint: disable=protected-access
-      new_values = tf.cast(new_values, tf.int32)
+      new_values = tf.cast(new_values, tf.int64)
       ret = self.autoencoder_model.encode(new_values)
       ret = tf.cast(ret, self.observ_dtype)
       assign_op = tf.scatter_update(self._observ, indices, ret)
@@ -262,9 +273,70 @@ class AutoencoderWrapper(WrapperBase):
   def _transform_history_observations(self, frames):
     batch_size, history_size = frames.get_shape().as_list()[:2]
     new_frames = tf.reshape(frames, (-1,) + self._batch_env.observ_shape)
-    new_frames = tf.cast(new_frames, tf.int32)
+    new_frames = tf.cast(new_frames, tf.int64)
     new_frames = self.autoencoder_model.encode(new_frames)
     new_frames = tf.cast(new_frames, self.observ_dtype)
+    return new_frames.reshape((batch_size, history_size) + self.observ_shape)
+
+
+class ResizeWrapper(WrapperBase):
+  """Resizes the observations."""
+
+  def __init__(self, batch_env, height_factor=1, width_factor=1):
+    super(ResizeWrapper, self).__init__(batch_env)
+    self._height_factor = height_factor  # How much to resize on x axis.
+    self._width_factor = width_factor  # How much to resize on y axis.
+    self._is_identity = (height_factor == 1) and (width_factor == 1)
+    if not self._is_identity:
+      self._observ = tf.Variable(
+          tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
+          trainable=False)
+    else:
+      self._observ = self._batch_env.observ
+
+  def __str__(self):
+    return "ResizeWrapper%d%d(%s)" % (self._height_factor,
+                                      self._width_factor, str(self._batch_env))
+
+  def _resize(self, tensor):
+    if self._is_identity:
+      return tensor
+    height, width, _ = self.observ_shape
+    observ = tf.to_float(tensor)
+    resized = tf.image.resize_images(
+        observ, [height, width], tf.image.ResizeMethod.BILINEAR)
+    return tf.cast(resized, self.observ_dtype)
+
+  @property
+  def observ_shape(self):
+    height, width, channels = self._batch_env.observ_shape
+    resized_height = height // self._height_factor
+    resized_width = width // self._width_factor
+    return (resized_height, resized_width, channels)
+
+  def simulate(self, action):
+    if self._is_identity:
+      return self._batch_env.simulate(action)
+    reward, done = self._batch_env.simulate(action)
+    with tf.control_dependencies([reward, done]):
+      ret = self._resize(self._batch_env.observ)
+      assign_op = self._observ.assign(ret)
+      with tf.control_dependencies([assign_op]):
+        return tf.identity(reward), tf.identity(done)
+
+  def _reset_non_empty(self, indices):
+    new_values = self._batch_env._reset_non_empty(indices)  # pylint: disable=protected-access
+    if self._is_identity:
+      return new_values
+    ret = self._resize(new_values)
+    assign_op = tf.scatter_update(self._observ, indices, ret)
+    with tf.control_dependencies([assign_op]):
+      return tf.gather(self.observ, indices)
+
+  def _transform_history_observations(self, frames):
+    batch_size, history_size = frames.get_shape().as_list()[:2]
+    new_frames = tf.reshape(frames, (-1,) + self._batch_env.observ_shape)
+    new_frames = self._resize(new_frames)
     return new_frames.reshape((batch_size, history_size) + self.observ_shape)
 
 
@@ -276,6 +348,9 @@ class IntToBitWrapper(WrapperBase):
     self._observ = self._observ = tf.Variable(
         tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
         trainable=False)
+
+  def __str__(self):
+    return "IntToBitWrapper(%s)" % str(self._batch_env)
 
   @property
   def observ_shape(self):
@@ -327,6 +402,9 @@ class PyFuncWrapper(WrapperBase):
     observs_shape = batch_env.observ.shape
     self._observ = tf.Variable(tf.zeros(observs_shape, self.observ_dtype),
                                trainable=False)
+
+  def __str__(self):
+    return "PyFuncWrapper(%s)" % str(self._batch_env)
 
   def simulate(self, action):
     reward, done = self._batch_env.simulate(action)

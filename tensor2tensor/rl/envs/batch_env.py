@@ -46,10 +46,13 @@ class BatchEnv(object):
     self.observ_space = self._envs[0].observation_space
     if not all(env.observation_space == self.observ_space
                for env in self._envs):
-      raise ValueError('All environments must use the same observation space.')
+      raise ValueError("All environments must use the same observation space.")
     self.action_space = self._envs[0].action_space
     if not all(env.action_space == self.action_space for env in self._envs):
-      raise ValueError('All environments must use the same observation space.')
+      raise ValueError("All environments must use the same observation space.")
+
+  def __str__(self):
+    return "BatchEnv(%s)" % ", ".join([str(e) for e in self._envs])
 
   def __len__(self):
     """Number of combined environments."""
@@ -84,7 +87,7 @@ class BatchEnv(object):
     """
     for index, (env, action) in enumerate(zip(self._envs, actions)):
       if not env.action_space.contains(action):
-        message = 'Invalid action at index {}: {}'
+        message = "Invalid action at index {}: {}"
         raise ValueError(message.format(index, action))
     if self._blocking:
       transitions = [
@@ -127,5 +130,5 @@ class BatchEnv(object):
   def close(self):
     """Send close messages to the external process and join them."""
     for env in self._envs:
-      if hasattr(env, 'close'):
+      if hasattr(env, "close"):
         env.close()

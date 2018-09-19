@@ -107,6 +107,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
 
     observ_space = utils.get_observation_space(environment_spec)
     initial_frames_problem = environment_spec.initial_frames_problem
+    self._frames_problem_name = str(initial_frames_problem)
     observ_shape = (initial_frames_problem.frame_height,
                     initial_frames_problem.frame_width,
                     initial_frames_problem.num_channels)
@@ -160,6 +161,9 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
 
   def initialize(self, sess):
     self.history_buffer.initialize(sess)
+
+  def __str__(self):
+    return "SimulatedEnv(%s)" % self._frames_problem_name
 
   def __len__(self):
     """Number of combined environments."""

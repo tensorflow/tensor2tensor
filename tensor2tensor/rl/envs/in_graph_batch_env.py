@@ -45,6 +45,9 @@ class InGraphBatchEnv(object):
     """
     return getattr(self._batch_env, name)
 
+  def __str__(self):
+    return "InGraphEnv(%s)" % str(self._batch_env)
+
   def __len__(self):
     """Number of combined environments."""
     return len(self._batch_env)

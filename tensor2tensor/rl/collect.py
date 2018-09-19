@@ -61,6 +61,9 @@ class _MemoryWrapper(WrapperBase):
     self._observ = tf.Variable(tf.zeros(observs_shape, self.observ_dtype),
                                trainable=False)
 
+  def __str__(self):
+    return "MemoryWrapper(%s)" % str(self._batch_env)
+
   def simulate(self, action):
 
     # There is subtlety here. We need to collect data
@@ -114,6 +117,8 @@ def define_collect(hparams, scope, eval_phase,
     rollout_metadata = None
     speculum = None
     for w in wrappers:
+      tf.logging.info("Applying wrapper %s(%s) to env %s."
+                      % (str(w[0]), str(w[1]), str(batch_env)))
       batch_env = w[0](batch_env, **w[1])
       to_initialize.append(batch_env)
       if w[0] == _MemoryWrapper:

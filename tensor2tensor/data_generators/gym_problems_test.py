@@ -37,7 +37,7 @@ class GymProblemsTest(tf.test.TestCase):
   def testGymAtariGameModes(self):
     for mode in gym_problems_specs.ATARI_GAME_MODES:
       problem = gym_problems_specs.ATARI_PROBLEMS["pong"][mode]["base"]()
-      self.assertEqual(210, problem.frame_height)
+      self.assertEqual(105, problem.frame_height)
 
 
 if __name__ == "__main__":

@@ -176,6 +176,8 @@ class GymClippedRewardRandom(GymDiscreteProblem):
 def create_problems_for_game(
     game_name,
     clipped_reward=True,
+    resize_height_factor=2,
+    resize_width_factor=2,
     game_mode="Deterministic-v4"):
   """Create and register problems for game_name.
 
@@ -183,6 +185,8 @@ def create_problems_for_game(
     game_name: str, one of the games in ATARI_GAMES, e.g. "bank_heist".
     clipped_reward: bool, whether the rewards should be clipped. False is not
       yet supported.
+    resize_height_factor: factor by which to resize the height of frames.
+    resize_width_factor: factor by which to resize the width of frames.
     game_mode: the frame skip and sticky keys config.
 
   Returns:
@@ -213,7 +217,9 @@ def create_problems_for_game(
   # Create and register the Random and WithAgent Problem classes
   problem_cls = type("Gym%sRandom" % camel_game_name,
                      (GymClippedRewardRandom,),
-                     {"env_name": wrapped_env_name})
+                     {"env_name": wrapped_env_name,
+                      "resize_height_factor": resize_height_factor,
+                      "resize_width_factor": resize_width_factor})
   registry.register_problem(problem_cls)
 
   with_agent_cls = type("GymDiscreteProblemWithAgentOn%s" % camel_game_name,
@@ -245,5 +251,3 @@ for game in ATARI_ALL_MODES_SHORT_LIST:
         clipped_reward=True,
         game_mode=mode)
     ATARI_PROBLEMS[game][mode] = classes
-
-

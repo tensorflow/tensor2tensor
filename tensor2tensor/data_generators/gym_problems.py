@@ -49,10 +49,18 @@ flags.DEFINE_string("autoencoder_path", None,
                     "File with model for autoencoder.")
 
 
-def standard_atari_env_spec(env):
+def standard_atari_env_spec(env, simulated=False,
+                            resize_height_factor=1, resize_width_factor=1):
   """Parameters of environment specification."""
-  standard_wrappers = [[tf_atari_wrappers.RewardClippingWrapper, {}],
-                       [tf_atari_wrappers.StackWrapper, {"history": 4}]]
+  standard_wrappers = [
+      [tf_atari_wrappers.ResizeWrapper,
+       {"height_factor": resize_height_factor,
+        "width_factor": resize_width_factor}],
+      [tf_atari_wrappers.RewardClippingWrapper, {}],
+      [tf_atari_wrappers.StackWrapper, {"history": 4}],
+  ]
+  if simulated:  # No resizing on simulated environments.
+    standard_wrappers = standard_wrappers[1:]
   env_lambda = None
   if isinstance(env, str):
     env_lambda = lambda: gym.make(env)
@@ -61,7 +69,9 @@ def standard_atari_env_spec(env):
   assert env_lambda is not None, "Unknown specification of environment"
 
   return tf.contrib.training.HParams(
-      env_lambda=env_lambda, wrappers=standard_wrappers, simulated_env=False)
+      env_lambda=env_lambda,
+      wrappers=standard_wrappers,
+      simulated_env=simulated)
 
 
 def standard_atari_ae_env_spec(env):
@@ -93,10 +103,11 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     super(GymDiscreteProblem, self).__init__(*args, **kwargs)
     # TODO(piotrmilos): Check if self._env is used.
     self._env = None
+
     self.debug_dump_frames_path = "debug_frames_env"
     self.settable_num_steps = 5000
 
-    self.environment_spec = self.get_environment_spec()
+    self._environment_spec = None
     self.settable_eval_phase = False
 
     self._internal_memory_size = 20
@@ -106,16 +117,24 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     self._use_dumper_data = False
     self._dumper_data_index = 0
 
+  @property
+  def resize_height_factor(self):
+    return 2
+
+  @property
+  def resize_width_factor(self):
+    return 2
+
   def _setup(self, data_dir):
     # TODO(piotrmilos):this should be consistent with
     # ppo_params in model_rl_experiment
     dumper_path = os.path.join(data_dir, "dumper")
     if os.path.isdir(dumper_path):
+      tf.logging.info("Using dumper data.")
       self._use_dumper_data = True
       self._dumper_data_index = 0
       self._dumper_path = dumper_path
     else:
-
       collect_hparams = rl.ppo_pong_base()
       collect_hparams.add_hparam("environment_spec", self.environment_spec)
       collect_hparams.add_hparam("force_beginning_resets",
@@ -136,7 +155,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
                 collect_hparams,
                 scope="gym_problems",
                 eval_phase=False,
-                collect_level=0,
+                collect_level=1,  # After ResizeWrapper but before others.
                 policy_to_actions_lambda=policy_to_actions_lambda))
 
       self._session = tf.Session()
@@ -261,7 +280,16 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     return data_fields, decoders
 
   def get_environment_spec(self):
-    return standard_atari_env_spec(self.env_name)
+    return standard_atari_env_spec(
+        self.env_name,
+        resize_height_factor=self.resize_height_factor,
+        resize_width_factor=self.resize_width_factor)
+
+  @property
+  def environment_spec(self):
+    if self._environment_spec is None:
+      self._environment_spec = self.get_environment_spec()
+    return self._environment_spec
 
   @property
   def is_generate_per_split(self):
@@ -293,11 +321,11 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
   @property
   def frame_height(self):
-    return self.env.observation_space.shape[0]
+    return self.env.observation_space.shape[0] // self.resize_height_factor
 
   @property
   def frame_width(self):
-    return self.env.observation_space.shape[1]
+    return self.env.observation_space.shape[1] // self.resize_width_factor
 
   @property
   def num_rewards(self):
@@ -466,6 +494,10 @@ class GymDiscreteProblemAutoencoded(GymRealDiscreteProblem):
     return 2**hparams.num_hidden_layers
 
   @property
+  def num_channels(self):
+    return 24
+
+  @property
   def frame_height(self):
     height = self.env.observation_space.shape[0]
     ae_height = int(math.ceil(height / self.autoencoder_factor))
@@ -522,8 +554,12 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     # the amount of skips induced but wrappers
     self._internal_memory_size = self.num_testing_steps
     self._internal_memory_force_beginning_resets = True
-    env_spec = standard_atari_env_spec(self.env_name)
-    real_env = env_spec.env_lambda()
+    real_env_spec = standard_atari_env_spec(
+        self.env_name,
+        simulated=False,
+        resize_height_factor=self.resize_height_factor,
+        resize_width_factor=self.resize_width_factor)
+    real_env = real_env_spec.env_lambda()
 
     self.statistics = RewardPerSequenceStatistics()
     self.statistics.real_env = real_env
@@ -574,8 +610,11 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     return None
 
   def get_environment_spec(self):
-    env_spec = standard_atari_env_spec(self.env_name)
-    env_spec.simulated_env = True
+    env_spec = standard_atari_env_spec(
+        self.env_name,
+        simulated=True,
+        resize_height_factor=self.resize_height_factor,
+        resize_width_factor=self.resize_width_factor)
     env_spec.add_hparam("simulation_random_starts", False)
     env_spec.add_hparam("simulation_flip_first_random_for_beginning", False)
     env_spec.add_hparam("intrinsic_reward_scale", 0.0)
@@ -603,9 +642,14 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     stat.episode_sim_reward += reward
 
     ob = np.ndarray.astype(observation, np.int)
-    err = np.ndarray.astype(
-        np.maximum(np.abs(stat.real_ob - ob, dtype=np.int) - 10, 0), np.uint8)
-    debug_im = np.concatenate([observation, stat.real_ob, err], axis=1)
+    if ob.shape == stat.real_ob.shape:
+      err = np.ndarray.astype(
+          np.maximum(np.abs(stat.real_ob - ob, dtype=np.int) - 10, 0), np.uint8)
+      debug_im = np.concatenate([observation, stat.real_ob, err], axis=1)
+    else:
+      # Real env does not get the ResizeWrapper and we don't have it in python,
+      # so we skip the debug image here and just output observations.
+      debug_im = observation
 
     assert (self._internal_memory_size == self.num_testing_steps and
             self._internal_memory_force_beginning_resets), (

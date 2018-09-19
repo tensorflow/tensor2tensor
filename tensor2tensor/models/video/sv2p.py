@@ -373,6 +373,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       masks = tfl.conv2d(
           enc6, filters=num_masks + 1, kernel_size=[1, 1],
           strides=(1, 1), name="convt7", padding="SAME")
+      masks = masks[:, :img_height, :img_width, ...]
       masks = tf.reshape(
           tf.nn.softmax(tf.reshape(masks, [-1, num_masks + 1])),
           [batch_size,
@@ -382,6 +383,9 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
           axis=3, num_or_size_splits=num_masks + 1, value=masks)
       output = mask_list[0] * input_image
       for layer, mask in zip(transformed, mask_list[1:]):
+        # TODO(mbz): take another look at this logic and verify.
+        output = output[:, :img_height, :img_width, :]
+        layer = layer[:, :img_height, :img_width, :]
         output += layer * mask
 
       return output, lstm_state

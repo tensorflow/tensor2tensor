@@ -99,6 +99,7 @@ class ExternalProcessEnv(object):
       observation_space: The cached observation space of the environment.
       action_space: The cached action space of the environment.
     """
+    self._constructor = constructor
     self._conn, conn = multiprocessing.Pipe()
     if xvfb:
       server_id = random.randint(10000, 99999)
@@ -128,6 +129,9 @@ class ExternalProcessEnv(object):
     self._process.start()
     self._observ_space = None
     self._action_space = None
+
+  def __str__(self):
+    return "ExternalProcessEnv(%s)" % str(self._constructor)
 
   @property
   def observation_space(self):

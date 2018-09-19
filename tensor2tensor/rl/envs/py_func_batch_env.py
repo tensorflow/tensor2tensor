@@ -42,11 +42,14 @@ class PyFuncBatchEnv(InGraphBatchEnv):
     super(PyFuncBatchEnv, self).__init__(batch_env.observation_space,
                                          batch_env.action_space)
     self._batch_env = batch_env
-    with tf.variable_scope('env_temporary'):
+    with tf.variable_scope("env_temporary"):
       self._observ = tf.Variable(
           tf.zeros((len(self._batch_env),) + self.observ_shape,
                    self.observ_dtype),
-          name='observ', trainable=False)
+          name="observ", trainable=False)
+
+  def __str__(self):
+    return "PyFuncEnv(%s)" % str(self._batch_env)
 
   def __getattr__(self, name):
     """Forward unimplemented attributes to one of the original environments.
@@ -81,13 +84,13 @@ class PyFuncBatchEnv(InGraphBatchEnv):
     Returns:
       Operation.
     """
-    with tf.name_scope('environment/simulate'):
+    with tf.name_scope("environment/simulate"):
       if action.dtype in (tf.float16, tf.float32, tf.float64):
-        action = tf.check_numerics(action, 'action')
+        action = tf.check_numerics(action, "action")
       observ, reward, done = tf.py_func(
           lambda a: self._batch_env.step(a)[:3], [action],
-          [self.observ_dtype, tf.float32, tf.bool], name='step')
-      reward = tf.check_numerics(reward, 'reward')
+          [self.observ_dtype, tf.float32, tf.bool], name="step")
+      reward = tf.check_numerics(reward, "reward")
       reward.set_shape((len(self),))
       done.set_shape((len(self),))
       with tf.control_dependencies([self._observ.assign(observ)]):
@@ -103,7 +106,7 @@ class PyFuncBatchEnv(InGraphBatchEnv):
       Batch tensor of the new observations.
     """
     observ = tf.py_func(
-        self._batch_env.reset, [indices], self.observ_dtype, name='reset')
+        self._batch_env.reset, [indices], self.observ_dtype, name="reset")
     observ.set_shape(indices.get_shape().concatenate(self.observ_shape))
     with tf.control_dependencies([
         tf.scatter_update(self._observ, indices, observ)]):

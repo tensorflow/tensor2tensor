@@ -472,8 +472,11 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     if problem_name not in registry.list_problems():
       tf.logging.info("Game Problem %s not found; dynamically registering",
                       problem_name)
-      gym_problems_specs.create_problems_for_game(hparams.game,
-                                                  game_mode="Deterministic-v4")
+      gym_problems_specs.create_problems_for_game(
+          hparams.game,
+          resize_height_factor=hparams.resize_height_factor,
+          resize_width_factor=hparams.resize_width_factor,
+          game_mode="Deterministic-v4")
 
   # Autoencoder model dir
   autoencoder_model_dir = directories.get("autoencoder")
@@ -648,26 +651,41 @@ def rl_modelrl_base():
       # though it is not necessary.
       ppo_epoch_length=50,
       ppo_num_agents=16,
-      ppo_learning_rate=2e-4,  # Will be changed, just so it exists.
+      ppo_learning_rate=1e-4,  # Will be changed, just so it exists.
       # Whether the PPO agent should be restored from the previous iteration, or
       # should start fresh each time.
       ppo_continue_training=True,
+      # Resizing.
+      resize_height_factor=2,
+      resize_width_factor=2,
 
       gather_ppo_real_env_data=True,
       real_ppo_epochs_num=0,
       # This needs to be divisible by real_ppo_effective_num_agents.
       real_ppo_epoch_length=16*200,
       real_ppo_num_agents=1,
-      real_ppo_learning_rate=2e-4,
+      real_ppo_learning_rate=1e-4,
       real_ppo_continue_training=True,
       real_ppo_effective_num_agents=16,
 
-      game="wrapped_full_pong",
+      game="pong",
       # Whether to evaluate the world model in each iteration of the loop to get
       # the model_reward_accuracy metric.
       eval_world_model=True,
       stop_loop_early=False,  # To speed-up tests.
   )
+
+
+@registry.register_hparams
+def rl_modelrl_basetest():
+  """Base setting but quicker with only 2 epochs."""
+  hparams = rl_modelrl_base()
+  hparams.epochs = 2
+  hparams.num_real_env_frames = 3200
+  hparams.model_train_steps = 500
+  hparams.simulated_env_generator_num_steps = 20
+  hparams.ppo_epochs_num = 2
+  return hparams
 
 
 @registry.register_hparams
@@ -785,6 +803,9 @@ def rl_modelrl_tiny():
           real_ppo_effective_num_agents=2,
           generative_model_params="next_frame_tiny",
           stop_loop_early=True,
+          resize_height_factor=2,
+          resize_width_factor=2,
+          game="pong",
       ).values())
 
 
@@ -862,8 +883,11 @@ def rl_modelrl_ae_base():
 def rl_modelrl_ae_tiny():
   """Tiny set for testing autoencoders."""
   hparams = rl_modelrl_tiny()
+  hparams.game = "wrapped_full_pong"
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "next_frame_ae"
+  hparams.resize_height_factor = 1
+  hparams.resize_width_factor = 1
   hparams.autoencoder_train_steps = 2
   hparams.eval_world_model = False
   return hparams
@@ -884,9 +908,7 @@ def rl_modelrl_tiny_simulation_deterministic_starts():
 @registry.register_ranged_hparams
 def rl_modelrl_grid(rhp):
   """Grid over games and frames, and 5 runs each for variance."""
-  rhp.set_categorical("loop.game",
-                      ["breakout", "wrapped_full_pong", "freeway"])
-
+  rhp.set_categorical("loop.game", ["breakout", "pong", "freeway"])
   base = 100000
   medium = base // 2
   small = medium // 2
@@ -900,8 +922,7 @@ def rl_modelrl_grid(rhp):
 def rl_modelrl_variance(rhp):
   # Dummy parameter to get 5 runs for each configuration
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
-  rhp.set_categorical("loop.game",
-                      ["breakout", "wrapped_full_pong", "freeway"])
+  rhp.set_categorical("loop.game", ["breakout", "pong", "freeway"])
 
 
 @registry.register_ranged_hparams
@@ -911,10 +932,16 @@ def rl_modelrl_variance_nogame(rhp):
 
 
 @registry.register_ranged_hparams
+def rl_modelrl_three(rhp):
+  rhp.set_discrete("model.moe_loss_coef", list(range(10)))
+  rhp.set_categorical("loop.game", ["breakout", "pong", "boxing"])
+
+
+@registry.register_ranged_hparams
 def rl_modelrl_test1(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
-  rhp.set_categorical("loop.game", ["breakout", "wrapped_full_pong", "boxing"])
-  rhp.set_discrete("loop.ppo_learning_rate", [1e-4, 2e-4, 4e-4])
+  rhp.set_categorical("loop.game", ["breakout", "pong", "boxing"])
+  rhp.set_discrete("loop.ppo_learning_rate", [5e-5, 1e-4, 2e-4])
   rhp.set_discrete("ppo.optimization_batch_size", [20, 40])
   rhp.set_discrete("loop.epochs", [3, 6])
 
@@ -940,8 +967,7 @@ def rl_modelrl_whitelisted_games(rhp):
 def rl_modelrl_ae_variance(rhp):
   # Dummy parameter to get 5 runs for each configuration
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
-  rhp.set_categorical("loop.game",
-                      ["breakout", "wrapped_full_pong", "freeway"])
+  rhp.set_categorical("loop.game", ["breakout", "pong", "freeway"])
   base = 100000
   small = base // 4
   rhp.set_discrete("loop.num_real_env_frames", [base, small])
@@ -949,23 +975,21 @@ def rl_modelrl_ae_variance(rhp):
 
 @registry.register_ranged_hparams
 def rl_modelrl_ppolr_game(rhp):
-  rhp.set_categorical("loop.game",
-                      ["breakout", "wrapped_full_pong", "freeway"])
-  base_lr = 2e-4
+  rhp.set_categorical("loop.game", ["breakout", "pong", "freeway"])
+  base_lr = 1e-4
   rhp.set_float("loop.ppo_learning_rate", base_lr / 2, base_lr * 2)
 
 
 @registry.register_ranged_hparams
 def rl_modelrl_ppolr(rhp):
-  base_lr = 2e-4
+  base_lr = 1e-4
   rhp.set_float("loop.ppo_learning_rate", base_lr / 2, base_lr * 2)
 
 
 @registry.register_ranged_hparams
 def rl_modelrl_ae_ppo_lr(rhp):
-  rhp.set_categorical("loop.game",
-                      ["breakout", "wrapped_full_pong", "freeway"])
-  base_lr = 2e-4
+  rhp.set_categorical("loop.game", ["breakout", "pong", "freeway"])
+  base_lr = 1e-4
   rhp.set_float("loop.ppo_learning_rate", base_lr / 2, base_lr * 2)
 
 
@@ -1037,14 +1061,14 @@ def rl_modelrl_num_frames(rhp):
 
 @registry.register_ranged_hparams
 def rl_modelrl_ppo_optimization_batch_size(rhp):
-  rhp.set_categorical("loop.game", ["pong", "wrapped_full_pong", "seaquest"])
+  rhp.set_categorical("loop.game", ["pong", "boxing", "seaquest"])
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_discrete("ppo.optimization_batch_size", [4, 10, 20])
 
 
 @registry.register_ranged_hparams
 def rl_modelrl_logits_clip(rhp):
-  rhp.set_categorical("loop.game", ["pong", "wrapped_full_pong", "seaquest"])
+  rhp.set_categorical("loop.game", ["pong", "boxing", "seaquest"])
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_discrete("ppo.logits_clip", [0., 5.])
 

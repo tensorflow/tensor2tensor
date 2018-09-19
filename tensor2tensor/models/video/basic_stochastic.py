@@ -72,7 +72,11 @@ class NextFrameBasicStochasticDiscrete(
 
     if hparams.mode == tf.estimator.ModeKeys.PREDICT:
       layer_shape = common_layers.shape_list(layer)
-      rand = tf.random_uniform(layer_shape[:-1] + [hparams.bottleneck_bits])
+      if hparams.full_latent_tower:
+        rand = tf.random_uniform(layer_shape[:-1] + [hparams.bottleneck_bits])
+      else:
+        rand = tf.random_uniform(layer_shape[:-3] + [
+            1, 1, hparams.bottleneck_bits])
       d = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
       z = tf.layers.dense(d, final_filters, name="unbottleneck")
       return layer + z, 0.0
@@ -132,8 +136,6 @@ def next_frame_basic_stochastic():
 def next_frame_basic_stochastic_discrete():
   """Basic 2-frame conv model with stochastic discrete latent."""
   hparams = basic_deterministic_params.next_frame_sampling()
-  hparams.num_compress_steps = 8
-  hparams.filter_double_steps = 3
   hparams.add_hparam("bottleneck_bits", 16)
   hparams.add_hparam("bottleneck_noise", 0.02)
   hparams.add_hparam("full_latent_tower", False)
