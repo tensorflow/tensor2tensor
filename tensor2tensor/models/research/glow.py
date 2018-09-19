@@ -43,7 +43,7 @@ def glow_hparams():
   hparams.batch_size = 32
   # can be prev_level, prev_step or normal.
   # see: glow_ops.merge_level_and_latent_dist
-  hparams.add_hparam("level_prior_scale", "prev_level")
+  hparams.add_hparam("level_scale", "prev_level")
   hparams.add_hparam("n_levels", 3)
   hparams.add_hparam("n_bits_x", 8)
   hparams.add_hparam("depth", 32)

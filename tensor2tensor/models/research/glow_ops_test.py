@@ -123,16 +123,24 @@ class GlowOpsTest(tf.test.TestCase):
         # Initialized with zeros.
         self.assertTrue(np.allclose(nn_np, 0.0))
 
-  def test_split_prior(self):
+  def check_tensor_to_dist(self, architecture):
     with tf.Graph().as_default():
       x = tf.random_uniform(shape=(16, 5, 5, 32))
-      x_prior = glow_ops.split_prior("split_prior", x)
+      x_prior = glow_ops.tensor_to_dist("split_prior", x,
+                                        architecture=architecture,
+                                        output_channels=64)
       mean_t, scale_t = x_prior.loc, x_prior.scale
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
         mean, scale = session.run([mean_t, scale_t])
+        self.assertEqual(mean.shape, (16, 5, 5, 64))
+        self.assertEqual(scale.shape, (16, 5, 5, 64))
         self.assertTrue(np.allclose(mean, 0.0))
         self.assertTrue(np.allclose(scale, 1.0))
+
+  def test_tensor_to_dist(self):
+    for architecture in ["single_conv", "glow_nn"]:
+      self.check_tensor_to_dist(architecture)
 
   def test_split(self):
     with tf.Graph().as_default():
@@ -262,16 +270,20 @@ class GlowOpsTest(tf.test.TestCase):
       latent_rand = rng.randn(12, 32, 32, 16).astype(np.float32)
       x_t = tf.convert_to_tensor(x_rand)
       latent_t = tf.convert_to_tensor(latent_rand)
+      hparams = glow.glow_hparams()
+      hparams.level_scale = merge_std
+      hparams.add_hparam("latent_dist_encoder", "pointwise")
 
       # Test initalization.
       # x2 ~ N(scale * latent, 1.0) where initial scale is 1.0
       exp_x2 = x_rand[:, :, :, 16:]
       exp_eps = x_rand[:, :, :, 16:] - latent_rand
-      x_inv, _, eps, x2_t = glow_ops.split(merge_std, x_t, cond_latent=latent_t,
-                                           merge_std=merge_std)
+      x_inv, _, eps, x2_t = glow_ops.split(
+          merge_std, x_t, cond_latents=latent_t, hparams=hparams)
       # Test reversibility.
-      x_inv_inv, _ = glow_ops.split(merge_std, x_inv, cond_latent=latent_t,
-                                    merge_std=merge_std, eps=eps, reverse=True)
+      x_inv_inv, _ = glow_ops.split(
+          merge_std, x_inv, cond_latents=latent_t, eps=eps, reverse=True,
+          hparams=hparams)
       with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         actual_eps, actual_x2, diff_np = sess.run([eps, x2_t, x_inv_inv - x_t])
