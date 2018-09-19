@@ -52,7 +52,7 @@ def train(hparams, event_dir=None, model_dir=None,
   """Train."""
   with tf.Graph().as_default():
     with tf.name_scope(name_scope):
-      train_summary_op, eval_summary, intializers = define_train(hparams)
+      train_summary_op, eval_summary_op, intializers = define_train(hparams)
       if event_dir:
         summary_writer = tf.summary.FileWriter(
             event_dir, graph=tf.get_default_graph(), flush_secs=60)
@@ -102,7 +102,7 @@ def train(hparams, event_dir=None, model_dir=None,
 
           if (hparams.eval_every_epochs and
               epoch_index % hparams.eval_every_epochs == 0):
-            sess.run(eval_summary)
+            eval_summary = sess.run(eval_summary_op)
             if summary_writer:
               summary_writer.add_summary(eval_summary, epoch_index)
 
