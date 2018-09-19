@@ -206,7 +206,23 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     hidden5 = tile_and_concat(hidden5, latent, concat_latent=concat_latent)
     return hidden5, (enc0, enc1)
 
-  def reward_prediction(self, input_images, input_reward, action, latent):
+  def reward_prediction(self, *args, **kwargs):
+    model = self.hparams.reward_model
+    if model == "basic":
+      return self.reward_prediction_basic(*args, **kwargs)
+    elif model == "big":
+      return self.reward_prediction_big(*args, **kwargs)
+    else:
+      raise ValueError("Unknown reward model %s" % model)
+
+  def reward_prediction_basic(self, input_images, input_reward, action, latent):
+    del input_reward, action, latent
+    x = tf.concat(input_images, axis=3)
+    x = tf.expand_dims(  # Add a fake channels dim.
+        tf.reduce_mean(x, axis=[1, 2], keepdims=True), axis=3)
+    return x
+
+  def reward_prediction_big(self, input_images, input_reward, action, latent):
     """Builds a reward prediction network."""
     conv_size = self.tinyify([32, 32, 16, 8])
 
@@ -546,8 +562,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     # This is NOT the same as original paper/implementation.
     predictions = gen_images[hparams.video_num_input_frames-1:]
     reward_pred = gen_rewards[hparams.video_num_input_frames-1:]
-    if self.is_training:
-      reward_pred = tf.squeeze(reward_pred, axis=2)  # Remove extra dimension.
+    reward_pred = tf.squeeze(reward_pred, axis=2)  # Remove extra dimension.
 
     # Swap back time and batch axes.
     predictions = common_video.swap_time_and_batch_axes(predictions)

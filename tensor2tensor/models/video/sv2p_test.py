@@ -40,8 +40,10 @@ class NextFrameTest(tests_utils.BaseNextFrameTest):
         1)
 
   def testSv2pWithActionsAndRewards(self):
+    hp = sv2p_params.next_frame_sv2p()
+    hp.internal_loss = True
     self.TestWithActionAndRewards(
-        sv2p_params.next_frame_sv2p(),
+        hp,
         sv2p.NextFrameSv2p,
         1)
 

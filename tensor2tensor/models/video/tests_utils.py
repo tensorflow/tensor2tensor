@@ -238,7 +238,7 @@ class BaseNextFrameTest(tf.test.TestCase):
     self.assertTrue("target_reward" in output.keys())
     expected_shape = get_tensor_shape(features["targets"])
     self.assertEqual(output["targets"].shape, expected_shape)
-    expected_shape = get_tensor_shape(features["target_reward"])[:2] + (1,)
+    expected_shape = get_tensor_shape(features["target_reward"])[:2]
     self.assertEqual(output["target_reward"].shape, expected_shape)
 
   def TestOnVariousInputOutputSizes(
