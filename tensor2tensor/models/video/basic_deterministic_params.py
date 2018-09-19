@@ -49,6 +49,7 @@ def next_frame_basic_deterministic():
   hparams.add_hparam("preprocess_resize_frames", None)
   hparams.add_hparam("shuffle_buffer_size", 128)
   hparams.add_hparam("tiny_mode", False)
+  hparams.add_hparam("small_mode", False)
   hparams.add_hparam("stochastic_model", False)
   return hparams
 

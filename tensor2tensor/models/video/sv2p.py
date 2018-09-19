@@ -44,7 +44,8 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
   """Stochastic Variational Video Prediction."""
 
   def tinyify(self, array):
-    return common_video.tinyify(array, self.hparams.tiny_mode)
+    return common_video.tinyify(
+        array, self.hparams.tiny_mode, self.hparams.small_mode)
 
   def visualize_predictions(self, real_frames, gen_frames):
     def concat_on_y_axis(x):
@@ -155,6 +156,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     concat_input_image = tile_and_concat(
         input_image, latent, concat_latent=concat_latent)
 
+    layer_id = 0
     enc0 = tfl.conv2d(
         concat_input_image,
         conv_size[0], [5, 5],
@@ -164,29 +166,38 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
         name="scale1_conv1")
     enc0 = tfcl.layer_norm(enc0, scope="layer_norm1")
 
-    hidden1, lstm_state[0] = lstm_func(
-        enc0, lstm_state[0], lstm_size[0], name="state1")
+    hidden1, lstm_state[layer_id] = lstm_func(
+        enc0, lstm_state[layer_id], lstm_size[layer_id], name="state1")
     hidden1 = tile_and_concat(hidden1, latent, concat_latent=concat_latent)
     hidden1 = tfcl.layer_norm(hidden1, scope="layer_norm2")
-    hidden2, lstm_state[1] = lstm_func(
-        hidden1, lstm_state[1], lstm_size[1], name="state2")
+    layer_id += 1
+
+    hidden2, lstm_state[layer_id] = lstm_func(
+        hidden1, lstm_state[layer_id], lstm_size[layer_id], name="state2")
     hidden2 = tfcl.layer_norm(hidden2, scope="layer_norm3")
     hidden2 = common_layers.make_even_size(hidden2)
     enc1 = tfl.conv2d(hidden2, hidden2.get_shape()[3], [3, 3], strides=(2, 2),
                       padding="SAME", activation=tf.nn.relu, name="conv2")
     enc1 = tile_and_concat(enc1, latent, concat_latent=concat_latent)
+    layer_id += 1
 
-    hidden3, lstm_state[2] = lstm_func(
-        enc1, lstm_state[2], lstm_size[2], name="state3")
-    hidden3 = tile_and_concat(hidden3, latent, concat_latent=concat_latent)
-    hidden3 = tfcl.layer_norm(hidden3, scope="layer_norm4")
-    hidden4, lstm_state[3] = lstm_func(
-        hidden3, lstm_state[3], lstm_size[3], name="state4")
-    hidden4 = tile_and_concat(hidden4, latent, concat_latent=concat_latent)
-    hidden4 = tfcl.layer_norm(hidden4, scope="layer_norm5")
-    hidden4 = common_layers.make_even_size(hidden4)
-    enc2 = tfl.conv2d(hidden4, hidden4.get_shape()[3], [3, 3], strides=(2, 2),
-                      padding="SAME", activation=tf.nn.relu, name="conv3")
+    if self.hparams.small_mode:
+      hidden4, enc2 = hidden2, enc1
+    else:
+      hidden3, lstm_state[layer_id] = lstm_func(
+          enc1, lstm_state[layer_id], lstm_size[layer_id], name="state3")
+      hidden3 = tile_and_concat(hidden3, latent, concat_latent=concat_latent)
+      hidden3 = tfcl.layer_norm(hidden3, scope="layer_norm4")
+      layer_id += 1
+
+      hidden4, lstm_state[layer_id] = lstm_func(
+          hidden3, lstm_state[layer_id], lstm_size[layer_id], name="state4")
+      hidden4 = tile_and_concat(hidden4, latent, concat_latent=concat_latent)
+      hidden4 = tfcl.layer_norm(hidden4, scope="layer_norm5")
+      hidden4 = common_layers.make_even_size(hidden4)
+      enc2 = tfl.conv2d(hidden4, hidden4.get_shape()[3], [3, 3], strides=(2, 2),
+                        padding="SAME", activation=tf.nn.relu, name="conv3")
+      layer_id += 1
 
     if action is not None:
       enc2 = self.inject_additional_input(
@@ -200,11 +211,12 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     enc3 = tfl.conv2d(enc2, hidden4.get_shape()[3], [1, 1], strides=(1, 1),
                       padding="SAME", activation=tf.nn.relu, name="conv4")
 
-    hidden5, lstm_state[4] = lstm_func(
-        enc3, lstm_state[4], lstm_size[4], name="state5")  # last 8x8
+    hidden5, lstm_state[layer_id] = lstm_func(
+        enc3, lstm_state[layer_id], lstm_size[layer_id], name="state5")
     hidden5 = tfcl.layer_norm(hidden5, scope="layer_norm6")
     hidden5 = tile_and_concat(hidden5, latent, concat_latent=concat_latent)
-    return hidden5, (enc0, enc1)
+    layer_id += 1
+    return hidden5, (enc0, enc1), layer_id
 
   def reward_prediction(self, *args, **kwargs):
     model = self.hparams.reward_model
@@ -229,9 +241,11 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     with tf.variable_scope("reward_pred", reuse=tf.AUTO_REUSE):
       x = tf.concat(input_images, axis=3)
       x = tfcl.layer_norm(x)
-      x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
-                     activation=tf.nn.relu, name="reward_conv1")
-      x = tfcl.layer_norm(x)
+
+      if not self.hparams.small_mode:
+        x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
+                       activation=tf.nn.relu, name="reward_conv1")
+        x = tfcl.layer_norm(x)
 
       # Inject additional inputs
       if action is not None:
@@ -269,7 +283,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     conv_size = self.tinyify([32])
 
     with tf.variable_scope("main", reuse=tf.AUTO_REUSE):
-      hidden5, skips = self.bottom_part_tower(
+      hidden5, skips, layer_id = self.bottom_part_tower(
           input_image, input_reward, action, latent,
           lstm_state, lstm_size, conv_size, concat_latent=concat_latent)
       enc0, enc1 = skips
@@ -283,13 +297,14 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       enc4 = enc4[:, :enc1_shape[1], :enc1_shape[2], :]  # Cut to shape.
       enc4 = tile_and_concat(enc4, latent, concat_latent=concat_latent)
 
-      hidden6, lstm_state[5] = lstm_func(
-          enc4, lstm_state[5], lstm_size[5], name="state6",
+      hidden6, lstm_state[layer_id] = lstm_func(
+          enc4, lstm_state[layer_id], lstm_size[5], name="state6",
           spatial_dims=enc1_shape[1:-1])  # 16x16
       hidden6 = tile_and_concat(hidden6, latent, concat_latent=concat_latent)
       hidden6 = tfcl.layer_norm(hidden6, scope="layer_norm7")
       # Skip connection.
       hidden6 = tf.concat(axis=3, values=[hidden6, enc1])  # both 16x16
+      layer_id += 1
 
       with tf.variable_scope("upsample2", reuse=tf.AUTO_REUSE):
         enc5 = common_layers.cyclegan_upsample(
@@ -300,10 +315,11 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       enc5 = enc5[:, :enc0_shape[1], :enc0_shape[2], :]  # Cut to shape.
       enc5 = tile_and_concat(enc5, latent, concat_latent=concat_latent)
 
-      hidden7, lstm_state[6] = lstm_func(
-          enc5, lstm_state[6], lstm_size[6], name="state7",
+      hidden7, lstm_state[layer_id] = lstm_func(
+          enc5, lstm_state[layer_id], lstm_size[6], name="state7",
           spatial_dims=enc0_shape[1:-1])  # 32x32
       hidden7 = tfcl.layer_norm(hidden7, scope="layer_norm8")
+      layer_id += 1
 
       # Skip connection.
       hidden7 = tf.concat(axis=3, values=[hidden7, enc0])  # both 32x32
@@ -442,7 +458,8 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       latent = common_video.get_gaussian_tensor(latent_mean, latent_std)
 
     # HACK: Do first step outside to initialize all the variables
-    lstm_states = [None] * 7
+
+    lstm_states = [None] * (5 if self.hparams.small_mode else 7)
     frame_buffer = [tf.zeros_like(images[0])] * buffer_size
     inputs = images[0], rewards[0], actions[0]
     prev_outputs = (tf.constant(0),

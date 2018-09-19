@@ -435,9 +435,11 @@ def gif_summary(name, tensor, max_outputs=3, fps=10, collections=None,
 
 
 
-def tinyify(array, tiny_mode):
+def tinyify(array, tiny_mode, small_mode):
   if tiny_mode:
     return [1 for _ in array]
+  if small_mode:
+    return [x // 4 for x in array]
   return array
 
 
@@ -448,7 +450,8 @@ def get_gaussian_tensor(mean, log_var):
 
 
 def conv_latent_tower(images, time_axis, latent_channels=1, min_logvar=-5,
-                      is_training=False, random_latent=False, tiny_mode=False):
+                      is_training=False, random_latent=False,
+                      tiny_mode=False, small_mode=False):
   """Builds convolutional latent tower for stochastic model.
 
   At training time this tower generates a latent distribution (mean and std)
@@ -466,12 +469,17 @@ def conv_latent_tower(images, time_axis, latent_channels=1, min_logvar=-5,
     min_logvar: minimum value for log_var
     is_training: whether or not it is training mode
     random_latent: whether or not generate random latents
-    tiny_mode: whether or not it is tiny_mode
+    tiny_mode: whether or not it is tiny_mode. tiny_mode sets the number
+        of conv channels to 1 at each layer. useful for testing the
+        integration tests.
+    small_mode: whether or not it is small_mode. small mode is the same model
+        with less conv and lstm layers and also lower number of channels.
+        suitable for videos with less complexity and testing.
   Returns:
     latent_mean: predicted latent mean
     latent_logvar: predicted latent log variance
   """
-  conv_size = tinyify([32, 64, 64], tiny_mode)
+  conv_size = tinyify([32, 64, 64], tiny_mode, small_mode)
   with tf.variable_scope("latent", reuse=tf.AUTO_REUSE):
     images = tf.to_float(images)
     images = tf.unstack(images, axis=time_axis)
@@ -482,9 +490,10 @@ def conv_latent_tower(images, time_axis, latent_channels=1, min_logvar=-5,
     x = tfl.conv2d(x, conv_size[0], [3, 3], strides=(2, 2),
                    padding="SAME", activation=tf.nn.relu, name="latent_conv1")
     x = tfcl.layer_norm(x)
-    x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
-                   padding="SAME", activation=tf.nn.relu, name="latent_conv2")
-    x = tfcl.layer_norm(x)
+    if not small_mode:
+      x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
+                     padding="SAME", activation=tf.nn.relu, name="latent_conv2")
+      x = tfcl.layer_norm(x)
     x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(1, 1),
                    padding="SAME", activation=tf.nn.relu, name="latent_conv3")
     x = tfcl.layer_norm(x)

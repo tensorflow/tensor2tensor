@@ -109,7 +109,8 @@ class NextFrameBaseVae(object):
         min_logvar=self.hparams.latent_std_min,
         is_training=self.is_training,
         random_latent=first_phase,
-        tiny_mode=self.hparams.tiny_mode)
+        tiny_mode=self.hparams.tiny_mode,
+        small_mode=self.hparams.small_mode)
 
 
 
