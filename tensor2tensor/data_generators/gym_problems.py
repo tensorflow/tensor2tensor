@@ -63,6 +63,18 @@ def standard_atari_env_spec(env):
   return tf.contrib.training.HParams(
       env_lambda=env_lambda, wrappers=standard_wrappers, simulated_env=False)
 
+def standard_atari_env_eval_spec(env):
+  """Parameters of environment specification."""
+  standard_wrappers = [[tf_atari_wrappers.StackWrapper, {"history": 4}]]
+  env_lambda = None
+  if isinstance(env, str):
+    env_lambda = lambda: gym.make(env)
+  if callable(env):
+    env_lambda = env
+  assert env_lambda is not None, "Unknown specification of environment"
+
+  return tf.contrib.training.HParams(
+      env_lambda=env_lambda, wrappers=standard_wrappers, simulated_env=False)
 
 def standard_atari_ae_env_spec(env):
   """Parameters of environment specification."""

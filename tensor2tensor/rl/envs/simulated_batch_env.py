@@ -43,6 +43,7 @@ class HistoryBuffer(object):
     if start_frame is None:
       dataset = input_dataset.batch(length)
     else:
+      #TODO (piotrmilos): fix when length == 1
       dataset = input_dataset.batch(length - 1)
       dataset = dataset.map(lambda x: tf.concat([start_frame, x], axis=0))
     self.input_data_iterator = dataset.make_initializable_iterator()
