@@ -64,8 +64,8 @@ def next_frame_sv2p_atari():
   hparams.anneal_end = 50000
   hparams.latent_loss_multiplier_schedule = "noisy_linear_cosine_decay"
   hparams.latent_loss_multiplier = 1e-3
-  hparams.preprocess_resize_frames = [96, 96]
   hparams.information_capacity = 0.0
+  hparams.small_mode = True
   return hparams
 
 
