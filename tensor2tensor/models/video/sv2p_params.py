@@ -47,7 +47,7 @@ def next_frame_sv2p():
   hparams.add_hparam("scheduled_sampling_decay_steps", 10000)
   hparams.add_hparam("scheduled_sampling_k", 900.0)
   hparams.add_hparam("upsample_method", "conv2d_transpose")
-  hparams.add_hparam("internal_loss", False)
+  hparams.add_hparam("internal_loss", True)
   hparams.add_hparam("reward_model", "basic")
   return hparams
 

@@ -586,17 +586,17 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     reward_pred = common_video.swap_time_and_batch_axes(reward_pred)
 
     if hparams.internal_loss:
-      recon_loss = tf.losses.mean_squared_error(all_frames[1:], gen_images)
-      rew_loss = 0.0
-      if hparams.reward_prediction:
-        rew_loss = tf.losses.softmax_cross_entropy(all_rewards[1:], gen_rewards)
-        tf.summary.scalar("loss/reward", rew_loss)
-      tf.summary.scalar("loss/recon", recon_loss)
-      tf.summary.scalar("loss/kl", extra_loss)
-      extra_loss = {"training": recon_loss + rew_loss + extra_loss}
-      # also expand the last dimension of prediction since
-      # we all the modalities will be bypassed.
-      predictions = tf.expand_dims(predictions, axis=-1)
+      # add the MSE loss for input frames as well.
+      # we are assuming the modality is L2. otherwise the loss would be
+      # incosistent across the frames.
+      modality = self.hparams.problem_hparams.target_modality["targets"]
+      if modality.__class__.__name__ != "VideoModalityL2Raw":
+        raise ValueError("internal loss only works with L2.")
+      recon_loss = tf.losses.mean_squared_error(
+          all_frames[1:hparams.video_num_input_frames+1],
+          gen_images[:hparams.video_num_input_frames])
+      tf.summary.scalar("mse_extra", recon_loss)
+      extra_loss += recon_loss
 
     return_targets = predictions
     if hparams.reward_prediction:

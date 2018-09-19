@@ -38,4 +38,5 @@ def next_frame_savp():
   hparams.input_modalities = "inputs:video:l1raw"
   hparams.latent_loss_multiplier_schedule = "linear"
   hparams.upsample_method = "bilinear_upsample_conv"
+  hparams.internal_loss = False
   return hparams
