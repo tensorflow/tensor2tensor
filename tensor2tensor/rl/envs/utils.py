@@ -19,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 import gym
+import six
 import tensorflow as tf
 
 
@@ -134,3 +135,130 @@ def parse_dtype(space):
   if isinstance(space, gym.spaces.Box):
     return tf.as_dtype(space.dtype)
   raise NotImplementedError()
+
+
+class InitialFrameChooser(object):
+  """Class for choosing the initial frame for simulation from the dataset.
+
+  Can also store a sequence of later frames, which is used for comparison in
+  world model evaluation.
+
+  Attributes:
+    batch_size (int): Batch size, should be set before calling choose().
+    trajectory (dict): Dict of Variables storing a sequence of frames after the
+        chosen one.
+  """
+
+  def __init__(self, environment_spec, mode, trajectory_length=1):
+    self._initial_frames_problem = environment_spec.initial_frames_problem
+    self._simulation_random_starts = environment_spec.simulation_random_starts
+    self._flip_first_random_for_beginning = \
+        environment_spec.simulation_flip_first_random_for_beginning
+    self._num_initial_frames = environment_spec.video_num_input_frames
+
+    def dataset_kwargs_lambda():
+      video_num_input_frames = environment_spec.video_num_input_frames
+      video_num_input_frames += trajectory_length - 1
+      dataset_hparams = tf.contrib.training.HParams(
+          video_num_input_frames=video_num_input_frames,
+          video_num_target_frames=environment_spec.video_num_target_frames,
+          environment_spec=environment_spec
+      )
+      return {
+          "mode": mode,
+          "data_dir": tf.flags.FLAGS.data_dir,
+          "hparams": dataset_hparams,
+          "only_last": True
+      }
+
+    self._dataset_kwargs_lambda = dataset_kwargs_lambda
+    self._start_frames = None
+
+  @property
+  def batch_size(self):
+    return self._batch_size
+
+  @batch_size.setter
+  def batch_size(self, batch_size):
+    self._batch_size = batch_size
+    self._iterator = \
+        self._create_initial_frame_dataset().make_initializable_iterator()
+
+    def fix_and_shorten(shape):
+      shape = shape.as_list()
+      shape[0] = batch_size
+      shape[1] -= self._num_initial_frames - 1
+      return shape
+
+    shapes = self._extract_input(self._iterator.output_shapes)
+    types = self._extract_input(self._iterator.output_types)
+    self.trajectory = {
+        key: tf.Variable(
+            tf.zeros(fix_and_shorten(shape), types[key]),
+            trainable=False
+        )
+        for (key, shape) in six.iteritems(shapes)
+    }
+
+  def initialize(self, sess):
+    sess.run(self._iterator.initializer)
+
+  def choose(self):
+    """Returns a dict of tensors of the chosen initial frame.
+
+    Also assigns the first trajectory_length frames after the initial frames to
+    self.trajectory.
+    """
+    if self._flip_first_random_for_beginning and self._start_frames is None:
+      ordered_dataset = self._create_dataset(shuffle_files=False)
+      # Later flip the first random frame in PPO batch for the true beginning.
+      self._start_frames = self._extract_input(
+          ordered_dataset.make_one_shot_iterator().get_next()
+      )
+
+    all_frames = self._extract_input(self._iterator.get_next())
+    if self._start_frames is not None:
+      all_frames = {
+          key: tf.concat([
+              tf.expand_dims(self._start_frames[key], axis=0),
+              value[1:, ...]
+          ], axis=0)
+          for (key, value) in six.iteritems(all_frames)
+      }
+    scatter_ops = [
+        tf.scatter_update(
+            self.trajectory[key], tf.range(tf.shape(value)[0]),
+            value[:, (self._num_initial_frames - 1):, ...]
+        )
+        for (key, value) in six.iteritems(all_frames)
+    ]
+
+    with tf.control_dependencies(scatter_ops):
+      return {
+          key: value[:, :self._num_initial_frames, ...]
+          for (key, value) in six.iteritems(all_frames)
+      }
+
+  def _create_dataset(self, **extra_dataset_kwargs):
+    dataset_kwargs = self._dataset_kwargs_lambda()
+    dataset_kwargs.update(extra_dataset_kwargs)
+    return self._initial_frames_problem.dataset(**dataset_kwargs)
+
+  def _create_initial_frame_dataset(self):
+    """Returns the dataset that consecutive initial frames will be taken from.
+    """
+    dataset = self._create_dataset(
+        shuffle_files=self._simulation_random_starts
+    )
+    if self._simulation_random_starts:
+      dataset = dataset.shuffle(buffer_size=1000)
+    return dataset.repeat().batch(self._batch_size)
+
+  def _extract_input(self, frame):
+    input_frame = {"inputs": frame["inputs"]}
+    input_frame.update({
+        key[len("input_"):]: value
+        for (key, value) in six.iteritems(frame)
+        if key.startswith("input_")
+    })
+    return input_frame

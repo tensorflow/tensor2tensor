@@ -43,6 +43,7 @@ from tensor2tensor.data_generators import gym_problems_specs
 from tensor2tensor.layers import discretization
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.rl.envs.tf_atari_wrappers import PyFuncWrapper
+from tensor2tensor.rl.envs.utils import InitialFrameChooser
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
@@ -202,6 +203,9 @@ def train_agent(problem_name, agent_model_dir,
   environment_spec.intrinsic_reward_scale = hparams.intrinsic_reward_scale
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)
+  ppo_hparams.add_hparam("initial_frame_chooser", InitialFrameChooser(
+      environment_spec, mode=tf.estimator.ModeKeys.TRAIN
+  ))
 
   with temporary_flags({
       "problem": problem_name,
@@ -290,6 +294,8 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
   gym_simulated_problem = registry.problem(simulated_problem_name)
   sim_steps = hparams.simulated_env_generator_num_steps
   gym_simulated_problem.settable_num_steps = sim_steps
+  gym_simulated_problem.settable_rollout_fractions = \
+      hparams.eval_rollout_fractions
   with temporary_flags({
       "problem": problem_name,
       "model": hparams.generative_model,
@@ -299,9 +305,13 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
   }):
     gym_simulated_problem.generate_data(epoch_data_dir, tmp_dir)
   n = max(1., gym_simulated_problem.statistics.number_of_dones)
-  model_reward_accuracy = (
-      gym_simulated_problem.statistics.successful_episode_reward_predictions
-      / float(n))
+  model_reward_accuracy = [
+      (frac, score / float(n))
+      for (frac, score) in six.iteritems(
+          gym_simulated_problem.statistics.
+          successful_episode_reward_predictions
+      )
+  ]
   old_path = os.path.join(epoch_data_dir, "debug_frames_sim")
   new_path = os.path.join(epoch_data_dir, "debug_frames_sim_eval")
   if not tf.gfile.Exists(new_path):
@@ -464,11 +474,18 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     simulated_problem_name = (
         "gym_simulated_discrete_problem_with_agent_on_%s_autoencoded"
         % game_with_mode)
+    world_model_eval_problem_name = (
+        "gym_simulated_discrete_problem_for_world_model_eval_with_agent_on_%s" \
+        "_autoencoded"
+        % game_with_mode)
   else:
     problem_name = ("gym_discrete_problem_with_agent_on_%s" % game_with_mode)
     world_model_problem = problem_name
     simulated_problem_name = ("gym_simulated_discrete_problem_with_agent_on_%s"
                               % game_with_mode)
+    world_model_eval_problem_name = (
+        "gym_simulated_discrete_problem_for_world_model_eval_with_agent_on_%s"
+        % game_with_mode)
     if problem_name not in registry.list_problems():
       tf.logging.info("Game Problem %s not found; dynamically registering",
                       problem_name)
@@ -497,8 +514,11 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
                                         "eval_metrics_event_dir")
   eval_metrics_writer = tf.summary.FileWriter(eval_metrics_event_dir)
   model_reward_accuracy_summary = tf.Summary()
-  model_reward_accuracy_summary.value.add(tag="model_reward_accuracy",
-                                          simple_value=None)
+  for frac in hparams.eval_rollout_fractions:
+    model_reward_accuracy_summary.value.add(
+        tag="model_reward_accuracy_{}".format(frac),
+        simple_value=None
+    )
   mean_reward_summary = tf.Summary()
   mean_reward_summary.value.add(tag="mean_reward",
                                 simple_value=None)
@@ -533,14 +553,17 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
                       directories["world_model"], hparams, epoch)
 
     # Evaluate world model
-    model_reward_accuracy = 0.
+    model_reward_accuracy = []
     if hparams.eval_world_model:
       log("Evaluating world model")
       model_reward_accuracy = evaluate_world_model(
-          simulated_problem_name, world_model_problem, hparams,
+          world_model_eval_problem_name, world_model_problem, hparams,
           directories["world_model"],
           epoch_data_dir, directories["tmp"])
-      log("World model reward accuracy: %.4f", model_reward_accuracy)
+      log(
+          "World model reward accuracy per rollout fraction: %s",
+          model_reward_accuracy
+      )
 
     # Train PPO
     log("Training PPO in simulated environment.")
@@ -581,15 +604,21 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     # Summarize metrics
     assert model_reward_accuracy is not None
     assert mean_reward is not None
-    model_reward_accuracy_summary.value[0].simple_value = model_reward_accuracy
+    for ((_, accuracy), summary_value) in zip(
+        model_reward_accuracy, model_reward_accuracy_summary.value
+    ):
+      summary_value.simple_value = accuracy
     mean_reward_summary.value[0].simple_value = mean_reward
     eval_metrics_writer.add_summary(model_reward_accuracy_summary, epoch)
     eval_metrics_writer.add_summary(mean_reward_summary, epoch)
     eval_metrics_writer.flush()
 
     # Report metrics
-    eval_metrics = {"model_reward_accuracy": model_reward_accuracy,
-                    "mean_reward": mean_reward}
+    eval_metrics = {"mean_reward": mean_reward}
+    eval_metrics.update({
+        "model_reward_accuracy_{}".format(frac): accuracy
+        for (frac, accuracy) in model_reward_accuracy
+    })
     epoch_metrics.append(eval_metrics)
     log("Eval metrics: %s", str(eval_metrics))
     if report_fn:
@@ -666,6 +695,8 @@ def rl_modelrl_base():
       # Whether to evaluate the world model in each iteration of the loop to get
       # the model_reward_accuracy metric.
       eval_world_model=True,
+      # Rollout fractions to report reward_accuracy on.
+      eval_rollout_fractions=[0.25, 0.5, 1],
       stop_loop_early=False,  # To speed-up tests.
   )
 
@@ -865,7 +896,6 @@ def rl_modelrl_ae_tiny():
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "next_frame_ae"
   hparams.autoencoder_train_steps = 2
-  hparams.eval_world_model = False
   return hparams
 
 
