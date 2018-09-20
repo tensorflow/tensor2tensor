@@ -161,12 +161,16 @@ def _ppo_training_epochs(hparams, epoch, is_final_epoch, real_env_training):
 
   simulated_training_ppo_epochs_num = hparams.ppo_epochs_num
 
-  ppo_training_epochs = ((epoch + 1)*simulated_training_ppo_epochs_num
-                         + epoch * real_training_ppo_epochs_num)
+  if epoch == -1:
+    assert real_env_training, (
+        "Epoch -1 should only be used for PPO collection in real environment.")
+    return real_training_ppo_epochs_num
+  ppo_training_epochs = (epoch + 1) * (simulated_training_ppo_epochs_num
+                                       + real_training_ppo_epochs_num)
+  if is_final_epoch:  # Length of training in the final epoch is doubled.
+    ppo_training_epochs += simulated_training_ppo_epochs_num
   if real_env_training:
     ppo_training_epochs += real_training_ppo_epochs_num
-  if is_final_epoch:
-    ppo_training_epochs += simulated_training_ppo_epochs_num
   return ppo_training_epochs
 
 
@@ -210,7 +214,7 @@ def train_agent(problem_name, agent_model_dir,
       "output_dir": world_model_dir,
       "data_dir": epoch_data_dir,
   }):
-    rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir,
+    rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
                          name_scope="ppo_sim")
 
 ppo_data_dumper_counter = 0
@@ -279,8 +283,7 @@ def train_agent_real_env(
       "output_dir": world_model_dir,
       "data_dir": epoch_data_dir,
   }):
-    # epoch = 10**20 is a hackish way to avoid skiping training
-    rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir,
+    rl_trainer_lib.train(ppo_hparams, event_dir + "real", agent_model_dir,
                          name_scope="ppo_real")
 
 
@@ -488,12 +491,24 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   epoch_metrics = []
   epoch_data_dirs = []
 
-  # Collect data from the real environment with random policy
-  data_dir = os.path.join(directories["data"], "random")
+  ppo_model_dir = None
+  data_dir = os.path.join(directories["data"], "initial")
   epoch_data_dirs.append(data_dir)
-  tf.logging.info("Generating real environment data with random policy")
+  # Collect data from the real environment with PPO or random policy.
+  if hparams.gather_ppo_real_env_data:
+    ppo_model_dir = directories["ppo"]
+    tf.logging.info("Initial training of PPO in real environment.")
+    ppo_event_dir = os.path.join(directories["world_model"],
+                                 "ppo_summaries/initial")
+    train_agent_real_env(
+        problem_name, ppo_model_dir,
+        ppo_event_dir, directories["world_model"], data_dir,
+        hparams, epoch=-1, is_final_epoch=False)
+
+  tf.logging.info("Generating real environment data with %s policy",
+                  "PPO" if hparams.gather_ppo_real_env_data else "random")
   mean_reward = generate_real_env_data(
-      problem_name, None, hparams, data_dir, directories["tmp"])
+      problem_name, ppo_model_dir, hparams, data_dir, directories["tmp"])
   tf.logging.info("Mean reward (random): {}".format(mean_reward))
 
   eval_metrics_event_dir = os.path.join(directories["world_model"],
