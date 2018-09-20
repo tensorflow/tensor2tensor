@@ -229,7 +229,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
 
   def reward_prediction_basic(self, input_images, input_reward, action, latent):
     del input_reward, action, latent
-    x = tf.concat(input_images, axis=3)
+    x = input_images[0]
     x = tf.expand_dims(  # Add a fake channels dim.
         tf.reduce_mean(x, axis=[1, 2], keepdims=True), axis=3)
     return x
