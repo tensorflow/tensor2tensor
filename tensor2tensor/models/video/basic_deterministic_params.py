@@ -31,8 +31,8 @@ def next_frame_basic_deterministic():
   hparams.batch_size = 4
   hparams.num_hidden_layers = 2
   hparams.optimizer = "Adafactor"
-  hparams.learning_rate_constant = 1.5
-  hparams.learning_rate_warmup_steps = 1500
+  hparams.learning_rate_constant = 0.7
+  hparams.learning_rate_warmup_steps = 8000
   hparams.learning_rate_schedule = "linear_warmup * constant * rsqrt_decay"
   hparams.label_smoothing = 0.0
   hparams.initializer = "uniform_unit_scaling"

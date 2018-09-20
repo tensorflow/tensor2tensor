@@ -219,7 +219,7 @@ def train_agent(problem_name, agent_model_dir,
       "data_dir": epoch_data_dir,
   }):
     rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
-                         name_scope="ppo_sim")
+                         name_scope="ppo_sim%d" % (epoch + 1))
 
 ppo_data_dumper_counter = 0
 dumper_path = None
@@ -288,7 +288,7 @@ def train_agent_real_env(
       "data_dir": epoch_data_dir,
   }):
     rl_trainer_lib.train(ppo_hparams, event_dir + "real", agent_model_dir,
-                         name_scope="ppo_real")
+                         name_scope="ppo_real%d" % (epoch + 1))
 
 
 def evaluate_world_model(simulated_problem_name, problem_name, hparams,

@@ -231,7 +231,36 @@ def feed_forward_cnn_small_categorical_fun(action_space, config, observations):
   """Small cnn network with categorical output."""
   obs_shape = common_layers.shape_list(observations)
   x = tf.reshape(observations, [-1] + obs_shape[2:])
+  with tf.variable_scope("network_parameters"):
+    dropout = getattr(config, "dropout_ppo", 0.0)
+    with tf.variable_scope("feed_forward_cnn_small"):
+      x = tf.to_float(x) / 255.0
+      x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
+                                   activation_fn=tf.nn.relu, padding="SAME")
+      x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
+                                   activation_fn=tf.nn.relu, padding="SAME")
 
+      flat_x = tf.reshape(
+          x, [obs_shape[0], obs_shape[1],
+              functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
+      flat_x = tf.nn.dropout(flat_x, keep_prob=1.0 - dropout)
+      x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
+
+      logits = tf.contrib.layers.fully_connected(x, action_space.n,
+                                                 activation_fn=None)
+      logits = clip_logits(logits, config)
+
+      value = tf.contrib.layers.fully_connected(
+          x, 1, activation_fn=None)[..., 0]
+      policy = tf.contrib.distributions.Categorical(logits=logits)
+  return NetworkOutput(policy, value, lambda a: a)
+
+
+def feed_forward_cnn_small_categorical_fun_new(
+    action_space, config, observations):
+  """Small cnn network with categorical output."""
+  obs_shape = common_layers.shape_list(observations)
+  x = tf.reshape(observations, [-1] + obs_shape[2:])
   with tf.variable_scope("network_parameters"):
     dropout = getattr(config, "dropout_ppo", 0.0)
     with tf.variable_scope("feed_forward_cnn_small"):
