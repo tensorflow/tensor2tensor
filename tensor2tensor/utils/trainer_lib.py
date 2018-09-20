@@ -444,7 +444,6 @@ def create_experiment(
     eval_early_stopping_metric=None,
     eval_early_stopping_metric_delta=None,
     eval_early_stopping_metric_minimize=True,
-    autotune=False,
     use_tpu=False,
     use_tpu_estimator=False,
     use_xla=False,
@@ -560,18 +559,6 @@ def create_experiment(
       throttle_secs=eval_throttle_seconds,
       exporters=exporter)
 
-  if autotune:
-    hooks_kwargs = {"train_monitors": train_hooks, "eval_hooks": eval_hooks}
-    return tf.contrib.learn.Experiment(
-        estimator=estimator,
-        train_input_fn=train_input_fn,
-        eval_input_fn=eval_input_fn,
-        train_steps=train_steps,
-        eval_steps=eval_steps,
-        min_eval_frequency=min_eval_frequency,
-        train_steps_per_iteration=min(min_eval_frequency, train_steps),
-        eval_delay_secs=0 if schedule == "evaluate" else 120,
-        **hooks_kwargs if not use_tpu else {})
   return T2TExperiment(estimator, hparams, train_spec, eval_spec,
                        use_validation_monitor, decode_hparams)
 
