@@ -62,6 +62,7 @@ ATARI_WHITELIST_GAMES = [
     "kung_fu_master",
     "ms_pacman",
     "pong",
+    "qbert",
     "seaquest",
 ]
 
