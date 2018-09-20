@@ -652,7 +652,7 @@ def combine_training_data(problem, final_data_dir, old_data_dirs,
 @registry.register_hparams
 def rl_modelrl_base():
   return tf.contrib.training.HParams(
-      epochs=3,
+      epochs=6,
       # Total frames used for training. This will be distributed evenly across
       # hparams.epochs.
       # This number should be divisible by real_ppo_epoch_length*epochs
