@@ -23,6 +23,7 @@ import math
 import os
 import gym
 import numpy as np
+from scipy.misc import imsave
 import six
 
 from tensor2tensor.data_generators import problem
@@ -242,6 +243,12 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
       if debug_image is not None:
         ret_dict["image/debug"] = debug_image
+        imsave(
+            os.path.join(
+                self.debug_dump_frames_path, '{}.png'.format(frame_counter)
+            ),
+            debug_image
+        )
 
       yield ret_dict
 
