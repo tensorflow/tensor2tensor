@@ -182,9 +182,9 @@ def write_raw_text_to_files(all_files, urls_path, dataset_split, tmp_dir):
   """Write text to files."""
 
   def write_to_file(all_files, urls_path, tmp_dir, filename):
-    with io.open(os.path.join(tmp_dir, filename + ".source"), "w") as fstory:
+    with io.open(os.path.join(tmp_dir, filename + ".source"), "w", encoding="utf-8") as fstory:
       with io.open(os.path.join(tmp_dir, filename + ".target"),
-                   "w") as fsummary:
+                   "w", encoding="utf-8") as fsummary:
         for example in example_generator(all_files, urls_path, sum_token=True):
           story, summary = _story_summary_split(example)
           fstory.write(story + "\n")
