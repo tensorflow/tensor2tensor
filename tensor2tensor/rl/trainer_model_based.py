@@ -769,6 +769,15 @@ def rl_modelrl_base_sv2p():
 
 
 @registry.register_hparams
+def rl_modelrl_base_sv2p_deterministic():
+  """Base setting with deterministic sv2p as world model."""
+  hparams = rl_modelrl_base_sv2p()
+  hparams.generative_model = "next_frame_sv2p"
+  hparams.generative_model_params = "next_frame_sv2p_atari_deterministic"
+  return hparams
+
+
+@registry.register_hparams
 def rl_modelrl_base_sampling():
   """Base setting with a stochastic next-frame model."""
   hparams = rl_modelrl_base()

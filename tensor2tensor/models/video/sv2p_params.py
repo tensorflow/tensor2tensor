@@ -59,13 +59,21 @@ def next_frame_sv2p_atari():
   hparams.video_num_input_frames = 4
   hparams.video_num_target_frames = 4
   hparams.action_injection = "multiplicative"
-  hparams.num_iterations_1st_stage = 15000
-  hparams.num_iterations_2nd_stage = 15000
-  hparams.anneal_end = 50000
+  hparams.num_iterations_1st_stage = 20000
+  hparams.num_iterations_2nd_stage = 20000
+  hparams.anneal_end = 80000
   hparams.latent_loss_multiplier_schedule = "noisy_linear_cosine_decay"
   hparams.latent_loss_multiplier = 1e-3
   hparams.information_capacity = 0.0
   hparams.small_mode = True
+  return hparams
+
+
+@registry.register_hparams
+def next_frame_sv2p_atari_deterministic():
+  """Deterministic for atari."""
+  hparams = next_frame_sv2p_atari()
+  hparams.stochastic_model = False
   return hparams
 
 
