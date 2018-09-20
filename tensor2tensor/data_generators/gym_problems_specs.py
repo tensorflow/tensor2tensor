@@ -50,24 +50,19 @@ ATARI_GAMES = [
     "zaxxon"
 ]
 
-# Subset of games with promissing results on model based training.
 ATARI_WHITELIST_GAMES = [
     "amidar",
     "bank_heist",
     "berzerk",
     "boxing",
-    "breakout",
     "crazy_climber",
     "freeway",
     "frostbite",
     "gopher",
-    "hero",
     "kung_fu_master",
+    "ms_pacman",
     "pong",
-    "road_runner",
     "seaquest",
-    # TODO(blazej): check if we get equally good results on vanilla pong.
-    "wrapped_full_pong",
 ]
 
 ATARI_ALL_MODES_SHORT_LIST = [
