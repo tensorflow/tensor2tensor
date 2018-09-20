@@ -24,7 +24,9 @@ from tensor2tensor.data_generators import gym_utils  # pylint: disable=unused-im
 from tensor2tensor.data_generators.gym_problems import GymDiscreteProblem,\
   GymSimulatedDiscreteProblem, GymRealDiscreteProblem, \
   GymDiscreteProblemWithAutoencoder, GymDiscreteProblemAutoencoded, \
-  GymSimulatedDiscreteProblemAutoencoded
+  GymSimulatedDiscreteProblemAutoencoded, \
+  GymSimulatedDiscreteProblemForWorldModelEval, \
+  GymSimulatedDiscreteProblemForWorldModelEvalAutoencoded
 # pylint: enable=g-multiple-import
 from tensor2tensor.utils import registry
 
@@ -142,9 +144,38 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedFullPong(
 
 
 @registry.register_problem
+class GymSimulatedDiscreteProblemForWorldModelEvalWithAgentOnWrappedFullPong(
+    GymSimulatedDiscreteProblemForWorldModelEval, GymWrappedFullPongRandom):
+  """Simulated pong for world model evaluation."""
+
+  @property
+  def initial_frames_problem(self):
+    return "gym_discrete_problem_with_agent_on_wrapped_full_pong"
+
+  @property
+  def num_testing_steps(self):
+    return 100
+
+
+@registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedFullPongAutoencoded(
     GymSimulatedDiscreteProblemAutoencoded, GymWrappedFullPongRandom):
   """GymSimulatedDiscreteProblemWithAgentOnWrappedFullPongAutoencoded."""
+
+  @property
+  def initial_frames_problem(self):
+    return "gym_discrete_problem_with_agent_on_wrapped_full_pong_autoencoded"
+
+  @property
+  def num_testing_steps(self):
+    return 100
+
+
+@registry.register_problem
+class GymSimulatedDiscreteProblemForWorldModelEvalWithAgentOnWrappedFullPongAutoencoded(  # pylint: disable=line-too-long
+    GymSimulatedDiscreteProblemForWorldModelEvalAutoencoded,
+    GymWrappedFullPongRandom):
+  """Simulated pong for world model evaluation with encoded frames."""
 
   @property
   def initial_frames_problem(self):
@@ -221,10 +252,21 @@ def create_problems_for_game(
       })
   registry.register_problem(simulated_cls)
 
+  # Create and register the simulated Problem
+  world_model_eval_cls = type(
+      "GymSimulatedDiscreteProblemForWorldModelEvalWithAgentOn%s" %
+      camel_game_name,
+      (GymSimulatedDiscreteProblemForWorldModelEval, problem_cls), {
+          "initial_frames_problem": with_agent_cls.name,
+          "num_testing_steps": 100
+      })
+  registry.register_problem(world_model_eval_cls)
+
   return {
       "base": problem_cls,
       "agent": with_agent_cls,
       "simulated": simulated_cls,
+      "world_model_eval": world_model_eval_cls,
   }
 
 # Register the atari games with all of the possible modes.

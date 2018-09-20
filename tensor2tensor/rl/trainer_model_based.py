@@ -43,6 +43,7 @@ from tensor2tensor.data_generators import gym_problems_specs
 from tensor2tensor.layers import discretization
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.rl.envs.tf_atari_wrappers import PyFuncWrapper
+from tensor2tensor.rl.envs.utils import InitialFrameChooser
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
@@ -206,6 +207,9 @@ def train_agent(problem_name, agent_model_dir,
   environment_spec.intrinsic_reward_scale = hparams.intrinsic_reward_scale
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)
+  ppo_hparams.add_hparam("initial_frame_chooser", InitialFrameChooser(
+      environment_spec, mode=tf.estimator.ModeKeys.TRAIN
+  ))
 
   with temporary_flags({
       "problem": problem_name,
@@ -467,11 +471,18 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     simulated_problem_name = (
         "gym_simulated_discrete_problem_with_agent_on_%s_autoencoded"
         % game_with_mode)
+    world_model_eval_problem_name = (
+        "gym_simulated_discrete_problem_for_world_model_eval_with_agent_on_%s"
+        "_autoencoded"
+        % game_with_mode)
   else:
     problem_name = ("gym_discrete_problem_with_agent_on_%s" % game_with_mode)
     world_model_problem = problem_name
     simulated_problem_name = ("gym_simulated_discrete_problem_with_agent_on_%s"
                               % game_with_mode)
+    world_model_eval_problem_name = (
+        "gym_simulated_discrete_problem_for_world_model_eval_with_agent_on_%s"
+        % game_with_mode)
     if problem_name not in registry.list_problems():
       tf.logging.info("Game Problem %s not found; dynamically registering",
                       problem_name)
@@ -555,7 +566,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     if hparams.eval_world_model:
       log("Evaluating world model")
       model_reward_accuracy = evaluate_world_model(
-          simulated_problem_name, world_model_problem, hparams,
+          world_model_eval_problem_name, world_model_problem, hparams,
           directories["world_model"],
           epoch_data_dir, directories["tmp"])
       log("World model reward accuracy: %.4f", model_reward_accuracy)
@@ -895,7 +906,6 @@ def rl_modelrl_ae_tiny():
   hparams.resize_height_factor = 1
   hparams.resize_width_factor = 1
   hparams.autoencoder_train_steps = 2
-  hparams.eval_world_model = False
   return hparams
 
 
@@ -933,8 +943,8 @@ def rl_modelrl_variance(rhp):
 
 @registry.register_ranged_hparams
 def rl_modelrl_variance_nogame(rhp):
-  # Dummy parameter to get 5 runs for each configuration
-  rhp.set_discrete("model.moe_loss_coef", list(range(500)))
+  # Dummy parameter to get 10 runs for current configuration.
+  rhp.set_discrete("model.moe_loss_coef", list(range(10)))
 
 
 @registry.register_ranged_hparams
