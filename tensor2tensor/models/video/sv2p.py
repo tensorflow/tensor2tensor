@@ -526,6 +526,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       output = {"targets": output}
 
     output["targets"] = tf.squeeze(output["targets"], axis=-1)
+    output["targets"] = tf.to_int64(tf.round(output["targets"]))
     if self.hparams.reward_prediction:
       output["target_reward"] = tf.argmax(output["target_reward"], axis=-1)
 
