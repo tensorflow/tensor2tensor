@@ -320,7 +320,8 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
 
 def train_world_model(problem_name, data_dir, output_dir, hparams, epoch):
   """Train the world model on problem_name."""
-  train_steps = hparams.model_train_steps * (epoch + 2)
+  train_steps = hparams.model_train_steps * (
+      epoch + hparams.inital_epoch_train_steps_multiplier)
   model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
   learning_rate = model_hparams.learning_rate_constant
   if epoch > 0: learning_rate *= hparams.learning_rate_bump
@@ -667,6 +668,7 @@ def rlmb_base():
       ppo_params="ppo_pong_base",
       autoencoder_train_steps=0,
       model_train_steps=50000,
+      inital_epoch_train_steps_multiplier=2,
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,  # Use random starts in PPO.
       # Flip the first random frame in PPO batch for the true beginning.
@@ -774,6 +776,7 @@ def rlmb_quick_sm():
 def rlmb_base_stochastic():
   """Base setting with a stochastic next-frame model."""
   hparams = rlmb_base()
+  hparams.inital_epoch_train_steps_multiplier = 5
   hparams.generative_model = "next_frame_basic_stochastic"
   hparams.generative_model_params = "next_frame_basic_stochastic"
   return hparams
