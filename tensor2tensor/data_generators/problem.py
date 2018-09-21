@@ -497,16 +497,8 @@ class Problem(object):
       _copy_problem_hparams(hp)
 
     model_hparams = copy.copy(model_hparams)
-    if (hasattr(model_hparams, "shared_embedding_and_softmax_weights") and
-        model_hparams.shared_embedding_and_softmax_weights):
-      # If vocabularies differ, unset shared_embedding_and_softmax_weights.
-      input_vocab_size = hp.input_modality.get("inputs")[1]
-      target_vocab_size = hp.target_modality[1]
-      if input_vocab_size != target_vocab_size:
-        tf.logging.warn("Unsetting shared_embedding_and_softmax_weights.")
-        model_hparams.shared_embedding_and_softmax_weights = 0
-
     _create_modalities(hp, model_hparams)
+
     self._hparams = hp
     return self._hparams
 
