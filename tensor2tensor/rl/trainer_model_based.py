@@ -299,8 +299,6 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
   gym_simulated_problem = registry.problem(simulated_problem_name)
   sim_steps = hparams.simulated_env_generator_num_steps
   gym_simulated_problem.settable_num_steps = sim_steps
-  gym_simulated_problem.settable_rollout_fractions = \
-      hparams.eval_rollout_fractions
   with temporary_flags({
       "problem": problem_name,
       "model": hparams.generative_model,
@@ -310,13 +308,9 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
   }):
     gym_simulated_problem.generate_data(epoch_data_dir, tmp_dir)
   n = max(1., gym_simulated_problem.statistics.number_of_dones)
-  model_reward_accuracy = [
-      (frac, score / float(n))
-      for (frac, score) in six.iteritems(
-          gym_simulated_problem.statistics.
-          successful_episode_reward_predictions
-      )
-  ]
+  model_reward_accuracy = (
+      gym_simulated_problem.statistics.successful_episode_reward_predictions
+      / float(n))
   old_path = os.path.join(epoch_data_dir, "debug_frames_sim")
   new_path = os.path.join(epoch_data_dir, "debug_frames_sim_eval")
   if not tf.gfile.Exists(new_path):
@@ -529,11 +523,8 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
                                         "eval_metrics_event_dir")
   eval_metrics_writer = tf.summary.FileWriter(eval_metrics_event_dir)
   model_reward_accuracy_summary = tf.Summary()
-  for frac in hparams.eval_rollout_fractions:
-    model_reward_accuracy_summary.value.add(
-        tag="model_reward_accuracy_{}".format(frac),
-        simple_value=None
-    )
+  model_reward_accuracy_summary.value.add(tag="model_reward_accuracy",
+                                          simple_value=None)
   mean_reward_summary = tf.Summary()
   mean_reward_summary.value.add(tag="mean_reward",
                                 simple_value=None)
@@ -571,17 +562,14 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
                       directories["world_model"], hparams, epoch)
 
     # Evaluate world model
-    model_reward_accuracy = []
+    model_reward_accuracy = 0.
     if hparams.eval_world_model:
       log("Evaluating world model")
       model_reward_accuracy = evaluate_world_model(
           world_model_eval_problem_name, world_model_problem, hparams,
           directories["world_model"],
           epoch_data_dir, directories["tmp"])
-      log(
-          "World model reward accuracy per rollout fraction: %s",
-          model_reward_accuracy
-      )
+      log("World model reward accuracy: %.4f", model_reward_accuracy)
 
     # Train PPO
     log("Training PPO in simulated environment.")
@@ -625,10 +613,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     # Summarize metrics.
     assert model_reward_accuracy is not None
     assert mean_reward is not None
-    for ((_, accuracy), summary_value) in zip(
-        model_reward_accuracy, model_reward_accuracy_summary.value
-    ):
-      summary_value.simple_value = accuracy
+    model_reward_accuracy_summary.value[0].simple_value = model_reward_accuracy
     mean_reward_summary.value[0].simple_value = mean_reward
     mean_reward_gen_summary.value[0].simple_value = int(generation_mean_reward)
     eval_metrics_writer.add_summary(model_reward_accuracy_summary, epoch)
@@ -637,11 +622,8 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     eval_metrics_writer.flush()
 
     # Report metrics
-    eval_metrics = {"mean_reward": mean_reward}
-    eval_metrics.update({
-        "model_reward_accuracy_{}".format(frac): accuracy
-        for (frac, accuracy) in model_reward_accuracy
-    })
+    eval_metrics = {"model_reward_accuracy": model_reward_accuracy,
+                    "mean_reward": mean_reward}
     epoch_metrics.append(eval_metrics)
     log("Eval metrics: %s", str(eval_metrics))
     if report_fn:
@@ -729,8 +711,6 @@ def rlmb_base():
       # Whether to evaluate the world model in each iteration of the loop to get
       # the model_reward_accuracy metric.
       eval_world_model=True,
-      # Rollout fractions to report reward_accuracy on.
-      eval_rollout_fractions=[0.25, 0.5, 1],
       stop_loop_early=False,  # To speed-up tests.
   )
 

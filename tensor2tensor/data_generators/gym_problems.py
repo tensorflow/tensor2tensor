@@ -18,7 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
 import json
 import math
 import os
@@ -528,16 +527,14 @@ class RewardPerSequenceStatistics(BasicStatistics):
   the correctness of rewards per sequence metric
   """
 
-  def __init__(self, rollout_fractions):
+  def __init__(self):
     super(RewardPerSequenceStatistics, self).__init__()
 
     # data to calculate
     # correctness of rewards per sequence metric
     self.episode_sim_reward = 0.0
     self.episode_real_reward = 0.0
-    self.successful_episode_reward_predictions = collections.OrderedDict([
-        (frac, 0) for frac in rollout_fractions
-    ])
+    self.successful_episode_reward_predictions = 0
     self.report_reward_statistics_every = 10
     # auxiliary objects
     self.real_obs = None
@@ -548,7 +545,7 @@ class RewardPerSequenceStatistics(BasicStatistics):
     keys_and_types = [
         ("episode_sim_reward", float),
         ("episode_real_reward", float),
-        ("successful_episode_reward_predictions", collections.OrderedDict),
+        ("successful_episode_reward_predictions", int),
         ("report_reward_statistics_every", int),
     ]
     additional = dict([(k, t(getattr(self, k))) for k, t in keys_and_types])
@@ -643,7 +640,7 @@ class GymSimulatedDiscreteProblemForWorldModelEval(GymSimulatedDiscreteProblem):
     super(GymSimulatedDiscreteProblemForWorldModelEval, self).__init__(
         *args, **kwargs
     )
-    self.settable_rollout_fractions = [1]
+    self.statistics = RewardPerSequenceStatistics()
 
   def get_environment_spec(self):
     env_spec = super(
@@ -653,10 +650,6 @@ class GymSimulatedDiscreteProblemForWorldModelEval(GymSimulatedDiscreteProblem):
     return env_spec
 
   def _setup(self, data_dir):
-    self.statistics = RewardPerSequenceStatistics(
-        self.settable_rollout_fractions
-    )
-
     trajectory_length = self.num_testing_steps
     if self.num_steps < 1200:
       # Decrease the trajectory length for tiny experiments, otherwise we don't
@@ -725,14 +718,11 @@ class GymSimulatedDiscreteProblemForWorldModelEval(GymSimulatedDiscreteProblem):
                 "The collect memory should be set in force_beginning_resets "
                 "mode for the code below to work properly.")
 
-    index_in_rollout = index % self._internal_memory_size + 1
+    if (index+1) % self._internal_memory_size == 0:
 
-    if stat.episode_sim_reward == stat.episode_real_reward:
-      for frac in stat.successful_episode_reward_predictions:
-        if index_in_rollout == int(self._internal_memory_size * frac):
-          stat.successful_episode_reward_predictions[frac] += 1
+      if stat.episode_sim_reward == stat.episode_real_reward:
+        stat.successful_episode_reward_predictions += 1
 
-    if index_in_rollout == self._internal_memory_size:
       stat.episode_sim_reward = 0.0
       stat.episode_real_reward = 0.0
       stat.number_of_dones += 1
