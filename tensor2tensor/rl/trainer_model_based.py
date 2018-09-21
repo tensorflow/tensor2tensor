@@ -266,7 +266,8 @@ def train_agent_real_env(
   ppo_hparams.epochs_num = _ppo_training_epochs(hparams, epoch,
                                                 is_final_epoch, True)
   # We do not save model, as that resets frames that we need at restarts.
-  ppo_hparams.save_models_every_epochs = 0
+  # But we need to save at the last step, so we set it very high.
+  ppo_hparams.save_models_every_epochs = 1000000
 
   environment_spec = copy.copy(gym_problem.environment_spec)
 
@@ -322,13 +323,7 @@ def train_world_model(problem_name, data_dir, output_dir, hparams, epoch):
   train_steps = hparams.model_train_steps * (epoch + 2)
   model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
   learning_rate = model_hparams.learning_rate_constant
-  # Bump learning rate after first epoch by 3x.
-  # We picked 3x because our default learning rate schedule decreases with
-  # 1/square root of the time step; 1/sqrt(10k) = 0.01 and 1/sqrt(100k) ~ 0.0032
-  # so by bumping it up 3x we about "go back" from 100k steps to 10k, which is
-  # approximately as much as "going back 1 epoch" would be in default schedule.
-  # In your experiments, you may want to optimize this rate to your schedule.
-  if epoch > 0: learning_rate *= 3
+  if epoch > 0: learning_rate *= hparams.learning_rate_bump
   with temporary_flags({
       "data_dir": data_dir,
       "output_dir": output_dir,
@@ -597,6 +592,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       return 0.0
 
     # Collect data from the real environment.
+    generation_mean_reward = 0
     if not is_final_epoch:
       log("Generating real environment data.")
       generation_mean_reward = generate_real_env_data(
@@ -618,7 +614,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     assert mean_reward is not None
     model_reward_accuracy_summary.value[0].simple_value = model_reward_accuracy
     mean_reward_summary.value[0].simple_value = mean_reward
-    mean_reward_gen_summary.value[0].simple_value = generation_mean_reward
+    mean_reward_gen_summary.value[0].simple_value = int(generation_mean_reward)
     eval_metrics_writer.add_summary(model_reward_accuracy_summary, epoch)
     eval_metrics_writer.add_summary(mean_reward_summary, epoch)
     eval_metrics_writer.add_summary(mean_reward_gen_summary, epoch)
@@ -692,6 +688,13 @@ def rlmb_base():
       # Resizing.
       resize_height_factor=2,
       resize_width_factor=2,
+      # Bump learning rate after first epoch by 3x.
+      # We picked 3x because our default learning rate schedule decreases with
+      # 1/square root of step; 1/sqrt(10k) = 0.01 and 1/sqrt(100k) ~ 0.0032
+      # so by bumping it up 3x we about "go back" from 100k steps to 10k, which
+      # is approximately as much as "going back 1 epoch" would be.
+      # In your experiments, you want to optimize this rate to your schedule.
+      learning_rate_bump=3.0,
 
       gather_ppo_real_env_data=True,
       real_ppo_epochs_num=0,
@@ -789,6 +792,7 @@ def rlmb_base_stochastic_discrete():
 def rlmb_base_sv2p():
   """Base setting with sv2p as world model."""
   hparams = rlmb_base()
+  hparams.learning_rate_bump = 1.0
   hparams.generative_model = "next_frame_sv2p"
   hparams.generative_model_params = "next_frame_sv2p_atari"
   return hparams
@@ -824,6 +828,34 @@ def rlmb_base_sampling():
   """Base setting with a stochastic next-frame model."""
   hparams = rlmb_base()
   hparams.generative_model_params = "next_frame_sampling"
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_base_sampling_noresize():
+  hparams = rlmb_base_sampling()
+  hparams.resize_height_factor = 1
+  hparams.resize_width_factor = 1
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_flippy60():
+  """Schedule with a lot of epochs (slow)."""
+  hparams = rlmb_base_sampling()
+  hparams.epochs = 60
+  hparams.ppo_epochs_num = 500
+  hparams.model_train_steps = 10000
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_flippy30():
+  """Schedule with a lot of epochs (slow)."""
+  hparams = rlmb_base_sampling()
+  hparams.epochs = 30
+  hparams.ppo_epochs_num = 1000
+  hparams.model_train_steps = 15000
   return hparams
 
 

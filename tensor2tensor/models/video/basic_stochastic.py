@@ -82,8 +82,10 @@ class NextFrameBasicStochasticDiscrete(
       return layer + z, 0.0
 
     # Embed.
+    frames = tf.concat(
+        [features["cur_target_frame"], features["inputs"]], axis=-1)
     x = tf.layers.dense(
-        features["cur_target_frame"], filters, name="latent_embed",
+        frames, filters, name="latent_embed",
         bias_initializer=tf.random_normal_initializer(stddev=0.01))
     x = common_attention.add_timing_signal_nd(x)
 
