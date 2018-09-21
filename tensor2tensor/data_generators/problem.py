@@ -497,8 +497,7 @@ class Problem(object):
       _copy_problem_hparams(hp)
 
     model_hparams = copy.copy(model_hparams)
-    if (self.has_inputs and
-        hasattr(model_hparams, "shared_embedding_and_softmax_weights") and
+    if (hasattr(model_hparams, "shared_embedding_and_softmax_weights") and
         model_hparams.shared_embedding_and_softmax_weights):
       # If vocabularies differ, unset shared_embedding_and_softmax_weights.
       input_vocab_size = hp.input_modality.get("inputs")[1]
@@ -507,7 +506,7 @@ class Problem(object):
         tf.logging.warn("Unsetting shared_embedding_and_softmax_weights.")
         model_hparams.shared_embedding_and_softmax_weights = 0
 
-    _create_modalities(hp, model_hparams, self.has_inputs)
+    _create_modalities(hp, model_hparams)
     self._hparams = hp
     return self._hparams
 
@@ -1094,7 +1093,7 @@ def _reverse_problem_hparams(p_hparams):
   p.was_reversed = True
 
 
-def _create_modalities(problem_hparams, hparams, has_inputs):
+def _create_modalities(problem_hparams, hparams):
   """Converts string-type modalities to their corresponding Modality.
 
   Args:
@@ -1106,32 +1105,30 @@ def _create_modalities(problem_hparams, hparams, has_inputs):
     hparams: tf.contrib.training.HParams for the model. It may have
       input_modalities and target_modality, which will override
       problem_hparams' modalities.
-    has_inputs: A boolean that indicates whether to update the input modality.
 
   Returns:
     None
   """
-  if has_inputs:
-    input_modality_overrides = {}
-    if hasattr(hparams, "input_modalities"):
-      for override_str in hparams.input_modalities.split(";"):
-        if override_str != "default":
-          parts = override_str.split(":")
-          feature_name = parts[0]
-          modality_name = ":".join(parts[1:])
-          input_modality_overrides[feature_name] = modality_name
+  input_modality_overrides = {}
+  if hasattr(hparams, "input_modalities"):
+    for override_str in hparams.input_modalities.split(";"):
+      if override_str != "default":
+        parts = override_str.split(":")
+        feature_name = parts[0]
+        modality_name = ":".join(parts[1:])
+        input_modality_overrides[feature_name] = modality_name
 
-    input_modality = {}
-    for feature_name, modality in six.iteritems(problem_hparams.input_modality):
-      if isinstance(modality, (list, tuple)):
-        if feature_name in input_modality_overrides:
-          _warn_changed_modality_type(input_modality_overrides[feature_name],
-                                      modality[0],
-                                      feature_name)
-          modality = (input_modality_overrides[feature_name], modality[1])
-        modality = modalities.create_modality(modality, hparams)
-      input_modality[feature_name] = modality
-    problem_hparams.input_modality = input_modality
+  input_modality = {}
+  for feature_name, modality in six.iteritems(problem_hparams.input_modality):
+    if isinstance(modality, (list, tuple)):
+      if feature_name in input_modality_overrides:
+        _warn_changed_modality_type(input_modality_overrides[feature_name],
+                                    modality[0],
+                                    feature_name)
+        modality = (input_modality_overrides[feature_name], modality[1])
+      modality = modalities.create_modality(modality, hparams)
+    input_modality[feature_name] = modality
+  problem_hparams.input_modality = input_modality
 
   target_modality_name = None
   if (hasattr(hparams, "target_modality") and
