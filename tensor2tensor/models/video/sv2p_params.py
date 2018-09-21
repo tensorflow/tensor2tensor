@@ -75,7 +75,7 @@ def next_frame_sv2p_atari_softmax():
   hparams = next_frame_sv2p_atari()
   hparams.target_modality = "video"
   hparams.input_modalities = "inputs:video"
-  hparams.internal_loss = False
+  hparams.internal_loss = True
   return hparams
 
 
@@ -98,13 +98,13 @@ def next_frame_sv2p_atari_softmax_deterministic():
 @registry.register_hparams
 def next_frame_sv2p_tiny():
   """Tiny SV2P model."""
-  hparams = next_frame_sv2p_atari()
+  hparams = next_frame_sv2p_atari_softmax()
   hparams.batch_size = 2
   hparams.tiny_mode = True
   hparams.num_masks = 1
   hparams.video_modality_loss_cutoff = 0.4
   hparams.video_num_input_frames = 4
-  hparams.video_num_target_frames = 1
+  hparams.video_num_target_frames = 4
   return hparams
 
 
