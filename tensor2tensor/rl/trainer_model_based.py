@@ -18,7 +18,7 @@ Example invocation:
 
 python -m tensor2tensor.rl.trainer_model_based \
     --output_dir=$HOME/t2t/rl_v1 \
-    --loop_hparams_set=rl_modelrl_base \
+    --loop_hparams_set=rlmb_base \
     --loop_hparams='num_real_env_frames=10000,epochs=3'
 """
 from __future__ import absolute_import
@@ -53,7 +53,7 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("loop_hparams_set", "rl_modelrl_base",
+flags.DEFINE_string("loop_hparams_set", "rlmb_base",
                     "Which RL hparams set to use.")
 flags.DEFINE_string("loop_hparams", "", "Overrides for overall loop HParams.")
 
@@ -265,7 +265,8 @@ def train_agent_real_env(
 
   ppo_hparams.epochs_num = _ppo_training_epochs(hparams, epoch,
                                                 is_final_epoch, True)
-  ppo_hparams.save_models_every_epochs = 10
+  # We do not save model, as that resets frames that we need at restarts.
+  ppo_hparams.save_models_every_epochs = 0
 
   environment_spec = copy.copy(gym_problem.environment_spec)
 
@@ -278,7 +279,7 @@ def train_agent_real_env(
     dumper_path = os.path.join(epoch_data_dir, "dumper")
     tf.gfile.MakeDirs(dumper_path)
     dumper_spec = [PyFuncWrapper, {"process_fun": ppo_data_dumper}]
-    environment_spec.wrappers.insert(1, dumper_spec)
+    environment_spec.wrappers.insert(2, dumper_spec)
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)
 
@@ -531,6 +532,9 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   mean_reward_summary = tf.Summary()
   mean_reward_summary.value.add(tag="mean_reward",
                                 simple_value=None)
+  mean_reward_gen_summary = tf.Summary()
+  mean_reward_gen_summary.value.add(tag="mean_reward_during_generation",
+                                    simple_value=None)
 
   for epoch in range(hparams.epochs):
     is_final_epoch = (epoch + 1) == hparams.epochs
@@ -591,8 +595,17 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
     if hparams.stop_loop_early:
       return 0.0
+
     # Collect data from the real environment.
-    log("Generating real environment data")
+    if not is_final_epoch:
+      log("Generating real environment data.")
+      generation_mean_reward = generate_real_env_data(
+          problem_name, ppo_model_dir, hparams, epoch_data_dir,
+          directories["tmp"], autoencoder_path=autoencoder_model_dir,
+          eval_phase=False)
+      log("Mean reward during generation: {}".format(generation_mean_reward))
+
+    log("Evaluating in real environment.")
     eval_data_dir = os.path.join(epoch_data_dir, "eval")
     mean_reward = generate_real_env_data(
         problem_name, ppo_model_dir, hparams, eval_data_dir,
@@ -600,20 +613,15 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
         eval_phase=True)
     log("Mean eval reward: {}".format(mean_reward))
 
-    if not is_final_epoch:
-      generation_mean_reward = generate_real_env_data(
-          problem_name, ppo_model_dir, hparams, epoch_data_dir,
-          directories["tmp"], autoencoder_path=autoencoder_model_dir,
-          eval_phase=False)
-      log("Mean reward during generation: {}".format(generation_mean_reward))
-
-    # Summarize metrics
+    # Summarize metrics.
     assert model_reward_accuracy is not None
     assert mean_reward is not None
     model_reward_accuracy_summary.value[0].simple_value = model_reward_accuracy
     mean_reward_summary.value[0].simple_value = mean_reward
+    mean_reward_gen_summary.value[0].simple_value = generation_mean_reward
     eval_metrics_writer.add_summary(model_reward_accuracy_summary, epoch)
     eval_metrics_writer.add_summary(mean_reward_summary, epoch)
+    eval_metrics_writer.add_summary(mean_reward_gen_summary, epoch)
     eval_metrics_writer.flush()
 
     # Report metrics
@@ -650,7 +658,7 @@ def combine_training_data(problem, final_data_dir, old_data_dirs,
 
 
 @registry.register_hparams
-def rl_modelrl_base():
+def rlmb_base():
   return tf.contrib.training.HParams(
       epochs=6,
       # Total frames used for training. This will be distributed evenly across
@@ -703,9 +711,10 @@ def rl_modelrl_base():
 
 
 @registry.register_hparams
-def rl_modelrl_basetest():
+def rlmb_basetest():
   """Base setting but quicker with only 2 epochs."""
-  hparams = rl_modelrl_base()
+  hparams = rlmb_base()
+  hparams.game = "pong"
   hparams.epochs = 2
   hparams.num_real_env_frames = 3200
   hparams.model_train_steps = 500
@@ -715,96 +724,113 @@ def rl_modelrl_basetest():
 
 
 @registry.register_hparams
-def rl_modelrl_base_quick():
+def rlmb_noresize():
+  hparams = rlmb_base()
+  hparams.resize_height_factor = 1
+  hparams.resize_width_factor = 1
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_quick():
   """Base setting but quicker with only 2 epochs."""
-  hparams = rl_modelrl_base()
+  hparams = rlmb_base()
   hparams.epochs = 2
-  hparams.ppo_epochs_num = 1000
+  hparams.model_train_steps = 25000
+  hparams.ppo_epochs_num = 700
   hparams.ppo_epoch_length = 50
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_base_quick_sd():
+def rlmb_quick_noresize():
+  hparams = rlmb_base()
+  hparams.resize_height_factor = 1
+  hparams.resize_width_factor = 1
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_quick_sd():
   """Quick setting with stochastic discrete model."""
-  hparams = rl_modelrl_base_quick()
+  hparams = rlmb_quick()
   hparams.generative_model = "next_frame_basic_stochastic_discrete"
   hparams.generative_model_params = "next_frame_basic_stochastic_discrete"
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_base_quick_sm():
+def rlmb_quick_sm():
   """Quick setting with sampling."""
-  hparams = rl_modelrl_base_quick()
+  hparams = rlmb_quick()
   hparams.generative_model_params = "next_frame_sampling"
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_base_stochastic():
+def rlmb_base_stochastic():
   """Base setting with a stochastic next-frame model."""
-  hparams = rl_modelrl_base()
+  hparams = rlmb_base()
   hparams.generative_model = "next_frame_basic_stochastic"
   hparams.generative_model_params = "next_frame_basic_stochastic"
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_base_stochastic_discrete():
+def rlmb_base_stochastic_discrete():
   """Base setting with stochastic discrete model."""
-  hparams = rl_modelrl_base()
+  hparams = rlmb_base()
   hparams.generative_model = "next_frame_basic_stochastic_discrete"
   hparams.generative_model_params = "next_frame_basic_stochastic_discrete"
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_base_sv2p():
+def rlmb_base_sv2p():
   """Base setting with sv2p as world model."""
-  hparams = rl_modelrl_base()
+  hparams = rlmb_base()
   hparams.generative_model = "next_frame_sv2p"
   hparams.generative_model_params = "next_frame_sv2p_atari"
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_base_sv2p_deterministic():
+def rlmb_base_sv2p_deterministic():
   """Base setting with deterministic sv2p as world model."""
-  hparams = rl_modelrl_base_sv2p()
+  hparams = rlmb_base_sv2p()
   hparams.generative_model = "next_frame_sv2p"
   hparams.generative_model_params = "next_frame_sv2p_atari_deterministic"
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_base_sampling():
+def rlmb_base_sampling():
   """Base setting with a stochastic next-frame model."""
-  hparams = rl_modelrl_base()
+  hparams = rlmb_base()
   hparams.generative_model_params = "next_frame_sampling"
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_medium():
+def rlmb_medium():
   """Small set for larger testing."""
-  hparams = rl_modelrl_base()
+  hparams = rlmb_base()
   hparams.num_real_env_frames //= 2
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_25k():
+def rlmb_25k():
   """Small set for larger testing."""
-  hparams = rl_modelrl_medium()
+  hparams = rlmb_medium()
   hparams.num_real_env_frames //= 2
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_short():
+def rlmb_short():
   """Small set for larger testing."""
-  hparams = rl_modelrl_base()
+  hparams = rlmb_base()
   hparams.num_real_env_frames //= 5
   hparams.model_train_steps //= 10
   hparams.ppo_epochs_num //= 10
@@ -812,17 +838,17 @@ def rl_modelrl_short():
 
 
 @registry.register_hparams
-def rl_modelrl_model_only():
-  hp = rl_modelrl_base()
+def rlmb_model_only():
+  hp = rlmb_base()
   hp.epochs = 1
   hp.ppo_epochs_num = 0
   return hp
 
 
 @registry.register_hparams
-def rl_modelrl_tiny():
+def rlmb_tiny():
   """Tiny set for testing."""
-  return rl_modelrl_base_sampling().override_from_dict(
+  return rlmb_base_sampling().override_from_dict(
       tf.contrib.training.HParams(
           epochs=1,
           num_real_env_frames=128,
@@ -845,9 +871,9 @@ def rl_modelrl_tiny():
 
 
 @registry.register_hparams
-def rl_modelrl_tiny_stochastic():
+def rlmb_tiny_stochastic():
   """Tiny setting with a stochastic next-frame model."""
-  hparams = rl_modelrl_tiny()
+  hparams = rlmb_tiny()
   hparams.epochs = 1  # Too slow with 2 for regular runs.
   hparams.generative_model = "next_frame_basic_stochastic"
   hparams.generative_model_params = "next_frame_basic_stochastic"
@@ -855,63 +881,65 @@ def rl_modelrl_tiny_stochastic():
 
 
 @registry.register_hparams
-def rl_modelrl_tiny_sv2p():
+def rlmb_tiny_sv2p():
   """Tiny setting with a tiny sv2p model."""
-  hparams = rl_modelrl_tiny()
+  hparams = rlmb_tiny()
   hparams.generative_model = "next_frame_sv2p"
   hparams.generative_model_params = "next_frame_sv2p_tiny"
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_l1_base():
+def rlmb_l1_base():
   """Parameter set with L1 loss."""
-  hparams = rl_modelrl_base()
+  hparams = rlmb_base()
   hparams.generative_model_params = "next_frame_l1"
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_l1_tiny():
+def rlmb_l1_tiny():
   """Tiny parameter set with L1 loss."""
-  hparams = rl_modelrl_tiny()
+  hparams = rlmb_tiny()
   hparams.generative_model_params = "next_frame_l1"
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_l2_base():
+def rlmb_l2_base():
   """Parameter set with L2 loss."""
-  hparams = rl_modelrl_base()
+  hparams = rlmb_base()
   hparams.generative_model_params = "next_frame_l2"
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_l2_tiny():
+def rlmb_l2_tiny():
   """Tiny parameter set with L2 loss."""
-  hparams = rl_modelrl_tiny()
+  hparams = rlmb_tiny()
   hparams.generative_model_params = "next_frame_l2"
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_ae_base():
+def rlmb_ae_base():
   """Parameter set for autoencoders."""
-  hparams = rl_modelrl_base()
+  hparams = rlmb_base()
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "next_frame_ae"
+  hparams.gather_ppo_real_env_data = False
   hparams.autoencoder_train_steps = 30000
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_ae_tiny():
+def rlmb_ae_tiny():
   """Tiny set for testing autoencoders."""
-  hparams = rl_modelrl_tiny()
+  hparams = rlmb_tiny()
   hparams.game = "wrapped_full_pong"
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "next_frame_ae"
+  hparams.gather_ppo_real_env_data = False
   hparams.resize_height_factor = 1
   hparams.resize_width_factor = 1
   hparams.autoencoder_train_steps = 2
@@ -919,8 +947,8 @@ def rl_modelrl_ae_tiny():
 
 
 @registry.register_hparams
-def rl_modelrl_tiny_simulation_deterministic_starts():
-  hp = rl_modelrl_tiny()
+def rlmb_tiny_simulation_deterministic_starts():
+  hp = rlmb_tiny()
   hp.simulation_random_starts = False
   return hp
 
@@ -931,7 +959,7 @@ def rl_modelrl_tiny_simulation_deterministic_starts():
 # HP_SCOPES={loop, model, ppo}, which set hyperparameters for the top-level
 # hparams, hp.generative_model_params, and hp.ppo_params, respectively.
 @registry.register_ranged_hparams
-def rl_modelrl_grid(rhp):
+def rlmb_grid(rhp):
   """Grid over games and frames, and 5 runs each for variance."""
   rhp.set_categorical("loop.game", ["breakout", "pong", "freeway"])
   base = 100000
@@ -944,26 +972,26 @@ def rl_modelrl_grid(rhp):
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_variance(rhp):
+def rlmb_variance(rhp):
   # Dummy parameter to get 5 runs for each configuration
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_categorical("loop.game", ["breakout", "pong", "freeway"])
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_variance_nogame(rhp):
-  # Dummy parameter to get 10 runs for current configuration.
-  rhp.set_discrete("model.moe_loss_coef", list(range(10)))
+def rlmb_variance_nogame(rhp):
+  # Dummy parameter to get 20 runs for current configuration.
+  rhp.set_discrete("model.moe_loss_coef", list(range(20)))
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_three(rhp):
+def rlmb_three(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_categorical("loop.game", ["breakout", "pong", "boxing"])
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_test1(rhp):
+def rlmb_test1(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_categorical("loop.game", ["breakout", "pong", "boxing"])
   rhp.set_discrete("loop.ppo_learning_rate", [5e-5, 1e-4, 2e-4])
@@ -972,24 +1000,24 @@ def rl_modelrl_test1(rhp):
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_scheduled_sampling(rhp):
+def rlmb_scheduled_sampling(rhp):
   rhp.set_float("model.scheduled_sampling_prob", 0.0, 1.0)
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_all_games(rhp):
+def rlmb_all_games(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_categorical("loop.game", gym_problems_specs.ATARI_GAMES)
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_whitelisted_games(rhp):
+def rlmb_whitelisted_games(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_ae_variance(rhp):
+def rlmb_ae_variance(rhp):
   # Dummy parameter to get 5 runs for each configuration
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_categorical("loop.game", ["breakout", "pong", "freeway"])
@@ -999,49 +1027,49 @@ def rl_modelrl_ae_variance(rhp):
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_ppolr_game(rhp):
+def rlmb_ppolr_game(rhp):
   rhp.set_categorical("loop.game", ["breakout", "pong", "freeway"])
   base_lr = 1e-4
   rhp.set_float("loop.ppo_learning_rate", base_lr / 2, base_lr * 2)
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_ppolr(rhp):
+def rlmb_ppolr(rhp):
   base_lr = 1e-4
   rhp.set_float("loop.ppo_learning_rate", base_lr / 2, base_lr * 2)
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_ae_ppo_lr(rhp):
+def rlmb_ae_ppo_lr(rhp):
   rhp.set_categorical("loop.game", ["breakout", "pong", "freeway"])
   base_lr = 1e-4
   rhp.set_float("loop.ppo_learning_rate", base_lr / 2, base_lr * 2)
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_dropout_range(rhp):
+def rlmb_dropout_range(rhp):
   rhp.set_float("model.dropout", 0.2, 0.4)
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_intrinsic_reward_scale(rhp):
+def rlmb_intrinsic_reward_scale(rhp):
   rhp.set_float("loop.intrinsic_reward_scale", 0.01, 10.)
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_l1l2cutoff_range(rhp):
+def rlmb_l1l2cutoff_range(rhp):
   """Loss and loss-cutoff tuning grid."""
   rhp.set_float("model.video_modality_loss_cutoff", 1.4, 3.4)
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_xentcutoff_range(rhp):
+def rlmb_xentcutoff_range(rhp):
   """Cross entropy cutoff tuning grid."""
   rhp.set_float("model.video_modality_loss_cutoff", 0.01, 0.05)
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_pixel_noise(rhp):
+def rlmb_pixel_noise(rhp):
   """Input pixel noise tuning grid."""
   rhp.set_categorical("loop.generative_model_params",
                       ["next_frame_pixel_noise"])
@@ -1050,34 +1078,34 @@ def rl_modelrl_pixel_noise(rhp):
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_dummy_range(rhp):
+def rlmb_dummy_range(rhp):
   """Dummy tuning grid just to get the variance."""
   rhp.set_float("model.moe_loss_coef", 0.01, 0.02)
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_epochs_num(rhp):
+def rlmb_epochs_num(rhp):
   rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_discrete("loop.epochs", [3, 6, 12])
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_ppo_epochs_num(rhp):
+def rlmb_ppo_epochs_num(rhp):
   rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_discrete("loop.ppo_epochs_num", [200, 1000, 2000, 4000])
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_ppo_epoch_len(rhp):
+def rlmb_ppo_epoch_len(rhp):
   rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_discrete("loop.ppo_epoch_length", [25, 50, 100])
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_num_frames(rhp):
+def rlmb_num_frames(rhp):
   rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_discrete("loop.num_real_env_frames",
@@ -1085,14 +1113,14 @@ def rl_modelrl_num_frames(rhp):
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_ppo_optimization_batch_size(rhp):
+def rlmb_ppo_optimization_batch_size(rhp):
   rhp.set_categorical("loop.game", ["pong", "boxing", "seaquest"])
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_discrete("ppo.optimization_batch_size", [4, 10, 20])
 
 
 @registry.register_ranged_hparams
-def rl_modelrl_logits_clip(rhp):
+def rlmb_logits_clip(rhp):
   rhp.set_categorical("loop.game", ["pong", "boxing", "seaquest"])
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_discrete("ppo.logits_clip", [0., 5.])

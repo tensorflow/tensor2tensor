@@ -29,7 +29,7 @@ class ModelRLExperimentTestAe(tf.test.TestCase):
   def test_ae(self):
     # TODO(lukaszkaiser): re-enable this test.
     # FLAGS.output_dir = tf.test.get_temp_dir()
-    # FLAGS.loop_hparams_set = "rl_modelrl_ae_tiny"
+    # FLAGS.loop_hparams_set = "rlmb_ae_tiny"
     # FLAGS.schedule = "train"  # skip evaluation for world model training
     # trainer_model_based.main(None)
     assert True

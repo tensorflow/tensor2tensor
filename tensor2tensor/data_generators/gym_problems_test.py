@@ -35,9 +35,8 @@ class GymProblemsTest(tf.test.TestCase):
     os.mkdir(cls.tmp_dir)
 
   def testGymAtariGameModes(self):
-    for mode in gym_problems_specs.ATARI_GAME_MODES:
-      problem = gym_problems_specs.ATARI_PROBLEMS["pong"][mode]["base"]()
-      self.assertEqual(105, problem.frame_height)
+    problem = gym_problems_specs.GymDiscreteProblemWithAgentOnWrappedFullPong()
+    self.assertEqual(210, problem.frame_height)
 
 
 if __name__ == "__main__":

@@ -50,6 +50,8 @@ ATARI_GAMES = [
     "zaxxon"
 ]
 
+ATARI_ALL_MODES_SHORT_LIST = []
+
 ATARI_WHITELIST_GAMES = [
     "amidar",
     "bank_heist",
@@ -64,11 +66,6 @@ ATARI_WHITELIST_GAMES = [
     "pong",
     "qbert",
     "seaquest",
-]
-
-ATARI_ALL_MODES_SHORT_LIST = [
-    "pong",
-    "boxing",
 ]
 
 # Different ATARI game modes in OpenAI Gym. Full list here:
@@ -200,8 +197,8 @@ class GymClippedRewardRandom(GymDiscreteProblem):
 
 def create_problems_for_game(
     game_name,
-    resize_height_factor=2,
-    resize_width_factor=2,
+    resize_height_factor=1,
+    resize_width_factor=1,
     game_mode="Deterministic-v4"):
   """Create and register problems for game_name.
 
@@ -264,12 +261,3 @@ def create_problems_for_game(
       "simulated": simulated_cls,
       "world_model_eval": world_model_eval_cls,
   }
-
-# Register the atari games with all of the possible modes.
-for game in ATARI_ALL_MODES_SHORT_LIST:
-  ATARI_PROBLEMS[game] = {}
-  for mode in ATARI_GAME_MODES:
-    classes = create_problems_for_game(
-        game,
-        game_mode=mode)
-    ATARI_PROBLEMS[game][mode] = classes

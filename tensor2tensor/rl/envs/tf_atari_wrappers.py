@@ -107,6 +107,9 @@ class RewardClippingWrapper(WrapperBase):
     with tf.control_dependencies([reward, done]):
       return tf.sign(reward), tf.identity(done)
 
+  def _reset_non_empty(self, indices):
+    return self._batch_env._reset_non_empty(indices)  # pylint: disable=protected-access
+
 
 class MaxAndSkipWrapper(WrapperBase):
   """ Max and skip wrapper.
@@ -304,7 +307,7 @@ class ResizeWrapper(WrapperBase):
     height, width, _ = self.observ_shape
     observ = tf.to_float(tensor)
     resized = tf.image.resize_images(
-        observ, [height, width], tf.image.ResizeMethod.BILINEAR)
+        observ, [height, width], tf.image.ResizeMethod.AREA)
     return tf.cast(resized, self.observ_dtype)
 
   @property

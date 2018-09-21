@@ -91,8 +91,6 @@ def standard_atari_ae_env_spec(env):
 
 
 frame_dumper_use_disk = False  # Whether to use memory or disk to dump frames.
-
-
 frame_dumper = {}
 
 
@@ -116,19 +114,22 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     self.statistics = BasicStatistics()
     self._use_dumper_data = False
     self._dumper_data_index = 0
+    self._forced_collect_level = None
 
   @property
   def resize_height_factor(self):
-    return 2
+    return 1
 
   @property
   def resize_width_factor(self):
-    return 2
+    return 1
 
   def _setup(self, data_dir, extra_collect_hparams=None,
              override_collect_hparams=None):
     dumper_path = os.path.join(data_dir, "dumper")
-    if os.path.isdir(dumper_path):
+    dumper_exists = tf.gfile.Exists(dumper_path)
+    tf.logging.info("Dumper path %s." % dumper_path)
+    if dumper_exists and not self.settable_eval_phase:
       tf.logging.info("Using dumper data.")
       self._use_dumper_data = True
       self._dumper_data_index = 0
@@ -160,13 +161,19 @@ class GymDiscreteProblem(video_utils.VideoProblem):
       if self.settable_eval_phase:
         policy_to_actions_lambda = lambda policy: policy.mode()
 
+      collect_level = 2  # After Resize and RewardClipping.
+      if collect_hparams.environment_spec.simulated_env:
+        collect_level = 1  # We still have reward clipping.
+      if self._forced_collect_level is not None:  # For autoencoders.
+        collect_level = self._forced_collect_level
+
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
         self.collect_memory, self.collect_trigger_op, collect_init = (
             collect.define_collect(
                 collect_hparams,
                 scope="gym_problems",
                 eval_phase=False,
-                collect_level=1,  # After ResizeWrapper but before others.
+                collect_level=collect_level,
                 policy_to_actions_lambda=policy_to_actions_lambda))
 
       self._session = tf.Session()
@@ -204,17 +211,8 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   def generate_samples(self, data_dir, tmp_dir, unused_dataset_split):
     self._setup(data_dir)
 
-    # We only want to save frames for eval and simulated experience, not the
-    # frames used for world model training.
-    base_dir = os.path.basename(os.path.dirname(data_dir + "/"))
-    if (base_dir == "eval" or self.debug_dump_frames_path in [
-        "debug_frames_sim_eval", "debug_frames_sim"
-    ]):
-      self.debug_dump_frames_path = os.path.join(data_dir,
-                                                 self.debug_dump_frames_path)
-    else:
-      # Disable frame saving
-      self.debug_dump_frames_path = ""
+    self.debug_dump_frames_path = os.path.join(
+        data_dir, self.debug_dump_frames_path)
 
     frame_counter = 0
     pieces_generated = 0
@@ -458,6 +456,10 @@ class GymRealDiscreteProblem(GymDiscreteProblem):
 class GymDiscreteProblemWithAutoencoder(GymRealDiscreteProblem):
   """Gym discrete problem with autoencoder."""
 
+  def __init__(self, *args, **kwargs):
+    super(GymDiscreteProblemWithAutoencoder, self).__init__(*args, **kwargs)
+    self._forced_collect_level = 0
+
   def get_environment_spec(self):
     return standard_atari_ae_env_spec(self.env_name)
 
@@ -490,6 +492,10 @@ class GymDiscreteProblemWithAutoencoder(GymRealDiscreteProblem):
 
 class GymDiscreteProblemAutoencoded(GymRealDiscreteProblem):
   """Gym discrete problem with frames already autoencoded."""
+
+  def __init__(self, *args, **kwargs):
+    super(GymDiscreteProblemAutoencoded, self).__init__(*args, **kwargs)
+    self._forced_collect_level = 0
 
   def generate_samples(self, data_dir, tmp_dir, unused_dataset_split):
     raise RuntimeError("GymDiscreteProblemAutoencoded can be used only"
@@ -534,7 +540,6 @@ class RewardPerSequenceStatistics(BasicStatistics):
     self.episode_real_reward = 0.0
     self.successful_episode_reward_predictions = 0
     self.report_reward_statistics_every = 10
-
     # auxiliary objects
     self.real_obs = None
     self.real_rewards = None
@@ -746,6 +751,11 @@ class GymSimulatedDiscreteProblemForWorldModelEval(GymSimulatedDiscreteProblem):
 
 class GymSimulatedDiscreteProblemAutoencoded(GymSimulatedDiscreteProblem):
   """Gym simulated discrete problem with frames already autoencoded."""
+
+  def __init__(self, *args, **kwargs):
+    super(GymSimulatedDiscreteProblemAutoencoded, self).__init__(
+        *args, **kwargs)
+    self._forced_collect_level = 0
 
   def get_environment_spec(self):
     env_spec = standard_atari_env_spec(self.env_name)
