@@ -1432,6 +1432,14 @@ class T2TModel(base.Layer):
           feature = tf.tile(tf.expand_dims(feature, 0), [batch_size])
         predictions[name] = feature
 
+    # Fathom start
+    # pass through multiple outputs from target modality
+    if isinstance(infer_out, dict):
+      for key, value in infer_out.items():
+        if key not in predictions:
+          predictions[key] = value
+    # Fathom end
+
     _del_dict_non_tensors(predictions)
     
     export_out = {"outputs": predictions["outputs"]}

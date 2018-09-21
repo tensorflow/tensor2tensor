@@ -22,3 +22,6 @@ dist/
 
 # Other
 *.DS_Store
+
+# Pycharm files
+.idea/
