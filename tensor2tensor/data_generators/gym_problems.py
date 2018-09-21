@@ -511,10 +511,6 @@ class GymDiscreteProblemAutoencoded(GymRealDiscreteProblem):
     return 2**hparams.num_hidden_layers
 
   @property
-  def num_channels(self):
-    return 24
-
-  @property
   def frame_height(self):
     height = self.env.observation_space.shape[0]
     ae_height = int(math.ceil(height / self.autoencoder_factor))
