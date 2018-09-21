@@ -39,9 +39,14 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
   """Basic next-frame model, may take actions and predict rewards too."""
 
   @property
+  def _target_modality(self):
+    # TODO(mbz): get rid of this somehow.
+    modality = self.hparams.problem_hparams.target_modality["targets"]
+    return modality.__class__.__name__
+
+  @property
   def is_per_pixel_softmax(self):
-    # TODO(mbz): this should not be a hyper parameter.
-    return self.hparams.per_pixel_softmax
+    return self._target_modality == "VideoModality"
 
   def inject_latent(self, layer, features, filters):
     """Do nothing for deterministic model."""
@@ -73,11 +78,13 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
 
     return layer
 
-  def get_sampled_frame(self, res_frame, orig_frame_shape):
-    target_shape = orig_frame_shape[:-1] + [self.hparams.problem.num_channels]
-    if self.is_per_pixel_softmax:
-      sampled_frame = tf.reshape(res_frame, target_shape + [256])
-      sampled_frame = tf.to_float(tf.argmax(sampled_frame, axis=-1))
+  def get_sampled_frame(self, res_frame):
+    if not self.is_per_pixel_softmax:
+      return res_frame
+    frame_shape = common_layers.shape_list(res_frame)
+    target_shape = frame_shape[:-1] + [self.hparams.problem.num_channels]
+    sampled_frame = tf.reshape(res_frame, target_shape + [256])
+    sampled_frame = tf.to_float(tf.argmax(sampled_frame, axis=-1))
     return sampled_frame
 
   def body_single(self, features):
@@ -206,7 +213,7 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
       res_frames.append(res_frame)
 
       # Only for Softmax loss: sample frame so we can keep iterating.
-      sampled_frame_raw = self.get_sampled_frame(res_frame, orig_frame_shape)
+      sampled_frame_raw = self.get_sampled_frame(res_frame)
       sampled_frames_raw.append(sampled_frame_raw)
       # TODO(lukaszkaiser): this should be consistent with modality.bottom()
       sampled_frame = common_layers.standardize_images(sampled_frame_raw)

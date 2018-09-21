@@ -40,7 +40,6 @@ def next_frame_basic_deterministic():
   hparams.weight_decay = 0.0
   hparams.clip_grad_norm = 1.0
   hparams.dropout = 0.5
-  hparams.add_hparam("per_pixel_softmax", True)
   # choose from: concat, multiplicative, multi_additive
   hparams.add_hparam("action_injection", "multi_additive")
   hparams.add_hparam("num_compress_steps", 6)

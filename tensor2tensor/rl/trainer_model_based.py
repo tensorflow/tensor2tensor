@@ -795,11 +795,27 @@ def rlmb_base_sv2p():
 
 
 @registry.register_hparams
+def rlmb_base_sv2p_softmax():
+  """Base setting with sv2p as world model with softmax."""
+  hparams = rlmb_base_sv2p()
+  hparams.generative_model_params = "next_frame_sv2p_atari_softmax"
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_base_sv2p_deterministic():
   """Base setting with deterministic sv2p as world model."""
   hparams = rlmb_base_sv2p()
-  hparams.generative_model = "next_frame_sv2p"
   hparams.generative_model_params = "next_frame_sv2p_atari_deterministic"
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_base_sv2p_deterministic_softmax():
+  """Base setting with deterministic sv2p as world model with softmax."""
+  hparams = rlmb_base_sv2p_softmax()
+  hparams.generative_model_params = (
+      "next_frame_sv2p_atari_softmax_deterministic")
   return hparams
 
 

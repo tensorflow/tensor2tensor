@@ -55,6 +55,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
 
     frames_gd = common_video.swap_time_and_batch_axes(real_frames)
     frames_pd = common_video.swap_time_and_batch_axes(gen_frames)
+    frames_pd = self.get_sampled_frame(frames_pd)
     frames_gd = concat_on_y_axis(frames_gd)
     frames_pd = concat_on_y_axis(frames_pd)
     side_by_side_video = tf.concat([frames_gd, frames_pd], axis=2)
@@ -388,6 +389,10 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
         layer = layer[:, :img_height, :img_width, :]
         output += layer * mask
 
+      if self.is_per_pixel_softmax:
+        output = tf.layers.dense(
+            output, self.hparams.problem.num_channels * 256, name="logits")
+
       return output, lstm_state
 
   def construct_model(self,
@@ -420,13 +425,16 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       raise ValueError("Buffer size is bigger than context frames %d %d." %
                        (buffer_size, context_frames))
 
-    batch_size = common_layers.shape_list(images)[1]
+    batch_size = common_layers.shape_list(images[0])[0]
     ss_func = self.get_scheduled_sample_func(batch_size)
 
     def process_single_frame(prev_outputs, inputs):
       """Process a single frame of the video."""
       cur_image, input_reward, action = inputs
       time_step, prev_image, prev_reward, frame_buf, lstm_states = prev_outputs
+
+      # sample from softmax (by argmax). this is noop for non-softmax loss.
+      prev_image = self.get_sampled_frame(prev_image)
 
       generated_items = [prev_image]
       groundtruth_items = [cur_image]
@@ -439,7 +447,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
           input_image, None, action, lstm_states, latent)
 
       if self.hparams.reward_prediction:
-        reward_input_image = pred_image
+        reward_input_image = self.get_sampled_frame(pred_image)
         if self.hparams.reward_prediction_stop_gradient:
           reward_input_image = tf.stop_gradient(reward_input_image)
         with tf.control_dependencies([time_step]):
@@ -466,8 +474,12 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     lstm_states = [None] * (5 if self.hparams.small_mode else 7)
     frame_buffer = [tf.zeros_like(images[0])] * buffer_size
     inputs = images[0], rewards[0], actions[0]
+    init_image_shape = common_layers.shape_list(images[0])
+    if self.is_per_pixel_softmax:
+      init_image_shape[-1] *= 256
+    init_image = tf.zeros(init_image_shape, dtype=images.dtype)
     prev_outputs = (tf.constant(0),
-                    tf.zeros_like(images[0]),
+                    init_image,
                     tf.zeros_like(rewards[0]),
                     frame_buffer,
                     lstm_states)
@@ -525,8 +537,16 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     if not isinstance(output, dict):
       output = {"targets": output}
 
-    output["targets"] = tf.squeeze(output["targets"], axis=-1)
-    output["targets"] = tf.to_int64(tf.round(output["targets"]))
+    x = output["targets"]
+    if self.is_per_pixel_softmax:
+      x_shape = common_layers.shape_list(x)
+      x = tf.reshape(x, [-1, x_shape[-1]])
+      x = tf.argmax(x, axis=-1)
+      x = tf.reshape(x, x_shape[:-1])
+    else:
+      x = tf.squeeze(x, axis=-1)
+      x = tf.to_int64(tf.round(x))
+    output["targets"] = x
     if self.hparams.reward_prediction:
       output["target_reward"] = tf.argmax(output["target_reward"], axis=-1)
 
@@ -578,7 +598,8 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
         gen_frames=gen_images)
 
     # Visualize predictions in Tensorboard
-    self.visualize_predictions(all_frames[1:], gen_images)
+    if self.is_training and not self.is_per_pixel_softmax:
+      self.visualize_predictions(all_frames[1:], gen_images)
 
     # Ignore the predictions from the input frames.
     # This is NOT the same as original paper/implementation.
@@ -594,8 +615,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       # add the MSE loss for input frames as well.
       # we are assuming the modality is L2. otherwise the loss would be
       # incosistent across the frames.
-      modality = self.hparams.problem_hparams.target_modality["targets"]
-      if modality.__class__.__name__ != "VideoModalityL2Raw":
+      if self._target_modality != "VideoModalityL2Raw":
         raise ValueError("internal loss only works with L2.")
       recon_loss = tf.losses.mean_squared_error(
           all_frames[1:hparams.video_num_input_frames+1],
