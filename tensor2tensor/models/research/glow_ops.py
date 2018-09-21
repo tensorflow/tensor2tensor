@@ -343,17 +343,15 @@ def conv2d(name, x, output_channels, filter_size=None, stride=None,
 
 
 @add_arg_scope
-def nn(name, x, mid_channels, output_channels):
-  """3-layer conv2d.
+def conv_block(name, x, mid_channels):
+  """2 layer conv block used in the affine coupling layer.
 
   Args:
-    name:
-    x:
-    mid_channels: Number of output channels of the first layer.
-    output_channels: Number of output channels.
-
+    name: variable scope.
+    x: 4-D Tensor: (batch_size, height, width, channels).
+    mid_channels: Output channels of the second layer.
   Returns:
-    output:
+    x: 4-D Tensor: Output activations.
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
 
@@ -368,6 +366,25 @@ def nn(name, x, mid_channels, output_channels):
     x = conv2d("1_2", x, output_channels=mid_channels, filter_size=[1, 1],
                stride=[1, 1])
     x = tf.nn.relu(x)
+    return x
+
+
+@add_arg_scope
+def affine_coupling_network(name, x, mid_channels, output_channels):
+  """3-layer conv2d.
+
+  Args:
+    name:
+    x:
+    mid_channels: Number of output channels of the first layer.
+    output_channels: Number of output channels.
+
+  Returns:
+    output:
+  """
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+
+    x = conv_block("conv_block", x, mid_channels=mid_channels)
 
     # Final layer.
     x = conv2d("zeros", x, filter_size=[3, 3], stride=[1, 1],
@@ -399,7 +416,8 @@ def affine_coupling(name, x, mid_channels=512, reverse=False):
     # Else:
     # z2 = (x2 / scale) - shift
     z1 = x1
-    log_scale_and_shift = nn("nn", x1, mid_channels, x_shape[-1])
+    log_scale_and_shift = affine_coupling_network(
+        "nn", x1, mid_channels, x_shape[-1])
     shift = log_scale_and_shift[:, :, :, 0::2]
     scale = tf.nn.sigmoid(log_scale_and_shift[:, :, :, 1::2] + 2.0)
     if not reverse:
@@ -452,7 +470,8 @@ def squeeze(name, x, factor=2, reverse=True):
 
 
 @add_arg_scope
-def tensor_to_dist(name, x, output_channels=None, architecture="single_conv"):
+def tensor_to_dist(name, x, output_channels=None, architecture="single_conv",
+                   depth=1, pre_output_channels=512):
   """Map x to the mean and log-scale of a Gaussian.
 
   Args:
@@ -461,6 +480,8 @@ def tensor_to_dist(name, x, output_channels=None, architecture="single_conv"):
     output_channels: int, number of output channels of the mean.
                      if not provided, set it to be the output channels of x.
     architecture: "single_conv" or "glow_nn"
+    depth: depth of architecture mapping to the mean and std.
+    pre_output_channels: output channels before the final (mean, std) mapping.
   Returns:
     dist: instance of tf.distributions.Normal
   Raises:
@@ -474,8 +495,15 @@ def tensor_to_dist(name, x, output_channels=None, architecture="single_conv"):
       mean_log_scale = conv2d("conv2d", x, output_channels=2*output_channels,
                               conv_init="zeros", apply_actnorm=False)
     elif architecture == "glow_nn":
-      mean_log_scale = nn("conv2d", x, mid_channels=512,
-                          output_channels=2*output_channels)
+      mean_log_scale = x
+      for layer in range(1, depth + 1):
+        mid_channels = pre_output_channels // 2**(depth - layer)
+        mean_log_scale = conv_block("glow_nn_%d" % layer, mean_log_scale,
+                                    mid_channels=mid_channels)
+      mean_log_scale = conv2d("glow_nn_zeros", mean_log_scale,
+                              filter_size=[3, 3], stride=[1, 1],
+                              output_channels=2*output_channels,
+                              apply_actnorm=False, conv_init="zeros")
     else:
       raise ValueError("expected architecture to be single_conv or glow_nn "
                        "got %s" % architecture)
@@ -540,7 +568,9 @@ def compute_prior(name, z, latent, hparams):
         latent_stack = tf.concat([prior_dist.loc] + latent, axis=-1)
         prior_dist = tensor_to_dist(
             "latent_stack", latent_stack, output_channels=output_channels,
-            architecture=hparams.latent_architecture)
+            architecture=hparams.latent_architecture,
+            depth=hparams.latent_encoder_depth,
+            pre_output_channels=hparams.latent_pre_output_channels)
         latent_skip = hparams.get("latent_skip", False)
         if latent_skip:
           prior_dist = tf.distributions.Normal(

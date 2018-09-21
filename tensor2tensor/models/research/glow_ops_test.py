@@ -109,11 +109,11 @@ class GlowOpsTest(tf.test.TestCase):
         # test shape in case apply_actnorm is set to False,
         self.assertEqual(zeros_np.shape, (16, 5, 5, 64))
 
-  def test_nn(self):
+  def test_affine_coupling_network(self):
     """Test output shape."""
     with tf.Graph().as_default():
       x = 10.0 * tf.random_uniform(shape=(16, 5, 5, 32))
-      nn = glow_ops.nn("nn", x, 512, 64)
+      nn = glow_ops.affine_coupling_network("nn", x, 512, 64)
 
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
