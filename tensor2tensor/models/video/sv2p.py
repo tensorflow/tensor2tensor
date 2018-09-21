@@ -55,7 +55,13 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
 
     frames_gd = common_video.swap_time_and_batch_axes(real_frames)
     frames_pd = common_video.swap_time_and_batch_axes(gen_frames)
-    frames_pd = self.get_sampled_frame(frames_pd)
+
+    if self.is_per_pixel_softmax:
+      frames_pd_shape = common_layers.shape_list(frames_pd)
+      frames_pd = tf.reshape(frames_pd, [-1, 256])
+      frames_pd = tf.to_float(tf.argmax(frames_pd, axis=-1))
+      frames_pd = tf.reshape(frames_pd, frames_pd_shape[:-1] + [3])
+
     frames_gd = concat_on_y_axis(frames_gd)
     frames_pd = concat_on_y_axis(frames_pd)
     side_by_side_video = tf.concat([frames_gd, frames_pd], axis=2)
@@ -598,7 +604,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
         gen_frames=gen_images)
 
     # Visualize predictions in Tensorboard
-    if self.is_training and not self.is_per_pixel_softmax:
+    if self.is_training:
       self.visualize_predictions(all_frames[1:], gen_images)
 
     # Ignore the predictions from the input frames.

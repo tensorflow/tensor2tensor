@@ -84,7 +84,8 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
     frame_shape = common_layers.shape_list(res_frame)
     target_shape = frame_shape[:-1] + [self.hparams.problem.num_channels]
     sampled_frame = tf.reshape(res_frame, target_shape + [256])
-    sampled_frame = tf.to_float(tf.argmax(sampled_frame, axis=-1))
+    sampled_frame = tf.argmax(sampled_frame, axis=-1)
+    sampled_frame = tf.to_float(sampled_frame)
     return sampled_frame
 
   def body_single(self, features):
