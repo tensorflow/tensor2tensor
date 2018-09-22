@@ -847,6 +847,45 @@ def rlmb_base_sv2p_deterministic_softmax():
 
 
 @registry.register_hparams
+def rlmb_base_sv2p_flippy30():
+  """Base setting with sv2p as world model."""
+  hparams = rlmb_base()
+  hparams.epochs = 30
+  hparams.ppo_epochs_num = 1000
+  hparams.model_train_steps = 15000
+  hparams.learning_rate_bump = 1.0
+  hparams.inital_epoch_train_steps_multiplier = 5
+  hparams.generative_model = "next_frame_sv2p"
+  hparams.generative_model_params = "next_frame_sv2p_atari"
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_base_sv2p_softmax_flippy30():
+  """Base setting with sv2p as world model with softmax."""
+  hparams = rlmb_base_sv2p_flippy30()
+  hparams.generative_model_params = "next_frame_sv2p_atari_softmax"
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_base_sv2p_deterministic_flippy30():
+  """Base setting with deterministic sv2p as world model."""
+  hparams = rlmb_base_sv2p_flippy30()
+  hparams.generative_model_params = "next_frame_sv2p_atari_deterministic"
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_base_sv2p_deterministic_softmax_flippy30():
+  """Base setting with deterministic sv2p as world model with softmax."""
+  hparams = rlmb_base_sv2p_softmax_flippy30()
+  hparams.generative_model_params = (
+      "next_frame_sv2p_atari_softmax_deterministic")
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_base_sampling():
   """Base setting with a stochastic next-frame model."""
   hparams = rlmb_base()

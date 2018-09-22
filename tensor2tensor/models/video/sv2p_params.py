@@ -59,9 +59,9 @@ def next_frame_sv2p_atari():
   hparams.video_num_input_frames = 4
   hparams.video_num_target_frames = 4
   hparams.action_injection = "multiplicative"
-  hparams.num_iterations_1st_stage = 20000
-  hparams.num_iterations_2nd_stage = 20000
-  hparams.anneal_end = 80000
+  hparams.num_iterations_1st_stage = 12000
+  hparams.num_iterations_2nd_stage = 12000
+  hparams.anneal_end = 40000
   hparams.latent_loss_multiplier_schedule = "noisy_linear_cosine_decay"
   hparams.latent_loss_multiplier = 1e-3
   hparams.information_capacity = 0.0
