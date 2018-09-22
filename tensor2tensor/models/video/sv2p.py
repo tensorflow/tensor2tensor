@@ -619,9 +619,9 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
 
     if self.is_training and hparams.internal_loss:
       # add the MSE loss for input frames as well.
-      extra_gts = all_frames[1:hparams.video_num_input_frames+1]
+      extra_gts = all_frames[1:hparams.video_num_input_frames]
       extra_gts = common_video.swap_time_and_batch_axes(extra_gts)
-      extra_pds = gen_images[:hparams.video_num_input_frames]
+      extra_pds = gen_images[:hparams.video_num_input_frames-1]
       extra_pds = common_video.swap_time_and_batch_axes(extra_pds)
       if self._target_modality == "VideoModalityL2Raw":
         recon_loss = tf.losses.mean_squared_error(extra_gts, extra_pds)
@@ -631,8 +631,9 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
         extra_pds = tf.reshape(extra_pds, updated_shape)
         # Merge time and batch
         logits = tf.reshape(extra_pds, [-1] + updated_shape[2:])
-        targets_shape = common_layers.shape_list(features["targets_raw"])
-        targets = tf.reshape(features["targets_raw"], [-1] + targets_shape[2:])
+        targets = features["inputs_raw"][:, 1:]
+        targets_shape = common_layers.shape_list(targets)
+        targets = tf.reshape(targets, [-1] + targets_shape[2:])
         mod = self.hparams.problem_hparams.target_modality["targets"]
         numerator, denominator = common_layers.padded_cross_entropy(
             logits,
