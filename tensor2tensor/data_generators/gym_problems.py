@@ -801,25 +801,8 @@ class GymSimulatedDiscreteProblemForWorldModelEvalAutoencoded(
     GymSimulatedDiscreteProblemAutoencoded):
 
   def _generate_debug_image(self, real_ob, sim_ob):
-    def unpack(x):
-      return np.ndarray.astype(np.unpackbits(x, axis=2), np.int)
-    real_ob_unpacked = unpack(real_ob)
-    sim_ob_unpacked = unpack(sim_ob)
-    # Hamming distance on binary latent codes, seen as a grayscale image.
-    err = np.ndarray.astype(
-        np.transpose(
-            np.broadcast_to(
-                np.sum(
-                    np.abs(real_ob_unpacked - sim_ob_unpacked), axis=2
-                ) / 24.0 * 255,
-                # Channels first to satisfy numpy broadcasting rules.
-                shape=((real_ob.shape[2],) + real_ob.shape[:2])
-            ),
-            (1, 2, 0)
-        ),
-        np.uint8
-    )
-    return np.concatenate([sim_ob, real_ob, err], axis=1)
+    # TODO(koz4k): Implement.
+    pass
 
 
 @registry.register_problem
