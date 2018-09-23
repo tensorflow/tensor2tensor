@@ -642,6 +642,9 @@ class GymSimulatedDiscreteProblemForWorldModelEval(GymSimulatedDiscreteProblem):
         *args, **kwargs
     )
     self.settable_rollout_fractions = [1]
+    self.statistics = RewardPerSequenceStatistics(
+        self.settable_rollout_fractions
+    )
 
   def get_environment_spec(self):
     env_spec = super(
@@ -651,10 +654,6 @@ class GymSimulatedDiscreteProblemForWorldModelEval(GymSimulatedDiscreteProblem):
     return env_spec
 
   def _setup(self, data_dir):
-    self.statistics = RewardPerSequenceStatistics(
-        self.settable_rollout_fractions
-    )
-
     trajectory_length = self.num_testing_steps
     if self.num_steps < 1200:
       # Decrease the trajectory length for tiny experiments, otherwise we don't
