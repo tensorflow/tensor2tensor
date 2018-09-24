@@ -14,8 +14,11 @@
 # limitations under the License.
 """Utils for attention mechanism for images."""
 
-from six.moves import range  # pylint: disable=redefined-builtin
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
+from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import expert_utils

@@ -14,8 +14,11 @@
 # limitations under the License.
 """Utils for latent variable models."""
 
-from six.moves import range  # pylint: disable=redefined-builtin
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
+from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
