@@ -208,8 +208,9 @@ That's all for the problem specification! We're ready to generate the data.
 
 # Run data generation
 
-You can generate data for your poblem with `t2t-datagen` and the `--t2t_usr_dir` flag, which points to the directory containing an `__init__.py` file that imports the `poetry_lines` file we just
-wrote. See setup below.
+You can generate data for your problem with `t2t-datagen` and the
+`--t2t_usr_dir` flag, which points to the directory containing an `__init__.py`
+file that imports the `poetry_lines` file we just wrote. See setup below.
 
 ```bash
 USR_DIR=...
