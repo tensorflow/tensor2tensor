@@ -605,7 +605,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       return 0.0
 
     # Collect data from the real environment.
-    generation_mean_reward = 0
+    generation_mean_reward = None
     if not is_final_epoch:
       log("Generating real environment data.")
       generation_mean_reward = generate_real_env_data(
@@ -630,10 +630,12 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     ):
       summary_value.simple_value = accuracy
     mean_reward_summary.value[0].simple_value = mean_reward
-    mean_reward_gen_summary.value[0].simple_value = int(generation_mean_reward)
     eval_metrics_writer.add_summary(model_reward_accuracy_summary, epoch)
     eval_metrics_writer.add_summary(mean_reward_summary, epoch)
-    eval_metrics_writer.add_summary(mean_reward_gen_summary, epoch)
+    if generation_mean_reward is not None:
+      mean_reward_gen_summary.value[0].simple_value = int(
+          generation_mean_reward)
+      eval_metrics_writer.add_summary(mean_reward_gen_summary, epoch)
     eval_metrics_writer.flush()
 
     # Report metrics
