@@ -68,6 +68,7 @@ flags.DEFINE_integer("intra_op_parallelism_threads", 0,
 # definitions possibly erroring. Apologies for the ugliness.
 try:
   flags.DEFINE_string("master", "", "Address of TensorFlow master.")
+  flags.DEFINE_string("protocol", "grpc", "Protocol to be used.")
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
   flags.DEFINE_string("schedule", "continuous_train_and_eval",
                       "Method of Experiment to run.")
@@ -175,7 +176,8 @@ def create_experiment_fn():
       warm_start_from=FLAGS.warm_start_from,
       decode_from_file=FLAGS.decode_from_file,
       decode_to_file=FLAGS.decode_to_file,
-      decode_reference=FLAGS.decode_reference)
+      decode_reference=FLAGS.decode_reference,
+      protocol=FLAGS.protocol)
 
 
 def create_run_config(hp, output_dir=None):
