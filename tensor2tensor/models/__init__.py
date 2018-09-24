@@ -67,4 +67,9 @@ from tensor2tensor.models.video import epva
 from tensor2tensor.models.video import savp
 from tensor2tensor.models.video import sv2p
 
+from tensor2tensor.utils import registry
+
 # pylint: enable=unused-import
+
+def model(name):
+  return registry.model(name)
