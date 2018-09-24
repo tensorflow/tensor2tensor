@@ -43,6 +43,8 @@ class GlowModelTest(tf.test.TestCase):
   def test_glow(self):
     with tf.Graph().as_default():
       hparams = glow.glow_hparams()
+      hparams.depth = 15
+      hparams.n_levels = 2
       model = glow.Glow(hparams, tf.estimator.ModeKeys.TRAIN)
       cifar_problem = problems.problem('image_cifar10_plain_random_shift')
       train_dataset = cifar_problem.dataset(MODES.TRAIN)
