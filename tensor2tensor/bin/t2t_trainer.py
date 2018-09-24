@@ -68,7 +68,6 @@ flags.DEFINE_integer("intra_op_parallelism_threads", 0,
 # definitions possibly erroring. Apologies for the ugliness.
 try:
   flags.DEFINE_string("master", "", "Address of TensorFlow master.")
-  flags.DEFINE_string("protocol", "grpc", "Protocol to be used.")
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
   flags.DEFINE_string("schedule", "continuous_train_and_eval",
                       "Method of Experiment to run.")
@@ -79,6 +78,9 @@ try:
                        "can be a very large number.")
 except:  # pylint: disable=bare-except
   pass
+
+flags.DEFINE_string("std_server_protocol", "grpc",
+                    "Protocol for tf.train.Server.")
 
 # Google Cloud TPUs
 flags.DEFINE_string("cloud_tpu_name", "%s-tpu" % os.getenv("USER"),
@@ -177,7 +179,7 @@ def create_experiment_fn():
       decode_from_file=FLAGS.decode_from_file,
       decode_to_file=FLAGS.decode_to_file,
       decode_reference=FLAGS.decode_reference,
-      protocol=FLAGS.protocol)
+      std_server_protocol=FLAGS.std_server_protocol)
 
 
 def create_run_config(hp, output_dir=None):
