@@ -71,5 +71,6 @@ from tensor2tensor.utils import registry
 
 # pylint: enable=unused-import
 
+
 def model(name):
   return registry.model(name)
