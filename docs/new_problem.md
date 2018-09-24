@@ -208,10 +208,8 @@ That's all for the problem specification! We're ready to generate the data.
 
 # Run data generation
 
-You can run data generation of your a problem in your own project with
-`t2t-datagen` and the `--t2t_usr_dir` flag, which should point to the directory
-containing an `__init__.py` file that imports `word2def`, the file we just
-wrote.
+You can generate data for your poblem with `t2t-datagen` and the `--t2t_usr_dir` flag, which points to the directory containing an `__init__.py` file that imports the `poetry_lines` file we just
+wrote. See setup below.
 
 ```bash
 USR_DIR=...
@@ -230,7 +228,7 @@ t2t-datagen \
 `PROBLEM` is the name of the class that was registered with
 `@registry.register_problem`, but converted from `CamelCase` to `snake_case`.
 
-`USR_DIR` should be a directory with the `poetry_lines.py` file as well as an
+`USR_DIR` is a directory with the `poetry_lines.py` file and an
 `__init__.py` file that imports it (`from . import poetry_lines`).
 
 If you plan to contribute problems to the tensor2tensor repository, you can
