@@ -38,20 +38,13 @@ from tensor2tensor.rl.envs import simulated_batch_env
 import tensorflow as tf
 
 
-def batch_env_factory(hparams, xvfb=False):
+def batch_env_factory(environment_spec, num_agents, xvfb=False):
   """Factory of batch envs."""
 
-  environment_spec = hparams.environment_spec
-
   if environment_spec.simulated_env:
-    # TODO(piotrmilos): Consider passing only relevant parameters
-    cur_batch_env = _define_simulated_batch_env(
-        environment_spec, hparams.num_agents,
-        hparams.initial_frame_chooser)
+    cur_batch_env = _define_simulated_batch_env(environment_spec, num_agents)
   else:
-    cur_batch_env = _define_batch_env(hparams.environment_spec,
-                                      hparams.num_agents,
-                                      xvfb=xvfb)
+    cur_batch_env = _define_batch_env(environment_spec, num_agents, xvfb=xvfb)
   return cur_batch_env
 
 

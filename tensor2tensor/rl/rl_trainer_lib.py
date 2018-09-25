@@ -31,13 +31,20 @@ import tensorflow as tf
 def define_train(hparams):
   """Define the training setup."""
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-    memory, collect_summary, initialization\
+    memory, collect_summary, train_initialization\
       = collect.define_collect(
           hparams, "ppo_train", eval_phase=False)
     ppo_summary = ppo.define_ppo_epoch(memory, hparams)
-    summary = tf.summary.merge([collect_summary, ppo_summary])
+    train_summary = tf.summary.merge([collect_summary, ppo_summary])
 
-  return summary, None, initialization
+    if hparams.eval_every_epochs:
+      _, eval_collect_summary, eval_initialization\
+        = collect.define_collect(
+            hparams, "ppo_eval", eval_phase=True)
+      return train_summary, eval_collect_summary, \
+             (train_initialization, eval_initialization)
+    else:
+      return train_summary, None, (train_initialization,)
 
 
 def train(hparams, event_dir=None, model_dir=None,
@@ -45,7 +52,7 @@ def train(hparams, event_dir=None, model_dir=None,
   """Train."""
   with tf.Graph().as_default():
     with tf.name_scope(name_scope):
-      train_summary_op, _, initialization = define_train(hparams)
+      train_summary_op, eval_summary_op, intializers = define_train(hparams)
       if event_dir:
         summary_writer = tf.summary.FileWriter(
             event_dir, graph=tf.get_default_graph(), flush_secs=60)
@@ -68,7 +75,8 @@ def train(hparams, event_dir=None, model_dir=None,
 
       with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        initialization(sess)
+        for initializer in intializers:
+          initializer(sess)
         if env_model_loader:
           trainer_lib.restore_checkpoint(
               hparams.world_model_dir, env_model_loader, sess,
@@ -91,12 +99,13 @@ def train(hparams, event_dir=None, model_dir=None,
           summary = sess.run(train_summary_op)
           if summary_writer:
             summary_writer.add_summary(summary, epoch_index)
+
           if (hparams.eval_every_epochs and
               epoch_index % hparams.eval_every_epochs == 0):
-            if summary_writer and summary:
-              summary_writer.add_summary(summary, epoch_index)
-            else:
-              tf.logging.info("Eval summary not saved")
+            eval_summary = sess.run(eval_summary_op)
+            if summary_writer:
+              summary_writer.add_summary(eval_summary, epoch_index)
+
           epoch_index_and_start = epoch_index + start_step
           if (model_saver and hparams.save_models_every_epochs and
               (epoch_index_and_start % hparams.save_models_every_epochs == 0 or

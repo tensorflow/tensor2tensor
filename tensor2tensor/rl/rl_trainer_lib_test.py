@@ -30,23 +30,23 @@ class TrainTest(tf.test.TestCase):
   test_config = ("epochs_num=4,eval_every_epochs=3,video_during_eval=False,"
                  "num_agents=5,optimization_epochs=5,epoch_length=50")
 
-  def test_no_crash_pendulum(self):
-    hparams = trainer_lib.create_hparams(
-        "ppo_continuous_action_base",
-        TrainTest.test_config)
-
-    hparams.add_hparam(
-        "environment_spec", rl_models.simple_gym_spec("Pendulum-v0"))
-    rl_trainer_lib.train(hparams)
-
-  def test_no_crash_cartpole(self):
-    hparams = trainer_lib.create_hparams(
-        "ppo_discrete_action_base",
-        TrainTest.test_config)
-
-    hparams.add_hparam(
-        "environment_spec", rl_models.simple_gym_spec("CartPole-v0"))
-    rl_trainer_lib.train(hparams)
+  # def test_no_crash_pendulum(self):
+  #   hparams = trainer_lib.create_hparams(
+  #       "ppo_continuous_action_base",
+  #       TrainTest.test_config)
+  #
+  #   hparams.add_hparam(
+  #       "environment_spec", rl_models.simple_gym_spec("Pendulum-v0"))
+  #   rl_trainer_lib.train(hparams)
+  #
+  # def test_no_crash_cartpole(self):
+  #   hparams = trainer_lib.create_hparams(
+  #       "ppo_discrete_action_base",
+  #       TrainTest.test_config)
+  #
+  #   hparams.add_hparam(
+  #       "environment_spec", rl_models.simple_gym_spec("CartPole-v0"))
+  #   rl_trainer_lib.train(hparams)
 
   # This test should successfully train pong.
   # It should get train mean_score around 0 after 200 epoch
@@ -54,10 +54,10 @@ class TrainTest(tf.test.TestCase):
   def test_train_pong(self):
     hparams = tf.contrib.training.HParams(
         epochs_num=300,
-        eval_every_epochs=10,
+        eval_every_epochs=5,
         num_agents=10,
         optimization_epochs=3,
-        epoch_length=200,
+        epoch_length=30,
         entropy_loss_coef=0.003,
         learning_rate=8e-05,
         optimizer="Adam",
@@ -74,8 +74,12 @@ class TrainTest(tf.test.TestCase):
     hparams.add_hparam(
         "environment_spec",
         gym_problems.standard_atari_env_spec("PongNoFrameskip-v4"))
+    hparams.add_hparam(
+        "environment_eval_spec",
+        gym_problems.standard_atari_env_eval_spec("PongNoFrameskip-v4"))
+
     # TODO(lukaszkaiser): enable tests with Atari.
-    # rl_trainer_lib.train(hparams)
+    rl_trainer_lib.train(hparams)
 
 
 if __name__ == "__main__":
