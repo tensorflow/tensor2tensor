@@ -562,9 +562,14 @@ class VideoWriter(object):
     self.fps = fps
     self.file_format = file_format
     self.proc = None
+    self._out_chunks = []
+    self._err_chunks = []
+    self._out_thread = None
+    self._err_thread = None
 
   def __init_ffmpeg(self, image_shape):
     """Initializes ffmpeg to write frames."""
+    import itertools  # pylint: disable=g-import-not-at-top
     from subprocess import Popen, PIPE  # pylint: disable=g-import-not-at-top,g-multiple-import
     ffmpeg = "ffmpeg"
     height, width, channels = image_shape
@@ -583,7 +588,28 @@ class VideoWriter(object):
         "-qscale", "0",
         "-"
     ]
-    self.proc = Popen(self.cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    self.proc = Popen(
+        self.cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE, bufsize=-1
+    )
+    (self._out_thread, self._err_thread) = itertools.starmap(
+        self._start_reader_thread, [
+            (self.proc.stdout, self._out_chunks),
+            (self.proc.stderr, self._err_chunks)
+        ]
+    )
+
+  def _start_reader_thread(self, stream, chunks):
+    import io  # pylint: disable=g-import-not-at-top
+    import threading  # pylint: disable=g-import-not-at-top
+    def target():
+      while True:
+        chunk = stream.read(io.DEFAULT_BUFFER_SIZE)
+        if not chunk:
+          break
+        chunks.append(chunk)
+    thread = threading.Thread(target=target)
+    thread.start()
+    return thread
 
   def write(self, frame):
     if self.proc is None:
@@ -597,7 +623,12 @@ class VideoWriter(object):
   def finish(self):
     if self.proc is None:
       return None
-    out, err = self.proc.communicate()
+    self.proc.stdin.close()
+    for thread in (self._out_thread, self._err_thread):
+      thread.join()
+    (out, err) = [
+        b''.join(chunks) for chunks in (self._out_chunks, self._err_chunks)
+    ]
     if self.proc.returncode:
       err = "\n".join([" ".join(self.cmd), err.decode("utf8")])
       raise IOError(err)
