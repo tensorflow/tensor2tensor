@@ -116,7 +116,7 @@ def define_collect(hparams, scope, eval_phase,
       batch_env = batch_env_factory(environment_spec, num_agents)
 
     to_initialize.append(batch_env)
-    environment_wrappers = hparams.environment_spec.wrappers
+    environment_wrappers = environment_spec.wrappers
     wrappers = copy.copy(environment_wrappers) if environment_wrappers else []
     # Put memory wrapper at the level you want to gather observations at.
     # Negative indices need to be shifted for insert to work correctly.
