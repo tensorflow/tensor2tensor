@@ -30,6 +30,7 @@ import copy
 import datetime
 import math
 import os
+import re
 import time
 
 import numpy as np
@@ -56,7 +57,10 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string("loop_hparams_set", "rlmb_base",
                     "Which RL hparams set to use.")
 flags.DEFINE_string("loop_hparams", "", "Overrides for overall loop HParams.")
-
+flags.DEFINE_string("job_dir_to_evaluate", "",
+                    "Directory of a job to be evaluated.")
+flags.DEFINE_string("eval_results_dir", "/tmp",
+                    "Directory to store result of evaluation")
 
 HP_SCOPES = ["loop", "model", "ppo"]
 
@@ -99,7 +103,8 @@ def temporary_flags(flag_settings):
 
 
 def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
-                           tmp_dir, autoencoder_path=None, eval_phase=False):
+                           tmp_dir, autoencoder_path=None, eval_phase=False,
+                           real_reward=False):
   """Run the agent against the real environment and return mean reward."""
   tf.gfile.MakeDirs(data_dir)
   with temporary_flags({
@@ -115,6 +120,8 @@ def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
           hparams.num_real_env_frames / (hparams.epochs * (1. - 1./11.)))
     gym_problem.settable_num_steps = env_steps_per_epoch
     gym_problem.settable_eval_phase = eval_phase
+    if real_reward:
+      gym_problem._forced_collect_level = 1  # pylint: disable=protected-access
     gym_problem.generate_data(data_dir, tmp_dir)
     mean_reward = None
     if gym_problem.statistics.number_of_dones:
@@ -446,20 +453,8 @@ def check_problems(problem_names):
     registry.problem(problem_name)
 
 
-def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
-  """Run the main training loop."""
-  if report_fn:
-    assert report_metric is not None
-
-  # Global state
-
-  # Directories
-  subdirectories = ["data", "tmp", "world_model", "ppo"]
-  using_autoencoder = hparams.autoencoder_train_steps > 0
-  if using_autoencoder:
-    subdirectories.append("autoencoder")
-  directories = setup_directories(output_dir, subdirectories)
-
+def setup_problems(hparams, using_autoencoder=False):
+  """Register problems based on game name."""
   if hparams.game in gym_problems_specs.ATARI_GAMES:
     game_with_mode = hparams.game + "_deterministic-v4"
   else:
@@ -494,6 +489,26 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
           resize_height_factor=hparams.resize_height_factor,
           resize_width_factor=hparams.resize_width_factor,
           game_mode="Deterministic-v4")
+  return (problem_name, world_model_problem, simulated_problem_name,
+          world_model_eval_problem_name)
+
+
+def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
+  """Run the main training loop."""
+  if report_fn:
+    assert report_metric is not None
+
+  # Global state
+
+  # Directories
+  subdirectories = ["data", "tmp", "world_model", "ppo"]
+  using_autoencoder = hparams.autoencoder_train_steps > 0
+  if using_autoencoder:
+    subdirectories.append("autoencoder")
+  directories = setup_directories(output_dir, subdirectories)
+
+  (problem_name, world_model_problem, simulated_problem_name,
+   world_model_eval_problem_name) = setup_problems(hparams, using_autoencoder)
 
   # Autoencoder model dir
   autoencoder_model_dir = directories.get("autoencoder")
@@ -612,15 +627,16 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
           problem_name, ppo_model_dir, hparams, epoch_data_dir,
           directories["tmp"], autoencoder_path=autoencoder_model_dir,
           eval_phase=False)
-      log("Mean reward during generation: {}".format(generation_mean_reward))
+      log("Mean clipped reward during generation: {}".format(
+          generation_mean_reward))
 
     log("Evaluating in real environment.")
     eval_data_dir = os.path.join(epoch_data_dir, "eval")
     mean_reward = generate_real_env_data(
         problem_name, ppo_model_dir, hparams, eval_data_dir,
         directories["tmp"], autoencoder_path=autoencoder_model_dir,
-        eval_phase=True)
-    log("Mean eval reward: {}".format(mean_reward))
+        eval_phase=True, real_reward=True)
+    log("Mean eval reward (unclipped): {}".format(mean_reward))
 
     # Summarize metrics.
     assert model_reward_accuracy is not None
@@ -651,6 +667,56 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   # Return the evaluation metrics from the final epoch
   return epoch_metrics[-1]
+
+
+def extract_game_name(data_dir):
+  files = tf.gfile.ListDirectory(data_dir)
+  matches = [re.findall(r"on_(.*)_deterministic", f) for f in files]
+  non_empty_matches = [m for m in matches if m]
+  return non_empty_matches[0][0]
+
+
+def compute_final_evaluation_on_real_environments(hparams, job_results_dir,
+                                                  eval_output_file=None):
+  """Runs evaluation of PPO policies on environment with real environments."""
+  if eval_output_file is None:
+    eval_output_file = os.path.join(
+        FLAGS.eval_results_dir,
+        "result_{}.txt".format(
+            os.path.basename(os.path.normpath(job_results_dir))))
+  directories = tf.gfile.ListDirectory(job_results_dir)
+  results = {}
+  tmp_dir = os.path.join(FLAGS.eval_results_dir, "eval_tmp")
+  if tf.gfile.Exists(tmp_dir):
+    tf.gfile.DeleteRecursively(tmp_dir)
+  for directory in directories:
+    ppo_model_dir = os.path.join(job_results_dir, directory, "ppo")
+    data_dir = os.path.join(job_results_dir, directory, "data/initial")
+    hparams.game = extract_game_name(data_dir)
+    problem_name, _, _, _ = setup_problems(hparams)
+
+    tf.logging.info("Evaluating in real environment game %s." % hparams.game)
+    try:
+      mean_reward = int(generate_real_env_data(
+          problem_name, ppo_model_dir, hparams,
+          os.path.join(tmp_dir, directory),
+          "/tmp", autoencoder_path=None,
+          eval_phase=True, real_reward=True))
+      tf.logging.info(
+          "Mean eval reward on {}: {}".format(hparams.game, mean_reward))
+    except AttributeError:
+      tf.logging.info("No PPO model for: {}".format(ppo_model_dir))
+      mean_reward = None
+    game_results = results.get(hparams.game, [])
+    game_results.append(mean_reward)
+    results[hparams.game] = game_results
+
+  with open(eval_output_file, "w") as f:
+    for game in sorted(six.iterkeys(results)):
+      print("{}:".format(game), file=f, end="")
+      for z in reversed(sorted(results[game])):
+        print(" {}".format(z), file=f, end="")
+      print("", file=f)
 
 
 def combine_training_data(problem, final_data_dir, old_data_dirs,
@@ -1326,8 +1392,10 @@ def create_loop_hparams():
 
 def main(_):
   hp = create_loop_hparams()
-  output_dir = FLAGS.output_dir
-  training_loop(hp, output_dir)
+  if FLAGS.job_dir_to_evaluate:
+    compute_final_evaluation_on_real_environments(hp, FLAGS.job_dir_to_evaluate)
+  else:
+    training_loop(hp, FLAGS.output_dir)
 
 
 if __name__ == "__main__":
