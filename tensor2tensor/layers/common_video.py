@@ -576,7 +576,8 @@ class VideoWriter(object):
         "-s", "%dx%d" % (width, height),
         "-pix_fmt", {1: "gray", 3: "rgb24"}[channels],
         "-i", "-",
-        "-filter_complex", "[0:v]split[x][z];[z]palettegen[y];[x][y]paletteuse",
+        "-filter_complex", "[0:v]split[x][z];[x]fifo[w];[z]palettegen,fifo[y];"
+                           "[w][y]paletteuse,fifo",
         "-r", "%.02f" % self.fps,
         "-f", self.file_format,
         "-qscale", "0",
