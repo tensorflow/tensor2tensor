@@ -753,14 +753,14 @@ def rlmb_base():
       generative_model_params="next_frame_pixel_noise",
       ppo_params="ppo_pong_base",
       autoencoder_train_steps=0,
-      model_train_steps=50000,
+      model_train_steps=15000,
       inital_epoch_train_steps_multiplier=3,
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,  # Use random starts in PPO.
       # Flip the first random frame in PPO batch for the true beginning.
       simulation_flip_first_random_for_beginning=True,
       intrinsic_reward_scale=0.,
-      ppo_epochs_num=2000,  # This should be enough to see something
+      ppo_epochs_num=1000,  # This should be enough to see something
       # Our simulated envs do not know how to reset.
       # You should set ppo_time_limit to the value you believe that
       # the simulated env produces a reasonable output.
@@ -867,6 +867,15 @@ def rlmb_base_stochastic():
   hparams.inital_epoch_train_steps_multiplier = 5
   hparams.generative_model = "next_frame_basic_stochastic"
   hparams.generative_model_params = "next_frame_basic_stochastic"
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_base_sampling_stochastic():
+  """Base setting with a stochastic next-frame model."""
+  hparams = rlmb_base()
+  hparams.generative_model = "next_frame_basic_stochastic"
+  hparams.generative_model_params = "next_frame_sampling_stochastic"
   return hparams
 
 
