@@ -25,6 +25,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import common_audio
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
@@ -59,8 +60,9 @@ class SpeechRecognitionProblem(problem.Problem):
     p.add_hparam("num_zeropad_frames", 250)
 
     p = defaults
-    # p.stop_at_eos = int(False)
-    p.input_modality = {"inputs": ("audio:speech_recognition_modality", None)}
+    p.input_modality = {
+        "inputs": modalities.SpeechRecognitionModality(model_hparams, None)
+    }
     p.target_modality = (registry.Modalities.SYMBOL, 256)
 
   @property
