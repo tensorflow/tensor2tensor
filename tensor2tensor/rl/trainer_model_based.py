@@ -743,18 +743,18 @@ def combine_training_data(problem, final_data_dir, old_data_dirs,
 @registry.register_hparams
 def rlmb_base():
   return tf.contrib.training.HParams(
-      epochs=6,
+      epochs=15,
       # Total frames used for training. This will be distributed evenly across
       # hparams.epochs.
       # This number should be divisible by real_ppo_epoch_length*epochs
       # for our frame accounting to be preceise.
-      num_real_env_frames=96000 * 2,
+      num_real_env_frames=96000,
       generative_model="next_frame_basic_deterministic",
       generative_model_params="next_frame_pixel_noise",
       ppo_params="ppo_pong_base",
       autoencoder_train_steps=0,
       model_train_steps=50000,
-      inital_epoch_train_steps_multiplier=2,
+      inital_epoch_train_steps_multiplier=3,
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,  # Use random starts in PPO.
       # Flip the first random frame in PPO batch for the true beginning.
@@ -1192,6 +1192,13 @@ def rlmb_all_games(rhp):
 def rlmb_whitelisted_games(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
+
+
+@registry.register_ranged_hparams
+def rlmb_human_score_games(rhp):
+  rhp.set_discrete("model.moe_loss_coef", list(range(10)))
+  rhp.set_categorical("loop.game",
+                      gym_problems_specs.ATARI_GAMES_WITH_HUMAN_SCORE)
 
 
 @registry.register_ranged_hparams

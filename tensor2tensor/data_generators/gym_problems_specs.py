@@ -50,6 +50,22 @@ ATARI_GAMES = [
     "zaxxon"
 ]
 
+# List from paper:
+# https://arxiv.org/pdf/1805.11593.pdf
+# plus frostbite.
+ATARI_GAMES_WITH_HUMAN_SCORE = [
+    "alien", "amidar", "assault", "asterix", "asteroids",
+    "atlantis", "bank_heist", "battle_zone", "beam_rider", "bowling",
+    "boxing", "breakout", "chopper_command",
+    "crazy_climber", "demon_attack", "double_dunk", "enduro",
+    "fishing_derby", "freeway", "frostbite", "gopher", "gravitar", "hero",
+    "ice_hockey", "jamesbond", "kangaroo", "krull",
+    "kung_fu_master", "montezuma_revenge", "ms_pacman", "name_this_game",
+    "pitfall", "pong", "private_eye", "qbert", "riverraid",
+    "road_runner", "seaquest", "solaris",
+    "up_n_down", "video_pinball", "yars_revenge",
+]
+
 ATARI_ALL_MODES_SHORT_LIST = []
 
 ATARI_WHITELIST_GAMES = [
