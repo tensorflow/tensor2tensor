@@ -38,11 +38,13 @@ from tensor2tensor.rl.envs import simulated_batch_env
 import tensorflow as tf
 
 
-def batch_env_factory(environment_spec, num_agents, xvfb=False):
+def batch_env_factory(environment_spec, num_agents,
+                      initial_frame_chooser=None, xvfb=False):
   """Factory of batch envs."""
 
   if environment_spec.simulated_env:
-    cur_batch_env = _define_simulated_batch_env(environment_spec, num_agents)
+    cur_batch_env = _define_simulated_batch_env(
+        environment_spec, num_agents, initial_frame_chooser)
   else:
     cur_batch_env = _define_batch_env(environment_spec, num_agents, xvfb=xvfb)
   return cur_batch_env

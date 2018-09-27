@@ -99,7 +99,9 @@ class DebugBatchEnv(Env):
 
   def _prepare_networks(self, hparams, sess):
     self.action = tf.placeholder(shape=(1,), dtype=tf.int32)
-    batch_env = batch_env_factory(hparams)
+    batch_env = batch_env_factory(
+        hparams.environment_spec, hparams.num_agents,
+        initial_frame_chooser=hparams.initial_frame_chooser)
     self.reward, self.done = batch_env.simulate(self.action)
     self.observation = batch_env.observ
     self.reset_op = batch_env.reset(tf.constant([0], dtype=tf.int32))
