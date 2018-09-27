@@ -72,6 +72,29 @@ def standard_atari_env_spec(env, simulated=False,
       wrappers=standard_wrappers,
       simulated_env=simulated)
 
+def standard_atari_env_eval_spec(env, simulated=False,
+                            resize_height_factor=1, resize_width_factor=1):
+  """Parameters of environment specification."""
+  standard_wrappers = [
+      [tf_atari_wrappers.ResizeWrapper,
+       {"height_factor": resize_height_factor,
+        "width_factor": resize_width_factor}],
+      [tf_atari_wrappers.StackWrapper, {"history": 4}],
+  ]
+  if simulated:  # No resizing on simulated environments.
+    standard_wrappers = standard_wrappers[1:]
+  env_lambda = None
+  if isinstance(env, str):
+    env_lambda = lambda: gym.make(env)
+  if callable(env):
+    env_lambda = env
+  assert env_lambda is not None, "Unknown specification of environment"
+
+  return tf.contrib.training.HParams(
+      env_lambda=env_lambda,
+      wrappers=standard_wrappers,
+      simulated_env=simulated)
+
 
 def standard_atari_ae_env_spec(env):
   """Parameters of environment specification."""
