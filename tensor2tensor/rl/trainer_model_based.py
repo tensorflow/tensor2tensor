@@ -889,6 +889,17 @@ def rlmb_base_stochastic_discrete():
 
 
 @registry.register_hparams
+def rlmb_base_stochastic_discrete_noresize():
+  """Base setting with stochastic discrete model."""
+  hparams = rlmb_base()
+  hparams.generative_model = "next_frame_basic_stochastic_discrete"
+  hparams.generative_model_params = "next_frame_basic_stochastic_discrete"
+  hparams.resize_height_factor = 1
+  hparams.resize_width_factor = 1
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_base_sv2p():
   """Base setting with sv2p as world model."""
   hparams = rlmb_base()
@@ -1208,6 +1219,18 @@ def rlmb_human_score_games(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_categorical("loop.game",
                       gym_problems_specs.ATARI_GAMES_WITH_HUMAN_SCORE)
+
+
+@registry.register_ranged_hparams
+def rlmb_curious_games10(rhp):
+  rhp.set_discrete("model.moe_loss_coef", list(range(10)))
+  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_CURIOUS_GAMES)
+
+
+@registry.register_ranged_hparams
+def rlmb_curious_games5(rhp):
+  rhp.set_discrete("model.moe_loss_coef", list(range(5)))
+  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_CURIOUS_GAMES)
 
 
 @registry.register_ranged_hparams
