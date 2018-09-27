@@ -75,9 +75,9 @@ class AutoencoderBasic(t2t_model.T2TModel):
         common_layers.tpu_safe_image_summary(tf.argmax(image_logits, -1)),
         max_outputs=max_outputs)
 
-  def embed(self, x):
+  def embed(self, x, name="embedding"):
     """Input embedding with a non-zero bias for uniform inputs."""
-    with tf.variable_scope("embed", reuse=tf.AUTO_REUSE):
+    with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
       x_shape = common_layers.shape_list(x)
       # Merge channels and depth before embedding.
       x = tf.reshape(x, x_shape[:-2] + [x_shape[-2] * x_shape[-1]])
@@ -840,6 +840,51 @@ class AutoencoderOrderedDiscrete(AutoencoderResidualDiscrete):
 
 
 @registry.register_model
+class AutoencoderDualDiscrete(AutoencoderResidualDiscrete):
+  """Dual discrete autoencoder."""
+
+  def body(self, features):
+    if self.hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      t, i = features["targets_raw"], features["inputs_raw"]
+      t, i = common_layers.pad_to_same_length(t, i)
+      features["targets_raw"] = tf.concat([t, i], axis=0)
+    return super(AutoencoderDualDiscrete, self).body(features)
+
+  def embed(self, x, name="embedding"):
+    if self.hparams.mode != tf.estimator.ModeKeys.TRAIN:
+      return super(AutoencoderDualDiscrete, self).embed(x, name=name + "_t")
+    xt, xi = tf.split(x, 2, axis=0)
+    xte = super(AutoencoderDualDiscrete, self).embed(xt, name=name + "_t")
+    xie = super(AutoencoderDualDiscrete, self).embed(xi, name=name + "_i")
+    return tf.concat([xte, xie], axis=0)
+
+  def bottleneck(self, x):
+    b, _ = super(AutoencoderDualDiscrete, self).bottleneck(x)
+    if self.hparams.mode != tf.estimator.ModeKeys.TRAIN:
+      return b, 0.0
+    bt, bi = tf.split(b, 2, axis=0)
+    # Share the first hparams.bottleneck_shared_bits.
+    shared = (bt + bi) / 2  # -1 if both -1, 1 if both were 1, 0 if disagree.
+    rand = tf.random_uniform(common_layers.shape_list(bt))
+    br = tf.where(rand < 0.5, bt, bi)  # Break ties at random.
+    bs = tf.where(shared == 0, br, shared)
+    bs = tf.concat([bs, bs], axis=0)
+    n = self.hparams.bottleneck_shared_bits
+    b = tf.concat([bs[..., :n], b[..., n:]], axis=-1)
+    return b, 0.0
+
+  def unbottleneck(self, b, res_size, reuse=None):
+    x = super(AutoencoderDualDiscrete, self).unbottleneck(
+        b, res_size, reuse=reuse)
+    if self.hparams.mode != tf.estimator.ModeKeys.TRAIN:
+      return tf.layers.dense(x, res_size, name="dual_unbottleneck_t")
+    xt, xi = tf.split(x, 2, axis=0)
+    xt = tf.layers.dense(xt, res_size, name="dual_unbottleneck_t")
+    xi = tf.layers.dense(xt, res_size, name="dual_unbottleneck_i")
+    return tf.concat([xt, xi], axis=0)
+
+
+@registry.register_model
 class AutoencoderStacked(AutoencoderResidualDiscrete):
   """A stacked autoencoder."""
 
@@ -950,6 +995,7 @@ def autoencoder_basic():
   hparams.dropout = 0.05
   hparams.add_hparam("max_hidden_size", 1024)
   hparams.add_hparam("bottleneck_bits", 128)
+  hparams.add_hparam("bottleneck_shared_bits", 0)
   hparams.add_hparam("bottleneck_noise", 0.1)
   hparams.add_hparam("bottleneck_warmup_steps", 2000)
   hparams.add_hparam("sample_height", 32)
@@ -1114,6 +1160,7 @@ def autoencoder_ordered_text():
   """Ordered discrete autoencoder model for text."""
   hparams = autoencoder_ordered_discrete()
   hparams.bottleneck_bits = 512
+  hparams.bottleneck_shared_bits = 512-64
   hparams.num_hidden_layers = 7
   hparams.batch_size = 1024
   hparams.autoregressive_mode = "conv5"

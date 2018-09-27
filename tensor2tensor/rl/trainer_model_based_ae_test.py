@@ -27,10 +27,11 @@ FLAGS = tf.flags.FLAGS
 class ModelRLExperimentTestAe(tf.test.TestCase):
 
   def test_ae(self):
-    FLAGS.output_dir = tf.test.get_temp_dir()
-    FLAGS.loop_hparams_set = "rlmb_ae_tiny"
-    FLAGS.schedule = "train"  # skip evaluation for world model training
+    # FLAGS.output_dir = tf.test.get_temp_dir()
+    # FLAGS.loop_hparams_set = "rlmb_ae_tiny"
+    # FLAGS.schedule = "train"  # skip evaluation for world model training
     # trainer_model_based.main(None)
+    pass
 
 
 if __name__ == "__main__":
