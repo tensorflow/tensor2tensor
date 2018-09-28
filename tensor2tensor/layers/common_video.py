@@ -599,6 +599,7 @@ class VideoWriter(object):
     )
 
   def _start_reader_thread(self, stream, chunks):
+    """TODO(koz4k): Write a docstring."""
     import io  # pylint: disable=g-import-not-at-top
     import threading  # pylint: disable=g-import-not-at-top
     def target():
@@ -621,13 +622,14 @@ class VideoWriter(object):
       self.write(frame)
 
   def finish(self):
+    """TODO(koz4k): Write a docstring."""
     if self.proc is None:
       return None
     self.proc.stdin.close()
     for thread in (self._out_thread, self._err_thread):
       thread.join()
     (out, err) = [
-        b''.join(chunks) for chunks in (self._out_chunks, self._err_chunks)
+        b"".join(chunks) for chunks in (self._out_chunks, self._err_chunks)
     ]
     if self.proc.returncode:
       err = "\n".join([" ".join(self.cmd), err.decode("utf8")])

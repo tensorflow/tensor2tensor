@@ -78,7 +78,12 @@ def export_module_spec_with_checkpoint(module_spec,
       m.export(export_path, session)
 
 
-def export_as_tfhub_module(hparams, problem, ckpt_dir, export_dir):
+def export_as_tfhub_module(model_name,
+                           hparams,
+                           decode_hparams,
+                           problem,
+                           checkpoint_path,
+                           export_dir):
   """Exports the last checkpoint from the directory as tfhub module.
 
   It creates the Module spec and signature (based on T2T problem information),
@@ -86,18 +91,20 @@ def export_as_tfhub_module(hparams, problem, ckpt_dir, export_dir):
   Module will be saved inside the ckpt_dir.
 
   Args:
+    model_name: name of the model to be exported.
     hparams: T2T parameters, model graph will be based on them.
+    decode_hparams: T2T parameters for decoding.
     problem: the name of the problem
-    ckpt_dir: directory with the checkpoints.
+    checkpoint_path: path to the checkpoint to be exported.
     export_dir: Directory to write the exported model to.
   """
 
   def hub_module_fn():
     """Creates the TF graph for the hub module."""
     model_fn = t2t_model.T2TModel.make_estimator_model_fn(
-        FLAGS.model,
+        model_name,
         hparams,
-        decode_hparams=decoding.decode_hparams(FLAGS.decode_hparams))
+        decode_hparams=decode_hparams)
     features = problem.serving_input_fn(hparams).features
 
     # we must do a copy of the features, as the model_fn can add additional
@@ -116,7 +123,7 @@ def export_as_tfhub_module(hparams, problem, ckpt_dir, export_dir):
   # and saves it in the export_path.
   export_module_spec_with_checkpoint(
       module_spec,
-      checkpoint_path=tf.train.latest_checkpoint(ckpt_dir),
+      checkpoint_path=checkpoint_path,
       export_path=export_dir,
       scope_prefix="")
 
@@ -135,7 +142,10 @@ def main(_):
   export_dir = FLAGS.export_dir or os.path.join(ckpt_dir, "export")
 
   if FLAGS.export_as_tfhub:
-    export_as_tfhub_module(hparams, problem, ckpt_dir, export_dir)
+    checkpoint_path = tf.train.latest_checkpoint(ckpt_dir)
+    decode_hparams = decoding.decode_hparams(FLAGS.decode_hparams)
+    export_as_tfhub_module(FLAGS.model, hparams, decode_hparams, problem,
+                           checkpoint_path, export_dir)
     return
 
   run_config = t2t_trainer.create_run_config(hparams)

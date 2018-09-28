@@ -1339,18 +1339,26 @@ class T2TModel(base.Layer):
     train_op = self.optimize(loss, num_async_replicas=num_async_replicas,
                              use_tpu=use_tpu)
 
-    if self._hparams.warm_start_from:
-      self.initialize_from_ckpt(self._hparams.warm_start_from)
-
     if use_tpu:
+      if self._hparams.warm_start_from:
+        def scaffold_fn():
+          self.initialize_from_ckpt(self._hparams.warm_start_from)
+          return tf.train.Scaffold()
+      else:
+        scaffold_fn = None
+
       host_call = _create_host_call(self.hparams.model_dir)
       remove_summaries()
       return tf.contrib.tpu.TPUEstimatorSpec(
           tf.estimator.ModeKeys.TRAIN,
           loss=loss,
           train_op=train_op,
-          host_call=host_call)
+          host_call=host_call,
+          scaffold_fn=scaffold_fn)
     else:
+      if self._hparams.warm_start_from:
+        self.initialize_from_ckpt(self._hparams.warm_start_from)
+
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.TRAIN, loss=loss, train_op=train_op)
 

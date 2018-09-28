@@ -259,8 +259,6 @@ class SimdMeshImpl(mtf.MeshImpl):
   def receive(self, x, mesh_axis, source_pcoord):
     """Collective receive in groups.
 
-    TODO(noam): inefficient - replace with XLA collective-receive when available
-
     Each group contains the processors that differ only in mesh_axis.
 
     ```python
@@ -281,21 +279,18 @@ class SimdMeshImpl(mtf.MeshImpl):
       a LaidOutTensor
     """
     x = x.to_laid_out_tensor()
-    x = self.allconcat(x, mesh_axis, concat_axis=0)
-    pcoord = self.laid_out_pcoord(mesh_axis).one_slice
-    # allsplit will barf on Nones, so replace them with something legal.
-    # we will zero out below.
-    source_pcoord_no_nones = [
-        i if c is None else c for i, c in enumerate(source_pcoord)]
-    which = tf.gather(source_pcoord_no_nones, pcoord)
-    x = self.allsplit(
-        x, mesh_axis, split_axis=0, which=self.LaidOutTensor([which]))
-    if None in source_pcoord:
-      # zero out the outputs for which source_pcoord[pcoord]==None
-      source_pcoord_mask = [0.0 if c is None else 1.0 for c in source_pcoord]
-      gathered_mask = tf.gather(source_pcoord_mask, pcoord)
-      x = self.LaidOutTensor([x.one_slice * gathered_mask])
-    return x
+    t = x.one_slice
+    source_target_pairs = []
+
+    for pnum in xrange(self.size):
+      coord = self.pnum_to_processor_coordinates(self.shape, pnum)
+      k = coord[mesh_axis]
+      if source_pcoord[k] is not None:
+        coord[mesh_axis] = source_pcoord[k]
+        target_pnum = self.processor_coordinates_to_pnum(coord)
+        source_target_pairs.append([pnum, target_pnum])
+
+    return tpu_ops.collective_permute(t, source_target_pairs)
 
   def slice(self, tf_tensor, tensor_shape):
     """"Slice out the correspoding part of tensor given the pnum variable."""

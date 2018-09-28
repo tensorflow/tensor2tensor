@@ -84,6 +84,18 @@ ATARI_WHITELIST_GAMES = [
     "seaquest",
 ]
 
+
+# Games on which model-free does better than model-based at this point.
+ATARI_CURIOUS_GAMES = [
+    "bank_heist",
+    "boxing",
+    "enduro",
+    "kangaroo",
+    "road_runner",
+    "up_n_down",
+]
+
+
 # Different ATARI game modes in OpenAI Gym. Full list here:
 # https://github.com/openai/gym/blob/master/gym/envs/__init__.py
 ATARI_GAME_MODES = [

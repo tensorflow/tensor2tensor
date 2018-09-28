@@ -190,7 +190,7 @@ def train_agent(problem_name, agent_model_dir,
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_params_names = ["epochs_num", "epoch_length",
                       "learning_rate", "num_agents",
-                      "optimization_epochs"]
+                      "optimization_epochs", "eval_every_epochs"]
 
   for param_name in ppo_params_names:
     ppo_param_name = "ppo_" + param_name
@@ -260,7 +260,7 @@ def train_agent_real_env(
   gym_problem = registry.problem(problem_name)
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_params_names = ["epochs_num", "epoch_length",
-                      "learning_rate", "num_agents",
+                      "learning_rate", "num_agents", "eval_every_epochs",
                       "optimization_epochs", "effective_num_agents"]
 
   # This should be overridden.
@@ -769,6 +769,8 @@ def rlmb_base():
       # though it is not necessary.
       ppo_epoch_length=50,
       ppo_num_agents=16,
+      # Do not eval since simulated batch env does not produce dones
+      ppo_eval_every_epochs=0,
       ppo_learning_rate=1e-4,  # Will be changed, just so it exists.
       # Whether the PPO agent should be restored from the previous iteration, or
       # should start fresh each time.
@@ -792,6 +794,7 @@ def rlmb_base():
       real_ppo_learning_rate=1e-4,
       real_ppo_continue_training=True,
       real_ppo_effective_num_agents=16,
+      real_ppo_eval_every_epochs=0,
 
       game="pong",
       # Whether to evaluate the world model in each iteration of the loop to get
@@ -885,6 +888,17 @@ def rlmb_base_stochastic_discrete():
   hparams = rlmb_base()
   hparams.generative_model = "next_frame_basic_stochastic_discrete"
   hparams.generative_model_params = "next_frame_basic_stochastic_discrete"
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_base_stochastic_discrete_noresize():
+  """Base setting with stochastic discrete model."""
+  hparams = rlmb_base()
+  hparams.generative_model = "next_frame_basic_stochastic_discrete"
+  hparams.generative_model_params = "next_frame_basic_stochastic_discrete"
+  hparams.resize_height_factor = 1
+  hparams.resize_width_factor = 1
   return hparams
 
 
@@ -1208,6 +1222,18 @@ def rlmb_human_score_games(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_categorical("loop.game",
                       gym_problems_specs.ATARI_GAMES_WITH_HUMAN_SCORE)
+
+
+@registry.register_ranged_hparams
+def rlmb_curious_games10(rhp):
+  rhp.set_discrete("model.moe_loss_coef", list(range(10)))
+  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_CURIOUS_GAMES)
+
+
+@registry.register_ranged_hparams
+def rlmb_curious_games5(rhp):
+  rhp.set_discrete("model.moe_loss_coef", list(range(5)))
+  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_CURIOUS_GAMES)
 
 
 @registry.register_ranged_hparams
