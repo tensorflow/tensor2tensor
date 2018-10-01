@@ -120,7 +120,7 @@ def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
           hparams.num_real_env_frames / (hparams.epochs * (1. - 1./11.)))
     gym_problem.settable_num_steps = env_steps_per_epoch
     gym_problem.settable_eval_phase = eval_phase
-    if real_reward:
+    if real_reward and autoencoder_path is None:
       gym_problem._forced_collect_level = 1  # pylint: disable=protected-access
     gym_problem.generate_data(data_dir, tmp_dir)
     mean_reward = None
