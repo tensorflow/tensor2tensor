@@ -145,8 +145,8 @@ class GlowOpsTest(tf.test.TestCase):
   def test_split(self):
     with tf.Graph().as_default():
       x = tf.random_uniform(shape=(16, 5, 5, 32))
-      x_inv, _, eps, z = glow_ops.split("split", x)
-      x_inv_inv, _ = glow_ops.split("split", x_inv, reverse=True, eps=eps)
+      x_inv, _, eps, z, _ = glow_ops.split("split", x)
+      x_inv_inv, _, _ = glow_ops.split("split", x_inv, reverse=True, eps=eps)
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
         x_inv_np, diff, z_np = session.run([x_inv, x - x_inv_inv, z])
@@ -179,9 +179,9 @@ class GlowOpsTest(tf.test.TestCase):
       hparams.depth = 2
 
       x = tf.random_uniform(shape=(16, 64, 64, 4), seed=0)
-      x_inv, _, eps, z_levels = glow_ops.encoder_decoder(
+      x_inv, _, eps, z_levels, _ = glow_ops.encoder_decoder(
           "encoder_decoder", x, hparams, reverse=False)
-      x_inv_inv, _, z_inv_levels = glow_ops.encoder_decoder(
+      x_inv_inv, _, z_inv_levels, _ = glow_ops.encoder_decoder(
           "encoder_decoder", x_inv, hparams, eps=eps, reverse=True)
 
       with tf.Session() as session:
@@ -218,7 +218,7 @@ class GlowOpsTest(tf.test.TestCase):
 
       ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
       with arg_scope(ops, init=True):
-        x_inv, _, _, _ = glow_ops.encoder_decoder(
+        x_inv, _, _, _, _ = glow_ops.encoder_decoder(
             "revnet", x_t, hparams, reverse=False)
       curr_dir = tempfile.mkdtemp()
       model_path = os.path.join(curr_dir, "model")
@@ -235,9 +235,9 @@ class GlowOpsTest(tf.test.TestCase):
       x_t = tf.convert_to_tensor(x_rand)
       ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
       with arg_scope(ops, init=False):
-        x_inv2, _, all_eps, _ = glow_ops.encoder_decoder(
+        x_inv2, _, all_eps, _, _ = glow_ops.encoder_decoder(
             "revnet", x_t, hparams, reverse=False)
-        x_inv_inv_, _, _ = glow_ops.encoder_decoder(
+        x_inv_inv_, _, _, _ = glow_ops.encoder_decoder(
             "revnet", x_inv2, hparams, eps=all_eps, reverse=True)
 
       with tf.Session() as session:
@@ -278,10 +278,10 @@ class GlowOpsTest(tf.test.TestCase):
       # x2 ~ N(scale * latent, 1.0) where initial scale is 1.0
       exp_x2 = x_rand[:, :, :, 16:]
       exp_eps = x_rand[:, :, :, 16:] - latent_rand
-      x_inv, _, eps, x2_t = glow_ops.split(
+      x_inv, _, eps, x2_t, _ = glow_ops.split(
           merge_std, x_t, cond_latents=latent_t, hparams=hparams)
       # Test reversibility.
-      x_inv_inv, _ = glow_ops.split(
+      x_inv_inv, _, _ = glow_ops.split(
           merge_std, x_inv, cond_latents=latent_t, eps=eps, reverse=True,
           hparams=hparams)
       with tf.Session() as sess:
@@ -294,6 +294,33 @@ class GlowOpsTest(tf.test.TestCase):
   def test_split_latent_conditioning(self):
     for merge_std in ["normal", "prev_level", "prev_step"]:
       self.check_split_latent_conditioning(merge_std)
+
+  def test_latent_dist_encoder_lstm(self):
+    with tf.Graph().as_default():
+      rng = np.random.RandomState(0)
+      # Initialize x, latent, state.
+      x_rand = rng.randn(12, 32, 32, 16).astype(np.float32)
+      latent_rand = rng.randn(12, 32, 32, 16).astype(np.float32)
+      state_rand = rng.randn(12, 32, 32, 16).astype(np.float32)
+      x_t = tf.convert_to_tensor(x_rand)
+      latent_t = tf.convert_to_tensor(latent_rand)
+      state_t = tf.convert_to_tensor(state_rand)
+      init_state = tf.contrib.rnn.LSTMStateTuple(state_t, state_t)
+      hparams = glow.glow_hparams()
+      hparams.add_hparam("latent_dist_encoder", "conv_lstm")
+      hparams.add_hparam("latent_skip", True)
+
+      prior_dist, new_state = glow_ops.compute_prior(
+          "lstm_prior", x_t, latent=latent_t, hparams=hparams, state=init_state)
+      with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        # Test initialization (mu, sigma) = (z, 1.0)
+        ops = [prior_dist.loc, prior_dist.scale, new_state.h - init_state.h]
+        mean, scale, diff_np = sess.run(ops)
+        self.assertTrue(np.allclose(latent_rand - mean, 0.0))
+        self.assertTrue(np.allclose(scale, 1.0))
+        # State update.
+        self.assertFalse(np.allclose(diff_np, 0.0))
 
 
 if __name__ == "__main__":

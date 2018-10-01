@@ -22,6 +22,7 @@ from functools import partial
 import numpy as np
 import scipy
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import common_video
 import tensorflow as tf
 
 arg_scope = tf.contrib.framework.arg_scope
@@ -54,7 +55,7 @@ def get_cond_latents_at_level(cond_latents, level, hparams):
   if cond_latents:
     if hparams.latent_dist_encoder == "conv_net":
       return [cond_latent[level] for cond_latent in cond_latents]
-    elif hparams.latent_dist_encoder == "pointwise":
+    elif hparams.latent_dist_encoder in ["pointwise", "conv_lstm"]:
       return cond_latents[level]
 
 
@@ -546,12 +547,35 @@ def merge_level_and_latent_dist(level_dist, latent_dist,
 
 
 @add_arg_scope
-def compute_prior(name, z, latent, hparams):
-  """Distribution conditioned on both z and latent."""
+def compute_prior(name, z, latent, hparams, state=None):
+  """Distribution on z_t conditioned on z_{t-1} and latent.
+
+  Args:
+    name: variable scope.
+    z: 4-D Tensor.
+    latent: optional,
+            if hparams.latent_dist_encoder == "pointwise", this is a list
+            of 4-D Tensors of length hparams.num_cond_latents.
+            else, this is just a 4-D Tensor
+            The first-three dimensions of the latent should be the same as z.
+    hparams: next_frame_glow_hparams.
+    state: tf.contrib.rnn.LSTMStateTuple.
+           the current state of a LSTM used to model the distribution. Used
+           only if hparams.latent_dist_encoder = "conv_lstm".
+  Returns:
+    prior_dist: instance of tf.distributions.Normal
+    state: Returns updated state.
+  Raises:
+    ValueError: If hparams.latent_dist_encoder is "pointwise" and if the shape
+                of latent is different from z.
+  """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     prior_dist = tensor_to_dist("level_prior", z, architecture="single_conv")
+
+    # TODO(mechcoder) Refactor into separate sub-functions.
     if latent is not None:
-      latent_dist_encoder = hparams.latent_dist_encoder
+      latent_dist_encoder = hparams.get("latent_dist_encoder", None)
+      latent_skip = hparams.get("latent_skip", False)
       if latent_dist_encoder == "pointwise":
         merge_std = hparams.level_scale
         latent_shape = common_layers.shape_list(latent)
@@ -571,59 +595,74 @@ def compute_prior(name, z, latent, hparams):
             architecture=hparams.latent_architecture,
             depth=hparams.latent_encoder_depth,
             pre_output_channels=hparams.latent_pre_output_channels)
-        latent_skip = hparams.get("latent_skip", False)
         if latent_skip:
           prior_dist = tf.distributions.Normal(
               prior_dist.loc + latent[-1], prior_dist.scale)
+      elif latent_dist_encoder == "conv_lstm":
+        output_channels = common_layers.shape_list(z)[-1]
+        latent_stack = tf.concat((prior_dist.loc, latent), axis=-1)
+        _, state = common_video.conv_lstm_2d(
+            latent_stack, state, output_channels, kernel_size=3,
+            name="conv_lstm")
+        prior_dist = tensor_to_dist(
+            "state_to_dist", state.h, output_channels=output_channels)
+        if latent_skip:
+          prior_dist = tf.distributions.Normal(
+              prior_dist.loc + latent, prior_dist.scale)
       tf.summary.histogram("split_prior_mean", prior_dist.loc)
       tf.summary.histogram("split_prior_scale", prior_dist.scale)
 
-  return prior_dist
+  return prior_dist, state
 
 
 @add_arg_scope
 def split(name, x, reverse=False, eps=None, eps_std=None, cond_latents=None,
-          hparams=None):
+          hparams=None, state=None):
   """Splits / concatenates x into x1 and x2 across number of channels.
 
   For the forward pass, x2 is assumed be gaussian,
-  i.e P(x2 | x1) ~ N(mu(x1), sigma(x1)) where mu and sigma are the outputs of
-  a one-layer network. For the reverse pass, x2 is determined
-  from mu(x1) and sigma(x1). This is deterministic/stochastic depending on
-  whether eps is provided.
+  i.e P(x2 | x1) ~ N(mu, sigma) where mu and sigma are the outputs of
+  a network conditioned on x1 and optionally on cond_latents.
+  For the reverse pass, x2 is determined from mu(x1) and sigma(x1).
+  This is deterministic/stochastic depending on whether eps is provided.
 
   Args:
-    name:
-    x:
+    name: variable scope.
+    x: 4-D Tensor, shape (NHWC).
     reverse: Forward or reverse pass.
     eps: If eps is provided, x2 is set to be
-    eps_std: Sample x2.
+    eps_std: Sample x2 with the provided eps_std.
     cond_latents: optionally condition x2 on cond_latents.
     hparams: next_frame_glow hparams.
+    state: tf.contrib.rnn.LSTMStateTuple. Current state of the LSTM over z_2.
+           Used only when hparams.latent_dist_encoder == "conv_lstm"
 
   Returns:
   Raises:
     ValueError: If latent is provided and shape is not equal to NHW(C/2)
                 where (NHWC) is the size of x.
   """
+  # TODO(mechcoder) Change the return type to be a dict.
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     if not reverse:
       x1, x2 = tf.split(x, num_or_size_splits=2, axis=-1)
 
       # objective: P(x2|x1) ~N(x2 ; NN(x1))
-      prior_dist = compute_prior("prior_on_z2", x1, cond_latents, hparams)
+      prior_dist, state = compute_prior(
+          "prior_on_z2", x1, cond_latents, hparams, state=state)
       logpb = tf.reduce_sum(prior_dist.log_prob(x2), axis=[1, 2, 3])
       eps = get_eps(prior_dist, x2)
-      return x1, logpb, eps, x2
+      return x1, logpb, eps, x2, state
     else:
-      prior_dist = compute_prior("prior_on_z2", x, cond_latents, hparams)
+      prior_dist, state = compute_prior(
+          "prior_on_z2", x, cond_latents, hparams, state=state)
       if eps is not None:
         x2 = set_eps(prior_dist, eps)
       elif eps_std is not None:
         x2 = eps_std * tf.random_normal(common_layers.shape_list(x))
       else:
         x2 = prior_dist.sample()
-      return tf.concat([x, x2], 3), x2
+      return tf.concat([x, x2], 3), x2, state
 
 
 @add_arg_scope
@@ -755,10 +794,14 @@ def uniform_binning_correction(x, n_bits=8):
 
 @add_arg_scope
 def encoder_decoder(name, x, hparams, eps=None, reverse=False,
-                    cond_latents=None):
+                    cond_latents=None, states=None):
   """Glow encoder-decoder. n_levels of (Squeeze + Flow + Split.) operations."""
+  # TODO(mechcoder) Change return_type to a dict to be backward compatible.
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
 
+    if states and len(states) != hparams.n_levels - 1:
+      raise ValueError("Expected length of states to be %d, got %d" %
+                       (hparams.n_levels - 1, len(states)))
     if eps and len(eps) != hparams.n_levels - 1:
       raise ValueError("Expected length of eps to be %d, got %d" %
                        (hparams.n_levels - 1, len(eps)))
@@ -767,6 +810,7 @@ def encoder_decoder(name, x, hparams, eps=None, reverse=False,
     objective = 0.0
     all_eps = []
     all_latents = []
+    new_states = []
 
     if not reverse:
       # Squeeze + Flow + Split
@@ -778,15 +822,20 @@ def encoder_decoder(name, x, hparams, eps=None, reverse=False,
 
         if level < hparams.n_levels - 1:
 
+          curr_state = None
+          if states:
+            curr_state = states[level]
+
           curr_cond_latents = get_cond_latents_at_level(
               cond_latents, level, hparams)
-          x, obj, eps, z = split("split_%d" % level, x, reverse=False,
-                                 cond_latents=curr_cond_latents,
-                                 hparams=hparams)
+          x, obj, eps, z, state = split("split_%d" % level, x, reverse=False,
+                                        cond_latents=curr_cond_latents,
+                                        hparams=hparams, state=curr_state)
           objective += obj
           all_eps.append(eps)
           all_latents.append(z)
-      return x, objective, all_eps, all_latents
+          new_states.append(state)
+      return x, objective, all_eps, all_latents, new_states
 
     else:
       for level in reversed(range(hparams.n_levels)):
@@ -796,15 +845,21 @@ def encoder_decoder(name, x, hparams, eps=None, reverse=False,
           if eps:
             curr_eps = eps[level]
 
+          curr_state = None
+          if states:
+            curr_state = states[level]
+
           curr_cond_latents = get_cond_latents_at_level(
               cond_latents, level, hparams)
 
-          x, latent = split("split_%d" % level, x, eps=curr_eps, reverse=True,
-                            cond_latents=curr_cond_latents, hparams=hparams)
+          x, latent, state = split("split_%d" % level, x, eps=curr_eps,
+                                   reverse=True, cond_latents=curr_cond_latents,
+                                   hparams=hparams, state=curr_state)
+          new_states.append(state)
           all_latents.append(latent)
 
         x, obj = revnet(
             "revnet_%d" % level, x, hparams=hparams, reverse=True)
         objective += obj
         x = squeeze("squeeze_%d" % level, x, reverse=True)
-      return x, objective, all_latents[::-1]
+      return x, objective, all_latents[::-1], new_states[::-1]

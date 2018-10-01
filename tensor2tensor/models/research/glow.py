@@ -99,7 +99,7 @@ class Glow(t2t_model.T2TModel):
     var_scope = tf.variable_scope("glow/body", reuse=True)
     # If eps=None, images are sampled from the prior.
     with arg_scope(ops, init=False), var_scope:
-      predictions, _, _ = glow_ops.encoder_decoder(
+      predictions, _, _, _ = glow_ops.encoder_decoder(
           "codec", self.z_sample, self.hparams, eps=None, reverse=True)
 
     return self.scale(predictions)
@@ -131,7 +131,7 @@ class Glow(t2t_model.T2TModel):
     init_op = tf.logical_and(tf.equal(global_step, 0), self.is_training)
     ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
     with arg_scope(ops, init=init_op):
-      self.z, encoder_objective, self.eps, _ = glow_ops.encoder_decoder(
+      self.z, encoder_objective, self.eps, _, _ = glow_ops.encoder_decoder(
           "codec", x, self.hparams, eps=None, reverse=False)
       objective += encoder_objective
 
