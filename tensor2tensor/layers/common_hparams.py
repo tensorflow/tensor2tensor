@@ -282,6 +282,10 @@ def basic_params1():
       heads_share_relative_embedding=False,
       # If relative embedding terms are added to values too.
       add_relative_to_values=False,
+      # If enable the host_call which is executed every training step.
+      # There could be a performance drop if host_call function is slow and
+      # cannot keep up with the TPU-side computation.
+      tpu_enable_host_call=False,
   )
 
 

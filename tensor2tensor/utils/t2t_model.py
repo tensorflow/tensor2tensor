@@ -1347,8 +1347,13 @@ class T2TModel(base.Layer):
       else:
         scaffold_fn = None
 
-      host_call = _create_host_call(self.hparams.model_dir)
+      if self.hparams.tpu_enable_host_call:
+        host_call = _create_host_call(self.hparams.model_dir)
+      else:
+        host_call = None
+
       remove_summaries()
+
       return tf.contrib.tpu.TPUEstimatorSpec(
           tf.estimator.ModeKeys.TRAIN,
           loss=loss,
