@@ -86,8 +86,9 @@ def display_video_hooks(hook_args):
 
       # Concat across width.
       all_frames = np.concatenate((input_frames, output_frames), axis=1)
+      tag = "input/output/decode_%d_sample_%d" % (decode_ind, ind)
       frame_by_frame_summ = image_utils.image_to_tf_summary_value(
-          all_frames, tag="input/output/decode_%d" % ind)
+          all_frames, tag=tag)
       all_summaries.append(frame_by_frame_summ)
   return all_summaries
 
