@@ -23,7 +23,6 @@ import math
 import numpy as np
 
 from tensor2tensor.data_generators import video_utils
-from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -66,10 +65,16 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
   def random_skip(self):
     return False
 
+  @property
+  def only_keep_videos_from_0th_frame(self):
+    return True
+
+  @property
+  def use_not_breaking_batching(self):
+    return True
+
   def eval_metrics(self):
-    eval_metrics = [metrics.Metrics.ACC, metrics.Metrics.ACC_PER_SEQ,
-                    metrics.Metrics.IMAGE_RMSE]
-    return eval_metrics
+    return []
 
   @property
   def extra_reading_spec(self):
@@ -87,7 +92,6 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
     p = defaults
     p.input_modality = {
         "inputs": ("video", 256),
-        "input_frame_number": ("symbol:identity", 1)
     }
     p.target_modality = {
         "targets": ("video", 256),
