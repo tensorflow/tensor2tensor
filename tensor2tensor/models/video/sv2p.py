@@ -618,34 +618,14 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     reward_pred = common_video.swap_time_and_batch_axes(reward_pred)
 
     if self.is_training and hparams.internal_loss:
-      # add the MSE loss for input frames as well.
+      # add the loss for input frames as well.
       extra_gts = all_frames[1:hparams.video_num_input_frames]
       extra_gts = common_video.swap_time_and_batch_axes(extra_gts)
       extra_pds = gen_images[:hparams.video_num_input_frames-1]
       extra_pds = common_video.swap_time_and_batch_axes(extra_pds)
-      if self._target_modality == "VideoModalityL2Raw":
-        recon_loss = tf.losses.mean_squared_error(extra_gts, extra_pds)
-      elif self._target_modality == "VideoModality":
-        shape = common_layers.shape_list(extra_pds)
-        updated_shape = shape[:-1] + [3, 256]
-        extra_pds = tf.reshape(extra_pds, updated_shape)
-        # Merge time and batch
-        logits = tf.reshape(extra_pds, [-1] + updated_shape[2:])
-        targets = features["inputs_raw"][:, 1:]
-        targets_shape = common_layers.shape_list(targets)
-        targets = tf.reshape(targets, [-1] + targets_shape[2:])
-        mod = self.hparams.problem_hparams.target_modality["targets"]
-        numerator, denominator = common_layers.padded_cross_entropy(
-            logits,
-            targets,
-            hparams.label_smoothing,
-            cutoff=getattr(hparams, "video_modality_loss_cutoff", 0.01),
-            weights_fn=mod.targets_weights_fn)
-        recon_loss = numerator / denominator
-      else:
-        raise ValueError("internal loss only supports specific modalities.")
-
-      tf.summary.scalar("recon_extra", recon_loss)
+      extra_raw_gts = features["inputs_raw"][:, 1:]
+      recon_loss = self.get_extra_internal_loss(
+          extra_raw_gts, extra_gts, extra_pds)
       extra_loss += recon_loss
 
     return_targets = predictions

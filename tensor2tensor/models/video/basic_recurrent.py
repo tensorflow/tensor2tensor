@@ -21,8 +21,7 @@ from __future__ import print_function
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
-from tensor2tensor.models.video import basic_deterministic
-from tensor2tensor.models.video import basic_deterministic_params
+from tensor2tensor.models.video import basic_stochastic
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -33,7 +32,8 @@ tfcl = tf.contrib.layers
 
 
 @registry.register_model
-class NextFrameBasicRecurrent(basic_deterministic.NextFrameBasicDeterministic):
+class NextFrameBasicRecurrent(
+    basic_stochastic.NextFrameBasicStochasticDiscrete):
   """Basic next-frame recurrent model."""
 
   def predict_next_frame(self, frame, action, lstm_states):
@@ -142,6 +142,11 @@ class NextFrameBasicRecurrent(basic_deterministic.NextFrameBasicDeterministic):
       frame = all_frames[i]
       action = all_actions[i] if self.has_action else None
 
+      # more hack to enable latent_tower
+      # TODO(mbz): clean this up.
+      self.features["inputs"] = all_frames[i]
+      self.features["cur_target_frame"] = all_frames[i+1]
+
       # Run model.
       with tf.variable_scope("recurrent_model", reuse=tf.AUTO_REUSE):
         func_out = self.predict_next_frame(frame, action, lstm_states)
@@ -164,6 +169,16 @@ class NextFrameBasicRecurrent(basic_deterministic.NextFrameBasicDeterministic):
     output_frames = res_frames[hparams.video_num_input_frames-1:]
     frames = tf.stack(output_frames, axis=1)
 
+    has_input_predictions = hparams.video_num_input_frames > 1
+    if self.is_training and hparams.internal_loss and has_input_predictions:
+      # add the loss for input frames as well.
+      extra_gts = input_frames[1:]
+      extra_pds = res_frames[:hparams.video_num_input_frames-1]
+      extra_raw_gts = features["inputs_raw"][:, 1:]
+      recon_loss = self.get_extra_internal_loss(
+          extra_raw_gts, extra_gts, extra_pds)
+      extra_loss += recon_loss
+
     if not self.has_reward:
       return frames, extra_loss
     rewards = tf.concat(res_rewards[hparams.video_num_input_frames-1:], axis=1)
@@ -173,7 +188,7 @@ class NextFrameBasicRecurrent(basic_deterministic.NextFrameBasicDeterministic):
 @registry.register_hparams
 def next_frame_basic_recurrent():
   """Basic 2-frame recurrent model with stochastic tower."""
-  hparams = basic_deterministic_params.next_frame_basic_deterministic()
+  hparams = basic_stochastic.next_frame_basic_stochastic_discrete()
   hparams.video_num_input_frames = 4
   hparams.video_num_target_frames = 4
   hparams.add_hparam("num_lstm_layers", 1)

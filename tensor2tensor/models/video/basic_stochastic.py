@@ -70,7 +70,7 @@ class NextFrameBasicStochasticDiscrete(
     filters = hparams.hidden_size
     kernel = (4, 4)
 
-    if hparams.mode == tf.estimator.ModeKeys.PREDICT:
+    if self.is_predicting:
       layer_shape = common_layers.shape_list(layer)
       if hparams.full_latent_tower:
         rand = tf.random_uniform(layer_shape[:-1] + [hparams.bottleneck_bits])

@@ -50,6 +50,7 @@ def next_frame_basic_deterministic():
   hparams.add_hparam("tiny_mode", False)
   hparams.add_hparam("small_mode", False)
   hparams.add_hparam("stochastic_model", False)
+  hparams.add_hparam("internal_loss", True)
   return hparams
 
 

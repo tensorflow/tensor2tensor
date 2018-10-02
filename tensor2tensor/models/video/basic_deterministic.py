@@ -53,6 +53,54 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
     del features, filters
     return layer, 0.0
 
+  def get_extra_internal_loss(self, extra_raw_gts, extra_gts, extra_pds):
+    """Hacky code the get the loss on predicted frames from input frames.
+
+       Recurrent models consume the frames one-by-one. Therefore
+       if there is more than one input frame they also get predicted.
+       T2T only calculates loss on the predicted target frames which
+       means the loss is not being applied on the predicted input frames.
+       This code is to fix this issue. Since the model is not aware of the
+       modality it has to match the pre-porocessing happening in bottom
+       function and therefore this becomes a very hacky code. This code
+       should match the bottom and top and loss of modalities otherwise
+       it will calculate the wrong loss.
+
+    Args:
+      extra_raw_gts: extra raw ground truth frames.
+      extra_gts: extra normalized ground truth frames.
+      extra_pds: extra predicted frames.
+
+    Returns:
+      Additional reconstruction loss.
+
+    Raises:
+      ValueError: in case of unknown modality.
+    """
+    if self._target_modality == "VideoModalityL2Raw":
+      recon_loss = tf.losses.mean_squared_error(extra_gts, extra_pds)
+    elif self._target_modality == "VideoModality":
+      shape = common_layers.shape_list(extra_pds)
+      updated_shape = shape[:-1] + [3, 256]
+      extra_pds = tf.reshape(extra_pds, updated_shape)
+      # Merge time and batch
+      logits = tf.reshape(extra_pds, [-1] + updated_shape[2:])
+      targets = extra_raw_gts
+      targets_shape = common_layers.shape_list(targets)
+      targets = tf.reshape(targets, [-1] + targets_shape[2:])
+      mod = self.hparams.problem_hparams.target_modality["targets"]
+      numerator, denominator = common_layers.padded_cross_entropy(
+          logits,
+          targets,
+          self.hparams.label_smoothing,
+          cutoff=getattr(self.hparams, "video_modality_loss_cutoff", 0.01),
+          weights_fn=mod.targets_weights_fn)
+      recon_loss = numerator / denominator
+    else:
+      raise ValueError("internal loss only supports specific modalities.")
+    tf.summary.scalar("recon_extra", recon_loss)
+    return recon_loss
+
   def inject_additional_input(self, layer, inputs, name, mode="concat"):
     layer_shape = common_layers.shape_list(layer)
     input_shape = common_layers.shape_list(inputs)
