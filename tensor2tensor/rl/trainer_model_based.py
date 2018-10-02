@@ -1082,6 +1082,16 @@ def rlmb_tiny_stochastic():
 
 
 @registry.register_hparams
+def rlmb_tiny_recurrent():
+  """Tiny setting with a recurrent next-frame model."""
+  hparams = rlmb_tiny()
+  hparams.epochs = 1  # Too slow with 2 for regular runs.
+  hparams.generative_model = "next_frame_basic_recurrent"
+  hparams.generative_model_params = "next_frame_basic_recurrent"
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_tiny_sv2p():
   """Tiny setting with a tiny sv2p model."""
   hparams = rlmb_tiny()
