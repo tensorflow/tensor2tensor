@@ -714,6 +714,7 @@ class BatchWholeVideoWriter(VideoWriter):
     self.writers = None
 
   def write(self, batch_frame, batch_encoded_frame=None):
+    del batch_encoded_frame
     if self.writers is None:
       self.writers = [
           WholeVideoWriter(
