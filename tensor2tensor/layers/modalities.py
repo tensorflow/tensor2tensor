@@ -114,7 +114,6 @@ class SymbolModality(modality.Modality):
       return ret
 
   def bottom(self, x):
-    self._bottom_was_called = True
     if (self._model_hparams.shared_embedding_and_softmax_weights or
         self._model_hparams.get("shared_embedding")):
       return self.bottom_simple(x, "shared", reuse=None)
