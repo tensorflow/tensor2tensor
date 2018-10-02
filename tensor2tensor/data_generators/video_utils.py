@@ -33,6 +33,13 @@ from tensor2tensor.utils import video_metrics
 
 import tensorflow as tf
 
+flags = tf.flags
+FLAGS = flags.FLAGS
+
+flags.DEFINE_bool(
+    "disable_ffmpeg", False, "Disable FFMPEG when generating debug videos."
+)
+
 
 def resize_video_frames(images, size):
   resized_images = []
@@ -120,6 +127,17 @@ def summarize_video_metrics(hook_args):
       tag = "metric_{}/{}".format(name, ind)
       summary_values.append(tf.Summary.Value(tag=tag, simple_value=val))
   return summary_values
+
+
+def debug_video_writer_factory(output_dir):
+  """Creates a VideoWriter for debug videos."""
+  if FLAGS.disable_ffmpeg:
+    return common_video.IndividualFrameWriter(output_dir)
+  else:
+    output_path = os.path.join(output_dir, "video.avi")
+    return common_video.WholeVideoWriter(
+        fps=10, output_path=output_path, file_format="avi"
+    )
 
 
 class VideoProblem(problem.Problem):
@@ -435,8 +453,7 @@ class VideoProblem(problem.Problem):
     Raises:
       ValueError: if the frame has a different number of channels than required.
     """
-    if self.debug_dump_frames_path:
-      writer = common_video.VideoWriter(fps=10, file_format="avi")
+    writer = None
 
     with tf.Graph().as_default():
       image_t = tf.placeholder(dtype=tf.uint8, shape=(None, None, None))
@@ -461,16 +478,19 @@ class VideoProblem(problem.Problem):
             features["image/encoded_debug"] = [encoded_debug]
 
           if self.debug_dump_frames_path:
+            # Defer creating debug writer until we know debug_dump_frames_path.
+            if writer is None:
+              if not tf.gfile.Exists(self.debug_dump_frames_path):
+                tf.gfile.MkDir(self.debug_dump_frames_path)
+              writer = debug_video_writer_factory(self.debug_dump_frames_path)
             img = unencoded_debug if has_debug_image else unencoded_frame
-            writer.write(img)
+            encoded_img = encoded_debug if has_debug_image else encoded_frame
+            writer.write(img, encoded_img)
 
           yield features
 
     if self.debug_dump_frames_path:
-      if not tf.gfile.Exists(self.debug_dump_frames_path):
-        tf.gfile.MkDir(self.debug_dump_frames_path)
-      path = os.path.join(self.debug_dump_frames_path, "video.avi")
-      writer.finish_to_file(path)
+      writer.finish_to_disk()
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     """The function generating the data."""
