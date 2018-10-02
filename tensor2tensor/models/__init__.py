@@ -20,6 +20,7 @@ from __future__ import print_function
 
 from tensor2tensor.layers import modalities  # pylint: disable=g-import-not-at-top
 from tensor2tensor.mesh_tensorflow import mtf_image_transformer
+from tensor2tensor.mesh_tensorflow import mtf_resnet
 from tensor2tensor.mesh_tensorflow import mtf_transformer
 from tensor2tensor.mesh_tensorflow.research import experiments_moe
 from tensor2tensor.models import basic

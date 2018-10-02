@@ -103,6 +103,66 @@ def layer_norm(x, dim, epsilon=1e-6, name="layer_prepostprocess"):
     return norm_x * scale + bias
 
 
+def batch_norm(x, is_training, momentum, epsilon=1e-9, name=None):
+  """Batch normalization.
+
+  Args:
+    x: a mtf.Tensor whose shape contains [batch_dim, ..., dim]
+    is_training: a boolean, whether mode is training.
+    momentum: a floating point number, specifying batch norm decay value.
+    epsilon: a floating point number.
+    name: a string. variable scope.
+
+  Returns:
+    a mtf.Tensor with same shape as x.
+  """
+  with tf.variable_scope(name, default_name="batch_norm", values=[x]):
+    batch_dim = x.shape.dims[0]
+    reduced_shape = x.shape - batch_dim
+    scale = mtf.get_variable(
+        x.mesh,
+        "batch_norm_scale",
+        mtf.Shape([batch_dim]),
+        initializer=tf.ones_initializer(),
+        activation_dtype=x.dtype)
+    bias = mtf.get_variable(
+        x.mesh,
+        "batch_norm_bias",
+        mtf.Shape([batch_dim]),
+        initializer=tf.zeros_initializer(),
+        activation_dtype=x.dtype)
+
+    moving_mean = mtf.get_variable(
+        x.mesh, "moving_mean", reduced_shape,
+        initializer=tf.random_normal_initializer(stddev=1.0),
+        activation_dtype=x.dtype,
+        trainable=False)
+    moving_variance = mtf.get_variable(
+        x.mesh, "moving_variance",
+        reduced_shape, initializer=tf.ones_initializer(),
+        activation_dtype=x.dtype,
+        trainable=False)
+
+    # At training time, calculate mean and variance and normalize across batch
+    # dim.
+    if is_training:
+      mean = mtf.reduce_mean(x, output_shape=reduced_shape)
+      variance = mtf.reduce_mean(
+          mtf.square(x - mean), output_shape=reduced_shape)
+      norm_x = (x - mean) * mtf.rsqrt(variance + epsilon)
+
+      # Update running mean and running variance.
+      moving_mean = mtf.assign(
+          moving_mean, momentum * moving_mean + (1-momentum) * mean)
+      moving_variance = mtf.assign(
+          moving_variance,
+          momentum * moving_variance + (1 - momentum) * variance)
+    else:
+      # At eval and test time, use the running mean and variance.
+      norm_x = (x - moving_mean) * mtf.rsqrt(moving_variance + epsilon)
+    return norm_x * scale + bias
+
+
 def softmax_cross_entropy_with_logits(logits, targets, vocab_dim):
   """Per-example softmax loss.
 
