@@ -558,14 +558,17 @@ def beta_schedule(schedule, global_step, final_beta, decay_start, decay_end):
 class VideoWriter(object):
   """Base helper class for writing videos."""
 
-  def write(self, frame):
+  def write(self, frame, encoded_frame=None):
     """Writes a single video frame."""
     raise NotImplementedError
 
-  def write_multi(self, frames):
+  def write_multi(self, frames, encoded_frames=None):
     """Writes multiple video frames."""
-    for frame in frames:
-      self.write(frame)
+    if encoded_frames is None:
+      # Infinite iterator.
+      encoded_frames = iter(lambda: None, 1)
+    for (frame, encoded_frame) in zip(frames, encoded_frames):
+      self.write(frame, encoded_frame)
 
   def finish(self):
     """Finishes writing frames and returns output, if any.
@@ -662,7 +665,7 @@ class WholeVideoWriter(VideoWriter):
     thread.start()
     return thread
 
-  def write(self, frame):
+  def write(self, frame, encoded_frame=None):
     if self.proc is None:
       self.__init_ffmpeg(frame.shape)
     self.proc.stdin.write(frame.tostring())
@@ -710,7 +713,7 @@ class BatchWholeVideoWriter(VideoWriter):
     self.file_format = file_format
     self.writers = None
 
-  def write(self, batch_frame):
+  def write(self, batch_frame, batch_encoded_frame=None):
     if self.writers is None:
       self.writers = [
           WholeVideoWriter(
@@ -728,3 +731,20 @@ class BatchWholeVideoWriter(VideoWriter):
   def save_to_disk(self, outputs):
     for (writer, output) in zip(self.writers, outputs):
       writer.save_to_disk(output)
+
+
+class IndividualFrameWriter(VideoWriter):
+  """Helper class for writing individual video frames."""
+
+  def __init__(self, output_dir):
+    self.output_dir = output_dir
+    self._counter = 0
+
+  def write(self, frame=None, encoded_frame=None):
+    import os  # pylint: disable=g-import-not-at-top
+    if encoded_frame is None:
+      raise ValueError("This writer only supports encoded frames.")
+    path = os.path.join(self.output_dir, "frame_%05d.png" % self._counter)
+    with tf.gfile.Open(path, "wb") as f:
+      f.write(encoded_frame)
+      self._counter += 1

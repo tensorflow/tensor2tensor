@@ -33,6 +33,13 @@ from tensor2tensor.utils import video_metrics
 
 import tensorflow as tf
 
+flags = tf.flags
+FLAGS = flags.FLAGS
+
+flags.DEFINE_bool(
+    "disable_ffmpeg", False, "Disable FFMPEG when generating debug videos."
+)
+
 
 def resize_video_frames(images, size):
   resized_images = []
@@ -124,10 +131,13 @@ def summarize_video_metrics(hook_args):
 
 def debug_video_writer_factory(output_dir):
   """Creates a VideoWriter for debug videos."""
-  output_path = os.path.join(output_dir, "video.avi")
-  return common_video.WholeVideoWriter(
-      fps=10, output_path=output_path, file_format="avi"
-  )
+  if FLAGS.disable_ffmpeg:
+    return common_video.IndividualFrameWriter(output_dir)
+  else:
+    output_path = os.path.join(output_dir, "video.avi")
+    return common_video.WholeVideoWriter(
+        fps=10, output_path=output_path, file_format="avi"
+    )
 
 
 class VideoProblem(problem.Problem):
@@ -474,7 +484,8 @@ class VideoProblem(problem.Problem):
                 tf.gfile.MkDir(self.debug_dump_frames_path)
               writer = debug_video_writer_factory(self.debug_dump_frames_path)
             img = unencoded_debug if has_debug_image else unencoded_frame
-            writer.write(img)
+            encoded_img = encoded_debug if has_debug_image else encoded_frame
+            writer.write(img, encoded_img)
 
           yield features
 
