@@ -599,7 +599,18 @@ class VideoWriter(object):
     )
 
   def _start_reader_thread(self, stream, chunks):
-    """TODO(koz4k): Write a docstring."""
+    """Starts a thread for reading output from FFMPEG.
+
+    The thread reads consecutive chunks from the stream and saves them in
+    the given list.
+
+    Args:
+      stream: output stream of the FFMPEG process.
+      chunks: list to save output chunks to.
+
+    Returns:
+      Thread
+    """
     import io  # pylint: disable=g-import-not-at-top
     import threading  # pylint: disable=g-import-not-at-top
     def target():
@@ -622,7 +633,14 @@ class VideoWriter(object):
       self.write(frame)
 
   def finish(self):
-    """TODO(koz4k): Write a docstring."""
+    """Finishes transconding and returns the video.
+
+    Returns:
+      bytes
+
+    Raises:
+      IOError: in case of transcoding error.
+    """
     if self.proc is None:
       return None
     self.proc.stdin.close()
