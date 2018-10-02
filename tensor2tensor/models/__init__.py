@@ -61,6 +61,7 @@ from tensor2tensor.models.research import vqa_recurrent_self_attention
 from tensor2tensor.models.research import vqa_self_attention
 
 from tensor2tensor.models.video import basic_deterministic
+from tensor2tensor.models.video import basic_recurrent
 from tensor2tensor.models.video import basic_stochastic
 from tensor2tensor.models.video import emily
 from tensor2tensor.models.video import epva
