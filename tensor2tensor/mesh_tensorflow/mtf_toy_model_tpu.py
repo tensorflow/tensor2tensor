@@ -93,8 +93,7 @@ class ToyModelInput(object):
 
     ds = Dataset.from_tensor_slices((self._images, self._labels)).repeat()
 
-    dataset = ds.apply(
-        tf.contrib.data.batch_and_drop_remainder(batch_size)).prefetch(2)
+    dataset = ds.batch(batch_size, drop_remainder=True).prefetch(2)
 
     return dataset
 

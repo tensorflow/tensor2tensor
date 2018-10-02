@@ -370,8 +370,8 @@ class VideoProblem(problem.Problem):
         self.settable_use_not_breaking_batching):
       batch_dataset = avoid_break_batching(preprocessed_dataset)
     else:
-      batch_dataset = preprocessed_dataset.apply(
-          tf.contrib.data.batch_and_drop_remainder(num_frames))
+      batch_dataset = preprocessed_dataset.batch(num_frames,
+                                                 drop_remainder=True)
     dataset = batch_dataset.map(features_from_batch)
     if self.shuffle and interleave and mode == tf.estimator.ModeKeys.TRAIN:
       dataset = dataset.shuffle(hparams.get("shuffle_buffer_size", 128))
