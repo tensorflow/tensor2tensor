@@ -289,3 +289,12 @@ def create_problems_for_game(
       "simulated": simulated_cls,
       "world_model_eval": world_model_eval_cls,
   }
+
+# Register the atari games with all of the possible modes.
+for game in ATARI_ALL_MODES_SHORT_LIST:
+  ATARI_PROBLEMS[game] = {}
+  for mode in ATARI_GAME_MODES:
+    classes = create_problems_for_game(
+        game,
+        game_mode=mode)
+    ATARI_PROBLEMS[game][mode] = classes
