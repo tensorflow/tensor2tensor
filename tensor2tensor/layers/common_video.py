@@ -322,7 +322,7 @@ def _encode_gif(images, fps):
   Raises:
     IOError: If the ffmpeg command returns an error.
   """
-  writer = VideoWriter(fps)
+  writer = WholeVideoWriter(fps)
   writer.write_multi(images)
   return writer.finish()
 
@@ -556,10 +556,49 @@ def beta_schedule(schedule, global_step, final_beta, decay_start, decay_end):
 
 
 class VideoWriter(object):
-  """Helper class for writing videos."""
+  """Base helper class for writing videos."""
 
-  def __init__(self, fps, file_format="gif"):
+  def write(self, frame):
+    """Writes a single video frame."""
+    raise NotImplementedError
+
+  def write_multi(self, frames):
+    """Writes multiple video frames."""
+    for frame in frames:
+      self.write(frame)
+
+  def finish(self):
+    """Finishes writing frames and returns output, if any.
+
+    Frees any resources acquired by the writer.
+    """
+    pass
+
+  def save_to_disk(self, output):
+    """Saves output to disk.
+
+    Args:
+      output: result of finish().
+    """
+    raise NotImplementedError
+
+  def finish_to_disk(self):
+    """Finishes writing frames and saves output to disk, if any."""
+    output = self.finish()  # pylint: disable=assignment-from-no-return
+    if output is not None:
+      self.save_to_disk(output)
+
+  def __del__(self):
+    """Frees any resources acquired by the writer."""
+    self.finish()
+
+
+class WholeVideoWriter(VideoWriter):
+  """Helper class for writing whole videos."""
+
+  def __init__(self, fps, output_path=None, file_format="gif"):
     self.fps = fps
+    self.output_path = output_path
     self.file_format = file_format
     self.proc = None
     self._out_chunks = []
@@ -628,10 +667,6 @@ class VideoWriter(object):
       self.__init_ffmpeg(frame.shape)
     self.proc.stdin.write(frame.tostring())
 
-  def write_multi(self, frames):
-    for frame in frames:
-      self.write(frame)
-
   def finish(self):
     """Finishes transconding and returns the video.
 
@@ -656,40 +691,40 @@ class VideoWriter(object):
     self.proc = None
     return out
 
-  def finish_to_file(self, path):
-    out = self.finish()
-    if out is not None:
-      with tf.gfile.Open(path, "w") as f:
-        f.write(out)
+  def save_to_disk(self, output):
+    if self.output_path is None:
+      raise ValueError(
+          "This writer doesn't support saving to disk (output_path not "
+          "specified)."
+      )
+    with tf.gfile.Open(self.output_path, "w") as f:
+      f.write(output)
 
-  def __del__(self):
-    self.finish()
 
-
-class BatchVideoWriter(object):
+class BatchWholeVideoWriter(VideoWriter):
   """Helper class for writing videos in batch."""
 
-  def __init__(self, fps, file_format="gif"):
+  def __init__(self, fps, path_template, file_format="gif"):
     self.fps = fps
+    self.path_template = path_template
     self.file_format = file_format
     self.writers = None
 
   def write(self, batch_frame):
     if self.writers is None:
       self.writers = [
-          VideoWriter(self.fps, self.file_format) for _ in batch_frame]
+          WholeVideoWriter(
+              self.fps, self.path_template.format(i), self.file_format
+          )
+          for i in range(len(batch_frame))
+      ]
     for i, frame in enumerate(batch_frame):
       self.writers[i].write(frame)
-
-  def write_multi(self, batch_frames):
-    for batch_frame in batch_frames:
-      self.write(batch_frame)
 
   def finish(self):
     outs = [w.finish() for w in self.writers]
     return outs
 
-  def finish_to_files(self, path_template):
-    for i, writer in enumerate(self.writers):
-      path = path_template.format(i)
-      writer.finish_to_file(path)
+  def save_to_disk(self, outputs):
+    for (writer, output) in zip(self.writers, outputs):
+      writer.save_to_disk(output)
