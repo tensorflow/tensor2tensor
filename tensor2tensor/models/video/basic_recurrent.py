@@ -191,6 +191,6 @@ def next_frame_basic_recurrent():
   hparams = basic_stochastic.next_frame_basic_stochastic_discrete()
   hparams.video_num_input_frames = 4
   hparams.video_num_target_frames = 4
-  hparams.add_hparam("num_lstm_layers", 1)
-  hparams.add_hparam("num_lstm_filters", 8)
+  hparams.add_hparam("num_lstm_layers", 2)
+  hparams.add_hparam("num_lstm_filters", 256)
   return hparams

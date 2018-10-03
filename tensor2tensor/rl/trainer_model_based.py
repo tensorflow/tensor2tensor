@@ -892,6 +892,15 @@ def rlmb_base_stochastic_discrete():
 
 
 @registry.register_hparams
+def rlmb_base_stochastic_recurrent():
+  """Base setting with recurrent model."""
+  hparams = rlmb_base()
+  hparams.generative_model = "next_frame_basic_recurrent"
+  hparams.generative_model_params = "next_frame_basic_recurrent"
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_base_stochastic_discrete_noresize():
   """Base setting with stochastic discrete model."""
   hparams = rlmb_base()
