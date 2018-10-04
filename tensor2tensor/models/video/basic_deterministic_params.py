@@ -94,16 +94,6 @@ def next_frame_ae():
 
 
 @registry.register_hparams
-def next_frame_ae_tiny():
-  """Conv autoencoder, tiny set for testing."""
-  hparams = next_frame_tiny()
-  hparams.input_modalities = "inputs:video:bitwise"
-  hparams.batch_size = 8
-  hparams.dropout = 0.4
-  return hparams
-
-
-@registry.register_hparams
 def next_frame_small():
   """Small conv model."""
   hparams = next_frame_basic_deterministic()

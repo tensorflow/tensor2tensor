@@ -89,10 +89,9 @@ def standard_atari_env_eval_spec(env, simulated=False,
       include_clipping=False)
 
 
-def standard_atari_ae_env_spec(env, ae_hparams_set):
+def standard_atari_ae_env_spec(env):
   """Parameters of environment specification."""
-  standard_wrappers = [[tf_atari_wrappers.AutoencoderWrapper,
-                        {"ae_hparams_set": ae_hparams_set}],
+  standard_wrappers = [[tf_atari_wrappers.AutoencoderWrapper, {}],
                        [tf_atari_wrappers.StackWrapper, {"history": 4}]]
   env_lambda = None
   if isinstance(env, str):
@@ -477,7 +476,7 @@ class GymDiscreteProblemWithAutoencoder(GymRealDiscreteProblem):
     self._forced_collect_level = 0
 
   def get_environment_spec(self):
-    return standard_atari_ae_env_spec(self.env_name, self.ae_hparams_set)
+    return standard_atari_ae_env_spec(self.env_name)
 
   def restore_networks(self, sess):
     super(GymDiscreteProblemWithAutoencoder, self).restore_networks(sess)
@@ -518,12 +517,12 @@ class GymDiscreteProblemAutoencoded(GymRealDiscreteProblem):
                        " for reading encoded frames")
 
   def get_environment_spec(self):
-    return standard_atari_ae_env_spec(self.env_name, self.ae_hparams_set)
+    return standard_atari_ae_env_spec(self.env_name)
 
   @property
   def autoencoder_factor(self):
     """By how much to divide sizes when using autoencoders."""
-    hparams = registry.hparams(self.ae_hparams_set)
+    hparams = autoencoders.autoencoder_discrete_pong()
     return 2**hparams.num_hidden_layers
 
   @property
@@ -797,7 +796,7 @@ class GymSimulatedDiscreteProblemAutoencoded(GymSimulatedDiscreteProblem):
   @property
   def autoencoder_factor(self):
     """By how much to divide sizes when using autoencoders."""
-    hparams = registry.hparams(self.ae_hparams_set)
+    hparams = autoencoders.autoencoder_discrete_pong()
     return 2**hparams.num_hidden_layers
 
   @property

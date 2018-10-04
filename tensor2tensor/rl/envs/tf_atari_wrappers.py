@@ -221,14 +221,13 @@ class StackWrapper(WrapperBase):
 class AutoencoderWrapper(WrapperBase):
   """Transforms the observations taking the bottleneck of an autoencoder."""
 
-  def __init__(self, batch_env, ae_hparams_set):
+  def __init__(self, batch_env):
     super(AutoencoderWrapper, self).__init__(batch_env)
-    self.ae_hparams_set = ae_hparams_set
     self._observ = tf.Variable(
         tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
         trainable=False)
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      autoencoder_hparams = registry.hparams(self.ae_hparams_set)
+      autoencoder_hparams = autoencoders.autoencoder_discrete_pong()
       problem = registry.problem("dummy_autoencoder_problem")
       autoencoder_hparams.problem_hparams = problem.get_hparams(
           autoencoder_hparams)
@@ -250,7 +249,7 @@ class AutoencoderWrapper(WrapperBase):
   @property
   def autoencoder_factor(self):
     """By how much to divide sizes when using autoencoders."""
-    hparams = registry.hparams(self.ae_hparams_set)
+    hparams = autoencoders.autoencoder_discrete_pong()
     return 2**hparams.num_hidden_layers
 
   def simulate(self, action):

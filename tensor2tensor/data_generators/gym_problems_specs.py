@@ -235,8 +235,7 @@ def create_problems_for_game(
     game_name,
     resize_height_factor=1,
     resize_width_factor=1,
-    game_mode="Deterministic-v4",
-    autoencoder_hparams=None):
+    game_mode="Deterministic-v4"):
   """Create and register problems for game_name.
 
   Args:
@@ -268,74 +267,36 @@ def create_problems_for_game(
                       "resize_width_factor": resize_width_factor})
   registry.register_problem(problem_cls)
 
-  if not autoencoder_hparams:
-    with_agent_cls = type("GymDiscreteProblemWithAgentOn%s" % camel_game_name,
-                          (GymRealDiscreteProblem, problem_cls), {})
-    registry.register_problem(with_agent_cls)
+  with_agent_cls = type("GymDiscreteProblemWithAgentOn%s" % camel_game_name,
+                        (GymRealDiscreteProblem, problem_cls), {})
 
-    # Create and register the simulated Problem
-    simulated_cls = type(
-        "GymSimulatedDiscreteProblemWithAgentOn%s" % camel_game_name,
-        (GymSimulatedDiscreteProblem, problem_cls), {
-            "initial_frames_problem": with_agent_cls.name,
-            "num_testing_steps": 100
-        })
-    registry.register_problem(simulated_cls)
+  registry.register_problem(with_agent_cls)
 
-    # Create and register the simulated Problem
-    world_model_eval_cls = type(
-        "GymSimulatedDiscreteProblemForWorldModelEvalWithAgentOn%s" %
-        camel_game_name,
-        (GymSimulatedDiscreteProblemForWorldModelEval, problem_cls), {
-            "initial_frames_problem": with_agent_cls.name,
-            "num_testing_steps": 100
-        })
-    registry.register_problem(world_model_eval_cls)
-    return {
-        "base": problem_cls,
-        "agent": with_agent_cls,
-        "simulated": simulated_cls,
-        "world_model_eval": world_model_eval_cls,
-    }
-  else:
-    with_agent_cls_with_ae = \
-      type("GymDiscreteProblemWithAgentOn%sWithAutoencoder" % camel_game_name,
-           (GymDiscreteProblemWithAutoencoder, problem_cls),
-           {'ae_hparams_set': autoencoder_hparams})
-    registry.register_problem(with_agent_cls_with_ae)
+  # Create and register the simulated Problem
+  simulated_cls = type(
+      "GymSimulatedDiscreteProblemWithAgentOn%s" % camel_game_name,
+      (GymSimulatedDiscreteProblem, problem_cls), {
+          "initial_frames_problem": with_agent_cls.name,
+          "num_testing_steps": 100
+      })
+  registry.register_problem(simulated_cls)
 
-    with_agent_cls_ae = \
-      type("GymDiscreteProblemWithAgentOn%sAutoencoded" % camel_game_name,
-           (GymDiscreteProblemAutoencoded, problem_cls),
-           {"ae_hparams_set": autoencoder_hparams})
-    registry.register_problem(with_agent_cls_ae)
+  # Create and register the simulated Problem
+  world_model_eval_cls = type(
+      "GymSimulatedDiscreteProblemForWorldModelEvalWithAgentOn%s" %
+      camel_game_name,
+      (GymSimulatedDiscreteProblemForWorldModelEval, problem_cls), {
+          "initial_frames_problem": with_agent_cls.name,
+          "num_testing_steps": 100
+      })
+  registry.register_problem(world_model_eval_cls)
 
-    # Create and register the simulated Problem
-    simulated_cls = \
-      type("GymSimulatedDiscreteProblemWithAgentOn%sAutoencoded"
-           % camel_game_name,
-           (GymSimulatedDiscreteProblemAutoencoded, problem_cls), {
-               "initial_frames_problem": with_agent_cls_ae.name,
-               "num_testing_steps": 100,
-               "ae_hparams_set": autoencoder_hparams})
-    registry.register_problem(simulated_cls)
-
-    world_model_eval_cls = \
-      type("GymSimulatedDiscreteProblemForWorldModelEvalWithAgentOn%sAutoencoded"  # pylint: disable=line-too-long
-           % camel_game_name,
-           (GymSimulatedDiscreteProblemForWorldModelEvalAutoencoded,
-            problem_cls), {
-                "initial_frames_problem": with_agent_cls_ae.name,
-                "num_testing_steps": 100,
-                "ae_hparams_set": autoencoder_hparams})
-    registry.register_problem(world_model_eval_cls)
-    return {
-        "base": problem_cls,
-        "agent_with_ae": with_agent_cls_with_ae,
-        "agent_ae": with_agent_cls_ae,
-        "simulated_ae": simulated_cls,
-        "world_model_eval_ae": world_model_eval_cls,
-    }
+  return {
+      "base": problem_cls,
+      "agent": with_agent_cls,
+      "simulated": simulated_cls,
+      "world_model_eval": world_model_eval_cls,
+  }
 
 # Register the atari games with all of the possible modes.
 for game in ATARI_ALL_MODES_SHORT_LIST:
