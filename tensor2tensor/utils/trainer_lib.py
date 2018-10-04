@@ -338,11 +338,11 @@ class T2TExperiment(object):
                          "in train_hooks.")
       self.train()
 
-  def train(self):
+  def train(self, max_steps=None):
     self._estimator.train(
         self._train_spec.input_fn,
         hooks=self._train_spec.hooks,
-        max_steps=self._train_spec.max_steps)
+        max_steps=max_steps or self._train_spec.max_steps)
 
   def evaluate(self):
     return self._estimator.evaluate(
