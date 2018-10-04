@@ -38,8 +38,7 @@ import tempfile
 # Fathom
 import fathomt2t
 import fathomairflow.dags.dag_management.xcom_manipulation as xcom
-from fathomtf.services.model_management import (fathom_t2t_model_setup,
-                                                fix_paths_for_workspace)
+from fathomtf.services.model_management import fathom_t2t_model_setup
 import absl
 
 import numpy as np
@@ -150,7 +149,6 @@ def set_random_seed():
 
 def main(_):
   # Fathom
-  fix_paths_for_workspace(FLAGS)
 
   tf.logging.set_verbosity(tf.logging.INFO)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
