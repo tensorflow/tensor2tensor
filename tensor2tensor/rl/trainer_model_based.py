@@ -1256,6 +1256,12 @@ def rlmb_curious_games5(rhp):
 
 
 @registry.register_ranged_hparams
+def rlmb_debug_games(rhp):
+  rhp.set_discrete("model.moe_loss_coef", list(range(10)))
+  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_DEBUG_GAMES)
+
+
+@registry.register_ranged_hparams
 def rlmb_ae_variance(rhp):
   # Dummy parameter to get 5 runs for each configuration
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))

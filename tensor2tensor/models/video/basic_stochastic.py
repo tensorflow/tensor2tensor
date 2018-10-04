@@ -70,6 +70,15 @@ class NextFrameBasicStochasticDiscrete(
     filters = hparams.hidden_size
     kernel = (4, 4)
 
+    def add_d(layer, d):
+      z_mul = tf.layers.dense(d, final_filters, name="unbottleneck_mul")
+      if not hparams.complex_addn:
+        return layer + z_mul
+      layer *= tf.nn.sigmoid(z_mul)
+      z_add = tf.layers.dense(d, final_filters, name="unbottleneck_add")
+      layer += z_add
+      return layer
+
     if self.is_predicting:
       layer_shape = common_layers.shape_list(layer)
       if hparams.full_latent_tower:
@@ -78,8 +87,7 @@ class NextFrameBasicStochasticDiscrete(
         rand = tf.random_uniform(layer_shape[:-3] + [
             1, 1, hparams.bottleneck_bits])
       d = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
-      z = tf.layers.dense(d, final_filters, name="unbottleneck")
-      return layer + z, 0.0
+      return add_d(layer, d), 0.0
 
     # Embed.
     frames = tf.concat(
@@ -108,10 +116,11 @@ class NextFrameBasicStochasticDiscrete(
     if hparams.mode == tf.estimator.ModeKeys.TRAIN:
       noise = tf.random_uniform(common_layers.shape_list(x))
       noise = 2.0 * tf.to_float(tf.less(hparams.bottleneck_noise, noise)) - 1.0
-      d *= noise
-
-    z = tf.layers.dense(d, final_filters, name="unbottleneck")
-    return layer + z, 0.0
+      x *= noise
+      d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
+      p = common_layers.inverse_lin_decay(hparams.discrete_warmup_steps)
+      d = tf.where(tf.less(tf.random_uniform([]), p), d, x)
+    return add_d(layer, d), 0.0
 
 
 @registry.register_hparams
@@ -158,7 +167,9 @@ def next_frame_sampling_stochastic():
 def next_frame_basic_stochastic_discrete():
   """Basic 2-frame conv model with stochastic discrete latent."""
   hparams = basic_deterministic_params.next_frame_sampling()
-  hparams.add_hparam("bottleneck_bits", 16)
-  hparams.add_hparam("bottleneck_noise", 0.02)
+  hparams.add_hparam("bottleneck_bits", 32)
+  hparams.add_hparam("bottleneck_noise", 0.05)
+  hparams.add_hparam("discrete_warmup_steps", 4000)
   hparams.add_hparam("full_latent_tower", False)
+  hparams.add_hparam("complex_addn", True)
   return hparams

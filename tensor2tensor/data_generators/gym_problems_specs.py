@@ -96,6 +96,14 @@ ATARI_CURIOUS_GAMES = [
 ]
 
 
+# Games on which based should work.
+ATARI_DEBUG_GAMES = [
+    "crazy_climber",
+    "freeway",
+    "pong",
+]
+
+
 # Different ATARI game modes in OpenAI Gym. Full list here:
 # https://github.com/openai/gym/blob/master/gym/envs/__init__.py
 ATARI_GAME_MODES = [
