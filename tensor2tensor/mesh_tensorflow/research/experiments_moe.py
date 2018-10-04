@@ -238,3 +238,49 @@ def xmoe_wiki_x256():
   return hparams
 
 
+@registry.register_hparams
+def xmoe_wiki_x256_h16k():
+  """Two-dimensional hierarchical mixture of experts.
+
+  (16x16 experts) * (32M params/expert) * 6 layers = ~50B params
+
+  Returns:
+    a hparams object.
+  """
+  hparams = xmoe_wiki_x256()
+  hparams.moe_hidden_size = 16384
+  return hparams
+
+
+@registry.register_hparams
+def xmoe_wiki_x1024():
+  """Two-dimensional hierarchical mixture of experts.
+
+  (16x16 experts) * (16M params/expert) * 6 layers = ~100B params
+
+  Returns:
+    a hparams object.
+  """
+  hparams = xmoe_wiki_x64()
+  hparams.mesh_shape = "b0:16;b1:32"
+  hparams.outer_batch_size = 16
+  hparams.moe_num_experts = [32, 32]
+  hparams.batch_size = 4096
+  hparams.learning_rate_decay_steps = 7200
+  return hparams
+
+
+@registry.register_hparams
+def xmoe_wiki_x1024_h16k():
+  """Two-dimensional hierarchical mixture of experts.
+
+  (32x32 experts) * (32M params/expert) * 6 layers = ~200B params
+
+  Returns:
+    a hparams object.
+  """
+  hparams = xmoe_wiki_x1024()
+  hparams.moe_hidden_size = 16384
+  return hparams
+
+

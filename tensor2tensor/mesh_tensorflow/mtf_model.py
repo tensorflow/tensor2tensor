@@ -72,17 +72,26 @@ class MtfModel(t2t_model.T2TModel):
         decode_hparams=decode_hparams)
 
     global_step = tf.train.get_global_step()
-    graph = mtf.Graph()
-    mesh = mtf.Mesh(graph, "my_mesh")
 
     mesh_shape = mtf.convert_to_shape(hparams.mesh_shape)
     layout_rules = mtf.convert_to_layout_rules(hparams.layout)
     if use_tpu:
+      ctx = params["context"]
+      num_hosts = ctx.num_hosts
+      host_placement_fn = ctx.tpu_host_placement_function
+      device_list = [host_placement_fn(host_id=t) for t in range(num_hosts)]
+      # TODO(ylc): Better estimation of replica cache size?
+      replica_cache_size = 300 * 1000000  # 300M per replica
+      # Worker 0 caches all the TPU binaries.
+      worker0_mem = replica_cache_size * ctx.num_replicas
+      devices_memeory_usage = [worker0_mem] + [0] * (num_hosts - 1)
+      var_placer = mtf_utils.BalancedVariablePlacer(device_list,
+                                                    devices_memeory_usage)
       mesh_devices = [""] * mesh_shape.size
       mesh_impl = simd_mesh_impl.SimdMeshImpl(
-          mesh_shape, layout_rules, mesh_devices,
-          params["context"].device_assignment)
+          mesh_shape, layout_rules, mesh_devices, ctx.device_assignment)
     else:
+      var_placer = None
       if len(data_parallelism.ps_devices) == 1:
         mesh_devices = [""] * mesh_shape.size
       else:
@@ -91,6 +100,8 @@ class MtfModel(t2t_model.T2TModel):
       mesh_impl = placement_mesh_impl.PlacementMeshImpl(
           mesh_shape, layout_rules, mesh_devices)
 
+    graph = mtf.Graph()
+    mesh = mtf.Mesh(graph, "my_mesh", var_placer)
     # PREDICT mode
     if mode == tf.estimator.ModeKeys.PREDICT:
       return model.estimator_spec_predict(features, mesh, mesh_impl, use_tpu)

@@ -496,13 +496,21 @@ class Mesh(object):
   A Lowering assigns each Mesh to a MeshImpl.
   """
 
-  def __init__(self, graph, name):
+  def __init__(self, graph, name, variable_placer=None):
     self._graph = graph
     self._name = name
+    self._variable_placer = variable_placer
 
   @property
   def graph(self):
     return self._graph
+
+  @property
+  def variable_placer_fn(self):
+    if self._variable_placer is not None:
+      return self._variable_placer.device_function
+    else:
+      return "cpu:0"
 
 
 class MeshImpl(object):
@@ -2516,7 +2524,7 @@ class Variable(Operation):
                trainable, **kwargs):
     super(Variable, self).__init__([], mesh, name="name_will_be_set_later")
     self._trainable = trainable
-    with tf.device("cpu:0"), mtf_utils.outside_all_rewrites():
+    with tf.device(mesh.variable_placer_fn), mtf_utils.outside_all_rewrites():
       self.master = tf.get_variable(
           name, shape.to_integer_list, dtype=dtype, initializer=initializer,
           **kwargs)

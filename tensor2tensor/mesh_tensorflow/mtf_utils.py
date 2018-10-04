@@ -19,7 +19,9 @@ from __future__ import division
 from __future__ import print_function
 
 import contextlib
+import heapq
 
+import tensorflow as tf
 from tensorflow.python.framework import ops
 
 
@@ -27,3 +29,41 @@ from tensorflow.python.framework import ops
 def outside_all_rewrites():
   with ops.control_dependencies(None):
     yield
+
+
+class BalancedVariablePlacer(object):
+  """Place the variable on different device and blance the memory usage."""
+
+  def __init__(self, devices, init_usage=None):
+    init_usage = init_usage if init_usage else [0] * len(devices)
+    assert len(devices) == len(init_usage)
+    self._mem_device_heap = list(zip(init_usage, devices))
+    heapq.heapify(self._mem_device_heap)
+    self._last_device = devices[0]
+
+  def device_function(self, var):
+    """Choose a device for the input variable.
+
+    Args:
+      var: an Variable.
+
+    Returns:
+      The device for placing the var.
+    """
+    if var.type not in ('Variable', 'VariableV2', 'VarHandleOp'):
+      tf.logging.info('Place {} on last device: {}.'.format(
+          var.name, self._last_device))
+      return self._last_device
+
+    shape = tf.TensorShape(var.get_attr('shape'))
+    assert shape.num_elements() is not None
+
+    size = tf.DType(var.get_attr('dtype')).size
+    mem, device = heapq.heappop(self._mem_device_heap)
+    mem += shape.num_elements() * size
+    heapq.heappush(self._mem_device_heap, (mem, device))
+    tf.logging.info('Place variable {} on {} and consumes {} Bytes.'.format(
+        var.name, device, mem))
+    self._last_device = device
+
+    return device

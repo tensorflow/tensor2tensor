@@ -114,13 +114,14 @@ class SimdMeshImpl(mtf.MeshImpl):
                   initializer=tf.zeros_initializer()))
       self._laid_out_tensor = mesh_impl.LaidOutTensor(
           [tpu_variables.ReplicatedVariable(base_name, slices)])
-      with tf.device("cpu:0"), mtf_utils.outside_all_rewrites():
+      with tf.device(variable.master.device), mtf_utils.outside_all_rewrites():
         self._copy_master_to_slices = self.assign_to_slices(
             mesh_impl.make_slices(variable.master, shape),
             assign_to_tensor_list=slices)
         self._copy_slices_to_master = tf.assign(
             variable.master,
-            mesh_impl.combine_slices(slices, shape, device="cpu:0"))
+            mesh_impl.combine_slices(slices, shape,
+                                     device=variable.master.device))
 
     def assign_to_slices(self, slice_values, assign_to_tensor_list=None):
       """Assign to the slice variables.
