@@ -3985,6 +3985,40 @@ def halo_exchange(x, blocks_dim, block_size_dim, halo_size, wrap=False):
   return concat(parts, block_size_dim.name)
 
 
+def left_halo_exchange(x, blocks_dim, block_size_dim, halo_size, wrap=False):
+  """Concat each block with the margins of adjacent blocks from the left.
+
+  Get left blocks_dim and concatenate along block_size_dim.
+
+  Args:
+    x: a Tensor.
+    blocks_dim: a Dimension in x.shape
+    block_size_dim: a Dimension in x.shape
+    halo_size: an integer
+    wrap: a boolean
+
+  Returns:
+    a Tensor with the same shape as x, other than in block_size_dim, whose
+    size is increased by halo_size.
+  """
+  if halo_size == 0:
+    return x
+
+  block_size = block_size_dim.size
+  partial_size = halo_size % block_size
+  num_complete_blocks = halo_size // block_size
+  parts = [x]
+
+  for i in xrange(1, num_complete_blocks + 1):
+    parts = ([shift(x, i, blocks_dim, wrap)] + parts)
+  if partial_size > 0:
+    right_margin = slice(x, block_size_dim.size - partial_size, partial_size,
+                         block_size_dim.name)
+    parts = ([shift(right_margin, num_complete_blocks + 1, blocks_dim, wrap)]
+             + parts)
+  return concat(parts, block_size_dim.name)
+
+
 def conv2d_with_blocks(
     conv_input,
     conv_filter,
