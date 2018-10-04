@@ -14,6 +14,7 @@ docker pull $IMAGE
 
 docker run -it \
        -v $HOME/$DT:/usr/src/diseaseTools \
+       -v $HOME/gdm:/usr/src/diseaseTools/gcloud/gdm \
        -v $HOME/$T2T:/usr/src/t2t \
        -w /usr/src/t2t \
        --env PYTHONPATH=/usr/src/t2t:/usr/src/diseaseTools \
