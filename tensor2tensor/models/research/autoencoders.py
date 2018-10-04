@@ -207,7 +207,8 @@ class AutoencoderBasic(t2t_model.T2TModel):
       xb_loss = 0.0
       b_shape = common_layers.shape_list(b)
       self._cur_bottleneck_tensor = b
-      b = self.unbottleneck(b, common_layers.shape_list(x)[-1])
+      res_size = common_layers.shape_list(x)[-1]
+      b = self.unbottleneck(b, res_size)
       if not is_training:
         x = b
       else:
@@ -235,7 +236,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
             self.sample(shape=b_shape),
             common_layers.shape_list(x)[-1],
             reuse=True)
-        x = tf.concat([g, x], axis=0)
+        x = tf.concat([x, g], axis=0)
     else:
       if self._cur_bottleneck_tensor is None:
         b = self.sample()
@@ -270,7 +271,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
       return reconstr, {"bottleneck_loss": 0.0}
 
     if hparams.gan_loss_factor != 0.0:
-      res_gan, res = tf.split(res, 2, axis=0)
+      res, res_gan = tf.split(res, 2, axis=0)
 
     # Losses.
     losses = {
@@ -859,8 +860,9 @@ class AutoencoderDualDiscrete(AutoencoderResidualDiscrete):
     return tf.concat([xte, xie], axis=0)
 
   def bottleneck(self, x):
+    hparams = self.hparams
     b, _ = super(AutoencoderDualDiscrete, self).bottleneck(x)
-    if self.hparams.mode != tf.estimator.ModeKeys.TRAIN:
+    if hparams.mode != tf.estimator.ModeKeys.TRAIN:
       return b, 0.0
     bt, bi = tf.split(b, 2, axis=0)
     # Share the first hparams.bottleneck_shared_bits.
@@ -869,8 +871,19 @@ class AutoencoderDualDiscrete(AutoencoderResidualDiscrete):
     br = tf.where(rand < 0.5, bt, bi)  # Break ties at random.
     bs = tf.where(shared == 0, br, shared)
     bs = tf.concat([bs, bs], axis=0)
-    n = self.hparams.bottleneck_shared_bits
+    n = hparams.bottleneck_shared_bits
+    step = tf.train.get_global_step()
+    zero = tf.constant(0, dtype=tf.int64)
+    if step is None:
+      step = zero
+    step = tf.maximum(zero, step - hparams.bottleneck_shared_bits_start_warmup)
+    f = common_layers.inverse_lin_decay(
+        hparams.bottleneck_shared_bits_stop_warmup, min_value=0.1, step=step)
+    n = tf.where(step > 1, n * f, n)
+    n = tf.cast(n, tf.int64)
+    b_shape = common_layers.shape_list(b)
     b = tf.concat([bs[..., :n], b[..., n:]], axis=-1)
+    b = tf.reshape(b, b_shape)
     return b, 0.0
 
   def unbottleneck(self, b, res_size, reuse=None):
@@ -996,6 +1009,8 @@ def autoencoder_basic():
   hparams.add_hparam("max_hidden_size", 1024)
   hparams.add_hparam("bottleneck_bits", 128)
   hparams.add_hparam("bottleneck_shared_bits", 0)
+  hparams.add_hparam("bottleneck_shared_bits_start_warmup", 0)
+  hparams.add_hparam("bottleneck_shared_bits_stop_warmup", 0)
   hparams.add_hparam("bottleneck_noise", 0.1)
   hparams.add_hparam("bottleneck_warmup_steps", 2000)
   hparams.add_hparam("sample_height", 32)
@@ -1161,6 +1176,8 @@ def autoencoder_ordered_text():
   hparams = autoencoder_ordered_discrete()
   hparams.bottleneck_bits = 512
   hparams.bottleneck_shared_bits = 512-64
+  hparams.bottleneck_shared_bits_start_warmup = 75000
+  hparams.bottleneck_shared_bits_stop_warmup = 275000
   hparams.num_hidden_layers = 7
   hparams.batch_size = 1024
   hparams.autoregressive_mode = "conv5"
