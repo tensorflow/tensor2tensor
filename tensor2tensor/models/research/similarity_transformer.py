@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Using Transformer Networks for String similarities."""
 from tensor2tensor.data_generators import problem
 from tensor2tensor.layers import common_layers

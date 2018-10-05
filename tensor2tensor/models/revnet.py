@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 """Creates a RevNet with the bottleneck residual function.
 
 Implements the following equations described in the RevNet paper:

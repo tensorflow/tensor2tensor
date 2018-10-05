@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Module for postprocessing and displaying transformer attentions.
 
 This module is designed to be called from an ipython notebook.

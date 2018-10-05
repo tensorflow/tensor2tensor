@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Registry for models, hyperparameter settings, problem types, and datasets.
 
 Define a new model by subclassing T2TModel and register it:

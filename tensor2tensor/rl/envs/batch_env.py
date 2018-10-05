@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Combine multiple environments to step them in batch."""
 
 # The code was based on Danijar Hafner's code from tf.agents:

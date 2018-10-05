@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Multi-step optimizers simulating large batches.
 
 Optimizer variants which make it possible to use very large batch sizes with
