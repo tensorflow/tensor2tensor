@@ -724,6 +724,10 @@ class TransformerAE(t2t_model.T2TModel):
     """Constructs `tf.estimator.EstimatorSpec` for EVAL (evaluation) mode."""
     estimator_spec = super(TransformerAE, self).estimator_spec_eval(
         features, logits, labels, loss, losses_dict)
+    if common_layers.is_xla_compiled():
+      # For TPUs (and XLA more broadly?), do not add summary hooks that depend
+      # on losses; they are not supported.
+      return estimator_spec
 
     summary_op = tf.get_collection(tf.GraphKeys.SUMMARIES, scope="losses")
     summary_op.extend(tf.get_collection(tf.GraphKeys.SUMMARIES, scope="loss"))
