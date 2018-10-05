@@ -901,9 +901,20 @@ class Problem(object):
         # on TPU, we use params["batch_size"], which specifies the number of
         # examples across all datashards
         batch_size = params["batch_size"]
-        dataset = dataset.apply(
-            tf.contrib.data.padded_batch_and_drop_remainder(
-                batch_size, padded_shapes))
+        if hparams.pad_batch:
+          tf.logging.warn(
+              "Padding the batch to ensure that remainder eval batches are "
+              "processed. This may lead to incorrect metrics for "
+              "non-zero-padded features, e.g. images. Use a smaller batch "
+              "size that has no remainder in that case.")
+          dataset = dataset.padded_batch(
+              batch_size, padded_shapes, drop_remainder=False)
+          dataset = dataset.map(
+              functools.partial(pad_batch, batch_multiple=batch_size),
+              num_parallel_calls=num_threads)
+        else:
+          dataset = dataset.padded_batch(
+              batch_size, padded_shapes, drop_remainder=True)
       else:
         # On GPU, bucket by length
         dataset = dataset.filter(gpu_valid_size)

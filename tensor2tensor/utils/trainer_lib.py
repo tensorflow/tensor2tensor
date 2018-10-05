@@ -420,6 +420,11 @@ class T2TExperiment(object):
     for _ in next_checkpoint(self._hparams.model_dir):
       self.decode(dataset_split=tf.estimator.ModeKeys.TRAIN)
 
+  def continuous_decode_on_eval_data(self):
+    """Decode from dataset on new checkpoint."""
+    for _ in next_checkpoint(self._hparams.model_dir):
+      self.decode(dataset_split=tf.estimator.ModeKeys.EVAL)
+
   def continuous_decode_from_file(self):
     """Decode from file on new checkpoint."""
     for _ in next_checkpoint(self._hparams.model_dir):

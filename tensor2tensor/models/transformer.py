@@ -226,7 +226,13 @@ class Transformer(t2t_model.T2TModel):
       return (self._fast_decode_tpu(features, decode_length) if use_tpu else
               self._fast_decode(features, decode_length))
 
-  def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha):
+  def _beam_decode(self,
+                   features,
+                   decode_length,
+                   beam_size,
+                   top_beams,
+                   alpha,
+                   use_tpu=False):
     """Beam search decoding.
 
     Args:
@@ -236,6 +242,7 @@ class Transformer(t2t_model.T2TModel):
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
         the preference for longer translations.
+      use_tpu: A bool, whether to do beam decode on TPU.
 
     Returns:
       A dict of decoding results {
@@ -252,34 +259,44 @@ class Transformer(t2t_model.T2TModel):
       # TODO(petershaw): Support fast decoding when using relative
       # position representations, i.e. "dot_product_relative" attention.
       return self._beam_decode_slow(features, decode_length, beam_size,
-                                    top_beams, alpha)
+                                    top_beams, alpha, use_tpu)
     with tf.variable_scope(self.name):
-      return self._fast_decode(features, decode_length, beam_size, top_beams,
-                               alpha)
+      return (
+          self._fast_decode_tpu(
+              features, decode_length, beam_size, top_beams, alpha) if use_tpu
+          else self._fast_decode(
+              features, decode_length, beam_size, top_beams, alpha))
 
   def _fast_decode_tpu(self,
                        features,
                        decode_length,
-                       beam_size=1):
+                       beam_size=1,
+                       top_beams=1,
+                       alpha=1.0):
     """Fast decoding.
 
-    Implements only greedy decoding on TPU.
+    Implements both greedy and beam search decoding on TPU, uses beam search
+    iff beam_size > 1, otherwise beam search related arguments are ignored.
 
     Args:
       features: A map of string to model features.
       decode_length: An integer, how many additional timesteps to decode.
       beam_size: An integer, number of beams.
+      top_beams: An integer, how many of the beams to return.
+      alpha: A float that controls the length penalty. Larger the alpha,
+        stronger the preference for longer translations.
 
     Returns:
       A dict of decoding results {
           "outputs": integer `Tensor` of decoded ids of shape
-              [batch_size, <= decode_length]
+              [batch_size, <= decode_length] if beam_size == 1 or
+              [batch_size, top_beams, <= decode_length]
           "scores": decoding log probs from the beam search,
               None if using greedy decoding (beam_size=1)
       }.
 
     Raises:
-      NotImplementedError: If there are multiple data shards or beam_size > 1.
+      NotImplementedError: If there are multiple data shards.
     """
     if self._num_datashards != 1:
       raise NotImplementedError("Fast decoding only supports a single shard.")
@@ -455,11 +472,17 @@ class Transformer(t2t_model.T2TModel):
         symbols_to_logits_fn=symbols_to_logits_tpu_fn,
         hparams=hparams,
         decode_length=decode_length,
+        vocab_size=target_modality.top_dimensionality,
         beam_size=beam_size,
+        top_beams=top_beams,
+        alpha=alpha,
         batch_size=batch_size,
         force_decode_length=self._decode_hparams.force_decode_length)
     if partial_targets is not None:
-      ret["outputs"] = ret["outputs"][:, partial_targets_length:]
+      if beam_size <= 1 or top_beams <= 1:
+        ret["outputs"] = ret["outputs"][:, partial_targets_length:]
+      else:
+        ret["outputs"] = ret["outputs"][:, :, partial_targets_length:]
     return ret
 
   def _fast_decode(self,
@@ -664,7 +687,10 @@ def fast_decode_tpu(encoder_output,
                     symbols_to_logits_fn,
                     hparams,
                     decode_length,
+                    vocab_size,
                     beam_size=1,
+                    top_beams=1,
+                    alpha=1.0,
                     sos_id=0,
                     eos_id=beam_search.EOS_ID,
                     batch_size=None,
@@ -672,7 +698,8 @@ def fast_decode_tpu(encoder_output,
                     scope_prefix="body/"):
   """Given encoder output and a symbols to logits function, does fast decoding.
 
-  Implements only greedy decoding for TPU.
+  Implements both greedy and beam search decoding for TPU, uses beam search iff
+  beam_size > 1, otherwise beam search related arguments are ignored.
 
   Args:
     encoder_output: A tensor, output from encoder.
@@ -682,7 +709,11 @@ def fast_decode_tpu(encoder_output,
         `(ids, step, cache)` to symbol logits.
     hparams: Run hyperparameters.
     decode_length: An integer, how many additional timesteps to decode.
+    vocab_size: Output vocabulary size.
     beam_size: An integer, number of beams.
+    top_beams: An integer, how many of the beams to return.
+    alpha: A float that controls the length penalty. Larger the alpha, stronger
+      the preference for longer translations.
     sos_id: Start-of-sequence symbol.
     eos_id: End-of-sequence symbol.
     batch_size: An integer, must be passed if there is no input.
@@ -691,15 +722,16 @@ def fast_decode_tpu(encoder_output,
     scope_prefix: str, prefix for decoder layer variable scopes.
 
   Returns:
-      A dict of decoding results {
-          "outputs": integer `Tensor` of decoded ids of shape
-              [batch_size, <= decode_length]
-          "scores": decoding log probs from the beam search,
-              None if using greedy decoding (beam_size=1)
-      }.
+    A dict of decoding results {
+        "outputs": integer `Tensor` of decoded ids of shape
+            [batch_size, <= decode_length] if top_beams == 1 or
+            [batch_size, top_beams, <= decode_length] otherwise
+        "scores": decoding log probs from the beam search,
+            None if using greedy decoding (beam_size=1)
+    }.
 
   Raises:
-     NotImplementedError: If beam size > 1.
+    NotImplementedError: If beam size > 1 with partial targets.
   """
   if encoder_output is not None:
     batch_size = common_layers.shape_list(encoder_output)[0]
@@ -707,6 +739,8 @@ def fast_decode_tpu(encoder_output,
   key_channels = hparams.attention_key_channels or hparams.hidden_size
   value_channels = hparams.attention_value_channels or hparams.hidden_size
   num_layers = hparams.num_decoder_layers or hparams.num_hidden_layers
+  vars_3d_num_heads = (
+      hparams.num_heads if hparams.get("attention_variables_3d") else 0)
 
   cache = {
       "layer_%d" % layer: {
@@ -730,10 +764,12 @@ def fast_decode_tpu(encoder_output,
           "%sdecoder/%s/encdec_attention/multihead_attention" % (scope_prefix,
                                                                  layer_name)):
         k_encdec = common_attention.compute_attention_component(
-            encoder_output, key_channels, name="k")
+            encoder_output, key_channels, name="k",
+            vars_3d_num_heads=vars_3d_num_heads)
         k_encdec = common_attention.split_heads(k_encdec, hparams.num_heads)
         v_encdec = common_attention.compute_attention_component(
-            encoder_output, value_channels, name="v")
+            encoder_output, value_channels, name="v",
+            vars_3d_num_heads=vars_3d_num_heads)
         v_encdec = common_attention.split_heads(v_encdec, hparams.num_heads)
       cache[layer_name]["k_encdec"] = k_encdec
       cache[layer_name]["v_encdec"] = v_encdec
@@ -742,58 +778,75 @@ def fast_decode_tpu(encoder_output,
     cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
 
   if beam_size > 1:  # Beam Search
-    raise NotImplementedError("Beam search inference on TPU is not supported")
+    initial_ids = sos_id * tf.ones([batch_size], dtype=tf.int32)
+    decoded_ids, scores = beam_search.beam_search(
+        symbols_to_logits_fn,
+        initial_ids,
+        beam_size,
+        decode_length,
+        vocab_size,
+        alpha,
+        states=cache,
+        eos_id=eos_id,
+        stop_early=(top_beams == 1),
+        use_tpu=True)
 
-  # Greedy
-  def inner_loop(i, hit_eos, next_id, decoded_ids, cache, log_prob):
-    """One step of greedy decoding."""
-    logits, cache = symbols_to_logits_fn(next_id, i, cache)
-    log_probs = common_layers.log_prob_from_logits(logits)
-    temperature = (0.0 if hparams.sampling_method == "argmax" else
-                   hparams.sampling_temp)
-    next_id = common_layers.sample_with_temperature(logits, temperature)
-    hit_eos |= tf.equal(next_id, eos_id)
+    if top_beams == 1:
+      decoded_ids = decoded_ids[:, 0, 1:]
+      scores = scores[:, 0]
+    else:
+      decoded_ids = decoded_ids[:, :top_beams, 1:]
+      scores = scores[:, :top_beams]
+  else:  # Greedy
+    def inner_loop(i, hit_eos, next_id, decoded_ids, cache, log_prob):
+      """One step of greedy decoding."""
+      logits, cache = symbols_to_logits_fn(next_id, i, cache)
+      log_probs = common_layers.log_prob_from_logits(logits)
+      temperature = (0.0 if hparams.sampling_method == "argmax" else
+                     hparams.sampling_temp)
+      next_id = common_layers.sample_with_temperature(logits, temperature)
+      hit_eos |= tf.equal(next_id, eos_id)
 
-    log_prob_indices = tf.stack(
-        [tf.range(tf.to_int64(batch_size)), next_id], axis=1)
-    log_prob += tf.gather_nd(log_probs, log_prob_indices)
+      log_prob_indices = tf.stack(
+          [tf.range(tf.to_int64(batch_size)), next_id], axis=1)
+      log_prob += tf.gather_nd(log_probs, log_prob_indices)
 
-    next_id = tf.expand_dims(next_id, axis=1)
-    decoded_ids = tf.transpose(decoded_ids)
-    decoded_ids = inplace_ops.alias_inplace_update(
-        decoded_ids, i, tf.squeeze(next_id, axis=1))
-    decoded_ids = tf.transpose(decoded_ids)
-    return i + 1, hit_eos, next_id, decoded_ids, cache, log_prob
+      next_id = tf.expand_dims(next_id, axis=1)
+      decoded_ids = tf.transpose(decoded_ids)
+      decoded_ids = inplace_ops.alias_inplace_update(
+          decoded_ids, i, tf.squeeze(next_id, axis=1))
+      decoded_ids = tf.transpose(decoded_ids)
+      return i + 1, hit_eos, next_id, decoded_ids, cache, log_prob
 
-  def is_not_finished(i, hit_eos, *_):
-    finished = i >= decode_length
-    if not force_decode_length:
-      finished |= tf.reduce_all(hit_eos)
-    return tf.logical_not(finished)
+    def is_not_finished(i, hit_eos, *_):
+      finished = i >= decode_length
+      if not force_decode_length:
+        finished |= tf.reduce_all(hit_eos)
+      return tf.logical_not(finished)
 
-  decoded_ids = tf.zeros([batch_size, decode_length], dtype=tf.int64)
-  hit_eos = tf.fill([batch_size], False)
-  next_id = sos_id * tf.ones([batch_size, 1], dtype=tf.int64)
-  initial_log_prob = tf.zeros([batch_size], dtype=tf.float32)
+    decoded_ids = tf.zeros([batch_size, decode_length], dtype=tf.int64)
+    hit_eos = tf.fill([batch_size], False)
+    next_id = sos_id * tf.ones([batch_size, 1], dtype=tf.int64)
+    initial_log_prob = tf.zeros([batch_size], dtype=tf.float32)
 
-  def compute_cache_shape_invariants(tensor):
-    return tf.TensorShape(tensor.shape.as_list())
+    def compute_cache_shape_invariants(tensor):
+      return tf.TensorShape(tensor.shape.as_list())
 
-  _, _, _, decoded_ids, _, log_prob = tf.while_loop(
-      is_not_finished,
-      inner_loop, [
-          tf.constant(0), hit_eos, next_id, decoded_ids, cache,
-          initial_log_prob
-      ],
-      shape_invariants=[
-          tf.TensorShape([]),
-          tf.TensorShape([batch_size]),
-          tf.TensorShape([batch_size, 1]),
-          tf.TensorShape([batch_size, decode_length]),
-          nest.map_structure(compute_cache_shape_invariants, cache),
-          tf.TensorShape([batch_size]),
-      ])
-  scores = log_prob
+    _, _, _, decoded_ids, _, log_prob = tf.while_loop(
+        is_not_finished,
+        inner_loop, [
+            tf.constant(0), hit_eos, next_id, decoded_ids, cache,
+            initial_log_prob
+        ],
+        shape_invariants=[
+            tf.TensorShape([]),
+            tf.TensorShape([batch_size]),
+            tf.TensorShape([batch_size, 1]),
+            tf.TensorShape([batch_size, decode_length]),
+            nest.map_structure(compute_cache_shape_invariants, cache),
+            tf.TensorShape([batch_size]),
+        ])
+    scores = log_prob
 
   return {"outputs": decoded_ids, "scores": scores}
 

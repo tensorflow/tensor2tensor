@@ -286,6 +286,8 @@ def basic_params1():
       # There could be a performance drop if host_call function is slow and
       # cannot keep up with the TPU-side computation.
       tpu_enable_host_call=False,
+      # Pad batch dim of inputs to nearest multiple of batch multiple.
+      pad_batch=False,
   )
 
 

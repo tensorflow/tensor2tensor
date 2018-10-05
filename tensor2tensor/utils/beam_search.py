@@ -21,6 +21,7 @@ from tensor2tensor.layers import common_layers
 
 import tensorflow as tf
 
+from tensorflow.python.ops import inplace_ops
 from tensorflow.python.util import nest
 
 # Assuming EOS_ID is 1
@@ -177,7 +178,8 @@ def beam_search(symbols_to_logits_fn,
                 alpha,
                 states=None,
                 eos_id=EOS_ID,
-                stop_early=True):
+                stop_early=True,
+                use_tpu=False):
   """Beam search with length penalties.
 
   Requires a function that can take the currently decoded symbols and return
@@ -218,6 +220,8 @@ def beam_search(symbols_to_logits_fn,
     states: dict (possibly nested) of decoding states.
     eos_id: ID for end of sentence.
     stop_early: a boolean - stop once best sequence is provably determined.
+    use_tpu: A bool, whether to do beam search on TPU.
+
   Returns:
     Tuple of
     (decoded beams [batch_size, beam_size, decode_length]
@@ -233,6 +237,8 @@ def beam_search(symbols_to_logits_fn,
   # Expand each batch and state to beam_size
   alive_seq = _expand_to_beam_size(initial_ids, beam_size)
   alive_seq = tf.expand_dims(alive_seq, axis=2)  # (batch_size, beam_size, 1)
+  if use_tpu:
+    alive_seq = tf.tile(alive_seq, [1, 1, decode_length + 1])
   if states:
     states = nest.map_structure(
         lambda state: _expand_to_beam_size(state, beam_size), states)
@@ -269,11 +275,12 @@ def beam_search(symbols_to_logits_fn,
          log probs of these sequences,
          Finished flags of these sequences)
     """
-    # First append a column of 0'ids to finished to make the same length with
-    # finished scores
-    finished_seq = tf.concat(
-        [finished_seq,
-         tf.zeros([batch_size, beam_size, 1], tf.int32)], axis=2)
+    if not use_tpu:
+      # First append a column of 0'ids to finished to make the same length with
+      # finished scores
+      finished_seq = tf.concat(
+          [finished_seq,
+           tf.zeros([batch_size, beam_size, 1], tf.int32)], axis=2)
 
     # Set the scores of the unfinished seq in curr_seq to large negative
     # values
@@ -338,7 +345,12 @@ def beam_search(symbols_to_logits_fn,
          dict of transformed decoding states)
     """
     # Get the logits for all the possible next symbols
-    flat_ids = tf.reshape(alive_seq, [batch_size * beam_size, -1])
+    if use_tpu:
+      flat_ids = tf.reshape(
+          tf.slice(alive_seq, [0, 0, i], [batch_size, beam_size, 1]),
+          [batch_size * beam_size, -1])
+    else:
+      flat_ids = tf.reshape(alive_seq, [batch_size * beam_size, -1])
 
     # (batch_size * beam_size, decoded_length)
     if states:
@@ -392,7 +404,12 @@ def beam_search(symbols_to_logits_fn,
           lambda state: tf.gather_nd(state, topk_coordinates), states)
 
     # Append the most probable alive
-    topk_seq = tf.concat([topk_seq, tf.expand_dims(topk_ids, axis=2)], axis=2)
+    if use_tpu:
+      topk_seq = tf.transpose(topk_seq, perm=[2, 0, 1])
+      topk_seq = inplace_ops.alias_inplace_update(topk_seq, i + 1, topk_ids)
+      topk_seq = tf.transpose(topk_seq, perm=[1, 2, 0])
+    else:
+      topk_seq = tf.concat([topk_seq, tf.expand_dims(topk_ids, axis=2)], axis=2)
 
     topk_finished = tf.equal(topk_ids, eos_id)
 
@@ -513,9 +530,11 @@ def beam_search(symbols_to_logits_fn,
        ],
        shape_invariants=[
            tf.TensorShape([]),
-           tf.TensorShape([None, None, None]),
+           (tf.TensorShape([batch_size, beam_size, decode_length + 1])
+            if use_tpu else tf.TensorShape([None, None, None])),
            alive_log_probs.get_shape(),
-           tf.TensorShape([None, None, None]),
+           (tf.TensorShape([batch_size, beam_size, decode_length + 1])
+            if use_tpu else tf.TensorShape([None, None, None])),
            finished_scores.get_shape(),
            finished_flags.get_shape(),
            nest.map_structure(get_state_shape_invariants, states),
