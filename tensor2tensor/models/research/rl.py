@@ -18,9 +18,11 @@ import collections
 import functools
 import operator
 import gym
+
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
+from tensor2tensor.rl.envs import tf_atari_wrappers
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -140,12 +142,101 @@ def simple_gym_spec(env):
                                      simulated_env=False)
 
 
+def standard_atari_env_spec(
+    env, simulated=False, resize_height_factor=1, resize_width_factor=1,
+    grayscale=False, include_clipping=True):
+  """Parameters of environment specification."""
+  resize_wrapper = [tf_atari_wrappers.ResizeWrapper,
+                    {"height_factor": resize_height_factor,
+                     "width_factor": resize_width_factor,
+                     "grayscale": grayscale}]
+  if include_clipping:
+    standard_wrappers = [
+        resize_wrapper,
+        [tf_atari_wrappers.RewardClippingWrapper, {}],
+        [tf_atari_wrappers.StackWrapper, {"history": 4}],
+    ]
+  else:
+    standard_wrappers = [
+        resize_wrapper,
+        [tf_atari_wrappers.StackWrapper, {"history": 4}],
+    ]
+  if simulated:  # No resizing on simulated environments.
+    standard_wrappers = standard_wrappers[1:]
+  env_lambda = None
+  if isinstance(env, str):
+    env_lambda = lambda: gym.make(env)
+  if callable(env):
+    env_lambda = env
+  assert env_lambda is not None, "Unknown specification of environment"
+
+  return tf.contrib.training.HParams(
+      env_lambda=env_lambda,
+      wrappers=standard_wrappers,
+      simulated_env=simulated)
+
+
+def standard_atari_env_eval_spec(
+    env, simulated=False, resize_height_factor=1, resize_width_factor=1,
+    grayscale=False):
+  """Parameters of environment specification for eval."""
+  return standard_atari_env_spec(
+      env, simulated, resize_height_factor, resize_width_factor, grayscale,
+      include_clipping=False)
+
+
+def standard_atari_ae_env_spec(env, ae_hparams_set):
+  """Parameters of environment specification."""
+  standard_wrappers = [[tf_atari_wrappers.AutoencoderWrapper,
+                        {"ae_hparams_set": ae_hparams_set}],
+                       [tf_atari_wrappers.StackWrapper, {"history": 4}]]
+  env_lambda = None
+  if isinstance(env, str):
+    env_lambda = lambda: gym.make(env)
+  if callable(env):
+    env_lambda = env
+  assert env is not None, "Unknown specification of environment"
+
+  return tf.contrib.training.HParams(env_lambda=env_lambda,
+                                     wrappers=standard_wrappers,
+                                     simulated_env=False)
+
+
 @registry.register_hparams
 def ppo_pong_ae_base():
   """Pong autoencoder base parameters."""
   hparams = ppo_pong_base()
   hparams.learning_rate = 1e-4
   hparams.network = dense_bitwise_categorical_fun
+  return hparams
+
+
+@registry.register_hparams
+def pong_model_free():
+  """TODO(piotrmilos): Document this."""
+  hparams = tf.contrib.training.HParams(
+      epochs_num=4,
+      eval_every_epochs=2,
+      num_agents=10,
+      optimization_epochs=3,
+      epoch_length=30,
+      entropy_loss_coef=0.003,
+      learning_rate=8e-05,
+      optimizer="Adam",
+      policy_network=feed_forward_cnn_small_categorical_fun,
+      gae_lambda=0.985,
+      num_eval_agents=1,
+      max_gradients_norm=0.5,
+      gae_gamma=0.985,
+      optimization_batch_size=4,
+      clipping_coef=0.2,
+      value_loss_coef=1,
+      save_models_every_epochs=False)
+  hparams.add_hparam("environment_spec",
+                     standard_atari_env_spec("PongNoFrameskip-v4"))
+  hparams.add_hparam(
+      "environment_eval_spec",
+      standard_atari_env_eval_spec("PongNoFrameskip-v4"))
   return hparams
 
 

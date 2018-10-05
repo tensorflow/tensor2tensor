@@ -47,64 +47,6 @@ flags.DEFINE_string("autoencoder_path", None,
                     "File with model for autoencoder.")
 
 
-def standard_atari_env_spec(
-    env, simulated=False, resize_height_factor=1, resize_width_factor=1,
-    include_clipping=True):
-  """Parameters of environment specification."""
-  resize_wrapper = [tf_atari_wrappers.ResizeWrapper,
-                    {"height_factor": resize_height_factor,
-                     "width_factor": resize_width_factor}]
-  if include_clipping:
-    standard_wrappers = [
-        resize_wrapper,
-        [tf_atari_wrappers.RewardClippingWrapper, {}],
-        [tf_atari_wrappers.StackWrapper, {"history": 4}],
-    ]
-  else:
-    standard_wrappers = [
-        resize_wrapper,
-        [tf_atari_wrappers.StackWrapper, {"history": 4}],
-    ]
-  if simulated:  # No resizing on simulated environments.
-    standard_wrappers = standard_wrappers[1:]
-  env_lambda = None
-  if isinstance(env, str):
-    env_lambda = lambda: gym.make(env)
-  if callable(env):
-    env_lambda = env
-  assert env_lambda is not None, "Unknown specification of environment"
-
-  return tf.contrib.training.HParams(
-      env_lambda=env_lambda,
-      wrappers=standard_wrappers,
-      simulated_env=simulated)
-
-
-def standard_atari_env_eval_spec(env, simulated=False,
-                                 resize_height_factor=1, resize_width_factor=1):
-  """Parameters of environment specification for eval."""
-  return standard_atari_env_spec(
-      env, simulated, resize_height_factor, resize_width_factor,
-      include_clipping=False)
-
-
-def standard_atari_ae_env_spec(env, ae_hparams_set):
-  """Parameters of environment specification."""
-  standard_wrappers = [[tf_atari_wrappers.AutoencoderWrapper,
-                        {"ae_hparams_set": ae_hparams_set}],
-                       [tf_atari_wrappers.StackWrapper, {"history": 4}]]
-  env_lambda = None
-  if isinstance(env, str):
-    env_lambda = lambda: gym.make(env)
-  if callable(env):
-    env_lambda = env
-  assert env is not None, "Unknown specification of environment"
-
-  return tf.contrib.training.HParams(env_lambda=env_lambda,
-                                     wrappers=standard_wrappers,
-                                     simulated_env=False)
-
-
 frame_dumper_use_disk = False  # Whether to use memory or disk to dump frames.
 frame_dumper = {}
 
@@ -138,6 +80,15 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   @property
   def resize_width_factor(self):
     return 1
+
+  @property
+  def grayscale(self):
+    return False
+
+  @property
+  def num_channels(self):
+    """Number of color channels in each frame."""
+    return 1 if self.grayscale else 3
 
   def _setup(self, data_dir, extra_collect_hparams=None,
              override_collect_hparams=None):
@@ -304,10 +255,11 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     return data_fields, decoders
 
   def get_environment_spec(self):
-    return standard_atari_env_spec(
+    return rl.standard_atari_env_spec(
         self.env_name,
         resize_height_factor=self.resize_height_factor,
-        resize_width_factor=self.resize_width_factor)
+        resize_width_factor=self.resize_width_factor,
+        grayscale=self.grayscale)
 
   @property
   def environment_spec(self):
@@ -476,7 +428,7 @@ class GymDiscreteProblemWithAutoencoder(GymRealDiscreteProblem):
     self._forced_collect_level = 0
 
   def get_environment_spec(self):
-    return standard_atari_ae_env_spec(self.env_name, self.ae_hparams_set)
+    return rl.standard_atari_ae_env_spec(self.env_name, self.ae_hparams_set)
 
   def restore_networks(self, sess):
     super(GymDiscreteProblemWithAutoencoder, self).restore_networks(sess)
@@ -517,7 +469,7 @@ class GymDiscreteProblemAutoencoded(GymRealDiscreteProblem):
                        " for reading encoded frames")
 
   def get_environment_spec(self):
-    return standard_atari_ae_env_spec(self.env_name, self.ae_hparams_set)
+    return rl.standard_atari_ae_env_spec(self.env_name, self.ae_hparams_set)
 
   @property
   def autoencoder_factor(self):
@@ -625,11 +577,12 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     return None
 
   def get_environment_spec(self):
-    env_spec = standard_atari_env_spec(
+    env_spec = rl.standard_atari_env_spec(
         self.env_name,
         simulated=True,
         resize_height_factor=self.resize_height_factor,
-        resize_width_factor=self.resize_width_factor)
+        resize_width_factor=self.resize_width_factor,
+        grayscale=self.grayscale)
     env_spec.add_hparam("simulation_random_starts", True)
     env_spec.add_hparam("simulation_flip_first_random_for_beginning", True)
     env_spec.add_hparam("intrinsic_reward_scale", 0.0)
@@ -777,7 +730,7 @@ class GymSimulatedDiscreteProblemAutoencoded(GymSimulatedDiscreteProblem):
     self._forced_collect_level = 0
 
   def get_environment_spec(self):
-    env_spec = standard_atari_env_spec(self.env_name)
+    env_spec = rl.standard_atari_env_spec(self.env_name)
     env_spec.wrappers = [
         [tf_atari_wrappers.IntToBitWrapper, {}],
         [tf_atari_wrappers.StackWrapper, {"history": 4}]

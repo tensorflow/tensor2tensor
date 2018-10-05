@@ -143,7 +143,8 @@ def make_log_fn(epoch, log_relative_time_fn):
 
 def train_autoencoder(problem_name, data_dir, output_dir, hparams, epoch):
   """Train autoencoder on problem_name."""
-  train_steps = hparams.autoencoder_train_steps * (epoch + 2)
+  additional_steps = 1 + hparams.autoencoder_train_steps_initial_multiplier
+  train_steps = hparams.autoencoder_train_steps * (epoch + additional_steps)
   with temporary_flags({
       "problem": problem_name,
       "data_dir": data_dir,
@@ -478,8 +479,6 @@ def setup_problems(hparams, using_autoencoder=False):
         "_autoencoded"
         % game_with_mode)
   else:
-    game_problems_kwargs["resize_height_factor"] = hparams.resize_height_factor
-    game_problems_kwargs["resize_width_factor"] = hparams.resize_width_factor
     problem_name = ("gym_discrete_problem_with_agent_on_%s" % game_with_mode)
     world_model_problem = problem_name
     simulated_problem_name = ("gym_simulated_discrete_problem_with_agent_on_%s"
@@ -488,6 +487,9 @@ def setup_problems(hparams, using_autoencoder=False):
         "gym_simulated_discrete_problem_for_world_model_eval_with_agent_on_%s"
         % game_with_mode)
   if problem_name not in registry.list_problems():
+    game_problems_kwargs["resize_height_factor"] = hparams.resize_height_factor
+    game_problems_kwargs["resize_width_factor"] = hparams.resize_width_factor
+    game_problems_kwargs["grayscale"] = hparams.grayscale
     tf.logging.info("Game Problem %s not found; dynamically registering",
                     problem_name)
     gym_problems_specs.create_problems_for_game(
@@ -758,6 +760,7 @@ def rlmb_base():
       generative_model_params="next_frame_pixel_noise",
       ppo_params="ppo_pong_base",
       autoencoder_train_steps=0,
+      autoencoder_train_steps_initial_multiplier=10,
       model_train_steps=15000,
       inital_epoch_train_steps_multiplier=3,
       simulated_env_generator_num_steps=2000,
@@ -783,6 +786,7 @@ def rlmb_base():
       # Resizing.
       resize_height_factor=2,
       resize_width_factor=2,
+      grayscale=False,
       # Bump learning rate after first epoch by 3x.
       # We picked 3x because our default learning rate schedule decreases with
       # 1/square root of step; 1/sqrt(10k) = 0.01 and 1/sqrt(100k) ~ 0.0032
@@ -818,7 +822,7 @@ def rlmb_basetest():
   hparams.game = "pong"
   hparams.epochs = 2
   hparams.num_real_env_frames = 3200
-  hparams.model_train_steps = 500
+  hparams.model_train_steps = 100
   hparams.simulated_env_generator_num_steps = 20
   hparams.ppo_epochs_num = 2
   return hparams
@@ -1111,38 +1115,7 @@ def rlmb_tiny_sv2p():
   hparams = rlmb_tiny()
   hparams.generative_model = "next_frame_sv2p"
   hparams.generative_model_params = "next_frame_sv2p_tiny"
-  return hparams
-
-
-@registry.register_hparams
-def rlmb_l1_base():
-  """Parameter set with L1 loss."""
-  hparams = rlmb_base()
-  hparams.generative_model_params = "next_frame_l1"
-  return hparams
-
-
-@registry.register_hparams
-def rlmb_l1_tiny():
-  """Tiny parameter set with L1 loss."""
-  hparams = rlmb_tiny()
-  hparams.generative_model_params = "next_frame_l1"
-  return hparams
-
-
-@registry.register_hparams
-def rlmb_l2_base():
-  """Parameter set with L2 loss."""
-  hparams = rlmb_base()
-  hparams.generative_model_params = "next_frame_l2"
-  return hparams
-
-
-@registry.register_hparams
-def rlmb_l2_tiny():
-  """Tiny parameter set with L2 loss."""
-  hparams = rlmb_tiny()
-  hparams.generative_model_params = "next_frame_l2"
+  hparams.grayscale = False
   return hparams
 
 
@@ -1154,7 +1127,24 @@ def rlmb_ae_base():
   hparams.generative_model_params = "next_frame_ae"
   hparams.autoencoder_hparams_set = "autoencoder_discrete_pong"
   hparams.gather_ppo_real_env_data = False
-  hparams.autoencoder_train_steps = 30000
+  hparams.autoencoder_train_steps = 5000
+  hparams.resize_height_factor = 1
+  hparams.resize_width_factor = 1
+  hparams.grayscale = False
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_ae_basetest():
+  """Base AE setting but quicker with only 2 epochs."""
+  hparams = rlmb_ae_base()
+  hparams.game = "pong"
+  hparams.epochs = 2
+  hparams.num_real_env_frames = 3200
+  hparams.model_train_steps = 100
+  hparams.autoencoder_train_steps = 10
+  hparams.simulated_env_generator_num_steps = 20
+  hparams.ppo_epochs_num = 2
   return hparams
 
 
@@ -1168,8 +1158,9 @@ def rlmb_ae_tiny():
   hparams.gather_ppo_real_env_data = False
   hparams.resize_height_factor = 1
   hparams.resize_width_factor = 1
-  hparams.autoencoder_train_steps = 2
-  hparams.stop_loop_early = False
+  hparams.grayscale = False
+  hparams.autoencoder_train_steps = 1
+  hparams.autoencoder_train_steps_initial_multiplier = 0
   return hparams
 
 

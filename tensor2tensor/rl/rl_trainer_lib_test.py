@@ -19,6 +19,7 @@ from __future__ import print_function
 
 from tensor2tensor.models.research import rl as rl_models
 from tensor2tensor.rl import rl_trainer_lib
+from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -46,11 +47,11 @@ class TrainTest(tf.test.TestCase):
     rl_trainer_lib.train(hparams)
 
   def test_train_pong(self):
-    pass
-    # Commented to make travis work
-    # Uncomment for long tests
-    # hparams = registry.hparams("pong_model_free")
-    # rl_trainer_lib.train(hparams)
+    hparams = registry.hparams("pong_model_free")
+    hparams.epochs_num = 2
+    hparams.num_agents = 2
+    hparams.epoch_length = 3
+    rl_trainer_lib.train(hparams)
 
 
 if __name__ == "__main__":
