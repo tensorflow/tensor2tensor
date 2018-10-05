@@ -124,7 +124,6 @@ def transformer_moe_layer_v1(inputs, output_dim, hparams, train):
         outer_expert_dims=None,
         experts_dim=experts_dim_unsplit,
         expert_capacity_dim=expert_capacity_dim,
-        max_experts=None,
         hparams=hparams,
         train=train)
   else:
@@ -171,6 +170,7 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
     hparams.moe_group_size: size of each "group" for gating purposes
     hparams.moe_capacity_factor_train: a float
     hparams.moe_capacity_factor_eval: a float
+    hparams.moe_capacity_factor_second_level: a float
     hparams.moe_gating: a string
     + all hyperparmeters used by _top_2_gating()
 
@@ -189,7 +189,7 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
   The input is n-dimensional: [<batch_and_length_dims>, input_dim], consisting
   of the representations of all positions in a batch of sequences.
 
-  Each position of each sequence is sent to 0-2 experts.  The expert
+  Each position of each sequence is sent to 0-3 experts.  The expert
   choices and the combination weights are determined by a learned gating
   function.
 
@@ -302,7 +302,7 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
 
   expert_capacity = min(
       t.size,
-      int((t.size * capacity_factor) / y.size))
+      int((t.size * hparams.moe_capacity_factor_second_level) / y.size))
   d = mtf.Dimension("expert_capacity_y", expert_capacity)
 
   # First level of expert routing
@@ -318,7 +318,6 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
         outer_expert_dims=None,
         experts_dim=x,
         expert_capacity_dim=c,
-        max_experts=None,
         hparams=hparams,
         train=train)
   else:
@@ -326,36 +325,45 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
 
   # Now create expert_inputs based on the assignments.
   # put num_experts dimension first to make split easier in alltoall
-  expert_inputs_x = mtf.einsum([inputs, dispatch_tensor_x], mtf.Shape(
-      [x, a0, g1, c, m]))
+  expert_inputs_x = mtf.einsum([inputs, dispatch_tensor_x], [x, a0, g1, c, m])
+
+  # we construct an "importance" Tensor for the inputs to the second-level
+  # gating.  The importance of an input is 1.0 if it represents the
+  # first-choice expert-group and 0.5 if it represents the second-choice expert
+  # group.  This is used by the second-level gating.
+  importance = mtf.reduce_sum(combine_tensor_x, output_shape=[x, a0, g1, c])
+  importance = 0.5 * (
+      mtf.to_float(mtf.greater(importance, 0.5)) +
+      mtf.to_float(mtf.greater(importance, 0.0)))
 
   # First level, all to all. Here we change the split dimension from g1 to x1.
   expert_inputs_x = mtf.reshape(expert_inputs_x, mtf.Shape(
       [x1, a0, g, c, m]))
+  importance = mtf.reshape(importance, [x1, a0, g, c])
 
   # Second level of expert routing
   # Reshape the expert_inputs outer batch dim to be a multiple of group_dim h0
   # and group_size_dim t.
   inputs_y = mtf.reshape(expert_inputs_x, [x1, h0, t, m])
+  importance = mtf.reshape(importance, [x1, h0, t])
 
   # Get the assignments for the second level.
-  # dispatch_tensor_x has shape [x1, h0, t, y, d]
+  # dispatch_tensor_y has shape [x1, h0, t, y, d]
   if hparams.moe_gating == "top_2":
     dispatch_tensor_y, combine_tensor_y, loss_inner = _top_2_gating(
         inputs=inputs_y,
         outer_expert_dims=[x1],
         experts_dim=y,
         expert_capacity_dim=d,
-        max_experts=None,
         hparams=hparams,
-        train=train)
+        train=train,
+        importance=importance)
   else:
     raise ValueError("unknown hparams.moe_gating=%s" % hparams.moe_gating)
 
   # Now create expert_inputs based on the assignments.
   # put num_experts dimension first to make split easier in alltoall
-  expert_inputs_y = mtf.einsum([inputs_y, dispatch_tensor_y], mtf.Shape(
-      [y, x1, h0, d, m]))
+  expert_inputs_y = mtf.einsum([inputs_y, dispatch_tensor_y], [y, x1, h0, d, m])
 
   # Second level, all to all. Here we change the split dimension from h0 to y0.
   expert_inputs_y = mtf.reshape(expert_inputs_y, mtf.Shape(
@@ -377,8 +385,7 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
       [y, x1, h0, d, n]))
 
   # combine results from inner level
-  output_y = mtf.einsum([expert_output, combine_tensor_y], mtf.Shape(
-      [x1, h0, t, n]))
+  output_y = mtf.einsum([expert_output, combine_tensor_y], [x1, h0, t, n])
 
   # Reshape the combined tensor from inner level to now contain outer_batch_dim
   # a0 and group_dim g
@@ -388,8 +395,7 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
   expert_output_x = mtf.reshape(output, mtf.Shape([x, a0, g1, c, n]))
 
   # combine results from outer level
-  output_x = mtf.einsum([expert_output_x, combine_tensor_x], mtf.Shape(
-      [a0, g1, s, m]))
+  output_x = mtf.einsum([expert_output_x, combine_tensor_x], [a0, g1, s, n])
 
   # Reshape the combined tensor to now contain inner_batch_dim
   # b1 and the original sequence length
@@ -400,8 +406,8 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
 
 
 def _top_2_gating(
-    inputs, outer_expert_dims, experts_dim, expert_capacity_dim, max_experts,
-    hparams, train):
+    inputs, outer_expert_dims, experts_dim, expert_capacity_dim,
+    hparams, train, importance=None):
   """Compute gating for mixture-of-experts in TensorFlow.
 
   Note: until the algorithm and inferface solidify, we pass in a hyperparameters
@@ -415,17 +421,14 @@ def _top_2_gating(
     hparams.moe_second_policy_eval: a string
     hparams.moe_second_threshold: a float
 
-  max_experts is an float tensor with shape [<batch_dims>, group_size_dim]
-  indicating at most how many experts to use per example.  This can be
-  used to prevent padding from going to experts.
-
   The returned forward assignment is a tensor used to map (via einsum) from the
   inputs to the expert_inputs.  Likewise, the returned combine_tensor is
   used to map (via einsum) from the expert outputs to the outputs.  Both the
-  forward and backward assignments are mostly zeros.  The shapes of all of these
+  forward and backward assignments are mostly zeros.  The shapes of the tensors
   are as follows.
 
   inputs: [<batch_dims>, group_size_dim, input_dim]
+  importance: [<batch_dims>, group_size_dim]
   dispatch_tensor:
     [<batch_dims>, group_size_dim, experts_dim, expert_capacity_dim]
   expert_inputs:
@@ -436,15 +439,25 @@ def _top_2_gating(
     [<batch_dims>, group_size_dim, experts_dim, expert_capacity_dim]
   outputs: [<batch_dims>, group_size_dim, output_dim]
 
+  "importance" is an optional tensor with one floating-point value for each
+  input vector.  If the importance of an input is 1.0, then we send it to
+  up to 2 experts.  If 0.0 < importance < 1.0, then we send it to at most
+  one expert.  If importance == 0.0, then we send it to no experts.
+
+  We use "importance" at the second-level gating function of a hierarchical
+  mixture of experts.  Inputs to the first-choice expert-group get importance
+  1.0.  Inputs to the second-choice expert group get importance 0.5.
+  Inputs that represent padding get importance 0.0.
+
   Args:
     inputs: a mtf.Tensor with shape [<batch_dims>, group_size_dim, input_dim]
     outer_expert_dims: an optional list of dimensions.  This is for the case
       where we are at an inner level of a hierarchical MoE.
     experts_dim: a Dimension (the number of experts)
     expert_capacity_dim: a Dimension (number of examples per group per expert)
-    max_experts: optional mtf.Tensor with shape [<batch_dims>, group_size_dim]
     hparams: model hyperparameters.
     train: a boolean
+    importance: an optional tensor with shape [<batch_dims>, group_size_dim]
 
   Returns:
     dispatch_tensor: a Tensor with shape
@@ -469,26 +482,29 @@ def _top_2_gating(
   index_1, gate_1 = mtf.top_1(raw_gates, experts_dim)
   # [batch, group, experts]
   mask_1 = mtf.one_hot(index_1, experts_dim, dtype=raw_gates.dtype)
+  density_1_proxy = raw_gates
+  if importance is not None:
+    mask_1 *= mtf.to_float(mtf.equal(importance, 1.0))
+    gate_1 *= mtf.to_float(mtf.equal(importance, 1.0))
+    density_1_proxy *= mtf.to_float(mtf.equal(importance, 1.0))
   gates_without_top_1 = raw_gates * (1.0 - mask_1)
   # [batch, group]
   index_2, gate_2 = mtf.top_1(gates_without_top_1, experts_dim)
   # [batch, group, experts]
   mask_2 = mtf.one_hot(index_2, experts_dim, dtype=raw_gates.dtype)
+  if importance is not None:
+    mask_2 *= mtf.to_float(mtf.greater(importance, 0.0))
 
-  if max_experts is not None:
-    geq1 = mtf.to_float(mtf.greater_equal(max_experts, 1.0))
-    geq2 = mtf.to_float(mtf.greater_equal(max_experts, 2.0))
-    mask_1 *= geq1
-    mask_2 *= geq2
-    raw_gates *= geq1
-    gates_without_top_1 *= geq2
+  denom = gate_1 + gate_2 + 1e-9
+  gate_1 /= denom
+  gate_2 /= denom
 
   # BALANCING LOSSES
   # shape = [batch, experts]
   # We want to equalize the fraction of the batch assigned to each expert
   density_1 = mtf.reduce_mean(mask_1, reduced_dim=group_size_dim)
   # Something continuous that is correlated with what we want to equalize.
-  density_1_proxy = mtf.reduce_mean(raw_gates, reduced_dim=group_size_dim)
+  density_1_proxy = mtf.reduce_mean(density_1_proxy, reduced_dim=group_size_dim)
   density_1 = mtf.Print(
       density_1, [mtf.reduce_mean(density_1, output_shape=[experts_dim])],
       "density_1", summarize=1000)
@@ -566,11 +582,6 @@ def _top_2_gating(
   position_in_expert_2 = mtf.reduce_sum(
       position_in_expert_2, reduced_dim=experts_dim)
 
-  # renormalize the two gate values to add up to 1
-  denom = gate_1 + gate_2 + 1e-9
-  gate_1 /= denom
-  gate_2 /= denom
-
   # [batch, group, experts, expert_capacity]
   combine_tensor = (
       gate_1 * mask_1_flat
@@ -597,6 +608,7 @@ def set_default_moe_hparams(hparams):
   # moe_capacity_factor_* should be set to a value >=1.
   hparams.add_hparam("moe_capacity_factor_train", 1.25)
   hparams.add_hparam("moe_capacity_factor_eval", 2.0)
+  hparams.add_hparam("moe_capacity_factor_second_level", 1.0)
   # Each expert has a hidden layer with this size.
   hparams.add_hparam("moe_hidden_size", 4096)
   # For gating, divide inputs into groups of this size before gating.

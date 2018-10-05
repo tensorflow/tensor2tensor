@@ -2782,7 +2782,8 @@ class ReshapeOperation(Operation):
         # TODO(noam): try to handle this case
         raise NotImplementedError(
             "Try first reshaping to insert a new tf dimension,"
-            " then changing layout.")
+            " then changing layout. input_shape=%s output_shape=%s"
+            % (self.inputs[0].shape, self.outputs[0].shape))
       slices = mesh_impl.allsplit(slices, mesh_axis, tensor_axis)
       laid_out_size //= mesh_impl.shape[mesh_axis].size
     for mesh_axis in mesh_axes_alltoall:
@@ -2792,7 +2793,8 @@ class ReshapeOperation(Operation):
         # TODO(noam): try to handle this case
         raise NotImplementedError(
             "Try first reshaping to insert a new tf dimension,"
-            " then changing layout.")
+            " then changing layout. input_shape=%s output_shape=%s"
+            % (self.inputs[0].shape, self.outputs[0].shape))
       concat_tensor_axis = old_shape.cumprod_to_tensor_axis(
           mesh_axis_to_cumprod_old[mesh_axis])
       assert concat_tensor_axis is not None
