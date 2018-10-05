@@ -149,7 +149,7 @@ def train_autoencoder(problem_name, data_dir, output_dir, hparams, epoch):
       "data_dir": data_dir,
       "output_dir": output_dir,
       "model": "autoencoder_ordered_discrete",
-      "hparams_set": "autoencoder_discrete_pong",
+      "hparams_set": hparams.autoencoder_hparams_set,
       "train_steps": train_steps,
       "eval_steps": 100,
   }):
@@ -406,11 +406,11 @@ def encode_dataset(model, dataset, problem, ae_hparams, autoencoder_path,
         cycle_every_n=problem.total_number_of_frames // 10)
 
 
-def encode_env_frames(problem_name, ae_problem_name, autoencoder_path,
-                      epoch_data_dir):
+def encode_env_frames(problem_name, ae_problem_name, ae_hparams_set,
+                      autoencoder_path, epoch_data_dir):
   """Encode all frames from problem_name and write out as ae_problem_name."""
   with tf.Graph().as_default():
-    ae_hparams = trainer_lib.create_hparams("autoencoder_discrete_pong",
+    ae_hparams = trainer_lib.create_hparams(ae_hparams_set,
                                             problem_name=problem_name)
     problem = ae_hparams.problem
     model = registry.model("autoencoder_ordered_discrete")(
@@ -436,16 +436,17 @@ def encode_env_frames(problem_name, ae_problem_name, autoencoder_path,
       dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, epoch_data_dir,
                                 shuffle_files=False, output_buffer_size=100,
                                 preprocess=False)
-      encode_dataset(model, dataset, problem, ae_hparams, autoencoder_path,
-                     ae_training_paths)
+      encode_dataset(model, dataset, problem=problem, ae_hparams=ae_hparams,
+                     autoencoder_path=autoencoder_path,
+                     out_files=ae_training_paths)
 
     # Encode eval data
     if not skip_eval:
       dataset = problem.dataset(tf.estimator.ModeKeys.EVAL, epoch_data_dir,
                                 shuffle_files=False, output_buffer_size=100,
                                 preprocess=False)
-      encode_dataset(model, dataset, problem, ae_hparams, autoencoder_path,
-                     ae_eval_paths)
+      encode_dataset(model, dataset, problem=problem, ae_hparams=ae_hparams,
+                     autoencoder_path=autoencoder_path, out_files=ae_eval_paths)
 
 
 def check_problems(problem_names):
@@ -459,8 +460,11 @@ def setup_problems(hparams, using_autoencoder=False):
     game_with_mode = hparams.game + "_deterministic-v4"
   else:
     game_with_mode = hparams.game
+  game_problems_kwargs = {}
   # Problems
   if using_autoencoder:
+    game_problems_kwargs['autoencoder_hparams'] = \
+      hparams.autoencoder_hparams_set
     problem_name = (
         "gym_discrete_problem_with_agent_on_%s_with_autoencoder"
         % game_with_mode)
@@ -474,6 +478,8 @@ def setup_problems(hparams, using_autoencoder=False):
         "_autoencoded"
         % game_with_mode)
   else:
+    game_problems_kwargs['resize_height_factor'] = hparams.resize_height_factor
+    game_problems_kwargs['resize_width_factor'] = hparams.resize_width_factor
     problem_name = ("gym_discrete_problem_with_agent_on_%s" % game_with_mode)
     world_model_problem = problem_name
     simulated_problem_name = ("gym_simulated_discrete_problem_with_agent_on_%s"
@@ -481,14 +487,11 @@ def setup_problems(hparams, using_autoencoder=False):
     world_model_eval_problem_name = (
         "gym_simulated_discrete_problem_for_world_model_eval_with_agent_on_%s"
         % game_with_mode)
-    if problem_name not in registry.list_problems():
-      tf.logging.info("Game Problem %s not found; dynamically registering",
-                      problem_name)
-      gym_problems_specs.create_problems_for_game(
-          hparams.game,
-          resize_height_factor=hparams.resize_height_factor,
-          resize_width_factor=hparams.resize_width_factor,
-          game_mode="Deterministic-v4")
+  if problem_name not in registry.list_problems():
+    tf.logging.info("Game Problem %s not found; dynamically registering",
+                    problem_name)
+    gym_problems_specs.create_problems_for_game(
+        hparams.game, game_mode="Deterministic-v4", **game_problems_kwargs)
   return (problem_name, world_model_problem, simulated_problem_name,
           world_model_eval_problem_name)
 
@@ -578,7 +581,9 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
       log("Autoencoding environment frames")
       encode_env_frames(problem_name, world_model_problem,
-                        autoencoder_model_dir, epoch_data_dir)
+                        ae_hparams_set=hparams.autoencoder_hparams_set,
+                        autoencoder_path=autoencoder_model_dir,
+                        epoch_data_dir=epoch_data_dir)
 
     # Train world model
     log("Training world model")
@@ -1147,6 +1152,7 @@ def rlmb_ae_base():
   hparams = rlmb_base()
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "next_frame_ae"
+  hparams.autoencoder_hparams_set = 'autoencoder_discrete_pong'
   hparams.gather_ppo_real_env_data = False
   hparams.autoencoder_train_steps = 30000
   return hparams
@@ -1156,13 +1162,14 @@ def rlmb_ae_base():
 def rlmb_ae_tiny():
   """Tiny set for testing autoencoders."""
   hparams = rlmb_tiny()
-  hparams.game = "wrapped_full_pong"
   hparams.ppo_params = "ppo_pong_ae_base"
-  hparams.generative_model_params = "next_frame_ae"
+  hparams.generative_model_params = "next_frame_ae_tiny"
+  hparams.autoencoder_hparams_set = 'autoencoder_discrete_tiny'
   hparams.gather_ppo_real_env_data = False
   hparams.resize_height_factor = 1
   hparams.resize_width_factor = 1
   hparams.autoencoder_train_steps = 2
+  hparams.stop_loop_early = False
   return hparams
 
 
