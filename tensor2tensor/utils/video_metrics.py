@@ -88,13 +88,21 @@ def save_results(results, output_dir, problem_name):
       np.save(fname, array)
 
 
-def compute_metrics(output_video, target_video):
-  max_pixel_value = 255.0
-  output_video = tf.to_float(output_video)
-  target_video = tf.to_float(target_video)
-  psnr = tf.image.psnr(output_video, target_video, max_pixel_value)
-  ssim = tf.image.ssim(output_video, target_video, max_pixel_value)
-  return {"PSNR": psnr, "SSIM": ssim}
+def psnr_and_ssim(output, target):
+  """Compute the PSNR and SSIM.
+
+  Args:
+    output: 4-D Tensor, shape=(num_frames, height, width, num_channels)
+    target: 4-D Tensor, shape=(num_frames, height, width, num_channels)
+  Returns:
+    psnr: 1-D Tensor, shape=(num_frames,)
+    ssim: 1-D Tensor, shape=(num_frames,)
+  """
+  output = tf.cast(output, dtype=tf.int32)
+  target = tf.cast(target, dtype=tf.int32)
+  psnr = tf.image.psnr(output, target, max_val=255)
+  ssim = tf.image.ssim(output, target, max_val=255)
+  return psnr, ssim
 
 
 def stack_data_given_key(predictions, key):
@@ -116,7 +124,6 @@ def get_zipped_dataset_from_predictions(predictions):
   iterator = dataset.make_initializable_iterator()
   feed_dict = {targets_placeholder: targets,
                outputs_placeholder: outputs}
-
   return iterator, feed_dict, num_videos
 
 
@@ -129,13 +136,11 @@ def compute_one_decoding_video_metrics(iterator, feed_dict, num_videos):
     num_videos: number of videos.
 
   Returns:
-    Dictionary which contains the average of each metric per frame.
+    all_psnr: 2-D Numpy array, shape=(num_samples, num_frames)
+    all_ssim: 2-D Numpy array, shape=(num_samples, num_frames)
   """
   output, target = iterator.get_next()
-
-  metrics_dict = compute_metrics(output, target)
-  metrics_names, metrics = zip(*six.iteritems(metrics_dict))
-  means, update_ops = tf.metrics.mean_tensor(metrics)
+  metrics = psnr_and_ssim(output, target)
 
   with tf.Session() as sess:
     sess.run(tf.local_variables_initializer())
@@ -143,34 +148,82 @@ def compute_one_decoding_video_metrics(iterator, feed_dict, num_videos):
     if initalizer is not None:
       sess.run(initalizer, feed_dict=feed_dict)
 
-    # Compute mean over dataset
+    all_psnr, all_ssim = [], []
     for i in range(num_videos):
       print("Computing video: %d" % i)
-      sess.run(update_ops)
-    averaged_metrics = sess.run(means)
+      psnr_np, ssim_np = sess.run(metrics)
+      all_psnr.append(psnr_np)
+      all_ssim.append(ssim_np)
+    all_psnr = np.array(all_psnr)
+    all_ssim = np.array(all_ssim)
+    return all_psnr, all_ssim
 
-    results = dict(zip(metrics_names, averaged_metrics))
-    return results
+
+def reduce_to_best_decode(metrics, reduce_func):
+  """Extracts the best-decode from the metrics according to reduce_func.
+
+  Args:
+    metrics: 3-D numpy array, shape=(num_decodes, num_samples, num_frames)
+    reduce_func: callable, np.argmax or np.argmin.
+  Returns:
+    best_metrics: 2-D numpy array, shape=(num_samples, num_frames).
+  """
+  num_videos = metrics.shape[1]
+  # Take mean of the metric across the frames to approximate the video
+  # closest to the ground truth.
+  mean_across_frames = np.mean(metrics, axis=-1)
+
+  # For every sample, use the decode that has a maximum mean-metric.
+  best_decode_ind = reduce_func(mean_across_frames, axis=0)
+  return metrics[best_decode_ind, np.arange(num_videos), :]
 
 
 def compute_all_metrics_statistics(all_results):
-  """Computes statistics of metrics across multiple decodings."""
+  """Computes statistics of metrics across multiple decodings.
+
+  Args:
+    all_results: dicf of 3-D numpy arrays.
+                 Each array has shape=(num_decodes, num_samples, num_frames).
+  Returns:
+    statistics: dict of 1-D numpy arrays shape=(num_frames).
+                First the statistic (max/mean/std) is computed across the
+                decodes, then the mean is taken across num_samples.
+  """
   statistics = {}
-  for key in all_results[0].keys():
-    values = [result[key] for result in all_results]
-    values = np.vstack(values)
+  all_metrics = all_results.keys()
+
+  for key in all_metrics:
+    values = all_results[key]
     statistics[key + "_MEAN"] = np.mean(values, axis=0)
     statistics[key + "_STD"] = np.std(values, axis=0)
-    statistics[key + "_MIN"] = np.min(values, axis=0)
-    statistics[key + "_MAX"] = np.max(values, axis=0)
+    statistics[key + "_MIN"] = reduce_to_best_decode(values, np.argmin)
+    statistics[key + "_MAX"] = reduce_to_best_decode(values, np.argmax)
+
+  # Computes mean of each statistic across the dataset.
+  for key in statistics:
+    statistics[key] = np.mean(statistics[key], axis=0)
   return statistics
 
 
 def compute_video_metrics_from_predictions(predictions):
-  all_results = []
-  for prediction in predictions:
-    args = get_zipped_dataset_from_predictions(prediction)
-    all_results.append(compute_one_decoding_video_metrics(*args))
+  """Computes metrics from predictions.
+
+  Args:
+    predictions: list of list of dicts.
+                 outer length: num_decodes, inner_length: num_samples
+  Returns:
+    statistics: dict of Tensors, key being the metric with each Tensor
+                having the shape (num_samples, num_frames).
+  """
+  ssim_all_decodes, psnr_all_decodes = [], []
+  for single_decode in predictions:
+    args = get_zipped_dataset_from_predictions(single_decode)
+    psnr_single, ssim_single = compute_one_decoding_video_metrics(*args)
+    psnr_all_decodes.append(psnr_single)
+    ssim_all_decodes.append(ssim_single)
+  psnr_all_decodes = np.array(psnr_all_decodes)
+  ssim_all_decodes = np.array(ssim_all_decodes)
+  all_results = {"PSNR": psnr_all_decodes, "SSIM": ssim_all_decodes}
   statistics = compute_all_metrics_statistics(all_results)
   return statistics
 
@@ -192,13 +245,19 @@ def compute_video_metrics_from_png_files(
   Returns:
     Dictionary which contains the average of each metric per frame.
   """
-  all_results = []
+  ssim_all_decodes, psnr_all_decodes = [], []
   for output_dir in output_dirs:
     output_files, target_files = get_target_and_output_filepatterns(
         output_dir, problem_name)
     args = get_zipped_dataset_from_png_files(
         output_files, target_files, video_length, frame_shape)
-    all_results.append(compute_one_decoding_video_metrics(*args))
+    psnr_single, ssim_single = compute_one_decoding_video_metrics(*args)
+    psnr_all_decodes.append(psnr_single)
+    ssim_all_decodes.append(ssim_single)
+
+  psnr_all_decodes = np.array(psnr_all_decodes)
+  ssim_all_decodes = np.array(ssim_all_decodes)
+  all_results = {"PSNR": psnr_all_decodes, "SSIM": ssim_all_decodes}
   statistics = compute_all_metrics_statistics(all_results)
   return statistics, all_results
 

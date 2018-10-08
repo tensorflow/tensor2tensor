@@ -19,13 +19,42 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import numpy as np
+from tensor2tensor.data_generators import video_generated  # pylint: disable=unused-import
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.utils import decoding
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
 
 class VideoUtilsTest(tf.test.TestCase):
+
+  def getPredictions(self):
+    rng = np.random.RandomState(0)
+    # num_samples=4
+    inputs = rng.randint(0, 255, (4, 2, 64, 64, 3))
+    outputs = rng.randint(0, 255, (4, 5, 64, 64, 3))
+    targets = rng.randint(0, 255, (4, 5, 64, 64, 3))
+    predictions = []
+    for input_, output, target in zip(inputs, outputs, targets):
+      curr_pred = {"inputs": input_, "outputs": output, "targets": target}
+      predictions.append(curr_pred)
+
+    # num_decodes=2
+    predictions = [predictions] * 2
+    problem = registry.problem("video_stochastic_shapes10k")
+    return predictions, problem
+
+  def testDecodeInMemoryTrue(self):
+    predictions, problem = self.getPredictions()
+    decode_hparams = decoding.decode_hparams()
+    decode_hparams.decode_in_memory = True
+    decode_hooks = decoding.DecodeHookArgs(
+        estimator=None, problem=problem, output_dirs=None,
+        hparams=decode_hparams, decode_hparams=decode_hparams,
+        predictions=predictions)
+    metrics = video_utils.summarize_video_metrics(decode_hooks)
+    self.assertEqual(len(metrics), 40)
 
   def testConvertPredictionsToVideoSummaries(self):
     # Initialize predictions.
