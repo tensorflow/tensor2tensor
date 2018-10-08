@@ -205,4 +205,3 @@ class T2TGymEnv(T2TEnv):
   def close(self):
     for env in self._envs:
       env.close()
->>>>>>> 7bcdc74... Add observation_space, action_space and __str__ to T2TEnv
