@@ -18,34 +18,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.models.research import rl as rl_models
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.utils import registry
-from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
 
 
 class TrainTest(tf.test.TestCase):
-
-  test_config = ("epochs_num=4,eval_every_epochs=0,video_during_eval=False,"
-                 "num_agents=5,optimization_epochs=5,epoch_length=50")
-
-  def test_no_crash_pendulum(self):
-    hparams = trainer_lib.create_hparams(
-        "ppo_continuous_action_base",
-        TrainTest.test_config)
-    hparams.add_hparam(
-        "environment_spec", rl_models.simple_gym_spec("Pendulum-v0"))
-    rl_trainer_lib.train(hparams)
-
-  def test_no_crash_cartpole(self):
-    hparams = trainer_lib.create_hparams(
-        "ppo_discrete_action_base",
-        TrainTest.test_config)
-    hparams.add_hparam(
-        "environment_spec", rl_models.simple_gym_spec("CartPole-v0"))
-    rl_trainer_lib.train(hparams)
 
   def test_train_pong(self):
     hparams = registry.hparams("pong_model_free")

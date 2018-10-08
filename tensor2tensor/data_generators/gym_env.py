@@ -37,8 +37,7 @@ class T2TEnv(object):
     batch_size: Number of environments played simultaneously.
     observation_space: Gym observation space. Should be overridden in derived
       classes.
-    action_space: Gym observation space. Should be overridden in derived
-      classes.
+    action_space: Gym action space. Should be overridden in derived classes.
 
   Args:
     batch_size: Number of environments in a batch.
@@ -88,16 +87,19 @@ class T2TEnv(object):
     return rewards
 
   def _step(self, actions):
-    """Makes a step in all environments.
+    """Makes a step in all environments without recording history.
 
     Should be overridden in derived classes.
 
     Should not do any preprocessing of the observations and rewards; this
     should be done in _preprocess_*.
 
-    Args: see step().
+    Args:
+      actions: Batch of actions.
 
-    Returns: see step().
+    Returns:
+      (obs, rewards, dones) - batches of observations, rewards and done flags
+      respectively.
     """
     raise NotImplementedError
 
@@ -125,11 +127,13 @@ class T2TEnv(object):
     return (obs, rewards, dones)
 
   def _reset(self, indices):
-    """Resets environments at given indices.
+    """Resets environments at given indices without recording history.
 
-    Args: see reset().
+    Args:
+      indices: Indices of environments to reset.
 
-    Returns: see reset().
+    Returns:
+      Batch of initial observations of reset environments.
     """
     raise NotImplementedError
 
