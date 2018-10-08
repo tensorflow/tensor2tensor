@@ -32,7 +32,7 @@ import subprocess
 import sys
 import traceback
 
-from tensor2tensor.rl.envs import batch_env
+from tensor2tensor.data_generators import gym_env
 from tensor2tensor.rl.envs import py_func_batch_env
 from tensor2tensor.rl.envs import simulated_batch_env
 
@@ -58,7 +58,7 @@ def _define_batch_env(environment_spec, num_agents, xvfb=False):
     envs = [
         ExternalProcessEnv(environment_spec.env_lambda, xvfb)
         for _ in range(num_agents)]
-    env = batch_env.BatchEnv(envs, blocking=False)
+    env = gym_env.T2TGymEnv(envs)
     env = py_func_batch_env.PyFuncBatchEnv(env)
     return env
 

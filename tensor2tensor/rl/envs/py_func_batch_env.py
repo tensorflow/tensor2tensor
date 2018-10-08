@@ -22,6 +22,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import numpy as np
+
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
 import tensorflow as tf
 
@@ -45,7 +47,7 @@ class PyFuncBatchEnv(InGraphBatchEnv):
     self._batch_env = batch_env
     with tf.variable_scope("env_temporary"):
       self._observ = tf.Variable(
-          tf.zeros((len(self._batch_env),) + self.observ_shape,
+          tf.zeros((self._batch_env.batch_size,) + self.observ_shape,
                    self.observ_dtype),
           name="observ", trainable=False)
 
@@ -68,7 +70,7 @@ class PyFuncBatchEnv(InGraphBatchEnv):
 
   def __len__(self):
     """Number of combined environments."""
-    return len(self._batch_env)
+    return self._batch_env.batch_size
 
   def __getitem__(self, index):
     """Access an underlying environment by index."""
@@ -88,8 +90,11 @@ class PyFuncBatchEnv(InGraphBatchEnv):
     with tf.name_scope("environment/simulate"):
       if action.dtype in (tf.float16, tf.float32, tf.float64):
         action = tf.check_numerics(action, "action")
+      def step(action):
+        (observ, reward, done) = self._batch_env.step(action)
+        return (observ, reward.astype(np.float32), done)
       observ, reward, done = tf.py_func(
-          lambda a: self._batch_env.step(a)[:3], [action],
+          step, [action],
           [self.observ_dtype, tf.float32, tf.bool], name="step")
       reward = tf.check_numerics(reward, "reward")
       reward.set_shape((len(self),))
