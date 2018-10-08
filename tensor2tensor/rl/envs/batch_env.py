@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Combine multiple environments to step them in batch."""
 
 # The code was based on Danijar Hafner's code from tf.agents:
@@ -43,12 +44,16 @@ class BatchEnv(object):
     """
     self._envs = envs
     self._blocking = blocking
-    observ_space = self._envs[0].observation_space
-    if not all(env.observation_space == observ_space for env in self._envs):
-      raise ValueError('All environments must use the same observation space.')
-    action_space = self._envs[0].action_space
-    if not all(env.action_space == action_space for env in self._envs):
-      raise ValueError('All environments must use the same observation space.')
+    self.observ_space = self._envs[0].observation_space
+    if not all(env.observation_space == self.observ_space
+               for env in self._envs):
+      raise ValueError("All environments must use the same observation space.")
+    self.action_space = self._envs[0].action_space
+    if not all(env.action_space == self.action_space for env in self._envs):
+      raise ValueError("All environments must use the same observation space.")
+
+  def __str__(self):
+    return "BatchEnv(%s)" % ", ".join([str(e) for e in self._envs])
 
   def __len__(self):
     """Number of combined environments."""
@@ -83,7 +88,7 @@ class BatchEnv(object):
     """
     for index, (env, action) in enumerate(zip(self._envs, actions)):
       if not env.action_space.contains(action):
-        message = 'Invalid action at index {}: {}'
+        message = "Invalid action at index {}: {}"
         raise ValueError(message.format(index, action))
     if self._blocking:
       transitions = [
@@ -96,8 +101,8 @@ class BatchEnv(object):
       transitions = [transition() for transition in transitions]
     observs, rewards, dones, infos = zip(*transitions)
 
+    observ = np.stack(observs).astype(self.observ_space.dtype)
     # TODO(piotrmilos): Do we really want cast to float32
-    observ = np.stack(observs).astype(np.float32)
     reward = np.stack(rewards).astype(np.float32)
     done = np.stack(dones)
     info = tuple(infos)
@@ -119,13 +124,12 @@ class BatchEnv(object):
     else:
       observs = [self._envs[index].reset(blocking=False) for index in indices]
       observs = [observ() for observ in observs]
-    observ = np.stack(observs)
-    # TODO(piotrmilos): Do we really want this?
-    observ = observ.astype(np.float32)
+    observ = np.stack(observs).astype(self.observ_space.dtype)
+
     return observ
 
   def close(self):
     """Send close messages to the external process and join them."""
     for env in self._envs:
-      if hasattr(env, 'close'):
+      if hasattr(env, "close"):
         env.close()

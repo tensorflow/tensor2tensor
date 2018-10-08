@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Some customization of common_attention."""
 
 from __future__ import absolute_import
@@ -22,7 +23,6 @@ from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 
 import tensorflow as tf
-
 
 from tensorflow.contrib import slim
 from tensorflow.contrib.slim.python.slim.nets.resnet_v1 import resnet_v1_152

@@ -12,16 +12,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Resnet tests."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
+from tensor2tensor.layers import modalities
 from tensor2tensor.models import resnet
-from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -43,9 +45,12 @@ class ResnetTest(tf.test.TestCase):
     y = np.random.random_integers(
         1, high=vocab_size - 1, size=(batch_size, 1, 1, 1))
     hparams = resnet_tiny_cpu()
-    p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
-    p_hparams.input_modality["inputs"] = (registry.Modalities.IMAGE, None)
-    p_hparams.target_modality = (registry.Modalities.CLASS_LABEL, vocab_size)
+    p_hparams = problem_hparams.test_problem_hparams(vocab_size,
+                                                     vocab_size,
+                                                     hparams)
+    p_hparams.input_modality["inputs"] = modalities.ImageModality(hparams)
+    p_hparams.target_modality = modalities.ClassLabelModality(
+        hparams, vocab_size)
     with self.test_session() as session:
       features = {
           "inputs": tf.constant(x, dtype=tf.int32),

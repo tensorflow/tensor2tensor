@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Tiny run of trainer_model_based with stochastic model. Smoke test."""
 from __future__ import absolute_import
 from __future__ import division
@@ -28,8 +29,7 @@ class ModelRLExperimentSv2pTest(tf.test.TestCase):
 
   def test_sv2p(self):
     FLAGS.output_dir = tf.test.get_temp_dir()
-    FLAGS.loop_hparams_set = "rl_modelrl_tiny_sv2p"
-    FLAGS.schedule = "train"
+    FLAGS.loop_hparams_set = "rlmb_tiny_sv2p"
     trainer_model_based.main(None)
 
 

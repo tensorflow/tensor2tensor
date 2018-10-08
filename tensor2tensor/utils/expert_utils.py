@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Utilities for creating Sparsely-Gated Mixture-of-Experts Layers.
 
 See "Outrageously Large Neural Networks"
@@ -392,7 +393,7 @@ def update_hparams_for_vq_gating(hparams):
   hparams.add_hparam("beta", 0.25)
   hparams.add_hparam("epsilon", 1e-5)
   hparams.add_hparam("decay", 0.999)
-  hparams.add_hparam("ema", True)
+  hparams.add_hparam("ema", False)  # default is false until ema is implemented
   hparams.add_hparam("random_top_k", 1)
   hparams.add_hparam("soft_em", False)
   hparams.add_hparam("num_samples", 10)
@@ -478,7 +479,7 @@ def vq_gating(x,
     hparams.z_size = int(math.log(num_experts, 2))
     hparams.hidden_size = input_size
     hparams.top_k = k
-    d = bneck.discrete_bottleneck(inputs, scope=name)
+    d = bneck.discrete_bottleneck(inputs)
     centroids = None
     exp_discrete = d["discrete"]
     embed_lookup = d["embed"]
@@ -990,75 +991,6 @@ def flatten_all_but_last(a):
   return ret
 
 
-def distributed_moe(data_parallelism,
-                    expert_devices,
-                    xs,
-                    train,
-                    input_size,
-                    expert_fn,
-                    num_experts,
-                    k=2,
-                    loss_coef=1e-2,
-                    name=None):
-  """Call a distributed mixture of experts.
-
-  Args:
-    data_parallelism: a expert_utils.Parallelism object.
-    expert_devices: a list of strings.  We round-robin the experts across these
-      devices.
-    xs: a list of input tensors, each with shape [... , input_size]
-    train: a boolean scalar.
-    input_size: an integer (input size for this layer)
-    expert_fn: a unary function for each expert to run
-       It should take a Tensor with shape [batch_size, input_size]
-       and return a Tensor with shape [batch_size, output_size].
-       e.g. ffn_expert_fn(...)
-    num_experts: an integer - number of experts
-    k: an integer - how many experts to use for each batch element
-    loss_coef: a scalar - multiplier on load-balancing losses
-    name: a string
-
-  Returns:
-    ys: a list of tensors.  Each Tensor has the same shape as the corresponding
-      Tensor in xs, except for the last dimension, which is output_size.
-    extra_training_loss: a scalar.  This should be added into the overall
-      training loss of the model.  The backpropagation of this loss
-      encourages all experts to be approximately equally used across a batch.
-  """
-  dp = data_parallelism
-  # create a parallelism object for running the experts.
-  #   We use the default of reuse=False.  Otherwise, the experts would all
-  #   use the same variables.
-  ep = Parallelism(
-      [expert_devices[i % len(expert_devices)] for i in range(num_experts)],
-      reuse=None)
-  # Experts expect 2d input tensors, so flatten the batch dimension and all
-  # spatial dimensions together.
-  xs_flat = dp(tf.reshape, xs, [[-1, input_size]] * dp.n)
-  with tf.variable_scope(name, default_name="moe"):
-    # The gates indicate which batch elements go to which tensors.
-    # load is a measure of approximately how many examples go to each expert
-    gates, load = dp(noisy_top_k_gating,
-                     xs_flat,
-                     num_experts,
-                     train,
-                     k,
-                     initializer=tf.zeros_initializer(),
-                     noisy_gating=True,
-                     noise_epsilon=1e-2)
-    # This magic object helps us shuffle data between datashards and experts.
-    dispatcher = DistributedSparseDispatcher(dp, ep, gates)
-    expert_in = dispatcher.dispatch(xs_flat)
-    expert_out = ep(expert_fn, expert_in)
-    ys_flat = dispatcher.combine(expert_out)
-    ys = dp(common_layers.reshape_like, ys_flat, xs)
-    # compute some load-balancing losses.
-    load = tf.add_n(load)
-    importance = tf.add_n(dp(tf.reduce_sum, gates, 0))
-    loss = loss_coef * (cv_squared(importance) + cv_squared(load))
-    return ys, loss
-
-
 def local_moe(x,
               train,
               expert_fn,
@@ -1095,7 +1027,7 @@ def local_moe(x,
       training loss of the model.  The backpropagation of this loss
       encourages all experts to be approximately equally used across a batch.
   """
-
+  bneck = DiscreteBottleneck(hparams)
   with tf.variable_scope(name, default_name="local_moe"):
     centroids = None
     x_flat = flatten_all_but_last(x)
@@ -1116,7 +1048,6 @@ def local_moe(x,
     else:
       assert hparams.gating_type == "vq"
       tf.logging.info("Using VQ gating")
-      bneck = DiscreteBottleneck(hparams)
       gates, loss, centroids = vq_gating(
           x_flat, num_experts, k, bneck, hparams=hparams)
     loss *= loss_coef

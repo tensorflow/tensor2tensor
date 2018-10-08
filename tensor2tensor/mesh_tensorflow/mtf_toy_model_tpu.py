@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """A toy model using mesh-tensrflow."""
 
 from __future__ import absolute_import
@@ -93,8 +94,7 @@ class ToyModelInput(object):
 
     ds = Dataset.from_tensor_slices((self._images, self._labels)).repeat()
 
-    dataset = ds.apply(
-        tf.contrib.data.batch_and_drop_remainder(batch_size)).prefetch(2)
+    dataset = ds.batch(batch_size, drop_remainder=True).prefetch(2)
 
     return dataset
 

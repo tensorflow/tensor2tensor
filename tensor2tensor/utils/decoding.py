@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Decoding utilities."""
 from __future__ import absolute_import
 from __future__ import division
@@ -20,6 +21,7 @@ from __future__ import print_function
 import collections
 import operator
 import os
+import re
 import time
 
 import numpy as np
@@ -64,7 +66,10 @@ def decode_hparams(overrides=""):
       shard_id=0,
       num_decodes=1,
       force_decode_length=False,
-      display_decoded_images=False)
+      display_decoded_images=False,
+      # Used for video decoding.
+      frames_per_second=10,
+      skip_eos_postprocess=False)
   hp.parse(overrides)
   return hp
 
@@ -194,6 +199,10 @@ def decode_from_dataset(estimator,
       output_dirs = [output_dir]
       predictions.append(result)
 
+  if decode_hp.decode_to_file:
+    decode_hp.decode_to_file = _decode_filename(
+        decode_hp.decode_to_file, problem_name, decode_hp)
+
   run_postdecode_hooks(DecodeHookArgs(
       estimator=estimator,
       problem=problem,
@@ -226,11 +235,7 @@ def decode_once(estimator,
   # Prepare output file writers if decode_to_file passed
   decode_to_file = decode_to_file or decode_hp.decode_to_file
   if decode_to_file:
-    if decode_hp.shards > 1:
-      decode_filename = decode_to_file + ("%.2d" % decode_hp.shard_id)
-    else:
-      decode_filename = decode_to_file
-    output_filepath = _decode_filename(decode_filename, problem_name, decode_hp)
+    output_filepath = _decode_filename(decode_to_file, problem_name, decode_hp)
     parts = output_filepath.split(".")
     parts[-1] = "targets"
     target_filepath = ".".join(parts)
@@ -299,6 +304,9 @@ def decode_once(estimator,
     # Write out predictions if decode_to_file passed
     if decode_to_file:
       for i, (d_input, d_output, d_target) in enumerate(decoded_outputs):
+        # Skip if all padding
+        if re.match("^({})+$".format(text_encoder.PAD), d_input):
+          continue
         beam_score_str = ""
         if decode_hp.write_beam_scores:
           beam_score_str = "\t%.2f" % decoded_scores[i]
@@ -419,24 +427,54 @@ def decode_from_file(estimator,
   # (except for adding shard_id if using more shards for decoding).
   # Otherwise, use the input filename plus model, hp, problem, beam, alpha.
   decode_filename = decode_to_file if decode_to_file else filename
-  if decode_hp.shards > 1:
-    decode_filename += "%.2d" % decode_hp.shard_id
   if not decode_to_file:
     decode_filename = _decode_filename(decode_filename, problem_name, decode_hp)
   tf.logging.info("Writing decodes into %s" % decode_filename)
   outfile = tf.gfile.Open(decode_filename, "w")
   for index in range(len(sorted_inputs)):
     outfile.write("%s%s" % (decodes[sorted_keys[index]], decode_hp.delimiter))
+  outfile.flush()
+  outfile.close()
+
+  output_dir = os.path.join(estimator.model_dir, "decode")
+  tf.gfile.MakeDirs(output_dir)
+
+  run_postdecode_hooks(DecodeHookArgs(
+      estimator=estimator,
+      problem=hparams.problem,
+      output_dirs=[output_dir],
+      hparams=hparams,
+      decode_hparams=decode_hp,
+      predictions=list(result_iter)
+  ), None)
 
 
 def _decode_filename(base_filename, problem_name, decode_hp):
-  return "{base}.{model}.{hp}.{problem}.beam{beam}.alpha{alpha}.decodes".format(
-      base=base_filename,
-      model=FLAGS.model,
-      hp=FLAGS.hparams_set,
-      problem=problem_name,
-      beam=str(decode_hp.beam_size),
-      alpha=str(decode_hp.alpha))
+  """Generates decode filename.
+
+  Args:
+    base_filename: A string, base of the decode filename.
+    problem_name: A string, name of the problem.
+    decode_hp: HParams for decoding.
+
+  Returns:
+    A string, produced decode filename.
+  """
+  if decode_hp.shards > 1:
+    base_filename = base_filename + ("%.2d" % decode_hp.shard_id)
+  if ("beam{beam}.alpha{alpha}.decodes".format(
+      beam=str(decode_hp.beam_size), alpha=str(decode_hp.alpha))
+      in base_filename):
+    return base_filename
+  else:
+    return (
+        "{base}.{model}.{hp}.{problem}.beam{beam}.alpha{alpha}.decodes".format(
+            base=base_filename,
+            model=FLAGS.model,
+            hp=FLAGS.hparams_set,
+            problem=problem_name,
+            beam=str(decode_hp.beam_size),
+            alpha=str(decode_hp.alpha)))
 
 
 def make_input_fn_from_generator(gen):
@@ -469,7 +507,8 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
   is_image = "image" in hparams.problem.name
   is_text2class = isinstance(hparams.problem,
                              text_problems.Text2ClassProblem)
-  skip_eos_postprocess = is_image or is_text2class
+  skip_eos_postprocess = (
+      is_image or is_text2class or decode_hp.skip_eos_postprocess)
 
   def input_fn():
     gen_fn = make_input_fn_from_generator(

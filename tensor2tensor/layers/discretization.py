@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Discretization bottlenecks used to train discrete latent variables."""
 from __future__ import absolute_import
 from __future__ import division
@@ -29,40 +30,44 @@ from tensorflow.python.training import moving_averages
 
 
 def project_hidden(x, projection_tensors, hidden_size, num_blocks):
-  """Project encoder hidden state into block_dim using projection tensors.
+  """Project encoder hidden state under num_blocks using projection tensors.
 
   Args:
-    x: Encoder hidden state of shape [-1, hidden_size].
+    x: Encoder hidden state of shape [batch_size, latent_dim,  hidden_size].
     projection_tensors: Projection tensors used to project the hidden state.
     hidden_size: Dimension of the latent space.
     num_blocks: Number of blocks in DVQ.
 
   Returns:
-    Projected states of shape [-1, num_blocks, block_dim].
+    x_projected: Projected states of shape [batch_size, latent_dim, num_blocks,
+      hidden_size / num_blocks].
   """
+  batch_size, latent_dim, _ = common_layers.shape_list(x)
   x = tf.reshape(x, shape=[1, -1, hidden_size])
   x_tiled = tf.reshape(
       tf.tile(x, multiples=[num_blocks, 1, 1]),
       shape=[num_blocks, -1, hidden_size])
   x_projected = tf.matmul(x_tiled, projection_tensors)
   x_projected = tf.transpose(x_projected, perm=[1, 0, 2])
-  return x_projected
+  x_4d = tf.reshape(x_projected, [batch_size, latent_dim, num_blocks, -1])
+  return x_4d
 
 
 def slice_hidden(x, hidden_size, num_blocks):
-  """Slice encoder hidden state into block_dim.
+  """Slice encoder hidden state under num_blocks.
 
   Args:
-    x: Encoder hidden state of shape [..., 1, hidden_size].
+    x: Encoder hidden state of shape [batch_size, latent_dim, hidden_size].
     hidden_size: Dimension of the latent space.
     num_blocks: Number of blocks in DVQ.
 
   Returns:
-    Sliced states of shape [..., num_blocks, block_dim].
+    Sliced states of shape [batch_size, latent_dim, num_blocks, block_dim].
   """
+  batch_size, latent_dim, _ = common_layers.shape_list(x)
   block_dim = hidden_size // num_blocks
-  x_shape = common_layers.shape_list(x)
-  x_sliced = tf.reshape(x, shape=(x_shape[:-2] + [num_blocks, block_dim]))
+  x_sliced = tf.reshape(x,
+                        shape=[batch_size, latent_dim, num_blocks, block_dim])
   return x_sliced
 
 
@@ -92,7 +97,8 @@ def nearest_neighbor(x,
     Tensor with nearest element in mean encoded in one-hot notation
     and distances.
   """
-  x = tf.reshape(x, [-1] + common_layers.shape_list(x)[2:])
+  batch_size, latent_dim, num_blocks, block_dim = common_layers.shape_list(x)
+  x = tf.reshape(x, [batch_size * latent_dim, num_blocks, block_dim])
   x_norm_sq = tf.reduce_sum(tf.square(x), axis=-1, keep_dims=True)
   means_norm_sq = tf.reduce_sum(tf.square(means), axis=-1, keep_dims=True)
   scalar_prod = tf.matmul(
@@ -205,7 +211,8 @@ def embedding_lookup(x,
   x_means_hot_flat = tf.reshape(x_means_hot, [-1, num_blocks, block_v_size])
   x_means = tf.matmul(tf.transpose(x_means_hot_flat, perm=[1, 0, 2]), means)
   x_means = tf.transpose(x_means, [1, 0, 2])
-  x = tf.reshape(x, [-1] + common_layers.shape_list(x)[2:])
+  batch_size, latent_dim, num_blocks, block_dim = common_layers.shape_list(x)
+  x = tf.reshape(x, [batch_size * latent_dim, num_blocks, block_dim])
 
   # Currently, we use the mean scaling for the commitment loss, as opposed to
   # summing across all non-batch dimensions.
@@ -618,15 +625,18 @@ def discrete_bottleneck(inputs,
       extra_loss = tf.constant(0.0)
       neg_q_entropy = tf.constant(0.0)
     elif bottleneck_kind in ["dvq", "gumbel-softmax-dvq"]:
+      inputs_3d = inputs
+      if len(inputs.shape) == 4:
+        inputs_3d = tf.squeeze(inputs, axis=2)
       if reshape_method == "slice":
         x_reshaped = slice_hidden(
-            inputs, hidden_size=hidden_size, num_blocks=num_blocks)
+            inputs_3d, hidden_size=hidden_size, num_blocks=num_blocks)
       elif reshape_method == "project":
         if projection_tensors is None:
           raise ValueError(
               "Projection tensors is None for reshape_method project")
         x_reshaped = project_hidden(
-            inputs,
+            inputs_3d,
             projection_tensors=projection_tensors,
             hidden_size=hidden_size,
             num_blocks=num_blocks)
@@ -1270,8 +1280,11 @@ def gumbel_softmax_discrete_bottleneck(x,
 def tanh_discrete_bottleneck(x, bottleneck_bits, bottleneck_noise,
                              discretize_warmup_steps, mode):
   """Simple discretization through tanh, flip bottleneck_noise many bits."""
-  x = tf.tanh(
-      tf.layers.dense(x, bottleneck_bits, name="tanh_discrete_bottleneck"))
+  x = tf.layers.dense(x, bottleneck_bits, name="tanh_discrete_bottleneck")
+  if mode == tf.estimator.ModeKeys.TRAIN:
+    x += tf.truncated_normal(
+        common_layers.shape_list(x), mean=0.0, stddev=0.2)
+  x = tf.tanh(x)
   d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
   if mode == tf.estimator.ModeKeys.TRAIN:
     noise = tf.random_uniform(common_layers.shape_list(x))

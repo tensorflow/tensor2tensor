@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """SIMD Mesh implementation (for TPU/XLA)."""
 
 from __future__ import absolute_import
@@ -116,13 +117,14 @@ class SimdMeshImpl(mtf.MeshImpl):
                   initializer=tf.zeros_initializer()))
       self._laid_out_tensor = mesh_impl.LaidOutTensor(
           [tpu_variables.ReplicatedVariable(base_name, slices)])
-      with tf.device("cpu:0"), mtf_utils.outside_all_rewrites():
+      with tf.device(variable.master.device), mtf_utils.outside_all_rewrites():
         self._copy_master_to_slices = self.assign_to_slices(
             mesh_impl.make_slices(variable.master, shape),
             assign_to_tensor_list=slices)
         self._copy_slices_to_master = tf.assign(
             variable.master,
-            mesh_impl.combine_slices(slices, shape, device="cpu:0"))
+            mesh_impl.combine_slices(slices, shape,
+                                     device=variable.master.device))
 
     def assign_to_slices(self, slice_values, assign_to_tensor_list=None):
       """Assign to the slice variables.
@@ -164,6 +166,20 @@ class SimdMeshImpl(mtf.MeshImpl):
     """
     return self.LaidOutTensor([self.pnum_tensor])
 
+  def _create_group_assignment(self, mesh_axes):
+    """Create group assignment for XLA cross replica ops."""
+
+    partitioning = {}
+    for pnum in xrange(self.size):
+      group = mtf.pnum_to_group(self.shape, mesh_axes, pnum)
+      if group not in partitioning:
+        partitioning[group] = []
+      partitioning[group].append(pnum)
+    group_assignment = []
+    for group, pnums in partitioning.items():
+      group_assignment.append(pnums)
+    return group_assignment
+
   def allreduce(self, x, mesh_axes, reduction_fn_string):
     """Grouped allreduce, (summed across the given dimensions).
 
@@ -180,11 +196,9 @@ class SimdMeshImpl(mtf.MeshImpl):
       return x
     x = x.to_laid_out_tensor()
     if reduction_fn_string == "SUM":
-      partitioning = [
-          mtf.pnum_to_group(self.shape, mesh_axes, pnum)
-          for pnum in xrange(self.size)]
+      group_assignment = self._create_group_assignment(mesh_axes)
       return self.LaidOutTensor(
-          [tpu_ops.cross_replica_sum(x.one_slice, partitioning)])
+          [tpu_ops.cross_replica_sum(x.one_slice, group_assignment)])
     else:
       for axis in mesh_axes:
         x = self.allconcat(x, axis, 0, stack=True)
@@ -224,9 +238,6 @@ class SimdMeshImpl(mtf.MeshImpl):
   def alltoall(self, x, mesh_axis, split_axis, concat_axis):
     """Grouped alltoall (like MPI alltoall with splitting and concatenation).
 
-    TODO(noam): this is a terribly inefficient implementation using allreduce.
-    Replace this with a native xla alltoall once it is ready.
-
     Args:
       x: a LaidOutTensor
       mesh_axis: an integer the mesh axis along which to group
@@ -236,14 +247,21 @@ class SimdMeshImpl(mtf.MeshImpl):
       a LaidOutTensor
     """
     x = x.to_laid_out_tensor()
-    x = self.allconcat(x, mesh_axis, concat_axis)
-    x = self.allsplit(x, mesh_axis, split_axis)
+    t = x.one_slice
+    group_assignment = self._create_group_assignment([mesh_axis])
+
+    t = tpu_ops.all_to_all(
+        t,
+        concat_dimension=concat_axis,
+        split_dimension=split_axis,
+        split_count=len(group_assignment[0]),
+        group_assignment=group_assignment)
+    x = self.LaidOutTensor([t])
+
     return x
 
   def receive(self, x, mesh_axis, source_pcoord):
     """Collective receive in groups.
-
-    TODO(noam): inefficient - replace with XLA collective-receive when available
 
     Each group contains the processors that differ only in mesh_axis.
 
@@ -265,21 +283,18 @@ class SimdMeshImpl(mtf.MeshImpl):
       a LaidOutTensor
     """
     x = x.to_laid_out_tensor()
-    x = self.allconcat(x, mesh_axis, concat_axis=0)
-    pcoord = self.laid_out_pcoord(mesh_axis).one_slice
-    # allsplit will barf on Nones, so replace them with something legal.
-    # we will zero out below.
-    source_pcoord_no_nones = [
-        i if c is None else c for i, c in enumerate(source_pcoord)]
-    which = tf.gather(source_pcoord_no_nones, pcoord)
-    x = self.allsplit(
-        x, mesh_axis, split_axis=0, which=self.LaidOutTensor([which]))
-    if None in source_pcoord:
-      # zero out the outputs for which source_pcoord[pcoord]==None
-      source_pcoord_mask = [0.0 if c is None else 1.0 for c in source_pcoord]
-      gathered_mask = tf.gather(source_pcoord_mask, pcoord)
-      x = self.LaidOutTensor([x.one_slice * gathered_mask])
-    return x
+    t = x.one_slice
+    source_target_pairs = []
+
+    for pnum in xrange(self.size):
+      coord = self.pnum_to_processor_coordinates(self.shape, pnum)
+      k = coord[mesh_axis]
+      if source_pcoord[k] is not None:
+        coord[mesh_axis] = source_pcoord[k]
+        target_pnum = self.processor_coordinates_to_pnum(coord)
+        source_target_pairs.append([pnum, target_pnum])
+
+    return tpu_ops.collective_permute(t, source_target_pairs)
 
   def slice(self, tf_tensor, tensor_shape):
     """"Slice out the correspoding part of tensor given the pnum variable."""

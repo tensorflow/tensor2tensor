@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Utilities for creating batched environments."""
 
 # The code was based on Danijar Hafner's code from tf.agents:
@@ -38,19 +39,15 @@ from tensor2tensor.rl.envs import simulated_batch_env
 import tensorflow as tf
 
 
-def batch_env_factory(hparams, xvfb=False):
+def batch_env_factory(environment_spec, num_agents,
+                      initial_frame_chooser=None, xvfb=False):
   """Factory of batch envs."""
 
-  environment_spec = hparams.environment_spec
-
   if environment_spec.simulated_env:
-    # TODO(piotrmilos): Consider passing only relevant parameters
     cur_batch_env = _define_simulated_batch_env(
-        environment_spec, hparams.num_agents)
+        environment_spec, num_agents, initial_frame_chooser)
   else:
-    cur_batch_env = _define_batch_env(hparams.environment_spec,
-                                      hparams.num_agents,
-                                      xvfb=xvfb)
+    cur_batch_env = _define_batch_env(environment_spec, num_agents, xvfb=xvfb)
   return cur_batch_env
 
 
@@ -66,9 +63,11 @@ def _define_batch_env(environment_spec, num_agents, xvfb=False):
     return env
 
 
-def _define_simulated_batch_env(environment_spec, num_agents):
-  cur_batch_env = simulated_batch_env.SimulatedBatchEnv(environment_spec,
-                                                        num_agents)
+def _define_simulated_batch_env(environment_spec, num_agents,
+                                initial_frame_chooser):
+  cur_batch_env = simulated_batch_env.SimulatedBatchEnv(
+      environment_spec, num_agents, initial_frame_chooser
+  )
   return cur_batch_env
 
 
@@ -81,6 +80,7 @@ class ExternalProcessEnv(object):
   _RESULT = 3
   _EXCEPTION = 4
   _CLOSE = 5
+  _ATTRIBUTE_EXCEPTION = 6
 
   def __init__(self, constructor, xvfb):
     """Step environment in a separate process for lock free parallelism.
@@ -98,6 +98,7 @@ class ExternalProcessEnv(object):
       observation_space: The cached observation space of the environment.
       action_space: The cached action space of the environment.
     """
+    self._constructor = constructor
     self._conn, conn = multiprocessing.Pipe()
     if xvfb:
       server_id = random.randint(10000, 99999)
@@ -127,6 +128,9 @@ class ExternalProcessEnv(object):
     self._process.start()
     self._observ_space = None
     self._action_space = None
+
+  def __str__(self):
+    return "ExternalProcessEnv(%s)" % str(self._constructor)
 
   @property
   def observation_space(self):
@@ -226,6 +230,8 @@ class ExternalProcessEnv(object):
     if message == self._EXCEPTION:
       stacktrace = payload
       raise Exception(stacktrace)
+    if message == self._ATTRIBUTE_EXCEPTION:
+      raise AttributeError(payload)
     if message == self._RESULT:
       return payload
     raise KeyError("Received message of unexpected type {}".format(message))
@@ -249,8 +255,11 @@ class ExternalProcessEnv(object):
           break
         if message == self._ACCESS:
           name = payload
-          result = getattr(env, name)
-          conn.send((self._RESULT, result))
+          try:
+            result = getattr(env, name)
+            conn.send((self._RESULT, result))
+          except AttributeError as err:
+            conn.send((self._ATTRIBUTE_EXCEPTION, err.args))
           continue
         if message == self._CALL:
           name, args, kwargs = payload

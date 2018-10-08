@@ -12,7 +12,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Training of RL agent with PPO algorithm."""
+
+r"""Training of RL agent with PPO algorithm.
+
+Example invocation:
+
+python -m tensor2tensor.rl.trainer_model_free \
+    --output_dir=$HOME/t2t/rl_v1 \
+    --hparams_set=pong_model_free \
+    --loop_hparams='num_agents=15'
+"""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -35,7 +45,7 @@ except:  # pylint: disable=bare-except
 
 def main(_):
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
-  rl_trainer_lib.train(hparams, FLAGS.problem, FLAGS.output_dir)
+  rl_trainer_lib.train(hparams, FLAGS.output_dir, FLAGS.output_dir)
 
 
 if __name__ == "__main__":

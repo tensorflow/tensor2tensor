@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Various reversible ops for the glow generative model."""
 
 from __future__ import absolute_import
@@ -22,6 +23,7 @@ from functools import partial
 import numpy as np
 import scipy
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import common_video
 import tensorflow as tf
 
 arg_scope = tf.contrib.framework.arg_scope
@@ -47,6 +49,30 @@ def assign(w, initial_value):
   w = w.assign(initial_value)
   with tf.control_dependencies([w]):
     return w
+
+
+def get_cond_latents_at_level(cond_latents, level, hparams):
+  """Returns a single or list of conditional latents at level 'level'."""
+  if cond_latents:
+    if hparams.latent_dist_encoder == "conv_net":
+      return [cond_latent[level] for cond_latent in cond_latents]
+    elif hparams.latent_dist_encoder in ["pointwise", "conv_lstm"]:
+      return cond_latents[level]
+
+
+def check_cond_latents(cond_latents, hparams):
+  """Shape checking for cond_latents."""
+  if cond_latents is None:
+    return
+  if not isinstance(cond_latents[0], list):
+    cond_latents = [cond_latents]
+  if len(cond_latents) != hparams.num_cond_latents:
+    raise ValueError("Expected number of cond_latents: %d, got %d" %
+                     (hparams.num_cond_latents, len(cond_latents)))
+  for cond_latent in cond_latents:
+    if len(cond_latent) != hparams.n_levels - 1:
+      raise ValueError("Expected level_latents to be %d, got %d" %
+                       (hparams.n_levels - 1, len(cond_latent)))
 
 
 @add_arg_scope
@@ -293,7 +319,7 @@ def conv2d(name, x, output_channels, filter_size=None, stride=None,
   _, _, _, in_channels = common_layers.shape_list(x)
 
   filter_shape = filter_size + [in_channels, output_channels]
-  stride_shape = [1, 1] + stride
+  stride_shape = [1] + stride + [1]
 
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
 
@@ -319,17 +345,15 @@ def conv2d(name, x, output_channels, filter_size=None, stride=None,
 
 
 @add_arg_scope
-def nn(name, x, mid_channels, output_channels):
-  """3-layer conv2d.
+def conv_block(name, x, mid_channels):
+  """2 layer conv block used in the affine coupling layer.
 
   Args:
-    name:
-    x:
-    mid_channels: Number of output channels of the first layer.
-    output_channels: Number of output channels.
-
+    name: variable scope.
+    x: 4-D Tensor: (batch_size, height, width, channels).
+    mid_channels: Output channels of the second layer.
   Returns:
-    output:
+    x: 4-D Tensor: Output activations.
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
 
@@ -344,6 +368,25 @@ def nn(name, x, mid_channels, output_channels):
     x = conv2d("1_2", x, output_channels=mid_channels, filter_size=[1, 1],
                stride=[1, 1])
     x = tf.nn.relu(x)
+    return x
+
+
+@add_arg_scope
+def affine_coupling_network(name, x, mid_channels, output_channels):
+  """3-layer conv2d.
+
+  Args:
+    name:
+    x:
+    mid_channels: Number of output channels of the first layer.
+    output_channels: Number of output channels.
+
+  Returns:
+    output:
+  """
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+
+    x = conv_block("conv_block", x, mid_channels=mid_channels)
 
     # Final layer.
     x = conv2d("zeros", x, filter_size=[3, 3], stride=[1, 1],
@@ -375,7 +418,8 @@ def affine_coupling(name, x, mid_channels=512, reverse=False):
     # Else:
     # z2 = (x2 / scale) - shift
     z1 = x1
-    log_scale_and_shift = nn("nn", x1, mid_channels, x_shape[-1])
+    log_scale_and_shift = affine_coupling_network(
+        "nn", x1, mid_channels, x_shape[-1])
     shift = log_scale_and_shift[:, :, :, 0::2]
     scale = tf.nn.sigmoid(log_scale_and_shift[:, :, :, 1::2] + 2.0)
     if not reverse:
@@ -428,54 +472,198 @@ def squeeze(name, x, factor=2, reverse=True):
 
 
 @add_arg_scope
-def split_prior(name, x):
-  """Map x to the mean and log-scale of a Gaussian distribution."""
+def tensor_to_dist(name, x, output_channels=None, architecture="single_conv",
+                   depth=1, pre_output_channels=512):
+  """Map x to the mean and log-scale of a Gaussian.
+
+  Args:
+    name: variable scope.
+    x: 4-D Tensor of shape (NHWC)
+    output_channels: int, number of output channels of the mean.
+                     if not provided, set it to be the output channels of x.
+    architecture: "single_conv" or "glow_nn"
+    depth: depth of architecture mapping to the mean and std.
+    pre_output_channels: output channels before the final (mean, std) mapping.
+  Returns:
+    dist: instance of tf.distributions.Normal
+  Raises:
+    ValueError: If architecture not in ["single_conv", "glow_nn"]
+  """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     x_shape = common_layers.shape_list(x)
-    mean_log_scale = conv2d("conv2d", x, output_channels=2*x_shape[-1],
-                            apply_actnorm=False, conv_init="zeros")
+    if output_channels is None:
+      output_channels = x_shape[-1]
+    if architecture == "single_conv":
+      mean_log_scale = conv2d("conv2d", x, output_channels=2*output_channels,
+                              conv_init="zeros", apply_actnorm=False)
+    elif architecture == "glow_nn":
+      mean_log_scale = x
+      for layer in range(1, depth + 1):
+        mid_channels = pre_output_channels // 2**(depth - layer)
+        mean_log_scale = conv_block("glow_nn_%d" % layer, mean_log_scale,
+                                    mid_channels=mid_channels)
+      mean_log_scale = conv2d("glow_nn_zeros", mean_log_scale,
+                              filter_size=[3, 3], stride=[1, 1],
+                              output_channels=2*output_channels,
+                              apply_actnorm=False, conv_init="zeros")
+    else:
+      raise ValueError("expected architecture to be single_conv or glow_nn "
+                       "got %s" % architecture)
+
     mean = mean_log_scale[:, :, :, 0::2]
     log_scale = mean_log_scale[:, :, :, 1::2]
     return tf.distributions.Normal(mean, tf.exp(log_scale))
 
 
 @add_arg_scope
-def split(name, x, reverse=False, eps=None, eps_std=None):
+def merge_level_and_latent_dist(level_dist, latent_dist,
+                                merge_std="prev_level"):
+  """Merge level_dist and latent_dist.
+
+  new_dist ~ N(level_dist.mean + latent_dis.mean, std) where std is determined
+  according to merge_std.
+
+  Args:
+    level_dist: instance of tf.distributions.Normal
+    latent_dist: instance of tf.distributions.Normal
+    merge_std: can be "prev_level", "prev_step" or "normal".
+  Returns:
+    merged_dist: instance of tf.distributions.Normal
+  """
+  level_mean, level_std = level_dist.loc, level_dist.scale
+  latent_mean, latent_std = latent_dist.loc, latent_dist.scale
+  new_mean = level_mean + latent_mean
+  if merge_std == "normal":
+    z_shape = common_layers.shape_list(latent_mean)
+    log_scale = tf.get_variable(
+        "merge_std", shape=z_shape, dtype=tf.float32,
+        initializer=tf.zeros_initializer(), trainable=False)
+    scale = tf.exp(log_scale * 3.0)
+  elif merge_std == "prev_level":
+    scale = level_std
+  elif merge_std == "prev_step":
+    scale = latent_std
+  tf.summary.scalar("latent_scale", tf.reduce_mean(scale))
+  return tf.distributions.Normal(loc=new_mean, scale=scale)
+
+
+@add_arg_scope
+def compute_prior(name, z, latent, hparams, state=None):
+  """Distribution on z_t conditioned on z_{t-1} and latent.
+
+  Args:
+    name: variable scope.
+    z: 4-D Tensor.
+    latent: optional,
+            if hparams.latent_dist_encoder == "pointwise", this is a list
+            of 4-D Tensors of length hparams.num_cond_latents.
+            else, this is just a 4-D Tensor
+            The first-three dimensions of the latent should be the same as z.
+    hparams: next_frame_glow_hparams.
+    state: tf.contrib.rnn.LSTMStateTuple.
+           the current state of a LSTM used to model the distribution. Used
+           only if hparams.latent_dist_encoder = "conv_lstm".
+  Returns:
+    prior_dist: instance of tf.distributions.Normal
+    state: Returns updated state.
+  Raises:
+    ValueError: If hparams.latent_dist_encoder is "pointwise" and if the shape
+                of latent is different from z.
+  """
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    prior_dist = tensor_to_dist("level_prior", z, architecture="single_conv")
+
+    # TODO(mechcoder) Refactor into separate sub-functions.
+    if latent is not None:
+      latent_dist_encoder = hparams.get("latent_dist_encoder", None)
+      latent_skip = hparams.get("latent_skip", False)
+      if latent_dist_encoder == "pointwise":
+        merge_std = hparams.level_scale
+        latent_shape = common_layers.shape_list(latent)
+        z_shape = common_layers.shape_list(z)
+        if latent_shape != z_shape:
+          raise ValueError("Expected latent_shape to be %s, got %s" %
+                           (latent_shape, z_shape))
+        latent_dist = scale_gaussian_prior(
+            "latent_prior", latent, logscale_factor=3.0)
+        prior_dist = merge_level_and_latent_dist(prior_dist, latent_dist,
+                                                 merge_std=merge_std)
+      elif latent_dist_encoder == "conv_net":
+        output_channels = common_layers.shape_list(z)[-1]
+        latent_stack = tf.concat([prior_dist.loc] + latent, axis=-1)
+        prior_dist = tensor_to_dist(
+            "latent_stack", latent_stack, output_channels=output_channels,
+            architecture=hparams.latent_architecture,
+            depth=hparams.latent_encoder_depth,
+            pre_output_channels=hparams.latent_pre_output_channels)
+        if latent_skip:
+          prior_dist = tf.distributions.Normal(
+              prior_dist.loc + latent[-1], prior_dist.scale)
+      elif latent_dist_encoder == "conv_lstm":
+        output_channels = common_layers.shape_list(z)[-1]
+        latent_stack = tf.concat((prior_dist.loc, latent), axis=-1)
+        _, state = common_video.conv_lstm_2d(
+            latent_stack, state, output_channels, kernel_size=3,
+            name="conv_lstm")
+        prior_dist = tensor_to_dist(
+            "state_to_dist", state.h, output_channels=output_channels)
+        if latent_skip:
+          prior_dist = tf.distributions.Normal(
+              prior_dist.loc + latent, prior_dist.scale)
+      tf.summary.histogram("split_prior_mean", prior_dist.loc)
+      tf.summary.histogram("split_prior_scale", prior_dist.scale)
+
+  return prior_dist, state
+
+
+@add_arg_scope
+def split(name, x, reverse=False, eps=None, eps_std=None, cond_latents=None,
+          hparams=None, state=None):
   """Splits / concatenates x into x1 and x2 across number of channels.
 
   For the forward pass, x2 is assumed be gaussian,
-  i.e P(x2 | x1) ~ N(mu(x1), sigma(x1)) where mu and sigma are the outputs of
-  a network. For the reverse pass, x2 is determined from mu(x1) and sigma(x1).
+  i.e P(x2 | x1) ~ N(mu, sigma) where mu and sigma are the outputs of
+  a network conditioned on x1 and optionally on cond_latents.
+  For the reverse pass, x2 is determined from mu(x1) and sigma(x1).
   This is deterministic/stochastic depending on whether eps is provided.
 
   Args:
-    name:
-    x:
+    name: variable scope.
+    x: 4-D Tensor, shape (NHWC).
     reverse: Forward or reverse pass.
-    eps: If eps is provided, x2
-    eps_std: Sample x2
+    eps: If eps is provided, x2 is set to be
+    eps_std: Sample x2 with the provided eps_std.
+    cond_latents: optionally condition x2 on cond_latents.
+    hparams: next_frame_glow hparams.
+    state: tf.contrib.rnn.LSTMStateTuple. Current state of the LSTM over z_2.
+           Used only when hparams.latent_dist_encoder == "conv_lstm"
 
   Returns:
+  Raises:
+    ValueError: If latent is provided and shape is not equal to NHW(C/2)
+                where (NHWC) is the size of x.
   """
+  # TODO(mechcoder) Change the return type to be a dict.
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     if not reverse:
       x1, x2 = tf.split(x, num_or_size_splits=2, axis=-1)
 
       # objective: P(x2|x1) ~N(x2 ; NN(x1))
-      x1_dist = split_prior("split_prior", x1)
-      logpb = tf.reduce_sum(x1_dist.log_prob(x2), axis=[1, 2, 3])
-
-      eps = get_eps(x1_dist, x2)
-      return x1, logpb, eps
+      prior_dist, state = compute_prior(
+          "prior_on_z2", x1, cond_latents, hparams, state=state)
+      logpb = tf.reduce_sum(prior_dist.log_prob(x2), axis=[1, 2, 3])
+      eps = get_eps(prior_dist, x2)
+      return x1, logpb, eps, x2, state
     else:
-      x1_dist = split_prior("split_prior", x)
+      prior_dist, state = compute_prior(
+          "prior_on_z2", x, cond_latents, hparams, state=state)
       if eps is not None:
-        x2 = set_eps(x1_dist, eps)
+        x2 = set_eps(prior_dist, eps)
       elif eps_std is not None:
         x2 = eps_std * tf.random_normal(common_layers.shape_list(x))
       else:
-        x2 = x1_dist.sample()
-      return tf.concat([x, x2], 3)
+        x2 = prior_dist.sample()
+      return tf.concat([x, x2], 3), x2, state
 
 
 @add_arg_scope
@@ -526,36 +714,104 @@ def revnet(name, x, hparams, reverse=True):
 
 
 @add_arg_scope
-def top_prior(name, x, learn_prior=False):
+def scale_gaussian_prior(name, z, logscale_factor=3.0, trainable=True):
+  """Returns N(s^i * z^i, std^i) where s^i and std^i are pre-component.
+
+  s^i is a learnable parameter with identity initialization.
+  std^i is optionally learnable with identity initialization.
+
+  Args:
+    name: variable scope.
+    z: input_tensor
+    logscale_factor: equivalent to scaling up the learning_rate by a factor
+                     of logscale_factor.
+    trainable: Whether or not std^i is learnt.
+  """
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    z_shape = common_layers.shape_list(z)
+    latent_multiplier = tf.get_variable(
+        "latent_multiplier", shape=z_shape, dtype=tf.float32,
+        initializer=tf.ones_initializer())
+    log_scale = tf.get_variable(
+        "log_scale_latent", shape=z_shape, dtype=tf.float32,
+        initializer=tf.zeros_initializer(), trainable=trainable)
+    log_scale = log_scale * logscale_factor
+    tf.summary.scalar("gaussian_log_scale", tf.reduce_mean(log_scale))
+    return tf.distributions.Normal(
+        loc=latent_multiplier * z, scale=tf.exp(log_scale))
+
+
+@add_arg_scope
+def top_prior(name, x, learn_prior="normal"):
   """Log probability of x being gaussian.
 
   Args:
     name: variable scope
     x: input, 4-D Tensor shape=(batch_size, width, height, channels)
-    learn_prior: If set to true, then the mean and the standard deviation
-                 are the output of a single conv layer initialized with
-                 zeros. Otherwise the mean and logstd are zeros and ones
-                 respectively.
+    learn_prior: Possible options are "normal" and "single_conv".
+                 If set to "single_conv", the gaussian is parametrized by a
+                 single convolutional layer whose input are an array of zeros
+                 and initialized such that the mean and std are zero and one.
+                 If set to "normal", the prior is just a Gaussian with zero
+                 mean and unit variance.
   Returns:
     objective: 1-D Tensor shape=(batch_size,) summed across spatial components.
+  Raises:
+    ValueError: If learn_prior not in "normal" or "single_conv"
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     h = tf.zeros_like(x)
-    if not learn_prior:
+    if learn_prior == "normal":
       prior_dist = tf.distributions.Normal(h, tf.exp(h))
+    elif learn_prior == "single_conv":
+      prior_dist = tensor_to_dist("top_learn_prior", h)
     else:
-      prior_dist = split_prior("top_learn_prior", h)
+      raise ValueError("Expected learn_prior to be normal or single_conv "
+                       "got %s" % learn_prior)
     objective = tf.reduce_sum(prior_dist.log_prob(x), axis=[1, 2, 3])
     return objective, prior_dist
 
 
+def uniform_binning_correction(x, n_bits=8):
+  """Replaces x^i with q^i(x) = U(x, x + 1.0 / 256.0).
+
+  Args:
+    x: 4-D Tensor of shape (NHWC)
+    n_bits: optional.
+  Returns:
+    x: x ~ U(x, x + 1.0 / 256)
+    objective: Equivalent to -q(x)*log(q(x)).
+  """
+  n_bins = 2**n_bits
+  batch_size, height, width, n_channels = common_layers.shape_list(x)
+  hwc = float(height * width * n_channels)
+
+  x = x + tf.random_uniform(
+      shape=(batch_size, height, width, n_channels),
+      minval=0.0, maxval=1.0/n_bins)
+  objective = -np.log(n_bins) * hwc * tf.ones(batch_size)
+  return x, objective
+
+
 @add_arg_scope
-def encoder_decoder(name, x, hparams, eps=None, reverse=False):
+def encoder_decoder(name, x, hparams, eps=None, reverse=False,
+                    cond_latents=None, states=None):
   """Glow encoder-decoder. n_levels of (Squeeze + Flow + Split.) operations."""
+  # TODO(mechcoder) Change return_type to a dict to be backward compatible.
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+
+    if states and len(states) != hparams.n_levels - 1:
+      raise ValueError("Expected length of states to be %d, got %d" %
+                       (hparams.n_levels - 1, len(states)))
+    if eps and len(eps) != hparams.n_levels - 1:
+      raise ValueError("Expected length of eps to be %d, got %d" %
+                       (hparams.n_levels - 1, len(eps)))
+    check_cond_latents(cond_latents, hparams)
 
     objective = 0.0
     all_eps = []
+    all_latents = []
+    new_states = []
 
     if not reverse:
       # Squeeze + Flow + Split
@@ -566,26 +822,45 @@ def encoder_decoder(name, x, hparams, eps=None, reverse=False):
         objective += obj
 
         if level < hparams.n_levels - 1:
-          x, obj, eps = split("split_%d" % level, x, reverse=False)
+
+          curr_state = None
+          if states:
+            curr_state = states[level]
+
+          curr_cond_latents = get_cond_latents_at_level(
+              cond_latents, level, hparams)
+          x, obj, eps, z, state = split("split_%d" % level, x, reverse=False,
+                                        cond_latents=curr_cond_latents,
+                                        hparams=hparams, state=curr_state)
           objective += obj
           all_eps.append(eps)
-      return x, objective, all_eps
+          all_latents.append(z)
+          new_states.append(state)
+      return x, objective, all_eps, all_latents, new_states
 
     else:
-      if eps and len(eps) != hparams.n_levels - 1:
-        raise ValueError("Expected length of eps to be %d, got %d" %
-                         (hparams.n_levels - 1, len(eps)))
-
       for level in reversed(range(hparams.n_levels)):
         if level < hparams.n_levels - 1:
 
           curr_eps = None
           if eps:
             curr_eps = eps[level]
-          x = split("split_%d" % level, x, eps=curr_eps, reverse=True)
+
+          curr_state = None
+          if states:
+            curr_state = states[level]
+
+          curr_cond_latents = get_cond_latents_at_level(
+              cond_latents, level, hparams)
+
+          x, latent, state = split("split_%d" % level, x, eps=curr_eps,
+                                   reverse=True, cond_latents=curr_cond_latents,
+                                   hparams=hparams, state=curr_state)
+          new_states.append(state)
+          all_latents.append(latent)
 
         x, obj = revnet(
             "revnet_%d" % level, x, hparams=hparams, reverse=True)
         objective += obj
         x = squeeze("squeeze_%d" % level, x, reverse=True)
-      return x, objective
+      return x, objective, all_latents[::-1], new_states[::-1]

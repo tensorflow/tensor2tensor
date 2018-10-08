@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Utilities for serving tensor2tensor."""
 
 from __future__ import absolute_import
@@ -25,7 +26,7 @@ import grpc
 
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.utils import cloud_tpu as cloud
+from tensor2tensor.utils import cloud_mlengine as cloud
 import tensorflow as tf
 from tensorflow_serving.apis import predict_pb2
 from tensorflow_serving.apis import prediction_service_pb2_grpc

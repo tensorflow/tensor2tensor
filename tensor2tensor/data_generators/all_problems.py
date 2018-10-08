@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Imports for problem modules."""
 from __future__ import absolute_import
 from __future__ import division
@@ -62,6 +63,7 @@ MODULES = [
     "tensor2tensor.data_generators.qnli",
     "tensor2tensor.data_generators.quora_qpairs",
     "tensor2tensor.data_generators.rte",
+    "tensor2tensor.data_generators.scitail",
     "tensor2tensor.data_generators.snli",
     "tensor2tensor.data_generators.stanford_nli",
     "tensor2tensor.data_generators.style_transfer",

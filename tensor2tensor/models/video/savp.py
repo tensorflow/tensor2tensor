@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Stochastic Adversarial Video Prediction model.
 
 Reference: https://arxiv.org/abs/1804.01523
@@ -262,7 +263,7 @@ class NextFrameSAVP(sv2p.NextFrameSv2p):
     return gan_loss
 
   def get_extra_loss(self, latent_means=None, latent_stds=None,
-                     true_frames=None, gen_frames=None, beta=1.0):
+                     true_frames=None, gen_frames=None):
     if not self.is_training:
       return 0.0
 
@@ -270,7 +271,7 @@ class NextFrameSAVP(sv2p.NextFrameSv2p):
     # Use sv2p's KL divergence computation.
     if self.hparams.use_vae:
       vae_loss = super(NextFrameSAVP, self).get_extra_loss(
-          latent_means=latent_means, latent_stds=latent_stds, beta=beta)
+          latent_means=latent_means, latent_stds=latent_stds)
 
     if self.hparams.use_gan:
       # Strip out the first context_frames for the true_frames

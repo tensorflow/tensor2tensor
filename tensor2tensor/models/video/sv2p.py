@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """SV2P: Stochastic Variational Video Prediction.
 
    based on the following paper:
@@ -44,7 +45,8 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
   """Stochastic Variational Video Prediction."""
 
   def tinyify(self, array):
-    return common_video.tinyify(array, self.hparams.tiny_mode)
+    return common_video.tinyify(
+        array, self.hparams.tiny_mode, self.hparams.small_mode)
 
   def visualize_predictions(self, real_frames, gen_frames):
     def concat_on_y_axis(x):
@@ -54,6 +56,13 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
 
     frames_gd = common_video.swap_time_and_batch_axes(real_frames)
     frames_pd = common_video.swap_time_and_batch_axes(gen_frames)
+
+    if self.is_per_pixel_softmax:
+      frames_pd_shape = common_layers.shape_list(frames_pd)
+      frames_pd = tf.reshape(frames_pd, [-1, 256])
+      frames_pd = tf.to_float(tf.argmax(frames_pd, axis=-1))
+      frames_pd = tf.reshape(frames_pd, frames_pd_shape[:-1] + [3])
+
     frames_gd = concat_on_y_axis(frames_gd)
     frames_pd = concat_on_y_axis(frames_pd)
     side_by_side_video = tf.concat([frames_gd, frames_pd], axis=2)
@@ -125,21 +134,6 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       x = tf.zeros((batch_size, num_frames, 1, self.hparams.hidden_size))
     return common_video.swap_time_and_batch_axes(x)
 
-  def inject_additional_input(self, layer, inputs, scope, concatenate=True):
-    layer_shape = common_layers.shape_list(layer)
-    input_shape = common_layers.shape_list(inputs)
-    if concatenate:
-      emb = common_video.encode_to_shape(inputs, layer_shape, scope)
-      layer = tf.concat(values=[layer, emb], axis=-1)
-    else:
-      filters = layer_shape[-1]
-      input_reshaped = tf.reshape(inputs, [-1, 1, 1, input_shape[-1]])
-      input_mask = tf.layers.dense(input_reshaped, filters, name=scope)
-      zeros_mask = tf.zeros(layer_shape, dtype=tf.float32)
-      input_broad = input_mask + zeros_mask
-      layer *= input_broad
-    return layer
-
   def bottom_part_tower(self, input_image, input_reward, action, latent,
                         lstm_state, lstm_size, conv_size, concat_latent=False):
     """The bottom part of predictive towers.
@@ -170,6 +164,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     concat_input_image = tile_and_concat(
         input_image, latent, concat_latent=concat_latent)
 
+    layer_id = 0
     enc0 = tfl.conv2d(
         concat_input_image,
         conv_size[0], [5, 5],
@@ -179,33 +174,42 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
         name="scale1_conv1")
     enc0 = tfcl.layer_norm(enc0, scope="layer_norm1")
 
-    hidden1, lstm_state[0] = lstm_func(
-        enc0, lstm_state[0], lstm_size[0], name="state1")
+    hidden1, lstm_state[layer_id] = lstm_func(
+        enc0, lstm_state[layer_id], lstm_size[layer_id], name="state1")
     hidden1 = tile_and_concat(hidden1, latent, concat_latent=concat_latent)
     hidden1 = tfcl.layer_norm(hidden1, scope="layer_norm2")
-    hidden2, lstm_state[1] = lstm_func(
-        hidden1, lstm_state[1], lstm_size[1], name="state2")
+    layer_id += 1
+
+    hidden2, lstm_state[layer_id] = lstm_func(
+        hidden1, lstm_state[layer_id], lstm_size[layer_id], name="state2")
     hidden2 = tfcl.layer_norm(hidden2, scope="layer_norm3")
     hidden2 = common_layers.make_even_size(hidden2)
     enc1 = tfl.conv2d(hidden2, hidden2.get_shape()[3], [3, 3], strides=(2, 2),
                       padding="SAME", activation=tf.nn.relu, name="conv2")
     enc1 = tile_and_concat(enc1, latent, concat_latent=concat_latent)
+    layer_id += 1
 
-    hidden3, lstm_state[2] = lstm_func(
-        enc1, lstm_state[2], lstm_size[2], name="state3")
-    hidden3 = tile_and_concat(hidden3, latent, concat_latent=concat_latent)
-    hidden3 = tfcl.layer_norm(hidden3, scope="layer_norm4")
-    hidden4, lstm_state[3] = lstm_func(
-        hidden3, lstm_state[3], lstm_size[3], name="state4")
-    hidden4 = tile_and_concat(hidden4, latent, concat_latent=concat_latent)
-    hidden4 = tfcl.layer_norm(hidden4, scope="layer_norm5")
-    hidden4 = common_layers.make_even_size(hidden4)
-    enc2 = tfl.conv2d(hidden4, hidden4.get_shape()[3], [3, 3], strides=(2, 2),
-                      padding="SAME", activation=tf.nn.relu, name="conv3")
+    if self.hparams.small_mode:
+      hidden4, enc2 = hidden2, enc1
+    else:
+      hidden3, lstm_state[layer_id] = lstm_func(
+          enc1, lstm_state[layer_id], lstm_size[layer_id], name="state3")
+      hidden3 = tile_and_concat(hidden3, latent, concat_latent=concat_latent)
+      hidden3 = tfcl.layer_norm(hidden3, scope="layer_norm4")
+      layer_id += 1
+
+      hidden4, lstm_state[layer_id] = lstm_func(
+          hidden3, lstm_state[layer_id], lstm_size[layer_id], name="state4")
+      hidden4 = tile_and_concat(hidden4, latent, concat_latent=concat_latent)
+      hidden4 = tfcl.layer_norm(hidden4, scope="layer_norm5")
+      hidden4 = common_layers.make_even_size(hidden4)
+      enc2 = tfl.conv2d(hidden4, hidden4.get_shape()[3], [3, 3], strides=(2, 2),
+                        padding="SAME", activation=tf.nn.relu, name="conv3")
+      layer_id += 1
 
     if action is not None:
       enc2 = self.inject_additional_input(
-          enc2, action, "action_enc", self.hparams.concatenate_actions)
+          enc2, action, "action_enc", self.hparams.action_injection)
     if input_reward is not None:
       enc2 = self.inject_additional_input(enc2, input_reward, "reward_enc")
     if latent is not None and not concat_latent:
@@ -215,27 +219,46 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     enc3 = tfl.conv2d(enc2, hidden4.get_shape()[3], [1, 1], strides=(1, 1),
                       padding="SAME", activation=tf.nn.relu, name="conv4")
 
-    hidden5, lstm_state[4] = lstm_func(
-        enc3, lstm_state[4], lstm_size[4], name="state5")  # last 8x8
+    hidden5, lstm_state[layer_id] = lstm_func(
+        enc3, lstm_state[layer_id], lstm_size[layer_id], name="state5")
     hidden5 = tfcl.layer_norm(hidden5, scope="layer_norm6")
     hidden5 = tile_and_concat(hidden5, latent, concat_latent=concat_latent)
-    return hidden5, (enc0, enc1)
+    layer_id += 1
+    return hidden5, (enc0, enc1), layer_id
 
-  def reward_prediction(self, input_images, input_reward, action, latent):
+  def reward_prediction(self, *args, **kwargs):
+    model = self.hparams.reward_model
+    if model == "basic":
+      return self.reward_prediction_basic(*args, **kwargs)
+    elif model == "big":
+      return self.reward_prediction_big(*args, **kwargs)
+    else:
+      raise ValueError("Unknown reward model %s" % model)
+
+  def reward_prediction_basic(self, input_images, input_reward, action, latent):
+    del input_reward, action, latent
+    x = input_images[0]
+    x = tf.expand_dims(  # Add a fake channels dim.
+        tf.reduce_mean(x, axis=[1, 2], keepdims=True), axis=3)
+    return x
+
+  def reward_prediction_big(self, input_images, input_reward, action, latent):
     """Builds a reward prediction network."""
     conv_size = self.tinyify([32, 32, 16, 8])
 
     with tf.variable_scope("reward_pred", reuse=tf.AUTO_REUSE):
       x = tf.concat(input_images, axis=3)
       x = tfcl.layer_norm(x)
-      x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
-                     activation=tf.nn.relu, name="reward_conv1")
-      x = tfcl.layer_norm(x)
+
+      if not self.hparams.small_mode:
+        x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
+                       activation=tf.nn.relu, name="reward_conv1")
+        x = tfcl.layer_norm(x)
 
       # Inject additional inputs
       if action is not None:
         x = self.inject_additional_input(
-            x, action, "action_enc", self.hparams.concatenate_actions)
+            x, action, "action_enc", self.hparams.action_injection)
       if input_reward is not None:
         x = self.inject_additional_input(x, input_reward, "reward_enc")
       if latent is not None:
@@ -268,7 +291,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     conv_size = self.tinyify([32])
 
     with tf.variable_scope("main", reuse=tf.AUTO_REUSE):
-      hidden5, skips = self.bottom_part_tower(
+      hidden5, skips, layer_id = self.bottom_part_tower(
           input_image, input_reward, action, latent,
           lstm_state, lstm_size, conv_size, concat_latent=concat_latent)
       enc0, enc1 = skips
@@ -282,13 +305,14 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       enc4 = enc4[:, :enc1_shape[1], :enc1_shape[2], :]  # Cut to shape.
       enc4 = tile_and_concat(enc4, latent, concat_latent=concat_latent)
 
-      hidden6, lstm_state[5] = lstm_func(
-          enc4, lstm_state[5], lstm_size[5], name="state6",
+      hidden6, lstm_state[layer_id] = lstm_func(
+          enc4, lstm_state[layer_id], lstm_size[5], name="state6",
           spatial_dims=enc1_shape[1:-1])  # 16x16
       hidden6 = tile_and_concat(hidden6, latent, concat_latent=concat_latent)
       hidden6 = tfcl.layer_norm(hidden6, scope="layer_norm7")
       # Skip connection.
       hidden6 = tf.concat(axis=3, values=[hidden6, enc1])  # both 16x16
+      layer_id += 1
 
       with tf.variable_scope("upsample2", reuse=tf.AUTO_REUSE):
         enc5 = common_layers.cyclegan_upsample(
@@ -299,10 +323,11 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       enc5 = enc5[:, :enc0_shape[1], :enc0_shape[2], :]  # Cut to shape.
       enc5 = tile_and_concat(enc5, latent, concat_latent=concat_latent)
 
-      hidden7, lstm_state[6] = lstm_func(
-          enc5, lstm_state[6], lstm_size[6], name="state7",
+      hidden7, lstm_state[layer_id] = lstm_func(
+          enc5, lstm_state[layer_id], lstm_size[6], name="state7",
           spatial_dims=enc0_shape[1:-1])  # 32x32
       hidden7 = tfcl.layer_norm(hidden7, scope="layer_norm8")
+      layer_id += 1
 
       # Skip connection.
       hidden7 = tf.concat(axis=3, values=[hidden7, enc0])  # both 32x32
@@ -356,6 +381,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       masks = tfl.conv2d(
           enc6, filters=num_masks + 1, kernel_size=[1, 1],
           strides=(1, 1), name="convt7", padding="SAME")
+      masks = masks[:, :img_height, :img_width, ...]
       masks = tf.reshape(
           tf.nn.softmax(tf.reshape(masks, [-1, num_masks + 1])),
           [batch_size,
@@ -365,7 +391,14 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
           axis=3, num_or_size_splits=num_masks + 1, value=masks)
       output = mask_list[0] * input_image
       for layer, mask in zip(transformed, mask_list[1:]):
+        # TODO(mbz): take another look at this logic and verify.
+        output = output[:, :img_height, :img_width, :]
+        layer = layer[:, :img_height, :img_width, :]
         output += layer * mask
+
+      if self.is_per_pixel_softmax:
+        output = tf.layers.dense(
+            output, self.hparams.problem.num_channels * 256, name="logits")
 
       return output, lstm_state
 
@@ -399,13 +432,16 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       raise ValueError("Buffer size is bigger than context frames %d %d." %
                        (buffer_size, context_frames))
 
-    batch_size = common_layers.shape_list(images)[1]
+    batch_size = common_layers.shape_list(images[0])[0]
     ss_func = self.get_scheduled_sample_func(batch_size)
 
     def process_single_frame(prev_outputs, inputs):
       """Process a single frame of the video."""
       cur_image, input_reward, action = inputs
       time_step, prev_image, prev_reward, frame_buf, lstm_states = prev_outputs
+
+      # sample from softmax (by argmax). this is noop for non-softmax loss.
+      prev_image = self.get_sampled_frame(prev_image)
 
       generated_items = [prev_image]
       groundtruth_items = [cur_image]
@@ -418,7 +454,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
           input_image, None, action, lstm_states, latent)
 
       if self.hparams.reward_prediction:
-        reward_input_image = pred_image
+        reward_input_image = self.get_sampled_frame(pred_image)
         if self.hparams.reward_prediction_stop_gradient:
           reward_input_image = tf.stop_gradient(reward_input_image)
         with tf.control_dependencies([time_step]):
@@ -441,11 +477,16 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       latent = common_video.get_gaussian_tensor(latent_mean, latent_std)
 
     # HACK: Do first step outside to initialize all the variables
-    lstm_states = [None] * 7
+
+    lstm_states = [None] * (5 if self.hparams.small_mode else 7)
     frame_buffer = [tf.zeros_like(images[0])] * buffer_size
     inputs = images[0], rewards[0], actions[0]
+    init_image_shape = common_layers.shape_list(images[0])
+    if self.is_per_pixel_softmax:
+      init_image_shape[-1] *= 256
+    init_image = tf.zeros(init_image_shape, dtype=images.dtype)
     prev_outputs = (tf.constant(0),
-                    tf.zeros_like(images[0]),
+                    init_image,
                     tf.zeros_like(rewards[0]),
                     frame_buffer,
                     lstm_states)
@@ -462,21 +503,28 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     gen_images = tf.concat((first_gen_images, gen_images), axis=0)
     gen_rewards = tf.concat((first_gen_rewards, gen_rewards), axis=0)
 
-    return gen_images, gen_rewards, [latent_mean], [latent_std]
+    if self.hparams.stochastic_model:
+      return gen_images, gen_rewards, [latent_mean], [latent_std]
+    else:
+      return gen_images, gen_rewards, None, None
 
-  def get_extra_loss(self, latent_means=None, latent_stds=None,
-                     true_frames=None, gen_frames=None, beta=1.0):
+  def get_extra_loss(self,
+                     latent_means=None, latent_stds=None,
+                     true_frames=None, gen_frames=None):
     """Losses in addition to the default modality losses."""
     del true_frames
     del gen_frames
     kl_loss = 0.0
-    if self.is_training:
+    if self.is_training and self.hparams.stochastic_model:
       for i, (mean, std) in enumerate(zip(latent_means, latent_stds)):
         kl_loss += common_layers.kl_divergence(mean, std)
         tf.summary.histogram("posterior_mean_%d" % i, mean)
         tf.summary.histogram("posterior_std_%d" % i, std)
       tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
-    return beta * kl_loss
+
+    beta = self.get_beta(kl_loss)
+    extra_loss = beta * kl_loss
+    return extra_loss
 
   def infer(self, features, *args, **kwargs):
     """Produce predictions from the model by running it."""
@@ -493,8 +541,21 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
 
     output, _ = self(features)  # pylint: disable=not-callable
 
-    output["targets"] = tf.squeeze(output["targets"], axis=-1)
-    output["target_reward"] = tf.argmax(output["target_reward"], axis=-1)
+    if not isinstance(output, dict):
+      output = {"targets": output}
+
+    x = output["targets"]
+    if self.is_per_pixel_softmax:
+      x_shape = common_layers.shape_list(x)
+      x = tf.reshape(x, [-1, x_shape[-1]])
+      x = tf.argmax(x, axis=-1)
+      x = tf.reshape(x, x_shape[:-1])
+    else:
+      x = tf.squeeze(x, axis=-1)
+      x = tf.to_int64(tf.round(x))
+    output["targets"] = x
+    if self.hparams.reward_prediction:
+      output["target_reward"] = tf.argmax(output["target_reward"], axis=-1)
 
     # only required for decoding.
     output["outputs"] = output["targets"]
@@ -537,33 +598,40 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
         rewards=all_rewards,
     )
 
-    beta = self.get_beta()
     extra_loss = self.get_extra_loss(
         latent_means=latent_means,
-        latent_stds=latent_stds, beta=beta, true_frames=all_frames,
+        latent_stds=latent_stds,
+        true_frames=all_frames,
         gen_frames=gen_images)
 
     # Visualize predictions in Tensorboard
-    self.visualize_predictions(all_frames[1:], gen_images)
+    if self.is_training:
+      self.visualize_predictions(all_frames[1:], gen_images)
 
     # Ignore the predictions from the input frames.
     # This is NOT the same as original paper/implementation.
     predictions = gen_images[hparams.video_num_input_frames-1:]
     reward_pred = gen_rewards[hparams.video_num_input_frames-1:]
-    if self.is_training:
-      reward_pred = tf.squeeze(reward_pred, axis=2)  # Remove extra dimension.
+    reward_pred = tf.squeeze(reward_pred, axis=2)  # Remove extra dimension.
 
     # Swap back time and batch axes.
     predictions = common_video.swap_time_and_batch_axes(predictions)
     reward_pred = common_video.swap_time_and_batch_axes(reward_pred)
 
+    if self.is_training and hparams.internal_loss:
+      # add the loss for input frames as well.
+      extra_gts = all_frames[1:hparams.video_num_input_frames]
+      extra_gts = common_video.swap_time_and_batch_axes(extra_gts)
+      extra_pds = gen_images[:hparams.video_num_input_frames-1]
+      extra_pds = common_video.swap_time_and_batch_axes(extra_pds)
+      extra_raw_gts = features["inputs_raw"][:, 1:]
+      recon_loss = self.get_extra_internal_loss(
+          extra_raw_gts, extra_gts, extra_pds)
+      extra_loss += recon_loss
+
     return_targets = predictions
     if hparams.reward_prediction:
       return_targets = {"targets": predictions, "target_reward": reward_pred}
-
-    if hparams.internal_loss:
-      loss = tf.losses.mean_squared_error(all_frames[1:], gen_images)
-      extra_loss = {"training": loss + extra_loss}
 
     return return_targets, extra_loss
 

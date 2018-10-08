@@ -12,16 +12,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Utils for latent variable models."""
 
-import functools
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
 from six.moves import range  # pylint: disable=redefined-builtin
-
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
-from tensor2tensor.layers import discretization
 from tensor2tensor.models import transformer
 from tensor2tensor.utils import beam_search
 
@@ -30,9 +31,9 @@ import tensorflow as tf
 DO_SUMMARIES = True
 
 
-def compress_self_attention_layer(x, hparams, name):
+def compress_self_attention_layer(x, hparams, name=None):
   """Attend function."""
-  with tf.variable_scope(name):
+  with tf.variable_scope(name, default_name="compress_self_attention"):
     x, xshape, _ = cia.maybe_reshape_4d_to_3d(x)
     y = common_attention.multihead_attention(
         common_layers.layer_preprocess(x, hparams),
@@ -44,6 +45,35 @@ def compress_self_attention_layer(x, hparams, name):
         hparams.attention_dropout)
     res = common_layers.layer_postprocess(x, y, hparams)
     return tf.reshape(res, xshape)
+
+
+def compute_nats_and_bits_per_dim(data_dim,
+                                  latent_dim,
+                                  average_reconstruction,
+                                  average_prior):
+  """Computes negative ELBO, which is an upper bound on the negative likelihood.
+
+  Args:
+    data_dim: int-like indicating data dimensionality.
+    latent_dim: int-like indicating latent dimensionality.
+    average_reconstruction: Scalar Tensor indicating the reconstruction cost
+      averaged over all data dimensions and any data batches.
+    average_prior: Scalar Tensor indicating the negative log-prior probability
+      averaged over all latent dimensions and any data batches.
+
+  Returns:
+    Tuple of scalar Tensors, representing the nats and bits per data dimension
+    (e.g., subpixels) respectively.
+  """
+  with tf.name_scope(None, default_name="compute_nats_per_dim"):
+    data_dim = tf.cast(data_dim, average_reconstruction.dtype)
+    latent_dim = tf.cast(latent_dim, average_prior.dtype)
+    negative_log_likelihood = data_dim * average_reconstruction
+    negative_log_prior = latent_dim * average_prior
+    negative_elbo = negative_log_likelihood + negative_log_prior
+    nats_per_dim = tf.divide(negative_elbo, data_dim, name="nats_per_dim")
+    bits_per_dim = tf.divide(nats_per_dim, tf.log(2.), name="bits_per_dim")
+    return nats_per_dim, bits_per_dim
 
 
 def multinomial_sample(x, vocab_size=None, sampling_method="random",
@@ -104,7 +134,8 @@ def ae_latent_sample_beam(latents_dense_in, inputs, ed, embed, hparams):
 
   Args:
     latents_dense_in: Tensor of shape [batch, length_q, ...]. Only the shape of
-      its first two dimensions are used.
+      its first two dimensions are used. length_q is the latent length, which is
+      height * width * hparams.num_latents / (2**hparams.num_compress_steps).
     inputs: Tensor of shape [batch, length_kv, hparams.hidden_size]. Encodings
       to attend to in decoder.
     ed: Tensor which broadcasts with shape [batch, hparams.num_heads, length_q,
@@ -190,29 +221,31 @@ def residual_block_layer(inputs, hparams):
 def compress_encoder(inputs,
                      hparams,
                      strides=(2, 2),
-                     kernel=(3, 3),
-                     name="compress"):
+                     kernel_size=(3, 3),
+                     name=None):
   """Encoder that compresses 2-D inputs by 2**num_compress_steps.
 
   Args:
     inputs: Tensor of shape [batch, height, width, channels].
     hparams: tf.contrib.training.HParams.
     strides: Tuple, strides for conv block.
-    kernel: Tuple, kernel window size for conv block.
+    kernel_size: Tuple, kernel window size for conv block.
     name: string, variable scope.
 
   Returns:
-    Tensor of shape [batch, (height*width) / 2**(hparams.num_compress_steps),
-    hparams.hidden_size].
+    Tensor of shape [batch, latent_length, hparams.hidden_size], where
+      latent_length is
+      hparams.num_latents * (height*width) / 2**(hparams.num_compress_steps).
   """
-  with tf.variable_scope(name):
+  with tf.variable_scope(name, default_name="compress"):
     x = inputs
     for i in range(hparams.num_compress_steps // 2):
       with tf.variable_scope("compress_conv_%d" % i):
         y = common_layers.conv_block(
             common_layers.layer_norm(
                 x, hparams.hidden_size, name="lnorm"),
-            hparams.hidden_size, [((1, 1), kernel)],
+            hparams.hidden_size,
+            dilation_rates_and_kernel_sizes=[((1, 1), kernel_size)],
             strides=strides,
             padding="SAME",
             name="compress_conv_%d" % i)
@@ -231,13 +264,12 @@ def compress_encoder(inputs,
     x = tf.layers.dense(x,
                         hparams.num_latents * hparams.hidden_size,
                         name=name + "_dense")
-    new_shape = [shape_x[0],
-                 shape_x[1] * shape_x[2] * hparams.num_latents,
-                 hparams.hidden_size]
-    return tf.reshape(x, new_shape)
+    return tf.reshape(x, [shape_x[0],
+                          shape_x[1] * shape_x[2] * hparams.num_latents,
+                          hparams.hidden_size])
 
 
-def compress_encoder_2d(x, hparams, name):
+def compress_encoder_2d(x, hparams, name=None):
   """Encoder that compresses 2-D inputs by 2**num_compress_steps.
 
   Args:
@@ -246,16 +278,19 @@ def compress_encoder_2d(x, hparams, name):
     name: string, variable scope.
 
   Returns:
-    Tensor of shape [batch, (height*width) / 2**hparams.num_compress_steps,
-    hparams.hidden_size].
+    Tensor of shape [batch, latent_length, hparams.hidden_size], where
+      latent_length is
+      hparams.num_latents * (height*width) / 2**(hparams.num_compress_steps).
   """
-  return compress_encoder(x, hparams,
-                          strides=(2, 2),
-                          kernel=(hparams.kernel_size, hparams.kernel_size),
-                          name=name)
+  return compress_encoder(
+      x,
+      hparams,
+      strides=(2, 2),
+      kernel_size=(hparams.kernel_size, hparams.kernel_size),
+      name=name)
 
 
-def compress_encoder_1d(x, hparams, name):
+def compress_encoder_1d(x, hparams, name=None):
   """Encoder that compresses 1-D inputs by 2**num_compress_steps.
 
   Args:
@@ -264,13 +299,15 @@ def compress_encoder_1d(x, hparams, name):
     name: string, variable scope.
 
   Returns:
-    Tensor of shape [batch, length / 2**hparams.num_compress_steps,
-    hparams.hidden_size].
+    Tensor of shape [batch, latent_length, hparams.hidden_size], where
+      latent_length is
+      hparams.num_latents * length / 2**hparams.num_compress_steps.
   """
   x = tf.expand_dims(x, axis=2)
-  return compress_encoder(x, hparams,
+  return compress_encoder(x,
+                          hparams,
                           strides=(2, 1),
-                          kernel=(hparams.kernel_size, 1),
+                          kernel_size=(hparams.kernel_size, 1),
                           name=name)
 
 
@@ -278,7 +315,7 @@ def decompress_decoder(inputs,
                        hparams,
                        strides=(2, 2),
                        kernel=(3, 3),
-                       name="decompress"):
+                       name=None):
   """Decoder that decompresses 2-D inputs by 2**num_compress_steps.
 
   Args:
@@ -291,7 +328,7 @@ def decompress_decoder(inputs,
   Returns:
     Tensor of shape [batch, height, width, hparams.hidden_size].
   """
-  with tf.variable_scope(name):
+  with tf.variable_scope(name, default_name="decompress"):
     x = inputs
     x = tf.layers.dense(x, hparams.hidden_size, name=name + "_dense")
     x = residual_block_layer(x, hparams)
@@ -314,7 +351,7 @@ def decompress_decoder(inputs,
     return x
 
 
-def decompress_decoder_2d(x, hparams, name):
+def decompress_decoder_2d(x, hparams, name=None):
   """Decoder that decompresses 2-D inputs by 2**num_compress_steps.
 
   Args:
@@ -331,7 +368,7 @@ def decompress_decoder_2d(x, hparams, name):
                             name=name)
 
 
-def decompress_decoder_1d(x, hparams, name):
+def decompress_decoder_1d(x, hparams, name=None):
   """Decoder that decompresses 1-D inputs by 2**num_compress_steps.
 
   Args:
@@ -350,15 +387,15 @@ def decompress_decoder_1d(x, hparams, name):
   return tf.squeeze(output, axis=2)
 
 
-def transformer_text_encoder(x,
-                             space_id,
+def transformer_text_encoder(inputs,
+                             target_space,
                              hparams,
-                             name="transformer_text_encoder"):
+                             name=None):
   """Transformer text encoder over inputs with unmasked full attention.
 
   Args:
-    x: Tensor of shape [batch, length, 1, hparams.hidden_size].
-    space_id: int, id.
+    inputs: Tensor of shape [batch, length, 1, hparams.hidden_size].
+    target_space: int. Used for encoding inputs under a target space id.
     hparams: tf.contrib.training.HParams.
     name: string, variable scope.
 
@@ -367,26 +404,31 @@ def transformer_text_encoder(x,
     ed: Tensor of shape [batch, 1, 1, length]. Encoder-decoder attention bias
       for any padded tokens.
   """
-  with tf.variable_scope(name):
-    x = common_layers.flatten4d3d(x)
-    (encoder_input, encoder_self_attention_bias,
-     ed) = transformer.transformer_prepare_encoder(x, space_id, hparams)
+  with tf.variable_scope(name, default_name="transformer_text_encoder"):
+    inputs = common_layers.flatten4d3d(inputs)
+    [
+        encoder_input,
+        encoder_self_attention_bias,
+        ed,
+    ] = transformer.transformer_prepare_encoder(inputs,
+                                                target_space=target_space,
+                                                hparams=hparams)
     encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.dropout)
     encoder_output = transformer.transformer_encoder(
         encoder_input, encoder_self_attention_bias, hparams)
     return encoder_output, ed
 
 
-def transformer_image_decoder(x,
+def transformer_image_decoder(targets,
                               encoder_output,
                               ed_attention_bias,
                               hparams,
-                              name="transformer_dec"):
-  """Transformer image decoder over inputs with local attention.
+                              name=None):
+  """Transformer image decoder over targets with local attention.
 
   Args:
-    x: Tensor of shape [batch, ...], and whose size is batch * height * width *
-      hparams.num_channels * hparams.hidden_size.
+    targets: Tensor of shape [batch, ...], and whose size is batch * height *
+      width * hparams.num_channels * hparams.hidden_size.
     encoder_output: Tensor of shape [batch, length_kv, hparams.hidden_size].
     ed_attention_bias: Tensor which broadcasts with shape [batch,
       hparams.num_heads, length_q, length_kv]. Encoder-decoder attention bias.
@@ -397,12 +439,12 @@ def transformer_image_decoder(x,
     Tensor of shape [batch, height, width * hparams.num_channels,
     hparams.hidden_size].
   """
-  with tf.variable_scope(name):
-    batch_size = common_layers.shape_list(x)[0]
-    targets = tf.reshape(x, [batch_size,
-                             hparams.img_len,
-                             hparams.img_len,
-                             hparams.num_channels * hparams.hidden_size])
+  with tf.variable_scope(name, default_name="transformer_dec"):
+    batch_size = common_layers.shape_list(targets)[0]
+    targets = tf.reshape(targets, [batch_size,
+                                   hparams.img_len,
+                                   hparams.img_len,
+                                   hparams.num_channels * hparams.hidden_size])
     decoder_input, _, _ = cia.prepare_decoder(targets, hparams)
     decoder_output = cia.transformer_decoder_layers(
         decoder_input,
@@ -424,12 +466,12 @@ def transformer_latent_decoder(x,
                                encoder_output,
                                ed_attention_bias,
                                hparams,
-                               name="transformer_latent_dec"):
+                               name=None):
   """Transformer decoder over latents using latent_attention_type.
 
   Args:
-    x: Tensor of shape [batch, ...], and whose size is batch * length_q *
-      hparams.hidden_size. Here, length_q is the latent length, which is
+    x: Tensor of shape [batch, length_q, hparams.hidden_size]. length_q is the
+      latent length, which is
       height * width * hparams.num_latents / (2**hparams.num_compress_steps).
     encoder_output: Tensor of shape [batch, length_kv, hparams.hidden_size].
     ed_attention_bias: Tensor which broadcasts with shape [batch,
@@ -440,9 +482,10 @@ def transformer_latent_decoder(x,
   Returns:
     Tensor of shape [batch, length_q, hparams.hidden_size].
   """
-  with tf.variable_scope(name):
+  with tf.variable_scope(name, default_name="transformer_latent_dec"):
     batch_size = common_layers.shape_list(x)[0]
-    compressed_img_len = hparams.img_len / 2**(hparams.num_compress_steps // 2)
+    compressed_img_len = (hparams.img_len //
+                          2**(hparams.num_compress_steps // 2))
     x = tf.reshape(x, [batch_size,
                        compressed_img_len,
                        compressed_img_len * hparams.num_latents,
@@ -463,18 +506,24 @@ def transformer_latent_decoder(x,
     return decoder_output
 
 
-def bottleneck_layer(targets_c, hparams):
-  """Compute latents from compressed targets."""
-  latents_discrete_hot, extra_loss = discretization.parametrized_bottleneck(
-      targets_c, hparams)
-  latents_dense = discretization.parametrized_unbottleneck(
-      latents_discrete_hot, hparams.hidden_size, hparams)
-  latents_dense = targets_c + tf.stop_gradient(latents_dense - targets_c)
-  latents_discrete = tf.argmax(latents_discrete_hot, axis=-1)
-
+def bottleneck_layer(inputs,
+                     hparams,
+                     name="discrete_bottleneck"):
+  """Computes latents given inputs (typically, compressed targets)."""
+  [
+      latents_dense,
+      latents_discrete,
+      extra_loss,
+      embed_fn,
+      _,
+  ] = hparams.bottleneck(inputs=inputs,
+                         filter_size=hparams.compress_filter_size,
+                         name=name,
+                         mode=hparams.mode)
   if DO_SUMMARIES:
-    tf.summary.histogram("discrete_latents", tf.reshape(latents_discrete, [-1]))
-  return latents_dense, latents_discrete_hot, extra_loss
+    tf.summary.histogram("discrete_latents",
+                         tf.reshape(latents_discrete, [-1]))
+  return latents_dense, latents_discrete, extra_loss, embed_fn
 
 
 def latent_prediction_model(inputs,
@@ -483,7 +532,7 @@ def latent_prediction_model(inputs,
                             latents_dense,
                             hparams,
                             vocab_size=None,
-                            name="latent_prediction"):
+                            name=None):
   """Transformer-based latent prediction model.
 
   It is an autoregressive decoder over latents_discrete given inputs.
@@ -496,23 +545,29 @@ def latent_prediction_model(inputs,
     latents_discrete: Tensor of shape [batch, length_q, vocab_size].
       One-hot latents to compute log-probability of given inputs.
     latents_dense: Tensor of shape [batch, length_q, hparams.hidden_size].
+      length_q is the latent length, which is
+      height * width * hparams.num_latents / (2**hparams.num_compress_steps).
     hparams: tf.contrib.training.HParams.
-    vocab_size: int, if given else None.
+    vocab_size: int or None. If None, it is 2**hparams.bottleneck_bits.
     name: string, variable scope.
 
   Returns:
     latents_pred: Tensor of shape [batch, length_q, hparams.hidden_size].
     latents_pred_loss: Tensor of shape [batch, length_q].
   """
-  with tf.variable_scope(name):
+  with tf.variable_scope(name, default_name="latent_prediction"):
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
       latents_pred = transformer_latent_decoder(tf.stop_gradient(latents_dense),
                                                 inputs,
                                                 ed_attention_bias,
                                                 hparams,
                                                 name)
-      vocab_size = (2**hparams.bottleneck_bits
-                    if vocab_size is None else vocab_size)
+      if vocab_size is None:
+        vocab_size = 2**hparams.bottleneck_bits
+      if not hparams.soft_em:
+        # TODO(trandustin): latents_discrete is not one-hot from
+        # discrete_bottleneck unless hparams.soft_em is True. Refactor.
+        latents_discrete = tf.one_hot(latents_discrete, depth=vocab_size)
       _, latent_pred_loss = ae_latent_softmax(
           latents_pred, tf.stop_gradient(latents_discrete), vocab_size, hparams)
   return latents_pred, latent_pred_loss
@@ -524,10 +579,27 @@ def transformer_autoencoder(inputs,
                             hparams,
                             cache=None,
                             predict_mask=1.0):
-  """Auto-encoder using transformer decoder and prior over latents."""
-  losses = {"extra": 0., "latent_pred": 0.}
+  """Auto-encoder using a Transformer decoder and a prior over latent sequences.
 
-  # Reshape image targets as 4d tensor.
+  Args:
+    inputs: Tensor of shape [batch, length, 1, hparams.hidden_size] or None.
+    targets: Tensor of shape [batch, ..., channels]. Ellipses may be 1 or 2
+      dimensions denoting sequence length.
+    target_space: int. Used for encoding inputs under a target space id.
+    hparams: tf.contrib.training.HParams.
+    cache: Tensor of shape [batch, length] or None.
+    predict_mask: Tensor masking whether to use gold targets or predictions.
+
+  Returns:
+    decoder_output: Tensor of shape [batch, ..., hparams.hidden_size] presenting
+      pre-logit activations. After a transformation (`top` in `T2TModel`), it is
+      used with targets to compute the "training" (reconstruction) loss.
+    losses: dict of str to Tensors. There are three loss terms: "extra",
+      "extra_loss", and "latent_pred". The first is hard-coded to 0. The latter
+      two are Tensors of shape [batch].
+    cache: Tensor of shape [batch, length], either the same as cache, or newly
+      computed if the cache input is None.
+  """
   original_targets_shape = common_layers.shape_list(targets)
   batch_size = original_targets_shape[0]
   if len(original_targets_shape) == 4:
@@ -537,96 +609,150 @@ def transformer_autoencoder(inputs,
     compress_fn = compress_encoder_1d
     decompress_fn = decompress_decoder_1d
 
-  # Input Encoder if present.
   ed_attention_bias = None
   if inputs is not None:
-    inputs = common_layers.flatten4d3d(inputs)
     inputs, ed_attention_bias = transformer_text_encoder(
-        inputs, target_space, hparams, "input_enc")
+        inputs, target_space, hparams, name="input_encoder")
 
-  # Encode targets to compute targets compressed.
-  targets_c = compress_fn(targets, hparams, "compress")
-  targets, _, _ = cia.maybe_reshape_4d_to_3d(targets)
-
-  # Following code creates an exponentially decaying variable based on which
-  # we rescale the loss values.
-  pc = common_layers.inverse_exp_decay(hparams.startup_steps)
-  pc = pc if hparams.mode == tf.estimator.ModeKeys.TRAIN else 1.0
-  cond = tf.less(tf.random_uniform([batch_size]), pc)
-
-  # Call bottleneck layer, that takes encoder output and outputs the latents.
-  # Returns embedded latents, discrete latent codes, loss.
+  losses = {"extra": 0.,
+            "extra_loss": 0.,
+            "latent_pred": 0.}
   if hparams.mode != tf.estimator.ModeKeys.PREDICT:
-    latents_dense, latents_discrete, extra_loss = (
-        bottleneck_layer(targets_c, hparams))
-    extra_loss = tf.reduce_mean(extra_loss) * tf.to_float(cond)
+    targets_compressed = compress_fn(targets, hparams, name="compress")
+
+    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      scale = common_layers.inverse_exp_decay(hparams.startup_steps)
+    else:
+      scale = 1.0
+    scale = tf.to_float(tf.less(tf.random_uniform([batch_size]), scale))
+
+    latents_dense, latents_discrete, extra_loss, _ = bottleneck_layer(
+        targets_compressed, hparams)
+    extra_loss = scale * tf.reduce_mean(extra_loss)
 
     _, latents_pred_loss = latent_prediction_model(
-        inputs,
-        ed_attention_bias,
-        latents_discrete,
-        latents_dense,
-        hparams,
+        inputs, ed_attention_bias, latents_discrete, latents_dense, hparams,
         name="latent_pred")
-    latents_pred_loss = tf.reduce_mean(latents_pred_loss) * tf.to_float(cond)
-
-    latents_shape = common_layers.shape_list(latents_dense)
-    latents_dense = tf.nn.dropout(
-        latents_dense, 1 - hparams.latent_dropout,
-        noise_shape=[latents_shape[0], latents_shape[1], 1])
-
-    losses["extra_loss"] = extra_loss
-    losses["latent_pred"] = latents_pred_loss
-
-    # We'll start training the extra model of latents after mask_startup_steps.
     latent_time = tf.less(hparams.mask_startup_steps,
                           tf.to_int32(tf.train.get_global_step()))
-    losses["latent_pred"] *= tf.to_float(latent_time)
+    latents_pred_loss = scale * tf.reduce_mean(latents_pred_loss)
+    latents_pred_loss *= tf.to_float(latent_time)
+
+    # Apply dropout noise for each data point and time step.
+    latents_dense_shape = common_layers.shape_list(latents_dense)
+    latents_dense = tf.nn.dropout(
+        latents_dense,
+        keep_prob=1 - hparams.latent_dropout,
+        noise_shape=[latents_dense_shape[0], latents_dense_shape[1], 1])
+
+    # TODO(trandustin): Can we combine extra and extra_loss?
+    losses = {"extra": 0.,
+              "extra_loss": extra_loss,
+              "latent_pred": latents_pred_loss}
   else:
-    latent_len = (
-        hparams.img_len * hparams.img_len * hparams.num_latents) / 2**(
-            hparams.num_compress_steps)
-    embed = functools.partial(
-        discretization.parametrized_unbottleneck, hparams=hparams)
+    # Set the latent length, which is num_latents times the number of latent
+    # pixels. The number of latent pixels is determined by a compression factor
+    # on the number of image pixels.
+    latent_len = ((hparams.img_len * hparams.img_len * hparams.num_latents) /
+                  (2**hparams.num_compress_steps))
+    _, _, _, embed_fn = bottleneck_layer(targets_compressed, hparams)
     latents_dense = tf.zeros([batch_size, latent_len, 1, hparams.hidden_size])
     if cache is None:
-      cache = ae_latent_sample_beam(latents_dense, inputs, ed_attention_bias,
-                                    embed, hparams)
-    latents_dense = embed(
-        tf.one_hot(cache, depth=2**hparams.bottleneck_bits),
-        hparams.hidden_size)
+      cache = ae_latent_sample_beam(latents_dense,
+                                    inputs,
+                                    ed_attention_bias,
+                                    embed_fn,
+                                    hparams)
+    cache_one_hot = tf.one_hot(cache, depth=2**hparams.bottleneck_bits)
+    latents_dense = embed_fn(cache_one_hot, hparams.hidden_size)
 
-  latents_decoder = latents_dense
   if len(original_targets_shape) == 4:
-    compressed_img_len = hparams.img_len / 2**(hparams.num_compress_steps // 2)
-    latents_decoder = tf.reshape(latents_decoder,
-                                 [batch_size,
-                                  compressed_img_len,
-                                  compressed_img_len,
-                                  hparams.num_latents * hparams.hidden_size])
+    compressed_img_len = (hparams.img_len //
+                          2**(hparams.num_compress_steps // 2))
+    latents_dense = tf.reshape(latents_dense,
+                               [batch_size,
+                                compressed_img_len,
+                                compressed_img_len,
+                                hparams.num_latents * hparams.hidden_size])
 
-  latents_decoder = decompress_fn(latents_decoder, hparams, name="decompress")
-  # if we're operating in 2d space on images, then we're assuming that the
-  # last dimension will not be a multiple of channels
-  output = tf.reshape(
-      latents_decoder,
-      shape=[-1, hparams.img_len, hparams.img_len, hparams.hidden_size])
+  latents_dense = decompress_fn(latents_dense, hparams, name="decompress")
+  latents_dense = tf.reshape(
+      latents_dense,
+      [-1, hparams.img_len, hparams.img_len, hparams.hidden_size])
 
   if hparams.use_gold_targets:
-    masking = common_layers.inverse_exp_decay(hparams.mask_startup_steps)
     if hparams.mode == tf.estimator.ModeKeys.PREDICT:
       masking = predict_mask
-    mask = tf.less(masking, tf.random_uniform(
-        common_layers.shape_list(targets)[:-1]))
+    else:
+      masking = common_layers.inverse_exp_decay(hparams.mask_startup_steps)
+    targets, _, _ = cia.maybe_reshape_4d_to_3d(targets)
+    mask = tf.less(masking,
+                   tf.random_uniform(common_layers.shape_list(targets)[:-1]))
     mask = tf.expand_dims(tf.to_float(mask), 2)
-    output = mask * targets + (1.0 - mask) * output
+    latents_dense = mask * targets + (1.0 - mask) * latents_dense
 
-  # reshape back to 4d here
-  output = tf.reshape(output, original_targets_shape)
+  latents_dense = tf.reshape(latents_dense, original_targets_shape)
   if hparams.decode_autoregressive:
-    # Transformer decoder, that goes from inputs->targets
     decoder_output = transformer_image_decoder(
-        output, inputs, ed_attention_bias, hparams, "decoder")
+        latents_dense, inputs, ed_attention_bias, hparams, name="decoder")
   else:
-    decoder_output = output
+    decoder_output = latents_dense
   return decoder_output, losses, cache
+
+
+def iaf_flow(one_hot_assignments,
+             scale_weights,
+             scale_bias,
+             num_codes,
+             summary=True,
+             name=None):
+  """Performs a single IAF flow using scale and normalization transformations.
+
+  Args:
+    one_hot_assignments: Assignments Tensor with shape [num_samples, batch_size,
+      latent_size, num_codes].
+    scale_weights: Tensor corresponding to lower triangular matrix used to
+      autoregressively generate scale matrix from assignments. To ensure the
+      lower-triangular matrix has length of latent_size, scale_weights should
+      be a rank-one tensor with size latent_size * (latent_size + 1) / 2.
+    scale_bias: Bias tensor to be added to scale tensor, with shape
+      [latent_size, num_codes]. If scale weights are zero, initialize scale_bias
+      to be log(exp(1.) / 2. - 1) so initial transformation is identity.
+    num_codes: Number of codes in codebook.
+    summary: Whether to save summaries.
+    name: String used for name scope.
+
+  Returns:
+    flow_output: Transformed one-hot assignments.
+    inverse_log_det_jacobian: Inverse log deteriminant of Jacobian corresponding
+      to transformation.
+  """
+  with tf.name_scope(name, default_name="iaf"):
+    # Pad the one_hot_assignments by zeroing out the first latent dimension and
+    # shifting the rest down by one (and removing the last dimension).
+    padded_assignments = tf.pad(
+        one_hot_assignments, [[0, 0], [0, 0], [1, 0], [0, 0]])[:, :, :-1, :]
+    scale_bijector = tf.contrib.distributions.bijectors.Affine(
+        scale_tril=tf.contrib.distributions.fill_triangular(scale_weights))
+    scale = scale_bijector.forward(
+        tf.transpose(padded_assignments, [0, 1, 3, 2]))
+    # Transpose the bijector output since it performs a batch matmul.
+    scale = tf.transpose(scale, [0, 1, 3, 2])
+    scale = tf.nn.softplus(scale)
+    scale = scale + tf.nn.softplus(scale_bias[tf.newaxis, tf.newaxis, ...])
+    # Don't need last dimension since the transformation keeps it constant.
+    scale = scale[..., :-1]
+
+    z = one_hot_assignments[..., :-1]
+    unnormalized_probs = tf.concat([z * scale,
+                                    one_hot_assignments[..., -1, tf.newaxis]],
+                                   axis=-1)
+    normalizer = tf.reduce_sum(unnormalized_probs, axis=-1)
+    flow_output = unnormalized_probs / (normalizer[..., tf.newaxis])
+    inverse_log_det_jacobian = (-tf.reduce_sum(tf.log(scale), axis=-1)
+                                + num_codes * tf.log(normalizer))
+    if summary:
+      tf.summary.histogram("iaf/scale", tf.reshape(scale, [-1]))
+      tf.summary.histogram("iaf/inverse_log_det_jacobian",
+                           tf.reshape(inverse_log_det_jacobian, [-1]))
+    return flow_output, inverse_log_det_jacobian

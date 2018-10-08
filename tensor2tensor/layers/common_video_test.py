@@ -12,9 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+"""Tests for video utils."""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
 import numpy as np
 
 from tensor2tensor.layers import common_video
@@ -24,7 +28,7 @@ import tensorflow as tf
 
 class CommonVideoTest(tf.test.TestCase):
 
-  def runScheduledSampleFunc(self, func, var, batch_size):
+  def _run_scheduled_sample_func(self, func, var, batch_size):
     ground_truth_x = list(range(1, batch_size+1))
     generated_x = [-x for x in ground_truth_x]
     ground_truth_x = tf.convert_to_tensor(ground_truth_x)
@@ -35,39 +39,39 @@ class CommonVideoTest(tf.test.TestCase):
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testScheduledSampleProbStart(self):
-    ground_truth_x, _, ss_out = self.runScheduledSampleFunc(
+    ground_truth_x, _, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_prob, 1.0, 10)
     self.assertAllEqual(ground_truth_x, ss_out)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testScheduledSampleProbMid(self):
-    _, _, ss_out = self.runScheduledSampleFunc(
+    _, _, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_prob, 0.5, 1000)
     positive_count = np.sum(ss_out > 0)
     self.assertAlmostEqual(positive_count / 1000.0, 0.5, places=1)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testScheduledSampleProbEnd(self):
-    _, generated_x, ss_out = self.runScheduledSampleFunc(
+    _, generated_x, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_prob, 0.0, 10)
     self.assertAllEqual(generated_x, ss_out)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testScheduledSampleCountStart(self):
-    ground_truth_x, _, ss_out = self.runScheduledSampleFunc(
+    ground_truth_x, _, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_count, 10, 10)
     self.assertAllEqual(ground_truth_x, ss_out)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testScheduledSampleCountMid(self):
-    _, _, ss_out = self.runScheduledSampleFunc(
+    _, _, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_count, 5, 10)
     positive_count = np.sum(ss_out > 0)
     self.assertEqual(positive_count, 5)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testScheduledSampleCountEnd(self):
-    _, generated_x, ss_out = self.runScheduledSampleFunc(
+    _, generated_x, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_count, 0, 10)
     self.assertAllEqual(generated_x, ss_out)
 
@@ -98,6 +102,25 @@ class CommonVideoTest(tf.test.TestCase):
          [100, 100, 100, 100],
          [90, 90, 90, 90],
          [100, 100, 100, 100]])
+
+  def testGifSummary(self):
+    for c in (1, 3):
+      images_shape = (1, 12, 48, 64, c)  # batch, time, height, width, channels
+      images = np.random.randint(256, size=images_shape).astype(np.uint8)
+
+      with self.test_session():
+        summary = common_video.gif_summary(
+            "gif", tf.convert_to_tensor(images), fps=10)
+        summary_string = summary.eval()
+
+      summary = tf.Summary()
+      summary.ParseFromString(summary_string)
+
+      self.assertEqual(1, len(summary.value))
+      self.assertTrue(summary.value[0].HasField("image"))
+      encoded = summary.value[0].image.encoded_image_string
+
+      self.assertEqual(encoded, common_video._encode_gif(images[0], fps=10))  # pylint: disable=protected-access
 
 
 if __name__ == "__main__":

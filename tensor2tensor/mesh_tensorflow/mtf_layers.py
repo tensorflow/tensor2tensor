@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Layers for mesh tensorflow."""
 
 from __future__ import absolute_import
@@ -48,6 +49,7 @@ def dense(x, output_dim, reduced_dims=None, expert_dims=None,
   w_shape = mtf.Shape(expert_dims + reduced_dims + [output_dim])
   output_shape = mtf.Shape(
       [d for d in x.shape.dims if d not in reduced_dims] + [output_dim])
+
   with tf.variable_scope(name, default_name="dense"):
     stddev = mtf.list_product(d.size for d in reduced_dims) ** -0.5
     w = mtf.get_variable(
@@ -56,7 +58,7 @@ def dense(x, output_dim, reduced_dims=None, expert_dims=None,
         w_shape,
         initializer=tf.random_normal_initializer(stddev=stddev),
         activation_dtype=x.dtype)
-    y = mtf.matmul(x, w, output_shape=output_shape)
+    y = mtf.einsum([x, w], output_shape)
     if use_bias:
       b = mtf.get_variable(
           x.mesh,
@@ -99,6 +101,66 @@ def layer_norm(x, dim, epsilon=1e-6, name="layer_prepostprocess"):
     mean = mtf.reduce_mean(x, output_shape=reduced_shape)
     variance = mtf.reduce_mean(mtf.square(x - mean), output_shape=reduced_shape)
     norm_x = (x - mean) * mtf.rsqrt(variance + epsilon)
+    return norm_x * scale + bias
+
+
+def batch_norm(x, is_training, momentum, epsilon=1e-9, name=None):
+  """Batch normalization.
+
+  Args:
+    x: a mtf.Tensor whose shape contains [batch_dim, ..., dim]
+    is_training: a boolean, whether mode is training.
+    momentum: a floating point number, specifying batch norm decay value.
+    epsilon: a floating point number.
+    name: a string. variable scope.
+
+  Returns:
+    a mtf.Tensor with same shape as x.
+  """
+  with tf.variable_scope(name, default_name="batch_norm", values=[x]):
+    batch_dim = x.shape.dims[0]
+    reduced_shape = x.shape - batch_dim
+    scale = mtf.get_variable(
+        x.mesh,
+        "batch_norm_scale",
+        mtf.Shape([batch_dim]),
+        initializer=tf.ones_initializer(),
+        activation_dtype=x.dtype)
+    bias = mtf.get_variable(
+        x.mesh,
+        "batch_norm_bias",
+        mtf.Shape([batch_dim]),
+        initializer=tf.zeros_initializer(),
+        activation_dtype=x.dtype)
+
+    moving_mean = mtf.get_variable(
+        x.mesh, "moving_mean", reduced_shape,
+        initializer=tf.random_normal_initializer(stddev=1.0),
+        activation_dtype=x.dtype,
+        trainable=False)
+    moving_variance = mtf.get_variable(
+        x.mesh, "moving_variance",
+        reduced_shape, initializer=tf.ones_initializer(),
+        activation_dtype=x.dtype,
+        trainable=False)
+
+    # At training time, calculate mean and variance and normalize across batch
+    # dim.
+    if is_training:
+      mean = mtf.reduce_mean(x, output_shape=reduced_shape)
+      variance = mtf.reduce_mean(
+          mtf.square(x - mean), output_shape=reduced_shape)
+      norm_x = (x - mean) * mtf.rsqrt(variance + epsilon)
+
+      # Update running mean and running variance.
+      moving_mean = mtf.assign(
+          moving_mean, momentum * moving_mean + (1-momentum) * mean)
+      moving_variance = mtf.assign(
+          moving_variance,
+          momentum * moving_variance + (1 - momentum) * variance)
+    else:
+      # At eval and test time, use the running mean and variance.
+      norm_x = (x - moving_mean) * mtf.rsqrt(moving_variance + epsilon)
     return norm_x * scale + bias
 
 
@@ -168,6 +230,100 @@ def dense_relu_dense(x,
       h = mtf.dropout(h, 1.0 - dropout,
                       noise_shape=h.shape - dropout_broadcast_dims)
     return mtf.einsum([h, wo])
+
+
+def local_1d_halo_exchange(k, v, num_w_blocks, w_dim, memory_w_dim, mask_right):
+  """Halo exchange for keys and values for Local 1D attention."""
+  if num_w_blocks is not None:
+    if mask_right:
+      k = mtf.left_halo_exchange(k, num_w_blocks, w_dim, memory_w_dim.size)
+      v = mtf.left_halo_exchange(v, num_w_blocks, w_dim, memory_w_dim.size)
+    else:
+      k = mtf.halo_exchange(k, num_w_blocks, w_dim, memory_w_dim.size)
+      v = mtf.halo_exchange(v, num_w_blocks, w_dim, memory_w_dim.size)
+  else:
+    if mask_right:
+      k = mtf.pad(k, [memory_w_dim, None], w_dim.name)
+    else:
+      k = mtf.pad(k, [memory_w_dim, memory_w_dim], w_dim.name)
+    v = mtf.pad(v, [memory_w_dim, memory_w_dim], w_dim.name)
+  return k, v
+
+
+def local_self_attention_spatial_blocks(
+    query_antecedent,
+    kv_channels,
+    heads,
+    memory_w_dim=None,
+    mask_right=False,
+    name=None):
+  """Attention to the source position and a neighborhood to the left or right.
+
+  The sequence is divided into blocks of length block_size.
+  Attention for a given query position can only see memory positions
+  less than or equal to the query position, in the corresponding block
+  and the previous block.
+
+  Args:
+    query_antecedent: a mtf.Tensor with shape
+      [batch, num_h_blocks, num_w_blocks, h_dim, w_dim, io_channels]
+      must have the same size as query_length, but a different name.
+    kv_channels: a mtf.Dimension (the size of the key and value vectors)
+    heads: a mtf.Dimension (the number of heads)
+    memory_w_dim: mtf Dimension, for the memory width block.
+    mask_right: bool, flag specifying whether we mask out attention to the right
+      for the decoder.
+    name: an optional string.
+
+  Returns:
+    a Tensor of shape
+        [batch, num_h_blocks, num_w_blocks, h_dim, w_dim, io_channels]
+
+  Raises:
+    ValueError: if channels or depth don't match.
+  """
+  with tf.variable_scope(
+      name, default_name="multihead_attention",
+      values=[query_antecedent]):
+
+    w_dim, io_channels = query_antecedent.shape.dims[-2:]
+    batch, num_w_blocks = query_antecedent.shape.dims[:2]
+    q_var, k_var, v_var, o_var = multihead_attention_vars(
+        query_antecedent.mesh, heads, io_channels, kv_channels,
+        query_antecedent.dtype)
+
+    # Rename dimensions for the memory height and width.
+    memory_antecedent = mtf.rename_dimension(
+        query_antecedent, w_dim.name, memory_w_dim.name)
+
+    # Call einsum over the query and memory to get query q, keys k and values v.
+    q = mtf.einsum(
+        [query_antecedent, q_var],
+        mtf.Shape([batch, heads, num_w_blocks, w_dim, kv_channels]))
+    k = mtf.einsum(
+        [memory_antecedent, k_var],
+        mtf.Shape([batch, heads, num_w_blocks, w_dim, kv_channels]))
+    v = mtf.einsum(
+        [memory_antecedent, v_var],
+        mtf.Shape([batch, heads, num_w_blocks, w_dim, kv_channels]))
+
+    # Halo exchange for memory blocks.
+    if memory_w_dim is not None:
+      k, v = local_1d_halo_exchange(
+          k, v, num_w_blocks, w_dim, memory_w_dim, mask_right)
+
+    # Calculate the causal mask to avoid peeking into the future. We compute
+    # this once and reuse it for all blocks since the block_size is known.
+    mask = None
+    if mask_right:
+      mask = attention_bias_local_block(
+          query_antecedent.mesh, w_dim, memory_w_dim)
+
+    output = dot_product_attention(q, k, v, mask=mask)
+
+    return mtf.einsum(
+        [output, o_var],
+        mtf.Shape([batch, num_w_blocks, w_dim, io_channels]))
 
 
 def masked_local_attention_1d(query_antecedent,
@@ -574,6 +730,10 @@ def attention_bias_local_block(mesh, block_length, memory_length,
                                dtype=tf.int32):
   """Bias for attention for local blocks where attention to right is disallowed.
 
+  Create the bias matrix by using two separate masks, one for the memory part
+  which doesn't overlap with the query and second which interacts with the query
+  and should be disallowed to look to the right of the current query position.
+
   Args:
     mesh: a MeshTensorflow object
     block_length: a mtf.Dimension
@@ -581,10 +741,14 @@ def attention_bias_local_block(mesh, block_length, memory_length,
     dtype: a tf.dtype
 
   Returns:
-    a mtf.Tensor with shape [rows, cols]
+    a mtf.Tensor with shape [block_length, memory_length]
   """
+  memory_length = mtf.Dimension(memory_length.name, block_length.size)
+  memory_mask = mtf.zeros(mesh, [block_length, memory_length], dtype=dtype)
+
   mask = mtf.cast(mtf.less(mtf.range(mesh, block_length, dtype=dtype),
                            mtf.range(mesh, memory_length, dtype=dtype)),
                   dtype=dtype)
-  mask = mtf.cast(mask, dtype=tf.float32)  * -1e9
+  mask = mtf.cast(mtf.concat([memory_mask, mask], memory_length.name),
+                  dtype=tf.float32)  * -1e9
   return mask

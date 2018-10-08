@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Basic models for testing simple tasks."""
 
 from __future__ import absolute_import
@@ -22,6 +23,7 @@ import six
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import common_video
 from tensor2tensor.models.video import basic_deterministic_params  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -37,12 +39,105 @@ tfcl = tf.contrib.layers
 class NextFrameBasicDeterministic(t2t_model.T2TModel):
   """Basic next-frame model, may take actions and predict rewards too."""
 
+  @property
+  def _target_modality(self):
+    # TODO(mbz): get rid of this somehow.
+    modality = self.hparams.problem_hparams.target_modality["targets"]
+    return modality.__class__.__name__
+
+  @property
+  def is_per_pixel_softmax(self):
+    return self._target_modality == "VideoModality"
+
   def inject_latent(self, layer, features, filters):
     """Do nothing for deterministic model."""
     del features, filters
     return layer, 0.0
 
-  def body(self, features):
+  def get_extra_internal_loss(self, extra_raw_gts, extra_gts, extra_pds):
+    """Hacky code the get the loss on predicted frames from input frames.
+
+       Recurrent models consume the frames one-by-one. Therefore
+       if there is more than one input frame they also get predicted.
+       T2T only calculates loss on the predicted target frames which
+       means the loss is not being applied on the predicted input frames.
+       This code is to fix this issue. Since the model is not aware of the
+       modality it has to match the pre-porocessing happening in bottom
+       function and therefore this becomes a very hacky code. This code
+       should match the bottom and top and loss of modalities otherwise
+       it will calculate the wrong loss.
+
+    Args:
+      extra_raw_gts: extra raw ground truth frames.
+      extra_gts: extra normalized ground truth frames.
+      extra_pds: extra predicted frames.
+
+    Returns:
+      Additional reconstruction loss.
+
+    Raises:
+      ValueError: in case of unknown modality.
+    """
+    if self._target_modality == "VideoModalityL2Raw":
+      recon_loss = tf.losses.mean_squared_error(extra_gts, extra_pds)
+    elif self._target_modality == "VideoModality":
+      shape = common_layers.shape_list(extra_pds)
+      updated_shape = shape[:-1] + [3, 256]
+      extra_pds = tf.reshape(extra_pds, updated_shape)
+      # Merge time and batch
+      logits = tf.reshape(extra_pds, [-1] + updated_shape[2:])
+      targets = extra_raw_gts
+      targets_shape = common_layers.shape_list(targets)
+      targets = tf.reshape(targets, [-1] + targets_shape[2:])
+      mod = self.hparams.problem_hparams.target_modality["targets"]
+      numerator, denominator = common_layers.padded_cross_entropy(
+          logits,
+          targets,
+          self.hparams.label_smoothing,
+          cutoff=getattr(self.hparams, "video_modality_loss_cutoff", 0.01),
+          weights_fn=mod.targets_weights_fn)
+      recon_loss = numerator / denominator
+    else:
+      raise ValueError("internal loss only supports specific modalities.")
+    tf.summary.scalar("recon_extra", recon_loss)
+    return recon_loss
+
+  def inject_additional_input(self, layer, inputs, name, mode="concat"):
+    layer_shape = common_layers.shape_list(layer)
+    input_shape = common_layers.shape_list(inputs)
+    zeros_mask = tf.zeros(layer_shape, dtype=tf.float32)
+    if mode == "concat":
+      emb = common_video.encode_to_shape(inputs, layer_shape, name)
+      layer = tf.concat(values=[layer, emb], axis=-1)
+    elif mode == "multiplicative":
+      filters = layer_shape[-1]
+      input_reshaped = tf.reshape(inputs, [-1, 1, 1, input_shape[-1]])
+      input_mask = tf.layers.dense(input_reshaped, filters, name=name)
+      input_broad = input_mask + zeros_mask
+      layer *= input_broad
+    elif mode == "multi_additive":
+      filters = layer_shape[-1]
+      input_reshaped = tf.reshape(inputs, [-1, 1, 1, input_shape[-1]])
+      input_mul = tf.layers.dense(input_reshaped, filters, name=name + "_mul")
+      layer *= tf.nn.sigmoid(input_mul)
+      input_add = tf.layers.dense(input_reshaped, filters, name=name + "_add")
+      layer += input_add
+    else:
+      raise ValueError("Unknown injection mode: %s" % mode)
+
+    return layer
+
+  def get_sampled_frame(self, res_frame):
+    if not self.is_per_pixel_softmax:
+      return res_frame
+    frame_shape = common_layers.shape_list(res_frame)
+    target_shape = frame_shape[:-1] + [self.hparams.problem.num_channels]
+    sampled_frame = tf.reshape(res_frame, target_shape + [256])
+    sampled_frame = tf.argmax(sampled_frame, axis=-1)
+    sampled_frame = tf.to_float(sampled_frame)
+    return sampled_frame
+
+  def body_single(self, features):
     hparams = self.hparams
     filters = hparams.hidden_size
     kernel1, kernel2 = (3, 3), (4, 4)
@@ -63,30 +158,25 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
         x = common_layers.make_even_size(x)
         if i < hparams.filter_double_steps:
           filters *= 2
+        x = common_attention.add_timing_signal_nd(x)
         x = tf.layers.conv2d(x, filters, kernel2, activation=common_layers.belu,
                              strides=(2, 2), padding="SAME")
         x = common_layers.layer_norm(x)
 
     # Add embedded action if present.
     if "input_action" in features:
-      action = tf.reshape(features["input_action"][:, -1, :],
-                          [-1, 1, 1, hparams.hidden_size])
-      action_mask = tf.layers.dense(action, filters, name="action_mask")
-      zeros_mask = tf.zeros(common_layers.shape_list(x)[:-1] + [filters],
-                            dtype=tf.float32)
-      if hparams.concatenate_actions:
-        x = tf.concat([x, action_mask + zeros_mask], axis=-1)
-      else:
-        x *= action_mask + zeros_mask
+      action = features["input_action"][:, -1, :]
+      x = self.inject_additional_input(
+          x, action, "action_enc", hparams.action_injection)
 
     x, extra_loss = self.inject_latent(x, features, filters)
 
     # Run a stack of convolutions.
     for i in range(hparams.num_hidden_layers):
       with tf.variable_scope("layer%d" % i):
-        y = tf.layers.conv2d(x, filters, kernel1, activation=common_layers.belu,
+        y = tf.nn.dropout(x, 1.0 - hparams.dropout)
+        y = tf.layers.conv2d(y, filters, kernel1, activation=common_layers.belu,
                              strides=(1, 1), padding="SAME")
-        y = tf.nn.dropout(y, 1.0 - hparams.dropout)
         if i == 0:
           x = y
         else:
@@ -96,6 +186,9 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
     layer_inputs = list(reversed(layer_inputs))
     for i in range(hparams.num_compress_steps):
       with tf.variable_scope("upstride%d" % i):
+        if "input_action" in features:
+          x = self.inject_additional_input(
+              x, action, "action_enc", hparams.action_injection)
         if i >= hparams.num_compress_steps - hparams.filter_double_steps:
           filters //= 2
         x = tf.layers.conv2d_transpose(
@@ -109,12 +202,91 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
 
     # Cut down to original size.
     x = x[:, :inputs_shape[1], :inputs_shape[2], :]
+    if self.is_per_pixel_softmax:
+      x = tf.layers.dense(x, hparams.problem.num_channels * 256, name="logits")
+    else:
+      x = tf.layers.dense(x, hparams.problem.num_channels, name="logits")
 
     # Reward prediction if needed.
     if "target_reward" not in features:
       return x
-    reward_pred = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
+    reward_pred = tf.expand_dims(  # Add a fake channels dim.
+        tf.reduce_mean(x, axis=[1, 2], keepdims=True), axis=3)
     return {"targets": x, "target_reward": reward_pred}, extra_loss
+
+  def body(self, features):
+    hparams = self.hparams
+    is_predicting = hparams.mode == tf.estimator.ModeKeys.PREDICT
+
+    # TODO(lukaszkaiser): the split axes and the argmax below heavily depend on
+    # using the default (a bit strange) video modality - we should change that.
+
+    # Split inputs and targets into lists.
+    input_frames = tf.unstack(features["inputs"], axis=1)
+    target_frames = tf.unstack(features["targets"], axis=1)
+    all_frames = input_frames + target_frames
+    if "input_action" in features:
+      input_actions = list(tf.split(
+          features["input_action"], hparams.video_num_input_frames, axis=1))
+      target_actions = list(tf.split(
+          features["target_action"], hparams.video_num_target_frames, axis=1))
+      all_actions = input_actions + target_actions
+
+    orig_frame_shape = common_layers.shape_list(all_frames[0])
+
+    # Run a number of steps.
+    res_frames, sampled_frames, sampled_frames_raw = [], [], []
+    if "target_reward" in features:
+      res_rewards, extra_loss = [], 0.0
+    sample_prob = common_layers.inverse_exp_decay(
+        hparams.scheduled_sampling_warmup_steps)
+    sample_prob *= hparams.scheduled_sampling_prob
+    for i in range(hparams.video_num_target_frames):
+      cur_frames = all_frames[i:i + hparams.video_num_input_frames]
+      features["inputs"] = tf.concat(cur_frames, axis=-1)
+      features["cur_target_frame"] = all_frames[
+          i + hparams.video_num_input_frames]
+      if "input_action" in features:
+        cur_actions = all_actions[i:i + hparams.video_num_input_frames]
+        features["input_action"] = tf.concat(cur_actions, axis=1)
+
+      # Run model.
+      with tf.variable_scope(tf.get_variable_scope(), reuse=i > 0):
+        if "target_reward" not in features:
+          res_frame = self.body_single(features)
+        else:
+          res_dict, res_extra_loss = self.body_single(features)
+          extra_loss += res_extra_loss
+          res_frame = res_dict["targets"]
+          res_reward = res_dict["target_reward"]
+          res_rewards.append(res_reward)
+      res_frames.append(res_frame)
+
+      # Only for Softmax loss: sample frame so we can keep iterating.
+      sampled_frame_raw = self.get_sampled_frame(res_frame)
+      sampled_frames_raw.append(sampled_frame_raw)
+      # TODO(lukaszkaiser): this should be consistent with modality.bottom()
+      sampled_frame = common_layers.standardize_images(sampled_frame_raw)
+      sampled_frames.append(sampled_frame)
+
+      if is_predicting:
+        all_frames[i + hparams.video_num_input_frames] = sampled_frame
+
+      # Scheduled sampling during training.
+      if (hparams.scheduled_sampling_prob > 0.0 and self.is_training):
+        do_sample = tf.less(
+            tf.random_uniform([orig_frame_shape[0]]), sample_prob)
+        orig_frame = all_frames[i + hparams.video_num_input_frames]
+        sampled_frame = tf.where(do_sample, sampled_frame, orig_frame)
+        all_frames[i + hparams.video_num_input_frames] = sampled_frame
+
+    # Concatenate results and return them.
+    frames = tf.stack(res_frames, axis=1)
+
+    if "target_reward" not in features:
+      return frames
+    rewards = tf.concat(res_rewards, axis=1)
+    return {"targets": frames, "target_reward": rewards}, extra_loss
 
   def infer(self, features, *args, **kwargs):  # pylint: disable=arguments-differ
     """Produce predictions from the model by running it."""
@@ -122,6 +294,7 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
     # Inputs and features preparation needed to handle edge cases.
     if not features:
       features = {}
+    hparams = self.hparams
     inputs_old = None
     if "inputs" in features and len(features["inputs"].shape) < 4:
       inputs_old = features["inputs"]
@@ -139,20 +312,26 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
 
     # Get predictions.
     try:
-      num_channels = self.hparams.problem.num_channels
+      num_channels = hparams.problem.num_channels
     except AttributeError:
       num_channels = 1
     if "inputs" in features:
       inputs_shape = common_layers.shape_list(features["inputs"])
-      targets_shape = [inputs_shape[0], self.hparams.video_num_target_frames,
+      targets_shape = [inputs_shape[0], hparams.video_num_target_frames,
                        inputs_shape[2], inputs_shape[3], num_channels]
     else:
       tf.logging.warn("Guessing targets shape as no inputs are given.")
-      targets_shape = [self.hparams.batch_size,
-                       self.hparams.video_num_target_frames, 1, 1, num_channels]
+      targets_shape = [hparams.batch_size,
+                       hparams.video_num_target_frames, 1, 1, num_channels]
+
     features["targets"] = tf.zeros(targets_shape, dtype=tf.int32)
-    if "target_reward" in self.hparams.problem_hparams.target_modality:
+    reward_in_mod = "target_reward" in hparams.problem_hparams.target_modality
+    action_in_mod = "target_action" in hparams.problem_hparams.target_modality
+    if reward_in_mod:
       features["target_reward"] = tf.zeros(
+          [targets_shape[0], 1, 1], dtype=tf.int32)
+    if action_in_mod and "target_action" not in features:
+      features["target_action"] = tf.zeros(
           [targets_shape[0], 1, 1], dtype=tf.int32)
     logits, _ = self(features)  # pylint: disable=not-callable
     if isinstance(logits, dict):

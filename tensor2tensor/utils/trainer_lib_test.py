@@ -12,15 +12,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Tests for trainer_lib."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import problem as problem_lib
+from tensor2tensor.models import transformer  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
@@ -78,16 +79,18 @@ class TrainerLibTest(tf.test.TestCase):
       self.assertEqual(loss_val.shape, tuple())
 
   def testMultipleTargetModalities(self):
-    # HParams
+    # Use existing hparams and override target modality.
     hparams = trainer_lib.create_hparams(
         "transformer_tiny", data_dir=algorithmic.TinyAlgo.data_dir,
         problem_name="tiny_algo")
-    tm = hparams.problem.get_hparams().target_modality
-    hparams.problem.get_hparams().target_modality = {
-        "targets": tm,
-        "A": tm,
-        "B": tm
+    # Manually turn off sharing. It is not currently supported for multitargets.
+    hparams.shared_embedding_and_softmax_weights = 0  # pylint: disable=line-too-long
+    hparams.problem_hparams.target_modality = {
+        "targets": hparams.problem_hparams.target_modality,
+        "A": hparams.problem_hparams.target_modality,
+        "B": hparams.problem_hparams.target_modality,
     }
+    hparams.problem._hparams = hparams.problem_hparams
 
     # Dataset
     problem = hparams.problem

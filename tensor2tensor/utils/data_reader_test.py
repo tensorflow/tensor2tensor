@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Data reader test."""
 
 from __future__ import absolute_import
@@ -48,7 +49,11 @@ class TestProblem(problem_mod.Problem):
         self.generator(data_dir, tmp_dir, False), dev_paths)
 
   def hparams(self, defaults, model_hparams):
-    pass
+    hp = defaults
+    hp.input_modality = {
+        "inputs": (registry.Modalities.SYMBOL, 30)
+    }
+    hp.target_modality = (registry.Modalities.SYMBOL, 30)
 
   def example_reading_spec(self):
     data_fields = {

@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Optimization."""
 from __future__ import absolute_import
 from __future__ import division
@@ -76,10 +77,6 @@ class ConditionalOptimizer(tf.train.Optimizer):
   """Conditional optimizer."""
 
   def __init__(self, optimizer_name, lr, hparams, use_tpu=False):  # pylint: disable=super-init-not-called
-    if optimizer_name == "Adam" and use_tpu:
-      # LazyAdamOptimizer does not work on TPU
-      optimizer_name = "TrueAdam"
-
     tf.logging.info("Using optimizer %s", optimizer_name)
 
     if optimizer_name == "Adam":

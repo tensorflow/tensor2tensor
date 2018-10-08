@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Glow generative model."""
 
 from __future__ import absolute_import
@@ -41,11 +42,14 @@ def glow_hparams():
   hparams.weight_decay = 0.0
   hparams.learning_rate_constant = 3e-4
   hparams.batch_size = 32
+  # can be prev_level, prev_step or normal.
+  # see: glow_ops.merge_level_and_latent_dist
+  hparams.add_hparam("level_scale", "prev_level")
   hparams.add_hparam("n_levels", 3)
   hparams.add_hparam("n_bits_x", 8)
   hparams.add_hparam("depth", 32)
   hparams.add_hparam("affine_coupling_width", 512)
-  hparams.add_hparam("learn_prior", True)
+  hparams.add_hparam("top_prior", "single_conv")
   return hparams
 
 
@@ -74,7 +78,11 @@ class Glow(t2t_model.T2TModel):
 
   def scale(self, x):
     """Scale x from -0.5 - 0.5 to 0 - 255."""
-    x = (x + 0.5) * 2**self.hparams.n_bits_x
+    x = tf.where(tf.is_nan(x), tf.ones_like(x), x)
+    x = tf.where(tf.is_inf(x), tf.ones_like(x), x)
+    x = tf.clip_by_value(x, -0.5, 0.5)
+    x += 0.5
+    x = x * 2**self.hparams.n_bits_x
     return tf.cast(tf.clip_by_value(x, 0, 255), dtype=tf.uint8)
 
   @property
@@ -92,25 +100,29 @@ class Glow(t2t_model.T2TModel):
     var_scope = tf.variable_scope("glow/body", reuse=True)
     # If eps=None, images are sampled from the prior.
     with arg_scope(ops, init=False), var_scope:
-      predictions, _ = glow_ops.encoder_decoder(
+      predictions, _, _, _ = glow_ops.encoder_decoder(
           "codec", self.z_sample, self.hparams, eps=None, reverse=True)
 
     return self.scale(predictions)
+
+  def top_prior(self, z):
+    """Objective based on the prior over latent z.
+
+    Args:
+      z: 4-D Tensor, (batch_size, height, width, num_channels)
+    Returns:
+      objective: float, log-likelihood of z under the prior.
+      dist: instance of tf.distributions.Normal, prior distribution.
+    """
+    return glow_ops.top_prior(
+        "top_prior", z, learn_prior=self.hparams.top_prior)
 
   def body(self, features):
     x = features["inputs"]
 
     # Scale x such that the pixels lie in-between -0.5 and.0.5
     x = self.preprocess(x)
-
-    n_bins = 2**self.hparams.n_bits_x
-    batch_size, height, width, n_channels = common_layers.shape_list(x)
-    hwc = float(height * width * n_channels)
-
-    x = x + tf.random_uniform(
-        shape=(batch_size, height, width, n_channels),
-        minval=0.0, maxval=1.0/n_bins)
-    objective = -np.log(n_bins) * hwc * tf.ones(batch_size)
+    x, objective = glow_ops.uniform_binning_correction(x)
 
     # The arg_scope call ensures that the actnorm parameters are set such that
     # the per-channel output activations have zero mean and unit variance
@@ -120,15 +132,16 @@ class Glow(t2t_model.T2TModel):
     init_op = tf.logical_and(tf.equal(global_step, 0), self.is_training)
     ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
     with arg_scope(ops, init=init_op):
-      self.z, encoder_objective, self.eps = glow_ops.encoder_decoder(
+      self.z, encoder_objective, self.eps, _, _ = glow_ops.encoder_decoder(
           "codec", x, self.hparams, eps=None, reverse=False)
       objective += encoder_objective
 
-      prior_objective, prior_dist = glow_ops.top_prior(
-          "top_prior", self.z, learn_prior=self.hparams.learn_prior)
+      prior_objective, prior_dist = self.top_prior(self.z)
+      tf.summary.scalar("top_prior", tf.reduce_mean(prior_objective))
       self.z_sample = prior_dist.sample()
       objective += prior_objective
 
     # bits per pixel
-    objective = -objective / (np.log(2) * hwc)
+    _, h, w, c = common_layers.shape_list(x)
+    objective = -objective / (np.log(2) * h * w * c)
     return tf.zeros_like(features["targets"]), {"training": objective}

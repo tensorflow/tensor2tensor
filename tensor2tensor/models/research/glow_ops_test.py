@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Tests for tensor2tensor.models.research.glow_ops."""
 
 from __future__ import absolute_import
@@ -109,11 +110,11 @@ class GlowOpsTest(tf.test.TestCase):
         # test shape in case apply_actnorm is set to False,
         self.assertEqual(zeros_np.shape, (16, 5, 5, 64))
 
-  def test_nn(self):
+  def test_affine_coupling_network(self):
     """Test output shape."""
     with tf.Graph().as_default():
       x = 10.0 * tf.random_uniform(shape=(16, 5, 5, 32))
-      nn = glow_ops.nn("nn", x, 512, 64)
+      nn = glow_ops.affine_coupling_network("nn", x, 512, 64)
 
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
@@ -123,25 +124,34 @@ class GlowOpsTest(tf.test.TestCase):
         # Initialized with zeros.
         self.assertTrue(np.allclose(nn_np, 0.0))
 
-  def test_split_prior(self):
+  def check_tensor_to_dist(self, architecture):
     with tf.Graph().as_default():
       x = tf.random_uniform(shape=(16, 5, 5, 32))
-      x_prior = glow_ops.split_prior("split_prior", x)
+      x_prior = glow_ops.tensor_to_dist("split_prior", x,
+                                        architecture=architecture,
+                                        output_channels=64)
       mean_t, scale_t = x_prior.loc, x_prior.scale
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
         mean, scale = session.run([mean_t, scale_t])
+        self.assertEqual(mean.shape, (16, 5, 5, 64))
+        self.assertEqual(scale.shape, (16, 5, 5, 64))
         self.assertTrue(np.allclose(mean, 0.0))
         self.assertTrue(np.allclose(scale, 1.0))
+
+  def test_tensor_to_dist(self):
+    for architecture in ["single_conv", "glow_nn"]:
+      self.check_tensor_to_dist(architecture)
 
   def test_split(self):
     with tf.Graph().as_default():
       x = tf.random_uniform(shape=(16, 5, 5, 32))
-      x_inv, _, eps = glow_ops.split("split", x)
-      x_inv_inv = glow_ops.split("split", x_inv, reverse=True, eps=eps)
+      x_inv, _, eps, z, _ = glow_ops.split("split", x)
+      x_inv_inv, _, _ = glow_ops.split("split", x_inv, reverse=True, eps=eps)
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
-        x_inv_np, diff = session.run([x_inv, x - x_inv_inv])
+        x_inv_np, diff, z_np = session.run([x_inv, x - x_inv_inv, z])
+        self.assertEqual(z_np.shape, (16, 5, 5, 16))
         self.assertEqual(x_inv_np.shape, (16, 5, 5, 16))
         self.assertTrue(np.allclose(diff, 0.0, atol=1e-5))
 
@@ -166,20 +176,29 @@ class GlowOpsTest(tf.test.TestCase):
   def test_encoder_decoder(self):
     with tf.Graph().as_default():
       hparams = glow.glow_hparams()
-      hparams.n_levels = 2
+      hparams.n_levels = 3
       hparams.depth = 2
 
       x = tf.random_uniform(shape=(16, 64, 64, 4), seed=0)
-      x_inv, _, eps = glow_ops.encoder_decoder(
+      x_inv, _, eps, z_levels, _ = glow_ops.encoder_decoder(
           "encoder_decoder", x, hparams, reverse=False)
-      x_inv_inv, _ = glow_ops.encoder_decoder(
+      x_inv_inv, _, z_inv_levels, _ = glow_ops.encoder_decoder(
           "encoder_decoder", x_inv, hparams, eps=eps, reverse=True)
 
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
-        diff, x_inv_np = session.run([x - x_inv_inv, x_inv])
+        diff, x_inv_np, z_levels_np, z_inv_levels_np = session.run(
+            [x - x_inv_inv, x_inv, z_levels, z_inv_levels])
+
+        self.assertEqual(len(z_levels_np), 2)
+        self.assertEqual(len(z_inv_levels_np), 2)
+        # (h_i, w_i, c_i) = (h_{i-1}/f, w_{i-1}/f, c_{i-1}*(2f)/2) where (f=2)
+        self.assertEqual(z_levels_np[0].shape, (16, 32, 32, 8))
+        self.assertEqual(z_levels_np[1].shape, (16, 16, 16, 16))
+        self.assertEqual(z_inv_levels_np[0].shape, (16, 32, 32, 8))
+        self.assertEqual(z_inv_levels_np[1].shape, (16, 16, 16, 16))
         self.assertTrue(x_inv_np.shape, (16, 8, 8, 64))
-        self.assertTrue(np.allclose(diff, 0.0, atol=1e-3))
+        self.assertTrue(np.allclose(diff, 0.0, atol=1e-2))
 
   def test_encoder_decoder_practical_usage(self):
     """Tests the following sequence of operations.
@@ -200,7 +219,7 @@ class GlowOpsTest(tf.test.TestCase):
 
       ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
       with arg_scope(ops, init=True):
-        x_inv, _, _ = glow_ops.encoder_decoder(
+        x_inv, _, _, _, _ = glow_ops.encoder_decoder(
             "revnet", x_t, hparams, reverse=False)
       curr_dir = tempfile.mkdtemp()
       model_path = os.path.join(curr_dir, "model")
@@ -217,9 +236,9 @@ class GlowOpsTest(tf.test.TestCase):
       x_t = tf.convert_to_tensor(x_rand)
       ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
       with arg_scope(ops, init=False):
-        x_inv2, _, all_eps = glow_ops.encoder_decoder(
+        x_inv2, _, all_eps, _, _ = glow_ops.encoder_decoder(
             "revnet", x_t, hparams, reverse=False)
-        x_inv_inv_, _ = glow_ops.encoder_decoder(
+        x_inv_inv_, _, _, _ = glow_ops.encoder_decoder(
             "revnet", x_inv2, hparams, eps=all_eps, reverse=True)
 
       with tf.Session() as session:
@@ -228,6 +247,81 @@ class GlowOpsTest(tf.test.TestCase):
         x_inv_inv_np = session.run(x_inv_inv_)
         diff = np.abs(x_inv_inv_np - x_rand)
         self.assertTrue(np.allclose(diff, 0.0, atol=1e-3))
+
+  def test_scale_gaussian_prior(self):
+    with tf.Graph().as_default():
+      rng = np.random.RandomState(0)
+      img_shape = (16, 2, 2, 2)
+      x_rand = np.asarray(rng.randint(0, 10, img_shape), dtype=np.float32)
+      z_rand = np.asarray(rng.randint(0, 10, img_shape), dtype=np.float32)
+      x_t = tf.convert_to_tensor(x_rand)
+      z_t = tf.convert_to_tensor(z_rand)
+      dist = glow_ops.scale_gaussian_prior(
+          "scale_gaussian_prior", z_t, x_t, trainable=True)
+      with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        mean, scale = sess.run([dist.loc, dist.scale])
+        self.assertTrue(np.allclose(mean, z_rand))
+        self.assertTrue(np.allclose(scale, 1.0))
+
+  def check_split_latent_conditioning(self, merge_std):
+    with tf.Graph().as_default():
+      rng = np.random.RandomState(0)
+      x_rand = rng.randn(12, 32, 32, 32).astype(np.float32)
+      latent_rand = rng.randn(12, 32, 32, 16).astype(np.float32)
+      x_t = tf.convert_to_tensor(x_rand)
+      latent_t = tf.convert_to_tensor(latent_rand)
+      hparams = glow.glow_hparams()
+      hparams.level_scale = merge_std
+      hparams.add_hparam("latent_dist_encoder", "pointwise")
+
+      # Test initalization.
+      # x2 ~ N(scale * latent, 1.0) where initial scale is 1.0
+      exp_x2 = x_rand[:, :, :, 16:]
+      exp_eps = x_rand[:, :, :, 16:] - latent_rand
+      x_inv, _, eps, x2_t, _ = glow_ops.split(
+          merge_std, x_t, cond_latents=latent_t, hparams=hparams)
+      # Test reversibility.
+      x_inv_inv, _, _ = glow_ops.split(
+          merge_std, x_inv, cond_latents=latent_t, eps=eps, reverse=True,
+          hparams=hparams)
+      with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        actual_eps, actual_x2, diff_np = sess.run([eps, x2_t, x_inv_inv - x_t])
+        self.assertTrue(np.allclose(diff_np, 0.0, atol=1e-5))
+        self.assertTrue(np.allclose(actual_eps, exp_eps))
+        self.assertTrue(np.allclose(exp_x2, actual_x2))
+
+  def test_split_latent_conditioning(self):
+    for merge_std in ["normal", "prev_level", "prev_step"]:
+      self.check_split_latent_conditioning(merge_std)
+
+  def test_latent_dist_encoder_lstm(self):
+    with tf.Graph().as_default():
+      rng = np.random.RandomState(0)
+      # Initialize x, latent, state.
+      x_rand = rng.randn(12, 32, 32, 16).astype(np.float32)
+      latent_rand = rng.randn(12, 32, 32, 16).astype(np.float32)
+      state_rand = rng.randn(12, 32, 32, 16).astype(np.float32)
+      x_t = tf.convert_to_tensor(x_rand)
+      latent_t = tf.convert_to_tensor(latent_rand)
+      state_t = tf.convert_to_tensor(state_rand)
+      init_state = tf.contrib.rnn.LSTMStateTuple(state_t, state_t)
+      hparams = glow.glow_hparams()
+      hparams.add_hparam("latent_dist_encoder", "conv_lstm")
+      hparams.add_hparam("latent_skip", True)
+
+      prior_dist, new_state = glow_ops.compute_prior(
+          "lstm_prior", x_t, latent=latent_t, hparams=hparams, state=init_state)
+      with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        # Test initialization (mu, sigma) = (z, 1.0)
+        ops = [prior_dist.loc, prior_dist.scale, new_state.h - init_state.h]
+        mean, scale, diff_np = sess.run(ops)
+        self.assertTrue(np.allclose(latent_rand - mean, 0.0))
+        self.assertTrue(np.allclose(scale, 1.0))
+        # State update.
+        self.assertFalse(np.allclose(diff_np, 0.0))
 
 
 if __name__ == "__main__":

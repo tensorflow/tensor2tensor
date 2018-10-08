@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 r"""Decode from trained T2T models.
 
 This binary performs inference using the Estimator API.
@@ -48,10 +49,6 @@ FLAGS = flags.FLAGS
 # Additional flags in bin/t2t_trainer.py and utils/flags.py
 flags.DEFINE_string("checkpoint_path", None,
                     "Path to the model checkpoint. Overrides output_dir.")
-flags.DEFINE_string("decode_from_file", None,
-                    "Path to the source file for decoding")
-flags.DEFINE_string("decode_to_file", None,
-                    "Path to the decoded (output) file")
 flags.DEFINE_bool("keep_timestamp", False,
                   "Set the mtime of the decoded file to the "
                   "checkpoint_path+'.index' mtime.")
@@ -76,6 +73,8 @@ def create_decode_hparams():
   decode_hp.shards = FLAGS.decode_shards
   decode_hp.shard_id = FLAGS.worker_id
   decode_hp.decode_in_memory = FLAGS.decode_in_memory
+  decode_hp.decode_to_file = FLAGS.decode_to_file
+  decode_hp.decode_reference = FLAGS.decode_reference
   return decode_hp
 
 
@@ -195,4 +194,5 @@ def main(_):
 
 
 if __name__ == "__main__":
+  tf.logging.set_verbosity(tf.logging.INFO)
   tf.app.run()

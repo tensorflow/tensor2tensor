@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Base class for combining multiple problems for multitask learning."""
 
 from __future__ import absolute_import
@@ -22,8 +23,8 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
-from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
@@ -68,6 +69,9 @@ class MultiProblem(problem.Problem):
       concat_list = [[task.task_id], example["targets"]]
 
     example["targets"] = tf.concat(concat_list, 0)
+    min_task_id = min([t.task_id for t in self.task_list])
+    example["task_id"] = tf.constant([task.task_id - min_task_id],
+                                     dtype=tf.int64)
     return example
 
   def filepattern(self, data_dir, mode, shard=None):
@@ -85,8 +89,8 @@ class MultiProblem(problem.Problem):
     vocab_size = self._hparams.vocabulary["targets"].vocab_size
     tf.logging.info("Old vocabulary size: %d" % vocab_size)
     tf.logging.info("New vocabulary size: %d" % (vocab_size + vocab_size_inc))
-    self._hparams.target_modality = (registry.Modalities.SYMBOL,
-                                     vocab_size + vocab_size_inc)
+    self._hparams.target_modality = modalities.SymbolModality(
+        model_hparams, vocab_size + vocab_size_inc)
 
     return self._hparams
 
@@ -153,10 +157,11 @@ class MultiProblem(problem.Problem):
       task_dataset = task_dataset.map(lambda x: self.add_task_id(task, x, enc))
 
       if not is_training:
+        zeros = tf.zeros([self._ADDED_EVAL_COUNT, 1], dtype=tf.int64)
         pad_data = tf.data.Dataset.from_tensor_slices({
-            "targets": tf.zeros([self._ADDED_EVAL_COUNT, 1], dtype=tf.int64),
-            "batch_prediction_key": tf.zeros(
-                [self._ADDED_EVAL_COUNT, 1], dtype=tf.int64),
+            "targets": zeros,
+            "batch_prediction_key": zeros,
+            "task_id": zeros,
         })
         task_dataset = task_dataset.concatenate(pad_data)
 
@@ -327,44 +332,54 @@ def aggregate_task_losses(hparams,
   loss_val = loss_num / tf.maximum(1.0, loss_den)
   summaries.append([hparams.problem.task_list[0].name+"_loss", loss_val])
 
+  # Since the losses may undergo rescaling, they cannot exist as separate
+  # numerators and denominators. Set the denominators to 1 in order to faciliate
+  # loss averaging.
+  loss_num = loss_val
+  loss_den = tf.minimum(tf.convert_to_tensor(1, dtype=tf.float32), loss_den)
+
   for task in hparams.problem.task_list[1:]:
     if hasattr(task, "num_classes"):
-      task_loss_num_seq, task_loss_den_seq = target_modality.loss(
+      # Loss only from the input sequence -- the auxiliary LM loss.
+      seq_loss_num, seq_loss_den = target_modality.loss(
           logits, feature,
           weights_fn=
           lambda x: common_layers.weights_multi_problem_input(x, task.task_id))  # pylint: disable=cell-var-from-loop
-      task_loss_num_seq *= problem_hparams.loss_multiplier
+      seq_loss_num *= problem_hparams.loss_multiplier
 
-      task_loss_num_label, task_loss_den_label = target_modality.loss(
+      # Loss only from the classification label.
+      label_loss_num, label_loss_den = target_modality.loss(
           logits, feature,
           weights_fn=
           lambda x: common_layers.weights_multi_problem(x, task.task_id))  # pylint: disable=cell-var-from-loop
-      task_loss_num_label *= problem_hparams.loss_multiplier
+      label_loss_num *= problem_hparams.loss_multiplier
 
+      # Unscaled losses.
+      seq_loss = seq_loss_num / tf.maximum(1.0, seq_loss_den)
+      summaries.append([task.name+"_seq_loss", seq_loss])
+      label_loss = label_loss_num / tf.maximum(1.0, label_loss_den)
+      summaries.append([task.name+"_label_loss", label_loss])
+
+      # Scaling.
       if hparams.multiproblem_reweight_label_loss:
-        task_loss_num = (1 - hparams.multiproblem_label_weight) * \
-                        task_loss_num_seq
-        task_loss_num += hparams.multiproblem_label_weight * task_loss_num_label
-      elif hparams.multiproblem_class_loss_multiplier > 0:
-        task_loss_num = task_loss_num_seq
-        task_loss_num += hparams.multiproblem_class_loss_multiplier * \
-                         task_loss_num_label
-      else:
-        task_loss_num = task_loss_num_seq + task_loss_num_label
+        label_loss *= hparams.multiproblem_label_weight
+        seq_loss *= (1 - hparams.multiproblem_label_weight)
 
-      task_loss_den = task_loss_den_seq + task_loss_den_label
+      if hparams.multiproblem_class_loss_multiplier:
+        label_loss *= hparams.multiproblem_class_loss_multiplier
+        summaries.append([task.name+"_scaled_label_loss", label_loss])
 
-      # Log the unscaled versions of the losses to tensorboard.
-      task_loss_val = (task_loss_num_seq + task_loss_num_label) / tf.maximum(
-          1.0, task_loss_den)
+      # This is the training loss for the optimizer after all the scaling.
+      task_loss_val = seq_loss + label_loss
       summaries.append([task.name+"_loss", task_loss_val])
 
-      task_loss_val_label = task_loss_num_label / tf.maximum(
-          1.0, task_loss_den_label)
-      summaries.append([task.name+"_only_label_loss", task_loss_val_label])
-
-      loss_num += task_loss_num
-      loss_den += task_loss_den
+      # Adding 1 to the loss den for each task leads to averaging task losses,
+      # task with bigger loss will dominate.
+      # TODO(urvashik): Fix combination with other task losses - weighted
+      # average based on the number of examples from that task.
+      loss_num += task_loss_val
+      loss_den += tf.minimum(tf.convert_to_tensor(1, dtype=tf.float32),
+                             label_loss_den)
 
     else:
       raise ValueError("Non-classification secondary tasks are not supported.")

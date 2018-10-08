@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Param sets for SAVP model."""
 
 from __future__ import division
@@ -38,4 +39,5 @@ def next_frame_savp():
   hparams.input_modalities = "inputs:video:l1raw"
   hparams.latent_loss_multiplier_schedule = "linear"
   hparams.upsample_method = "bilinear_upsample_conv"
+  hparams.internal_loss = False
   return hparams

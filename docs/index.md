@@ -20,7 +20,6 @@ research](https://research.googleblog.com/2017/06/accelerating-deep-learning-res
 
 * [Walkthrough](walkthrough.md): Install and run.
 * [IPython notebook](https://colab.research.google.com/github/tensorflow/tensor2tensor/blob/master/tensor2tensor/notebooks/hello_t2t.ipynb): Get a hands-on experience.
-* [Automatic Speech Recognition notebook](https://colab.research.google.com/github/tensorflow/tensor2tensor/blob/master/tensor2tensor/notebooks/asr_transformer.ipynb): Transcribe speech to text with a T2T model.
 
 ## Basics
 
@@ -33,7 +32,6 @@ research](https://research.googleblog.com/2017/06/accelerating-deep-learning-res
 * [Training on Google Cloud ML](cloud_mlengine.md)
 * [Training on Google Cloud TPUs](cloud_tpu.md)
 * [Distributed Training](distributed_training.md)
-* [Automatic Speech Recognition (ASR) with Transformer](tutorials/asr_with_transformer.md)
 
 ## Solving your task
 
