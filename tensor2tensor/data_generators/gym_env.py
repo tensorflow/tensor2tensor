@@ -27,7 +27,8 @@ import tensorflow as tf
 
 
 Frame = collections.namedtuple(
-    "Frame", ("observation", "action", "reward", "done")
+    # Order of elements reflects time progression within a frame.
+    "Frame", ("observation", "reward", "done", "action")
 )
 
 
@@ -52,7 +53,7 @@ class T2TEnv(object):
     self.clear_history()
     self.batch_size = batch_size
     self._current_rollouts = [[] for _ in range(batch_size)]
-    self._current_observations = [None for _ in range(batch_size)]
+    self._current_frames = [None for _ in range(batch_size)]
 
     with tf.Graph().as_default():
       self._image_t = tf.placeholder(dtype=tf.uint8, shape=(None, None, None))
@@ -134,13 +135,17 @@ class T2TEnv(object):
     (obs, rewards, dones) = self._step(actions)
     obs = self._preprocess_observations(obs)
     rewards = self._preprocess_rewards(rewards)
-    encoded_observations = self._encode_observations(self._current_observations)
-    # oard = (observation, action, reward, done)
-    for (rollout, oard) in zip(self._current_rollouts, zip(
-        encoded_observations, actions, rewards, dones
-    )):
-      rollout.append(Frame(*oard))
-    self._current_observations = obs
+    encoded_obs = self._encode_observations(obs)
+    for (rollout, frame, action) in zip(
+        self._current_rollouts, self._current_frames, actions
+    ):
+      rollout.append(frame._replace(action=action))
+
+    # ord = (observation, reward, done)
+    self._current_frames = [
+        Frame(*ord, action=None)
+        for ord in zip(encoded_obs, rewards, dones)
+    ]
     return (obs, rewards, dones)
 
   def _reset(self, indices):
@@ -169,12 +174,17 @@ class T2TEnv(object):
       indices = np.arange(self.batch_size)
     new_obs = self._reset(indices)
     new_obs = self._preprocess_observations(new_obs)
-    for (index, ob) in zip(indices, new_obs):
-      rollout = self._current_rollouts[index]
-      if rollout and rollout[-1].done:
+    encoded_obs = self._encode_observations(new_obs)
+    for (index, ob) in zip(indices, encoded_obs):
+      frame = self._current_frames[index]
+      if frame is not None and frame.done:
+        rollout = self._current_rollouts[index]
+        rollout.append(frame._replace(action=0))
         self.history.append(rollout)
         self._current_rollouts[index] = []
-      self._current_observations[index] = ob
+      self._current_frames[index] = Frame(
+          observation=ob, reward=0, done=False, action=None
+      )
     return new_obs
 
   def close(self):
