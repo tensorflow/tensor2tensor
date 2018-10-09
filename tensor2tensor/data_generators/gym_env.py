@@ -23,6 +23,8 @@ import collections
 
 import numpy as np
 
+import tensorflow as tf
+
 
 Frame = collections.namedtuple(
     "Frame", ("observation", "action", "reward", "done")
@@ -51,6 +53,11 @@ class T2TEnv(object):
     self.batch_size = batch_size
     self._current_rollouts = [[] for _ in range(batch_size)]
     self._current_observations = [None for _ in range(batch_size)]
+
+    with tf.Graph().as_default():
+      self._image_t = tf.placeholder(dtype=tf.uint8, shape=(None, None, None))
+      self._encoded_image_t = tf.image.encode_png(self._image_t)
+      self._encode_session = tf.Session()
 
   def __str__(self):
     """Returns a string representation of the environment for debug purposes."""
@@ -86,6 +93,15 @@ class T2TEnv(object):
     """
     return rewards
 
+  def _encode_observations(self, observations):
+    """Encodes observations as PNG."""
+    return [
+        self._encode_session.run(
+            self._encoded_image_t, feed_dict={self._image_t: observation}
+        )
+        for observation in observations
+    ]
+
   def _step(self, actions):
     """Makes a step in all environments without recording history.
 
@@ -118,9 +134,10 @@ class T2TEnv(object):
     (obs, rewards, dones) = self._step(actions)
     obs = self._preprocess_observations(obs)
     rewards = self._preprocess_rewards(rewards)
+    encoded_observations = self._encode_observations(self._current_observations)
     # oard = (observation, action, reward, done)
     for (rollout, oard) in zip(self._current_rollouts, zip(
-        self._current_observations, actions, rewards, dones
+        encoded_observations, actions, rewards, dones
     )):
       rollout.append(Frame(*oard))
     self._current_observations = obs
@@ -165,7 +182,7 @@ class T2TEnv(object):
 
     Can be overridden in derived classes.
     """
-    pass
+    self._encode_session.close()
 
 
 class T2TGymEnv(T2TEnv):
