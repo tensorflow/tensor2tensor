@@ -281,9 +281,7 @@ the number of cores.  The differences between cores are as follows:
 
 # Instructions for running on cloud-tpu
 
-Note: It will be available in `tensorflow>=1.11.0`. For early adoption, use
-`tf-nightly`. Please contact the Google Cloud TPU team if you need to obtain
-`tf-nightly`.
+Note: It requires `tensorflow>=1.11.0`.
 
 ## Prerequisite
 
@@ -304,7 +302,7 @@ cd tensor2tensor/
 pip install --user .
 ```
 
-## Run the model
+## Run the Transfomer model with Tensor2Tensor config
 
 Before run the model, you need to prepare the training data and bucket for
 storing checkpoints. Refer to the
@@ -332,6 +330,39 @@ tensor2tensor/bin/t2t-trainer \
   --use_tpu=True \
   --cloud_tpu_name=$TPU_NAME
 ```
+
+
+## Run the toy model without Tensor2Tensor dependencies
+
+  This toy model contains two fully-connected layers which aim to train a
+  identity function: f(x) = x. Since there are 8 TPU cores, we can arbitrary
+  change the FLAGS.mesh_shape and FLAGS.layout to achieve different
+  data-parallelism and model-parallelism strategies.
+
+```sh
+MODEL_DIR=gs://xxxx
+TPU_NAME=ylc-mtf-donut
+
+# 2 ways data-parallelism and 4 ways model-parallelism.
+# In this configuration, we split the batch dimension into 2 cores and the
+# hidden dimension into 4 cores.
+python mtf_toy_model_tpu.py \
+  --tpu=$TPU \
+  --model_dir=$MODEL_DIR \
+  --io_size=8 \
+  --hidden_size=8 \
+  --mesh_shape='x:2;y:4' \
+  --layout='batch:x;hidden:y'
+
+# 8 ways model-parallelism.
+# In this configuration, We split the hidden dimension into 8 cores.
+python mtf_toy_model_tpu.py \
+  --tpu=$TPU \
+  --model_dir=$MODEL_DIR \
+  --io_size=8 \
+  --hidden_size=8 \
+  --mesh_shape='all:8' \
+  --layout='hidden:all'
 
 # TODO LIST (please add items)
 
