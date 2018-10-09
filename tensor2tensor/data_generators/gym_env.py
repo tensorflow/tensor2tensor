@@ -24,6 +24,8 @@ import math
 import random
 
 import numpy as np
+from PIL import Image
+from gym.spaces import Box
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
@@ -315,30 +317,58 @@ class T2TGymEnv(T2TEnv):
 
   name = "t2t_gym_env"
 
-  def __init__(self, envs):
+  def __init__(self, envs, clip_rewards=False, grayscale=False,
+               resize_height_factor=1, resize_width_factor=1):
     super(T2TGymEnv, self).__init__(len(envs))
-
+    self.clip_rewards = clip_rewards
+    self.grayscale = grayscale
+    self.resize_height_factor = resize_height_factor
+    self.resize_width_factor = resize_width_factor
     if not envs:
       raise ValueError("Must have at least one environment.")
     self._envs = envs
 
-    self.observation_space = envs[0].observation_space
-    if not all(env.observation_space == self.observation_space for env in envs):
+    orig_observ_space = envs[0].observation_space
+    if not all(env.observation_space == orig_observ_space
+               for env in self._envs):
       raise ValueError("All environments must use the same observation space.")
 
+    self.observation_space = self._derive_observation_space(orig_observ_space)
+
     self.action_space = envs[0].action_space
-    if not all(env.action_space == self.action_space for env in envs):
+    if not all(env.action_space == self.action_space for env in self._envs):
       raise ValueError("All environments must use the same action space.")
+
+  def _derive_observation_space(self, orig_observ_space):
+    height, width, channels = orig_observ_space.shape
+    if self.grayscale:
+      channels = 1
+    resized_height = height // self.resize_height_factor
+    resized_width = width // self.resize_width_factor
+    shape = (resized_height, resized_width, channels)
+    return Box(low=orig_observ_space.low.min(),
+               high=orig_observ_space.high.max(), shape=shape,
+               dtype=orig_observ_space.dtype)
 
   def __str__(self):
     return "T2TGymEnv(%s)" % ", ".join([str(env) for env in self._envs])
 
   def _preprocess_observations(self, obs):
-    # TODO(lukaszkaiser): Implement.
-    return obs
+    assert obs.dtype == np.uint8, "Image.fromarray() requires np.uint8 dtype" \
+                                  " to work as expected"
+    preprocessed = list()
+    for ob in obs:
+      im = Image.fromarray(ob, mode='RGB')
+      height, width = self.observation_space.shape[:2]
+      im = im.resize(size=(width, height), resample=Image.BOX)
+      if self.grayscale:
+        im = im.convert(mode='L')
+      preprocessed.append(np.array(im))
+    return np.stack(preprocessed)
 
   def _preprocess_rewards(self, rewards):
-    # TODO(lukaszkaiser): Implement.
+    if self.clip_rewards:
+      rewards = np.clip(rewards, -1, 1)
     return rewards
 
   def _step(self, actions):
