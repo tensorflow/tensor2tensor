@@ -23,6 +23,7 @@ import os
 import shutil
 
 import gym
+from gym.spaces import Box, Discrete
 import numpy as np
 
 from tensor2tensor.data_generators import gym_env
@@ -36,8 +37,8 @@ class TestEnv(gym.Env):
   Odd frames are "done".
   """
 
-  action_space = gym.spaces.Discrete(1)
-  observation_space = gym.spaces.Box(
+  action_space = Discrete(1)
+  observation_space = Box(
       low=0, high=255, shape=(2, 2, 1), dtype=np.uint8
   )
 
