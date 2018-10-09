@@ -15,11 +15,14 @@
 
 """Transformer model."""
 
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
 import copy
+
+from six.moves import xrange  # pylint: disable=redefined-builtin
+
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.mesh_tensorflow import mesh_tensorflow as mtf
