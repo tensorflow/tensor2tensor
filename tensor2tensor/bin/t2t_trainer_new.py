@@ -31,6 +31,7 @@ import six
 
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
+from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.data_generators import problem  # pylint: disable=unused-import
 from tensor2tensor.utils import cloud_mlengine
 from tensor2tensor.utils import decoding
@@ -44,87 +45,6 @@ from tensorflow.contrib.tpu.python.tpu import tpu_config
 
 flags = tf.flags
 FLAGS = flags.FLAGS
-
-# See flags.py for additional command-line flags.
-flags.DEFINE_string("t2t_usr_dir", None,
-                    "Path to a Python module that will be imported. The "
-                    "__init__.py file should include the necessary imports. "
-                    "The imported files should contain registrations, "
-                    "e.g. @registry.register_model calls, that will then be "
-                    "available to the t2t-trainer.")
-flags.DEFINE_integer("random_seed", None, "Random seed.")
-flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
-flags.DEFINE_integer("iterations_per_loop", 100,
-                     "Number of iterations in a TPU training loop.")
-flags.DEFINE_bool("use_tpu", False, "Whether to use TPU.")
-flags.DEFINE_bool("use_tpu_estimator", False, "Whether to use TPUEstimator. "
-                  "This is always enabled when use_tpu is True.")
-flags.DEFINE_bool("xla_compile", False, "Whether to use XLA to compile graph.")
-flags.DEFINE_integer("tpu_infeed_sleep_secs", None,
-                     "How long to sleep the infeed thread.")
-flags.DEFINE_bool("generate_data", False, "Generate data before training?")
-flags.DEFINE_string("tmp_dir", "/tmp/t2t_datagen",
-                    "Temporary storage directory, used if --generate_data.")
-flags.DEFINE_bool("profile", False, "Profile performance?")
-flags.DEFINE_integer("inter_op_parallelism_threads", 0,
-                     "Number of inter_op_parallelism_threads to use for CPU. "
-                     "See TensorFlow config.proto for details.")
-flags.DEFINE_integer("intra_op_parallelism_threads", 0,
-                     "Number of intra_op_parallelism_threads to use for CPU. "
-                     "See TensorFlow config.proto for details.")
-
-# To maintain compatibility with some internal libs, we guard against these flag
-# definitions possibly erroring. Apologies for the ugliness.
-try:
-  flags.DEFINE_string("master", "", "Address of TensorFlow master.")
-  flags.DEFINE_string("output_dir", "", "Base output directory for run.")
-  flags.DEFINE_string("schedule", "continuous_train_and_eval",
-                      "Method of Experiment to run.")
-  flags.DEFINE_integer("eval_steps", 100,
-                       "Number of steps in evaluation. By default, eval will "
-                       "stop after eval_steps or when it runs through the eval "
-                       "dataset once in full, whichever comes first, so this "
-                       "can be a very large number.")
-except:  # pylint: disable=bare-except
-  pass
-
-flags.DEFINE_string("std_server_protocol", "grpc",
-                    "Protocol for tf.train.Server.")
-
-# Google Cloud TPUs
-flags.DEFINE_string("cloud_tpu_name", "%s-tpu" % os.getenv("USER"),
-                    "Name of Cloud TPU instance to use or create.")
-
-# Google Cloud ML Engine
-flags.DEFINE_bool("cloud_mlengine", False,
-                  "Whether to launch on Cloud ML Engine.")
-flags.DEFINE_string("cloud_mlengine_master_type", None,
-                    "Machine type for master on Cloud ML Engine. "
-                    "If provided, overrides default selections based on "
-                    "--worker_gpu. User is responsible for ensuring "
-                    "type is valid and that --worker_gpu matches number of "
-                    "GPUs on machine type. See documentation: "
-                    "https://cloud.google.com/ml-engine/reference/rest/v1/"
-                    "projects.jobs#traininginput")
-# Hyperparameter tuning on Cloud ML Engine
-# Pass an --hparams_range to enable
-flags.DEFINE_string("autotune_objective", None,
-                    "TensorBoard metric name to optimize.")
-flags.DEFINE_bool("autotune_maximize", True,
-                  "Whether to maximize (vs. minimize) autotune_objective.")
-flags.DEFINE_integer("autotune_max_trials", 10,
-                     "Maximum number of tuning experiments to run.")
-flags.DEFINE_integer("autotune_parallel_trials", 1,
-                     "How many trials to run in parallel (will spin up this "
-                     "many jobs.")
-# Note than in open-source TensorFlow, the dash gets converted to an underscore,
-# so access is FLAGS.job_dir.
-flags.DEFINE_string("job-dir", None,
-                    "DO NOT USE. Exists only for Cloud ML Engine to pass in "
-                    "during hyperparameter tuning. Overrides --output_dir.")
-flags.DEFINE_integer("log_step_count_steps", 100,
-                     "Number of local steps after which progress is printed "
-                     "out")
 
 
 def set_hparams_from_args(args):
