@@ -40,7 +40,7 @@ class TestEnv(gym.Env):
 
   action_space = Discrete(1)
   observation_space = Box(
-      low=0, high=255, shape=(2, 2, 1), dtype=np.uint8
+      low=0, high=255, shape=(2, 6, 3), dtype=np.uint8
   )
 
   def __init__(self):
@@ -54,7 +54,8 @@ class TestEnv(gym.Env):
   def step(self, action):
     done = self._counter % 2 == 1
     self._counter += 1
-    return (self._generate_ob(), 0, done, {})
+    reward = 5 if done else -5
+    return (self._generate_ob(), reward, done, {})
 
   def reset(self):
     return self._generate_ob()
@@ -68,14 +69,27 @@ class GymEnvTest(tf.test.TestCase):
     shutil.rmtree(cls.out_dir)
     os.mkdir(cls.out_dir)
 
-  def test_generates(self):
-    env = gym_env.T2TGymEnv([TestEnv(), TestEnv()])
-    env.reset()
-    for _ in range(20):
-      (_, _, dones) = env.step([0, 0])
+  def init_batch_and_play(self, env_lambda, n_steps=1, unclipped_rewards=False,
+                          **kwargs):
+    raw_envs = [env_lambda(), env_lambda()]
+    env = gym_env.T2TGymEnv(raw_envs, **kwargs)
+    obs = list()
+    rewards = list()
+    obs.append(env.reset())
+    for _ in range(n_steps):
+      step_obs, step_rewards, dones = env.step(
+          actions=[0, 0], return_unclipped_rewards=unclipped_rewards)
+      obs.append(step_obs)
+      rewards.append(step_rewards)
       for (i, done) in enumerate(dones):
         if done:
           env.reset([i])
+    return env, obs, rewards
+
+  def test_generates(self):
+    # This test needs base env which outputs done after two steps.
+    env_lambda = TestEnv
+    env, _, _ = self.init_batch_and_play(env_lambda, n_steps=20)
     env.generate_data(self.out_dir, tmp_dir=None)
 
     filenames = os.listdir(self.out_dir)
@@ -83,6 +97,50 @@ class GymEnvTest(tf.test.TestCase):
     path = os.path.join(self.out_dir, filenames[0])
     records = list(tf.python_io.tf_record_iterator(path))
     self.assertTrue(records)
+
+  def test_clipping(self):
+    # This test needs base env with rewards out of [-1,1] range.
+    env_lambda = TestEnv
+    _, _, rewards = self.init_batch_and_play(env_lambda, n_steps=2)
+    self.assertTrue(np.max(rewards) == 1)
+    self.assertTrue(np.min(rewards) == -1)
+
+    _, _, unclipped_rewards = self.init_batch_and_play(env_lambda, n_steps=2,
+                                                       unclipped_rewards=True)
+    self.assertTrue(np.max(unclipped_rewards) > 1)
+    self.assertTrue(np.min(unclipped_rewards) < -1)
+
+  def test_resize(self):
+    env_lambda = TestEnv
+    orig_env = env_lambda()
+    resize_height_factor = 2
+    resize_width_factor = 3
+    orig_height, orig_width = orig_env.observation_space.shape[:2]
+    env, obs, _ = self.init_batch_and_play(
+        env_lambda, n_steps=1,
+        resize_height_factor=resize_height_factor,
+        resize_width_factor=resize_width_factor)
+    for obs_batch in obs:
+      ob = obs_batch[0]
+      self.assertEqual(ob.shape, env.observation_space.shape)
+      height, width = ob.shape[:2]
+      self.assertEqual(height, orig_height // resize_height_factor)
+      self.assertEqual(width, orig_width // resize_width_factor)
+
+  def assert_channels(self, env, obs, n_channels):
+    self.assertEqual(env.observation_space.shape[2], n_channels)
+    self.assertEqual(env.num_channels, n_channels)
+    for obs_batch in obs:
+      ob = obs_batch[0]
+      self.assertEqual(ob.shape[2], n_channels)
+
+  def test_channels(self):
+    env_lambda = TestEnv
+    env, obs, _ = self.init_batch_and_play(env_lambda, grayscale=True)
+    self.assert_channels(env, obs, n_channels=1)
+
+    env, obs, _ = self.init_batch_and_play(env_lambda, grayscale=False)
+    self.assert_channels(env, obs, n_channels=3)
 
 
 if __name__ == "__main__":
