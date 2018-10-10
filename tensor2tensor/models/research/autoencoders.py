@@ -56,6 +56,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
     super(AutoencoderBasic, self).__init__(*args, **kwargs)
     self._cur_bottleneck_tensor = None
     self.is1d = None
+    self._encode_on_predict = False
 
   @property
   def num_channels(self):
@@ -189,7 +190,8 @@ class AutoencoderBasic(t2t_model.T2TModel):
       vocab_size = self._problem_hparams.target_modality.top_dimensionality
     encoder_layers = None
     self.is1d = hparams.sample_width == 1
-    if hparams.mode != tf.estimator.ModeKeys.PREDICT:
+    if (hparams.mode != tf.estimator.ModeKeys.PREDICT
+        or self._encode_on_predict):
       labels = features["targets_raw"]
       labels_shape = common_layers.shape_list(labels)
       # handle videos
@@ -846,14 +848,14 @@ class AutoencoderDualDiscrete(AutoencoderResidualDiscrete):
   """Dual discrete autoencoder."""
 
   def body(self, features):
-    if self.hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if self.hparams.mode != tf.estimator.ModeKeys.EVAL:
       t, i = features["targets_raw"], features["inputs_raw"]
       t, i = common_layers.pad_to_same_length(t, i)
       features["targets_raw"] = tf.concat([t, i], axis=0)
     return super(AutoencoderDualDiscrete, self).body(features)
 
   def embed(self, x, name="embedding"):
-    if self.hparams.mode != tf.estimator.ModeKeys.TRAIN:
+    if self.hparams.mode == tf.estimator.ModeKeys.EVAL:
       return super(AutoencoderDualDiscrete, self).embed(x, name=name + "_t")
     xt, xi = tf.split(x, 2, axis=0)
     xte = super(AutoencoderDualDiscrete, self).embed(xt, name=name + "_t")
@@ -863,9 +865,11 @@ class AutoencoderDualDiscrete(AutoencoderResidualDiscrete):
   def bottleneck(self, x):
     hparams = self.hparams
     b, _ = super(AutoencoderDualDiscrete, self).bottleneck(x)
-    if hparams.mode != tf.estimator.ModeKeys.TRAIN:
+    if hparams.mode == tf.estimator.ModeKeys.EVAL:
       return b, 0.0
     bt, bi = tf.split(b, 2, axis=0)
+    if self.hparams.mode != tf.estimator.ModeKeys.TRAIN:
+      return tf.concat([bi, bi], axis=0), 0.0
     # Share the first hparams.bottleneck_shared_bits.
     shared = (bt + bi) / 2  # -1 if both -1, 1 if both were 1, 0 if disagree.
     rand = tf.random_uniform(common_layers.shape_list(bt))
@@ -890,12 +894,42 @@ class AutoencoderDualDiscrete(AutoencoderResidualDiscrete):
   def unbottleneck(self, b, res_size, reuse=None):
     x = super(AutoencoderDualDiscrete, self).unbottleneck(
         b, res_size, reuse=reuse)
-    if self.hparams.mode != tf.estimator.ModeKeys.TRAIN:
+    if self.hparams.mode == tf.estimator.ModeKeys.EVAL:
       return tf.layers.dense(x, res_size, name="dual_unbottleneck_t")
     xt, xi = tf.split(x, 2, axis=0)
     xt = tf.layers.dense(xt, res_size, name="dual_unbottleneck_t")
     xi = tf.layers.dense(xt, res_size, name="dual_unbottleneck_i")
     return tf.concat([xt, xi], axis=0)
+
+  def infer(self, features, *args, **kwargs):  # pylint: disable=arguments-differ
+    """Produce predictions from the model."""
+    del args, kwargs
+    # Inputs and features preparation needed to handle edge cases.
+    if not features:
+      features = {}
+    inputs_old = None
+    if "inputs" in features and len(features["inputs"].shape) < 4:
+      inputs_old = features["inputs"]
+      features["inputs"] = tf.expand_dims(features["inputs"], 2)
+
+    # Set targets to input size firts.
+    features["targets"] = tf.zeros_like(features["inputs"])
+    self._encode_on_predict = True
+    logits, _ = self(features)  # pylint: disable=not-callable
+    if self.hparams.gan_loss_factor != 0:
+      logits, _ = tf.split(logits, 2, axis=0)  # Remove GAN.
+    logits, _ = tf.split(logits, 2, axis=0)  # Targets and inputs from encoding.
+    # Uncomment the line below to get reconstructed inputs instead of targets.
+    # (and comment out the line above at the same time).
+    # _, logits = tf.split(logits, 2, axis=0)
+    samples = tf.argmax(logits, axis=-1)
+
+    # Restore inputs to not confuse Estimator in edge cases.
+    if inputs_old is not None:
+      features["inputs"] = inputs_old
+
+    # Return samples.
+    return samples
 
 
 @registry.register_model
@@ -1175,8 +1209,8 @@ def autoencoder_ordered_discrete_hs256():
 def autoencoder_ordered_text():
   """Ordered discrete autoencoder model for text."""
   hparams = autoencoder_ordered_discrete()
-  hparams.bottleneck_bits = 512
-  hparams.bottleneck_shared_bits = 512-64
+  hparams.bottleneck_bits = 1024
+  hparams.bottleneck_shared_bits = 1024-64
   hparams.bottleneck_shared_bits_start_warmup = 75000
   hparams.bottleneck_shared_bits_stop_warmup = 275000
   hparams.num_hidden_layers = 7
