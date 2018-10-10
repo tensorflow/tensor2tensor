@@ -154,7 +154,7 @@ class AdafactorOptimizer(Optimizer):
     if self._beta1:
       m = mtf.get_variable(
           var.mesh, var.name + "_slot_m", var.shape,
-          iniitalizer=tf.zeros_initializer(), trainable=False)
+          initializer=tf.zeros_initializer(), trainable=False)
 
     with tf.variable_scope(var.name + "/adafactor"):
       grad_squared = mtf.square(grad) + self._epsilon1
