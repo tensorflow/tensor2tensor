@@ -762,6 +762,7 @@ def rlmb_base():
       ppo_params="ppo_pong_base",
       autoencoder_train_steps=0,
       autoencoder_train_steps_initial_multiplier=10,
+      autoencoder_hparams_set="autoencoder_discrete_pong",
       model_train_steps=15000,
       inital_epoch_train_steps_multiplier=3,
       simulated_env_generator_num_steps=2000,
@@ -866,6 +867,15 @@ def rlmb_quick_sd():
 
 
 @registry.register_hparams
+def rlmb_sdtest():
+  """Test setting with stochastic discrete model."""
+  hparams = rlmb_basetest()
+  hparams.generative_model = "next_frame_basic_stochastic_discrete"
+  hparams.generative_model_params = "next_frame_basic_stochastic_discrete"
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_quick_sm():
   """Quick setting with sampling."""
   hparams = rlmb_quick()
@@ -896,6 +906,8 @@ def rlmb_base_sampling_stochastic():
 def rlmb_base_stochastic_discrete():
   """Base setting with stochastic discrete model."""
   hparams = rlmb_base()
+  hparams.learning_rate_bump = 1.0
+  hparams.grayscale = True
   hparams.generative_model = "next_frame_basic_stochastic_discrete"
   hparams.generative_model_params = "next_frame_basic_stochastic_discrete"
   return hparams

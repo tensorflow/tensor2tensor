@@ -209,7 +209,7 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
 
     # Reward prediction if needed.
     if "target_reward" not in features:
-      return x
+      return x, extra_loss
     reward_pred = tf.expand_dims(  # Add a fake channels dim.
         tf.reduce_mean(x, axis=[1, 2], keepdims=True), axis=3)
     return {"targets": x, "target_reward": reward_pred}, extra_loss
@@ -236,9 +236,12 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
 
     # Run a number of steps.
     res_frames, sampled_frames, sampled_frames_raw = [], [], []
+    extra_loss = 0.0
     if "target_reward" in features:
-      res_rewards, extra_loss = [], 0.0
+      res_rewards = []
     sample_prob = common_layers.inverse_exp_decay(
+        hparams.scheduled_sampling_warmup_steps // 4)
+    sample_prob *= common_layers.inverse_lin_decay(
         hparams.scheduled_sampling_warmup_steps)
     sample_prob *= hparams.scheduled_sampling_prob
     for i in range(hparams.video_num_target_frames):
@@ -253,13 +256,13 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
       # Run model.
       with tf.variable_scope(tf.get_variable_scope(), reuse=i > 0):
         if "target_reward" not in features:
-          res_frame = self.body_single(features)
+          res_frame, res_extra_loss = self.body_single(features)
         else:
           res_dict, res_extra_loss = self.body_single(features)
-          extra_loss += res_extra_loss
           res_frame = res_dict["targets"]
           res_reward = res_dict["target_reward"]
           res_rewards.append(res_reward)
+      extra_loss += res_extra_loss / float(hparams.video_num_target_frames)
       res_frames.append(res_frame)
 
       # Only for Softmax loss: sample frame so we can keep iterating.
