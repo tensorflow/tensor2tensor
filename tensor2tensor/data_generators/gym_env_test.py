@@ -23,7 +23,8 @@ import os
 import shutil
 
 import gym
-from gym.spaces import Box, Discrete
+from gym.spaces import Box
+from gym.spaces import Discrete
 import numpy as np
 
 from tensor2tensor.data_generators import gym_env

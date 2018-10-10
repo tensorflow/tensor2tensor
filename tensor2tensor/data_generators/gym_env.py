@@ -156,10 +156,10 @@ class T2TEnv(video_utils.VideoProblem):
     ):
       rollout.append(frame._replace(action=action))
 
-    # ord = (observation, reward, done)
+    # ord_tuple = (observation, reward, done)
     self._current_frames = [
-        Frame(*ord, action=None)
-        for ord in zip(encoded_obs, rewards, dones)
+        Frame(*ord_tuple, action=None)
+        for ord_tuple in zip(encoded_obs, rewards, dones)
     ]
     return (obs, rewards, dones)
 
