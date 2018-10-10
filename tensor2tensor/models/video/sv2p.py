@@ -25,8 +25,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from functools import partial
-
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 
@@ -67,65 +65,6 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
     frames_pd = concat_on_y_axis(frames_pd)
     side_by_side_video = tf.concat([frames_gd, frames_pd], axis=2)
     tf.summary.image("full_video", side_by_side_video)
-
-  def get_scheduled_sample_func(self, batch_size):
-    """Creates a function for scheduled sampling based on given hparams."""
-    with tf.variable_scope("scheduled_sampling_func", reuse=False):
-      iter_num = self.get_iteration_num()
-      if self.hparams.scheduled_sampling_mode == "prob":
-        decay_steps = self.hparams.scheduled_sampling_decay_steps
-        probability = tf.train.polynomial_decay(
-            1.0, iter_num, decay_steps, 0.0)
-        scheduled_sampling_func = common_video.scheduled_sample_prob
-        scheduled_sampling_func_var = probability
-      else:
-        # Calculate number of ground-truth frames to pass in.
-        k = self.hparams.scheduled_sampling_k
-        num_ground_truth = tf.to_int32(
-            tf.round(
-                tf.to_float(batch_size) *
-                (k / (k + tf.exp(tf.to_float(iter_num) / tf.to_float(k))))))
-        scheduled_sampling_func = common_video.scheduled_sample_count
-        scheduled_sampling_func_var = num_ground_truth
-
-      tf.summary.scalar("scheduled_sampling_var", scheduled_sampling_func_var)
-      partial_func = partial(scheduled_sampling_func,
-                             batch_size=batch_size,
-                             scheduled_sample_var=scheduled_sampling_func_var)
-      return partial_func
-
-  def get_scheduled_sample_inputs(self,
-                                  done_warm_start,
-                                  groundtruth_items,
-                                  generated_items,
-                                  scheduled_sampling_func):
-    """Scheduled sampling.
-
-    Args:
-      done_warm_start: whether we are done with warm start or not.
-      groundtruth_items: list of ground truth items.
-      generated_items: list of generated items.
-      scheduled_sampling_func: scheduled sampling function to choose between
-        groundtruth items and generated items.
-
-    Returns:
-      A mix list of ground truth and generated items.
-    """
-    def sample():
-      """Calculate the scheduled sampling params based on iteration number."""
-      with tf.variable_scope("scheduled_sampling", reuse=tf.AUTO_REUSE):
-        output_items = []
-        for item_gt, item_gen in zip(groundtruth_items, generated_items):
-          output_items.append(scheduled_sampling_func(item_gt, item_gen))
-        return output_items
-
-    cases = [
-        (tf.logical_not(done_warm_start), lambda: groundtruth_items),
-        (tf.logical_not(self.is_training), lambda: generated_items),
-    ]
-    output_items = tf.case(cases, default=sample, strict=True)
-
-    return output_items
 
   def get_input_if_exists(self, features, key, batch_size, num_frames):
     if key in features:

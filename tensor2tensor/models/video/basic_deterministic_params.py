@@ -52,6 +52,12 @@ def next_frame_basic_deterministic():
   hparams.add_hparam("small_mode", False)
   hparams.add_hparam("stochastic_model", False)
   hparams.add_hparam("internal_loss", True)
+  # Scheduled sampling method. Choose between
+  # ground_truth_only, prediction_only, prob, count, prob_inverse_exp.
+  hparams.add_hparam("scheduled_sampling_mode", "prediction_only")
+  hparams.add_hparam("scheduled_sampling_decay_steps", 10000)
+  hparams.add_hparam("scheduled_sampling_max_prob", 1.0)
+  hparams.add_hparam("scheduled_sampling_k", 900.0)
   return hparams
 
 
@@ -68,9 +74,9 @@ def next_frame_pixel_noise():
 def next_frame_sampling():
   """Basic conv model with scheduled sampling."""
   hparams = next_frame_basic_deterministic()
-  hparams.video_num_target_frames = 4
-  hparams.scheduled_sampling_warmup_steps = 50000
-  hparams.scheduled_sampling_prob = 0.5
+  hparams.scheduled_sampling_mode = "prob_inverse_exp"
+  hparams.scheduled_sampling_max_prob = 0.5
+  hparams.scheduled_sampling_decay_steps = 10000
   return hparams
 
 

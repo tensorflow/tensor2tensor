@@ -35,6 +35,8 @@ def next_frame_sv2p():
   hparams.target_modality = "video:l2raw"
   hparams.input_modalities = "inputs:video:l2raw"
   hparams.video_modality_loss_cutoff = 0.0
+  hparams.scheduled_sampling_mode = "count"
+  hparams.scheduled_sampling_k = 900.0
   hparams.add_hparam("reward_prediction", True)
   hparams.add_hparam("reward_prediction_stop_gradient", False)
   hparams.add_hparam("reward_prediction_buffer_size", 0)
@@ -43,10 +45,6 @@ def next_frame_sv2p():
   hparams.add_hparam("multi_latent", False)
   hparams.add_hparam("relu_shift", 1e-12)
   hparams.add_hparam("dna_kernel_size", 5)
-  # Scheduled sampling method. Choose between prob or count.
-  hparams.add_hparam("scheduled_sampling_mode", "count")
-  hparams.add_hparam("scheduled_sampling_decay_steps", 10000)
-  hparams.add_hparam("scheduled_sampling_k", 900.0)
   hparams.add_hparam("upsample_method", "conv2d_transpose")
   hparams.add_hparam("reward_model", "basic")
   return hparams

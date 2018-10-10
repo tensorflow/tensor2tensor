@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from functools import partial
 import six
 
 from tensor2tensor.layers import common_attention
@@ -49,10 +50,103 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
   def is_per_pixel_softmax(self):
     return self._target_modality == "VideoModality"
 
+  def get_iteration_num(self):
+    step_num = tf.train.get_global_step()
+    # TODO(lukaszkaiser): what should it be if it's undefined?
+    if step_num is None:
+      step_num = 10000000
+    return step_num
+
   def inject_latent(self, layer, features, filters):
     """Do nothing for deterministic model."""
     del features, filters
     return layer, 0.0
+
+  def get_scheduled_sample_func(self, batch_size):
+    """Creates a function for scheduled sampling based on given hparams."""
+    with tf.variable_scope("scheduled_sampling_func", reuse=tf.AUTO_REUSE):
+      iter_num = self.get_iteration_num()
+
+      # Simple function to bypass scheduled sampling in gt or pred only modes.
+      def scheduled_sampling_simple(ground_truth_x, generated_x,
+                                    batch_size, scheduled_sample_var):
+        del batch_size
+        if scheduled_sample_var:
+          return ground_truth_x
+        return generated_x
+
+      mode = self.hparams.scheduled_sampling_mode
+      if mode == "ground_truth_only":
+        scheduled_sampling_func = scheduled_sampling_simple
+        scheduled_sampling_func_var = True
+      elif mode == "prediction_only":
+        scheduled_sampling_func = scheduled_sampling_simple
+        scheduled_sampling_func_var = False
+      elif mode == "prob":
+        decay_steps = self.hparams.scheduled_sampling_decay_steps
+        probability = tf.train.polynomial_decay(
+            1.0, iter_num, decay_steps, 0.0)
+        scheduled_sampling_func = common_video.scheduled_sample_prob
+        scheduled_sampling_func_var = probability
+      elif mode == "prob_inverse_exp":
+        decay_steps = self.hparams.scheduled_sampling_decay_steps
+        probability = common_layers.inverse_exp_decay(
+            decay_steps, step=iter_num)
+        probability *= self.hparams.scheduled_sampling_max_prob
+        probability = 1.0 - probability
+        scheduled_sampling_func = common_video.scheduled_sample_prob
+        scheduled_sampling_func_var = probability
+      elif mode == "count":
+        # Calculate number of ground-truth frames to pass in.
+        k = self.hparams.scheduled_sampling_k
+        num_ground_truth = tf.to_int32(
+            tf.round(
+                tf.to_float(batch_size) *
+                (k / (k + tf.exp(tf.to_float(iter_num) / tf.to_float(k))))))
+        scheduled_sampling_func = common_video.scheduled_sample_count
+        scheduled_sampling_func_var = num_ground_truth
+      else:
+        raise ValueError("unknown scheduled sampling method: %s" % mode)
+
+      if isinstance(scheduled_sampling_func_var, tf.Tensor):
+        tf.summary.scalar("scheduled_sampling_var", scheduled_sampling_func_var)
+      partial_func = partial(scheduled_sampling_func,
+                             batch_size=batch_size,
+                             scheduled_sample_var=scheduled_sampling_func_var)
+      return partial_func
+
+  def get_scheduled_sample_inputs(self,
+                                  done_warm_start,
+                                  groundtruth_items,
+                                  generated_items,
+                                  scheduled_sampling_func):
+    """Scheduled sampling.
+
+    Args:
+      done_warm_start: whether we are done with warm start or not.
+      groundtruth_items: list of ground truth items.
+      generated_items: list of generated items.
+      scheduled_sampling_func: scheduled sampling function to choose between
+        groundtruth items and generated items.
+
+    Returns:
+      A mix list of ground truth and generated items.
+    """
+    def sample():
+      """Calculate the scheduled sampling params based on iteration number."""
+      with tf.variable_scope("scheduled_sampling", reuse=tf.AUTO_REUSE):
+        output_items = []
+        for item_gt, item_gen in zip(groundtruth_items, generated_items):
+          output_items.append(scheduled_sampling_func(item_gt, item_gen))
+        return output_items
+
+    cases = [
+        (tf.logical_not(done_warm_start), lambda: groundtruth_items),
+        (tf.logical_not(self.is_training), lambda: generated_items),
+    ]
+    output_items = tf.case(cases, default=sample, strict=True)
+
+    return output_items
 
   def get_extra_internal_loss(self, extra_raw_gts, extra_gts, extra_pds):
     """Hacky code the get the loss on predicted frames from input frames.
@@ -233,17 +327,14 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
       all_actions = input_actions + target_actions
 
     orig_frame_shape = common_layers.shape_list(all_frames[0])
+    batch_size = orig_frame_shape[0]
+    ss_func = self.get_scheduled_sample_func(batch_size)
 
     # Run a number of steps.
     res_frames, sampled_frames, sampled_frames_raw = [], [], []
     extra_loss = 0.0
     if "target_reward" in features:
       res_rewards = []
-    sample_prob = common_layers.inverse_exp_decay(
-        hparams.scheduled_sampling_warmup_steps // 4)
-    sample_prob *= common_layers.inverse_lin_decay(
-        hparams.scheduled_sampling_warmup_steps)
-    sample_prob *= hparams.scheduled_sampling_prob
     for i in range(hparams.video_num_target_frames):
       cur_frames = all_frames[i:i + hparams.video_num_input_frames]
       features["inputs"] = tf.concat(cur_frames, axis=-1)
@@ -276,12 +367,13 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
         all_frames[i + hparams.video_num_input_frames] = sampled_frame
 
       # Scheduled sampling during training.
-      if (hparams.scheduled_sampling_prob > 0.0 and self.is_training):
-        do_sample = tf.less(
-            tf.random_uniform([orig_frame_shape[0]]), sample_prob)
-        orig_frame = all_frames[i + hparams.video_num_input_frames]
-        sampled_frame = tf.where(do_sample, sampled_frame, orig_frame)
-        all_frames[i + hparams.video_num_input_frames] = sampled_frame
+      if self.is_training:
+        done_warm_start = True  # Always true for non-reccurent networks.
+        groundtruth_items = [all_frames[i + hparams.video_num_input_frames]]
+        generated_items = [sampled_frame]
+        ss_frame, = self.get_scheduled_sample_inputs(
+            done_warm_start, groundtruth_items, generated_items, ss_func)
+        all_frames[i + hparams.video_num_input_frames] = ss_frame
 
     # Concatenate results and return them.
     frames = tf.stack(res_frames, axis=1)
