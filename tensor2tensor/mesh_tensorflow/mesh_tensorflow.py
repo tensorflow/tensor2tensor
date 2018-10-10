@@ -1788,7 +1788,7 @@ class SplitOperation(Operation):
   """
 
   def __init__(self, x, split_dim, num_or_size_splits, name=None):
-    super(SplitOperation, self).__init__([x], name=name or "concat")
+    super(SplitOperation, self).__init__([x], name=name or "split")
 
     self._split_dim = split_dim
     if split_dim not in x.shape.dims:
@@ -1804,14 +1804,14 @@ class SplitOperation(Operation):
       assert isinstance(num_or_size_splits, int)
       assert split_dim.size % num_or_size_splits == 0
       self._output_sizes = (
-          [split_dim.size / num_or_size_splits] * num_or_size_splits)
+          [split_dim.size // num_or_size_splits] * num_or_size_splits)
 
     self._outputs = [
         Tensor(self, x.shape.resize_dimension(split_dim.name, output_size),
                x.dtype) for output_size in self._output_sizes]
 
   def gradient(self, grad_ys):
-    return concat(grad_ys, self._split_dim.name)
+    return [concat(grad_ys, self._split_dim.name)]
 
   def lower(self, lowering):
     mesh_impl = lowering.mesh_impl(self)
