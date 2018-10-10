@@ -154,7 +154,7 @@ class AdafactorOptimizer(Optimizer):
     if self._beta1:
       m = mtf.get_variable(
           var.mesh, var.name + "_slot_m", var.shape,
-          iniitalizer=tf.zeros_initializer(), trainable=False)
+          initializer=tf.zeros_initializer(), trainable=False)
 
     with tf.variable_scope(var.name + "/adafactor"):
       grad_squared = mtf.square(grad) + self._epsilon1
@@ -191,7 +191,7 @@ class AdafactorOptimizer(Optimizer):
         x /= clipping_denom
       subtrahend = x * update_scale
       if self._beta1:
-        new_m = self._beta1 * m.value + (1.0 - self._beta1) * subtrahend
+        new_m = m * tf.constant(self._beta1) + subtrahend * tf.constant(1.0 - self._beta1)
         subtrahend = new_m
         updates.append(mtf.assign(m, new_m))
       new_val = old_val - subtrahend
