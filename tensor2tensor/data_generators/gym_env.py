@@ -20,16 +20,26 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import math
+import random
 
 import numpy as np
 
+from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.data_generators import problem
+from tensor2tensor.data_generators import video_utils
+from tensor2tensor.utils import metrics
+
+import tensorflow as tf
+
 
 Frame = collections.namedtuple(
-    "Frame", ("observation", "action", "reward", "done")
+    # Order of elements reflects time progression within a frame.
+    "Frame", ("observation", "reward", "done", "action")
 )
 
 
-class T2TEnv(object):
+class T2TEnv(video_utils.VideoProblem):
   """Abstract class representing a batch of environments.
 
   Attributes:
@@ -38,6 +48,10 @@ class T2TEnv(object):
     observation_space: Gym observation space. Should be overridden in derived
       classes.
     action_space: Gym action space. Should be overridden in derived classes.
+    reward_range: Tuple (min, max) representing the range of rewards. Limits
+      should be integer (discrete rewards).
+    name: Problem name for generating filenames. Should be overridden in
+      derived classes.
 
   Args:
     batch_size: Number of environments in a batch.
@@ -45,12 +59,21 @@ class T2TEnv(object):
 
   observation_space = None
   action_space = None
+  reward_range = (-1, 1)
+  name = None
 
   def __init__(self, batch_size):
+    super(T2TEnv, self).__init__()
+
     self.clear_history()
     self.batch_size = batch_size
     self._current_rollouts = [[] for _ in range(batch_size)]
-    self._current_observations = [None for _ in range(batch_size)]
+    self._current_frames = [None for _ in range(batch_size)]
+
+    with tf.Graph().as_default():
+      self._image_t = tf.placeholder(dtype=tf.uint8, shape=(None, None, None))
+      self._encoded_image_t = tf.image.encode_png(self._image_t)
+      self._encode_session = tf.Session()
 
   def __str__(self):
     """Returns a string representation of the environment for debug purposes."""
@@ -86,6 +109,15 @@ class T2TEnv(object):
     """
     return rewards
 
+  def _encode_observations(self, observations):
+    """Encodes observations as PNG."""
+    return [
+        self._encode_session.run(
+            self._encoded_image_t, feed_dict={self._image_t: observation}
+        )
+        for observation in observations
+    ]
+
   def _step(self, actions):
     """Makes a step in all environments without recording history.
 
@@ -118,12 +150,17 @@ class T2TEnv(object):
     (obs, rewards, dones) = self._step(actions)
     obs = self._preprocess_observations(obs)
     rewards = self._preprocess_rewards(rewards)
-    # oard = (observation, action, reward, done)
-    for (rollout, oard) in zip(self._current_rollouts, zip(
-        self._current_observations, actions, rewards, dones
-    )):
-      rollout.append(Frame(*oard))
-    self._current_observations = obs
+    encoded_obs = self._encode_observations(obs)
+    for (rollout, frame, action) in zip(
+        self._current_rollouts, self._current_frames, actions
+    ):
+      rollout.append(frame._replace(action=action))
+
+    # ord = (observation, reward, done)
+    self._current_frames = [
+        Frame(*ord, action=None)
+        for ord in zip(encoded_obs, rewards, dones)
+    ]
     return (obs, rewards, dones)
 
   def _reset(self, indices):
@@ -152,12 +189,17 @@ class T2TEnv(object):
       indices = np.arange(self.batch_size)
     new_obs = self._reset(indices)
     new_obs = self._preprocess_observations(new_obs)
-    for (index, ob) in zip(indices, new_obs):
-      rollout = self._current_rollouts[index]
-      if rollout and rollout[-1].done:
+    encoded_obs = self._encode_observations(new_obs)
+    for (index, ob) in zip(indices, encoded_obs):
+      frame = self._current_frames[index]
+      if frame is not None and frame.done:
+        rollout = self._current_rollouts[index]
+        rollout.append(frame._replace(action=0))
         self.history.append(rollout)
         self._current_rollouts[index] = []
-      self._current_observations[index] = ob
+      self._current_frames[index] = Frame(
+          observation=ob, reward=0, done=False, action=None
+      )
     return new_obs
 
   def close(self):
@@ -165,11 +207,113 @@ class T2TEnv(object):
 
     Can be overridden in derived classes.
     """
-    pass
+    self._encode_session.close()
+
+  @property
+  def num_channels(self):
+    """Number of color channels in each frame."""
+    return 3
+
+  def eval_metrics(self):
+    eval_metrics = [
+        metrics.Metrics.ACC, metrics.Metrics.ACC_PER_SEQ,
+        metrics.Metrics.IMAGE_RMSE
+    ]
+    return eval_metrics
+
+  @property
+  def extra_reading_spec(self):
+    """Additional data fields to store on disk and their decoders."""
+    field_names = ("frame_number", "action", "reward", "done")
+    data_fields = {
+        name: tf.FixedLenFeature([1], tf.int64) for name in field_names
+    }
+    decoders = {
+        name: tf.contrib.slim.tfexample_decoder.Tensor(tensor_key=name)
+        for name in field_names
+    }
+    return (data_fields, decoders)
+
+  @property
+  def frame_height(self):
+    return self.observation_space.shape[0]
+
+  @property
+  def frame_width(self):
+    return self.observation_space.shape[1]
+
+  @property
+  def num_actions(self):
+    return self.action_space.n
+
+  @property
+  def num_rewards(self):
+    (min_reward, max_reward) = self.reward_range
+    return max_reward - min_reward + 1
+
+  def hparams(self, defaults, unused_model_hparams):
+    p = defaults
+    def make_modality(name):
+      return {
+          "{}s".format(name): ("video", 256),
+          "{}_reward".format(name): ("symbol:weights_all", self.num_rewards),
+          "{}_action".format(name): ("symbol:weights_all", self.num_actions)
+      }
+    p.input_modality = make_modality("input")
+    p.target_modality = make_modality("target")
+    p.input_space_id = problem.SpaceID.IMAGE
+    p.target_space_id = problem.SpaceID.IMAGE
+
+  def _generate_frames(self, rollouts):
+    for rollout in rollouts:
+      for (frame_number, frame) in enumerate(rollout):
+        yield {
+            "frame_number": [frame_number],
+            "image/encoded": [frame.observation],
+            "image/format": ["png"],
+            "image/height": [self.frame_height],
+            "image/width": [self.frame_width],
+            "action": [int(frame.action)],
+            "reward": [int(frame.reward - self.reward_range[0])],
+            "done": [int(frame.done)]
+        }
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    """Saves the rollout history to disk."""
+    # Suffle rollouts globally taking advantage of the fact that we have
+    # everything in memory.
+    shuffled_history = self.history[:]
+    random.shuffle(shuffled_history)
+
+    filepath_fns = {
+        problem.DatasetSplit.TRAIN: self.training_filepaths,
+        problem.DatasetSplit.EVAL: self.dev_filepaths,
+        problem.DatasetSplit.TEST: self.test_filepaths,
+    }
+
+    # We set shuffled=True as we don't want to shuffle on disk later.
+    splits_and_paths = [
+        (split["split"], path)
+        for split in self.dataset_splits
+        for path in filepath_fns[split["split"]](
+            data_dir, split["shards"], shuffled=True
+        )
+    ]
+
+    # Split entire rollouts into shards so that no rollout is broken on shard
+    # boundary.
+    shard_size = int(math.ceil(len(shuffled_history)) / len(splits_and_paths))
+    for (i, (split, path)) in enumerate(splits_and_paths):
+      rollouts = shuffled_history[i * shard_size : (i + 1) * shard_size]
+      generator_utils.generate_files(
+          self._generate_frames(rollouts), [path], cycle_every_n=float("inf")
+      )
 
 
 class T2TGymEnv(T2TEnv):
   """Class representing a batch of Gym environments."""
+
+  name = "t2t_gym_env"
 
   def __init__(self, envs):
     super(T2TGymEnv, self).__init__(len(envs))
