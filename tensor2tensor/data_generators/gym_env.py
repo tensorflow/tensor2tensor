@@ -24,7 +24,6 @@ import math
 import random
 
 import numpy as np
-from PIL import Image
 from gym.spaces import Box
 
 from tensor2tensor.data_generators import generator_utils
@@ -37,7 +36,7 @@ import tensorflow as tf
 
 Frame = collections.namedtuple(
     # Order of elements reflects time progression within a frame.
-    "Frame", ("observation", "reward", "done", "action")
+    "Frame", ("observation", "reward", "unclipped_reward", "done", "action")
 )
 
 
@@ -72,10 +71,11 @@ class T2TEnv(video_utils.VideoProblem):
     self._current_rollouts = [[] for _ in range(batch_size)]
     self._current_frames = [None for _ in range(batch_size)]
 
-    with tf.Graph().as_default():
+    with tf.Graph().as_default() as tf_graph:
+      self._tf_graph = tf_graph
       self._image_t = tf.placeholder(dtype=tf.uint8, shape=(None, None, None))
       self._encoded_image_t = tf.image.encode_png(self._image_t)
-      self._encode_session = tf.Session()
+      self._session = tf.Session()
 
   def __str__(self):
     """Returns a string representation of the environment for debug purposes."""
@@ -98,23 +98,10 @@ class T2TEnv(video_utils.VideoProblem):
     """
     return obs
 
-  def _preprocess_rewards(self, rewards):
-    """Transforms a batch of rewards.
-
-    Can be overridden in derived classes.
-
-    Args:
-      rewards: A batch of rewards.
-
-    Returns:
-      Transformed batch of rewards.
-    """
-    return rewards
-
   def _encode_observations(self, observations):
     """Encodes observations as PNG."""
     return [
-        self._encode_session.run(
+        self._session.run(
             self._encoded_image_t, feed_dict={self._image_t: observation}
         )
         for observation in observations
@@ -137,7 +124,7 @@ class T2TEnv(video_utils.VideoProblem):
     """
     raise NotImplementedError
 
-  def step(self, actions):
+  def step(self, actions, return_unclipped_rewards=False):
     """Makes a step in all environments.
 
     Does any preprocessing and records frames.
@@ -149,21 +136,25 @@ class T2TEnv(video_utils.VideoProblem):
       (obs, rewards, dones) - batches of observations, rewards and done flags
       respectively.
     """
-    (obs, rewards, dones) = self._step(actions)
+    (obs, unclipped_rewards, dones) = self._step(actions)
     obs = self._preprocess_observations(obs)
-    rewards = self._preprocess_rewards(rewards)
+    rewards = np.clip(unclipped_rewards, -1, 1)
     encoded_obs = self._encode_observations(obs)
     for (rollout, frame, action) in zip(
         self._current_rollouts, self._current_frames, actions
     ):
       rollout.append(frame._replace(action=action))
 
-    # ord_tuple = (observation, reward, done)
+    # orud_tuple = (observation, reward, unclipped_reward, done)
     self._current_frames = [
-        Frame(*ord_tuple, action=None)
-        for ord_tuple in zip(encoded_obs, rewards, dones)
+        Frame(*orud_tuple, action=None)
+        for orud_tuple in zip(encoded_obs, rewards, unclipped_rewards, dones)
     ]
-    return (obs, rewards, dones)
+    if return_unclipped_rewards:
+      ret_rewards = unclipped_rewards
+    else:
+      ret_rewards = rewards
+    return (obs, ret_rewards, dones)
 
   def _reset(self, indices):
     """Resets environments at given indices without recording history.
@@ -200,7 +191,7 @@ class T2TEnv(video_utils.VideoProblem):
         self.history.append(rollout)
         self._current_rollouts[index] = []
       self._current_frames[index] = Frame(
-          observation=ob, reward=0, done=False, action=None
+          observation=ob, reward=0, unclipped_reward=0, done=False, action=None
       )
     return new_obs
 
@@ -209,12 +200,12 @@ class T2TEnv(video_utils.VideoProblem):
 
     Can be overridden in derived classes.
     """
-    self._encode_session.close()
+    self._session.close()
 
   @property
   def num_channels(self):
     """Number of color channels in each frame."""
-    return 3
+    raise NotImplementedError
 
   def eval_metrics(self):
     eval_metrics = [
@@ -339,6 +330,23 @@ class T2TGymEnv(T2TEnv):
     if not all(env.action_space == self.action_space for env in self._envs):
       raise ValueError("All environments must use the same action space.")
 
+    with self._tf_graph.as_default():
+      self._resize = dict()
+      orig_height, orig_width = orig_observ_space.shape[:2]
+      self._img_batch_t = tf.placeholder(
+          dtype=tf.uint8, shape=(None, orig_height, orig_width, 3))
+      height, width = self.observation_space.shape[:2]
+      resized = tf.image.resize_images(self._img_batch_t,
+                                       [height, width],
+                                       tf.image.ResizeMethod.AREA)
+      if self.grayscale:
+        resized = tf.image.rgb_to_grayscale(resized)
+      self._resized_img_batch_t = resized
+
+  @property
+  def num_channels(self):
+    return self.observation_space.shape[2]
+
   def _derive_observation_space(self, orig_observ_space):
     height, width, channels = orig_observ_space.shape
     if self.grayscale:
@@ -354,22 +362,8 @@ class T2TGymEnv(T2TEnv):
     return "T2TGymEnv(%s)" % ", ".join([str(env) for env in self._envs])
 
   def _preprocess_observations(self, obs):
-    assert obs.dtype == np.uint8, "Image.fromarray() requires np.uint8 dtype" \
-                                  " to work as expected"
-    preprocessed = list()
-    for ob in obs:
-      im = Image.fromarray(ob, mode='RGB')
-      height, width = self.observation_space.shape[:2]
-      im = im.resize(size=(width, height), resample=Image.BOX)
-      if self.grayscale:
-        im = im.convert(mode='L')
-      preprocessed.append(np.array(im))
-    return np.stack(preprocessed)
-
-  def _preprocess_rewards(self, rewards):
-    if self.clip_rewards:
-      rewards = np.clip(rewards, -1, 1)
-    return rewards
+    return self._session.run(self._resized_img_batch_t,
+                             feed_dict={self._img_batch_t: obs})
 
   def _step(self, actions):
     (obs, rewards, dones, _) = zip(*[
