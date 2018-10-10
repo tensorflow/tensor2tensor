@@ -69,16 +69,14 @@ class GymEnvTest(tf.test.TestCase):
     shutil.rmtree(cls.out_dir)
     os.mkdir(cls.out_dir)
 
-  def init_batch_and_play(self, env_lambda, n_steps=1, unclipped_rewards=False,
-                          **kwargs):
+  def init_batch_and_play(self, env_lambda, n_steps=1, **kwargs):
     raw_envs = [env_lambda(), env_lambda()]
     env = gym_env.T2TGymEnv(raw_envs, **kwargs)
     obs = list()
     rewards = list()
     obs.append(env.reset())
     for _ in range(n_steps):
-      step_obs, step_rewards, dones = env.step(
-          actions=[0, 0], return_unclipped_rewards=unclipped_rewards)
+      step_obs, step_rewards, dones = env.step(actions=[0, 0])
       obs.append(step_obs)
       rewards.append(step_rewards)
       for (i, done) in enumerate(dones):
@@ -101,12 +99,12 @@ class GymEnvTest(tf.test.TestCase):
   def test_clipping(self):
     # This test needs base env with rewards out of [-1,1] range.
     env_lambda = TestEnv
-    _, _, rewards = self.init_batch_and_play(env_lambda, n_steps=2)
-    self.assertTrue(np.max(rewards) == 1)
-    self.assertTrue(np.min(rewards) == -1)
+    # TODO(lukaszkaiser): turn clipping on by default after refactor.
+    # _, _, rewards = self.init_batch_and_play(env_lambda, n_steps=2)
+    # self.assertTrue(np.max(rewards) == 1)
+    # self.assertTrue(np.min(rewards) == -1)
 
-    _, _, unclipped_rewards = self.init_batch_and_play(env_lambda, n_steps=2,
-                                                       unclipped_rewards=True)
+    _, _, unclipped_rewards = self.init_batch_and_play(env_lambda, n_steps=2)
     self.assertTrue(np.max(unclipped_rewards) > 1)
     self.assertTrue(np.min(unclipped_rewards) < -1)
 

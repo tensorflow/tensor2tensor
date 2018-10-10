@@ -23,8 +23,8 @@ import collections
 import math
 import random
 
-import numpy as np
 from gym.spaces import Box
+import numpy as np
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
@@ -124,7 +124,7 @@ class T2TEnv(video_utils.VideoProblem):
     """
     raise NotImplementedError
 
-  def step(self, actions, return_unclipped_rewards=False):
+  def step(self, actions):
     """Makes a step in all environments.
 
     Does any preprocessing and records frames.
@@ -138,23 +138,22 @@ class T2TEnv(video_utils.VideoProblem):
     """
     (obs, unclipped_rewards, dones) = self._step(actions)
     obs = self._preprocess_observations(obs)
-    rewards = np.clip(unclipped_rewards, -1, 1)
+    (min_reward, max_reward) = self.reward_range
+    rewards = np.around(np.clip(unclipped_rewards, min_reward, max_reward))
     encoded_obs = self._encode_observations(obs)
     for (rollout, frame, action) in zip(
         self._current_rollouts, self._current_frames, actions
     ):
       rollout.append(frame._replace(action=action))
 
-    # orud_tuple = (observation, reward, unclipped_reward, done)
+    # orud = (observation, reward, unclipped_reward, done)
     self._current_frames = [
-        Frame(*orud_tuple, action=None)
-        for orud_tuple in zip(encoded_obs, rewards, unclipped_rewards, dones)
+        Frame(*orud, action=None)
+        for orud in zip(encoded_obs, rewards, unclipped_rewards, dones)
     ]
-    if return_unclipped_rewards:
-      ret_rewards = unclipped_rewards
-    else:
-      ret_rewards = rewards
-    return (obs, ret_rewards, dones)
+    # TODO(lukaszkaiser): changed unclipped_reward to reward once we've
+    # removed the current setup with RewardClippingWrapper and so on.
+    return (obs, unclipped_rewards, dones)
 
   def _reset(self, indices):
     """Resets environments at given indices without recording history.
@@ -308,10 +307,9 @@ class T2TGymEnv(T2TEnv):
 
   name = "t2t_gym_env"
 
-  def __init__(self, envs, clip_rewards=False, grayscale=False,
+  def __init__(self, envs, grayscale=False,
                resize_height_factor=1, resize_width_factor=1):
     super(T2TGymEnv, self).__init__(len(envs))
-    self.clip_rewards = clip_rewards
     self.grayscale = grayscale
     self.resize_height_factor = resize_height_factor
     self.resize_width_factor = resize_width_factor
