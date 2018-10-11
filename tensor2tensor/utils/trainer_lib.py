@@ -582,13 +582,12 @@ def create_experiment_fn(*args, **kwargs):
   return experiment_fn
 
 
-def add_problem_hparams(hparams, problem_name):
+def add_problem_hparams(hparams, problem_name_or_instance):
   """Add problem hparams for the problems."""
-  print(problem_name)
-  if isinstance(problem_name, Problem):
-    problem = problem_name
+  if isinstance(problem_name_or_instance, Problem):
+    problem = problem_name_or_instance
   else:
-    problem = registry.problem(problem_name)
+    problem = registry.problem(problem_name_or_instance)
   p_hparams = problem.get_hparams(hparams)
   hparams.problem = problem
   hparams.problem_hparams = p_hparams
