@@ -226,7 +226,8 @@ def next_frame_basic_stochastic_discrete():
   hparams = basic_deterministic_params.next_frame_sampling()
   hparams.batch_size = 2
   hparams.video_num_target_frames = 16
-  hparams.scheduled_sampling_warmup_steps = 40000
+  hparams.scheduled_sampling_mode = "prob_inverse_lin"
+  hparams.scheduled_sampling_decay_steps = 40000
   hparams.scheduled_sampling_prob = 1.0
   hparams.add_hparam("bottleneck_bits", 64)
   hparams.add_hparam("bottleneck_noise", 0.02)

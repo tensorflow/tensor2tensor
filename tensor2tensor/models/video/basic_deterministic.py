@@ -96,6 +96,16 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
         probability = 1.0 - probability
         scheduled_sampling_func = common_video.scheduled_sample_prob
         scheduled_sampling_func_var = probability
+      elif mode == "prob_inverse_lin":
+        decay_steps = self.hparams.scheduled_sampling_decay_steps
+        probability = common_layers.inverse_exp_decay(
+            decay_steps // 4, step=iter_num)  # Very low at start.
+        probability *= common_layers.inverse_lin_decay(
+            decay_steps, step=iter_num)
+        probability *= self.hparams.scheduled_sampling_max_prob
+        probability = 1.0 - probability
+        scheduled_sampling_func = common_video.scheduled_sample_prob
+        scheduled_sampling_func_var = probability
       elif mode == "count":
         # Calculate number of ground-truth frames to pass in.
         k = self.hparams.scheduled_sampling_k
