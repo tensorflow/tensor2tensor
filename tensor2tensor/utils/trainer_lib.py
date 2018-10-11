@@ -24,6 +24,7 @@ import os
 import random
 import numpy as np
 
+from tensor2tensor.data_generators.problem import Problem
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import devices
 from tensor2tensor.utils import metrics_hook
@@ -583,9 +584,12 @@ def create_experiment_fn(*args, **kwargs):
 
 def add_problem_hparams(hparams, problem_name):
   """Add problem hparams for the problems."""
-  problem = registry.problem(problem_name)
+  print(problem_name)
+  if isinstance(problem_name, Problem):
+    problem = problem_name
+  else:
+    problem = registry.problem(problem_name)
   p_hparams = problem.get_hparams(hparams)
-
   hparams.problem = problem
   hparams.problem_hparams = p_hparams
 
