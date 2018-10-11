@@ -191,7 +191,8 @@ class AdafactorOptimizer(Optimizer):
         x /= clipping_denom
       subtrahend = x * update_scale
       if self._beta1:
-        new_m = m * tf.constant(self._beta1) + subtrahend * tf.constant(1.0 - self._beta1)
+        new_m = (m * tf.constant(self._beta1)
+                 + subtrahend * tf.constant(1.0 - self._beta1))
         subtrahend = new_m
         updates.append(mtf.assign(m, new_m))
       new_val = old_val - subtrahend
