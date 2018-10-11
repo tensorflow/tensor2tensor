@@ -280,11 +280,12 @@ class GlowOpsTest(tf.test.TestCase):
       exp_x2 = x_rand[:, :, :, 16:]
       exp_eps = x_rand[:, :, :, 16:] - latent_rand
       x_inv, _, eps, x2_t, _ = glow_ops.split(
-          merge_std, x_t, cond_latents=latent_t, hparams=hparams)
+          merge_std, x_t, cond_latents=latent_t, hparams=hparams,
+          condition=True)
       # Test reversibility.
       x_inv_inv, _, _ = glow_ops.split(
           merge_std, x_inv, cond_latents=latent_t, eps=eps, reverse=True,
-          hparams=hparams)
+          hparams=hparams, condition=True)
       with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         actual_eps, actual_x2, diff_np = sess.run([eps, x2_t, x_inv_inv - x_t])
@@ -312,7 +313,8 @@ class GlowOpsTest(tf.test.TestCase):
       hparams.add_hparam("latent_skip", True)
 
       prior_dist, new_state = glow_ops.compute_prior(
-          "lstm_prior", x_t, latent=latent_t, hparams=hparams, state=init_state)
+          "lstm_prior", x_t, latent=latent_t, hparams=hparams, state=init_state,
+          condition=True)
       with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         # Test initialization (mu, sigma) = (z, 1.0)

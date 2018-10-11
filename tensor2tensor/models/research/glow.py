@@ -105,17 +105,14 @@ class Glow(t2t_model.T2TModel):
 
     return self.scale(predictions)
 
-  def top_prior(self, z):
+  def top_prior(self):
     """Objective based on the prior over latent z.
 
-    Args:
-      z: 4-D Tensor, (batch_size, height, width, num_channels)
     Returns:
-      objective: float, log-likelihood of z under the prior.
       dist: instance of tf.distributions.Normal, prior distribution.
     """
     return glow_ops.top_prior(
-        "top_prior", z, learn_prior=self.hparams.top_prior)
+        "top_prior", self.z_top_shape, learn_prior=self.hparams.top_prior)
 
   def body(self, features):
     x = features["inputs"]
@@ -136,7 +133,10 @@ class Glow(t2t_model.T2TModel):
           "codec", x, self.hparams, eps=None, reverse=False)
       objective += encoder_objective
 
-      prior_objective, prior_dist = self.top_prior(self.z)
+      self.z_top_shape = common_layers.shape_list(self.z)
+      prior_dist = self.top_prior()
+      prior_objective = tf.reduce_sum(
+          prior_dist.log_prob(self.z), axis=[1, 2, 3])
       tf.summary.scalar("top_prior", tf.reduce_mean(prior_objective))
       self.z_sample = prior_dist.sample()
       objective += prior_objective
