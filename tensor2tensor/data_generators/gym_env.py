@@ -395,7 +395,7 @@ class T2TGymEnv(T2TEnv):
 
   def _preprocess_observations(self, obs):
     return self._session.obj.run(self._resized_img_batch_t.obj,
-                             feed_dict={self._img_batch_t.obj: obs})
+                                 feed_dict={self._img_batch_t.obj: obs})
 
   def _step(self, actions):
     (obs, rewards, dones, _) = zip(*[

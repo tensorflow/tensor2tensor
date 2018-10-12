@@ -34,6 +34,7 @@ import os
 import time
 
 import gym
+import numpy as np
 
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.data_generators.gym_env import T2TGymEnv
@@ -279,10 +280,14 @@ def setup_env(hparams):
   return env
 
 
-def eval_unclipped_reward(env):
-  # TODO: Implement, this should read data from env and aggregate (without
-  # playing)
-  pass
+def eval_unclipped_reward(env, epoch):
+  """Calculates mean unclipped rewards from given epoch."""
+  rewards = []
+  for rollout in env.rollouts_by_epoch[epoch]:
+    if rollout[-1].done:
+      rollout_rewards = [frame.reward for frame in rollout]
+      rewards.append(sum(rollout_rewards))
+  return np.mean(rewards)
 
 
 def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
@@ -381,7 +386,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     log("Mean clipped reward during generation: {}".format(
         mean_clipped_reward))  # this was output of generate_real_env_data(...)
 
-    mean_unclipped_reward = eval_unclipped_reward(env)
+    mean_unclipped_reward = eval_unclipped_reward(env, epoch)
     log("Mean eval reward (unclipped): {}".format(mean_unclipped_reward))
 
     # Summarize metrics.
