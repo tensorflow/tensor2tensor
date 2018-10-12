@@ -229,6 +229,9 @@ def next_frame_basic_stochastic_discrete():
   hparams.scheduled_sampling_mode = "prob_inverse_lin"
   hparams.scheduled_sampling_decay_steps = 40000
   hparams.scheduled_sampling_prob = 1.0
+  hparams.learning_rate_constant = 0.01
+  hparams.learning_rate_warmup_steps = 8000
+  hparams.learning_rate_schedule = "linear_warmup * constant"
   hparams.add_hparam("bottleneck_bits", 64)
   hparams.add_hparam("bottleneck_noise", 0.02)
   hparams.add_hparam("discrete_warmup_steps", 40000)

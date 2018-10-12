@@ -274,6 +274,7 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
           x, action, "action_enc", hparams.action_injection)
 
     x, extra_loss = self.inject_latent(x, features, filters)
+    x_mid = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
 
     # Run a stack of convolutions.
     for i in range(hparams.num_hidden_layers):
@@ -306,16 +307,21 @@ class NextFrameBasicDeterministic(t2t_model.T2TModel):
 
     # Cut down to original size.
     x = x[:, :inputs_shape[1], :inputs_shape[2], :]
+    x_fin = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
     if self.is_per_pixel_softmax:
       x = tf.layers.dense(x, hparams.problem.num_channels * 256, name="logits")
     else:
       x = tf.layers.dense(x, hparams.problem.num_channels, name="logits")
 
-    # Reward prediction if needed.
+    # No reward prediction if not needed.
     if "target_reward" not in features:
       return x, extra_loss
-    reward_pred = tf.expand_dims(  # Add a fake channels dim.
-        tf.reduce_mean(x, axis=[1, 2], keepdims=True), axis=3)
+
+    # Reward prediction based on middle and final logits.
+    reward_pred = tf.concat([x_mid, x_fin], axis=-1)
+    reward_pred = tf.nn.relu(tf.layers.dense(
+        reward_pred, 128, name="reward_pred"))
+    reward_pred = tf.expand_dims(reward_pred, axis=3)  # Need fake channels dim.
     return {"targets": x, "target_reward": reward_pred}, extra_loss
 
   def body(self, features):
