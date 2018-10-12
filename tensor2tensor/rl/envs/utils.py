@@ -89,7 +89,7 @@ def get_action_space(environment_spec):
   Returns:
     OpenAi Gym action space
   """
-  if 'batch_env' in environment_spec:
+  if "batch_env" in environment_spec:
     action_space = environment_spec.batch_env.action_space
   else:
     action_space = environment_spec.env_lambda().action_space
