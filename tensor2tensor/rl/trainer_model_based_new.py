@@ -26,15 +26,21 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import contextlib
+import copy
 import datetime
+import math
 import os
 import time
 
+import gym
+
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.data_generators.gym_env import T2TGymEnv
-from tensor2tensor.data_generators.gym_env_test import TestEnv
 from tensor2tensor.models.research import rl
+from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.rl import trainer_model_based_params
+from tensor2tensor.rl.envs.utils import InitialFrameChooser
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -50,6 +56,43 @@ flags.DEFINE_string("job_dir_to_evaluate", "",
                     "Directory of a job to be evaluated.")
 flags.DEFINE_string("eval_results_dir", "/tmp",
                     "Directory to store result of evaluation")
+
+
+@contextlib.contextmanager
+def temporary_flags(flag_settings):
+  old_values = {}
+  for flag_name, flag_value in flag_settings.items():
+    old_values[flag_name] = getattr(FLAGS, flag_name)
+    setattr(FLAGS, flag_name, flag_value)
+  yield
+  for flag_name, flag_value in old_values.items():
+    setattr(FLAGS, flag_name, flag_value)
+
+
+def _ppo_training_epochs(hparams, epoch, is_final_epoch, real_env_training):
+  """Helper for PPO restarts."""
+  if hparams.gather_ppo_real_env_data:
+    assert hparams.real_ppo_epochs_num is 0, (
+        "Should be put to 0 to enforce better readability")
+    real_training_ppo_epochs_num = int(math.ceil(
+        hparams.num_real_env_frames /
+        (hparams.epochs*hparams.real_ppo_epoch_length)))
+  else:
+    real_training_ppo_epochs_num = hparams.real_ppo_epochs_num
+
+  simulated_training_ppo_epochs_num = hparams.ppo_epochs_num
+
+  if epoch == -1:
+    assert real_env_training, (
+        "Epoch -1 should only be used for PPO collection in real environment.")
+    return real_training_ppo_epochs_num
+  ppo_training_epochs = (epoch + 1) * (simulated_training_ppo_epochs_num
+                                       + real_training_ppo_epochs_num)
+  if is_final_epoch:  # Length of training in the final epoch is doubled.
+    ppo_training_epochs += simulated_training_ppo_epochs_num
+  if real_env_training:
+    ppo_training_epochs += real_training_ppo_epochs_num
+  return ppo_training_epochs
 
 
 def setup_directories(base_dir, subdirs):
@@ -88,12 +131,90 @@ def make_log_fn(epoch, log_relative_time_fn):
   return log
 
 
+@contextlib.contextmanager
+def temporary_flags(flag_settings):
+  old_values = {}
+  for flag_name, flag_value in flag_settings.items():
+    old_values[flag_name] = getattr(FLAGS, flag_name)
+    setattr(FLAGS, flag_name, flag_value)
+  yield
+  for flag_name, flag_value in old_values.items():
+    setattr(FLAGS, flag_name, flag_value)
+
+
+def _ppo_training_epochs(hparams, epoch, is_final_epoch, real_env_training):
+  """Helper for PPO restarts."""
+  if hparams.gather_ppo_real_env_data:
+    assert hparams.real_ppo_epochs_num is 0, (
+        "Should be put to 0 to enforce better readability")
+    real_training_ppo_epochs_num = int(math.ceil(
+        hparams.num_real_env_frames /
+        (hparams.epochs*hparams.real_ppo_epoch_length)))
+  else:
+    real_training_ppo_epochs_num = hparams.real_ppo_epochs_num
+
+  simulated_training_ppo_epochs_num = hparams.ppo_epochs_num
+
+  if epoch == -1:
+    assert real_env_training, (
+        "Epoch -1 should only be used for PPO collection in real environment.")
+    return real_training_ppo_epochs_num
+  ppo_training_epochs = (epoch + 1) * (simulated_training_ppo_epochs_num
+                                       + real_training_ppo_epochs_num)
+  if is_final_epoch:  # Length of training in the final epoch is doubled.
+    ppo_training_epochs += simulated_training_ppo_epochs_num
+  if real_env_training:
+    ppo_training_epochs += real_training_ppo_epochs_num
+  return ppo_training_epochs
+
+
 def train_agent(environment_spec, agent_model_dir,
                 event_dir, world_model_dir, epoch_data_dir, hparams, epoch=0,
                 is_final_epoch=False):
   """Train the PPO agent in the simulated environment."""
-  # TODO: Implement
-  pass
+  ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
+  ppo_params_names = ["epochs_num", "epoch_length",
+                      "learning_rate", "num_agents",
+                      "optimization_epochs", "eval_every_epochs"]
+
+  for param_name in ppo_params_names:
+    ppo_param_name = "ppo_" + param_name
+    if ppo_param_name in hparams:
+      ppo_hparams.set_hparam(param_name, hparams.get(ppo_param_name))
+
+  ppo_hparams.epochs_num = _ppo_training_epochs(hparams, epoch,
+                                                is_final_epoch, False)
+  ppo_hparams.save_models_every_epochs = 10
+  ppo_hparams.world_model_dir = world_model_dir
+  ppo_hparams.add_hparam("force_beginning_resets", True)
+
+  # Adding model hparams for model specific adjustments
+  model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
+  ppo_hparams.add_hparam("model_hparams", model_hparams)
+
+  environment_spec = copy.copy(environment_spec)
+  environment_spec_param_names = [
+      "simulation_random_starts", "simulation_flip_first_random_for_beginning",
+      "intrinsic_reward_scale"
+  ]
+  for param_name in environment_spec_param_names:
+    environment_spec.set_hparam(param_name, hparams.get(param_name))
+  ppo_hparams.add_hparam("environment_spec", environment_spec)
+
+  ppo_hparams.add_hparam("initial_frame_chooser", InitialFrameChooser(
+      environment_spec, mode=tf.estimator.ModeKeys.EVAL
+  ))
+
+  # TODO(koz4k): Pass by arguments.
+  with temporary_flags({
+      "problem": environment_spec.initial_frames_problem,
+      "model": hparams.generative_model,
+      "hparams_set": hparams.generative_model_params,
+      "output_dir": world_model_dir,
+      "data_dir": epoch_data_dir,
+  }):
+    rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
+                         name_scope="ppo_sim%d" % (epoch + 1))
 
 
 def train_agent_real_env(
@@ -101,7 +222,43 @@ def train_agent_real_env(
     hparams, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the real environment."""
   # TODO: Implement
-  pass
+  ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
+  ppo_params_names = ["epochs_num", "epoch_length",
+                      "learning_rate", "num_agents", "eval_every_epochs",
+                      "optimization_epochs", "effective_num_agents"]
+
+  # This should be overridden.
+  ppo_hparams.add_hparam("effective_num_agents", None)
+  for param_name in ppo_params_names:
+    ppo_param_name = "real_ppo_"+ param_name
+    if ppo_param_name in hparams:
+      ppo_hparams.set_hparam(param_name, hparams.get(ppo_param_name))
+
+  ppo_hparams.epochs_num = _ppo_training_epochs(hparams, epoch,
+                                                is_final_epoch, True)
+  # We do not save model, as that resets frames that we need at restarts.
+  # But we need to save at the last step, so we set it very high.
+  ppo_hparams.save_models_every_epochs = 1000000
+
+  environment_spec = tf.contrib.training.HParams(batch_env=env,
+                                                 wrappers=None,
+                                                 simulated_env=False)
+
+  ppo_hparams.add_hparam("environment_spec", environment_spec)
+
+  class NotString:
+    def __repr__(self):
+      raise ValueError('NOT A STRING!')
+    def __str__(self):
+      raise ValueError('NOT A STRING!')
+
+  with temporary_flags({
+    "problem": NotString(),
+    "output_dir": NotString(),
+    "data_dir": NotString(),
+  }):
+    rl_trainer_lib.train(ppo_hparams, event_dir + "real", agent_model_dir,
+                       name_scope="ppo_real%d" % (epoch + 1))
 
 
 def train_world_model(env, data_dir, output_dir, hparams, epoch):
@@ -115,16 +272,18 @@ def train_world_model(env, data_dir, output_dir, hparams, epoch):
 
 
 def setup_env(hparams):
-  # TODO: Implement, might use scratch below (names are probably not correct),
-  # but assure if no global flags are used in standard_atari_env_spec() (for not
-  # simulated problem)
-  #environment_spec = rl.standard_atari_env_spec(
-  #  hparams.env_name,
-  #  resize_height_factor=hparams.resize_height_factor,
-  #  resize_width_factor=hparams.resize_width_factor,
-  #  grayscale=hparams.grayscale)
-  #env = T2TGymEnv([environment_spec.env_lambda() for _ in range(num_agents)])
-  env = T2TGymEnv([TestEnv()])
+  # TODO(kc): set reward clipping, when this will be possible
+  assert hparams.game == 'pong', 'Currently only games with [-1, 1] reward ' \
+                                 'range are working'
+  game_mode = "Deterministic-v4"
+  camel_game_name = "".join(
+    [w[0].upper() + w[1:] for w in hparams.game.split("_")])
+  camel_game_name += game_mode
+  env_name = camel_game_name
+  env = T2TGymEnv([gym.make(env_name)],
+                  grayscale=hparams.grayscale,
+                  resize_width_factor=hparams.resize_width_factor,
+                  resize_height_factor=hparams.resize_height_factor)
   return env
 
 
@@ -180,6 +339,12 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   mean_clipped_reward_summary.value.add(tag="mean_clipped_reward",
                                         simple_value=None)
 
+  sim_env_spec = rl.standard_atari_env_simulated_spec(
+      env,
+      # Hardcoded for now.
+      video_num_input_frames=4, video_num_target_frames=1
+  )
+
   for epoch in range(hparams.epochs):
     is_final_epoch = (epoch + 1) == hparams.epochs
     log = make_log_fn(epoch, log_relative_time)
@@ -202,8 +367,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     if not hparams.ppo_continue_training:
       ppo_model_dir = ppo_event_dir
     # TODO: build environment_spec (for simulated env)
-    environment_spec = None
-    train_agent(environment_spec, ppo_model_dir,
+    train_agent(sim_env_spec, ppo_model_dir,
                 ppo_event_dir, directories["world_model"], epoch_data_dir,
                 hparams, epoch=epoch, is_final_epoch=is_final_epoch)
 

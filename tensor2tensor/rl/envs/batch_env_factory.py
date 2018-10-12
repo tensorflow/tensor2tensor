@@ -32,12 +32,20 @@ import tensorflow as tf
 
 def batch_env_factory(environment_spec, num_agents, initial_frame_chooser=None):
   """Factory of batch envs."""
-
+  # TODO(konradczechowski): this is temporary function handling both old and
+  # new pipelines, refactor this when we move to the new pipeline.
   if environment_spec.simulated_env:
     cur_batch_env = _define_simulated_batch_env(
         environment_spec, num_agents, initial_frame_chooser)
   else:
-    cur_batch_env = _define_batch_env(environment_spec, num_agents)
+    if 'batch_env' in environment_spec:
+      assert not 'env_lambda' in environment_spec, \
+          'Environment_spec should contain only one of (env_lambda, batch_env).'
+      batch_env = environment_spec.batch_env
+      assert batch_env.batch_size == num_agents
+    else:
+      batch_env = _define_batch_env(environment_spec, num_agents)
+    cur_batch_env = py_func_batch_env.PyFuncBatchEnv(batch_env)
   return cur_batch_env
 
 
@@ -49,7 +57,6 @@ def _define_batch_env(environment_spec, num_agents):
         environment_spec.env_lambda()
         for _ in range(num_agents)]
     env = gym_env.T2TGymEnv(envs)
-    env = py_func_batch_env.PyFuncBatchEnv(env)
     return env
 
 

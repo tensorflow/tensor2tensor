@@ -177,6 +177,24 @@ def standard_atari_env_spec(
       simulated_env=simulated)
 
 
+def standard_atari_env_simulated_spec(
+    real_env, video_num_input_frames, video_num_target_frames
+):
+  env_spec = standard_atari_env_spec(
+      # This hack is here because SimulatedBatchEnv needs to get
+      # observation_space from the real env. TODO(koz4k): refactor.
+      env=lambda: real_env,
+      simulated=True
+  )
+  env_spec.add_hparam("simulation_random_starts", True)
+  env_spec.add_hparam("simulation_flip_first_random_for_beginning", True)
+  env_spec.add_hparam("intrinsic_reward_scale", 0.0)
+  env_spec.add_hparam("initial_frames_problem", real_env)
+  env_spec.add_hparam("video_num_input_frames", video_num_input_frames)
+  env_spec.add_hparam("video_num_target_frames", video_num_target_frames)
+  return env_spec
+
+
 def standard_atari_env_eval_spec(
     env, simulated=False, resize_height_factor=1, resize_width_factor=1,
     grayscale=False):
