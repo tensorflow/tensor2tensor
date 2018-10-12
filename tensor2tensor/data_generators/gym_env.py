@@ -337,6 +337,7 @@ class T2TGymEnv(T2TEnv):
       resized = tf.image.resize_images(self._img_batch_t,
                                        [height, width],
                                        tf.image.ResizeMethod.AREA)
+      resized = tf.cast(resized, tf.as_dtype(self.observation_space.dtype))
       if self.grayscale:
         resized = tf.image.rgb_to_grayscale(resized)
       self._resized_img_batch_t = resized
