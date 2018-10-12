@@ -39,8 +39,7 @@ import numpy as np
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.models.research import rl
-from tensor2tensor.rl import rl_trainer_lib, supervised_trainer, \
-    trainer_model_based_params
+from tensor2tensor.rl import rl_trainer_lib, trainer_model_based_params
 from tensor2tensor.rl.envs.utils import InitialFrameChooser
 from tensor2tensor.utils import trainer_lib
 
@@ -130,6 +129,20 @@ def make_log_fn(epoch, log_relative_time_fn):
     log_relative_time_fn()
 
   return log
+
+
+def train_supervised(problem, model_name, hparams, data_dir, output_dir,
+                     train_steps, eval_steps, local_eval_frequency=None):
+  if local_eval_frequency is None:
+    local_eval_frequency = getattr(FLAGS, "local_eval_frequency")
+
+  exp_fn = trainer_lib.create_experiment_fn(
+      model_name, problem, data_dir, train_steps, eval_steps,
+      min_eval_frequency=local_eval_frequency
+  )
+  run_config = trainer_lib.create_run_config(model_dir=output_dir)
+  exp = exp_fn(run_config, hparams)
+  exp.test()
 
 
 def train_agent(environment_spec, agent_model_dir,
@@ -230,7 +243,7 @@ def train_world_model(env, data_dir, output_dir, hparams, epoch):
   if epoch > 0:
     model_hparams.learning_rate *= hparams.learning_rate_bump
 
-  supervised_trainer.train(
+  train_supervised(
       problem=env,
       model_name=hparams.generative_model,
       hparams=model_hparams,
