@@ -33,6 +33,8 @@ def next_frame_epva():
   hparams.learning_rate_constant = 1e-05
   hparams.batch_size = 2
   hparams.clip_grad_norm = 0.01
+  # TODO(msaffar): disentangle EPVA from SV2P
+  hparams.add_hparam("reward_prediction", False)
   hparams.add_hparam("context_frames", 5)
   hparams.add_hparam("enc_learning_rate", 1e-5)
   hparams.add_hparam("enc_pred_loss_scale", 0.1)
