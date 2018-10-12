@@ -249,7 +249,6 @@ class SimdMeshImpl(mtf.MeshImpl):
     x = x.to_laid_out_tensor()
     t = x.one_slice
     group_assignment = self._create_group_assignment([mesh_axis])
-
     t = tpu_ops.all_to_all(
         t,
         concat_dimension=concat_axis,
@@ -257,7 +256,6 @@ class SimdMeshImpl(mtf.MeshImpl):
         split_count=len(group_assignment[0]),
         group_assignment=group_assignment)
     x = self.LaidOutTensor([t])
-
     return x
 
   def receive(self, x, mesh_axis, source_pcoord):
