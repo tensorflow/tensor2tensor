@@ -475,6 +475,10 @@ def _top_2_gating(
       inputs, experts_dim, use_bias=False,
       expert_dims=outer_expert_dims), experts_dim)
 
+  # The internals of this function run in float32.
+  #   bfloat16 seems to reduce quality.
+  raw_gates = mtf.to_float(raw_gates)
+
   expert_capacity_f = float(expert_capacity_dim.size)
 
   # FIND TOP 2 EXPERTS PER POSITON
@@ -590,6 +594,9 @@ def _top_2_gating(
       gate_2 * mask_2_flat
       * mtf.one_hot(index_2, experts_dim)
       * mtf.one_hot(mtf.to_int32(position_in_expert_2), expert_capacity_dim))
+
+  combine_tensor = mtf.cast(combine_tensor, inputs.dtype)
+  loss = mtf.cast(loss, inputs.dtype)
 
   dispatch_tensor = mtf.cast(
       mtf.cast(combine_tensor, tf.bool), combine_tensor.dtype)
