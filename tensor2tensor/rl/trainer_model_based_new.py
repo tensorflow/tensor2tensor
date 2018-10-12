@@ -17,7 +17,7 @@ r"""Training of model-based RL agents.
 
 Example invocation:
 
-python -m tensor2tensor.rl.trainer_model_based \
+python -m tensor2tensor.rl.trainer_model_based_new \
     --output_dir=$HOME/t2t/rl_v1 \
     --loop_hparams_set=rlmb_base \
     --loop_hparams='num_real_env_frames=10000,epochs=3'

@@ -20,7 +20,6 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
-import math
 import random
 
 from gym.spaces import Box
@@ -261,6 +260,10 @@ class T2TEnv(video_utils.VideoProblem):
     return self.observation_space.shape[1]
 
   @property
+  def only_keep_videos_from_0th_frame(self):
+    return False
+
+  @property
   def num_actions(self):
     return self.action_space.n
 
@@ -315,24 +318,20 @@ class T2TEnv(video_utils.VideoProblem):
     }
 
     # We set shuffled=True as we don't want to shuffle on disk later.
-    splits_and_paths = [
-        (split["split"], path)
+    paths = [
+        path
         for split in self.dataset_splits
         for path in filepath_fns[split["split"]](
             data_dir, split["shards"], shuffled=True
         )
     ]
 
-    # Split entire rollouts into shards so that no rollout is broken on shard
-    # boundary.
-    shard_size = int(
-        math.ceil(len(epoch_rollout_tuples) / len(splits_and_paths)))
-    for (i, (split, path)) in enumerate(splits_and_paths):
-      shard = epoch_rollout_tuples[i * shard_size: (i + 1) * shard_size]
-      generator_utils.generate_files(
-          self._generate_frames(shard), [path],
-          cycle_every_n=float("inf")
-      )
+    num_frames = sum(len(rollout) for (_, rollout) in epoch_rollout_tuples)
+    shard_size = num_frames // len(paths)
+    generator_utils.generate_files(
+        self._generate_frames(epoch_rollout_tuples), paths,
+        cycle_every_n=shard_size
+    )
 
 
 class T2TGymEnv(T2TEnv):
