@@ -268,7 +268,7 @@ def eval_unclipped_reward(env, epoch):
   rewards = []
   for rollout in env.rollouts_by_epoch[epoch]:
     if rollout[-1].done:
-      rollout_rewards = [frame.reward for frame in rollout]
+      rollout_rewards = [frame.unclipped_reward for frame in rollout]
       rewards.append(sum(rollout_rewards))
   return np.mean(rewards)
 
