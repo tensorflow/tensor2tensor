@@ -423,6 +423,9 @@ def image_transformer2d_base():
   hparams.add_hparam("kv_filter_width", 1)
 
   hparams.add_hparam("unconditional", False)  # unconditional generation
+
+  # relative embedding hparams
+  hparams.add_hparam("shared_rel", False)
   return hparams
 
 
