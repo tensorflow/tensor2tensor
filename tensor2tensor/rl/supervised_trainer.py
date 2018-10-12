@@ -36,6 +36,6 @@ def train(problem, model_name, hparams, data_dir, output_dir, train_steps,  # py
       model_name, problem, data_dir, train_steps, eval_steps,
       min_eval_frequency=local_eval_frequency
   )
-  run_config = trainer_lib.create_run_config(model_dir=data_dir)
+  run_config = trainer_lib.create_run_config(model_dir=output_dir)
   exp = exp_fn(run_config, hparams)
   exp.test()

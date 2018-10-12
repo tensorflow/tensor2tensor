@@ -39,8 +39,8 @@ import numpy as np
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.models.research import rl
-from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.rl import trainer_model_based_params
+from tensor2tensor.rl import rl_trainer_lib, supervised_trainer, \
+    trainer_model_based_params
 from tensor2tensor.rl.envs.utils import InitialFrameChooser
 from tensor2tensor.utils import trainer_lib
 
@@ -132,43 +132,6 @@ def make_log_fn(epoch, log_relative_time_fn):
   return log
 
 
-@contextlib.contextmanager
-def temporary_flags(flag_settings):
-  old_values = {}
-  for flag_name, flag_value in flag_settings.items():
-    old_values[flag_name] = getattr(FLAGS, flag_name)
-    setattr(FLAGS, flag_name, flag_value)
-  yield
-  for flag_name, flag_value in old_values.items():
-    setattr(FLAGS, flag_name, flag_value)
-
-
-def _ppo_training_epochs(hparams, epoch, is_final_epoch, real_env_training):
-  """Helper for PPO restarts."""
-  if hparams.gather_ppo_real_env_data:
-    assert hparams.real_ppo_epochs_num is 0, (
-        "Should be put to 0 to enforce better readability")
-    real_training_ppo_epochs_num = int(math.ceil(
-        hparams.num_real_env_frames /
-        (hparams.epochs*hparams.real_ppo_epoch_length)))
-  else:
-    real_training_ppo_epochs_num = hparams.real_ppo_epochs_num
-
-  simulated_training_ppo_epochs_num = hparams.ppo_epochs_num
-
-  if epoch == -1:
-    assert real_env_training, (
-        "Epoch -1 should only be used for PPO collection in real environment.")
-    return real_training_ppo_epochs_num
-  ppo_training_epochs = (epoch + 1) * (simulated_training_ppo_epochs_num
-                                       + real_training_ppo_epochs_num)
-  if is_final_epoch:  # Length of training in the final epoch is doubled.
-    ppo_training_epochs += simulated_training_ppo_epochs_num
-  if real_env_training:
-    ppo_training_epochs += real_training_ppo_epochs_num
-  return ppo_training_epochs
-
-
 def train_agent(environment_spec, agent_model_dir,
                 event_dir, world_model_dir, epoch_data_dir, hparams, epoch=0,
                 is_final_epoch=False):
@@ -241,9 +204,13 @@ def train_agent_real_env(
   # But we need to save at the last step, so we set it very high.
   ppo_hparams.save_models_every_epochs = 1000000
 
-  environment_spec = tf.contrib.training.HParams(batch_env=env,
-                                                 wrappers=None,
-                                                 simulated_env=False)
+  # Hardcoded for now. TODO(koz4k): Make it a hparam.
+  # ppo_hparams.video_num_input_frames = 4
+  # ppo_hparams.video_num_target_frames = 1
+
+  environment_spec = rl.standard_atari_env_spec(
+      batch_env=env, include_clipping=False
+  )
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)
 
@@ -256,12 +223,28 @@ def train_agent_real_env(
 
 def train_world_model(env, data_dir, output_dir, hparams, epoch):
   """Train the world model on problem_name."""
-  # TODO: Implement
   train_steps = hparams.model_train_steps * (
       epoch + hparams.inital_epoch_train_steps_multiplier)
   model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
-  learning_rate = model_hparams.learning_rate_constant
-  if epoch > 0: learning_rate *= hparams.learning_rate_bump
+
+  # Hardcoded for now. TODO(koz4k): Make it a hparam.
+  model_hparams.video_num_input_frames = 4
+  model_hparams.video_num_target_frames = 1
+
+  model_hparams.learning_rate = model_hparams.learning_rate_constant
+  if epoch > 0:
+    model_hparams.learning_rate *= hparams.learning_rate_bump
+
+  supervised_trainer.train(
+      problem=env,
+      model_name=hparams.generative_model,
+      hparams=model_hparams,
+      data_dir=data_dir,
+      output_dir=output_dir,
+      train_steps=train_steps,
+      eval_steps=100,
+      local_eval_frequency=2000
+  )
 
 
 def setup_env(hparams):
@@ -340,7 +323,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   sim_env_spec = rl.standard_atari_env_simulated_spec(
       env,
-      # Hardcoded for now.
+      # Hardcoded for now. TODO(koz4k): Make it a hparam.
       video_num_input_frames=4, video_num_target_frames=1
   )
 

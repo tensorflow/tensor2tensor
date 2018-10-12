@@ -144,8 +144,8 @@ def simple_gym_spec(env):
 
 
 def standard_atari_env_spec(
-    env, simulated=False, resize_height_factor=1, resize_width_factor=1,
-    grayscale=False, include_clipping=True):
+    env=None, simulated=False, resize_height_factor=1, resize_width_factor=1,
+    grayscale=False, include_clipping=True, batch_env=None):
   """Parameters of environment specification."""
   resize_wrapper = [tf_atari_wrappers.ResizeWrapper,
                     {"height_factor": resize_height_factor,
@@ -164,17 +164,23 @@ def standard_atari_env_spec(
     ]
   if simulated:  # No resizing on simulated environments.
     standard_wrappers = standard_wrappers[1:]
-  env_lambda = None
-  if isinstance(env, str):
-    env_lambda = lambda: gym.make(env)
-  if callable(env):
-    env_lambda = env
-  assert env_lambda is not None, "Unknown specification of environment"
 
-  return tf.contrib.training.HParams(
-      env_lambda=env_lambda,
+  env_spec = tf.contrib.training.HParams(
       wrappers=standard_wrappers,
       simulated_env=simulated)
+
+  if batch_env is not None:
+    env_spec.add_hparam("batch_env", batch_env)
+  else:
+    env_lambda = None
+    if isinstance(env, str):
+      env_lambda = lambda: gym.make(env)
+    if callable(env):
+      env_lambda = env
+    assert env_lambda is not None, "Unknown specification of environment"
+    env_spec.add_hparam("env_lambda", env_lambda)
+
+  return env_spec
 
 
 def standard_atari_env_simulated_spec(
