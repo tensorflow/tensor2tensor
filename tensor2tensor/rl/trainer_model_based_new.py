@@ -246,19 +246,11 @@ def train_agent_real_env(
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)
 
-  class NotString:
-    def __repr__(self):
-      raise ValueError('NOT A STRING!')
-    def __str__(self):
-      raise ValueError('NOT A STRING!')
-
-  with temporary_flags({
-    "problem": NotString(),
-    "output_dir": NotString(),
-    "data_dir": NotString(),
-  }):
-    rl_trainer_lib.train(ppo_hparams, event_dir + "real", agent_model_dir,
+  rl_trainer_lib.train(ppo_hparams, event_dir + "real", agent_model_dir,
                        name_scope="ppo_real%d" % (epoch + 1))
+
+  # Save unfinished rollouts to history.
+  env.reset()
 
 
 def train_world_model(env, data_dir, output_dir, hparams, epoch):

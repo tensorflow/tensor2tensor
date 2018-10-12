@@ -294,7 +294,7 @@ class T2TEnv(video_utils.VideoProblem):
 
     # Split entire rollouts into shards so that no rollout is broken on shard
     # boundary.
-    shard_size = int(math.ceil(len(shuffled_history)) / len(splits_and_paths))
+    shard_size = int(math.ceil(len(shuffled_history) / len(splits_and_paths)))
     for (i, (split, path)) in enumerate(splits_and_paths):
       rollouts = shuffled_history[i * shard_size : (i + 1) * shard_size]
       generator_utils.generate_files(
