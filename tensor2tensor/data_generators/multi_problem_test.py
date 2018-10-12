@@ -20,10 +20,39 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.data_generators import multi_problem
-from tensor2tensor.data_generators import problem_hparams
+from tensor2tensor.data_generators import problem
+from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import modalities
 
 import tensorflow as tf
+
+
+# TODO(trandustin): This test problem is required in order for MultiProblem
+# to access vocab size via encoders. In a future change, enable MultiProblem to
+# access vocab size more explicitly from the Problem.
+class TestProblem(problem.Problem):
+  """Test problem."""
+
+  def __init__(self, input_vocab_size, target_vocab_size):
+    super(TestProblem, self).__init__(False, False)
+    self.input_vocab_size = input_vocab_size
+    self.target_vocab_size = target_vocab_size
+
+  def hparams(self, defaults, model_hparams):
+    hp = defaults
+    hp.input_modality = {
+        "inputs": modalities.SymbolModality(model_hparams,
+                                            self.input_vocab_size)
+    }
+    hp.target_modality = modalities.SymbolModality(model_hparams,
+                                                   self.target_vocab_size)
+
+  def feature_encoders(self, data_dir):
+    encoders = {
+        "inputs": text_encoder.ByteTextEncoder(),
+        "targets": text_encoder.ByteTextEncoder(),
+    }
+    return encoders
 
 
 class TestMultiProblem(multi_problem.MultiProblem):
@@ -31,21 +60,21 @@ class TestMultiProblem(multi_problem.MultiProblem):
 
   def __init__(self):
     super(TestMultiProblem, self).__init__()
-    self.task_list.append(problem_hparams.TestProblem(2, 3))
-    self.task_list.append(problem_hparams.TestProblem(4, 6))
+    self.task_list.append(TestProblem(2, 3))
+    self.task_list.append(TestProblem(4, 6))
 
 
 class MultiProblemTest(tf.test.TestCase):
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testProblemHparamsModality(self):
-    problem = TestMultiProblem()
-    p_hparams = problem.get_hparams()
+    multiproblem = TestMultiProblem()
+    p_hparams = multiproblem.get_hparams()
     self.assertIsInstance(p_hparams.input_modality["inputs"],
                           modalities.SymbolModality)
-    self.assertEqual(p_hparams.input_modality["inputs"].top_dimensionality, 3)
+    self.assertEqual(p_hparams.input_modality["inputs"].top_dimensionality, 2)
     self.assertIsInstance(p_hparams.target_modality, modalities.SymbolModality)
-    self.assertEqual(p_hparams.target_modality.top_dimensionality, 5)
+    self.assertEqual(p_hparams.target_modality.top_dimensionality, 260)
 
 if __name__ == "__main__":
   tf.test.main()
