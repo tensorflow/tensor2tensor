@@ -114,9 +114,9 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
 
     self.length = length
     try:
-        self._min_reward = initial_frames_problem.min_reward
+      self._min_reward = initial_frames_problem.min_reward
     except AttributeError:
-        self._min_reward = initial_frames_problem.reward_range[0]
+      self._min_reward = initial_frames_problem.reward_range[0]
     self._num_frames = environment_spec.video_num_input_frames
     self._intrinsic_reward_scale = environment_spec.intrinsic_reward_scale
 

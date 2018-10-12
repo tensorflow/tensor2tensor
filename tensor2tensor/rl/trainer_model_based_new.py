@@ -185,7 +185,6 @@ def train_agent_real_env(
     env, agent_model_dir, event_dir, epoch_data_dir,
     hparams, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the real environment."""
-  # TODO: Implement
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_params_names = ["epochs_num", "epoch_length",
                       "learning_rate", "num_agents", "eval_every_epochs",
@@ -203,10 +202,6 @@ def train_agent_real_env(
   # We do not save model, as that resets frames that we need at restarts.
   # But we need to save at the last step, so we set it very high.
   ppo_hparams.save_models_every_epochs = 1000000
-
-  # Hardcoded for now. TODO(koz4k): Make it a hparam.
-  # ppo_hparams.video_num_input_frames = 4
-  # ppo_hparams.video_num_target_frames = 1
 
   environment_spec = rl.standard_atari_env_spec(
       batch_env=env, include_clipping=False
@@ -249,11 +244,11 @@ def train_world_model(env, data_dir, output_dir, hparams, epoch):
 
 def setup_env(hparams):
   # TODO(kc): set reward clipping, when this will be possible
-  assert hparams.game == 'pong', 'Currently only games with [-1, 1] reward ' \
-                                 'range are working'
+  assert hparams.game == "pong", "Currently only games with [-1, 1] reward " \
+                                 "range are working"
   game_mode = "Deterministic-v4"
   camel_game_name = "".join(
-    [w[0].upper() + w[1:] for w in hparams.game.split("_")])
+      [w[0].upper() + w[1:] for w in hparams.game.split("_")])
   camel_game_name += game_mode
   env_name = camel_game_name
   env = T2TGymEnv([gym.make(env_name)],
@@ -280,7 +275,6 @@ def eval_reward(env, epoch, clipped):
 
 def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   """Run the main training loop."""
-  # TODO: does anyone need this report_fn?
   if report_fn:
     assert report_metric is not None
 
@@ -340,7 +334,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
     epoch_data_dir = os.path.join(directories["data"], str(epoch))
     tf.gfile.MakeDirs(epoch_data_dir)
-    env.generate_data(epoch_data_dir, directories['tmp'])
+    env.generate_data(epoch_data_dir, directories["tmp"])
     epoch_data_dirs.append(epoch_data_dir)
 
     # Train world model
@@ -355,15 +349,13 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     ppo_model_dir = directories["ppo"]
     if not hparams.ppo_continue_training:
       ppo_model_dir = ppo_event_dir
-    # TODO: build environment_spec (for simulated env)
+
     train_agent(sim_env_spec, ppo_model_dir,
                 ppo_event_dir, directories["world_model"], epoch_data_dir,
                 hparams, epoch=epoch, is_final_epoch=is_final_epoch)
 
     # Train PPO on real env (short)
     log("Training PPO in real environment.")
-    # TODO: pass env, return summaries?
-    # TODO(kc): generation_mean_reward vs mean_reward (clipped?)
     train_agent_real_env(
         env, ppo_model_dir,
         ppo_event_dir, epoch_data_dir,
