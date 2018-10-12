@@ -295,7 +295,9 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   subdirectories = ["data", "tmp", "world_model", "ppo"]
   directories = setup_directories(output_dir, subdirectories)
 
+  epoch = -1
   env = setup_env(hparams)
+  env.start_new_epoch(epoch)
 
   # Timing log function
   log_relative_time = make_relative_timing_fn()
@@ -317,7 +319,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   mean_reward = train_agent_real_env(
       env, ppo_model_dir,
       ppo_event_dir, data_dir,
-      hparams, epoch=-1, is_final_epoch=False)
+      hparams, epoch=epoch, is_final_epoch=False)
   tf.logging.info("Mean reward (initial): {}".format(mean_reward))
 
   eval_metrics_event_dir = os.path.join(directories["world_model"],
@@ -338,6 +340,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   )
 
   for epoch in range(hparams.epochs):
+    env.start_new_epoch(epoch)
     is_final_epoch = (epoch + 1) == hparams.epochs
     log = make_log_fn(epoch, log_relative_time)
 

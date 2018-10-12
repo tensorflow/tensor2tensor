@@ -96,7 +96,19 @@ class T2TEnv(video_utils.VideoProblem):
 
   def clear_history(self):
     """Clears the rollout history."""
-    self.history = []
+    self.rollouts_by_epoch = dict()
+
+  def start_new_epoch(self, epoch):
+    if not isinstance(epoch, int):
+      raise ValueError('Epoch should be integer, got {}'.format(epoch))
+    if epoch in self.rollouts_by_epoch:
+      raise ValueError('Epoch {} already registered'.format(epoch))
+    self.current_epoch = epoch
+    self.rollouts_by_epoch[epoch] = list()
+
+  @property
+  def current_epoch_rollouts(self):
+    return self.rollouts_by_epoch[self.current_epoch]
 
   def _preprocess_observations(self, obs):
     """Transforms a batch of observations.
@@ -201,7 +213,7 @@ class T2TEnv(video_utils.VideoProblem):
       if frame is not None:
         rollout = self._current_rollouts[index]
         rollout.append(frame._replace(action=0))
-        self.history.append(rollout)
+        self.current_epoch_rollouts.append(rollout)
         self._current_rollouts[index] = []
       self._current_frames[index] = Frame(
           observation=ob, reward=0, unclipped_reward=0, done=False, action=None
@@ -270,11 +282,12 @@ class T2TEnv(video_utils.VideoProblem):
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE
 
-  def _generate_frames(self, rollouts):
-    for rollout in rollouts:
+  def _generate_frames(self, epoch_rollout_tuples):
+    for epoch, rollout in epoch_rollout_tuples:
       for (frame_number, frame) in enumerate(rollout):
         yield {
             "frame_number": [frame_number],
+            "epoch": [epoch],
             "image/encoded": [frame.observation],
             "image/format": ["png"],
             "image/height": [self.frame_height],
@@ -286,10 +299,14 @@ class T2TEnv(video_utils.VideoProblem):
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     """Saves the rollout history to disk."""
-    # Suffle rollouts globally taking advantage of the fact that we have
+    # Shuffle rollouts globally taking advantage of the fact that we have
     # everything in memory.
-    shuffled_history = self.history[:]
-    random.shuffle(shuffled_history)
+    epoch_rollout_tuples = list()
+    for epoch_nr, rollouts in self.rollouts_by_epoch.items():
+      for rollout in rollouts:
+        epoch_rollout_tuples.append((epoch_nr, rollout))
+
+    random.shuffle(epoch_rollout_tuples)
 
     filepath_fns = {
         problem.DatasetSplit.TRAIN: self.training_filepaths,
@@ -308,11 +325,13 @@ class T2TEnv(video_utils.VideoProblem):
 
     # Split entire rollouts into shards so that no rollout is broken on shard
     # boundary.
-    shard_size = int(math.ceil(len(shuffled_history) / len(splits_and_paths)))
+    shard_size = int(
+        math.ceil(len(epoch_rollout_tuples) / len(splits_and_paths)))
     for (i, (split, path)) in enumerate(splits_and_paths):
-      rollouts = shuffled_history[i * shard_size : (i + 1) * shard_size]
+      shard = epoch_rollout_tuples[i * shard_size: (i + 1) * shard_size]
       generator_utils.generate_files(
-          self._generate_frames(rollouts), [path], cycle_every_n=float("inf")
+          self._generate_frames(shard), [path],
+          cycle_every_n=float("inf")
       )
 
 
