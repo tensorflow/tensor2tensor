@@ -30,7 +30,9 @@ import datetime
 import os
 import time
 
+from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.data_generators.gym_env import T2TGymEnv
+from tensor2tensor.data_generators.gym_env_test import TestEnv
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import trainer_model_based_params
 from tensor2tensor.utils import trainer_lib
@@ -95,7 +97,7 @@ def train_agent(environment_spec, agent_model_dir,
 
 
 def train_agent_real_env(
-    env, agent_model_dir, event_dir, world_model_dir, epoch_data_dir,
+    env, agent_model_dir, event_dir, epoch_data_dir,
     hparams, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the real environment."""
   # TODO: Implement
@@ -116,12 +118,13 @@ def setup_env(hparams):
   # TODO: Implement, might use scratch below (names are probably not correct),
   # but assure if no global flags are used in standard_atari_env_spec() (for not
   # simulated problem)
-  environment_spec = rl.standard_atari_env_spec(
-    hparams.env_name,
-    resize_height_factor=hparams.resize_height_factor,
-    resize_width_factor=hparams.resize_width_factor,
-    grayscale=hparams.grayscale)
-  env = T2TGymEnv([environment_spec.env_lambda() for _ in range(num_agents)])
+  #environment_spec = rl.standard_atari_env_spec(
+  #  hparams.env_name,
+  #  resize_height_factor=hparams.resize_height_factor,
+  #  resize_width_factor=hparams.resize_width_factor,
+  #  grayscale=hparams.grayscale)
+  #env = T2TGymEnv([environment_spec.env_lambda() for _ in range(num_agents)])
+  env = T2TGymEnv([TestEnv()])
   return env
 
 
@@ -199,6 +202,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     if not hparams.ppo_continue_training:
       ppo_model_dir = ppo_event_dir
     # TODO: build environment_spec (for simulated env)
+    environment_spec = None
     train_agent(environment_spec, ppo_model_dir,
                 ppo_event_dir, directories["world_model"], epoch_data_dir,
                 hparams, epoch=epoch, is_final_epoch=is_final_epoch)
@@ -209,7 +213,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     # TODO(kc): generation_mean_reward vs mean_reward (clipped?)
     mean_clipped_reward = train_agent_real_env(
         env, ppo_model_dir,
-        ppo_event_dir, directories["world_model"], epoch_data_dir,
+        ppo_event_dir, epoch_data_dir,
         hparams, epoch=epoch, is_final_epoch=is_final_epoch)
 
     if hparams.stop_loop_early:
