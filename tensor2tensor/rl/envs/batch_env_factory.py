@@ -38,9 +38,9 @@ def batch_env_factory(environment_spec, num_agents, initial_frame_chooser=None):
     cur_batch_env = _define_simulated_batch_env(
         environment_spec, num_agents, initial_frame_chooser)
   else:
-    if 'batch_env' in environment_spec:
-      assert not 'env_lambda' in environment_spec, \
-          'Environment_spec should contain only one of (env_lambda, batch_env).'
+    if "batch_env" in environment_spec:
+      msg = "Environment_spec should contain only 1 of (env_lambda, batch_env)."
+      assert "env_lambda" not in environment_spec, msg
       batch_env = environment_spec.batch_env
       assert batch_env.batch_size == num_agents
     else:

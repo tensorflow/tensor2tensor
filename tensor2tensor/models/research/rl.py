@@ -184,8 +184,8 @@ def standard_atari_env_spec(
 
 
 def standard_atari_env_simulated_spec(
-    real_env, video_num_input_frames, video_num_target_frames
-):
+    real_env, video_num_input_frames, video_num_target_frames):
+  """Spec."""
   env_spec = standard_atari_env_spec(
       # This hack is here because SimulatedBatchEnv needs to get
       # observation_space from the real env. TODO(koz4k): refactor.

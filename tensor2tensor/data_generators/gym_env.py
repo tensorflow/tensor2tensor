@@ -78,7 +78,7 @@ class T2TEnv(video_utils.VideoProblem):
     self.batch_size = batch_size
     self._current_rollouts = [[] for _ in range(batch_size)]
     self._current_frames = [None for _ in range(batch_size)]
-
+    self.rollouts_by_epoch = dict()
     with tf.Graph().as_default() as tf_graph:
       self._tf_graph = _Noncopyable(tf_graph)
       self._image_t = _Noncopyable(
@@ -99,9 +99,9 @@ class T2TEnv(video_utils.VideoProblem):
 
   def start_new_epoch(self, epoch):
     if not isinstance(epoch, int):
-      raise ValueError('Epoch should be integer, got {}'.format(epoch))
+      raise ValueError("Epoch should be integer, got {}".format(epoch))
     if epoch in self.rollouts_by_epoch:
-      raise ValueError('Epoch {} already registered'.format(epoch))
+      raise ValueError("Epoch {} already registered".format(epoch))
     self.current_epoch = epoch
     self.rollouts_by_epoch[epoch] = list()
 
@@ -161,6 +161,8 @@ class T2TEnv(video_utils.VideoProblem):
       (obs, rewards, dones) - batches of observations, rewards and done flags
       respectively.
     """
+    if not self.rollouts_by_epoch:
+      self.start_new_epoch(0)
     (obs, unclipped_rewards, dones) = self._step(actions)
     obs = self._preprocess_observations(obs)
     (min_reward, max_reward) = self.reward_range
@@ -202,6 +204,8 @@ class T2TEnv(video_utils.VideoProblem):
     Returns:
       Batch of initial observations of reset environments.
     """
+    if not self.rollouts_by_epoch:
+      self.start_new_epoch(0)
     if indices is None:
       indices = np.arange(self.batch_size)
     new_obs = self._reset(indices)

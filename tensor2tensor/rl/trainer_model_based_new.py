@@ -39,7 +39,8 @@ import numpy as np
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.models.research import rl
-from tensor2tensor.rl import rl_trainer_lib, trainer_model_based_params
+from tensor2tensor.rl import rl_trainer_lib
+from tensor2tensor.rl import trainer_model_based_params
 from tensor2tensor.rl.envs.utils import InitialFrameChooser
 from tensor2tensor.utils import trainer_lib
 
@@ -133,6 +134,7 @@ def make_log_fn(epoch, log_relative_time_fn):
 
 def train_supervised(problem, model_name, hparams, data_dir, output_dir,
                      train_steps, eval_steps, local_eval_frequency=None):
+  """Train supervised."""
   if local_eval_frequency is None:
     local_eval_frequency = getattr(FLAGS, "local_eval_frequency")
 
@@ -198,6 +200,7 @@ def train_agent_real_env(
     env, agent_model_dir, event_dir, epoch_data_dir,
     hparams, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the real environment."""
+  del epoch_data_dir
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_params_names = ["epochs_num", "epoch_length",
                       "learning_rate", "num_agents", "eval_every_epochs",
@@ -256,9 +259,9 @@ def train_world_model(env, data_dir, output_dir, hparams, epoch):
 
 
 def setup_env(hparams):
+  """Setup."""
   # TODO(kc): set reward clipping, when this will be possible
-  assert hparams.game == "pong", "Currently only games with [-1, 1] reward " \
-                                 "range are working"
+  assert hparams.game == "pong", "Currently only games with [-1, 1] rewards."
   game_mode = "Deterministic-v4"
   camel_game_name = "".join(
       [w[0].upper() + w[1:] for w in hparams.game.split("_")])
@@ -273,7 +276,7 @@ def setup_env(hparams):
 
 def eval_reward(env, epoch, clipped):
   """Calculates mean rewards from given epoch."""
-  reward_name = 'reward' if clipped else 'unclipped_reward'
+  reward_name = "reward" if clipped else "unclipped_reward"
   rewards = []
   for rollout in env.rollouts_by_epoch[epoch]:
     if rollout[-1].done:
@@ -309,7 +312,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   data_dir = os.path.join(directories["data"], "initial")
   epoch_data_dirs.append(data_dir)
   # Collect data from the real environment with PPO or random policy.
-  # TODO: do we need option not to gather_ppo_real_env_data?
+  # TODO(lukaszkaiser): do we need option not to gather_ppo_real_env_data?
   # We could set learning_rate=0 if this flag == False.
   assert hparams.gather_ppo_real_env_data
   ppo_model_dir = directories["ppo"]
