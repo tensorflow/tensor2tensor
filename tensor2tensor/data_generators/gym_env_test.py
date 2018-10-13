@@ -72,6 +72,7 @@ class GymEnvTest(tf.test.TestCase):
   def init_batch_and_play(self, env_lambda, n_steps=1, **kwargs):
     raw_envs = [env_lambda(), env_lambda()]
     env = gym_env.T2TGymEnv(raw_envs, **kwargs)
+    env.start_new_epoch(0)
     obs = list()
     rewards = list()
     obs.append(env.reset())

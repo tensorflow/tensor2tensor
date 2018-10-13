@@ -20,7 +20,6 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
-import math
 import random
 
 from gym.spaces import Box
@@ -38,6 +37,15 @@ Frame = collections.namedtuple(
     # Order of elements reflects time progression within a frame.
     "Frame", ("observation", "reward", "unclipped_reward", "done", "action")
 )
+
+
+class _Noncopyable(object):
+
+  def __init__(self, obj):
+    self.obj = obj
+
+  def __deepcopy__(self, memo):
+    return self
 
 
 class T2TEnv(video_utils.VideoProblem):
@@ -72,10 +80,14 @@ class T2TEnv(video_utils.VideoProblem):
     self._current_frames = [None for _ in range(batch_size)]
 
     with tf.Graph().as_default() as tf_graph:
-      self._tf_graph = tf_graph
-      self._image_t = tf.placeholder(dtype=tf.uint8, shape=(None, None, None))
-      self._encoded_image_t = tf.image.encode_png(self._image_t)
-      self._session = tf.Session()
+      self._tf_graph = _Noncopyable(tf_graph)
+      self._image_t = _Noncopyable(
+          tf.placeholder(dtype=tf.uint8, shape=(None, None, None))
+      )
+      self._encoded_image_t = _Noncopyable(
+          tf.image.encode_png(self._image_t.obj)
+      )
+      self._session = _Noncopyable(tf.Session())
 
   def __str__(self):
     """Returns a string representation of the environment for debug purposes."""
@@ -83,7 +95,19 @@ class T2TEnv(video_utils.VideoProblem):
 
   def clear_history(self):
     """Clears the rollout history."""
-    self.history = []
+    self.rollouts_by_epoch = dict()
+
+  def start_new_epoch(self, epoch):
+    if not isinstance(epoch, int):
+      raise ValueError('Epoch should be integer, got {}'.format(epoch))
+    if epoch in self.rollouts_by_epoch:
+      raise ValueError('Epoch {} already registered'.format(epoch))
+    self.current_epoch = epoch
+    self.rollouts_by_epoch[epoch] = list()
+
+  @property
+  def current_epoch_rollouts(self):
+    return self.rollouts_by_epoch[self.current_epoch]
 
   def _preprocess_observations(self, obs):
     """Transforms a batch of observations.
@@ -101,8 +125,9 @@ class T2TEnv(video_utils.VideoProblem):
   def _encode_observations(self, observations):
     """Encodes observations as PNG."""
     return [
-        self._session.run(
-            self._encoded_image_t, feed_dict={self._image_t: observation}
+        self._session.obj.run(
+            self._encoded_image_t.obj,
+            feed_dict={self._image_t.obj: observation}
         )
         for observation in observations
     ]
@@ -169,7 +194,7 @@ class T2TEnv(video_utils.VideoProblem):
   def reset(self, indices=None):
     """Resets environments at given indices.
 
-    Does any preprocessing and adds finished rollouts to history.
+    Does any preprocessing and adds rollouts to history.
 
     Args:
       indices: Indices of environments to reset.
@@ -184,10 +209,10 @@ class T2TEnv(video_utils.VideoProblem):
     encoded_obs = self._encode_observations(new_obs)
     for (index, ob) in zip(indices, encoded_obs):
       frame = self._current_frames[index]
-      if frame is not None and frame.done:
+      if frame is not None:
         rollout = self._current_rollouts[index]
         rollout.append(frame._replace(action=0))
-        self.history.append(rollout)
+        self.current_epoch_rollouts.append(rollout)
         self._current_rollouts[index] = []
       self._current_frames[index] = Frame(
           observation=ob, reward=0, unclipped_reward=0, done=False, action=None
@@ -199,7 +224,7 @@ class T2TEnv(video_utils.VideoProblem):
 
     Can be overridden in derived classes.
     """
-    self._session.close()
+    self._session.obj.close()
 
   @property
   def num_channels(self):
@@ -235,6 +260,10 @@ class T2TEnv(video_utils.VideoProblem):
     return self.observation_space.shape[1]
 
   @property
+  def only_keep_videos_from_0th_frame(self):
+    return False
+
+  @property
   def num_actions(self):
     return self.action_space.n
 
@@ -256,11 +285,12 @@ class T2TEnv(video_utils.VideoProblem):
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE
 
-  def _generate_frames(self, rollouts):
-    for rollout in rollouts:
+  def _generate_frames(self, epoch_rollout_tuples):
+    for epoch, rollout in epoch_rollout_tuples:
       for (frame_number, frame) in enumerate(rollout):
         yield {
             "frame_number": [frame_number],
+            "epoch": [epoch],
             "image/encoded": [frame.observation],
             "image/format": ["png"],
             "image/height": [self.frame_height],
@@ -272,10 +302,14 @@ class T2TEnv(video_utils.VideoProblem):
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     """Saves the rollout history to disk."""
-    # Suffle rollouts globally taking advantage of the fact that we have
+    # Shuffle rollouts globally taking advantage of the fact that we have
     # everything in memory.
-    shuffled_history = self.history[:]
-    random.shuffle(shuffled_history)
+    epoch_rollout_tuples = list()
+    for epoch_nr, rollouts in self.rollouts_by_epoch.items():
+      for rollout in rollouts:
+        epoch_rollout_tuples.append((epoch_nr, rollout))
+
+    random.shuffle(epoch_rollout_tuples)
 
     filepath_fns = {
         problem.DatasetSplit.TRAIN: self.training_filepaths,
@@ -284,22 +318,20 @@ class T2TEnv(video_utils.VideoProblem):
     }
 
     # We set shuffled=True as we don't want to shuffle on disk later.
-    splits_and_paths = [
-        (split["split"], path)
+    paths = [
+        path
         for split in self.dataset_splits
         for path in filepath_fns[split["split"]](
             data_dir, split["shards"], shuffled=True
         )
     ]
 
-    # Split entire rollouts into shards so that no rollout is broken on shard
-    # boundary.
-    shard_size = int(math.ceil(len(shuffled_history)) / len(splits_and_paths))
-    for (i, (split, path)) in enumerate(splits_and_paths):
-      rollouts = shuffled_history[i * shard_size : (i + 1) * shard_size]
-      generator_utils.generate_files(
-          self._generate_frames(rollouts), [path], cycle_every_n=float("inf")
-      )
+    num_frames = sum(len(rollout) for (_, rollout) in epoch_rollout_tuples)
+    shard_size = num_frames // len(paths)
+    generator_utils.generate_files(
+        self._generate_frames(epoch_rollout_tuples), paths,
+        cycle_every_n=shard_size
+    )
 
 
 class T2TGymEnv(T2TEnv):
@@ -328,18 +360,19 @@ class T2TGymEnv(T2TEnv):
     if not all(env.action_space == self.action_space for env in self._envs):
       raise ValueError("All environments must use the same action space.")
 
-    with self._tf_graph.as_default():
+    with self._tf_graph.obj.as_default():
       self._resize = dict()
       orig_height, orig_width = orig_observ_space.shape[:2]
-      self._img_batch_t = tf.placeholder(
-          dtype=tf.uint8, shape=(None, orig_height, orig_width, 3))
+      self._img_batch_t = _Noncopyable(tf.placeholder(
+          dtype=tf.uint8, shape=(None, orig_height, orig_width, 3)))
       height, width = self.observation_space.shape[:2]
-      resized = tf.image.resize_images(self._img_batch_t,
+      resized = tf.image.resize_images(self._img_batch_t.obj,
                                        [height, width],
                                        tf.image.ResizeMethod.AREA)
+      resized = tf.cast(resized, tf.as_dtype(self.observation_space.dtype))
       if self.grayscale:
         resized = tf.image.rgb_to_grayscale(resized)
-      self._resized_img_batch_t = resized
+      self._resized_img_batch_t = _Noncopyable(resized)
 
   @property
   def num_channels(self):
@@ -360,8 +393,8 @@ class T2TGymEnv(T2TEnv):
     return "T2TGymEnv(%s)" % ", ".join([str(env) for env in self._envs])
 
   def _preprocess_observations(self, obs):
-    return self._session.run(self._resized_img_batch_t,
-                             feed_dict={self._img_batch_t: obs})
+    return self._session.obj.run(self._resized_img_batch_t.obj,
+                                 feed_dict={self._img_batch_t.obj: obs})
 
   def _step(self, actions):
     (obs, rewards, dones, _) = zip(*[

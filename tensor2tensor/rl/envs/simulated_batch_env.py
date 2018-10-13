@@ -113,10 +113,14 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     super(SimulatedBatchEnv, self).__init__(observ_space, action_space)
 
     self.length = length
-    self._min_reward = initial_frames_problem.min_reward
+    try:
+      self._min_reward = initial_frames_problem.min_reward
+    except AttributeError:
+      self._min_reward = initial_frames_problem.reward_range[0]
     self._num_frames = environment_spec.video_num_input_frames
     self._intrinsic_reward_scale = environment_spec.intrinsic_reward_scale
 
+    # TODO(koz4k): Pass by argument.
     model_hparams = trainer_lib.create_hparams(
         FLAGS.hparams_set, problem_name=FLAGS.problem)
     model_hparams.force_full_predict = True

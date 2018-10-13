@@ -83,12 +83,17 @@ def get_action_space(environment_spec):
   """Get action space associated with environment spec.
 
   Args:
-     environment_spec:  EnvironmentSpec object
+     environment_spec:  Object consisting one of batch_env.action_space, or
+     env_lambda().action_space
 
   Returns:
     OpenAi Gym action space
   """
-  return environment_spec.env_lambda().action_space
+  if "batch_env" in environment_spec:
+    action_space = environment_spec.batch_env.action_space
+  else:
+    action_space = environment_spec.env_lambda().action_space
+  return action_space
 
 
 def get_policy(observations, hparams):
