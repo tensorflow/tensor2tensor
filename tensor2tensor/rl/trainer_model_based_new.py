@@ -257,6 +257,7 @@ def train_world_model(env, data_dir, output_dir, hparams, epoch):
 
 
 def make_gym_env(hparams):
+  """Make env."""
   # TODO(kc): set reward clipping, when this will be possible
   assert hparams.game == "pong", "Currently only games with [-1, 1] rewards."
   game_mode = "Deterministic-v4"
