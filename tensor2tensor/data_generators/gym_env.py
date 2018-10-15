@@ -364,10 +364,7 @@ class T2TEnv(video_utils.VideoProblem):
     self._rollouts_by_epoch_and_split[self.current_epoch] = rollouts_by_split
     self._current_epoch_rollouts = []
 
-  def generate_data(self, data_dir, tmp_dir, task_id=-1):
-    """Saves the rollout history to disk."""
-    self._split_current_epoch()
-
+  def splits_and_paths(self, data_dir):
     filepath_fns = {
         problem.DatasetSplit.TRAIN: self.training_filepaths,
         problem.DatasetSplit.EVAL: self.dev_filepaths,
@@ -376,12 +373,19 @@ class T2TEnv(video_utils.VideoProblem):
 
     num_epochs = len(self._rollouts_by_epoch_and_split)
     # We set shuffled=True as we don't want to shuffle on disk later.
-    splits_and_paths = [
+    return [
         (split["split"], filepath_fns[split["split"]](
             data_dir, split["shards"] * num_epochs, shuffled=True
         ))
         for split in self.dataset_splits
     ]
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    """Saves the rollout history to disk."""
+    self._split_current_epoch()
+
+    splits_and_paths = self.splits_and_paths(data_dir)
+    num_epochs = len(self._rollouts_by_epoch_and_split)
 
     for (epoch_index, (epoch, rollouts_by_split)) in enumerate(
         six.iteritems(self._rollouts_by_epoch_and_split)
@@ -403,7 +407,7 @@ class T2TEnv(video_utils.VideoProblem):
           if path_index == len(paths) - 1:
             limit = None
           generator_utils.generate_files(
-              itertools.islice(frame_gen, limit), paths,
+              itertools.islice(frame_gen, limit), [path],
               cycle_every_n=float("inf")
           )
 
