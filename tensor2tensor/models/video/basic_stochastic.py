@@ -32,14 +32,7 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
-
-def prod(l):
-  """Product of elements in a list."""
-  res = l[0]
-  for i, e in enumerate(l):
-    if i > 0:
-      res *= e
-  return res
+tfl = tf.layers
 
 
 @registry.register_model
@@ -56,10 +49,10 @@ class NextFrameBasicStochastic(
     latent_mean, latent_std = self.construct_latent_tower(
         full_video, time_axis=1)
     latent = common_video.get_gaussian_tensor(latent_mean, latent_std)
-    latent = tf.layers.flatten(latent)
+    latent = tfl.flatten(latent)
     latent = tf.expand_dims(latent, axis=1)
     latent = tf.expand_dims(latent, axis=1)
-    latent_mask = tf.layers.dense(latent, filters, name="latent_mask")
+    latent_mask = tfl.dense(latent, filters, name="latent_mask")
     zeros_mask = tf.zeros(
         common_layers.shape_list(layer)[:-1] + [filters], dtype=tf.float32)
     layer = tf.concat([layer, latent_mask + zeros_mask], axis=-1)
@@ -82,15 +75,15 @@ class NextFrameBasicStochasticDiscrete(
     batch_size = layer_shape[0]
     state_size = hparams.latent_predictor_state_size
     lstm_cell = tf.contrib.rnn.LSTMCell(state_size)
-    discrete_predict = tf.layers.Dense(256, name="discrete_predict")
-    discrete_embed = tf.layers.Dense(state_size, name="discrete_embed")
+    discrete_predict = tfl.Dense(256, name="discrete_predict")
+    discrete_embed = tfl.Dense(state_size, name="discrete_embed")
 
     def add_d(layer, d):
-      z_mul = tf.layers.dense(d, final_filters, name="unbottleneck_mul")
+      z_mul = tfl.dense(d, final_filters, name="unbottleneck_mul")
       if not hparams.complex_addn:
         return layer + z_mul
       layer *= tf.nn.sigmoid(z_mul)
-      z_add = tf.layers.dense(d, final_filters, name="unbottleneck_add")
+      z_add = tfl.dense(d, final_filters, name="unbottleneck_add")
       layer += z_add
       return layer
 
@@ -98,10 +91,10 @@ class NextFrameBasicStochasticDiscrete(
       if hparams.full_latent_tower:
         rand = tf.random_uniform(layer_shape[:-1] + [hparams.bottleneck_bits])
       else:
-        layer_pred = tf.reshape(layer, [batch_size, prod(layer_shape[1:])])
-        prediction = tf.layers.dense(layer_pred, state_size, name="istate")
-        c_state = tf.layers.dense(layer_pred, state_size, name="cstate")
-        m_state = tf.layers.dense(layer_pred, state_size, name="mstate")
+        layer_pred = tfl.flatten(layer)
+        prediction = tfl.dense(layer_pred, state_size, name="istate")
+        c_state = tfl.dense(layer_pred, state_size, name="cstate")
+        m_state = tfl.dense(layer_pred, state_size, name="mstate")
         state = (c_state, m_state)
         outputs = []
         for i in range(hparams.bottleneck_bits // 8):
@@ -119,7 +112,7 @@ class NextFrameBasicStochasticDiscrete(
 
     # Embed.
     frames = tf.concat([inputs, target], axis=-1)
-    x = tf.layers.dense(
+    x = tfl.dense(
         frames, filters, name="latent_embed",
         bias_initializer=tf.random_normal_initializer(stddev=0.01))
     x = common_attention.add_timing_signal_nd(x)
@@ -131,14 +124,14 @@ class NextFrameBasicStochasticDiscrete(
           if i < hparams.filter_double_steps:
             filters *= 2
           x = common_attention.add_timing_signal_nd(x)
-          x = tf.layers.conv2d(x, filters, kernel,
-                               activation=common_layers.belu,
-                               strides=(2, 2), padding="SAME")
+          x = tfl.conv2d(x, filters, kernel,
+                         activation=common_layers.belu,
+                         strides=(2, 2), padding="SAME")
           x = common_layers.layer_norm(x)
     else:
       x = common_layers.double_discriminator(x)
       x = tf.expand_dims(tf.expand_dims(x, axis=1), axis=1)
-    x = tf.layers.dense(x, hparams.bottleneck_bits, name="bottleneck")
+    x = tfl.dense(x, hparams.bottleneck_bits, name="bottleneck")
     x0 = tf.tanh(x)
     d = x0 + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x0)) - 1.0 - x0)
     pred_loss = 0.0
@@ -149,10 +142,10 @@ class NextFrameBasicStochasticDiscrete(
       tf.summary.histogram("d_int", tf.reshape(d_int, [-1]))
       d_hot = tf.one_hot(d_int, 256, axis=-1)
       d_pred = discrete_embed(d_hot)
-      layer_pred = tf.reshape(layer, [batch_size, prod(layer_shape[1:])])
-      prediction0 = tf.layers.dense(layer_pred, state_size, name="istate")
-      c_state = tf.layers.dense(layer_pred, state_size, name="cstate")
-      m_state = tf.layers.dense(layer_pred, state_size, name="mstate")
+      layer_pred = tfl.flatten(layer)
+      prediction0 = tfl.dense(layer_pred, state_size, name="istate")
+      c_state = tfl.dense(layer_pred, state_size, name="cstate")
+      m_state = tfl.dense(layer_pred, state_size, name="mstate")
       pred = tf.concat([tf.expand_dims(prediction0, axis=1), d_pred], axis=1)
       state = (c_state, m_state)
       outputs = []
