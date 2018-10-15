@@ -22,9 +22,9 @@ from __future__ import print_function
 from functools import partial
 import six
 
+from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
-from tensor2tensor.models.video import basic_deterministic_params  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -519,4 +519,32 @@ class NextFrameBase(t2t_model.T2TModel):
     if self.has_rewards:
       rewards = merge(features["input_reward"], features["target_reward"])
     return self.__process(frames, actions, rewards, frames_raw)
+
+
+def next_frame_base():
+  """Common HParams for next_frame models."""
+  hparams = common_hparams.basic_params1()
+  # Loss cutoff.
+  hparams.add_hparam("video_modality_loss_cutoff", 0.01)
+  # Additional resizing the frames before feeding them to model.
+  hparams.add_hparam("preprocess_resize_frames", None)
+  # How many data points to suffle. Ideally should be part of problem not model!
+  hparams.add_hparam("shuffle_buffer_size", 128)
+  # Tiny mode. For faster tests.
+  hparams.add_hparam("tiny_mode", False)
+  # In case a model supports smaller/faster version.
+  hparams.add_hparam("small_mode", False)
+  # In case a model has stochastic version.
+  hparams.add_hparam("stochastic_model", False)
+  # Internal loss for recurrent models.
+  hparams.add_hparam("internal_loss", True)
+  # choose from: concat, multiplicative, multi_additive
+  hparams.add_hparam("action_injection", "multi_additive")
+  # Scheduled sampling method. Choose between
+  # ground_truth_only, prediction_only, prob, count, prob_inverse_exp.
+  hparams.add_hparam("scheduled_sampling_mode", "prediction_only")
+  hparams.add_hparam("scheduled_sampling_decay_steps", 10000)
+  hparams.add_hparam("scheduled_sampling_max_prob", 1.0)
+  hparams.add_hparam("scheduled_sampling_k", 900.0)
+  return hparams
 
