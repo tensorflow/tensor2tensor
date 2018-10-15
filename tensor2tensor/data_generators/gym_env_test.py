@@ -27,6 +27,7 @@ from gym.spaces import Box
 from gym.spaces import Discrete
 import numpy as np
 
+from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import gym_env
 
 import tensorflow as tf
@@ -63,11 +64,10 @@ class TestEnv(gym.Env):
 
 class GymEnvTest(tf.test.TestCase):
 
-  @classmethod
-  def setUpClass(cls):
-    cls.out_dir = tf.test.get_temp_dir()
-    shutil.rmtree(cls.out_dir)
-    os.mkdir(cls.out_dir)
+  def setUp(self):
+    self.out_dir = tf.test.get_temp_dir()
+    shutil.rmtree(self.out_dir)
+    os.mkdir(self.out_dir)
 
   def init_batch_and_play(self, env_lambda, n_steps=1, **kwargs):
     raw_envs = [env_lambda(), env_lambda()]
@@ -93,9 +93,17 @@ class GymEnvTest(tf.test.TestCase):
 
     filenames = os.listdir(self.out_dir)
     self.assertTrue(filenames)
-    path = os.path.join(self.out_dir, filenames[0])
-    records = list(tf.python_io.tf_record_iterator(path))
-    self.assertTrue(records)
+    for filename in filenames:
+      path = os.path.join(self.out_dir, filename)
+      records = list(tf.python_io.tf_record_iterator(path))
+      self.assertTrue(records)
+
+  def test_splits_dataset(self):
+    env, _, _ = self.init_batch_and_play(TestEnv, n_steps=20)
+    env.generate_data(self.out_dir, tmp_dir=None)
+
+    self.assertTrue(env.current_epoch_rollouts(problem.DatasetSplit.TRAIN))
+    self.assertTrue(env.current_epoch_rollouts(problem.DatasetSplit.EVAL))
 
   def test_clipping(self):
     # This test needs base env with rewards out of [-1,1] range.
