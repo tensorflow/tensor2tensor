@@ -23,6 +23,7 @@ t2t-decoder --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer 
 if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]
 then
   # Export for serving
+  pip install tensorflow_hub
   t2t-exporter \
       --problem=$T2T_PROBLEM \
       --data_dir=$T2T_DATA_DIR \
