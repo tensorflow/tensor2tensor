@@ -221,9 +221,12 @@ class T2TEnv(video_utils.VideoProblem):
       Batch of initial observations of reset environments.
     """
     if self.current_epoch is None:
-      raise ValueError(
-          "No current epoch. start_new_epoch() should first be called."
-      )
+      # It's here so that the old pipeline works.
+      self.start_new_epoch(0)
+      # TODO(koz4k): Replace with:
+      # raise ValueError(
+      #     "No current epoch. start_new_epoch() should first be called."
+      # )
 
     if indices is None:
       indices = np.arange(self.batch_size)
