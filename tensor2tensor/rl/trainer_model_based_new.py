@@ -280,11 +280,11 @@ def setup_env(hparams):
   return env
 
 
-def eval_reward(env, epoch, clipped):
+def eval_reward(env, clipped):
   """Calculates mean rewards from given epoch."""
   reward_name = "reward" if clipped else "unclipped_reward"
   rewards = []
-  for rollout in env.rollouts_by_epoch[epoch]:
+  for rollout in env.current_epoch_rollouts():
     if rollout[-1].done:
       rollout_reward = sum(getattr(frame, reward_name) for frame in rollout)
       rewards.append(rollout_reward)
@@ -329,7 +329,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       env, ppo_model_dir,
       ppo_event_dir, data_dir,
       hparams, epoch=epoch, is_final_epoch=False)
-  mean_unclipped_reward = eval_reward(env, epoch, clipped=False)
+  mean_unclipped_reward = eval_reward(env, clipped=False)
   tf.logging.info("Mean reward (initial): {}".format(mean_unclipped_reward))
 
   eval_metrics_event_dir = os.path.join(directories["world_model"],
@@ -350,14 +350,14 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   )
 
   for epoch in range(hparams.epochs):
-    env.start_new_epoch(epoch)
-    is_final_epoch = (epoch + 1) == hparams.epochs
-    log = make_log_fn(epoch, log_relative_time)
-
     epoch_data_dir = os.path.join(directories["data"], str(epoch))
     tf.gfile.MakeDirs(epoch_data_dir)
     env.generate_data(epoch_data_dir, directories["tmp"])
     epoch_data_dirs.append(epoch_data_dir)
+
+    env.start_new_epoch(epoch)
+    is_final_epoch = (epoch + 1) == hparams.epochs
+    log = make_log_fn(epoch, log_relative_time)
 
     # Train world model
     log("Training world model")
@@ -385,11 +385,11 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
     if hparams.stop_loop_early:
       return 0.0
-    mean_clipped_reward = eval_reward(env, epoch, clipped=True)
+    mean_clipped_reward = eval_reward(env, clipped=True)
     log("Mean clipped reward during generation: {}".format(
         mean_clipped_reward))  # this was output of generate_real_env_data(...)
 
-    mean_unclipped_reward = eval_reward(env, epoch, clipped=False)
+    mean_unclipped_reward = eval_reward(env, clipped=False)
     log("Mean eval reward (unclipped): {}".format(mean_unclipped_reward))
 
     # Summarize metrics.

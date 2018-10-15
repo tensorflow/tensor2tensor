@@ -108,14 +108,24 @@ class T2TEnv(video_utils.VideoProblem):
     self.current_epoch = epoch
     self._current_epoch_rollouts = []
 
-  def current_epoch_rollouts(self, split):
+  def current_epoch_rollouts(self, split=None):
     try:
       rollouts_by_split = self._rollouts_by_epoch_and_split[self.current_epoch]
     except KeyError:
-      raise ValueError(
-          "generate_data() should first be called in the current epoch"
-      )
-    return rollouts_by_split[split]
+      if split is not None:
+        raise ValueError(
+            "generate_data() should first be called in the current epoch"
+        )
+      else:
+        return self._current_epoch_rollouts
+    if split is not None:
+      return rollouts_by_split[split]
+    else:
+      return [
+          rollout
+          for rollouts in rollouts_by_split.values()
+          for rollout in rollouts
+      ]
 
   def _preprocess_observations(self, obs):
     """Transforms a batch of observations.
@@ -381,7 +391,10 @@ class T2TEnv(video_utils.VideoProblem):
     ]
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
-    """Saves the rollout history to disk."""
+    """Saves the rollout history to disk.
+
+    Also splits data into train/dev sets.
+    """
     self._split_current_epoch()
 
     splits_and_paths = self.splits_and_paths(data_dir)
