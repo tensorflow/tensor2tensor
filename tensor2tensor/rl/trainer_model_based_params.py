@@ -27,8 +27,13 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
-FLAGS = tf.flags.FLAGS
+flags = tf.flags
+FLAGS = flags.FLAGS
 
+
+flags.DEFINE_string("loop_hparams_set", "rlmb_base",
+                    "Which RL hparams set to use.")
+flags.DEFINE_string("loop_hparams", "", "Overrides for overall loop HParams.")
 
 HP_SCOPES = ["loop", "model", "ppo"]
 
