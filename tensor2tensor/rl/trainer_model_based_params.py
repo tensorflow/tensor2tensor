@@ -104,6 +104,7 @@ def rlmb_base():
       # Rollout fractions to report reward_accuracy on.
       eval_rollout_fractions=[0.25, 0.5, 1],
       stop_loop_early=False,  # To speed-up tests.
+      env_timesteps_limit=-1,  # Use default from gym.make()
   )
 
 
@@ -389,6 +390,7 @@ def rlmb_tiny():
           resize_height_factor=2,
           resize_width_factor=2,
           game="pong",
+          env_timesteps_limit=6,
       ).values())
 
 

@@ -130,7 +130,8 @@ def make_log_fn(epoch, log_relative_time_fn):
 
 
 def train_supervised(problem, model_name, hparams, data_dir, output_dir,
-                     train_steps, eval_steps, local_eval_frequency=None):
+                     train_steps, eval_steps, local_eval_frequency=None,
+                     schedule="continuous_train_and_eval"):
   """Train supervised."""
   if local_eval_frequency is None:
     local_eval_frequency = getattr(FLAGS, "local_eval_frequency")
@@ -141,7 +142,7 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
   )
   run_config = trainer_lib.create_run_config(model_dir=output_dir)
   exp = exp_fn(run_config, hparams)
-  exp.test()
+  getattr(exp, schedule)()
 
 
 def train_agent(environment_spec, agent_model_dir,
@@ -255,8 +256,7 @@ def train_world_model(env, data_dir, output_dir, hparams, epoch):
   )
 
 
-def setup_env(hparams):
-  """Setup."""
+def make_gym_env(hparams):
   # TODO(kc): set reward clipping, when this will be possible
   assert hparams.game == "pong", "Currently only games with [-1, 1] rewards."
   game_mode = "Deterministic-v4"
@@ -264,7 +264,20 @@ def setup_env(hparams):
       [w[0].upper() + w[1:] for w in hparams.game.split("_")])
   camel_game_name += game_mode
   env_name = camel_game_name
-  env = T2TGymEnv([gym.make(env_name)],
+  env = gym.make(env_name)
+  if hparams.env_timesteps_limit != -1:
+    # Replace TimeLimit Wrapper with one of proper time step limit.
+    if isinstance(env, gym.wrappers.TimeLimit):
+      env = env.env
+    env = gym.wrappers.TimeLimit(env,
+                                 max_episode_steps=hparams.env_timesteps_limit)
+  return env
+
+
+def setup_env(hparams):
+  """Setup."""
+  env = T2TGymEnv([make_gym_env(hparams)
+                   for _ in range(hparams.real_ppo_num_agents)],
                   grayscale=hparams.grayscale,
                   resize_width_factor=hparams.resize_width_factor,
                   resize_height_factor=hparams.resize_height_factor)
@@ -277,7 +290,7 @@ def eval_reward(env, epoch, clipped):
   rewards = []
   for rollout in env.rollouts_by_epoch[epoch]:
     if rollout[-1].done:
-      rollout_reward = sum(frame[reward_name] for frame in rollout)
+      rollout_reward = sum(getattr(frame, reward_name) for frame in rollout)
       rewards.append(rollout_reward)
   if rewards:
     mean_rewards = np.mean(rewards)
