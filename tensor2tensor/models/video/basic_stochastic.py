@@ -48,12 +48,11 @@ class NextFrameBasicStochastic(
     base_vae.NextFrameBaseVae):
   """Stochastic version of basic next-frame model."""
 
-  def inject_latent(self, layer, features, filters):
+  def inject_latent(self, layer, inputs, target):
     """Inject a VAE-style latent."""
     # Latent for stochastic model
-    input_frames = tf.to_float(features["inputs_raw"])
-    target_frames = tf.to_float(features["targets_raw"])
-    full_video = tf.concat([input_frames, target_frames], axis=1)
+    filters = 128
+    full_video = tf.stack(inputs + [target], axis=1)
     latent_mean, latent_std = self.construct_latent_tower(
         full_video, time_axis=1)
     latent = common_video.get_gaussian_tensor(latent_mean, latent_std)
@@ -73,9 +72,8 @@ class NextFrameBasicStochasticDiscrete(
     basic_deterministic.NextFrameBasicDeterministic):
   """Basic next-frame model with a tiny discrete latent."""
 
-  def inject_latent(self, layer, features, filters):
+  def inject_latent(self, layer, inputs, target):
     """Inject a deterministic latent based on the target frame."""
-    del filters
     hparams = self.hparams
     final_filters = common_layers.shape_list(layer)[-1]
     filters = hparams.hidden_size
@@ -120,8 +118,7 @@ class NextFrameBasicStochasticDiscrete(
       return add_d(layer, d), 0.0
 
     # Embed.
-    frames = tf.concat(
-        [features["cur_target_frame"], features["inputs"]], axis=-1)
+    frames = tf.concat([inputs, target], axis=-1)
     x = tf.layers.dense(
         frames, filters, name="latent_embed",
         bias_initializer=tf.random_normal_initializer(stddev=0.01))
