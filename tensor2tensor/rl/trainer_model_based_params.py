@@ -34,6 +34,11 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string("loop_hparams_set", "rlmb_base",
                     "Which RL hparams set to use.")
 flags.DEFINE_string("loop_hparams", "", "Overrides for overall loop HParams.")
+flags.DEFINE_string("job_dir_to_evaluate", "",
+                    "Directory of a job to be evaluated.")
+flags.DEFINE_string("eval_results_dir", "/tmp",
+                    "Directory to store result of evaluation")
+
 
 HP_SCOPES = ["loop", "model", "ppo"]
 

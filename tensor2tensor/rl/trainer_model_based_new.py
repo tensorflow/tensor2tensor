@@ -50,11 +50,6 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("job_dir_to_evaluate", "",
-                    "Directory of a job to be evaluated.")
-flags.DEFINE_string("eval_results_dir", "/tmp",
-                    "Directory to store result of evaluation")
-
 
 @contextlib.contextmanager
 def temporary_flags(flag_settings):
