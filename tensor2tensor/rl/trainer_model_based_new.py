@@ -133,7 +133,8 @@ def make_log_fn(epoch, log_relative_time_fn):
 
 
 def train_supervised(problem, model_name, hparams, data_dir, output_dir,
-                     train_steps, eval_steps, local_eval_frequency=None):
+                     train_steps, eval_steps, local_eval_frequency=None,
+                     schedule="continuous_train_and_eval"):
   """Train supervised."""
   if local_eval_frequency is None:
     local_eval_frequency = getattr(FLAGS, "local_eval_frequency")
@@ -144,7 +145,7 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
   )
   run_config = trainer_lib.create_run_config(model_dir=output_dir)
   exp = exp_fn(run_config, hparams)
-  exp.test()
+  getattr(exp, schedule)()
 
 
 def train_agent(environment_spec, agent_model_dir,
