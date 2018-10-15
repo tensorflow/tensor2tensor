@@ -556,6 +556,46 @@ def beta_schedule(schedule, global_step, final_beta, decay_start, decay_end):
   return beta
 
 
+def extract_random_video_patch(videos, num_frames=-1):
+  """For every video, extract a random consecutive patch of num_frames.
+
+  Args:
+    videos: 5-D Tensor, (NTHWC)
+    num_frames: Integer, if -1 then the entire video is returned.
+  Returns:
+    video_patch: 5-D Tensor, (NTHWC) with T = num_frames.
+  Raises:
+    ValueError: If num_frames is greater than the number of total frames in
+                the video.
+  """
+  if num_frames == -1:
+    return videos
+  batch_size, num_total_frames, h, w, c = common_layers.shape_list(videos)
+  if num_total_frames < num_frames:
+    raise ValueError("Expected num_frames <= %d, got %d" %
+                     (num_total_frames, num_frames))
+
+  # Randomly choose start_inds for each video.
+  frame_start = tf.random_uniform(
+      shape=(batch_size,), minval=0, maxval=num_total_frames - num_frames + 1,
+      dtype=tf.int32)
+
+  # [start[0], start[0] + 1, ... start[0] + num_frames - 1] + ...
+  # [start[batch_size-1], ... start[batch_size-1] + num_frames - 1]
+  range_inds = tf.expand_dims(tf.range(num_frames), axis=0)
+  frame_inds = range_inds + tf.expand_dims(frame_start, axis=1)
+  frame_inds = tf.reshape(frame_inds, [-1])
+
+  # [0]*num_frames + [1]*num_frames + ... [batch_size-1]*num_frames
+  batch_inds = tf.expand_dims(tf.range(batch_size), axis=1)
+  batch_inds = tf.tile(batch_inds, [1, num_frames])
+  batch_inds = tf.reshape(batch_inds, [-1])
+
+  gather_inds = tf.stack((batch_inds, frame_inds), axis=1)
+  video_patches = tf.gather_nd(videos, gather_inds)
+  return tf.reshape(video_patches, (batch_size, num_frames, h, w, c))
+
+
 class VideoWriter(object):
   """Base helper class for writing videos."""
 
