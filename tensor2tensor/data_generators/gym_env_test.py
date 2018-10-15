@@ -27,8 +27,8 @@ from gym.spaces import Box
 from gym.spaces import Discrete
 import numpy as np
 
-from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import gym_env
+from tensor2tensor.data_generators import problem
 
 import tensorflow as tf
 
@@ -156,7 +156,7 @@ class GymEnvTest(tf.test.TestCase):
     frame_numbers = [
         tf.train.Example.FromString(
             record
-        ).features.feature['frame_number'].int64_list.value[0]
+        ).features.feature["frame_number"].int64_list.value[0]
         for (_, paths) in env.splits_and_paths(self.out_dir)
         for path in paths
         for record in tf.python_io.tf_record_iterator(path)

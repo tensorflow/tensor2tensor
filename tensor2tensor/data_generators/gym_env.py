@@ -394,10 +394,7 @@ class T2TEnv(video_utils.VideoProblem):
     ]
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
-    """Saves the rollout history to disk.
-
-    Also splits data into train/dev sets.
-    """
+    """Saves the rollout history to disk, split into train/dev sets."""
     self._split_current_epoch()
 
     splits_and_paths = self.splits_and_paths(data_dir)
