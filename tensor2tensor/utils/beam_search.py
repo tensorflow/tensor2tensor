@@ -105,9 +105,66 @@ def compute_batch_indices(batch_size, beam_size):
   return batch_pos
 
 
+def fast_tpu_gather(params, indices, name=None):
+  """Fast gather implementation for models running on TPU.
+
+  This function use one_hot and batch matmul to do gather, which is faster
+  than gather_nd on TPU. For params that have dtype of int32 (sequences to
+  gather from), batch_gather is used to keep accuracy.
+
+  Args:
+    params: A tensor from which to gather values.
+      [batch_size, original_size, ...]
+    indices: A tensor used as the index to gather values.
+      [batch_size, selected_size].
+    name: A string, name of the operation (optional).
+
+  Returns:
+    gather_result: A tensor that has the same rank as params.
+      [batch_size, selected_size, ...]
+  """
+  with tf.name_scope(name):
+    dtype = params.dtype
+
+    def _gather(params, indices):
+      """Fast gather using one_hot and batch matmul."""
+      if dtype != tf.float32:
+        params = tf.to_float(params)
+      shape = common_layers.shape_list(params)
+      indices_shape = common_layers.shape_list(indices)
+      ndims = params.shape.ndims
+      # Adjust the shape of params to match one-hot indices, which is the
+      # requirement of Batch MatMul.
+      if ndims == 2:
+        params = tf.expand_dims(params, axis=-1)
+      if ndims > 3:
+        params = tf.reshape(params, [shape[0], shape[1], -1])
+      gather_result = tf.matmul(
+          tf.one_hot(indices, shape[1], dtype=params.dtype), params)
+      if ndims == 2:
+        gather_result = tf.squeeze(gather_result, axis=-1)
+      if ndims > 3:
+        shape[1] = indices_shape[1]
+        gather_result = tf.reshape(gather_result, shape)
+      if dtype != tf.float32:
+        gather_result = tf.cast(gather_result, dtype)
+      return gather_result
+
+    # If the dtype is int32, use the gather instead of one_hot matmul to avoid
+    # precision loss. The max int value can be represented by bfloat16 in MXU is
+    # 256, which is smaller than the possible id values. Encoding/decoding can
+    # potentially used to make it work, but the benenfit is small right now.
+    if dtype == tf.int32:
+      gather_result = tf.batch_gather(params, indices)
+    else:
+      gather_result = _gather(params, indices)
+
+    return gather_result
+
+
 def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
                                 beam_size, batch_size, prefix="default",
-                                states_to_gather=None):
+                                states_to_gather=None, use_tpu=False):
   """Given sequences and scores, will gather the top k=beam size sequences.
 
   This function is used to grow alive, and finished. It takes sequences,
@@ -136,6 +193,8 @@ def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
     batch_size: int
     prefix: string that will prefix unique names for the ops run.
     states_to_gather: dict (possibly nested) of decoding states.
+    use_tpu: A bool, whether to compute topk scores and sequences on TPU.
+
   Returns:
     Tuple of
     (topk_seq [batch_size, beam_size, decode_length],
@@ -143,31 +202,48 @@ def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
      topk_finished_flags[batch_size, beam_size])
   """
   _, topk_indexes = tf.nn.top_k(scores, k=beam_size)
-  # The next three steps are to create coordinates for tf.gather_nd to pull
-  # out the topk sequences from sequences based on scores.
-  # batch pos is a tensor like [[0,0,0,0,],[1,1,1,1],..]. It says which
-  # batch the beam item is in. This will create the i of the i,j coordinate
-  # needed for the gather
-  batch_pos = compute_batch_indices(batch_size, beam_size)
+  if not use_tpu:
+    # The next three steps are to create coordinates for tf.gather_nd to pull
+    # out the topk sequences from sequences based on scores.
+    # batch pos is a tensor like [[0,0,0,0,],[1,1,1,1],..]. It says which
+    # batch the beam item is in. This will create the i of the i,j coordinate
+    # needed for the gather
+    batch_pos = compute_batch_indices(batch_size, beam_size)
 
-  # top coordinates will give us the actual coordinates to do the gather.
-  # stacking will create a tensor of dimension batch * beam * 2, where the
-  # last dimension contains the i,j gathering coordinates.
-  top_coordinates = tf.stack([batch_pos, topk_indexes], axis=2)
+    # top coordinates will give us the actual coordinates to do the gather.
+    # stacking will create a tensor of dimension batch * beam * 2, where the
+    # last dimension contains the i,j gathering coordinates.
+    top_coordinates = tf.stack([batch_pos, topk_indexes], axis=2)
 
-  # Gather up the highest scoring sequences.  For each operation added, give it
-  # a concrete name to simplify observing these operations with tfdbg.  Clients
-  # can capture these tensors by watching these node names.
-  def gather(tensor, name):
-    return tf.gather_nd(tensor, top_coordinates, name=(prefix + name))
-  topk_seq = gather(sequences, "_topk_seq")
-  topk_flags = gather(flags, "_topk_flags")
-  topk_gathered_scores = gather(scores_to_gather, "_topk_scores")
-  if states_to_gather:
-    topk_gathered_states = nest.map_structure(
-        lambda state: gather(state, "_topk_states"), states_to_gather)
+    # Gather up the highest scoring sequences.  For each operation added, give
+    # it a concrete name to simplify observing these operations with tfdbg.
+    # Clients can capture these tensors by watching these node names.
+    def gather(tensor, name):
+      return tf.gather_nd(tensor, top_coordinates, name=(prefix + name))
+    topk_seq = gather(sequences, "_topk_seq")
+    topk_flags = gather(flags, "_topk_flags")
+    topk_gathered_scores = gather(scores_to_gather, "_topk_scores")
+    if states_to_gather:
+      topk_gathered_states = nest.map_structure(
+          lambda state: gather(state, "_topk_states"), states_to_gather)
+    else:
+      topk_gathered_states = states_to_gather
   else:
-    topk_gathered_states = states_to_gather
+    # Gather up the highest scoring sequences.  For each operation added, give
+    # it a concrete name to simplify observing these operations with tfdbg.
+    # Clients can capture these tensors by watching these node names.
+    topk_seq = fast_tpu_gather(sequences, topk_indexes, prefix + "_topk_seq")
+    topk_flags = fast_tpu_gather(flags, topk_indexes, prefix + "_topk_flags")
+    topk_gathered_scores = fast_tpu_gather(scores_to_gather, topk_indexes,
+                                           prefix + "_topk_scores")
+    if states_to_gather:
+      topk_gathered_states = nest.map_structure(
+          # pylint: disable=g-long-lambda
+          lambda state: fast_tpu_gather(state, topk_indexes,
+                                        prefix + "_topk_states"),
+          states_to_gather)
+    else:
+      topk_gathered_states = states_to_gather
   return topk_seq, topk_gathered_scores, topk_flags, topk_gathered_states
 
 
@@ -231,7 +307,7 @@ def beam_search(symbols_to_logits_fn,
   batch_size = common_layers.shape_list(initial_ids)[0]
 
   # Assume initial_ids are prob 1.0
-  initial_log_probs = tf.constant([[0.] + [-float("inf")] * (beam_size - 1)])
+  initial_log_probs = tf.constant([[0.] + [-INF] * (beam_size - 1)])
   # Expand to beam_size (batch_size, beam_size)
   alive_log_probs = tf.tile(initial_log_probs, [batch_size, 1])
 
@@ -292,7 +368,8 @@ def beam_search(symbols_to_logits_fn,
     curr_finished_flags = tf.concat([finished_flags, curr_finished], axis=1)
     return compute_topk_scores_and_seq(
         curr_finished_seq, curr_finished_scores, curr_finished_scores,
-        curr_finished_flags, beam_size, batch_size, "grow_finished")
+        curr_finished_flags, beam_size, batch_size, "grow_finished",
+        use_tpu=use_tpu)
 
   def grow_alive(curr_seq, curr_scores, curr_log_probs, curr_finished, states):
     """Given sequences and scores, will gather the top k=beam size sequences.
@@ -317,7 +394,7 @@ def beam_search(symbols_to_logits_fn,
     curr_scores += tf.to_float(curr_finished) * -INF
     return compute_topk_scores_and_seq(curr_seq, curr_scores, curr_log_probs,
                                        curr_finished, beam_size, batch_size,
-                                       "grow_alive", states)
+                                       "grow_alive", states, use_tpu=use_tpu)
 
   def grow_topk(i, alive_seq, alive_log_probs, states):
     r"""Inner beam search loop.
@@ -386,31 +463,40 @@ def beam_search(symbols_to_logits_fn,
     topk_beam_index = topk_ids // vocab_size
     topk_ids %= vocab_size  # Unflatten the ids
 
-    # The next three steps are to create coordinates for tf.gather_nd to pull
-    # out the correct sequences from id's that we need to grow.
-    # We will also use the coordinates to gather the booleans of the beam items
-    # that survived.
-    batch_pos = compute_batch_indices(batch_size, beam_size * 2)
+    if not use_tpu:
+      # The next three steps are to create coordinates for tf.gather_nd to pull
+      # out the correct sequences from id's that we need to grow.
+      # We will also use the coordinates to gather the booleans of the beam
+      # items that survived.
+      batch_pos = compute_batch_indices(batch_size, beam_size * 2)
 
-    # top beams will give us the actual coordinates to do the gather.
-    # stacking will create a tensor of dimension batch * beam * 2, where the
-    # last dimension contains the i,j gathering coordinates.
-    topk_coordinates = tf.stack([batch_pos, topk_beam_index], axis=2)
+      # top beams will give us the actual coordinates to do the gather.
+      # stacking will create a tensor of dimension batch * beam * 2, where the
+      # last dimension contains the i,j gathering coordinates.
+      topk_coordinates = tf.stack([batch_pos, topk_beam_index], axis=2)
 
-    # Gather up the most probable 2*beams both for the ids and finished_in_alive
-    # bools
-    topk_seq = tf.gather_nd(alive_seq, topk_coordinates)
-    if states:
-      states = nest.map_structure(
-          lambda state: tf.gather_nd(state, topk_coordinates), states)
+      # Gather up the most probable 2*beams both for the ids and
+      # finished_in_alive bools
+      topk_seq = tf.gather_nd(alive_seq, topk_coordinates)
+      if states:
+        states = nest.map_structure(
+            lambda state: tf.gather_nd(state, topk_coordinates), states)
 
-    # Append the most probable alive
-    if use_tpu:
+      # Append the most probable alive
+      topk_seq = tf.concat([topk_seq, tf.expand_dims(topk_ids, axis=2)], axis=2)
+    else:
+      # Gather up the most probable 2*beams both for the ids and
+      # finished_in_alive bools
+      topk_seq = fast_tpu_gather(alive_seq, topk_beam_index)
+
+      if states:
+        states = nest.map_structure(
+            lambda state: fast_tpu_gather(state, topk_beam_index), states)
+
+      # Update the most probable alive
       topk_seq = tf.transpose(topk_seq, perm=[2, 0, 1])
       topk_seq = inplace_ops.alias_inplace_update(topk_seq, i + 1, topk_ids)
       topk_seq = tf.transpose(topk_seq, perm=[1, 2, 0])
-    else:
-      topk_seq = tf.concat([topk_seq, tf.expand_dims(topk_ids, axis=2)], axis=2)
 
     topk_finished = tf.equal(topk_ids, eos_id)
 
@@ -538,7 +624,9 @@ def beam_search(symbols_to_logits_fn,
             if use_tpu else tf.TensorShape([None, None, None])),
            finished_scores.get_shape(),
            finished_flags.get_shape(),
-           nest.map_structure(get_state_shape_invariants, states),
+           (nest.map_structure(lambda state: state.get_shape(), states)
+            if use_tpu else
+            nest.map_structure(get_state_shape_invariants, states)),
        ],
        parallel_iterations=1,
        back_prop=False)
