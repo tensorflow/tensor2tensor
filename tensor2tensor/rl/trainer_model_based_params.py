@@ -203,7 +203,7 @@ def rlmb_base_stochastic_discrete():
   """Base setting with stochastic discrete model."""
   hparams = rlmb_base()
   hparams.learning_rate_bump = 1.0
-  hparams.grayscale = True
+  hparams.grayscale = False
   hparams.generative_model = "next_frame_basic_stochastic_discrete"
   hparams.generative_model_params = "next_frame_basic_stochastic_discrete"
   return hparams
