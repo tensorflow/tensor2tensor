@@ -332,26 +332,17 @@ class NextFrameBase(t2t_model.T2TModel):
       rewards: input rewards for next_frame prediction.
       target_index: index of target frame in all_frames list.
     """
-    i = index
-    j = i + self.hparams.video_num_input_frames
-
-    actions, rewards = None, None
     if self.is_recurrent_model:
-      frames = all_frames[i]
-      target_index = i+1
-      if self.has_actions:
-        actions = all_actions[i]
-      if self.has_rewards:
-        rewards = all_rewards[i]
+      target_index = index + 1
+      nones = [None]
     else:
-      frames = all_frames[i:j]
-      target_index = j
-      if self.has_actions:
-        actions = all_actions[i:j]
-        actions = tf.concat(actions, axis=1)
-      if self.has_rewards:
-        rewards = all_rewards[i:j]
-        rewards = tf.concat(rewards, axis=1)
+      target_index = index + self.hparams.video_num_input_frames
+      nones = [None] * self.hparams.video_num_input_frames
+
+    frames = all_frames[index:target_index]
+    actions = all_actions[index:target_index] if self.has_actions else nones
+    rewards = all_rewards[index:target_index] if self.has_rewards else nones
+
     return frames, actions, rewards, target_index
 
   def infer(self, features, *args, **kwargs):  # pylint: disable=arguments-differ
@@ -455,7 +446,7 @@ class NextFrameBase(t2t_model.T2TModel):
         res_frame, res_reward, res_extra_loss, internal_states = func_out
         res_frames.append(res_frame)
         res_rewards.append(res_reward)
-        extra_loss += res_extra_loss / float(hparams.video_num_target_frames)
+        extra_loss += res_extra_loss / float(len(input_index_range))
 
       # Only for Softmax loss: sample frame so we can keep iterating.
       sampled_frame = self.get_sampled_frame(res_frame)

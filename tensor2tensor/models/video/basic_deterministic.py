@@ -63,7 +63,7 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
 
   def next_frame(self, frames, actions, rewards, target_frame,
                  internal_states, video_extra):
-    del video_extra
+    del rewards, video_extra
 
     hparams = self.hparams
     filters = hparams.hidden_size
@@ -93,7 +93,7 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
 
     # Add embedded action if present.
     if self.has_actions:
-      action = actions[:, -1, :]
+      action = actions[-1]
       x = common_video.inject_additional_input(
           x, action, "action_enc", hparams.action_injection)
 

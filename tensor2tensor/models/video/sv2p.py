@@ -340,6 +340,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
                  internal_states, video_features):
     del target_frame
     latent, latent_mean, latent_std = video_features
+    frames, actions, rewards = frames[0], actions[0], rewards[0]
 
     extra_loss = 0.0
     if internal_states is None:

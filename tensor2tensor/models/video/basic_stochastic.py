@@ -111,7 +111,7 @@ class NextFrameBasicStochasticDiscrete(
       return add_d(layer, d), 0.0
 
     # Embed.
-    frames = tf.concat([inputs, target], axis=-1)
+    frames = tf.concat(inputs + [target], axis=-1)
     x = tfl.dense(
         frames, filters, name="latent_embed",
         bias_initializer=tf.random_normal_initializer(stddev=0.01))
