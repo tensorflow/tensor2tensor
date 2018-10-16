@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """BLEU metric util used during eval for MT."""
 from __future__ import absolute_import
 from __future__ import division
@@ -201,10 +202,11 @@ def bleu_tokenize(string):
 def bleu_wrapper(ref_filename, hyp_filename, case_sensitive=False):
   """Compute BLEU for two files (reference and hypothesis translation)."""
   ref_lines = text_encoder.native_to_unicode(
-      tf.gfile.Open(ref_filename, "r").read()).splitlines()
+      tf.gfile.Open(ref_filename, "r").read()).split("\n")
   hyp_lines = text_encoder.native_to_unicode(
-      tf.gfile.Open(hyp_filename, "r").read()).splitlines()
-  assert len(ref_lines) == len(hyp_lines)
+      tf.gfile.Open(hyp_filename, "r").read()).split("\n")
+  assert len(ref_lines) == len(hyp_lines), ("{} != {}".format(
+      len(ref_lines), len(hyp_lines)))
   if not case_sensitive:
     ref_lines = [x.lower() for x in ref_lines]
     hyp_lines = [x.lower() for x in hyp_lines]

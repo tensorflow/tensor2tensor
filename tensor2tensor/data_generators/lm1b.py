@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Data generators for LM1B data-set."""
 
 from __future__ import absolute_import
@@ -111,10 +112,6 @@ class LanguagemodelLm1b32k(text_problems.Text2SelfProblem):
   """
 
   @property
-  def vocab_filename(self):
-    return "vocab.lm1b.en.%d" % self.approx_vocab_size
-
-  @property
   def approx_vocab_size(self):
     return 2**15  # 32768
 
@@ -142,6 +139,14 @@ class LanguagemodelLm1b32k(text_problems.Text2SelfProblem):
 
 
 @registry.register_problem
+class LanguagemodelLm1b8k(LanguagemodelLm1b32k):
+
+  @property
+  def approx_vocab_size(self):
+    return 2**13  # 8192
+
+
+@registry.register_problem
 class LanguagemodelLm1b32kPacked(LanguagemodelLm1b32k):
   """Packed version for TPU training."""
 
@@ -149,9 +154,13 @@ class LanguagemodelLm1b32kPacked(LanguagemodelLm1b32k):
   def packed_length(self):
     return 256
 
+  @property
+  def vocab_filename(self):
+    return LanguagemodelLm1b32k().vocab_filename
+
 
 @registry.register_problem
-class LanguagemodelLm1b8kPacked(LanguagemodelLm1b32kPacked):
+class LanguagemodelLm1b8kPacked(LanguagemodelLm1b8k):
   """Packed version, 8k vocabulary.
 
   Ratio of dev tokens (including eos) to dev words (including eos)
@@ -159,8 +168,12 @@ class LanguagemodelLm1b8kPacked(LanguagemodelLm1b32kPacked):
   """
 
   @property
-  def approx_vocab_size(self):
-    return 2**13  # 8192
+  def packed_length(self):
+    return 256
+
+  @property
+  def vocab_filename(self):
+    return LanguagemodelLm1b8k().vocab_filename
 
 
 @registry.register_problem

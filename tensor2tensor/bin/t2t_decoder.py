@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 r"""Decode from trained T2T models.
 
 This binary performs inference using the Estimator API.
@@ -59,10 +60,6 @@ FLAGS = flags.FLAGS
 # Additional flags in bin/t2t_trainer.py and utils/flags.py
 flags.DEFINE_string("checkpoint_path", None,
                     "Path to the model checkpoint. Overrides output_dir.")
-flags.DEFINE_string("decode_from_file", None,
-                    "Path to the source file for decoding")
-flags.DEFINE_string("decode_to_file", None,
-                    "Path to the decoded (output) file")
 flags.DEFINE_bool("keep_timestamp", False,
                   "Set the mtime of the decoded file to the "
                   "checkpoint_path+'.index' mtime.")
@@ -94,8 +91,12 @@ def create_decode_hparams():
   decode_hp.shard_id = FLAGS.worker_id
   decode_hp.decode_in_memory = FLAGS.decode_in_memory
 
+  # Fathom
   # TODO: rllin fix
   decode_hp = decode_num_examples(decode_hp=decode_hp)
+
+  decode_hp.decode_to_file = FLAGS.decode_to_file
+  decode_hp.decode_reference = FLAGS.decode_reference
   return decode_hp
 
 
@@ -170,8 +171,10 @@ def score_file(filename):
     ckpt = ckpts.model_checkpoint_path
     saver.restore(sess, ckpt)
     # Run on each line.
+    with tf.gfile.Open(filename) as f:
+      lines = f.readlines()
     results = []
-    for line in open(filename):
+    for line in lines:
       tab_split = line.split("\t")
       if len(tab_split) > 2:
         raise ValueError("Each line must have at most one tab separator.")
@@ -221,7 +224,7 @@ def main(_):
     results = score_file(filename)
     if not FLAGS.decode_to_file:
       raise ValueError("To score a file, specify --decode_to_file for results.")
-    write_file = open(os.path.expanduser(FLAGS.decode_to_file), "w")
+    write_file = tf.gfile.Open(os.path.expanduser(FLAGS.decode_to_file), "w")
     for score in results:
       write_file.write("%.6f\n" % score)
     write_file.close()
@@ -249,4 +252,5 @@ def main(_):
 
 
 if __name__ == "__main__":
+  tf.logging.set_verbosity(tf.logging.INFO)
   tf.app.run()

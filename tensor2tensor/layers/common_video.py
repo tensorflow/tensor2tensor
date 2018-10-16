@@ -12,15 +12,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Layers common to multiple models."""
+
+"""Utilities for video."""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import numpy as np
+
 from tensor2tensor.layers import common_layers
 import tensorflow as tf
 
+from tensorflow.python.ops import summary_op_util
+
 tfl = tf.layers
+tfcl = tf.contrib.layers
 
 
 def swap_time_and_batch_axes(inputs):
@@ -32,7 +39,7 @@ def swap_time_and_batch_axes(inputs):
 def encode_to_shape(inputs, shape, scope):
   """Encode the given tensor to given image shape."""
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
-    w, h = shape[1].value, shape[2].value
+    w, h = shape[1], shape[2]
     x = inputs
     x = tf.contrib.layers.flatten(x)
     x = tfl.dense(x, w * h, activation=None, name="enc_dense")
@@ -45,7 +52,7 @@ def decode_to_shape(inputs, shape, scope):
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
     x = inputs
     x = tf.contrib.layers.flatten(x)
-    x = tfl.dense(x, shape[2].value, activation=None, name="dec_dense")
+    x = tfl.dense(x, shape[2], activation=None, name="dec_dense")
     x = tf.expand_dims(x, axis=1)
     return x
 
@@ -54,6 +61,35 @@ def basic_lstm(inputs, state, num_units, name=None):
   """Basic LSTM."""
   input_shape = common_layers.shape_list(inputs)
   cell = tf.contrib.rnn.BasicLSTMCell(num_units, name=name)
+  if state is None:
+    state = cell.zero_state(input_shape[0], tf.float32)
+  outputs, new_state = cell(inputs, state)
+  return outputs, new_state
+
+
+def lstm_cell(inputs,
+              state,
+              num_units,
+              use_peepholes=False,
+              cell_clip=0.0,
+              initializer=None,
+              num_proj=None,
+              num_unit_shards=None,
+              num_proj_shards=None,
+              reuse=None,
+              name=None):
+  """Full LSTM cell."""
+  input_shape = common_layers.shape_list(inputs)
+  cell = tf.contrib.rnn.LSTMCell(num_units,
+                                 use_peepholes=use_peepholes,
+                                 cell_clip=cell_clip,
+                                 initializer=initializer,
+                                 num_proj=num_proj,
+                                 num_unit_shards=num_unit_shards,
+                                 num_proj_shards=num_proj_shards,
+                                 reuse=reuse,
+                                 name=name,
+                                 state_is_tuple=False)
   if state is None:
     state = cell.zero_state(input_shape[0], tf.float32)
   outputs, new_state = cell(inputs, state)
@@ -101,8 +137,56 @@ def scheduled_sample_count(ground_truth_x,
 
   ground_truth_examps = tf.gather(ground_truth_x, ground_truth_idx)
   generated_examps = tf.gather(generated_x, generated_idx)
-  return tf.dynamic_stitch([ground_truth_idx, generated_idx],
-                           [ground_truth_examps, generated_examps])
+
+  output = tf.dynamic_stitch([ground_truth_idx, generated_idx],
+                             [ground_truth_examps, generated_examps])
+  # if batch size is known set it.
+  if isinstance(batch_size, int):
+    output.set_shape([batch_size] + common_layers.shape_list(output)[1:])
+  return output
+
+
+def inject_additional_input(layer, inputs, name, mode="concat"):
+  """Injects the additional input into the layer.
+
+  Args:
+    layer: layer that the input should be injected to.
+    inputs: inputs to be injected.
+    name: TF scope name.
+    mode: how the infor should be added to the layer:
+      "concat" concats as additional channels.
+      "multiplicative" broadcasts inputs and multiply them to the channels.
+      "multi_additive" broadcasts inputs and multiply and add to the channels.
+
+  Returns:
+    updated layer.
+
+  Raises:
+    ValueError: in case of unknown mode.
+  """
+  layer_shape = common_layers.shape_list(layer)
+  input_shape = common_layers.shape_list(inputs)
+  zeros_mask = tf.zeros(layer_shape, dtype=tf.float32)
+  if mode == "concat":
+    emb = encode_to_shape(inputs, layer_shape, name)
+    layer = tf.concat(values=[layer, emb], axis=-1)
+  elif mode == "multiplicative":
+    filters = layer_shape[-1]
+    input_reshaped = tf.reshape(inputs, [-1, 1, 1, input_shape[-1]])
+    input_mask = tf.layers.dense(input_reshaped, filters, name=name)
+    input_broad = input_mask + zeros_mask
+    layer *= input_broad
+  elif mode == "multi_additive":
+    filters = layer_shape[-1]
+    input_reshaped = tf.reshape(inputs, [-1, 1, 1, input_shape[-1]])
+    input_mul = tf.layers.dense(input_reshaped, filters, name=name + "_mul")
+    layer *= tf.nn.sigmoid(input_mul)
+    input_add = tf.layers.dense(input_reshaped, filters, name=name + "_add")
+    layer += input_add
+  else:
+    raise ValueError("Unknown injection mode: %s" % mode)
+
+  return layer
 
 
 def scheduled_sample_prob(ground_truth_x,
@@ -267,3 +351,485 @@ def tile_and_concat(image, latent, concat_latent=True):
   latent = tf.pad(latent, [[0, 0], [pad // 2, pad // 2], [0, 0], [0, 0]])
   return tf.concat([image, latent], axis=-1)
 
+
+def _encode_gif(images, fps):
+  """Encodes numpy images into gif string.
+
+  Args:
+    images: A 5-D `uint8` `np.array` (or a list of 4-D images) of shape
+      `[batch_size, time, height, width, channels]` where `channels` is 1 or 3.
+    fps: frames per second of the animation
+
+  Returns:
+    The encoded gif string.
+
+  Raises:
+    IOError: If the ffmpeg command returns an error.
+  """
+  writer = WholeVideoWriter(fps)
+  writer.write_multi(images)
+  return writer.finish()
+
+
+def py_gif_summary(tag, images, max_outputs, fps, return_summary_value=False):
+  """Outputs a `Summary` protocol buffer with gif animations.
+
+  Args:
+    tag: Name of the summary.
+    images: A 5-D `uint8` `np.array` of shape `[batch_size, time, height, width,
+      channels]` where `channels` is 1 or 3.
+    max_outputs: Max number of batch elements to generate gifs for.
+    fps: frames per second of the animation.
+    return_summary_value: If set to True, return a list of tf.Summary.Value
+                          objects in addition to the protocol buffer.
+
+  Returns:
+    The serialized `Summary` protocol buffer.
+
+  Raises:
+    ValueError: If `images` is not a 5-D `uint8` array with 1 or 3 channels.
+  """
+  images = np.asarray(images)
+  if images.dtype != np.uint8:
+    raise ValueError("Tensor must have dtype uint8 for gif summary.")
+  if images.ndim != 5:
+    raise ValueError("Tensor must be 5-D for gif summary.")
+  batch_size, _, height, width, channels = images.shape
+  if channels not in (1, 3):
+    raise ValueError("Tensors must have 1 or 3 channels for gif summary.")
+
+  summ = tf.Summary()
+  all_summ_values = []
+  num_outputs = min(batch_size, max_outputs)
+  for i in range(num_outputs):
+    image_summ = tf.Summary.Image()
+    image_summ.height = height
+    image_summ.width = width
+    image_summ.colorspace = channels  # 1: grayscale, 3: RGB
+    try:
+      image_summ.encoded_image_string = _encode_gif(images[i], fps)
+    except (IOError, OSError) as e:
+      tf.logging.warning(
+          "Unable to encode images to a gif string because either ffmpeg is "
+          "not installed or ffmpeg returned an error: %s. Falling back to an "
+          "image summary of the first frame in the sequence.", e)
+      try:
+        from PIL import Image  # pylint: disable=g-import-not-at-top
+        import io  # pylint: disable=g-import-not-at-top
+        with io.BytesIO() as output:
+          Image.fromarray(images[i][0]).save(output, "PNG")
+          image_summ.encoded_image_string = output.getvalue()
+      except ImportError as e:
+        tf.logging.warning(
+            "Gif summaries requires ffmpeg or PIL to be installed: %s", e)
+        image_summ.encoded_image_string = ""
+    if num_outputs == 1:
+      summ_tag = "{}/gif".format(tag)
+    else:
+      summ_tag = "{}/gif/{}".format(tag, i)
+    curr_summ_value = tf.Summary.Value(tag=summ_tag, image=image_summ)
+    all_summ_values.append(curr_summ_value)
+    summ.value.add(tag=summ_tag, image=image_summ)
+  summ_str = summ.SerializeToString()
+  if return_summary_value:
+    return all_summ_values, summ_str
+  return summ_str
+
+
+def gif_summary(name, tensor, max_outputs=3, fps=10, collections=None,
+                family=None):
+  """Outputs a `Summary` protocol buffer with gif animations.
+
+  Args:
+    name: Name of the summary.
+    tensor: A 5-D `uint8` `Tensor` of shape `[batch_size, time, height, width,
+      channels]` where `channels` is 1 or 3.
+    max_outputs: Max number of batch elements to generate gifs for.
+    fps: frames per second of the animation
+    collections: Optional list of tf.GraphKeys.  The collections to add the
+      summary to.  Defaults to [tf.GraphKeys.SUMMARIES]
+    family: Optional; if provided, used as the prefix of the summary tag name,
+      which controls the tab name used for display on Tensorboard.
+
+  Returns:
+    A scalar `Tensor` of type `string`. The serialized `Summary` protocol
+    buffer.
+
+  Raises:
+    ValueError: if the given tensor has the wrong shape.
+  """
+  tensor = tf.convert_to_tensor(tensor)
+  if len(tensor.get_shape()) != 5:
+    raise ValueError("Assuming videos given as tensors in the format "
+                     "[batch, time, height, width, channels] but got one "
+                     "of shape: %s" % str(tensor.get_shape()))
+  tensor = tf.cast(tensor, tf.uint8)
+  if summary_op_util.skip_summary():
+    return tf.constant("")
+  with summary_op_util.summary_scope(
+      name, family, values=[tensor]) as (tag, scope):
+    val = tf.py_func(
+        py_gif_summary,
+        [tag, tensor, max_outputs, fps],
+        tf.string,
+        stateful=False,
+        name=scope)
+    summary_op_util.collect(val, collections, [tf.GraphKeys.SUMMARIES])
+  return val
+
+
+
+
+def tinyify(array, tiny_mode, small_mode):
+  if tiny_mode:
+    return [1 for _ in array]
+  if small_mode:
+    return [x // 4 for x in array]
+  return array
+
+
+def get_gaussian_tensor(mean, log_var):
+  z = tf.random_normal(tf.shape(mean), 0, 1, dtype=tf.float32)
+  z = mean + tf.exp(log_var / 2.0) * z
+  return z
+
+
+def conv_latent_tower(images, time_axis, latent_channels=1, min_logvar=-5,
+                      is_training=False, random_latent=False,
+                      tiny_mode=False, small_mode=False):
+  """Builds convolutional latent tower for stochastic model.
+
+  At training time this tower generates a latent distribution (mean and std)
+  conditioned on the entire video. This latent variable will be fed to the
+  main tower as an extra variable to be used for future frames prediction.
+  At inference time, the tower is disabled and only returns latents sampled
+  from N(0,1).
+  If the multi_latent flag is on, a different latent for every timestep would
+  be generated.
+
+  Args:
+    images: tensor of ground truth image sequences
+    time_axis: the time axis  in images tensor
+    latent_channels: number of latent channels
+    min_logvar: minimum value for log_var
+    is_training: whether or not it is training mode
+    random_latent: whether or not generate random latents
+    tiny_mode: whether or not it is tiny_mode. tiny_mode sets the number
+        of conv channels to 1 at each layer. useful for testing the
+        integration tests.
+    small_mode: whether or not it is small_mode. small mode is the same model
+        with less conv and lstm layers and also lower number of channels.
+        suitable for videos with less complexity and testing.
+  Returns:
+    latent_mean: predicted latent mean
+    latent_logvar: predicted latent log variance
+  """
+  conv_size = tinyify([32, 64, 64], tiny_mode, small_mode)
+  with tf.variable_scope("latent", reuse=tf.AUTO_REUSE):
+    images = tf.to_float(images)
+    images = tf.unstack(images, axis=time_axis)
+    images = tf.concat(images, axis=3)
+
+    x = images
+    x = common_layers.make_even_size(x)
+    x = tfl.conv2d(x, conv_size[0], [3, 3], strides=(2, 2),
+                   padding="SAME", activation=tf.nn.relu, name="latent_conv1")
+    x = tfcl.layer_norm(x)
+    if not small_mode:
+      x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
+                     padding="SAME", activation=tf.nn.relu, name="latent_conv2")
+      x = tfcl.layer_norm(x)
+    x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(1, 1),
+                   padding="SAME", activation=tf.nn.relu, name="latent_conv3")
+    x = tfcl.layer_norm(x)
+
+    nc = latent_channels
+    mean = tfl.conv2d(x, nc, [3, 3], strides=(2, 2),
+                      padding="SAME", activation=None, name="latent_mean")
+    logv = tfl.conv2d(x, nc, [3, 3], strides=(2, 2),
+                      padding="SAME", activation=tf.nn.relu, name="latent_std")
+    logvar = logv + min_logvar
+
+    # No latent tower at inference time, just standard gaussian.
+    if not is_training:
+      return tf.zeros_like(mean), tf.zeros_like(logvar)
+
+    # No latent in the first phase
+    ret_mean, ret_logvar = tf.cond(
+        random_latent,
+        lambda: (tf.zeros_like(mean), tf.zeros_like(logvar)),
+        lambda: (mean, logvar))
+
+    return ret_mean, ret_logvar
+
+
+def beta_schedule(schedule, global_step, final_beta, decay_start, decay_end):
+  """Get KL multiplier (beta) based on the schedule."""
+  if decay_start > decay_end:
+    raise ValueError("decay_end is smaller than decay_end.")
+
+  # Since some of the TF schedules do not support incrementing a value,
+  # in all of the schedules, we anneal the beta from final_beta to zero
+  # and then reverse it at the bottom.
+  if schedule == "constant":
+    decayed_value = 0.0
+  elif schedule == "linear":
+    decayed_value = tf.train.polynomial_decay(
+        learning_rate=final_beta,
+        global_step=global_step - decay_start,
+        decay_steps=decay_end - decay_start,
+        end_learning_rate=0.0)
+  elif schedule == "noisy_linear_cosine_decay":
+    decayed_value = tf.train.noisy_linear_cosine_decay(
+        learning_rate=final_beta,
+        global_step=global_step - decay_start,
+        decay_steps=decay_end - decay_start)
+  # TODO(mechcoder): Add log_annealing schedule.
+  else:
+    raise ValueError("Unknown beta schedule.")
+
+  increased_value = final_beta - decayed_value
+  increased_value = tf.maximum(0.0, increased_value)
+
+  beta = tf.case(
+      pred_fn_pairs={
+          tf.less(global_step, decay_start): lambda: 0.0,
+          tf.greater(global_step, decay_end): lambda: final_beta},
+      default=lambda: increased_value)
+  return beta
+
+
+def extract_random_video_patch(videos, num_frames=-1):
+  """For every video, extract a random consecutive patch of num_frames.
+
+  Args:
+    videos: 5-D Tensor, (NTHWC)
+    num_frames: Integer, if -1 then the entire video is returned.
+  Returns:
+    video_patch: 5-D Tensor, (NTHWC) with T = num_frames.
+  Raises:
+    ValueError: If num_frames is greater than the number of total frames in
+                the video.
+  """
+  if num_frames == -1:
+    return videos
+  batch_size, num_total_frames, h, w, c = common_layers.shape_list(videos)
+  if num_total_frames < num_frames:
+    raise ValueError("Expected num_frames <= %d, got %d" %
+                     (num_total_frames, num_frames))
+
+  # Randomly choose start_inds for each video.
+  frame_start = tf.random_uniform(
+      shape=(batch_size,), minval=0, maxval=num_total_frames - num_frames + 1,
+      dtype=tf.int32)
+
+  # [start[0], start[0] + 1, ... start[0] + num_frames - 1] + ...
+  # [start[batch_size-1], ... start[batch_size-1] + num_frames - 1]
+  range_inds = tf.expand_dims(tf.range(num_frames), axis=0)
+  frame_inds = range_inds + tf.expand_dims(frame_start, axis=1)
+  frame_inds = tf.reshape(frame_inds, [-1])
+
+  # [0]*num_frames + [1]*num_frames + ... [batch_size-1]*num_frames
+  batch_inds = tf.expand_dims(tf.range(batch_size), axis=1)
+  batch_inds = tf.tile(batch_inds, [1, num_frames])
+  batch_inds = tf.reshape(batch_inds, [-1])
+
+  gather_inds = tf.stack((batch_inds, frame_inds), axis=1)
+  video_patches = tf.gather_nd(videos, gather_inds)
+  return tf.reshape(video_patches, (batch_size, num_frames, h, w, c))
+
+
+class VideoWriter(object):
+  """Base helper class for writing videos."""
+
+  def write(self, frame, encoded_frame=None):
+    """Writes a single video frame."""
+    raise NotImplementedError
+
+  def write_multi(self, frames, encoded_frames=None):
+    """Writes multiple video frames."""
+    if encoded_frames is None:
+      # Infinite iterator.
+      encoded_frames = iter(lambda: None, 1)
+    for (frame, encoded_frame) in zip(frames, encoded_frames):
+      self.write(frame, encoded_frame)
+
+  def finish(self):
+    """Finishes writing frames and returns output, if any.
+
+    Frees any resources acquired by the writer.
+    """
+    pass
+
+  def save_to_disk(self, output):
+    """Saves output to disk.
+
+    Args:
+      output: result of finish().
+    """
+    raise NotImplementedError
+
+  def finish_to_disk(self):
+    """Finishes writing frames and saves output to disk, if any."""
+    output = self.finish()  # pylint: disable=assignment-from-no-return
+    if output is not None:
+      self.save_to_disk(output)
+
+  def __del__(self):
+    """Frees any resources acquired by the writer."""
+    self.finish()
+
+
+class WholeVideoWriter(VideoWriter):
+  """Helper class for writing whole videos."""
+
+  def __init__(self, fps, output_path=None, file_format="gif"):
+    self.fps = fps
+    self.output_path = output_path
+    self.file_format = file_format
+    self.proc = None
+    self._out_chunks = []
+    self._err_chunks = []
+    self._out_thread = None
+    self._err_thread = None
+
+  def __init_ffmpeg(self, image_shape):
+    """Initializes ffmpeg to write frames."""
+    import itertools  # pylint: disable=g-import-not-at-top
+    from subprocess import Popen, PIPE  # pylint: disable=g-import-not-at-top,g-multiple-import
+    ffmpeg = "ffmpeg"
+    height, width, channels = image_shape
+    self.cmd = [
+        ffmpeg, "-y",
+        "-f", "rawvideo",
+        "-vcodec", "rawvideo",
+        "-r", "%.02f" % self.fps,
+        "-s", "%dx%d" % (width, height),
+        "-pix_fmt", {1: "gray", 3: "rgb24"}[channels],
+        "-i", "-",
+        "-filter_complex", "[0:v]split[x][z];[x]fifo[w];[z]palettegen,fifo[y];"
+                           "[w][y]paletteuse,fifo",
+        "-r", "%.02f" % self.fps,
+        "-f", self.file_format,
+        "-qscale", "0",
+        "-"
+    ]
+    self.proc = Popen(
+        self.cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE, bufsize=-1
+    )
+    (self._out_thread, self._err_thread) = itertools.starmap(
+        self._start_reader_thread, [
+            (self.proc.stdout, self._out_chunks),
+            (self.proc.stderr, self._err_chunks)
+        ]
+    )
+
+  def _start_reader_thread(self, stream, chunks):
+    """Starts a thread for reading output from FFMPEG.
+
+    The thread reads consecutive chunks from the stream and saves them in
+    the given list.
+
+    Args:
+      stream: output stream of the FFMPEG process.
+      chunks: list to save output chunks to.
+
+    Returns:
+      Thread
+    """
+    import io  # pylint: disable=g-import-not-at-top
+    import threading  # pylint: disable=g-import-not-at-top
+    def target():
+      while True:
+        chunk = stream.read(io.DEFAULT_BUFFER_SIZE)
+        if not chunk:
+          break
+        chunks.append(chunk)
+    thread = threading.Thread(target=target)
+    thread.start()
+    return thread
+
+  def write(self, frame, encoded_frame=None):
+    if self.proc is None:
+      self.__init_ffmpeg(frame.shape)
+    self.proc.stdin.write(frame.tostring())
+
+  def finish(self):
+    """Finishes transconding and returns the video.
+
+    Returns:
+      bytes
+
+    Raises:
+      IOError: in case of transcoding error.
+    """
+    if self.proc is None:
+      return None
+    self.proc.stdin.close()
+    for thread in (self._out_thread, self._err_thread):
+      thread.join()
+    (out, err) = [
+        b"".join(chunks) for chunks in (self._out_chunks, self._err_chunks)
+    ]
+    if self.proc.returncode:
+      err = "\n".join([" ".join(self.cmd), err.decode("utf8")])
+      raise IOError(err)
+    del self.proc
+    self.proc = None
+    return out
+
+  def save_to_disk(self, output):
+    if self.output_path is None:
+      raise ValueError(
+          "This writer doesn't support saving to disk (output_path not "
+          "specified)."
+      )
+    with tf.gfile.Open(self.output_path, "w") as f:
+      f.write(output)
+
+
+class BatchWholeVideoWriter(VideoWriter):
+  """Helper class for writing videos in batch."""
+
+  def __init__(self, fps, path_template, file_format="gif"):
+    self.fps = fps
+    self.path_template = path_template
+    self.file_format = file_format
+    self.writers = None
+
+  def write(self, batch_frame, batch_encoded_frame=None):
+    del batch_encoded_frame
+    if self.writers is None:
+      self.writers = [
+          WholeVideoWriter(
+              self.fps, self.path_template.format(i), self.file_format
+          )
+          for i in range(len(batch_frame))
+      ]
+    for i, frame in enumerate(batch_frame):
+      self.writers[i].write(frame)
+
+  def finish(self):
+    outs = [w.finish() for w in self.writers]
+    return outs
+
+  def save_to_disk(self, outputs):
+    for (writer, output) in zip(self.writers, outputs):
+      writer.save_to_disk(output)
+
+
+class IndividualFrameWriter(VideoWriter):
+  """Helper class for writing individual video frames."""
+
+  def __init__(self, output_dir):
+    self.output_dir = output_dir
+    self._counter = 0
+
+  def write(self, frame=None, encoded_frame=None):
+    import os  # pylint: disable=g-import-not-at-top
+    if encoded_frame is None:
+      raise ValueError("This writer only supports encoded frames.")
+    path = os.path.join(self.output_dir, "frame_%05d.png" % self._counter)
+    with tf.gfile.Open(path, "wb") as f:
+      f.write(encoded_frame)
+      self._counter += 1

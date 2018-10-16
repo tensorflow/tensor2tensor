@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Test for checkpoint compatibility."""
 # The checkpoint in test_data/transformer_test_ckpt is generated with the OSS
 # release.
@@ -59,7 +60,7 @@ class CheckpointCompatibilityTest(tf.test.TestCase):
 
     hp = trainer_lib.create_hparams(
         hp_set, data_dir=_DATA_DIR, problem_name=problem_name)
-    run_config = trainer_lib.create_run_config(model_dir=_CKPT_DIR)
+    run_config = trainer_lib.create_run_config(model, model_dir=_CKPT_DIR)
     estimator = trainer_lib.create_estimator(model, hp, run_config)
 
     for prediction in estimator.predict(self.input_fn):

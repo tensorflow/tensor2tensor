@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Batch of environments inside the TensorFlow graph."""
 
 # The code was based on Danijar Hafner's code from tf.agents:
@@ -21,12 +22,18 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from tensor2tensor.rl.envs import utils
+
 import tensorflow as tf
 
 
 class InGraphBatchEnv(object):
   """Abstract class for batch of environments inside the TensorFlow graph.
   """
+
+  def __init__(self, observ_space, action_space):
+    self.observ_space = observ_space
+    self.action_space = action_space
 
   def __getattr__(self, name):
     """Forward unimplemented attributes to one of the original environments.
@@ -38,6 +45,9 @@ class InGraphBatchEnv(object):
       Value behind the attribute name in one of the original environments.
     """
     return getattr(self._batch_env, name)
+
+  def __str__(self):
+    return "InGraphEnv(%s)" % str(self._batch_env)
 
   def __len__(self):
     """Number of combined environments."""
@@ -71,7 +81,24 @@ class InGraphBatchEnv(object):
     """
     return tf.cond(
         tf.cast(tf.reduce_sum(indices + 1), tf.bool),
-        lambda: self._reset_non_empty(indices), lambda: 0.0)
+        lambda: self._reset_non_empty(indices),
+        lambda: tf.cast(0, self.observ_dtype))
+
+  @property
+  def observ_dtype(self):
+    return utils.parse_dtype(self.observ_space)
+
+  @property
+  def observ_shape(self):
+    return utils.parse_shape(self.observ_space)
+
+  @property
+  def action_dtype(self):
+    return utils.parse_dtype(self.action_space)
+
+  @property
+  def action_shape(self):
+    return utils.parse_shape(self.action_space)
 
   @property
   def observ(self):

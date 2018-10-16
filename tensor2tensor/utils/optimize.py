@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Optimization."""
 from __future__ import absolute_import
 from __future__ import division
@@ -44,11 +45,14 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
   if use_tpu:
     opt = tf.contrib.tpu.CrossShardOptimizer(opt)
 
-  tf.summary.scalar("learning_rate", learning_rate)
-  opt_summaries = ["loss"]
-  if hparams.summarize_grads:
-    tf.logging.info("Summarizing gradients")
-    opt_summaries.extend(["gradients", "gradient_norm", "global_gradient_norm"])
+  opt_summaries = []
+  if common_layers.should_generate_summaries():
+    tf.summary.scalar("learning_rate", learning_rate)
+    opt_summaries.append("loss")
+    if hparams.summarize_grads:
+      tf.logging.info("Summarizing gradients")
+      opt_summaries.extend(
+          ["gradients", "gradient_norm", "global_gradient_norm"])
 
   if hparams.clip_grad_norm:
     tf.logging.info("Clipping gradients, norm: %0.5f", hparams.clip_grad_norm)
@@ -73,10 +77,6 @@ class ConditionalOptimizer(tf.train.Optimizer):
   """Conditional optimizer."""
 
   def __init__(self, optimizer_name, lr, hparams, use_tpu=False):  # pylint: disable=super-init-not-called
-    if optimizer_name == "Adam" and use_tpu:
-      # LazyAdamOptimizer does not work on TPU
-      optimizer_name = "TrueAdam"
-
     tf.logging.info("Using optimizer %s", optimizer_name)
 
     if optimizer_name == "Adam":
@@ -158,7 +158,7 @@ def weight_decay_and_noise(loss, hparams, learning_rate, var_list=None):
   noise_vars = [v for v in var_list if "/body/" in v.name]
 
   weight_decay_loss = weight_decay(hparams.weight_decay, decay_vars)
-  if hparams.weight_decay:
+  if hparams.weight_decay and common_layers.should_generate_summaries():
     tf.summary.scalar("losses/weight_decay", weight_decay_loss)
   weight_noise_ops = weight_noise(hparams.weight_noise, learning_rate,
                                   noise_vars)
@@ -183,7 +183,8 @@ def weight_noise(noise_rate, learning_rate, var_list):
   for v in var_list:
     with tf.device(v._ref().device):  # pylint: disable=protected-access
       scale = noise_rate * learning_rate * 0.001
-      tf.summary.scalar("weight_noise_scale", scale)
+      if common_layers.should_generate_summaries():
+        tf.summary.scalar("weight_noise_scale", scale)
       noise = tf.truncated_normal(v.shape) * scale
       noise_op = v.assign_add(noise)
       noise_ops.append(noise_op)

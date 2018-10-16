@@ -8,8 +8,8 @@ you can easily launch Tensor2Tensor on it, including for hyperparameter tuning.
 
 It's the same `t2t-trainer` you know and love with the addition of the
 `--cloud_mlengine` flag, which by default will launch on a 1-GPU machine
-in the default compute region. See the [docs for `gcloud compute`]
-(https://cloud.google.com/compute/docs/gcloud-compute/#set_default_zone_and_region_in_your_local_client)
+in the default compute region. See the
+[docs for `gcloud compute`](https://cloud.google.com/compute/docs/gcloud-compute/#set_default_zone_and_region_in_your_local_client)
 to learn how to set the default compute region.
 
 ```

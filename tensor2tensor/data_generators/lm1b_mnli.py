@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Data generators for LM1B and MNLI combined datasets."""
 
 from __future__ import absolute_import
@@ -23,6 +24,21 @@ from tensor2tensor.data_generators import multi_problem
 from tensor2tensor.data_generators import multinli
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
+
+
+@registry.register_problem
+class LanguagemodelLm1bMultiNLISubwords(multi_problem.MultiProblem):
+  """LM1b and MNLI mixed problem class for multitask learning."""
+
+  def __init__(self, was_reversed=False, was_copy=False):
+    super(LanguagemodelLm1bMultiNLISubwords, self).__init__(
+        was_reversed, was_copy)
+    self.task_list.append(lm1b.LanguagemodelLm1b32k())
+    self.task_list.append(multinli.MultiNLISharedVocab())
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.SUBWORD
 
 
 @registry.register_problem

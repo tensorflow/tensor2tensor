@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Models defined in T2T. Imports here force registration."""
 from __future__ import absolute_import
 from __future__ import division
@@ -25,6 +26,9 @@ from tensor2tensor.models import distillation
 from tensor2tensor.models import image_transformer
 from tensor2tensor.models import image_transformer_2d
 from tensor2tensor.models import lstm
+from tensor2tensor.models import mtf_image_transformer
+from tensor2tensor.models import mtf_resnet
+from tensor2tensor.models import mtf_transformer
 from tensor2tensor.models import neural_gpu
 from tensor2tensor.models import resnet
 from tensor2tensor.models import revnet
@@ -41,12 +45,9 @@ from tensor2tensor.models.research import attention_lm_moe
 from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import cycle_gan
 from tensor2tensor.models.research import gene_expression
+from tensor2tensor.models.research import glow
 from tensor2tensor.models.research import lm_experiments
-from tensor2tensor.models.research import multimodel
-from tensor2tensor.models.research import next_frame
-from tensor2tensor.models.research import next_frame_emily
-from tensor2tensor.models.research import next_frame_savp
-from tensor2tensor.models.research import next_frame_sv2p
+from tensor2tensor.models.research import moe_experiments
 # FATHOM
 # comment out so gym not required
 #from tensor2tensor.models.research import rl
@@ -59,7 +60,24 @@ from tensor2tensor.models.research import transformer_sketch
 from tensor2tensor.models.research import transformer_symshard
 from tensor2tensor.models.research import transformer_vae
 from tensor2tensor.models.research import universal_transformer
+from tensor2tensor.models.research import vqa_attention
+from tensor2tensor.models.research import vqa_recurrent_self_attention
+from tensor2tensor.models.research import vqa_self_attention
+
+from tensor2tensor.models.video import basic_deterministic
+from tensor2tensor.models.video import basic_recurrent
+from tensor2tensor.models.video import basic_stochastic
+from tensor2tensor.models.video import emily
+from tensor2tensor.models.video import epva
+from tensor2tensor.models.video import savp
+from tensor2tensor.models.video import sv2p
+
+from tensor2tensor.utils import registry
+
 # pylint: enable=unused-import
 
 # bug reproduction
 from tensor2tensor.models import lstm2
+
+def model(name):
+  return registry.model(name)
