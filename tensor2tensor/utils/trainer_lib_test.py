@@ -43,7 +43,9 @@ class TrainerLibTest(tf.test.TestCase):
         min_eval_frequency=1,
         use_tpu=False)
     run_config = trainer_lib.create_run_config(
-        model_dir=algorithmic.TinyAlgo.data_dir, num_gpus=0,
+        model_name="transformer",
+        model_dir=algorithmic.TinyAlgo.data_dir,
+        num_gpus=0,
         use_tpu=False)
     hparams = registry.hparams("transformer_tiny_tpu")
     exp = exp_fn(run_config, hparams)
@@ -59,7 +61,9 @@ class TrainerLibTest(tf.test.TestCase):
         min_eval_frequency=1,
         use_tpu=False)
     run_config = trainer_lib.create_run_config(
-        model_dir=algorithmic.TinyAlgo.data_dir, num_gpus=0,
+        model_name="transformer",
+        model_dir=algorithmic.TinyAlgo.data_dir,
+        num_gpus=0,
         use_tpu=False)
     hparams = registry.hparams("transformer_tiny_tpu")
     exp = exp_fn(run_config, hparams)

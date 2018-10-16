@@ -825,6 +825,12 @@ class Problem(object):
     else:
       num_threads = cpu_count() if is_training else 1
 
+    if config and hasattr(config,
+                          "data_parallelism") and config.data_parallelism:
+      num_shards = config.data_parallelism.n
+    else:
+      num_shards = 1
+
     max_length = self.max_length(hparams)
 
     def tpu_valid_size(example):
@@ -891,7 +897,6 @@ class Problem(object):
         batch_size = params["batch_size"]
         dataset = dataset.batch(batch_size, drop_remainder=True)
       else:
-        num_shards = config.data_parallelism.n if config else 1
         batch_size = hparams.batch_size * num_shards
         dataset = dataset.batch(batch_size)
     else:
@@ -919,10 +924,9 @@ class Problem(object):
       else:
         # On GPU, bucket by length
         dataset = dataset.filter(gpu_valid_size)
-        shard_multiplier = config.data_parallelism.n if config else 1
         batching_scheme = data_reader.hparams_to_batching_scheme(
             hparams,
-            shard_multiplier=shard_multiplier,
+            shard_multiplier=num_shards,
             length_multiplier=self.get_hparams().batch_size_multiplier)
         if hparams.use_fixed_batch_size:
           # Here  batch_size really means examples per datashard.
@@ -934,7 +938,7 @@ class Problem(object):
                 batching_scheme["batch_sizes"]))
 
         if not is_training:
-          batch_multiple = shard_multiplier
+          batch_multiple = num_shards
           if hparams.use_fixed_batch_size:
             # Make sure the last batch has the same fixed size as the rest.
             batch_multiple *= hparams.batch_size
@@ -952,8 +956,7 @@ class Problem(object):
 
     def prepare_for_output(example):
       if not config or not config.use_tpu:
-        _summarize_features(example,
-                            (config and config.data_parallelism.n) or 1)
+        _summarize_features(example, num_shards)
       if mode == tf.estimator.ModeKeys.PREDICT:
         example["infer_targets"] = example.pop("targets")
         return example

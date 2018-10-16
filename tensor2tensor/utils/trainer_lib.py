@@ -105,7 +105,8 @@ def is_cloud_async_distributed():
           json.loads(os.environ.get("TF_CONFIG", "{}")).get("cluster", {}))
 
 
-def create_run_config(master="",
+def create_run_config(model_name,
+                      master="",
                       model_dir=None,
                       iterations_per_loop=1000,
                       num_shards=8,
@@ -121,6 +122,7 @@ def create_run_config(master="",
                       enable_graph_rewriter=False,
                       gpu_mem_fraction=0.95,
                       no_data_parallelism=False,
+                      optionally_use_dist_strat=False,
                       daisy_chain_variables=True,
                       schedule="continuous_train_and_eval",
                       worker_job="/job:localhost",
@@ -205,20 +207,36 @@ def create_run_config(master="",
     config.t2t_device_info = {
         "num_async_replicas": num_async_replicas,
     }
-    config.data_parallelism = devices.data_parallelism(
-        daisy_chain_variables=daisy_chain_variables,
-        ps_replicas=ps_replicas,
-        ps_job=ps_job,
-        ps_gpu=ps_gpu,
-        schedule=schedule,
-        sync=sync,
-        worker_gpu=num_gpus,
-        worker_replicas=num_async_replicas,
-        worker_id=worker_id,
-        gpu_order=gpu_order,
-        locally_shard_to_cpu=shard_to_cpu,
-        worker_job=worker_job,
-        no_data_parallelism=no_data_parallelism)
+    use_distribution_strategy = (
+        optionally_use_dist_strat and
+        t2t_model.T2TModel.has_symmetric_shards(model_name) and
+        not no_data_parallelism and ps_replicas == 0 and ps_gpu == 0 and
+        num_async_replicas == 1 and not shard_to_cpu)
+
+    if use_distribution_strategy:
+      tf.logging.info(
+          "Configuring MirroredStrategy DistributionStrategy to replicate the "
+          "model."
+      )
+      distribution = tf.contrib.distribute.MirroredStrategy()
+      config = config.replace(train_distribute=distribution)
+      config.data_parallelism = None
+    else:
+      tf.logging.info("Configuring DataParallelism to replicate the model.")
+      config.data_parallelism = devices.data_parallelism(
+          daisy_chain_variables=daisy_chain_variables,
+          ps_replicas=ps_replicas,
+          ps_job=ps_job,
+          ps_gpu=ps_gpu,
+          schedule=schedule,
+          sync=sync,
+          worker_gpu=num_gpus,
+          worker_replicas=num_async_replicas,
+          worker_id=worker_id,
+          gpu_order=gpu_order,
+          locally_shard_to_cpu=shard_to_cpu,
+          worker_job=worker_job,
+          no_data_parallelism=no_data_parallelism)
 
   return config
 

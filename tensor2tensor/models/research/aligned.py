@@ -50,8 +50,8 @@ def _should_postprocess(layer_type):
 class Aligned(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
 
-  @property
-  def use_body_sharded(self):
+  @staticmethod
+  def use_body_sharded():
     return True
 
   def body_sharded(self, sharded_features):

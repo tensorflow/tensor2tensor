@@ -224,8 +224,15 @@ class T2TModel(base.Layer):
       else:
         return tf.concat(sharded_logits, 0), losses
 
-  @property
-  def use_body_sharded(self):
+  @staticmethod
+  def has_symmetric_shards(model_name):
+    # model_fn is sharded symmetrically unless the model overrides body_sharded
+    # method to manually control the sharding.
+    model_cls = registry.model(model_name)
+    return not model_cls.use_body_sharded()
+
+  @staticmethod
+  def use_body_sharded():
     return False
 
   def body_sharded(self, sharded_features):
@@ -236,7 +243,7 @@ class T2TModel(base.Layer):
   def model_fn_sharded(self, sharded_features):
     dp = self._data_parallelism
     datashard_to_features = self._to_features_per_datashard(sharded_features)
-    if self.use_body_sharded:
+    if self.use_body_sharded():
       # MoE models override body_sharded
       transformed_features = dp(self.bottom, datashard_to_features)
       body_out = self.body_sharded(

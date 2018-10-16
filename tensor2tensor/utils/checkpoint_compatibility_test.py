@@ -60,7 +60,7 @@ class CheckpointCompatibilityTest(tf.test.TestCase):
 
     hp = trainer_lib.create_hparams(
         hp_set, data_dir=_DATA_DIR, problem_name=problem_name)
-    run_config = trainer_lib.create_run_config(model_dir=_CKPT_DIR)
+    run_config = trainer_lib.create_run_config(model, model_dir=_CKPT_DIR)
     estimator = trainer_lib.create_estimator(model, hp, run_config)
 
     for prediction in estimator.predict(self.input_fn):
