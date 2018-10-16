@@ -3019,8 +3019,10 @@ def mix(x1,
     if is_xla_compiled():
       return get_res()
     else:
-      return tf.cond(
-          tf.less(tf.train.get_global_step(), steps), get_res, lambda: x1)
+      cur_step = tf.train.get_global_step()
+      if cur_step is None:
+        return x1  # Step not available, probably eval mode, don't mix.
+      return tf.cond(tf.less(cur_step, steps), get_res, lambda: x1)
 
 
 def brelu(x):

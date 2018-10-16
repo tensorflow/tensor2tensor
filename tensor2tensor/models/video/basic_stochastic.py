@@ -72,43 +72,26 @@ class NextFrameBasicStochasticDiscrete(
     filters = hparams.hidden_size
     kernel = (4, 4)
     layer_shape = common_layers.shape_list(layer)
-    batch_size = layer_shape[0]
-    state_size = hparams.latent_predictor_state_size
-    lstm_cell = tf.contrib.rnn.LSTMCell(state_size)
-    discrete_predict = tfl.Dense(256, name="discrete_predict")
-    discrete_embed = tfl.Dense(state_size, name="discrete_embed")
 
-    def add_d(layer, d):
-      z_mul = tfl.dense(d, final_filters, name="unbottleneck_mul")
+    def add_bits(layer, bits):
+      z_mul = tfl.dense(bits, final_filters, name="unbottleneck_mul")
       if not hparams.complex_addn:
         return layer + z_mul
       layer *= tf.nn.sigmoid(z_mul)
-      z_add = tfl.dense(d, final_filters, name="unbottleneck_add")
+      z_add = tfl.dense(bits, final_filters, name="unbottleneck_add")
       layer += z_add
       return layer
 
     if self.is_predicting:
       if hparams.full_latent_tower:
         rand = tf.random_uniform(layer_shape[:-1] + [hparams.bottleneck_bits])
+        bits = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
       else:
-        layer_pred = tfl.flatten(layer)
-        prediction = tfl.dense(layer_pred, state_size, name="istate")
-        c_state = tfl.dense(layer_pred, state_size, name="cstate")
-        m_state = tfl.dense(layer_pred, state_size, name="mstate")
-        state = (c_state, m_state)
-        outputs = []
-        for i in range(hparams.bottleneck_bits // 8):
-          output, state = lstm_cell(prediction, state)
-          discrete_logits = discrete_predict(output)
-          discrete_samples = common_layers.sample_with_temperature(
-              discrete_logits, hparams.latent_predictor_temperature)
-          outputs.append(tf.expand_dims(discrete_samples, axis=1))
-          prediction = discrete_embed(tf.one_hot(discrete_samples, 256))
-        outputs = tf.concat(outputs, axis=1)
-        outputs = discretization.int_to_bit(outputs, 8)
-        rand = tf.reshape(outputs, [batch_size, 1, 1, hparams.bottleneck_bits])
-      d = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
-      return add_d(layer, d), 0.0
+        bits, _ = discretization.predict_bits_with_lstm(
+            layer, hparams.latent_predictor_state_size, hparams.bottleneck_bits,
+            temperature=hparams.latent_predictor_temperature)
+        bits = tf.expand_dims(tf.expand_dims(bits, axis=1), axis=2)
+      return add_bits(layer, bits), 0.0
 
     # Embed.
     frames = tf.concat(inputs + [target], axis=-1)
@@ -131,43 +114,16 @@ class NextFrameBasicStochasticDiscrete(
     else:
       x = common_layers.double_discriminator(x)
       x = tf.expand_dims(tf.expand_dims(x, axis=1), axis=1)
-    x = tfl.dense(x, hparams.bottleneck_bits, name="bottleneck")
-    x0 = tf.tanh(x)
-    d = x0 + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x0)) - 1.0 - x0)
-    pred_loss = 0.0
+
+    bits, bits_clean = discretization.tanh_discrete_bottleneck(
+        x, hparams.bottleneck_bits, hparams.bottleneck_noise,
+        hparams.discretize_warmup_steps, hparams.mode)
     if not hparams.full_latent_tower:
-      d_pred = tf.reshape(tf.maximum(tf.stop_gradient(d), 0), [
-          batch_size, hparams.bottleneck_bits // 8, 8])
-      d_int = discretization.bit_to_int(d_pred, 8)
-      tf.summary.histogram("d_int", tf.reshape(d_int, [-1]))
-      d_hot = tf.one_hot(d_int, 256, axis=-1)
-      d_pred = discrete_embed(d_hot)
-      layer_pred = tfl.flatten(layer)
-      prediction0 = tfl.dense(layer_pred, state_size, name="istate")
-      c_state = tfl.dense(layer_pred, state_size, name="cstate")
-      m_state = tfl.dense(layer_pred, state_size, name="mstate")
-      pred = tf.concat([tf.expand_dims(prediction0, axis=1), d_pred], axis=1)
-      state = (c_state, m_state)
-      outputs = []
-      for i in range(hparams.bottleneck_bits // 8):
-        output, state = lstm_cell(pred[:, i, :], state)
-        outputs.append(tf.expand_dims(output, axis=1))
-      outputs = tf.concat(outputs, axis=1)
-      d_int_pred = discrete_predict(outputs)
-      pred_loss = tf.losses.sparse_softmax_cross_entropy(
-          logits=d_int_pred, labels=d_int)
-      pred_loss = tf.reduce_mean(pred_loss)
-    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
-      x += tf.truncated_normal(
-          common_layers.shape_list(x), mean=0.0, stddev=0.2)
-      x = tf.tanh(x)
-      noise = tf.random_uniform(common_layers.shape_list(x))
-      noise = 2.0 * tf.to_float(tf.less(hparams.bottleneck_noise, noise)) - 1.0
-      x *= noise
-      d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
-      p = common_layers.inverse_lin_decay(hparams.discrete_warmup_steps)
-      d = tf.where(tf.less(tf.random_uniform([batch_size]), p), d, x)
-    return add_d(layer, d), pred_loss
+      _, pred_loss = discretization.predict_bits_with_lstm(
+          layer, hparams.latent_predictor_state_size, hparams.bottleneck_bits,
+          target_bits=bits_clean)
+
+    return add_bits(layer, bits), pred_loss
 
 
 @registry.register_hparams
@@ -224,7 +180,7 @@ def next_frame_basic_stochastic_discrete():
   hparams.learning_rate_schedule = "linear_warmup * constant"
   hparams.add_hparam("bottleneck_bits", 64)
   hparams.add_hparam("bottleneck_noise", 0.02)
-  hparams.add_hparam("discrete_warmup_steps", 40000)
+  hparams.add_hparam("discretize_warmup_steps", 40000)
   hparams.add_hparam("full_latent_tower", False)
   hparams.add_hparam("latent_predictor_state_size", 128)
   hparams.add_hparam("latent_predictor_temperature", 0.5)
