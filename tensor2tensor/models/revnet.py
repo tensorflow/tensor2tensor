@@ -91,7 +91,7 @@ def f(x, depth1, depth2, dim='2d', first_batch_norm=True, stride=1,
     Output tensor after applying residual function for RevNet.
   """
   conv = CONFIG[dim]['conv']
-  with tf.variable_scope('f'):
+  with tf.variable_scope('f', reuse=tf.AUTO_REUSE):
     if first_batch_norm:
       net = tf.layers.batch_normalization(x, training=training)
       net = tf.nn.relu(net)
