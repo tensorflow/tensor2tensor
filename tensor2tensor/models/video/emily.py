@@ -41,7 +41,7 @@ tfcl = tf.contrib.layers
 
 
 @registry.register_model
-class NextFrameEmily(sv2p.NextFrameSv2p):
+class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
   """Stochastic Variational Video Prediction Without Learned Prior."""
 
   def encoder(self, inputs, nout):

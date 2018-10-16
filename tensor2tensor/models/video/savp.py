@@ -37,7 +37,7 @@ gan_losses = tf.contrib.gan.losses.wargs
 
 
 @registry.register_model
-class NextFrameSAVP(sv2p.NextFrameSv2p):
+class NextFrameSAVP(sv2p.NextFrameSv2pLegacy):
   """Stochastic Adversarial Video Prediction."""
 
   def encoder(self, inputs, n_layers=3):

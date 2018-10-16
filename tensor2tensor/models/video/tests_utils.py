@@ -43,11 +43,11 @@ def fill_hparams(hparams, in_frames, out_frames):
 def action_modalities(hparams):
   hparams.problem_hparams.input_modality = {
       "inputs": modalities.VideoModalityL2Raw(hparams, 256),
-      "input_action": modalities.SymbolModalityOneHot(hparams, 5),
+      "input_action": modalities.SymbolModality(hparams, 5),
   }
   hparams.problem_hparams.target_modality = {
       "targets": modalities.VideoModalityL2Raw(hparams, 256),
-      "target_action": modalities.SymbolModalityOneHot(hparams, 5),
+      "target_action": modalities.SymbolModality(hparams, 5),
   }
   return hparams
 
@@ -56,13 +56,13 @@ def full_modalities(hparams):
   """Full modalities with actions and rewards."""
   hparams.problem_hparams.input_modality = {
       "inputs": modalities.VideoModalityL2Raw(hparams, 256),
-      "input_reward": modalities.SymbolModalityOneHot(hparams, 3),
-      "input_action": modalities.SymbolModalityOneHot(hparams, 5),
+      "input_reward": modalities.SymbolModality(hparams, 3),
+      "input_action": modalities.SymbolModality(hparams, 5),
   }
   hparams.problem_hparams.target_modality = {
       "targets": modalities.VideoModalityL2Raw(hparams, 256),
-      "target_reward": modalities.SymbolModalityOneHot(hparams, 3),
-      "target_action": modalities.SymbolModalityOneHot(hparams, 5),
+      "target_reward": modalities.SymbolModality(hparams, 3),
+      "target_action": modalities.SymbolModality(hparams, 5),
   }
   hparams.force_full_predict = True
   return hparams
@@ -214,7 +214,8 @@ class BaseNextFrameTest(tf.test.TestCase):
     self.assertEqual(output.shape, expected_shape)
 
     output, targets = res["target_reward"], features["target_reward"]
-    expected_shape = get_tensor_shape(targets)[:2] + (3,)
+    # Assuming Symbol Modality
+    expected_shape = get_tensor_shape(targets)[:2] + (1, 1, 1, 1, 3,)
     self.assertEqual(output.shape, expected_shape)
 
   def TestVideoModelWithActionAndRewardsInfer(self,
@@ -253,17 +254,22 @@ class BaseNextFrameTest(tf.test.TestCase):
       test_func(4, 1, hparams, model, expected_last_dim)
       test_func(7, 5, hparams, model, expected_last_dim)
 
-  def TestWithActions(self, hparams, model, expected_last_dim):
-    for test_func in [self.TestVideoModelWithActions,
-                      self.TestVideoModelWithActionsInfer]:
+  def TestWithActions(self, hparams, model, expected_last_dim, test_infer=True):
+    test_funcs = [self.TestVideoModelWithActions]
+    if test_infer:
+      test_funcs += [self.TestVideoModelWithActionsInfer]
+    for test_func in test_funcs:
       test_func(1, 1, hparams, model, expected_last_dim)
       test_func(1, 6, hparams, model, expected_last_dim)
       test_func(4, 1, hparams, model, expected_last_dim)
       test_func(7, 5, hparams, model, expected_last_dim)
 
-  def TestWithActionAndRewards(self, hparams, model, expected_last_dim):
-    for test_func in [self.TestVideoModelWithActionAndRewards,
-                      self.TestVideoModelWithActionAndRewardsInfer]:
+  def TestWithActionAndRewards(
+      self, hparams, model, expected_last_dim, test_infer=True):
+    test_funcs = [self.TestVideoModelWithActionAndRewards]
+    if test_infer:
+      test_funcs += [self.TestVideoModelWithActionAndRewardsInfer]
+    for test_func in test_funcs:
       test_func(1, 1, hparams, model, expected_last_dim)
       test_func(1, 6, hparams, model, expected_last_dim)
       test_func(4, 1, hparams, model, expected_last_dim)

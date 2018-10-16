@@ -28,8 +28,8 @@ from __future__ import print_function
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 
-from tensor2tensor.models.video import basic_stochastic
-from tensor2tensor.models.video import sv2p_params  # pylint: disable=unused-import
+from tensor2tensor.models.video import base
+from tensor2tensor.models.video import base_vae
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -39,39 +39,16 @@ tfcl = tf.contrib.layers
 
 
 @registry.register_model
-class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
-  """Stochastic Variational Video Prediction."""
+class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
+  """Stochastic Variational Video Prediction From Basic Model!"""
+
+  @property
+  def is_recurrent_model(self):
+    return True
 
   def tinyify(self, array):
     return common_video.tinyify(
         array, self.hparams.tiny_mode, self.hparams.small_mode)
-
-  def visualize_predictions(self, real_frames, gen_frames):
-    def concat_on_y_axis(x):
-      x = tf.unstack(x, axis=1)
-      x = tf.concat(x, axis=1)
-      return x
-
-    frames_gd = common_video.swap_time_and_batch_axes(real_frames)
-    frames_pd = common_video.swap_time_and_batch_axes(gen_frames)
-
-    if self.is_per_pixel_softmax:
-      frames_pd_shape = common_layers.shape_list(frames_pd)
-      frames_pd = tf.reshape(frames_pd, [-1, 256])
-      frames_pd = tf.to_float(tf.argmax(frames_pd, axis=-1))
-      frames_pd = tf.reshape(frames_pd, frames_pd_shape[:-1] + [3])
-
-    frames_gd = concat_on_y_axis(frames_gd)
-    frames_pd = concat_on_y_axis(frames_pd)
-    side_by_side_video = tf.concat([frames_gd, frames_pd], axis=2)
-    tf.summary.image("full_video", side_by_side_video)
-
-  def get_input_if_exists(self, features, key, batch_size, num_frames):
-    if key in features:
-      x = features[key]
-    else:
-      x = tf.zeros((batch_size, num_frames, 1, self.hparams.hidden_size))
-    return common_video.swap_time_and_batch_axes(x)
 
   def bottom_part_tower(self, input_image, input_reward, action, latent,
                         lstm_state, lstm_size, conv_size, concat_latent=False):
@@ -177,9 +154,10 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
 
   def reward_prediction_basic(self, input_images, input_reward, action, latent):
     del input_reward, action, latent
-    x = input_images[0]
-    x = tf.expand_dims(  # Add a fake channels dim.
-        tf.reduce_mean(x, axis=[1, 2], keepdims=True), axis=3)
+    x = input_images
+    x = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
+    x = tfl.dense(x, 128, activation=tf.nn.relu, name="reward_pred")
+    x = tf.expand_dims(x, axis=3)
     return x
 
   def reward_prediction_big(self, input_images, input_reward, action, latent):
@@ -212,7 +190,24 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       x = tfcl.layer_norm(x)
       x = tfl.conv2d(x, conv_size[3], [3, 3], strides=(2, 2),
                      activation=tf.nn.relu, name="reward_conv3")
-      return x
+
+  def get_extra_loss(self,
+                     latent_means=None, latent_stds=None,
+                     true_frames=None, gen_frames=None):
+    """Losses in addition to the default modality losses."""
+    del true_frames
+    del gen_frames
+    kl_loss = 0.0
+    if self.is_training and self.hparams.stochastic_model:
+      for i, (mean, std) in enumerate(zip(latent_means, latent_stds)):
+        kl_loss += common_layers.kl_divergence(mean, std)
+        tf.summary.histogram("posterior_mean_%d" % i, mean)
+        tf.summary.histogram("posterior_std_%d" % i, std)
+      tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
+
+    beta = self.get_beta(kl_loss)
+    extra_loss = beta * kl_loss
+    return extra_loss
 
   def construct_predictive_tower(
       self, input_image, input_reward, action, lstm_state, latent,
@@ -336,11 +331,72 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
         layer = layer[:, :img_height, :img_width, :]
         output += layer * mask
 
+      # Map to softmax digits
       if self.is_per_pixel_softmax:
         output = tf.layers.dense(
             output, self.hparams.problem.num_channels * 256, name="logits")
 
       return output, lstm_state
+
+  def video_features(
+      self, all_frames, all_actions, all_rewards, all_raw_frames):
+    """Video wide latent."""
+    del all_actions, all_rewards, all_raw_frames
+    mean, std = self.construct_latent_tower(all_frames, time_axis=0)
+    latent = common_video.get_gaussian_tensor(mean, std)
+    return [latent, mean, std]
+
+  def next_frame(self, frames, actions, rewards, target_frame,
+                 internal_states, video_features):
+    del target_frame
+    latent, latent_mean, latent_std = video_features
+
+    extra_loss = 0.0
+    if internal_states is None:
+      internal_states = [None] * (5 if self.hparams.small_mode else 7)
+      extra_loss = self.get_extra_loss([latent_mean], [latent_std])
+
+    pred_image, internal_states = self.construct_predictive_tower(
+        frames, None, actions, internal_states, latent)
+
+    if not self.has_rewards:
+      return pred_image, None, extra_loss, internal_states
+
+    pred_reward = self.reward_prediction(
+        pred_image, actions, rewards, latent)
+    return pred_image, pred_reward, extra_loss, internal_states
+
+
+@registry.register_model
+class NextFrameSv2pLegacy(NextFrameSv2p):
+  """Old SV2P code. Only for legacy reasons."""
+
+  def visualize_predictions(self, real_frames, gen_frames):
+    def concat_on_y_axis(x):
+      x = tf.unstack(x, axis=1)
+      x = tf.concat(x, axis=1)
+      return x
+
+    frames_gd = common_video.swap_time_and_batch_axes(real_frames)
+    frames_pd = common_video.swap_time_and_batch_axes(gen_frames)
+
+    if self.is_per_pixel_softmax:
+      frames_pd_shape = common_layers.shape_list(frames_pd)
+      frames_pd = tf.reshape(frames_pd, [-1, 256])
+      frames_pd = tf.to_float(tf.argmax(frames_pd, axis=-1))
+      frames_pd = tf.reshape(frames_pd, frames_pd_shape[:-1] + [3])
+
+    frames_gd = concat_on_y_axis(frames_gd)
+    frames_pd = concat_on_y_axis(frames_pd)
+    side_by_side_video = tf.concat([frames_gd, frames_pd], axis=2)
+    tf.summary.image("full_video", side_by_side_video)
+
+  def get_input_if_exists(self, features, key, batch_size, num_frames):
+    if key in features:
+      x = features[key]
+    else:
+      x = tf.zeros((batch_size, num_frames, 1, self.hparams.hidden_size))
+    return common_video.swap_time_and_batch_axes(x)
 
   def construct_model(self,
                       images,
@@ -447,24 +503,6 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       return gen_images, gen_rewards, [latent_mean], [latent_std]
     else:
       return gen_images, gen_rewards, None, None
-
-  def get_extra_loss(self,
-                     latent_means=None, latent_stds=None,
-                     true_frames=None, gen_frames=None):
-    """Losses in addition to the default modality losses."""
-    del true_frames
-    del gen_frames
-    kl_loss = 0.0
-    if self.is_training and self.hparams.stochastic_model:
-      for i, (mean, std) in enumerate(zip(latent_means, latent_stds)):
-        kl_loss += common_layers.kl_divergence(mean, std)
-        tf.summary.histogram("posterior_mean_%d" % i, mean)
-        tf.summary.histogram("posterior_std_%d" % i, std)
-      tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
-
-    beta = self.get_beta(kl_loss)
-    extra_loss = beta * kl_loss
-    return extra_loss
 
   def infer(self, features, *args, **kwargs):
     """Produce predictions from the model by running it."""
@@ -577,7 +615,7 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
 
 
 @registry.register_model
-class NextFrameSv2pTwoFrames(NextFrameSv2p):
+class NextFrameSv2pTwoFrames(NextFrameSv2pLegacy):
   """Stochastic next-frame model with 2 frames posterior."""
 
   def construct_model(self, images, actions, rewards):

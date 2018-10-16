@@ -626,7 +626,7 @@ def calc_loss_psnr(gen_images, images, name, hparams=None, use_l1_loss=False):
 
 
 @registry.register_model
-class NextFrameEpva(sv2p.NextFrameSv2p):
+class NextFrameEpva(sv2p.NextFrameSv2pLegacy):
   """Hierarchical Long-term Video Prediction without Supervision"""
 
   def body(self, features):
