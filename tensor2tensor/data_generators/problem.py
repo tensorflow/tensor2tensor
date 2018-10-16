@@ -420,7 +420,7 @@ class Problem(object):
     return generator_utils.test_data_filenames(file_basename, data_dir,
                                                num_shards)
 
-  def filepattern(self, data_dir, mode, shard=None, only_last=False):
+  def filepattern(self, data_dir, mode, shard=None):
     """Get filepattern for data files for mode.
 
     Matches mode to a suffix.
@@ -433,7 +433,6 @@ class Problem(object):
       data_dir: str, data directory.
       mode: DatasetSplit
       shard: int, if provided, will only read data from the specified shard.
-      only_last: bool, whether we should include only files from last epoch.
 
     Returns:
       filepattern str
@@ -602,14 +601,9 @@ class Problem(object):
     # Construct the Problem's hparams so that items within it are accessible
     _ = self.get_hparams(hparams)
 
-    filepattern_kwargs = {
-        "data_dir": data_dir, "mode": dataset_split, "shard": shard
-    }
-    data_filepattern = self.filepattern(**filepattern_kwargs)
+    data_filepattern = self.filepattern(data_dir, dataset_split, shard=shard)
     if only_last:
-      imprv_data_filepattern = self.filepattern(
-          only_last=True, **filepattern_kwargs
-      )
+      imprv_data_filepattern = data_filepattern + r"10.[\d+]"
     else:
       imprv_data_filepattern = data_filepattern
     tf.logging.info("Reading data files from %s", data_filepattern)

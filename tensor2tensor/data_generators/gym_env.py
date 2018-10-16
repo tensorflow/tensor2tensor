@@ -180,6 +180,9 @@ class T2TEnv(video_utils.VideoProblem):
     Returns:
       (obs, rewards, dones) - batches of observations, rewards and done flags
       respectively.
+
+    Raises:
+      ValueError: when the data for current epoch has already been loaded.
     """
     if self._rollouts_by_epoch_and_split[self.current_epoch]:
       raise ValueError(
@@ -387,11 +390,7 @@ class T2TEnv(video_utils.VideoProblem):
 
   @property
   def splits_and_paths(self):
-    """List of pairs (split, paths) for the current epoch.
-
-    paths is a list of paths where data for the current epoch is saved
-    by generate_data().
-    """
+    """List of pairs (split, paths) for the current epoch."""
     filepath_fns = {
         problem.DatasetSplit.TRAIN: self.training_filepaths,
         problem.DatasetSplit.EVAL: self.dev_filepaths,
@@ -421,11 +420,7 @@ class T2TEnv(video_utils.VideoProblem):
     return filepattern
 
   def generate_data(self, data_dir=None, tmp_dir=None, task_id=-1):
-    """Saves the current epoch rollouts to disk, split into train/dev sets.
-
-    data_dir and tmp_dir arguments are unused. data_dir being used is the one
-    passed in the constructor.
-    """
+    """Saves the current epoch rollouts to disk, split into train/dev sets."""
     if not self._rollouts_by_epoch_and_split[self.current_epoch]:
       # Data not loaded from disk.
       self._split_current_epoch()
@@ -491,11 +486,11 @@ class T2TEnv(video_utils.VideoProblem):
         }
         fields["reward"] += self.reward_range[0]
         fields["done"] = bool(fields["done"])
-        fields['observation'] = fields['image/encoded']
-        del fields['image/encoded']
+        fields["observation"] = fields["image/encoded"]
+        del fields["image/encoded"]
 
         frame = Frame(**fields)
-        frame_number = get_feature_value("frame_number", 'int64_list')
+        frame_number = get_feature_value("frame_number", "int64_list")
         if frame_number == last_frame_number + 1:
           current_rollout.append(frame)
         else:
@@ -510,7 +505,6 @@ class T2TEnv(video_utils.VideoProblem):
         current_rollout
     )
     return any_shard_empty
-
 
 
 class T2TGymEnv(T2TEnv):
