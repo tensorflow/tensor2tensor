@@ -312,12 +312,12 @@ class T2TEnv(video_utils.VideoProblem):
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE
 
-  def _generate_frames(self, epoch, rollouts):
+  def _generate_frames(self, rollouts):
     for rollout in rollouts:
       for (frame_number, frame) in enumerate(rollout):
         yield {
             "frame_number": [frame_number],
-            "epoch": [epoch],
+            "epoch": [self.current_epoch],
             "image/encoded": [frame.observation],
             "image/format": ["png"],
             "image/height": [self.frame_height],
@@ -380,23 +380,41 @@ class T2TEnv(video_utils.VideoProblem):
 
   @property
   def splits_and_paths(self):
+    """List of pairs (split, paths) for the current epoch.
+
+    paths is a list of paths where data for the current epoch is saved
+    by generate_data().
+    """
     filepath_fns = {
         problem.DatasetSplit.TRAIN: self.training_filepaths,
         problem.DatasetSplit.EVAL: self.dev_filepaths,
         problem.DatasetSplit.TEST: self.test_filepaths,
     }
 
-    num_epochs = len(self._rollouts_by_epoch_and_split)
+    def append_epoch(paths):
+      return [
+          "{}.{}".format(path, self.current_epoch)
+          for path in paths
+      ]
+
     # We set shuffled=True as we don't want to shuffle on disk later.
     return [
-        (split["split"], filepath_fns[split["split"]](
-            self.data_dir, split["shards"] * num_epochs, shuffled=True
-        ))
+        (split["split"], append_epoch(filepath_fns[split["split"]](
+            self.data_dir, split["shards"], shuffled=True
+        )))
         for split in self.dataset_splits
     ]
 
+  def filepattern(self, data_dir, mode, shard=None, only_last=False):
+    filepattern = super(T2TEnv, self).filepattern(
+        data_dir, mode, shard
+    )
+    if only_last:
+      filepattern += ".{}".format(self.current_epoch)
+    return filepattern
+
   def generate_data(self, data_dir=None, tmp_dir=None, task_id=-1):
-    """Saves the rollout history to disk, split into train/dev sets.
+    """Saves the current epoch rollouts to disk, split into train/dev sets.
 
     data_dir and tmp_dir arguments are unused. data_dir being used is the one
     passed in the constructor.
@@ -404,33 +422,23 @@ class T2TEnv(video_utils.VideoProblem):
     self._split_current_epoch()
 
     splits_and_paths = self.splits_and_paths
-    num_epochs = len(self._rollouts_by_epoch_and_split)
+    rollouts_by_split = self._rollouts_by_epoch_and_split[self.current_epoch]
 
-    for (epoch_index, (epoch, rollouts_by_split)) in enumerate(
-        six.iteritems(self._rollouts_by_epoch_and_split)
-    ):
-      for (split, paths) in splits_and_paths:
-        num_shards = len(paths) // num_epochs
-        paths = paths[
-            epoch_index * num_shards : (epoch_index + 1) * num_shards
-        ]
+    for (split, paths) in splits_and_paths:
+      rollouts = rollouts_by_split[split]
+      num_frames = self._calc_num_frames(rollouts)
+      shard_size = num_frames // len(paths)
 
-        rollouts = rollouts_by_split[split]
-        num_frames = self._calc_num_frames(rollouts)
-        shard_size = num_frames // len(paths)
-
-        frame_gen = self._generate_frames(epoch, rollouts)
-        for (path_index, path) in enumerate(paths):
-          limit = shard_size
-          # Put the remainder in the last shard to preserve the ordering.
-          if path_index == len(paths) - 1:
-            limit = None
-          # TODO(koz4k): Take elements from islice afterwards. generate_files
-          # can skip if file exists.
-          generator_utils.generate_files(
-              itertools.islice(frame_gen, limit), [path],
-              cycle_every_n=float("inf")
-          )
+      frame_gen = self._generate_frames(rollouts)
+      for (path_index, path) in enumerate(paths):
+        limit = shard_size
+        # Put the remainder in the last shard to preserve the ordering.
+        if path_index == len(paths) - 1:
+          limit = None
+        generator_utils.generate_files(
+            itertools.islice(frame_gen, limit), [path],
+            cycle_every_n=float("inf")
+        )
 
 
 class T2TGymEnv(T2TEnv):

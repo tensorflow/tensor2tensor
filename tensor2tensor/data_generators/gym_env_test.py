@@ -66,6 +66,11 @@ class GymEnvTest(tf.test.TestCase):
 
   splits = (problem.DatasetSplit.TRAIN, problem.DatasetSplit.EVAL)
 
+  # TODO: Tests for loading:
+  # - property test for generating and loading
+  # - loaded epoch is read-only
+  # - partial write detection (should raise on loading)
+
   def setUp(self):
     self.out_dir = tf.test.get_temp_dir()
     shutil.rmtree(self.out_dir)
@@ -138,16 +143,28 @@ class GymEnvTest(tf.test.TestCase):
       self.assertTrue(records)
 
   def test_shards_per_epoch(self):
-    env, _, _, _ = self.init_batch_and_play(TestEnv, n_steps=20)
+    def num_ending_with(filenames, suffix):
+      return sum(
+          1 for filename in filenames if filename.endswith(suffix)
+      )
+
+    env = gym_env.T2TGymEnv([TestEnv() for _ in range(2)], self.out_dir)
+    env.start_new_epoch(0)
+    self.play(env, n_steps=20)
     env.generate_data()
-    num_shards_per_epoch = len(os.listdir(self.out_dir))
-    shutil.rmtree(self.out_dir)
-    os.mkdir(self.out_dir)
+
+    filenames = os.listdir(self.out_dir)
+    num_shards_per_epoch = len(filenames)
+    self.assertEqual(num_ending_with(filenames, ".0"), num_shards_per_epoch)
 
     env.start_new_epoch(1)
     self.play(env, n_steps=20)
     env.generate_data()
-    self.assertEqual(len(os.listdir(self.out_dir)), 2 * num_shards_per_epoch)
+
+    filenames = os.listdir(self.out_dir)
+    self.assertEqual(len(filenames), 2 * num_shards_per_epoch)
+    for suffix in (".0", ".1"):
+      self.assertEqual(num_ending_with(filenames, suffix), num_shards_per_epoch)
 
   def test_frame_numbers_are_continuous(self):
     env, _, _, _ = self.init_batch_and_play(TestEnv, n_steps=20)

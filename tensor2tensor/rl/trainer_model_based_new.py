@@ -351,7 +351,6 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   for epoch in range(hparams.epochs):
     env.generate_data()
 
-    env.start_new_epoch(epoch)
     is_final_epoch = (epoch + 1) == hparams.epochs
     log = make_log_fn(epoch, log_relative_time)
 
@@ -371,6 +370,8 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     train_agent(sim_env_spec, ppo_model_dir,
                 ppo_event_dir, directories["world_model"], data_dir,
                 hparams, epoch=epoch, is_final_epoch=is_final_epoch)
+
+    env.start_new_epoch(epoch)
 
     # Train PPO on real env (short)
     log("Training PPO in real environment.")
