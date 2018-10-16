@@ -72,11 +72,12 @@ class T2TEnv(video_utils.VideoProblem):
   reward_range = (-1, 1)
   name = None
 
-  def __init__(self, batch_size):
+  def __init__(self, batch_size, data_dir):
     super(T2TEnv, self).__init__()
 
     self.clear_history()
     self.batch_size = batch_size
+    self.data_dir = data_dir
     self._current_batch_frames = [None for _ in range(batch_size)]
     self._current_batch_rollouts = [[] for _ in range(batch_size)]
     self._current_epoch_rollouts = []
@@ -377,7 +378,8 @@ class T2TEnv(video_utils.VideoProblem):
     self._rollouts_by_epoch_and_split[self.current_epoch] = rollouts_by_split
     self._current_epoch_rollouts = []
 
-  def splits_and_paths(self, data_dir):
+  @property
+  def splits_and_paths(self):
     filepath_fns = {
         problem.DatasetSplit.TRAIN: self.training_filepaths,
         problem.DatasetSplit.EVAL: self.dev_filepaths,
@@ -388,16 +390,20 @@ class T2TEnv(video_utils.VideoProblem):
     # We set shuffled=True as we don't want to shuffle on disk later.
     return [
         (split["split"], filepath_fns[split["split"]](
-            data_dir, split["shards"] * num_epochs, shuffled=True
+            self.data_dir, split["shards"] * num_epochs, shuffled=True
         ))
         for split in self.dataset_splits
     ]
 
-  def generate_data(self, data_dir, tmp_dir, task_id=-1):
-    """Saves the rollout history to disk, split into train/dev sets."""
+  def generate_data(self, data_dir=None, tmp_dir=None, task_id=-1):
+    """Saves the rollout history to disk, split into train/dev sets.
+
+    data_dir and tmp_dir arguments are unused. data_dir being used is the one
+    passed in the constructor.
+    """
     self._split_current_epoch()
 
-    splits_and_paths = self.splits_and_paths(data_dir)
+    splits_and_paths = self.splits_and_paths
     num_epochs = len(self._rollouts_by_epoch_and_split)
 
     for (epoch_index, (epoch, rollouts_by_split)) in enumerate(
@@ -419,6 +425,8 @@ class T2TEnv(video_utils.VideoProblem):
           # Put the remainder in the last shard to preserve the ordering.
           if path_index == len(paths) - 1:
             limit = None
+          # TODO(koz4k): Take elements from islice afterwards. generate_files
+          # can skip if file exists.
           generator_utils.generate_files(
               itertools.islice(frame_gen, limit), [path],
               cycle_every_n=float("inf")
@@ -430,9 +438,9 @@ class T2TGymEnv(T2TEnv):
 
   name = "t2t_gym_env"
 
-  def __init__(self, envs, grayscale=False,
+  def __init__(self, envs, data_dir, grayscale=False,
                resize_height_factor=1, resize_width_factor=1):
-    super(T2TGymEnv, self).__init__(len(envs))
+    super(T2TGymEnv, self).__init__(len(envs), data_dir)
     self.grayscale = grayscale
     self.resize_height_factor = resize_height_factor
     self.resize_width_factor = resize_width_factor

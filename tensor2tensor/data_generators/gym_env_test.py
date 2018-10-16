@@ -73,7 +73,7 @@ class GymEnvTest(tf.test.TestCase):
 
   def init_batch_and_play(self, env_lambda, n_steps=1, **kwargs):
     raw_envs = [env_lambda(), env_lambda()]
-    env = gym_env.T2TGymEnv(raw_envs, **kwargs)
+    env = gym_env.T2TGymEnv(raw_envs, self.out_dir, **kwargs)
     env.start_new_epoch(0)
     return self.play(env, n_steps)
 
@@ -94,14 +94,14 @@ class GymEnvTest(tf.test.TestCase):
 
   def test_splits_dataset(self):
     env, _, _, _ = self.init_batch_and_play(TestEnv, n_steps=20)
-    env.generate_data(self.out_dir, tmp_dir=None)
+    env.generate_data()
 
     for split in self.splits:
       self.assertTrue(env.current_epoch_rollouts(split))
 
   def test_split_preserves_number_of_rollouts(self):
     env, _, _, num_dones = self.init_batch_and_play(TestEnv, n_steps=20)
-    env.generate_data(self.out_dir, tmp_dir=None)
+    env.generate_data()
 
     num_rollouts_after_split = sum(
         len(env.current_epoch_rollouts(split)) for split in self.splits
@@ -113,7 +113,7 @@ class GymEnvTest(tf.test.TestCase):
 
   def test_split_preserves_number_of_frames(self):
     env, _, _, num_dones = self.init_batch_and_play(TestEnv, n_steps=20)
-    env.generate_data(self.out_dir, tmp_dir=None)
+    env.generate_data()
 
     num_frames = sum(
         len(rollout)
@@ -128,7 +128,7 @@ class GymEnvTest(tf.test.TestCase):
     # This test needs base env which outputs done after two steps.
     env_lambda = TestEnv
     env, _, _, _ = self.init_batch_and_play(env_lambda, n_steps=20)
-    env.generate_data(self.out_dir, tmp_dir=None)
+    env.generate_data()
 
     filenames = os.listdir(self.out_dir)
     self.assertTrue(filenames)
@@ -139,25 +139,25 @@ class GymEnvTest(tf.test.TestCase):
 
   def test_shards_per_epoch(self):
     env, _, _, _ = self.init_batch_and_play(TestEnv, n_steps=20)
-    env.generate_data(self.out_dir, tmp_dir=None)
+    env.generate_data()
     num_shards_per_epoch = len(os.listdir(self.out_dir))
     shutil.rmtree(self.out_dir)
     os.mkdir(self.out_dir)
 
     env.start_new_epoch(1)
     self.play(env, n_steps=20)
-    env.generate_data(self.out_dir, tmp_dir=None)
+    env.generate_data()
     self.assertEqual(len(os.listdir(self.out_dir)), 2 * num_shards_per_epoch)
 
   def test_frame_numbers_are_continuous(self):
     env, _, _, _ = self.init_batch_and_play(TestEnv, n_steps=20)
-    env.generate_data(self.out_dir, tmp_dir=None)
+    env.generate_data()
 
     frame_numbers = [
         tf.train.Example.FromString(
             record
         ).features.feature["frame_number"].int64_list.value[0]
-        for (_, paths) in env.splits_and_paths(self.out_dir)
+        for (_, paths) in env.splits_and_paths
         for path in paths
         for record in tf.python_io.tf_record_iterator(path)
     ]
