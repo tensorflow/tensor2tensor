@@ -353,6 +353,14 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     else:
       self.statistics.save_to_file(stats_file)
 
+  def filepattern(self, data_dir, mode, shard=None, only_last=False):
+    filepattern = super(GymDiscreteProblem, self).filepattern(
+        data_dir, mode, shard
+    )
+    if only_last:
+      filepattern += r"10.[\d+]"
+    return filepattern
+
 
 class BasicStatistics(object):
   """Keeps basic statistics to calculate mean reward """

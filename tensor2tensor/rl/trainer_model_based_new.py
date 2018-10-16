@@ -141,7 +141,7 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
 
 
 def train_agent(environment_spec, agent_model_dir,
-                event_dir, world_model_dir, epoch_data_dir, hparams, epoch=0,
+                event_dir, world_model_dir, data_dir, hparams, epoch=0,
                 is_final_epoch=False):
   """Train the PPO agent in the simulated environment."""
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
@@ -183,17 +183,17 @@ def train_agent(environment_spec, agent_model_dir,
       "model": hparams.generative_model,
       "hparams_set": hparams.generative_model_params,
       "output_dir": world_model_dir,
-      "data_dir": epoch_data_dir,
+      "data_dir": data_dir,
   }):
     rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
                          name_scope="ppo_sim%d" % (epoch + 1))
 
 
 def train_agent_real_env(
-    env, agent_model_dir, event_dir, epoch_data_dir,
+    env, agent_model_dir, event_dir, data_dir,
     hparams, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the real environment."""
-  del epoch_data_dir
+  del data_dir
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_params_names = ["epochs_num", "epoch_length",
                       "learning_rate", "num_agents", "eval_every_epochs",
@@ -270,10 +270,11 @@ def make_gym_env(hparams):
   return env
 
 
-def setup_env(hparams):
+def setup_env(hparams, data_dir):
   """Setup."""
   env = T2TGymEnv([make_gym_env(hparams)
                    for _ in range(hparams.real_ppo_num_agents)],
+                  data_dir,
                   grayscale=hparams.grayscale,
                   resize_width_factor=hparams.resize_width_factor,
                   resize_height_factor=hparams.resize_height_factor)
@@ -305,7 +306,8 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   directories = setup_directories(output_dir, subdirectories)
 
   epoch = -1
-  env = setup_env(hparams)
+  data_dir = directories["data"]
+  env = setup_env(hparams, data_dir)
   env.start_new_epoch(epoch)
 
   # Timing log function
@@ -313,10 +315,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   # Per-epoch state
   epoch_metrics = []
-  epoch_data_dirs = []
 
-  data_dir = os.path.join(directories["data"], "initial")
-  epoch_data_dirs.append(data_dir)
   # Collect data from the real environment with PPO or random policy.
   # TODO(lukaszkaiser): do we need option not to gather_ppo_real_env_data?
   # We could set learning_rate=0 if this flag == False.
@@ -350,18 +349,14 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   )
 
   for epoch in range(hparams.epochs):
-    epoch_data_dir = os.path.join(directories["data"], str(epoch))
-    tf.gfile.MakeDirs(epoch_data_dir)
-    env.generate_data(epoch_data_dir, directories["tmp"])
-    epoch_data_dirs.append(epoch_data_dir)
+    env.generate_data()
 
-    env.start_new_epoch(epoch)
     is_final_epoch = (epoch + 1) == hparams.epochs
     log = make_log_fn(epoch, log_relative_time)
 
     # Train world model
     log("Training world model")
-    train_world_model(env, epoch_data_dir,
+    train_world_model(env, data_dir,
                       directories["world_model"], hparams, epoch)
 
     # Train PPO
@@ -373,14 +368,16 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       ppo_model_dir = ppo_event_dir
 
     train_agent(sim_env_spec, ppo_model_dir,
-                ppo_event_dir, directories["world_model"], epoch_data_dir,
+                ppo_event_dir, directories["world_model"], data_dir,
                 hparams, epoch=epoch, is_final_epoch=is_final_epoch)
+
+    env.start_new_epoch(epoch)
 
     # Train PPO on real env (short)
     log("Training PPO in real environment.")
     train_agent_real_env(
         env, ppo_model_dir,
-        ppo_event_dir, epoch_data_dir,
+        ppo_event_dir, data_dir,
         hparams, epoch=epoch, is_final_epoch=is_final_epoch)
 
     if hparams.stop_loop_early:

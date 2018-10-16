@@ -66,16 +66,32 @@ class GymEnvTest(tf.test.TestCase):
 
   splits = (problem.DatasetSplit.TRAIN, problem.DatasetSplit.EVAL)
 
+  # TODO(koz4k): Tests for loading:
+  # - loaded epoch is read-only
+  # - partial write detection (should raise on loading)
+
   def setUp(self):
     self.out_dir = tf.test.get_temp_dir()
     shutil.rmtree(self.out_dir)
     os.mkdir(self.out_dir)
 
-  def init_batch_and_play(self, env_lambda, n_steps=1, **kwargs):
+  def init_batch_and_play(self, env_lambda, steps_per_epoch=1,
+                          epochs=(0,), generate_data=False, **kwargs):
     raw_envs = [env_lambda(), env_lambda()]
-    env = gym_env.T2TGymEnv(raw_envs, **kwargs)
-    env.start_new_epoch(0)
-    return self.play(env, n_steps)
+    env = gym_env.T2TGymEnv(raw_envs, self.out_dir, **kwargs)
+    obs = list()
+    rewards = list()
+    num_dones = 0
+    for epoch in epochs:
+      env.start_new_epoch(epoch)
+      _, epoch_obs, epoch_rewards, epoch_num_dones = \
+          self.play(env, steps_per_epoch)
+      if generate_data:
+        env.generate_data()
+      obs.extend(epoch_obs)
+      rewards.extend(epoch_rewards)
+      num_dones += epoch_num_dones
+    return env, obs, rewards, num_dones
 
   def play(self, env, n_steps):
     obs = list()
@@ -93,15 +109,17 @@ class GymEnvTest(tf.test.TestCase):
     return env, obs, rewards, num_dones
 
   def test_splits_dataset(self):
-    env, _, _, _ = self.init_batch_and_play(TestEnv, n_steps=20)
-    env.generate_data(self.out_dir, tmp_dir=None)
+    env, _, _, _ = self.init_batch_and_play(
+        TestEnv, steps_per_epoch=20, generate_data=True
+    )
 
     for split in self.splits:
       self.assertTrue(env.current_epoch_rollouts(split))
 
   def test_split_preserves_number_of_rollouts(self):
-    env, _, _, num_dones = self.init_batch_and_play(TestEnv, n_steps=20)
-    env.generate_data(self.out_dir, tmp_dir=None)
+    env, _, _, num_dones = self.init_batch_and_play(
+        TestEnv, steps_per_epoch=20, generate_data=True
+    )
 
     num_rollouts_after_split = sum(
         len(env.current_epoch_rollouts(split)) for split in self.splits
@@ -112,8 +130,9 @@ class GymEnvTest(tf.test.TestCase):
     self.assertLessEqual(num_rollouts_after_split, num_dones + 1)
 
   def test_split_preserves_number_of_frames(self):
-    env, _, _, num_dones = self.init_batch_and_play(TestEnv, n_steps=20)
-    env.generate_data(self.out_dir, tmp_dir=None)
+    env, _, _, num_dones = self.init_batch_and_play(
+        TestEnv, steps_per_epoch=20, generate_data=True
+    )
 
     num_frames = sum(
         len(rollout)
@@ -126,9 +145,9 @@ class GymEnvTest(tf.test.TestCase):
 
   def test_generates_data(self):
     # This test needs base env which outputs done after two steps.
-    env_lambda = TestEnv
-    env, _, _, _ = self.init_batch_and_play(env_lambda, n_steps=20)
-    env.generate_data(self.out_dir, tmp_dir=None)
+    self.init_batch_and_play(
+        TestEnv, steps_per_epoch=20, generate_data=True
+    )
 
     filenames = os.listdir(self.out_dir)
     self.assertTrue(filenames)
@@ -138,26 +157,39 @@ class GymEnvTest(tf.test.TestCase):
       self.assertTrue(records)
 
   def test_shards_per_epoch(self):
-    env, _, _, _ = self.init_batch_and_play(TestEnv, n_steps=20)
-    env.generate_data(self.out_dir, tmp_dir=None)
-    num_shards_per_epoch = len(os.listdir(self.out_dir))
-    shutil.rmtree(self.out_dir)
-    os.mkdir(self.out_dir)
+    def num_ending_with(filenames, suffix):
+      return sum(
+          1 for filename in filenames if filename.endswith(suffix)
+      )
+
+    env = gym_env.T2TGymEnv([TestEnv() for _ in range(2)], self.out_dir)
+    env.start_new_epoch(0)
+    self.play(env, n_steps=20)
+    env.generate_data()
+
+    filenames = os.listdir(self.out_dir)
+    num_shards_per_epoch = len(filenames)
+    self.assertEqual(num_ending_with(filenames, ".0"), num_shards_per_epoch)
 
     env.start_new_epoch(1)
     self.play(env, n_steps=20)
-    env.generate_data(self.out_dir, tmp_dir=None)
-    self.assertEqual(len(os.listdir(self.out_dir)), 2 * num_shards_per_epoch)
+    env.generate_data()
+
+    filenames = os.listdir(self.out_dir)
+    self.assertEqual(len(filenames), 2 * num_shards_per_epoch)
+    for suffix in (".0", ".1"):
+      self.assertEqual(num_ending_with(filenames, suffix), num_shards_per_epoch)
 
   def test_frame_numbers_are_continuous(self):
-    env, _, _, _ = self.init_batch_and_play(TestEnv, n_steps=20)
-    env.generate_data(self.out_dir, tmp_dir=None)
+    env, _, _, _ = self.init_batch_and_play(
+        TestEnv, steps_per_epoch=20, generate_data=True
+    )
 
     frame_numbers = [
         tf.train.Example.FromString(
             record
         ).features.feature["frame_number"].int64_list.value[0]
-        for (_, paths) in env.splits_and_paths(self.out_dir)
+        for (_, paths) in env.splits_and_paths
         for path in paths
         for record in tf.python_io.tf_record_iterator(path)
     ]
@@ -178,7 +210,9 @@ class GymEnvTest(tf.test.TestCase):
     # self.assertTrue(np.max(rewards) == 1)
     # self.assertTrue(np.min(rewards) == -1)
 
-    _, _, unclipped_rewards, _ = self.init_batch_and_play(env_lambda, n_steps=2)
+    _, _, unclipped_rewards, _ = self.init_batch_and_play(
+        env_lambda, steps_per_epoch=2
+    )
     self.assertTrue(np.max(unclipped_rewards) > 1)
     self.assertTrue(np.min(unclipped_rewards) < -1)
 
@@ -189,7 +223,7 @@ class GymEnvTest(tf.test.TestCase):
     resize_width_factor = 3
     orig_height, orig_width = orig_env.observation_space.shape[:2]
     env, obs, _, _ = self.init_batch_and_play(
-        env_lambda, n_steps=1,
+        env_lambda, steps_per_epoch=1,
         resize_height_factor=resize_height_factor,
         resize_width_factor=resize_width_factor)
     for obs_batch in obs:
@@ -214,6 +248,18 @@ class GymEnvTest(tf.test.TestCase):
     env, obs, _, _ = self.init_batch_and_play(env_lambda, grayscale=False)
     self.assert_channels(env, obs, n_channels=3)
 
+  def test_generating_and_loading_preserves_rollouts(self):
+    from_env = gym_env.T2TGymEnv([TestEnv()], self.out_dir)
+    from_env.start_new_epoch(0)
+    self.play(from_env, n_steps=20)
+    from_env.generate_data()
+
+    to_env = gym_env.T2TGymEnv([TestEnv()], self.out_dir)
+    to_env.start_new_epoch(0)
+
+    self.assertEqual(
+        from_env.current_epoch_rollouts(), to_env.current_epoch_rollouts()
+    )
 
 if __name__ == "__main__":
   tf.test.main()
