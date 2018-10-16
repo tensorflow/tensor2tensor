@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Tests for tensor2tensor.beam_search."""
 
 from __future__ import absolute_import
@@ -368,6 +369,56 @@ class BeamSearchTest(tf.test.TestCase):
         sess.run(final_ids)
       except tf.errors.InvalidArgumentError as e:
         raise AssertionError(e.message)
+
+  def testTPUBeam(self):
+    batch_size = 1
+    beam_size = 2
+    vocab_size = 3
+    decode_length = 3
+
+    initial_ids = tf.constant([0] * batch_size)  # GO
+    probabilities = tf.constant([[[0.1, 0.1, 0.8], [0.1, 0.1, 0.8]],
+                                 [[0.4, 0.5, 0.1], [0.2, 0.4, 0.4]],
+                                 [[0.05, 0.9, 0.05], [0.4, 0.4, 0.2]]])
+
+    # The top beam is always selected so we should see the top beam's state
+    # at each position, which is the one thats getting 3 added to it each step.
+    expected_states = tf.constant([[[0.], [0.]], [[3.], [3.]], [[6.], [6.]]])
+
+    def symbols_to_logits(_, i, states):
+      # We have to assert the values of state inline here since we can't fetch
+      # them out of the loop!
+      with tf.control_dependencies(
+          [tf.assert_equal(states["state"], expected_states[i])]):
+        logits = tf.to_float(tf.log(probabilities[i, :]))
+
+      states["state"] += tf.constant([[3.], [7.]])
+      return logits, states
+
+    states = {
+        "state": tf.zeros((batch_size, 1)),
+    }
+    states["state"] = tf.placeholder_with_default(
+        states["state"], shape=(None, 1))
+
+    final_ids, _ = beam_search.beam_search(
+        symbols_to_logits,
+        initial_ids,
+        beam_size,
+        decode_length,
+        vocab_size,
+        3.5,
+        eos_id=1,
+        states=states,
+        use_tpu=True)
+
+    with self.test_session() as sess:
+      # Catch and fail so that the testing framework doesn't think it's an error
+      try:
+        sess.run(final_ids)
+      except tf.errors.InvalidArgumentError as e:
+        raise AssertionError(e.message)
+    self.assertAllEqual([[[0, 2, 0, 1], [0, 2, 1, 0]]], final_ids)
 
 if __name__ == "__main__":
   tf.test.main()

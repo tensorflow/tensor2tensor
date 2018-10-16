@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Data generators for the Corpus of Liguistic Acceptability."""
 
 from __future__ import absolute_import
@@ -58,10 +59,6 @@ class Cola(text_problems.Text2ClassProblem):
   @property
   def approx_vocab_size(self):
     return 2**13  # 8k vocab suffices for this small dataset.
-
-  @property
-  def vocab_filename(self):
-    return "vocab.cola.%d" % self.approx_vocab_size
 
   @property
   def num_classes(self):

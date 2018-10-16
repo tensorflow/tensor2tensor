@@ -12,10 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Utils for attention mechanism for images."""
 
-from six.moves import range  # pylint: disable=redefined-builtin
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
+from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import expert_utils
@@ -461,68 +465,6 @@ def get_self_attention_bias(x):
   self_attention_bias = common_attention.attention_bias_lower_triangle(
       x_shape[1])
   return self_attention_bias
-
-
-def transformer_layers_sharded(dp,
-                               ps_devices,
-                               inputs,
-                               num_layers,
-                               hparams,
-                               self_attention_bias=None,
-                               enc_output=None,
-                               attention_type=AttentionType.GLOBAL,
-                               name="transformer"):
-  """Multi layer transformer, sharded by the data parallelism dp."""
-  x = inputs
-  extra_loss = tf.constant(0.0)
-  moe_hidden_sizes = [int(s) for s in hparams.moe_hidden_sizes.split(",")]
-  expert_fn = expert_utils.ffn_expert_fn(
-      hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
-  x = dp(tf.nn.dropout, x, 1.0 - hparams.layer_prepostprocess_dropout)
-  for layer in range(num_layers):
-    with tf.variable_scope("%s_layer_%d" % (name, layer)):
-      # self-attention
-      if attention_type == AttentionType.LOCAL_2D:
-        y = dp(local_attention_2d(common_layers.layer_preprocess(x, hparams),
-                                  hparams,
-                                  attention_type="masked_local_attention_2d"))
-      elif attention_type == AttentionType.LOCAL_1D:
-        y = dp(local_attention_1d(common_layers.layer_preprocess(x, hparams),
-                                  hparams,
-                                  attention_type="local_mask_right",
-                                  q_padding="LEFT", kv_padding="LEFT"))
-      elif attention_type == AttentionType.GLOCAL:
-        y = dp(local_global_attention(
-            common_layers.layer_preprocess(x, hparams), self_attention_bias,
-            hparams, q_padding="LEFT", kv_padding="LEFT"))
-      elif attention_type == AttentionType.GLOBAL:
-        self_attention_bias = dp(get_self_attention_bias(x))
-        y = dp(full_self_attention(common_layers.layer_preprocess(x, hparams),
-                                   self_attention_bias, hparams,
-                                   q_padding="LEFT", kv_padding="LEFT"))
-      x = common_layers.layer_postprocess(x, y, hparams)
-      if enc_output is not None:
-        y = dp(encdec_attention_1d(common_layers.layer_preprocess(x, hparams),
-                                   enc_output, None, hparams))
-        x = dp(common_layers.layer_postprocess, x, y, hparams)
-      with tf.variable_scope("ffn"):
-        if str(layer) in hparams.moe_layers_decoder.split(","):
-          y, loss = expert_utils.distributed_moe(
-              dp,
-              ps_devices,
-              common_layers.layer_preprocess(x, hparams),
-              hparams.mode == tf.estimator.ModeKeys.TRAIN,
-              input_size=hparams.hidden_size,
-              expert_fn=expert_fn,
-              num_experts=hparams.moe_num_experts,
-              k=hparams.moe_k,
-              loss_coef=hparams.moe_loss_coef)
-          extra_loss += loss
-          x = dp(common_layers.layer_postprocess, x, y, hparams)
-        else:
-          y = dp(ffn_layer, common_layers.layer_preprocess(x, hparams), hparams)
-          x = dp(common_layers.layer_postprocess, x, y, hparams)
-  return dp(common_layers.layer_preprocess, x, hparams), extra_loss
 
 
 def postprocess_image(x, rows, cols, hparams):

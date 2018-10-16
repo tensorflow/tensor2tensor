@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Data generators for En-Vi translation."""
 
 from __future__ import absolute_import
@@ -51,10 +52,6 @@ class TranslateEnviIwslt32k(translate.TranslateProblem):
   @property
   def approx_vocab_size(self):
     return 2**15  # 32768
-
-  @property
-  def vocab_filename(self):
-    return "vocab.envi.%d" % self.approx_vocab_size
 
   def source_data_files(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN

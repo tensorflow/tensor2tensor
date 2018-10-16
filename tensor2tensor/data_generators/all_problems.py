@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Imports for problem modules."""
 from __future__ import absolute_import
 from __future__ import division
@@ -54,6 +55,7 @@ MODULES = [
     "tensor2tensor.data_generators.mrpc",
     "tensor2tensor.data_generators.mscoco",
     "tensor2tensor.data_generators.multinli",
+    "tensor2tensor.data_generators.paraphrase_ms_coco",
     "tensor2tensor.data_generators.program_search",
     "tensor2tensor.data_generators.ocr",
     "tensor2tensor.data_generators.pointer_generator_word",
@@ -62,7 +64,9 @@ MODULES = [
     "tensor2tensor.data_generators.qnli",
     "tensor2tensor.data_generators.quora_qpairs",
     "tensor2tensor.data_generators.rte",
+    "tensor2tensor.data_generators.scitail",
     "tensor2tensor.data_generators.snli",
+    "tensor2tensor.data_generators.stanford_nli",
     "tensor2tensor.data_generators.style_transfer",
     "tensor2tensor.data_generators.squad",
     "tensor2tensor.data_generators.sst_binary",
@@ -78,6 +82,7 @@ MODULES = [
     "tensor2tensor.data_generators.translate_enzh",
     "tensor2tensor.data_generators.twentybn",
     "tensor2tensor.data_generators.video_generated",
+    "tensor2tensor.data_generators.vqa",
     "tensor2tensor.data_generators.wiki",
     "tensor2tensor.data_generators.wikisum.wikisum",
     "tensor2tensor.data_generators.wikitext103",

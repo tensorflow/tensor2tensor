@@ -12,12 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Resnets."""
 # Copied from cloud_tpu/models/resnet/resnet_model.py and modified
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
@@ -106,7 +108,11 @@ def conv2d_fixed_padding(inputs,
                          filters,
                          kernel_size,
                          strides,
-                         data_format="channels_first"):
+                         data_format="channels_first",
+                         use_td=False,
+                         targeting_rate=None,
+                         keep_prob=None,
+                         is_training=None):
   """Strided 2-D convolution with explicit padding.
 
   The padding is consistent and is based only on `kernel_size`, not on the
@@ -119,22 +125,63 @@ def conv2d_fixed_padding(inputs,
     strides: `int` strides of the convolution.
     data_format: `str` either "channels_first" for `[batch, channels, height,
         width]` or "channels_last for `[batch, height, width, channels]`.
+    use_td: `str` one of "weight" or "unit". Set to False or "" to disable
+      targeted dropout.
+    targeting_rate: `float` proportion of weights to target with targeted
+      dropout.
+    keep_prob: `float` keep probability for targeted dropout.
+    is_training: `bool` for whether the model is in training.
 
   Returns:
     A `Tensor` of shape `[batch, filters, height_out, width_out]`.
+
+  Raises:
+    Exception: if use_td is not valid.
   """
   if strides > 1:
     inputs = fixed_padding(inputs, kernel_size, data_format=data_format)
 
-  return tf.layers.conv2d(
-      inputs=inputs,
-      filters=filters,
-      kernel_size=kernel_size,
-      strides=strides,
-      padding=("SAME" if strides == 1 else "VALID"),
-      use_bias=False,
-      kernel_initializer=tf.variance_scaling_initializer(),
-      data_format=data_format)
+  if use_td:
+    inputs_shape = common_layers.shape_list(inputs)
+    if use_td == "weight":
+      if data_format == "channels_last":
+        size = kernel_size * kernel_size * inputs_shape[-1]
+      else:
+        size = kernel_size * kernel_size * inputs_shape[1]
+      targeting_count = targeting_rate * tf.to_float(size)
+      targeting_fn = common_layers.weight_targeting
+    elif use_td == "unit":
+      targeting_count = targeting_rate * filters
+      targeting_fn = common_layers.unit_targeting
+    else:
+      raise Exception("Unrecognized targeted dropout type: %s" % use_td)
+
+    y = common_layers.td_conv(
+        inputs,
+        filters,
+        kernel_size,
+        targeting_count,
+        targeting_fn,
+        keep_prob,
+        is_training,
+        do_prune=True,
+        strides=strides,
+        padding=("SAME" if strides == 1 else "VALID"),
+        data_format=data_format,
+        use_bias=False,
+        kernel_initializer=tf.variance_scaling_initializer())
+  else:
+    y = tf.layers.conv2d(
+        inputs=inputs,
+        filters=filters,
+        kernel_size=kernel_size,
+        strides=strides,
+        padding=("SAME" if strides == 1 else "VALID"),
+        use_bias=False,
+        kernel_initializer=tf.variance_scaling_initializer(),
+        data_format=data_format)
+
+  return y
 
 
 def residual_block(inputs,
@@ -143,7 +190,10 @@ def residual_block(inputs,
                    projection_shortcut,
                    strides,
                    final_block,
-                   data_format="channels_first"):
+                   data_format="channels_first",
+                   use_td=False,
+                   targeting_rate=None,
+                   keep_prob=None):
   """Standard building block for residual networks with BN before convolutions.
 
   Args:
@@ -161,6 +211,11 @@ def residual_block(inputs,
         `bottleneck_block`.
     data_format: `str` either "channels_first" for `[batch, channels, height,
         width]` or "channels_last for `[batch, height, width, channels]`.
+    use_td: `str` one of "weight" or "unit". Set to False or "" to disable
+      targeted dropout.
+    targeting_rate: `float` proportion of weights to target with targeted
+      dropout.
+    keep_prob: `float` keep probability for targeted dropout.
 
   Returns:
     The output `Tensor` of the block.
@@ -177,7 +232,11 @@ def residual_block(inputs,
       filters=filters,
       kernel_size=3,
       strides=strides,
-      data_format=data_format)
+      data_format=data_format,
+      use_td=use_td,
+      targeting_rate=targeting_rate,
+      keep_prob=keep_prob,
+      is_training=is_training)
 
   inputs = batch_norm_relu(inputs, is_training, data_format=data_format)
   inputs = conv2d_fixed_padding(
@@ -185,7 +244,11 @@ def residual_block(inputs,
       filters=filters,
       kernel_size=3,
       strides=1,
-      data_format=data_format)
+      data_format=data_format,
+      use_td=use_td,
+      targeting_rate=targeting_rate,
+      keep_prob=keep_prob,
+      is_training=is_training)
 
   return inputs + shortcut
 
@@ -196,7 +259,10 @@ def bottleneck_block(inputs,
                      projection_shortcut,
                      strides,
                      final_block,
-                     data_format="channels_first"):
+                     data_format="channels_first",
+                     use_td=False,
+                     targeting_rate=None,
+                     keep_prob=None):
   """Bottleneck block variant for residual networks with BN after convolutions.
 
   Args:
@@ -215,6 +281,11 @@ def bottleneck_block(inputs,
         the final batch norm in a block.
     data_format: `str` either "channels_first" for `[batch, channels, height,
         width]` or "channels_last for `[batch, height, width, channels]`.
+    use_td: `str` one of "weight" or "unit". Set to False or "" to disable
+      targeted dropout.
+    targeting_rate: `float` proportion of weights to target with targeted
+      dropout.
+    keep_prob: `float` keep probability for targeted dropout.
 
   Returns:
     The output `Tensor` of the block.
@@ -231,7 +302,11 @@ def bottleneck_block(inputs,
       filters=filters,
       kernel_size=1,
       strides=1,
-      data_format=data_format)
+      data_format=data_format,
+      use_td=use_td,
+      targeting_rate=targeting_rate,
+      keep_prob=keep_prob,
+      is_training=is_training)
 
   inputs = batch_norm_relu(inputs, is_training, data_format=data_format)
   inputs = conv2d_fixed_padding(
@@ -239,7 +314,11 @@ def bottleneck_block(inputs,
       filters=filters,
       kernel_size=3,
       strides=strides,
-      data_format=data_format)
+      data_format=data_format,
+      use_td=use_td,
+      targeting_rate=targeting_rate,
+      keep_prob=keep_prob,
+      is_training=is_training)
 
   inputs = batch_norm_relu(inputs, is_training, data_format=data_format)
   inputs = conv2d_fixed_padding(
@@ -247,7 +326,11 @@ def bottleneck_block(inputs,
       filters=4 * filters,
       kernel_size=1,
       strides=1,
-      data_format=data_format)
+      data_format=data_format,
+      use_td=use_td,
+      targeting_rate=targeting_rate,
+      keep_prob=keep_prob,
+      is_training=is_training)
   inputs = batch_norm_relu(
       inputs,
       is_training,
@@ -265,7 +348,10 @@ def block_layer(inputs,
                 strides,
                 is_training,
                 name,
-                data_format="channels_first"):
+                data_format="channels_first",
+                use_td=False,
+                targeting_rate=None,
+                keep_prob=None):
   """Creates one layer of blocks for the ResNet model.
 
   Args:
@@ -279,6 +365,11 @@ def block_layer(inputs,
     name: `str`name for the Tensor output of the block layer.
     data_format: `str` either "channels_first" for `[batch, channels, height,
         width]` or "channels_last for `[batch, height, width, channels]`.
+    use_td: `str` one of "weight" or "unit". Set to False or "" to disable
+      targeted dropout.
+    targeting_rate: `float` proportion of weights to target with targeted
+      dropout.
+    keep_prob: `float` keep probability for targeted dropout.
 
   Returns:
     The output `Tensor` of the block layer.
@@ -287,22 +378,44 @@ def block_layer(inputs,
   filters_out = 4 * filters if block_fn is bottleneck_block else filters
 
   def projection_shortcut(inputs):
+    """Project identity branch."""
     inputs = conv2d_fixed_padding(
         inputs=inputs,
         filters=filters_out,
         kernel_size=1,
         strides=strides,
-        data_format=data_format)
+        data_format=data_format,
+        use_td=use_td,
+        targeting_rate=targeting_rate,
+        keep_prob=keep_prob,
+        is_training=is_training)
     return batch_norm_relu(
         inputs, is_training, relu=False, data_format=data_format)
 
   # Only the first block per block_layer uses projection_shortcut and strides
-  inputs = block_fn(inputs, filters, is_training, projection_shortcut, strides,
-                    False, data_format)
+  inputs = block_fn(
+      inputs,
+      filters,
+      is_training,
+      projection_shortcut,
+      strides,
+      False,
+      data_format,
+      use_td=use_td,
+      targeting_rate=targeting_rate,
+      keep_prob=keep_prob)
 
   for i in range(1, blocks):
-    inputs = block_fn(inputs, filters, is_training, None, 1, (i + 1 == blocks),
-                      data_format)
+    inputs = block_fn(
+        inputs,
+        filters,
+        is_training,
+        None,
+        1, (i + 1 == blocks),
+        data_format,
+        use_td=use_td,
+        targeting_rate=targeting_rate,
+        keep_prob=keep_prob)
 
   return tf.identity(inputs, name)
 
@@ -313,7 +426,10 @@ def resnet_v2(inputs,
               filters,
               data_format="channels_first",
               is_training=False,
-              is_cifar=False):
+              is_cifar=False,
+              use_td=False,
+              targeting_rate=None,
+              keep_prob=None):
   """Resnet model.
 
   Args:
@@ -329,6 +445,11 @@ def resnet_v2(inputs,
         width]` or "channels_last" `[batch, height, width, channels]`.
     is_training: bool, build in training mode or not.
     is_cifar: bool, whether the data is CIFAR or not.
+    use_td: `str` one of "weight" or "unit". Set to False or "" to disable
+      targeted dropout.
+    targeting_rate: `float` proportion of weights to target with targeted
+      dropout.
+    keep_prob: `float` keep probability for targeted dropout.
 
   Returns:
     Pre-logit activations.
@@ -341,7 +462,10 @@ def resnet_v2(inputs,
       strides=1,
       is_training=is_training,
       name="block_layer1",
-      data_format=data_format)
+      data_format=data_format,
+      use_td=use_td,
+      targeting_rate=targeting_rate,
+      keep_prob=keep_prob)
   inputs = block_layer(
       inputs=inputs,
       filters=filters[2],
@@ -350,7 +474,10 @@ def resnet_v2(inputs,
       strides=2,
       is_training=is_training,
       name="block_layer2",
-      data_format=data_format)
+      data_format=data_format,
+      use_td=use_td,
+      targeting_rate=targeting_rate,
+      keep_prob=keep_prob)
   inputs = block_layer(
       inputs=inputs,
       filters=filters[3],
@@ -359,7 +486,10 @@ def resnet_v2(inputs,
       strides=2,
       is_training=is_training,
       name="block_layer3",
-      data_format=data_format)
+      data_format=data_format,
+      use_td=use_td,
+      targeting_rate=targeting_rate,
+      keep_prob=keep_prob)
   if not is_cifar:
     inputs = block_layer(
         inputs=inputs,
@@ -369,7 +499,10 @@ def resnet_v2(inputs,
         strides=2,
         is_training=is_training,
         name="block_layer4",
-        data_format=data_format)
+        data_format=data_format,
+        use_td=use_td,
+        targeting_rate=targeting_rate,
+        keep_prob=keep_prob)
 
   return inputs
 
@@ -386,6 +519,8 @@ class Resnet(t2t_model.T2TModel):
     }
     assert hp.block_fn in block_fns
     is_training = hp.mode == tf.estimator.ModeKeys.TRAIN
+    if is_training:
+      targets = features["targets_raw"]
 
     inputs = features["inputs"]
 
@@ -421,12 +556,32 @@ class Resnet(t2t_model.T2TModel):
         hp.filter_sizes,
         data_format,
         is_training=is_training,
-        is_cifar=hp.is_cifar)
+        is_cifar=hp.is_cifar,
+        use_td=hp.use_td,
+        targeting_rate=hp.targeting_rate,
+        keep_prob=hp.keep_prob)
 
     if hp.use_nchw:
       out = tf.transpose(out, [0, 2, 3, 1])
 
-    return out
+    if not hp.is_cifar:
+      return out
+
+    out = tf.reduce_mean(out, [1, 2])
+    num_classes = self._problem_hparams.target_modality.top_dimensionality
+    logits = tf.layers.dense(out, num_classes, name="logits")
+
+    losses = {"training": 0.0}
+    if is_training:
+      loss = tf.losses.sparse_softmax_cross_entropy(
+          labels=tf.squeeze(targets), logits=logits)
+      loss = tf.reduce_mean(loss)
+
+      losses = {"training": loss}
+
+    logits = tf.reshape(logits, [-1, 1, 1, 1, logits.shape[1]])
+
+    return logits, losses
 
   def infer(self,
             features=None,
@@ -464,6 +619,11 @@ def resnet_base():
   hparams.add_hparam("block_fn", "bottleneck")
   hparams.add_hparam("use_nchw", True)
   hparams.add_hparam("is_cifar", False)
+
+  # Targeted dropout
+  hparams.add_hparam("use_td", False)
+  hparams.add_hparam("targeting_rate", None)
+  hparams.add_hparam("keep_prob", None)
 
   # Variable init
   hparams.initializer = "normal_unit_scaling"
@@ -511,6 +671,39 @@ def resnet_imagenet_34():
 
 
 @registry.register_hparams
+def resnet_imagenet_34_td_weight_05_05():
+  """Set of hyperparameters."""
+  hp = resnet_imagenet_34()
+  hp.use_td = "weight"
+  hp.targeting_rate = 0.5
+  hp.keep_prob = 0.5
+
+  return hp
+
+
+@registry.register_hparams
+def resnet_imagenet_34_td_unit_05_05():
+  """Set of hyperparameters."""
+  hp = resnet_imagenet_34()
+  hp.use_td = "unit"
+  hp.targeting_rate = 0.5
+  hp.keep_prob = 0.5
+
+  return hp
+
+
+@registry.register_hparams
+def resnet_imagenet_34_td_unit_no_drop():
+  """Set of hyperparameters."""
+  hp = resnet_imagenet_34()
+  hp.use_td = "unit"
+  hp.targeting_rate = 0.0
+  hp.keep_prob = 1.0
+
+  return hp
+
+
+@registry.register_hparams
 def resnet_imagenet_102():
   hp = resnet_imagenet_34()
   hp.layer_sizes = [3, 8, 36, 3]
@@ -533,6 +726,33 @@ def resnet_cifar_15():
 def resnet_cifar_32():
   hp = resnet_cifar_15()
   hp.layer_sizes = [5, 5, 5]
+  return hp
+
+
+@registry.register_hparams
+def resnet_cifar_32_td_weight_05_05():
+  hp = resnet_cifar_32()
+  hp.use_td = "weight"
+  hp.targeting_rate = 0.5
+  hp.keep_prob = 0.5
+  return hp
+
+
+@registry.register_hparams
+def resnet_cifar_32_td_unit_05_05():
+  hp = resnet_cifar_32()
+  hp.use_td = "unit"
+  hp.targeting_rate = 0.5
+  hp.keep_prob = 0.5
+  return hp
+
+
+@registry.register_hparams
+def resnet_cifar_32_td_unit_no_drop():
+  hp = resnet_cifar_32()
+  hp.use_td = "unit"
+  hp.targeting_rate = 0.0
+  hp.keep_prob = 1.0
   return hp
 
 
@@ -562,3 +782,52 @@ def resnet_200():
   hp = resnet_base()
   hp.layer_sizes = [3, 24, 36, 3]
   return hp
+
+
+# Pruning parameters
+@registry.register_pruning_params
+def resnet_weight():
+  hp = tf.contrib.training.HParams()
+  hp.add_hparam("strategy", "weight")
+  hp.add_hparam("black_list", ["logits", "bias"])
+  hp.add_hparam("white_list", ["td_conv"])
+  hp.add_hparam("sparsities", [0.1 * i for i in range(10)])
+  return hp
+
+
+@registry.register_pruning_params
+def resnet_unit():
+  hp = resnet_weight()
+  hp.strategy = "unit"
+  return hp
+
+
+# Adversarial attack parameters
+@registry.register_attack_params
+def resnet_fgsm():
+  aparams = tf.contrib.training.HParams()
+  aparams.attack = "fgsm"
+  aparams.epsilon_name = "eps"
+  aparams.attack_epsilons = [i * 0.8 for i in range(20)]
+  aparams.add_hparam("clip_min", 0.0)
+  aparams.add_hparam("clip_max", 255.0)
+  return aparams
+
+
+@registry.register_attack_params
+def resnet_madry():
+  aparams = resnet_fgsm()
+  aparams.attack = "madry"
+  aparams.add_hparam("nb_iter", 40)
+  aparams.add_hparam("eps_iter", 1.0)
+  return aparams
+
+
+@registry.register_attack_params
+def resnet_random():
+  aparams = resnet_fgsm()
+  aparams.attack = "random"
+  aparams.epsilon_name = "eps"
+  aparams.add_hparam("num_samples", 10)
+  aparams.add_hparam("num_batches", 100)
+  return aparams

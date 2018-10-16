@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Data generators for the Question-Answering NLI dataset."""
 
 from __future__ import absolute_import
@@ -60,21 +61,7 @@ class QuestionNLI(text_problems.TextConcat2ClassProblem):
     return 2**15
 
   @property
-  def vocab_filename(self):
-    return "vocab.qnli.%d" % self.approx_vocab_size
-
-  @property
   def num_classes(self):
-    return 2
-
-  @property
-  def concat_token(self):
-    return "<EN-Q-CONT>"
-
-  @property
-  def concat_id(self):
-    if self.vocab_type == text_problems.VocabType.CHARACTER:
-      return problem.TaskID.EN_Q_CONT
     return 2
 
   def class_labels(self, data_dir):

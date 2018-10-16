@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Data reader test."""
 
 from __future__ import absolute_import
@@ -48,7 +49,11 @@ class TestProblem(problem_mod.Problem):
         self.generator(data_dir, tmp_dir, False), dev_paths)
 
   def hparams(self, defaults, model_hparams):
-    pass
+    hp = defaults
+    hp.input_modality = {
+        "inputs": (registry.Modalities.SYMBOL, 30)
+    }
+    hp.target_modality = (registry.Modalities.SYMBOL, 30)
 
   def example_reading_spec(self):
     data_fields = {
@@ -204,47 +209,6 @@ class DataReaderTest(tf.test.TestCase):
     self.assertAllEqual([b * 2 for b in expected_boundaries], boundaries)
     self.assertEqual([max(1, bs // 2)
                       for bs in expected_batch_sizes], batch_sizes)
-
-  def testBucketBySeqLength(self):
-
-    def example_len(ex):
-      return tf.shape(ex["inputs"])[0]
-
-    boundaries = [10, 20, 30]
-    batch_sizes = [10, 8, 4, 2]
-
-    dataset = self.problem.dataset(
-        tf.estimator.ModeKeys.TRAIN,
-        data_dir=self.data_dir,
-        shuffle_files=False)
-    dataset = data_reader.bucket_by_sequence_length(
-        dataset, example_len, boundaries, batch_sizes)
-    batch = dataset.make_one_shot_iterator().get_next()
-
-    input_vals = []
-    obs_batch_sizes = []
-    with tf.train.MonitoredSession() as sess:
-      # Until OutOfRangeError
-      while True:
-        batch_val = sess.run(batch)
-        batch_inputs = batch_val["inputs"]
-        batch_size, max_len = batch_inputs.shape
-        obs_batch_sizes.append(batch_size)
-        for inputs in batch_inputs:
-          input_val = inputs[0]
-          input_vals.append(input_val)
-          # The inputs were constructed such that they were repeated value+1
-          # times (i.e. if the inputs value is 7, the example has 7 repeated 8
-          # times).
-          repeat = input_val + 1
-          # Check padding
-          self.assertAllEqual([input_val] * repeat + [0] * (max_len - repeat),
-                              inputs)
-
-    # Check that all inputs came through
-    self.assertEqual(list(range(30)), sorted(input_vals))
-    # Check that we saw variable batch size
-    self.assertTrue(len(set(obs_batch_sizes)) > 1)
 
 
 if __name__ == "__main__":

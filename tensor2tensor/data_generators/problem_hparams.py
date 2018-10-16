@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Hyperparameters defining different problems.
 
 """
@@ -198,7 +199,9 @@ class TestProblem(problem.Problem):
     hp.target_modality = (registry.Modalities.SYMBOL, self.target_vocab_size)
 
 
-def test_problem_hparams(input_vocab_size=None, target_vocab_size=None):
+def test_problem_hparams(input_vocab_size=None,
+                         target_vocab_size=None,
+                         model_hparams=None):
   """Problem hparams for testing model bodies."""
   p = TestProblem(input_vocab_size, target_vocab_size)
-  return p.get_hparams()
+  return p.get_hparams(model_hparams)

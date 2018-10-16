@@ -34,6 +34,13 @@ tensorflow_model_server \
 
 ## 3. Query the Server
 
+**Note**: The `t2t-query-server` is meant only as an example. You may need to
+modify it to suit your needs. The exported model expects an input
+example that is structured identically to what would be found on disk during
+training (serialized `tf.train.Example`). For text problems, that means that
+it expects the inputs to already be encoded as integers. You can see how the
+`t2t-query-server` does this by reading the code.
+
 Install some dependencies:
 
 ```

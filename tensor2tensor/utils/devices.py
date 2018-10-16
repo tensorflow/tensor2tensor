@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Device placement and data parallelism."""
 from __future__ import absolute_import
 from __future__ import division
@@ -130,11 +131,12 @@ def data_parallelism(daisy_chain_variables=True,
         ps_tasks=ps_replicas,
         ps_device=ps_job + "/GPU:0" if ps_gpu > 0 else ps_job)
 
+  is_single_machine = ps_replicas == 0 and worker_replicas == 1
+
   if no_data_parallelism:
     datashard_devices = [""]
     caching_devices = None
-  elif schedule in ["train_and_evaluate", "continuous_train_and_eval"]:
-    assert not sync
+  elif is_single_machine:
     tf.logging.warn(
         "Schedule=%s. Assuming that training is running on a single machine.",
         schedule)
@@ -162,7 +164,6 @@ def data_parallelism(daisy_chain_variables=True,
           _replica_device_setter(worker_job + "/GPU:%d" % d)
           for d in _gpu_order(worker_gpu)
       ]
-      # caching_devices = [worker_job + "/GPU:0"] * worker_gpu
       caching_devices = None
     else:
       datashard_devices = [_replica_device_setter(worker_job)]

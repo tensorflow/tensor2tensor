@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 r"""Program to build a SubwordTextEncoder.
 
 The flags --min_count and --corpus_max_lines will affect the size of the
