@@ -24,7 +24,6 @@ import itertools
 
 from gym.spaces import Box
 import numpy as np
-import six
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
@@ -85,11 +84,11 @@ class T2TEnv(video_utils.VideoProblem):
     self.current_epoch = None
     with tf.Graph().as_default() as tf_graph:
       self._tf_graph = _Noncopyable(tf_graph)
-      self._image_t = _Noncopyable(
+      self._image_p = _Noncopyable(
           tf.placeholder(dtype=tf.uint8, shape=(None, None, None))
       )
       self._encoded_image_t = _Noncopyable(
-          tf.image.encode_png(self._image_t.obj)
+          tf.image.encode_png(self._image_p.obj)
       )
       self._session = _Noncopyable(tf.Session())
 
@@ -101,18 +100,20 @@ class T2TEnv(video_utils.VideoProblem):
     """Clears the rollout history."""
     self._rollouts_by_epoch_and_split = collections.OrderedDict()
 
-  def start_new_epoch(self, epoch):
+  def start_new_epoch(self, epoch, load_data=True):
     if not isinstance(epoch, int):
       raise ValueError("Epoch should be integer, got {}".format(epoch))
     if epoch in self._rollouts_by_epoch_and_split:
       raise ValueError("Epoch {} already registered".format(epoch))
     self.current_epoch = epoch
     self._current_epoch_rollouts = []
+    self._rollouts_by_epoch_and_split[epoch] = collections.defaultdict(list)
+    if load_data:
+      self._load_epoch_data()
 
   def current_epoch_rollouts(self, split=None):
-    try:
-      rollouts_by_split = self._rollouts_by_epoch_and_split[self.current_epoch]
-    except KeyError:
+    rollouts_by_split = self._rollouts_by_epoch_and_split[self.current_epoch]
+    if not rollouts_by_split:
       if split is not None:
         raise ValueError(
             "generate_data() should first be called in the current epoch"
@@ -146,7 +147,7 @@ class T2TEnv(video_utils.VideoProblem):
     return [
         self._session.obj.run(
             self._encoded_image_t.obj,
-            feed_dict={self._image_t.obj: observation}
+            feed_dict={self._image_p.obj: observation}
         )
         for observation in observations
     ]
@@ -180,10 +181,15 @@ class T2TEnv(video_utils.VideoProblem):
       (obs, rewards, dones) - batches of observations, rewards and done flags
       respectively.
     """
+    if self._rollouts_by_epoch_and_split[self.current_epoch]:
+      raise ValueError(
+          "Data for current epoch has already been loaded from disk."
+      )
     (obs, unclipped_rewards, dones) = self._step(actions)
     obs = self._preprocess_observations(obs)
     (min_reward, max_reward) = self.reward_range
     rewards = np.around(np.clip(unclipped_rewards, min_reward, max_reward))
+    unclipped_rewards = unclipped_rewards.astype(np.float64)
     encoded_obs = self._encode_observations(obs)
     for (rollout, frame, action) in zip(
         self._current_batch_rollouts, self._current_batch_frames, actions
@@ -223,7 +229,7 @@ class T2TEnv(video_utils.VideoProblem):
     """
     if self.current_epoch is None:
       # It's here so that the old pipeline works.
-      self.start_new_epoch(0)
+      self.start_new_epoch(0, load_data=False)
       # TODO(koz4k): Replace with:
       # raise ValueError(
       #     "No current epoch. start_new_epoch() should first be called."
@@ -324,6 +330,7 @@ class T2TEnv(video_utils.VideoProblem):
             "image/width": [self.frame_width],
             "action": [int(frame.action)],
             "reward": [int(frame.reward - self.reward_range[0])],
+            "unclipped_reward": [float(frame.unclipped_reward)],
             "done": [int(frame.done)]
         }
 
@@ -419,10 +426,12 @@ class T2TEnv(video_utils.VideoProblem):
     data_dir and tmp_dir arguments are unused. data_dir being used is the one
     passed in the constructor.
     """
-    self._split_current_epoch()
+    if not self._rollouts_by_epoch_and_split[self.current_epoch]:
+      # Data not loaded from disk.
+      self._split_current_epoch()
 
-    splits_and_paths = self.splits_and_paths
     rollouts_by_split = self._rollouts_by_epoch_and_split[self.current_epoch]
+    splits_and_paths = self.splits_and_paths
 
     for (split, paths) in splits_and_paths:
       rollouts = rollouts_by_split[split]
@@ -439,6 +448,69 @@ class T2TEnv(video_utils.VideoProblem):
             itertools.islice(frame_gen, limit), [path],
             cycle_every_n=float("inf")
         )
+
+  def _load_epoch_data(self):
+    any_files_found = False
+    all_files_found = True
+    any_shard_empty = False
+
+    for split, paths in self.splits_and_paths:
+      try:
+        any_shard_empty |= self._load_epoch_split(split, paths)
+        any_files_found = True
+      except tf.errors.NotFoundError:
+        all_files_found = False
+    if any_shard_empty or (not all_files_found and any_files_found):
+      raise ValueError("Some data is missing, the experiment might've been "
+                       "interupted during generating data.")
+
+  def _load_epoch_split(self, split, paths):
+    epoch = self.current_epoch
+    last_frame_number = -1
+    any_shard_empty = False
+    current_rollout = []
+
+    for path in paths:
+      this_shard_empty = True
+      for example in tf.python_io.tf_record_iterator(path):
+        this_shard_empty = False
+
+        result = tf.train.Example.FromString(example)
+        feature = result.features.feature
+
+        def get_feature_value(key, list_name):
+          return getattr(feature[key], list_name).value[0]  # pylint: disable=cell-var-from-loop
+
+        fields = {
+            key: get_feature_value(key, list_name)
+            for (key, list_name) in [
+                ("image/encoded", "bytes_list"), ("reward", "int64_list"),
+                ("unclipped_reward", "float_list"), ("done", "int64_list"),
+                ("action", "int64_list")
+            ]
+        }
+        fields["reward"] += self.reward_range[0]
+        fields["done"] = bool(fields["done"])
+        fields['observation'] = fields['image/encoded']
+        del fields['image/encoded']
+
+        frame = Frame(**fields)
+        frame_number = get_feature_value("frame_number", 'int64_list')
+        if frame_number == last_frame_number + 1:
+          current_rollout.append(frame)
+        else:
+          self._rollouts_by_epoch_and_split[epoch][split].append(
+              current_rollout)
+          current_rollout = [frame]
+        last_frame_number = frame_number
+
+      any_shard_empty |= this_shard_empty
+
+    self._rollouts_by_epoch_and_split[epoch][split].append(
+        current_rollout
+    )
+    return any_shard_empty
+
 
 
 class T2TGymEnv(T2TEnv):
