@@ -51,6 +51,16 @@ def next_frame_sv2p():
 
 
 @registry.register_hparams
+def next_frame_sv2p_discrete():
+  """SV2P discrete model hparams."""
+  hparams = next_frame_sv2p()
+  hparams.add_hparam("bottleneck_bits", 128)
+  hparams.add_hparam("bottleneck_noise", 0.02)
+  hparams.add_hparam("discrete_warmup_steps", 40000)
+  return hparams
+
+
+@registry.register_hparams
 def next_frame_sv2p_atari():
   """SV2P model for atari."""
   hparams = next_frame_sv2p()

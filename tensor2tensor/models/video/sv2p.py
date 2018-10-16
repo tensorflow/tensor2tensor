@@ -331,7 +331,8 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
       self, all_frames, all_actions, all_rewards, all_raw_frames):
     """Video wide latent."""
     del all_actions, all_rewards, all_raw_frames
-    mean, std = self.construct_latent_tower(all_frames, time_axis=0)
+    frames = tf.stack(all_frames, axis=1)
+    mean, std = self.construct_latent_tower(frames, time_axis=1)
     latent = common_video.get_gaussian_tensor(mean, std)
     return [latent, mean, std]
 
@@ -343,7 +344,8 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
     extra_loss = 0.0
     if internal_states is None:
       internal_states = [None] * (5 if self.hparams.small_mode else 7)
-      extra_loss = self.get_extra_loss([latent_mean], [latent_std])
+      if latent_mean is not None:
+        extra_loss = self.get_extra_loss([latent_mean], [latent_std])
 
     pred_image, internal_states = self.construct_predictive_tower(
         frames, None, actions, internal_states, latent)
@@ -354,6 +356,43 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
     pred_reward = self.reward_prediction(
         pred_image, actions, rewards, latent)
     return pred_image, pred_reward, extra_loss, internal_states
+
+
+@registry.register_model
+class NextFrameSv2pDiscrete(NextFrameSv2p):
+  """SV2P with discrete latent."""
+
+  def video_features(
+      self, all_frames, all_actions, all_rewards, all_raw_frames):
+    """Video wide latent."""
+    del all_actions, all_rewards, all_raw_frames
+
+    hparams = self.hparams
+    frames = tf.stack(all_frames, axis=1)
+    mean, std = self.construct_latent_tower(frames, time_axis=1)
+    tower_output = tf.concat([mean, std], axis=-1)
+    tower_output_shape = common_layers.shape_list(tower_output)
+    batch_size = tower_output_shape[0]
+
+    if not self.is_training:
+      rand = tf.random_uniform([batch_size, hparams.bottleneck_bits])
+      d = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
+    else:
+      x = tfl.flatten(tower_output)
+      x = tfl.dense(x, hparams.bottleneck_bits, name="bits_enc")
+      x_shape = common_layers.shape_list(x)
+      x += tf.truncated_normal(x_shape, mean=0.0, stddev=0.2)
+      x = tf.tanh(x)
+      noise = tf.random_uniform(x_shape)
+      noise = 2.0 * tf.to_float(tf.less(hparams.bottleneck_noise, noise)) - 1.0
+      x *= noise
+      d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
+      p = common_layers.inverse_lin_decay(hparams.discrete_warmup_steps)
+      d = tf.where(tf.less(tf.random_uniform([batch_size]), p), d, x)
+
+    decoded_bits = common_video.encode_to_shape(
+        d, tower_output_shape, "bits_dec")
+    return [decoded_bits, None, None]
 
 
 @registry.register_model
