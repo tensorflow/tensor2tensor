@@ -20,8 +20,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.mesh_tensorflow import mtf_transformer
-from tensor2tensor.mesh_tensorflow.research import moe
+from tensor2tensor.models import mtf_transformer
+from tensor2tensor.models.research import moe
 from tensor2tensor.utils import registry
 
 

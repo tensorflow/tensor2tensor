@@ -20,17 +20,15 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
+import mesh_tensorflow as mtf
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
-
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
-from tensor2tensor.mesh_tensorflow import mesh_tensorflow as mtf
-from tensor2tensor.mesh_tensorflow import mtf_beam_search
-from tensor2tensor.mesh_tensorflow import mtf_layers
-from tensor2tensor.mesh_tensorflow import mtf_model
-from tensor2tensor.mesh_tensorflow.research import moe
+from tensor2tensor.models.research import moe
+from tensor2tensor.utils import mtf_model
 from tensor2tensor.utils import registry
+
 import tensorflow as tf
 
 
@@ -175,13 +173,13 @@ class MtfTransformer(mtf_model.MtfModel):
           features["targets_position"], "targets_position",
           mesh, hparams)
       decoder_self_attention_mask = (
-          mtf_layers.attention_mask_autoregressive(
+          mtf.layers.attention_mask_autoregressive(
               targets_position, dtype=self.activation_dtype) +
-          mtf_layers.attention_mask_same_segment(
+          mtf.layers.attention_mask_same_segment(
               targets_segmentation, dtype=self.activation_dtype))
     else:
       targets_position = mtf.range(mesh, self.length_dim, dtype=tf.int32)
-      decoder_self_attention_mask = mtf_layers.attention_mask_autoregressive(
+      decoder_self_attention_mask = mtf.layers.attention_mask_autoregressive(
           targets_position, dtype=self.activation_dtype)
 
     def layer_prepostprocess_dropout(x):
@@ -207,16 +205,16 @@ class MtfTransformer(mtf_model.MtfModel):
             features["inputs_position"], "inputs_position",
             mesh, hparams)
         encoder_self_attention_mask = (
-            mtf_layers.attention_mask_same_segment(
+            mtf.layers.attention_mask_same_segment(
                 inputs_segmentation, dtype=self.activation_dtype))
         encoder_decoder_attention_mask = (
-            mtf_layers.attention_mask_same_segment(
+            mtf.layers.attention_mask_same_segment(
                 targets_segmentation, inputs_segmentation,
                 dtype=self.activation_dtype))
       else:
         inputs_position = mtf.range(mesh, self.length_dim, dtype=tf.int32)
         encoder_self_attention_mask = (
-            mtf_layers.attention_mask_ignore_padding(
+            mtf.layers.attention_mask_ignore_padding(
                 inputs, dtype=self.activation_dtype))
         encoder_decoder_attention_mask = encoder_self_attention_mask
 
@@ -257,9 +255,9 @@ class MtfTransformer(mtf_model.MtfModel):
     soft_targets = mtf.one_hot(
         targets, self.targets_vocab_dim, on_value=on_value, off_value=off_value,
         dtype=self.activation_dtype)
-    loss = mtf_layers.softmax_cross_entropy_with_logits(
+    loss = mtf.layers.softmax_cross_entropy_with_logits(
         logits, soft_targets, self.targets_vocab_dim)
-    weights = mtf_layers.weights_nonzero(
+    weights = mtf.layers.weights_nonzero(
         targets, dtype=self.activation_dtype)
     loss = mtf.reduce_mean(loss * weights)
     for l in extra_losses:
@@ -299,7 +297,7 @@ class MtfTransformer(mtf_model.MtfModel):
     hparams = self._hparams
     feedforward_layer = hparams.feedforward_layer
     if feedforward_layer == "dense_relu_dense":
-      return mtf_layers.dense_relu_dense(
+      return mtf.layers.dense_relu_dense(
           x, self.feedforward_dim, dropout=hparams.relu_dropout,
           dropout_broadcast_dims=[self.length_dim])
     elif feedforward_layer == "moe":
@@ -371,7 +369,7 @@ class MtfTransformer(mtf_model.MtfModel):
       with tf.variable_scope("layer_%d" % layer):
         # Self attention layer
         x += layer_prepostprocess_dropout(
-            mtf_layers.multihead_attention(
+            mtf.layers.multihead_attention(
                 normalize(x), None,
                 self_attention_mask, self.kv_dim, self.heads_dim,
                 dropout=hparams.attention_dropout,
@@ -380,7 +378,7 @@ class MtfTransformer(mtf_model.MtfModel):
         if encoder_output is not None:
           # Encoder-Decoder attention layer
           x += layer_prepostprocess_dropout(
-              mtf_layers.multihead_attention(
+              mtf.layers.multihead_attention(
                   normalize(x), encoder_output,
                   encdec_attention_mask, self.kv_dim, self.heads_dim,
                   dropout=hparams.attention_dropout,
@@ -418,7 +416,7 @@ class MtfTransformer(mtf_model.MtfModel):
            mtf.reshape(positional_embedding_var,
                        mtf.Shape([self.length_dim, self.model_dim])))
       encoder_attention_mask = (
-          mtf_layers.attention_mask_ignore_padding(
+          mtf.layers.attention_mask_ignore_padding(
               inputs, dtype=self.activation_dtype))
       with tf.variable_scope("encoder"):
         x = self._layer_stack(x,
@@ -429,7 +427,7 @@ class MtfTransformer(mtf_model.MtfModel):
       encdec_tensors = []
       for layer_num in xrange(hparams.num_decoder_layers):
         with tf.variable_scope("decoder/layer_%d/encdec_attention" % layer_num):
-          q_var, k_var, v_var, o_var = mtf_layers.multihead_attention_vars(
+          q_var, k_var, v_var, o_var = mtf.layers.multihead_attention_vars(
               mesh, self.heads_dim, self.model_dim,
               self.kv_dim, self.activation_dtype)
           k = mtf.einsum(
@@ -504,7 +502,7 @@ class MtfTransformer(mtf_model.MtfModel):
     if hparams.beam_size == 1:
       temperature = (0.0 if hparams.sampling_method == "argmax"
                      else hparams.sampling_temp)
-      return mtf_beam_search.greedy_decode(
+      return mtf.beam_search.greedy_decode(
           logits_fn,
           initial_ids,
           temperature=temperature,
@@ -522,7 +520,7 @@ class MtfTransformer(mtf_model.MtfModel):
             + hparams.decode_length_constant, tf.int32)
       else:
         decode_length = None
-      beams, unused_scores = mtf_beam_search.beam_search(
+      beams, unused_scores = mtf.beam_search.beam_search(
           logits_fn,
           initial_ids,
           hparams.alpha,
@@ -593,7 +591,7 @@ class MtfTransformer(mtf_model.MtfModel):
     for layer in range(num_layers):
       with tf.variable_scope("layer_%d" % layer):
         # Self attention layer
-        y, new_k, new_v = mtf_layers.multihead_self_attention_incremental(
+        y, new_k, new_v = mtf.layers.multihead_self_attention_incremental(
             normalize(x),
             prev_k=self_attention_k[layer],
             prev_v=self_attention_v[layer],
@@ -605,7 +603,7 @@ class MtfTransformer(mtf_model.MtfModel):
         if encdec_tensors is not None:
           # Encoder-Decoder attention layer
           q_var, o_var, k, v = encdec_tensors[layer]
-          x += mtf_layers.multihead_encdec_attention_incremental(
+          x += mtf.layers.multihead_encdec_attention_incremental(
               normalize(x),
               q_var, o_var, k, v,
               encdec_attention_mask,

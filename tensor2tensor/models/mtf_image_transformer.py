@@ -24,12 +24,13 @@ split or replicated along the mesh dimensions.
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
 import copy
+import mesh_tensorflow as mtf
+
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
-from tensor2tensor.mesh_tensorflow import mesh_tensorflow as mtf
-from tensor2tensor.mesh_tensorflow import mtf_layers
-from tensor2tensor.mesh_tensorflow import mtf_model
+from tensor2tensor.utils import mtf_model
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
@@ -188,7 +189,7 @@ class MtfImageTransformer(mtf_model.MtfModel):
       inputs = import_to_batch_by_length(inputs, "inputs")
 
       # Input embeddings
-      inputs_embedding_var = mtf_layers.embedding(
+      inputs_embedding_var = mtf.layers.embedding(
           mesh, "input_embedding",
           mtf.Shape([self.inputs_vocab_dim, self.model_dim]),
           activation_dtype=activation_dtype)
@@ -203,27 +204,27 @@ class MtfImageTransformer(mtf_model.MtfModel):
       with tf.variable_scope(layer_name):
         # Self attention layer
         x += layer_prepostprocess_dropout(
-            mtf_layers.masked_local_attention_1d(
-                mtf_layers.layer_norm(x, self.model_dim, name="layer_norm_att"),
+            mtf.layers.masked_local_attention_1d(
+                mtf.layers.layer_norm(x, self.model_dim, name="layer_norm_att"),
                 None,
                 self.kv_dim,
                 self.heads_dim,
                 block_length=hparams.block_length,
                 name="self_att"))
         # ffn layer
-        x += layer_prepostprocess_dropout(mtf_layers.dense_relu_dense(
-            mtf_layers.layer_norm(x, self.model_dim, name="layer_norm_ffn"),
+        x += layer_prepostprocess_dropout(mtf.layers.dense_relu_dense(
+            mtf.layers.layer_norm(x, self.model_dim, name="layer_norm_ffn"),
             self.feedforward_dim,
             hparams.dropout,
             dropout_broadcast_dims=[self.length_dim]))
 
-    x = mtf_layers.layer_norm(x, self.model_dim, name="final_layer_norm")
+    x = mtf.layers.layer_norm(x, self.model_dim, name="final_layer_norm")
 
     # Calculate the logits and loss.
-    logits = mtf_layers.dense(x, self.outputs_vocab_dim, name="logits")
+    logits = mtf.layers.dense(x, self.outputs_vocab_dim, name="logits")
     soft_targets = mtf.one_hot(
         targets, self.outputs_vocab_dim, dtype=activation_dtype)
-    loss = mtf_layers.softmax_cross_entropy_with_logits(
+    loss = mtf.layers.softmax_cross_entropy_with_logits(
         logits, soft_targets, self.outputs_vocab_dim)
     loss = mtf.reduce_mean(loss)
     for l in extra_losses:

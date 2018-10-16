@@ -19,12 +19,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import numpy as np
+import mesh_tensorflow as mtf
 
+import numpy as np
 from tensor2tensor.data_generators import problem_hparams
-from tensor2tensor.mesh_tensorflow import mesh_tensorflow as mtf
-from tensor2tensor.mesh_tensorflow import mtf_image_transformer
-from tensor2tensor.mesh_tensorflow import placement_mesh_impl
+from tensor2tensor.models import mtf_image_transformer
 
 import tensorflow as tf
 
@@ -65,7 +64,7 @@ def get_placement_mesh(hparams):
   mesh_shape = mtf.convert_to_shape(hparams.mesh_shape)
 
   mesh_devices = [""] * mesh_shape.size
-  mesh_impl = placement_mesh_impl.PlacementMeshImpl(
+  mesh_impl = mtf.placement_mesh_impl.PlacementMeshImpl(
       mesh_shape, hparams.layout, mesh_devices)
   return mesh, mesh_impl
 

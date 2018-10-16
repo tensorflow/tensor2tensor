@@ -40,6 +40,7 @@ setup(
         'gunicorn',
         'gym',
         'h5py',
+        'mesh-tensorflow',
         'numpy',
         'oauth2client',
         'requests',

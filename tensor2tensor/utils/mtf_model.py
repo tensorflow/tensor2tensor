@@ -22,14 +22,9 @@ from __future__ import print_function
 
 import collections
 import copy
+import mesh_tensorflow as mtf
+
 import six
-
-
-from tensor2tensor.mesh_tensorflow import mesh_tensorflow as mtf
-from tensor2tensor.mesh_tensorflow import mtf_optimize
-from tensor2tensor.mesh_tensorflow import mtf_utils
-from tensor2tensor.mesh_tensorflow import placement_mesh_impl
-from tensor2tensor.mesh_tensorflow import simd_mesh_impl
 from tensor2tensor.utils import learning_rate
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import t2t_model
@@ -86,10 +81,10 @@ class MtfModel(t2t_model.T2TModel):
       # Worker 0 caches all the TPU binaries.
       worker0_mem = replica_cache_size * ctx.num_replicas
       devices_memeory_usage = [worker0_mem] + [0] * (num_hosts - 1)
-      var_placer = mtf_utils.BalancedVariablePlacer(device_list,
+      var_placer = mtf.utils.BalancedVariablePlacer(device_list,
                                                     devices_memeory_usage)
       mesh_devices = [""] * mesh_shape.size
-      mesh_impl = simd_mesh_impl.SimdMeshImpl(
+      mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
           mesh_shape, layout_rules, mesh_devices, ctx.device_assignment)
     else:
       var_placer = None
@@ -98,7 +93,7 @@ class MtfModel(t2t_model.T2TModel):
       else:
         assert len(data_parallelism.ps_devices) == mesh_shape.size
         mesh_devices = data_parallelism.ps_devices
-      mesh_impl = placement_mesh_impl.PlacementMeshImpl(
+      mesh_impl = mtf.placement_mesh_impl.PlacementMeshImpl(
           mesh_shape, layout_rules, mesh_devices)
 
     graph = mtf.Graph()
@@ -118,7 +113,7 @@ class MtfModel(t2t_model.T2TModel):
       lr = learning_rate.learning_rate_schedule(hparams)
       mtf_lr = mtf.import_tf_tensor(
           mesh, tf.convert_to_tensor(lr, dtype=tf.float32), mtf.Shape([]))
-      optimizer = mtf_optimize.make_optimizer(hparams, mtf_lr)
+      optimizer = mtf.optimize.make_optimizer(hparams, mtf_lr)
       update_ops = []
       for grad, var in zip(var_grads, graph.trainable_variables):
         update_ops.extend(optimizer.apply_grad(grad, var))
@@ -136,7 +131,7 @@ class MtfModel(t2t_model.T2TModel):
       # tf.logging.info("tf_update_ops: {}".format(tf_update_ops))
       train_op = tf.group(tf_update_ops)
 
-    with mtf_utils.outside_all_rewrites():
+    with mtf.utils.outside_all_rewrites():
       # Copy master variables to slices. Must be called first.
       restore_hook = mtf.MtfRestoreHook(lowering)
       saver = tf.train.Saver(
@@ -183,7 +178,7 @@ class MtfModel(t2t_model.T2TModel):
 
     if use_tpu:
       def metric_fn(tf_logits, labels):
-        with tf.device("cpu:0"), mtf_utils.outside_all_rewrites():
+        with tf.device("cpu:0"), mtf.utils.outside_all_rewrites():
           eval_metrics = {}
           for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
             if metric_name.split("/")[-1] not in t2t_model.TPU_METRIC_BLACKLIST:
