@@ -45,32 +45,6 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     del inputs, target
     return layer, 0.0
 
-  def inject_additional_input(self, layer, inputs, name, mode="concat"):
-    """Injects the additional input into the layer."""
-    layer_shape = common_layers.shape_list(layer)
-    input_shape = common_layers.shape_list(inputs)
-    zeros_mask = tf.zeros(layer_shape, dtype=tf.float32)
-    if mode == "concat":
-      emb = common_video.encode_to_shape(inputs, layer_shape, name)
-      layer = tf.concat(values=[layer, emb], axis=-1)
-    elif mode == "multiplicative":
-      filters = layer_shape[-1]
-      input_reshaped = tf.reshape(inputs, [-1, 1, 1, input_shape[-1]])
-      input_mask = tf.layers.dense(input_reshaped, filters, name=name)
-      input_broad = input_mask + zeros_mask
-      layer *= input_broad
-    elif mode == "multi_additive":
-      filters = layer_shape[-1]
-      input_reshaped = tf.reshape(inputs, [-1, 1, 1, input_shape[-1]])
-      input_mul = tf.layers.dense(input_reshaped, filters, name=name + "_mul")
-      layer *= tf.nn.sigmoid(input_mul)
-      input_add = tf.layers.dense(input_reshaped, filters, name=name + "_add")
-      layer += input_add
-    else:
-      raise ValueError("Unknown injection mode: %s" % mode)
-
-    return layer
-
   def middle_network(self, layer, internal_states):
     # Run a stack of convolutions.
     x = layer
@@ -120,7 +94,7 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     # Add embedded action if present.
     if self.has_actions:
       action = actions[:, -1, :]
-      x = self.inject_additional_input(
+      x = common_video.inject_additional_input(
           x, action, "action_enc", hparams.action_injection)
 
     # Inject latent if present. Only for stochastic models.
@@ -134,7 +108,7 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     for i in range(hparams.num_compress_steps):
       with tf.variable_scope("upstride%d" % i):
         if self.has_actions:
-          x = self.inject_additional_input(
+          x = common_video.inject_additional_input(
               x, action, "action_enc", hparams.action_injection)
         if i >= hparams.num_compress_steps - hparams.filter_double_steps:
           filters //= 2

@@ -147,10 +147,11 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
       layer_id += 1
 
     if action is not None:
-      enc2 = self.inject_additional_input(
+      enc2 = common_video.inject_additional_input(
           enc2, action, "action_enc", self.hparams.action_injection)
     if input_reward is not None:
-      enc2 = self.inject_additional_input(enc2, input_reward, "reward_enc")
+      enc2 = common_video.inject_additional_input(
+          enc2, input_reward, "reward_enc")
     if latent is not None and not concat_latent:
       with tf.control_dependencies([latent]):
         enc2 = tf.concat([enc2, latent], axis=3)
@@ -196,15 +197,15 @@ class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
 
       # Inject additional inputs
       if action is not None:
-        x = self.inject_additional_input(
+        x = common_video.inject_additional_input(
             x, action, "action_enc", self.hparams.action_injection)
       if input_reward is not None:
-        x = self.inject_additional_input(x, input_reward, "reward_enc")
+        x = common_video.inject_additional_input(x, input_reward, "reward_enc")
       if latent is not None:
         latent = tfl.flatten(latent)
         latent = tf.expand_dims(latent, axis=1)
         latent = tf.expand_dims(latent, axis=1)
-        x = self.inject_additional_input(x, latent, "latent_enc")
+        x = common_video.inject_additional_input(x, latent, "latent_enc")
 
       x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(2, 2),
                      activation=tf.nn.relu, name="reward_conv2")

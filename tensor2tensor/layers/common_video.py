@@ -146,6 +146,49 @@ def scheduled_sample_count(ground_truth_x,
   return output
 
 
+def inject_additional_input(layer, inputs, name, mode="concat"):
+  """Injects the additional input into the layer.
+
+  Args:
+    layer: layer that the input should be injected to.
+    inputs: inputs to be injected.
+    name: TF scope name.
+    mode: how the infor should be added to the layer:
+      "concat" concats as additional channels.
+      "multiplicative" broadcasts inputs and multiply them to the channels.
+      "multi_additive" broadcasts inputs and multiply and add to the channels.
+
+  Returns:
+    updated layer.
+
+  Raises:
+    ValueError: in case of unknown mode.
+  """
+  layer_shape = common_layers.shape_list(layer)
+  input_shape = common_layers.shape_list(inputs)
+  zeros_mask = tf.zeros(layer_shape, dtype=tf.float32)
+  if mode == "concat":
+    emb = encode_to_shape(inputs, layer_shape, name)
+    layer = tf.concat(values=[layer, emb], axis=-1)
+  elif mode == "multiplicative":
+    filters = layer_shape[-1]
+    input_reshaped = tf.reshape(inputs, [-1, 1, 1, input_shape[-1]])
+    input_mask = tf.layers.dense(input_reshaped, filters, name=name)
+    input_broad = input_mask + zeros_mask
+    layer *= input_broad
+  elif mode == "multi_additive":
+    filters = layer_shape[-1]
+    input_reshaped = tf.reshape(inputs, [-1, 1, 1, input_shape[-1]])
+    input_mul = tf.layers.dense(input_reshaped, filters, name=name + "_mul")
+    layer *= tf.nn.sigmoid(input_mul)
+    input_add = tf.layers.dense(input_reshaped, filters, name=name + "_add")
+    layer += input_add
+  else:
+    raise ValueError("Unknown injection mode: %s" % mode)
+
+  return layer
+
+
 def scheduled_sample_prob(ground_truth_x,
                           generated_x,
                           batch_size,
