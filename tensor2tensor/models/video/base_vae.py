@@ -71,13 +71,17 @@ class NextFrameBaseVae(object):
       tf.summary.scalar("beta", beta)
       return beta
 
-  def get_extra_loss(self, mean, std):
-    """Losses in addition to the default modality losses."""
-    kl_loss = common_layers.kl_divergence(mean, std)
+  def get_kl_loss(self, means, stds):
+    """Get KL loss for all the predicted Gaussians."""
+    kl_loss = 0.0
+    if self.is_training and self.hparams.stochastic_model:
+      for i, (mean, std) in enumerate(zip(means, stds)):
+        kl_loss += common_layers.kl_divergence(mean, std)
+        tf.summary.histogram("posterior_mean_%d" % i, mean)
+        tf.summary.histogram("posterior_std_%d" % i, std)
+      tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
+
     beta = self.get_beta(kl_loss)
-    tf.summary.histogram("posterior_mean", mean)
-    tf.summary.histogram("posterior_std", std)
-    tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
     # information capacity from "Understanding disentangling in beta-VAE"
     if self.hparams.information_capacity > 0.0:
       kl_loss = tf.abs(kl_loss - self.hparams.information_capacity)

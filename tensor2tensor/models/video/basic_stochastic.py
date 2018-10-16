@@ -56,7 +56,7 @@ class NextFrameBasicStochastic(
     zeros_mask = tf.zeros(
         common_layers.shape_list(layer)[:-1] + [filters], dtype=tf.float32)
     layer = tf.concat([layer, latent_mask + zeros_mask], axis=-1)
-    extra_loss = self.get_extra_loss(latent_mean, latent_std)
+    extra_loss = self.get_kl_loss([latent_mean], [latent_std])
     return layer, extra_loss
 
 

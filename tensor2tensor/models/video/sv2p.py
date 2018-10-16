@@ -195,19 +195,8 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
                      latent_means=None, latent_stds=None,
                      true_frames=None, gen_frames=None):
     """Losses in addition to the default modality losses."""
-    del true_frames
-    del gen_frames
-    kl_loss = 0.0
-    if self.is_training and self.hparams.stochastic_model:
-      for i, (mean, std) in enumerate(zip(latent_means, latent_stds)):
-        kl_loss += common_layers.kl_divergence(mean, std)
-        tf.summary.histogram("posterior_mean_%d" % i, mean)
-        tf.summary.histogram("posterior_std_%d" % i, std)
-      tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
-
-    beta = self.get_beta(kl_loss)
-    extra_loss = beta * kl_loss
-    return extra_loss
+    del true_frames, gen_frames
+    return self.get_kl_loss(latent_means, latent_stds)
 
   def construct_predictive_tower(
       self, input_image, input_reward, action, lstm_state, latent,
