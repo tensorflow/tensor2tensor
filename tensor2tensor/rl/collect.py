@@ -112,12 +112,7 @@ def define_collect(hparams, scope, eval_phase,
       environment_spec = getattr(hparams, "environment_eval_spec",
                                  environment_spec)
       num_agents = getattr(hparams, "num_eval_agents", num_agents)
-      batch_env = batch_env_factory(environment_spec, num_agents)
-    else:
-      initial_frame_chooser = getattr(hparams, "initial_frame_chooser", None)
-      batch_env = batch_env_factory(
-          environment_spec, num_agents,
-          initial_frame_chooser=initial_frame_chooser)
+    batch_env = batch_env_factory(environment_spec, num_agents)
 
     to_initialize.append(batch_env)
     environment_wrappers = environment_spec.wrappers

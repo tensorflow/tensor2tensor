@@ -17,7 +17,7 @@ r"""Training of model-based RL agents.
 
 Example invocation:
 
-python -m tensor2tensor.rl.trainer_model_based_new \
+python -m tensor2tensor.rl.trainer_model_based \
     --output_dir=$HOME/t2t/rl_v1 \
     --loop_hparams_set=rlmb_base \
     --loop_hparams='num_real_env_frames=10000,epochs=3'
@@ -31,6 +31,7 @@ import copy
 import datetime
 import math
 import os
+import random
 import time
 
 import numpy as np
@@ -40,7 +41,6 @@ from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.rl import trainer_model_based_params
-from tensor2tensor.rl.envs.utils import InitialFrameChooser
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -139,7 +139,7 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
   getattr(exp, schedule)()
 
 
-def train_agent(environment_spec, agent_model_dir,
+def train_agent(real_env, environment_spec, agent_model_dir,
                 event_dir, world_model_dir, data_dir, hparams, epoch=0,
                 is_final_epoch=False):
   """Train the PPO agent in the simulated environment."""
@@ -164,28 +164,62 @@ def train_agent(environment_spec, agent_model_dir,
   ppo_hparams.add_hparam("model_hparams", model_hparams)
 
   environment_spec = copy.copy(environment_spec)
-  environment_spec_param_names = [
-      "simulation_random_starts", "simulation_flip_first_random_for_beginning",
-      "intrinsic_reward_scale"
-  ]
+  environment_spec_param_names = ["intrinsic_reward_scale"]
   for param_name in environment_spec_param_names:
     environment_spec.set_hparam(param_name, hparams.get(param_name))
-  ppo_hparams.add_hparam("environment_spec", environment_spec)
 
-  ppo_hparams.add_hparam("initial_frame_chooser", InitialFrameChooser(
-      environment_spec, mode=tf.estimator.ModeKeys.EVAL
-  ))
+  with tf.Session() as sess:
+    encoded_png_p = tf.placeholder(tf.string)
+    decoded_png_t = tf.image.decode_png(encoded_png_p)
+    def decode_png(encoded_png):
+      return sess.run(decoded_png_t, feed_dict={encoded_png_p: encoded_png})
 
-  # TODO(koz4k): Pass by arguments.
-  with temporary_flags({
-      "problem": environment_spec.initial_frames_problem,
-      "model": hparams.generative_model,
-      "hparams_set": hparams.generative_model_params,
-      "output_dir": world_model_dir,
-      "data_dir": data_dir,
-  }):
-    rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
-                         name_scope="ppo_sim%d" % (epoch + 1))
+    initial_frame_rollouts = real_env.current_epoch_rollouts(
+        split=tf.contrib.learn.ModeKeys.TRAIN
+    )
+    # TODO(koz4k): Move this to a different module.
+    def initial_frame_chooser(batch_size):
+      num_frames = environment_spec.video_num_input_frames
+      deterministic_initial_frames = initial_frame_rollouts[0][:num_frames]
+      if not environment_spec.simulation_random_starts:
+        # Deterministic starts: repeat first frames from the first rollout.
+        initial_frames = [deterministic_initial_frames] * batch_size
+      else:
+        # Random starts: choose random initial frames from random rollouts.
+        # TODO(koz4k): Weigh rollouts by their lengths so sampling is uniform
+        # over frames and not rollouts.
+        def choose_initial_frames():
+          try:
+            rollout = random.choice(initial_frame_rollouts)
+            from_index = random.randrange(len(rollout) - num_frames)
+            return rollout[from_index:(from_index + num_frames)]
+          except ValueError:
+            # Rollout too short; repeat.
+            return choose_initial_frames()
+        initial_frames = [choose_initial_frames() for _ in range(batch_size)]
+        if environment_spec.simulation_flip_first_random_for_beginning:
+          # Flip first entry in the batch for deterministic initial frames.
+          initial_frames[0] = deterministic_initial_frames
+
+        return np.stack([
+            [decode_png(frame.observation) for frame in initial_frame_stack]
+            for initial_frame_stack in initial_frames
+        ])
+
+    environment_spec.add_hparam("initial_frame_chooser", initial_frame_chooser)
+
+    ppo_hparams.add_hparam("environment_spec", environment_spec)
+
+    # TODO(koz4k): Pass by arguments.
+    with temporary_flags({
+        "problem": real_env,
+        "model": hparams.generative_model,
+        "hparams_set": hparams.generative_model_params,
+        "output_dir": world_model_dir,
+        "data_dir": data_dir,
+    }):
+      rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
+                           name_scope="ppo_sim%d" % (epoch + 1))
 
 
 def train_agent_real_env(
@@ -211,9 +245,7 @@ def train_agent_real_env(
   # But we need to save at the last step, so we set it very high.
   ppo_hparams.save_models_every_epochs = 1000000
 
-  environment_spec = rl.standard_atari_env_spec(
-      batch_env=env, include_clipping=False
-  )
+  environment_spec = rl.standard_atari_env_spec(env)
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)
 
@@ -348,9 +380,11 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     if not hparams.ppo_continue_training:
       ppo_model_dir = ppo_event_dir
 
-    train_agent(sim_env_spec, ppo_model_dir,
-                ppo_event_dir, directories["world_model"], data_dir,
-                hparams, epoch=epoch, is_final_epoch=is_final_epoch)
+    train_agent(
+        env, sim_env_spec, ppo_model_dir, ppo_event_dir,
+        directories["world_model"], data_dir, hparams, epoch=epoch,
+        is_final_epoch=is_final_epoch
+    )
 
     env.start_new_epoch(epoch, data_dir)
 

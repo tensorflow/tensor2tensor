@@ -23,47 +23,17 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.data_generators import gym_env
 from tensor2tensor.rl.envs import py_func_batch_env
 from tensor2tensor.rl.envs import simulated_batch_env
 
-import tensorflow as tf
 
-
-def batch_env_factory(environment_spec, num_agents, initial_frame_chooser=None):
+def batch_env_factory(environment_spec, num_agents):
   """Factory of batch envs."""
-  # TODO(konradczechowski): this is temporary function handling both old and
-  # new pipelines, refactor this when we move to the new pipeline.
   if environment_spec.simulated_env:
-    cur_batch_env = _define_simulated_batch_env(
-        environment_spec, num_agents, initial_frame_chooser)
+    cur_batch_env = simulated_batch_env.SimulatedBatchEnv(
+        environment_spec, num_agents
+    )
   else:
-    if "batch_env" in environment_spec:
-      msg = "Environment_spec should contain only 1 of (env_lambda, batch_env)."
-      assert "env_lambda" not in environment_spec, msg
-      batch_env = environment_spec.batch_env
-      assert batch_env.batch_size == num_agents
-    else:
-      batch_env = _define_batch_env(environment_spec, num_agents)
-    cur_batch_env = py_func_batch_env.PyFuncBatchEnv(batch_env)
-  return cur_batch_env
+    cur_batch_env = py_func_batch_env.PyFuncBatchEnv(environment_spec.env)
 
-
-def _define_batch_env(environment_spec, num_agents):
-  """Create environments and apply all desired wrappers."""
-
-  with tf.variable_scope("environments"):
-    envs = [
-        environment_spec.env_lambda()
-        for _ in range(num_agents)]
-    env = gym_env.T2TGymEnv("unknown", envs=envs)
-    env.start_new_epoch(0)
-    return env
-
-
-def _define_simulated_batch_env(environment_spec, num_agents,
-                                initial_frame_chooser):
-  cur_batch_env = simulated_batch_env.SimulatedBatchEnv(
-      environment_spec, num_agents, initial_frame_chooser
-  )
   return cur_batch_env

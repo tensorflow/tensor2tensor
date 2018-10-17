@@ -24,7 +24,6 @@ from __future__ import print_function
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.rl.envs import in_graph_batch_env
-from tensor2tensor.rl.envs import utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
@@ -38,23 +37,17 @@ FLAGS = flags.FLAGS
 class HistoryBuffer(object):
   """History Buffer."""
 
-  def __init__(self, initial_frame_chooser, length, observ_dtype):
-    initial_frame_chooser.batch_size = length
-    self._initial_frame_chooser = initial_frame_chooser
+  def __init__(self, initial_frame_chooser, observ_shape, observ_dtype,
+               num_initial_frames, length):
     self.length = length
     self._observ_dtype = observ_dtype
-    initial_frames = self.get_initial_observations()
-    initial_shape = [length] + common_layers.shape_list(initial_frames)[1:]
+    initial_shape = (length, num_initial_frames) + observ_shape
+    self._initial_frames = tf.py_func(
+        initial_frame_chooser, [tf.constant(length)], observ_dtype
+    )
+    self._initial_frames.set_shape(initial_shape)
     self._history_buff = tf.Variable(tf.zeros(initial_shape, observ_dtype),
                                      trainable=False)
-
-  def initialize(self, sess):
-    self._initial_frame_chooser.initialize(sess)
-
-  def get_initial_observations(self):
-    return tf.cast(
-        self._initial_frame_chooser.choose()["inputs"], self._observ_dtype
-    )
 
   def get_all_elements(self):
     return self._history_buff.read_value()
@@ -68,7 +61,7 @@ class HistoryBuffer(object):
         return self._history_buff.read_value()
 
   def reset(self, indices):
-    initial_frames = tf.gather(self.get_initial_observations(), indices)
+    initial_frames = tf.gather(self._initial_frames, indices)
     scatter_op = tf.scatter_update(self._history_buff, indices, initial_frames)
     with tf.control_dependencies([scatter_op]):
       return self._history_buff.read_value()
@@ -99,24 +92,14 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   flags are held in according variables.
   """
 
-  def __init__(self, environment_spec, length, initial_frame_chooser):
+  def __init__(self, environment_spec, length):
     """Batch of environments inside the TensorFlow graph."""
-
-    observ_space = utils.get_observation_space(environment_spec)
-    initial_frames_problem = environment_spec.initial_frames_problem
-    self._frames_problem_name = str(initial_frames_problem)
-    observ_shape = (initial_frames_problem.frame_height,
-                    initial_frames_problem.frame_width,
-                    initial_frames_problem.num_channels)
-    observ_space.shape = observ_shape
-    action_space = utils.get_action_space(environment_spec)
-    super(SimulatedBatchEnv, self).__init__(observ_space, action_space)
+    super(SimulatedBatchEnv, self).__init__(
+        environment_spec.observation_space, environment_spec.action_space
+    )
 
     self.length = length
-    try:
-      self._min_reward = initial_frames_problem.min_reward
-    except AttributeError:
-      self._min_reward = initial_frames_problem.reward_range[0]
+    self._min_reward = environment_spec.reward_range[0]
     self._num_frames = environment_spec.video_num_input_frames
     self._intrinsic_reward_scale = environment_spec.intrinsic_reward_scale
 
@@ -128,17 +111,20 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
         model_hparams, tf.estimator.ModeKeys.PREDICT)
 
     self.history_buffer = HistoryBuffer(
-        initial_frame_chooser, self.length, self.observ_dtype)
+        environment_spec.initial_frame_chooser, self.observ_shape,
+        self.observ_dtype, self._num_frames, self.length
+    )
 
     self._observ = tf.Variable(
-        tf.zeros((len(self),) + observ_shape, self.observ_dtype),
+        tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
         trainable=False)
 
   def initialize(self, sess):
-    self.history_buffer.initialize(sess)
+    # Currently not needed. Keeping it just in case.
+    pass
 
   def __str__(self):
-    return "SimulatedEnv(%s)" % self._frames_problem_name
+    return "SimulatedEnv"
 
   def __len__(self):
     """Number of combined environments."""
