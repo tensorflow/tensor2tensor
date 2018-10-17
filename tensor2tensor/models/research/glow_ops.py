@@ -473,7 +473,7 @@ def squeeze(name, x, factor=2, reverse=True):
 
 @add_arg_scope
 def tensor_to_dist(name, x, output_channels=None, architecture="single_conv",
-                   depth=1, pre_output_channels=512):
+                   depth=1, pre_output_channels=512, width=512):
   """Map x to the mean and log-scale of a Gaussian.
 
   Args:
@@ -484,6 +484,7 @@ def tensor_to_dist(name, x, output_channels=None, architecture="single_conv",
     architecture: "single_conv" or "glow_nn"
     depth: depth of architecture mapping to the mean and std.
     pre_output_channels: output channels before the final (mean, std) mapping.
+    width: Resnet width.
   Returns:
     dist: instance of tf.distributions.Normal
   Raises:
@@ -506,6 +507,16 @@ def tensor_to_dist(name, x, output_channels=None, architecture="single_conv",
                               filter_size=[3, 3], stride=[1, 1],
                               output_channels=2*output_channels,
                               apply_actnorm=False, conv_init="zeros")
+    elif architecture == "glow_resnet":
+      h = x
+      for layer in range(depth):
+        h2 = conv_block("glow_res_%d" % layer, h, mid_channels=width)
+        h3 = conv2d("glow_res_zeros_%d" % layer, h2, conv_init="zeros",
+                    output_channels=x_shape[-1], apply_actnorm=False)
+        h += h3
+      mean_log_scale = conv2d("glow_res_final", h, conv_init="zeros",
+                              output_channels=2*output_channels,
+                              apply_actnorm=False)
     else:
       raise ValueError("expected architecture to be single_conv or glow_nn "
                        "got %s" % architecture)
@@ -582,7 +593,8 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
         "latent_stack", latent_stack, output_channels=output_channels,
         architecture=hparams.latent_architecture,
         depth=hparams.latent_encoder_depth,
-        pre_output_channels=hparams.latent_pre_output_channels)
+        pre_output_channels=hparams.latent_pre_output_channels,
+        width=hparams.latent_encoder_width)
     if latent_skip:
       cond_dist = tf.distributions.Normal(
           cond_dist.loc + latent[-1], cond_dist.scale)
