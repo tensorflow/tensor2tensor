@@ -192,7 +192,7 @@ def train_agent(real_env, environment_spec, agent_model_dir,
         def choose_initial_frames():
           try:
             rollout = random.choice(initial_frame_rollouts)
-            from_index = random.randrange(len(rollout) - num_frames)
+            from_index = random.randrange(len(rollout) - num_frames + 1)
             return rollout[from_index:(from_index + num_frames)]
           except ValueError:
             # Rollout too short; repeat.
