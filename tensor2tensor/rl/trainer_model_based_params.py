@@ -63,7 +63,7 @@ def rlmb_base():
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,  # Use random starts in PPO.
       # Flip the first random frame in PPO batch for the true beginning.
-      simulation_flip_first_random_for_beginning=False,
+      simulation_flip_first_random_for_beginning=True,
       intrinsic_reward_scale=0.,
       ppo_epochs_num=1000,  # This should be enough to see something
       # Our simulated envs do not know how to reset.

@@ -189,17 +189,15 @@ def train_agent(real_env, environment_spec, agent_model_dir,
         # Random starts: choose random initial frames from random rollouts.
         # TODO(koz4k): Weigh rollouts by their lengths so sampling is uniform
         # over frames and not rollouts.
-        def choose_initial_frames(rollout):
+        def choose_initial_frames():
           try:
+            rollout = random.choice(initial_frame_rollouts)
             from_index = random.randrange(len(rollout) - num_frames)
             return rollout[from_index:(from_index + num_frames)]
           except ValueError:
             # Rollout too short; repeat.
-            return choose_initial_frames(rollout)
-        initial_frames = [
-            choose_initial_frames(random.choice(initial_frame_rollouts))
-            for _ in range(batch_size)
-        ]
+            return choose_initial_frames()
+        initial_frames = [choose_initial_frames() for _ in range(batch_size)]
         if environment_spec.simulation_flip_first_random_for_beginning:
           # Flip first entry in the batch for deterministic initial frames.
           initial_frames[0] = deterministic_initial_frames
