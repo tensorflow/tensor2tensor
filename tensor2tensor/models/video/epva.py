@@ -713,7 +713,7 @@ class NextFrameEpva(sv2p.NextFrameSv2pLegacy):
 
     predictions = common_video.swap_time_and_batch_axes(predictions)
     predictions = tf.slice(predictions,
-                           [0, hparams.video_num_target_frames-1, 0, 0, 0],
+                           [0, hparams.video_num_input_frames-1, 0, 0, 0],
                            [-1]*5)
 
     return predictions, {'extra': epva_loss}
