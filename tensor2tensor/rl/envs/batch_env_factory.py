@@ -56,8 +56,8 @@ def _define_batch_env(environment_spec, num_agents):
     envs = [
         environment_spec.env_lambda()
         for _ in range(num_agents)]
-    # We won't generate data from this env so it's safe to set data_dir to None.
-    env = gym_env.T2TGymEnv(envs, data_dir=None)
+    env = gym_env.T2TGymEnv("unknown", envs=envs)
+    env.start_new_epoch(0)
     return env
 
 
