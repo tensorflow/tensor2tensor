@@ -143,71 +143,41 @@ def simple_gym_spec(env):
                                      simulated_env=False)
 
 
-def standard_atari_env_spec(
-    env=None, simulated=False, resize_height_factor=1, resize_width_factor=1,
-    grayscale=False, include_clipping=True, batch_env=None):
+def standard_atari_env_spec(env=None, simulated=False):
   """Parameters of environment specification."""
-  resize_wrapper = [tf_atari_wrappers.ResizeWrapper,
-                    {"height_factor": resize_height_factor,
-                     "width_factor": resize_width_factor,
-                     "grayscale": grayscale}]
-  if include_clipping:
-    standard_wrappers = [
-        resize_wrapper,
-        [tf_atari_wrappers.RewardClippingWrapper, {}],
-        [tf_atari_wrappers.StackWrapper, {"history": 4}],
-    ]
-  else:
-    standard_wrappers = [
-        resize_wrapper,
-        [tf_atari_wrappers.StackWrapper, {"history": 4}],
-    ]
-  if simulated:  # No resizing on simulated environments.
-    standard_wrappers = standard_wrappers[1:]
+  standard_wrappers = [
+      (tf_atari_wrappers.StackWrapper, {"history": 4})
+  ]
 
   env_spec = tf.contrib.training.HParams(
       wrappers=standard_wrappers,
-      simulated_env=simulated)
-
-  if batch_env is not None:
-    env_spec.add_hparam("batch_env", batch_env)
-  else:
-    env_lambda = None
-    if isinstance(env, str):
-      env_lambda = lambda: gym.make(env)
-    if callable(env):
-      env_lambda = env
-    assert env_lambda is not None, "Unknown specification of environment"
-    env_spec.add_hparam("env_lambda", env_lambda)
+      simulated_env=simulated,
+      reward_range=env.reward_range,
+      observation_space=env.observation_space,
+      action_space=env.action_space
+  )
+  if not simulated:
+    env_spec.add_hparam("env", env)
 
   return env_spec
 
 
 def standard_atari_env_simulated_spec(
-    real_env, video_num_input_frames, video_num_target_frames):
+    real_env, video_num_input_frames, video_num_target_frames
+):
   """Spec."""
-  env_spec = standard_atari_env_spec(
-      # This hack is here because SimulatedBatchEnv needs to get
-      # observation_space from the real env. TODO(koz4k): refactor.
-      env=lambda: real_env,
-      simulated=True
-  )
+  env_spec = standard_atari_env_spec(real_env, simulated=True)
   env_spec.add_hparam("simulation_random_starts", True)
   env_spec.add_hparam("simulation_flip_first_random_for_beginning", True)
   env_spec.add_hparam("intrinsic_reward_scale", 0.0)
-  env_spec.add_hparam("initial_frames_problem", real_env)
   env_spec.add_hparam("video_num_input_frames", video_num_input_frames)
   env_spec.add_hparam("video_num_target_frames", video_num_target_frames)
   return env_spec
 
 
-def standard_atari_env_eval_spec(
-    env, simulated=False, resize_height_factor=1, resize_width_factor=1,
-    grayscale=False):
+def standard_atari_env_eval_spec(*args, **kwargs):
   """Parameters of environment specification for eval."""
-  return standard_atari_env_spec(
-      env, simulated, resize_height_factor, resize_width_factor, grayscale,
-      include_clipping=False)
+  return standard_atari_env_spec(*args, **kwargs)
 
 
 def standard_atari_ae_env_spec(env, ae_hparams_set):

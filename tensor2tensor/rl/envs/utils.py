@@ -67,35 +67,6 @@ class EvalVideoWrapper(gym.Wrapper):
     return self._last_returned[0]
 
 
-def get_observation_space(environment_spec):
-  """Get observation space associated with environment spec.
-
-  Args:
-     environment_spec:  EnvironmentSpec object
-
-  Returns:
-    OpenAi Gym observation space
-  """
-  return environment_spec.env_lambda().observation_space
-
-
-def get_action_space(environment_spec):
-  """Get action space associated with environment spec.
-
-  Args:
-     environment_spec:  Object consisting one of batch_env.action_space, or
-     env_lambda().action_space
-
-  Returns:
-    OpenAi Gym action space
-  """
-  if "batch_env" in environment_spec:
-    action_space = environment_spec.batch_env.action_space
-  else:
-    action_space = environment_spec.env_lambda().action_space
-  return action_space
-
-
 def get_policy(observations, hparams):
   """Get a policy network.
 
@@ -107,7 +78,7 @@ def get_policy(observations, hparams):
     Tensor with policy and value function output
   """
   policy_network_lambda = hparams.policy_network
-  action_space = get_action_space(hparams.environment_spec)
+  action_space = hparams.environment_spec.action_space
   return policy_network_lambda(action_space, hparams, observations)
 
 
