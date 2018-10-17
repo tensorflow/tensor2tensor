@@ -38,6 +38,11 @@ tf.flags.DEFINE_string(
     "If None, the model will be stored in subdirectory "
     "where checkpoints are: --output_dir")
 
+tf.flags.DEFINE_string(
+    "checkpoint_path", None, "Which checkpoint to export."
+    "If None, we will use the latest checkpoint stored in the directory "
+    "specified by --output_dir")
+
 
 def create_estimator(run_config, hparams):
   return trainer_lib.create_estimator(
@@ -134,7 +139,12 @@ def main(_):
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
-  ckpt_dir = os.path.expanduser(FLAGS.output_dir)
+  if FLAGS.checkpoint_path:
+    checkpoint_path = FLAGS.checkpoint_path
+    ckpt_dir = os.path.dirname(checkpoint_path)
+  else:
+    ckpt_dir = os.path.expanduser(FLAGS.output_dir)
+    checkpoint_path = tf.train.latest_checkpoint(ckpt_dir)
 
   hparams = create_hparams()
   hparams.no_data_parallelism = True  # To clear the devices
@@ -159,7 +169,7 @@ def main(_):
   exporter.export(
       estimator,
       export_dir,
-      checkpoint_path=tf.train.latest_checkpoint(ckpt_dir),
+      checkpoint_path=checkpoint_path,
       eval_result=None,
       is_the_final_export=True)
 
