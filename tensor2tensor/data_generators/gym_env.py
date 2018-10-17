@@ -204,9 +204,7 @@ class T2TEnv(video_utils.VideoProblem):
         Frame(*orud, action=None)
         for orud in zip(encoded_obs, rewards, unclipped_rewards, dones)
     ]
-    # TODO(lukaszkaiser): changed unclipped_reward to reward once we've
-    # removed the current setup with RewardClippingWrapper and so on.
-    return (obs, unclipped_rewards, dones)
+    return (obs, rewards, dones)
 
   def _reset(self, indices):
     """Resets environments at given indices without recording history.

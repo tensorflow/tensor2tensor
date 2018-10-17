@@ -203,18 +203,10 @@ class GymEnvTest(tf.test.TestCase):
       last_frame_number = frame_number
 
   def test_clipping(self):
-    # This test needs base env with rewards out of [-1,1] range.
     env_lambda = TestEnv
-    # TODO(lukaszkaiser): turn clipping on by default after refactor.
-    # _, _, rewards = self.init_batch_and_play(env_lambda, n_steps=2)
-    # self.assertTrue(np.max(rewards) == 1)
-    # self.assertTrue(np.min(rewards) == -1)
-
-    _, _, unclipped_rewards, _ = self.init_batch_and_play(
-        env_lambda, steps_per_epoch=2
-    )
-    self.assertTrue(np.max(unclipped_rewards) > 1)
-    self.assertTrue(np.min(unclipped_rewards) < -1)
+    _, _, rewards, _ = self.init_batch_and_play(env_lambda, steps_per_epoch=2)
+    self.assertTrue(np.max(rewards) == 1)
+    self.assertTrue(np.min(rewards) == -1)
 
   def test_resize(self):
     env_lambda = TestEnv
