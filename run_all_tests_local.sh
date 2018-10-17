@@ -38,6 +38,7 @@ source ~/diseaseTools/scripts/vm_setup/dev_config/.bashrc_aliases_fathom
 # * skip common_video_test.py::CommonVideoTest::testGifSummary because of ffmpeg dependency
 # * skip tensor2tensor/data_generators/image_utils_test.py because of matplotlib dependency
 # * skip tensor2tensor/layers/common_video_test.py because of ffmpeg dependency
+# * skip tensor2tensor/models/video/ since we don't use any video related models
 
 dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
        --ignore=/usr/src/app/api-flask/ \
@@ -58,6 +59,7 @@ dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
        --deselect=/usr/src/t2t/tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary \
        --ignore=/usr/src/t2t/tensor2tensor/data_generators/image_utils_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/layers/common_video_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/models/video/ \
        --junitxml=/usr/src/t2t/test_results/pytest/unittests.xml \
        /usr/src/t2t/tensor2tensor/
 

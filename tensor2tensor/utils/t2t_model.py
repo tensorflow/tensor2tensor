@@ -334,6 +334,7 @@ class T2TModel(base.Layer):
         losses["training"] = 0.0
         if (self._hparams.mode != tf.estimator.ModeKeys.PREDICT and
             self._hparams.mode != "attack"):
+          print('model_fn calling self.loss', self.loss)
           losses["training"] = self.loss(logits, features)
 
       return logits, losses
@@ -508,6 +509,7 @@ class T2TModel(base.Layer):
       return (tf.constant(0., dtype=tf.float32),
               tf.constant(1., dtype=tf.float32))
 
+    print('_loss_single target_modeality', target_modality)
     loss_num, loss_den = target_modality.loss(logits, feature)
     loss_num *= self._problem_hparams.loss_multiplier
 
@@ -565,6 +567,7 @@ class T2TModel(base.Layer):
             "model_body returned single logits so 'targets' must be a key "
             "since problem_hparams.target_modality is a dict.")
         target_modality = target_modality["targets"]
+      print('loss target_modeality', target_modality)
       return self._loss_single(logits, target_modality, features["targets"])
 
   def optimize(self, loss, num_async_replicas=1, use_tpu=False):
