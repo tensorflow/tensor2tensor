@@ -22,6 +22,7 @@ from __future__ import print_function
 import collections
 import itertools
 
+import gym
 from gym.spaces import Box
 import numpy as np
 
@@ -48,6 +49,17 @@ class _Noncopyable(object):
     return self
 
 
+def make_gym_env(name, timesteps_limit=-1):
+  env = gym.make(name)
+  if timesteps_limit != -1:
+    # Replace TimeLimit Wrapper with one of proper time step limit.
+    if isinstance(env, gym.wrappers.TimeLimit):
+      env = env.env
+    env = gym.wrappers.TimeLimit(env,
+                                 max_episode_steps=timesteps_limit)
+  return env
+
+
 class T2TEnv(video_utils.VideoProblem):
   """Abstract class representing a batch of environments.
 
@@ -71,8 +83,8 @@ class T2TEnv(video_utils.VideoProblem):
   reward_range = (-1, 1)
   name = None
 
-  def __init__(self, batch_size):
-    super(T2TEnv, self).__init__()
+  def __init__(self, batch_size, *args, **kwargs):
+    super(T2TEnv, self).__init__(*args, **kwargs)
 
     self.clear_history()
     self.batch_size = batch_size
@@ -500,28 +512,34 @@ class T2TEnv(video_utils.VideoProblem):
 
 
 class T2TGymEnv(T2TEnv):
-  """Class representing a batch of Gym environments."""
+  """Class representing a batch of Gym environments.
 
-  name = "t2t_gym_env"
+  Do not register it, instead create subclass with hardcoded __init__
+  arguments and register this subclass.
+  """
 
-  def __init__(self, envs, grayscale=False,
-               resize_height_factor=1, resize_width_factor=1):
-    super(T2TGymEnv, self).__init__(len(envs))
+  def __init__(self, base_env_name, batch_size, grayscale=False,
+               resize_height_factor=1, resize_width_factor=1,
+               base_env_timesteps_limit=-1, *args, **kwargs):
+    super(T2TGymEnv, self).__init__(batch_size, *args, **kwargs)
     self.grayscale = grayscale
     self.resize_height_factor = resize_height_factor
     self.resize_width_factor = resize_width_factor
-    if not envs:
-      raise ValueError("Must have at least one environment.")
-    self._envs = envs
+    if not self.name:
+      # Set problem name if not registered.
+      self.name = "t2t_gym_env_{}".format(base_env_name)
 
-    orig_observ_space = envs[0].observation_space
+    self._envs = [make_gym_env(base_env_name, base_env_timesteps_limit)
+                  for _ in range(self.batch_size)]
+
+    orig_observ_space = self._envs[0].observation_space
     if not all(env.observation_space == orig_observ_space
                for env in self._envs):
       raise ValueError("All environments must use the same observation space.")
 
     self.observation_space = self._derive_observation_space(orig_observ_space)
 
-    self.action_space = envs[0].action_space
+    self.action_space = self._envs[0].action_space
     if not all(env.action_space == self.action_space for env in self._envs):
       raise ValueError("All environments must use the same action space.")
 

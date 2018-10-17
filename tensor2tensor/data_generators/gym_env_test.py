@@ -32,6 +32,8 @@ from tensor2tensor.data_generators import problem
 
 import tensorflow as tf
 
+from tensor2tensor.data_generators.gym_env import make_gym_env
+
 
 class TestEnv(gym.Env):
   """Test environment.
@@ -61,6 +63,10 @@ class TestEnv(gym.Env):
   def reset(self):
     return self._generate_ob()
 
+TEST_ENV_NAME = "T2TTestEnv-v1"
+
+gym.envs.register(id=TEST_ENV_NAME, entry_point=TestEnv)
+
 
 class GymEnvTest(tf.test.TestCase):
 
@@ -75,10 +81,9 @@ class GymEnvTest(tf.test.TestCase):
     shutil.rmtree(self.out_dir)
     os.mkdir(self.out_dir)
 
-  def init_batch_and_play(self, env_lambda, steps_per_epoch=1,
+  def init_batch_and_play(self, env_name, steps_per_epoch=1,
                           epochs=(0,), generate_data=False, **kwargs):
-    raw_envs = [env_lambda(), env_lambda()]
-    env = gym_env.T2TGymEnv(raw_envs, **kwargs)
+    env = gym_env.T2TGymEnv(env_name, batch_size=2, **kwargs)
     obs = list()
     rewards = list()
     num_dones = 0
@@ -110,7 +115,7 @@ class GymEnvTest(tf.test.TestCase):
 
   def test_splits_dataset(self):
     env, _, _, _ = self.init_batch_and_play(
-        TestEnv, steps_per_epoch=20, generate_data=True
+        TEST_ENV_NAME, steps_per_epoch=20, generate_data=True
     )
 
     for split in self.splits:
@@ -118,7 +123,7 @@ class GymEnvTest(tf.test.TestCase):
 
   def test_split_preserves_number_of_rollouts(self):
     env, _, _, num_dones = self.init_batch_and_play(
-        TestEnv, steps_per_epoch=20, generate_data=True
+        TEST_ENV_NAME, steps_per_epoch=20, generate_data=True
     )
 
     num_rollouts_after_split = sum(
@@ -131,7 +136,7 @@ class GymEnvTest(tf.test.TestCase):
 
   def test_split_preserves_number_of_frames(self):
     env, _, _, num_dones = self.init_batch_and_play(
-        TestEnv, steps_per_epoch=20, generate_data=True
+        TEST_ENV_NAME, steps_per_epoch=20, generate_data=True
     )
 
     num_frames = sum(
@@ -146,7 +151,7 @@ class GymEnvTest(tf.test.TestCase):
   def test_generates_data(self):
     # This test needs base env which outputs done after two steps.
     self.init_batch_and_play(
-        TestEnv, steps_per_epoch=20, generate_data=True
+        TEST_ENV_NAME, steps_per_epoch=20, generate_data=True
     )
 
     filenames = os.listdir(self.out_dir)
@@ -162,7 +167,7 @@ class GymEnvTest(tf.test.TestCase):
           1 for filename in filenames if filename.endswith(suffix)
       )
 
-    env = gym_env.T2TGymEnv([TestEnv() for _ in range(2)])
+    env = gym_env.T2TGymEnv(TEST_ENV_NAME, batch_size=2)
     env.start_new_epoch(0, self.out_dir)
     self.play(env, n_steps=20)
     env.generate_data(self.out_dir)
@@ -182,7 +187,7 @@ class GymEnvTest(tf.test.TestCase):
 
   def test_frame_numbers_are_continuous(self):
     env, _, _, _ = self.init_batch_and_play(
-        TestEnv, steps_per_epoch=20, generate_data=True
+        TEST_ENV_NAME, steps_per_epoch=20, generate_data=True
     )
 
     frame_numbers = [
@@ -203,19 +208,19 @@ class GymEnvTest(tf.test.TestCase):
       last_frame_number = frame_number
 
   def test_clipping(self):
-    env_lambda = TestEnv
-    _, _, rewards, _ = self.init_batch_and_play(env_lambda, steps_per_epoch=2)
+    _, _, rewards, _ = self.init_batch_and_play(TEST_ENV_NAME,
+                                                steps_per_epoch=2)
     self.assertTrue(np.max(rewards) == 1)
     self.assertTrue(np.min(rewards) == -1)
 
   def test_resize(self):
-    env_lambda = TestEnv
-    orig_env = env_lambda()
+    env_name = TEST_ENV_NAME
+    orig_env = make_gym_env(env_name)
     resize_height_factor = 2
     resize_width_factor = 3
     orig_height, orig_width = orig_env.observation_space.shape[:2]
     env, obs, _, _ = self.init_batch_and_play(
-        env_lambda, steps_per_epoch=1,
+        env_name, steps_per_epoch=1,
         resize_height_factor=resize_height_factor,
         resize_width_factor=resize_width_factor)
     for obs_batch in obs:
@@ -233,20 +238,21 @@ class GymEnvTest(tf.test.TestCase):
       self.assertEqual(ob.shape[2], n_channels)
 
   def test_channels(self):
-    env_lambda = TestEnv
-    env, obs, _, _ = self.init_batch_and_play(env_lambda, grayscale=True)
+    env_name = TEST_ENV_NAME
+    env, obs, _, _ = self.init_batch_and_play(env_name, grayscale=True)
     self.assert_channels(env, obs, n_channels=1)
 
-    env, obs, _, _ = self.init_batch_and_play(env_lambda, grayscale=False)
+    env, obs, _, _ = self.init_batch_and_play(env_name, grayscale=False)
     self.assert_channels(env, obs, n_channels=3)
 
   def test_generating_and_loading_preserves_rollouts(self):
-    from_env = gym_env.T2TGymEnv([TestEnv()])
+    env_name = TEST_ENV_NAME
+    from_env = gym_env.T2TGymEnv(env_name, batch_size=1)
     from_env.start_new_epoch(0, self.out_dir)
     self.play(from_env, n_steps=20)
     from_env.generate_data(self.out_dir)
 
-    to_env = gym_env.T2TGymEnv([TestEnv()])
+    to_env = gym_env.T2TGymEnv(env_name, batch_size=1)
     to_env.start_new_epoch(0, self.out_dir)
 
     self.assertEqual(
