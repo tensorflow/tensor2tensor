@@ -71,12 +71,11 @@ class T2TEnv(video_utils.VideoProblem):
   reward_range = (-1, 1)
   name = None
 
-  def __init__(self, batch_size, data_dir):
+  def __init__(self, batch_size):
     super(T2TEnv, self).__init__()
 
     self.clear_history()
     self.batch_size = batch_size
-    self.data_dir = data_dir
     self._current_batch_frames = [None for _ in range(batch_size)]
     self._current_batch_rollouts = [[] for _ in range(batch_size)]
     self._current_epoch_rollouts = []
@@ -100,7 +99,7 @@ class T2TEnv(video_utils.VideoProblem):
     """Clears the rollout history."""
     self._rollouts_by_epoch_and_split = collections.OrderedDict()
 
-  def start_new_epoch(self, epoch, load_data=True):
+  def start_new_epoch(self, epoch, load_data_dir):
     if not isinstance(epoch, int):
       raise ValueError("Epoch should be integer, got {}".format(epoch))
     if epoch in self._rollouts_by_epoch_and_split:
@@ -108,8 +107,7 @@ class T2TEnv(video_utils.VideoProblem):
     self.current_epoch = epoch
     self._current_epoch_rollouts = []
     self._rollouts_by_epoch_and_split[epoch] = collections.defaultdict(list)
-    if load_data:
-      self._load_epoch_data()
+    self._load_epoch_data(load_data_dir)
 
   def current_epoch_rollouts(self, split=None):
     rollouts_by_split = self._rollouts_by_epoch_and_split[self.current_epoch]
@@ -229,12 +227,9 @@ class T2TEnv(video_utils.VideoProblem):
       Batch of initial observations of reset environments.
     """
     if self.current_epoch is None:
-      # It's here so that the old pipeline works.
-      self.start_new_epoch(0, load_data=False)
-      # TODO(koz4k): Replace with:
-      # raise ValueError(
-      #     "No current epoch. start_new_epoch() should first be called."
-      # )
+      raise ValueError(
+          "No current epoch. start_new_epoch() should first be called."
+      )
 
     if indices is None:
       indices = np.arange(self.batch_size)
@@ -386,8 +381,7 @@ class T2TEnv(video_utils.VideoProblem):
     self._rollouts_by_epoch_and_split[self.current_epoch] = rollouts_by_split
     self._current_epoch_rollouts = []
 
-  @property
-  def splits_and_paths(self):
+  def splits_and_paths(self, data_dir):
     """List of pairs (split, paths) for the current epoch."""
     filepath_fns = {
         problem.DatasetSplit.TRAIN: self.training_filepaths,
@@ -404,7 +398,7 @@ class T2TEnv(video_utils.VideoProblem):
     # We set shuffled=True as we don't want to shuffle on disk later.
     return [
         (split["split"], append_epoch(filepath_fns[split["split"]](
-            self.data_dir, split["shards"], shuffled=True
+            data_dir, split["shards"], shuffled=True
         )))
         for split in self.dataset_splits
     ]
@@ -417,14 +411,14 @@ class T2TEnv(video_utils.VideoProblem):
       filepattern += ".{}".format(self.current_epoch)
     return filepattern
 
-  def generate_data(self, data_dir=None, tmp_dir=None, task_id=-1):
+  def generate_data(self, data_dir, tmp_dir=None, task_id=-1):
     """Saves the current epoch rollouts to disk, split into train/dev sets."""
     if not self._rollouts_by_epoch_and_split[self.current_epoch]:
       # Data not loaded from disk.
       self._split_current_epoch()
 
     rollouts_by_split = self._rollouts_by_epoch_and_split[self.current_epoch]
-    splits_and_paths = self.splits_and_paths
+    splits_and_paths = self.splits_and_paths(data_dir)
 
     for (split, paths) in splits_and_paths:
       rollouts = rollouts_by_split[split]
@@ -442,12 +436,12 @@ class T2TEnv(video_utils.VideoProblem):
             cycle_every_n=float("inf")
         )
 
-  def _load_epoch_data(self):
+  def _load_epoch_data(self, data_dir):
     any_files_found = False
     all_files_found = True
     any_shard_empty = False
 
-    for split, paths in self.splits_and_paths:
+    for split, paths in self.splits_and_paths(data_dir):
       try:
         any_shard_empty |= self._load_epoch_split(split, paths)
         any_files_found = True
@@ -510,9 +504,9 @@ class T2TGymEnv(T2TEnv):
 
   name = "t2t_gym_env"
 
-  def __init__(self, envs, data_dir, grayscale=False,
+  def __init__(self, envs, grayscale=False,
                resize_height_factor=1, resize_width_factor=1):
-    super(T2TGymEnv, self).__init__(len(envs), data_dir)
+    super(T2TGymEnv, self).__init__(len(envs))
     self.grayscale = grayscale
     self.resize_height_factor = resize_height_factor
     self.resize_width_factor = resize_width_factor

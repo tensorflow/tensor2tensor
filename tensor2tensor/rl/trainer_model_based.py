@@ -263,11 +263,10 @@ def make_gym_env(hparams):
   return env
 
 
-def setup_env(hparams, data_dir):
+def setup_env(hparams):
   """Setup."""
   env = T2TGymEnv([make_gym_env(hparams)
                    for _ in range(hparams.real_ppo_num_agents)],
-                  data_dir,
                   grayscale=hparams.grayscale,
                   resize_width_factor=hparams.resize_width_factor,
                   resize_height_factor=hparams.resize_height_factor)
@@ -300,8 +299,8 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   epoch = -1
   data_dir = directories["data"]
-  env = setup_env(hparams, data_dir)
-  env.start_new_epoch(epoch)
+  env = setup_env(hparams)
+  env.start_new_epoch(epoch, data_dir)
 
   # Timing log function
   log_relative_time = make_relative_timing_fn()
@@ -342,7 +341,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   )
 
   for epoch in range(hparams.epochs):
-    env.generate_data()
+    env.generate_data(data_dir)
 
     is_final_epoch = (epoch + 1) == hparams.epochs
     log = make_log_fn(epoch, log_relative_time)
@@ -364,7 +363,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
                 ppo_event_dir, directories["world_model"], data_dir,
                 hparams, epoch=epoch, is_final_epoch=is_final_epoch)
 
-    env.start_new_epoch(epoch)
+    env.start_new_epoch(epoch, data_dir)
 
     # Train PPO on real env (short)
     log("Training PPO in real environment.")

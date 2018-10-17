@@ -78,16 +78,16 @@ class GymEnvTest(tf.test.TestCase):
   def init_batch_and_play(self, env_lambda, steps_per_epoch=1,
                           epochs=(0,), generate_data=False, **kwargs):
     raw_envs = [env_lambda(), env_lambda()]
-    env = gym_env.T2TGymEnv(raw_envs, self.out_dir, **kwargs)
+    env = gym_env.T2TGymEnv(raw_envs, **kwargs)
     obs = list()
     rewards = list()
     num_dones = 0
     for epoch in epochs:
-      env.start_new_epoch(epoch)
+      env.start_new_epoch(epoch, self.out_dir)
       _, epoch_obs, epoch_rewards, epoch_num_dones = \
           self.play(env, steps_per_epoch)
       if generate_data:
-        env.generate_data()
+        env.generate_data(self.out_dir)
       obs.extend(epoch_obs)
       rewards.extend(epoch_rewards)
       num_dones += epoch_num_dones
@@ -162,18 +162,18 @@ class GymEnvTest(tf.test.TestCase):
           1 for filename in filenames if filename.endswith(suffix)
       )
 
-    env = gym_env.T2TGymEnv([TestEnv() for _ in range(2)], self.out_dir)
-    env.start_new_epoch(0)
+    env = gym_env.T2TGymEnv([TestEnv() for _ in range(2)])
+    env.start_new_epoch(0, self.out_dir)
     self.play(env, n_steps=20)
-    env.generate_data()
+    env.generate_data(self.out_dir)
 
     filenames = os.listdir(self.out_dir)
     num_shards_per_epoch = len(filenames)
     self.assertEqual(num_ending_with(filenames, ".0"), num_shards_per_epoch)
 
-    env.start_new_epoch(1)
+    env.start_new_epoch(1, self.out_dir)
     self.play(env, n_steps=20)
-    env.generate_data()
+    env.generate_data(self.out_dir)
 
     filenames = os.listdir(self.out_dir)
     self.assertEqual(len(filenames), 2 * num_shards_per_epoch)
@@ -189,7 +189,7 @@ class GymEnvTest(tf.test.TestCase):
         tf.train.Example.FromString(
             record
         ).features.feature["frame_number"].int64_list.value[0]
-        for (_, paths) in env.splits_and_paths
+        for (_, paths) in env.splits_and_paths(self.out_dir)
         for path in paths
         for record in tf.python_io.tf_record_iterator(path)
     ]
@@ -241,13 +241,13 @@ class GymEnvTest(tf.test.TestCase):
     self.assert_channels(env, obs, n_channels=3)
 
   def test_generating_and_loading_preserves_rollouts(self):
-    from_env = gym_env.T2TGymEnv([TestEnv()], self.out_dir)
-    from_env.start_new_epoch(0)
+    from_env = gym_env.T2TGymEnv([TestEnv()])
+    from_env.start_new_epoch(0, self.out_dir)
     self.play(from_env, n_steps=20)
-    from_env.generate_data()
+    from_env.generate_data(self.out_dir)
 
-    to_env = gym_env.T2TGymEnv([TestEnv()], self.out_dir)
-    to_env.start_new_epoch(0)
+    to_env = gym_env.T2TGymEnv([TestEnv()])
+    to_env.start_new_epoch(0, self.out_dir)
 
     self.assertEqual(
         from_env.current_epoch_rollouts(), to_env.current_epoch_rollouts()
