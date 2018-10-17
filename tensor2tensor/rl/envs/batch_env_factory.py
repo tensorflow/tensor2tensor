@@ -35,4 +35,5 @@ def batch_env_factory(environment_spec, num_agents):
     )
   else:
     cur_batch_env = py_func_batch_env.PyFuncBatchEnv(environment_spec.env)
+
   return cur_batch_env

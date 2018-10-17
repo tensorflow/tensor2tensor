@@ -140,7 +140,7 @@ class GlowOpsTest(tf.test.TestCase):
         self.assertTrue(np.allclose(scale, 1.0))
 
   def test_tensor_to_dist(self):
-    for architecture in ["single_conv", "glow_nn"]:
+    for architecture in ["single_conv", "glow_nn", "glow_resnet"]:
       self.check_tensor_to_dist(architecture)
 
   def test_split(self):
