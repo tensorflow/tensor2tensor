@@ -20,6 +20,7 @@ import functools
 import operator
 import gym
 
+from tensor2tensor.data_generators import gym_env
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
@@ -148,7 +149,6 @@ def standard_atari_env_spec(env=None, simulated=False):
   standard_wrappers = [
       (tf_atari_wrappers.StackWrapper, {"history": 4})
   ]
-
   env_spec = tf.contrib.training.HParams(
       wrappers=standard_wrappers,
       simulated_env=simulated,
@@ -158,7 +158,6 @@ def standard_atari_env_spec(env=None, simulated=False):
   )
   if not simulated:
     env_spec.add_hparam("env", env)
-
   return env_spec
 
 
@@ -212,7 +211,7 @@ def pong_model_free():
   hparams = tf.contrib.training.HParams(
       epochs_num=4,
       eval_every_epochs=2,
-      num_agents=10,
+      num_agents=2,
       optimization_epochs=3,
       epoch_length=30,
       entropy_loss_coef=0.003,
@@ -220,18 +219,18 @@ def pong_model_free():
       optimizer="Adam",
       policy_network=feed_forward_cnn_small_categorical_fun,
       gae_lambda=0.985,
-      num_eval_agents=1,
+      num_eval_agents=2,
       max_gradients_norm=0.5,
       gae_gamma=0.985,
       optimization_batch_size=4,
       clipping_coef=0.2,
       value_loss_coef=1,
       save_models_every_epochs=False)
-  hparams.add_hparam("environment_spec",
-                     standard_atari_env_spec("PongNoFrameskip-v4"))
+  env = gym_env.T2TGymEnv("PongNoFrameskip-v4", batch_size=2)
+  env.start_new_epoch(0)
+  hparams.add_hparam("environment_spec", standard_atari_env_spec(env))
   hparams.add_hparam(
-      "environment_eval_spec",
-      standard_atari_env_eval_spec("PongNoFrameskip-v4"))
+      "environment_eval_spec", standard_atari_env_eval_spec(env))
   return hparams
 
 

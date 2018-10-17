@@ -179,6 +179,7 @@ def train_agent(real_env, environment_spec, agent_model_dir,
     )
     # TODO(koz4k): Move this to a different module.
     def initial_frame_chooser(batch_size):
+      """Frame chooser."""
       num_frames = environment_spec.video_num_input_frames
       deterministic_initial_frames = initial_frame_rollouts[0][:num_frames]
       if not environment_spec.simulation_random_starts:
