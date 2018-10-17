@@ -33,7 +33,6 @@ import math
 import os
 import time
 
-import gym
 import numpy as np
 
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
@@ -246,31 +245,20 @@ def train_world_model(env, data_dir, output_dir, hparams, epoch):
   )
 
 
-def make_gym_env(hparams):
-  """Make env."""
+def setup_env(hparams):
+  """Setup."""
   game_mode = "Deterministic-v4"
   camel_game_name = "".join(
       [w[0].upper() + w[1:] for w in hparams.game.split("_")])
   camel_game_name += game_mode
   env_name = camel_game_name
-  env = gym.make(env_name)
-  if hparams.env_timesteps_limit != -1:
-    # Replace TimeLimit Wrapper with one of proper time step limit.
-    if isinstance(env, gym.wrappers.TimeLimit):
-      env = env.env
-    env = gym.wrappers.TimeLimit(env,
-                                 max_episode_steps=hparams.env_timesteps_limit)
-  return env
 
-
-def setup_env(hparams, data_dir):
-  """Setup."""
-  env = T2TGymEnv([make_gym_env(hparams)
-                   for _ in range(hparams.real_ppo_num_agents)],
-                  data_dir,
+  env = T2TGymEnv(base_env_name=env_name,
+                  batch_size=hparams.real_ppo_num_agents,
                   grayscale=hparams.grayscale,
                   resize_width_factor=hparams.resize_width_factor,
-                  resize_height_factor=hparams.resize_height_factor)
+                  resize_height_factor=hparams.resize_height_factor,
+                  base_env_timesteps_limit=hparams.env_timesteps_limit)
   return env
 
 
@@ -300,8 +288,8 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   epoch = -1
   data_dir = directories["data"]
-  env = setup_env(hparams, data_dir)
-  env.start_new_epoch(epoch)
+  env = setup_env(hparams)
+  env.start_new_epoch(epoch, data_dir)
 
   # Timing log function
   log_relative_time = make_relative_timing_fn()
@@ -342,7 +330,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   )
 
   for epoch in range(hparams.epochs):
-    env.generate_data()
+    env.generate_data(data_dir)
 
     is_final_epoch = (epoch + 1) == hparams.epochs
     log = make_log_fn(epoch, log_relative_time)
@@ -364,7 +352,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
                 ppo_event_dir, directories["world_model"], data_dir,
                 hparams, epoch=epoch, is_final_epoch=is_final_epoch)
 
-    env.start_new_epoch(epoch)
+    env.start_new_epoch(epoch, data_dir)
 
     # Train PPO on real env (short)
     log("Training PPO in real environment.")
