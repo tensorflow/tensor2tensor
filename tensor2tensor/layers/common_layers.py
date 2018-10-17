@@ -736,7 +736,6 @@ def apply_spectral_norm(x):
   return tf.divide(x, spectral_norm), assign_op
 
 
->>>>>>> be789121646e3cb22b1148a29aecd95e6763085d
 def apply_norm(x, norm_type, depth, epsilon):
   """Apply Normalization."""
   if norm_type == "layer":

@@ -33,6 +33,8 @@ from tensor2tensor.utils import update_ops_hook
 
 import tensorflow as tf
 
+gan_losses = tf.contrib.gan.losses.wargs
+
 
 @registry.register_model
 class NextFrameSAVP(sv2p.NextFrameSv2pLegacy):
@@ -346,6 +348,10 @@ class NextFrameSAVP(sv2p.NextFrameSv2pLegacy):
                     every frame.
       latent_stds: list of gaussian stds conditioned on the input at
                    every frame.
+
+    Raises:
+      ValueError: If not exactly one of self.hparams.vae or self.hparams.gan
+                  is set to True.
     """
     if not self.hparams.use_vae and not self.hparams.use_gan:
       raise ValueError("Set at least one of use_vae or use_gan to be True")

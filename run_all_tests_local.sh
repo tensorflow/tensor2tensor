@@ -35,6 +35,7 @@ source ~/diseaseTools/scripts/vm_setup/dev_config/.bashrc_aliases_fathom
 # * skip tensor2tensor/models/research/next_frame_test.py b/c not working but clearly experimental on t2t side
 
 dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
+       --ignore=/usr/src/app/api-flask/ \
        --ignore=/usr/src/t2t/tensor2tensor/utils/registry_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/utils/trainer_lib_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/visualization/visualization_test.py \
@@ -46,13 +47,19 @@ dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
        --ignore=/usr/src/t2t/tensor2tensor/data_generators/gym_problems_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/utils/checkpoint_compatibility_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/models/research/next_frame_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/rl/trainer_model_based_stochastic_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/rl/trainer_model_based_sv2p_test.py \
+       # skip glow_test which requires cifar dataset
+       # https://github.com/tensorflow/tensor2tensor/blob/3f43417310101859f95b74587ffc3686714cc58a/oss_scripts/oss_tests.sh#L71
+       --ignore=/usr/src/t2t/tensor2tensor/models/research/glow_test.py \
+       --deselect=/usr/src/t2t/tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary \
        --junitxml=/usr/src/t2t/test_results/pytest/unittests.xml \
        /usr/src/t2t/tensor2tensor/
 
 #       /usr/src/t2t/tensor2tensor/models/research/universal_transformer_test.py
 #       --ignore=/usr/src/t2t/tensor2tensor/models/research/next_frame_test.py \
 
-dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
+dki -w /usr/src/t2t gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
        /usr/src/t2t/tensor2tensor/utils/registry_test.py
 
 # cdb: I believe we break this because of some minor custom changes; should re-visit

@@ -155,7 +155,7 @@ def decode_from_dataset(estimator,
                         # otherwise decoding summary and logs are dumped
                         # to the model directory whenever decoding happens.
                         # should only be unspecified for eval.
-                        output_dir=None,
+                        output_dir=None):
   """Perform decoding from dataset.
 
   Args:
