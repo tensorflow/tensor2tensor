@@ -27,6 +27,7 @@ from __future__ import print_function
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
+from tensor2tensor.layers import discretization
 
 from tensor2tensor.models.video import base
 from tensor2tensor.models.video import base_vae
@@ -131,7 +132,10 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
           enc2, input_reward, "reward_enc")
     if latent is not None and not concat_latent:
       with tf.control_dependencies([latent]):
-        enc2 = tf.concat([enc2, latent], axis=3)
+        # This is the original SV2P implementation
+        # But we will tile and concat to support various latent sizes.
+        # enc2 = tf.concat([enc2, latent], axis=3)
+        enc2 = tile_and_concat(enc2, latent, concat_latent=concat_latent)
 
     enc3 = tfl.conv2d(enc2, hidden4.get_shape()[3], [1, 1], strides=(1, 1),
                       padding="SAME", activation=tf.nn.relu, name="conv4")
@@ -345,8 +349,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
     extra_loss = 0.0
     if internal_states is None:
       internal_states = [None] * (5 if self.hparams.small_mode else 7)
-      if latent_mean is not None:
-        extra_loss = self.get_extra_loss([latent_mean], [latent_std])
+      extra_loss = self.get_extra_loss([latent_mean], [latent_std])
 
     pred_image, internal_states = self.construct_predictive_tower(
         frames, None, actions, internal_states, latent)
@@ -365,35 +368,90 @@ class NextFrameSv2pDiscrete(NextFrameSv2p):
 
   def video_features(
       self, all_frames, all_actions, all_rewards, all_raw_frames):
-    """Video wide latent."""
-    del all_actions, all_rewards, all_raw_frames
+    """No video wide latent."""
+    del all_frames, all_actions, all_rewards, all_raw_frames
+    return None
 
+  def basic_conv_net(self, images, conv_size, scope):
+    """Simple multi conv ln relu."""
+    conv_size = self.tinyify(conv_size)
+    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
+      x = images
+      for i, c in enumerate(conv_size):
+        if i > 0:
+          x = tf.nn.relu(x)
+        x = common_layers.make_even_size(x)
+        x = tfl.conv2d(x, c, [3, 3], strides=(2, 2),
+                       activation=None, padding="SAME", name="conv%d" % i)
+        x = tfcl.layer_norm(x)
+    return x
+
+  def learned_discrete_tower(self, input_image, target_image):
     hparams = self.hparams
-    frames = tf.stack(all_frames, axis=1)
-    mean, std = self.construct_latent_tower(frames, time_axis=1)
-    tower_output = tf.concat([mean, std], axis=-1)
-    tower_output_shape = common_layers.shape_list(tower_output)
+
+    # Encode the input frames into a prior encoding.
+    conv_size = [64, 32, 32, 1]
+    prior_enc = self.basic_conv_net(input_image, conv_size, "prior_enc")
+    tower_output_shape = common_layers.shape_list(prior_enc)
     batch_size = tower_output_shape[0]
+    prior_enc = tfl.flatten(prior_enc)
 
-    if not self.is_training:
-      rand = tf.random_uniform([batch_size, hparams.bottleneck_bits])
-      d = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
-    else:
-      x = tfl.flatten(tower_output)
-      x = tfl.dense(x, hparams.bottleneck_bits, name="bits_enc")
-      x_shape = common_layers.shape_list(x)
-      x += tf.truncated_normal(x_shape, mean=0.0, stddev=0.2)
-      x = tf.tanh(x)
-      noise = tf.random_uniform(x_shape)
-      noise = 2.0 * tf.to_float(tf.less(hparams.bottleneck_noise, noise)) - 1.0
-      x *= noise
-      d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
-      p = common_layers.inverse_lin_decay(hparams.discrete_warmup_steps)
-      d = tf.where(tf.less(tf.random_uniform([batch_size]), p), d, x)
+    def decode_bits(b):
+      return common_video.encode_to_shape(b, tower_output_shape, "bits_dec")
 
-    decoded_bits = common_video.encode_to_shape(
-        d, tower_output_shape, "bits_dec")
-    return [decoded_bits, None, None]
+    if self.is_predicting:
+      if hparams.full_latent_tower:
+        rand = tf.random_uniform([batch_size, hparams.bottleneck_bits])
+        bits = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
+      else:
+        # Generate bit using the learned prior at inference time.
+        bits, _ = discretization.predict_bits_with_lstm(
+            prior_enc,
+            hparams.latent_predictor_state_size,
+            hparams.bottleneck_bits,
+            temperature=hparams.latent_predictor_temperature)
+      return decode_bits(bits), 0.0
+
+    # Encode the input and target frames into posterior.
+    x = tf.concat([input_image, target_image], axis=-1)
+    x = self.basic_conv_net(x, conv_size, "posterior_enc")
+    x = tfl.flatten(x)
+    bits, bits_clean = discretization.tanh_discrete_bottleneck(
+        x, hparams.bottleneck_bits,
+        hparams.bottleneck_noise,
+        hparams.discretize_warmup_steps,
+        hparams.mode)
+
+    pred_loss = 0.0
+    if not hparams.full_latent_tower:
+      # Learn the prior by matching the posterior.
+      _, pred_loss = discretization.predict_bits_with_lstm(
+          prior_enc,
+          hparams.latent_predictor_state_size,
+          hparams.bottleneck_bits,
+          target_bits=bits_clean)
+
+    return decode_bits(bits), pred_loss
+
+  def next_frame(self, frames, actions, rewards, target_frame,
+                 internal_states, video_features):
+    del video_features
+    frames, actions, rewards = frames[0], actions[0], rewards[0]
+
+    if internal_states is None:
+      internal_states = [None] * (5 if self.hparams.small_mode else 7)
+
+    latent, extra_loss = self.learned_discrete_tower(frames, target_frame)
+
+    pred_image, internal_states = self.construct_predictive_tower(
+        frames, None, actions, internal_states, latent)
+
+    if not self.has_rewards:
+      return pred_image, None, extra_loss, internal_states
+
+    pred_reward = self.reward_prediction(
+        pred_image, actions, rewards, latent)
+    return pred_image, pred_reward, extra_loss, internal_states
 
 
 @registry.register_model

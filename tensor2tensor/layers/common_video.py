@@ -41,7 +41,7 @@ def encode_to_shape(inputs, shape, scope):
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
     w, h = shape[1], shape[2]
     x = inputs
-    x = tf.contrib.layers.flatten(x)
+    x = tfl.flatten(x)
     x = tfl.dense(x, w * h, activation=None, name="enc_dense")
     x = tf.reshape(x, (-1, w, h, 1))
     return x
@@ -51,7 +51,7 @@ def decode_to_shape(inputs, shape, scope):
   """Encode the given tensor to given image shape."""
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
     x = inputs
-    x = tf.contrib.layers.flatten(x)
+    x = tfl.flatten(x)
     x = tfl.dense(x, shape[2], activation=None, name="dec_dense")
     x = tf.expand_dims(x, axis=1)
     return x
@@ -484,7 +484,7 @@ def tinyify(array, tiny_mode, small_mode):
   if tiny_mode:
     return [1 for _ in array]
   if small_mode:
-    return [x // 4 for x in array]
+    return [max(x // 4, 1) for x in array]
   return array
 
 
