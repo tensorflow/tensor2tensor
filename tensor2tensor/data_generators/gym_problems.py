@@ -552,10 +552,6 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     if extra_collect_hparams is None:
       extra_collect_hparams = {}
 
-    if self._initial_frame_chooser is None:
-      self._initial_frame_chooser = InitialFrameChooser(
-          self.environment_spec, mode=tf.estimator.ModeKeys.EVAL
-      )
     extra_collect_hparams["initial_frame_chooser"] = self._initial_frame_chooser
 
     super(GymSimulatedDiscreteProblem, self)._setup(
@@ -636,11 +632,6 @@ class GymSimulatedDiscreteProblemForWorldModelEval(GymSimulatedDiscreteProblem):
       # Decrease the trajectory length for tiny experiments, otherwise we don't
       # have enough data to run the evaluation.
       trajectory_length = 2
-    self._initial_frame_chooser = InitialFrameChooser(
-        self.environment_spec, mode=tf.estimator.ModeKeys.EVAL,
-        trajectory_length=trajectory_length
-    )
-
     frame_index = tf.Variable(0, trainable=False)
 
     def fixed_action_policy_fun(action_space, unused_config, observations):
