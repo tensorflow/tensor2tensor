@@ -30,6 +30,7 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.utils import metrics
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -522,18 +523,24 @@ class T2TGymEnv(T2TEnv):
   arguments and register this subclass.
   """
 
-  def __init__(self, base_env_name, batch_size=None, grayscale=False,
-               resize_height_factor=1, resize_width_factor=1,
+  def __init__(self, base_env_name=None, batch_size=None, grayscale=False,
+               resize_height_factor=2, resize_width_factor=2,
                base_env_timesteps_limit=-1, envs=None, **kwargs):
     if batch_size is None:
-      batch_size = len(envs)
+      if envs is None:
+        batch_size = 1
+      else:
+        batch_size = len(envs)
+    if base_env_name is None:
+      base_env_name = self.base_env_name
+    self._base_env_name = base_env_name
     super(T2TGymEnv, self).__init__(batch_size, **kwargs)
     self.grayscale = grayscale
     self.resize_height_factor = resize_height_factor
     self.resize_width_factor = resize_width_factor
     if not self.name:
       # Set problem name if not registered.
-      self.name = "t2t_gym_env_{}".format(base_env_name)
+      self.name = "Gym%s" % base_env_name
 
     if envs is None:
       self._envs = [make_gym_env(base_env_name, base_env_timesteps_limit)
@@ -565,6 +572,10 @@ class T2TGymEnv(T2TEnv):
       if self.grayscale:
         resized = tf.image.rgb_to_grayscale(resized)
       self._resized_img_batch_t = _Noncopyable(resized)
+
+  @property
+  def base_env_name(self):
+    return self._base_env_name
 
   @property
   def num_channels(self):
@@ -600,3 +611,117 @@ class T2TGymEnv(T2TEnv):
   def close(self):
     for env in self._envs:
       env.close()
+
+# Atari registration.
+
+# Game list from our list of ROMs
+# Removed because XDeterministic-v4 did not exist:
+# * adventure
+# * defender
+# * kaboom
+ATARI_GAMES = [
+    "air_raid", "alien", "amidar", "assault", "asterix", "asteroids",
+    "atlantis", "bank_heist", "battle_zone", "beam_rider", "berzerk", "bowling",
+    "boxing", "breakout", "carnival", "centipede", "chopper_command",
+    "crazy_climber", "demon_attack", "double_dunk", "elevator_action", "enduro",
+    "fishing_derby", "freeway", "frostbite", "gopher", "gravitar", "hero",
+    "ice_hockey", "jamesbond", "journey_escape", "kangaroo", "krull",
+    "kung_fu_master", "montezuma_revenge", "ms_pacman", "name_this_game",
+    "phoenix", "pitfall", "pong", "pooyan", "private_eye", "qbert", "riverraid",
+    "road_runner", "robotank", "seaquest", "skiing", "solaris",
+    "space_invaders", "star_gunner", "tennis", "time_pilot", "tutankham",
+    "up_n_down", "venture", "video_pinball", "wizard_of_wor", "yars_revenge",
+    "zaxxon"
+]
+
+# List from paper:
+# https://arxiv.org/pdf/1805.11593.pdf
+# plus frostbite.
+ATARI_GAMES_WITH_HUMAN_SCORE = [
+    "alien", "amidar", "assault", "asterix", "asteroids",
+    "atlantis", "bank_heist", "battle_zone", "beam_rider", "bowling",
+    "boxing", "breakout", "chopper_command",
+    "crazy_climber", "demon_attack", "double_dunk", "enduro",
+    "fishing_derby", "freeway", "frostbite", "gopher", "gravitar", "hero",
+    "ice_hockey", "jamesbond", "kangaroo", "krull",
+    "kung_fu_master", "montezuma_revenge", "ms_pacman", "name_this_game",
+    "pitfall", "pong", "private_eye", "qbert", "riverraid",
+    "road_runner", "seaquest", "solaris",
+    "up_n_down", "video_pinball", "yars_revenge",
+]
+
+ATARI_WHITELIST_GAMES = [
+    "amidar",
+    "bank_heist",
+    "berzerk",
+    "boxing",
+    "crazy_climber",
+    "freeway",
+    "frostbite",
+    "gopher",
+    "kung_fu_master",
+    "ms_pacman",
+    "pong",
+    "qbert",
+    "seaquest",
+]
+
+
+# Games on which model-free does better than model-based at this point.
+ATARI_CURIOUS_GAMES = [
+    "bank_heist",
+    "boxing",
+    "enduro",
+    "kangaroo",
+    "road_runner",
+    "up_n_down",
+]
+
+
+# Games on which based should work.
+ATARI_DEBUG_GAMES = [
+    "crazy_climber",
+    "freeway",
+    "pong",
+]
+
+
+# Different ATARI game modes in OpenAI Gym. Full list here:
+# https://github.com/openai/gym/blob/master/gym/envs/__init__.py
+ATARI_GAME_MODES = [
+    "Deterministic-v0",  # 0.25 repeat action probability, 4 frame skip.
+    "Deterministic-v4",  # 0.00 repeat action probability, 4 frame skip.
+    "NoFrameskip-v0",    # 0.25 repeat action probability, 1 frame skip.
+    "NoFrameskip-v4",    # 0.00 repeat action probability, 1 frame skip.
+    "-v0",               # 0.25 repeat action probability, (2 to 5) frame skip.
+    "-v4"                # 0.00 repeat action probability, (2 to 5) frame skip.
+]
+
+
+def register_game(game_name, game_mode="Deterministic-v4"):
+  """Create and register problems for the game.
+
+  Args:
+    game_name: str, one of the games in ATARI_GAMES, e.g. "bank_heist".
+    game_mode: the frame skip and sticky keys config.
+
+  Raises:
+    ValueError: if game_name or game_mode are wrong.
+  """
+  if game_name not in ATARI_GAMES:
+    raise ValueError("Game %s not in ATARI_GAMES" % game_name)
+  if game_mode not in ATARI_GAME_MODES:
+    raise ValueError("Unknown ATARI game mode: %s." % game_mode)
+  camel_game_name = "".join(
+      [w[0].upper() + w[1:] for w in game_name.split("_")])
+  camel_game_name += game_mode
+  # Create and register the Problem
+  cls = type("Gym%sRandom" % camel_game_name,
+             (T2TGymEnv,), {"base_env_name": camel_game_name})
+  registry.register_problem(cls)
+
+
+# Register the atari games with all of the possible modes.
+for atari_game in ATARI_GAMES:
+  for atari_game_mode in ATARI_GAME_MODES:
+    register_game(atari_game, game_mode=atari_game_mode)

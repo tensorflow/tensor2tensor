@@ -22,7 +22,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.data_generators import gym_problems_specs
+from tensor2tensor.data_generators import gym_env
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -46,7 +46,7 @@ def main(_):
   # Create problem if not already defined
   problem_name = "gym_discrete_problem_with_agent_on_%s" % FLAGS.game
   if problem_name not in registry.list_problems():
-    gym_problems_specs.create_problems_for_game(FLAGS.game)
+    gym_env.register_game(FLAGS.game)
 
   # Generate
   tf.logging.info("Running %s environment for %d steps for trajectories.",

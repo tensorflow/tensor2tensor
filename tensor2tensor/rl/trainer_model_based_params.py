@@ -21,7 +21,7 @@ from __future__ import print_function
 import six
 
 
-from tensor2tensor.data_generators import gym_problems_specs
+from tensor2tensor.data_generators import gym_env
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -535,38 +535,38 @@ def rlmb_scheduled_sampling(rhp):
 @registry.register_ranged_hparams
 def rlmb_all_games(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_GAMES)
 
 
 @registry.register_ranged_hparams
 def rlmb_whitelisted_games(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_WHITELIST_GAMES)
 
 
 @registry.register_ranged_hparams
 def rlmb_human_score_games(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_categorical("loop.game",
-                      gym_problems_specs.ATARI_GAMES_WITH_HUMAN_SCORE)
+                      gym_env.ATARI_GAMES_WITH_HUMAN_SCORE)
 
 
 @registry.register_ranged_hparams
 def rlmb_curious_games10(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_CURIOUS_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_CURIOUS_GAMES)
 
 
 @registry.register_ranged_hparams
 def rlmb_curious_games5(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_CURIOUS_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_CURIOUS_GAMES)
 
 
 @registry.register_ranged_hparams
 def rlmb_debug_games(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_DEBUG_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_DEBUG_GAMES)
 
 
 @registry.register_ranged_hparams
@@ -638,28 +638,28 @@ def rlmb_dummy_range(rhp):
 
 @registry.register_ranged_hparams
 def rlmb_epochs_num(rhp):
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_WHITELIST_GAMES)
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_discrete("loop.epochs", [3, 6, 12])
 
 
 @registry.register_ranged_hparams
 def rlmb_ppo_epochs_num(rhp):
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_WHITELIST_GAMES)
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_discrete("loop.ppo_epochs_num", [200, 1000, 2000, 4000])
 
 
 @registry.register_ranged_hparams
 def rlmb_ppo_epoch_len(rhp):
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_WHITELIST_GAMES)
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_discrete("loop.ppo_epoch_length", [25, 50, 100])
 
 
 @registry.register_ranged_hparams
 def rlmb_num_frames(rhp):
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_WHITELIST_GAMES)
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_discrete("loop.num_real_env_frames",
                    [1000*el for el in [30, 100, 500, 1000]])
