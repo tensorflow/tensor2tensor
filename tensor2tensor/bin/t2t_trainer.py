@@ -341,7 +341,7 @@ def run_std_server():
   exp.run_std_server()
 
 
-def main(argv):
+def main(argv, experiment_delegate=None):
   tf.logging.set_verbosity(tf.logging.INFO)
   if FLAGS.schedule == "run_std_server":
     run_std_server()
@@ -367,7 +367,11 @@ def main(argv):
   exp = exp_fn(create_run_config(hparams), hparams)
   if is_chief():
     save_metadata(hparams)
-  execute_schedule(exp)
+
+  if experiment_delegate:
+    experiment_delegate(exp)
+  else:
+    execute_schedule(exp)
 
 
 if __name__ == "__main__":
