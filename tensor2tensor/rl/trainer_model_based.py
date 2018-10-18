@@ -62,6 +62,7 @@ def temporary_flags(flag_settings):
 
 
 def real_ppo_epoch_increment(hparams):
+  """PPO increment."""
   if hparams.gather_ppo_real_env_data:
     assert hparams.real_ppo_epochs_num is 0, (
         "Should be put to 0 to enforce better readability"
@@ -232,7 +233,7 @@ def train_agent_real_env(
     env, agent_model_dir, event_dir, data_dir,
     hparams, ppo_epochs_num, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the real environment."""
-  del data_dir
+  del is_final_epoch, data_dir
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_params_names = ["epochs_num", "epoch_length",
                       "learning_rate", "num_agents", "eval_every_epochs",
