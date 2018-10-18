@@ -59,7 +59,7 @@ def rlmb_base():
       autoencoder_train_steps_initial_multiplier=10,
       autoencoder_hparams_set="autoencoder_discrete_pong",
       model_train_steps=15000,
-      inital_epoch_train_steps_multiplier=3,
+      initial_epoch_train_steps_multiplier=3,
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,  # Use random starts in PPO.
       # Flip the first random frame in PPO batch for the true beginning.
@@ -183,7 +183,7 @@ def rlmb_quick_sm():
 def rlmb_base_stochastic():
   """Base setting with a stochastic next-frame model."""
   hparams = rlmb_base()
-  hparams.inital_epoch_train_steps_multiplier = 5
+  hparams.initial_epoch_train_steps_multiplier = 5
   hparams.generative_model = "next_frame_basic_stochastic"
   hparams.generative_model_params = "next_frame_basic_stochastic"
   return hparams
@@ -272,7 +272,7 @@ def rlmb_base_sv2p_flippy30():
   hparams.ppo_epochs_num = 1000
   hparams.model_train_steps = 15000
   hparams.learning_rate_bump = 1.0
-  hparams.inital_epoch_train_steps_multiplier = 5
+  hparams.initial_epoch_train_steps_multiplier = 5
   hparams.generative_model = "next_frame_sv2p"
   hparams.generative_model_params = "next_frame_sv2p_atari"
   return hparams
