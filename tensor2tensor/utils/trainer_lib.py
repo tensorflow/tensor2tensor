@@ -364,6 +364,32 @@ class T2TExperiment(object):
         hooks=self._train_spec.hooks,
         max_steps=max_steps or self._train_spec.max_steps)
 
+  def train_eval_and_decode(self):
+    """Does eval and decode after training every eval_freq_in_steps."""
+    eval_steps = self._hparams.eval_freq_in_steps
+    packed_dataset = "_packed" in self._hparams.problem.name
+    for i in range(0, self._train_spec.max_steps, eval_steps):
+      if packed_dataset and i > 0:
+        problem = registry.problem(self._hparams.problem.name + "_packed")
+        p_hparams = problem.get_hparams(self._hparams)
+        self._hparams.problem = problem
+        self._hparams.problem_hparams = p_hparams
+      self._estimator.train(
+          self._train_spec.input_fn,
+          steps=eval_steps,
+          hooks=self._train_spec.hooks)
+      self._estimator.evaluate(
+          self._eval_spec.input_fn,
+          steps=self._eval_spec.steps,
+          hooks=self._eval_spec.hooks)
+      if packed_dataset:
+        problem = registry.problem(
+            self._hparams.problem.name.replace("_packed", ""))
+        p_hparams = problem.get_hparams(self._hparams)
+        self._hparams.problem = problem
+        self._hparams.problem_hparams = p_hparams
+      self.decode(dataset_split=tf.estimator.ModeKeys.EVAL)
+
   def evaluate(self):
     return self._estimator.evaluate(
         self._eval_spec.input_fn,
@@ -489,6 +515,7 @@ def create_experiment(
   hparams.add_hparam("schedule", schedule)
   hparams.add_hparam("warm_start_from", warm_start_from)
   hparams.add_hparam("std_server_protocol", std_server_protocol)
+  hparams.add_hparam("eval_freq_in_steps", min_eval_frequency)
   if decode_hparams is not None:
     decode_hparams.add_hparam("decode_from_file", decode_from_file)
     decode_hparams.add_hparam("decode_to_file", decode_to_file)
