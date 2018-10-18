@@ -48,7 +48,7 @@ from tensorflow.python.ops import inplace_ops
 from tensorflow.python.ops import variable_scope
 
 # Fathom
-from fathomt2t_dependencies.common_t2t_utils import combine_shards
+from fathomt2t_dependencies.common_t2t_utils import combine_shards, FATHOM_DICT_FORMAT
 
 _no_problem_err_str = (
     "The default implementation of %s requires that the "
@@ -334,7 +334,6 @@ class T2TModel(base.Layer):
         losses["training"] = 0.0
         if (self._hparams.mode != tf.estimator.ModeKeys.PREDICT and
             self._hparams.mode != "attack"):
-          print('model_fn calling self.loss', self.loss)
           losses["training"] = self.loss(logits, features)
 
       return logits, losses
@@ -538,8 +537,9 @@ class T2TModel(base.Layer):
         #
         # TODO: see if we can streamline this handling to stay
         # closer to upstream.
-        return self._loss_single(
-          logits, target_modality, features['targets'])
+        if logits.get(FATHOM_DICT_FORMAT):
+            return self._loss_single(
+                logits, target_modality, features['targets'])
       else:
         target_modality = {k: None for k in logits.keys()}
       for k in logits.keys():
