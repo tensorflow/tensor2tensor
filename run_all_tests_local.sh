@@ -35,10 +35,13 @@ source ~/diseaseTools/scripts/vm_setup/dev_config/.bashrc_aliases_fathom
 # * skip tensor2tensor/models/research/next_frame_test.py b/c not working but clearly experimental on t2t side
 # * skip glow_test which requires cifar dataset
 #     https://github.com/tensorflow/tensor2tensor/blob/3f43417310101859f95b74587ffc3686714cc58a/oss_scripts/oss_tests.sh#L71
-# * skip common_video_test.py::CommonVideoTest::testGifSummary because of ffmpeg dependency
-# * skip tensor2tensor/data_generators/image_utils_test.py because of matplotlib dependency
-# * skip tensor2tensor/layers/common_video_test.py because of ffmpeg dependency
-# * skip tensor2tensor/models/video/ since we don't use any video related models
+# * skip common_video_test.py::CommonVideoTest::testGifSummary (no ffmpeg)
+# * skip tensor2tensor/data_generators/image_utils_test.py (no matplotlib)
+# * skip tensor2tensor/data_generators/video_utils_test.py (no ffmpeg, PIL)
+# * skip tensor2tensor/layers/common_video_test.py (no ffmpeg)
+# * skip tensor2tensor/data_generators/common_voice_test.py (no tqdm)
+# * skip tensor2tensor/data_generators/gym_env_test.py (no gym)
+
 
 dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
        --ignore=/usr/src/app/api-flask/ \
@@ -58,8 +61,10 @@ dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
        --ignore=/usr/src/t2t/tensor2tensor/models/research/glow_test.py \
        --deselect=/usr/src/t2t/tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary \
        --ignore=/usr/src/t2t/tensor2tensor/data_generators/image_utils_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/data_generators/video_utils_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/layers/common_video_test.py \
-       --ignore=/usr/src/t2t/tensor2tensor/models/video/ \
+       --ignore=/usr/src/t2t/tensor2tensor/data_generators/common_voice_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/data_generators/gym_env_test.py \
        --junitxml=/usr/src/t2t/test_results/pytest/unittests.xml \
        /usr/src/t2t/tensor2tensor/
 
