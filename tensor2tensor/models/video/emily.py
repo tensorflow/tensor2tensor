@@ -56,6 +56,29 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
     """
     vgg_layer = common_video.vgg_layer
     net01 = inputs
+
+    skips = []
+
+    # The original model only supports 64x64. We can support higher resolutions
+    # as long as they are square and the side-length is a power of two
+    # by inserting more downscaling layers. Corresponding upscaling can be found
+    # in the decoder, as well.
+    # (This procedure is ad-hoc, i.e., not from the SVP-FP paper)
+    _, res_y, res_x, _ = inputs.shape.as_list()
+    assert res_x == res_y, "Model only supports square inputs"
+    is_power_of_two = lambda x: ((x & (x - 1)) == 0) and x != 0
+    assert is_power_of_two(res_x), "Input resolution must be power of 2"
+    assert res_x >= 64, "Input resolution must be >= 64"
+    ds_idx = 0
+    while res_x > 64:
+      h = tfcl.repeat(net01, 2, vgg_layer, 64, scope="downscale%d" % ds_idx,
+                      is_training=self.is_training)
+      net01 = tfl.max_pooling2d(h, [2, 2], strides=(2, 2),
+                                name="downscale%d_pool" % ds_idx)
+      skips.append(h)
+      ds_idx += 1
+      res_x /= 2
+
     # h1
     net11 = tfcl.repeat(net01, 2, vgg_layer, 64,
                         scope="h1", is_training=self.is_training)
@@ -76,7 +99,7 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
     net51 = tfcl.repeat(net42, 1, vgg_layer, nout,
                         kernel_size=4, padding="VALID", activation=tf.tanh,
                         scope="h5", is_training=self.is_training)
-    skips = [net11, net21, net31, net41]
+    skips += [net11, net21, net31, net41]
     return net51, skips
 
   def decoder(self, inputs, skips, nout):
@@ -99,23 +122,30 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
     net = tf.nn.leaky_relu(net)
     net = common_layers.upscale(net, 2)
     # d2
-    net = tf.concat([net, skips[3]], axis=3)
+    net = tf.concat([net, skips[-1]], axis=3)
     net = tfcl.repeat(net, 2, vgg_layer, 512, scope="d2a")
     net = tfcl.repeat(net, 1, vgg_layer, 256, scope="d2b")
     net = common_layers.upscale(net, 2)
     # d3
-    net = tf.concat([net, skips[2]], axis=3)
+    net = tf.concat([net, skips[-2]], axis=3)
     net = tfcl.repeat(net, 2, vgg_layer, 256, scope="d3a")
     net = tfcl.repeat(net, 1, vgg_layer, 128, scope="d3b")
     net = common_layers.upscale(net, 2)
     # d4
-    net = tf.concat([net, skips[1]], axis=3)
+    net = tf.concat([net, skips[-3]], axis=3)
     net = tfcl.repeat(net, 1, vgg_layer, 128, scope="d4a")
     net = tfcl.repeat(net, 1, vgg_layer, 64, scope="d4b")
     net = common_layers.upscale(net, 2)
     # d5
-    net = tf.concat([net, skips[0]], axis=3)
+    net = tf.concat([net, skips[-4]], axis=3)
     net = tfcl.repeat(net, 1, vgg_layer, 64, scope="d5")
+
+    # if there are still skip connections left, we have more downscaling to do
+    for i, s in enumerate(skips[-5::-1]):
+      net = common_layers.upscale(net, 2)
+      net = tf.concat([net, s], axis=3)
+      net = tfcl.repeat(net, 1, vgg_layer, 64, scope="upscale%d" % i)
+
     net = tfl.conv2d_transpose(net, nout, kernel_size=3, padding="SAME",
                                name="d6_deconv", activation=tf.sigmoid)
     return net
