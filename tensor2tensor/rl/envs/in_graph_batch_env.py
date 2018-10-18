@@ -22,7 +22,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.rl.envs import utils
+import gym
 
 import tensorflow as tf
 
@@ -84,21 +84,29 @@ class InGraphBatchEnv(object):
         lambda: self._reset_non_empty(indices),
         lambda: tf.cast(0, self.observ_dtype))
 
+  @staticmethod
+  def _get_tf_dtype(space):
+    if isinstance(space, gym.spaces.Discrete):
+      return tf.int32
+    if isinstance(space, gym.spaces.Box):
+      return tf.as_dtype(space.dtype)
+    raise NotImplementedError()
+
   @property
   def observ_dtype(self):
-    return utils.parse_dtype(self.observ_space)
+    return self._get_tf_dtype(self.observ_space)
 
   @property
   def observ_shape(self):
-    return utils.parse_shape(self.observ_space)
+    return self.observ_space.shape
 
   @property
   def action_dtype(self):
-    return utils.parse_dtype(self.action_space)
+    return self._get_tf_dtype(self.action_space)
 
   @property
   def action_shape(self):
-    return utils.parse_shape(self.action_space)
+    return self.action_space.shape
 
   @property
   def observ(self):

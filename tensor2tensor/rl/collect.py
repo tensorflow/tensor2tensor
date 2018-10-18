@@ -21,10 +21,10 @@ from __future__ import print_function
 
 import copy
 
+from tensor2tensor.models.research.rl import get_policy
 from tensor2tensor.rl.envs.py_func_batch_env import PyFuncBatchEnv
 from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
 from tensor2tensor.rl.envs.tf_atari_wrappers import WrapperBase
-from tensor2tensor.rl.envs.utils import get_policy
 
 import tensorflow as tf
 

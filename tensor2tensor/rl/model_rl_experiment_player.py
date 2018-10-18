@@ -34,8 +34,8 @@ from PIL import ImageDraw
 from PIL import ImageFont
 
 from tensor2tensor.data_generators import gym_problems_specs
+from tensor2tensor.models.research.rl import get_policy
 from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
-from tensor2tensor.rl.envs.utils import get_policy
 from tensor2tensor.rl.trainer_model_based import FLAGS
 from tensor2tensor.rl.trainer_model_based import setup_directories
 from tensor2tensor.rl.trainer_model_based import temporary_flags
