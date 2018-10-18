@@ -28,6 +28,7 @@ source ~/diseaseTools/scripts/vm_setup/dev_config/.bashrc_aliases_fathom
 # universal_transformer_test: requires new feature in tf.foldl (rm with TF 1.9)
 
 # Our changes:
+# * skip api-flask because it imports api flask and isn't necessary to test for t2t
 # * ignore all of /rl, since we aren't using this (and don't have gym in our Docker image)
 # * skip problems_test.py (??why??)
 # * skip gym_problems (gym not in our image)
