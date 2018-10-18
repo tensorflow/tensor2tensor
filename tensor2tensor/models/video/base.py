@@ -141,6 +141,12 @@ class NextFrameBase(t2t_model.T2TModel):
       step_num = 10000000
     return step_num
 
+  def visualize_predictions(self, predics, targets):
+    predics = tf.concat(predics, axis=1)
+    targets = tf.concat(targets, axis=1)
+    side_by_side_video = tf.concat([predics, targets], axis=2)
+    tf.summary.image("full_video", side_by_side_video)
+
   def get_scheduled_sample_func(self, batch_size):
     """Creates a function for scheduled sampling based on given hparams."""
     with tf.variable_scope("scheduled_sampling_func", reuse=tf.AUTO_REUSE):
@@ -400,6 +406,9 @@ class NextFrameBase(t2t_model.T2TModel):
       for k, v in six.iteritems(logits):
         results[k] = logits_to_samples(v)
         results["%s_logits" % k] = v
+      # HACK: bypassing decoding issues.
+      results["outputs"] = results["targets"]
+      results["scores"] = results["targets"]
     else:
       results = logits_to_samples(logits)
 
@@ -480,9 +489,14 @@ class NextFrameBase(t2t_model.T2TModel):
       # Cut the predicted input frames.
       res_frames = res_frames[hparams.video_num_input_frames-1:]
       res_rewards = res_rewards[hparams.video_num_input_frames-1:]
+      sampled_frames = sampled_frames[hparams.video_num_input_frames-1:]
+
+    target_frames = all_frames[hparams.video_num_input_frames:]
+    self.visualize_predictions(sampled_frames, target_frames)
 
     output_frames = tf.stack(res_frames, axis=1)
     targets = output_frames
+
     if self.has_rewards:
       output_rewards = tf.stack(res_rewards, axis=1)
       targets = {"targets": output_frames, "target_reward": output_rewards}
