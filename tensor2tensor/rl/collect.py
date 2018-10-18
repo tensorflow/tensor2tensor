@@ -21,9 +21,10 @@ from __future__ import print_function
 
 import copy
 
-from tensor2tensor.rl.envs.batch_env_factory import batch_env_factory
+from tensor2tensor.models.research.rl import get_policy
+from tensor2tensor.rl.envs.py_func_batch_env import PyFuncBatchEnv
+from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
 from tensor2tensor.rl.envs.tf_atari_wrappers import WrapperBase
-from tensor2tensor.rl.envs.utils import get_policy
 
 import tensorflow as tf
 
@@ -112,7 +113,10 @@ def define_collect(hparams, scope, eval_phase,
       environment_spec = getattr(hparams, "environment_eval_spec",
                                  environment_spec)
       num_agents = getattr(hparams, "num_eval_agents", num_agents)
-    batch_env = batch_env_factory(environment_spec, num_agents)
+    if environment_spec.simulated_env:
+      batch_env = SimulatedBatchEnv(environment_spec, num_agents)
+    else:
+      batch_env = PyFuncBatchEnv(environment_spec.env)
 
     to_initialize.append(batch_env)
     environment_wrappers = environment_spec.wrappers

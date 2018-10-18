@@ -196,6 +196,21 @@ def standard_atari_ae_env_spec(env, ae_hparams_set):
                                      simulated_env=False)
 
 
+def get_policy(observations, hparams):
+  """Get a policy network.
+
+  Args:
+    observations: Tensor with observations
+    hparams: parameters
+
+  Returns:
+    Tensor with policy and value function output
+  """
+  policy_network_lambda = hparams.policy_network
+  action_space = hparams.environment_spec.action_space
+  return policy_network_lambda(action_space, hparams, observations)
+
+
 @registry.register_hparams
 def ppo_pong_ae_base():
   """Pong autoencoder base parameters."""
