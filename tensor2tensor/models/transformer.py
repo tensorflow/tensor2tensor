@@ -1272,7 +1272,7 @@ def transformer_encoder(encoder_input,
           getattr(hparams, "attention_dropout_broadcast_dims", "")))
   mlperf_log.transformer_print(
       key=mlperf_log.MODEL_HP_NUM_HIDDEN_LAYERS,
-      value=hparams.num_hidden_layers)
+      value=hparams.num_encoder_layers or hparams.num_hidden_layers)
   mlperf_log.transformer_print(
       key=mlperf_log.MODEL_HP_ATTENTION_NUM_HEADS, value=hparams.num_heads)
   mlperf_log.transformer_print(
@@ -1377,7 +1377,7 @@ def transformer_decoder(decoder_input,
 
   mlperf_log.transformer_print(
       key=mlperf_log.MODEL_HP_NUM_HIDDEN_LAYERS,
-      value=hparams.num_hidden_layers)
+      value=hparams.num_decoder_layers or hparams.num_hidden_layers)
   mlperf_log.transformer_print(
       key=mlperf_log.MODEL_HP_ATTENTION_NUM_HEADS, value=hparams.num_heads)
   mlperf_log.transformer_print(

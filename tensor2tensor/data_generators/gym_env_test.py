@@ -49,8 +49,9 @@ class TestEnv(gym.Env):
     self._counter = 0
 
   def _generate_ob(self):
-    return np.random.randint(255, size=self.observation_space.shape,
-                             dtype=self.observation_space.dtype)
+    return np.zeros(
+        self.observation_space.shape, self.observation_space.dtype
+    )
 
   def step(self, action):
     done = self._counter % 2 == 1
@@ -78,11 +79,10 @@ class GymEnvTest(tf.test.TestCase):
     self.out_dir = tf.test.get_temp_dir()
     shutil.rmtree(self.out_dir)
     os.mkdir(self.out_dir)
-    np.random.seed(0)
 
-  def init_batch_and_play(self, env_name, steps_per_epoch=1, epochs=(0,),
-                          generate_data=False, batch_size=2, **kwargs):
-    env = gym_env.T2TGymEnv(env_name, batch_size=batch_size, **kwargs)
+  def init_batch_and_play(self, env_name, steps_per_epoch=1,
+                          epochs=(0,), generate_data=False, **kwargs):
+    env = gym_env.T2TGymEnv(env_name, batch_size=2, **kwargs)
     obs = list()
     rewards = list()
     num_dones = 0
@@ -90,7 +90,6 @@ class GymEnvTest(tf.test.TestCase):
       env.start_new_epoch(epoch, self.out_dir)
       _, epoch_obs, epoch_rewards, epoch_num_dones = \
           self.play(env, steps_per_epoch)
-      epoch_obs.append(env.reset())
       if generate_data:
         env.generate_data(self.out_dir)
       obs.extend(epoch_obs)
@@ -122,26 +121,21 @@ class GymEnvTest(tf.test.TestCase):
       self.assertTrue(env.current_epoch_rollouts(split))
 
   def test_split_preserves_number_of_rollouts(self):
-    batch_size = 2
     env, _, _, num_dones = self.init_batch_and_play(
-        TEST_ENV_NAME, steps_per_epoch=20, generate_data=True,
-        batch_size=batch_size
+        TEST_ENV_NAME, steps_per_epoch=20, generate_data=True
     )
 
     num_rollouts_after_split = sum(
         len(env.current_epoch_rollouts(split)) for split in self.splits
     )
-    # After the end of epoch all environments are reset, which increases number
-    # of rollouts by batch size. Number of rollouts could be increased by one
-    # in case a rollout is broken on a boundary between the dataset splits.
-    self.assertGreaterEqual(num_rollouts_after_split, num_dones + batch_size)
-    self.assertLessEqual(num_rollouts_after_split, num_dones + batch_size + 1)
+    # Number of rollouts could be increased by one in case a rollout is broken
+    # on a boundary between the dataset splits.
+    self.assertGreaterEqual(num_rollouts_after_split, num_dones)
+    self.assertLessEqual(num_rollouts_after_split, num_dones + 1)
 
   def test_split_preserves_number_of_frames(self):
-    batch_size = 2
     env, _, _, num_dones = self.init_batch_and_play(
-        TEST_ENV_NAME, steps_per_epoch=20, generate_data=True,
-        batch_size=batch_size
+        TEST_ENV_NAME, steps_per_epoch=20, generate_data=True
     )
 
     num_frames = sum(
@@ -150,9 +144,8 @@ class GymEnvTest(tf.test.TestCase):
         for rollout in env.current_epoch_rollouts(split)
     )
     # There are 3 frames in every rollout: the initial one and two returned by
-    # step(). Additionally there are batch_size observations comming from final
-    # reset at the end of epoch.
-    self.assertEqual(num_frames, 3 * num_dones + batch_size)
+    # step().
+    self.assertEqual(num_frames, 3 * num_dones)
 
   def test_generates_data(self):
     # This test needs base env which outputs done after two steps.

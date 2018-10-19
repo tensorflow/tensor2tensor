@@ -87,7 +87,11 @@ class T2TEnv(video_utils.VideoProblem):
   def __init__(self, batch_size, *args, **kwargs):
     super(T2TEnv, self).__init__(*args, **kwargs)
 
+    self.clear_history()
     self.batch_size = batch_size
+    self._current_batch_frames = [None for _ in range(batch_size)]
+    self._current_batch_rollouts = [[] for _ in range(batch_size)]
+    self._current_epoch_rollouts = []
     self._rollouts_by_epoch_and_split = collections.OrderedDict()
     self.current_epoch = None
     with tf.Graph().as_default() as tf_graph:
@@ -104,6 +108,10 @@ class T2TEnv(video_utils.VideoProblem):
     """Returns a string representation of the environment for debug purposes."""
     raise NotImplementedError
 
+  def clear_history(self):
+    """Clears the rollout history."""
+    self._rollouts_by_epoch_and_split = collections.OrderedDict()
+
   def start_new_epoch(self, epoch, load_data_dir=None):
     if not isinstance(epoch, int):
       raise ValueError("Epoch should be integer, got {}".format(epoch))
@@ -112,14 +120,10 @@ class T2TEnv(video_utils.VideoProblem):
     self.current_epoch = epoch
     self._current_epoch_rollouts = []
     self._rollouts_by_epoch_and_split[epoch] = collections.defaultdict(list)
-    self._current_batch_frames = [None for _ in range(self.batch_size)]
-    self._current_batch_rollouts = [[] for _ in range(self.batch_size)]
     if load_data_dir is not None:
       self._load_epoch_data(load_data_dir)
 
-  def current_epoch_rollouts(self, split=None, minimal_rollout_frames=0):
-    # TODO(KC): order of rollouts (by splits) is a bit uncontrolled
-    # (rollouts_by_split.values() reads dict values), is it a problem?
+  def current_epoch_rollouts(self, split=None):
     rollouts_by_split = self._rollouts_by_epoch_and_split[self.current_epoch]
     if not rollouts_by_split:
       if split is not None:
@@ -127,18 +131,15 @@ class T2TEnv(video_utils.VideoProblem):
             "generate_data() should first be called in the current epoch"
         )
       else:
-        rollouts = self._current_epoch_rollouts
+        return self._current_epoch_rollouts
+    if split is not None:
+      return rollouts_by_split[split]
     else:
-      if split is not None:
-        rollouts = rollouts_by_split[split]
-      else:
-        rollouts = [
-            rollout
-            for rollouts in rollouts_by_split.values()
-            for rollout in rollouts
-        ]
-    return [rollout for rollout in rollouts
-            if len(rollout) >= minimal_rollout_frames]
+      return [
+          rollout
+          for rollouts in rollouts_by_split.values()
+          for rollout in rollouts
+      ]
 
   def _preprocess_observations(self, obs):
     """Transforms a batch of observations.
