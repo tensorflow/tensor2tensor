@@ -28,6 +28,7 @@ from tensor2tensor.data_generators.problem import Problem
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import devices
 from tensor2tensor.utils import metrics_hook
+from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -259,6 +260,8 @@ def create_estimator(model_name,
     batch_size = (
         problem.tpu_batch_size_per_shard(hparams) *
         run_config.tpu_config.num_shards)
+    mlperf_log.transformer_print(
+        key=mlperf_log.INPUT_BATCH_SIZE, value=batch_size)
     if getattr(hparams, "mtf_mode", False):
       batch_size = problem.tpu_batch_size_per_shard(hparams)
     predict_batch_size = batch_size
@@ -359,6 +362,7 @@ class T2TExperiment(object):
       self.train()
 
   def train(self, max_steps=None):
+    mlperf_log.transformer_print(key=mlperf_log.TRAIN_LOOP)
     self._estimator.train(
         self._train_spec.input_fn,
         hooks=self._train_spec.hooks,
@@ -368,7 +372,10 @@ class T2TExperiment(object):
     """Does eval and decode after training every eval_freq_in_steps."""
     eval_steps = self._hparams.eval_freq_in_steps
     packed_dataset = "_packed" in self._hparams.problem.name
+    mlperf_log.transformer_print(key=mlperf_log.TRAIN_LOOP)
     for i in range(0, self._train_spec.max_steps, eval_steps):
+      mlperf_log.transformer_print(
+          key=mlperf_log.TRAIN_EPOCH, value=i // eval_steps)
       if packed_dataset and i > 0:
         problem = registry.problem(self._hparams.problem.name + "_packed")
         p_hparams = problem.get_hparams(self._hparams)
@@ -388,7 +395,10 @@ class T2TExperiment(object):
         p_hparams = problem.get_hparams(self._hparams)
         self._hparams.problem = problem
         self._hparams.problem_hparams = p_hparams
+      mlperf_log.transformer_print(key=mlperf_log.EVAL_START)
       self.decode(dataset_split=tf.estimator.ModeKeys.EVAL)
+      mlperf_log.transformer_print(key=mlperf_log.EVAL_TARGET, value=25.0)
+      mlperf_log.transformer_print(key=mlperf_log.EVAL_STOP)
 
   def evaluate(self):
     return self._estimator.evaluate(

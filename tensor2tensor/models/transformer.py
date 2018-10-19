@@ -34,6 +34,7 @@ from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import expert_utils
+from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -75,6 +76,10 @@ class Transformer(t2t_model.T2TModel):
     encoder_input, self_attention_bias, encoder_decoder_attention_bias = (
         transformer_prepare_encoder(
             inputs, target_space, hparams, features=features))
+
+    mlperf_log.transformer_print(
+        key=mlperf_log.MODEL_HP_LAYER_POSTPROCESS_DROPOUT,
+        value=hparams.layer_prepostprocess_dropout)
 
     encoder_input = tf.nn.dropout(encoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
@@ -121,6 +126,9 @@ class Transformer(t2t_model.T2TModel):
     Returns:
       Final decoder representation. [batch_size, decoder_length, hidden_dim]
     """
+    mlperf_log.transformer_print(
+        key=mlperf_log.MODEL_HP_LAYER_POSTPROCESS_DROPOUT,
+        value=hparams.layer_prepostprocess_dropout)
     decoder_input = tf.nn.dropout(decoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
 
@@ -778,6 +786,15 @@ def fast_decode_tpu(encoder_output,
     cache["encoder_output"] = encoder_output
     cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
 
+  mlperf_log.transformer_print(
+      key=mlperf_log.MODEL_HP_SEQ_BEAM_SEARCH,
+      value={
+          "vocab_size": vocab_size,
+          "batch_size": batch_size,
+          "beam_size": beam_size,
+          "alpha": alpha,
+          "max_decode_length": decode_length
+      })
   if beam_size > 1:  # Beam Search
     initial_ids = sos_id * tf.ones([batch_size], dtype=tf.int32)
     decoded_ids, scores = beam_search.beam_search(
@@ -1253,6 +1270,14 @@ def transformer_encoder(encoder_input,
   attention_dropout_broadcast_dims = (
       common_layers.comma_separated_string_to_integer_list(
           getattr(hparams, "attention_dropout_broadcast_dims", "")))
+  mlperf_log.transformer_print(
+      key=mlperf_log.MODEL_HP_NUM_HIDDEN_LAYERS,
+      value=hparams.num_hidden_layers)
+  mlperf_log.transformer_print(
+      key=mlperf_log.MODEL_HP_ATTENTION_NUM_HEADS, value=hparams.num_heads)
+  mlperf_log.transformer_print(
+      key=mlperf_log.MODEL_HP_ATTENTION_DROPOUT,
+      value=hparams.attention_dropout)
   with tf.variable_scope(name):
     if nonpadding is not None:
       padding = 1.0 - nonpadding
@@ -1298,6 +1323,9 @@ def transformer_encoder(encoder_input,
     # if normalization is done in layer_preprocess, then it should also be done
     # on the output, since the output can grow very large, being the sum of
     # a whole stack of unnormalized layer outputs.
+    mlperf_log.transformer_print(
+        key=mlperf_log.MODEL_HP_NORM,
+        value={"hidden_size": hparams.hidden_size})
     return common_layers.layer_preprocess(x, hparams)
 
 
@@ -1346,6 +1374,16 @@ def transformer_decoder(decoder_input,
   attention_dropout_broadcast_dims = (
       common_layers.comma_separated_string_to_integer_list(
           getattr(hparams, "attention_dropout_broadcast_dims", "")))
+
+  mlperf_log.transformer_print(
+      key=mlperf_log.MODEL_HP_NUM_HIDDEN_LAYERS,
+      value=hparams.num_hidden_layers)
+  mlperf_log.transformer_print(
+      key=mlperf_log.MODEL_HP_ATTENTION_NUM_HEADS, value=hparams.num_heads)
+  mlperf_log.transformer_print(
+      key=mlperf_log.MODEL_HP_ATTENTION_DROPOUT,
+      value=hparams.attention_dropout)
+
   with tf.variable_scope(name):
     for layer in range(hparams.num_decoder_layers or hparams.num_hidden_layers):
       layer_name = "layer_%d" % layer
@@ -1409,6 +1447,9 @@ def transformer_decoder(decoder_input,
     # if normalization is done in layer_preprocess, then it should also be done
     # on the output, since the output can grow very large, being the sum of
     # a whole stack of unnormalized layer outputs.
+    mlperf_log.transformer_print(
+        key=mlperf_log.MODEL_HP_NORM,
+        value={"hidden_size": hparams.hidden_size})
     return common_layers.layer_preprocess(x, hparams)
 
 
@@ -1458,6 +1499,21 @@ def transformer_ffn_layer(x,
     ffn_layer = "dense_relu_dense"
   if ffn_layer == "dense_relu_dense":
     # In simple convolution mode, use `pad_remover` to speed up processing.
+    mlperf_log.transformer_print(
+        key=mlperf_log.MODEL_HP_FFN_FILTER,
+        value={
+            "filter_size": hparams.filter_size,
+            "use_bias": "True",
+            "activation": mlperf_log.RELU
+        })
+    mlperf_log.transformer_print(
+        key=mlperf_log.MODEL_HP_FFN_DENSE,
+        value={
+            "hidden_size": hparams.hidden_size,
+            "use_bias": "True",
+        })
+    mlperf_log.transformer_print(
+        key=mlperf_log.MODEL_HP_RELU_DROPOUT, value=hparams.relu_dropout)
     if pad_remover:
       original_shape = common_layers.shape_list(x)
       # Collapse `x` across examples, and remove padding positions.

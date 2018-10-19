@@ -26,6 +26,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import bleu_hook
+from tensor2tensor.utils import mlperf_log
 
 import tensorflow as tf
 
@@ -87,6 +88,7 @@ def compute_bleu_summaries(hook_args):
       decode_hparams.decode_reference, decode_hparams.decode_to_file)
   values.append(tf.Summary.Value(tag="BLEU", simple_value=bleu))
   tf.logging.info("%s: BLEU = %6.2f" % (decode_hparams.decode_to_file, bleu))
+  mlperf_log.transformer_print(key=mlperf_log.EVAL_ACCURACY, value=bleu)
   return values
 
 

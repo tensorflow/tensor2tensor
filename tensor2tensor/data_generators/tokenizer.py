@@ -49,6 +49,7 @@ import sys
 import unicodedata
 import six
 from six.moves import range  # pylint: disable=redefined-builtin
+from tensor2tensor.utils import mlperf_log
 import tensorflow as tf
 
 # Conversion between Unicode and UTF-8, if required (on Python2)
@@ -165,6 +166,8 @@ def corpus_token_counts(
       split_on_newlines=split_on_newlines):
     counts.update(encode(_native_to_unicode(doc)))
 
+  mlperf_log.transformer_print(
+      key=mlperf_log.PREPROC_VOCAB_SIZE, value=len(counts))
   return counts
 
 

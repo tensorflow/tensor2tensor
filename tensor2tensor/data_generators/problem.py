@@ -31,6 +31,7 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import metrics
+from tensor2tensor.utils import mlperf_log
 
 import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
@@ -638,6 +639,7 @@ class Problem(object):
     tf.logging.info(
         "partition: %d num_data_files: %d" % (partition_id, len(data_files)))
     if shuffle_files:
+      mlperf_log.transformer_print(key=mlperf_log.INPUT_ORDER)
       random.shuffle(data_files)
 
     dataset = tf.data.Dataset.from_tensor_slices(tf.constant(data_files))

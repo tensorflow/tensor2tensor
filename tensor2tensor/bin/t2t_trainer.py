@@ -27,6 +27,7 @@ from tensor2tensor.data_generators import problem  # pylint: disable=unused-impo
 from tensor2tensor.utils import cloud_mlengine
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
+from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
@@ -343,6 +344,7 @@ def run_std_server():
 
 def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
+  mlperf_log.transformer_print(key=mlperf_log.RUN_START)
   if FLAGS.schedule == "run_std_server":
     run_std_server()
   trainer_lib.set_random_seed(FLAGS.random_seed)
@@ -368,6 +370,8 @@ def main(argv):
   if is_chief():
     save_metadata(hparams)
   execute_schedule(exp)
+  mlperf_log.transformer_print(key=mlperf_log.RUN_STOP)
+  mlperf_log.transformer_print(key=mlperf_log.RUN_FINAL)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ import numpy as np
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import adafactor
+from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import multistep_optimizer
 from tensor2tensor.utils import yellowfin
 
@@ -78,6 +79,15 @@ class ConditionalOptimizer(tf.train.Optimizer):
 
   def __init__(self, optimizer_name, lr, hparams, use_tpu=False):  # pylint: disable=super-init-not-called
     tf.logging.info("Using optimizer %s", optimizer_name)
+
+    mlperf_log.transformer_print(key=mlperf_log.OPT_NAME, value=optimizer_name)
+    mlperf_log.transformer_print(
+        key=mlperf_log.OPT_HP_ADAM_BETA1, value=hparams.optimizer_adam_beta1)
+    mlperf_log.transformer_print(
+        key=mlperf_log.OPT_HP_ADAM_BETA2, value=hparams.optimizer_adam_beta2)
+    mlperf_log.transformer_print(
+        key=mlperf_log.OPT_HP_ADAM_EPSILON,
+        value=hparams.optimizer_adam_epsilon)
 
     if optimizer_name == "Adam":
       # We change the default epsilon for Adam.
