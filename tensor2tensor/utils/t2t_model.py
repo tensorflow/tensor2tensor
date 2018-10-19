@@ -159,11 +159,11 @@ class T2TModel(base.Layer):
   # Replace the two methods below in order to add custom SessionRunHooks to
   # the training procedure.
   @staticmethod
-  def train_hooks():
+  def train_hooks(hook_context):
     return []
 
   @staticmethod
-  def eval_hooks():
+  def eval_hooks(hook_context):
     return []
 
   @property
@@ -1215,14 +1215,14 @@ class T2TModel(base.Layer):
     return features
 
   @staticmethod
-  def get_train_hooks(model_name):
+  def get_train_hooks(model_name, hook_context):
     model_cls = registry.model(model_name)
-    return model_cls.train_hooks()
+    return model_cls.train_hooks(hook_context)
 
   @staticmethod
-  def get_eval_hooks(model_name):
+  def get_eval_hooks(model_name, hook_context):
     model_cls = registry.model(model_name)
-    return model_cls.eval_hooks()
+    return model_cls.eval_hooks(hook_context)
 
   @staticmethod
   def make_estimator_model_fn(model_name,
