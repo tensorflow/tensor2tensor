@@ -178,14 +178,17 @@ def train_agent(real_env, environment_spec, agent_model_dir,
     def decode_png(encoded_png):
       return sess.run(decoded_png_t, feed_dict={encoded_png_p: encoded_png})
 
+    num_input_frames = environment_spec.video_num_input_frames
     initial_frame_rollouts = real_env.current_epoch_rollouts(
-        split=tf.contrib.learn.ModeKeys.TRAIN
+        split=tf.contrib.learn.ModeKeys.TRAIN,
+        minimal_rollout_frames=num_input_frames,
     )
     # TODO(koz4k): Move this to a different module.
     def initial_frame_chooser(batch_size):
       """Frame chooser."""
-      num_frames = environment_spec.video_num_input_frames
-      deterministic_initial_frames = initial_frame_rollouts[0][:num_frames]
+
+      deterministic_initial_frames =\
+          initial_frame_rollouts[0][:num_input_frames]
       if not environment_spec.simulation_random_starts:
         # Deterministic starts: repeat first frames from the first rollout.
         initial_frames = [deterministic_initial_frames] * batch_size
@@ -196,8 +199,8 @@ def train_agent(real_env, environment_spec, agent_model_dir,
         def choose_initial_frames():
           try:
             rollout = random.choice(initial_frame_rollouts)
-            from_index = random.randrange(len(rollout) - num_frames + 1)
-            return rollout[from_index:(from_index + num_frames)]
+            from_index = random.randrange(len(rollout) - num_input_frames + 1)
+            return rollout[from_index:(from_index + num_input_frames)]
           except ValueError:
             # Rollout too short; repeat.
             return choose_initial_frames()
@@ -206,10 +209,10 @@ def train_agent(real_env, environment_spec, agent_model_dir,
           # Flip first entry in the batch for deterministic initial frames.
           initial_frames[0] = deterministic_initial_frames
 
-        return np.stack([
-            [decode_png(frame.observation) for frame in initial_frame_stack]
-            for initial_frame_stack in initial_frames
-        ])
+      return np.stack([
+          [decode_png(frame.observation) for frame in initial_frame_stack]
+          for initial_frame_stack in initial_frames
+      ])
 
     environment_spec.add_hparam("initial_frame_chooser", initial_frame_chooser)
 
