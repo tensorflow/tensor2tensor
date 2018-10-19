@@ -335,6 +335,8 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
       self, all_frames, all_actions, all_rewards, all_raw_frames):
     """Video wide latent."""
     del all_actions, all_rewards, all_raw_frames
+    if not self.hparams.stochastic_model:
+      return None, None, None
     frames = tf.stack(all_frames, axis=1)
     mean, std = self.construct_latent_tower(frames, time_axis=1)
     latent = common_video.get_gaussian_tensor(mean, std)
@@ -349,7 +351,8 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
     extra_loss = 0.0
     if internal_states is None:
       internal_states = [None] * (5 if self.hparams.small_mode else 7)
-      extra_loss = self.get_extra_loss([latent_mean], [latent_std])
+      if latent_mean is not None:
+        extra_loss = self.get_extra_loss([latent_mean], [latent_std])
 
     pred_image, internal_states = self.construct_predictive_tower(
         frames, None, actions, internal_states, latent)
