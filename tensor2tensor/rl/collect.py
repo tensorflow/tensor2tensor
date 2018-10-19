@@ -156,11 +156,9 @@ def define_collect(hparams, scope, eval_phase,
     should_reset_var = tf.Variable(True, trainable=False)
     zeros_tensor = tf.zeros(len(batch_env))
 
-  if "force_beginning_resets" in hparams:
-    force_beginning_resets = hparams.force_beginning_resets
-  else:
-    force_beginning_resets = False
-  force_beginning_resets = tf.convert_to_tensor(force_beginning_resets)
+  force_beginning_resets = tf.convert_to_tensor(
+      environment_spec.force_beginning_resets
+  )
 
   def reset_ops_group():
     return tf.group(batch_env.reset(tf.range(len(batch_env))),
