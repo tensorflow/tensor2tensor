@@ -711,6 +711,15 @@ class NextFrameEpva(sv2p.NextFrameSv2pLegacy):
     side_by_side_video = tf.concat([frames_gd, frames_pd], axis=1)
     tf.summary.image('full_video', side_by_side_video)
 
+    predictions = tf.unstack(predictions)
+    predictions = [
+        tf.image.resize_images(
+            image, (frame_width, frame_height),
+            method=tf.image.ResizeMethod.BICUBIC)
+        for image in predictions
+    ]
+    predictions = tf.stack(predictions)
+
     predictions = common_video.swap_time_and_batch_axes(predictions)
     predictions = tf.slice(predictions,
                            [0, hparams.video_num_input_frames-1, 0, 0, 0],

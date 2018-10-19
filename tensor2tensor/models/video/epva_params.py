@@ -30,6 +30,7 @@ def next_frame_epva():
   hparams.video_num_target_frames = 4
   hparams.target_modality = "video:l2raw"
   hparams.input_modalities = "inputs:video:l2raw"
+  hparams.learning_rate_schedule = "constant"
   hparams.learning_rate_constant = 1e-05
   hparams.batch_size = 2
   hparams.clip_grad_norm = 0.01
