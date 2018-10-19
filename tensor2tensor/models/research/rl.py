@@ -19,6 +19,7 @@ import collections
 import functools
 import operator
 import gym
+import six
 
 from tensor2tensor.data_generators import gym_env
 from tensor2tensor.layers import common_hparams
@@ -161,16 +162,11 @@ def standard_atari_env_spec(env=None, simulated=False):
   return env_spec
 
 
-def standard_atari_env_simulated_spec(
-    real_env, video_num_input_frames, video_num_target_frames
-):
+def standard_atari_env_simulated_spec(real_env, **kwargs):
   """Spec."""
   env_spec = standard_atari_env_spec(real_env, simulated=True)
-  env_spec.add_hparam("simulation_random_starts", True)
-  env_spec.add_hparam("simulation_flip_first_random_for_beginning", True)
-  env_spec.add_hparam("intrinsic_reward_scale", 0.0)
-  env_spec.add_hparam("video_num_input_frames", video_num_input_frames)
-  env_spec.add_hparam("video_num_target_frames", video_num_target_frames)
+  for (name, value) in six.iteritems(kwargs):
+    env_spec.add_hparam(name, value)
   return env_spec
 
 
