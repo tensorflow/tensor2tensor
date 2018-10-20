@@ -429,6 +429,7 @@ class NextFrameBase(t2t_model.T2TModel):
     orig_frame_shape = common_layers.shape_list(all_frames[0])
     batch_size = orig_frame_shape[0]
     ss_func = self.get_scheduled_sample_func(batch_size)
+    target_frames = all_frames[hparams.video_num_input_frames:]
     extra_loss = 0.0
     internal_states = None
 
@@ -467,7 +468,7 @@ class NextFrameBase(t2t_model.T2TModel):
       # Scheduled sampling during training.
       if self.is_training:
         if self.is_recurrent_model:
-          done_warm_start = i > hparams.video_num_input_frames - 1
+          done_warm_start = i >= hparams.video_num_input_frames - 1
         else:
           done_warm_start = True  # Always true for non-reccurent networks.
         groundtruth_items = [target_frame]
@@ -491,7 +492,6 @@ class NextFrameBase(t2t_model.T2TModel):
       res_rewards = res_rewards[hparams.video_num_input_frames-1:]
       sampled_frames = sampled_frames[hparams.video_num_input_frames-1:]
 
-    target_frames = all_frames[hparams.video_num_input_frames:]
     self.visualize_predictions(sampled_frames, target_frames)
 
     output_frames = tf.stack(res_frames, axis=1)
