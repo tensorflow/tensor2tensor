@@ -132,10 +132,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
           enc2, input_reward, "reward_enc")
     if latent is not None and not concat_latent:
       with tf.control_dependencies([latent]):
-        # This is the original SV2P implementation
-        # But we will tile and concat to support various latent sizes.
-        # enc2 = tf.concat([enc2, latent], axis=3)
-        enc2 = tile_and_concat(enc2, latent, concat_latent=concat_latent)
+        enc2 = tf.concat([enc2, latent], axis=3)
 
     enc3 = tfl.conv2d(enc2, hidden4.get_shape()[3], [1, 1], strides=(1, 1),
                       padding="SAME", activation=tf.nn.relu, name="conv4")
