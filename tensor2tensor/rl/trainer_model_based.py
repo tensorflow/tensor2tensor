@@ -132,6 +132,7 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
 def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
                 hparams, ppo_epochs_num, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the simulated environment."""
+  del data_dir
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_params_names = ["epochs_num", "epoch_length",
                       "learning_rate", "num_agents",
