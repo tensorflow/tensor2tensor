@@ -19,7 +19,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
 import json
 import os
 import random
@@ -325,12 +324,6 @@ def create_hooks(use_tfdbg=False,
   return train_hooks, eval_hooks
 
 
-class HookContext(collections.namedtuple(
-  "HookContext",
-  ["estimator", "problem", "hparams"])):
-  pass
-
-
 class T2TExperiment(object):
   """Custom Experiment class for running distributed experiments."""
 
@@ -609,11 +602,8 @@ def create_experiment(
       validation_monitor_kwargs=validation_monitor_kwargs,
       use_early_stopping=use_early_stopping,
       early_stopping_kwargs=early_stopping_kwargs)
-
-  hook_context = HookContext(estimator=estimator, problem=problem, hparams=hparams)
-
-  train_hooks += t2t_model.T2TModel.get_train_hooks(model_name, hook_context)
-  eval_hooks += t2t_model.T2TModel.get_eval_hooks(model_name, hook_context)
+  train_hooks += t2t_model.T2TModel.get_train_hooks(model_name)
+  eval_hooks += t2t_model.T2TModel.get_eval_hooks(model_name)
   if additional_train_hooks:
     train_hooks += additional_train_hooks
   if additional_eval_hooks:
