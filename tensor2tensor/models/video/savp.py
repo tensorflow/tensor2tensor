@@ -36,12 +36,11 @@ import tensorflow as tf
 gan_losses = tf.contrib.gan.losses.wargs
 
 
-@registry.register_model
-class NextFrameSAVP(sv2p.NextFrameSv2pLegacy):
-  """Stochastic Adversarial Video Prediction."""
+class NextFrameSavpBase(object):
+  """Main function for Stochastic Adversarial Video Prediction."""
 
   def encoder(self, inputs, n_layers=3):
-    """COnvnet that encodes inputs into mean and std of a gaussian.
+    """Convnet that encodes inputs into mean and std of a gaussian.
 
     Args:
      inputs: 5-D Tensor, shape (batch_size, num_frames, width, height, channels)
@@ -256,7 +255,7 @@ class NextFrameSAVP(sv2p.NextFrameSv2pLegacy):
     if self.hparams.gan_optimization == "joint":
       gan_loss = gan_g_loss + gan_d_loss
     else:
-      curr_step = tf.train.get_or_create_global_step()
+      curr_step = self.get_iteration_num()
       gan_loss = tf.cond(
           tf.logical_not(curr_step % 2 == 0), lambda: gan_g_loss,
           lambda: gan_d_loss)
@@ -264,13 +263,14 @@ class NextFrameSAVP(sv2p.NextFrameSv2pLegacy):
 
   def get_extra_loss(self, latent_means=None, latent_stds=None,
                      true_frames=None, gen_frames=None):
+    """Gets extra loss from VAE and GAN."""
     if not self.is_training:
       return 0.0
 
     vae_loss, d_vae_loss, d_gan_loss = 0.0, 0.0, 0.0
     # Use sv2p's KL divergence computation.
     if self.hparams.use_vae:
-      vae_loss = super(NextFrameSAVP, self).get_extra_loss(
+      vae_loss = super(NextFrameSavpBase, self).get_extra_loss(
           latent_means=latent_means, latent_stds=latent_stds)
 
     if self.hparams.use_gan:
@@ -329,6 +329,11 @@ class NextFrameSAVP(sv2p.NextFrameSv2pLegacy):
   @staticmethod
   def train_hooks():
     return [update_ops_hook.UpdateOpsHook()]
+
+
+@registry.register_model
+class NextFrameSAVP(sv2p.NextFrameSv2pLegacy, NextFrameSavpBase):
+  """Stochastic Adversarial Video Prediction."""
 
   def construct_model(self, images, actions, rewards):
     """Model that takes in images and returns predictions.
@@ -450,3 +455,103 @@ class NextFrameSAVP(sv2p.NextFrameSv2pLegacy):
       return gen_cond_video, fake_rewards, latent_means, latent_stds
     else:
       return self.gen_prior_video, fake_rewards, latent_means, latent_stds
+
+
+@registry.register_model
+class NextFrameSavpRl(NextFrameSavpBase, sv2p.NextFrameSv2p):
+  """Stochastic Adversarial Video Prediction for RL pipeline."""
+
+  def video_features(
+      self, all_frames, all_actions, all_rewards, all_raw_frames):
+    """No video wide feature."""
+    del all_actions, all_rewards, all_raw_frames
+    # Concatenate x_{t-1} and x_{t} along depth and encode it to
+    # produce the mean and standard deviation of z_{t-1}
+    seq_len = len(all_frames)
+    image_pairs = tf.concat([all_frames[:seq_len-1],
+                             all_frames[1:seq_len]], axis=-1)
+    z_mu, z_log_sigma_sq = self.encoder(image_pairs)
+    # Unstack z_mu and z_log_sigma_sq along the time dimension.
+    z_mu = tf.unstack(z_mu, axis=0)
+    z_log_sigma_sq = tf.unstack(z_log_sigma_sq, axis=0)
+    return [z_mu, z_log_sigma_sq]
+
+  def video_extra_loss(self, frames_predicted, frames_target,
+                       internal_states, video_features):
+
+    if not self.is_training:
+      return 0.0
+
+    latent_means, latent_stds = video_features
+    true_frames, gen_frames = frames_target, frames_predicted
+
+    loss = super(NextFrameSavpRl, self).get_extra_loss(
+        latent_means=latent_means, latent_stds=latent_stds,
+        true_frames=true_frames, gen_frames=gen_frames)
+    return loss
+
+  def next_frame(self, frames, actions, rewards, target_frame,
+                 internal_states, video_features):
+    del target_frame
+
+    if not self.hparams.use_vae or self.hparams.use_gan:
+      raise NotImplementedError("Only supporting VAE for now.")
+
+    image, action, reward = frames[0], actions[0], rewards[0]
+    latent_dims = self.hparams.z_dim
+    batch_size = common_layers.shape_list(image)[0]
+
+    if internal_states is None:
+      # Initialize LSTM State
+      frame_index = 0
+      lstm_state = [None] * 7
+      cond_latent_state, prior_latent_state = None, None
+      gen_prior_video = []
+    else:
+      (frame_index, lstm_state, cond_latent_state,
+       prior_latent_state, gen_prior_video) = internal_states
+
+    z_mu, log_sigma_sq = video_features
+    z_mu, log_sigma_sq = z_mu[frame_index], log_sigma_sq[frame_index]
+
+    # Sample latents using a gaussian centered at conditional mu and std.
+    latent = common_video.get_gaussian_tensor(z_mu, log_sigma_sq)
+
+    # Sample prior latents from isotropic normal distribution.
+    prior_latent = tf.random_normal(tf.shape(latent), dtype=tf.float32)
+
+    # # LSTM that encodes correlations between conditional latents.
+    # # Pg 22 in https://arxiv.org/pdf/1804.01523.pdf
+    enc_cond_latent, cond_latent_state = common_video.basic_lstm(
+        latent, cond_latent_state, latent_dims, name="cond_latent")
+
+    # LSTM that encodes correlations between prior latents.
+    enc_prior_latent, prior_latent_state = common_video.basic_lstm(
+        prior_latent, prior_latent_state, latent_dims, name="prior_latent")
+
+    all_latents = tf.concat([enc_cond_latent, enc_prior_latent], axis=0)
+    all_image = tf.concat([image, image], 0)
+    all_action = tf.concat([action, action], 0) if self.has_actions else None
+
+    all_pred_images, lstm_state = self.construct_predictive_tower(
+        all_image, None, all_action, lstm_state, all_latents,
+        concat_latent=True)
+
+    cond_pred_images, prior_pred_images = \
+      all_pred_images[:batch_size], all_pred_images[batch_size:]
+
+    if self.is_training and self.hparams.use_vae:
+      pred_image = cond_pred_images
+    else:
+      pred_image = prior_pred_images
+
+    gen_prior_video.append(prior_pred_images)
+    internal_states = (frame_index + 1, lstm_state, cond_latent_state,
+                       prior_latent_state, gen_prior_video)
+
+    if not self.has_rewards:
+      return pred_image, None, 0.0, internal_states
+
+    pred_reward = self.reward_prediction(
+        pred_image, action, reward, latent)
+    return pred_image, pred_reward, 0.0, internal_states

@@ -112,6 +112,25 @@ class NextFrameBase(t2t_model.T2TModel):
     del all_frames, all_actions, all_rewards, all_raw_frames
     return None
 
+  def video_extra_loss(self, frames_predicted, frames_target,
+                       internal_states, video_features):
+    """Optional video wide extra loss.
+
+      If the model needs to calculate some extra loss across all predicted
+      frames (e.g. in case of video GANS loss) override this function.
+
+    Args:
+      frames_predicted: list of all predicted frames.
+      frames_target: list of all target frames.
+      internal_states: internal states of the video.
+      video_features: video wide features coming from video_features function.
+
+    Returns:
+      extra_loss: extra video side loss.
+    """
+    del frames_predicted, frames_target, internal_states, video_features
+    return 0.0
+
   @property
   def is_recurrent_model(self):
     """Set to true if your model is recurrent. False otherwise.
@@ -429,7 +448,7 @@ class NextFrameBase(t2t_model.T2TModel):
     orig_frame_shape = common_layers.shape_list(all_frames[0])
     batch_size = orig_frame_shape[0]
     ss_func = self.get_scheduled_sample_func(batch_size)
-    target_frames = all_frames[hparams.video_num_input_frames:]
+    target_frames = []
     extra_loss = 0.0
     internal_states = None
 
@@ -448,6 +467,7 @@ class NextFrameBase(t2t_model.T2TModel):
       frames, actions, rewards, target_index = self.__get_next_inputs(
           i, all_frames, all_actions, all_rewards)
       target_frame = all_frames[target_index]
+      target_frames.append(tf.identity(target_frame))
 
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
         func_in = (frames, actions, rewards, target_frame,
@@ -477,6 +497,11 @@ class NextFrameBase(t2t_model.T2TModel):
             done_warm_start, groundtruth_items, generated_items, ss_func)
         all_frames[target_index] = ss_frame
 
+    video_extra_loss = self.video_extra_loss(
+        sampled_frames, target_frames, internal_states, video_features)
+    tf.summary.scalar("video_extra_loss", video_extra_loss)
+    extra_loss += video_extra_loss
+
     if self.is_recurrent_model:
       has_input_predictions = hparams.video_num_input_frames > 1
       if self.is_training and hparams.internal_loss and has_input_predictions:
@@ -491,6 +516,7 @@ class NextFrameBase(t2t_model.T2TModel):
       res_frames = res_frames[hparams.video_num_input_frames-1:]
       res_rewards = res_rewards[hparams.video_num_input_frames-1:]
       sampled_frames = sampled_frames[hparams.video_num_input_frames-1:]
+      target_frames = target_frames[hparams.video_num_input_frames-1:]
 
     self.visualize_predictions(sampled_frames, target_frames)
 
