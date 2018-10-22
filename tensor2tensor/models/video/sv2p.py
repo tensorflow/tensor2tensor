@@ -386,52 +386,26 @@ class NextFrameSv2pDiscrete(NextFrameSv2p):
         x = tfcl.layer_norm(x)
     return x
 
-  def learned_discrete_tower(self, input_image, target_image):
+  def simple_discrete_latent_tower(self, input_image, target_image):
     hparams = self.hparams
 
-    # Encode the input frames into a prior encoding.
-    conv_size = [64, 32, 32, 1]
-    prior_enc = self.basic_conv_net(input_image, conv_size, "prior_enc")
-    tower_output_shape = common_layers.shape_list(prior_enc)
-    batch_size = tower_output_shape[0]
-    prior_enc = tfl.flatten(prior_enc)
-
-    def decode_bits(b):
-      return common_video.encode_to_shape(b, tower_output_shape, "bits_dec")
-
     if self.is_predicting:
-      if hparams.full_latent_tower:
-        rand = tf.random_uniform([batch_size, hparams.bottleneck_bits])
-        bits = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
-      else:
-        # Generate bit using the learned prior at inference time.
-        bits, _ = discretization.predict_bits_with_lstm(
-            prior_enc,
-            hparams.latent_predictor_state_size,
-            hparams.bottleneck_bits,
-            temperature=hparams.latent_predictor_temperature)
-      return decode_bits(bits), 0.0
+      batch_size = common_layers.shape_list(input_image)[0]
+      rand = tf.random_uniform([batch_size, hparams.bottleneck_bits])
+      bits = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
+      return bits
 
-    # Encode the input and target frames into posterior.
-    x = tf.concat([input_image, target_image], axis=-1)
-    x = self.basic_conv_net(x, conv_size, "posterior_enc")
-    x = tfl.flatten(x)
-    bits, bits_clean = discretization.tanh_discrete_bottleneck(
-        x, hparams.bottleneck_bits,
+    conv_size = self.tinyify([64, 32, 32, 1])
+    pair = tf.concat([input_image, target_image], axis=-1)
+    posterior_enc = self.basic_conv_net(pair, conv_size, "posterior_enc")
+    posterior_enc = tfl.flatten(posterior_enc)
+    bits, _ = discretization.tanh_discrete_bottleneck(
+        posterior_enc,
+        hparams.bottleneck_bits,
         hparams.bottleneck_noise,
         hparams.discretize_warmup_steps,
         hparams.mode)
-
-    pred_loss = 0.0
-    if not hparams.full_latent_tower:
-      # Learn the prior by matching the posterior.
-      _, pred_loss = discretization.predict_bits_with_lstm(
-          prior_enc,
-          hparams.latent_predictor_state_size,
-          hparams.bottleneck_bits,
-          target_bits=bits_clean)
-
-    return decode_bits(bits), pred_loss
+    return bits
 
   def next_frame(self, frames, actions, rewards, target_frame,
                  internal_states, video_features):
@@ -441,10 +415,11 @@ class NextFrameSv2pDiscrete(NextFrameSv2p):
     if internal_states is None:
       internal_states = [None] * (5 if self.hparams.small_mode else 7)
 
-    latent, extra_loss = self.learned_discrete_tower(frames, target_frame)
+    extra_loss = 0.0
+    latent = self.simple_discrete_latent_tower(frames, target_frame)
 
     pred_image, internal_states = self.construct_predictive_tower(
-        frames, None, actions, internal_states, latent)
+        frames, None, actions, internal_states, latent, True)
 
     if not self.has_rewards:
       return pred_image, None, extra_loss, internal_states
