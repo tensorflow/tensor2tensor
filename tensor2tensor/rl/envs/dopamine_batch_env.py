@@ -50,8 +50,9 @@ class DopamineBatchGymEnvWrapper(Env):
   """
 
   def __init__(self, hparams, sess=None):
-    # TODO
+    # TODO: remove
     self.action_space = Discrete(2)
+    # TODO: check sizes
     self.observation_space = Box(
         low=0, high=255, shape=(84, 84, 3),
         dtype=np.uint8)
@@ -62,7 +63,8 @@ class DopamineBatchGymEnvWrapper(Env):
 
   def _prepare_networks(self, hparams, sess):
     self.action = tf.placeholder(shape=(1,), dtype=tf.int32)
-    batch_env = SimulatedBatchEnv(hparams.environment_spec, hparams.num_agents)
+    # print("hparams.num_agents.{}".format(hparams.num_agents))
+    batch_env = SimulatedBatchEnv(hparams.environment_spec, 1)
     self.reward, self.done = batch_env.simulate(self.action)
     self.observation = batch_env.observ
     self.reset_op = batch_env.reset(tf.constant([0], dtype=tf.int32))
@@ -84,11 +86,12 @@ class DopamineBatchGymEnvWrapper(Env):
     self.initialized = False
     self.initialize = initialization_lambda
 
-    obs_copy = batch_env.observ + 0
+    # obs_copy = batch_env.observ + 0
 
-    actor_critic = get_policy(tf.expand_dims(obs_copy, 0), hparams)
-    self.policy_probs = actor_critic.policy.probs[0, 0, :]
-    self.value = actor_critic.value[0, :]
+    # actor_critic = get_policy(tf.expand_dims(obs_copy, 0), hparams)
+    # self.policy_probs = actor_critic.policy.probs[0, 0, :]
+    # self.value = actor_critic.value[0, :]
+    self._step_num = 1
 
   def render(self, mode="human"):
     raise NotImplementedError()
@@ -99,7 +102,7 @@ class DopamineBatchGymEnvWrapper(Env):
     observ[0, 0, 0] = 0
     observ[0, 0, 1] = 255
     # TODO(pmilos): put correct numbers
-    self.res = (observ, 0, False, [0.1, 0.5, 0.5], 1.1)
+    self.res = (observ, 0, False)
 
   def reset(self):
     if not self.initialized:
@@ -109,27 +112,32 @@ class DopamineBatchGymEnvWrapper(Env):
     return observ
 
   def _step_env(self, action):
-    observ, rew, done, probs, vf = self.sess.\
-      run([self.observation, self.reward, self.done, self.policy_probs,
-           self.value],
+    observ, rew, done = self.sess.\
+      run([self.observation, self.reward, self.done],
           feed_dict={self.action: [action]})
 
-    return observ[0, ...], rew[0, ...], done[0, ...], probs, vf
+    return observ[0, ...], rew[0, ...], done[0, ...]
 
   def _augment_observation(self):
-    # TODO
-    observ, rew, _, probs, vf = self.res
+    # TODO: remove
+
+    observ, rew, _ = self.res
     dopamine_observ = np.zeros(shape=(84, 84, 3),
                          dtype=np.uint8)
     dopamine_observ[:80, :80] = observ[:80, :80]
     return dopamine_observ
 
   def step(self, action):
-    observ, rew, done, probs, vf = self._step_env(action)
-    self.res = (observ, rew, done, probs, vf)
+    self._step_num += 1
+
+    observ, rew, done= self._step_env(action)
+    self.res = (observ, rew, done)
+    # print("Step:{}".format(self._step_num))
+    if self._step_num % 100 == 0:
+      done = True
 
     observ = self._augment_observation()
-    return observ, rew, done, {"probs": probs, "vf": vf}
+    return observ, rew, done, {}
 
 
 def create_agent(sess, environment, summary_writer=None):
@@ -154,5 +162,11 @@ def get_create_env_fun(hparams):
 def create_runner(hparams):
   """ Simplified version of `dopamine.atari.train.create_runner` """
   run_experiment.load_gin_configs(FLAGS.gin_files, FLAGS.gin_bindings)
-  runner = run_experiment.Runner(FLAGS.base_dir, create_agent, create_environment_fn=get_create_env_fun(hparams))
+  runner = run_experiment.Runner(FLAGS.base_dir, create_agent,
+                                 create_environment_fn=get_create_env_fun(hparams),
+                                 num_iterations = 1,
+                                 training_steps = 2500,
+                                 evaluation_steps = 1250,
+                                 max_steps_per_episode = 2700
+  )
   return runner
