@@ -26,8 +26,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import contextlib
-import copy
 import datetime
 import math
 import os
@@ -48,17 +46,6 @@ import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
-
-
-@contextlib.contextmanager
-def temporary_flags(flag_settings):
-  old_values = {}
-  for flag_name, flag_value in flag_settings.items():
-    old_values[flag_name] = getattr(FLAGS, flag_name)
-    setattr(FLAGS, flag_name, flag_value)
-  yield
-  for flag_name, flag_value in old_values.items():
-    setattr(FLAGS, flag_name, flag_value)
 
 
 def real_ppo_epoch_increment(hparams):
@@ -142,9 +129,8 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
   getattr(exp, schedule)()
 
 
-def train_agent(real_env, environment_spec, agent_model_dir,
-                event_dir, world_model_dir, data_dir, hparams, ppo_epochs_num,
-                epoch=0, is_final_epoch=False):
+def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
+                hparams, ppo_epochs_num, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the simulated environment."""
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_params_names = ["epochs_num", "epoch_length",
@@ -161,16 +147,26 @@ def train_agent(real_env, environment_spec, agent_model_dir,
 
   ppo_hparams.save_models_every_epochs = 10
   ppo_hparams.world_model_dir = world_model_dir
-  ppo_hparams.add_hparam("force_beginning_resets", True)
 
-  # Adding model hparams for model specific adjustments
-  model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
-  ppo_hparams.add_hparam("model_hparams", model_hparams)
-
-  environment_spec = copy.copy(environment_spec)
-  environment_spec_param_names = ["intrinsic_reward_scale"]
-  for param_name in environment_spec_param_names:
-    environment_spec.set_hparam(param_name, hparams.get(param_name))
+  environment_spec_params = {
+      param_name: hparams.get(param_name)
+      for param_name in [
+          "intrinsic_reward_scale", "simulation_random_starts",
+          "simulation_flip_first_random_for_beginning"
+      ]
+  }
+  environment_spec_params.update({
+      "model_name": hparams.generative_model,
+      "model_hparams": trainer_lib.create_hparams(
+          hparams.generative_model_params
+      ),
+      # Hardcoded for now. TODO(koz4k): Make it a hparam.
+      "video_num_input_frames": 4,
+      "video_num_target_frames": 1
+  })
+  environment_spec = rl.standard_atari_env_simulated_spec(
+      real_env, **environment_spec_params
+  )
 
   with tf.Session() as sess:
     encoded_png_p = tf.placeholder(tf.string)
@@ -218,16 +214,8 @@ def train_agent(real_env, environment_spec, agent_model_dir,
 
     ppo_hparams.add_hparam("environment_spec", environment_spec)
 
-    # TODO(koz4k): Pass by arguments.
-    with temporary_flags({
-        "problem": real_env,
-        "model": hparams.generative_model,
-        "hparams_set": hparams.generative_model_params,
-        "output_dir": world_model_dir,
-        "data_dir": data_dir,
-    }):
-      rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
-                           name_scope="ppo_sim%d" % (epoch + 1))
+    rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
+                         name_scope="ppo_sim%d" % (epoch + 1))
 
   return ppo_epochs_num
 
@@ -372,12 +360,6 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   mean_clipped_reward_summary.value.add(tag="mean_clipped_reward",
                                         simple_value=None)
 
-  sim_env_spec = rl.standard_atari_env_simulated_spec(
-      env,
-      # Hardcoded for now. TODO(koz4k): Make it a hparam.
-      video_num_input_frames=4, video_num_target_frames=1
-  )
-
   world_model_steps_num = 0
 
   for epoch in range(hparams.epochs):
@@ -402,7 +384,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       ppo_model_dir = ppo_event_dir
 
     ppo_epochs_num = train_agent(
-        env, sim_env_spec, ppo_model_dir, ppo_event_dir,
+        env, ppo_model_dir, ppo_event_dir,
         directories["world_model"], data_dir, hparams, ppo_epochs_num,
         epoch=epoch, is_final_epoch=is_final_epoch
     )

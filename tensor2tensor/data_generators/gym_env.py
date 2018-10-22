@@ -61,7 +61,42 @@ def make_gym_env(name, timesteps_limit=-1):
   return env
 
 
-class T2TEnv(video_utils.VideoProblem):
+class EnvSimulationProblem(video_utils.VideoProblem):
+  """Base Problem class for use with world models.
+
+  Attributes:
+    action_space: Gym action space. Should be overridden in derived classes.
+    reward_range: Tuple (min, max) representing the range of rewards. Limits
+      should be integer (discrete rewards).
+  """
+
+  action_space = None
+  reward_range = (-1, 1)
+
+  @property
+  def num_actions(self):
+    return self.action_space.n
+
+  @property
+  def num_rewards(self):
+    (min_reward, max_reward) = self.reward_range
+    return max_reward - min_reward + 1
+
+  def hparams(self, defaults, unused_model_hparams):
+    p = defaults
+    def make_modality(name):
+      return {
+          "{}s".format(name): ("video", 256),
+          "{}_reward".format(name): ("symbol:weights_all", self.num_rewards),
+          "{}_action".format(name): ("symbol:weights_all", self.num_actions)
+      }
+    p.input_modality = make_modality("input")
+    p.target_modality = make_modality("target")
+    p.input_space_id = problem.SpaceID.IMAGE
+    p.target_space_id = problem.SpaceID.IMAGE
+
+
+class T2TEnv(EnvSimulationProblem):
   """Abstract class representing a batch of environments.
 
   Attributes:
@@ -69,9 +104,6 @@ class T2TEnv(video_utils.VideoProblem):
     batch_size: Number of environments played simultaneously.
     observation_space: Gym observation space. Should be overridden in derived
       classes.
-    action_space: Gym action space. Should be overridden in derived classes.
-    reward_range: Tuple (min, max) representing the range of rewards. Limits
-      should be integer (discrete rewards).
     name: Problem name for generating filenames. Should be overridden in
       derived classes.
 
@@ -80,8 +112,6 @@ class T2TEnv(video_utils.VideoProblem):
   """
 
   observation_space = None
-  action_space = None
-  reward_range = (-1, 1)
   name = None
 
   def __init__(self, batch_size, *args, **kwargs):
@@ -307,28 +337,6 @@ class T2TEnv(video_utils.VideoProblem):
   @property
   def only_keep_videos_from_0th_frame(self):
     return False
-
-  @property
-  def num_actions(self):
-    return self.action_space.n
-
-  @property
-  def num_rewards(self):
-    (min_reward, max_reward) = self.reward_range
-    return max_reward - min_reward + 1
-
-  def hparams(self, defaults, unused_model_hparams):
-    p = defaults
-    def make_modality(name):
-      return {
-          "{}s".format(name): ("video", 256),
-          "{}_reward".format(name): ("symbol:weights_all", self.num_rewards),
-          "{}_action".format(name): ("symbol:weights_all", self.num_actions)
-      }
-    p.input_modality = make_modality("input")
-    p.target_modality = make_modality("target")
-    p.input_space_id = problem.SpaceID.IMAGE
-    p.target_space_id = problem.SpaceID.IMAGE
 
   def _generate_frames(self, rollouts):
     for rollout in rollouts:
@@ -610,6 +618,16 @@ class T2TGymEnv(T2TEnv):
   def close(self):
     for env in self._envs:
       env.close()
+
+
+class DummyWorldModelProblem(EnvSimulationProblem):
+  """Dummy Problem for world model prediction."""
+
+  def __init__(self, action_space, reward_range):
+    super(DummyWorldModelProblem, self).__init__()
+    self.action_space = action_space
+    self.reward_range = reward_range
+
 
 # Atari registration.
 

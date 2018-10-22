@@ -35,17 +35,6 @@ class InGraphBatchEnv(object):
     self.observ_space = observ_space
     self.action_space = action_space
 
-  def __getattr__(self, name):
-    """Forward unimplemented attributes to one of the original environments.
-
-    Args:
-      name: Attribute that was accessed.
-
-    Returns:
-      Value behind the attribute name in one of the original environments.
-    """
-    return getattr(self._batch_env, name)
-
   def __str__(self):
     return "InGraphEnv(%s)" % str(self._batch_env)
 
