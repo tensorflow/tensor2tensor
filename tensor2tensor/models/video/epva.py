@@ -658,7 +658,6 @@ class NextFrameEpva(sv2p.NextFrameSv2pLegacy):
 
     all_frames = tf.unstack(all_frames, axis=0)
     all_actions = tf.unstack(all_actions, axis=0)
-    all_actions = [tf.squeeze(a, 1) for a in all_actions]
 
     # TODO(blazej) - most likely this downsize is too strong.
     all_frames = [
