@@ -17,6 +17,7 @@ from dopamine.atari import run_experiment
 from tensor2tensor.models.research.rl import get_policy
 from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
 
+#Remove if possibe
 flags.DEFINE_bool('debug_mode', False,
                   'If set to true, the agent will output in-episode statistics '
                   'to Tensorboard. Disabled by default as this results in '
@@ -36,6 +37,26 @@ flags.DEFINE_multi_string(
     '      "create_environment.game_name="Pong"").')
 
 FLAGS = flags.FLAGS
+
+#make wrapper
+class VectorisedToSingle(Wrapper):
+  pass
+
+
+
+#Put it into a separate file or put with SimulatedBatchEnv
+#rename this file as "dompamine_connector"
+class SimulatedBatchGymEnv(Env):
+  pass
+  # Make it singleton, or use with tf.Graph().as_default()
+
+  #This class will be vectorised env
+
+  @staticmethod
+  def create_from_hparams():
+
+  def __init__(self, par1, par2, par3):
+    pass
 
 #TODO Rename (and the file as well)
 class DopamineBatchGymEnvWrapper(Env):
@@ -156,6 +177,7 @@ def create_agent(sess, environment, summary_writer=None):
 
 def get_create_env_simulated_fun(hparams):
   def create_env_fun(game_name, sticky_actions=True):
+    # Possibly use wrappers as used by atari training in dopamine
     return DopamineBatchGymEnvWrapper(hparams)
 
   return create_env_fun
@@ -206,6 +228,7 @@ def create_runner(hparams):
   else:
     get_create_env_fun = get_create_env_real_fun
 
+  #Remove used of FLAGS
   run_experiment.load_gin_configs(FLAGS.gin_files, FLAGS.gin_bindings)
 
   runner = run_experiment.Runner(FLAGS.base_dir, create_agent,

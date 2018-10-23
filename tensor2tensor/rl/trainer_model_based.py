@@ -234,6 +234,9 @@ def train_agent_real_env(
     hparams, ppo_epochs_num, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the real environment."""
   del is_final_epoch, data_dir
+
+  #rl_params = read_rl_params("..")
+
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_params_names = ["epochs_num", "epoch_length",
                       "learning_rate", "num_agents", "eval_every_epochs",
