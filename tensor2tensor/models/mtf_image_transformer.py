@@ -54,6 +54,10 @@ class MtfImageTransformer(mtf_model.MtfModel):
     return mtf.Dimension("output_vocab", 256)
 
   @property
+  def pos_dim(self):
+    return mtf.Dimension("pos", self._hparams.img_len)
+
+  @property
   def rows_dim(self):
     return mtf.Dimension("rows", self._hparams.img_len)
 
@@ -76,11 +80,15 @@ class MtfImageTransformer(mtf_model.MtfModel):
 
   @property
   def max_length_dim(self):
-    return mtf.Dimension("max_length", self._hparams.max_length)
+    return mtf.Dimension(
+        "max_length",
+        self._hparams.img_len*self._hparams.img_len*self._hparams.num_channels)
 
   @property
   def length_dim(self):
-    return mtf.Dimension("length", self._hparams.max_length)
+    return mtf.Dimension(
+        "length",
+        self._hparams.img_len*self._hparams.img_len*self._hparams.num_channels)
 
   @property
   def heads_dim(self):
@@ -114,12 +122,12 @@ class MtfImageTransformer(mtf_model.MtfModel):
 
     positional_emb_rows_var = mtf.get_variable(
         mesh, "positional_emb_rows",
-        mtf.Shape([self.max_length_dim, self.model_dim]),
+        mtf.Shape([self.pos_dim, self.model_dim]),
         initializer=tf.random_normal_initializer(),
         activation_dtype=self.activation_type)
     positional_emb_cols_var = mtf.get_variable(
         mesh, "positional_emb_cols",
-        mtf.Shape([self.max_length_dim, self.model_dim]),
+        mtf.Shape([self.pos_dim, self.model_dim]),
         initializer=tf.random_normal_initializer(),
         activation_dtype=self.activation_type)
 
@@ -127,12 +135,12 @@ class MtfImageTransformer(mtf_model.MtfModel):
     targets_position_y = mtf.range(mesh, self.cols_dim, dtype=tf.int32)
     position_x = mtf.broadcast(
         mtf.gather(positional_emb_rows_var, targets_position_x,
-                   self.max_length_dim),
+                   self.pos_dim),
         mtf.Shape([self.rows_dim, self.cols_dim, self.model_dim]))
 
     position_y = mtf.broadcast(
         mtf.gather(positional_emb_cols_var, targets_position_y,
-                   self.max_length_dim),
+                   self.pos_dim),
         mtf.Shape([self.rows_dim, self.cols_dim, self.model_dim]))
     return position_x + position_y
 
@@ -157,11 +165,6 @@ class MtfImageTransformer(mtf_model.MtfModel):
       return mtf.import_tf_tensor(
           mesh, x, mtf.Shape([batch_dim, self.length_dim]), name=name)
 
-    def layer_prepostprocess_dropout(x):
-      return mtf.dropout(
-          x, keep_prob=1.0 - hparams.layer_prepostprocess_dropout,
-          noise_shape=mtf.Shape([batch_dim, self.model_dim]))
-
     targets = import_to_batch_by_length(targets, "targets")
     shifted_targets = import_to_batch_by_length(
         shifted_targets, "shifted_targets")
@@ -178,6 +181,7 @@ class MtfImageTransformer(mtf_model.MtfModel):
 
     x = mtf.gather(targets_embedding_var,
                    shifted_targets, self.targets_vocab_dim)
+
     # Add positional embeddings
     x += mtf.reshape(self.create_positional_emb_2d(targets),
                      [self.length_dim, self.model_dim])
@@ -199,29 +203,24 @@ class MtfImageTransformer(mtf_model.MtfModel):
 
     # Image Transformer Decoder
     # [ self attention - ffn - residual + dropout] x n
-    for layer in range(hparams.num_decoder_layers):
-      layer_name = "decoder_layer_%d" % layer
-      with tf.variable_scope(layer_name):
-        # Self attention layer
-        x += layer_prepostprocess_dropout(
-            mtf.layers.masked_local_attention_1d(
-                mtf.layers.layer_norm(x, self.model_dim, name="layer_norm_att"),
-                None,
-                self.kv_dim,
-                self.heads_dim,
-                block_length=hparams.block_length,
-                name="self_att"))
-        # ffn layer
-        x += layer_prepostprocess_dropout(mtf.layers.dense_relu_dense(
-            mtf.layers.layer_norm(x, self.model_dim, name="layer_norm_ffn"),
-            self.feedforward_dim,
-            hparams.dropout,
-            dropout_broadcast_dims=[self.length_dim]))
-
-    x = mtf.layers.layer_norm(x, self.model_dim, name="final_layer_norm")
+    if hparams.attention_type == "local1d_spatial":
+      decoder_output = local_attention1d_spatial_decoder(
+          x, self.kv_dim, self.heads_dim, self.feedforward_dim, hparams)
+    elif hparams.attention_type == "local2d_spatial":
+      decoder_output = local_attention2d_spatial_decoder(
+          x, self.kv_dim, self.heads_dim, self.feedforward_dim, hparams)
+    elif hparams.attention_type == "local1d":
+      decoder_output = local_attention1d_masked_decoder(
+          x, self.kv_dim, self.heads_dim, self.feedforward_dim, hparams)
+    else:
+      raise ValueError("Invalid attention type.")
 
     # Calculate the logits and loss.
-    logits = mtf.layers.dense(x, self.outputs_vocab_dim, name="logits")
+    logits = mtf.layers.dense(
+        decoder_output, self.outputs_vocab_dim, name="logits")
+    # Need a reshape for logits
+    logits = mtf.reshape(
+        logits, mtf.Shape([batch_dim, self.length_dim, self.outputs_vocab_dim]))
     soft_targets = mtf.one_hot(
         targets, self.outputs_vocab_dim, dtype=activation_dtype)
     loss = mtf.layers.softmax_cross_entropy_with_logits(
@@ -237,6 +236,126 @@ class MtfImageTransformer(mtf_model.MtfModel):
                    self.channels_dim, self.outputs_vocab_dim]))
 
     return logits, loss
+
+
+def layer_prepostprocess_dropout(x, hparams):
+  batch_dim = x.shape.dims[0]
+  model_dim = x.shape.dims[-1]
+  return mtf.dropout(
+      x,
+      keep_prob=1.0 - hparams.layer_prepostprocess_dropout,
+      noise_shape=mtf.Shape([batch_dim, model_dim]))
+
+
+def local_attention1d_spatial_decoder(x, kv_dim, heads_dim,
+                                      feedforward_dim, hparams):
+  """Image Transformer decoder with local1D spatial layers."""
+  batch_dim, length_dim, model_dim = x.shape.dims
+  blocks_w_dim = mtf.Dimension("blocksw", hparams.block_length)
+  num_w_blocks_dim = mtf.Dimension("num_wblocks",
+                                   length_dim.size // blocks_w_dim.size)
+  x = mtf.reshape(
+      x, mtf.Shape([batch_dim, num_w_blocks_dim, blocks_w_dim, model_dim]))
+  # [ self attention - ffn - residual + dropout] x n
+  for layer in range(hparams.num_decoder_layers):
+    layer_name = "decoder_layer_%d" % layer
+    with tf.variable_scope(layer_name):
+      # Self attention layer
+      x += layer_prepostprocess_dropout(
+          mtf.layers.local_self_attention_spatial_blocks(
+              mtf.layers.layer_norm(x, model_dim, name="layer_norm_att"),
+              kv_dim,
+              heads_dim,
+              memory_w_dim=blocks_w_dim,
+              mask_right=True,
+              name="self_att"), hparams)
+      # ffn layer
+      x += layer_prepostprocess_dropout(
+          mtf.layers.dense_relu_dense(
+              mtf.layers.layer_norm(x, model_dim, name="layer_norm_ffn"),
+              feedforward_dim,
+              hparams.dropout,
+              dropout_broadcast_dims=[length_dim]), hparams)
+
+  output = mtf.layers.layer_norm(x, model_dim, name="final_layer_norm")
+  return output
+
+
+def local_attention2d_spatial_decoder(x, kv_dim, heads_dim,
+                                      feedforward_dim, hparams):
+  """Image Transformer decoder with local2D spatial layers."""
+  batch_dim, length_dim, model_dim = x.shape.dims
+  blocks_h_dim = mtf.Dimension("blocksh", hparams.block_height)
+  blocks_w_dim = mtf.Dimension("blocksw", hparams.block_width)
+  num_h_blocks_dim = mtf.Dimension("num_h_blocks",
+                                   hparams.img_len // hparams.block_height)
+  num_w_blocks_dim = mtf.Dimension(
+      "num_w_blocks",
+      hparams.img_len * hparams.num_channels // hparams.block_width)
+  x = mtf.transpose(
+      mtf.reshape(
+          x,
+          mtf.Shape([
+              batch_dim, num_h_blocks_dim, blocks_h_dim,
+              num_w_blocks_dim, blocks_w_dim, model_dim
+          ])),
+      mtf.Shape([
+          batch_dim, num_h_blocks_dim, num_w_blocks_dim,
+          blocks_h_dim, blocks_w_dim, model_dim
+      ]))
+  # Image Transformer Decoder
+  # [ self attention - ffn - residual + dropout] x n
+  for layer in range(hparams.num_decoder_layers):
+    layer_name = "decoder_layer_%d" % layer
+    with tf.variable_scope(layer_name):
+      # Self attention layer
+      x += layer_prepostprocess_dropout(
+          mtf.layers.local_2d_self_attention_spatial_blocks(
+              mtf.layers.layer_norm(x, model_dim, name="layer_norm_att"),
+              kv_dim,
+              heads_dim,
+              memory_h_dim=num_h_blocks_dim,
+              memory_w_dim=num_w_blocks_dim,
+              name="self_att"), hparams)
+      # ffn layer
+      x += layer_prepostprocess_dropout(
+          mtf.layers.dense_relu_dense(
+              mtf.layers.layer_norm(x, model_dim, name="layer_norm_ffn"),
+              feedforward_dim,
+              hparams.dropout,
+              dropout_broadcast_dims=[length_dim]), hparams)
+
+  output = mtf.layers.layer_norm(x, model_dim, name="final_layer_norm")
+  return output
+
+
+def local_attention1d_masked_decoder(x, kv_dim, heads_dim,
+                                     feedforward_dim, hparams):
+  """Image Transformer decoder with local1D masked layers."""
+  print(x)
+  _, length_dim, model_dim = x.shape.dims
+  for layer in range(hparams.num_decoder_layers):
+    layer_name = "decoder_layer_%d" % layer
+    with tf.variable_scope(layer_name):
+      # Self attention layer
+      x += layer_prepostprocess_dropout(
+          mtf.layers.masked_local_attention_1d(
+              mtf.layers.layer_norm(x, model_dim, name="layer_norm_att"),
+              None,
+              kv_dim,
+              heads_dim,
+              block_length=hparams.block_length,
+              name="self_att"), hparams)
+      # ffn layer
+      x += layer_prepostprocess_dropout(
+          mtf.layers.dense_relu_dense(
+              mtf.layers.layer_norm(x, model_dim, name="layer_norm_ffn"),
+              feedforward_dim,
+              hparams.dropout,
+              dropout_broadcast_dims=[length_dim]), hparams)
+
+  output = mtf.layers.layer_norm(x, model_dim, name="final_layer_norm")
+  return output
 
 
 @registry.register_hparams
@@ -280,7 +399,12 @@ def mtf_image_transformer_base():
   hparams.add_hparam("img_len", 32)
   hparams.add_hparam("num_channels", 3)
   hparams.add_hparam("unconditional", True)
+
+  # Local Attention related params
   hparams.add_hparam("block_length", 128)
+  hparams.add_hparam("block_height", 16)
+  hparams.add_hparam("block_width", 16)
+  hparams.add_hparam("attention_type", "local1d")
   return hparams
 
 
@@ -330,6 +454,34 @@ def mtf_image_transformer_base_single():
   hparams.block_length = 128
   hparams.mesh_shape = ""
   hparams.layout = ""
+  return hparams
+
+
+@registry.register_hparams
+def mtf_image_transformer_tiny_spatial1d():
+  """Small single parameters."""
+  hparams = mtf_image_transformer_tiny()
+  hparams.num_decoder_layers = 6
+  hparams.filter_size = 128
+  hparams.block_height = 8
+  hparams.block_width = 8
+  hparams.attention_type = "local1d_spatial"
+  hparams.mesh_shape = ""
+  hparams.layout = ""
+  return hparams
+
+
+@registry.register_hparams
+def mtf_image_transformer_tiny_spatial2d():
+  """Small single parameters."""
+  hparams = mtf_image_transformer_tiny()
+  hparams.num_decoder_layers = 6
+  hparams.filter_size = 128
+  hparams.block_height = 8
+  hparams.block_width = 8
+  hparams.attention_type = "local2d_spatial"
+  hparams.mesh_shape = "b1:2,b2:2"
+  hparams.layout = "num_h_blocks:b1,num_wblocks:b2"
   return hparams
 
 
@@ -410,11 +562,45 @@ def mtf_image_transformer_base_imagenet_mp():
 
 
 @registry.register_hparams
-def mtf_image_transformer_tiny_moe():
-  hparams = mtf_image_transformer_tiny()
-  hparams.mesh_shape = "all:4"
-  hparams.layout = "batch:all,experts:all"
-  hparams.ffn_layer = "moe"
+def mtf_image_transformer_base_imagenet_mp128():
+  """Model parallel ImageNet parameters."""
+  hparams = mtf_image_transformer_base_imagenet()
+  hparams.mesh_shape = "model:8;batch:4"
+  hparams.layout = "batch:batch;d_ff:model;heads:model"
+  hparams.batch_size = 8
+  hparams.img_len = 128
+  hparams.block_length = 128
+  hparams.num_heads = 8
+  hparams.num_decoder_layers = 4
+  hparams.d_ff = 4096
+  hparams.learning_rate_warmup_steps = 31250
+  hparams.unconditional = True
+  hparams.max_length = 256*256*3
+  return hparams
+
+
+@registry.register_hparams
+def mtf_image_transformer_base_imagenet_mp_sp():
+  """Model parallel ImageNet parameters."""
+  hparams = mtf_image_transformer_base_imagenet_mp128()
+  hparams.mesh_shape = "model:8;batch:4"
+  hparams.layout = "batch:batch;d_ff:model;num_wblocks:model"
+  hparams.batch_size = 8
+  hparams.img_len = 128
+  hparams.block_length = 128
+  hparams.attention_type = "local1d_spatial"
+  return hparams
+
+
+@registry.register_hparams
+def mtf_image_transformer_base_imagenet_mp64():
+  """Model parallel ImageNet parameters."""
+  hparams = mtf_image_transformer_base_imagenet()
+  hparams.mesh_shape = "model:8;batch:4"
+  hparams.layout = "batch:batch;d_ff:model;heads:model"
+  hparams.batch_size = 8
+  hparams.img_len = 64
+  hparams.num_decoder_layers = 8
   return hparams
 
 
