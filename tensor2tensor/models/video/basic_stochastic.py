@@ -82,7 +82,7 @@ class NextFrameBasicStochasticDiscrete(
       layer += z_add
       return layer
 
-    if self.is_predicting:
+    if not self.is_training:
       if hparams.full_latent_tower:
         rand = tf.random_uniform(layer_shape[:-1] + [hparams.bottleneck_bits])
         bits = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
@@ -174,9 +174,10 @@ def next_frame_basic_stochastic_discrete():
   hparams.video_num_target_frames = 16
   hparams.scheduled_sampling_mode = "prob_inverse_lin"
   hparams.scheduled_sampling_decay_steps = 40000
-  hparams.scheduled_sampling_prob = 1.0
-  hparams.learning_rate_constant = 0.01
-  hparams.learning_rate_warmup_steps = 8000
+  hparams.scheduled_sampling_max_prob = 1.0
+  hparams.dropout = 0.3
+  hparams.learning_rate_constant = 0.002
+  hparams.learning_rate_warmup_steps = 2000
   hparams.learning_rate_schedule = "linear_warmup * constant"
   hparams.add_hparam("bottleneck_bits", 64)
   hparams.add_hparam("bottleneck_noise", 0.02)
@@ -186,3 +187,15 @@ def next_frame_basic_stochastic_discrete():
   hparams.add_hparam("latent_predictor_temperature", 0.5)
   hparams.add_hparam("complex_addn", True)
   return hparams
+
+
+@registry.register_ranged_hparams
+def next_frame_stochastic_discrete_range(rhp):
+  """Next frame stochastic discrete tuning grid."""
+  rhp.set_float("learning_rate_constant", 0.001, 0.01)
+  rhp.set_float("dropout", 0.2, 0.6)
+  rhp.set_int("filter_double_steps", 3, 5)
+  rhp.set_discrete("hidden_size", [64, 96, 128])
+  rhp.set_discrete("bottleneck_bits", [32, 64, 128, 256])
+  rhp.set_discrete("video_num_target_frames", [4])
+  rhp.set_float("bottleneck_noise", 0.0, 0.2)

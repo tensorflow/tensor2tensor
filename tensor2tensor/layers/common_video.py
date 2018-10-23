@@ -205,11 +205,8 @@ def scheduled_sample_prob(ground_truth_x,
   """
   probability_threshold = scheduled_sample_var
   probability_of_generated = tf.random_uniform([batch_size])
-  array_ind = tf.to_int32(probability_of_generated > probability_threshold)
-  indices = tf.range(batch_size) + array_ind * batch_size
-  xy = tf.concat([ground_truth_x, generated_x], axis=0)
-  output = tf.gather(xy, indices)
-  return output
+  return tf.where(probability_of_generated > probability_threshold,
+                  generated_x, ground_truth_x)
 
 
 def dna_transformation(prev_image, dna_input, dna_kernel_size, relu_shift):

@@ -578,4 +578,3 @@ def next_frame_base():
   hparams.add_hparam("scheduled_sampling_max_prob", 1.0)
   hparams.add_hparam("scheduled_sampling_k", 900.0)
   return hparams
-
