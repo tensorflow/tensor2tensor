@@ -46,7 +46,7 @@ from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
 
-from tensor2tensor.rl.envs.dopamine_batch_env import create_runner
+from tensor2tensor.rl.dopamine_connector import create_runner
 
 
 flags = tf.flags
