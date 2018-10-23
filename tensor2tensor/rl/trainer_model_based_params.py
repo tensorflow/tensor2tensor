@@ -404,6 +404,14 @@ def rlmb_tiny():
           env_timesteps_limit=6,
       ).values())
 
+@registry.register_hparams
+def rlmb_tiny_big():
+  """Tiny set for testing."""
+  return rlmb_tiny().override_from_dict(
+      tf.contrib.training.HParams(
+          resize_height_factor=1,
+          resize_width_factor=1,
+      ).values())
 
 @registry.register_hparams
 def rlmb_tiny_stochastic():

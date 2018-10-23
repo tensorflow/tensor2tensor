@@ -256,8 +256,13 @@ def train_agent_real_env(
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)
 
-  rl_trainer_lib.train(ppo_hparams, event_dir + "real", agent_model_dir,
-                       name_scope="ppo_real%d" % (epoch + 1))
+  # rl_trainer_lib.train(ppo_hparams, event_dir + "real", agent_model_dir,
+  #                      name_scope="ppo_real%d" % (epoch + 1))
+
+  # TODO: use only one runner, don't create new one in each epoch call
+  runner = create_runner(ppo_hparams)
+  # TODO: instead of running whole experiment, call just e.g. `runner._run_one_iteration`
+  runner.run_experiment()
 
   # Save unfinished rollouts to history.
   env.reset()

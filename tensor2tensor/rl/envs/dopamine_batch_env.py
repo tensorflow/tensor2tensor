@@ -37,7 +37,7 @@ flags.DEFINE_multi_string(
 
 FLAGS = flags.FLAGS
 
-
+#TODO Rename (and the file as well)
 class DopamineBatchGymEnvWrapper(Env):
   """
   Environment wrapping SimulatedBatchEnv in a Gym
@@ -99,6 +99,7 @@ class DopamineBatchGymEnvWrapper(Env):
   def _reset_env(self):
     # TODO
     observ = self.sess.run(self.reset_op)[0, ...]
+    # TODO: remove if possible
     observ[0, 0, 0] = 0
     observ[0, 0, 1] = 255
     # TODO(pmilos): put correct numbers
@@ -130,9 +131,10 @@ class DopamineBatchGymEnvWrapper(Env):
   def step(self, action):
     self._step_num += 1
 
-    observ, rew, done= self._step_env(action)
+    observ, rew, done = self._step_env(action)
     self.res = (observ, rew, done)
     # print("Step:{}".format(self._step_num))
+    #TODO: clean up this
     if self._step_num % 100 == 0:
       done = True
 
@@ -152,16 +154,60 @@ def create_agent(sess, environment, summary_writer=None):
                             tf_device='/cpu:*')  # TODO:
 
 
-def get_create_env_fun(hparams):
+def get_create_env_simulated_fun(hparams):
   def create_env_fun(game_name, sticky_actions=True):
     return DopamineBatchGymEnvWrapper(hparams)
 
   return create_env_fun
 
+class EnvT2TEnv(Env):
+
+  def __init__(self, t2tenv):
+    self._t2tenv = t2tenv
+    self.action_space = self._t2tenv.action_space
+    #TODO: read from my lips
+    # self.observation_space = self._t2tenv.observation_space
+    self.observation_space = Box(
+        low=0, high=255, shape=(84, 84, 3),
+        dtype=np.uint8)
+
+    self.game_over = False
+    assert self._t2tenv.batch_size == 1, "This class does not support batches"
+
+  def render(self, mode="human"):
+    raise NotImplementedError()
+
+  def reset(self):
+    #TODO: please dont
+    return self._t2tenv.reset()[0, :84, :84, :]
+
+  def step(self, action):
+    ob, rew, done = self._t2tenv.step([action])
+    return ob[0, ...][:84, :84, :], rew[0, ...], done[0, ...], {}
+
+
+
+def get_create_env_real_fun(hparams):
+  env = hparams.environment_spec.env
+
+  def create_env_fun(_1, _2):
+    return EnvT2TEnv(env)
+
+  return create_env_fun
+
+
 
 def create_runner(hparams):
   """ Simplified version of `dopamine.atari.train.create_runner` """
+
+
+  if hparams.environment_spec.simulated_env:
+    get_create_env_fun = get_create_env_simulated_fun
+  else:
+    get_create_env_fun = get_create_env_real_fun
+
   run_experiment.load_gin_configs(FLAGS.gin_files, FLAGS.gin_bindings)
+
   runner = run_experiment.Runner(FLAGS.base_dir, create_agent,
                                  create_environment_fn=get_create_env_fun(hparams),
                                  num_iterations = 1,
