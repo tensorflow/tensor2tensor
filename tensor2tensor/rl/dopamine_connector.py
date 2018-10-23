@@ -13,13 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""SimulatedBatchEnv in a Gym-like interface."""
+"""Connects dopamine to as the another rl traning framework."""
 
 import gin
 import numpy as np
+import inspect
+import os
 
-from dopamine.agents.dqn import dqn_agent
-from dopamine.atari import run_experiment
+_dopamine_path = None
+try:
+  import dopamine
+  from dopamine.agents.dqn import dqn_agent
+  from dopamine.atari import run_experiment
+  _dopamine_path = os.path.dirname(inspect.getfile(dopamine))
+except:
+  # Generally we do not need dopamine in tensor2tensor
+  # We will raise exception if the code really tries to use it
+  pass
+
 import tensorflow as tf
 from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv, SimulatedBatchGymEnv
 
@@ -50,10 +61,13 @@ def get_create_env_real_fun(hparams):
   return create_env_fun
 
 
-#TODO(pm): rename
 def dopamine_trainer(hparams, model_dir):
   """ Simplified version of `dopamine.atari.train.create_runner` """
+  global _dopamine_path
 
+  assert _dopamine_path is not None, "Dopamine not available. Please install from " \
+                                     "https://github.com/google/dopamine and add to PYTHONPATH"
+    
   # TODO: pass and clean up hparams
   steps_to_make = 1000
   if hparams.environment_spec.simulated_env:
@@ -71,7 +85,7 @@ def dopamine_trainer(hparams, model_dir):
 
   with gin.unlock_config():# This is slight wierdness due to multiple runs DQN
     # TODO(pm): Think how to integrate with dopamine.
-    gin_files = ['/home/piotr.milos/code2/tensor-2-tensor-with-mrunner/deps/dopamine/dopamine/agents/dqn/configs/dqn.gin']
+    gin_files = [os.path.join(_dopamine_path, 'agents/dqn/configs/dqn.gin')]
     run_experiment.load_gin_configs(gin_files, [])
 
   with tf.Graph().as_default():
