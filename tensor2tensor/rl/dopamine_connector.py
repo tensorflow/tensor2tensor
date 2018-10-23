@@ -23,41 +23,15 @@ from dopamine.atari import run_experiment
 import tensorflow as tf
 from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv, SimulatedBatchGymEnv
 
-flags = tf.flags
-
-
-#Remove if possibe
-flags.DEFINE_bool('debug_mode', False,
-                  'If set to true, the agent will output in-episode statistics '
-                  'to Tensorboard. Disabled by default as this results in '
-                  'slower training.')
-flags.DEFINE_string('agent_name', None,
-                    'Name of the agent. Must be one of '
-                    '(dqn, rainbow, implicit_quantile)')
-flags.DEFINE_string('base_dir', None,
-                    'Base directory to host all required sub-directories.')
-flags.DEFINE_multi_string(
-    'gin_files', [], 'List of paths to gin configuration files (e.g.'
-    '"dopamine/agents/dqn/dqn.gin").')
-flags.DEFINE_multi_string(
-    'gin_bindings', [],
-    'Gin bindings to override the values set in the config files '
-    '(e.g. "DQNAgent.epsilon_train=0.1",'
-    '      "create_environment.game_name="Pong"").')
-
-FLAGS = flags.FLAGS
-
 
 def create_agent(sess, environment, summary_writer=None):
   """Creates a DQN agent.
 
   Simplified version of `dopamine.atari.train.create_agent`
   """
-  if not FLAGS.debug_mode:
-    summary_writer = None
   return dqn_agent.DQNAgent(sess, num_actions=environment.action_space.n,
                             summary_writer=summary_writer,
-                            tf_device='/cpu:*')  # TODO:
+                            tf_device='/cpu:*')  # TODO: put gpu here!!!!
 
 
 def get_create_env_simulated_fun(hparams):
@@ -77,7 +51,7 @@ def get_create_env_real_fun(hparams):
 
 
 #TODO(pm): rename
-def create_runner(hparams):
+def dopamine_trainer(hparams, model_dir):
   """ Simplified version of `dopamine.atari.train.create_runner` """
 
   # TODO: pass and clean up hparams
@@ -95,12 +69,13 @@ def create_runner(hparams):
   # world-model, but maybe we can use it in simulated env?
   evaluation_steps = 0
 
-  with gin.unlock_config():
-    # This is slight wierdness
-    run_experiment.load_gin_configs(FLAGS.gin_files, FLAGS.gin_bindings)
+  with gin.unlock_config():# This is slight wierdness due to multiple runs DQN
+    # TODO(pm): Think how to integrate with dopamine.
+    gin_files = ['/home/piotr.milos/code2/tensor-2-tensor-with-mrunner/deps/dopamine/dopamine/agents/dqn/configs/dqn.gin']
+    run_experiment.load_gin_configs(gin_files, [])
 
   with tf.Graph().as_default():
-    runner = run_experiment.Runner(FLAGS.base_dir, create_agent,
+    runner = run_experiment.Runner(model_dir, create_agent,
                                    create_environment_fn=get_create_env_fun(hparams),
                                    num_iterations=1,
                                    training_steps=training_steps,
