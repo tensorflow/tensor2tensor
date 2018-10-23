@@ -11,6 +11,7 @@ from absl import flags
 from gym.core import Env, Wrapper
 from gym.spaces import Box
 from gym.spaces import Discrete
+import gin
 
 from dopamine.agents.dqn import dqn_agent
 from dopamine.atari import run_experiment
@@ -82,10 +83,6 @@ class SimulatedBatchGymEnv:
     # method for hparams initialization)
     self.batch_size = batch_size
     self.timesteps_limit = timesteps_limit
-    self._batch_env = SimulatedBatchEnv(hparams.environment_spec,
-                                        self.batch_size)
-
-    self.action_space = self._batch_env.action_space
 
     self.action_space = Discrete(2)
     # TODO: check sizes
@@ -95,24 +92,29 @@ class SimulatedBatchGymEnv:
         dtype=np.uint8)
     self.res = None
     self.game_over = False
-    self._sess = sess if sess is not None else tf.Session()
 
-    self._actions_t = tf.placeholder(shape=(1,), dtype=tf.int32)
+    with tf.Graph().as_default():
+      self._batch_env = SimulatedBatchEnv(hparams.environment_spec,
+                                          self.batch_size)
 
-    self._rewards_t, self._dones_t = self._batch_env.simulate(self._actions_t)
-    self._obs_t = self._batch_env.observ
-    self._reset_op = self._batch_env.reset(tf.constant([0], dtype=tf.int32))
+      self.action_space = self._batch_env.action_space
 
-    environment_wrappers = hparams.environment_spec.wrappers
-    wrappers = copy.copy(environment_wrappers) if environment_wrappers else []
+      self._sess = sess if sess is not None else tf.Session()
+      self._actions_t = tf.placeholder(shape=(1,), dtype=tf.int32)
+      self._rewards_t, self._dones_t = self._batch_env.simulate(self._actions_t)
+      self._obs_t = self._batch_env.observ
+      self._reset_op = self._batch_env.reset(tf.constant([0], dtype=tf.int32))
 
-    self._to_initialize = [self._batch_env]
-    for w in wrappers:
-      self._batch_env = w[0](self._batch_env, **w[1])
-      self._to_initialize.append(self._batch_env)
+      environment_wrappers = hparams.environment_spec.wrappers
+      wrappers = copy.copy(environment_wrappers) if environment_wrappers else []
 
-    self._sess_initialized = False
-    self._step_num = 0
+      self._to_initialize = [self._batch_env]
+      for w in wrappers:
+        self._batch_env = w[0](self._batch_env, **w[1])
+        self._to_initialize.append(self._batch_env)
+
+      self._sess_initialized = False
+      self._step_num = 0
 
   def _initialize_sess(self):
     self._sess.run(tf.global_variables_initializer())
@@ -173,11 +175,11 @@ def get_create_env_real_fun(hparams):
 
   return create_env_fun
 
-LOADED = False
+
 
 def create_runner(hparams):
   """ Simplified version of `dopamine.atari.train.create_runner` """
-  global LOADED
+
   # TODO: pass and clean up hparams
   steps_to_make = 1000
   if hparams.environment_spec.simulated_env:
@@ -192,40 +194,17 @@ def create_runner(hparams):
   # world-model, but maybe we can use it in simulated env?
   evaluation_steps = 0
 
-  try:
-    # TODO: Remove usage of FLAGS
-    assert not LOADED
+  with gin.unlock_config():
+    # This is slight wierdness
     run_experiment.load_gin_configs(FLAGS.gin_files, FLAGS.gin_bindings)
-    LOADED = True
-  except RuntimeError:
-    # TODO: explicitly load_gin_configs only one time? (what about restarting
-    # experiment?)
-    # Subsequent calls to load_gin_configs() results in
-    # RuntimeError: Attempted to modify locked Gin config
-    pass
 
-  # TODO: pass parameters
-  runner = run_experiment.Runner(FLAGS.base_dir, create_agent,
-                                 create_environment_fn=get_create_env_fun(hparams),
-                                 num_iterations=1,
-                                 training_steps=training_steps,
-                                 evaluation_steps=evaluation_steps,
-                                 max_steps_per_episode=20  # TODO: remove this
-                                 )
+  with tf.Graph().as_default():
+    runner = run_experiment.Runner(FLAGS.base_dir, create_agent,
+                                   create_environment_fn=get_create_env_fun(hparams),
+                                   num_iterations=1,
+                                   training_steps=training_steps,
+                                   evaluation_steps=evaluation_steps,
+                                   max_steps_per_episode=20  # TODO: remove this
+                                   )
 
-  # TODO(KC): debug changes, remove
-  runner.run_experiment()
-  print('\n\n\n\n\nfirst run\n\n\n\n\n\n\n')
-  a = 1
-  runner = run_experiment.Runner(FLAGS.base_dir, create_agent,
-                                 create_environment_fn=get_create_env_fun(hparams),
-                                 num_iterations=2,
-                                 training_steps=300,
-                                 evaluation_steps=evaluation_steps,
-                                 max_steps_per_episode=20  # TODO: remove this
-                                 )
-  runner.run_experiment()
-  raise ValueError('this actually worked out!')
-  # TODO(KC): end remove
-
-  return runner
+    runner.run_experiment()
