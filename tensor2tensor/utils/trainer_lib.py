@@ -486,8 +486,15 @@ class T2TExperiment(object):
 
   def continuous_decode_on_eval_data(self):
     """Decode from dataset on new checkpoint."""
-    for _ in next_checkpoint(self._hparams.model_dir):
+    for ckpt in next_checkpoint(self._hparams.model_dir):
+      current_step = int(os.path.basename(ckpt).split("-")[1])
+      # Skip checkpoint 0.
+      if current_step == 0:
+        continue
+      mlperf_log.transformer_print(key=mlperf_log.EVAL_START)
       self.decode(dataset_split=tf.estimator.ModeKeys.EVAL)
+      mlperf_log.transformer_print(key=mlperf_log.EVAL_TARGET, value=25.0)
+      mlperf_log.transformer_print(key=mlperf_log.EVAL_STOP)
 
   def continuous_decode_from_file(self):
     """Decode from file on new checkpoint."""

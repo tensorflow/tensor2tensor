@@ -252,6 +252,9 @@ def get_variable_initializer(hparams):
   if not hparams.initializer:
     return None
 
+  mlperf_log.transformer_print(key=mlperf_log.MODEL_HP_INITIALIZER_GAIN,
+                               value=hparams.initializer_gain)
+
   if not tf.contrib.eager.in_eager_mode():
     tf.logging.info("Using variable initializer: %s", hparams.initializer)
   if hparams.initializer == "orthogonal":

@@ -347,6 +347,8 @@ def main(argv):
   mlperf_log.transformer_print(key=mlperf_log.RUN_START)
   if FLAGS.schedule == "run_std_server":
     run_std_server()
+  mlperf_log.transformer_print(
+      key=mlperf_log.RUN_SET_RANDOM_SEED, value=FLAGS.random_seed)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   maybe_log_registry_and_exit()
