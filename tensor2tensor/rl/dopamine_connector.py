@@ -48,7 +48,7 @@ def create_agent(sess, environment, summary_writer=None):
 def get_create_env_simulated_fun(hparams):
   def create_env_fun(game_name, sticky_actions=True):
     # Possibly use wrappers as used by atari training in dopamine
-    return FlatBatchEnv(SimulatedBatchGymEnv(hparams, 1))
+    return FlatBatchEnv(SimulatedBatchGymEnv(hparams.environment_spec, 1))
   return create_env_fun
 
 
@@ -67,7 +67,7 @@ def dopamine_trainer(hparams, model_dir):
 
   assert _dopamine_path is not None, "Dopamine not available. Please install from " \
                                      "https://github.com/google/dopamine and add to PYTHONPATH"
-    
+
   # TODO: pass and clean up hparams
   steps_to_make = 1000
   if hparams.environment_spec.simulated_env:

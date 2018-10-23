@@ -66,9 +66,7 @@ class SimulatedBatchGymEnv:
   The environments are  batched.
   """
 
-  def __init__(self, hparams, batch_size, timesteps_limit=100, sess=None):
-    # TODO(KC): pass ars explicitly without hparams (optionally add static
-    # method for hparams initialization)
+  def __init__(self, environment_spec, batch_size, timesteps_limit=100, sess=None):
     self.batch_size = batch_size
     self.timesteps_limit = timesteps_limit
 
@@ -82,7 +80,7 @@ class SimulatedBatchGymEnv:
     self.game_over = False
 
     with tf.Graph().as_default():
-      self._batch_env = SimulatedBatchEnv(hparams.environment_spec,
+      self._batch_env = SimulatedBatchEnv(environment_spec,
                                           self.batch_size)
 
       self.action_space = self._batch_env.action_space
@@ -93,7 +91,7 @@ class SimulatedBatchGymEnv:
       self._obs_t = self._batch_env.observ
       self._reset_op = self._batch_env.reset(tf.constant([0], dtype=tf.int32))
 
-      environment_wrappers = hparams.environment_spec.wrappers
+      environment_wrappers = environment_spec.wrappers
       wrappers = copy.copy(environment_wrappers) if environment_wrappers else []
 
       self._to_initialize = [self._batch_env]
