@@ -530,14 +530,9 @@ class T2TGymEnv(T2TEnv):
   arguments and register this subclass.
   """
 
-  def __init__(self, base_env_name=None, batch_size=None, grayscale=False,
+  def __init__(self, base_env_name=None, batch_size=1, grayscale=False,
                resize_height_factor=2, resize_width_factor=2,
-               base_env_timesteps_limit=-1, envs=None, **kwargs):
-    if batch_size is None:
-      if envs is None:
-        batch_size = 1
-      else:
-        batch_size = len(envs)
+               base_env_timesteps_limit=-1, **kwargs):
     if base_env_name is None:
       base_env_name = self.base_env_name
     self._base_env_name = base_env_name
@@ -549,11 +544,8 @@ class T2TGymEnv(T2TEnv):
       # Set problem name if not registered.
       self.name = "Gym%s" % base_env_name
 
-    if envs is None:
-      self._envs = [make_gym_env(base_env_name, base_env_timesteps_limit)
-                    for _ in range(self.batch_size)]
-    else:
-      self._envs = envs
+    self._envs = [make_gym_env(base_env_name, base_env_timesteps_limit)
+                  for _ in range(self.batch_size)]
 
     orig_observ_space = self._envs[0].observation_space
     if not all(env.observation_space == orig_observ_space
