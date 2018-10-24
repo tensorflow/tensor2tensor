@@ -555,6 +555,7 @@ class Problem(object):
               shard=None,
               partition_id=0,
               num_partitions=1,
+              shuffle_buffer_size=1024,
               max_records=-1,
               only_last=False):
     """Build a Dataset for this problem.
@@ -577,6 +578,8 @@ class Problem(object):
       shard: int, if provided, will only read data from the specified shard.
       partition_id: integer - which partition of the dataset to read from
       num_partitions: how many partitions in the dataset
+      shuffle_buffer_size: if shuffle_files is True, this is the buffer size
+        used to shuffle records.
       max_records: int, number of records to truncate to.
       only_last: bool, whether we should include only files from last epoch.
 
@@ -654,6 +657,10 @@ class Problem(object):
     dataset = dataset.map(
         self.maybe_reverse_and_copy, num_parallel_calls=num_threads)
     dataset = dataset.take(max_records)
+
+    ## Shuffle records only for training examples.
+    if shuffle_files and is_training:
+      dataset = dataset.shuffle(shuffle_buffer_size)
     if output_buffer_size:
       dataset = dataset.prefetch(output_buffer_size)
 
@@ -800,7 +807,8 @@ class Problem(object):
                config=None,
                force_repeat=False,
                prevent_repeat=False,
-               dataset_kwargs=None):
+               dataset_kwargs=None,
+               batch_shuffle_size=512):
     """Builds input pipeline for problem.
 
     Args:
@@ -815,6 +823,8 @@ class Problem(object):
         Overrides force_repeat.
       dataset_kwargs: dict, if passed, will pass as kwargs to self.dataset
         method when called
+      batch_shuffle_size: int, the size of the buffer to shuffle batches.
+        if none, the batches will not be shuffled.
 
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
@@ -955,6 +965,15 @@ class Problem(object):
                 num_parallel_calls=num_threads)
 
     dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
+
+    # Add shuffling for training batches. This is necessary along with record
+    # level shuffling in the dataset generation. Record shuffling will shuffle
+    # the examples. However, in some cases, it's possible that the shuffle
+    # buffer size for record shuffling is smaller than the batch size. In such
+    # cases, adding batch shuffling ensures that the data is in random order
+    # during training
+    if is_training and batch_shuffle_size:
+      dataset = dataset.shuffle(batch_shuffle_size)
 
     def prepare_for_output(example):
       if not config or not config.use_tpu:
