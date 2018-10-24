@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import copy
 import os
 
 from tensor2tensor import models  # pylint: disable=unused-import
@@ -31,21 +32,35 @@ import tensorflow as tf
 
 def define_train(hparams):
   """Define the training setup."""
+  train_hparams = copy.copy(hparams)
+  train_hparams.add_hparam("eval_phase", False)
+  train_hparams.add_hparam(
+      "policy_to_actions_lambda", lambda policy: policy.sample()
+  )
+
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-    memory, collect_summary, train_initialization\
-      = collect.define_collect(
-          hparams, "ppo_train", eval_phase=False,
-          policy_to_actions_lambda=lambda policy: policy.sample())
+    memory, collect_summary, train_initialization = (
+        collect.define_collect(train_hparams, "ppo_train")
+    )
     ppo_summary = ppo.define_ppo_epoch(memory, hparams)
     train_summary = tf.summary.merge([collect_summary, ppo_summary])
 
     if hparams.eval_every_epochs:
-      _, eval_collect_summary, eval_initialization\
-        = collect.define_collect(
-            hparams, "ppo_eval", eval_phase=True,
-            policy_to_actions_lambda=lambda policy: policy.mode())
-      return train_summary, eval_collect_summary, \
-             (train_initialization, eval_initialization)
+      eval_hparams = copy.copy(hparams)
+      eval_hparams.add_hparam("eval_phase", True)
+      eval_hparams.add_hparam(
+          "policy_to_actions_lambda", lambda policy: policy.mode()
+      )
+      eval_hparams.environment_spec = hparams.environment_eval_spec
+      eval_hparams.num_agents = hparams.num_eval_agents
+
+      _, eval_collect_summary, eval_initialization = (
+          collect.define_collect(eval_hparams, "ppo_eval")
+      )
+      return (
+          train_summary, eval_collect_summary,
+          (train_initialization, eval_initialization)
+      )
     else:
       return train_summary, None, (train_initialization,)
 
