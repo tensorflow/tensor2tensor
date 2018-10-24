@@ -152,7 +152,12 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
   ppo_hparams.epochs_num = ppo_epochs_num
 
   ppo_hparams.save_models_every_epochs = 10
-  ppo_hparams.world_model_dir = world_model_dir
+  ppo_hparams.add_hparam('world_model_dir', world_model_dir)
+  ppo_hparams.add_hparam("force_beginning_resets", True)
+
+  # Adding model hparams for model specific adjustments
+  model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
+  ppo_hparams.add_hparam("model_hparams", model_hparams)
 
   environment_spec_params = {
       param_name: hparams.get(param_name)

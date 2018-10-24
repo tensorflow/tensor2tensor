@@ -22,7 +22,7 @@ from __future__ import print_function
 
 import copy
 
-import numpy as np
+from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
 from gym import Env
 
@@ -53,8 +53,10 @@ class SimulatedBatchGymEnv:
   
   The environments are  batched.
   """
-
-  def __init__(self, environment_spec, batch_size, timesteps_limit=100, sess=None):
+  #TODO(pm): timestep_limit clean up
+  #TODO(pm): remove session or add graph
+  def __init__(self, environment_spec, batch_size,
+               timesteps_limit=100, model_dir=None, sess=None):
     self.batch_size = batch_size
     self.timesteps_limit = timesteps_limit
 
@@ -84,6 +86,12 @@ class SimulatedBatchGymEnv:
       self._sess.run(tf.global_variables_initializer())
       for _batch_env in self._to_initialize:
         _batch_env.initialize(self._sess)
+        
+      env_model_loader = tf.train.Saver(
+          tf.global_variables("next_frame*"))
+      trainer_lib.restore_checkpoint(
+        model_dir, env_model_loader, self._sess,
+        must_restore=True)
 
   def render(self, mode="human"):
     raise NotImplementedError()

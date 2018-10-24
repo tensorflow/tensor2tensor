@@ -85,11 +85,11 @@ def create_agent(sess, environment, summary_writer=None):
                             summary_writer=summary_writer,
                             tf_device='/cpu:*')  # TODO: put gpu here!!!!
 
-def get_create_env_fun(env_spec):
+def get_create_env_fun(env_spec, world_model_dir):
   simulated = env_spec.simulated_env
   def create_env_fun(_1, _2):
     if simulated:
-      batch_env = SimulatedBatchGymEnv(env_spec, 1)
+      batch_env = SimulatedBatchGymEnv(env_spec, 1, model_dir=world_model_dir)
     else:
       batch_env = env_spec.env
     env = FlatBatchEnv(batch_env)
@@ -134,13 +134,11 @@ def dopamine_trainer(hparams, model_dir):
     gin_files = [os.path.join(_dopamine_path, 'agents/dqn/configs/dqn.gin')]
     run_experiment.load_gin_configs(gin_files, [])
 
-  # TODO(KC): restore world model (here?, or maybe in SimulatedBatchEnv? but
-  # this would requrire changing PPO as well)
-
   with tf.Graph().as_default():
     runner = run_experiment.Runner(
         model_dir, create_agent,
-        create_environment_fn=get_create_env_fun(hparams.environment_spec),
+        create_environment_fn=get_create_env_fun(hparams.environment_spec,
+                                                 hparams.get('world_model_dir', None)),
         num_iterations=num_iterations,
         training_steps=training_steps,
         evaluation_steps=evaluation_steps,
