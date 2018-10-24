@@ -85,11 +85,13 @@ def create_agent(sess, environment, summary_writer=None):
                             summary_writer=summary_writer,
                             tf_device='/cpu:*')  # TODO: put gpu here!!!!
 
-def get_create_env_fun(env_spec, world_model_dir):
+#TODO(pm):pass simulated_time_limit
+def get_create_env_fun(env_spec, world_model_dir, simulated_time_limit=10):
   simulated = env_spec.simulated_env
   def create_env_fun(_1, _2):
     if simulated:
       batch_env = SimulatedBatchGymEnv(env_spec, 1, model_dir=world_model_dir)
+      batch_env = TimeLimit(batch_env, max_episode_steps=simulated_time_limit)
     else:
       batch_env = env_spec.env
     env = FlatBatchEnv(batch_env)

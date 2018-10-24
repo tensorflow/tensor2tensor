@@ -23,12 +23,9 @@ from __future__ import print_function
 import copy
 
 from tensor2tensor.utils import trainer_lib
+from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
 import tensorflow as tf
 from gym import Env
-
-from gym.spaces import Box
-from gym.spaces import Discrete
-from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
 
 
 class FlatBatchEnv(Env):
@@ -53,12 +50,9 @@ class SimulatedBatchGymEnv:
   
   The environments are  batched.
   """
-  #TODO(pm): timestep_limit clean up
-  #TODO(pm): remove session or add graph
   def __init__(self, environment_spec, batch_size,
-               timesteps_limit=100, model_dir=None, sess=None):
+               model_dir=None, sess=None):
     self.batch_size = batch_size
-    self.timesteps_limit = timesteps_limit
 
     self.game_over = False
 
@@ -86,7 +80,7 @@ class SimulatedBatchGymEnv:
       self._sess.run(tf.global_variables_initializer())
       for _batch_env in self._to_initialize:
         _batch_env.initialize(self._sess)
-        
+
       env_model_loader = tf.train.Saver(
           tf.global_variables("next_frame*"))
       trainer_lib.restore_checkpoint(
