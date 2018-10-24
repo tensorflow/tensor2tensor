@@ -23,7 +23,7 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
-from tensor2tensor.models import transformer
+from tensor2tensor.layers import transformer_layers
 from tensor2tensor.utils import beam_search
 
 import tensorflow as tf
@@ -410,11 +410,10 @@ def transformer_text_encoder(inputs,
         encoder_input,
         encoder_self_attention_bias,
         ed,
-    ] = transformer.transformer_prepare_encoder(inputs,
-                                                target_space=target_space,
-                                                hparams=hparams)
+    ] = transformer_layers.transformer_prepare_encoder(
+        inputs, target_space=target_space, hparams=hparams)
     encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.dropout)
-    encoder_output = transformer.transformer_encoder(
+    encoder_output = transformer_layers.transformer_encoder(
         encoder_input, encoder_self_attention_bias, hparams)
     return encoder_output, ed
 
