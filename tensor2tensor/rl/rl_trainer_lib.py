@@ -34,14 +34,16 @@ def define_train(hparams):
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
     memory, collect_summary, train_initialization\
       = collect.define_collect(
-          hparams, "ppo_train", eval_phase=False)
+          hparams, "ppo_train", eval_phase=False,
+          policy_to_actions_lambda=lambda policy: policy.sample())
     ppo_summary = ppo.define_ppo_epoch(memory, hparams)
     train_summary = tf.summary.merge([collect_summary, ppo_summary])
 
     if hparams.eval_every_epochs:
       _, eval_collect_summary, eval_initialization\
         = collect.define_collect(
-            hparams, "ppo_eval", eval_phase=True)
+            hparams, "ppo_eval", eval_phase=True,
+            policy_to_actions_lambda=lambda policy: policy.mode())
       return train_summary, eval_collect_summary, \
              (train_initialization, eval_initialization)
     else:

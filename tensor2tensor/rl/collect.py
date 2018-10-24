@@ -85,8 +85,7 @@ class _MemoryWrapper(WrapperBase):
       return tf.identity(reward), tf.identity(done)
 
 
-def define_collect(hparams, scope, eval_phase,
-                   policy_to_actions_lambda=None):
+def define_collect(hparams, scope, eval_phase, policy_to_actions_lambda):
   """Collect trajectories.
 
   Args:
@@ -177,12 +176,7 @@ def define_collect(hparams, scope, eval_phase,
         """Step of the environment."""
         actor_critic = get_policy(tf.expand_dims(obs_copy, 0), hparams)
         policy = actor_critic.policy
-        if policy_to_actions_lambda:
-          action = policy_to_actions_lambda(policy)
-        else:
-          action = tf.cond(eval_phase_t,
-                           policy.mode,
-                           policy.sample)
+        action = policy_to_actions_lambda(policy)
 
         postprocessed_action = actor_critic.action_postprocessing(action)
         reward, done = batch_env.simulate(postprocessed_action[0, ...])
