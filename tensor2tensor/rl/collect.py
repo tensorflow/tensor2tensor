@@ -86,7 +86,6 @@ class _MemoryWrapper(WrapperBase):
 
 
 def define_collect(hparams, scope, eval_phase,
-                   collect_level=-1,
                    policy_to_actions_lambda=None):
   """Collect trajectories.
 
@@ -94,15 +93,12 @@ def define_collect(hparams, scope, eval_phase,
     hparams: HParams.
     scope: var scope.
     eval_phase: bool, is eval phase.
-    collect_level: int, which level to collect observations.
     policy_to_actions_lambda: lambda.
 
   Returns:
     Returns memory (observtions, rewards, dones, actions,
     pdfs, values_functions)
-    containing a rollout of environment from collect_level of nested wrapper
-    structure. Note that pdfs and values_functions are meaningful only if
-    collect_level==-1.
+    containing a rollout of environment from nested wrapped structure.
   """
 
   to_initialize = []
@@ -121,11 +117,7 @@ def define_collect(hparams, scope, eval_phase,
     to_initialize.append(batch_env)
     environment_wrappers = environment_spec.wrappers
     wrappers = copy.copy(environment_wrappers) if environment_wrappers else []
-    # Put memory wrapper at the level you want to gather observations at.
-    # Negative indices need to be shifted for insert to work correctly.
-    collect_level = collect_level if \
-      collect_level >= 0 else len(wrappers) + collect_level + 1
-    wrappers.insert(collect_level, [_MemoryWrapper, {}])
+    wrappers.append((_MemoryWrapper, {}))
     rollout_metadata = None
     speculum = None
     for w in wrappers:
@@ -133,9 +125,9 @@ def define_collect(hparams, scope, eval_phase,
                       % (str(w[0]), str(w[1]), str(batch_env)))
       batch_env = w[0](batch_env, **w[1])
       to_initialize.append(batch_env)
-      if w[0] == _MemoryWrapper:
-        rollout_metadata = _rollout_metadata(batch_env)
-        speculum = batch_env.speculum
+
+    rollout_metadata = _rollout_metadata(batch_env)
+    speculum = batch_env.speculum
 
     def initialization_lambda(sess):
       for batch_env in to_initialize:
