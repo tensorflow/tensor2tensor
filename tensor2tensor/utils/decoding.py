@@ -416,8 +416,10 @@ def decode_from_file(estimator,
     total_time_per_step += elapsed_time
     total_cnt += result["outputs"].shape[-1]
   tf.logging.info("Elapsed Time: %5.5f" % (time.time() - start_time))
-  tf.logging.info("Averaged Single Token Generation Time: %5.7f" %
-                  (total_time_per_step / total_cnt))
+  tf.logging.info("Averaged Single Token Generation Time: %5.7f "
+                  "(time %5.7f count %d)" %
+                  (total_time_per_step / total_cnt,
+                   total_time_per_step, total_cnt))
 
   # Reversing the decoded inputs and outputs because they were reversed in
   # _decode_batch_input_fn

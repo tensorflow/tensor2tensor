@@ -175,12 +175,14 @@ def next_frame_basic_stochastic_discrete():
   hparams.scheduled_sampling_mode = "prob_inverse_lin"
   hparams.scheduled_sampling_decay_steps = 40000
   hparams.scheduled_sampling_max_prob = 1.0
-  hparams.dropout = 0.3
-  hparams.learning_rate_constant = 0.002
+  hparams.dropout = 0.2
+  hparams.filter_double_steps = 3
+  hparams.hidden_size = 96
+  hparams.learning_rate_constant = 0.005
   hparams.learning_rate_warmup_steps = 2000
   hparams.learning_rate_schedule = "linear_warmup * constant"
-  hparams.add_hparam("bottleneck_bits", 64)
-  hparams.add_hparam("bottleneck_noise", 0.02)
+  hparams.add_hparam("bottleneck_bits", 256)
+  hparams.add_hparam("bottleneck_noise", 0.15)
   hparams.add_hparam("discretize_warmup_steps", 40000)
   hparams.add_hparam("full_latent_tower", False)
   hparams.add_hparam("latent_predictor_state_size", 128)
