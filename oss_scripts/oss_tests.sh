@@ -44,10 +44,8 @@ pytest \
   --ignore=tensor2tensor/visualization/visualization_test.py \
   --ignore=tensor2tensor/bin/t2t_trainer_test.py \
   --ignore=tensor2tensor/data_generators/algorithmic_math_test.py \
-  --ignore=tensor2tensor/rl/trainer_model_based_test.py \
   --ignore=tensor2tensor/data_generators/allen_brain_test.py \
-  --ignore=tensor2tensor/rl/trainer_model_based_stochastic_test.py \
-  --ignore=tensor2tensor/rl/trainer_model_based_sv2p_test.py \
+  --ignore=tensor2tensor/rl \
   --ignore=tensor2tensor/models/research \
   --deselect=tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary
 set_status
@@ -76,6 +74,7 @@ fi
 
 if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]
 then
+    # TODO(afrozm): Enable other tests in the RL directory.
     pytest tensor2tensor/rl/trainer_model_based_test.py
     set_status
     jupyter nbconvert --ExecutePreprocessor.timeout=600 --to notebook --execute tensor2tensor/notebooks/hello_t2t.ipynb
