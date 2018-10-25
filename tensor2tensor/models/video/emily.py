@@ -300,7 +300,7 @@ def next_frame_emily():
   """Emily's model hparams."""
   hparams = sv2p_params.next_frame_sv2p()
   hparams.latent_loss_multiplier = 1e-4
-  hparams.learning_rate_constant = 0.002
+  hparams.learning_rate_constant = 1e-4
   hparams.add_hparam("z_dim", 10)
   hparams.add_hparam("g_dim", 128)
   hparams.add_hparam("rnn_size", 256)
