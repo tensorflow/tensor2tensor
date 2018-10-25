@@ -28,7 +28,7 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
-from tensor2tensor.data_generators import gym_problems_specs
+from tensor2tensor.data_generators import gym_env
 from tensor2tensor.rl import trainer_model_based
 from tensor2tensor.rl import trainer_model_based_params
 
@@ -45,7 +45,7 @@ flags.DEFINE_string("world_model_dir", "",
 
 def get_simulated_problem_name(game):
   game_with_mode = game
-  if game in gym_problems_specs.ATARI_GAMES:
+  if game in gym_env.ATARI_GAMES:
     game_with_mode += "_deterministic-v4"
   return "gym_simulated_discrete_problem_with_agent_on_%s" % game_with_mode
 
