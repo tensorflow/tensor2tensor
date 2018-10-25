@@ -344,7 +344,8 @@ def run_std_server():
 
 def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
-  mlperf_log.transformer_print(key=mlperf_log.RUN_START)
+  if FLAGS.schedule != "train":
+    mlperf_log.transformer_print(key=mlperf_log.RUN_START)
   if FLAGS.schedule == "run_std_server":
     run_std_server()
   mlperf_log.transformer_print(
@@ -372,8 +373,8 @@ def main(argv):
   if is_chief():
     save_metadata(hparams)
   execute_schedule(exp)
-  mlperf_log.transformer_print(key=mlperf_log.RUN_STOP)
-  mlperf_log.transformer_print(key=mlperf_log.RUN_FINAL)
+  if FLAGS.schedule != "train":
+    mlperf_log.transformer_print(key=mlperf_log.RUN_FINAL)
 
 
 if __name__ == "__main__":

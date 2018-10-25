@@ -69,7 +69,11 @@ def decode_hparams(overrides=""):
       display_decoded_images=False,
       # Used for video decoding.
       frames_per_second=10,
-      skip_eos_postprocess=False)
+      skip_eos_postprocess=False,
+      # Used for MLPerf compliance logging.
+      mlperf_mode=False,
+      mlperf_threshold=25.0,
+      mlperf_success=False)
   hp.parse(overrides)
   return hp
 

@@ -78,6 +78,12 @@ def compute_bleu_summaries(hook_args):
     reference file and the translated file.
   """
   decode_hparams = hook_args.decode_hparams
+  estimator = hook_args.estimator
+  current_step = estimator.get_variable_value(tf.GraphKeys.GLOBAL_STEP)
+  if decode_hparams.iterations_per_loop:
+    current_epoch = current_step // decode_hparams.iterations_per_loop
+  else:
+    current_epoch = 0
 
   if (decode_hparams.decode_reference is None or
       decode_hparams.decode_to_file is None):
@@ -88,7 +94,19 @@ def compute_bleu_summaries(hook_args):
       decode_hparams.decode_reference, decode_hparams.decode_to_file)
   values.append(tf.Summary.Value(tag="BLEU", simple_value=bleu))
   tf.logging.info("%s: BLEU = %6.2f" % (decode_hparams.decode_to_file, bleu))
-  mlperf_log.transformer_print(key=mlperf_log.EVAL_ACCURACY, value=bleu)
+  mlperf_log.transformer_print(
+      key=mlperf_log.EVAL_TARGET, value=decode_hparams.mlperf_threshold)
+  mlperf_log.transformer_print(
+      key=mlperf_log.EVAL_ACCURACY,
+      value={
+          "epoch": current_epoch,
+          "value": bleu
+      })
+  mlperf_log.transformer_print(key=mlperf_log.EVAL_STOP)
+
+  if bleu >= decode_hparams.mlperf_threshold:
+    decode_hparams.set_hparam("mlperf_success", True)
+
   return values
 
 

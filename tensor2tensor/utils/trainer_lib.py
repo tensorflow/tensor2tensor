@@ -269,6 +269,9 @@ def create_estimator(model_name,
     predict_batch_size = batch_size
     if decode_hparams and decode_hparams.batch_size:
       predict_batch_size = decode_hparams.batch_size
+    if decode_hparams and run_config.tpu_config:
+      decode_hparams.add_hparam("iterations_per_loop",
+                                run_config.tpu_config.iterations_per_loop)
     estimator = tf.contrib.tpu.TPUEstimator(
         model_fn=model_fn,
         model_dir=run_config.model_dir,
@@ -405,8 +408,16 @@ class T2TExperiment(object):
         self._hparams.problem_hparams = p_hparams
       mlperf_log.transformer_print(key=mlperf_log.EVAL_START)
       self.decode(dataset_split=tf.estimator.ModeKeys.EVAL)
-      mlperf_log.transformer_print(key=mlperf_log.EVAL_TARGET, value=25.0)
-      mlperf_log.transformer_print(key=mlperf_log.EVAL_STOP)
+      d_hparams = self._decode_hparams
+      if d_hparams.mlperf_mode and d_hparams.mlperf_success:
+        mlperf_log.transformer_print(
+            key=mlperf_log.RUN_STOP, value={"success": "true"})
+        break
+
+    d_hparams = self._decode_hparams
+    if d_hparams.mlperf_mode and not d_hparams.mlperf_success:
+      mlperf_log.transformer_print(
+          key=mlperf_log.RUN_STOP, value={"success": "false"})
 
   def evaluate(self):
     return self._estimator.evaluate(
@@ -493,8 +504,16 @@ class T2TExperiment(object):
         continue
       mlperf_log.transformer_print(key=mlperf_log.EVAL_START)
       self.decode(dataset_split=tf.estimator.ModeKeys.EVAL)
-      mlperf_log.transformer_print(key=mlperf_log.EVAL_TARGET, value=25.0)
-      mlperf_log.transformer_print(key=mlperf_log.EVAL_STOP)
+      d_hparams = self._decode_hparams
+      if d_hparams.mlperf_mode and d_hparams.mlperf_success:
+        mlperf_log.transformer_print(
+            key=mlperf_log.RUN_STOP, value={"success": "true"})
+        break
+
+    d_hparams = self._decode_hparams
+    if d_hparams.mlperf_mode and not d_hparams.mlperf_success:
+      mlperf_log.transformer_print(
+          key=mlperf_log.RUN_STOP, value={"success": "false"})
 
   def continuous_decode_from_file(self):
     """Decode from file on new checkpoint."""
