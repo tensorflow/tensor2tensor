@@ -135,7 +135,8 @@ class Glow(t2t_model.T2TModel):
     return self.hparams.init_batch_size
 
   @staticmethod
-  def train_hooks():
+  def train_hooks(hook_context):
+    del hook_context
     return [glow_init_hook.GlowInitHook()]
 
   def top_prior(self):

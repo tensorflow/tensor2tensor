@@ -327,7 +327,8 @@ class NextFrameSavpBase(object):
     return rectified
 
   @staticmethod
-  def train_hooks():
+  def train_hooks(hook_context):
+    del hook_context
     return [update_ops_hook.UpdateOpsHook()]
 
 
