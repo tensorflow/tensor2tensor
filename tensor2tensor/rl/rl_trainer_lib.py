@@ -131,3 +131,23 @@ def train(hparams, event_dir=None, model_dir=None,
             ckpt_path = os.path.join(
                 model_dir, "model.ckpt-{}".format(epoch_index + 1 + start_step))
             model_saver.save(sess, ckpt_path)
+
+
+def evaluate(hparams, model_dir, name_scope="rl_eval"):
+  """Evaluate."""
+  hparams = copy.copy(hparams)
+  hparams.add_hparam("eval_phase", True)
+  with tf.Graph().as_default():
+    with tf.name_scope(name_scope):
+      (collect_memory, _, collect_init) = collect.define_collect(
+          hparams, "ppo_eval"
+      )
+      model_saver = tf.train.Saver(
+          tf.global_variables(".*network_parameters.*")
+      )
+
+      with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        collect_init(sess)
+        trainer_lib.restore_checkpoint(model_dir, model_saver, sess)
+        sess.run(collect_memory)

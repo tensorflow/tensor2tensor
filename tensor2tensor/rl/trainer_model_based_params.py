@@ -104,6 +104,9 @@ def rlmb_base():
       real_ppo_effective_num_agents=16,
       real_ppo_eval_every_epochs=0,
 
+      eval_num_agents=30,
+      eval_max_num_noops=8,
+
       game="pong",
       # Whether to evaluate the world model in each iteration of the loop to get
       # the model_reward_accuracy metric.
@@ -392,6 +395,7 @@ def rlmb_tiny():
           real_ppo_num_agents=1,
           real_ppo_epochs_num=0,
           real_ppo_effective_num_agents=2,
+          eval_num_agents=1,
           generative_model_params="next_frame_tiny",
           stop_loop_early=True,
           resize_height_factor=2,

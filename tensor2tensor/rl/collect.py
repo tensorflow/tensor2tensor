@@ -259,7 +259,8 @@ def define_collect(hparams, scope):
     # When generating real data together with PPO training we must use single
     # agent. For PPO to work we reshape the history, as if it was generated
     # by real_ppo_effective_num_agents.
-    if getattr(hparams, "effective_num_agents", None) and not hparams.eval_phase:
+    if (getattr(hparams, "effective_num_agents", None) and
+        not hparams.eval_phase):
       new_memory = []
       effective_num_agents = hparams.effective_num_agents
       assert hparams.epoch_length % effective_num_agents == 0, (
