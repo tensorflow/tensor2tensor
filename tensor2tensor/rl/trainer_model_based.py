@@ -43,10 +43,10 @@ from tensor2tensor.models.research import rl
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.rl import trainer_model_based_params
 from tensor2tensor.utils import trainer_lib
+from tensor2tensor.rl.dopamine_connector import dopamine_trainer
 
 import tensorflow as tf
 
-from tensor2tensor.rl.dopamine_connector import dopamine_trainer
 
 
 flags = tf.flags
@@ -295,16 +295,19 @@ def train_agent_real_env(
     ppo_hparams.add_hparam("environment_spec", environment_spec)
 
     rl_trainer_lib.train(ppo_hparams, event_dir + "real", agent_model_dir,
-                          name_scope="ppo_real%d" % (epoch + 1))
+                        name_scope="ppo_real%d" % (epoch + 1))
 
   if hparams.rl_algorithm == 'dqn':
     dqn_hparams = trainer_lib.create_hparams(hparams.dqn_params)
-    _update_hparams_from_hparams(dqn_hparams, hparams, _dqn_params_names, "dqn_")
+    _update_hparams_from_hparams(dqn_hparams,
+                                 hparams,
+                                 _dqn_params_names, "dqn_")
     dqn_hparams.add_hparam("environment_spec", environment_spec)
 
     rl_epochs_num += 1
     dqn_hparams.add_hparam("runner_num_iterations", rl_epochs_num)
-    dqn_hparams.add_hparam("runner_training_steps", _training_dqn_steps(hparams))
+    dqn_hparams.add_hparam("runner_training_steps",
+                           _training_dqn_steps(hparams))
     dopamine_trainer(dqn_hparams, agent_model_dir)
 
   # Save unfinished rollouts to history.

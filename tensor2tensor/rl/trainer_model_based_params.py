@@ -120,28 +120,28 @@ def rl_dqn_base():
   #This params are based on agents/dqn/configs/dqn.gin
   #with some modifications taking into account our code
   return tf.contrib.training.HParams(
-    agent_gamma=0.99,
-    agent_update_horizon=1,
-    agent_min_replay_history=20000,  # agent steps
-    agent_update_period=4,
-    agent_target_update_period=8000,  # agent steps
-    agent_epsilon_train=0.01,
-    agent_epsilon_eval=0.001,
-    agent_epsilon_decay_period=250000,  # agent steps
+      agent_gamma=0.99,
+      agent_update_horizon=1,
+      agent_min_replay_history=20000,  # agent steps
+      agent_update_period=4,
+      agent_target_update_period=8000,  # agent steps
+      agent_epsilon_train=0.01,
+      agent_epsilon_eval=0.001,
+      agent_epsilon_decay_period=250000,  # agent steps
 
-    optimizer_class="RMSProp",
-    optimizer_learning_rate=0.00025,
-    optimizer_decay=0.95,
-    optimizer_momentum=0.0,
-    optimizer_epsilon=0.00001,
-    optimizer_centered=True,
+      optimizer_class="RMSProp",
+      optimizer_learning_rate=0.00025,
+      optimizer_decay=0.95,
+      optimizer_momentum=0.0,
+      optimizer_epsilon=0.00001,
+      optimizer_centered=True,
 
-    # runner_training_steps=250000,  # agent steps
-    runner_max_steps_per_episode=27000,  # agent steps
+      # runner_training_steps=250000,  # agent steps
+      runner_max_steps_per_episode=27000,  # agent steps
 
-    replay_buffer_replay_capacity=1000000,
-    replay_buffer_batch_size=32,
-    time_limit=27000,
+      replay_buffer_replay_capacity=1000000,
+      replay_buffer_batch_size=32,
+      time_limit=27000,
   )
 
 @registry.register_hparams

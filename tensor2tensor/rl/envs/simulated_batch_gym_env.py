@@ -47,7 +47,7 @@ class FlatBatchEnv(Env):
 class SimulatedBatchGymEnv:
   """
   SimulatedBatchEnv in a Gym-like interface.
-  
+
   The environments are  batched.
   """
   def __init__(self, environment_spec, batch_size,
@@ -84,8 +84,8 @@ class SimulatedBatchGymEnv:
       env_model_loader = tf.train.Saver(
           tf.global_variables("next_frame*"))
       trainer_lib.restore_checkpoint(
-        model_dir, env_model_loader, self._sess,
-        must_restore=True)
+          model_dir, env_model_loader, self._sess,
+          must_restore=True)
 
   def render(self, mode="human"):
     raise NotImplementedError()
@@ -101,6 +101,6 @@ class SimulatedBatchGymEnv:
 
   def step(self, actions):
     obs, rewards, dones = self._sess.run(
-      [self._obs_t, self._rewards_t, self._dones_t],
-      feed_dict={self._actions_t: actions})
+        [self._obs_t, self._rewards_t, self._dones_t],
+        feed_dict={self._actions_t: actions})
     return obs, rewards, dones
