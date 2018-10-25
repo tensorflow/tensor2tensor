@@ -535,6 +535,10 @@ class T2TModel(base.Layer):
           tf.summary.scalar(k + "_loss", n / d)
           tf.summary.scalar(k + "_loss_num", n)
           tf.summary.scalar(k + "_loss_den", d)
+          if getattr(self.hparams, "visualize_logits_histogram", False):
+            hist = tf.summary.histogram
+            hist(k + "_predict", tf.argmax(tf.squeeze(v), axis=-1))
+            hist(k + "_targets", features[k])
 
       return tf.add_n([n / d for n, d in losses.values()])
     else:
