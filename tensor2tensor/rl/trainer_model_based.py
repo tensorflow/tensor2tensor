@@ -231,7 +231,7 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
                            name_scope="ppo_sim%d" % (epoch + 1))
 
     if hparams.rl_algorithm == 'dqn':
-      dqn_hparams = trainer_lib.create_hparams(hparams.ppo_params)
+      dqn_hparams = trainer_lib.create_hparams(hparams.dqn_params)
       _update_hparams_from_hparams(dqn_hparams, hparams, _dqn_params_names, "dqn_")
       dqn_hparams.add_hparam("environment_spec", environment_spec)
       rl_epochs_num = 10
@@ -250,7 +250,7 @@ _dqn_params_names = ["agent_gamma", "agent_update_horizon",
                     "optimizer_decay", "optimizer_momentum",
                     "optimizer_epsilon", "optimizer_centered",
                     "runner_training_steps", "runner_max_steps_per_episode",
-                    "replay_replay_capacity", "replay_batch_size"]
+                    "replay_buffer_replay_capacity", "replay_buffer_batch_size"]
 
 _ppo_params_names = ["epochs_num", "epoch_length",
                     "learning_rate", "num_agents", "eval_every_epochs",
@@ -287,7 +287,7 @@ def train_agent_real_env(
                           name_scope="ppo_real%d" % (epoch + 1))
 
   if hparams.rl_algorithm == 'dqn':
-    dqn_hparams = trainer_lib.create_hparams(hparams.ppo_params)
+    dqn_hparams = trainer_lib.create_hparams(hparams.dqn_params)
     _update_hparams_from_hparams(dqn_hparams, hparams, _dqn_params_names, "dqn_")
     dqn_hparams.add_hparam("environment_spec", environment_spec)
 

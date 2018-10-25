@@ -139,11 +139,11 @@ def dqn_base():
     runner_training_steps=250000,  # agent steps
     runner_max_steps_per_episode=27000,  # agent steps
 
-    replay_replay_capacity=1000000,
-    replay_batch_size=32)
+    replay_buffer_replay_capacity=1000000,
+    replay_buffer_batch_size=32)
 
 @registry.register_hparams
-def dqn_tiny():
+def rlmb_dqn_tiny():
   """Tiny set for testing."""
   return dqn_base().override_from_dict(
       tf.contrib.training.HParams(
@@ -169,7 +169,6 @@ def rlmb_dqn_base():
       num_real_env_frames=96000,
       generative_model="next_frame_basic_deterministic",
       generative_model_params="next_frame_pixel_noise",
-      ppo_params="ppo_pong_base",
       autoencoder_train_steps=0,
       autoencoder_train_steps_initial_multiplier=10,
       autoencoder_hparams_set="autoencoder_discrete_pong",
