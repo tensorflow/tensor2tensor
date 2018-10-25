@@ -20,7 +20,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
 import copy
 import mesh_tensorflow as mtf
 
@@ -111,6 +110,7 @@ class MtfModel(t2t_model.T2TModel):
       var_grads = mtf.gradients(
           [loss], [v.outputs[0] for v in graph.trainable_variables])
       lr = learning_rate.learning_rate_schedule(hparams)
+      tf.summary.scalar("learning_rate", lr)
       mtf_lr = mtf.import_tf_tensor(
           mesh, tf.convert_to_tensor(lr, dtype=tf.float32), mtf.Shape([]))
       optimizer = mtf.optimize.make_optimizer(hparams, mtf_lr)
@@ -156,11 +156,18 @@ class MtfModel(t2t_model.T2TModel):
                                        restore_hook, use_tpu)
 
     if use_tpu:
-      _remove_summaries()
+      # TPU host call. Important: need to be called before remove_summaries()
+      if hparams.tpu_enable_host_call:
+        host_call = t2t_model.create_host_call(hparams.model_dir)
+      else:
+        host_call = None
+
+      t2t_model.remove_summaries()
       return tpu_estimator.TPUEstimatorSpec(
           mode=tf.estimator.ModeKeys.TRAIN,
           loss=tf_loss,
           train_op=train_op,
+          host_call=host_call,
           training_hooks=[restore_hook, saver_hook])
     else:
       return tf.estimator.EstimatorSpec(
@@ -219,7 +226,7 @@ class MtfModel(t2t_model.T2TModel):
         "inputs": features.get("inputs"),
     }
     if use_tpu:
-      _remove_summaries()
+      t2t_model.remove_summaries()
       return tpu_estimator.TPUEstimatorSpec(
           mode=tf.estimator.ModeKeys.PREDICT,
           predictions=predictions,
@@ -236,58 +243,3 @@ class MtfModel(t2t_model.T2TModel):
 
   def mtf_model_fn(self, features, mesh):
     raise NotImplementedError("Not implemented")
-
-
-def _remove_summaries():
-  g = tf.get_default_graph()
-  key = tf.GraphKeys.SUMMARIES
-  del g.get_collection_ref(key)[:]
-  assert not g.get_collection(key)
-
-
-def _create_host_call(model_dir):
-  """Construct a host_call writing scalar summaries.
-
-  Args:
-    model_dir: String containing path to train
-
-  Returns:
-    (fn, args) Pair to be called by TPUEstimator as the host_call.
-  """
-  graph = tf.get_default_graph()
-  summaries = graph.get_collection(tf.GraphKeys.SUMMARIES)
-
-  gs_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
-  summary_kwargs = collections.OrderedDict()
-  for t in summaries:
-    if t.op.type != "ScalarSummary":
-      continue
-
-    name = t.op.name
-    tensor = t.op.inputs[1]
-    assert tensor.shape.is_compatible_with([])
-    if tensor.dtype == tf.int64:
-      tensor = tf.to_int32(tensor)
-    summary_kwargs[name] = tf.reshape(tensor, [1])
-  summary_kwargs["global_step"] = gs_t
-
-  def host_call_fn(**kwargs):
-    """Training host call. Creates scalar summaries for training metrics.
-
-    Args:
-      **kwargs: Dict of {str: Tensor} , with `Tensor` of shape `[batch]`. Must
-        contain key "global_step" with value of current global_step Tensor.
-
-    Returns:
-      List of summary ops to run on the CPU host.
-    """
-    gs = tf.to_int64(kwargs.pop("global_step")[0])
-    with tf.contrib.summary.create_file_writer(model_dir).as_default():
-      with tf.contrib.summary.always_record_summaries():
-        for name, value in sorted(six.iteritems(kwargs)):
-          tf.contrib.summary.scalar(
-              name, tf.reduce_mean(tf.to_float(value)), step=gs)
-
-        return tf.contrib.summary.all_summary_ops()
-
-  return (host_call_fn, summary_kwargs)

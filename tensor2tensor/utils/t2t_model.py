@@ -1350,10 +1350,10 @@ class T2TModel(base.Layer):
     for var in tf.contrib.framework.get_trainable_variables():
       var_name = var.name.split(":")[0]
       if reader.has_tensor(var_name):
-        tf.logging.info("Loading variable from checkpoint: %s", var_name)
+        log_info("Loading variable from checkpoint: %s", var_name)
         variable_map[var_name] = var
       else:
-        tf.logging.info(
+        log_info(
             "Cannot find variable in checkpoint, skipping: %s", var_name)
     tf.train.init_from_checkpoint(ckpt_dir, variable_map)
 
@@ -1370,8 +1370,9 @@ class T2TModel(base.Layer):
       else:
         scaffold_fn = None
 
+      # Note: important to call this before remove_summaries()
       if self.hparams.tpu_enable_host_call:
-        host_call = _create_host_call(self.hparams.model_dir)
+        host_call = create_host_call(self.hparams.model_dir)
       else:
         host_call = None
 
@@ -1638,13 +1639,15 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
 
 
 def remove_summaries():
+  """Remove summaries from the default graph."""
   g = tf.get_default_graph()
   key = tf.GraphKeys.SUMMARIES
+  log_debug("Remove summaries %s" % str(g.get_collection(key)))
   del g.get_collection_ref(key)[:]
   assert not g.get_collection(key)
 
 
-def _create_host_call(model_dir):
+def create_host_call(model_dir):
   """Construct a host_call writing scalar summaries.
 
   Args:
@@ -1655,7 +1658,6 @@ def _create_host_call(model_dir):
   """
   graph = tf.get_default_graph()
   summaries = graph.get_collection(tf.GraphKeys.SUMMARIES)
-
   gs_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
   summary_kwargs = collections.OrderedDict()
   for t in summaries:
@@ -1689,6 +1691,7 @@ def _create_host_call(model_dir):
   if not summary_kwargs:
     return None
   summary_kwargs["global_step"] = gs_t
+  log_info("summary_kwargs %s" % str(summary_kwargs))
 
   def host_call_fn(**kwargs):
     """Training host call. Creates summaries for training metrics.
@@ -1841,6 +1844,10 @@ def _eager_log(level, *args):
     return
   _already_logged.add(args)
   getattr(tf.logging, level)(*args)
+
+
+def log_debug(*args):
+  _eager_log("debug", *args)
 
 
 def log_info(*args):
