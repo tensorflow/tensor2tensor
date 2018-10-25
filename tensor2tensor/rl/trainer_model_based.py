@@ -52,7 +52,7 @@ from tensor2tensor.rl.dopamine_connector import dopamine_trainer
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-
+#TODO(pm): possibly remove gather_ppo_real_env_data and this function
 def real_ppo_epoch_increment(hparams):
   """PPO increment."""
   if hparams.gather_ppo_real_env_data:
@@ -134,30 +134,18 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
   getattr(exp, schedule)()
 
 
+def _update_hparams_from_hparams(target_hparams, source_hparams, param_names, prefix):
+  "Copy a subset of hparams to target_hparams"
+  for param_name in param_names:
+    prefixed_param_name = prefix + param_name
+    if prefixed_param_name in source_hparams:
+      target_hparams.set_hparam(param_name, source_hparams.get(prefixed_param_name))
+
+
 def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
-                hparams, ppo_epochs_num, epoch=0, is_final_epoch=False):
+                hparams, rl_epochs_num, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the simulated environment."""
   del data_dir
-  ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
-  ppo_params_names = ["epochs_num", "epoch_length",
-                      "learning_rate", "num_agents",
-                      "optimization_epochs", "eval_every_epochs"]
-
-  for param_name in ppo_params_names:
-    ppo_param_name = "ppo_" + param_name
-    if ppo_param_name in hparams:
-      ppo_hparams.set_hparam(param_name, hparams.get(ppo_param_name))
-
-  ppo_epochs_num += sim_ppo_epoch_increment(hparams, is_final_epoch)
-  ppo_hparams.epochs_num = ppo_epochs_num
-
-  ppo_hparams.save_models_every_epochs = 10
-  ppo_hparams.add_hparam('world_model_dir', world_model_dir)
-  ppo_hparams.add_hparam("force_beginning_resets", True)
-
-  # Adding model hparams for model specific adjustments
-  model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
-  ppo_hparams.add_hparam("model_hparams", model_hparams)
 
   environment_spec_params = {
       param_name: hparams.get(param_name)
@@ -223,56 +211,96 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
 
     environment_spec.add_hparam("initial_frame_chooser", initial_frame_chooser)
 
-    ppo_hparams.add_hparam("environment_spec", environment_spec)
+    assert hparams.rl_algorithm in ['ppo', 'dqn'], \
+      "{} is not supported".format(hparams.rl_algorithm)
 
-    # rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
-    #                      name_scope="ppo_sim%d" % (epoch + 1))
-    dopamine_trainer(ppo_hparams, agent_model_dir)
-  return ppo_epochs_num
+    if hparams.rl_algorithm=='ppo':
+      ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
+      _update_hparams_from_hparams(ppo_hparams, hparams, _ppo_params_names, "ppo_")
+
+      rl_epochs_num += sim_ppo_epoch_increment(hparams, is_final_epoch)
+      ppo_hparams.epochs_num = rl_epochs_num
+
+      ppo_hparams.save_models_every_epochs = 10
+      ppo_hparams.add_hparam('world_model_dir', world_model_dir)
+      ppo_hparams.add_hparam("force_beginning_resets", True)
+
+      #TODO(pm): possibly remove
+      # Adding model hparams for model specific adjustments
+      model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
+      ppo_hparams.add_hparam("model_hparams", model_hparams)
+      ppo_hparams.add_hparam("environment_spec", environment_spec)
+
+      rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
+                           name_scope="ppo_sim%d" % (epoch + 1))
+
+    if hparams.rl_algorithm == 'dqn':
+      dqn_hparams = trainer_lib.create_hparams(hparams.ppo_params)
+      _update_hparams_from_hparams(dqn_hparams, hparams, _dqn_params_names, "dqn_")
+      dqn_hparams.add_hparam("environment_spec", environment_spec)
+      rl_epochs_num = 10
+      raise NotImplemented
+      dopamine_trainer(dqn_hparams, agent_model_dir)
+
+
+  return rl_epochs_num
+
+
+_dqn_params_names = ["agent_gamma", "agent_update_horizon",
+                    "agent_min_replay_history", "agent_update_period",
+                    "agent_target_update_period", "agent_epsilon_train",
+                    "agent_epsilon_eval", "agent_epsilon_decay_period",
+                    "optimizer_class", "optimizer_learning_rate",
+                    "optimizer_decay", "optimizer_momentum",
+                    "optimizer_epsilon", "optimizer_centered",
+                    "runner_training_steps", "runner_max_steps_per_episode",
+                    "replay_replay_capacity", "replay_batch_size"]
+
+_ppo_params_names = ["epochs_num", "epoch_length",
+                    "learning_rate", "num_agents", "eval_every_epochs",
+                    "optimization_epochs", "effective_num_agents"]
 
 
 def train_agent_real_env(
     env, agent_model_dir, event_dir, data_dir,
-    hparams, ppo_epochs_num, epoch=0, is_final_epoch=False):
+    hparams, rl_epochs_num, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the real environment."""
   del is_final_epoch, data_dir
 
-  #rl_params = read_rl_params("..")
-
-  ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
-  ppo_params_names = ["epochs_num", "epoch_length",
-                      "learning_rate", "num_agents", "eval_every_epochs",
-                      "optimization_epochs", "effective_num_agents"]
-
-  # This should be overridden.
-  ppo_hparams.add_hparam("effective_num_agents", None)
-  for param_name in ppo_params_names:
-    ppo_param_name = "real_ppo_"+ param_name
-    if ppo_param_name in hparams:
-      ppo_hparams.set_hparam(param_name, hparams.get(ppo_param_name))
-
-  ppo_epochs_num += real_ppo_epoch_increment(hparams)
-  ppo_hparams.epochs_num = ppo_epochs_num
-  # We do not save model, as that resets frames that we need at restarts.
-  # But we need to save at the last step, so we set it very high.
-  ppo_hparams.save_models_every_epochs = 1000000
-
   environment_spec = rl.standard_atari_env_spec(env)
 
-  ppo_hparams.add_hparam("environment_spec", environment_spec)
+  assert hparams.rl_algorithm in ['ppo', 'dqn'], \
+    "{} is not supported".format(hparams.rl_algorithm)
 
-  # rl_trainer_lib.train(ppo_hparams, event_dir + "real", agent_model_dir,
-  #                      name_scope="ppo_real%d" % (epoch + 1))
+  if hparams.rl_algorithm == 'ppo':
+    ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
+    _update_hparams_from_hparams(ppo_hparams, hparams, _ppo_params_names, "real_ppo_")
+    # This should be overridden.
+    ppo_hparams.add_hparam("effective_num_agents", None)
 
-  # TODO: use only one runner, don't create new one in each epoch call
-  dopamine_trainer(ppo_hparams, agent_model_dir)
-  # TODO: instead of running whole experiment, call just e.g. `runner._run_one_iteration`
-  # runner.run_experiment()
+    rl_epochs_num += real_ppo_epoch_increment(hparams)
+    ppo_hparams.epochs_num = rl_epochs_num
+    # We do not save model, as that resets frames that we need at restarts.
+    # But we need to save at the last step, so we set it very high.
+    ppo_hparams.save_models_every_epochs = 1000000
+    ppo_hparams.add_hparam("environment_spec", environment_spec)
+
+    rl_trainer_lib.train(ppo_hparams, event_dir + "real", agent_model_dir,
+                          name_scope="ppo_real%d" % (epoch + 1))
+
+  if hparams.rl_algorithm == 'dqn':
+    dqn_hparams = trainer_lib.create_hparams(hparams.ppo_params)
+    _update_hparams_from_hparams(dqn_hparams, hparams, _dqn_params_names, "dqn_")
+    dqn_hparams.add_hparam("environment_spec", environment_spec)
+
+    rl_epochs_num = 10
+    raise NotImplemented
+    dopamine_trainer(dqn_hparams, agent_model_dir)
 
   # Save unfinished rollouts to history.
   env.reset()
 
-  return ppo_epochs_num
+  return rl_epochs_num
 
 
 def train_world_model(
@@ -424,7 +452,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   ppo_event_dir = os.path.join(directories["world_model"],
                                "ppo_summaries/initial")
   ppo_epochs_num = train_agent_real_env(
-      env, ppo_model_dir, ppo_event_dir, data_dir, hparams, ppo_epochs_num=0,
+      env, ppo_model_dir, ppo_event_dir, data_dir, hparams, rl_epochs_num=0,
       epoch=epoch, is_final_epoch=False
   )
   metrics["mean_reward/train/clipped"] = compute_mean_reward(
