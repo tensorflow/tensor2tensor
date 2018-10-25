@@ -63,20 +63,21 @@ class ResizeObservation(gym.ObservationWrapper):
                        interpolation=cv2.INTER_AREA)
 
 
-class AddGameOverProperty(Wrapper):
-  @property
-  def game_over(self):
-    if hasattr(self.env, 'game_over'):
-      game_over = self.env.game_over
-    else:
-      game_over = False
-    return game_over
+class GameOverOnDone(Wrapper):
+
+  def __init__(self, env):
+    Wrapper.__init__(self, env)
+    self.game_over = False
 
   def reset(self, **kwargs):
+    self.game_over = False
     return self.env.reset(**kwargs)
 
   def step(self, action):
-    return self.env.step(action)
+    res = self.env.step(action)
+    self.game_over = res[2]
+    return res
+
 
 class _DQNAgent(dqn_agent.DQNAgent):
   """Allow passing batch_size and replay_capacity to ReplayBuffer"""
@@ -109,25 +110,20 @@ def get_create_agent(kwargs):
                       **kwargs)
   return create_agent
 
-#TODO(pm):pass simulated_time_limit
-def get_create_env_fun(env_spec, world_model_dir, simulated_time_limit=10):
+
+def get_create_env_fun(env_spec, world_model_dir, time_limit):
   simulated = env_spec.simulated_env
   def create_env_fun(_1, _2):
     if simulated:
       batch_env = SimulatedBatchGymEnv(env_spec, 1, model_dir=world_model_dir)
-      batch_env = TimeLimit(batch_env, max_episode_steps=simulated_time_limit)
     else:
       batch_env = env_spec.env
+
     env = FlatBatchEnv(batch_env)
+    env = TimeLimit(env, max_episode_steps=time_limit)
     env = ResizeObservation(env)
 
-    if simulated:
-      # TODO: check how timesteps limit is choosen in PPO
-      # (hardcoded? passed by hparams?)
-      env = TimeLimit(env, max_episode_steps=100)
-
-    # This needs to be top level wrapper for dopamine.
-    env = AddGameOverProperty(env)
+    env = GameOverOnDone(env)
     return env
   return create_env_fun
 
@@ -159,10 +155,6 @@ def dopamine_trainer(hparams, model_dir):
 
   assert _dopamine_path is not None, "Dopamine not available. Please install from " \
                                      "https://github.com/google/dopamine and add to PYTHONPATH"
-  if hparams.environment_spec.simulated_env:
-    num_iterations = 2
-  else:
-    num_iterations = 1
 
   agent_params, optimizer_params, \
   runner_params, replay_buffer_params = _parse_hparams(hparams)
@@ -172,23 +164,13 @@ def dopamine_trainer(hparams, model_dir):
 
   create_agent = get_create_agent(agent_params)
 
-
-  training_steps = 100
-
-  # with gin.unlock_config():# This is slight wierdness due to multiple runs DQN
-    # TODO(pm): Think how to integrate with dopamine.
-    # gin_files = [os.path.join(_dopamine_path, 'agents/dqn/configs/dqn.gin')]
-    # run_experiment.load_gin_configs(gin_files, [])
-
   with tf.Graph().as_default():
     runner = run_experiment.Runner(
         base_dir=model_dir, game_name="fake", create_agent_fn=create_agent,
         create_environment_fn=get_create_env_fun(hparams.environment_spec,
-                                                 hparams.get('world_model_dir', None)),
-        num_iterations=num_iterations,
-        # training_steps=training_steps,
+                                                 hparams.get('world_model_dir', None),
+                                                 time_limit=hparams.time_limit),
         evaluation_steps=0,
-        # max_steps_per_episode=20,  # TODO: remove this,
         **runner_params
     )
 

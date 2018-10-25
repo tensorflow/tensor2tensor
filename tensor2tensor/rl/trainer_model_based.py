@@ -218,6 +218,7 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
       ppo_hparams.epochs_num = rl_epochs_num
 
       ppo_hparams.save_models_every_epochs = 10
+      #TODO(piotrmilos): world_model_dir possibly remove
       ppo_hparams.add_hparam('world_model_dir', world_model_dir)
       ppo_hparams.add_hparam("force_beginning_resets", True)
 
@@ -234,8 +235,15 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
       dqn_hparams = trainer_lib.create_hparams(hparams.dqn_params)
       _update_hparams_from_hparams(dqn_hparams, hparams, _dqn_params_names, "dqn_")
       dqn_hparams.add_hparam("environment_spec", environment_spec)
-      rl_epochs_num = 10
-      raise NotImplemented
+      training_dqn_steps = _training_dqn_steps(hparams)
+
+      rl_epochs_num += int(hparams.simulated_dqn_training_steps/training_dqn_steps)
+
+      dqn_hparams.add_hparam("runner_num_iterations", rl_epochs_num)
+      dqn_hparams.add_hparam("runner_training_steps", training_dqn_steps)
+      dqn_hparams.add_hparam("world_model_dir", world_model_dir)
+
+
       dopamine_trainer(dqn_hparams, agent_model_dir)
 
 
@@ -256,6 +264,9 @@ _ppo_params_names = ["epochs_num", "epoch_length",
                     "learning_rate", "num_agents", "eval_every_epochs",
                     "optimization_epochs", "effective_num_agents"]
 
+
+def _training_dqn_steps(hparams):
+  return int(hparams.num_real_env_frames/hparams.epochs)
 
 def train_agent_real_env(
     env, agent_model_dir, event_dir, data_dir,
@@ -291,7 +302,9 @@ def train_agent_real_env(
     _update_hparams_from_hparams(dqn_hparams, hparams, _dqn_params_names, "dqn_")
     dqn_hparams.add_hparam("environment_spec", environment_spec)
 
-    rl_epochs_num = 10
+    rl_epochs_num += 1
+    dqn_hparams.add_hparam("runner_num_iterations", rl_epochs_num)
+    dqn_hparams.add_hparam("runner_training_steps", _training_dqn_steps(hparams))
     dopamine_trainer(dqn_hparams, agent_model_dir)
 
   # Save unfinished rollouts to history.

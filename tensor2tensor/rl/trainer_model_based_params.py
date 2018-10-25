@@ -116,7 +116,7 @@ def rlmb_base():
   )
 
 @registry.register_hparams
-def dqn_base():
+def rl_dqn_base():
   #This params are based on agents/dqn/configs/dqn.gin
   #with some modifications taking into account our code
   return tf.contrib.training.HParams(
@@ -136,27 +136,13 @@ def dqn_base():
     optimizer_epsilon=0.00001,
     optimizer_centered=True,
 
-    runner_training_steps=250000,  # agent steps
+    # runner_training_steps=250000,  # agent steps
     runner_max_steps_per_episode=27000,  # agent steps
 
     replay_buffer_replay_capacity=1000000,
-    replay_buffer_batch_size=32)
-
-@registry.register_hparams
-def rlmb_dqn_tiny():
-  """Tiny set for testing."""
-  return dqn_base().override_from_dict(
-      tf.contrib.training.HParams(
-          epochs=1,
-          num_real_env_frames=128,
-          model_train_steps=2,
-          generative_model_params="next_frame_tiny",
-          stop_loop_early=True,
-          resize_height_factor=2,
-          resize_width_factor=2,
-          game="pong",
-          env_timesteps_limit=6,
-      ).values())
+    replay_buffer_batch_size=32,
+    time_limit=27000,
+  )
 
 @registry.register_hparams
 def rlmb_dqn_base():
@@ -192,8 +178,9 @@ def rlmb_dqn_base():
       learning_rate_bump=3.0,
 
       rl_algorithm='dqn',
-      dqn_params = 'dqn_base',
-      dqn_traning_step = int(5e7),
+      dqn_params='rl_dqn_base',
+      dqn_time_limit=10,
+      simulated_dqn_training_steps=int(1e7),
 
       game="pong",
       # Whether to evaluate the world model in each iteration of the loop to get
@@ -203,7 +190,25 @@ def rlmb_dqn_base():
       eval_rollout_fractions=[0.25, 0.5, 1],
       stop_loop_early=False,  # To speed-up tests.
       env_timesteps_limit=-1,  # Use default from gym.make()
+
+      # TODO(piotrmilos): possibly remove this
+      ppo_continue_training=True
   )
+
+@registry.register_hparams
+def rlmb_dqn_tiny():
+  """Tiny set for testing."""
+  return rlmb_dqn_base().override_from_dict(
+      tf.contrib.training.HParams(
+          epochs=1,
+          num_real_env_frames=128,
+          model_train_steps=2,
+          generative_model_params="next_frame_tiny",
+          stop_loop_early=True,
+          simulated_dqn_training_steps=int(1e4),
+          env_timesteps_limit=6,
+      ).values())
+
 
 
 @registry.register_hparams
