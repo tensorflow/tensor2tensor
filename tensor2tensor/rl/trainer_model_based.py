@@ -52,19 +52,15 @@ from tensor2tensor.rl.dopamine_connector import dopamine_trainer
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-#TODO(pm): possibly remove gather_ppo_real_env_data and this function
 def real_ppo_epoch_increment(hparams):
   """PPO increment."""
-  if hparams.gather_ppo_real_env_data:
-    assert hparams.real_ppo_epochs_num is 0, (
-        "Should be put to 0 to enforce better readability"
-    )
-    return int(math.ceil(
-        hparams.num_real_env_frames /
-        (hparams.epochs * hparams.real_ppo_epoch_length)
-    ))
-  else:
-    return hparams.real_ppo_epochs_num
+  assert hparams.real_ppo_epochs_num is 0, (
+      "Should be put to 0 to enforce better readability"
+  )
+  return int(math.ceil(
+      hparams.num_real_env_frames /
+      (hparams.epochs * hparams.real_ppo_epoch_length)
+  ))
 
 
 def sim_ppo_epoch_increment(hparams, is_final_epoch):
@@ -274,10 +270,12 @@ def train_agent_real_env(
 
   if hparams.rl_algorithm == 'ppo':
     ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
-    _update_hparams_from_hparams(ppo_hparams, hparams, _ppo_params_names, "real_ppo_")
-    # This should be overridden.
-    ppo_hparams.add_hparam("effective_num_agents", None)
 
+    # This should be overridden by hparams.
+    ppo_hparams.add_hparam("effective_num_agents", None)
+    _update_hparams_from_hparams(ppo_hparams, hparams, _ppo_params_names, "real_ppo_")
+
+    ppo_hparams.num_agents = 1
     rl_epochs_num += real_ppo_epoch_increment(hparams)
     ppo_hparams.epochs_num = rl_epochs_num
     # We do not save model, as that resets frames that we need at restarts.
@@ -294,7 +292,6 @@ def train_agent_real_env(
     dqn_hparams.add_hparam("environment_spec", environment_spec)
 
     rl_epochs_num = 10
-    raise NotImplemented
     dopamine_trainer(dqn_hparams, agent_model_dir)
 
   # Save unfinished rollouts to history.
@@ -433,7 +430,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   epoch = -1
   data_dir = directories["data"]
-  env = setup_env(hparams, batch_size=hparams.real_ppo_num_agents)
+  env = setup_env(hparams, batch_size=1)
   env.start_new_epoch(epoch, data_dir)
 
   # Timing log function
@@ -443,10 +440,6 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   epoch_metrics = []
   metrics = {}
 
-  # Collect data from the real environment with PPO or random policy.
-  # TODO(lukaszkaiser): do we need option not to gather_ppo_real_env_data?
-  # We could set learning_rate=0 if this flag == False.
-  assert hparams.gather_ppo_real_env_data
   ppo_model_dir = directories["ppo"]
   tf.logging.info("Initial training of PPO in real environment.")
   ppo_event_dir = os.path.join(directories["world_model"],

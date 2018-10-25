@@ -60,7 +60,6 @@ def rlmb_base():
       autoencoder_hparams_set="autoencoder_discrete_pong",
       model_train_steps=15000,
       initial_epoch_train_steps_multiplier=3,
-      simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,  # Use random starts in PPO.
       # Flip the first random frame in PPO batch for the true beginning.
       simulation_flip_first_random_for_beginning=True,
@@ -95,11 +94,9 @@ def rlmb_base():
       # In your experiments, you want to optimize this rate to your schedule.
       learning_rate_bump=3.0,
 
-      gather_ppo_real_env_data=True,
       real_ppo_epochs_num=0,
       # This needs to be divisible by real_ppo_effective_num_agents.
       real_ppo_epoch_length=16*200,
-      real_ppo_num_agents=1,
       real_ppo_learning_rate=1e-4,
       real_ppo_continue_training=True,
       real_ppo_effective_num_agents=16,
@@ -146,6 +143,22 @@ def dqn_base():
     replay_batch_size=32)
 
 @registry.register_hparams
+def dqn_tiny():
+  """Tiny set for testing."""
+  return dqn_base().override_from_dict(
+      tf.contrib.training.HParams(
+          epochs=1,
+          num_real_env_frames=128,
+          model_train_steps=2,
+          generative_model_params="next_frame_tiny",
+          stop_loop_early=True,
+          resize_height_factor=2,
+          resize_width_factor=2,
+          game="pong",
+          env_timesteps_limit=6,
+      ).values())
+
+@registry.register_hparams
 def rlmb_dqn_base():
   return tf.contrib.training.HParams(
       epochs=15,
@@ -162,7 +175,6 @@ def rlmb_dqn_base():
       autoencoder_hparams_set="autoencoder_discrete_pong",
       model_train_steps=15000,
       initial_epoch_train_steps_multiplier=3,
-      simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,  # Use random starts in PPO.
       # Flip the first random frame in PPO batch for the true beginning.
       simulation_flip_first_random_for_beginning=True,
@@ -203,7 +215,6 @@ def rlmb_basetest():
   hparams.epochs = 2
   hparams.num_real_env_frames = 3200
   hparams.model_train_steps = 100
-  hparams.simulated_env_generator_num_steps = 20
   hparams.ppo_epochs_num = 2
   return hparams
 
@@ -462,14 +473,12 @@ def rlmb_tiny():
       tf.contrib.training.HParams(
           epochs=1,
           num_real_env_frames=128,
-          simulated_env_generator_num_steps=64,
           model_train_steps=2,
           ppo_epochs_num=2,
           ppo_time_limit=5,
           ppo_epoch_length=5,
           ppo_num_agents=2,
           real_ppo_epoch_length=36,
-          real_ppo_num_agents=1,
           real_ppo_epochs_num=0,
           real_ppo_effective_num_agents=2,
           eval_num_agents=1,
@@ -529,7 +538,6 @@ def rlmb_ae_base():
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "next_frame_ae"
   hparams.autoencoder_hparams_set = "autoencoder_discrete_pong"
-  hparams.gather_ppo_real_env_data = False
   hparams.autoencoder_train_steps = 5000
   hparams.resize_height_factor = 1
   hparams.resize_width_factor = 1
@@ -546,7 +554,6 @@ def rlmb_ae_basetest():
   hparams.num_real_env_frames = 3200
   hparams.model_train_steps = 100
   hparams.autoencoder_train_steps = 10
-  hparams.simulated_env_generator_num_steps = 20
   hparams.ppo_epochs_num = 2
   return hparams
 
@@ -558,7 +565,6 @@ def rlmb_ae_tiny():
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "next_frame_ae_tiny"
   hparams.autoencoder_hparams_set = "autoencoder_discrete_tiny"
-  hparams.gather_ppo_real_env_data = False
   hparams.resize_height_factor = 1
   hparams.resize_width_factor = 1
   hparams.grayscale = False
