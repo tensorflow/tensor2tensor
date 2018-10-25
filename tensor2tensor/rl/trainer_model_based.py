@@ -346,7 +346,7 @@ def evaluate_all_configs(hparams, agent_model_dir):
       eval_hparams = make_eval_hparams(hparams, policy_to_action, max_num_noops)
       scores = evaluate_single_config(eval_hparams, agent_model_dir)
       for (score, clipped) in zip(scores, (True, False)):
-        metric_name = "mean_eval_reward_{}_{}_max_noops_{}".format(
+        metric_name = "mean_reward/eval/{}_{}_max_noops_{}".format(
             policy_to_action, max_num_noops,
             "clipped" if clipped else "unclipped"
         )
@@ -412,11 +412,11 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       env, ppo_model_dir, ppo_event_dir, data_dir, hparams, ppo_epochs_num=0,
       epoch=epoch, is_final_epoch=False
   )
-  metrics["mean_train_reward_clipped"] = compute_mean_reward(
+  metrics["mean_reward/train/clipped"] = compute_mean_reward(
       env.current_epoch_rollouts(), clipped=True
   )
   tf.logging.info("Mean training reward (initial): {}".format(
-      metrics["mean_train_reward_clipped"]
+      metrics["mean_reward/train/clipped"]
   ))
 
   eval_metrics_event_dir = os.path.join(directories["world_model"],
@@ -464,10 +464,10 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     if hparams.stop_loop_early:
       return 0.0
 
-    metrics["mean_train_reward_clipped"] = compute_mean_reward(
+    metrics["mean_reward/train/clipped"] = compute_mean_reward(
         env.current_epoch_rollouts(), clipped=True
     )
-    log("Mean training reward: {}".format(metrics["mean_train_reward_clipped"]))
+    log("Mean training reward: {}".format(metrics["mean_reward/train/clipped"]))
 
     eval_metrics = evaluate_all_configs(hparams, ppo_model_dir)
     log("Eval metrics:\n{}".format(pprint.pformat(eval_metrics)))
