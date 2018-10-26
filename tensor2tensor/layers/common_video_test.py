@@ -122,7 +122,7 @@ class CommonVideoTest(parameterized.TestCase, tf.test.TestCase):
 
       self.assertEqual(encoded, common_video._encode_gif(images[0], fps=10))  # pylint: disable=protected-access
 
-  def checkIfPatchExists(self, videos, video_patches, num_frames):
+  def check_if_patch_exists(self, videos, video_patches, num_frames):
     """Check that given patch is present in video."""
     for video, video_patch in zip(videos, video_patches):
       total_frames = len(video)
@@ -145,7 +145,7 @@ class CommonVideoTest(parameterized.TestCase, tf.test.TestCase):
         video_patch_np = sess.run(video_patch)
         if num_frames != -1:
           self.assertEqual(video_patch_np.shape, (12, num_frames, 256, 256, 3))
-          self.checkIfPatchExists(video_np, video_patch_np, num_frames)
+          self.check_if_patch_exists(video_np, video_patch_np, num_frames)
         else:
           self.assertTrue(np.allclose(video_np, video_patch_np))
 
