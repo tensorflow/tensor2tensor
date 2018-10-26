@@ -93,24 +93,6 @@ def discrete_random_action_base():
 
 @registry.register_hparams
 def ppo_atari_base():
-  """Atari base parameters."""
-  hparams = ppo_discrete_action_base()
-  hparams.learning_rate = 4e-4
-  hparams.num_agents = 5
-  hparams.epoch_length = 200
-  hparams.gae_gamma = 0.985
-  hparams.gae_lambda = 0.985
-  hparams.entropy_loss_coef = 0.002
-  hparams.value_loss_coef = 0.025
-  hparams.optimization_epochs = 10
-  hparams.epochs_num = 10000
-  hparams.num_eval_agents = 1
-  hparams.network = feed_forward_cnn_small_categorical_fun
-  return hparams
-
-
-@registry.register_hparams
-def ppo_pong_base():
   """Pong base parameters."""
   hparams = ppo_discrete_action_base()
   hparams.learning_rate = 1e-4
@@ -212,7 +194,7 @@ def get_policy(observations, hparams):
 @registry.register_hparams
 def ppo_pong_ae_base():
   """Pong autoencoder base parameters."""
-  hparams = ppo_pong_base()
+  hparams = ppo_atari_base()
   hparams.learning_rate = 1e-4
   hparams.network = dense_bitwise_categorical_fun
   return hparams
@@ -244,6 +226,15 @@ def pong_model_free():
   hparams.add_hparam("environment_spec", standard_atari_env_spec(env))
   hparams.add_hparam(
       "environment_eval_spec", standard_atari_env_eval_spec(env))
+  return hparams
+
+
+@registry.register_hparams
+def mfrl_base():
+  hparams = ppo_atari_base()
+  hparams.add_hparam("game", "")
+  hparams.epochs_num = 3000
+  hparams.eval_every_epochs = 100
   return hparams
 
 

@@ -47,6 +47,7 @@ def next_frame_sv2p():
   hparams.add_hparam("dna_kernel_size", 5)
   hparams.add_hparam("upsample_method", "conv2d_transpose")
   hparams.add_hparam("reward_model", "basic")
+  hparams.add_hparam("visualize_logits_histogram", True)
   return hparams
 
 
