@@ -132,6 +132,17 @@ def random_rollout_subsequences(rollouts, num_subsequences, subsequence_length):
   return [choose_subsequence() for _ in range(num_subsequences)]
 
 
+def make_simulated_env_spec(real_env, hparams):
+  """Creates a simulated environment_spec."""
+  return rl.standard_atari_env_simulated_spec(
+      real_env, intrinsic_reward_scale=hparams.intrinsic_reward_scale,
+      model_name=hparams.generative_model,
+      model_hparams=trainer_lib.create_hparams(hparams.generative_model_params),
+      # Hardcoded for now. TODO(koz4k): Make it a hparam.
+      video_num_input_frames=4, video_num_target_frames=1
+  )
+
+
 def train_supervised(problem, model_name, hparams, data_dir, output_dir,
                      train_steps, eval_steps, local_eval_frequency=None,
                      schedule="continuous_train_and_eval"):
@@ -169,25 +180,7 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
   ppo_hparams.save_models_every_epochs = 10
   ppo_hparams.world_model_dir = world_model_dir
 
-  environment_spec_params = {
-      param_name: hparams.get(param_name)
-      for param_name in [
-          "intrinsic_reward_scale", "simulation_random_starts",
-          "simulation_flip_first_random_for_beginning"
-      ]
-  }
-  environment_spec_params.update({
-      "model_name": hparams.generative_model,
-      "model_hparams": trainer_lib.create_hparams(
-          hparams.generative_model_params
-      ),
-      # Hardcoded for now. TODO(koz4k): Make it a hparam.
-      "video_num_input_frames": 4,
-      "video_num_target_frames": 1
-  })
-  environment_spec = rl.standard_atari_env_simulated_spec(
-      real_env, **environment_spec_params
-  )
+  environment_spec = make_simulated_env_spec(real_env, hparams)
 
   num_input_frames = environment_spec.video_num_input_frames
   initial_frame_rollouts = real_env.current_epoch_rollouts(
@@ -200,7 +193,7 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
 
     deterministic_initial_frames =\
         initial_frame_rollouts[0][:num_input_frames]
-    if not environment_spec.simulation_random_starts:
+    if not hparams.simulation_random_starts:
       # Deterministic starts: repeat first frames from the first rollout.
       initial_frames = [deterministic_initial_frames] * batch_size
     else:
@@ -208,7 +201,7 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
       initial_frames = random_rollout_subsequences(
           initial_frame_rollouts, batch_size, num_input_frames
       )
-      if environment_spec.simulation_flip_first_random_for_beginning:
+      if hparams.simulation_flip_first_random_for_beginning:
         # Flip first entry in the batch for deterministic initial frames.
         initial_frames[0] = deterministic_initial_frames
 
