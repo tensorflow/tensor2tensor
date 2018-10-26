@@ -54,7 +54,6 @@ def glow_hparams():
   # init_batch_size denotes the number of examples used for data-dependent
   # initialization. A higher init_batch_size is required for training
   # stability especially when hparams.batch_size is low.
-  # -1 indicates that the init_batch_size is set to hparams.batch_size.
   hparams.add_hparam("init_batch_size", 256)
   return hparams
 
@@ -64,6 +63,10 @@ class Glow(t2t_model.T2TModel):
   """Glow generative model.
 
   Reference: https://arxiv.org/abs/1807.03039"""
+
+  def init_preprocess(self, features):
+    """Preprocessing as per the input modality."""
+    return features
 
   def preprocess(self, x):
     """Normalize x.
@@ -119,20 +122,11 @@ class Glow(t2t_model.T2TModel):
     Returns:
       init_features: initialization features.
     """
-    # TODO(mechcoder) Once all depending code supports hparams.init_batch_size
-    # the if block can be removed.
-    if self.hparams.init_batch_size == -1:
-      return features
-
-    train_dataset = self.hparams.problem.dataset(tf.estimator.ModeKeys.TRAIN)
-    train_dataset = train_dataset.batch(self.init_batch_size)
+    train_dataset = self.hparams.problem.dataset(
+        tf.estimator.ModeKeys.TRAIN, hparams=self.hparams)
+    train_dataset = train_dataset.batch(self.hparams.init_batch_size)
+    train_dataset = self.init_preprocess(train_dataset)
     return train_dataset.make_one_shot_iterator().get_next()
-
-  @property
-  def init_batch_size(self):
-    if self.hparams.init_batch_size == -1:
-      return self.hparams.batch_size
-    return self.hparams.init_batch_size
 
   @staticmethod
   def train_hooks(hook_context):

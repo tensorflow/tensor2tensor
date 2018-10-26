@@ -35,4 +35,7 @@ class GlowInitHook(tf.train.SessionRunHook):
     global_step = session.run(tf.train.get_global_step())
     if global_step == 0:
       ddi = tf.get_collection("glow_init_op")
-      session.run(ddi)
+      # In-case of a multi-GPU system, this just runs the first op in the
+      # collection.
+      if ddi:
+        session.run(ddi[0])
