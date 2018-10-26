@@ -116,6 +116,22 @@ def make_log_fn(epoch, log_relative_time_fn):
   return log
 
 
+def random_rollout_subsequences(rollouts, num_subsequences, subsequence_length):
+  """Chooses a random frame sequence of given length from a set of rollouts."""
+  def choose_subsequence():
+    # TODO(koz4k): Weigh rollouts by their lengths so sampling is uniform over
+    # frames and not rollouts.
+    rollout = random.choice(rollouts)
+    try:
+      from_index = random.randrange(len(rollout) - subsequence_length + 1)
+    except ValueError:
+      # Rollout too short; repeat.
+      return choose_subsequence()
+    return rollout[from_index:(from_index + subsequence_length)]
+
+  return [choose_subsequence() for _ in range(num_subsequences)]
+
+
 def train_supervised(problem, model_name, hparams, data_dir, output_dir,
                      train_steps, eval_steps, local_eval_frequency=None,
                      schedule="continuous_train_and_eval"):
@@ -189,17 +205,9 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
       initial_frames = [deterministic_initial_frames] * batch_size
     else:
       # Random starts: choose random initial frames from random rollouts.
-      # TODO(koz4k): Weigh rollouts by their lengths so sampling is uniform
-      # over frames and not rollouts.
-      def choose_initial_frames():
-        try:
-          rollout = random.choice(initial_frame_rollouts)
-          from_index = random.randrange(len(rollout) - num_input_frames + 1)
-          return rollout[from_index:(from_index + num_input_frames)]
-        except ValueError:
-          # Rollout too short; repeat.
-          return choose_initial_frames()
-      initial_frames = [choose_initial_frames() for _ in range(batch_size)]
+      initial_frames = random_rollout_subsequences(
+          initial_frame_rollouts, batch_size, num_input_frames
+      )
       if environment_spec.simulation_flip_first_random_for_beginning:
         # Flip first entry in the batch for deterministic initial frames.
         initial_frames[0] = deterministic_initial_frames
