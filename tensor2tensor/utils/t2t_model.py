@@ -1293,7 +1293,8 @@ class T2TModel(base.Layer):
     if mode == tf.estimator.ModeKeys.TRAIN:
       _create_dummy_vars()
     print('deep copy hparam', hparams)
-    hparams = copy.deepcopy(hparams)
+    #hparams = copy.deepcopy(hparams)
+    hparams = copy.copy(hparams)
 
     use_tpu = params and params.get("use_tpu", False)
     # Instantiate model
