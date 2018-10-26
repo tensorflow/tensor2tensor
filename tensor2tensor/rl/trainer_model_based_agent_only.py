@@ -57,6 +57,7 @@ def main(_):
   agent_model_dir = FLAGS.output_dir
   event_dir = FLAGS.output_dir
   epoch_data_dir = FLAGS.data_dir  # only required for initial frames
+  ppo_epochs_num = hparams.ppo_epochs_num
 
   trainer_model_based.train_agent(
       problem_name,
@@ -65,6 +66,7 @@ def main(_):
       world_model_dir,
       epoch_data_dir,
       hparams,
+      ppo_epochs_num,
       epoch=0,
       is_final_epoch=True)
 
