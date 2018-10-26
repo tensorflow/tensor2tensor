@@ -21,11 +21,10 @@ from __future__ import print_function
 
 import collections
 import itertools
-
+import random
 import gym
 from gym.spaces import Box
 import numpy as np
-import random
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
@@ -554,7 +553,7 @@ class T2TGymEnv(T2TEnv):
     if max_num_noops > 0:
       assert self._envs[0].unwrapped.get_action_meanings()[
           self.noop_action
-      ] == 'NOOP'
+      ] == "NOOP"
     self.max_num_noops = max_num_noops
 
     orig_observ_space = self._envs[0].observation_space
@@ -616,6 +615,7 @@ class T2TGymEnv(T2TEnv):
 
   def _reset(self, indices):
     def reset_with_noops(env):
+      """Resets environment and applies random number of NOOP actions on it."""
       obs = env.reset()
       try:
         num_noops = random.randint(1, self.max_num_noops)

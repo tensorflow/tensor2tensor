@@ -477,7 +477,11 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     # Report metrics
     epoch_metrics.append(metrics)
     if report_fn:
-      report_fn(eval_metrics[report_metric], epoch)
+      if report_metric == "mean_reward":
+        report_fn(eval_metrics["mean_reward/eval/{}_{}_max_noops_{}".format(
+            "mode", hparams.eval_max_num_noops, "unclipped")], epoch)
+      else:
+        report_fn(eval_metrics[report_metric], epoch)
 
   # Return the evaluation metrics from the final epoch
   return epoch_metrics[-1]

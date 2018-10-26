@@ -85,7 +85,7 @@ def rlmb_base():
       resize_width_factor=2,
       grayscale=False,
       # Maximum number of noops to make on environment reset.
-      max_num_noops=0,
+      max_num_noops=8,
       # Bump learning rate after first epoch by 3x.
       # We picked 3x because our default learning rate schedule decreases with
       # 1/square root of step; 1/sqrt(10k) = 0.01 and 1/sqrt(100k) ~ 0.0032
