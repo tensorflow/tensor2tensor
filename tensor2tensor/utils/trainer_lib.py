@@ -88,9 +88,12 @@ def create_session_config(log_device_placement=False,
 def create_hparams(hparams_set,
                    hparams_overrides_str="",
                    data_dir=None,
-                   problem_name=None):
+                   problem_name=None,
+                   hparams_path=None):
   """Create HParams with data_dir and problem hparams, if kwargs provided."""
   hparams = registry.hparams(hparams_set)
+  if hparams_path and tf.gfile.Exists(hparams_path):
+    hparams = _create_hparams_from_json(hparams_path, hparams)
   if data_dir:
     hparams.add_hparam("data_dir", data_dir)
   if problem_name:
@@ -99,6 +102,29 @@ def create_hparams(hparams_set,
     tf.logging.info("Overriding hparams in %s with %s", hparams_set,
                     hparams_overrides_str)
     hparams = hparams.parse(hparams_overrides_str)
+  return hparams
+
+
+def _create_hparams_from_json(json_path, hparams=None):
+  """Loading hparams from json; can also start from hparams if specified."""
+  tf.logging.info("Loading hparams from existing json %s" % json_path)
+  with tf.gfile.Open(json_path, "r") as f:
+    hparams_values = json.load(f)
+    new_hparams = tf.contrib.training.HParams(**hparams_values)
+    # Some keys are in new_hparams but not hparams, so we need to be more
+    #   careful than simply using parse_json() from HParams
+    if hparams:  # hparams specified, so update values from json
+      for key in sorted(new_hparams.values().keys()):
+        if hasattr(hparams, key):  # Overlapped keys
+          value = getattr(hparams, key)
+          new_value = getattr(new_hparams, key)
+          if value != new_value:  # Different values
+            tf.logging.info("Overwrite key %s: %s -> %s" % (
+                key, value, new_value))
+            setattr(hparams, key, new_value)
+    else:
+      hparams = new_hparams
+
   return hparams
 
 

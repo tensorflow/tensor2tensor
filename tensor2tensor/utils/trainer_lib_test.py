@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
 from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.models import transformer  # pylint: disable=unused-import
@@ -138,6 +139,34 @@ class TrainerLibTest(tf.test.TestCase):
     with self.test_session() as sess:
       sess.run(tf.global_variables_initializer())
       sess.run([logits, loss])
+
+  def testCreateHparams(self):
+    # Get json_path
+    pkg, _ = os.path.split(__file__)
+    pkg, _ = os.path.split(pkg)
+    json_path = os.path.join(
+        pkg, "test_data", "transformer_test_ckpt", "hparams.json")
+
+    # Create hparams
+    hparams = trainer_lib.create_hparams("transformer_big", "hidden_size=1",
+                                         hparams_path=json_path)
+    self.assertEqual(2, hparams.num_hidden_layers)  # from json
+    self.assertEqual(1, hparams.hidden_size)  # from hparams_overrides_str
+
+    # Compare with base hparams
+    base_hparams = trainer_lib.create_hparams("transformer_big")
+    self.assertEqual(len(base_hparams.values()), len(hparams.values()))
+
+  def testCreateHparamsFromJson(self):
+    # Get json_path
+    pkg, _ = os.path.split(__file__)
+    pkg, _ = os.path.split(pkg)
+    json_path = os.path.join(
+        pkg, "test_data", "transformer_test_ckpt", "hparams.json")
+
+    # Create hparams
+    hparams = trainer_lib._create_hparams_from_json(json_path)
+    self.assertEqual(75, len(hparams.values()))
 
 
 if __name__ == "__main__":

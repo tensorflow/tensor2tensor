@@ -155,11 +155,14 @@ def set_hparams_from_args(args):
 
 
 def create_hparams():
+  """Create hparams."""
   if FLAGS.use_tpu and "tpu" not in FLAGS.hparams_set:
     tf.logging.warn("Not all hyperparameter sets work on TPU. "
                     "Prefer hparams_sets with a '_tpu' suffix, "
                     "e.g. transformer_tpu, if available for your model.")
-  return trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
+  hparams_path = os.path.join(FLAGS.output_dir, "hparams.json")
+  return trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams,
+                                    hparams_path=hparams_path)
 
 
 def create_experiment_fn():
