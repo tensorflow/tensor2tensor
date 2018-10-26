@@ -102,7 +102,7 @@ def compute_bleu_summaries(hook_args):
     mlperf_log.transformer_print(
         key=mlperf_log.EVAL_ACCURACY,
         value={
-            "epoch": current_epoch,
+            "epoch": max(current_epoch - 1, 0),
             "value": bleu
         })
     mlperf_log.transformer_print(key=mlperf_log.EVAL_STOP)
