@@ -99,6 +99,7 @@ def create_surrogate_run_config(hp):
       hp.daisy_chain_variables and hp.activation_dtype == "float32" and
       hp.weight_dtype == "float32")
   return trainer_lib.create_run_config(
+      model_name=FLAGS.model,
       model_dir=os.path.expanduser(FLAGS.surrogate_output_dir),
       master=FLAGS.master,
       iterations_per_loop=FLAGS.iterations_per_loop,
