@@ -130,12 +130,14 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
   getattr(exp, schedule)()
 
 
-def _update_hparams_from_hparams(target_hparams, source_hparams, param_names, prefix):
+def _update_hparams_from_hparams(target_hparams, source_hparams, param_names,
+                                 prefix):
   "Copy a subset of hparams to target_hparams"
   for param_name in param_names:
     prefixed_param_name = prefix + param_name
     if prefixed_param_name in source_hparams:
-      target_hparams.set_hparam(param_name, source_hparams.get(prefixed_param_name))
+      target_hparams.set_hparam(param_name,
+                                source_hparams.get(prefixed_param_name))
 
 
 def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
@@ -210,9 +212,10 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
     assert hparams.rl_algorithm in ['ppo', 'dqn'], \
       "{} is not supported".format(hparams.rl_algorithm)
 
-    if hparams.rl_algorithm=='ppo':
+    if hparams.rl_algorithm == 'ppo':
       ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
-      _update_hparams_from_hparams(ppo_hparams, hparams, _ppo_params_names, "ppo_")
+      _update_hparams_from_hparams(ppo_hparams, hparams, _ppo_params_names,
+                                   "ppo_")
 
       rl_epochs_num += sim_ppo_epoch_increment(hparams, is_final_epoch)
       ppo_hparams.epochs_num = rl_epochs_num
@@ -224,7 +227,8 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
 
       #TODO(pm): possibly remove
       # Adding model hparams for model specific adjustments
-      model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
+      model_hparams = \
+          trainer_lib.create_hparams(hparams.generative_model_params)
       ppo_hparams.add_hparam("model_hparams", model_hparams)
       ppo_hparams.add_hparam("environment_spec", environment_spec)
 
@@ -233,11 +237,13 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
 
     if hparams.rl_algorithm == 'dqn':
       dqn_hparams = trainer_lib.create_hparams(hparams.dqn_params)
-      _update_hparams_from_hparams(dqn_hparams, hparams, _dqn_params_names, "dqn_")
+      _update_hparams_from_hparams(dqn_hparams, hparams, _dqn_params_names,
+                                   "dqn_")
       dqn_hparams.add_hparam("environment_spec", environment_spec)
       training_dqn_steps = _training_dqn_steps(hparams)
 
-      rl_epochs_num += int(hparams.simulated_dqn_training_steps/training_dqn_steps)
+      rl_epochs_num += \
+          int(hparams.simulated_dqn_training_steps/training_dqn_steps)
 
       dqn_hparams.add_hparam("runner_num_iterations", rl_epochs_num)
       dqn_hparams.add_hparam("runner_training_steps", training_dqn_steps)
@@ -250,19 +256,13 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
   return rl_epochs_num
 
 
-_dqn_params_names = ["agent_gamma", "agent_update_horizon",
-                    "agent_min_replay_history", "agent_update_period",
-                    "agent_target_update_period", "agent_epsilon_train",
-                    "agent_epsilon_eval", "agent_epsilon_decay_period",
-                    "optimizer_class", "optimizer_learning_rate",
-                    "optimizer_decay", "optimizer_momentum",
-                    "optimizer_epsilon", "optimizer_centered",
-                    "runner_training_steps", "runner_max_steps_per_episode",
-                    "replay_buffer_replay_capacity", "replay_buffer_batch_size"]
+# TODO(KC): is this the way we want to do this? If yes replace _ppo_params_names
+# as well
+_dqn_params_names = trainer_lib.create_hparams('rl_dqn_base').values().keys()
 
 _ppo_params_names = ["epochs_num", "epoch_length",
-                    "learning_rate", "num_agents", "eval_every_epochs",
-                    "optimization_epochs", "effective_num_agents"]
+                     "learning_rate", "num_agents", "eval_every_epochs",
+                     "optimization_epochs", "effective_num_agents"]
 
 
 def _training_dqn_steps(hparams):
@@ -284,7 +284,8 @@ def train_agent_real_env(
 
     # This should be overridden by hparams.
     ppo_hparams.add_hparam("effective_num_agents", None)
-    _update_hparams_from_hparams(ppo_hparams, hparams, _ppo_params_names, "real_ppo_")
+    _update_hparams_from_hparams(ppo_hparams, hparams, _ppo_params_names,
+                                 "real_ppo_")
 
     ppo_hparams.num_agents = 1
     rl_epochs_num += real_ppo_epoch_increment(hparams)
@@ -295,7 +296,7 @@ def train_agent_real_env(
     ppo_hparams.add_hparam("environment_spec", environment_spec)
 
     rl_trainer_lib.train(ppo_hparams, event_dir + "real", agent_model_dir,
-                        name_scope="ppo_real%d" % (epoch + 1))
+                         name_scope="ppo_real%d" % (epoch + 1))
 
   if hparams.rl_algorithm == 'dqn':
     dqn_hparams = trainer_lib.create_hparams(hparams.dqn_params)
@@ -355,7 +356,7 @@ def setup_env(hparams, batch_size):
                   grayscale=hparams.grayscale,
                   resize_width_factor=hparams.resize_width_factor,
                   resize_height_factor=hparams.resize_height_factor,
-                  base_env_timesteps_limit=hparams.env_timesteps_limit,
+                  base_env_timesteps_limit=hparams.real_env_timesteps_limit,
                   max_num_noops=hparams.max_num_noops)
   return env
 

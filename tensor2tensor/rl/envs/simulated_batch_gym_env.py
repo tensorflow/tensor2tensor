@@ -44,9 +44,8 @@ class FlatBatchEnv(Env):
     return self.batch_env.reset()[0]
 
 
-class SimulatedBatchGymEnv:
-  """
-  SimulatedBatchEnv in a Gym-like interface.
+class SimulatedBatchGymEnv(object):
+  """ SimulatedBatchEnv in a Gym-like interface.
 
   The environments are  batched.
   """
@@ -54,14 +53,14 @@ class SimulatedBatchGymEnv:
                model_dir=None, sess=None):
     self.batch_size = batch_size
 
-    self.game_over = False
-
     with tf.Graph().as_default():
       self._batch_env = SimulatedBatchEnv(environment_spec,
                                           self.batch_size)
 
       self.action_space = self._batch_env.action_space
-      self.observation_space = self._batch_env.observ_space
+      # TODO(KC): check for stack wrapper when setting observation_space, and
+      # use self._batch_env.observ_space
+      self.observation_space = None
 
       self._sess = sess if sess is not None else tf.Session()
       self._actions_t = tf.placeholder(shape=(1,), dtype=tf.int32)
@@ -78,14 +77,13 @@ class SimulatedBatchGymEnv:
         self._to_initialize.append(self._batch_env)
 
       self._sess.run(tf.global_variables_initializer())
-      for _batch_env in self._to_initialize:
-        _batch_env.initialize(self._sess)
+      for wrapped_env in self._to_initialize:
+        wrapped_env.initialize(self._sess)
 
       env_model_loader = tf.train.Saver(
-          tf.global_variables("next_frame*"))
-      trainer_lib.restore_checkpoint(
-          model_dir, env_model_loader, self._sess,
-          must_restore=True)
+          var_list=tf.global_variables(scope="next_frame*"))  # pylint:disable=unexpected-keyword-arg
+      trainer_lib.restore_checkpoint(model_dir, saver=env_model_loader,
+                                     sess=self._sess, must_restore=True)
 
   def render(self, mode="human"):
     raise NotImplementedError()

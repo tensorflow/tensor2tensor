@@ -112,8 +112,9 @@ def rlmb_base():
       # Rollout fractions to report reward_accuracy on.
       eval_rollout_fractions=[0.25, 0.5, 1],
       stop_loop_early=False,  # To speed-up tests.
-      env_timesteps_limit=-1,  # Use default from gym.make()
+      real_env_timesteps_limit=-1,  # Use default from gym.make()
   )
+
 
 @registry.register_hparams
 def rl_dqn_base():
@@ -128,6 +129,7 @@ def rl_dqn_base():
       agent_epsilon_train=0.01,
       agent_epsilon_eval=0.001,
       agent_epsilon_decay_period=250000,  # agent steps
+      agent_store_terminal_transitions=True,
 
       optimizer_class="RMSProp",
       optimizer_learning_rate=0.00025,
@@ -137,12 +139,14 @@ def rl_dqn_base():
       optimizer_centered=True,
 
       # runner_training_steps=250000,  # agent steps
+      # TODO(KC): this is unused, remove it?
       runner_max_steps_per_episode=27000,  # agent steps
 
       replay_buffer_replay_capacity=1000000,
       replay_buffer_batch_size=32,
       time_limit=27000,
   )
+
 
 @registry.register_hparams
 def rlmb_dqn_base():
@@ -169,6 +173,8 @@ def rlmb_dqn_base():
       resize_height_factor=1,
       resize_width_factor=1,
       grayscale=False,
+      # Maximum number of noops to make on environment reset.
+      max_num_noops=8,
       # Bump learning rate after first epoch by 3x.
       # We picked 3x because our default learning rate schedule decreases with
       # 1/square root of step; 1/sqrt(10k) = 0.01 and 1/sqrt(100k) ~ 0.0032
@@ -179,7 +185,11 @@ def rlmb_dqn_base():
 
       rl_algorithm='dqn',
       dqn_params='rl_dqn_base',
+      # Simulated DQN hparams
       dqn_time_limit=10,
+      # Ignore 'artificial' simulated episode ends.
+      dqn_agent_store_terminal_transitions=False,
+      # Different prefix, to not pass to _DQNAgent.
       simulated_dqn_training_steps=int(1e7),
 
       game="pong",
@@ -189,11 +199,14 @@ def rlmb_dqn_base():
       # Rollout fractions to report reward_accuracy on.
       eval_rollout_fractions=[0.25, 0.5, 1],
       stop_loop_early=False,  # To speed-up tests.
-      env_timesteps_limit=-1,  # Use default from gym.make()
+      # Used for tiny runs (independent of dqn timesteps limit, both are
+      # applied when using DQN)
+      real_env_timesteps_limit=-1,  # Use default from gym.make()
 
       # TODO(piotrmilos): possibly remove this
       ppo_continue_training=True
   )
+
 
 @registry.register_hparams
 def rlmb_dqn_tiny():
@@ -205,10 +218,9 @@ def rlmb_dqn_tiny():
           model_train_steps=2,
           generative_model_params="next_frame_tiny",
           stop_loop_early=True,
-          simulated_dqn_training_steps=int(1e4),
-          env_timesteps_limit=6,
+          simulated_dqn_training_steps=256,
+          real_env_timesteps_limit=6,
       ).values())
-
 
 
 @registry.register_hparams
@@ -491,7 +503,7 @@ def rlmb_tiny():
           resize_height_factor=2,
           resize_width_factor=2,
           game="pong",
-          env_timesteps_limit=6,
+          real_env_timesteps_limit=6,
       ).values())
 
 
