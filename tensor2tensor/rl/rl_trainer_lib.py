@@ -32,24 +32,22 @@ import tensorflow as tf
 def define_train(hparams):
   """Define the training setup."""
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-    memory, collect_summary, train_initialization\
-      = collect.define_collect(
-          hparams, "ppo_train", eval_phase=False)
+    memory, collect_summary, train_initialization = collect.define_collect(
+        hparams, "ppo_train", eval_phase=False)
     ppo_summary = ppo.define_ppo_epoch(memory, hparams)
     train_summary = tf.summary.merge([collect_summary, ppo_summary])
 
     if hparams.eval_every_epochs:
-      _, eval_collect_summary, eval_initialization\
-        = collect.define_collect(
-            hparams, "ppo_eval", eval_phase=True)
-      return train_summary, eval_collect_summary, \
-             (train_initialization, eval_initialization)
+      _, eval_collect_summary, eval_initialization = collect.define_collect(
+          hparams, "ppo_eval", eval_phase=True)
+      return train_summary, eval_collect_summary, (train_initialization,
+                                                   eval_initialization)
     else:
       return train_summary, None, (train_initialization,)
 
 
 def train(hparams, event_dir=None, model_dir=None,
-          restore_agent=True, name_scope="rl_train"):
+          restore_agent=True, name_scope="rl_train", report_fn=None):
   """Train."""
   with tf.Graph().as_default():
     with tf.name_scope(name_scope):
@@ -106,6 +104,13 @@ def train(hparams, event_dir=None, model_dir=None,
             eval_summary = sess.run(eval_summary_op)
             if summary_writer:
               summary_writer.add_summary(eval_summary, epoch_index)
+            if report_fn:
+              summary_proto = tf.Summary()
+              summary_proto.ParseFromString(eval_summary)
+              for elem in summary_proto.value:
+                if "mean_score" in elem.tag:
+                  report_fn(elem.simple_value, epoch_index)
+                  break
 
           epoch_index_and_start = epoch_index + start_step
           if (model_saver and hparams.save_models_every_epochs and

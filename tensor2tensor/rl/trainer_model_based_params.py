@@ -54,7 +54,7 @@ def rlmb_base():
       num_real_env_frames=96000,
       generative_model="next_frame_basic_deterministic",
       generative_model_params="next_frame_pixel_noise",
-      ppo_params="ppo_pong_base",
+      ppo_params="ppo_atari_base",
       autoencoder_train_steps=0,
       autoencoder_train_steps_initial_multiplier=10,
       autoencoder_hparams_set="autoencoder_discrete_pong",
@@ -677,6 +677,12 @@ def rlmb_logits_clip(rhp):
   rhp.set_categorical("loop.game", ["pong", "boxing", "seaquest"])
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_discrete("ppo.logits_clip", [0., 5.])
+
+
+@registry.register_ranged_hparams
+def rlmf_proportional_epoch_length(rhp):
+  rhp.set_discrete("proportional_epoch_length", [10, 20, 50, 100, 200, 400])
+  rhp.set_categorical("loop.game", gym_env.ATARI_GAMES_WITH_HUMAN_SCORE)
 
 
 def merge_unscoped_hparams(scopes_and_hparams):
