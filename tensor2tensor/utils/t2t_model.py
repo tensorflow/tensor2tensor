@@ -1292,7 +1292,7 @@ class T2TModel(base.Layer):
     """
     if mode == tf.estimator.ModeKeys.TRAIN:
       _create_dummy_vars()
-    print('deep copy hparam', hparams)
+    # TODO: FIX!!!
     #hparams = copy.deepcopy(hparams)
     hparams = copy.copy(hparams)
 
