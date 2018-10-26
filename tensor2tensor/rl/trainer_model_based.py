@@ -133,7 +133,8 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
 
 
 def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
-                hparams, ppo_epochs_num, epoch=0, is_final_epoch=False):
+                hparams, completed_ppo_epochs_num, epoch=0,
+                is_final_epoch=False):
   """Train the PPO agent in the simulated environment."""
   del data_dir
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
@@ -146,8 +147,8 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
     if ppo_param_name in hparams:
       ppo_hparams.set_hparam(param_name, hparams.get(ppo_param_name))
 
-  ppo_epochs_num += sim_ppo_epoch_increment(hparams, is_final_epoch)
-  ppo_hparams.epochs_num = ppo_epochs_num
+  completed_ppo_epochs_num += sim_ppo_epoch_increment(hparams, is_final_epoch)
+  ppo_hparams.epochs_num = completed_ppo_epochs_num
 
   ppo_hparams.save_models_every_epochs = 10
   ppo_hparams.world_model_dir = world_model_dir
@@ -221,12 +222,12 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
     rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
                          name_scope="ppo_sim%d" % (epoch + 1))
 
-  return ppo_epochs_num
+  return completed_ppo_epochs_num
 
 
 def train_agent_real_env(
     env, agent_model_dir, event_dir, data_dir,
-    hparams, ppo_epochs_num, epoch=0, is_final_epoch=False):
+    hparams, completed_ppo_epochs_num, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the real environment."""
   del is_final_epoch, data_dir
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
@@ -241,8 +242,8 @@ def train_agent_real_env(
     if ppo_param_name in hparams:
       ppo_hparams.set_hparam(param_name, hparams.get(ppo_param_name))
 
-  ppo_epochs_num += real_ppo_epoch_increment(hparams)
-  ppo_hparams.epochs_num = ppo_epochs_num
+  completed_ppo_epochs_num += real_ppo_epoch_increment(hparams)
+  ppo_hparams.epochs_num = completed_ppo_epochs_num
   # We do not save model, as that resets frames that we need at restarts.
   # But we need to save at the last step, so we set it very high.
   ppo_hparams.save_models_every_epochs = 1000000
@@ -257,7 +258,7 @@ def train_agent_real_env(
   # Save unfinished rollouts to history.
   env.reset()
 
-  return ppo_epochs_num
+  return completed_ppo_epochs_num
 
 
 def train_world_model(
@@ -408,9 +409,9 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   tf.logging.info("Initial training of PPO in real environment.")
   ppo_event_dir = os.path.join(directories["world_model"],
                                "ppo_summaries/initial")
-  ppo_epochs_num = train_agent_real_env(
-      env, ppo_model_dir, ppo_event_dir, data_dir, hparams, ppo_epochs_num=0,
-      epoch=epoch, is_final_epoch=False
+  completed_ppo_epochs_num = train_agent_real_env(
+      env, ppo_model_dir, ppo_event_dir, data_dir, hparams,
+      completed_ppo_epochs_num=0, epoch=epoch, is_final_epoch=False
   )
   metrics["mean_reward/train/clipped"] = compute_mean_reward(
       env.current_epoch_rollouts(), clipped=True
@@ -446,9 +447,9 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     if not hparams.ppo_continue_training:
       ppo_model_dir = ppo_event_dir
 
-    ppo_epochs_num = train_agent(
+    completed_ppo_epochs_num = train_agent(
         env, ppo_model_dir, ppo_event_dir,
-        directories["world_model"], data_dir, hparams, ppo_epochs_num,
+        directories["world_model"], data_dir, hparams, completed_ppo_epochs_num,
         epoch=epoch, is_final_epoch=is_final_epoch
     )
 
@@ -456,9 +457,9 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
     # Train PPO on real env (short)
     log("Training PPO in real environment.")
-    ppo_epochs_num = train_agent_real_env(
-        env, ppo_model_dir, ppo_event_dir, data_dir, hparams, ppo_epochs_num,
-        epoch=epoch, is_final_epoch=is_final_epoch
+    completed_ppo_epochs_num = train_agent_real_env(
+        env, ppo_model_dir, ppo_event_dir, data_dir, hparams,
+        completed_ppo_epochs_num, epoch=epoch, is_final_epoch=is_final_epoch
     )
 
     if hparams.stop_loop_early:
