@@ -84,6 +84,8 @@ def rlmb_base():
       resize_height_factor=2,
       resize_width_factor=2,
       grayscale=False,
+      # Maximum number of noops to make on environment reset.
+      max_num_noops=0,
       # Bump learning rate after first epoch by 3x.
       # We picked 3x because our default learning rate schedule decreases with
       # 1/square root of step; 1/sqrt(10k) = 0.01 and 1/sqrt(100k) ~ 0.0032
@@ -101,6 +103,9 @@ def rlmb_base():
       real_ppo_continue_training=True,
       real_ppo_effective_num_agents=16,
       real_ppo_eval_every_epochs=0,
+
+      eval_num_agents=30,
+      eval_max_num_noops=8,
 
       game="pong",
       # Whether to evaluate the world model in each iteration of the loop to get
@@ -390,6 +395,7 @@ def rlmb_tiny():
           real_ppo_num_agents=1,
           real_ppo_epochs_num=0,
           real_ppo_effective_num_agents=2,
+          eval_num_agents=1,
           generative_model_params="next_frame_tiny",
           stop_loop_early=True,
           resize_height_factor=2,

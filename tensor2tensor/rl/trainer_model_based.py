@@ -26,13 +26,16 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import copy
 import datetime
 import math
 import os
+import pprint
 import random
 import time
 
 import numpy as np
+import six
 
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.data_generators.gym_env import T2TGymEnv
@@ -283,7 +286,7 @@ def train_world_model(
   return world_model_steps_num
 
 
-def setup_env(hparams):
+def setup_env(hparams, batch_size):
   """Setup."""
   game_mode = "Deterministic-v4"
   camel_game_name = "".join(
@@ -292,19 +295,71 @@ def setup_env(hparams):
   env_name = camel_game_name
 
   env = T2TGymEnv(base_env_name=env_name,
-                  batch_size=hparams.real_ppo_num_agents,
+                  batch_size=batch_size,
                   grayscale=hparams.grayscale,
                   resize_width_factor=hparams.resize_width_factor,
                   resize_height_factor=hparams.resize_height_factor,
-                  base_env_timesteps_limit=hparams.env_timesteps_limit)
+                  base_env_timesteps_limit=hparams.env_timesteps_limit,
+                  max_num_noops=hparams.max_num_noops)
   return env
 
 
-def eval_reward(env, clipped):
-  """Calculates mean rewards from given epoch."""
+def evaluate_single_config(hparams, agent_model_dir):
+  """Evaluate the PPO agent in the real environment."""
+  eval_hparams = trainer_lib.create_hparams(hparams.ppo_params)
+  eval_hparams.num_agents = hparams.num_agents
+  env = setup_env(hparams, batch_size=hparams.num_agents)
+  environment_spec = rl.standard_atari_env_spec(env)
+  eval_hparams.add_hparam("environment_spec", environment_spec)
+  eval_hparams.add_hparam(
+      "policy_to_actions_lambda", hparams.policy_to_actions_lambda
+  )
+
+  env.start_new_epoch(0)
+  rl_trainer_lib.evaluate(eval_hparams, agent_model_dir)
+  rollouts = env.current_epoch_rollouts()[:hparams.num_agents]
+  env.close()
+
+  assert len(rollouts) == hparams.num_agents
+  return tuple(
+      compute_mean_reward(rollouts, clipped) for clipped in (True, False)
+  )
+
+
+def evaluate_all_configs(hparams, agent_model_dir):
+  """Evaluate the agent with multiple eval configurations."""
+  def make_eval_hparams(hparams, policy_to_action, max_num_noops):
+    hparams = copy.copy(hparams)
+    hparams.add_hparam("num_agents", hparams.eval_num_agents)
+    hparams.add_hparam("policy_to_actions_lambda", {
+        "sample": lambda policy: policy.sample(),
+        "mode": lambda policy: policy.mode()
+    }[policy_to_action])
+    hparams.max_num_noops = max_num_noops
+    return hparams
+
+  metrics = {}
+  # Iterate over all combinations of picking actions by sampling/mode and
+  # whether to do initial no-ops.
+  for policy_to_action in ("mode", "sample"):
+    for max_num_noops in (hparams.eval_max_num_noops, 0):
+      eval_hparams = make_eval_hparams(hparams, policy_to_action, max_num_noops)
+      scores = evaluate_single_config(eval_hparams, agent_model_dir)
+      for (score, clipped) in zip(scores, (True, False)):
+        metric_name = "mean_reward/eval/{}_{}_max_noops_{}".format(
+            policy_to_action, max_num_noops,
+            "clipped" if clipped else "unclipped"
+        )
+        metrics[metric_name] = score
+
+  return metrics
+
+
+def compute_mean_reward(rollouts, clipped):
+  """Calculate mean rewards from given epoch."""
   reward_name = "reward" if clipped else "unclipped_reward"
   rewards = []
-  for rollout in env.current_epoch_rollouts():
+  for rollout in rollouts:
     if rollout[-1].done:
       rollout_reward = sum(getattr(frame, reward_name) for frame in rollout)
       rewards.append(rollout_reward)
@@ -313,6 +368,15 @@ def eval_reward(env, clipped):
   else:
     mean_rewards = 0
   return mean_rewards
+
+
+def summarize_metrics(eval_metrics_writer, metrics, epoch):
+  """Write metrics to summary."""
+  for (name, value) in six.iteritems(metrics):
+    summary = tf.Summary()
+    summary.value.add(tag=name, simple_value=value)
+    eval_metrics_writer.add_summary(summary, epoch)
+  eval_metrics_writer.flush()
 
 
 def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
@@ -326,7 +390,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   epoch = -1
   data_dir = directories["data"]
-  env = setup_env(hparams)
+  env = setup_env(hparams, batch_size=hparams.real_ppo_num_agents)
   env.start_new_epoch(epoch, data_dir)
 
   # Timing log function
@@ -334,6 +398,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   # Per-epoch state
   epoch_metrics = []
+  metrics = {}
 
   # Collect data from the real environment with PPO or random policy.
   # TODO(lukaszkaiser): do we need option not to gather_ppo_real_env_data?
@@ -347,19 +412,16 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       env, ppo_model_dir, ppo_event_dir, data_dir, hparams, ppo_epochs_num=0,
       epoch=epoch, is_final_epoch=False
   )
-  mean_unclipped_reward = eval_reward(env, clipped=False)
-  tf.logging.info("Mean reward (initial): {}".format(mean_unclipped_reward))
+  metrics["mean_reward/train/clipped"] = compute_mean_reward(
+      env.current_epoch_rollouts(), clipped=True
+  )
+  tf.logging.info("Mean training reward (initial): {}".format(
+      metrics["mean_reward/train/clipped"]
+  ))
 
   eval_metrics_event_dir = os.path.join(directories["world_model"],
                                         "eval_metrics_event_dir")
   eval_metrics_writer = tf.summary.FileWriter(eval_metrics_event_dir)
-
-  mean_unclipped_reward_summary = tf.Summary()
-  mean_unclipped_reward_summary.value.add(tag="mean_unclipped_reward",
-                                          simple_value=None)
-  mean_clipped_reward_summary = tf.Summary()
-  mean_clipped_reward_summary.value.add(tag="mean_clipped_reward",
-                                        simple_value=None)
 
   world_model_steps_num = 0
 
@@ -401,24 +463,19 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
     if hparams.stop_loop_early:
       return 0.0
-    mean_clipped_reward = eval_reward(env, clipped=True)
-    log("Mean clipped reward during generation: {}".format(
-        mean_clipped_reward))  # this was output of generate_real_env_data(...)
 
-    mean_unclipped_reward = eval_reward(env, clipped=False)
-    log("Mean eval reward (unclipped): {}".format(mean_unclipped_reward))
+    metrics["mean_reward/train/clipped"] = compute_mean_reward(
+        env.current_epoch_rollouts(), clipped=True
+    )
+    log("Mean training reward: {}".format(metrics["mean_reward/train/clipped"]))
 
-    # Summarize metrics.
-    mean_unclipped_reward_summary.value[0].simple_value = mean_unclipped_reward
-    eval_metrics_writer.add_summary(mean_unclipped_reward_summary, epoch)
-    mean_clipped_reward_summary.value[0].simple_value = int(mean_clipped_reward)
-    eval_metrics_writer.add_summary(mean_clipped_reward_summary, epoch)
-    eval_metrics_writer.flush()
+    eval_metrics = evaluate_all_configs(hparams, ppo_model_dir)
+    log("Eval metrics:\n{}".format(pprint.pformat(eval_metrics)))
+    metrics.update(eval_metrics)
+    summarize_metrics(eval_metrics_writer, metrics, epoch)
 
     # Report metrics
-    eval_metrics = {"mean_reward": mean_unclipped_reward}
-    epoch_metrics.append(eval_metrics)
-    log("Eval metrics: %s", str(eval_metrics))
+    epoch_metrics.append(metrics)
     if report_fn:
       report_fn(eval_metrics[report_metric], epoch)
 
