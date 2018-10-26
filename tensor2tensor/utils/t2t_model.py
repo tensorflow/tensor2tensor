@@ -537,7 +537,7 @@ class T2TModel(base.Layer):
         #
         # TODO: see if we can streamline this handling to stay
         # closer to upstream.
-        if logits.get(FATHOM_DICT_FORMAT):
+        if logits.get(FATHOM_DICT_FORMAT) is not None:
             return self._loss_single(
                 logits, target_modality, features['targets'])
       else:
