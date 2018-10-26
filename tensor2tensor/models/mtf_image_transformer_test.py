@@ -46,7 +46,7 @@ def get_model(hparams=None,
   p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE,
                                                    VOCAB_SIZE,
                                                    hparams)
-  p_hparams.input_modality = {}
+  del p_hparams.modality["inputs"]
   hparams.problem_hparams = p_hparams
 
   targets = -1 + np.random.random_integers(

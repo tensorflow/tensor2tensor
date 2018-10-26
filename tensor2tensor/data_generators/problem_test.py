@@ -25,7 +25,6 @@ from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import problem as problem_module
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.layers import modalities
-from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -85,9 +84,10 @@ class ProblemTest(tf.test.TestCase):
     problem = problem_hparams.TestProblem(input_vocab_size=2,
                                           target_vocab_size=3)
     p_hparams = problem.get_hparams()
-    self.assertIsInstance(p_hparams.input_modality["inputs"],
+    self.assertIsInstance(p_hparams.modality["inputs"],
                           modalities.SymbolModality)
-    self.assertIsInstance(p_hparams.target_modality, modalities.SymbolModality)
+    self.assertIsInstance(p_hparams.modality["targets"],
+                          modalities.SymbolModality)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testProblemHparamsModalityObj(self):
@@ -95,15 +95,17 @@ class ProblemTest(tf.test.TestCase):
 
       def hparams(self, defaults, model_hparams):
         hp = defaults
-        hp.input_modality = {
-            "inputs": modalities.SymbolModality(model_hparams, 2)}
-        hp.target_modality = modalities.SymbolModality(model_hparams, 3)
+        hp.modality = {"inputs": modalities.SymbolModality,
+                       "targets": modalities.SymbolModality}
+        hp.vocab_size = {"inputs": 2,
+                         "targets": 3}
 
     problem = ModalityObjProblem(False, False)
     p_hparams = problem.get_hparams()
-    self.assertIsInstance(p_hparams.input_modality["inputs"],
+    self.assertIsInstance(p_hparams.modality["inputs"],
                           modalities.SymbolModality)
-    self.assertIsInstance(p_hparams.target_modality, modalities.SymbolModality)
+    self.assertIsInstance(p_hparams.modality["targets"],
+                          modalities.SymbolModality)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testProblemHparamsInputOnlyModality(self):
@@ -111,14 +113,14 @@ class ProblemTest(tf.test.TestCase):
 
       def hparams(self, defaults, model_hparams):
         hp = defaults
-        hp.input_modality = {"inputs": (registry.Modalities.SYMBOL, 2)}
-        hp.target_modality = None
+        hp.modality = {"inputs": modalities.SymbolModality}
+        hp.vocab_size = {"inputs": 2}
 
     problem = InputOnlyProblem(False, False)
     p_hparams = problem.get_hparams()
-    self.assertIsInstance(p_hparams.input_modality["inputs"],
+    self.assertIsInstance(p_hparams.modality["inputs"],
                           modalities.SymbolModality)
-    self.assertIsNone(p_hparams.target_modality)
+    self.assertLen(p_hparams.modality, 1)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testProblemHparamsTargetOnlyModality(self):
@@ -126,13 +128,14 @@ class ProblemTest(tf.test.TestCase):
 
       def hparams(self, defaults, model_hparams):
         hp = defaults
-        hp.input_modality = {}
-        hp.target_modality = (registry.Modalities.SYMBOL, 3)
+        hp.modality = {"targets": modalities.SymbolModality}
+        hp.vocab_size = {"targets": 3}
 
     problem = TargetOnlyProblem(False, False)
     p_hparams = problem.get_hparams()
-    self.assertEqual(p_hparams.input_modality, {})
-    self.assertIsInstance(p_hparams.target_modality, modalities.SymbolModality)
+    self.assertIsInstance(p_hparams.modality["targets"],
+                          modalities.SymbolModality)
+    self.assertLen(p_hparams.modality, 1)
 
 if __name__ == "__main__":
   tf.test.main()

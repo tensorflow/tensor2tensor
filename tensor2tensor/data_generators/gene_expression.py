@@ -47,6 +47,7 @@ from tensor2tensor.data_generators import dna_encoder
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
@@ -141,10 +142,10 @@ class GeneExpressionProblem(problem.Problem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    vocab_size = self._encoders["inputs"].vocab_size
-    p.input_modality = {"inputs": (registry.Modalities.SYMBOL, vocab_size)}
-    p.target_modality = ("%s:log_poisson_loss" % registry.Modalities.REAL,
-                         self.num_output_predictions)
+    p.modality = {"inputs": modalities.SymbolModality,
+                  "targets": modalities.RealLogPoissonLossModality}
+    p.vocab_size = {"inputs": self._encoders["inputs"].vocab_size,
+                    "targets": self.num_output_predictions}
     p.input_space_id = problem.SpaceID.DNA
     p.target_space_id = problem.SpaceID.REAL
 

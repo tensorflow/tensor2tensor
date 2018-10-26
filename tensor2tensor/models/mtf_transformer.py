@@ -270,7 +270,8 @@ class MtfTransformer(mtf_model.MtfModel):
 
   @property
   def _targets_vocab_size(self):
-    targets_vocab_size = self._problem_hparams.target_modality._vocab_size  # pylint: disable=protected-access
+    targets_vocab_size = self._problem_hparams.modality[
+        "targets"].top_dimensionality
     targets_vocab_size += (-targets_vocab_size) % self._hparams.vocab_divisor
     return targets_vocab_size
 
@@ -278,8 +279,8 @@ class MtfTransformer(mtf_model.MtfModel):
   def _inputs_vocab_size(self):
     if not self.has_input:
       return None
-    inputs_vocab_size = self._problem_hparams.input_modality[   # pylint: disable=protected-access
-        "inputs"]._vocab_size
+    inputs_vocab_size = self._problem_hparams.modality[
+        "inputs"].top_dimensionality
     inputs_vocab_size += (-inputs_vocab_size) % self._hparams.vocab_divisor
     return inputs_vocab_size
 

@@ -47,7 +47,7 @@ class MtfImageTransformer(mtf_model.MtfModel):
   @property
   def targets_vocab_dim(self):
     return mtf.Dimension(
-        "vocab", self._problem_hparams.target_modality._vocab_size)  # pylint: disable=protected-access
+        "vocab", self._problem_hparams.modality["targets"].top_dimensionality)
 
   @property
   def outputs_vocab_dim(self):

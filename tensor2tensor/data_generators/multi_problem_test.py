@@ -40,12 +40,14 @@ class TestProblem(problem.Problem):
 
   def hparams(self, defaults, model_hparams):
     hp = defaults
-    hp.input_modality = {
-        "inputs": modalities.SymbolModality(model_hparams,
-                                            self.input_vocab_size)
+    hp.modality = {
+        "inputs": modalities.SymbolModality,
+        "targets": modalities.SymbolModality,
     }
-    hp.target_modality = modalities.SymbolModality(model_hparams,
-                                                   self.target_vocab_size)
+    hp.vocab_size = {
+        "inputs": self.input_vocab_size,
+        "targets": self.target_vocab_size,
+    }
 
   def feature_encoders(self, data_dir):
     encoders = {
@@ -70,11 +72,12 @@ class MultiProblemTest(tf.test.TestCase):
   def testProblemHparamsModality(self):
     multiproblem = TestMultiProblem()
     p_hparams = multiproblem.get_hparams()
-    self.assertIsInstance(p_hparams.input_modality["inputs"],
+    self.assertIsInstance(p_hparams.modality["inputs"],
                           modalities.SymbolModality)
-    self.assertEqual(p_hparams.input_modality["inputs"].top_dimensionality, 2)
-    self.assertIsInstance(p_hparams.target_modality, modalities.SymbolModality)
-    self.assertEqual(p_hparams.target_modality.top_dimensionality, 260)
+    self.assertEqual(p_hparams.modality["inputs"].top_dimensionality, 2)
+    self.assertIsInstance(p_hparams.modality["targets"],
+                          modalities.SymbolModality)
+    self.assertEqual(p_hparams.modality["targets"].top_dimensionality, 260)
 
 if __name__ == "__main__":
   tf.test.main()

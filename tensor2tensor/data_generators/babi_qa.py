@@ -42,6 +42,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import tokenizer
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
@@ -417,7 +418,8 @@ class BabiQa(text_problems.QuestionAndContext2TextProblem):
     (super(BabiQa, self).hparams(defaults, unused_model_hparams))
     p = defaults
     num_classes = self._encoders['targets'].vocab_size
-    p.target_modality = (registry.Modalities.CLASS_LABEL, num_classes)
+    p.modality = {'targets': modalities.ClassLabelModality}
+    p.vocab_size = {'targets': num_classes}
 
   def example_reading_spec(self):
     data_fields, data_items_to_decoders = (
@@ -445,9 +447,10 @@ class BabiQaConcat(BabiQa):
     return example
 
   def hparams(self, defaults, unused_model_hparams):
-    (super(BabiQaConcat, self).hparams(defaults, unused_model_hparams))
+    super(BabiQaConcat, self).hparams(defaults, unused_model_hparams)
     p = defaults
-    del p.input_modality['context']
+    del p.modality['context']
+    del p.vocab_size['context']
 
 
 def _problems_to_register():

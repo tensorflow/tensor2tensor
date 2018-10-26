@@ -40,6 +40,7 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -357,12 +358,10 @@ class LambadaRc(text_problems.Text2ClassProblem):
     """
 
     p = defaults
-    source_vocab_size = self._encoders["inputs"].vocab_size
-    num_classes = self._encoders["targets"].vocab_size
-    p.input_modality = {
-        "inputs": (registry.Modalities.SYMBOL, source_vocab_size)
-    }
-    p.target_modality = (registry.Modalities.CLASS_LABEL, num_classes)
+    p.modality = {"inputs": modalities.SymbolModality,
+                  "targets": modalities.ClassLabelModality}
+    p.vocab_size = {"inputs": self._encoders["inputs"].vocab_size,
+                    "targets": self._encoders["targets"].vocab_size}
 
 
 @registry.register_problem

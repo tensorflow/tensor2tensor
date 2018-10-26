@@ -613,7 +613,7 @@ def _interactive_input_fn(hparams, decode_hp):
   decode_length = decode_hp.extra_length
   input_type = "text"
   p_hparams = hparams.problem_hparams
-  has_input = "inputs" in p_hparams.input_modality
+  has_input = "inputs" in p_hparams.modality
   vocabulary = p_hparams.vocabulary["inputs" if has_input else "targets"]
   # This should be longer than the longest input.
   const_array_size = 10000

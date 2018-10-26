@@ -323,7 +323,7 @@ class Transformer(t2t_model.T2TModel):
           " of the dataset when decoding.")
     dp = self._data_parallelism
     hparams = self._hparams
-    target_modality = self._problem_hparams.target_modality
+    target_modality = self._problem_hparams.modality["targets"]
 
     if self.has_input:
       inputs = features["inputs"]
@@ -343,7 +343,7 @@ class Transformer(t2t_model.T2TModel):
       inputs = tf.reshape(inputs, [s[0] * s[1], s[2], s[3], s[4]])
       # _shard_features called to ensure that the variable names match
       inputs = self._shard_features({"inputs": inputs})["inputs"]
-      input_modality = self._problem_hparams.input_modality["inputs"]
+      input_modality = self._problem_hparams.modality["inputs"]
       with tf.variable_scope(input_modality.name):
         inputs = input_modality.bottom_sharded(inputs, dp)
       with tf.variable_scope("body"):
@@ -536,7 +536,7 @@ class Transformer(t2t_model.T2TModel):
       raise NotImplementedError("Fast decoding only supports a single shard.")
     dp = self._data_parallelism
     hparams = self._hparams
-    target_modality = self._problem_hparams.target_modality
+    target_modality = self._problem_hparams.modality["targets"]
     if "targets_segmentation" in features:
       raise NotImplementedError(
           "Decoding not supported on packed datasets "
@@ -560,7 +560,7 @@ class Transformer(t2t_model.T2TModel):
       inputs = tf.reshape(inputs, [s[0] * s[1], s[2], s[3], s[4]])
       # _shard_features called to ensure that the variable names match
       inputs = self._shard_features({"inputs": inputs})["inputs"]
-      input_modality = self._problem_hparams.input_modality["inputs"]
+      input_modality = self._problem_hparams.modality["inputs"]
       with tf.variable_scope(input_modality.name):
         inputs = input_modality.bottom_sharded(inputs, dp)
       with tf.variable_scope("body"):

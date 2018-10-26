@@ -83,14 +83,15 @@ class MultiProblem(problem.Problem):
       return self._hparams
 
     self._hparams = self.task_list[0].get_hparams(model_hparams)
-    # increase the vocab size in order to account for task ids
+    # Increase the vocab size to account for task ids and modify the modality.
     vocab_size_inc = len(self.task_list)
     vocab_size_inc += self.get_max_num_classes()
     vocab_size = self._hparams.vocabulary["targets"].vocab_size
     tf.logging.info("Old vocabulary size: %d" % vocab_size)
     tf.logging.info("New vocabulary size: %d" % (vocab_size + vocab_size_inc))
-    self._hparams.target_modality = modalities.SymbolModality(
-        model_hparams, vocab_size + vocab_size_inc)
+    self._hparams.vocab_size["targets"] = vocab_size + vocab_size_inc
+    self._hparams.modality["targets"] = modalities.SymbolModality(
+        model_hparams, self._hparams.vocab_size["targets"])
 
     return self._hparams
 

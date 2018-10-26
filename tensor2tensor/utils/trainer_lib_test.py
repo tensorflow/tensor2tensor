@@ -105,10 +105,10 @@ class TrainerLibTest(tf.test.TestCase):
         problem_name="tiny_algo")
     # Manually turn off sharing. It is not currently supported for multitargets.
     hparams.shared_embedding_and_softmax_weights = 0  # pylint: disable=line-too-long
-    hparams.problem_hparams.target_modality = {
-        "targets": hparams.problem_hparams.target_modality,
-        "A": hparams.problem_hparams.target_modality,
-        "B": hparams.problem_hparams.target_modality,
+    hparams.problem_hparams.modality = {
+        "targets": hparams.problem_hparams.modality["targets"],
+        "targets_A": hparams.problem_hparams.modality["targets"],
+        "targets_B": hparams.problem_hparams.modality["targets"],
     }
     hparams.problem._hparams = hparams.problem_hparams
 
@@ -119,14 +119,14 @@ class TrainerLibTest(tf.test.TestCase):
     dataset = dataset.repeat(None).padded_batch(10, dataset.output_shapes)
     features = dataset.make_one_shot_iterator().get_next()
     features = problem_lib.standardize_shapes(features)
-    features["A"] = features["B"] = features["targets"]
+    features["targets_A"] = features["targets_B"] = features["targets"]
 
     # Model
     model = registry.model("transformer")(hparams, tf.estimator.ModeKeys.TRAIN)
 
     def body(args, mb=model.body):
       out = mb(args)
-      return {"targets": out, "A": out, "B": out}
+      return {"targets": out, "targets_A": out, "targets_B": out}
 
     model.body = body
 

@@ -29,6 +29,7 @@ import numpy as np
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
@@ -84,14 +85,22 @@ class EnvSimulationProblem(video_utils.VideoProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    def make_modality(name):
-      return {
-          "{}s".format(name): ("video", 256),
-          "{}_reward".format(name): ("symbol:weights_all", self.num_rewards),
-          "{}_action".format(name): ("symbol:weights_all", self.num_actions)
-      }
-    p.input_modality = make_modality("input")
-    p.target_modality = make_modality("target")
+    p.modality = {
+        "inputs": modalities.VideoModality,
+        "input_reward": modalities.SymbolModalityWeightsAll,
+        "input_action": modalities.SymbolModalityWeightsAll,
+        "targets": modalities.VideoModality,
+        "target_reward": modalities.SymbolModalityWeightsAll,
+        "target_action": modalities.SymbolModalityWeightsAll,
+    }
+    p.vocab_size = {
+        "inputs": 256,
+        "input_reward": self.num_rewards,
+        "input_action": self.num_actions,
+        "targets": 256,
+        "target_reward": self.num_rewards,
+        "target_action": self.num_actions,
+    }
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE
 

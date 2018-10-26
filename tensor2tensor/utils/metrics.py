@@ -584,7 +584,7 @@ def create_evaluation_metrics(problems, model_hparams):
                                     metrics,
                                     list(METRICS_FNS.keys())))
 
-    tm = problem_instance.get_hparams(model_hparams).target_modality
+    tm = problem_instance.get_hparams(model_hparams).modality["targets"]
     if not isinstance(tm, dict):
       tm = {"targets": tm}
 
@@ -609,7 +609,7 @@ def create_evaluation_metrics(problems, model_hparams):
 def create_eager_metrics_for_problem(problem, model_hparams):
   """See create_eager_metrics."""
   metric_names = problem.eval_metrics()
-  tm = problem.get_hparams(model_hparams).target_modality
+  tm = problem.get_hparams(model_hparams).modality["targets"]
   return create_eager_metrics(metric_names, weights_fn=tm.targets_weights_fn)
 
 

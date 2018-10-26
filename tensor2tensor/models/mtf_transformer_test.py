@@ -45,7 +45,7 @@ def get_model(hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
                                                    VOCAB_SIZE,
                                                    hparams)
   if not has_input:
-    p_hparams.input_modality = {}
+    del p_hparams.modality["inputs"]
   hparams.problem_hparams = p_hparams
 
   inputs = -1 + np.random.random_integers(

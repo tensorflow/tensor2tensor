@@ -45,7 +45,7 @@ class UniversalTransformerTest(tf.test.TestCase):
                                                      VOCAB_SIZE,
                                                      hparams)
     if not has_input:
-      p_hparams.input_modality = {}
+      del p_hparams.modality["inputs"]
     hparams.problems = [p_hparams]
 
     inputs = -1 + np.random.random_integers(

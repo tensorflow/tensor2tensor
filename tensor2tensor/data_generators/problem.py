@@ -716,8 +716,8 @@ class Problem(object):
     assert self._hparams is not None
 
     hp = self.get_hparams()
-    input_mods = hp.input_modality
-    target_mod = hp.target_modality
+    input_mods = hp.modality["inputs"]
+    target_mod = hp.modality["targets"]
     vocabs = hp.vocabulary
     if self.has_inputs:
       in_id = hp.input_space_id
@@ -1075,7 +1075,9 @@ def _copy_problem_hparams(p_hparams):
   """Use input modality, vocab, and space id for target."""
   p = p_hparams
   # Duplicate input modality.
-  p.target_modality = p.input_modality["inputs"]
+  p.modality["targets"] = p.modality["inputs"]
+  # Duplicate input vocab size.
+  p.vocab_size["targets"] = p.vocab_size["inputs"]
   # Duplicate input vocabulary.
   p.vocabulary["targets"] = p.vocabulary["inputs"]
   # Duplicate input space ids.
@@ -1089,13 +1091,31 @@ def _reverse_problem_hparams(p_hparams):
   p = p_hparams
 
   # Swap modalities.
-  input_modality = p.input_modality.get("inputs")
-  target_modality = p.target_modality
-  p.target_modality = input_modality
-  if target_modality is not None:
-    p.input_modality["inputs"] = target_modality
-  else:
-    p.input_modality = {}
+  # TODO(trandustin): Note this assumes target modalities have feature name
+  # 'target', and each intended feature to swap has feature name 'input'.
+  # In the future, remove need for this behavior.
+  reversed_modality = {}
+  for feature_name in six.iterkeys(p.modality):
+    reversed_feature_name = feature_name.replace("target", "input")
+    if "target" in feature_name and reversed_feature_name in p.modality:
+      reversed_modality[feature_name] = p.modality[reversed_feature_name]
+      reversed_modality[reversed_feature_name] = p.modality[feature_name]
+    else:
+      reversed_modality[feature_name] = p.modality[feature_name]
+
+  p.modality = reversed_modality
+
+  # Swap vocab sizes.
+  reversed_vocab_size = {}
+  for feature_name in six.iterkeys(p.vocab_size):
+    reversed_feature_name = feature_name.replace("target", "input")
+    if "target" in feature_name and reversed_feature_name in p.vocab_size:
+      reversed_vocab_size[feature_name] = p.vocab_size[reversed_feature_name]
+      reversed_vocab_size[reversed_feature_name] = p.vocab_size[feature_name]
+    else:
+      reversed_vocab_size[feature_name] = p.vocab_size[feature_name]
+
+  p.vocab_size = reversed_vocab_size
 
   # Swap vocabularies.
   input_vocabulary = p.vocabulary.pop("inputs", None)
@@ -1122,17 +1142,14 @@ def _reverse_problem_hparams(p_hparams):
 
 
 def _create_modalities(problem_hparams, hparams):
-  """Converts string-type modalities to their corresponding Modality.
+  """Creates modalities and overrides any according to model hparams.
 
   Args:
     problem_hparams: tf.contrib.training.HParams for the Problem. It must have
-      input_modality and target_modality as attributes. Modalities are either
-      tuples of type ("modality_type:modality_name", vocab_size), and they will
-      be converted to Modality objects; or they are already Modality objects,
-      and they remain the same.
+      modality which is a dict of strings to Modality classes.
     hparams: tf.contrib.training.HParams for the model. It may have
       input_modalities and target_modality, which will override
-      problem_hparams' modalities.
+      problem_hparams' modality input and target keys.
 
   Returns:
     None
@@ -1146,56 +1163,25 @@ def _create_modalities(problem_hparams, hparams):
         modality_name = ":".join(parts[1:])
         input_modality_overrides[feature_name] = modality_name
 
-  input_modality = {}
-  for feature_name, modality in six.iteritems(problem_hparams.input_modality):
-    if isinstance(modality, (list, tuple)):
-      if feature_name in input_modality_overrides:
-        _warn_changed_modality_type(input_modality_overrides[feature_name],
-                                    modality[0],
-                                    feature_name)
-        modality = (input_modality_overrides[feature_name], modality[1])
-      modality = modalities.create_modality(modality, hparams)
-    input_modality[feature_name] = modality
-  problem_hparams.input_modality = input_modality
-
   target_modality_name = None
   if (hasattr(hparams, "target_modality") and
       hparams.target_modality != "default"):
     target_modality_name = hparams.target_modality
 
-  if isinstance(problem_hparams.target_modality, dict):
-    target_modality = {}
-    for feature_name, modality in six.iteritems(
-        problem_hparams.target_modality):
-      if isinstance(modality, (list, tuple)):
-        # TODO(lukaszkaiser): allow overriding other target modalities.
-        if target_modality_name and feature_name == "targets":
-          _warn_changed_modality_type(target_modality_name,
-                                      modality[0],
-                                      "target_modality/%s" % feature_name)
-          modality = (target_modality_name, modality[1])
-        modality = modalities.create_modality(modality, hparams)
-      target_modality[feature_name] = modality
-    problem_hparams.target_modality = target_modality
-  elif isinstance(problem_hparams.target_modality, (list, tuple)):
-    modality = problem_hparams.target_modality
-    if target_modality_name:
-      _warn_changed_modality_type(target_modality_name,
-                                  modality[0],
-                                  "target")
-      modality = (target_modality_name, modality[1])
-    modality = modalities.create_modality(modality, hparams)
-    problem_hparams.target_modality = modality
-
-
-def _warn_changed_modality_type(new_name, old_name, feature_name):
-  new_type, new_name = modalities.parse_modality_name(new_name)
-  old_type, old_name = modalities.parse_modality_name(old_name)
-  if new_type != old_type:
-    tf.logging.warn(
-        "%s has a designated modality type %s (%s) but has been "
-        "overridden with a modality of type %s (%s).", feature_name, old_type,
-        old_name, new_type, new_name)
+  modality = {}
+  for feature_name, modality_cls in six.iteritems(problem_hparams.modality):
+    vocab_size = problem_hparams.vocab_size[feature_name]
+    if feature_name in input_modality_overrides:
+      modality_obj = modalities.create_modality(
+          (input_modality_overrides[feature_name], vocab_size), hparams)
+    elif target_modality_name and feature_name == "targets":
+      # TODO(lukaszkaiser): allow overriding other target modalities.
+      modality_obj = modalities.create_modality(
+          (target_modality_name, vocab_size), hparams)
+    else:
+      modality_obj = modality_cls(hparams, vocab_size)
+    modality[feature_name] = modality_obj
+  problem_hparams.modality = modality
 
 
 def _default_hparams():

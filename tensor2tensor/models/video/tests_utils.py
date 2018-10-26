@@ -41,11 +41,9 @@ def fill_hparams(hparams, in_frames, out_frames):
 
 
 def action_modalities(hparams):
-  hparams.problem_hparams.input_modality = {
+  hparams.problem_hparams.modality = {
       "inputs": modalities.VideoModalityL2Raw(hparams, 256),
       "input_action": modalities.SymbolModality(hparams, 5),
-  }
-  hparams.problem_hparams.target_modality = {
       "targets": modalities.VideoModalityL2Raw(hparams, 256),
       "target_action": modalities.SymbolModality(hparams, 5),
   }
@@ -54,12 +52,10 @@ def action_modalities(hparams):
 
 def full_modalities(hparams):
   """Full modalities with actions and rewards."""
-  hparams.problem_hparams.input_modality = {
+  hparams.problem_hparams.modality = {
       "inputs": modalities.VideoModalityL2Raw(hparams, 256),
       "input_reward": modalities.SymbolModality(hparams, 3),
       "input_action": modalities.SymbolModality(hparams, 5),
-  }
-  hparams.problem_hparams.target_modality = {
       "targets": modalities.VideoModalityL2Raw(hparams, 256),
       "target_reward": modalities.SymbolModality(hparams, 3),
       "target_action": modalities.SymbolModality(hparams, 5),

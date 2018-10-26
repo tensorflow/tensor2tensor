@@ -116,7 +116,8 @@ class SquadConcat(Squad):
     (super(SquadConcat, self)
      .hparams(defaults, unused_model_hparams))
     p = defaults
-    del p.input_modality['context']
+    del p.modality['context']
+    del p.vocab_size['context']
 
 
 @registry.register_problem

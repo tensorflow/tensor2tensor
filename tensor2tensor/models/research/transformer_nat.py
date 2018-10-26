@@ -328,10 +328,6 @@ class TransformerNAT(t2t_model.T2TModel):
     self._hparams.ema_means = ema_means
     self._hparams.ema_count = ema_count
 
-  @property
-  def has_input(self):
-    return self._problem_hparams.input_modality
-
   def body(self, features):
     inputs = features["inputs"] if "inputs" in features else None
     reuse = "cache_raw" in features

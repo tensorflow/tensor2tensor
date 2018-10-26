@@ -120,8 +120,8 @@ class T2TModel(base.Layer):
     hparams = copy.copy(hparams)
     if self._problem_hparams and hparams.shared_embedding_and_softmax_weights:
       # If vocabularies differ, unset shared_embedding_and_softmax_weights.
-      input_modality = self._problem_hparams.input_modality.get("inputs")
-      target_modality = self._problem_hparams.target_modality
+      input_modality = self._problem_hparams.modality.get("inputs")
+      target_modality = self._problem_hparams.modality.get("targets")
       if (isinstance(input_modality, modality.Modality) and
           isinstance(target_modality, modality.Modality) and
           input_modality.top_dimensionality !=
@@ -181,7 +181,7 @@ class T2TModel(base.Layer):
   @property
   def has_input(self):
     if self._problem_hparams:
-      return "inputs" in self._problem_hparams.input_modality
+      return "inputs" in self._problem_hparams.modality
     else:
       return True
 
@@ -202,7 +202,7 @@ class T2TModel(base.Layer):
   @property
   def _target_modality_is_real(self):
     """Whether the target modality is real-valued."""
-    target_modality = self._problem_hparams.target_modality
+    target_modality = self._problem_hparams.modality["targets"]
     return target_modality.name.startswith("real_")
 
   def call(self, inputs, **kwargs):
@@ -342,43 +342,43 @@ class T2TModel(base.Layer):
     if not self._problem_hparams:
       log_warn("Without a Problem, T2TModel.bottom is a passthrough.")
       return features
+
     transformed_features = collections.OrderedDict()
     all_previous_modalities = []
+    target_modality = _create_target_modality(self._problem_hparams.modality)
 
-    # Transform the input features
-    for key, input_modality in sorted(
-        six.iteritems(self._problem_hparams.input_modality)):
-      if key not in features:
-        tf.logging.warning("Missing feature %s - ignoring." % key)
+    # Transform features via its corresponding modality.
+    for feature_name, modality_obj in sorted(
+        six.iteritems(self._problem_hparams.modality)):
+      if feature_name not in features:
+        tf.logging.warning("Missing feature %s - ignoring." % feature_name)
         continue
-      do_reuse = input_modality.name in all_previous_modalities
-      with tf.variable_scope(input_modality.name, reuse=do_reuse) as im_vs:
-        self._add_variable_scope(input_modality.name, im_vs)
-        log_info("Transforming feature '%s' with %s.bottom", key,
-                 input_modality.name)
-        transformed_features[key] = input_modality.bottom(features[key])
-      all_previous_modalities.append(input_modality.name)
-
-    # Transform the targets (for autoregressive models)
-    target_modality = self._problem_hparams.target_modality
-    if isinstance(target_modality, dict):
-      for k, v in six.iteritems(target_modality):
-        if k in features:
-          # TODO(aidangomez): share variables?
-          with tf.variable_scope("%s/%s" % (v.name, k)) as tm_vs:
-            self._add_variable_scope("%s/%s" % (v.name, k), tm_vs)
-            log_info("Transforming '%s' with %s.targets_bottom", k, v.name)
-            transformed_features[k] = v.targets_bottom(features[k])
+      # Use if-else clauses to preserve behavior of previous changes: namely,
+      # the variable scope name for the targets feature if there is only one
+      # target modality; and to reuse variable scopes for only input modalities.
+      if feature_name in target_modality:
+        if len(target_modality) > 1:
+          variable_scope_name = "%s/%s" % (modality_obj.name, feature_name)
         else:
-          tf.logging.warn("Modality not found in features: %s", k)
-    else:
-      with tf.variable_scope(target_modality.name) as tm_vs:
-        self._add_variable_scope(target_modality.name, tm_vs)
-        if "targets" in features:
-          log_info("Transforming 'targets' with %s.targets_bottom",
-                   target_modality.name)
-          transformed_features["targets"] = target_modality.targets_bottom(
-              features["targets"])
+          variable_scope_name = modality_obj.name
+        # TODO(aidangomez): share variables?
+        with tf.variable_scope(variable_scope_name) as vs:
+          self._add_variable_scope(variable_scope_name, vs)
+          log_info("Transforming feature '%s' with %s.targets_bottom",
+                   feature_name,
+                   modality_obj.name)
+          transformed_features[feature_name] = modality_obj.targets_bottom(
+              features[feature_name])
+      else:
+        do_reuse = modality_obj.name in all_previous_modalities
+        with tf.variable_scope(modality_obj.name, reuse=do_reuse) as vs:
+          self._add_variable_scope(modality_obj.name, vs)
+          log_info("Transforming feature '%s' with %s.bottom",
+                   feature_name,
+                   modality_obj.name)
+          transformed_features[feature_name] = modality_obj.bottom(
+              features[feature_name])
+        all_previous_modalities.append(modality_obj.name)
 
     for key in features:
       if key not in transformed_features:
@@ -463,13 +463,14 @@ class T2TModel(base.Layer):
     """
     if isinstance(body_output, dict):
       if self._problem_hparams:
-        target_modality = self._problem_hparams.target_modality
+        target_modality = _create_target_modality(
+            self._problem_hparams.modality)
       else:
         target_modality = {k: None for k in body_output.keys()}
       for k in body_output.keys():
         assert k in target_modality.keys(), (
             "The key %s of model_body's returned logits dict must be in "
-            "problem_hparams.target_modality's dict." % k)
+            "problem_hparams.modality's dict." % k)
       logits = {}
       for k, v in six.iteritems(body_output):
         # TODO(aidangomez): share variables here?
@@ -479,13 +480,14 @@ class T2TModel(base.Layer):
       return logits
     else:
       if self._problem_hparams:
-        target_modality = self._problem_hparams.target_modality
+        target_modality = _create_target_modality(
+            self._problem_hparams.modality)
       else:
         target_modality = None
       if isinstance(target_modality, dict):
         assert "targets" in target_modality, (
             "model_body returned single logits so 'targets' must be a key "
-            "since problem_hparams.target_modality is a dict.")
+            "since problem_hparams.modality is a dict.")
         target_modality = target_modality["targets"]
       return self._top_single(body_output, target_modality, features)
 
@@ -519,13 +521,14 @@ class T2TModel(base.Layer):
   def loss(self, logits, features):
     if isinstance(logits, dict):
       if self._problem_hparams:
-        target_modality = self._problem_hparams.target_modality
+        target_modality = _create_target_modality(
+            self._problem_hparams.modality)
       else:
         target_modality = {k: None for k in logits.keys()}
       for k in logits.keys():
         assert k in target_modality.keys(), (
             "The key %s of model_body's returned logits dict must be in "
-            "problem_hparams.target_modality's dict." % k)
+            "problem_hparams.modality's dict." % k)
       losses = {}
       for k, v in six.iteritems(logits):
         losses[k] = self._loss_single(v, target_modality[k], features[k])
@@ -543,13 +546,14 @@ class T2TModel(base.Layer):
       return tf.add_n([n / d for n, d in losses.values()])
     else:
       if self._problem_hparams:
-        target_modality = self._problem_hparams.target_modality
+        target_modality = _create_target_modality(
+            self._problem_hparams.modality)
       else:
         target_modality = None
       if isinstance(target_modality, dict):
         assert "targets" in target_modality, (
             "model_body returned single logits so 'targets' must be a key "
-            "since problem_hparams.target_modality is a dict.")
+            "since problem_hparams.modality is a dict.")
         target_modality = target_modality["targets"]
       return self._loss_single(logits, target_modality, features["targets"])
 
@@ -578,14 +582,9 @@ class T2TModel(base.Layer):
 
     if self._problem_hparams:
       # Set model hparams in problem_hparams' modalities, which also store them.
-      for im in six.itervalues(self._problem_hparams.input_modality):
-        im._model_hparams = self._hparams  # pylint: disable=protected-access
-
-      if isinstance(self._problem_hparams.target_modality, dict):
-        for tm in six.itervalues(self._problem_hparams.target_modality):
-          tm._model_hparams = self._hparams  # pylint: disable=protected-access
-      elif self._problem_hparams.target_modality is not None:
-        self._problem_hparams.target_modality._model_hparams = self._hparams  # pylint: disable=protected-access
+      for modality_obj in six.itervalues(self._problem_hparams.modality):
+        if modality_obj is not None:
+          modality_obj._model_hparams = self._hparams  # pylint: disable=protected-access
 
   def prepare_features_for_infer(self, features):
     """Called before inference to allow adding infer-specific features."""
@@ -660,7 +659,7 @@ class T2TModel(base.Layer):
       self._fill_problem_hparams_features(features)
 
       if self._problem_hparams:
-        target_modality = self._problem_hparams.target_modality
+        target_modality = self._problem_hparams.modality["targets"]
         if target_modality.is_class_modality:
           beam_size = 1  # No use to run beam-search for a single class.
       if beam_size == 1:
@@ -744,7 +743,7 @@ class T2TModel(base.Layer):
       # it has shape [batch_size] and contains floats between 0 and
       # source_length.
       if self._problem_hparams:
-        if self._problem_hparams.target_modality.top_is_pointwise:
+        if self._problem_hparams.modality["targets"].top_is_pointwise:
           return tf.squeeze(logits, axis=[1, 2, 3])
       # -1 due to the pad above.
       current_output_position = common_layers.shape_list(ids)[1] - 1
@@ -764,7 +763,7 @@ class T2TModel(base.Layer):
       features["inputs"] = tf.reshape(features["inputs"],
                                       [s[0] * s[1], s[2], s[3], s[4]])
 
-    target_modality = self._problem_hparams.target_modality
+    target_modality = self._problem_hparams.modality["targets"]
     vocab_size = target_modality.top_dimensionality
     # Setting decode length to input length + decode_length
     decode_length = tf.constant(decode_length)
@@ -855,7 +854,7 @@ class T2TModel(base.Layer):
     # in metric functions stays in the same frame as other vars.
     targets_old = features.get("targets", None)
 
-    target_modality = self._problem_hparams.target_modality
+    target_modality = self._problem_hparams.modality["targets"]
 
     def infer_step(i, recent_output, recent_logits, unused_loss):
       """Inference step."""
@@ -902,7 +901,7 @@ class T2TModel(base.Layer):
     # input shape, so we confuse it about the input shape.
     initial_output = tf.slice(initial_output, [0, 0, 0, 0],
                               common_layers.shape_list(initial_output))
-    target_modality = self._problem_hparams.target_modality
+    target_modality = self._problem_hparams.modality["targets"]
     if target_modality.is_class_modality:
       decode_length = 1
     else:
@@ -1022,13 +1021,13 @@ class T2TModel(base.Layer):
     # in metric functions stays in the same frame as other vars.
     targets_old = features.get("targets", None)
 
-    target_modality = self._problem_hparams.target_modality
+    target_modality = self._problem_hparams.modality["targets"]
 
     def infer_step(recent_output, recent_logits, unused_loss):
       """Inference step."""
       if not tf.contrib.eager.in_eager_mode():
         if self._target_modality_is_real:
-          dim = self._problem_hparams.target_modality.top_dimensionality
+          dim = self._problem_hparams.modality["targets"].top_dimensionality
           recent_output.set_shape([None, None, None, dim])
         else:
           recent_output.set_shape([None, None, None, 1])
@@ -1068,7 +1067,7 @@ class T2TModel(base.Layer):
     else:
       batch_size = common_layers.shape_list(features["inputs"])[0]
       if self._target_modality_is_real:
-        dim = self._problem_hparams.target_modality.top_dimensionality
+        dim = self._problem_hparams.modality["targets"].top_dimensionality
         initial_output = tf.zeros((batch_size, 0, 1, dim), dtype=tf.float32)
       else:
         initial_output = tf.zeros((batch_size, 0, 1, 1), dtype=tf.int64)
@@ -1076,7 +1075,7 @@ class T2TModel(base.Layer):
     # input shape, so we confuse it about the input shape.
     initial_output = tf.slice(initial_output, [0, 0, 0, 0],
                               common_layers.shape_list(initial_output))
-    target_modality = self._problem_hparams.target_modality
+    target_modality = self._problem_hparams.modality["targets"]
     if target_modality.is_class_modality:
       decode_length = 1
     else:
@@ -1581,7 +1580,7 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
   metric_fns = []
   eval_metrics = problem.eval_metrics()
 
-  tm = problem.get_hparams(model_hparams).target_modality
+  tm = _create_target_modality(problem.get_hparams(model_hparams).modality)
   if isinstance(tm, dict):
     for k, v in six.iteritems(tm):
       weights_fn = v.targets_weights_fn
@@ -1748,7 +1747,7 @@ def create_eager_var_store():
 def scheduled_sampling(hparams, problem_hparams, dp, sharded_logits, losses,
                        sharded_features, transformed_features, model):
   """Scheduled sampling."""
-  target_modality = problem_hparams.target_modality
+  target_modality = problem_hparams.modality["targets"]
 
   def sample(x):
     """Multinomial sampling from a n-dimensional tensor."""
@@ -1901,3 +1900,11 @@ def set_custom_getter_compose(custom_getter):
   tf.get_variable_scope().set_custom_getter(
       _compose_custom_getters(tf.get_variable_scope().custom_getter,
                               custom_getter))
+
+
+def _create_target_modality(modality_dict):
+  # TODO(trandustin): We require this in order to apply methods utilized
+  # differently for modalities which are "targets"
+  # (e.g., modality.target_bottom). In the future, remove need for this
+  # behavior.
+  return {k: v for k, v in six.iteritems(modality_dict) if "target" in k}

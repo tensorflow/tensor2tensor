@@ -28,8 +28,8 @@ from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import common_video
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
-from tensor2tensor.utils import registry
 from tensor2tensor.utils import video_metrics
 
 import tensorflow as tf
@@ -604,8 +604,10 @@ class Video2ClassProblem(VideoProblemOld):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
-    p.target_modality = (registry.Modalities.CLASS_LABEL, self.num_classes)
+    p.modality = {"inputs": modalities.ImageModality,
+                  "targets": modalities.ClassLabelModality}
+    p.vocab_size = {"inputs": 256,
+                    "targets": self.num_classes}
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE_LABEL
 
