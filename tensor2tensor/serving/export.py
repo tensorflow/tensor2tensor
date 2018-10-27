@@ -122,9 +122,11 @@ def export_as_tfhub_module(model_name,
         inputs=original_features,
         outputs=spec.export_outputs["serving_default"].outputs)
 
-  # TFHub doesn't support LOSSES collections.
+  # TFHub doesn't support the following collections.
+  drop_collections = [tf.GraphKeys.LOSSES,
+                      tf.GraphKeys.SUMMARIES, tf.GraphKeys.LOCAL_VARIABLES]
   module_spec = hub.create_module_spec(
-      hub_module_fn, drop_collections=[tf.GraphKeys.LOSSES])
+      hub_module_fn, drop_collections=drop_collections)
   # Loads the weights from the checkpoint using the model above
   # and saves it in the export_path.
   export_module_spec_with_checkpoint(

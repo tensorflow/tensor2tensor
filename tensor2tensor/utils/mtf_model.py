@@ -87,7 +87,7 @@ class MtfModel(t2t_model.T2TModel):
           mesh_shape, layout_rules, mesh_devices, ctx.device_assignment)
     else:
       var_placer = None
-      if len(data_parallelism.ps_devices) == 1:
+      if data_parallelism is None or len(data_parallelism.ps_devices) == 1:
         mesh_devices = [""] * mesh_shape.size
       else:
         assert len(data_parallelism.ps_devices) == mesh_shape.size
@@ -221,10 +221,14 @@ class MtfModel(t2t_model.T2TModel):
       outputs = tf.slice(
           outputs, [0] * ndims, [actual_batch_size] + [-1] * (ndims - 1))
     predictions = {
-        "outputs": outputs,
-        "targets": features.get("infer_targets", features.get("inputs")),
-        "inputs": features.get("inputs"),
+        "outputs": outputs
     }
+    if features.get("infer_targets") is not None:
+      predictions["infer_targets"] = features["infer_targets"]
+
+    if features.get("inputs") is not None:
+      predictions["inputs"] = features["inputs"]
+
     if use_tpu:
       t2t_model.remove_summaries()
       return tpu_estimator.TPUEstimatorSpec(
