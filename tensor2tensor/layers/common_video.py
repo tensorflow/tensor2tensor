@@ -340,10 +340,6 @@ def tile_and_concat(image, latent, concat_latent=True):
   latent_shape = common_layers.shape_list(latent)
   height, width = image_shape[1], image_shape[2]
   latent_dims = latent_shape[1]
-
-  if height < latent_dims:
-    raise ValueError("Latent is too big to tile.")
-
   height_multiples = height // latent_dims
   pad = height - (height_multiples * latent_dims)
   latent = tf.reshape(latent, (-1, latent_dims, 1, 1))
