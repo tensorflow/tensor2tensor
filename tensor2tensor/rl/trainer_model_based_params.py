@@ -206,12 +206,12 @@ def rlmb_dqn_base():
       # TODO(piotrmilos): possibly remove this
       ppo_continue_training=True,
 
-      eval_num_agents = 30,
+      eval_num_agents = 3,
       eval_max_num_noops = 8,
 
       #TODO(piotrmilos): needed for evaluation. Refactor.
       ppo_params="ppo_atari_base",
-      ppo_num_agents=16,
+      ppo_num_agents=4,
 
   )
 
