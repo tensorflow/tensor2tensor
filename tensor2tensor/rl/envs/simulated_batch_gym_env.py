@@ -60,7 +60,7 @@ class SimulatedBatchGymEnv(object):
       self.action_space = self._batch_env.action_space
       # TODO(KC): check for stack wrapper when setting observation_space, and
       # use self._batch_env.observ_space
-      self.observation_space = None
+      self.observation_space = self._batch_env.observ_space
 
       self._sess = sess if sess is not None else tf.Session()
       self._actions_t = tf.placeholder(shape=(1,), dtype=tf.int32)

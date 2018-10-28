@@ -204,7 +204,11 @@ def rlmb_dqn_base():
       real_env_timesteps_limit=-1,  # Use default from gym.make()
 
       # TODO(piotrmilos): possibly remove this
-      ppo_continue_training=True
+      ppo_continue_training=True,
+
+      eval_num_agents = 30,
+      eval_max_num_noops = 8,
+
   )
 
 
