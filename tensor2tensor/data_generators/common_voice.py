@@ -134,7 +134,7 @@ class CommonVoice(speech_recognition.SpeechRecognitionProblem):
 
     data_dir = os.path.join(tmp_dir, "cv_corpus_v1")
     data_tuples = _collect_data(data_dir)
-    encoders = self.feature_encoders(None)
+    encoders = self.feature_encoders(data_dir)
     audio_encoder = encoders["waveforms"]
     text_encoder = encoders["targets"]
     for dataset in datasets:

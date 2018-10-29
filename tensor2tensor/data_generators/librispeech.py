@@ -138,7 +138,7 @@ class Librispeech(speech_recognition.SpeechRecognitionProblem):
       data_files = _collect_data(data_dir, "flac", "txt")
       data_pairs = data_files.values()
 
-      encoders = self.feature_encoders(None)
+      encoders = self.feature_encoders(data_dir)
       audio_encoder = encoders["waveforms"]
       text_encoder = encoders["targets"]
 
