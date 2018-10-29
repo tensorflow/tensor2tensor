@@ -52,10 +52,33 @@ def resize_video_frames(images, size):
   return resized_images
 
 
+def create_border(video, color="blue", border_percent=2):
+  """Creates a border around each frame to differentiate input and target.
+
+  Args:
+    video: 5-D NumPy array.
+    color: string, "blue", "red" or "green".
+    border_percent: Percentarge of the frame covered by the border.
+  Returns:
+    video: 5-D NumPy array.
+  """
+  color_to_axis = {"blue": 2, "red": 0, "green": 1}
+  axis = color_to_axis[color]
+  _, _, height, width, _ = video.shape
+  border_height = np.ceil(border_percent * height / 100.0).astype(np.int)
+  border_width = np.ceil(border_percent * width / 100.0).astype(np.int)
+  video[:, :, :border_height, :, axis] = 255
+  video[:, :, -border_height:, :, axis] = 255
+  video[:, :, :, :border_width, axis] = 255
+  video[:, :, :, -border_width:, axis] = 255
+  return video
+
+
 def display_video_hooks(hook_args):
   """Hooks to display videos at decode time."""
   predictions = hook_args.predictions
   fps = hook_args.decode_hparams.frames_per_second
+  border_percent = hook_args.decode_hparams.border_percent
 
   all_summaries = []
   for decode_ind, decode in enumerate(predictions):
@@ -67,9 +90,17 @@ def display_video_hooks(hook_args):
     output_videos = np.asarray(output_videos, dtype=np.uint8)
     input_videos = np.asarray(input_videos, dtype=np.uint8)
 
+    input_videos = create_border(
+        input_videos, color="blue", border_percent=border_percent)
+    target_videos = create_border(
+        target_videos, color="red", border_percent=border_percent)
+    output_videos = create_border(
+        output_videos, color="red", border_percent=border_percent)
+
     # Video gif.
     all_input = np.concatenate((input_videos, target_videos), axis=1)
     all_output = np.concatenate((input_videos, output_videos), axis=1)
+
     input_summ_vals, _ = common_video.py_gif_summary(
         "decode_%d/input" % decode_ind,
         all_input, max_outputs=10,

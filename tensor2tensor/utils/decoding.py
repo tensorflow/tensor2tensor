@@ -71,6 +71,8 @@ def decode_hparams(overrides=""):
       # Used for video decoding.
       frames_per_second=10,
       skip_eos_postprocess=False,
+      # Creates a blue/red border covering border_percent of the frame.
+      border_percent=2,
       # Used for MLPerf compliance logging.
       mlperf_mode=False,
       mlperf_threshold=25.0,
