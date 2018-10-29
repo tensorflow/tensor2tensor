@@ -15,7 +15,6 @@
 
 """Algorithmic data generators for symbolic math tasks.
 
-See go/symbolic-math-dataset
 """
 
 from __future__ import absolute_import
@@ -159,8 +158,6 @@ def random_expr(depth, vlist, ops):
 def algebra_inverse_solve(left, right, var, solve_ops):
   """Solves for the value of the given var in an expression.
 
-  See go/symbolic-math-dataset.
-
   Args:
     left: The root of the ExprNode tree on the left side of the equals sign.
     right: The root of the ExprNode tree on the right side of the equals sign.
@@ -243,8 +240,6 @@ def generate_algebra_inverse_sample(vlist, ops, solve_ops, min_depth,
   Given an input equation and variable, produce the expression equal to the
   variable.
 
-  See go/symbolic-math-dataset.
-
   Args:
     vlist: Variable list. List of chars that can be used in the expression.
     ops: List of ExprOp instances. The allowed operators for the expression.
@@ -284,8 +279,6 @@ def generate_algebra_simplify_sample(vlist, ops, min_depth, max_depth):
 
   Given an input expression, produce the simplified expression.
 
-  See go/symbolic-math-dataset.
-
   Args:
     vlist: Variable list. List of chars that can be used in the expression.
     ops: List of ExprOp instances. The allowed operators for the expression.
@@ -311,8 +304,6 @@ def generate_calculus_integrate_sample(vlist, ops, min_depth, max_depth,
   """Randomly generate a symbolic integral dataset sample.
 
   Given an input expression, produce the indefinite integral.
-
-  See go/symbolic-math-dataset.
 
   Args:
     vlist: Variable list. List of chars that can be used in the expression.
@@ -345,7 +336,7 @@ def generate_calculus_integrate_sample(vlist, ops, min_depth, max_depth,
 
 
 # AlgebraConfig holds objects required to generate the algebra inverse
-# dataset. See go/symbolic-math-dataset.
+# dataset.
 # vlist: Variable list. A list of chars.
 # dlist: Numberical digit list. A list of chars.
 # flist: List of special function names. A list of chars.
@@ -366,8 +357,6 @@ AlgebraConfig = namedtuple("AlgebraConfig", [
 
 def math_dataset_init(alphabet_size=26, digits=None, functions=None):
   """Initializes required objects to generate symbolic math datasets.
-
-  See go/symbolic-math-dataset.
 
   Produces token set, ExprOp instances, solve_op dictionary, encoders, and
   decoders needed to generate the algebra inverse dataset.
