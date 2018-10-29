@@ -106,7 +106,6 @@ class TransformerMoe(t2t_model.T2TModel):
     layers = common_attention.get_standardized_layers(
         hparams=hparams,
         dp=dp,
-        ps_devices=self._ps_devices,
     )
 
     if hparams.mode == tf.estimator.ModeKeys.TRAIN:
