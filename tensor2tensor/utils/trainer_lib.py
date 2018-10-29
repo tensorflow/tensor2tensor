@@ -279,7 +279,7 @@ def create_estimator(model_name,
                      use_xla=False):
   """Create a T2T Estimator."""
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
-      model_name, hparams, decode_hparams=decode_hparams)
+      model_name, hparams, decode_hparams=decode_hparams, use_tpu=use_tpu)
 
 
   del use_xla

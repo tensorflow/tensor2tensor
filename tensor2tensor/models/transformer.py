@@ -97,6 +97,7 @@ class Transformer(t2t_model.T2TModel):
         hparams,
         nonpadding=features_to_nonpadding(features, "inputs"),
         save_weights_to=self.attention_weights,
+        make_image_summary=not common_layers.is_xla_compiled(),
         losses=losses)
 
     return encoder_output, encoder_decoder_attention_bias

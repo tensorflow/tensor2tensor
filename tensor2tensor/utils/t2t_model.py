@@ -1230,7 +1230,8 @@ class T2TModel(base.Layer):
   @staticmethod
   def make_estimator_model_fn(model_name,
                               hparams,
-                              decode_hparams=None):
+                              decode_hparams=None,
+                              use_tpu=False):
     model_cls = registry.model(model_name)
 
     def wrapping_model_fn(features, labels, mode, params=None, config=None):
@@ -1241,7 +1242,8 @@ class T2TModel(base.Layer):
           mode,
           config=config,
           params=params,
-          decode_hparams=decode_hparams)
+          decode_hparams=decode_hparams,
+          use_tpu=use_tpu)
 
     return wrapping_model_fn
 
@@ -1253,7 +1255,8 @@ class T2TModel(base.Layer):
                          mode,
                          config=None,
                          params=None,
-                         decode_hparams=None):
+                         decode_hparams=None,
+                         use_tpu=False):
     """Model fn for Estimator.
 
     Args:
@@ -1264,6 +1267,7 @@ class T2TModel(base.Layer):
       config: RunConfig, possibly with data_parallelism attribute
       params: dict, may include batch_size, use_tpu
       decode_hparams: HParams, used when mode == PREDICT.
+      use_tpu: A bool, whether to build the inference graph for TPU.
 
     Returns:
       TPUEstimatorSpec if use tpu else EstimatorSpec
@@ -1272,7 +1276,6 @@ class T2TModel(base.Layer):
       _create_dummy_vars()
     hparams = copy.deepcopy(hparams)
 
-    use_tpu = params and params.get("use_tpu", False)
     # Instantiate model
     data_parallelism = None
     if not use_tpu and config:
@@ -1287,6 +1290,14 @@ class T2TModel(base.Layer):
 
     # PREDICT mode
     if mode == tf.estimator.ModeKeys.PREDICT:
+      if use_tpu:
+        inputs = features["inputs"]
+        shape = inputs.get_shape().as_list()
+        if shape[0] is None:
+          shape[0] = decode_hparams.batch_size or hparams.batch_size
+        if shape[1] is None:
+          shape[1] = hparams.max_input_seq_length or hparams.max_length
+        inputs.set_shape(shape)
       return model.estimator_spec_predict(features, use_tpu=use_tpu)
 
     # TRAIN and EVAL modes
