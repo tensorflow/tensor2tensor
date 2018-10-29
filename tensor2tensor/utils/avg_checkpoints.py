@@ -90,11 +90,10 @@ def main(_):
   for name in var_values:  # Average.
     var_values[name] /= len(checkpoints)
 
-  with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      tf_vars = [
-          tf.get_variable(v, shape=var_values[v].shape, dtype=var_dtypes[v])
-          for v in var_values
-      ]
+  tf_vars = [
+      tf.get_variable(v, shape=var_values[v].shape, dtype=var_dtypes[name])
+      for v in var_values
+  ]
   placeholders = [tf.placeholder(v.dtype, shape=v.shape) for v in tf_vars]
   assign_ops = [tf.assign(v, p) for (v, p) in zip(tf_vars, placeholders)]
   global_step = tf.Variable(
