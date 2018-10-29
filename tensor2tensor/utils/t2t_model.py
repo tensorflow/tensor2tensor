@@ -460,6 +460,11 @@ class T2TModel(base.Layer):
     Returns:
       logits: dict of str to Tensor, denoting each logits for each target; or
         a single Tensor denoting the logits for that target.
+        When targets are generated at training time:
+          logits == {
+            "self_generated_targets": <generated targets tensor>
+            "logits": <original logits Tensor or dict>
+          }
     """
     if isinstance(body_output, dict):
       if self._problem_hparams:
@@ -1305,6 +1310,22 @@ class T2TModel(base.Layer):
       logits, losses_dict = model.eval_autoregressive(features)
     else:
       logits, losses_dict = model(features)  # pylint: disable=not-callable
+
+    # Support model-generated labels by overriding features["targets"] with
+    # logits["self_generated_targets"].
+    if isinstance(logits, dict) and "self_generated_targets" in logits:
+      # Overwrite 'features["targets"]' and 'labels'
+      # by logits["self_generated_targets"].
+      tf.logging.info("Replacing targets with model-provided targets.")
+      features["targets"] = labels = logits.pop("self_generated_targets")
+      assert logits.keys() == ["logits"], (
+          # See "Returns" in the "top" method docstring for the expected
+          # "logits" format when targets are generated at training time.
+          "Expect only key 'logits' when there is 'self_generated_targets'. "
+          "Found {}".format(logits.keys())
+      )
+      # Recover the original logits tensor from the logits dict.
+      logits = logits["logits"]  # Can be a tf.Tensor or a dict.
 
     # Set known shapes
     if common_layers.is_xla_compiled():
