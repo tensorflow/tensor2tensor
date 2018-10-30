@@ -28,6 +28,22 @@ from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
 
 
+class FlatBatchEnv(Env):
+  def __init__(self, batch_env):
+    if batch_env.batch_size != 1:
+      raise ValueError("Number of environments in batch must be equal to one")
+    self.batch_env = batch_env
+    self.action_space = self.batch_env.action_space
+    self.observation_space = self.batch_env.observation_space
+
+  def step(self, action):
+    obs, rewards, dones = self.batch_env.step([action])
+    return obs[0], rewards[0], dones[0], {}
+
+  def reset(self):
+    return self.batch_env.reset()[0]
+
+
 class SimulatedBatchGymEnv(Env):
   """SimulatedBatchEnv in a Gym-like interface, environments are  batched."""
 

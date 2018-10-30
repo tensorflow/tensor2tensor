@@ -44,6 +44,7 @@ from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.rl import trainer_model_based_params
 from tensor2tensor.rl.envs.simulated_batch_gym_env import SimulatedBatchGymEnv
 from tensor2tensor.utils import trainer_lib
+from tensor2tensor.rl.dopamine_connector import dopamine_trainer
 
 import tensorflow as tf
 
@@ -54,16 +55,13 @@ FLAGS = flags.FLAGS
 
 def real_ppo_epoch_increment(hparams):
   """PPO increment."""
-  if hparams.gather_ppo_real_env_data:
-    assert hparams.real_ppo_epochs_num is 0, (
-        "Should be put to 0 to enforce better readability"
-    )
-    return int(math.ceil(
-        hparams.num_real_env_frames /
-        (hparams.epochs * hparams.real_ppo_epoch_length)
-    ))
-  else:
-    return hparams.real_ppo_epochs_num
+  assert hparams.real_ppo_epochs_num is 0, (
+      "Should be put to 0 to enforce better readability"
+  )
+  return int(math.ceil(
+      hparams.num_real_env_frames /
+      (hparams.epochs * hparams.real_ppo_epoch_length)
+  ))
 
 
 def sim_ppo_epoch_increment(hparams, is_final_epoch):
@@ -160,26 +158,21 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
   getattr(exp, schedule)()
 
 
+def _update_hparams_from_hparams(target_hparams, source_hparams, param_names,
+                                 prefix):
+  "Copy a subset of hparams to target_hparams"
+  for param_name in param_names:
+    prefixed_param_name = prefix + param_name
+    if prefixed_param_name in source_hparams:
+      target_hparams.set_hparam(param_name,
+                                source_hparams.get(prefixed_param_name))
+
+
 def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
-                hparams, completed_ppo_epochs_num, epoch=0,
+                hparams, num_completed_agent_epochs, epoch=0,
                 is_final_epoch=False):
   """Train the PPO agent in the simulated environment."""
   del data_dir
-  ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
-  ppo_params_names = ["epochs_num", "epoch_length",
-                      "learning_rate", "num_agents",
-                      "optimization_epochs", "eval_every_epochs"]
-
-  for param_name in ppo_params_names:
-    ppo_param_name = "ppo_" + param_name
-    if ppo_param_name in hparams:
-      ppo_hparams.set_hparam(param_name, hparams.get(ppo_param_name))
-
-  completed_ppo_epochs_num += sim_ppo_epoch_increment(hparams, is_final_epoch)
-  ppo_hparams.epochs_num = completed_ppo_epochs_num
-
-  ppo_hparams.save_models_every_epochs = 10
-  ppo_hparams.world_model_dir = world_model_dir
 
   environment_spec = make_simulated_env_spec(real_env, hparams)
 
@@ -213,48 +206,116 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
 
   environment_spec.add_hparam("initial_frame_chooser", initial_frame_chooser)
 
-  ppo_hparams.add_hparam("environment_spec", environment_spec)
+  assert hparams.rl_algorithm in ['ppo', 'dqn'], \
+    "{} is not supported".format(hparams.rl_algorithm)
 
-  rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
-                       name_scope="ppo_sim%d" % (epoch + 1))
+  if hparams.rl_algorithm == 'ppo':
+    ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
+    _update_hparams_from_hparams(ppo_hparams, hparams, _ppo_params_names,
+                                 "ppo_")
 
-  return completed_ppo_epochs_num
+    num_completed_agent_epochs += sim_ppo_epoch_increment(hparams,
+                                                          is_final_epoch)
+    ppo_hparams.epochs_num = num_completed_agent_epochs
 
+    ppo_hparams.save_models_every_epochs = 10
+    #TODO(piotrmilos): world_model_dir possibly remove
+    ppo_hparams.add_hparam('world_model_dir', world_model_dir)
+    ppo_hparams.add_hparam("force_beginning_resets", True)
+
+    #TODO(pm): possibly remove
+    # Adding model hparams for model specific adjustments
+    model_hparams = \
+        trainer_lib.create_hparams(hparams.generative_model_params)
+    ppo_hparams.add_hparam("model_hparams", model_hparams)
+    ppo_hparams.add_hparam("environment_spec", environment_spec)
+
+    rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
+                         name_scope="ppo_sim%d" % (epoch + 1))
+
+  if hparams.rl_algorithm == 'dqn':
+    # TODO(KC): do it better
+    # Remove StackWrapper
+    environment_spec.wrappers = []
+    dqn_hparams = trainer_lib.create_hparams(hparams.dqn_params)
+    _update_hparams_from_hparams(dqn_hparams, hparams, _dqn_params_names,
+                                 "dqn_")
+    dqn_hparams.add_hparam("environment_spec", environment_spec)
+    training_dqn_steps = _training_dqn_steps(hparams)
+
+    num_completed_agent_epochs += \
+        int(hparams.simulated_dqn_training_steps/training_dqn_steps)
+
+    dqn_hparams.add_hparam("runner_num_iterations", num_completed_agent_epochs)
+    dqn_hparams.add_hparam("runner_training_steps", training_dqn_steps)
+    dqn_hparams.add_hparam("world_model_dir", world_model_dir)
+
+
+    dopamine_trainer(dqn_hparams, agent_model_dir)
+
+
+  return num_completed_agent_epochs
+
+
+# TODO(KC): is this the way we want to do this? If yes replace _ppo_params_names
+# as well
+_dqn_params_names = trainer_lib.create_hparams('rl_dqn_base').values().keys()
+
+_ppo_params_names = ["epochs_num", "epoch_length",
+                     "learning_rate", "num_agents", "eval_every_epochs",
+                     "optimization_epochs", "effective_num_agents"]
+
+
+def _training_dqn_steps(hparams):
+  return int(hparams.num_real_env_frames/hparams.epochs)
 
 def train_agent_real_env(
     env, agent_model_dir, event_dir, data_dir,
-    hparams, completed_ppo_epochs_num, epoch=0, is_final_epoch=False):
+    hparams, num_completed_agent_epochs, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the real environment."""
   del is_final_epoch, data_dir
-  ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
-  ppo_params_names = ["epochs_num", "epoch_length",
-                      "learning_rate", "num_agents", "eval_every_epochs",
-                      "optimization_epochs", "effective_num_agents"]
-
-  # This should be overridden.
-  ppo_hparams.add_hparam("effective_num_agents", None)
-  for param_name in ppo_params_names:
-    ppo_param_name = "real_ppo_"+ param_name
-    if ppo_param_name in hparams:
-      ppo_hparams.set_hparam(param_name, hparams.get(ppo_param_name))
-
-  completed_ppo_epochs_num += real_ppo_epoch_increment(hparams)
-  ppo_hparams.epochs_num = completed_ppo_epochs_num
-  # We do not save model, as that resets frames that we need at restarts.
-  # But we need to save at the last step, so we set it very high.
-  ppo_hparams.save_models_every_epochs = 1000000
 
   environment_spec = rl.standard_atari_env_spec(env)
 
-  ppo_hparams.add_hparam("environment_spec", environment_spec)
+  assert hparams.rl_algorithm in ['ppo', 'dqn'], \
+    "{} is not supported".format(hparams.rl_algorithm)
 
-  rl_trainer_lib.train(ppo_hparams, event_dir + "real", agent_model_dir,
-                       name_scope="ppo_real%d" % (epoch + 1))
+  if hparams.rl_algorithm == 'ppo':
+    ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
+
+    # This should be overridden by hparams.
+    ppo_hparams.add_hparam("effective_num_agents", None)
+    _update_hparams_from_hparams(ppo_hparams, hparams, _ppo_params_names,
+                                 "real_ppo_")
+
+    ppo_hparams.num_agents = 1
+    num_completed_agent_epochs += real_ppo_epoch_increment(hparams)
+    ppo_hparams.epochs_num = num_completed_agent_epochs
+    # We do not save model, as that resets frames that we need at restarts.
+    # But we need to save at the last step, so we set it very high.
+    ppo_hparams.save_models_every_epochs = 1000000
+    ppo_hparams.add_hparam("environment_spec", environment_spec)
+
+    rl_trainer_lib.train(ppo_hparams, event_dir + "real", agent_model_dir,
+                         name_scope="ppo_real%d" % (epoch + 1))
+
+  if hparams.rl_algorithm == 'dqn':
+    dqn_hparams = trainer_lib.create_hparams(hparams.dqn_params)
+    _update_hparams_from_hparams(dqn_hparams,
+                                 hparams,
+                                 _dqn_params_names, "real_dqn_")
+    dqn_hparams.add_hparam("environment_spec", environment_spec)
+
+    num_completed_agent_epochs += 1
+    dqn_hparams.add_hparam("runner_num_iterations", num_completed_agent_epochs)
+    dqn_hparams.add_hparam("runner_training_steps",
+                           _training_dqn_steps(hparams))
+    dopamine_trainer(dqn_hparams, agent_model_dir)
 
   # Save unfinished rollouts to history.
   env.reset()
 
-  return completed_ppo_epochs_num
+  return num_completed_agent_epochs
 
 
 def train_world_model(
@@ -296,7 +357,7 @@ def setup_env(hparams, batch_size):
                   grayscale=hparams.grayscale,
                   resize_width_factor=hparams.resize_width_factor,
                   resize_height_factor=hparams.resize_height_factor,
-                  base_env_timesteps_limit=hparams.env_timesteps_limit,
+                  base_env_timesteps_limit=hparams.real_env_timesteps_limit,
                   max_num_noops=hparams.max_num_noops)
   return env
 
@@ -474,7 +535,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   epoch = -1
   data_dir = directories["data"]
-  env = setup_env(hparams, batch_size=hparams.real_ppo_num_agents)
+  env = setup_env(hparams, batch_size=1)
   env.start_new_epoch(epoch, data_dir)
 
   # Timing log function
@@ -484,17 +545,13 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   epoch_metrics = []
   metrics = {}
 
-  # Collect data from the real environment with PPO or random policy.
-  # TODO(lukaszkaiser): do we need option not to gather_ppo_real_env_data?
-  # We could set learning_rate=0 if this flag == False.
-  assert hparams.gather_ppo_real_env_data
   ppo_model_dir = directories["ppo"]
   tf.logging.info("Initial training of PPO in real environment.")
   ppo_event_dir = os.path.join(directories["world_model"],
                                "ppo_summaries/initial")
-  completed_ppo_epochs_num = train_agent_real_env(
+  num_completed_agent_epochs = train_agent_real_env(
       env, ppo_model_dir, ppo_event_dir, data_dir, hparams,
-      completed_ppo_epochs_num=0, epoch=epoch, is_final_epoch=False
+      num_completed_agent_epochs=0, epoch=epoch, is_final_epoch=False
   )
   metrics["mean_reward/train/clipped"] = compute_mean_reward(
       env.current_epoch_rollouts(), clipped=True
@@ -529,19 +586,19 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     if not hparams.ppo_continue_training:
       ppo_model_dir = ppo_event_dir
 
-    completed_ppo_epochs_num = train_agent(
+    num_completed_agent_epochs = train_agent(
         env, ppo_model_dir, ppo_event_dir,
-        directories["world_model"], data_dir, hparams, completed_ppo_epochs_num,
-        epoch=epoch, is_final_epoch=is_final_epoch
+        directories["world_model"], data_dir, hparams,
+        num_completed_agent_epochs, epoch=epoch, is_final_epoch=is_final_epoch
     )
 
     env.start_new_epoch(epoch, data_dir)
 
     # Train PPO on real env (short)
     log("Training PPO in real environment.")
-    completed_ppo_epochs_num = train_agent_real_env(
+    num_completed_agent_epochs = train_agent_real_env(
         env, ppo_model_dir, ppo_event_dir, data_dir, hparams,
-        completed_ppo_epochs_num, epoch=epoch, is_final_epoch=is_final_epoch
+        num_completed_agent_epochs, epoch=epoch, is_final_epoch=is_final_epoch
     )
 
     if hparams.stop_loop_early:
