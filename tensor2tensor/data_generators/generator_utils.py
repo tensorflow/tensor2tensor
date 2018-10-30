@@ -32,6 +32,7 @@ from six.moves import range  # pylint: disable=redefined-builtin
 import six.moves.urllib_request as urllib
 
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.utils import mlperf_log
 
 import tensorflow as tf
 
@@ -150,6 +151,15 @@ def generate_files(generator, output_filenames,
     return
   tmp_filenames = [fname + ".incomplete" for fname in output_filenames]
   num_shards = len(output_filenames)
+  # Check if is training or eval, ref: train_data_filenames().
+  if num_shards > 0:
+    if "-train" in output_filenames[0]:
+      tag = "train"
+    elif "-dev" in output_filenames[0]:
+      tag = "eval"
+    else:
+      tag = "other"
+
   writers = [tf.python_io.TFRecordWriter(fname) for fname in tmp_filenames]
   counter, shard = 0, 0
   for case in generator:
@@ -170,6 +180,14 @@ def generate_files(generator, output_filenames,
 
   for tmp_name, final_name in zip(tmp_filenames, output_filenames):
     tf.gfile.Rename(tmp_name, final_name)
+
+  if num_shards > 0:
+    if tag == "train":
+      mlperf_log.transformer_print(
+          key=mlperf_log.PREPROC_NUM_TRAIN_EXAMPLES, value=counter)
+    elif tag == "eval":
+      mlperf_log.transformer_print(
+          key=mlperf_log.PREPROC_NUM_EVAL_EXAMPLES, value=counter)
 
   tf.logging.info("Generated %s Examples", counter)
 
@@ -471,6 +489,7 @@ def generate_dataset_and_shuffle(train_gen,
                                  shuffle=True):
   generate_files(train_gen, train_paths)
   generate_files(dev_gen, dev_paths)
+  mlperf_log.transformer_print(key=mlperf_log.INPUT_ORDER)
   if shuffle:
     shuffle_dataset(train_paths + dev_paths)
 

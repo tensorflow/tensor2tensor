@@ -35,6 +35,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
+from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -253,6 +254,11 @@ class Text2TextProblem(problem.Problem):
         chop_long_sequences=not self.has_inputs)
 
   def generate_encoded_samples(self, data_dir, tmp_dir, dataset_split):
+    if dataset_split == problem.DatasetSplit.TRAIN:
+      mlperf_log.transformer_print(key=mlperf_log.PREPROC_TOKENIZE_TRAINING)
+    elif dataset_split == problem.DatasetSplit.EVAL:
+      mlperf_log.transformer_print(key=mlperf_log.PREPROC_TOKENIZE_EVAL)
+
     generator = self.generate_samples(data_dir, tmp_dir, dataset_split)
     encoder = self.get_or_create_vocab(data_dir, tmp_dir)
     return text2text_generate_encoded(generator, encoder,

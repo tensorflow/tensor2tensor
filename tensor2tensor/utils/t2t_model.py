@@ -35,6 +35,7 @@ from tensor2tensor.utils import decoding
 from tensor2tensor.utils import expert_utils as eu
 from tensor2tensor.utils import learning_rate
 from tensor2tensor.utils import metrics
+from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import modality
 from tensor2tensor.utils import optimize
 from tensor2tensor.utils import quantization
@@ -128,6 +129,20 @@ class T2TModel(base.Layer):
           target_modality.top_dimensionality):
         log_info("Unsetting shared_embedding_and_softmax_weights.")
         hparams.shared_embedding_and_softmax_weights = 0
+
+      if isinstance(target_modality, modality.Modality):
+        if hparams.hidden_size:
+          hidden_size = hparams.hidden_size
+        else:
+          hidden_size = 1024
+
+        mlperf_log.transformer_print(
+            key=mlperf_log.MODEL_HP_EMBEDDING_SHARED_WEIGHTS,
+            value={
+                "vocab_size": target_modality.top_dimensionality,
+                "hidden_size": hidden_size
+            })
+
     self._original_hparams = hparams
     self.set_mode(mode)
 

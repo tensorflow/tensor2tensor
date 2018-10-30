@@ -400,6 +400,7 @@ class T2TExperiment(object):
 
   def train(self, max_steps=None):
     mlperf_log.transformer_print(key=mlperf_log.TRAIN_LOOP)
+    mlperf_log.transformer_print(key=mlperf_log.TRAIN_EPOCH, value=0)
     self._estimator.train(
         self._train_spec.input_fn,
         hooks=self._train_spec.hooks,

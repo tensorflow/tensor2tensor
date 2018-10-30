@@ -135,8 +135,6 @@ def transformer_encoder(encoder_input,
       key=mlperf_log.MODEL_HP_NUM_HIDDEN_LAYERS,
       value=hparams.num_encoder_layers or hparams.num_hidden_layers)
   mlperf_log.transformer_print(
-      key=mlperf_log.MODEL_HP_ATTENTION_NUM_HEADS, value=hparams.num_heads)
-  mlperf_log.transformer_print(
       key=mlperf_log.MODEL_HP_ATTENTION_DROPOUT,
       value=hparams.attention_dropout)
   with tf.variable_scope(name):
@@ -237,14 +235,14 @@ def transformer_ffn_layer(x,
   if ffn_layer == "dense_relu_dense":
     # In simple convolution mode, use `pad_remover` to speed up processing.
     mlperf_log.transformer_print(
-        key=mlperf_log.MODEL_HP_FFN_FILTER,
+        key=mlperf_log.MODEL_HP_FFN_FILTER_DENSE,
         value={
             "filter_size": hparams.filter_size,
             "use_bias": "True",
             "activation": mlperf_log.RELU
         })
     mlperf_log.transformer_print(
-        key=mlperf_log.MODEL_HP_FFN_DENSE,
+        key=mlperf_log.MODEL_HP_FFN_OUTPUT_DENSE,
         value={
             "hidden_size": hparams.hidden_size,
             "use_bias": "True",

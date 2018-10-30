@@ -42,18 +42,20 @@ from __future__ import print_function
 TRANSFORMER = "transformer"
 INPUT_MAX_LENGTH = "input_max_length"
 
+OPT_LR_WARMUP_STEPS = "opt_learning_rate_warmup_steps"
+
 MODEL_HP_INITIALIZER_GAIN = "model_hp_initializer_gain"
 MODEL_HP_VOCAB_SIZE = "model_hp_vocab_size"
 MODEL_HP_NUM_HIDDEN_LAYERS = "model_hp_hidden_layers"
+MODEL_HP_EMBEDDING_SHARED_WEIGHTS = "model_hp_embedding_shared_weights"
 MODEL_HP_ATTENTION_DENSE = "model_hp_attention_dense"
-MODEL_HP_ATTENTION_NUM_HEADS = "model_hp_attention_num_heads"
 MODEL_HP_ATTENTION_DROPOUT = "model_hp_attention_dropout"
-MODEL_HP_FFN_DENSE = "model_hp_ffn_dense"
-MODEL_HP_FFN_FILTER = "model_hp_ffn_filter"
+MODEL_HP_FFN_OUTPUT_DENSE = "model_hp_ffn_output_dense"
+MODEL_HP_FFN_FILTER_DENSE = "model_hp_ffn_filter_dense"
 MODEL_HP_RELU_DROPOUT = "model_hp_relu_dropout"
 MODEL_HP_LAYER_POSTPROCESS_DROPOUT = "model_hp_layer_postprocess_dropout"
 MODEL_HP_NORM = "model_hp_norm"
-MODEL_HP_SEQ_BEAM_SEARCH = "model_hp_seq_beam_search"
+MODEL_HP_SEQ_BEAM_SEARCH = "model_hp_sequence_beam_search"
 
 # ==============================================================================
 # == Tags ======================================================================
@@ -294,39 +296,34 @@ TRANSFORMER_TAGS = (
     RUN_STOP,
     RUN_FINAL,
     RUN_SET_RANDOM_SEED,
-
     PREPROC_NUM_TRAIN_EXAMPLES,
     PREPROC_NUM_EVAL_EXAMPLES,
     PREPROC_TOKENIZE_TRAINING,
     PREPROC_TOKENIZE_EVAL,
     PREPROC_VOCAB_SIZE,
-
     INPUT_BATCH_SIZE,
     INPUT_MAX_LENGTH,
     INPUT_ORDER,
-
     OPT_NAME,
     OPT_LR,
+    OPT_LR_WARMUP_STEPS,
     OPT_HP_ADAM_BETA1,
     OPT_HP_ADAM_BETA2,
     OPT_HP_ADAM_EPSILON,
-
     TRAIN_LOOP,
     TRAIN_EPOCH,
-
     EVAL_START,
     EVAL_TARGET,
     EVAL_ACCURACY,
     EVAL_STOP,
-
     MODEL_HP_INITIALIZER_GAIN,
     MODEL_HP_VOCAB_SIZE,
     MODEL_HP_NUM_HIDDEN_LAYERS,
+    MODEL_HP_EMBEDDING_SHARED_WEIGHTS,
     MODEL_HP_ATTENTION_DENSE,
-    MODEL_HP_ATTENTION_NUM_HEADS,
     MODEL_HP_ATTENTION_DROPOUT,
-    MODEL_HP_FFN_DENSE,
-    MODEL_HP_FFN_FILTER,
+    MODEL_HP_FFN_OUTPUT_DENSE,
+    MODEL_HP_FFN_FILTER_DENSE,
     MODEL_HP_RELU_DROPOUT,
     MODEL_HP_LAYER_POSTPROCESS_DROPOUT,
     MODEL_HP_NORM,

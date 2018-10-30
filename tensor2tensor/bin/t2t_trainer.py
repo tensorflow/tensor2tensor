@@ -348,7 +348,7 @@ def run_std_server():
 
 def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
-  if FLAGS.schedule != "train":
+  if FLAGS.schedule == "train" or FLAGS.schedule == "train_eval_and_decode":
     mlperf_log.transformer_print(key=mlperf_log.RUN_START)
   if FLAGS.schedule == "run_std_server":
     run_std_server()

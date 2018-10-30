@@ -19,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 import numpy as np
 
+from tensor2tensor.utils import mlperf_log
 import tensorflow as tf
 
 
@@ -56,6 +57,10 @@ def learning_rate_factor(name, step_num, hparams):
 
 def learning_rate_schedule(hparams):
   """Learning rate schedule based on hparams."""
+  mlperf_log.transformer_print(key=mlperf_log.OPT_LR, deferred=True)
+  mlperf_log.transformer_print(
+      key=mlperf_log.OPT_LR_WARMUP_STEPS,
+      value=hparams.learning_rate_warmup_steps)
   step_num = _global_step(hparams)
   schedule_string = hparams.learning_rate_schedule
   names = schedule_string.split("*")
