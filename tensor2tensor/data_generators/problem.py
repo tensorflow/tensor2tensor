@@ -716,23 +716,17 @@ class Problem(object):
     assert self._hparams is not None
 
     hp = self.get_hparams()
-    input_mods = hp.modality["inputs"]
-    target_mod = hp.modality["targets"]
-    vocabs = hp.vocabulary
     if self.has_inputs:
       in_id = hp.input_space_id
     out_id = hp.target_space_id
 
     features = collections.defaultdict(FeatureInfo)
+    for feature_name, modality_cls in six.iteritems(hp.modality):
+      finfo = features[feature_name]
+      finfo.modality = modality_cls
+      finfo.vocab_size = modality_cls.top_dimensionality
 
-    for name, mod in six.iteritems(input_mods):
-      finfo = features[name]
-      finfo.modality = mod
-      finfo.vocab_size = mod.top_dimensionality
-
-    features["targets"].modality = target_mod
-    features["targets"].vocab_size = target_mod.top_dimensionality
-
+    vocabs = hp.vocabulary
     for name, encoder in six.iteritems(vocabs):
       features[name].encoder = encoder
 
