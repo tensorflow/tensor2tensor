@@ -42,6 +42,7 @@ from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.rl import trainer_model_based_params
+from tensor2tensor.rl.envs.simulated_batch_gym_env import SimulatedBatchGymEnv
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -366,6 +367,85 @@ def compute_mean_reward(rollouts, clipped):
   return mean_rewards
 
 
+def evaluate_world_model(real_env, hparams, world_model_dir):
+  """Evaluate the world model (reward accuracy)."""
+  environment_spec = make_simulated_env_spec(real_env, hparams)
+  environment_spec.wrappers = []
+
+  num_input_frames = environment_spec.video_num_input_frames
+  rollout_subsequences = []
+  def initial_frame_chooser(batch_size):
+    assert batch_size == len(rollout_subsequences)
+    return np.stack([
+        [frame.observation.decode() for frame in subsequence[:num_input_frames]]
+        for subsequence in rollout_subsequences
+    ])
+  environment_spec.add_hparam("initial_frame_chooser", initial_frame_chooser)
+
+  sim_env = SimulatedBatchGymEnv(
+      environment_spec, hparams.wm_eval_batch_size, world_model_dir
+  )
+  subsequence_length = int(
+      max(hparams.wm_eval_rollout_ratios) * hparams.ppo_epoch_length
+  )
+  rollouts = real_env.current_epoch_rollouts(
+      split=tf.contrib.learn.ModeKeys.EVAL,
+      minimal_rollout_frames=(subsequence_length + num_input_frames)
+  )
+
+  reward_accuracies_by_length = {
+      int(ratio * hparams.ppo_epoch_length): []
+      for ratio in hparams.wm_eval_rollout_ratios
+  }
+  for _ in range(hparams.wm_eval_epochs_num):
+    rollout_subsequences[:] = random_rollout_subsequences(
+        rollouts, hparams.wm_eval_batch_size,
+        subsequence_length + num_input_frames
+    )
+
+    eval_subsequences = [
+        subsequence[(num_input_frames - 1):]
+        for subsequence in rollout_subsequences
+    ]
+
+    # Check that the initial observation is the same in the real and simulated
+    # rollout.
+    sim_init_obs = sim_env.reset()
+    real_init_obs = np.stack([
+        subsequence[0].observation.decode()
+        for subsequence in eval_subsequences
+    ])
+    assert np.all(sim_init_obs == real_init_obs)
+
+    num_same_reward = 0
+    num_steps = 0
+    (sim_cum_rewards, real_cum_rewards) = (
+        np.zeros(hparams.wm_eval_batch_size) for _ in range(2)
+    )
+    for i in range(subsequence_length):
+      actions = [subsequence[i].action for subsequence in eval_subsequences]
+      (_, sim_rewards, _) = sim_env.step(actions)
+      sim_cum_rewards += sim_rewards
+
+      real_cum_rewards += [
+          subsequence[i + 1].reward for subsequence in eval_subsequences
+      ]
+      num_same_reward += np.sum(sim_cum_rewards == real_cum_rewards)
+      num_steps += len(real_cum_rewards)
+      for (length, reward_accuracies) in six.iteritems(
+          reward_accuracies_by_length
+      ):
+        if i + 1 == length:
+          reward_accuracies.append(num_same_reward / num_steps)
+
+  return {
+      "reward_accuracy/at_{}".format(length): np.mean(reward_accuracies)
+      for (length, reward_accuracies) in six.iteritems(
+          reward_accuracies_by_length
+      )
+  }
+
+
 def summarize_metrics(eval_metrics_writer, metrics, epoch):
   """Write metrics to summary."""
   for (name, value) in six.iteritems(metrics):
@@ -414,6 +494,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   tf.logging.info("Mean training reward (initial): {}".format(
       metrics["mean_reward/train/clipped"]
   ))
+  env.generate_data(data_dir)
 
   eval_metrics_event_dir = os.path.join(directories["world_model"],
                                         "eval_metrics_event_dir")
@@ -422,8 +503,6 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   world_model_steps_num = 0
 
   for epoch in range(hparams.epochs):
-    env.generate_data(data_dir)
-
     is_final_epoch = (epoch + 1) == hparams.epochs
     log = make_log_fn(epoch, log_relative_time)
 
@@ -466,8 +545,18 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     log("Mean training reward: {}".format(metrics["mean_reward/train/clipped"]))
 
     eval_metrics = evaluate_all_configs(hparams, ppo_model_dir)
-    log("Eval metrics:\n{}".format(pprint.pformat(eval_metrics)))
+    log("Agent eval metrics:\n{}".format(pprint.pformat(eval_metrics)))
     metrics.update(eval_metrics)
+
+    env.generate_data(data_dir)
+
+    if hparams.eval_world_model:
+      wm_metrics = evaluate_world_model(
+          env, hparams, directories["world_model"]
+      )
+      log("World model eval metrics:\n{}".format(pprint.pformat(wm_metrics)))
+      metrics.update(wm_metrics)
+
     summarize_metrics(eval_metrics_writer, metrics, epoch)
 
     # Report metrics

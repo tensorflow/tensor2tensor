@@ -111,8 +111,12 @@ def rlmb_base():
       # Whether to evaluate the world model in each iteration of the loop to get
       # the model_reward_accuracy metric.
       eval_world_model=True,
-      # Rollout fractions to report reward_accuracy on.
-      eval_rollout_fractions=[0.25, 0.5, 1],
+      # Number of concurrent rollouts in world model evaluation.
+      wm_eval_batch_size=16,
+      # Number of batches to run for world model evaluation.
+      wm_eval_epochs_num=8,
+      # Ratios of ppo_epoch_length to report reward_accuracy on.
+      wm_eval_rollout_ratios=[0.25, 0.5, 1, 2],
       stop_loop_early=False,  # To speed-up tests.
       env_timesteps_limit=-1,  # Use default from gym.make()
   )
@@ -389,7 +393,7 @@ def rlmb_tiny():
           model_train_steps=2,
           ppo_epochs_num=2,
           ppo_time_limit=5,
-          ppo_epoch_length=5,
+          ppo_epoch_length=2,
           ppo_num_agents=2,
           real_ppo_epoch_length=36,
           real_ppo_num_agents=1,
@@ -401,6 +405,7 @@ def rlmb_tiny():
           resize_height_factor=2,
           resize_width_factor=2,
           game="pong",
+          wm_eval_rollout_ratios=[1],
           env_timesteps_limit=6,
       ).values())
 
