@@ -48,6 +48,15 @@ class Observation(object):
     self.data = data
     self._decode = decode_fn
 
+  def __eq__(self, other):
+    if isinstance(other, Observation):
+      return self.data == other.data
+    else:
+      return False
+
+  def __neq__(self, other):
+    return not self == other
+
   def decode(self):
     return self._decode(self.data)
 
