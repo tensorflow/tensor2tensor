@@ -21,8 +21,6 @@ from __future__ import print_function
 
 import tensorflow as tf
 
-from tensorflow.python.framework import tensor_shape
-
 
 class Softplus(tf.keras.constraints.Constraint):
   """Softplus constraint."""
@@ -183,10 +181,12 @@ class DenseReparameterization(tf.keras.layers.Dense):
 
   def build(self, input_shape):
     input_shape = tf.TensorShape(input_shape)
-    if tensor_shape.dimension_value(input_shape[-1]) is None:
+    last_dim = input_shape[-1]
+    if isinstance(last_dim, tf.Dimension):
+      last_dim = last_dim.value
+    if last_dim is None:
       raise ValueError('The last dimension of the inputs to `Dense` '
                        'should be defined. Found `None`.')
-    last_dim = tensor_shape.dimension_value(input_shape[-1])
     self.input_spec = tf.layers.InputSpec(min_ndim=2,
                                           axes={-1: last_dim})
     self.kernel = self.kernel_initializer([last_dim, self.units],
