@@ -29,7 +29,9 @@ import tensorflow as tf
 
 class BayesTest(parameterized.TestCase, tf.test.TestCase):
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  # TODO(trandustin): Remove the hack in the code, or re-enable once T2T drops
+  # support for TF 1.10
+  # @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testDenseReparameterization(self):
     inputs = tf.to_float(np.random.rand(5, 3, 12))
     layer = bayes.DenseReparameterization(4, activation=tf.nn.relu)
@@ -42,7 +44,9 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     # TODO(trandustin): Fix this to work with Eager.
     # self.assertNotAllClose(res1, res2)
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  # TODO(trandustin): Remove the hack in the code, or re-enable once T2T drops
+  # support for TF 1.10
+  # @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testDenseReparameterizationModel(self):
     inputs = tf.to_float(np.random.rand(3, 4, 4, 1))
     model = tf.keras.Sequential([
