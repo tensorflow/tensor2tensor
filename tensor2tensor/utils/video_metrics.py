@@ -167,6 +167,7 @@ def reduce_to_best_decode(metrics, reduce_func):
     reduce_func: callable, np.argmax or np.argmin.
   Returns:
     best_metrics: 2-D numpy array, shape=(num_samples, num_frames).
+    best_decode_ind: 1-D numpy array, shape=(num_samples,)
   """
   num_videos = metrics.shape[1]
   # Take mean of the metric across the frames to approximate the video
@@ -175,34 +176,43 @@ def reduce_to_best_decode(metrics, reduce_func):
 
   # For every sample, use the decode that has a maximum mean-metric.
   best_decode_ind = reduce_func(mean_across_frames, axis=0)
-  return metrics[best_decode_ind, np.arange(num_videos), :]
+  best_metrics = metrics[best_decode_ind, np.arange(num_videos), :]
+  return best_metrics, best_decode_ind
 
 
 def compute_all_metrics_statistics(all_results):
   """Computes statistics of metrics across multiple decodings.
 
   Args:
-    all_results: dicf of 3-D numpy arrays.
+    all_results: dict of 3-D numpy arrays.
                  Each array has shape=(num_decodes, num_samples, num_frames).
   Returns:
-    statistics: dict of 1-D numpy arrays shape=(num_frames).
+    statistics: dict of 1-D numpy arrays, shape=(num_frames).
                 First the statistic (max/mean/std) is computed across the
                 decodes, then the mean is taken across num_samples.
+    decode_inds: dict of 1-D numpy arrays, shape=(num_samples,)
+                 Each element represents the index of the decode corresponding
+                 to the best statistic.
   """
   statistics = {}
+  decode_inds = {}
   all_metrics = all_results.keys()
 
   for key in all_metrics:
     values = all_results[key]
     statistics[key + "_MEAN"] = np.mean(values, axis=0)
     statistics[key + "_STD"] = np.std(values, axis=0)
-    statistics[key + "_MIN"] = reduce_to_best_decode(values, np.argmin)
-    statistics[key + "_MAX"] = reduce_to_best_decode(values, np.argmax)
+    min_stats, min_decode_ind = reduce_to_best_decode(values, np.argmin)
+    statistics[key + "_MIN"] = min_stats
+    decode_inds[key + "_MIN_DECODE"] = min_decode_ind
+    max_stats, max_decode_ind = reduce_to_best_decode(values, np.argmax)
+    statistics[key + "_MAX"] = max_stats
+    decode_inds[key + "_MAX_DECODE"] = max_decode_ind
 
   # Computes mean of each statistic across the dataset.
   for key in statistics:
     statistics[key] = np.mean(statistics[key], axis=0)
-  return statistics
+  return statistics, decode_inds
 
 
 def compute_video_metrics_from_predictions(predictions):
@@ -224,8 +234,7 @@ def compute_video_metrics_from_predictions(predictions):
   psnr_all_decodes = np.array(psnr_all_decodes)
   ssim_all_decodes = np.array(ssim_all_decodes)
   all_results = {"PSNR": psnr_all_decodes, "SSIM": ssim_all_decodes}
-  statistics = compute_all_metrics_statistics(all_results)
-  return statistics
+  return compute_all_metrics_statistics(all_results)
 
 
 def compute_video_metrics_from_png_files(
@@ -258,8 +267,7 @@ def compute_video_metrics_from_png_files(
   psnr_all_decodes = np.array(psnr_all_decodes)
   ssim_all_decodes = np.array(ssim_all_decodes)
   all_results = {"PSNR": psnr_all_decodes, "SSIM": ssim_all_decodes}
-  statistics = compute_all_metrics_statistics(all_results)
-  return statistics, all_results
+  return compute_all_metrics_statistics(all_results)
 
 
 def compute_and_save_video_metrics(

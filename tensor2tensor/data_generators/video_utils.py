@@ -74,61 +74,98 @@ def create_border(video, color="blue", border_percent=2):
   return video
 
 
+def convert_videos_to_summaries(input_videos, output_videos, target_videos,
+                                tag, decode_hparams):
+  """Converts input, output and target videos into video summaries.
+
+  Args:
+    input_videos: 5-D NumPy array, (NTHWC) conditioning frames.
+    output_videos: 5-D NumPy array, (NTHWC) ground truth.
+    target_videos: 5-D NumPy array, (NTHWC) target frames.
+    tag: tf summary tag.
+    decode_hparams: tf.contrib.training.HParams.
+  Returns:
+    summaries: a list of tf frame-by-frame and video summaries.
+  """
+  fps = decode_hparams.frames_per_second
+  border_percent = decode_hparams.border_percent
+  max_outputs = decode_hparams.max_display_outputs
+  all_summaries = []
+  input_videos = create_border(
+      input_videos, color="blue", border_percent=border_percent)
+  target_videos = create_border(
+      target_videos, color="red", border_percent=border_percent)
+  output_videos = create_border(
+      output_videos, color="red", border_percent=border_percent)
+
+  # Video gif.
+  all_input = np.concatenate((input_videos, target_videos), axis=1)
+  all_output = np.concatenate((input_videos, output_videos), axis=1)
+  input_summ_vals, _ = common_video.py_gif_summary(
+      "%s/input" % tag, all_input, max_outputs=max_outputs, fps=fps,
+      return_summary_value=True)
+  output_summ_vals, _ = common_video.py_gif_summary(
+      "%s/output" % tag, all_output, max_outputs=max_outputs, fps=fps,
+      return_summary_value=True)
+  all_summaries.extend(input_summ_vals)
+  all_summaries.extend(output_summ_vals)
+
+  # Frame-by-frame summaries
+  iterable = zip(all_input[:max_outputs], all_output[:max_outputs])
+  for ind, (input_video, output_video) in enumerate(iterable):
+    t, h, w, c = input_video.shape
+    # Tile vertically
+    input_frames = np.reshape(input_video, (t*h, w, c))
+    output_frames = np.reshape(output_video, (t*h, w, c))
+
+    # Concat across width.
+    all_frames = np.concatenate((input_frames, output_frames), axis=1)
+    tag = "input/output/%s_sample_%d" % (tag, ind)
+    frame_by_frame_summ = image_utils.image_to_tf_summary_value(
+        all_frames, tag=tag)
+    all_summaries.append(frame_by_frame_summ)
+  return all_summaries
+
+
 def display_video_hooks(hook_args):
   """Hooks to display videos at decode time."""
   predictions = hook_args.predictions
-  fps = hook_args.decode_hparams.frames_per_second
-  border_percent = hook_args.decode_hparams.border_percent
+  max_outputs = hook_args.decode_hparams.max_display_outputs
+
+  with tf.Graph().as_default():
+    _, best_decodes = video_metrics.compute_video_metrics_from_predictions(
+        predictions)
 
   all_summaries = []
-  for decode_ind, decode in enumerate(predictions):
+  # Displays decodes corresponding to the best/worst metric,
+  for metric, metric_decode_inds in best_decodes.items():
+    curr_metric_inds = metric_decode_inds[:max_outputs]
+    best_inputs, best_outputs, best_targets = [], [], []
+    for sample_ind, decode_ind in enumerate(curr_metric_inds):
+      curr_decode = predictions[decode_ind][sample_ind]
+      best_inputs.append(curr_decode["inputs"])
+      best_outputs.append(curr_decode["outputs"])
+      best_targets.append(curr_decode["targets"])
+    best_inputs = np.array(best_inputs, dtype=np.uint8)
+    best_outputs = np.array(best_outputs, dtype=np.uint8)
+    best_targets = np.array(best_targets, dtype=np.uint8)
+    summaries = convert_videos_to_summaries(
+        best_inputs, best_outputs, best_targets,
+        tag=metric, decode_hparams=hook_args.decode_hparams)
+    all_summaries.extend(summaries)
 
+  # Display random decodes for ten conditioning frames.
+  for decode_ind, decode in enumerate(predictions):
     target_videos = video_metrics.stack_data_given_key(decode, "targets")
     output_videos = video_metrics.stack_data_given_key(decode, "outputs")
     input_videos = video_metrics.stack_data_given_key(decode, "inputs")
     target_videos = np.asarray(target_videos, dtype=np.uint8)
     output_videos = np.asarray(output_videos, dtype=np.uint8)
     input_videos = np.asarray(input_videos, dtype=np.uint8)
-
-    input_videos = create_border(
-        input_videos, color="blue", border_percent=border_percent)
-    target_videos = create_border(
-        target_videos, color="red", border_percent=border_percent)
-    output_videos = create_border(
-        output_videos, color="red", border_percent=border_percent)
-
-    # Video gif.
-    all_input = np.concatenate((input_videos, target_videos), axis=1)
-    all_output = np.concatenate((input_videos, output_videos), axis=1)
-
-    input_summ_vals, _ = common_video.py_gif_summary(
-        "decode_%d/input" % decode_ind,
-        all_input, max_outputs=10,
-        fps=fps,
-        return_summary_value=True)
-    output_summ_vals, _ = common_video.py_gif_summary(
-        "decode_%d/output" % decode_ind,
-        all_output,
-        max_outputs=10,
-        fps=fps,
-        return_summary_value=True)
-    all_summaries.extend(input_summ_vals)
-    all_summaries.extend(output_summ_vals)
-
-    # Frame-by-frame summaries
-    iterable = zip(all_input[:10], all_output[:10])
-    for ind, (input_video, output_video) in enumerate(iterable):
-      t, h, w, c = input_video.shape
-      # Tile vertically
-      input_frames = np.reshape(input_video, (t*h, w, c))
-      output_frames = np.reshape(output_video, (t*h, w, c))
-
-      # Concat across width.
-      all_frames = np.concatenate((input_frames, output_frames), axis=1)
-      tag = "input/output/decode_%d_sample_%d" % (decode_ind, ind)
-      frame_by_frame_summ = image_utils.image_to_tf_summary_value(
-          all_frames, tag=tag)
-      all_summaries.append(frame_by_frame_summ)
+    summaries = convert_videos_to_summaries(
+        input_videos, output_videos, target_videos,
+        tag="decode_%d" % decode_ind, decode_hparams=hook_args.decode_hparams)
+    all_summaries.extend(summaries)
   return all_summaries
 
 
@@ -146,7 +183,7 @@ def summarize_video_metrics(hook_args):
   metrics_graph = tf.Graph()
   with metrics_graph.as_default():
     if predictions:
-      metrics_results = video_metrics.compute_video_metrics_from_predictions(
+      metrics_results, _ = video_metrics.compute_video_metrics_from_predictions(
           predictions)
     else:
       metrics_results, _ = video_metrics.compute_video_metrics_from_png_files(

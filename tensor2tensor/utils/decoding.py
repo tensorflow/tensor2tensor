@@ -73,6 +73,9 @@ def decode_hparams(overrides=""):
       skip_eos_postprocess=False,
       # Creates a blue/red border covering border_percent of the frame.
       border_percent=2,
+      # Maximum number of videos displayed.
+      # Total number of videos are max_display_outputs * num_decodes
+      max_display_outputs=10,
       # Used for MLPerf compliance logging.
       mlperf_mode=False,
       mlperf_threshold=25.0,
