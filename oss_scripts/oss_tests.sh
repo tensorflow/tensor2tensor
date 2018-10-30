@@ -65,7 +65,7 @@ set_status
 
 
 # Test models/research only against tf-nightly
-if [[ "$TF_VERSION" == "$TF_LATEST"  ]] || [[ "$TF_VERSION" == "tf-nightly"  ]]
+if [[ "$TRAVIS_PYTHON_VERSION" == "2.7"  ]] && [[ "$TF_VERSION" == "tf-nightly"  ]]
 then
   # Ignores:
   # * Glow requires the CIFAR-10 dataset to be generated
