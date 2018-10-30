@@ -43,7 +43,8 @@ import sys
 import time
 import uuid
 
-from tensor2tensor.utils.mlperf_tags import *  # pylint: disable=wildcard-import
+# pylint: disable=wildcard-import,unused-wildcard-import
+from tensor2tensor.utils.mlperf_tags import *
 
 
 ROOT_DIR_GNMT = None
