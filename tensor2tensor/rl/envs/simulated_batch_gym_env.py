@@ -75,10 +75,12 @@ class SimulatedBatchGymEnv(object):
       for wrapped_env in self._to_initialize:
         wrapped_env.initialize(self._sess)
 
-      self._actions_t = tf.placeholder(shape=(1,), dtype=tf.int32)
+      self._actions_t = tf.placeholder(shape=(batch_size,), dtype=tf.int32)
       self._rewards_t, self._dones_t = self._batch_env.simulate(self._actions_t)
       self._obs_t = self._batch_env.observ
-      self._reset_op = self._batch_env.reset(tf.constant([0], dtype=tf.int32))
+      self._reset_op = self._batch_env.reset(
+          tf.range(batch_size, dtype=tf.int32)
+      )
 
       env_model_loader = tf.train.Saver(
           var_list=tf.global_variables(scope="next_frame*"))  # pylint:disable=unexpected-keyword-arg
@@ -93,8 +95,8 @@ class SimulatedBatchGymEnv(object):
       raise NotImplementedError()
     obs = self._sess.run(self._reset_op)
     # TODO(pmilos): remove if possible
-    obs[:, 0, 0, 0] = 0
-    obs[:, 0, 0, 1] = 255
+    # obs[:, 0, 0, 0] = 0
+    # obs[:, 0, 0, 1] = 255
     return obs
 
   def step(self, actions):
