@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from absl.testing import parameterized  # for assertLen
 import numpy as np
 
 from tensor2tensor.data_generators import algorithmic
@@ -45,7 +46,7 @@ def assert_tensors_equal(sess, t1, t2, n):
   return True
 
 
-class ProblemTest(tf.test.TestCase):
+class ProblemTest(parameterized.TestCase, tf.test.TestCase):
 
   @classmethod
   def setUpClass(cls):
