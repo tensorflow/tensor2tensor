@@ -83,6 +83,7 @@ MODULES = [
     "tensor2tensor.data_generators.video_generated",
     "tensor2tensor.data_generators.vqa",
     "tensor2tensor.data_generators.wiki",
+    "tensor2tensor.data_generators.wiki_lm",
     "tensor2tensor.data_generators.wikisum.wikisum",
     "tensor2tensor.data_generators.wikitext103",
     "tensor2tensor.data_generators.wsj_parsing",
