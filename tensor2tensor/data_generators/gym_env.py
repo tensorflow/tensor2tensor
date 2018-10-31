@@ -43,22 +43,30 @@ Frame = collections.namedtuple(
 
 
 class Observation(object):
-  """Observations."""
+  """Encoded observations.
+
+  Args:
+    data: Encoded observation.
+    decode_fn: Function for decoding observation.
+  """
 
   def __init__(self, data, decode_fn):
     self.data = data
     self._decode = decode_fn
 
   def __eq__(self, other):
+    """Equality comparison based on encoded data."""
     if isinstance(other, Observation):
       return self.data == other.data
     else:
       return False
 
-  def __neq__(self, other):
-    return self != other
+  def __ne__(self, other):
+    """For consistency with __eq__."""
+    return not self == other
 
   def decode(self):
+    """Decode the observation."""
     return self._decode(self.data)
 
 
