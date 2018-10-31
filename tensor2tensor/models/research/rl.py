@@ -19,6 +19,7 @@ import collections
 import functools
 import operator
 import gym
+import six
 
 from tensor2tensor.data_generators import gym_env
 from tensor2tensor.layers import common_hparams
@@ -92,24 +93,6 @@ def discrete_random_action_base():
 
 @registry.register_hparams
 def ppo_atari_base():
-  """Atari base parameters."""
-  hparams = ppo_discrete_action_base()
-  hparams.learning_rate = 4e-4
-  hparams.num_agents = 5
-  hparams.epoch_length = 200
-  hparams.gae_gamma = 0.985
-  hparams.gae_lambda = 0.985
-  hparams.entropy_loss_coef = 0.002
-  hparams.value_loss_coef = 0.025
-  hparams.optimization_epochs = 10
-  hparams.epochs_num = 10000
-  hparams.num_eval_agents = 1
-  hparams.network = feed_forward_cnn_small_categorical_fun
-  return hparams
-
-
-@registry.register_hparams
-def ppo_pong_base():
   """Pong base parameters."""
   hparams = ppo_discrete_action_base()
   hparams.learning_rate = 1e-4
@@ -161,16 +144,11 @@ def standard_atari_env_spec(env=None, simulated=False):
   return env_spec
 
 
-def standard_atari_env_simulated_spec(
-    real_env, video_num_input_frames, video_num_target_frames
-):
+def standard_atari_env_simulated_spec(real_env, **kwargs):
   """Spec."""
   env_spec = standard_atari_env_spec(real_env, simulated=True)
-  env_spec.add_hparam("simulation_random_starts", True)
-  env_spec.add_hparam("simulation_flip_first_random_for_beginning", True)
-  env_spec.add_hparam("intrinsic_reward_scale", 0.0)
-  env_spec.add_hparam("video_num_input_frames", video_num_input_frames)
-  env_spec.add_hparam("video_num_target_frames", video_num_target_frames)
+  for (name, value) in six.iteritems(kwargs):
+    env_spec.add_hparam(name, value)
   return env_spec
 
 
@@ -196,10 +174,25 @@ def standard_atari_ae_env_spec(env, ae_hparams_set):
                                      simulated_env=False)
 
 
+def get_policy(observations, hparams):
+  """Get a policy network.
+
+  Args:
+    observations: Tensor with observations
+    hparams: parameters
+
+  Returns:
+    Tensor with policy and value function output
+  """
+  policy_network_lambda = hparams.policy_network
+  action_space = hparams.environment_spec.action_space
+  return policy_network_lambda(action_space, hparams, observations)
+
+
 @registry.register_hparams
 def ppo_pong_ae_base():
   """Pong autoencoder base parameters."""
-  hparams = ppo_pong_base()
+  hparams = ppo_atari_base()
   hparams.learning_rate = 1e-4
   hparams.network = dense_bitwise_categorical_fun
   return hparams
@@ -231,6 +224,15 @@ def pong_model_free():
   hparams.add_hparam("environment_spec", standard_atari_env_spec(env))
   hparams.add_hparam(
       "environment_eval_spec", standard_atari_env_eval_spec(env))
+  return hparams
+
+
+@registry.register_hparams
+def mfrl_base():
+  hparams = ppo_atari_base()
+  hparams.add_hparam("game", "")
+  hparams.epochs_num = 3000
+  hparams.eval_every_epochs = 100
   return hparams
 
 

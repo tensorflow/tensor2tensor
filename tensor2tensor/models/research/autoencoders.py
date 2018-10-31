@@ -158,11 +158,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
   def gumbel_sample(self, reconstr_gan):
     hparams = self.hparams
     is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
-    if isinstance(self._problem_hparams.target_modality, dict):
-      vocab_size = self._problem_hparams.target_modality[
-          "targets"].top_dimensionality
-    else:
-      vocab_size = self._problem_hparams.target_modality.top_dimensionality
+    vocab_size = self._problem_hparams.modality["targets"].top_dimensionality
     reconstr_gan = tf.nn.log_softmax(reconstr_gan)
     if is_training and hparams.gumbel_temperature > 0.0:
       gumbel_samples = discretization.gumbel_sample(
@@ -183,11 +179,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
   def body(self, features):
     hparams = self.hparams
     is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
-    if isinstance(self._problem_hparams.target_modality, dict):
-      vocab_size = self._problem_hparams.target_modality[
-          "targets"].top_dimensionality
-    else:
-      vocab_size = self._problem_hparams.target_modality.top_dimensionality
+    vocab_size = self._problem_hparams.modality["targets"].top_dimensionality
     encoder_layers = None
     self.is1d = hparams.sample_width == 1
     if (hparams.mode != tf.estimator.ModeKeys.PREDICT
@@ -466,7 +458,7 @@ class AutoencoderAutoregressive(AutoencoderBasic):
       plain_training_loss = losses.pop("training")
       losses["plain"] = plain_training_loss
     res_shape = common_layers.shape_list(basic_result)
-    vocab_size = self._problem_hparams.target_modality.top_dimensionality
+    vocab_size = self._problem_hparams.modality["targets"].top_dimensionality
     targets = tf.one_hot(features["targets_raw"], vocab_size)
     # Prepare inputs for autoregressive modes.
     if common_layers.shape_list(features["targets"])[1] == 1:

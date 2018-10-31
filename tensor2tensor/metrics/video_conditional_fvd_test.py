@@ -13,26 +13,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Utilities for creating batched environments."""
-
-# The code was based on Danijar Hafner's code from tf.agents:
-# https://github.com/tensorflow/agents/blob/master/agents/tools/wrappers.py
-# https://github.com/tensorflow/agents/blob/master/agents/scripts/utility.py
+"""Tests for video_conditional_fvd."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.rl.envs import py_func_batch_env
-from tensor2tensor.rl.envs import simulated_batch_env
+from tensor2tensor.metrics import video_conditional_fvd
+import tensorflow as tf
 
 
-def batch_env_factory(environment_spec, num_agents):
-  """Factory of batch envs."""
-  if environment_spec.simulated_env:
-    cur_batch_env = simulated_batch_env.SimulatedBatchEnv(
-        environment_spec, num_agents
-    )
-  else:
-    cur_batch_env = py_func_batch_env.PyFuncBatchEnv(environment_spec.env)
-  return cur_batch_env
+class VideoConditionalFvdTest(tf.test.TestCase):
+
+  def test_sample(self):
+    dataset = video_conditional_fvd.VideoEvaluationDataset(
+        n_input_frames=4,
+        n_output_frames=10,
+        get_video_batch_fn=None)
+    model = video_conditional_fvd.Model(
+        apply_fn=None,
+        load_fn=None)
+    video_conditional_fvd.evaluate_model(dataset, model, 10, 16)
+
+
+if __name__ == '__main__':
+  tf.test.main()

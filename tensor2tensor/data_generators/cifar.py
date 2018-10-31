@@ -29,6 +29,7 @@ from six.moves import cPickle
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import mnist
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
@@ -239,8 +240,10 @@ class Img2imgCifar10(ImageCifar10):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("image:identity", 256)}
-    p.target_modality = ("image:identity", 256)
+    p.modality = {"inputs": modalities.IdentityModality,
+                  "targets": modalities.IdentityModality}
+    p.vocab_size = {"inputs": 256,
+                    "targets": 256}
     p.batch_size_multiplier = 256
     p.input_space_id = 1
     p.target_space_id = 1
@@ -447,8 +450,10 @@ class Img2imgCifar100(ImageCifar100):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("image:identity", 256)}
-    p.target_modality = ("image:identity", 256)
+    p.modality = {"inputs": modalities.IdentityModality,
+                  "targets": modalities.IdentityModality}
+    p.vocab_size = {"inputs": 256,
+                    "targets": 256}
     p.batch_size_multiplier = 256
     p.max_expected_batch_size_per_shard = 4
     p.input_space_id = 1

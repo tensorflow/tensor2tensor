@@ -60,7 +60,14 @@ _ESCAPE_CHARS = set(u"\\_u;0123456789")
 
 # Unicode utility functions that work with Python 2 and 3
 def native_to_unicode(s):
-  return s if is_unicode(s) else to_unicode(s)
+  if is_unicode(s):
+    return s
+  try:
+    return to_unicode(s)
+  except UnicodeDecodeError:
+    res = to_unicode(s, ignore_errors=True)
+    tf.logging.info("Ignoring Unicode error, outputting: %s" % res)
+    return res
 
 
 def unicode_to_native(s):
@@ -1057,4 +1064,3 @@ class RealEncoder(object):
     """
     del strip_extraneous
     return " ".join([str(i) for i in ids])
-

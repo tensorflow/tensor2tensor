@@ -24,6 +24,7 @@ import math
 import numpy as np
 
 from tensor2tensor.data_generators import video_utils
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -91,11 +92,13 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {
-        "inputs": ("video", 256),
+    p.modality = {
+        "inputs": modalities.VideoModality,
+        "targets": modalities.VideoModality,
     }
-    p.target_modality = {
-        "targets": ("video", 256),
+    p.vocab_size = {
+        "inputs": 256,
+        "targets": 256,
     }
 
   @staticmethod

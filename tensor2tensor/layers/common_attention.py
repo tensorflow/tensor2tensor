@@ -634,10 +634,11 @@ def add_positional_embedding(x, max_length, name, positions=None):
     _, length, depth = common_layers.shape_list(x)
     var = tf.cast(tf.get_variable(name, [max_length, depth]), x.dtype)
     if positions is None:
+      pad_length = tf.maximum(0, length - max_length)
       sliced = tf.cond(
           tf.less(length, max_length),
           lambda: tf.slice(var, [0, 0], [length, -1]),
-          lambda: tf.pad(var, [[0, max(0, length - max_length)], [0, 0]]))
+          lambda: tf.pad(var, [[0, pad_length], [0, 0]]))
       return x + tf.expand_dims(sliced, 0)
     else:
       return x + tf.gather(var, tf.to_int32(positions))
@@ -1765,7 +1766,7 @@ def dot_product_self_attention_relative_v2(q,
     logits = tf.matmul(q, k, transpose_b=True)
     key_relative_embeddings = get_relative_embeddings_left(
         max_relative_position, length, depth_k, num_heads,
-        heads_share_relative_embedding, "key_relative_embededings")
+        heads_share_relative_embedding, "key_relative_embeddings")
 
     rel_logits = matmul_with_relative_keys(q, key_relative_embeddings,
                                            heads_share_relative_embedding)

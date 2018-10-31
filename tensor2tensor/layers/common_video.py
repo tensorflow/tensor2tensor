@@ -41,7 +41,7 @@ def encode_to_shape(inputs, shape, scope):
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
     w, h = shape[1], shape[2]
     x = inputs
-    x = tf.contrib.layers.flatten(x)
+    x = tfl.flatten(x)
     x = tfl.dense(x, w * h, activation=None, name="enc_dense")
     x = tf.reshape(x, (-1, w, h, 1))
     return x
@@ -51,7 +51,7 @@ def decode_to_shape(inputs, shape, scope):
   """Encode the given tensor to given image shape."""
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
     x = inputs
-    x = tf.contrib.layers.flatten(x)
+    x = tfl.flatten(x)
     x = tfl.dense(x, shape[2], activation=None, name="dec_dense")
     x = tf.expand_dims(x, axis=1)
     return x
@@ -205,11 +205,8 @@ def scheduled_sample_prob(ground_truth_x,
   """
   probability_threshold = scheduled_sample_var
   probability_of_generated = tf.random_uniform([batch_size])
-  array_ind = tf.to_int32(probability_of_generated > probability_threshold)
-  indices = tf.range(batch_size) + array_ind * batch_size
-  xy = tf.concat([ground_truth_x, generated_x], axis=0)
-  output = tf.gather(xy, indices)
-  return output
+  return tf.where(probability_of_generated > probability_threshold,
+                  generated_x, ground_truth_x)
 
 
 def dna_transformation(prev_image, dna_input, dna_kernel_size, relu_shift):
@@ -343,7 +340,6 @@ def tile_and_concat(image, latent, concat_latent=True):
   latent_shape = common_layers.shape_list(latent)
   height, width = image_shape[1], image_shape[2]
   latent_dims = latent_shape[1]
-
   height_multiples = height // latent_dims
   pad = height - (height_multiples * latent_dims)
   latent = tf.reshape(latent, (-1, latent_dims, 1, 1))
@@ -484,7 +480,7 @@ def tinyify(array, tiny_mode, small_mode):
   if tiny_mode:
     return [1 for _ in array]
   if small_mode:
-    return [x // 4 for x in array]
+    return [max(x // 4, 1) for x in array]
   return array
 
 

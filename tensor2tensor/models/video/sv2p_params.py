@@ -47,6 +47,7 @@ def next_frame_sv2p():
   hparams.add_hparam("dna_kernel_size", 5)
   hparams.add_hparam("upsample_method", "conv2d_transpose")
   hparams.add_hparam("reward_model", "basic")
+  hparams.add_hparam("visualize_logits_histogram", True)
   return hparams
 
 
@@ -54,9 +55,10 @@ def next_frame_sv2p():
 def next_frame_sv2p_discrete():
   """SV2P discrete model hparams."""
   hparams = next_frame_sv2p()
-  hparams.add_hparam("bottleneck_bits", 128)
+  hparams.action_injection = "multiplicative"
+  hparams.small_mode = True
+  hparams.add_hparam("bottleneck_bits", 16)
   hparams.add_hparam("bottleneck_noise", 0.02)
-  hparams.add_hparam("discrete_warmup_steps", 40000)
   return hparams
 
 
@@ -74,6 +76,7 @@ def next_frame_sv2p_atari():
   hparams.latent_loss_multiplier = 1e-3
   hparams.information_capacity = 0.0
   hparams.small_mode = True
+  hparams.internal_loss = True
   return hparams
 
 

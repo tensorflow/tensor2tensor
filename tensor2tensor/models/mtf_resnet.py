@@ -41,7 +41,8 @@ def batch_norm_relu(inputs, is_training, relu=True):
       inputs,
       is_training,
       BATCH_NORM_DECAY,
-      epsilon=BATCH_NORM_EPSILON)
+      epsilon=BATCH_NORM_EPSILON,
+      init_zero=(not relu))
   if relu:
     inputs = mtf.relu(inputs)
   return inputs
@@ -106,7 +107,7 @@ def bottleneck_block(inputs,
   inputs = batch_norm_relu(inputs, is_training)
 
   # Second conv block
-  filters2_dim = mtf.Dimension("filters2", filters)
+  filters2_dim = mtf.Dimension("filters2", 4*filters)
   kernel2 = mtf.get_variable(
       inputs.mesh, "kernel2", mtf.Shape(
           [filter_h_dim, filter_w_dim, filters1_dim, filters2_dim]))
@@ -131,15 +132,14 @@ def bottleneck_block(inputs,
       padding="SAME",
       h_blocks_dim=None, w_blocks_dim=col_blocks_dim)
 
-  inputs = batch_norm_relu(
-      inputs,
-      is_training,
-      relu=False)
+  # TODO(nikip): Althought the original resnet code has this batch norm, in our
+  # setup this is causing no gradients to be passed. Investigate further.
+  # inputs = batch_norm_relu(inputs, is_training, relu=True)
 
   # TODO(nikip): Maybe add residual with a projection?
   return mtf.relu(
-      inputs + mtf.rename_dimension(
-          shortcut, shortcut.shape.dims[-1].name, inputs.shape.dims[-1].name))
+      shortcut + mtf.rename_dimension(
+          inputs, inputs.shape.dims[-1].name, shortcut.shape.dims[-1].name))
 
 
 def block_layer(inputs,
@@ -185,8 +185,8 @@ def block_layer(inputs,
         inputs,
         filters,
         is_training,
-        strides,
-        projection_shortcut,
+        strides=strides,
+        projection_shortcut=projection_shortcut,
         row_blocks_dim=row_blocks_dim,
         col_blocks_dim=col_blocks_dim)
 
@@ -234,11 +234,12 @@ class MtfResNet(mtf_model.MtfModel):
     filter_h_dim = mtf.Dimension("filter_height", 7)
     filter_w_dim = mtf.Dimension("filter_width", 7)
     filters = mtf.Dimension("filters", hparams.filter_sizes[0])
-    rows_dim = mtf.Dimension("rows_size", 32)
-    cols_dim = mtf.Dimension("cols_size", 96)
+    rows_dim = mtf.Dimension("rows_size", hparams.rows_size)
+    cols_dim = mtf.Dimension("cols_size", hparams.cols_size)
     row_blocks_dim = mtf.Dimension("row_blocks", hparams.row_blocks)
     col_blocks_dim = mtf.Dimension("col_blocks", hparams.col_blocks)
     classes_dim = mtf.Dimension("classes", 10)
+    channels_dim = mtf.Dimension("channels", 3)
     one_channel_dim = mtf.Dimension("one_channel", 1)
 
     inputs = features["inputs"]
@@ -248,17 +249,18 @@ class MtfResNet(mtf_model.MtfModel):
             hparams.row_blocks,
             hparams.rows_size // hparams.row_blocks,
             hparams.col_blocks,
-            hparams.num_channels*hparams.cols_size // hparams.col_blocks, 1]),
+            hparams.num_channels*hparams.cols_size // hparams.col_blocks,
+            hparams.num_channels]),
         mtf.Shape(
             [batch_dim, row_blocks_dim, rows_dim,
-             col_blocks_dim, cols_dim, one_channel_dim]))
+             col_blocks_dim, cols_dim, channels_dim]))
     x = mtf.transpose(x, [batch_dim, row_blocks_dim, col_blocks_dim,
-                          rows_dim, cols_dim, one_channel_dim])
+                          rows_dim, cols_dim, channels_dim])
 
     x = mtf.to_float(x)
     initial_filters = mtf.get_variable(
         mesh, "init_filters",
-        mtf.Shape([filter_h_dim, filter_w_dim, one_channel_dim, filters]))
+        mtf.Shape([filter_h_dim, filter_w_dim, channels_dim, filters]))
     x = mtf.conv2d_with_blocks(
         x,
         initial_filters,
@@ -269,7 +271,7 @@ class MtfResNet(mtf_model.MtfModel):
     x = batch_norm_relu(x, is_training)
 
     # Conv blocks
-    # [ self attention - ffn - residual + dropout] x n
+    # [block - strided block layer - strided block layer] x n
     for layer in range(hparams.num_layers):
       layer_name = "block_layer_%d" % layer
       with tf.variable_scope(layer_name):
@@ -287,7 +289,7 @@ class MtfResNet(mtf_model.MtfModel):
             inputs=x,
             filters=hparams.filter_sizes[1],
             blocks=hparams.layer_sizes[1],
-            strides=[1, 2, 2, 1],
+            strides=[1, 1, 1, 1],
             is_training=is_training,
             name="block_layer2",
             row_blocks_dim=None,
@@ -296,7 +298,7 @@ class MtfResNet(mtf_model.MtfModel):
             inputs=x,
             filters=hparams.filter_sizes[2],
             blocks=hparams.layer_sizes[2],
-            strides=[1, 2, 2, 1],
+            strides=[1, 1, 1, 1],
             is_training=is_training,
             name="block_layer3",
             row_blocks_dim=None,
@@ -340,21 +342,11 @@ def mtf_resnet_base():
   # 8-way model-parallelism
   hparams.add_hparam("mesh_shape", "batch:8")
   hparams.add_hparam("layout", "batch:batch")
-  hparams.add_hparam("num_heads", 8)
   hparams.add_hparam("filter_size", 1024)
 
   hparams.add_hparam("num_layers", 6)
-  hparams.add_hparam("attention_key_size", 256)
-  hparams.add_hparam("attention_value_size", 256)
   # Share weights between input and target embeddings
   hparams.shared_embedding = True
-
-  # mixture of experts hparams
-  hparams.add_hparam("ffn_layer", "dense_relu_dense")
-  hparams.add_hparam("moe_overhead_train", 1.0)
-  hparams.add_hparam("moe_overhead_eval", 2.0)
-  hparams.moe_num_experts = 16
-  hparams.moe_loss_coef = 1e-3
 
   hparams.shared_embedding_and_softmax_weights = True
   hparams.optimizer = "Adafactor"
@@ -380,7 +372,7 @@ def mtf_resnet_base():
   hparams.initializer_gain = 2.
 
   # TODO(nikip): Change optimization scheme?
-  hparams.learning_rate = 0.4
+  hparams.learning_rate = 0.1
   return hparams
 
 
@@ -389,13 +381,14 @@ def mtf_resnet_tiny():
   """Catch bugs locally..."""
   hparams = mtf_resnet_base()
   hparams.num_layers = 2
-  hparams.hidden_size = 128
-  hparams.filter_size = 256
-  hparams.batch_size = 2
+  hparams.hidden_size = 64
+  hparams.filter_size = 64
+  hparams.batch_size = 16
   # data parallelism and model-parallelism
-  hparams.mesh_shape = "all:2"
-  hparams.layout = "batch:all"
-  hparams.layer_sizes = [3, 2, 3]
+  hparams.col_blocks = 1
+  hparams.mesh_shape = "batch:2"
+  hparams.layout = "batch:batch"
+  hparams.layer_sizes = [1, 2, 3]
   hparams.filter_sizes = [64, 64, 64]
   return hparams
 
@@ -411,9 +404,6 @@ def mtf_resnet_single():
   hparams.batch_size = 1
   hparams.num_encoder_layers = 1
   hparams.num_layers = 1
-  hparams.num_heads = 2
-  hparams.attention_key_size = 32
-  hparams.attention_value_size = 32
   hparams.block_length = 16
   return hparams
 
@@ -437,7 +427,6 @@ def mtf_resnet_base_cifar():
   hparams.mesh_shape = "batch:32"
   hparams.layoyt = "batch:batch"
   hparams.batch_size = 8
-  hparams.num_heads = 4
   hparams.num_layers = 12
   hparams.block_length = 256
   hparams.hidden_size = 512
@@ -448,29 +437,4 @@ def mtf_resnet_base_cifar():
   hparams.layer_postprocess_sequence = "dan"
   hparams.layer_prepostprocess_dropout = 0.3
   hparams.unconditional = True
-  return hparams
-
-
-@registry.register_hparams
-def mtf_resnet_tiny_moe():
-  hparams = mtf_resnet_tiny()
-  hparams.mesh_shape = "all:4"
-  hparams.layout = "batch:all,experts:all"
-  hparams.ffn_layer = "moe"
-  return hparams
-
-
-@registry.register_hparams
-def mtf_resnet_tiny_8gpu():
-  hparams = mtf_resnet_tiny()
-  hparams.mesh_shape = "all:8"
-  hparams.layout = "vocab:all;filter_size:all;heads:all"
-  return hparams
-
-
-@registry.register_hparams
-def mtf_resnet_length_sharded():
-  hparams = mtf_resnet_tiny()
-  hparams.mesh_shape = "all"
-  hparams.layout = "length:all"
   return hparams

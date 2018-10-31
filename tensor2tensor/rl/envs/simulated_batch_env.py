@@ -22,16 +22,15 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import copy
+
+from tensor2tensor.data_generators.gym_env import DummyWorldModelProblem
 from tensor2tensor.layers import common_layers
 from tensor2tensor.rl.envs import in_graph_batch_env
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
-
-
-flags = tf.flags
-FLAGS = flags.FLAGS
 
 
 class HistoryBuffer(object):
@@ -103,12 +102,15 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     self._num_frames = environment_spec.video_num_input_frames
     self._intrinsic_reward_scale = environment_spec.intrinsic_reward_scale
 
-    # TODO(koz4k): Pass by argument.
-    model_hparams = trainer_lib.create_hparams(
-        FLAGS.hparams_set, problem_name=FLAGS.problem)
+    model_hparams = copy.copy(environment_spec.model_hparams)
+    problem = DummyWorldModelProblem(
+        environment_spec.action_space, environment_spec.reward_range
+    )
+    trainer_lib.add_problem_hparams(model_hparams, problem)
     model_hparams.force_full_predict = True
-    self._model = registry.model(FLAGS.model)(
-        model_hparams, tf.estimator.ModeKeys.PREDICT)
+    self._model = registry.model(environment_spec.model_name)(
+        model_hparams, tf.estimator.ModeKeys.PREDICT
+    )
 
     self.history_buffer = HistoryBuffer(
         environment_spec.initial_frame_chooser, self.observ_shape,

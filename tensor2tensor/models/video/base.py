@@ -112,6 +112,25 @@ class NextFrameBase(t2t_model.T2TModel):
     del all_frames, all_actions, all_rewards, all_raw_frames
     return None
 
+  def video_extra_loss(self, frames_predicted, frames_target,
+                       internal_states, video_features):
+    """Optional video wide extra loss.
+
+      If the model needs to calculate some extra loss across all predicted
+      frames (e.g. in case of video GANS loss) override this function.
+
+    Args:
+      frames_predicted: list of all predicted frames.
+      frames_target: list of all target frames.
+      internal_states: internal states of the video.
+      video_features: video wide features coming from video_features function.
+
+    Returns:
+      extra_loss: extra video side loss.
+    """
+    del frames_predicted, frames_target, internal_states, video_features
+    return 0.0
+
   @property
   def is_recurrent_model(self):
     """Set to true if your model is recurrent. False otherwise.
@@ -127,7 +146,7 @@ class NextFrameBase(t2t_model.T2TModel):
   @property
   def _target_modality(self):
     # TODO(mbz): get rid of this somehow.
-    modality = self.hparams.problem_hparams.target_modality["targets"]
+    modality = self.hparams.problem_hparams.modality["targets"]
     return modality.__class__.__name__
 
   @property
@@ -140,6 +159,12 @@ class NextFrameBase(t2t_model.T2TModel):
     if step_num is None:
       step_num = 10000000
     return step_num
+
+  def visualize_predictions(self, predics, targets):
+    predics = tf.concat(predics, axis=1)
+    targets = tf.concat(targets, axis=1)
+    side_by_side_video = tf.concat([predics, targets], axis=2)
+    tf.summary.image("full_video", side_by_side_video)
 
   def get_scheduled_sample_func(self, batch_size):
     """Creates a function for scheduled sampling based on given hparams."""
@@ -272,7 +297,7 @@ class NextFrameBase(t2t_model.T2TModel):
       targets = extra_raw_gts
       targets_shape = common_layers.shape_list(targets)
       targets = tf.reshape(targets, [-1] + targets_shape[2:])
-      mod = self.hparams.problem_hparams.target_modality["targets"]
+      mod = self.hparams.problem_hparams.modality["targets"]
       numerator, denominator = common_layers.padded_cross_entropy(
           logits,
           targets,
@@ -382,11 +407,11 @@ class NextFrameBase(t2t_model.T2TModel):
                        hparams.video_num_target_frames, 1, 1, num_channels]
 
     features["targets"] = tf.zeros(targets_shape, dtype=tf.int32)
-    reward_in_mod = "target_reward" in hparams.problem_hparams.target_modality
-    action_in_mod = "target_action" in hparams.problem_hparams.target_modality
+    reward_in_mod = "target_reward" in hparams.problem_hparams.modality
+    action_in_mod = "target_action" in hparams.problem_hparams.modality
     if reward_in_mod:
       # TODO(lukaszkaiser): this is a hack. get the actual reward history.
-      if "input_reward" not in hparams.problem_hparams.target_modality:
+      if "input_reward" not in features:
         features["input_reward"] = tf.zeros(
             [inputs_shape[0], inputs_shape[1], 1], dtype=tf.int32)
       features["target_reward"] = tf.zeros(
@@ -400,6 +425,9 @@ class NextFrameBase(t2t_model.T2TModel):
       for k, v in six.iteritems(logits):
         results[k] = logits_to_samples(v)
         results["%s_logits" % k] = v
+      # HACK: bypassing decoding issues.
+      results["outputs"] = results["targets"]
+      results["scores"] = results["targets"]
     else:
       results = logits_to_samples(logits)
 
@@ -420,6 +448,7 @@ class NextFrameBase(t2t_model.T2TModel):
     orig_frame_shape = common_layers.shape_list(all_frames[0])
     batch_size = orig_frame_shape[0]
     ss_func = self.get_scheduled_sample_func(batch_size)
+    target_frames = []
     extra_loss = 0.0
     internal_states = None
 
@@ -438,6 +467,7 @@ class NextFrameBase(t2t_model.T2TModel):
       frames, actions, rewards, target_index = self.__get_next_inputs(
           i, all_frames, all_actions, all_rewards)
       target_frame = all_frames[target_index]
+      target_frames.append(tf.identity(target_frame))
 
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
         func_in = (frames, actions, rewards, target_frame,
@@ -458,7 +488,7 @@ class NextFrameBase(t2t_model.T2TModel):
       # Scheduled sampling during training.
       if self.is_training:
         if self.is_recurrent_model:
-          done_warm_start = i > hparams.video_num_input_frames - 1
+          done_warm_start = i >= hparams.video_num_input_frames - 1
         else:
           done_warm_start = True  # Always true for non-reccurent networks.
         groundtruth_items = [target_frame]
@@ -466,6 +496,11 @@ class NextFrameBase(t2t_model.T2TModel):
         ss_frame, = self.get_scheduled_sample_inputs(
             done_warm_start, groundtruth_items, generated_items, ss_func)
         all_frames[target_index] = ss_frame
+
+    video_extra_loss = self.video_extra_loss(
+        sampled_frames, target_frames, internal_states, video_features)
+    tf.summary.scalar("video_extra_loss", video_extra_loss)
+    extra_loss += video_extra_loss
 
     if self.is_recurrent_model:
       has_input_predictions = hparams.video_num_input_frames > 1
@@ -480,9 +515,14 @@ class NextFrameBase(t2t_model.T2TModel):
       # Cut the predicted input frames.
       res_frames = res_frames[hparams.video_num_input_frames-1:]
       res_rewards = res_rewards[hparams.video_num_input_frames-1:]
+      sampled_frames = sampled_frames[hparams.video_num_input_frames-1:]
+      target_frames = target_frames[hparams.video_num_input_frames-1:]
+
+    self.visualize_predictions(sampled_frames, target_frames)
 
     output_frames = tf.stack(res_frames, axis=1)
     targets = output_frames
+
     if self.has_rewards:
       output_rewards = tf.stack(res_rewards, axis=1)
       targets = {"targets": output_frames, "target_reward": output_rewards}
@@ -538,4 +578,3 @@ def next_frame_base():
   hparams.add_hparam("scheduled_sampling_max_prob", 1.0)
   hparams.add_hparam("scheduled_sampling_k", 900.0)
   return hparams
-

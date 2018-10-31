@@ -29,7 +29,7 @@ import tensorflow as tf
 
 class VideoUtilsTest(tf.test.TestCase):
 
-  def getPredictions(self):
+  def get_predictions(self):
     rng = np.random.RandomState(0)
     # num_samples=4
     inputs = rng.randint(0, 255, (4, 2, 64, 64, 3))
@@ -46,7 +46,7 @@ class VideoUtilsTest(tf.test.TestCase):
     return predictions, problem
 
   def testDecodeInMemoryTrue(self):
-    predictions, problem = self.getPredictions()
+    predictions, problem = self.get_predictions()
     decode_hparams = decoding.decode_hparams()
     decode_hparams.decode_in_memory = True
     decode_hooks = decoding.DecodeHookArgs(
@@ -73,8 +73,9 @@ class VideoUtilsTest(tf.test.TestCase):
         hparams=decode_hparams, decode_hparams=decode_hparams,
         predictions=predictions)
     summaries = video_utils.display_video_hooks(decode_hooks)
+    # for {random, psnr_max, psnr_min, ssim_max, ssim_min}
     # 10 input vids + 10 output vids + 10 frame-by-frame.
-    self.assertEqual(len(summaries), 30)
+    self.assertEqual(len(summaries), 150)
     for summary in summaries:
       self.assertTrue(isinstance(summary, tf.Summary.Value))
 

@@ -784,7 +784,8 @@ def discrete_bottleneck(inputs,
 
 
 def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
-                           target_bits=None, bits_at_once=8, temperature=1.0):
+                           target_bits=None, bits_at_once=8, temperature=1.0,
+                           dropout=0.1):
   """Predict a sequence of bits (a latent) with LSTM, both training and infer.
 
   Given a tensor on which the predictions are based (prediction_source), we use
@@ -803,6 +804,7 @@ def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
       training as the target to predict; each element should be -1 or 1.
     bits_at_once: pytho integer, how many bits to predict at once.
     temperature: python float, temperature used for sampling during inference.
+    dropout: float, the amount of dropout to aply during training (0.1 default).
 
   Returns:
     a pair (bits, loss) with the predicted bit sequence, which is a Tensor of
@@ -845,12 +847,14 @@ def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
     tf.summary.histogram("target_integers", tf.reshape(d_int, [-1]))
     d_hot = tf.one_hot(d_int, 2**bits_at_once, axis=-1)
     d_pred = discrete_embed(d_hot)
+    d_pred = tf.nn.dropout(d_pred, 1.0 - dropout)
     pred = tf.concat([tf.expand_dims(prediction, axis=1), d_pred], axis=1)
     outputs = []
     for i in range(total_num_bits // bits_at_once):
       output, state = lstm_cell(pred[:, i, :], state)
       outputs.append(tf.expand_dims(output, axis=1))
     outputs = tf.concat(outputs, axis=1)
+    outputs = tf.nn.dropout(outputs, 1.0 - dropout)
     d_int_pred = discrete_predict(outputs)
     pred_loss = tf.losses.sparse_softmax_cross_entropy(
         logits=d_int_pred, labels=d_int)

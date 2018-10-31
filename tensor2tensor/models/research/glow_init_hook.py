@@ -13,32 +13,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Gym generators tests."""
+"""Hook to run glow initialization on a larger batch."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
-import shutil
-
-from tensor2tensor.data_generators import gym_problems_specs
-
 import tensorflow as tf
 
 
-class GymProblemsTest(tf.test.TestCase):
+class GlowInitHook(tf.train.SessionRunHook):
+  """
+  Hook that runs data-dependent initialization once before the first step.
 
-  @classmethod
-  def setUpClass(cls):
-    cls.tmp_dir = tf.test.get_temp_dir()
-    shutil.rmtree(cls.tmp_dir)
-    os.mkdir(cls.tmp_dir)
+  The init op is stored in the tf collection glow_init_op. Look at the
+  "body" in glow.py for more details.
+  """
 
-  def testGymAtariGameModes(self):
-    problem = gym_problems_specs.GymDiscreteProblemWithAgentOnWrappedFullPong()
-    self.assertEqual(210, problem.frame_height)
-
-
-if __name__ == "__main__":
-  tf.test.main()
+  def after_create_session(self, session, coord):
+    del coord
+    global_step = session.run(tf.train.get_global_step())
+    if global_step == 0:
+      ddi = tf.get_collection("glow_init_op")
+      # In-case of a multi-GPU system, this just runs the first op in the
+      # collection.
+      if ddi:
+        session.run(ddi[0])

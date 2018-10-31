@@ -79,11 +79,14 @@ def check_cond_latents(cond_latents, hparams):
 def get_variable_ddi(name, shape, initial_value, dtype=tf.float32, init=False,
                      trainable=True):
   """Wrapper for data-dependent initialization."""
-  # Cast from python bool to TF bool for usage in tf.cond
-  if isinstance(init, bool):
-    init = tf.constant(init, dtype=tf.bool)
+  # If init is a tensor bool, w is returned dynamically.
   w = tf.get_variable(name, shape, dtype, None, trainable=trainable)
-  return tf.cond(init, lambda: assign(w, initial_value), lambda: w)
+  if isinstance(init, bool):
+    if init:
+      return assign(w, initial_value)
+    return w
+  else:
+    return tf.cond(init, lambda: assign(w, initial_value), lambda: w)
 
 
 @add_arg_scope
@@ -554,7 +557,6 @@ def merge_level_and_latent_dist(level_dist, latent_dist,
     scale = level_std
   elif merge_std == "prev_step":
     scale = latent_std
-  tf.summary.scalar("latent_scale", tf.reduce_mean(scale))
   return tf.distributions.Normal(loc=new_mean, scale=scale)
 
 
@@ -609,8 +611,6 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
     if latent_skip:
       cond_dist = tf.distributions.Normal(
           cond_dist.loc + latent, cond_dist.scale)
-  tf.summary.histogram("split_prior_mean", prior_dist.loc)
-  tf.summary.histogram("split_prior_scale", prior_dist.scale)
   return cond_dist.loc, cond_dist.scale, state
 
 
@@ -777,7 +777,6 @@ def scale_gaussian_prior(name, z, logscale_factor=3.0, trainable=True):
         "log_scale_latent", shape=z_shape, dtype=tf.float32,
         initializer=tf.zeros_initializer(), trainable=trainable)
     log_scale = log_scale * logscale_factor
-    tf.summary.scalar("gaussian_log_scale", tf.reduce_mean(log_scale))
     return tf.distributions.Normal(
         loc=latent_multiplier * z, scale=tf.exp(log_scale))
 

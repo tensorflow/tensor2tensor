@@ -630,10 +630,6 @@ class TransformerAE(t2t_model.T2TModel):
           ema_count=ema_count,
           ema_means=ema_means)
 
-  @property
-  def has_input(self):
-    return self._problem_hparams.input_modality
-
   def body(self, features):
     inputs = features["inputs"] if "inputs" in features else None
     if self._hparams.drop_inputs:

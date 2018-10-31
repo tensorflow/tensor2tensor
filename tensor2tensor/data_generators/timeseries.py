@@ -23,6 +23,7 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import timeseries_data_generator
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
@@ -139,8 +140,10 @@ class TimeseriesProblem(problem.Problem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.REAL, self.num_series)}
-    p.target_modality = (registry.Modalities.REAL, self.num_series)
+    p.modality = {"inputs": modalities.RealL2LossModality,
+                  "targets": modalities.RealL2LossModality}
+    p.vocab_size = {"inputs": self.num_series,
+                    "targets": self.num_series}
     p.input_space_id = problem.SpaceID.REAL
     p.target_space_id = problem.SpaceID.REAL
 

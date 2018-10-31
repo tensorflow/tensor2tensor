@@ -568,7 +568,7 @@ class Resnet(t2t_model.T2TModel):
       return out
 
     out = tf.reduce_mean(out, [1, 2])
-    num_classes = self._problem_hparams.target_modality.top_dimensionality
+    num_classes = self._problem_hparams.modality["targets"].top_dimensionality
     logits = tf.layers.dense(out, num_classes, name="logits")
 
     losses = {"training": 0.0}

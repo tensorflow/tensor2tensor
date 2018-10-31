@@ -52,7 +52,7 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     filters = common_layers.shape_list(x)[-1]
     for i in range(self.hparams.num_hidden_layers):
       with tf.variable_scope("layer%d" % i):
-        y = tf.nn.dropout(x, 1.0 - self.hparams.dropout)
+        y = tf.nn.dropout(x, 1.0 - self.hparams.residual_dropout)
         y = tf.layers.conv2d(y, filters, kernel1, activation=common_layers.belu,
                              strides=(1, 1), padding="SAME")
         if i == 0:
@@ -83,6 +83,7 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     for i in range(hparams.num_compress_steps):
       with tf.variable_scope("downstride%d" % i):
         layer_inputs.append(x)
+        x = tf.nn.dropout(x, 1.0 - self.hparams.dropout)
         x = common_layers.make_even_size(x)
         if i < hparams.filter_double_steps:
           filters *= 2
@@ -107,6 +108,7 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     layer_inputs = list(reversed(layer_inputs))
     for i in range(hparams.num_compress_steps):
       with tf.variable_scope("upstride%d" % i):
+        x = tf.nn.dropout(x, 1.0 - self.hparams.dropout)
         if self.has_actions:
           x = common_video.inject_additional_input(
               x, action, "action_enc", hparams.action_injection)
@@ -139,4 +141,3 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
         reward_pred, 128, name="reward_pred"))
     reward_pred = tf.expand_dims(reward_pred, axis=3)  # Need fake channels dim.
     return x, reward_pred, extra_loss, internal_states
-

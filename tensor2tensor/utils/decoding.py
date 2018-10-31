@@ -62,14 +62,24 @@ def decode_hparams(overrides=""):
       delimiter="\n",
       decode_to_file=None,
       decode_in_memory=False,
-      shards=1,
-      shard_id=0,
+      shards=1,    # How many shards of data to decode (treating 1 as None).
+      shard_id=0,  # Which shard are we decoding if more than 1 above.
+      shards_start_offset=0,  # Number of the first shard to decode.
       num_decodes=1,
       force_decode_length=False,
       display_decoded_images=False,
       # Used for video decoding.
       frames_per_second=10,
-      skip_eos_postprocess=False)
+      skip_eos_postprocess=False,
+      # Creates a blue/red border covering border_percent of the frame.
+      border_percent=2,
+      # Maximum number of videos displayed.
+      # Total number of videos are max_display_outputs * num_decodes
+      max_display_outputs=10,
+      # Used for MLPerf compliance logging.
+      mlperf_mode=False,
+      mlperf_threshold=25.0,
+      mlperf_success=False)
   hp.parse(overrides)
   return hp
 
@@ -344,9 +354,9 @@ def decode_from_file(estimator,
   inputs_vocab = p_hp.vocabulary[inputs_vocab_key]
   targets_vocab = p_hp.vocabulary["targets"]
   problem_name = FLAGS.problem
-  tf.logging.info("Performing decoding from a file.")
-  sorted_inputs, sorted_keys = _get_sorted_inputs(filename, decode_hp.shards,
-                                                  decode_hp.delimiter)
+  filename = _add_shard_to_filename(filename, decode_hp)
+  tf.logging.info("Performing decoding from file (%s)." % filename)
+  sorted_inputs, sorted_keys = _get_sorted_inputs(filename, decode_hp.delimiter)
   num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
 
   def input_fn():
@@ -416,8 +426,10 @@ def decode_from_file(estimator,
     total_time_per_step += elapsed_time
     total_cnt += result["outputs"].shape[-1]
   tf.logging.info("Elapsed Time: %5.5f" % (time.time() - start_time))
-  tf.logging.info("Averaged Single Token Generation Time: %5.7f" %
-                  (total_time_per_step / total_cnt))
+  tf.logging.info("Averaged Single Token Generation Time: %5.7f "
+                  "(time %5.7f count %d)" %
+                  (total_time_per_step / total_cnt,
+                   total_time_per_step, total_cnt))
 
   # Reversing the decoded inputs and outputs because they were reversed in
   # _decode_batch_input_fn
@@ -429,6 +441,8 @@ def decode_from_file(estimator,
   decode_filename = decode_to_file if decode_to_file else filename
   if not decode_to_file:
     decode_filename = _decode_filename(decode_filename, problem_name, decode_hp)
+  else:
+    decode_filename = _add_shard_to_filename(decode_filename, decode_hp)
   tf.logging.info("Writing decodes into %s" % decode_filename)
   outfile = tf.gfile.Open(decode_filename, "w")
   for index in range(len(sorted_inputs)):
@@ -449,6 +463,13 @@ def decode_from_file(estimator,
   ), None)
 
 
+def _add_shard_to_filename(filename, decode_hp):
+  if decode_hp.shards > 1:
+    shard_id = decode_hp.shard_id + decode_hp.shards_start_offset
+    filename = filename + ("%.3d" % shard_id)
+  return filename
+
+
 def _decode_filename(base_filename, problem_name, decode_hp):
   """Generates decode filename.
 
@@ -461,7 +482,7 @@ def _decode_filename(base_filename, problem_name, decode_hp):
     A string, produced decode filename.
   """
   if decode_hp.shards > 1:
-    base_filename = base_filename + ("%.2d" % decode_hp.shard_id)
+    base_filename = _add_shard_to_filename(base_filename, decode_hp)
   if ("beam{beam}.alpha{alpha}.decodes".format(
       beam=str(decode_hp.beam_size), alpha=str(decode_hp.alpha))
       in base_filename):
@@ -597,7 +618,7 @@ def _interactive_input_fn(hparams, decode_hp):
   decode_length = decode_hp.extra_length
   input_type = "text"
   p_hparams = hparams.problem_hparams
-  has_input = "inputs" in p_hparams.input_modality
+  has_input = "inputs" in p_hparams.modality
   vocabulary = p_hparams.vocabulary["inputs" if has_input else "targets"]
   # This should be longer than the longest input.
   const_array_size = 10000
@@ -686,13 +707,11 @@ def show_and_save_image(img, save_path):
     plt.savefig(sp)
 
 
-def _get_sorted_inputs(filename, num_shards=1, delimiter="\n"):
+def _get_sorted_inputs(filename, delimiter="\n"):
   """Returning inputs sorted according to length.
 
   Args:
     filename: path to file with inputs, 1 per line.
-    num_shards: number of input shards. If > 1, will read from file filename.XX,
-      where XX is FLAGS.worker_id.
     delimiter: str, delimits records in the file.
 
   Returns:
@@ -700,13 +719,7 @@ def _get_sorted_inputs(filename, num_shards=1, delimiter="\n"):
 
   """
   tf.logging.info("Getting sorted inputs")
-  # read file and sort inputs according them according to input length.
-  if num_shards > 1:
-    decode_filename = filename + ("%.2d" % FLAGS.worker_id)
-  else:
-    decode_filename = filename
-
-  with tf.gfile.Open(decode_filename) as f:
+  with tf.gfile.Open(filename) as f:
     text = f.read()
     records = text.split(delimiter)
     inputs = [record.strip() for record in records]

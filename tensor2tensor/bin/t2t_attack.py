@@ -99,6 +99,7 @@ def create_surrogate_run_config(hp):
       hp.daisy_chain_variables and hp.activation_dtype == "float32" and
       hp.weight_dtype == "float32")
   return trainer_lib.create_run_config(
+      model_name=FLAGS.model,
       model_dir=os.path.expanduser(FLAGS.surrogate_output_dir),
       master=FLAGS.master,
       iterations_per_loop=FLAGS.iterations_per_loop,
@@ -110,7 +111,6 @@ def create_surrogate_run_config(hp):
       keep_checkpoint_every_n_hours=FLAGS.keep_checkpoint_every_n_hours,
       num_gpus=FLAGS.worker_gpu,
       gpu_order=FLAGS.gpu_order,
-      shard_to_cpu=FLAGS.locally_shard_to_cpu,
       num_async_replicas=FLAGS.worker_replicas,
       gpu_mem_fraction=FLAGS.worker_gpu_memory_fraction,
       enable_graph_rewriter=FLAGS.enable_graph_rewriter,
@@ -193,7 +193,7 @@ def main(argv):
 
   if FLAGS.surrogate_attack:
     sur_model_fn = t2t_model.T2TModel.make_estimator_model_fn(
-        FLAGS.surrogate_model, sur_hparams)
+        FLAGS.surrogate_model, sur_hparams, use_tpu=FLAGS.use_tpu)
     sur_ch_model = adv_attack_utils.T2TAttackModel(
         sur_model_fn, features, params, sur_config, scope="surrogate")
     # Dummy call to construct graph

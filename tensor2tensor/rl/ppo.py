@@ -20,7 +20,8 @@ Based on: https://arxiv.org/abs/1707.06347
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-from tensor2tensor.rl.envs.utils import get_policy
+
+from tensor2tensor.models.research.rl import get_policy
 
 import tensorflow as tf
 

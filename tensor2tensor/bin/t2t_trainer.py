@@ -27,6 +27,7 @@ from tensor2tensor.data_generators import problem  # pylint: disable=unused-impo
 from tensor2tensor.utils import cloud_mlengine
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
+from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
@@ -64,10 +65,8 @@ flags.DEFINE_integer("inter_op_parallelism_threads", 0,
 flags.DEFINE_integer("intra_op_parallelism_threads", 0,
                      "Number of intra_op_parallelism_threads to use for CPU. "
                      "See TensorFlow config.proto for details.")
-# TODO(hinsu): Enable DistributionStrategy by default once performance gap
-# between DistributionStrategy and Parallelism is resolved.
 flags.DEFINE_bool(
-    "optionally_use_dist_strat", False,
+    "optionally_use_dist_strat", True,
     "Whether to use TensorFlow DistributionStrategy instead of explicitly "
     "replicating the model. DistributionStrategy is used only if the "
     "model replication configuration is supported by the DistributionStrategy.")
@@ -126,6 +125,7 @@ flags.DEFINE_integer("log_step_count_steps", 100,
                      "out")
 
 
+
 def set_hparams_from_args(args):
   """Set hparams overrides from unparsed args list."""
   if not args:
@@ -154,11 +154,14 @@ def set_hparams_from_args(args):
 
 
 def create_hparams():
+  """Create hparams."""
   if FLAGS.use_tpu and "tpu" not in FLAGS.hparams_set:
     tf.logging.warn("Not all hyperparameter sets work on TPU. "
                     "Prefer hparams_sets with a '_tpu' suffix, "
                     "e.g. transformer_tpu, if available for your model.")
-  return trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
+  hparams_path = os.path.join(FLAGS.output_dir, "hparams.json")
+  return trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams,
+                                    hparams_path=hparams_path)
 
 
 def create_experiment_fn():
@@ -234,7 +237,6 @@ def create_run_config(hp, output_dir=None):
       keep_checkpoint_every_n_hours=FLAGS.keep_checkpoint_every_n_hours,
       num_gpus=FLAGS.worker_gpu,
       gpu_order=FLAGS.gpu_order,
-      shard_to_cpu=FLAGS.locally_shard_to_cpu,
       num_async_replicas=FLAGS.worker_replicas,
       gpu_mem_fraction=FLAGS.worker_gpu_memory_fraction,
       enable_graph_rewriter=FLAGS.enable_graph_rewriter,
@@ -343,8 +345,12 @@ def run_std_server():
 
 def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
+  if FLAGS.schedule == "train" or FLAGS.schedule == "train_eval_and_decode":
+    mlperf_log.transformer_print(key=mlperf_log.RUN_START)
   if FLAGS.schedule == "run_std_server":
     run_std_server()
+  mlperf_log.transformer_print(
+      key=mlperf_log.RUN_SET_RANDOM_SEED, value=FLAGS.random_seed)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   maybe_log_registry_and_exit()
@@ -368,6 +374,8 @@ def main(argv):
   if is_chief():
     save_metadata(hparams)
   execute_schedule(exp)
+  if FLAGS.schedule != "train":
+    mlperf_log.transformer_print(key=mlperf_log.RUN_FINAL)
 
 
 if __name__ == "__main__":

@@ -33,9 +33,9 @@ from PIL import Image
 from PIL import ImageDraw
 from PIL import ImageFont
 
-from tensor2tensor.data_generators import gym_problems_specs
-from tensor2tensor.rl.envs.batch_env_factory import batch_env_factory
-from tensor2tensor.rl.envs.utils import get_policy
+from tensor2tensor.data_generators import gym_env
+from tensor2tensor.models.research.rl import get_policy
+from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
 from tensor2tensor.rl.trainer_model_based import FLAGS
 from tensor2tensor.rl.trainer_model_based import setup_directories
 from tensor2tensor.rl.trainer_model_based import temporary_flags
@@ -100,9 +100,7 @@ class DebugBatchEnv(Env):
 
   def _prepare_networks(self, hparams, sess):
     self.action = tf.placeholder(shape=(1,), dtype=tf.int32)
-    batch_env = batch_env_factory(
-        hparams.environment_spec, hparams.num_agents,
-        initial_frame_chooser=hparams.initial_frame_chooser)
+    batch_env = SimulatedBatchEnv(hparams.environment_spec, hparams.num_agents)
     self.reward, self.done = batch_env.simulate(self.action)
     self.observation = batch_env.observ
     self.reset_op = batch_env.reset(tf.constant([0], dtype=tf.int32))
@@ -231,7 +229,7 @@ def main(_):
     subdirectories.append("autoencoder")
   directories = setup_directories(output_dir, subdirectories)
 
-  if hparams.game in gym_problems_specs.ATARI_GAMES:
+  if hparams.game in gym_env.ATARI_GAMES:
     game_with_mode = hparams.game + "_deterministic-v4"
   else:
     game_with_mode = hparams.game
@@ -246,8 +244,7 @@ def main(_):
     if simulated_problem_name not in registry.list_problems():
       tf.logging.info("Game Problem %s not found; dynamically registering",
                       simulated_problem_name)
-      gym_problems_specs.create_problems_for_game(hparams.game,
-                                                  game_mode="Deterministic-v4")
+      gym_env.register_game(hparams.game, game_mode="Deterministic-v4")
 
   epoch = hparams.epochs-1
   epoch_data_dir = os.path.join(directories["data"], str(epoch))

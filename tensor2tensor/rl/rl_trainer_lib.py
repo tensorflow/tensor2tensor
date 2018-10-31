@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import copy
 import os
 
 from tensor2tensor import models  # pylint: disable=unused-import
@@ -31,25 +32,39 @@ import tensorflow as tf
 
 def define_train(hparams):
   """Define the training setup."""
+  train_hparams = copy.copy(hparams)
+  train_hparams.add_hparam("eval_phase", False)
+  train_hparams.add_hparam(
+      "policy_to_actions_lambda", lambda policy: policy.sample()
+  )
+
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-    memory, collect_summary, train_initialization\
-      = collect.define_collect(
-          hparams, "ppo_train", eval_phase=False)
+    memory, collect_summary, train_initialization = (
+        collect.define_collect(train_hparams, "ppo_train")
+    )
     ppo_summary = ppo.define_ppo_epoch(memory, hparams)
     train_summary = tf.summary.merge([collect_summary, ppo_summary])
 
     if hparams.eval_every_epochs:
-      _, eval_collect_summary, eval_initialization\
-        = collect.define_collect(
-            hparams, "ppo_eval", eval_phase=True)
-      return train_summary, eval_collect_summary, \
-             (train_initialization, eval_initialization)
+      eval_hparams = copy.copy(hparams)
+      eval_hparams.add_hparam("eval_phase", True)
+      eval_hparams.add_hparam(
+          "policy_to_actions_lambda", lambda policy: policy.mode()
+      )
+      eval_hparams.environment_spec = hparams.environment_eval_spec
+      eval_hparams.num_agents = hparams.num_eval_agents
+
+      _, eval_collect_summary, eval_initialization = (
+          collect.define_collect(eval_hparams, "ppo_eval")
+      )
+      return train_summary, eval_collect_summary, (train_initialization,
+                                                   eval_initialization)
     else:
       return train_summary, None, (train_initialization,)
 
 
 def train(hparams, event_dir=None, model_dir=None,
-          restore_agent=True, name_scope="rl_train"):
+          restore_agent=True, name_scope="rl_train", report_fn=None):
   """Train."""
   with tf.Graph().as_default():
     with tf.name_scope(name_scope):
@@ -106,6 +121,13 @@ def train(hparams, event_dir=None, model_dir=None,
             eval_summary = sess.run(eval_summary_op)
             if summary_writer:
               summary_writer.add_summary(eval_summary, epoch_index)
+            if report_fn:
+              summary_proto = tf.Summary()
+              summary_proto.ParseFromString(eval_summary)
+              for elem in summary_proto.value:
+                if "mean_score" in elem.tag:
+                  report_fn(elem.simple_value, epoch_index)
+                  break
 
           epoch_index_and_start = epoch_index + start_step
           if (model_saver and hparams.save_models_every_epochs and
@@ -114,3 +136,23 @@ def train(hparams, event_dir=None, model_dir=None,
             ckpt_path = os.path.join(
                 model_dir, "model.ckpt-{}".format(epoch_index + 1 + start_step))
             model_saver.save(sess, ckpt_path)
+
+
+def evaluate(hparams, model_dir, name_scope="rl_eval"):
+  """Evaluate."""
+  hparams = copy.copy(hparams)
+  hparams.add_hparam("eval_phase", True)
+  with tf.Graph().as_default():
+    with tf.name_scope(name_scope):
+      (collect_memory, _, collect_init) = collect.define_collect(
+          hparams, "ppo_eval"
+      )
+      model_saver = tf.train.Saver(
+          tf.global_variables(".*network_parameters.*")
+      )
+
+      with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        collect_init(sess)
+        trainer_lib.restore_checkpoint(model_dir, model_saver, sess)
+        sess.run(collect_memory)

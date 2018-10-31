@@ -21,6 +21,7 @@ from __future__ import print_function
 import os
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import problem
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
@@ -78,7 +79,8 @@ class ImageCelebahq128(image_utils.ImageProblem):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.batch_size_multiplier = 1
-    p.input_modality = {"inputs": ("image:identity", 256)}
+    p.modality = {"inputs": modalities.IdentityModality}
+    p.vocab_size = {"inputs": 256}
     p.input_space_id = 1
 
   def preprocess_example(self, example, mode, hparams):

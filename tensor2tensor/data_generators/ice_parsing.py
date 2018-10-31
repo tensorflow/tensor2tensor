@@ -30,6 +30,7 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
 
@@ -107,11 +108,10 @@ class ParsingIcelandic16k(problem.Problem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    source_vocab_size = self._encoders["inputs"].vocab_size
-    p.input_modality = {
-        "inputs": (registry.Modalities.SYMBOL, source_vocab_size)
-    }
-    p.target_modality = (registry.Modalities.SYMBOL, self.targeted_vocab_size)
+    p.modality = {"inputs": modalities.SymbolModality,
+                  "targets": modalities.SymbolModality}
+    p.vocab_size = {"inputs": self._encoders["inputs"].vocab_size,
+                    "targets": self.targeted_vocab_size}
     p.input_space_id = self.input_space_id
     p.target_space_id = self.target_space_id
     p.loss_multiplier = 2.5  # Rough estimate of avg number of tokens per word

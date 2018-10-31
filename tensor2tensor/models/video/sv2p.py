@@ -27,6 +27,7 @@ from __future__ import print_function
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
+from tensor2tensor.layers import discretization
 
 from tensor2tensor.models.video import base
 from tensor2tensor.models.video import base_vae
@@ -331,6 +332,8 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
       self, all_frames, all_actions, all_rewards, all_raw_frames):
     """Video wide latent."""
     del all_actions, all_rewards, all_raw_frames
+    if not self.hparams.stochastic_model:
+      return None, None, None
     frames = tf.stack(all_frames, axis=1)
     mean, std = self.construct_latent_tower(frames, time_axis=1)
     latent = common_video.get_gaussian_tensor(mean, std)
@@ -365,35 +368,65 @@ class NextFrameSv2pDiscrete(NextFrameSv2p):
 
   def video_features(
       self, all_frames, all_actions, all_rewards, all_raw_frames):
-    """Video wide latent."""
-    del all_actions, all_rewards, all_raw_frames
+    """No video wide latent."""
+    del all_frames, all_actions, all_rewards, all_raw_frames
+    return None
 
+  def basic_conv_net(self, images, conv_size, scope):
+    """Simple multi conv ln relu."""
+    conv_size = self.tinyify(conv_size)
+    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
+      x = images
+      for i, c in enumerate(conv_size):
+        if i > 0:
+          x = tf.nn.relu(x)
+        x = common_layers.make_even_size(x)
+        x = tfl.conv2d(x, c, [3, 3], strides=(2, 2),
+                       activation=None, padding="SAME", name="conv%d" % i)
+        x = tfcl.layer_norm(x)
+    return x
+
+  def simple_discrete_latent_tower(self, input_image, target_image):
     hparams = self.hparams
-    frames = tf.stack(all_frames, axis=1)
-    mean, std = self.construct_latent_tower(frames, time_axis=1)
-    tower_output = tf.concat([mean, std], axis=-1)
-    tower_output_shape = common_layers.shape_list(tower_output)
-    batch_size = tower_output_shape[0]
 
-    if not self.is_training:
+    if self.is_predicting:
+      batch_size = common_layers.shape_list(input_image)[0]
       rand = tf.random_uniform([batch_size, hparams.bottleneck_bits])
-      d = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
-    else:
-      x = tfl.flatten(tower_output)
-      x = tfl.dense(x, hparams.bottleneck_bits, name="bits_enc")
-      x_shape = common_layers.shape_list(x)
-      x += tf.truncated_normal(x_shape, mean=0.0, stddev=0.2)
-      x = tf.tanh(x)
-      noise = tf.random_uniform(x_shape)
-      noise = 2.0 * tf.to_float(tf.less(hparams.bottleneck_noise, noise)) - 1.0
-      x *= noise
-      d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
-      p = common_layers.inverse_lin_decay(hparams.discrete_warmup_steps)
-      d = tf.where(tf.less(tf.random_uniform([batch_size]), p), d, x)
+      bits = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
+      return bits
 
-    decoded_bits = common_video.encode_to_shape(
-        d, tower_output_shape, "bits_dec")
-    return [decoded_bits, None, None]
+    conv_size = self.tinyify([64, 32, 32, 1])
+    pair = tf.concat([input_image, target_image], axis=-1)
+    posterior_enc = self.basic_conv_net(pair, conv_size, "posterior_enc")
+    posterior_enc = tfl.flatten(posterior_enc)
+    bits, _ = discretization.tanh_discrete_bottleneck(
+        posterior_enc,
+        hparams.bottleneck_bits,
+        hparams.bottleneck_noise,
+        hparams.discretize_warmup_steps,
+        hparams.mode)
+    return bits
+
+  def next_frame(self, frames, actions, rewards, target_frame,
+                 internal_states, video_features):
+    del video_features
+    frames, actions, rewards = frames[0], actions[0], rewards[0]
+
+    if internal_states is None:
+      internal_states = [None] * (5 if self.hparams.small_mode else 7)
+
+    extra_loss = 0.0
+    latent = self.simple_discrete_latent_tower(frames, target_frame)
+
+    pred_image, internal_states = self.construct_predictive_tower(
+        frames, None, actions, internal_states, latent, True)
+
+    if not self.has_rewards:
+      return pred_image, None, extra_loss, internal_states
+
+    pred_reward = self.reward_prediction(
+        pred_image, actions, rewards, latent)
+    return pred_image, pred_reward, extra_loss, internal_states
 
 
 @registry.register_model

@@ -21,7 +21,7 @@ from __future__ import print_function
 
 import collections
 import itertools
-
+import random
 import gym
 from gym.spaces import Box
 import numpy as np
@@ -29,7 +29,9 @@ import numpy as np
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -38,6 +40,26 @@ Frame = collections.namedtuple(
     # Order of elements reflects time progression within a frame.
     "Frame", ("observation", "reward", "unclipped_reward", "done", "action")
 )
+
+
+class Observation(object):
+  """Observations."""
+
+  def __init__(self, data, decode_fn):
+    self.data = data
+    self._decode = decode_fn
+
+  def __eq__(self, other):
+    if isinstance(other, Observation):
+      return self.data == other.data
+    else:
+      return False
+
+  def __neq__(self, other):
+    return self != other
+
+  def decode(self):
+    return self._decode(self.data)
 
 
 class _Noncopyable(object):
@@ -60,7 +82,50 @@ def make_gym_env(name, timesteps_limit=-1):
   return env
 
 
-class T2TEnv(video_utils.VideoProblem):
+class EnvSimulationProblem(video_utils.VideoProblem):
+  """Base Problem class for use with world models.
+
+  Attributes:
+    action_space: Gym action space. Should be overridden in derived classes.
+    reward_range: Tuple (min, max) representing the range of rewards. Limits
+      should be integer (discrete rewards).
+  """
+
+  action_space = None
+  reward_range = (-1, 1)
+
+  @property
+  def num_actions(self):
+    return self.action_space.n
+
+  @property
+  def num_rewards(self):
+    (min_reward, max_reward) = self.reward_range
+    return max_reward - min_reward + 1
+
+  def hparams(self, defaults, unused_model_hparams):
+    p = defaults
+    p.modality = {
+        "inputs": modalities.VideoModality,
+        "input_reward": modalities.SymbolModalityWeightsAll,
+        "input_action": modalities.SymbolModalityWeightsAll,
+        "targets": modalities.VideoModality,
+        "target_reward": modalities.SymbolModalityWeightsAll,
+        "target_action": modalities.SymbolModalityWeightsAll,
+    }
+    p.vocab_size = {
+        "inputs": 256,
+        "input_reward": self.num_rewards,
+        "input_action": self.num_actions,
+        "targets": 256,
+        "target_reward": self.num_rewards,
+        "target_action": self.num_actions,
+    }
+    p.input_space_id = problem.SpaceID.IMAGE
+    p.target_space_id = problem.SpaceID.IMAGE
+
+
+class T2TEnv(EnvSimulationProblem):
   """Abstract class representing a batch of environments.
 
   Attributes:
@@ -68,9 +133,6 @@ class T2TEnv(video_utils.VideoProblem):
     batch_size: Number of environments played simultaneously.
     observation_space: Gym observation space. Should be overridden in derived
       classes.
-    action_space: Gym action space. Should be overridden in derived classes.
-    reward_range: Tuple (min, max) representing the range of rewards. Limits
-      should be integer (discrete rewards).
     name: Problem name for generating filenames. Should be overridden in
       derived classes.
 
@@ -79,37 +141,31 @@ class T2TEnv(video_utils.VideoProblem):
   """
 
   observation_space = None
-  action_space = None
-  reward_range = (-1, 1)
   name = None
 
   def __init__(self, batch_size, *args, **kwargs):
     super(T2TEnv, self).__init__(*args, **kwargs)
 
-    self.clear_history()
     self.batch_size = batch_size
-    self._current_batch_frames = [None for _ in range(batch_size)]
-    self._current_batch_rollouts = [[] for _ in range(batch_size)]
-    self._current_epoch_rollouts = []
     self._rollouts_by_epoch_and_split = collections.OrderedDict()
     self.current_epoch = None
     with tf.Graph().as_default() as tf_graph:
       self._tf_graph = _Noncopyable(tf_graph)
-      self._image_p = _Noncopyable(
+      self._decoded_image_p = _Noncopyable(
           tf.placeholder(dtype=tf.uint8, shape=(None, None, None))
       )
       self._encoded_image_t = _Noncopyable(
-          tf.image.encode_png(self._image_p.obj)
+          tf.image.encode_png(self._decoded_image_p.obj)
+      )
+      self._encoded_image_p = _Noncopyable(tf.placeholder(tf.string))
+      self._decoded_image_t = _Noncopyable(
+          tf.image.decode_png(self._encoded_image_p.obj)
       )
       self._session = _Noncopyable(tf.Session())
 
   def __str__(self):
     """Returns a string representation of the environment for debug purposes."""
     raise NotImplementedError
-
-  def clear_history(self):
-    """Clears the rollout history."""
-    self._rollouts_by_epoch_and_split = collections.OrderedDict()
 
   def start_new_epoch(self, epoch, load_data_dir=None):
     if not isinstance(epoch, int):
@@ -119,10 +175,14 @@ class T2TEnv(video_utils.VideoProblem):
     self.current_epoch = epoch
     self._current_epoch_rollouts = []
     self._rollouts_by_epoch_and_split[epoch] = collections.defaultdict(list)
+    self._current_batch_frames = [None for _ in range(self.batch_size)]
+    self._current_batch_rollouts = [[] for _ in range(self.batch_size)]
     if load_data_dir is not None:
       self._load_epoch_data(load_data_dir)
 
-  def current_epoch_rollouts(self, split=None):
+  def current_epoch_rollouts(self, split=None, minimal_rollout_frames=0):
+    # TODO(kc): order of rollouts (by splits) is a bit uncontrolled
+    # (rollouts_by_split.values() reads dict values), is it a problem?
     rollouts_by_split = self._rollouts_by_epoch_and_split[self.current_epoch]
     if not rollouts_by_split:
       if split is not None:
@@ -130,15 +190,18 @@ class T2TEnv(video_utils.VideoProblem):
             "generate_data() should first be called in the current epoch"
         )
       else:
-        return self._current_epoch_rollouts
-    if split is not None:
-      return rollouts_by_split[split]
+        rollouts = self._current_epoch_rollouts
     else:
-      return [
-          rollout
-          for rollouts in rollouts_by_split.values()
-          for rollout in rollouts
-      ]
+      if split is not None:
+        rollouts = rollouts_by_split[split]
+      else:
+        rollouts = [
+            rollout
+            for rollouts in rollouts_by_split.values()
+            for rollout in rollouts
+        ]
+    return [rollout for rollout in rollouts
+            if len(rollout) >= minimal_rollout_frames]
 
   def _preprocess_observations(self, obs):
     """Transforms a batch of observations.
@@ -153,12 +216,22 @@ class T2TEnv(video_utils.VideoProblem):
     """
     return obs
 
+  def _decode_png(self, encoded_observation):
+    """Decodes a single observation from PNG."""
+    return self._session.obj.run(
+        self._decoded_image_t.obj,
+        feed_dict={self._encoded_image_p.obj: encoded_observation}
+    )
+
   def _encode_observations(self, observations):
     """Encodes observations as PNG."""
     return [
-        self._session.obj.run(
-            self._encoded_image_t.obj,
-            feed_dict={self._image_p.obj: observation}
+        Observation(
+            self._session.obj.run(
+                self._encoded_image_t.obj,
+                feed_dict={self._decoded_image_p.obj: observation}
+            ),
+            self._decode_png
         )
         for observation in observations
     ]
@@ -308,35 +381,13 @@ class T2TEnv(video_utils.VideoProblem):
   def only_keep_videos_from_0th_frame(self):
     return False
 
-  @property
-  def num_actions(self):
-    return self.action_space.n
-
-  @property
-  def num_rewards(self):
-    (min_reward, max_reward) = self.reward_range
-    return max_reward - min_reward + 1
-
-  def hparams(self, defaults, unused_model_hparams):
-    p = defaults
-    def make_modality(name):
-      return {
-          "{}s".format(name): ("video", 256),
-          "{}_reward".format(name): ("symbol:weights_all", self.num_rewards),
-          "{}_action".format(name): ("symbol:weights_all", self.num_actions)
-      }
-    p.input_modality = make_modality("input")
-    p.target_modality = make_modality("target")
-    p.input_space_id = problem.SpaceID.IMAGE
-    p.target_space_id = problem.SpaceID.IMAGE
-
   def _generate_frames(self, rollouts):
     for rollout in rollouts:
       for (frame_number, frame) in enumerate(rollout):
         yield {
             "frame_number": [frame_number],
             "epoch": [self.current_epoch],
-            "image/encoded": [frame.observation],
+            "image/encoded": [frame.observation.data],
             "image/format": ["png"],
             "image/height": [self.frame_height],
             "image/width": [self.frame_width],
@@ -494,7 +545,9 @@ class T2TEnv(video_utils.VideoProblem):
         }
         fields["reward"] += self.reward_range[0]
         fields["done"] = bool(fields["done"])
-        fields["observation"] = fields["image/encoded"]
+        fields["observation"] = Observation(
+            fields["image/encoded"], self._decode_png
+        )
         del fields["image/encoded"]
 
         frame = Frame(**fields)
@@ -522,24 +575,31 @@ class T2TGymEnv(T2TEnv):
   arguments and register this subclass.
   """
 
-  def __init__(self, base_env_name, batch_size=None, grayscale=False,
-               resize_height_factor=1, resize_width_factor=1,
-               base_env_timesteps_limit=-1, envs=None, **kwargs):
-    if batch_size is None:
-      batch_size = len(envs)
+  noop_action = 0
+
+  def __init__(self, base_env_name=None, batch_size=1, grayscale=False,
+               resize_height_factor=2, resize_width_factor=2,
+               base_env_timesteps_limit=-1, max_num_noops=0, **kwargs):
+    if base_env_name is None:
+      base_env_name = self.base_env_name
+    self._base_env_name = base_env_name
     super(T2TGymEnv, self).__init__(batch_size, **kwargs)
     self.grayscale = grayscale
     self.resize_height_factor = resize_height_factor
     self.resize_width_factor = resize_width_factor
     if not self.name:
       # Set problem name if not registered.
-      self.name = "t2t_gym_env_{}".format(base_env_name)
+      self.name = "Gym%s" % base_env_name
 
-    if envs is None:
-      self._envs = [make_gym_env(base_env_name, base_env_timesteps_limit)
-                    for _ in range(self.batch_size)]
-    else:
-      self._envs = envs
+    self._envs = [make_gym_env(base_env_name, base_env_timesteps_limit)
+                  for _ in range(self.batch_size)]
+
+    # max_num_noops works only with atari envs.
+    if max_num_noops > 0:
+      assert self._envs[0].unwrapped.get_action_meanings()[
+          self.noop_action
+      ] == "NOOP"
+    self.max_num_noops = max_num_noops
 
     orig_observ_space = self._envs[0].observation_space
     if not all(env.observation_space == orig_observ_space
@@ -565,6 +625,10 @@ class T2TGymEnv(T2TEnv):
       if self.grayscale:
         resized = tf.image.rgb_to_grayscale(resized)
       self._resized_img_batch_t = _Noncopyable(resized)
+
+  @property
+  def base_env_name(self):
+    return self._base_env_name
 
   @property
   def num_channels(self):
@@ -595,8 +659,149 @@ class T2TGymEnv(T2TEnv):
     return tuple(map(np.stack, (obs, rewards, dones)))
 
   def _reset(self, indices):
-    return np.stack([self._envs[index].reset() for index in indices])
+    def reset_with_noops(env):
+      """Resets environment and applies random number of NOOP actions on it."""
+      obs = env.reset()
+      try:
+        num_noops = random.randint(1, self.max_num_noops)
+      except ValueError:
+        num_noops = 0
+
+      for _ in range(num_noops):
+        (obs, _, done, _) = env.step(self.noop_action)
+        if done:
+          obs = env.reset()
+
+      return obs
+
+    return np.stack([reset_with_noops(self._envs[index]) for index in indices])
 
   def close(self):
     for env in self._envs:
       env.close()
+
+
+class DummyWorldModelProblem(EnvSimulationProblem):
+  """Dummy Problem for world model prediction."""
+
+  def __init__(self, action_space, reward_range):
+    super(DummyWorldModelProblem, self).__init__()
+    self.action_space = action_space
+    self.reward_range = reward_range
+
+
+# Atari registration.
+
+# Game list from our list of ROMs
+# Removed because XDeterministic-v4 did not exist:
+# * adventure
+# * defender
+# * kaboom
+ATARI_GAMES = [
+    "air_raid", "alien", "amidar", "assault", "asterix", "asteroids",
+    "atlantis", "bank_heist", "battle_zone", "beam_rider", "berzerk", "bowling",
+    "boxing", "breakout", "carnival", "centipede", "chopper_command",
+    "crazy_climber", "demon_attack", "double_dunk", "elevator_action", "enduro",
+    "fishing_derby", "freeway", "frostbite", "gopher", "gravitar", "hero",
+    "ice_hockey", "jamesbond", "journey_escape", "kangaroo", "krull",
+    "kung_fu_master", "montezuma_revenge", "ms_pacman", "name_this_game",
+    "phoenix", "pitfall", "pong", "pooyan", "private_eye", "qbert", "riverraid",
+    "road_runner", "robotank", "seaquest", "skiing", "solaris",
+    "space_invaders", "star_gunner", "tennis", "time_pilot", "tutankham",
+    "up_n_down", "venture", "video_pinball", "wizard_of_wor", "yars_revenge",
+    "zaxxon"
+]
+
+# List from paper:
+# https://arxiv.org/pdf/1805.11593.pdf
+# plus frostbite.
+ATARI_GAMES_WITH_HUMAN_SCORE = [
+    "alien", "amidar", "assault", "asterix", "asteroids",
+    "atlantis", "bank_heist", "battle_zone", "beam_rider", "bowling",
+    "boxing", "breakout", "chopper_command",
+    "crazy_climber", "demon_attack", "double_dunk", "enduro",
+    "fishing_derby", "freeway", "frostbite", "gopher", "gravitar", "hero",
+    "ice_hockey", "jamesbond", "kangaroo", "krull",
+    "kung_fu_master", "montezuma_revenge", "ms_pacman", "name_this_game",
+    "pitfall", "pong", "private_eye", "qbert", "riverraid",
+    "road_runner", "seaquest", "solaris",
+    "up_n_down", "video_pinball", "yars_revenge",
+]
+
+ATARI_WHITELIST_GAMES = [
+    "amidar",
+    "bank_heist",
+    "berzerk",
+    "boxing",
+    "crazy_climber",
+    "freeway",
+    "frostbite",
+    "gopher",
+    "kung_fu_master",
+    "ms_pacman",
+    "pong",
+    "qbert",
+    "seaquest",
+]
+
+
+# Games on which model-free does better than model-based at this point.
+ATARI_CURIOUS_GAMES = [
+    "bank_heist",
+    "boxing",
+    "enduro",
+    "kangaroo",
+    "road_runner",
+    "up_n_down",
+]
+
+
+# Games on which based should work.
+ATARI_DEBUG_GAMES = [
+    "crazy_climber",
+    "freeway",
+    "pong",
+]
+
+
+# Different ATARI game modes in OpenAI Gym. Full list here:
+# https://github.com/openai/gym/blob/master/gym/envs/__init__.py
+ATARI_GAME_MODES = [
+    "Deterministic-v0",  # 0.25 repeat action probability, 4 frame skip.
+    "Deterministic-v4",  # 0.00 repeat action probability, 4 frame skip.
+    "NoFrameskip-v0",    # 0.25 repeat action probability, 1 frame skip.
+    "NoFrameskip-v4",    # 0.00 repeat action probability, 1 frame skip.
+    "-v0",               # 0.25 repeat action probability, (2 to 5) frame skip.
+    "-v4"                # 0.00 repeat action probability, (2 to 5) frame skip.
+]
+
+
+def camel_case_name(snake_case_name):
+  return "".join([w[0].upper() + w[1:] for w in snake_case_name.split("_")])
+
+
+def register_game(game_name, game_mode="Deterministic-v4"):
+  """Create and register problems for the game.
+
+  Args:
+    game_name: str, one of the games in ATARI_GAMES, e.g. "bank_heist".
+    game_mode: the frame skip and sticky keys config.
+
+  Raises:
+    ValueError: if game_name or game_mode are wrong.
+  """
+  if game_name not in ATARI_GAMES:
+    raise ValueError("Game %s not in ATARI_GAMES" % game_name)
+  if game_mode not in ATARI_GAME_MODES:
+    raise ValueError("Unknown ATARI game mode: %s." % game_mode)
+  camel_game_name = camel_case_name(game_name) + game_mode
+  # Create and register the Problem
+  cls = type("Gym%sRandom" % camel_game_name,
+             (T2TGymEnv,), {"base_env_name": camel_game_name})
+  registry.register_problem(cls)
+
+
+# Register the atari games with all of the possible modes.
+for atari_game in ATARI_GAMES:
+  for atari_game_mode in ATARI_GAME_MODES:
+    register_game(atari_game, game_mode=atari_game_mode)

@@ -58,6 +58,8 @@ class NextFrameBasicRecurrent(
 def next_frame_basic_recurrent():
   """Basic 2-frame recurrent model with stochastic tower."""
   hparams = basic_stochastic.next_frame_basic_stochastic_discrete()
+  hparams.filter_double_steps = 2
+  hparams.hidden_size = 64
   hparams.video_num_input_frames = 4
   hparams.video_num_target_frames = 4
   hparams.add_hparam("num_lstm_layers", 2)

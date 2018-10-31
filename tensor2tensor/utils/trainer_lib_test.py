@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
 from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.models import transformer  # pylint: disable=unused-import
@@ -105,10 +106,10 @@ class TrainerLibTest(tf.test.TestCase):
         problem_name="tiny_algo")
     # Manually turn off sharing. It is not currently supported for multitargets.
     hparams.shared_embedding_and_softmax_weights = 0  # pylint: disable=line-too-long
-    hparams.problem_hparams.target_modality = {
-        "targets": hparams.problem_hparams.target_modality,
-        "A": hparams.problem_hparams.target_modality,
-        "B": hparams.problem_hparams.target_modality,
+    hparams.problem_hparams.modality = {
+        "targets": hparams.problem_hparams.modality["targets"],
+        "targets_A": hparams.problem_hparams.modality["targets"],
+        "targets_B": hparams.problem_hparams.modality["targets"],
     }
     hparams.problem._hparams = hparams.problem_hparams
 
@@ -119,14 +120,14 @@ class TrainerLibTest(tf.test.TestCase):
     dataset = dataset.repeat(None).padded_batch(10, dataset.output_shapes)
     features = dataset.make_one_shot_iterator().get_next()
     features = problem_lib.standardize_shapes(features)
-    features["A"] = features["B"] = features["targets"]
+    features["targets_A"] = features["targets_B"] = features["targets"]
 
     # Model
     model = registry.model("transformer")(hparams, tf.estimator.ModeKeys.TRAIN)
 
     def body(args, mb=model.body):
       out = mb(args)
-      return {"targets": out, "A": out, "B": out}
+      return {"targets": out, "targets_A": out, "targets_B": out}
 
     model.body = body
 
@@ -138,6 +139,34 @@ class TrainerLibTest(tf.test.TestCase):
     with self.test_session() as sess:
       sess.run(tf.global_variables_initializer())
       sess.run([logits, loss])
+
+  def testCreateHparams(self):
+    # Get json_path
+    pkg, _ = os.path.split(__file__)
+    pkg, _ = os.path.split(pkg)
+    json_path = os.path.join(
+        pkg, "test_data", "transformer_test_ckpt", "hparams.json")
+
+    # Create hparams
+    hparams = trainer_lib.create_hparams("transformer_big", "hidden_size=1",
+                                         hparams_path=json_path)
+    self.assertEqual(2, hparams.num_hidden_layers)  # from json
+    self.assertEqual(1, hparams.hidden_size)  # from hparams_overrides_str
+
+    # Compare with base hparams
+    base_hparams = trainer_lib.create_hparams("transformer_big")
+    self.assertEqual(len(base_hparams.values()), len(hparams.values()))
+
+  def testCreateHparamsFromJson(self):
+    # Get json_path
+    pkg, _ = os.path.split(__file__)
+    pkg, _ = os.path.split(pkg)
+    json_path = os.path.join(
+        pkg, "test_data", "transformer_test_ckpt", "hparams.json")
+
+    # Create hparams
+    hparams = trainer_lib._create_hparams_from_json(json_path)
+    self.assertEqual(75, len(hparams.values()))
 
 
 if __name__ == "__main__":

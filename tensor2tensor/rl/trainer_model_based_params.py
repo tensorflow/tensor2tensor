@@ -21,7 +21,7 @@ from __future__ import print_function
 import six
 
 
-from tensor2tensor.data_generators import gym_problems_specs
+from tensor2tensor.data_generators import gym_env
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -54,12 +54,12 @@ def rlmb_base():
       num_real_env_frames=96000,
       generative_model="next_frame_basic_deterministic",
       generative_model_params="next_frame_pixel_noise",
-      ppo_params="ppo_pong_base",
+      ppo_params="ppo_atari_base",
       autoencoder_train_steps=0,
       autoencoder_train_steps_initial_multiplier=10,
       autoencoder_hparams_set="autoencoder_discrete_pong",
       model_train_steps=15000,
-      inital_epoch_train_steps_multiplier=3,
+      initial_epoch_train_steps_multiplier=3,
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,  # Use random starts in PPO.
       # Flip the first random frame in PPO batch for the true beginning.
@@ -84,6 +84,8 @@ def rlmb_base():
       resize_height_factor=2,
       resize_width_factor=2,
       grayscale=False,
+      # Maximum number of noops to make on environment reset.
+      max_num_noops=8,
       # Bump learning rate after first epoch by 3x.
       # We picked 3x because our default learning rate schedule decreases with
       # 1/square root of step; 1/sqrt(10k) = 0.01 and 1/sqrt(100k) ~ 0.0032
@@ -102,12 +104,19 @@ def rlmb_base():
       real_ppo_effective_num_agents=16,
       real_ppo_eval_every_epochs=0,
 
+      eval_num_agents=30,
+      eval_max_num_noops=8,
+
       game="pong",
       # Whether to evaluate the world model in each iteration of the loop to get
       # the model_reward_accuracy metric.
       eval_world_model=True,
-      # Rollout fractions to report reward_accuracy on.
-      eval_rollout_fractions=[0.25, 0.5, 1],
+      # Number of concurrent rollouts in world model evaluation.
+      wm_eval_batch_size=16,
+      # Number of batches to run for world model evaluation.
+      wm_eval_epochs_num=8,
+      # Ratios of ppo_epoch_length to report reward_accuracy on.
+      wm_eval_rollout_ratios=[0.25, 0.5, 1, 2],
       stop_loop_early=False,  # To speed-up tests.
       env_timesteps_limit=-1,  # Use default from gym.make()
   )
@@ -183,7 +192,7 @@ def rlmb_quick_sm():
 def rlmb_base_stochastic():
   """Base setting with a stochastic next-frame model."""
   hparams = rlmb_base()
-  hparams.inital_epoch_train_steps_multiplier = 5
+  hparams.initial_epoch_train_steps_multiplier = 5
   hparams.generative_model = "next_frame_basic_stochastic"
   hparams.generative_model_params = "next_frame_basic_stochastic"
   return hparams
@@ -272,7 +281,7 @@ def rlmb_base_sv2p_flippy30():
   hparams.ppo_epochs_num = 1000
   hparams.model_train_steps = 15000
   hparams.learning_rate_bump = 1.0
-  hparams.inital_epoch_train_steps_multiplier = 5
+  hparams.initial_epoch_train_steps_multiplier = 5
   hparams.generative_model = "next_frame_sv2p"
   hparams.generative_model_params = "next_frame_sv2p_atari"
   return hparams
@@ -384,17 +393,19 @@ def rlmb_tiny():
           model_train_steps=2,
           ppo_epochs_num=2,
           ppo_time_limit=5,
-          ppo_epoch_length=5,
+          ppo_epoch_length=2,
           ppo_num_agents=2,
           real_ppo_epoch_length=36,
           real_ppo_num_agents=1,
           real_ppo_epochs_num=0,
           real_ppo_effective_num_agents=2,
+          eval_num_agents=1,
           generative_model_params="next_frame_tiny",
           stop_loop_early=True,
           resize_height_factor=2,
           resize_width_factor=2,
           game="pong",
+          wm_eval_rollout_ratios=[1],
           env_timesteps_limit=6,
       ).values())
 
@@ -535,38 +546,38 @@ def rlmb_scheduled_sampling(rhp):
 @registry.register_ranged_hparams
 def rlmb_all_games(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_GAMES)
 
 
 @registry.register_ranged_hparams
 def rlmb_whitelisted_games(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_WHITELIST_GAMES)
 
 
 @registry.register_ranged_hparams
 def rlmb_human_score_games(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_categorical("loop.game",
-                      gym_problems_specs.ATARI_GAMES_WITH_HUMAN_SCORE)
+                      gym_env.ATARI_GAMES_WITH_HUMAN_SCORE)
 
 
 @registry.register_ranged_hparams
 def rlmb_curious_games10(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_CURIOUS_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_CURIOUS_GAMES)
 
 
 @registry.register_ranged_hparams
 def rlmb_curious_games5(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_CURIOUS_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_CURIOUS_GAMES)
 
 
 @registry.register_ranged_hparams
 def rlmb_debug_games(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_DEBUG_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_DEBUG_GAMES)
 
 
 @registry.register_ranged_hparams
@@ -638,28 +649,28 @@ def rlmb_dummy_range(rhp):
 
 @registry.register_ranged_hparams
 def rlmb_epochs_num(rhp):
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_WHITELIST_GAMES)
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_discrete("loop.epochs", [3, 6, 12])
 
 
 @registry.register_ranged_hparams
 def rlmb_ppo_epochs_num(rhp):
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_WHITELIST_GAMES)
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_discrete("loop.ppo_epochs_num", [200, 1000, 2000, 4000])
 
 
 @registry.register_ranged_hparams
 def rlmb_ppo_epoch_len(rhp):
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_WHITELIST_GAMES)
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_discrete("loop.ppo_epoch_length", [25, 50, 100])
 
 
 @registry.register_ranged_hparams
 def rlmb_num_frames(rhp):
-  rhp.set_categorical("loop.game", gym_problems_specs.ATARI_WHITELIST_GAMES)
+  rhp.set_categorical("loop.game", gym_env.ATARI_WHITELIST_GAMES)
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
   rhp.set_discrete("loop.num_real_env_frames",
                    [1000*el for el in [30, 100, 500, 1000]])
@@ -677,6 +688,12 @@ def rlmb_logits_clip(rhp):
   rhp.set_categorical("loop.game", ["pong", "boxing", "seaquest"])
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_discrete("ppo.logits_clip", [0., 5.])
+
+
+@registry.register_ranged_hparams
+def rlmf_proportional_epoch_length(rhp):
+  rhp.set_discrete("proportional_epoch_length", [10, 20, 50, 100, 200, 400])
+  rhp.set_categorical("loop.game", gym_env.ATARI_GAMES_WITH_HUMAN_SCORE)
 
 
 def merge_unscoped_hparams(scopes_and_hparams):

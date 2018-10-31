@@ -18,8 +18,11 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-from tensor2tensor.layers import common_layers
 
+import math
+import numpy as np
+
+from tensor2tensor.layers import common_layers
 import tensorflow as tf
 
 from tensorflow.python.ops import inplace_ops
@@ -162,6 +165,136 @@ def fast_tpu_gather(params, indices, name=None):
     return gather_result
 
 
+def _create_make_unique(inputs):
+  """Replaces the lower bits of each element with iota.
+
+  The iota is used to derive the index, and also serves the purpose to
+  make each element unique to break ties.
+
+  Args:
+    inputs: A tensor with rank of 2 and dtype of tf.float32.
+      [batch_size, original_size].
+
+  Returns:
+    A tensor after element wise transformation, with dtype the same as inputs.
+    [batch_size, original_size].
+
+  Raises:
+    ValueError: If the rank of the input tensor does not equal 2.
+  """
+  if inputs.shape.ndims != 2:
+    raise ValueError("Input of top_k_with_unique must be rank-2 "
+                     "but got: %s" % inputs.shape)
+
+  height = inputs.shape[0]
+  width = inputs.shape[1]
+  zeros = tf.zeros([height, width], dtype=tf.int32)
+
+  # Count_mask is used to mask away the low order bits to ensure that every
+  # element is distinct.
+  log2_ceiling = int(math.ceil(math.log(int(width), 2)))
+  next_power_of_two = 1 << log2_ceiling
+  count_mask = ~(next_power_of_two - 1)
+  count_mask_r0 = tf.constant(count_mask)
+  count_mask_r2 = tf.fill([height, width], count_mask_r0)
+
+  # Smallest_normal is the bit representation of the smallest positive normal
+  # floating point number. The sign is zero, exponent is one, and the fraction
+  # is zero.
+  smallest_normal = 1 << 23
+  smallest_normal_r0 = tf.constant(smallest_normal, dtype=tf.int32)
+  smallest_normal_r2 = tf.fill([height, width], smallest_normal_r0)
+
+  # Low_bit_mask is used to mask away the sign bit when computing the absolute
+  # value.
+  low_bit_mask = ~(1 << 31)
+  low_bit_mask_r0 = tf.constant(low_bit_mask, dtype=tf.int32)
+  low_bit_mask_r2 = tf.fill([height, width], low_bit_mask_r0)
+
+  iota = tf.tile(tf.expand_dims(tf.range(width, dtype=tf.int32), 0),
+                 [height, 1])
+
+  # Compare the absolute value with positive zero to handle negative zero.
+  input_r2 = tf.bitcast(inputs, tf.int32)
+  abs_r2 = tf.bitwise.bitwise_and(input_r2, low_bit_mask_r2)
+  if_zero_r2 = tf.equal(abs_r2, zeros)
+  smallest_normal_preserving_sign_r2 = tf.bitwise.bitwise_or(
+      input_r2, smallest_normal_r2)
+  input_no_zeros_r2 = tf.where(
+      if_zero_r2, smallest_normal_preserving_sign_r2, input_r2)
+
+  # Discard the low-order bits and replace with iota.
+  and_r2 = tf.bitwise.bitwise_and(input_no_zeros_r2, count_mask_r2)
+  or_r2 = tf.bitwise.bitwise_or(and_r2, iota)
+  return tf.bitcast(or_r2, tf.float32)
+
+
+def _create_topk_unique(inputs, k):
+  """Creates the top k values in sorted order with indices.
+
+  Args:
+    inputs: A tensor with rank of 2. [batch_size, original_size].
+    k: An integer, number of top elements to select.
+
+  Returns:
+    topk_r2: A tensor, the k largest elements. [batch_size, k].
+    topk_indices_r2: A tensor, indices of the top k values. [batch_size, k].
+  """
+  height = inputs.shape[0]
+  width = inputs.shape[1]
+  neg_inf_r0 = tf.constant(-np.inf, dtype=tf.float32)
+  ones = tf.ones([height, width], dtype=tf.float32)
+  neg_inf_r2 = ones * neg_inf_r0
+  inputs = tf.where(tf.is_nan(inputs), neg_inf_r2, inputs)
+
+  # Select the current largest value k times and keep them in topk_r2. The
+  # selected largest values are marked as the smallest value to avoid being
+  # selected again.
+  tmp = inputs
+  topk_r2 = tf.zeros([height, k], dtype=tf.float32)
+  for i in range(k):
+    kth_order_statistic = tf.reduce_max(tmp, axis=1, keepdims=True)
+    k_mask = tf.tile(tf.expand_dims(tf.equal(tf.range(k), tf.fill([k], i)), 0),
+                     [height, 1])
+    topk_r2 = tf.where(k_mask, tf.tile(kth_order_statistic, [1, k]), topk_r2)
+    ge_r2 = tf.greater_equal(inputs, tf.tile(kth_order_statistic, [1, width]))
+    tmp = tf.where(ge_r2, neg_inf_r2, inputs)
+
+  log2_ceiling = int(math.ceil(math.log(float(int(width)), 2)))
+  next_power_of_two = 1 << log2_ceiling
+  count_mask = next_power_of_two - 1
+  mask_r0 = tf.constant(count_mask)
+  mask_r2 = tf.fill([height, k], mask_r0)
+  topk_r2_s32 = tf.bitcast(topk_r2, tf.int32)
+  topk_indices_r2 = tf.bitwise.bitwise_and(topk_r2_s32, mask_r2)
+  return topk_r2, topk_indices_r2
+
+
+def top_k_with_unique(inputs, k):
+  """Finds the values and indices of the k largests entries.
+
+  Instead of doing sort like tf.nn.top_k, this function finds the max value
+  k times. The running time is proportional to k, which is be faster when k
+  is small. The current implementation supports only inputs of rank 2.
+  In addition, iota is used to replace the lower bits of each element, this
+  makes the selection more stable when there are equal elements. The
+  overhead is that output values are approximated.
+
+  Args:
+    inputs: A tensor with rank of 2. [batch_size, original_size].
+    k: An integer, number of top elements to select.
+
+  Returns:
+    top_values: A tensor, the k largest elements in sorted order.
+      [batch_size, k].
+    indices: A tensor, indices of the top_values. [batch_size, k].
+  """
+  unique_inputs = _create_make_unique(tf.cast(inputs, tf.float32))
+  top_values, indices = _create_topk_unique(unique_inputs, k)
+  top_values = tf.cast(top_values, inputs.dtype)
+  return top_values, indices
+
+
 def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
                                 beam_size, batch_size, prefix="default",
                                 states_to_gather=None, use_tpu=False):
@@ -201,8 +334,8 @@ def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
      topk_gathered_scores [batch_size, beam_size],
      topk_finished_flags[batch_size, beam_size])
   """
-  _, topk_indexes = tf.nn.top_k(scores, k=beam_size)
   if not use_tpu:
+    _, topk_indexes = tf.nn.top_k(scores, k=beam_size)
     # The next three steps are to create coordinates for tf.gather_nd to pull
     # out the topk sequences from sequences based on scores.
     # batch pos is a tensor like [[0,0,0,0,],[1,1,1,1],..]. It says which
@@ -229,6 +362,7 @@ def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
     else:
       topk_gathered_states = states_to_gather
   else:
+    _, topk_indexes = top_k_with_unique(scores, k=beam_size)
     # Gather up the highest scoring sequences.  For each operation added, give
     # it a concrete name to simplify observing these operations with tfdbg.
     # Clients can capture these tensors by watching these node names.
@@ -454,7 +588,11 @@ def beam_search(symbols_to_logits_fn,
     # Flatten out (beam_size, vocab_size) probs in to a list of possibilities
     flat_curr_scores = tf.reshape(curr_scores, [-1, beam_size * vocab_size])
 
-    topk_scores, topk_ids = tf.nn.top_k(flat_curr_scores, k=beam_size * 2)
+    if use_tpu:
+      topk_scores, topk_ids = top_k_with_unique(
+          flat_curr_scores, k=beam_size * 2)
+    else:
+      topk_scores, topk_ids = tf.nn.top_k(flat_curr_scores, k=beam_size * 2)
 
     # Recovering the log probs because we will need to send them back
     topk_log_probs = topk_scores * length_penalty

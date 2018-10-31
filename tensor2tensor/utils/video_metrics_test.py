@@ -38,8 +38,10 @@ class VideoMetricsTest(tf.test.TestCase):
         [25.0, 25.0, 25.0, 25.0]]
     all_decodes = [decode1, decode2]
     all_decodes = np.array(all_decodes)
-    best_decode = video_metrics.reduce_to_best_decode(all_decodes, np.argmax)
-    worst_decode = video_metrics.reduce_to_best_decode(all_decodes, np.argmin)
+    best_decode, best_decode_ind = video_metrics.reduce_to_best_decode(
+        all_decodes, np.argmax)
+    worst_decode, worst_decode_ind = video_metrics.reduce_to_best_decode(
+        all_decodes, np.argmin)
     exp_best_decode = [
         [30.0, 32.0, 33.0, 34.0],
         [30.0, 32.0, 33.0, 34.0],
@@ -50,6 +52,8 @@ class VideoMetricsTest(tf.test.TestCase):
         [30.0, 10.0, 30.0, 10.0]]
     self.assertTrue(np.allclose(best_decode, exp_best_decode))
     self.assertTrue(np.allclose(worst_decode, exp_worst_decode))
+    self.assertTrue(np.allclose(best_decode_ind, [0, 1, 1]))
+    self.assertTrue(np.allclose(worst_decode_ind, [1, 0, 0]))
 
 
 if __name__ == '__main__':
