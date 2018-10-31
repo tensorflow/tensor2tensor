@@ -92,9 +92,6 @@ flags.DEFINE_integer("local_eval_frequency", 1000,
 flags.DEFINE_integer("eval_throttle_seconds", 600,
                      "Do not re-evaluate unless the last evaluation was started"
                      " at least this many seconds ago.")
-flags.DEFINE_bool("locally_shard_to_cpu", False,
-                  "Use CPU as a sharding device running locally. This allows "
-                  "to test sharded model construction on a machine with 1 GPU.")
 flags.DEFINE_bool("sync", False, "Sync compute on PS.")
 flags.DEFINE_string("worker_job", "/job:localhost", "name of worker job")
 flags.DEFINE_integer("worker_gpu", 1, "How many GPUs to use.")

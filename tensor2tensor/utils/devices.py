@@ -70,7 +70,6 @@ def data_parallelism(daisy_chain_variables=True,
                      worker_replicas=1,
                      worker_id=0,
                      gpu_order="",
-                     locally_shard_to_cpu=False,
                      worker_job="/job:localhost",
                      no_data_parallelism=False):
   """See data_parallelism_from_flags."""
@@ -141,7 +140,7 @@ def data_parallelism(daisy_chain_variables=True,
         "Schedule=%s. Assuming that training is running on a single machine.",
         schedule)
     datashard_devices = ["gpu:%d" % d for d in _gpu_order(worker_gpu)]
-    if locally_shard_to_cpu or worker_gpu < 1:
+    if worker_gpu < 1:
       datashard_devices += ["cpu:0"]
     caching_devices = None
   elif sync and ps_replicas > 0:

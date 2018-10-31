@@ -145,7 +145,6 @@ def create_run_config(model_name,
                       keep_checkpoint_every_n_hours=10000,
                       num_gpus=1,
                       gpu_order="",
-                      shard_to_cpu=False,
                       num_async_replicas=1,
                       enable_graph_rewriter=False,
                       gpu_mem_fraction=0.95,
@@ -239,7 +238,7 @@ def create_run_config(model_name,
         optionally_use_dist_strat and
         t2t_model.T2TModel.has_symmetric_shards(model_name) and
         not no_data_parallelism and ps_replicas == 0 and ps_gpu == 0 and
-        num_async_replicas == 1 and not shard_to_cpu)
+        num_async_replicas == 1)
 
     if use_distribution_strategy:
       tf.logging.info(
@@ -262,7 +261,6 @@ def create_run_config(model_name,
           worker_replicas=num_async_replicas,
           worker_id=worker_id,
           gpu_order=gpu_order,
-          locally_shard_to_cpu=shard_to_cpu,
           worker_job=worker_job,
           no_data_parallelism=no_data_parallelism)
 
