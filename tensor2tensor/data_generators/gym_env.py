@@ -43,6 +43,7 @@ Frame = collections.namedtuple(
 
 
 class Observation(object):
+  """Observations."""
 
   def __init__(self, data, decode_fn):
     self.data = data
@@ -55,7 +56,7 @@ class Observation(object):
       return False
 
   def __neq__(self, other):
-    return not self == other
+    return self != other
 
   def decode(self):
     return self._decode(self.data)

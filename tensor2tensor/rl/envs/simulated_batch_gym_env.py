@@ -15,40 +15,22 @@
 
 """SimulatedBatchEnv in a Gym-like interface."""
 
-#TODO(pm): do we really need these
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 import copy
 
-from tensor2tensor.utils import trainer_lib
-from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
-import tensorflow as tf
 from gym import Env
+from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
+from tensor2tensor.utils import trainer_lib
+
+import tensorflow as tf
 
 
-class FlatBatchEnv(Env):
-  def __init__(self, batch_env):
-    if batch_env.batch_size != 1:
-      raise ValueError("Number of environments in batch must be equal to one")
-    self.batch_env = batch_env
-    self.action_space = self.batch_env.action_space
-    self.observation_space = self.batch_env.observation_space
+class SimulatedBatchGymEnv(Env):
+  """SimulatedBatchEnv in a Gym-like interface, environments are  batched."""
 
-  def step(self, action):
-    obs, rewards, dones = self.batch_env.step([action])
-    return obs[0], rewards[0], dones[0], {}
-
-  def reset(self):
-    return self.batch_env.reset()[0]
-
-
-class SimulatedBatchGymEnv(object):
-  """ SimulatedBatchEnv in a Gym-like interface.
-
-  The environments are  batched.
-  """
   def __init__(self, environment_spec, batch_size,
                model_dir=None, sess=None):
     self.batch_size = batch_size
@@ -58,7 +40,7 @@ class SimulatedBatchGymEnv(object):
                                           self.batch_size)
 
       self.action_space = self._batch_env.action_space
-      # TODO(KC): check for the stack wrapper and correct number of channels in
+      # TODO(kc): check for the stack wrapper and correct number of channels in
       # observation_space
       self.observation_space = self._batch_env.observ_space
       self._sess = sess if sess is not None else tf.Session()
@@ -90,8 +72,8 @@ class SimulatedBatchGymEnv(object):
   def render(self, mode="human"):
     raise NotImplementedError()
 
-  def reset(self, indicies=None):
-    if indicies:
+  def reset(self, indices=None):
+    if indices:
       raise NotImplementedError()
     obs = self._sess.run(self._reset_op)
     # TODO(pmilos): remove if possible

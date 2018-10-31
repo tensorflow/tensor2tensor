@@ -436,6 +436,14 @@ def evaluate_world_model(real_env, hparams, world_model_dir):
           reward_accuracies_by_length
       ):
         if i + 1 == length:
+          # TODO(lukaszkaiser): resolve the comment below from blazej.
+          # If I understand correctly, num_save_reward is counting for
+          # i = 0, 1, ... , sequence_length, for how many indices i so far
+          # we had a match on simulated and real reward.
+          # I thought we would be more interested in saving just the average
+          # number of matches for the current i:
+          # reward_accuracies.append(np.sum(sim_cum_rewards == real_cum_rewards)
+          # / len(real_cum_rewards))
           reward_accuracies.append(num_same_reward / num_steps)
 
   return {
