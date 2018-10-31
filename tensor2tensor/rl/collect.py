@@ -141,12 +141,16 @@ def define_collect(hparams, scope):
     should_reset_var = tf.Variable(True, trainable=False)
     zeros_tensor = tf.zeros(len(batch_env))
 
+  force_beginning_resets = tf.convert_to_tensor(
+      environment_spec.force_beginning_resets
+  )
+
   def reset_ops_group():
     return tf.group(batch_env.reset(tf.range(len(batch_env))),
                     tf.assign(cumulative_rewards, zeros_tensor))
 
   reset_op = tf.cond(
-      tf.logical_or(should_reset_var.read_value(), eval_phase_t),
+      tf.logical_or(should_reset_var.read_value(), force_beginning_resets),
       reset_ops_group, tf.no_op)
 
   with tf.control_dependencies([reset_op]):
@@ -233,6 +237,18 @@ def define_collect(hparams, scope):
         init,
         parallel_iterations=1,
         back_prop=False)
+
+  # We handle force_beginning_resets differently. We assume that all envs are
+  # reseted at the end of episod (though it happens at the beginning of the
+  # next one
+  scores_num = tf.cond(force_beginning_resets,
+                       lambda: scores_num + len(batch_env), lambda: scores_num)
+
+  with tf.control_dependencies([scores_sum]):
+    scores_sum = tf.cond(
+        force_beginning_resets,
+        lambda: scores_sum + tf.reduce_sum(cumulative_rewards.read_value()),
+        lambda: scores_sum)
 
   mean_score = tf.cond(tf.greater(scores_num, 0),
                        lambda: scores_sum / tf.cast(scores_num, tf.float32),
