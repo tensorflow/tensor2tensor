@@ -32,17 +32,51 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
   # TODO(trandustin): Remove the hack in the code, or re-enable once T2T drops
   # support for TF 1.10
   # @tf.contrib.eager.run_test_in_graph_and_eager_modes()
-  def testDenseReparameterization(self):
+  def testDenseReparameterizationKernel(self):
     inputs = tf.to_float(np.random.rand(5, 3, 12))
     layer = bayes.DenseReparameterization(4, activation=tf.nn.relu)
     outputs1 = layer(inputs)
     outputs2 = layer(inputs)
     self.evaluate(tf.global_variables_initializer())
+    # res1, res2 = self.evaluate([outputs1, outputs2])
     res1, _ = self.evaluate([outputs1, outputs2])
     self.assertEqual(res1.shape, (5, 3, 4))
     self.assertAllGreaterEqual(res1, 0.)
-    # TODO(trandustin): Fix this to work with Eager.
     # self.assertNotAllClose(res1, res2)
+
+  # TODO(trandustin): Remove the hack in the code, or re-enable once T2T drops
+  # support for TF 1.10
+  # @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testDenseReparameterizationBias(self):
+    inputs = tf.to_float(np.random.rand(5, 3, 12))
+    layer = bayes.DenseReparameterization(4, kernel_initializer="zero",
+                                          bias_initializer=None,
+                                          activation=tf.nn.relu)
+    outputs1 = layer(inputs)
+    outputs2 = layer(inputs)
+    self.evaluate(tf.global_variables_initializer())
+    # res1, res2 = self.evaluate([outputs1, outputs2])
+    res1, _ = self.evaluate([outputs1, outputs2])
+    self.assertEqual(res1.shape, (5, 3, 4))
+    self.assertAllGreaterEqual(res1, 0.)
+    # self.assertNotAllClose(res1, res2)
+
+  # TODO(trandustin): Remove the hack in the code, or re-enable once T2T drops
+  # support for TF 1.10
+  # @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testDenseReparameterizationDeterministic(self):
+    inputs = tf.to_float(np.random.rand(5, 3, 12))
+    layer = bayes.DenseReparameterization(4, kernel_initializer="zero",
+                                          bias_initializer="zero",
+                                          activation=tf.nn.relu)
+    outputs1 = layer(inputs)
+    outputs2 = layer(inputs)
+    self.evaluate(tf.global_variables_initializer())
+    # res1, res2 = self.evaluate([outputs1, outputs2])
+    res1, _ = self.evaluate([outputs1, outputs2])
+    self.assertEqual(res1.shape, (5, 3, 4))
+    self.assertAllGreaterEqual(res1, 0.)
+    # self.assertAllClose(res1, res2)
 
   # TODO(trandustin): Remove the hack in the code, or re-enable once T2T drops
   # support for TF 1.10

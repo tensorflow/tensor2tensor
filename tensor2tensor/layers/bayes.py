@@ -39,7 +39,18 @@ def softplus():  # alias, following tf.keras.constraints
   return Softplus()
 
 
-class TrainableNormal(tf.keras.initializers.Initializer):
+class TrainableInitializer(tf.keras.initializers.Initializer):
+  """An initializer with trainable variables.
+
+  In this implementation, one must call `build` before usage in order to
+  capture the variables within the caller.
+  """
+
+  def build(self, shape, dtype=None, add_variable_fn=None):
+    raise NotImplementedError
+
+
+class TrainableNormal(TrainableInitializer):
   """Random normal op as an initializer with trainable mean and stddev."""
 
   def __init__(self,
@@ -52,7 +63,7 @@ class TrainableNormal(tf.keras.initializers.Initializer):
                unconstrained_stddev_constraint=softplus(),
                seed=None,
                dtype=tf.float32):
-    """Constructs initializer."""
+    """Constructs the initializer."""
     self.mean_initializer = mean_initializer
     self.unconstrained_stddev_initializer = unconstrained_stddev_initializer
     self.mean_regularizer = mean_regularizer
@@ -62,10 +73,14 @@ class TrainableNormal(tf.keras.initializers.Initializer):
     self.seed = seed
     self.dtype = tf.as_dtype(dtype)
 
-  def __call__(self, shape, dtype=None, add_variable_fn=None):
+  def build(self, shape, dtype=None, add_variable_fn=None):
+    """Builds the initializer, with the variables captured by the caller."""
     if dtype is None:
       dtype = self.dtype
-    mean = add_variable_fn(
+    self.shape = shape
+    self.dtype = dtype
+
+    self.mean = add_variable_fn(
         'mean',
         shape=shape,
         initializer=self.mean_initializer,
@@ -73,7 +88,7 @@ class TrainableNormal(tf.keras.initializers.Initializer):
         constraint=self.mean_constraint,
         dtype=dtype,
         trainable=True)
-    stddev = add_variable_fn(
+    self.stddev = add_variable_fn(
         'unconstrained_stddev',
         shape=shape,
         initializer=self.unconstrained_stddev_initializer,
@@ -81,10 +96,12 @@ class TrainableNormal(tf.keras.initializers.Initializer):
         constraint=self.unconstrained_stddev_constraint,
         dtype=dtype,
         trainable=True)
-    noise = tf.random_normal(shape, dtype=dtype, seed=self.seed)
-    output = mean + stddev * noise
+
+  def __call__(self):
+    noise = tf.random_normal(self.shape, dtype=self.dtype, seed=self.seed)
+    output = self.mean + self.stddev * noise
     # TODO(trandustin): Hack to store parameters so KL reg. can operate on them.
-    output._parameters = (mean, stddev)  # pylint: disable=protected-access
+    output._parameters = (self.mean, self.stddev)  # pylint: disable=protected-access
     return output
 
   def get_config(self):
@@ -179,6 +196,20 @@ class DenseReparameterization(tf.keras.layers.Dense):
         activity_regularizer=activity_regularizer,
         **kwargs)
 
+  @property
+  def kernel(self):
+    if isinstance(self.kernel_initializer, TrainableInitializer):
+      return self.kernel_initializer()
+    else:
+      return self._kernel
+
+  @property
+  def bias(self):
+    if isinstance(self.bias_initializer, TrainableInitializer):
+      return self.bias_initializer()
+    else:
+      return self._bias
+
   def build(self, input_shape):
     input_shape = tf.TensorShape(input_shape)
     last_dim = input_shape[-1]
@@ -187,25 +218,40 @@ class DenseReparameterization(tf.keras.layers.Dense):
     if last_dim is None:
       raise ValueError('The last dimension of the inputs to `Dense` '
                        'should be defined. Found `None`.')
-    self.input_spec = tf.layers.InputSpec(min_ndim=2,
-                                          axes={-1: last_dim})
-    self.kernel = self.kernel_initializer([last_dim, self.units],
-                                          self.dtype,
-                                          self.add_weight)
+    self.input_spec = tf.layers.InputSpec(min_ndim=2, axes={-1: last_dim})
+
+    if isinstance(self.kernel_initializer, TrainableInitializer):
+      self.kernel_initializer.build([last_dim, self.units],
+                                    self.dtype,
+                                    self.add_weight)
+    else:
+      self._kernel = self.add_weight(
+          'kernel',
+          shape=[last_dim, self.units],
+          initializer=self.kernel_initializer,
+          regularizer=self.kernel_regularizer,
+          constraint=self.kernel_constraint,
+          dtype=self.dtype,
+          trainable=True)
+
     if self.kernel_regularizer is not None:
       self._handle_weight_regularization('kernel',
                                          self.kernel,
                                          self.kernel_regularizer)
+
     if self.use_bias:
-      # TODO(trandustin): Because of self.add_weight, the signature differs from
-      # other initializers, preventing interoperability.
-      if isinstance(self.bias_initializer, TrainableNormal):
-        self.bias = self.bias_initializer([self.units],
-                                          self.dtype,
-                                          self.add_weight)
+      if isinstance(self.bias_initializer, TrainableInitializer):
+        self.bias_initializer.build([self.units], self.dtype, self.add_weight)
       else:
-        self.bias = self.bias_initializer([self.units],
-                                          self.dtype)
+        self._bias = self.add_weight(
+            'bias',
+            shape=[self.units],
+            initializer=self.bias_initializer,
+            regularizer=self.bias_regularizer,
+            constraint=self.bias_constraint,
+            dtype=self.dtype,
+            trainable=True)
+
       if self.bias_regularizer is not None:
         self._handle_weight_regularization('bias',
                                            self.bias,
