@@ -42,6 +42,25 @@ Frame = collections.namedtuple(
 )
 
 
+class Observation(object):
+
+  def __init__(self, data, decode_fn):
+    self.data = data
+    self._decode = decode_fn
+
+  def __eq__(self, other):
+    if isinstance(other, Observation):
+      return self.data == other.data
+    else:
+      return False
+
+  def __neq__(self, other):
+    return not self == other
+
+  def decode(self):
+    return self._decode(self.data)
+
+
 class _Noncopyable(object):
 
   def __init__(self, obj):
@@ -131,11 +150,15 @@ class T2TEnv(EnvSimulationProblem):
     self.current_epoch = None
     with tf.Graph().as_default() as tf_graph:
       self._tf_graph = _Noncopyable(tf_graph)
-      self._image_p = _Noncopyable(
+      self._decoded_image_p = _Noncopyable(
           tf.placeholder(dtype=tf.uint8, shape=(None, None, None))
       )
       self._encoded_image_t = _Noncopyable(
-          tf.image.encode_png(self._image_p.obj)
+          tf.image.encode_png(self._decoded_image_p.obj)
+      )
+      self._encoded_image_p = _Noncopyable(tf.placeholder(tf.string))
+      self._decoded_image_t = _Noncopyable(
+          tf.image.decode_png(self._encoded_image_p.obj)
       )
       self._session = _Noncopyable(tf.Session())
 
@@ -192,12 +215,22 @@ class T2TEnv(EnvSimulationProblem):
     """
     return obs
 
+  def _decode_png(self, encoded_observation):
+    """Decodes a single observation from PNG."""
+    return self._session.obj.run(
+        self._decoded_image_t.obj,
+        feed_dict={self._encoded_image_p.obj: encoded_observation}
+    )
+
   def _encode_observations(self, observations):
     """Encodes observations as PNG."""
     return [
-        self._session.obj.run(
-            self._encoded_image_t.obj,
-            feed_dict={self._image_p.obj: observation}
+        Observation(
+            self._session.obj.run(
+                self._encoded_image_t.obj,
+                feed_dict={self._decoded_image_p.obj: observation}
+            ),
+            self._decode_png
         )
         for observation in observations
     ]
@@ -353,7 +386,7 @@ class T2TEnv(EnvSimulationProblem):
         yield {
             "frame_number": [frame_number],
             "epoch": [self.current_epoch],
-            "image/encoded": [frame.observation],
+            "image/encoded": [frame.observation.data],
             "image/format": ["png"],
             "image/height": [self.frame_height],
             "image/width": [self.frame_width],
@@ -511,7 +544,9 @@ class T2TEnv(EnvSimulationProblem):
         }
         fields["reward"] += self.reward_range[0]
         fields["done"] = bool(fields["done"])
-        fields["observation"] = fields["image/encoded"]
+        fields["observation"] = Observation(
+            fields["image/encoded"], self._decode_png
+        )
         del fields["image/encoded"]
 
         frame = Frame(**fields)

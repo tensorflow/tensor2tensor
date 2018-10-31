@@ -42,6 +42,7 @@ from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.rl import trainer_model_based_params
+from tensor2tensor.rl.envs.simulated_batch_gym_env import SimulatedBatchGymEnv
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -116,6 +117,33 @@ def make_log_fn(epoch, log_relative_time_fn):
   return log
 
 
+def random_rollout_subsequences(rollouts, num_subsequences, subsequence_length):
+  """Chooses a random frame sequence of given length from a set of rollouts."""
+  def choose_subsequence():
+    # TODO(koz4k): Weigh rollouts by their lengths so sampling is uniform over
+    # frames and not rollouts.
+    rollout = random.choice(rollouts)
+    try:
+      from_index = random.randrange(len(rollout) - subsequence_length + 1)
+    except ValueError:
+      # Rollout too short; repeat.
+      return choose_subsequence()
+    return rollout[from_index:(from_index + subsequence_length)]
+
+  return [choose_subsequence() for _ in range(num_subsequences)]
+
+
+def make_simulated_env_spec(real_env, hparams):
+  """Creates a simulated environment_spec."""
+  return rl.standard_atari_env_simulated_spec(
+      real_env, intrinsic_reward_scale=hparams.intrinsic_reward_scale,
+      model_name=hparams.generative_model,
+      model_hparams=trainer_lib.create_hparams(hparams.generative_model_params),
+      # Hardcoded for now. TODO(koz4k): Make it a hparam.
+      video_num_input_frames=4, video_num_target_frames=1
+  )
+
+
 def train_supervised(problem, model_name, hparams, data_dir, output_dir,
                      train_steps, eval_steps, local_eval_frequency=None,
                      schedule="continuous_train_and_eval"):
@@ -153,74 +181,42 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
   ppo_hparams.save_models_every_epochs = 10
   ppo_hparams.world_model_dir = world_model_dir
 
-  environment_spec_params = {
-      param_name: hparams.get(param_name)
-      for param_name in [
-          "intrinsic_reward_scale", "simulation_random_starts",
-          "simulation_flip_first_random_for_beginning"
-      ]
-  }
-  environment_spec_params.update({
-      "model_name": hparams.generative_model,
-      "model_hparams": trainer_lib.create_hparams(
-          hparams.generative_model_params
-      ),
-      # Hardcoded for now. TODO(koz4k): Make it a hparam.
-      "video_num_input_frames": 4,
-      "video_num_target_frames": 1
-  })
-  environment_spec = rl.standard_atari_env_simulated_spec(
-      real_env, **environment_spec_params
+  environment_spec = make_simulated_env_spec(real_env, hparams)
+
+  num_input_frames = environment_spec.video_num_input_frames
+  initial_frame_rollouts = real_env.current_epoch_rollouts(
+      split=tf.contrib.learn.ModeKeys.TRAIN,
+      minimal_rollout_frames=num_input_frames,
   )
+  # TODO(koz4k): Move this to a different module.
+  def initial_frame_chooser(batch_size):
+    """Frame chooser."""
 
-  with tf.Session() as sess:
-    encoded_png_p = tf.placeholder(tf.string)
-    decoded_png_t = tf.image.decode_png(encoded_png_p)
-    def decode_png(encoded_png):
-      return sess.run(decoded_png_t, feed_dict={encoded_png_p: encoded_png})
+    deterministic_initial_frames =\
+        initial_frame_rollouts[0][:num_input_frames]
+    if not hparams.simulation_random_starts:
+      # Deterministic starts: repeat first frames from the first rollout.
+      initial_frames = [deterministic_initial_frames] * batch_size
+    else:
+      # Random starts: choose random initial frames from random rollouts.
+      initial_frames = random_rollout_subsequences(
+          initial_frame_rollouts, batch_size, num_input_frames
+      )
+      if hparams.simulation_flip_first_random_for_beginning:
+        # Flip first entry in the batch for deterministic initial frames.
+        initial_frames[0] = deterministic_initial_frames
 
-    num_input_frames = environment_spec.video_num_input_frames
-    initial_frame_rollouts = real_env.current_epoch_rollouts(
-        split=tf.contrib.learn.ModeKeys.TRAIN,
-        minimal_rollout_frames=num_input_frames,
-    )
-    # TODO(koz4k): Move this to a different module.
-    def initial_frame_chooser(batch_size):
-      """Frame chooser."""
+    return np.stack([
+        [frame.observation.decode() for frame in initial_frame_stack]
+        for initial_frame_stack in initial_frames
+    ])
 
-      deterministic_initial_frames =\
-          initial_frame_rollouts[0][:num_input_frames]
-      if not environment_spec.simulation_random_starts:
-        # Deterministic starts: repeat first frames from the first rollout.
-        initial_frames = [deterministic_initial_frames] * batch_size
-      else:
-        # Random starts: choose random initial frames from random rollouts.
-        # TODO(koz4k): Weigh rollouts by their lengths so sampling is uniform
-        # over frames and not rollouts.
-        def choose_initial_frames():
-          try:
-            rollout = random.choice(initial_frame_rollouts)
-            from_index = random.randrange(len(rollout) - num_input_frames + 1)
-            return rollout[from_index:(from_index + num_input_frames)]
-          except ValueError:
-            # Rollout too short; repeat.
-            return choose_initial_frames()
-        initial_frames = [choose_initial_frames() for _ in range(batch_size)]
-        if environment_spec.simulation_flip_first_random_for_beginning:
-          # Flip first entry in the batch for deterministic initial frames.
-          initial_frames[0] = deterministic_initial_frames
+  environment_spec.add_hparam("initial_frame_chooser", initial_frame_chooser)
 
-      return np.stack([
-          [decode_png(frame.observation) for frame in initial_frame_stack]
-          for initial_frame_stack in initial_frames
-      ])
+  ppo_hparams.add_hparam("environment_spec", environment_spec)
 
-    environment_spec.add_hparam("initial_frame_chooser", initial_frame_chooser)
-
-    ppo_hparams.add_hparam("environment_spec", environment_spec)
-
-    rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
-                         name_scope="ppo_sim%d" % (epoch + 1))
+  rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
+                       name_scope="ppo_sim%d" % (epoch + 1))
 
   return completed_ppo_epochs_num
 
@@ -371,6 +367,85 @@ def compute_mean_reward(rollouts, clipped):
   return mean_rewards
 
 
+def evaluate_world_model(real_env, hparams, world_model_dir):
+  """Evaluate the world model (reward accuracy)."""
+  environment_spec = make_simulated_env_spec(real_env, hparams)
+  environment_spec.wrappers = []
+
+  num_input_frames = environment_spec.video_num_input_frames
+  rollout_subsequences = []
+  def initial_frame_chooser(batch_size):
+    assert batch_size == len(rollout_subsequences)
+    return np.stack([
+        [frame.observation.decode() for frame in subsequence[:num_input_frames]]
+        for subsequence in rollout_subsequences
+    ])
+  environment_spec.add_hparam("initial_frame_chooser", initial_frame_chooser)
+
+  sim_env = SimulatedBatchGymEnv(
+      environment_spec, hparams.wm_eval_batch_size, world_model_dir
+  )
+  subsequence_length = int(
+      max(hparams.wm_eval_rollout_ratios) * hparams.ppo_epoch_length
+  )
+  rollouts = real_env.current_epoch_rollouts(
+      split=tf.contrib.learn.ModeKeys.EVAL,
+      minimal_rollout_frames=(subsequence_length + num_input_frames)
+  )
+
+  reward_accuracies_by_length = {
+      int(ratio * hparams.ppo_epoch_length): []
+      for ratio in hparams.wm_eval_rollout_ratios
+  }
+  for _ in range(hparams.wm_eval_epochs_num):
+    rollout_subsequences[:] = random_rollout_subsequences(
+        rollouts, hparams.wm_eval_batch_size,
+        subsequence_length + num_input_frames
+    )
+
+    eval_subsequences = [
+        subsequence[(num_input_frames - 1):]
+        for subsequence in rollout_subsequences
+    ]
+
+    # Check that the initial observation is the same in the real and simulated
+    # rollout.
+    sim_init_obs = sim_env.reset()
+    real_init_obs = np.stack([
+        subsequence[0].observation.decode()
+        for subsequence in eval_subsequences
+    ])
+    assert np.all(sim_init_obs == real_init_obs)
+
+    num_same_reward = 0
+    num_steps = 0
+    (sim_cum_rewards, real_cum_rewards) = (
+        np.zeros(hparams.wm_eval_batch_size) for _ in range(2)
+    )
+    for i in range(subsequence_length):
+      actions = [subsequence[i].action for subsequence in eval_subsequences]
+      (_, sim_rewards, _) = sim_env.step(actions)
+      sim_cum_rewards += sim_rewards
+
+      real_cum_rewards += [
+          subsequence[i + 1].reward for subsequence in eval_subsequences
+      ]
+      num_same_reward += np.sum(sim_cum_rewards == real_cum_rewards)
+      num_steps += len(real_cum_rewards)
+      for (length, reward_accuracies) in six.iteritems(
+          reward_accuracies_by_length
+      ):
+        if i + 1 == length:
+          reward_accuracies.append(num_same_reward / num_steps)
+
+  return {
+      "reward_accuracy/at_{}".format(length): np.mean(reward_accuracies)
+      for (length, reward_accuracies) in six.iteritems(
+          reward_accuracies_by_length
+      )
+  }
+
+
 def summarize_metrics(eval_metrics_writer, metrics, epoch):
   """Write metrics to summary."""
   for (name, value) in six.iteritems(metrics):
@@ -419,6 +494,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   tf.logging.info("Mean training reward (initial): {}".format(
       metrics["mean_reward/train/clipped"]
   ))
+  env.generate_data(data_dir)
 
   eval_metrics_event_dir = os.path.join(directories["world_model"],
                                         "eval_metrics_event_dir")
@@ -427,8 +503,6 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   world_model_steps_num = 0
 
   for epoch in range(hparams.epochs):
-    env.generate_data(data_dir)
-
     is_final_epoch = (epoch + 1) == hparams.epochs
     log = make_log_fn(epoch, log_relative_time)
 
@@ -471,8 +545,18 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     log("Mean training reward: {}".format(metrics["mean_reward/train/clipped"]))
 
     eval_metrics = evaluate_all_configs(hparams, ppo_model_dir)
-    log("Eval metrics:\n{}".format(pprint.pformat(eval_metrics)))
+    log("Agent eval metrics:\n{}".format(pprint.pformat(eval_metrics)))
     metrics.update(eval_metrics)
+
+    env.generate_data(data_dir)
+
+    if hparams.eval_world_model:
+      wm_metrics = evaluate_world_model(
+          env, hparams, directories["world_model"]
+      )
+      log("World model eval metrics:\n{}".format(pprint.pformat(wm_metrics)))
+      metrics.update(wm_metrics)
+
     summarize_metrics(eval_metrics_writer, metrics, epoch)
 
     # Report metrics
