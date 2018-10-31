@@ -39,6 +39,7 @@ import six
 
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.data_generators.gym_env import T2TGymEnv
+from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.rl import trainer_model_based_params
@@ -87,7 +88,11 @@ def setup_directories(base_dir, subdirs):
 
   all_dirs = {}
   for subdir in subdirs:
-    dir_name = os.path.join(base_dir, subdir)
+    if isinstance(subdir, six.string_types):
+      subdir_tuple = (subdir,)
+    else:
+      subdir_tuple = subdir
+    dir_name = os.path.join(base_dir, *subdir_tuple)
     tf.gfile.MakeDirs(dir_name)
     all_dirs[subdir] = dir_name
   return all_dirs
@@ -367,7 +372,7 @@ def compute_mean_reward(rollouts, clipped):
   return mean_rewards
 
 
-def evaluate_world_model(real_env, hparams, world_model_dir):
+def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
   """Evaluate the world model (reward accuracy)."""
   environment_spec = make_simulated_env_spec(real_env, hparams)
   environment_spec.wrappers = []
@@ -393,6 +398,10 @@ def evaluate_world_model(real_env, hparams, world_model_dir):
       minimal_rollout_frames=(subsequence_length + num_input_frames)
   )
 
+  video_writer = common_video.WholeVideoWriter(
+      fps=10, output_path=debug_video_path, file_format="avi"
+  )
+
   reward_accuracies_by_length = {
       int(ratio * hparams.ppo_epoch_length): []
       for ratio in hparams.wm_eval_rollout_ratios
@@ -411,18 +420,30 @@ def evaluate_world_model(real_env, hparams, world_model_dir):
     # Check that the initial observation is the same in the real and simulated
     # rollout.
     sim_init_obs = sim_env.reset()
-    real_init_obs = np.stack([
-        subsequence[0].observation.decode()
-        for subsequence in eval_subsequences
-    ])
+    def decode_real_obs(index):
+      return np.stack([
+          subsequence[index].observation.decode()
+          for subsequence in eval_subsequences
+      ])
+    real_init_obs = decode_real_obs(0)
     assert np.all(sim_init_obs == real_init_obs)
+
+    debug_frame_batches = []
+    def append_debug_frame_batch(sim_obs, real_obs):
+      errs = np.maximum(
+          np.abs(sim_obs.astype(np.int) - real_obs, dtype=np.int) - 10, 0
+      ).astype(np.uint8)
+      debug_frame_batches.append(  # pylint: disable=cell-var-from-loop
+          np.concatenate([sim_obs, real_obs, errs], axis=2)
+      )
+    append_debug_frame_batch(sim_init_obs, real_init_obs)
 
     (sim_cum_rewards, real_cum_rewards) = (
         np.zeros(hparams.wm_eval_batch_size) for _ in range(2)
     )
     for i in range(subsequence_length):
       actions = [subsequence[i].action for subsequence in eval_subsequences]
-      (_, sim_rewards, _) = sim_env.step(actions)
+      (sim_obs, sim_rewards, _) = sim_env.step(actions)
       sim_cum_rewards += sim_rewards
 
       real_cum_rewards += [
@@ -436,6 +457,15 @@ def evaluate_world_model(real_env, hparams, world_model_dir):
               np.sum(sim_cum_rewards == real_cum_rewards) /
               len(real_cum_rewards)
           )
+
+      real_obs = decode_real_obs(i + 1)
+      append_debug_frame_batch(sim_obs, real_obs)
+
+    for debug_frames in np.stack(debug_frame_batches, axis=1):
+      for debug_frame in debug_frames:
+        video_writer.write(debug_frame)
+
+  video_writer.finish_to_disk()
 
   return {
       "reward_accuracy/at_{}".format(length): np.mean(reward_accuracies)
@@ -460,7 +490,10 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     assert report_metric is not None
 
   # Directories
-  subdirectories = ["data", "tmp", "world_model", "ppo"]
+  subdirectories = [
+      "data", "tmp", "world_model", ("world_model", "debug_videos"),
+      "ppo"
+  ]
   directories = setup_directories(output_dir, subdirectories)
 
   epoch = -1
@@ -550,8 +583,12 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     env.generate_data(data_dir)
 
     if hparams.eval_world_model:
+      debug_video_path = os.path.join(
+          directories["world_model", "debug_videos"],
+          "{}.avi".format(env.current_epoch)
+      )
       wm_metrics = evaluate_world_model(
-          env, hparams, directories["world_model"]
+          env, hparams, directories["world_model"], debug_video_path
       )
       log("World model eval metrics:\n{}".format(pprint.pformat(wm_metrics)))
       metrics.update(wm_metrics)
