@@ -138,7 +138,7 @@ def standard_atari_env_spec(env=None, simulated=False):
       reward_range=env.reward_range,
       observation_space=env.observation_space,
       action_space=env.action_space,
-      force_beginning_resets=True
+      force_beginning_resets=simulated
   )
   if not simulated:
     env_spec.add_hparam("env", env)
@@ -150,7 +150,6 @@ def standard_atari_env_simulated_spec(real_env, **kwargs):
   env_spec = standard_atari_env_spec(real_env, simulated=True)
   for (name, value) in six.iteritems(kwargs):
     env_spec.add_hparam(name, value)
-  env_spec.force_beginning_resets = False
   return env_spec
 
 
