@@ -445,6 +445,7 @@ class NextFrameBase(t2t_model.T2TModel):
     # using the default (a bit strange) video modality - we should change that.
 
     hparams = self.hparams
+    all_frames_copy = [tf.identity(frame) for frame in all_frames]
     orig_frame_shape = common_layers.shape_list(all_frames[0])
     batch_size = orig_frame_shape[0]
     ss_func = self.get_scheduled_sample_func(batch_size)
@@ -506,7 +507,7 @@ class NextFrameBase(t2t_model.T2TModel):
       has_input_predictions = hparams.video_num_input_frames > 1
       if self.is_training and hparams.internal_loss and has_input_predictions:
         # add the loss for input frames as well.
-        extra_gts = all_frames[1:hparams.video_num_input_frames]
+        extra_gts = all_frames_copy[1:hparams.video_num_input_frames]
         extra_raw_gts = all_raw_frames[1:hparams.video_num_input_frames]
         extra_pds = res_frames[:hparams.video_num_input_frames-1]
         recon_loss = self.get_extra_internal_loss(
