@@ -29,25 +29,20 @@ import tensorflow as tf
 
 class BayesTest(parameterized.TestCase, tf.test.TestCase):
 
-  # TODO(trandustin): Remove the hack in the code, or re-enable once T2T drops
-  # support for TF 1.10
-  # @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testDenseReparameterizationKernel(self):
     inputs = tf.to_float(np.random.rand(5, 3, 12))
     layer = bayes.DenseReparameterization(4, activation=tf.nn.relu)
     outputs1 = layer(inputs)
     outputs2 = layer(inputs)
     self.evaluate(tf.global_variables_initializer())
-    # res1, res2 = self.evaluate([outputs1, outputs2])
-    res1, _ = self.evaluate([outputs1, outputs2])
+    res1, res2 = self.evaluate([outputs1, outputs2])
     self.assertEqual(res1.shape, (5, 3, 4))
     self.assertAllGreaterEqual(res1, 0.)
-    # self.assertNotAllClose(res1, res2)
+    self.assertNotAllClose(res1, res2)
     layer.get_config()
 
-  # TODO(trandustin): Remove the hack in the code, or re-enable once T2T drops
-  # support for TF 1.10
-  # @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testDenseReparameterizationBias(self):
     inputs = tf.to_float(np.random.rand(5, 3, 12))
     layer = bayes.DenseReparameterization(4, kernel_initializer="zero",
@@ -56,15 +51,12 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     outputs1 = layer(inputs)
     outputs2 = layer(inputs)
     self.evaluate(tf.global_variables_initializer())
-    # res1, res2 = self.evaluate([outputs1, outputs2])
-    res1, _ = self.evaluate([outputs1, outputs2])
+    res1, res2 = self.evaluate([outputs1, outputs2])
     self.assertEqual(res1.shape, (5, 3, 4))
     self.assertAllGreaterEqual(res1, 0.)
-    # self.assertNotAllClose(res1, res2)
+    self.assertNotAllClose(res1, res2)
 
-  # TODO(trandustin): Remove the hack in the code, or re-enable once T2T drops
-  # support for TF 1.10
-  # @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testDenseReparameterizationDeterministic(self):
     inputs = tf.to_float(np.random.rand(5, 3, 12))
     layer = bayes.DenseReparameterization(4, kernel_initializer="zero",
@@ -73,15 +65,12 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     outputs1 = layer(inputs)
     outputs2 = layer(inputs)
     self.evaluate(tf.global_variables_initializer())
-    # res1, res2 = self.evaluate([outputs1, outputs2])
-    res1, _ = self.evaluate([outputs1, outputs2])
+    res1, res2 = self.evaluate([outputs1, outputs2])
     self.assertEqual(res1.shape, (5, 3, 4))
     self.assertAllGreaterEqual(res1, 0.)
-    # self.assertAllClose(res1, res2)
+    self.assertAllClose(res1, res2)
 
-  # TODO(trandustin): Remove the hack in the code, or re-enable once T2T drops
-  # support for TF 1.10
-  # @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testDenseReparameterizationModel(self):
     inputs = tf.to_float(np.random.rand(3, 4, 4, 1))
     model = tf.keras.Sequential([
