@@ -123,7 +123,7 @@ def log_decode_results(inputs,
     save_path = os.path.join(
         output_dir, "%s_prediction_%d.jpg" % (problem_name, prediction_idx))
     show_and_save_image(inputs / 255., save_path)
-  elif inputs_vocab:
+  elif inputs is not None and inputs_vocab:
     if identity_output:
       decoded_inputs = " ".join(map(str, inputs.flatten()))
     else:
@@ -266,9 +266,9 @@ def decode_once(estimator,
 
   for num_predictions, prediction in enumerate(predictions):
     num_predictions += 1
-    inputs = prediction["inputs"]
-    targets = prediction["targets"]
-    outputs = prediction["outputs"]
+    inputs = prediction.get("inputs")
+    targets = prediction.get("targets")
+    outputs = prediction.get("outputs")
 
     # Log predictions
     decoded_outputs = []

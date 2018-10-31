@@ -22,7 +22,6 @@ from __future__ import print_function
 import copy
 import mesh_tensorflow as mtf
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models.research import moe
@@ -88,15 +87,16 @@ class MtfTransformer(mtf_model.MtfModel):
     return mtf.Dimension("d_ff", self._hparams.d_ff)
 
   @property
+  def master_dtype(self):
+    return tf.as_dtype(self._hparams.master_dtype)
+
+  @property
+  def slice_dtype(self):
+    return tf.as_dtype(self._hparams.slice_dtype)
+
+  @property
   def activation_dtype(self):
-    if self._hparams.activation_dtype == "float32":
-      return tf.float32
-    elif self._hparams.activation_dtype == "bfloat16":
-      return tf.bfloat16
-    else:
-      raise ValueError(
-          "unknown hparams.activation_dtype %s"
-          % self._hparams.activation_dtype)
+    return tf.as_dtype(self._hparams.activation_dtype)
 
   def _import_to_batch_by_length(self, x, name, mesh, hparams):
     del hparams
@@ -106,24 +106,32 @@ class MtfTransformer(mtf_model.MtfModel):
 
   def _embedding_and_softmax_vars(self, mesh):
     hparams = self._hparams
-    targets_embedding_var = mtf.get_variable(
-        mesh, "targets_embedding",
-        mtf.Shape([self.targets_vocab_dim, self.model_dim]),
-        initializer=tf.random_normal_initializer(),
-        activation_dtype=self.activation_dtype)
-    if self.has_input:
-      if hparams.shared_embedding:
+    if hparams.transformer_type == "encoder":
+      targets_embedding_var = None
+    else:
+      targets_embedding_var = mtf.get_variable(
+          mesh, "targets_embedding",
+          mtf.Shape([self.targets_vocab_dim, self.model_dim]),
+          initializer=tf.random_normal_initializer(),
+          master_dtype=self.master_dtype,
+          slice_dtype=self.slice_dtype,
+          activation_dtype=self.activation_dtype)
+    if hparams.transformer_type == "decoder":
+      inputs_embedding_var = None
+    else:
+      if hparams.shared_embedding and targets_embedding_var:
         inputs_embedding_var = targets_embedding_var
       else:
         inputs_embedding_var = mtf.get_variable(
             mesh, "inputs_embedding",
             mtf.Shape([self.inputs_vocab_dim, self.model_dim]),
             initializer=tf.random_normal_initializer(),
+            master_dtype=self.master_dtype,
+            slice_dtype=self.slice_dtype,
             activation_dtype=self.activation_dtype)
-    else:
-      inputs_embedding_var = None
     if hparams.shared_embedding_and_softmax_weights:
-      softmax_var = targets_embedding_var * (self.model_dim.size ** -0.5)
+      softmax_var = (targets_embedding_var or inputs_embedding_var) * (
+          self.model_dim.size ** -0.5)
     else:
       softmax_var = mtf.get_variable(
           mesh,
@@ -131,6 +139,8 @@ class MtfTransformer(mtf_model.MtfModel):
           mtf.Shape([self.targets_vocab_dim, self.model_dim]),
           initializer=tf.random_normal_initializer(
               stddev=self.model_dim.size**-0.5),
+          master_dtype=self.master_dtype,
+          slice_dtype=self.slice_dtype,
           activation_dtype=self.activation_dtype)
     positional_embedding_var = mtf.get_variable(
         mesh, "positional_embedding",
@@ -192,7 +202,10 @@ class MtfTransformer(mtf_model.MtfModel):
      targets_embedding_var,
      softmax_var,
      positional_embedding_var) = self._embedding_and_softmax_vars(mesh)
-    if self.has_input:
+    if hparams.transformer_type == "decoder":
+      encoder_output = None
+      encoder_decoder_attention_mask = None
+    else:
       inputs = tf.squeeze(tf.to_int32(features["inputs"]), [2, 3])
       inputs = pad_to_max_length(inputs)
       inputs = self._import_to_batch_by_length(inputs, "inputs", mesh, hparams)
@@ -207,16 +220,11 @@ class MtfTransformer(mtf_model.MtfModel):
         encoder_self_attention_mask = (
             mtf.layers.attention_mask_same_segment(
                 inputs_segmentation, dtype=self.activation_dtype))
-        encoder_decoder_attention_mask = (
-            mtf.layers.attention_mask_same_segment(
-                targets_segmentation, inputs_segmentation,
-                dtype=self.activation_dtype))
       else:
         inputs_position = mtf.range(mesh, self.length_dim, dtype=tf.int32)
         encoder_self_attention_mask = (
             mtf.layers.attention_mask_ignore_padding(
                 inputs, dtype=self.activation_dtype))
-        encoder_decoder_attention_mask = encoder_self_attention_mask
 
       x = (mtf.gather(inputs_embedding_var, inputs, self.inputs_vocab_dim) +
            mtf.gather(positional_embedding_var, inputs_position,
@@ -224,32 +232,39 @@ class MtfTransformer(mtf_model.MtfModel):
       x = layer_prepostprocess_dropout(x)
       with tf.variable_scope("encoder"):
         x = self._layer_stack(x,
-                              hparams.num_encoder_layers,
+                              hparams.encoder_layers,
                               self_attention_mask=encoder_self_attention_mask,
                               losses=extra_losses)
+
+    if hparams.transformer_type == "encdec":
+      if "inputs_segmentation" in features:
+        encoder_decoder_attention_mask = (
+            mtf.layers.attention_mask_same_segment(
+                targets_segmentation, inputs_segmentation,
+                dtype=self.activation_dtype))
+      else:
+        encoder_decoder_attention_mask = encoder_self_attention_mask
       encoder_output = mtf.rename_dimension(
           x, self.length_dim.name, self.memory_length_dim.name)
-    else:
-      encoder_output = None
-      encoder_decoder_attention_mask = None
 
-    # DECODER
-    x = (mtf.gather(
-        targets_embedding_var, shifted_targets, self.targets_vocab_dim) +
-         mtf.gather(
-             positional_embedding_var, targets_position, self.max_length_dim))
-    x = layer_prepostprocess_dropout(x)
-
-    # Decoder
-    with tf.variable_scope("decoder"):
-      x = self._layer_stack(
-          x,
-          hparams.num_decoder_layers,
-          encoder_output=encoder_output,
-          self_attention_mask=decoder_self_attention_mask,
-          encdec_attention_mask=encoder_decoder_attention_mask,
-          losses=extra_losses)
+    if hparams.transformer_type != "encoder":
+      # DECODER
+      x = (mtf.gather(
+          targets_embedding_var, shifted_targets, self.targets_vocab_dim) +
+           mtf.gather(
+               positional_embedding_var, targets_position, self.max_length_dim))
+      x = layer_prepostprocess_dropout(x)
+      with tf.variable_scope("decoder"):
+        x = self._layer_stack(
+            x,
+            hparams.decoder_layers,
+            encoder_output=encoder_output,
+            self_attention_mask=decoder_self_attention_mask,
+            encdec_attention_mask=encoder_decoder_attention_mask,
+            losses=extra_losses)
     logits = mtf.matmul(x, softmax_var)
+    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      logits = mtf.layers.multiplicative_jitter(logits, epsilon=1e-2)
     off_value = hparams.label_smoothing / self._targets_vocab_size
     on_value = 1.0 - hparams.label_smoothing + off_value
     soft_targets = mtf.one_hot(
@@ -257,11 +272,17 @@ class MtfTransformer(mtf_model.MtfModel):
         dtype=self.activation_dtype)
     loss = mtf.layers.softmax_cross_entropy_with_logits(
         logits, soft_targets, self.targets_vocab_dim)
-    weights = mtf.layers.weights_nonzero(
-        targets, dtype=self.activation_dtype)
+    weights = mtf.layers.weights_nonzero(targets, dtype=self.activation_dtype)
     loss = mtf.reduce_mean(loss * weights)
     for l in extra_losses:
       loss += l
+    logits = mtf.to_float(logits)
+    # combine batch dims
+    if len(self.batch_dims) > 1:
+      combined_batch_dim = mtf.Dimension(
+          self.batch_dims[0].name, mtf.Shape(self.batch_dims).size)
+      logits = mtf.reshape(
+          logits, [combined_batch_dim] + logits.shape.dims[-2:])
     return logits, loss
 
   def mtf_model_fn(self, features, mesh):
@@ -277,18 +298,17 @@ class MtfTransformer(mtf_model.MtfModel):
 
   @property
   def _inputs_vocab_size(self):
-    if not self.has_input:
-      return None
     inputs_vocab_size = self._problem_hparams.modality[
         "inputs"].top_dimensionality
     inputs_vocab_size += (-inputs_vocab_size) % self._hparams.vocab_divisor
     return inputs_vocab_size
 
-  def _feedforward_layer(self, x, losses=None):
+  def _feedforward_layer(self, x, layer_type, losses=None):
     """Feed-forward layer.
 
     Args:
       x: a mtf.Tensor with shape [<batch_dims>, length_dim, model_dim]
+      layer_type: a string
       losses: a list to be appended-to
     Returns:
       a mtf.Tensor with shape [<batch_dims>, length_dim, model_dim]
@@ -296,45 +316,56 @@ class MtfTransformer(mtf_model.MtfModel):
       ValueError: if hparams make no sense
     """
     hparams = self._hparams
-    feedforward_layer = hparams.feedforward_layer
-    if feedforward_layer == "dense_relu_dense":
+
+    if layer_type == "drd":
       return mtf.layers.dense_relu_dense(
           x, self.feedforward_dim, dropout=hparams.relu_dropout,
-          dropout_broadcast_dims=[self.length_dim])
-    elif feedforward_layer == "moe":
+          dropout_broadcast_dims=[self.length_dim],
+          master_dtype=self.master_dtype,
+          slice_dtype=self.slice_dtype)
+    elif layer_type == "none":
+      return x
+    elif layer_type == "moe":
       output, loss = moe.transformer_moe_layer_v1(
           x,
           self.model_dim,
           hparams,
-          hparams.mode == tf.estimator.ModeKeys.TRAIN)
+          hparams.mode == tf.estimator.ModeKeys.TRAIN,
+          master_dtype=self.master_dtype,
+          slice_dtype=self.slice_dtype)
       if losses is not None:
         losses.append(loss)
       return output
-    elif feedforward_layer == "hmoe":
+    elif layer_type == "hmoe":
       output, loss = moe.transformer_moe_layer_v2(
           x,
           self.model_dim,
           hparams,
-          hparams.mode == tf.estimator.ModeKeys.TRAIN)
+          hparams.mode == tf.estimator.ModeKeys.TRAIN,
+          master_dtype=self.master_dtype,
+          slice_dtype=self.slice_dtype)
       if losses is not None:
         losses.append(loss)
       return output
     else:
-      raise ValueError(
-          "hparams.feedforward_layer not recognized %s" % feedforward_layer)
+      raise ValueError("layer_type not recognized %s" % layer_type)
 
   def _layer_stack(self,
                    x,
-                   num_layers,
+                   layers,
                    encoder_output=None,
                    self_attention_mask=None,
                    encdec_attention_mask=None,
-                   losses=None):
+                   losses=None,
+                   step_num=None,
+                   encdec_tensors=None,
+                   self_attention_k=None,
+                   self_attention_v=None):
     """Encoder or decoder stack.
 
     Args:
       x: a mtf.Tensor with shape [<batch_dims>, length_dim, model_dim]
-      num_layers: an integer
+      layers: an list of strings
       encoder_output: an optional mtf.Tensor with shape
         [<batch_dims>, encoder_length_dim, model_dim]
       self_attention_mask: an optional mtf.Tensor with shape
@@ -342,17 +373,28 @@ class MtfTransformer(mtf_model.MtfModel):
       encdec_attention_mask: an optional mtf.Tensor with shape
         [batch, length_dim, encoder_length_dim] containing values 0 or -inf.
       losses: a list to be appended-to
+      step_num: an optional mtf integer Scalar (used in incrmenental mode)
+      encdec_tensors: an optional list of num_layers tuples, each of the form
+        (q_var, o_var, k, v), (used in incremental mode)
+      self_attention_k: an optional list of num_layers Tensors each with shape
+        [batch, heads, memory_length, kv_channels] (incremental mode)
+      self_attention_v: an optional list of num_layers Tensors each with shape
+        [batch, heads, memory_length, kv_channels] (incremental mode)
     Returns:
       a mtf.Tensor with shape [<batch_dims>, length_dim, model_dim]
     Raises:
       ValueError: if hparams make no sense
     """
     hparams = self._hparams
+    is_incremental = (step_num is not None)
     def layer_prepostprocess_dropout(x):
+      if is_incremental:
+        return x
       return mtf.dropout(
           x, keep_prob=1.0 - hparams.layer_prepostprocess_dropout,
           noise_shape=mtf.Shape(self.batch_dims + [self.model_dim]))
-    num_layer_norms = num_layers * (2 if encoder_output is None else 3) + 1
+    num_layers = len(layers)
+    num_layer_norms = num_layers + 1
     layer_norms_dim = mtf.Dimension("layer_norms", num_layer_norms)
     layer_norm_combined_var = mtf.get_variable(
         x.mesh,
@@ -366,31 +408,79 @@ class MtfTransformer(mtf_model.MtfModel):
       variance = mtf.reduce_mean(mtf.square(x), reduced_dim=self.model_dim)
       return x * mtf.rsqrt(variance + hparams.norm_epsilon) * scale
 
-    for layer in range(num_layers):
-      with tf.variable_scope("layer_%d" % layer):
-        # Self attention layer
-        x += layer_prepostprocess_dropout(
-            mtf.layers.multihead_attention(
-                normalize(x), None,
-                self_attention_mask, self.kv_dim, self.heads_dim,
-                dropout=hparams.attention_dropout,
-                dropout_broadcast_dims=[self.length_dim],
-                name="self_attention"))
-        if encoder_output is not None:
+    if is_incremental:
+      new_self_attention_k = []
+      new_self_attention_v = []
+
+    for lnum, layer_type in enumerate(layers):
+      with tf.variable_scope("%s_%d" % (layer_type, lnum)):
+        if layer_type == "att":
+          # Self attention layer
+          if is_incremental:
+            self_att_num = len(new_self_attention_k)
+            y, new_k, new_v = mtf.layers.multihead_self_attention_incremental(
+                normalize(x),
+                prev_k=self_attention_k[self_att_num],
+                prev_v=self_attention_v[self_att_num],
+                step_num=step_num,
+                master_dtype=self.master_dtype,
+                slice_dtype=self.slice_dtype,
+                name="att")
+            new_self_attention_k.append(new_k)
+            new_self_attention_v.append(new_v)
+            x += y
+          else:
+            x += layer_prepostprocess_dropout(
+                mtf.layers.multihead_attention(
+                    normalize(x), None,
+                    self_attention_mask, self.kv_dim, self.heads_dim,
+                    dropout=hparams.attention_dropout,
+                    dropout_broadcast_dims=[self.length_dim],
+                    master_dtype=self.master_dtype,
+                    slice_dtype=self.slice_dtype,
+                    name="att"))
+        elif layer_type == "enc_att":
           # Encoder-Decoder attention layer
+          if is_incremental:
+            # Encoder-Decoder attention layer
+            q_var, o_var, k, v = encdec_tensors[lnum]
+            x += mtf.layers.multihead_encdec_attention_incremental(
+                normalize(x),
+                q_var, o_var, k, v,
+                encdec_attention_mask,
+                name="enc_att")
+          else:
+            x += layer_prepostprocess_dropout(
+                mtf.layers.multihead_attention(
+                    normalize(x), encoder_output,
+                    encdec_attention_mask, self.kv_dim, self.heads_dim,
+                    dropout=hparams.attention_dropout,
+                    dropout_broadcast_dims=[self.length_dim],
+                    master_dtype=self.master_dtype,
+                    slice_dtype=self.slice_dtype,
+                    name="enc_att"))
+        else:
+          if is_incremental:
+            # insert length dimension.
+            x_shape = x.shape
+            shape_with_length = mtf.Shape(
+                x_shape.dims[:-1] + [mtf.Dimension("length", 1)]
+                + x_shape.dims[-1:])
+            x = mtf.reshape(x, shape_with_length)
+          # ffn layer
           x += layer_prepostprocess_dropout(
-              mtf.layers.multihead_attention(
-                  normalize(x), encoder_output,
-                  encdec_attention_mask, self.kv_dim, self.heads_dim,
-                  dropout=hparams.attention_dropout,
-                  dropout_broadcast_dims=[self.length_dim],
-                  name="encdec_attention"))
-        # ffn layer
-        x += layer_prepostprocess_dropout(
-            self._feedforward_layer(normalize(x), losses=losses))
+              self._feedforward_layer(normalize(x), layer_type, losses=losses))
+          if is_incremental:
+            # remove length dimension
+            x = mtf.reshape(x, x_shape)
+
     x = layer_prepostprocess_dropout(normalize(x))
     assert not layer_norm_vars
-    return x
+    if is_incremental:
+      return x, new_self_attention_k, new_self_attention_v
+    else:
+      return x
+      # return mtf.cast(x, self.activation_dtype)
 
   def sample(self, features, mesh):
     with tf.variable_scope("transformer"):
@@ -402,7 +492,7 @@ class MtfTransformer(mtf_model.MtfModel):
      targets_embedding_var,
      softmax_var,
      positional_embedding_var) = self._embedding_and_softmax_vars(mesh)
-    if self.has_input:
+    if hparams.transformer_type == "encdec":
       inputs = features["inputs"]
       while len(inputs.shape.as_list()) > 2:
         inputs = tf.squeeze(inputs, axis=2)
@@ -421,29 +511,33 @@ class MtfTransformer(mtf_model.MtfModel):
               inputs, dtype=self.activation_dtype))
       with tf.variable_scope("encoder"):
         x = self._layer_stack(x,
-                              hparams.num_encoder_layers,
+                              hparams.encoder_layers,
                               self_attention_mask=encoder_attention_mask)
       encoder_output = mtf.rename_dimension(
           x, self.length_dim.name, self.memory_length_dim.name)
       encdec_tensors = []
-      for layer_num in xrange(hparams.num_decoder_layers):
-        with tf.variable_scope("decoder/layer_%d/encdec_attention" % layer_num):
-          q_var, k_var, v_var, o_var = mtf.layers.multihead_attention_vars(
-              mesh, self.heads_dim, self.model_dim,
-              self.kv_dim, self.activation_dtype)
-          k = mtf.einsum(
-              [encoder_output, k_var],
-              mtf.Shape(
-                  self.batch_dims + [self.heads_dim,
-                                     self.memory_length_dim, self.kv_dim]))
-          v = mtf.einsum(
-              [encoder_output, v_var],
-              mtf.Shape(
-                  self.batch_dims + [self.heads_dim,
-                                     self.memory_length_dim, self.kv_dim]))
-        encdec_tensors.append((q_var, o_var, k, v))
+      for layer_num, layer_type in enumerate(hparams.decoder_layers):
+        if layer_type == "enc_att":
+          with tf.variable_scope("decoder/enc_att_%d/enc_att" % layer_num):
+            q_var, k_var, v_var, o_var = mtf.layers.multihead_attention_vars(
+                mesh, self.heads_dim, self.model_dim,
+                self.kv_dim, self.master_dtype, self.slice_dtype,
+                self.activation_dtype)
+            k = mtf.einsum(
+                [encoder_output, k_var],
+                mtf.Shape(
+                    self.batch_dims + [self.heads_dim,
+                                       self.memory_length_dim, self.kv_dim]))
+            v = mtf.einsum(
+                [encoder_output, v_var],
+                mtf.Shape(
+                    self.batch_dims + [self.heads_dim,
+                                       self.memory_length_dim, self.kv_dim]))
+          encdec_tensors.append((q_var, o_var, k, v))
+        else:
+          encdec_tensors.append(None)
       partial_targets = None
-    else:
+    elif hparams.transformer_type == "decoder":
       encdec_tensors = None
       encoder_output = None
       encoder_attention_mask = None
@@ -463,6 +557,10 @@ class MtfTransformer(mtf_model.MtfModel):
                               [0, hparams.max_length - partial_targets_length]])
         partial_targets = self._import_to_batch_by_length(
             partial_targets, "partial_targets", mesh, hparams)
+    else:
+      raise ValueError(
+          "hparams.model_type = %s not yet supported"
+          % hparams.transformer_type)
 
     if hparams.beam_size == 1:
       ids_shape = mtf.Shape(self.batch_dims + [self.length_dim])
@@ -477,26 +575,28 @@ class MtfTransformer(mtf_model.MtfModel):
                             self.memory_length_dim, self.kv_dim])
 
     initial_ids = mtf.constant(mesh, 0, ids_shape, dtype=tf.int32)
+    num_self_att = len([l for l in hparams.decoder_layers if l == "att"])
     initial_kv_states = (
         [mtf.zeros(mesh, kv_shape, dtype=self.activation_dtype)]
-        * (2 * hparams.num_decoder_layers))
+        * (2 * num_self_att))
     def logits_fn(step_num, ids, states):
       """Produce logits for this step, and new states."""
-      self_attention_k = states[:hparams.num_decoder_layers]
-      self_attention_v = states[hparams.num_decoder_layers:]
+      self_attention_k = states[:num_self_att]
+      self_attention_v = states[num_self_att:]
       ids_this_step = mtf.gather(ids, step_num - 1, self.length_dim)
       x = (mtf.gather(targets_embedding_var, ids_this_step,
                       self.targets_vocab_dim) +
            mtf.gather(positional_embedding_var, step_num, self.max_length_dim))
       with tf.variable_scope("decoder"):
         x, new_self_attention_k, new_self_attention_v = (
-            self._decoder_layer_stack_incremental(
+            self._layer_stack(
                 x,
-                step_num,
-                encdec_tensors,
-                self_attention_k,
-                self_attention_v,
-                encdec_attention_mask=encoder_attention_mask))
+                hparams.decoder_layers,
+                encdec_attention_mask=encoder_attention_mask,
+                step_num=step_num,
+                encdec_tensors=encdec_tensors,
+                self_attention_k=self_attention_k,
+                self_attention_v=self_attention_v))
       logits = mtf.matmul(x, softmax_var)
       return logits, new_self_attention_k + new_self_attention_v
 
@@ -511,7 +611,7 @@ class MtfTransformer(mtf_model.MtfModel):
           forced_ids=partial_targets,
           use_tpu=hparams.use_tpu)
     else:
-      if self.has_input:
+      if hparams.transformer_type == "encdec":
         input_length = mtf.reduce_sum(
             mtf.to_float(mtf.cast(inputs, tf.bool)),
             reduced_dim=self.length_dim)
@@ -527,7 +627,8 @@ class MtfTransformer(mtf_model.MtfModel):
           hparams.alpha,
           states=initial_kv_states,
           decode_length=decode_length,
-          use_tpu=hparams.use_tpu)
+          use_tpu=hparams.use_tpu,
+          dtype=self.activation_dtype)
       return mtf.gather(beams, mtf.constant(mesh, 0, dtype=tf.int32), beam_dim)
 
   def _decoder_layer_stack_incremental(self,
@@ -589,7 +690,7 @@ class MtfTransformer(mtf_model.MtfModel):
 
     new_self_attention_k = []
     new_self_attention_v = []
-    for layer in range(num_layers):
+    for layer in xrange(num_layers):
       with tf.variable_scope("layer_%d" % layer):
         # Self attention layer
         y, new_k, new_v = mtf.layers.multihead_self_attention_incremental(
@@ -597,7 +698,9 @@ class MtfTransformer(mtf_model.MtfModel):
             prev_k=self_attention_k[layer],
             prev_v=self_attention_v[layer],
             step_num=step_num,
-            name="self_attention")
+            master_dtype=self.master_dtype,
+            slice_dtype=self.slice_dtype,
+            name="att")
         new_self_attention_k.append(new_k)
         new_self_attention_v.append(new_v)
         x += y
@@ -608,9 +711,9 @@ class MtfTransformer(mtf_model.MtfModel):
               normalize(x),
               q_var, o_var, k, v,
               encdec_attention_mask,
-              name="encdec_attention")
+              name="enc_att")
         # ffn layer
-        x += self._feedforward_layer(normalize(x), hparams)
+        x += self._feedforward_layer(normalize(x), layer)
     x = normalize(x)
     assert not layer_norm_vars
     return x, new_self_attention_k, new_self_attention_v
@@ -633,26 +736,38 @@ def mtf_transformer_base():
   hparams.add_hparam("layout", "batch:batch;vocab:model;d_ff:model;heads:model")
   hparams.add_hparam("num_heads", 8)
   hparams.add_hparam("d_ff", 2048)
-  hparams.add_hparam("num_encoder_layers", 6)
-  hparams.add_hparam("num_decoder_layers", 6)
+  hparams.add_hparam("encoder_layers", ["att", "drd"] * 6)
+  hparams.add_hparam("decoder_layers", ["att", "enc_att", "drd"] * 6)
   hparams.add_hparam("attention_dropout", 0.1)
   hparams.add_hparam("relu_dropout", 0.1)
   hparams.layer_prepostprocess_dropout = 0.1
+
+  # Describes what model architecture:
+  #   "encdec": encoder + autoregerssive decoder
+  #   "decoder": single-stack autoregressive sequence model.
+  #   "encoder": single-stack non-autoregressive model
+  #      with equal-length inputs and outputs.
+  hparams.add_hparam("transformer_type", "encdec")
 
   # round up vocab sizes to be a multiple of this value
   hparams.vocab_divisor = 128
 
   # options are dense_relu_dense, moe, hmoe
-  hparams.add_hparam("feedforward_layer", "dense_relu_dense")
+  hparams.add_hparam("feedforward_layer", "drd")
 
-  # Use targets_embedding_var * rsqrt(d_model) as softmax_var
+  # If True, then reuse targets_embedding_var * rsqrt(d_model) as softmax_var
+  # If hparams.transformer_type == "encoder", then there is no targets embedding
+  # so we reuse the inputs embedding instead.
   hparams.shared_embedding_and_softmax_weights = True
   # Reuse targets_embedding_var as inputs_embedding_var
+  # relevant only if hparams.transformer_type == "encdec"
   hparams.shared_embedding = True
   hparams.optimizer = "Adafactor"
   hparams.learning_rate_schedule = "linear_warmup*rsqrt_decay*linear_decay"
   hparams.learning_rate_warmup_steps = 10000
-  hparams.activation_dtype = "float32"
+  hparams.add_hparam("master_dtype", "bfloat16")
+  hparams.add_hparam("slice_dtype", "float32")
+  hparams.activation_dtype = "bfloat16"
 
   # These parameters make Transformer model compatible with MtfTransformer
   # Do not override these, as mtf_transformer does not support other options.
@@ -678,17 +793,38 @@ def mtf_transformer_base():
 
 
 @registry.register_hparams
+def mtf_transformer_base_lm():
+  hparams = mtf_transformer_base()
+  hparams.decoder_layers = hparams.encoder_layers
+  hparams.transformer_type = "decoder"
+  hparams.label_smoothing = 0.0
+  hparams.sampling_method = "random"
+  return hparams
+
+
+@registry.register_hparams
 def mtf_transformer_tiny():
   """Catch bugs locally..."""
   hparams = mtf_transformer_base()
   hparams.d_model = 128
   hparams.d_ff = 512
-  hparams.batch_size = 4
-  hparams.num_encoder_layers = 2
-  hparams.num_decoder_layers = 2
-  hparams.num_heads = 4
+  hparams.batch_size = 8
+  hparams.encoder_layers = ["att", "drd"] * 2
+  hparams.decoder_layers = ["att", "enc_att", "drd"] * 2
+  hparams.num_heads = 8
   # data parallelism and model-parallelism
-  hparams.mesh_shape = "batch:2;model:2"
+  hparams.mesh_shape = "batch:2;model:4"
+  hparams.activation_dtype = "float32"
+  return hparams
+
+
+@registry.register_hparams
+def mtf_transformer_tiny_lm():
+  hparams = mtf_transformer_tiny()
+  hparams.decoder_layers = hparams.encoder_layers
+  hparams.transformer_type = "decoder"
+  hparams.label_smoothing = 0.0
+  hparams.sampling_method = "random"
   return hparams
 
 
@@ -696,6 +832,13 @@ def mtf_transformer_tiny():
 def mtf_transformer_single():
   hparams = mtf_transformer_tiny()
   hparams.mesh_shape = ""
+  return hparams
+
+
+@registry.register_hparams
+def mtf_transformer_enc_single():
+  hparams = mtf_transformer_single()
+  hparams.transformer_type = "encoder"
   return hparams
 
 
@@ -733,8 +876,7 @@ def mtf_transformer_paper_lm(size):
     a hparams object
   """
   n = 2 ** size
-  hparams = mtf_transformer_base()
-  hparams.label_smoothing = 0.0
+  hparams = mtf_transformer_base_lm()
   hparams.batch_size = 256
   hparams.d_model = 1024
   hparams.d_ff = int(8192 * n)
@@ -837,6 +979,20 @@ def mtf_transformer_paper_tr_0():
 
 
 @registry.register_hparams
+def mtf_transformer_paper_tr_0_a32():
+  hparams = mtf_transformer_paper_tr_0()
+  hparams.activation_dtype = "float32"
+  return hparams
+
+
+@registry.register_hparams
+def mtf_transformer_paper_tr_0_nf():
+  hparams = mtf_transformer_paper_tr_0()
+  hparams.optimizer_adafactor_factored = False
+  return hparams
+
+
+@registry.register_hparams
 def mtf_transformer_paper_tr_1():
   hparams = mtf_transformer_paper_tr(1)
   hparams.mesh_shape = "model:4;batch:8"
@@ -927,5 +1083,3 @@ def mtf_transformer_lm_baseline():
   hparams.learning_rate_decay_steps = 27200  # one epoch on lm1b
   hparams.mesh_shape = "batch:8"
   return hparams
-
-
