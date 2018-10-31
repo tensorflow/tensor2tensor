@@ -417,8 +417,6 @@ def evaluate_world_model(real_env, hparams, world_model_dir):
     ])
     assert np.all(sim_init_obs == real_init_obs)
 
-    num_same_reward = 0
-    num_steps = 0
     (sim_cum_rewards, real_cum_rewards) = (
         np.zeros(hparams.wm_eval_batch_size) for _ in range(2)
     )
@@ -430,21 +428,14 @@ def evaluate_world_model(real_env, hparams, world_model_dir):
       real_cum_rewards += [
           subsequence[i + 1].reward for subsequence in eval_subsequences
       ]
-      num_same_reward += np.sum(sim_cum_rewards == real_cum_rewards)
-      num_steps += len(real_cum_rewards)
       for (length, reward_accuracies) in six.iteritems(
           reward_accuracies_by_length
       ):
         if i + 1 == length:
-          # TODO(lukaszkaiser): resolve the comment below from blazej.
-          # If I understand correctly, num_save_reward is counting for
-          # i = 0, 1, ... , sequence_length, for how many indices i so far
-          # we had a match on simulated and real reward.
-          # I thought we would be more interested in saving just the average
-          # number of matches for the current i:
-          # reward_accuracies.append(np.sum(sim_cum_rewards == real_cum_rewards)
-          # / len(real_cum_rewards))
-          reward_accuracies.append(num_same_reward / num_steps)
+          reward_accuracies.append(
+              np.sum(sim_cum_rewards == real_cum_rewards) /
+              len(real_cum_rewards)
+          )
 
   return {
       "reward_accuracy/at_{}".format(length): np.mean(reward_accuracies)
