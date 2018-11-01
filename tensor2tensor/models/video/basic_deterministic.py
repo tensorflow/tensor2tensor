@@ -139,5 +139,6 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     reward_pred = tf.concat([x_mid, x_fin], axis=-1)
     reward_pred = tf.nn.relu(tf.layers.dense(
         reward_pred, 128, name="reward_pred"))
-    reward_pred = tf.expand_dims(reward_pred, axis=3)  # Need fake channels dim.
+    reward_pred = tf.squeeze(reward_pred, axis=1)  # Remove extra dims
+    reward_pred = tf.squeeze(reward_pred, axis=1)  # Remove extra dims
     return x, reward_pred, extra_loss, internal_states
