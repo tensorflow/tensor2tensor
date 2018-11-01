@@ -90,7 +90,7 @@ def define_ppo_epoch(memory, hparams):
   advantage = calculate_generalized_advantage_estimator(
       reward, value, done, hparams.gae_gamma, hparams.gae_lambda)
 
-  discounted_reward = tf.stop_gradient(advantage + value)
+  discounted_reward = tf.stop_gradient(advantage + value[:-1])
 
   advantage_mean, advantage_variance = tf.nn.moments(advantage, axes=[0, 1],
                                                      keep_dims=True)
@@ -99,7 +99,7 @@ def define_ppo_epoch(memory, hparams):
 
   add_lists_elementwise = lambda l1, l2: [x + y for x, y in zip(l1, l2)]
 
-  number_of_batches = (hparams.epoch_length * hparams.optimization_epochs
+  number_of_batches = ((hparams.epoch_length-1) * hparams.optimization_epochs
                        / hparams.optimization_batch_size)
 
   if hasattr(hparams, "effective_num_agents"):
@@ -107,10 +107,11 @@ def define_ppo_epoch(memory, hparams):
     number_of_batches /= hparams.effective_num_agents
 
   dataset = tf.data.Dataset.from_tensor_slices(
-      (observation, action, discounted_reward, advantage_normalized, old_pdf))
-  dataset = dataset.shuffle(buffer_size=hparams.epoch_length,
+      (observation[:-1], action[:-1], discounted_reward, advantage_normalized,
+       old_pdf[:-1]))
+  dataset = dataset.shuffle(buffer_size=hparams.epoch_length-1,
                             reshuffle_each_iteration=True)
-  dataset = dataset.repeat(hparams.optimization_epochs)
+  dataset = dataset.repeat(-1)
   dataset = dataset.batch(hparams.optimization_batch_size)
   iterator = dataset.make_initializable_iterator()
   optimizer = get_optimiser(hparams)
@@ -140,16 +141,19 @@ def define_ppo_epoch(memory, hparams):
 
 def calculate_generalized_advantage_estimator(
     reward, value, done, gae_gamma, gae_lambda):
-  """Generalized advantage estimator."""
+  # pylint: disable=g-doc-args
+  """Generalized advantage estimator.
 
-  # Below is slight weirdness, we set the last reward to 0.
-  # This makes the advantage to be 0 in the last timestep
-  reward = tf.concat([reward[:-1, :], value[-1:, :]], axis=0)
-  next_value = tf.concat([value[1:, :], tf.zeros_like(value[-1:, :])], axis=0)
-  next_not_done = 1 - tf.cast(tf.concat([done[1:, :],
-                                         tf.zeros_like(done[-1:, :])], axis=0),
-                              tf.float32)
-  delta = reward + gae_gamma * next_value * next_not_done - value
+  Returns:
+    GAE estimator. It will be one element shorter than the input; this is
+    because to compute GAE for [0, ..., N-1] one needs V for [1, ..., N].
+  """
+  # pylint: enable=g-doc-args
+
+  next_value = value[1:, :]
+  next_not_done = 1 - tf.cast(done[1:, :], tf.float32)
+  delta = (reward[:-1, :] + gae_gamma * next_value * next_not_done
+           - value[:-1, :])
 
   return_ = tf.reverse(tf.scan(
       lambda agg, cur: cur[0] + cur[1] * gae_gamma * gae_lambda * agg,
