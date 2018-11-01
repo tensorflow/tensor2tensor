@@ -608,8 +608,14 @@ def prepare_image(inputs, hparams, name=None):
   channels = hparams.num_channels
 
   hidden_size = hparams.hidden_size
-  # Only do lookup if the modality is identity
-  if hparams.target_modality == "image:identity":
+  # TODO(trandustin): Check via modalities.IdentityModality and not its name.
+  # The current implementation is to avoid circular imports, modalities ->
+  # discretization -> common_image_attention -> modalities.
+  if "targets" in hparams.modality:
+    target_modality_name = hparams.modality["targets"].__name__
+  else:
+    target_modality_name = None
+  if target_modality_name == "IdentityModality":
     inputs = tf.to_int32(inputs)
     x = get_channel_embeddings(channels, inputs, hidden_size, name=name)
   else:

@@ -20,7 +20,6 @@ from __future__ import print_function
 
 import re
 from tensor2tensor.layers import common_layers
-from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -199,4 +198,4 @@ class Modality(object):
 
   @property
   def is_class_modality(self):
-    return self.name.startswith(registry.Modalities.CLASS_LABEL)
+    return self.name.startswith("class_label")

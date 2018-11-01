@@ -58,19 +58,6 @@ _PRUNING_STRATEGY = {}
 _RANGED_HPARAMS = {}
 
 
-# TODO(trandustin): Many files depend on this to specify modality strings; let's
-# remove it in the future.
-class Modalities(object):
-  """An enum-like object carrying the set of available modality types."""
-  SYMBOL = "symbol"
-  IMAGE = "image"
-  AUDIO = "audio"
-  VIDEO = "video"
-  CLASS_LABEL = "class_label"
-  GENERIC = "generic"
-  REAL = "real"
-
-
 # Camel case to snake case utils
 _first_cap_re = re.compile("(.)([A-Z][a-z0-9]+)")
 _all_cap_re = re.compile("([a-z0-9])([A-Z])")

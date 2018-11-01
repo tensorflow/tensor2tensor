@@ -32,6 +32,7 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import diet
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
@@ -264,7 +265,7 @@ def super_lm_base():
   # we only want one data shard.
   hparams.no_data_parallelism = True
   # bypass the symbol modality so that we can use model parallelism.
-  hparams.target_modality = "symbol:identity"
+  hparams.modality["targets"] = modalities.IdentitySymbolModality
   hparams.add_hparam("filter_size", 512)
   hparams.add_hparam("mix_fraction", 0.5)
   # attention-related flags

@@ -18,6 +18,7 @@
 from __future__ import division
 from __future__ import print_function
 
+from tensor2tensor.layers import modalities
 from tensor2tensor.models.video import sv2p_params
 from tensor2tensor.utils import registry
 
@@ -35,8 +36,10 @@ def next_frame_savp():
   hparams.add_hparam("gan_loss_multiplier", 0.01)
   hparams.add_hparam("gan_vae_loss_multiplier", 0.01)
   hparams.add_hparam("gan_optimization", "joint")
-  hparams.target_modality = "video:l1raw"
-  hparams.input_modalities = "inputs:video:l1raw"
+  hparams.modality = {
+      "inputs": modalities.VideoModalityL1Raw,
+      "targets": modalities.VideoModalityL1Raw,
+  }
   hparams.latent_loss_multiplier_schedule = "linear"
   hparams.upsample_method = "bilinear_upsample_conv"
   hparams.internal_loss = False

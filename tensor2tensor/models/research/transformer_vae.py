@@ -29,6 +29,7 @@ from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
 from tensor2tensor.layers import latent_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.models import transformer
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import expert_utils
@@ -889,7 +890,7 @@ def imagetransformer_ae_cifar():
 
   hparams.add_hparam("unconditional", False)  # unconditional generation
 
-  hparams.target_modality = "image:channel_embeddings_bottom"
+  hparams.modality["targets"] = modalities.ImageChannelEmbeddingsBottom
   hparams.drop_inputs = True
   hparams.do_attend_compress = False
   hparams.do_attend_decompress = False

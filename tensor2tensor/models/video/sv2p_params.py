@@ -18,6 +18,7 @@
 from __future__ import division
 from __future__ import print_function
 
+from tensor2tensor.layers import modalities
 from tensor2tensor.models.video import basic_stochastic
 from tensor2tensor.utils import registry
 
@@ -32,8 +33,10 @@ def next_frame_sv2p():
   hparams.video_num_input_frames = 1
   hparams.video_num_target_frames = 3
   hparams.batch_size = 16
-  hparams.target_modality = "video:l2raw"
-  hparams.input_modalities = "inputs:video:l2raw"
+  hparams.modality = {
+      "inputs": modalities.VideoModalityL2Raw,
+      "targets": modalities.VideoModalityL2Raw,
+  }
   hparams.video_modality_loss_cutoff = 0.0
   hparams.scheduled_sampling_mode = "count"
   hparams.scheduled_sampling_k = 900.0
@@ -84,8 +87,10 @@ def next_frame_sv2p_atari():
 def next_frame_sv2p_atari_softmax():
   """SV2P model for atari with softmax."""
   hparams = next_frame_sv2p_atari()
-  hparams.target_modality = "video"
-  hparams.input_modalities = "inputs:video"
+  hparams.modality = {
+      "inputs": modalities.VideoModality,
+      "targets": modalities.VideoModality,
+  }
   hparams.internal_loss = True
   return hparams
 

@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.models.research import transformer_vae
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -126,8 +127,10 @@ def cycle_gan_small():
   """Set of hyperparameters."""
   hparams = transformer_vae.transformer_ae_small()
   hparams.batch_size = 2048
-  hparams.input_modalities = "inputs:symbol:identity"
-  hparams.target_modality = "symbol:identity"
+  hparams.modality = {
+      "inputs": modalities.IdentitySymbolModality,
+      "targets": modalities.IdentitySymbolModality,
+  }
   hparams.weight_decay = 3.0
   hparams.learning_rate = 0.05
   hparams.kl_warmup_steps = 5000

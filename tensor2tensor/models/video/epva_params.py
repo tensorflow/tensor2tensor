@@ -18,6 +18,7 @@
 from __future__ import division
 from __future__ import print_function
 
+from tensor2tensor.layers import modalities
 from tensor2tensor.models.video import basic_deterministic_params
 from tensor2tensor.utils import registry
 
@@ -28,8 +29,10 @@ def next_frame_epva():
   hparams = basic_deterministic_params.next_frame_basic_deterministic()
   hparams.video_num_input_frames = 4
   hparams.video_num_target_frames = 4
-  hparams.target_modality = "video:l2raw"
-  hparams.input_modalities = "inputs:video:l2raw"
+  hparams.modality = {
+      "inputs": modalities.VideoModalityL2Raw,
+      "targets": modalities.VideoModalityL2Raw,
+  }
   hparams.learning_rate_schedule = "constant"
   hparams.learning_rate_constant = 1e-05
   hparams.batch_size = 2

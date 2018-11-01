@@ -28,7 +28,6 @@ import six
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.layers import modalities
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import mlperf_log
@@ -1148,33 +1147,12 @@ def _create_modalities(problem_hparams, hparams):
   Returns:
     None
   """
-  input_modality_overrides = {}
-  if hasattr(hparams, "input_modalities"):
-    for override_str in hparams.input_modalities.split(";"):
-      if override_str != "default":
-        parts = override_str.split(":")
-        feature_name = parts[0]
-        modality_name = ":".join(parts[1:])
-        input_modality_overrides[feature_name] = modality_name
-
-  target_modality_name = None
-  if (hasattr(hparams, "target_modality") and
-      hparams.target_modality != "default"):
-    target_modality_name = hparams.target_modality
-
+  modality_overrides = getattr(hparams, "modality", {})
   modality = {}
   for feature_name, modality_cls in six.iteritems(problem_hparams.modality):
     vocab_size = problem_hparams.vocab_size[feature_name]
-    if feature_name in input_modality_overrides:
-      modality_obj = modalities.create_modality(
-          (input_modality_overrides[feature_name], vocab_size), hparams)
-    elif target_modality_name and feature_name == "targets":
-      # TODO(lukaszkaiser): allow overriding other target modalities.
-      modality_obj = modalities.create_modality(
-          (target_modality_name, vocab_size), hparams)
-    else:
-      modality_obj = modality_cls(hparams, vocab_size)
-    modality[feature_name] = modality_obj
+    modality_cls = modality_overrides.get(feature_name, modality_cls)
+    modality[feature_name] = modality_cls(hparams, vocab_size)
   problem_hparams.modality = modality
 
 
@@ -1200,17 +1178,10 @@ def _default_hparams():
       # token.
       stop_at_eos=False,
 
-      # Modalities used to map from input features to a space compatible with
-      # chosen model architecture.  One modality spec (which is a 2-tuple,
-      # (modality_full_name, vocab_size)) per feature key. modality_full_name
-      # is a string type:name, e.g. class_label:class_label_2d. Leaving off
-      # the name uses the default modality for that type (e.g. class_label ==
-      # class_label:default).
-      input_modality={},
-
-      # Modality used to map from hidden representation to the target space.
-      # Specified as a modality spec, a 2-tuple described above.
-      target_modality=None,
+      # Modalities used to map from features to a space compatible with
+      # chosen model architecture. It comprises key-value pairs of a feature
+      # name (str) and its modality class.
+      modality={},
 
       # Identifiers used to tell the model which input/target space will be
       # expected. For example, it can tell that we expect French as characters

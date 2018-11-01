@@ -24,6 +24,7 @@ import mesh_tensorflow as mtf
 
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.models.research import moe
 from tensor2tensor.utils import mtf_model
 from tensor2tensor.utils import registry
@@ -772,8 +773,10 @@ def mtf_transformer_base():
   # These parameters make Transformer model compatible with MtfTransformer
   # Do not override these, as mtf_transformer does not support other options.
   hparams.clip_grad_norm = 0.  # i.e. no gradient clipping
-  hparams.target_modality = "symbol:identity"
-  hparams.input_modalities = "inputs:symbol:identity"
+  hparams.modality = {
+      "inputs": modalities.IdentitySymbolModality,
+      "targets": modalities.IdentitySymbolModality,
+  }
 
   # Parameters for computing the maximum decode length in beam search.
   # Maximum decode length is:
