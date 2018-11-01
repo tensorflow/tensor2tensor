@@ -143,7 +143,7 @@ class SymbolModality(modality.Modality):
 
     if self._model_hparams.shared_embedding_and_softmax_weights:
       scope_name = "shared"
-      reuse = True
+      reuse = tf.AUTO_REUSE
     else:
       scope_name = "softmax"
       reuse = False
