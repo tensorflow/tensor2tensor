@@ -43,6 +43,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     self.assertEqual(res1.shape, (5, 3, 4))
     self.assertAllGreaterEqual(res1, 0.)
     # self.assertNotAllClose(res1, res2)
+    layer.get_config()
 
   # TODO(trandustin): Remove the hack in the code, or re-enable once T2T drops
   # support for TF 1.10

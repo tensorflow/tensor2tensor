@@ -42,11 +42,15 @@ def softplus():  # alias, following tf.keras.constraints
 class TrainableInitializer(tf.keras.initializers.Initializer):
   """An initializer with trainable variables.
 
-  In this implementation, one must call `build` before usage in order to
-  capture the variables within the caller.
+  In this implementation, a layer must call `build` before usage in order to
+  capture the variables.
   """
 
+  def __init__(self):
+    self.built = False
+
   def build(self, shape, dtype=None, add_variable_fn=None):
+    """Builds the initializer, with the variables captured by the caller."""
     raise NotImplementedError
 
 
@@ -64,6 +68,7 @@ class TrainableNormal(TrainableInitializer):
                seed=None,
                dtype=tf.float32):
     """Constructs the initializer."""
+    super(TrainableNormal, self).__init__()
     self.mean_initializer = mean_initializer
     self.unconstrained_stddev_initializer = unconstrained_stddev_initializer
     self.mean_regularizer = mean_regularizer
@@ -78,7 +83,7 @@ class TrainableNormal(TrainableInitializer):
     if dtype is None:
       dtype = self.dtype
     self.shape = shape
-    self.dtype = dtype
+    self.dtype = tf.as_dtype(dtype)
 
     self.mean = add_variable_fn(
         'mean',
@@ -96,8 +101,15 @@ class TrainableNormal(TrainableInitializer):
         constraint=self.unconstrained_stddev_constraint,
         dtype=dtype,
         trainable=True)
+    self.built = True
 
-  def __call__(self):
+  def __call__(self, shape=None, dtype=None, partition_info=None):
+    del shape, dtype, partition_info  # Unused in TrainableInitializers.
+    # TODO(dusenberrymw): Restructure so that we can build as needed.
+    if not self.built:
+      raise ValueError('A TrainableInitializer must be built by a layer before '
+                       'usage, and is currently only compatible with Bayesian '
+                       'layers.')
     noise = tf.random_normal(self.shape, dtype=self.dtype, seed=self.seed)
     output = self.mean + self.stddev * noise
     # TODO(trandustin): Hack to store parameters so KL reg. can operate on them.
@@ -116,13 +128,12 @@ class TrainableNormal(TrainableInitializer):
         'unconstrained_stddev_regularizer':
             tf.keras.regularizers.serialize(
                 self.unconstrained_stddev_regularizer),
-        'activity_regularizer':
-            tf.keras.regularizers.serialize(self.activity_regularizer),
         'mean_constraint':
             tf.keras.constraints.serialize(self.mean_constraint),
         'unconstrained_stddev_constraint':
             tf.keras.constraints.serialize(
                 self.unconstrained_stddev_constraint),
+        'seed': self.seed,
         'dtype': self.dtype.name,
     }
 
@@ -146,6 +157,12 @@ class NormalKLDivergence(tf.keras.regularizers.Regularizer):
     regularization = tf.square(mean - self.mean) / (2. * variance2)
     regularization += (variance_ratio - 1. - tf.log(variance_ratio)) / 2.
     return regularization
+
+  def get_config(self):
+    return {
+        'mean': self.mean,
+        'stddev': self.stddev,
+    }
 
 
 def normal_kl_divergence():  # alias, following tf.keras.regularizers
