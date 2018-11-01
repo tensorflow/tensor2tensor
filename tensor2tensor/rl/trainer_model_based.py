@@ -83,6 +83,7 @@ def world_model_step_increment(hparams, is_initial_epoch):
 
 
 def setup_directories(base_dir, subdirs):
+  """Setup directories."""
   base_dir = os.path.expanduser(base_dir)
   tf.gfile.MakeDirs(base_dir)
 
@@ -423,7 +424,7 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
     def decode_real_obs(index):
       return np.stack([
           subsequence[index].observation.decode()
-          for subsequence in eval_subsequences
+          for subsequence in eval_subsequences  # pylint: disable=cell-var-from-loop
       ])
     real_init_obs = decode_real_obs(0)
     assert np.all(sim_init_obs == real_init_obs)
