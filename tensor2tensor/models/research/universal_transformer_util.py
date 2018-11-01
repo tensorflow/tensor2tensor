@@ -125,8 +125,6 @@ def universal_transformer_encoder(encoder_input,
     x, extra_output = universal_transformer_layer(
         x, hparams, ffn_unit, attention_unit, pad_remover=pad_remover)
 
-    if hparams.get("use_memory_as_last_state", False):
-      x = extra_output  # which is memory
     return common_layers.layer_preprocess(x, hparams), extra_output
 
 
@@ -251,8 +249,9 @@ def universal_transformer_layer(x,
       output, _, extra_output = tf.foldl(
           ut_function, tf.range(hparams.num_rec_steps), initializer=initializer)
 
-      # This is possible only when we are using lstm as transition function.
-      if hparams.get("use_memory_as_final_state", False):
+      # Right now, this is only possible when the transition function is an lstm
+      if (hparams.recurrence_type == "lstm" and
+          hparams.get("use_memory_as_final_state", False)):
         output = extra_output
 
     if hparams.mix_with_transformer == "after_ut":
