@@ -66,9 +66,12 @@ def check_cond_latents(cond_latents, hparams):
     return
   if not isinstance(cond_latents[0], list):
     cond_latents = [cond_latents]
-  if len(cond_latents) != hparams.num_cond_latents:
+  exp_num_latents = hparams.num_cond_latents
+  if hparams.latent_dist_encoder == "conv_net":
+    exp_num_latents += int(hparams.cond_first_frame)
+  if len(cond_latents) != exp_num_latents:
     raise ValueError("Expected number of cond_latents: %d, got %d" %
-                     (hparams.num_cond_latents, len(cond_latents)))
+                     (exp_num_latents, len(cond_latents)))
   for cond_latent in cond_latents:
     if len(cond_latent) != hparams.n_levels - 1:
       raise ValueError("Expected level_latents to be %d, got %d" %
