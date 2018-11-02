@@ -187,7 +187,7 @@ def pong_model_free():
       clipping_coef=0.2,
       value_loss_coef=1,
       save_models_every_epochs=False,
-      num_input_frames=4,
+      frame_stack_size=4,
       force_beginning_resets=False,
   )
   env = gym_env.T2TGymEnv("PongNoFrameskip-v4", batch_size=2)

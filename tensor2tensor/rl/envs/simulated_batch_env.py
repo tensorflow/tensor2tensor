@@ -92,7 +92,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   """
 
   def __init__(
-      self, reward_range, observation_space, action_space, num_input_frames,
+      self, reward_range, observation_space, action_space, frame_stack_size,
       initial_frame_chooser, batch_size, model_name, model_hparams, model_dir,
       intrinsic_reward_scale=0.0
   ):
@@ -101,7 +101,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
 
     self.batch_size = batch_size
     self._min_reward = reward_range[0]
-    self._num_frames = num_input_frames
+    self._num_frames = frame_stack_size
     self._intrinsic_reward_scale = intrinsic_reward_scale
 
     model_hparams = copy.copy(model_hparams)

@@ -103,7 +103,7 @@ def define_collect(batch_env, hparams, scope):
 
     to_initialize.append(batch_env)
     wrappers = [
-        (StackWrapper, {"history": hparams.num_input_frames}),
+        (StackWrapper, {"history": hparams.frame_stack_size}),
         (_MemoryWrapper, {})
     ]
     rollout_metadata = None

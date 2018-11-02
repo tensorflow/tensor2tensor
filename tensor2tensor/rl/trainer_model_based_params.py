@@ -119,6 +119,8 @@ def rlmb_base():
       wm_eval_rollout_ratios=[0.25, 0.5, 1, 2],
       stop_loop_early=False,  # To speed-up tests.
       env_timesteps_limit=-1,  # Use default from gym.make()
+      # Number of last observations to feed to the agent and world model.
+      frame_stack_size=4,
   )
 
 

@@ -147,8 +147,7 @@ def make_simulated_env_fn(
       reward_range=real_env.reward_range,
       observation_space=real_env.observation_space,
       action_space=real_env.action_space,
-      # Hardcoded for now. TODO(koz4k): Make it a hparam.
-      num_input_frames=4,
+      frame_stack_size=hparams.frame_stack_size,
       initial_frame_chooser=initial_frame_chooser, batch_size=batch_size,
       model_name=hparams.generative_model,
       model_hparams=trainer_lib.create_hparams(hparams.generative_model_params),
@@ -193,25 +192,24 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
 
   ppo_hparams.save_models_every_epochs = 10
 
-  # Hardcoded for now. TODO(koz4k): Make it a hparam.
-  num_input_frames = 4
+  frame_stack_size = hparams.frame_stack_size
   initial_frame_rollouts = real_env.current_epoch_rollouts(
       split=tf.contrib.learn.ModeKeys.TRAIN,
-      minimal_rollout_frames=num_input_frames,
+      minimal_rollout_frames=frame_stack_size,
   )
   # TODO(koz4k): Move this to a different module.
   def initial_frame_chooser(batch_size):
     """Frame chooser."""
 
     deterministic_initial_frames =\
-        initial_frame_rollouts[0][:num_input_frames]
+        initial_frame_rollouts[0][:frame_stack_size]
     if not hparams.simulation_random_starts:
       # Deterministic starts: repeat first frames from the first rollout.
       initial_frames = [deterministic_initial_frames] * batch_size
     else:
       # Random starts: choose random initial frames from random rollouts.
       initial_frames = random_rollout_subsequences(
-          initial_frame_rollouts, batch_size, num_input_frames
+          initial_frame_rollouts, batch_size, frame_stack_size
       )
       if hparams.simulation_flip_first_random_for_beginning:
         # Flip first entry in the batch for deterministic initial frames.
@@ -228,7 +226,7 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
   )
   ppo_hparams.add_hparam("env_fn", env_fn)
   ppo_hparams.add_hparam("force_beginning_resets", True)
-  ppo_hparams.add_hparam("num_input_frames", num_input_frames)
+  ppo_hparams.add_hparam("frame_stack_size", frame_stack_size)
 
   rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
                        name_scope="ppo_sim%d" % (epoch + 1))
@@ -261,8 +259,7 @@ def train_agent_real_env(
 
   ppo_hparams.add_hparam("env_fn", rl.make_real_env_fn(env))
   ppo_hparams.add_hparam("force_beginning_resets", False)
-  # Hardcoded for now. TODO(koz4k): Make it a hparam.
-  ppo_hparams.add_hparam("num_input_frames", 4)
+  ppo_hparams.add_hparam("frame_stack_size", hparams.frame_stack_size)
 
   rl_trainer_lib.train(ppo_hparams, event_dir + "real", agent_model_dir,
                        name_scope="ppo_real%d" % (epoch + 1))
@@ -327,8 +324,7 @@ def evaluate_single_config(hparams, agent_model_dir):
   eval_hparams.add_hparam(
       "policy_to_actions_lambda", hparams.policy_to_actions_lambda
   )
-  # Hardcoded for now. TODO(koz4k): Make it a hparam.
-  eval_hparams.add_hparam("num_input_frames", 4)
+  eval_hparams.add_hparam("frame_stack_size", hparams.frame_stack_size)
   eval_hparams.add_hparam("force_beginning_resets", False)
 
   env.start_new_epoch(0)
@@ -388,13 +384,12 @@ def compute_mean_reward(rollouts, clipped):
 
 def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
   """Evaluate the world model (reward accuracy)."""
-  # Hardcoded for now. TODO(koz4k): Make it a hparam.
-  num_input_frames = 4
+  frame_stack_size = hparams.frame_stack_size
   rollout_subsequences = []
   def initial_frame_chooser(batch_size):
     assert batch_size == len(rollout_subsequences)
     return np.stack([
-        [frame.observation.decode() for frame in subsequence[:num_input_frames]]
+        [frame.observation.decode() for frame in subsequence[:frame_stack_size]]
         for subsequence in rollout_subsequences
     ])
 
@@ -408,7 +403,7 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
   )
   rollouts = real_env.current_epoch_rollouts(
       split=tf.contrib.learn.ModeKeys.EVAL,
-      minimal_rollout_frames=(subsequence_length + num_input_frames)
+      minimal_rollout_frames=(subsequence_length + frame_stack_size)
   )
 
   video_writer = common_video.WholeVideoWriter(
@@ -422,11 +417,11 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
   for _ in range(hparams.wm_eval_epochs_num):
     rollout_subsequences[:] = random_rollout_subsequences(
         rollouts, hparams.wm_eval_batch_size,
-        subsequence_length + num_input_frames
+        subsequence_length + frame_stack_size
     )
 
     eval_subsequences = [
-        subsequence[(num_input_frames - 1):]
+        subsequence[(frame_stack_size - 1):]
         for subsequence in rollout_subsequences
     ]
 
