@@ -43,4 +43,32 @@ def next_frame_savp():
   hparams.latent_loss_multiplier_schedule = "linear"
   hparams.upsample_method = "bilinear_upsample_conv"
   hparams.internal_loss = False
+  hparams.reward_prediction = False
+  return hparams
+
+
+@registry.register_hparams
+def next_frame_savp_vae():
+  """SAVP - VAE only model."""
+  hparams = next_frame_savp()
+  hparams.use_vae = True
+  hparams.use_gan = False
+  hparams.latent_loss_multiplier = 1e-3
+  hparams.latent_loss_multiplier_schedule = "linear_anneal"
+  hparams.anneal_end = 100000
+  return hparams
+
+
+@registry.register_hparams
+def next_frame_savp_gan():
+  """SAVP - GAN only model."""
+  hparams = next_frame_savp()
+  hparams.use_gan = True
+  hparams.use_vae = False
+  hparams.gan_loss_multiplier = 0.001
+  hparams.optimizer_adam_beta1 = 0.5
+  hparams.learning_rate_constant = 2e-4
+  hparams.gan_loss = "cross_entropy"
+  hparams.learning_rate_decay_steps = 100000
+  hparams.learning_rate_schedule = "constant*linear_decay"
   return hparams
