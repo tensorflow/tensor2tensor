@@ -122,6 +122,21 @@ class NextFrameBasicStochasticDiscrete(
       _, pred_loss = discretization.predict_bits_with_lstm(
           layer, hparams.latent_predictor_state_size, hparams.bottleneck_bits,
           target_bits=bits_clean)
+      # Mix bits from latent with predicted bits on forward pass as a noise.
+      if hparams.latent_rnn_max_sampling > 0.0:
+        with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+          bits_pred, _ = discretization.predict_bits_with_lstm(
+              layer, hparams.latent_predictor_state_size,
+              hparams.bottleneck_bits,
+              temperature=hparams.latent_predictor_temperature)
+          bits_pred = tf.expand_dims(tf.expand_dims(bits_pred, axis=1), axis=2)
+        # Be bits_pred on the forward pass but bits on the backward one.
+        bits_pred = bits_clean + tf.stop_gradient(bits_pred - bits_clean)
+        # Select which bits to take from pred sampling with bit_p probability.
+        which_bit = tf.random_uniform(common_layers.shape_list(bits))
+        bit_p = common_layers.inverse_lin_decay(hparams.latent_rnn_warmup_steps)
+        bit_p *= hparams.latent_rnn_max_sampling
+        bits = tf.where(which_bit < bit_p, bits_pred, bits)
 
     return add_bits(layer, bits), pred_loss
 
@@ -170,8 +185,8 @@ def next_frame_sampling_stochastic():
 def next_frame_basic_stochastic_discrete():
   """Basic 2-frame conv model with stochastic discrete latent."""
   hparams = basic_deterministic_params.next_frame_sampling()
-  hparams.batch_size = 2
-  hparams.video_num_target_frames = 16
+  hparams.batch_size = 4
+  hparams.video_num_target_frames = 6
   hparams.scheduled_sampling_mode = "prob_inverse_lin"
   hparams.scheduled_sampling_decay_steps = 40000
   hparams.scheduled_sampling_max_prob = 1.0
@@ -182,8 +197,10 @@ def next_frame_basic_stochastic_discrete():
   hparams.learning_rate_warmup_steps = 2000
   hparams.learning_rate_schedule = "linear_warmup * constant"
   hparams.add_hparam("bottleneck_bits", 256)
-  hparams.add_hparam("bottleneck_noise", 0.15)
+  hparams.add_hparam("bottleneck_noise", 0.1)
   hparams.add_hparam("discretize_warmup_steps", 40000)
+  hparams.add_hparam("latent_rnn_warmup_steps", 40000)
+  hparams.add_hparam("latent_rnn_max_sampling", 0.7)
   hparams.add_hparam("full_latent_tower", False)
   hparams.add_hparam("latent_predictor_state_size", 128)
   hparams.add_hparam("latent_predictor_temperature", 0.5)
@@ -201,3 +218,10 @@ def next_frame_stochastic_discrete_range(rhp):
   rhp.set_discrete("bottleneck_bits", [32, 64, 128, 256])
   rhp.set_discrete("video_num_target_frames", [4])
   rhp.set_float("bottleneck_noise", 0.0, 0.2)
+
+
+@registry.register_ranged_hparams
+def next_frame_stochastic_discrete_latent_range(rhp):
+  rhp.set_float("latent_rnn_max_sampling", 0.1, 0.9)
+  rhp.set_float("latent_predictor_temperature", 0.1, 1.2)
+  rhp.set_float("dropout", 0.1, 0.4)
