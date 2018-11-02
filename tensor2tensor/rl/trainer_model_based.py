@@ -139,14 +139,21 @@ def random_rollout_subsequences(rollouts, num_subsequences, subsequence_length):
   return [choose_subsequence() for _ in range(num_subsequences)]
 
 
-def make_simulated_env_spec(real_env, hparams):
-  """Creates a simulated environment_spec."""
-  return rl.standard_atari_env_simulated_spec(
-      real_env, intrinsic_reward_scale=hparams.intrinsic_reward_scale,
+def make_simulated_env_fn(
+    real_env, hparams, batch_size, initial_frame_chooser, model_dir
+):
+  """Creates a simulated env_fn."""
+  return rl.make_simulated_env_fn(
+      reward_range=real_env.reward_range,
+      observation_space=real_env.observation_space,
+      action_space=real_env.action_space,
+      # Hardcoded for now. TODO(koz4k): Make it a hparam.
+      num_input_frames=4,
+      initial_frame_chooser=initial_frame_chooser, batch_size=batch_size,
       model_name=hparams.generative_model,
       model_hparams=trainer_lib.create_hparams(hparams.generative_model_params),
-      # Hardcoded for now. TODO(koz4k): Make it a hparam.
-      video_num_input_frames=4, video_num_target_frames=1
+      model_dir=model_dir,
+      intrinsic_reward_scale=hparams.intrinsic_reward_scale,
   )
 
 
@@ -185,11 +192,9 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
   ppo_hparams.epochs_num = completed_ppo_epochs_num
 
   ppo_hparams.save_models_every_epochs = 10
-  ppo_hparams.world_model_dir = world_model_dir
 
-  environment_spec = make_simulated_env_spec(real_env, hparams)
-
-  num_input_frames = environment_spec.video_num_input_frames
+  # Hardcoded for now. TODO(koz4k): Make it a hparam.
+  num_input_frames = 4
   initial_frame_rollouts = real_env.current_epoch_rollouts(
       split=tf.contrib.learn.ModeKeys.TRAIN,
       minimal_rollout_frames=num_input_frames,
@@ -217,9 +222,13 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
         for initial_frame_stack in initial_frames
     ])
 
-  environment_spec.add_hparam("initial_frame_chooser", initial_frame_chooser)
-
-  ppo_hparams.add_hparam("environment_spec", environment_spec)
+  env_fn = make_simulated_env_fn(
+      real_env, hparams, hparams.ppo_num_agents, initial_frame_chooser,
+      world_model_dir
+  )
+  ppo_hparams.add_hparam("env_fn", env_fn)
+  ppo_hparams.add_hparam("force_beginning_resets", True)
+  ppo_hparams.add_hparam("num_input_frames", num_input_frames)
 
   rl_trainer_lib.train(ppo_hparams, event_dir + "sim", agent_model_dir,
                        name_scope="ppo_sim%d" % (epoch + 1))
@@ -250,9 +259,10 @@ def train_agent_real_env(
   # But we need to save at the last step, so we set it very high.
   ppo_hparams.save_models_every_epochs = 1000000
 
-  environment_spec = rl.standard_atari_env_spec(env)
-
-  ppo_hparams.add_hparam("environment_spec", environment_spec)
+  ppo_hparams.add_hparam("env_fn", rl.make_real_env_fn(env))
+  ppo_hparams.add_hparam("force_beginning_resets", False)
+  # Hardcoded for now. TODO(koz4k): Make it a hparam.
+  ppo_hparams.add_hparam("num_input_frames", 4)
 
   rl_trainer_lib.train(ppo_hparams, event_dir + "real", agent_model_dir,
                        name_scope="ppo_real%d" % (epoch + 1))
@@ -312,11 +322,14 @@ def evaluate_single_config(hparams, agent_model_dir):
   eval_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   eval_hparams.num_agents = hparams.num_agents
   env = setup_env(hparams, batch_size=hparams.num_agents)
-  environment_spec = rl.standard_atari_env_spec(env)
-  eval_hparams.add_hparam("environment_spec", environment_spec)
+  env_fn = rl.make_real_env_fn(env)
+  eval_hparams.add_hparam("env_fn", env_fn)
   eval_hparams.add_hparam(
       "policy_to_actions_lambda", hparams.policy_to_actions_lambda
   )
+  # Hardcoded for now. TODO(koz4k): Make it a hparam.
+  eval_hparams.add_hparam("num_input_frames", 4)
+  eval_hparams.add_hparam("force_beginning_resets", False)
 
   env.start_new_epoch(0)
   rl_trainer_lib.evaluate(eval_hparams, agent_model_dir)
@@ -375,10 +388,8 @@ def compute_mean_reward(rollouts, clipped):
 
 def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
   """Evaluate the world model (reward accuracy)."""
-  environment_spec = make_simulated_env_spec(real_env, hparams)
-  environment_spec.wrappers = []
-
-  num_input_frames = environment_spec.video_num_input_frames
+  # Hardcoded for now. TODO(koz4k): Make it a hparam.
+  num_input_frames = 4
   rollout_subsequences = []
   def initial_frame_chooser(batch_size):
     assert batch_size == len(rollout_subsequences)
@@ -386,11 +397,12 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
         [frame.observation.decode() for frame in subsequence[:num_input_frames]]
         for subsequence in rollout_subsequences
     ])
-  environment_spec.add_hparam("initial_frame_chooser", initial_frame_chooser)
 
-  sim_env = SimulatedBatchGymEnv(
-      environment_spec, hparams.wm_eval_batch_size, world_model_dir
+  env_fn = make_simulated_env_fn(
+      real_env, hparams, hparams.wm_eval_batch_size, initial_frame_chooser,
+      world_model_dir
   )
+  sim_env = env_fn(in_graph=False)
   subsequence_length = int(
       max(hparams.wm_eval_rollout_ratios) * hparams.ppo_epoch_length
   )
