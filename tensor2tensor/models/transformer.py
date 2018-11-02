@@ -1226,6 +1226,13 @@ def transformer_decoder(decoder_input,
   mlperf_log.transformer_print(
       key=mlperf_log.MODEL_HP_ATTENTION_DROPOUT,
       value=hparams.attention_dropout)
+  mlperf_log.transformer_print(
+      key=mlperf_log.MODEL_HP_ATTENTION_DENSE,
+      value={
+          "use_bias": "false",
+          "num_heads": hparams.num_heads,
+          "hidden_size": hparams.hidden_size
+      })
 
   with tf.variable_scope(name):
     for layer in range(hparams.num_decoder_layers or hparams.num_hidden_layers):

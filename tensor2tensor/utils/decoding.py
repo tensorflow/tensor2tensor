@@ -32,6 +32,7 @@ from six.moves import input  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
+from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
@@ -264,7 +265,9 @@ def decode_once(estimator,
   inputs_vocab = problem_hparams.vocabulary[inputs_vocab_key]
   targets_vocab = problem_hparams.vocabulary["targets"]
 
+  num_eval_samples = 0
   for num_predictions, prediction in enumerate(predictions):
+    num_eval_samples += 1
     num_predictions += 1
     inputs = prediction.get("inputs")
     targets = prediction.get("targets")
@@ -327,6 +330,8 @@ def decode_once(estimator,
     if (decode_hp.num_samples >= 0 and
         num_predictions >= decode_hp.num_samples):
       break
+
+  mlperf_log.transformer_print(key=mlperf_log.EVAL_SIZE, value=num_eval_samples)
 
   if decode_to_file:
     output_file.close()

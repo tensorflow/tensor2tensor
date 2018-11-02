@@ -837,6 +837,8 @@ class Problem(object):
       num_shards = 1
 
     max_length = self.max_length(hparams)
+    mlperf_log.transformer_print(
+        key=mlperf_log.INPUT_MAX_LENGTH, value=max_length)
 
     def tpu_valid_size(example):
       return data_reader.example_valid_size(example, hparams.min_length,
