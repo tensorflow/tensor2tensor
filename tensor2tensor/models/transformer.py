@@ -1501,6 +1501,9 @@ def transformer_big():
   hparams = transformer_base()
   hparams.hidden_size = 1024
   hparams.filter_size = 4096
+  # Reduce batch size to 2048 from 4096 to be able to train the model on a GPU
+  # with 12 GB memory. For example, NVIDIA TITAN V GPU.
+  hparams.batch_size = 2048
   hparams.num_heads = 16
   hparams.layer_prepostprocess_dropout = 0.3
   return hparams
