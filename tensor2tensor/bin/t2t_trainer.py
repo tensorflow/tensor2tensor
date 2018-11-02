@@ -19,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 import contextlib
+import copy
 import os
 import sys
 from tensor2tensor import models  # pylint: disable=unused-import
@@ -325,9 +326,13 @@ def save_metadata(hparams):
       f.write(t2t_flags_str)
 
   # Save hparams as hparams.json
+  new_hparams = copy.deepcopy(hparams)
+
+  # Modality class is not JSON serializable so remove.
+  new_hparams.del_hparam("modality")
   hparams_fname = os.path.join(output_dir, "hparams.json")
   with tf.gfile.Open(hparams_fname, "w") as f:
-    f.write(hparams.to_json(indent=0, sort_keys=True))
+    f.write(new_hparams.to_json(indent=0, sort_keys=True))
 
 
 def execute_schedule(exp):
