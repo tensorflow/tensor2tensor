@@ -32,10 +32,10 @@ def get_optimiser(config):
   return config.optimizer(learning_rate=config.learning_rate)
 
 
-def define_ppo_step(data_points, optimizer, hparams):
+def define_ppo_step(data_points, optimizer, hparams, action_space):
   """Define ppo step."""
   observation, action, discounted_reward, norm_advantage, old_pdf = data_points
-  new_policy_dist, new_value, _ = get_policy(observation, hparams)
+  new_policy_dist, new_value, _ = get_policy(observation, hparams, action_space)
   new_pdf = new_policy_dist.prob(action)
 
   ratio = new_pdf / old_pdf
@@ -73,7 +73,7 @@ def define_ppo_step(data_points, optimizer, hparams):
     return [tf.identity(x) for x in losses + gradients_norms]
 
 
-def define_ppo_epoch(memory, hparams):
+def define_ppo_epoch(memory, hparams, action_space):
   """PPO epoch."""
   observation, reward, done, action, old_pdf, value = memory
 
@@ -119,7 +119,9 @@ def define_ppo_epoch(memory, hparams):
   with tf.control_dependencies([iterator.initializer]):
     ppo_step_rets = tf.scan(
         lambda a, i: add_lists_elementwise(  # pylint: disable=g-long-lambda
-            a, define_ppo_step(iterator.get_next(), optimizer, hparams)),
+            a, define_ppo_step(
+                iterator.get_next(), optimizer, hparams, action_space
+            )),
         tf.range(number_of_batches),
         [0., 0., 0., 0., 0., 0.],
         parallel_iterations=1)

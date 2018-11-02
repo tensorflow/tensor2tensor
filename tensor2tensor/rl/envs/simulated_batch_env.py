@@ -37,12 +37,12 @@ class HistoryBuffer(object):
   """History Buffer."""
 
   def __init__(self, initial_frame_chooser, observ_shape, observ_dtype,
-               num_initial_frames, length):
-    self.length = length
+               num_initial_frames, batch_size):
+    self.batch_size = batch_size
     self._observ_dtype = observ_dtype
-    initial_shape = (length, num_initial_frames) + observ_shape
+    initial_shape = (batch_size, num_initial_frames) + observ_shape
     self._initial_frames = tf.py_func(
-        initial_frame_chooser, [tf.constant(length)], observ_dtype
+        initial_frame_chooser, [tf.constant(batch_size)], observ_dtype
     )
     self._initial_frames.set_shape(initial_shape)
     self._history_buff = tf.Variable(tf.zeros(initial_shape, observ_dtype),
@@ -91,46 +91,53 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   flags are held in according variables.
   """
 
-  def __init__(self, environment_spec, length):
+  def __init__(
+      self, reward_range, observation_space, action_space, frame_stack_size,
+      initial_frame_chooser, batch_size, model_name, model_hparams, model_dir,
+      intrinsic_reward_scale=0.0
+  ):
     """Batch of environments inside the TensorFlow graph."""
-    super(SimulatedBatchEnv, self).__init__(
-        environment_spec.observation_space, environment_spec.action_space
-    )
+    super(SimulatedBatchEnv, self).__init__(observation_space, action_space)
 
-    self.length = length
-    self._min_reward = environment_spec.reward_range[0]
-    self._num_frames = environment_spec.video_num_input_frames
-    self._intrinsic_reward_scale = environment_spec.intrinsic_reward_scale
+    self.batch_size = batch_size
+    self._min_reward = reward_range[0]
+    self._num_frames = frame_stack_size
+    self._intrinsic_reward_scale = intrinsic_reward_scale
 
-    model_hparams = copy.copy(environment_spec.model_hparams)
-    problem = DummyWorldModelProblem(
-        environment_spec.action_space, environment_spec.reward_range
-    )
+    model_hparams = copy.copy(model_hparams)
+    problem = DummyWorldModelProblem(action_space, reward_range)
     trainer_lib.add_problem_hparams(model_hparams, problem)
     model_hparams.force_full_predict = True
-    self._model = registry.model(environment_spec.model_name)(
+    self._model = registry.model(model_name)(
         model_hparams, tf.estimator.ModeKeys.PREDICT
     )
 
     self.history_buffer = HistoryBuffer(
-        environment_spec.initial_frame_chooser, self.observ_shape,
-        self.observ_dtype, self._num_frames, self.length
+        initial_frame_chooser, self.observ_shape, self.observ_dtype,
+        self._num_frames, self.batch_size
     )
 
     self._observ = tf.Variable(
-        tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
-        trainable=False)
+        tf.zeros((batch_size,) + self.observ_shape, self.observ_dtype),
+        trainable=False
+    )
+
+    self._model_dir = model_dir
 
   def initialize(self, sess):
-    # Currently not needed. Keeping it just in case.
-    pass
+    model_loader = tf.train.Saver(
+        var_list=tf.global_variables(scope="next_frame*")  # pylint:disable=unexpected-keyword-arg
+    )
+    trainer_lib.restore_checkpoint(
+        self._model_dir, saver=model_loader, sess=sess, must_restore=True
+    )
 
   def __str__(self):
     return "SimulatedEnv"
 
   def __len__(self):
     """Number of combined environments."""
-    return self.length
+    return self.batch_size
 
   def simulate(self, action):
     with tf.name_scope("environment/simulate"):
@@ -149,7 +156,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
                        self.observ_dtype)
 
       reward = tf.to_float(model_output["target_reward"])
-      reward = tf.reshape(reward, shape=(self.length,)) + self._min_reward
+      reward = tf.reshape(reward, shape=(self.batch_size,)) + self._min_reward
 
       if self._intrinsic_reward_scale:
         # Use the model's uncertainty about its prediction as an intrinsic
@@ -168,7 +175,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
                                       summarize=8)
         reward += uncertainty_reward
 
-      done = tf.constant(False, tf.bool, shape=(self.length,))
+      done = tf.constant(False, tf.bool, shape=(self.batch_size,))
 
       with tf.control_dependencies([observ]):
         with tf.control_dependencies(

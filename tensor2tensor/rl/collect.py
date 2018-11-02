@@ -22,9 +22,7 @@ from __future__ import print_function
 import copy
 
 from tensor2tensor.models.research.rl import get_policy
-from tensor2tensor.rl.envs.py_func_batch_env import PyFuncBatchEnv
-from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
-from tensor2tensor.rl.envs.tf_atari_wrappers import WrapperBase
+from tensor2tensor.rl.envs.tf_atari_wrappers import StackWrapper, WrapperBase
 
 import tensorflow as tf
 
@@ -85,32 +83,29 @@ class _MemoryWrapper(WrapperBase):
       return tf.identity(reward), tf.identity(done)
 
 
-def define_collect(hparams, scope):
+def define_collect(batch_env, hparams, scope):
   """Collect trajectories.
 
   Args:
+    batch_env: Batch environment.
     hparams: HParams.
     scope: var scope.
 
   Returns:
-    Returns memory (observtions, rewards, dones, actions,
+    Returns memory (observations, rewards, dones, actions,
     pdfs, values_functions)
     containing a rollout of environment from nested wrapped structure.
   """
 
   to_initialize = []
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
-    environment_spec = hparams.environment_spec
     num_agents = hparams.num_agents
-    if environment_spec.simulated_env:
-      batch_env = SimulatedBatchEnv(environment_spec, num_agents)
-    else:
-      batch_env = PyFuncBatchEnv(environment_spec.env)
 
     to_initialize.append(batch_env)
-    environment_wrappers = environment_spec.wrappers
-    wrappers = copy.copy(environment_wrappers) if environment_wrappers else []
-    wrappers.append((_MemoryWrapper, {}))
+    wrappers = [
+        (StackWrapper, {"history": hparams.frame_stack_size}),
+        (_MemoryWrapper, {})
+    ]
     rollout_metadata = None
     speculum = None
     for w in wrappers:
@@ -142,7 +137,7 @@ def define_collect(hparams, scope):
     zeros_tensor = tf.zeros(len(batch_env))
 
   force_beginning_resets = tf.convert_to_tensor(
-      environment_spec.force_beginning_resets
+      hparams.force_beginning_resets
   )
 
   def reset_ops_group():
@@ -168,7 +163,9 @@ def define_collect(hparams, scope):
 
       def env_step(arg1, arg2, arg3):  # pylint: disable=unused-argument
         """Step of the environment."""
-        actor_critic = get_policy(tf.expand_dims(obs_copy, 0), hparams)
+        actor_critic = get_policy(
+            tf.expand_dims(obs_copy, 0), hparams, batch_env.action_space
+        )
         policy = actor_critic.policy
         action = hparams.policy_to_actions_lambda(policy)
 

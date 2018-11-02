@@ -52,12 +52,11 @@ def initialize_env_specs(hparams):
     env = gym_env.T2TGymEnv("{}Deterministic-v4".format(game_name),
                             batch_size=hparams.num_agents)
     env.start_new_epoch(0)
-    hparams.add_hparam("environment_spec", rl.standard_atari_env_spec(env))
+    hparams.add_hparam("env_fn", rl.make_real_env_fn(env))
     eval_env = gym_env.T2TGymEnv("{}Deterministic-v4".format(game_name),
                                  batch_size=hparams.num_eval_agents)
     eval_env.start_new_epoch(0)
-    hparams.add_hparam(
-        "environment_eval_spec", rl.standard_atari_env_eval_spec(eval_env))
+    hparams.add_hparam("eval_env_fn", rl.make_real_env_fn(eval_env))
   return hparams
 
 

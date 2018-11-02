@@ -39,10 +39,11 @@ def define_train(hparams):
   )
 
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+    train_env = hparams.env_fn(in_graph=True)
     memory, collect_summary, train_initialization = (
-        collect.define_collect(train_hparams, "ppo_train")
+        collect.define_collect(train_env, train_hparams, "ppo_train")
     )
-    ppo_summary = ppo.define_ppo_epoch(memory, hparams)
+    ppo_summary = ppo.define_ppo_epoch(memory, hparams, train_env.action_space)
     train_summary = tf.summary.merge([collect_summary, ppo_summary])
 
     if hparams.eval_every_epochs:
@@ -51,11 +52,11 @@ def define_train(hparams):
       eval_hparams.add_hparam(
           "policy_to_actions_lambda", lambda policy: policy.mode()
       )
-      eval_hparams.environment_spec = hparams.environment_eval_spec
+      eval_env = hparams.eval_env_fn(in_graph=True)
       eval_hparams.num_agents = hparams.num_eval_agents
 
       _, eval_collect_summary, eval_initialization = (
-          collect.define_collect(eval_hparams, "ppo_eval")
+          collect.define_collect(eval_env, eval_hparams, "ppo_eval")
       )
       return train_summary, eval_collect_summary, (train_initialization,
                                                    eval_initialization)
@@ -68,7 +69,7 @@ def train(hparams, event_dir=None, model_dir=None,
   """Train."""
   with tf.Graph().as_default():
     with tf.name_scope(name_scope):
-      train_summary_op, eval_summary_op, intializers = define_train(hparams)
+      train_summary_op, eval_summary_op, initializers = define_train(hparams)
       if event_dir:
         summary_writer = tf.summary.FileWriter(
             event_dir, graph=tf.get_default_graph(), flush_secs=60)
@@ -81,22 +82,10 @@ def train(hparams, event_dir=None, model_dir=None,
       else:
         model_saver = None
 
-      # TODO(piotrmilos): This should be refactored, possibly with
-      # handlers for each type of env
-      if hparams.environment_spec.simulated_env:
-        env_model_loader = tf.train.Saver(
-            tf.global_variables("next_frame*"))
-      else:
-        env_model_loader = None
-
       with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        for initializer in intializers:
+        for initializer in initializers:
           initializer(sess)
-        if env_model_loader:
-          trainer_lib.restore_checkpoint(
-              hparams.world_model_dir, env_model_loader, sess,
-              must_restore=True)
         start_step = 0
         if model_saver and restore_agent:
           start_step = trainer_lib.restore_checkpoint(
@@ -144,8 +133,9 @@ def evaluate(hparams, model_dir, name_scope="rl_eval"):
   hparams.add_hparam("eval_phase", True)
   with tf.Graph().as_default():
     with tf.name_scope(name_scope):
+      eval_env = hparams.env_fn(in_graph=True)
       (collect_memory, _, collect_init) = collect.define_collect(
-          hparams, "ppo_eval"
+          eval_env, hparams, "ppo_eval"
       )
       model_saver = tf.train.Saver(
           tf.global_variables(".*network_parameters.*")
