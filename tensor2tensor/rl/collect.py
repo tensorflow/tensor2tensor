@@ -19,10 +19,9 @@ from __future__ import division
 from __future__ import print_function
 
 
-import copy
-
 from tensor2tensor.models.research.rl import get_policy
-from tensor2tensor.rl.envs.tf_atari_wrappers import StackWrapper, WrapperBase
+from tensor2tensor.rl.envs.tf_atari_wrappers import StackWrapper
+from tensor2tensor.rl.envs.tf_atari_wrappers import WrapperBase
 
 import tensorflow as tf
 
