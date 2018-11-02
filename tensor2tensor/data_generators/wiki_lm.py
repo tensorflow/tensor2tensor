@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import six
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
@@ -29,56 +30,197 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
-@registry.register_problem
-class LanguagemodelWiki32k(text_problems.Text2SelfProblem):
-  """A language model on the untokenized wikipedia corpus."""
+def concat_generator(filename, up_threshold, low_threshold=10):
+  """Generate concatenated lines from file upto up_threshold characters."""
+  txt = ""
+  for line in tf.gfile.Open(filename):
+    line = line.strip()
+    if len(txt) + len(line) > up_threshold:
+      ret = txt
+      txt = ""
+      # We don't yield very short long parts to prevent noisy examples.
+      if len(ret) > low_threshold and len(ret) < up_threshold:
+        yield {"targets": ret}
 
-  # File names and Google drive ids for the training/dev/test data.
-  train_name_id = ("wiki_train.txt.gz", "1-l02fI15ieMIZk8EnXhzhsvuEYRoznZ8")
-  dev_name_id = ("wiki_dev.txt.gz", "1odhDxWKtAPKXwxRw1KCrmlrVewxdXYq7")
-  test_name_id = ("wiki_test.txt.gz", "1i1Bg6XqvdRl1LuOiIWbg7ww8Y02Ip5VK")
+    if not txt:
+      txt = line
+    else:
+      txt = " ".join([txt, line])
+
+
+def mix_generators(generator_list):
+  """Given python generators, generate from one, then from another, etc."""
+  i = 0
+  l = len(generator_list)
+  stopiters_seen = 0
+  while stopiters_seen <= l:
+    try:
+      yield six.next(generator_list[i % l])
+      i += 1
+      stopiters_seen = 0
+    except StopIteration:
+      i += 1
+      stopiters_seen += 1
+
+
+# File names and Google drive ids for the training/eval/test Wikipedia data.
+_EN_TRAIN_NAME_ID = ("enwiki_train.txt.gz", "1-l02fI15ieMIZk8EnXhzhsvuEYRoznZ8")
+_EN_EVAL_NAME_ID = ("enwiki_eval.txt.gz", "1odhDxWKtAPKXwxRw1KCrmlrVewxdXYq7")
+_EN_TEST_NAME_ID = ("enwiki_test.txt.gz", "1i1Bg6XqvdRl1LuOiIWbg7ww8Y02Ip5VK")
+
+_DE_TRAIN_NAME_ID = ("dewiki_train.txt.gz", "1FzEwoPonw9xlwX34vLPFInUF8F4X5yJy")
+_DE_EVAL_NAME_ID = ("dewiki_eval.txt.gz", "1EKwRRPHyWny0RJ-aqSGMcNfjAlzFl51B")
+_DE_TEST_NAME_ID = ("dewiki_test.txt.gz", "1Kr13Y7y_OD3JtUM9riXpFQP9UiHDkcFY")
+
+_FR_TRAIN_NAME_ID = ("frwiki_train.txt.gz", "1etUIEZxMQKORwLGkssE5wlfCxxkeo8WV")
+_FR_EVAL_NAME_ID = ("frwiki_eval.txt.gz", "13qrR5ZnHRgIMdcURVpixKL9gTO23GcPc")
+_FR_TEST_NAME_ID = ("frwiki_test.txt.gz", "1mQpHRkAV9KXt68de69RwR8dkDi8EEusV")
+
+_RO_TRAIN_NAME_ID = ("rowiki_train.txt.gz", "1wUJTEAlQeDcAwFnBxa8PzE-DCiXSU_W7")
+_RO_EVAL_NAME_ID = ("rowiki_eval.txt.gz", "1uIPy2ZgkyArPy_gnsILENjgv4QQmSKtx")
+_RO_TEST_NAME_ID = ("rowiki_test.txt.gz", "1kphjN4jXTbw8HyRYKaRE2zY4D7Fr-p7-")
+
+
+@registry.register_problem
+class LanguagemodelEnWiki32k(text_problems.Text2SelfProblem):
+  """A language model on the untokenized wikipedia corpus, English."""
+
+  train_names_ids = [_EN_TRAIN_NAME_ID]
+  eval_names_ids = [_EN_EVAL_NAME_ID]
+  test_names_ids = [_EN_TEST_NAME_ID]
 
   @property
   def approx_vocab_size(self):
-    return 2**15  # 32768
+    return 32000
 
   @property
   def max_samples_for_vocab(self):
-    return 63000
+    return 128000
+
+  @property
+  def combine_characters_threshold(self):
+    """Threshold for upto how many characters to combine in examples."""
+    return 512*8  # So we should have 512 tokens on average, maybe more.
 
   def is_generate_per_split(self):
     return True
 
+  @property
+  def dataset_splits(self):
+    """Splits of data to produce and number of output shards for each."""
+    return [{
+        "split": problem.DatasetSplit.TRAIN,
+        "shards": 100,
+    }, {
+        "split": problem.DatasetSplit.EVAL,
+        "shards": 1,
+    }, {
+        "split": problem.DatasetSplit.TEST,
+        "shards": 1,
+    }]
+
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
-    # Thresholds in the number of characters for LM examples
-    lo_thresh = 10
-    up_thresh = 256*8
-
+    """Generate samples."""
     if dataset_split == problem.DatasetSplit.TRAIN:
-      (fname, fid) = self.train_name_id
+      file_names_ids = self.train_names_ids
+    elif dataset_split == problem.DatasetSplit.TEST:
+      file_names_ids = self.test_names_ids
     else:
-      (fname, fid) = self.dev_name_id
+      file_names_ids = self.eval_names_ids
 
-    wikifiles = []
-    url = "https://drive.google.com/uc?export=download&id=" + fid
-    download_path = generator_utils.maybe_download_from_drive(
-        tmp_dir, fname, url)
-    wiki_file = os.path.join(tmp_dir, fname[:-3])
-    if not tf.gfile.Exists(wiki_file):
-      generator_utils.gunzip_file(download_path, wiki_file)
-    wikifiles.append(wiki_file)
+    wiki_generators = []
+    for (fname, fid) in file_names_ids:
+      url = "https://drive.google.com/uc?export=download&id=" + fid
+      download_path = generator_utils.maybe_download_from_drive(
+          tmp_dir, fname, url)
+      wiki_file = os.path.join(tmp_dir, fname[:-3])
+      if not tf.gfile.Exists(wiki_file):
+        generator_utils.gunzip_file(download_path, wiki_file)
+      wiki_generators.append(
+          concat_generator(wiki_file, self.combine_characters_threshold))
 
-    txt = ""
-    for wiki_file in wikifiles:
-      for line in tf.gfile.Open(wiki_file):
-        line = line.strip()
-        if len(txt) + len(line) > up_thresh:
-          ret = txt
-          txt = ""
-          if len(ret) > lo_thresh and len(ret) < up_thresh:
-            yield {"targets": ret}
+    for example in mix_generators(wiki_generators):
+      yield example
 
-        if not txt:
-          txt = line
-        else:
-          txt = " ".join([txt, line])
+
+@registry.register_problem
+class LanguagemodelEnWiki64k(LanguagemodelEnWiki32k):
+  """As above, with 64k vocabulary."""
+
+  @property
+  def approx_vocab_size(self):
+    return 64000
+
+
+@registry.register_problem
+class LanguagemodelDeWiki32k(LanguagemodelEnWiki32k):
+  """A language model on the untokenized wikipedia corpus, German."""
+
+  train_names_ids = [_DE_TRAIN_NAME_ID]
+  eval_names_ids = [_DE_EVAL_NAME_ID]
+  test_names_ids = [_DE_TEST_NAME_ID]
+
+
+@registry.register_problem
+class LanguagemodelDeWiki64k(LanguagemodelDeWiki32k):
+  """As above, with 64k vocabulary."""
+
+  @property
+  def approx_vocab_size(self):
+    return 64000
+
+
+@registry.register_problem
+class LanguagemodelFrWiki32k(LanguagemodelEnWiki32k):
+  """A language model on the untokenized wikipedia corpus, French."""
+
+  train_names_ids = [_FR_TRAIN_NAME_ID]
+  eval_names_ids = [_FR_EVAL_NAME_ID]
+  test_names_ids = [_FR_TEST_NAME_ID]
+
+
+@registry.register_problem
+class LanguagemodelFrWiki64k(LanguagemodelFrWiki32k):
+  """As above, with 64k vocabulary."""
+
+  @property
+  def approx_vocab_size(self):
+    return 64000
+
+
+@registry.register_problem
+class LanguagemodelRoWiki32k(LanguagemodelEnWiki32k):
+  """A language model on the untokenized wikipedia corpus, Romanian."""
+
+  train_names_ids = [_RO_TRAIN_NAME_ID]
+  eval_names_ids = [_RO_EVAL_NAME_ID]
+  test_names_ids = [_RO_TEST_NAME_ID]
+
+
+@registry.register_problem
+class LanguagemodelRoWiki64k(LanguagemodelRoWiki32k):
+  """As above, with 64k vocabulary."""
+
+  @property
+  def approx_vocab_size(self):
+    return 64000
+
+
+@registry.register_problem
+class LanguagemodelDeEnFrRoWiki64k(LanguagemodelEnWiki32k):
+  """A language model on untokenized Wikipedia, 4 languages together."""
+
+  train_names_ids = [_DE_TRAIN_NAME_ID, _FR_TRAIN_NAME_ID,
+                     _EN_TRAIN_NAME_ID, _RO_TRAIN_NAME_ID]
+  eval_names_ids = [_DE_EVAL_NAME_ID, _FR_EVAL_NAME_ID,
+                    _EN_EVAL_NAME_ID, _RO_EVAL_NAME_ID]
+  test_names_ids = [_DE_TEST_NAME_ID, _FR_TEST_NAME_ID,
+                    _EN_TEST_NAME_ID, _RO_TEST_NAME_ID]
+
+  @property
+  def approx_vocab_size(self):
+    return 64000
+
+  @property
+  def max_samples_for_vocab(self):
+    return 256000  # Samples are intertwined, take more to cover 4 languages.
