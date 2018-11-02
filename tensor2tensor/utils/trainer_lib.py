@@ -39,7 +39,7 @@ from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
 
 
-def next_checkpoint(model_dir, timeout_mins=120):
+def next_checkpoint(model_dir, timeout_mins=240):
   """Yields successive checkpoints from model_dir."""
   last_ckpt = None
   while True:
