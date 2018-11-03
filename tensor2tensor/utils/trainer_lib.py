@@ -54,6 +54,39 @@ def next_checkpoint(model_dir, timeout_mins=240):
     yield last_ckpt
 
 
+def next_undecoded_checkpoint(model_dir, timeout_mins=240):
+  """Yields successive checkpoints from model_dir."""
+  last_ckpt = None
+  last_step = 0
+  while True:
+    # Get the latest checkpoint.
+    last_ckpt = tf.contrib.training.wait_for_new_checkpoint(
+        model_dir, last_ckpt, seconds_to_sleep=60, timeout=60 * timeout_mins)
+    # Get all the checkpoint from the model dir.
+    ckpt_path = tf.train.get_checkpoint_state(model_dir)
+    all_model_checkpoint_paths = ckpt_path.all_model_checkpoint_paths
+    ckpt_step = np.inf
+    next_ckpt = None
+    # Find the next checkpoint to eval based on last_step.
+    for ckpt in all_model_checkpoint_paths:
+      step = int(os.path.basename(ckpt).split("-")[1])
+      if step > last_step and step < ckpt_step:
+        ckpt_step = step
+        next_ckpt = ckpt
+
+    # If all the checkpoints have been evaluated.
+    if last_ckpt is None and next_ckpt is None:
+      tf.logging.info(
+          "Eval timeout: no new checkpoints within %dm" % timeout_mins)
+      break
+
+    if next_ckpt is not None:
+      last_step = ckpt_step
+      last_ckpt = next_ckpt
+
+    yield last_ckpt
+
+
 def create_session_config(log_device_placement=False,
                           enable_graph_rewriter=False,
                           gpu_mem_fraction=0.95,
@@ -437,6 +470,8 @@ class T2TExperiment(object):
         self._hparams.problem = problem
         self._hparams.problem_hparams = p_hparams
       mlperf_log.transformer_print(key=mlperf_log.EVAL_START)
+      if self._decode_hparams.mlperf_mode:
+        self._decode_hparams.mlperf_decode_step = i
       self.decode(dataset_split=tf.estimator.ModeKeys.EVAL)
       d_hparams = self._decode_hparams
       if d_hparams.mlperf_mode and d_hparams.mlperf_success:
@@ -527,11 +562,20 @@ class T2TExperiment(object):
 
   def continuous_decode_on_eval_data(self):
     """Decode from dataset on new checkpoint."""
-    for ckpt in next_checkpoint(self._hparams.model_dir):
+    if self._decode_hparams.mlperf_mode:
+      ckpt_generator = next_undecoded_checkpoint(self._hparams.model_dir)
+    else:
+      ckpt_generator = next_checkpoint(self._hparams.model_dir)
+
+    for ckpt in ckpt_generator:
       current_step = int(os.path.basename(ckpt).split("-")[1])
+      tf.logging.info("Decoding step %d" % current_step)
       # Skip checkpoint 0.
       if current_step == 0:
         continue
+      if self._decode_hparams.mlperf_mode:
+        self._decode_hparams.mlperf_decode_step = current_step
+
       mlperf_log.transformer_print(key=mlperf_log.EVAL_START)
       self.decode(dataset_split=tf.estimator.ModeKeys.EVAL)
       d_hparams = self._decode_hparams

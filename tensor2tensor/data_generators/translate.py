@@ -21,7 +21,6 @@ from __future__ import print_function
 
 import os
 import tarfile
-import numpy as np
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -79,14 +78,6 @@ def compute_bleu_summaries(hook_args):
     reference file and the translated file.
   """
   decode_hparams = hook_args.decode_hparams
-  estimator = hook_args.estimator
-  current_step = estimator.get_variable_value(tf.GraphKeys.GLOBAL_STEP)
-  has_iters = hasattr(decode_hparams, "iterations_per_loop")
-  if current_step and has_iters and decode_hparams.iterations_per_loop:
-    iterations_per_loop = decode_hparams.iterations_per_loop
-    current_epoch = np.asscalar(current_step) // iterations_per_loop
-  else:
-    current_epoch = 0
 
   if (decode_hparams.decode_reference is None or
       decode_hparams.decode_to_file is None):
@@ -98,12 +89,14 @@ def compute_bleu_summaries(hook_args):
   values.append(tf.Summary.Value(tag="BLEU", simple_value=bleu))
   tf.logging.info("%s: BLEU = %6.2f" % (decode_hparams.decode_to_file, bleu))
   if decode_hparams.mlperf_mode:
+    current_step = decode_hparams.mlperf_decode_step
     mlperf_log.transformer_print(
         key=mlperf_log.EVAL_TARGET, value=decode_hparams.mlperf_threshold)
     mlperf_log.transformer_print(
         key=mlperf_log.EVAL_ACCURACY,
         value={
-            "epoch": max(current_epoch - 1, 0),
+            "epoch": max(current_step // decode_hparams.iterations_per_loop - 1,
+                         0),
             "value": bleu
         })
     mlperf_log.transformer_print(key=mlperf_log.EVAL_STOP)

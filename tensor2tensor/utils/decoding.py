@@ -79,6 +79,7 @@ def decode_hparams(overrides=""):
       max_display_outputs=10,
       # Used for MLPerf compliance logging.
       mlperf_mode=False,
+      mlperf_decode_step=0.0,
       mlperf_threshold=25.0,
       mlperf_success=False)
   hp.parse(overrides)
