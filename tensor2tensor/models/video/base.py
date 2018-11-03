@@ -326,16 +326,23 @@ class NextFrameBase(t2t_model.T2TModel):
       sampled frame.
 
     """
-    if not self.is_per_pixel_softmax:
-      return pred_frame
-    frame_shape = common_layers.shape_list(pred_frame)
-    target_shape = frame_shape[:-1] + [self.hparams.problem.num_channels]
-    sampled_frame = tf.reshape(pred_frame, target_shape + [256])
-    # TODO(lukaszkaiser): should this be argmax or real sampling.
-    sampled_frame = tf.argmax(sampled_frame, axis=-1)
-    sampled_frame = tf.to_float(sampled_frame)
-    # TODO(lukaszkaiser): this should be consistent with modality.bottom()
-    sampled_frame = common_layers.standardize_images(sampled_frame)
+    # TODO(lukaszkaiser): the logic below heavily depend on the current
+    # (a bit strange) video modalities - we should change that.
+
+    if self.is_per_pixel_softmax:
+      frame_shape = common_layers.shape_list(pred_frame)
+      target_shape = frame_shape[:-1] + [self.hparams.problem.num_channels]
+      sampled_frame = tf.reshape(pred_frame, target_shape + [256])
+      # TODO(lukaszkaiser): should this be argmax or real sampling.
+      sampled_frame = tf.argmax(sampled_frame, axis=-1)
+      sampled_frame = tf.to_float(sampled_frame)
+      # TODO(lukaszkaiser): this should be consistent with modality.bottom()
+      sampled_frame = common_layers.standardize_images(sampled_frame)
+    else:
+      x = common_layers.convert_real_to_rgb(pred_frame)
+      x = tf.cast(x, tf.uint8)
+      x = common_layers.convert_rgb_to_real(x)
+      return x
     return sampled_frame
 
   def __get_next_inputs(self, index, all_frames, all_actions, all_rewards):
@@ -440,10 +447,6 @@ class NextFrameBase(t2t_model.T2TModel):
 
   def __process(self, all_frames, all_actions, all_rewards, all_raw_frames):
     """Main video processing function."""
-
-    # TODO(lukaszkaiser): the split axes and the argmax below heavily depend on
-    # using the default (a bit strange) video modality - we should change that.
-
     hparams = self.hparams
     all_frames_copy = [tf.identity(frame) for frame in all_frames]
     orig_frame_shape = common_layers.shape_list(all_frames[0])
