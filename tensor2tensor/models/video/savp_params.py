@@ -44,6 +44,9 @@ def next_frame_savp():
   hparams.upsample_method = "bilinear_upsample_conv"
   hparams.internal_loss = False
   hparams.reward_prediction = False
+  hparams.anneal_end = 100000
+  hparams.num_iterations_1st_stage = 0
+  hparams.num_iterations_2nd_stage = 50000
   return hparams
 
 
@@ -55,7 +58,6 @@ def next_frame_savp_vae():
   hparams.use_gan = False
   hparams.latent_loss_multiplier = 1e-3
   hparams.latent_loss_multiplier_schedule = "linear_anneal"
-  hparams.anneal_end = 100000
   return hparams
 
 
