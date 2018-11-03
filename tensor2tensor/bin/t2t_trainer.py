@@ -53,7 +53,10 @@ flags.DEFINE_integer("iterations_per_loop", 100,
 flags.DEFINE_bool("use_tpu", False, "Whether to use TPU.")
 flags.DEFINE_bool("use_tpu_estimator", False, "Whether to use TPUEstimator. "
                   "This is always enabled when use_tpu is True.")
-flags.DEFINE_bool("xla_compile", False, "Whether to use XLA to compile graph.")
+flags.DEFINE_bool("xla_compile", False,
+                  "Whether to use XLA to compile model_fn.")
+flags.DEFINE_integer("xla_jit_level", -1,
+                     "GlobalJitLevel to use while compiling the full graph.")
 flags.DEFINE_integer("tpu_infeed_sleep_secs", None,
                      "How long to sleep the infeed thread.")
 flags.DEFINE_bool("generate_data", False, "Generate data before training?")
@@ -243,6 +246,7 @@ def create_run_config(hp, output_dir=None):
       enable_graph_rewriter=FLAGS.enable_graph_rewriter,
       use_tpu=FLAGS.use_tpu,
       use_tpu_estimator=FLAGS.use_tpu_estimator,
+      xla_jit_level=FLAGS.xla_jit_level,
       schedule=FLAGS.schedule,
       no_data_parallelism=hp.no_data_parallelism,
       optionally_use_dist_strat=FLAGS.optionally_use_dist_strat,

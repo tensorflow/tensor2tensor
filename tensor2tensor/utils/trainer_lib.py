@@ -58,6 +58,7 @@ def create_session_config(log_device_placement=False,
                           enable_graph_rewriter=False,
                           gpu_mem_fraction=0.95,
                           use_tpu=False,
+                          xla_jit_level=tf.OptimizerOptions.OFF,
                           inter_op_parallelism_threads=0,
                           intra_op_parallelism_threads=0):
   """The TensorFlow Session config to use."""
@@ -71,7 +72,9 @@ def create_session_config(log_device_placement=False,
     else:
       graph_options = tf.GraphOptions(
           optimizer_options=tf.OptimizerOptions(
-              opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
+              opt_level=tf.OptimizerOptions.L1,
+              do_function_inlining=False,
+              global_jit_level=xla_jit_level))
 
   gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=gpu_mem_fraction)
 
@@ -162,6 +165,7 @@ def create_run_config(model_name,
                       tpu_infeed_sleep_secs=None,
                       use_tpu=False,
                       use_tpu_estimator=False,
+                      xla_jit_level=tf.OptimizerOptions.OFF,
                       inter_op_parallelism_threads=0,
                       log_step_count_steps=100,
                       intra_op_parallelism_threads=0,
@@ -173,6 +177,7 @@ def create_run_config(model_name,
       enable_graph_rewriter=enable_graph_rewriter,
       gpu_mem_fraction=gpu_mem_fraction,
       use_tpu=use_tpu,
+      xla_jit_level=xla_jit_level,
       inter_op_parallelism_threads=inter_op_parallelism_threads,
       intra_op_parallelism_threads=intra_op_parallelism_threads)
   run_config_args = {
