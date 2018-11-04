@@ -486,15 +486,17 @@ class NextFrameBase(t2t_model.T2TModel):
       sampled_frame = self.get_sampled_frame(res_frame)
       sampled_frames.append(sampled_frame)
 
-      if self.is_predicting:
+      # Check whether we are done with context frames or not
+      if self.is_recurrent_model:
+        done_warm_start = (i >= hparams.video_num_input_frames - 1)
+      else:
+        done_warm_start = True  # Always true for non-reccurent networks.
+
+      if self.is_predicting and done_warm_start:
         all_frames[target_index] = sampled_frame
 
       # Scheduled sampling during training.
       if self.is_training:
-        if self.is_recurrent_model:
-          done_warm_start = i >= hparams.video_num_input_frames - 1
-        else:
-          done_warm_start = True  # Always true for non-reccurent networks.
         groundtruth_items = [target_frame]
         generated_items = [sampled_frame]
         ss_frame, = self.get_scheduled_sample_inputs(
