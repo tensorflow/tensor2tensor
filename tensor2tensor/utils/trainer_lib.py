@@ -471,7 +471,7 @@ class T2TExperiment(object):
         self._hparams.problem_hparams = p_hparams
       mlperf_log.transformer_print(key=mlperf_log.EVAL_START)
       if self._decode_hparams.mlperf_mode:
-        self._decode_hparams.mlperf_decode_step = i
+        self._decode_hparams.mlperf_decode_step = i + eval_steps
       self.decode(dataset_split=tf.estimator.ModeKeys.EVAL)
       d_hparams = self._decode_hparams
       if d_hparams.mlperf_mode and d_hparams.mlperf_success:
