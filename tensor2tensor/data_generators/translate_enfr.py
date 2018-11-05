@@ -18,6 +18,9 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import os
+
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
@@ -136,6 +139,71 @@ class TranslateEnfrWmt32kPacked(TranslateEnfrWmt32k):
   @property
   def vocab_filename(self):
     return TranslateEnfrWmt32k().vocab_filename
+
+
+@registry.register_problem
+class TranslateEnfrWmt32kWithBacktranslateFr(TranslateEnfrWmt32k):
+  """En-Fr translation with added French data, back-translated."""
+
+  @property
+  def vocab_filename(self):
+    return TranslateEnfrWmt32k().vocab_filename
+
+  @property
+  def already_shuffled(self):
+    return True
+
+  @property
+  def backtranslate_data_filenames(self):
+    """List of pairs of files with matched back-translated data."""
+    # Files must be placed in tmp_dir, each similar size to authentic data.
+    return [("fr_mono_en.txt", "fr_mono_fr.txt")]
+
+  @property
+  def dataset_splits(self):
+    """Splits of data to produce and number of output shards for each."""
+    return [{
+        "split": problem.DatasetSplit.TRAIN,
+        "shards": 1,  # Use just 1 shard so as to not mix data.
+    }, {
+        "split": problem.DatasetSplit.EVAL,
+        "shards": 1,
+    }]
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    datasets = self.source_data_files(dataset_split)
+    tag = "train" if dataset_split == problem.DatasetSplit.TRAIN else "dev"
+    data_path = translate.compile_data(
+        tmp_dir, datasets, "%s-compiled-%s" % (self.name, tag))
+    # Iterator over authentic data.
+    it_auth = text_problems.text2text_txt_iterator(
+        data_path + ".lang1", data_path + ".lang2")
+    # For eval, use authentic data.
+    if dataset_split != problem.DatasetSplit.TRAIN:
+      for example in it_auth:
+        yield example
+    else:  # For training, mix synthetic and authentic data as follows.
+      for (file1, file2) in self.backtranslate_data_filenames:
+        path1 = os.path.join(tmp_dir, file1)
+        path2 = os.path.join(tmp_dir, file2)
+        # Synthetic data first.
+        for example in text_problems.text2text_txt_iterator(path1, path2):
+          yield example
+        # Now authentic data.
+        for example in it_auth:
+          yield example
+
+
+@registry.register_problem
+class TranslateEnfrWmt32kWithBacktranslateEn(
+    TranslateEnfrWmt32kWithBacktranslateFr):
+  """En-Fr translation with added English data, back-translated."""
+
+  @property
+  def backtranslate_data_filenames(self):
+    """List of pairs of files with matched back-translated data."""
+    # Files must be placed in tmp_dir, each similar size to authentic data.
+    return [("en_mono_en.txt%d" % i, "en_mono_fr.txt%d" % i) for i in [0, 1, 2]]
 
 
 @registry.register_problem

@@ -280,6 +280,10 @@ class Text2TextProblem(problem.Problem):
   def batch_size_means_tokens(self):
     return True
 
+  @property
+  def already_shuffled(self):
+    return False
+
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
 
     filepath_fns = {
@@ -289,7 +293,7 @@ class Text2TextProblem(problem.Problem):
     }
 
     split_paths = [(split["split"], filepath_fns[split["split"]](
-        data_dir, split["shards"], shuffled=False))
+        data_dir, split["shards"], shuffled=self.already_shuffled))
                    for split in self.dataset_splits]
     all_paths = []
     for _, paths in split_paths:
