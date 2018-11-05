@@ -153,6 +153,20 @@ class LanguagemodelEnWiki64k(LanguagemodelEnWiki32k):
 
 
 @registry.register_problem
+class LanguagemodelEnWiki64kShorter(LanguagemodelEnWiki64k):
+  """With 64k vocabulary and shorter truncation lengths."""
+
+  @property
+  def combine_characters_threshold(self):
+    """Threshold for upto how many characters to combine in examples."""
+    return 384*8
+
+  @property
+  def vocab_filename(self):
+    return LanguagemodelEnWiki64k().vocab_filename
+
+
+@registry.register_problem
 class LanguagemodelDeWiki32k(LanguagemodelEnWiki32k):
   """A language model on the untokenized wikipedia corpus, German."""
 

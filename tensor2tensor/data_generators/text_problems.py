@@ -539,9 +539,9 @@ class TextConcat2ClassProblem(Text2ClassProblem):
       inputs = []
       for idx, inp in enumerate(sample["inputs"]):
         inputs += encoder.encode(inp)
-        inputs.append(text_encoder.EOS_ID)
         if idx < len(sample["inputs"]) - 1:
           inputs.append(encoder.encode(self.CONCAT_TOKEN)[0])
+      inputs.append(text_encoder.EOS_ID)
       label = sample["label"]
       yield {"inputs": inputs, "targets": [label]}
 
