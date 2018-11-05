@@ -118,6 +118,20 @@ class ConditionalOptimizer(tf.train.Optimizer):
           beta1=hparams.optimizer_adam_beta1,
           beta2=hparams.optimizer_adam_beta2,
           epsilon=hparams.optimizer_adam_epsilon)
+    elif optimizer_name == "AdamW":
+      # Openai gpt used weight decay.
+      # Given the internals of AdamW, weight decay dependent on the
+      # learning rate is chosen to match the openai implementation.
+      # The weight decay update to each parameter is applied before the adam
+      # gradients computation, which is different from that described
+      # in the paper and in the openai implementation:
+      # https://arxiv.org/pdf/1711.05101.pdf
+      self._opt = tf.contrib.opt.AdamWOptimizer(
+          0.01*lr,
+          lr,
+          beta1=hparams.optimizer_adam_beta1,
+          beta2=hparams.optimizer_adam_beta2,
+          epsilon=hparams.optimizer_adam_epsilon)
     elif optimizer_name == "Adafactor":
       self._opt = adafactor.adafactor_optimizer_from_hparams(hparams, lr)
     else:
