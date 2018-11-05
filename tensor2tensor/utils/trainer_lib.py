@@ -535,7 +535,10 @@ class T2TExperiment(object):
         protocol=self._hparams.std_server_protocol)
     server.join()
 
-  def decode(self, dataset_split=None, decode_from_file=False):
+  def decode(self,
+             dataset_split=None,
+             decode_from_file=False,
+             checkpoint_path=None):
     """Decodes from dataset or file."""
     if decode_from_file:
       decoding.decode_from_file(self._estimator,
@@ -544,11 +547,13 @@ class T2TExperiment(object):
                                 self._decode_hparams,
                                 self._decode_hparams.decode_to_file)
     else:
-      decoding.decode_from_dataset(self._estimator,
-                                   self._hparams.problem.name,
-                                   self._hparams,
-                                   self._decode_hparams,
-                                   dataset_split=dataset_split)
+      decoding.decode_from_dataset(
+          self._estimator,
+          self._hparams.problem.name,
+          self._hparams,
+          self._decode_hparams,
+          dataset_split=dataset_split,
+          checkpoint_path=checkpoint_path)
 
   def continuous_decode(self):
     """Decode from dataset on new checkpoint."""
@@ -573,11 +578,16 @@ class T2TExperiment(object):
       # Skip checkpoint 0.
       if current_step == 0:
         continue
+      # Decode the latest checkpoint by default.
+      checkpoint_path = None
       if self._decode_hparams.mlperf_mode:
         self._decode_hparams.mlperf_decode_step = current_step
+        checkpoint_path = ckpt
 
       mlperf_log.transformer_print(key=mlperf_log.EVAL_START)
-      self.decode(dataset_split=tf.estimator.ModeKeys.EVAL)
+      self.decode(
+          dataset_split=tf.estimator.ModeKeys.EVAL,
+          checkpoint_path=checkpoint_path)
       d_hparams = self._decode_hparams
       if d_hparams.mlperf_mode and d_hparams.mlperf_success:
         mlperf_log.transformer_print(
