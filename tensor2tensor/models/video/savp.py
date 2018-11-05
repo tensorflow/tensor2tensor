@@ -333,7 +333,7 @@ class NextFrameSavpBase(object):
 
 
 @registry.register_model
-class NextFrameSAVP(sv2p.NextFrameSv2pLegacy, NextFrameSavpBase):
+class NextFrameSAVP(NextFrameSavpBase, sv2p.NextFrameSv2pLegacy):
   """Stochastic Adversarial Video Prediction."""
 
   def construct_model(self, images, actions, rewards):
