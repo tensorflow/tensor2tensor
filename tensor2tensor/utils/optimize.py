@@ -183,7 +183,7 @@ def weight_noise(noise_rate, learning_rate, var_list):
   noise_ops = []
 
   for v in var_list:
-    with tf.device(v._ref().device):  # pylint: disable=protected-access
+    with tf.device(v.device):  # pylint: disable=protected-access
       scale = noise_rate * learning_rate * 0.001
       if common_layers.should_generate_summaries():
         tf.summary.scalar("weight_noise_scale", scale)
