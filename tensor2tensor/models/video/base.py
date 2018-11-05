@@ -35,6 +35,10 @@ tfl = tf.layers
 tfcl = tf.contrib.layers
 
 
+def flat_lists(list_of_lists):
+  return [x for l in list_of_lists for x in l]
+
+
 @registry.register_model
 class NextFrameBase(t2t_model.T2TModel):
   """Base class for next_frame models.
@@ -139,9 +143,29 @@ class NextFrameBase(t2t_model.T2TModel):
     """
     raise NotImplementedError("Base video model.")
 
+  def init_internal_states(self):
+    """Allows a model to preserve its internal model across multiple runs.
+
+    This optional function is only useful for any model with internal states
+    (usually recurrent models) which need to preserve states after any call.
+    """
+    return None
+
+  def load_internal_states_ops(self):
+    """Loade internal states from class variables."""
+    return [[tf.no_op()]]
+
+  def save_internal_states_ops(self, internal_states):
+    """Saves internal states into class variables."""
+    return [[tf.no_op()]]
+
   # ============================================================================
   # END SUBCLASS INTERFACE
   # ============================================================================
+
+  def __init__(self, *args, **kwargs):
+    super(NextFrameBase, self).__init__(*args, **kwargs)
+    self.internal_states = self.init_internal_states()
 
   @property
   def _target_modality(self):
@@ -454,7 +478,6 @@ class NextFrameBase(t2t_model.T2TModel):
     ss_func = self.get_scheduled_sample_func(batch_size)
     target_frames = []
     extra_loss = 0.0
-    internal_states = None
 
     # Any extra info required by the model goes into here.
     video_features = self.video_features(
@@ -466,42 +489,66 @@ class NextFrameBase(t2t_model.T2TModel):
     else:
       input_index_range = range(hparams.video_num_target_frames)
 
+    # Setup the internal states as well as an auxiliary tf op
+    # to enforce syncronization between prediction steps.
+    if self.internal_states is None:
+      internal_states = None
+      sync_op = tf.no_op()
+    else:
+      internal_states = self.load_internal_states_ops()
+      with tf.control_dependencies(flat_lists(internal_states)):
+        sync_op = tf.no_op()
+
     res_frames, sampled_frames, res_rewards = [], [], []
     for i in input_index_range:
-      frames, actions, rewards, target_index = self.__get_next_inputs(
-          i, all_frames, all_actions, all_rewards)
-      target_frame = all_frames[target_index]
-      target_frames.append(tf.identity(target_frame))
+      with tf.control_dependencies([sync_op]):
+        frames, actions, rewards, target_index = self.__get_next_inputs(
+            i, all_frames, all_actions, all_rewards)
+        target_frame = all_frames[target_index]
+        target_frames.append(tf.identity(target_frame))
 
-      with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-        func_in = (frames, actions, rewards, target_frame,
-                   internal_states, video_features)
-        func_out = self.next_frame(*func_in)
-        res_frame, res_reward, res_extra_loss, internal_states = func_out
-        res_frames.append(res_frame)
-        res_rewards.append(res_reward)
-        extra_loss += res_extra_loss / float(len(input_index_range))
+        with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+          func_in = (frames, actions, rewards, target_frame,
+                     internal_states, video_features)
+          func_out = self.next_frame(*func_in)
+          res_frame, res_reward, res_extra_loss, internal_states = func_out
+          res_frames.append(res_frame)
+          res_rewards.append(res_reward)
+          extra_loss += res_extra_loss / float(len(input_index_range))
 
-      # Only for Softmax loss: sample frame so we can keep iterating.
-      sampled_frame = self.get_sampled_frame(res_frame)
-      sampled_frames.append(sampled_frame)
+          # Syncronizing the internals states
+          # Some Tensflow Magic to make sure everything happens as it should.
+          with tf.control_dependencies([res_frame]):
+            sync_op = tf.no_op()
+            if self.is_predicting and self.is_recurrent_model and i == 0:
+              # The internal state save happens at the end of the 1st iteration
+              # which essentially allows recurrent models to continue
+              # running after one prediction.
+              # Necessary for planning/rl applications.
+              save_ops = self.save_internal_states_ops(internal_states)
+              with tf.control_dependencies(flat_lists(save_ops)):
+                sync_op = tf.no_op()
 
-      # Check whether we are done with context frames or not
-      if self.is_recurrent_model:
-        done_warm_start = (i >= hparams.video_num_input_frames - 1)
-      else:
-        done_warm_start = True  # Always true for non-reccurent networks.
+        # Only for Softmax loss: sample frame so we can keep iterating.
+        sampled_frame = self.get_sampled_frame(res_frame)
+        sampled_frames.append(sampled_frame)
 
-      if self.is_predicting and done_warm_start:
-        all_frames[target_index] = sampled_frame
+        # Check whether we are done with context frames or not
+        if self.is_recurrent_model:
+          done_warm_start = (i >= hparams.video_num_input_frames - 1)
+        else:
+          done_warm_start = True  # Always true for non-reccurent networks.
 
-      # Scheduled sampling during training.
-      if self.is_training:
-        groundtruth_items = [target_frame]
-        generated_items = [sampled_frame]
-        ss_frame, = self.get_scheduled_sample_inputs(
-            done_warm_start, groundtruth_items, generated_items, ss_func)
-        all_frames[target_index] = ss_frame
+        if self.is_predicting and done_warm_start:
+          all_frames[target_index] = sampled_frame
+
+        # Scheduled sampling during training.
+        if self.is_training:
+          groundtruth_items = [target_frame]
+          generated_items = [sampled_frame]
+          ss_frame, = self.get_scheduled_sample_inputs(
+              done_warm_start, groundtruth_items, generated_items, ss_func)
+          all_frames[target_index] = ss_frame
 
     video_extra_loss = self.video_extra_loss(
         sampled_frames, target_frames, internal_states, video_features)

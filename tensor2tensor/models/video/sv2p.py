@@ -430,6 +430,42 @@ class NextFrameSv2pDiscrete(NextFrameSv2p):
 
 
 @registry.register_model
+class NextFrameSv2pAtari(NextFrameSv2p):
+  """SV2P with specific changes for atari pipeline."""
+
+  def init_internal_states(self):
+    # Hardcoded LSTM-CONV shapes.
+    # These sizes are calculated based on original atari frames.
+    # TODO(mbz): find a cleaner way of doing this maybe?!
+    batch_size = self.hparams.batch_size
+    shapes = [(batch_size, 53, 40, 8),
+              (batch_size, 53, 40, 8),
+              (batch_size, 27, 20, 16),
+              (batch_size, 27, 20, 16),
+              (batch_size, 53, 40, 8)]
+
+    with tf.variable_scope("clean_scope"):
+      # Initialize conv-lstm states with zeros
+      init = tf.zeros_initializer()
+      states = []
+      for i, shape in enumerate(shapes):
+        # every lstm-conv state has two variables named c and h.
+        c = tf.get_variable("c%d" % i, shape, trainable=False, initializer=init)
+        h = tf.get_variable("h%d" % i, shape, trainable=False, initializer=init)
+        states.append((c, h))
+      return states
+
+  def load_internal_states_ops(self):
+    ops = [(c.read_value(), h.read_value()) for c, h in self.internal_states]
+    return ops
+
+  def save_internal_states_ops(self, internal_states):
+    ops = [[tf.assign(x[0], y[0]), tf.assign(x[1], y[1])]
+           for x, y in zip(self.internal_states, internal_states)]
+    return ops
+
+
+@registry.register_model
 class NextFrameSv2pLegacy(NextFrameSv2p):
   """Old SV2P code. Only for legacy reasons."""
 
