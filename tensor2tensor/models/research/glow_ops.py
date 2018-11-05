@@ -607,7 +607,7 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
     output_channels = common_layers.shape_list(z)[-1]
     latent_stack = tf.concat((prior_dist.loc, latent), axis=-1)
     _, state = common_video.conv_lstm_2d(
-        latent_stack, state, output_channels, kernel_size=3,
+        latent_stack, state, hparams.latent_encoder_width, kernel_size=3,
         name="conv_lstm")
     cond_dist = tensor_to_dist(
         "state_to_dist", state.h, output_channels=output_channels)

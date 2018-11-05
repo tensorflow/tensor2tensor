@@ -303,7 +303,7 @@ class GlowOpsTest(tf.test.TestCase):
       # Initialize x, latent, state.
       x_rand = rng.randn(12, 32, 32, 16).astype(np.float32)
       latent_rand = rng.randn(12, 32, 32, 16).astype(np.float32)
-      state_rand = rng.randn(12, 32, 32, 16).astype(np.float32)
+      state_rand = rng.randn(12, 32, 32, 256).astype(np.float32)
       x_t = tf.convert_to_tensor(x_rand)
       latent_t = tf.convert_to_tensor(latent_rand)
       state_t = tf.convert_to_tensor(state_rand)
@@ -311,6 +311,7 @@ class GlowOpsTest(tf.test.TestCase):
       hparams = glow.glow_hparams()
       hparams.add_hparam("latent_dist_encoder", "conv_lstm")
       hparams.add_hparam("latent_skip", True)
+      hparams.add_hparam("latent_encoder_width", 256)
 
       prior_dist, new_state = glow_ops.compute_prior(
           "lstm_prior", x_t, latent=latent_t, hparams=hparams, state=init_state,
