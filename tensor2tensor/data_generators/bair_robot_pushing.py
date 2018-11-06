@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Berkeley (BAIR) robot pushing dataset.
 
 Self-Supervised Visual Planning with Temporal Skip Connections
@@ -157,3 +158,23 @@ class VideoBairRobotPushing(video_utils.VideoProblem):
           "state": state,
           "action": action,
       }
+
+
+@registry.register_problem
+class VideoBairRobotPushingWithActions(VideoBairRobotPushing):
+  """Berkeley (BAIR) robot pushing dataset with actions."""
+
+  @property
+  def extra_reading_spec(self):
+    """Additional data fields to store on disk and their decoders."""
+    data_fields = {
+        "frame_number": tf.FixedLenFeature([1], tf.int64),
+        "action": tf.FixedLenFeature([4], tf.float32),
+    }
+    decoders = {
+        "frame_number": tf.contrib.slim.tfexample_decoder.Tensor(
+            tensor_key="frame_number"),
+        "action": tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="action"),
+    }
+    return data_fields, decoders
+

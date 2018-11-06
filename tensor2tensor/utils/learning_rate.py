@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Optimization."""
 from __future__ import absolute_import
 from __future__ import division
@@ -34,7 +35,7 @@ def learning_rate_factor(name, step_num, hparams):
   elif name == "rsqrt_decay":
     return tf.rsqrt(tf.maximum(step_num, hparams.learning_rate_warmup_steps))
   elif name == "rsqrt_normalized_decay":
-    scale = tf.sqrt(hparams.learning_rate_warmup_steps)
+    scale = tf.sqrt(tf.to_float(hparams.learning_rate_warmup_steps))
     return scale * tf.rsqrt(tf.maximum(
         step_num, hparams.learning_rate_warmup_steps))
   elif name == "exp_decay":

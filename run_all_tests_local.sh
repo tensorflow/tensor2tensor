@@ -28,13 +28,26 @@ source ~/diseaseTools/scripts/vm_setup/dev_config/.bashrc_aliases_fathom
 # universal_transformer_test: requires new feature in tf.foldl (rm with TF 1.9)
 
 # Our changes:
+# * skip api-flask because it imports api flask and isn't necessary to test for t2t
 # * ignore all of /rl, since we aren't using this (and don't have gym in our Docker image)
 # * skip problems_test.py (??why??)
 # * skip gym_problems (gym not in our image)
 # * skip checkpoint_compatibility_test.py (no tqdm; undo this at some point and just install tqdm in image)
 # * skip tensor2tensor/models/research/next_frame_test.py b/c not working but clearly experimental on t2t side
+# * skip tensor2tensor/rl/trainer_model_based_stochastic_test.py (no gym)
+# * skip tensor2tensor/rl/trainer_model_based_sv2p_test.py (no gym)
+# * skip glow_test which requires cifar dataset
+#     https://github.com/tensorflow/tensor2tensor/blob/3f43417310101859f95b74587ffc3686714cc58a/oss_scripts/oss_tests.sh#L71
+# * skip tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary (no ffmpeg)
+# * skip tensor2tensor/data_generators/image_utils_test.py (no matplotlib)
+# * skip tensor2tensor/data_generators/video_utils_test.py (no ffmpeg, PIL)
+# * skip tensor2tensor/layers/common_video_test.py (no ffmpeg)
+# * skip tensor2tensor/data_generators/common_voice_test.py (no tqdm)
+# * skip tensor2tensor/data_generators/gym_env_test.py (no gym)
+
 
 dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
+       --ignore=/usr/src/app/api-flask/ \
        --ignore=/usr/src/t2t/tensor2tensor/utils/registry_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/utils/trainer_lib_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/visualization/visualization_test.py \
@@ -46,13 +59,22 @@ dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
        --ignore=/usr/src/t2t/tensor2tensor/data_generators/gym_problems_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/utils/checkpoint_compatibility_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/models/research/next_frame_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/rl/trainer_model_based_stochastic_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/rl/trainer_model_based_sv2p_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/models/research/glow_test.py \
+       --deselect=/usr/src/t2t/tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary \
+       --ignore=/usr/src/t2t/tensor2tensor/data_generators/image_utils_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/data_generators/video_utils_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/layers/common_video_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/data_generators/common_voice_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/data_generators/gym_env_test.py \
        --junitxml=/usr/src/t2t/test_results/pytest/unittests.xml \
        /usr/src/t2t/tensor2tensor/
 
 #       /usr/src/t2t/tensor2tensor/models/research/universal_transformer_test.py
 #       --ignore=/usr/src/t2t/tensor2tensor/models/research/next_frame_test.py \
 
-dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
+dki -w /usr/src/t2t gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
        /usr/src/t2t/tensor2tensor/utils/registry_test.py
 
 # cdb: I believe we break this because of some minor custom changes; should re-visit

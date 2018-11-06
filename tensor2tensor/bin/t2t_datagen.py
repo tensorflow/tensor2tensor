@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Produces the training and dev data for --problem into --data_dir.
 
 Produces sharded and shuffled TFRecord files of tensorflow.Example protocol
@@ -44,15 +45,22 @@ import absl
 import numpy as np
 
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
-from tensor2tensor.data_generators import algorithmic_math
-from tensor2tensor.data_generators import audio
 from tensor2tensor.data_generators import generator_utils
-from tensor2tensor.data_generators import snli
-from tensor2tensor.data_generators import wsj_parsing
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir
 
-import tensorflow as tf
+try:
+  # pylint: disable=g-import-not-at-top
+  from tensor2tensor.data_generators import algorithmic_math
+  from tensor2tensor.data_generators import audio
+  from tensor2tensor.data_generators import snli
+  from tensor2tensor.data_generators import wsj_parsing
+  # pylint: enable=g-import-not-at-top
+except ImportError:
+  pass
+
+# Improrting here to prevent pylint from ungrouped-imports warning.
+import tensorflow as tf  # pylint: disable=g-import-not-at-top
 
 
 flags = tf.flags
@@ -101,40 +109,46 @@ flags.DEFINE_string("t2t_usr_dir", "",
 _SUPPORTED_PROBLEM_GENERATORS = {
     "algorithmic_algebra_inverse": (
         lambda: algorithmic_math.algebra_inverse(26, 0, 2, 100000),
-        lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000)),
+        lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000),
+        lambda: None),  # test set
     "parsing_english_ptb8k": (
         lambda: wsj_parsing.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 2**13, 2**9),
         lambda: wsj_parsing.parsing_token_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**13, 2**9)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**13, 2**9),
+        lambda: None),  # test set
     "parsing_english_ptb16k": (
         lambda: wsj_parsing.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 2**14, 2**9),
         lambda: wsj_parsing.parsing_token_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**14, 2**9)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**14, 2**9),
+        lambda: None),  # test set
     "inference_snli32k": (
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, False, 2**15),
-    ),
+        lambda: None),  # test set
     "audio_timit_characters_test": (
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 1718),
         lambda: audio.timit_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 626)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 626),
+        lambda: None),  # test set
     "audio_timit_tokens_8k_test": (
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 1718,
             vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13),
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
-            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13)),
+            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13),
+        lambda: None),  # test set
     "audio_timit_tokens_32k_test": (
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 1718,
             vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15),
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
-            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15)),
+            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15),
+        lambda: None),  # test set
 }
 
 # pylint: enable=g-long-lambda
@@ -164,16 +178,18 @@ def main(_):
       problems = [p for p in problems if exclude not in p]
   if FLAGS.problem and FLAGS.problem[-1] == "*":
     problems = [p for p in problems if p.startswith(FLAGS.problem[:-1])]
+  elif FLAGS.problem and "," in FLAGS.problem:
+    problems = [p for p in problems if p in FLAGS.problem.split(",")]
   elif FLAGS.problem:
     problems = [p for p in problems if p == FLAGS.problem]
   else:
     problems = []
 
   # Remove TIMIT if paths are not given.
-  if not FLAGS.timit_paths:
+  if getattr(FLAGS, "timit_paths", None):
     problems = [p for p in problems if "timit" not in p]
   # Remove parsing if paths are not given.
-  if not FLAGS.parsing_path:
+  if getattr(FLAGS, "parsing_path", None):
     problems = [p for p in problems if "parsing_english_ptb" not in p]
 
   if not problems:
@@ -210,19 +226,31 @@ def main(_):
 
 def generate_data_for_problem(problem):
   """Generate data for a problem in _SUPPORTED_PROBLEM_GENERATORS."""
-  training_gen, dev_gen = _SUPPORTED_PROBLEM_GENERATORS[problem]
+  training_gen, dev_gen, test_gen = _SUPPORTED_PROBLEM_GENERATORS[problem]
 
-  num_shards = FLAGS.num_shards or 10
+  num_train_shards = FLAGS.num_shards or 10
   tf.logging.info("Generating training data for %s.", problem)
   train_output_files = generator_utils.train_data_filenames(
-      problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir, num_shards)
+      problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir,
+      num_train_shards)
   generator_utils.generate_files(training_gen(), train_output_files,
                                  FLAGS.max_cases)
+  num_dev_shards = int(num_train_shards * 0.1)
   tf.logging.info("Generating development data for %s.", problem)
   dev_output_files = generator_utils.dev_data_filenames(
-      problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir, 1)
+      problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir,
+      num_dev_shards)
   generator_utils.generate_files(dev_gen(), dev_output_files)
-  all_output_files = train_output_files + dev_output_files
+  num_test_shards = int(num_train_shards * 0.1)
+  test_output_files = []
+  test_gen_data = test_gen()
+  if test_gen_data is not None:
+    tf.logging.info("Generating test data for %s.", problem)
+    test_output_files = generator_utils.test_data_filenames(
+        problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir,
+        num_test_shards)
+    generator_utils.generate_files(test_gen_data, test_output_files)
+  all_output_files = train_output_files + dev_output_files + test_output_files
   generator_utils.shuffle_dataset(all_output_files)
 
 

@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Tests for Transformer."""
 
 from __future__ import absolute_import
@@ -40,7 +41,9 @@ class UniversalTransformerTest(tf.test.TestCase):
     hparams.num_heads = 1
     hparams.layer_prepostprocess_dropout = 0.0
 
-    p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE, VOCAB_SIZE)
+    p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE,
+                                                     VOCAB_SIZE,
+                                                     hparams)
     if not has_input:
       p_hparams.input_modality = {}
     hparams.problems = [p_hparams]

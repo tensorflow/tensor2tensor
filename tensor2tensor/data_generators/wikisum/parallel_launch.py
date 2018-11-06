@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 # pylint: disable=line-too-long
 r"""Launch a script in parallel on GCP.
 
@@ -51,7 +52,7 @@ import socket
 import subprocess as sp
 import time
 
-from tensor2tensor.utils import cloud_tpu as cloud
+from tensor2tensor.utils import cloud_mlengine as cloud
 import tensorflow as tf
 
 flags = tf.flags

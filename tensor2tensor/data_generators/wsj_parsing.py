@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Data generators for parsing data-sets."""
 
 from __future__ import absolute_import
@@ -19,11 +20,11 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 import tensorflow as tf
-
 
 tf.flags.DEFINE_string("parsing_path", "", "Path to parsing files in tmp_dir.")
 
@@ -62,10 +63,17 @@ class WsjParsing(text_problems.Text2textTmpdir):
   def generate_text_for_vocab(self, data_dir, tmp_dir):
     files = [os.path.join(tmp_dir, f) for f in self.TRAIN_FILES]
     inputs_file, targets_file = files
-    for sample in text_problems.text2text_txt_iterator(inputs_file,
-                                                       targets_file):
+    for i, sample in enumerate(text_problems.text2text_txt_iterator(inputs_file,
+                                                                    targets_file
+                                                                   )):
       yield sample["inputs"]
       yield sample["targets"]
+      if self.max_samples_for_vocab and (i + 1) >= self.max_samples_for_vocab:
+        break
+
+  @property
+  def max_samples_for_vocab(self):
+    return 1000
 
 
 def words_and_tags_from_wsj_tree(tree_string):

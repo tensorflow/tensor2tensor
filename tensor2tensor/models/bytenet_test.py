@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """ByteNet tests."""
 
 from __future__ import absolute_import
@@ -32,7 +33,9 @@ class ByteNetTest(tf.test.TestCase):
     x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
     y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
     hparams = bytenet.bytenet_base()
-    p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
+    p_hparams = problem_hparams.test_problem_hparams(vocab_size,
+                                                     vocab_size,
+                                                     hparams)
     with self.test_session() as session:
       features = {
           "inputs": tf.constant(x, dtype=tf.int32),

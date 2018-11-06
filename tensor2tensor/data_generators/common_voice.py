@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Mozilla Common Voice dataset.
 
 Note: Generating the full set of examples can take upwards of 5 hours.
@@ -56,7 +57,8 @@ def _collect_data(directory):
     transcript_path = os.path.join(directory, transcript)
     with open(transcript_path, "r") as transcript_file:
       transcript_reader = csv.reader(transcript_file)
-      _ = transcript_reader.next()  # Skip headers.
+      # skip header
+      _ = next(transcript_reader)
       for transcript_line in transcript_reader:
         media_name, label = transcript_line[0:2]
         filename = os.path.join(directory, media_name)

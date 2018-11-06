@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """image generation with transformer (attention).
 
 encoder: [Self-Attention, Feed-forward] x n
@@ -104,7 +105,7 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
 
   def body(self, features):
     assert self._hparams.block_size > 0
-    assert not common_layers.is_on_tpu()
+    assert not common_layers.is_xla_compiled()
 
     hparams = copy.copy(self._hparams)
     targets = features["targets"]
@@ -422,6 +423,9 @@ def image_transformer2d_base():
   hparams.add_hparam("kv_filter_width", 1)
 
   hparams.add_hparam("unconditional", False)  # unconditional generation
+
+  # relative embedding hparams
+  hparams.add_hparam("shared_rel", False)
   return hparams
 
 

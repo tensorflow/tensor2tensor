@@ -32,6 +32,15 @@ docker run -it \
        --ignore=/usr/src/t2t/tensor2tensor/data_generators/gym_problems_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/utils/checkpoint_compatibility_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/models/research/next_frame_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/rl/trainer_model_based_stochastic_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/rl/trainer_model_based_sv2p_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/models/research/glow_test.py \
+       --deselect=/usr/src/t2t/tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary \
+       --ignore=/usr/src/t2t/tensor2tensor/data_generators/image_utils_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/data_generators/video_utils_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/layers/common_video_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/data_generators/common_voice_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/data_generators/gym_env_test.py \
        --junitxml=/usr/src/t2t/test_results/pytest/unittests.xml \
        /usr/src/t2t/tensor2tensor/
 

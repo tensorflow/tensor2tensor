@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Gym generators tests."""
 
 from __future__ import absolute_import
@@ -34,8 +35,8 @@ class GymProblemsTest(tf.test.TestCase):
     shutil.rmtree(cls.tmp_dir)
     os.mkdir(cls.tmp_dir)
 
-  def testGymAtariBoots(self):
-    problem = gym_problems_specs.GymPongRandom()
+  def testGymAtariGameModes(self):
+    problem = gym_problems_specs.GymDiscreteProblemWithAgentOnWrappedFullPong()
     self.assertEqual(210, problem.frame_height)
 
 

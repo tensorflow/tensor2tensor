@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Fetch reference URLs for a single group_id within a single shard_id.
 
 See get_references_web.py to fetch URLs for all groups in within a single
