@@ -95,7 +95,6 @@ def rlmb_base():
       # In your experiments, you want to optimize this rate to your schedule.
       learning_rate_bump=3.0,
 
-      gather_ppo_real_env_data=True,
       real_ppo_epochs_num=0,
       # This needs to be divisible by real_ppo_effective_num_agents.
       real_ppo_epoch_length=16*200,
@@ -450,7 +449,6 @@ def rlmb_ae_base():
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "next_frame_ae"
   hparams.autoencoder_hparams_set = "autoencoder_discrete_pong"
-  hparams.gather_ppo_real_env_data = False
   hparams.autoencoder_train_steps = 5000
   hparams.resize_height_factor = 1
   hparams.resize_width_factor = 1
@@ -479,7 +477,6 @@ def rlmb_ae_tiny():
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "next_frame_ae_tiny"
   hparams.autoencoder_hparams_set = "autoencoder_discrete_tiny"
-  hparams.gather_ppo_real_env_data = False
   hparams.resize_height_factor = 1
   hparams.resize_width_factor = 1
   hparams.grayscale = False
