@@ -2822,7 +2822,20 @@ def sample_with_temperature(logits, temperature):
 
 
 def ones_matrix_band_part(rows, cols, num_lower, num_upper, out_shape=None):
-  """Matrix band part of ones."""
+  """Matrix band part of ones.
+
+  Args:
+    rows: int determining number of rows in output
+    cols: int
+    num_lower: int, maximum distance backward. Negative values indicate
+      unlimited.
+    num_upper: int, maximum distance forward. Negative values indicate
+      unlimited.
+    out_shape: shape to reshape output by.
+
+  Returns:
+    Tensor of size rows * cols reshaped into shape out_shape.
+  """
   if all([isinstance(el, int) for el in [rows, cols, num_lower, num_upper]]):
     # Needed info is constant, so we construct in numpy
     if num_lower < 0:
