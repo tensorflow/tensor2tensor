@@ -279,7 +279,7 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train,
   # over which those groups are split.
   num_groups, group_size = _split_into_groups(
       b1.size * l.size, hparams.moe_group_size,
-      _tensor_dim_to_mesh_dim_size(hparams, b1))
+      mtf.tensor_dim_to_mesh_dim_size(hparams.layout, hparams.mesh_shape, b1))
   g1 = mtf.Dimension(b1.name, num_groups)
   g = mtf.Dimension(b1.name + "_unsplit", g1.size)
   s = mtf.Dimension("group_size_x", group_size)
@@ -299,7 +299,7 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train,
   num_groups, group_size = _split_into_groups(
       a0.size * g.size * c.size,
       hparams.moe_group_size,
-      _tensor_dim_to_mesh_dim_size(hparams, a0))
+      mtf.tensor_dim_to_mesh_dim_size(hparams.layout, hparams.mesh_shape, a0))
   t = mtf.Dimension("group_size_y", group_size)
   h0 = mtf.Dimension(a0.name, num_groups)
   h = mtf.Dimension(a0.name + "_unsplit", h0.size)
@@ -677,14 +677,3 @@ def _split_into_groups(n, max_group_size, mesh_dim_size):
       " = (num_groups=%d group_size=%d)" %
       (n, max_group_size, mesh_dim_size, num_groups, group_size))
   return num_groups, group_size
-
-
-def _tensor_dim_to_mesh_dim_size(hparams, tensor_dim):
-  """Inspect hparams to figure out how many ways tensor_dim gets split."""
-  layout_rules = mtf.convert_to_layout_rules(hparams.layout)
-  mesh_shape = mtf.convert_to_shape(hparams.mesh_shape)
-  mesh_axis = layout_rules.tensor_dimension_to_mesh_axis(tensor_dim, mesh_shape)
-  if mesh_axis is None:
-    return 1
-  else:
-    return mesh_shape.dims[mesh_axis].size

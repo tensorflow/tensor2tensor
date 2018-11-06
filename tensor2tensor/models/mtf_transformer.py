@@ -360,8 +360,7 @@ class MtfTransformer(mtf_model.MtfModel):
                    losses=None,
                    step_num=None,
                    encdec_tensors=None,
-                   self_attention_k=None,
-                   self_attention_v=None):
+                   states=None):
     """Encoder or decoder stack.
 
     Args:
@@ -377,10 +376,7 @@ class MtfTransformer(mtf_model.MtfModel):
       step_num: an optional mtf integer Scalar (used in incrmenental mode)
       encdec_tensors: an optional list of num_layers tuples, each of the form
         (q_var, o_var, k, v), (used in incremental mode)
-      self_attention_k: an optional list of num_layers Tensors each with shape
-        [batch, heads, memory_length, kv_channels] (incremental mode)
-      self_attention_v: an optional list of num_layers Tensors each with shape
-        [batch, heads, memory_length, kv_channels] (incremental mode)
+      states: an optional list of Tensors (used in incremental mode)
     Returns:
       a mtf.Tensor with shape [<batch_dims>, length_dim, model_dim]
     Raises:
@@ -410,25 +406,25 @@ class MtfTransformer(mtf_model.MtfModel):
       return x * mtf.rsqrt(variance + hparams.norm_epsilon) * scale
 
     if is_incremental:
-      new_self_attention_k = []
-      new_self_attention_v = []
+      states = list(states)
+      new_states = []
+    tf.logging.info("states = %s" % (states,))
 
     for lnum, layer_type in enumerate(layers):
       with tf.variable_scope("%s_%d" % (layer_type, lnum)):
         if layer_type == "att":
           # Self attention layer
           if is_incremental:
-            self_att_num = len(new_self_attention_k)
             y, new_k, new_v = mtf.layers.multihead_self_attention_incremental(
                 normalize(x),
-                prev_k=self_attention_k[self_att_num],
-                prev_v=self_attention_v[self_att_num],
+                prev_k=states.pop(0),
+                prev_v=states.pop(0),
                 step_num=step_num,
                 master_dtype=self.master_dtype,
                 slice_dtype=self.slice_dtype,
                 name="att")
-            new_self_attention_k.append(new_k)
-            new_self_attention_v.append(new_v)
+            new_states.append(new_k)
+            new_states.append(new_v)
             x += y
           else:
             x += layer_prepostprocess_dropout(
@@ -460,6 +456,31 @@ class MtfTransformer(mtf_model.MtfModel):
                     master_dtype=self.master_dtype,
                     slice_dtype=self.slice_dtype,
                     name="enc_att"))
+        elif layer_type == "local_att":
+          if is_incremental:
+            y, new_k, new_v = mtf.layers.masked_local_attention_1d_incremental(
+                normalize(x),
+                prev_k=states.pop(0),
+                prev_v=states.pop(0),
+                step_num=step_num,
+                master_dtype=self.master_dtype,
+                slice_dtype=self.slice_dtype,
+                name="local_att")
+            new_states.append(new_k)
+            new_states.append(new_v)
+            x += y
+          else:
+            x += layer_prepostprocess_dropout(
+                mtf.layers.masked_local_attention_1d(
+                    normalize(x),
+                    self.kv_dim, self.heads_dim,
+                    window_size=hparams.local_attention_window_size,
+                    master_dtype=self.master_dtype,
+                    slice_dtype=self.slice_dtype,
+                    length_per_split=mtf.tensor_dim_to_size_per_split(
+                        hparams.layout, hparams.mesh_shape,
+                        self.max_length_dim),
+                    name="local_att"))
         else:
           if is_incremental:
             # insert length dimension.
@@ -478,10 +499,9 @@ class MtfTransformer(mtf_model.MtfModel):
     x = layer_prepostprocess_dropout(normalize(x))
     assert not layer_norm_vars
     if is_incremental:
-      return x, new_self_attention_k, new_self_attention_v
+      return x, new_states
     else:
       return x
-      # return mtf.cast(x, self.activation_dtype)
 
   def sample(self, features, mesh):
     with tf.variable_scope("transformer"):
@@ -563,43 +583,52 @@ class MtfTransformer(mtf_model.MtfModel):
           "hparams.model_type = %s not yet supported"
           % hparams.transformer_type)
 
+    local_attention_window = mtf.Dimension(
+        "local_attention_window", hparams.local_attention_window_size)
     if hparams.beam_size == 1:
       ids_shape = mtf.Shape(self.batch_dims + [self.length_dim])
       kv_shape = mtf.Shape(self.batch_dims +
                            [self.heads_dim,
                             self.memory_length_dim, self.kv_dim])
+      local_kv_shape = mtf.Shape(self.batch_dims +
+                                 [self.heads_dim,
+                                  local_attention_window, self.kv_dim])
     else:
       beam_dim = mtf.Dimension("beam", hparams.beam_size)
       ids_shape = mtf.Shape(self.batch_dims + [beam_dim, self.length_dim])
       kv_shape = mtf.Shape(self.batch_dims +
                            [beam_dim, self.heads_dim,
                             self.memory_length_dim, self.kv_dim])
+      local_kv_shape = mtf.Shape(self.batch_dims +
+                                 [beam_dim, self.heads_dim,
+                                  local_attention_window, self.kv_dim])
 
     initial_ids = mtf.constant(mesh, 0, ids_shape, dtype=tf.int32)
-    num_self_att = len([l for l in hparams.decoder_layers if l == "att"])
-    initial_kv_states = (
-        [mtf.zeros(mesh, kv_shape, dtype=self.activation_dtype)]
-        * (2 * num_self_att))
+    initial_states = []
+    for layer in hparams.decoder_layers:
+      if layer == "att":
+        initial_states.extend(
+            [mtf.zeros(mesh, kv_shape, dtype=self.activation_dtype)] * 2)
+      elif layer == "local_att":
+        initial_states.extend(
+            [mtf.zeros(mesh, local_kv_shape, dtype=self.activation_dtype)] * 2)
+
     def logits_fn(step_num, ids, states):
       """Produce logits for this step, and new states."""
-      self_attention_k = states[:num_self_att]
-      self_attention_v = states[num_self_att:]
       ids_this_step = mtf.gather(ids, step_num - 1, self.length_dim)
       x = (mtf.gather(targets_embedding_var, ids_this_step,
                       self.targets_vocab_dim) +
            mtf.gather(positional_embedding_var, step_num, self.max_length_dim))
       with tf.variable_scope("decoder"):
-        x, new_self_attention_k, new_self_attention_v = (
-            self._layer_stack(
-                x,
-                hparams.decoder_layers,
-                encdec_attention_mask=encoder_attention_mask,
-                step_num=step_num,
-                encdec_tensors=encdec_tensors,
-                self_attention_k=self_attention_k,
-                self_attention_v=self_attention_v))
+        x, new_states = self._layer_stack(
+            x,
+            hparams.decoder_layers,
+            encdec_attention_mask=encoder_attention_mask,
+            step_num=step_num,
+            encdec_tensors=encdec_tensors,
+            states=states)
       logits = mtf.matmul(x, softmax_var)
-      return logits, new_self_attention_k + new_self_attention_v
+      return logits, new_states
 
     if hparams.beam_size == 1:
       temperature = (0.0 if hparams.sampling_method == "argmax"
@@ -608,7 +637,7 @@ class MtfTransformer(mtf_model.MtfModel):
           logits_fn,
           initial_ids,
           temperature=temperature,
-          initial_states=initial_kv_states,
+          initial_states=initial_states,
           forced_ids=partial_targets,
           use_tpu=hparams.use_tpu)
     else:
@@ -626,98 +655,11 @@ class MtfTransformer(mtf_model.MtfModel):
           logits_fn,
           initial_ids,
           hparams.alpha,
-          states=initial_kv_states,
+          states=initial_states,
           decode_length=decode_length,
           use_tpu=hparams.use_tpu,
           dtype=self.activation_dtype)
       return mtf.gather(beams, mtf.constant(mesh, 0, dtype=tf.int32), beam_dim)
-
-  def _decoder_layer_stack_incremental(self,
-                                       x,
-                                       step_num,
-                                       encdec_tensors,
-                                       self_attention_k,
-                                       self_attention_v,
-                                       encdec_attention_mask=None):
-    """Decoder layer stack during inference.
-
-    We are processing only one position at a time.
-
-    The self-attention keys and values have already been computed for
-    previous positions.  In addition to the decoder output, we need to
-    produce the updated self-attention keys and values.
-
-    If there is an encoder, then additional Tensors are supplied in
-    encdec_tensors, which give us the keys and values for encoder-decoder
-    attention as well as the weight matrices q_var and o_var.
-
-    Args:
-      x: a mtf.Tensor with shape [<batch_dims>, model_dim]
-      step_num: an mtf integer Scalar
-      encdec_tensors: an optional list of num_layers tuples, each of the form
-        (q_var, o_var, k, v)
-      self_attention_k: an optional list of num_layers Tensors each with shape
-        [batch, heads, memory_length, kv_channels]
-      self_attention_v: an optional list of num_layers Tensors each with shape
-        [batch, heads, memory_length, kv_channels]
-      encdec_attention_mask: an optional mtf.Tensor with shape
-        [batch, length_dim, encoder_length_dim] containing values 0 or -inf.
-
-    Returns:
-      y: a mtf.Tensor with shape [<batch_dims>, model_dim]
-      new_self_attention_k: a list of num_layers mtf.Tensors, with the same
-        shapes as the elements of self_attention_k
-      new_self_attention_v: a list of num_layers mtf.Tensors, with the same
-        shapes as the elements of self_attention_v
-
-    Raises:
-      ValueError: if hparams make no sense
-    """
-    hparams = self._hparams
-    num_layers = hparams.num_decoder_layers
-    num_layer_norms = num_layers * (2 if encdec_tensors is None else 3) + 1
-    layer_norms_dim = mtf.Dimension("layer_norms", num_layer_norms)
-    layer_norm_combined_var = mtf.get_variable(
-        x.mesh,
-        "layer_norm_scale",
-        mtf.Shape([layer_norms_dim, self.model_dim]),
-        initializer=tf.ones_initializer(),
-        activation_dtype=x.dtype)
-    layer_norm_vars = mtf.unstack(layer_norm_combined_var, layer_norms_dim)
-    def normalize(x):
-      scale = layer_norm_vars.pop(0)
-      variance = mtf.reduce_mean(mtf.square(x), reduced_dim=self.model_dim)
-      return x * mtf.rsqrt(variance + hparams.norm_epsilon) * scale
-
-    new_self_attention_k = []
-    new_self_attention_v = []
-    for layer in xrange(num_layers):
-      with tf.variable_scope("layer_%d" % layer):
-        # Self attention layer
-        y, new_k, new_v = mtf.layers.multihead_self_attention_incremental(
-            normalize(x),
-            prev_k=self_attention_k[layer],
-            prev_v=self_attention_v[layer],
-            step_num=step_num,
-            master_dtype=self.master_dtype,
-            slice_dtype=self.slice_dtype,
-            name="att")
-        new_self_attention_k.append(new_k)
-        new_self_attention_v.append(new_v)
-        x += y
-        if encdec_tensors is not None:
-          # Encoder-Decoder attention layer
-          q_var, o_var, k, v = encdec_tensors[layer]
-          x += mtf.layers.multihead_encdec_attention_incremental(
-              normalize(x),
-              q_var, o_var, k, v,
-              encdec_attention_mask,
-              name="enc_att")
-        # ffn layer
-        x += self._feedforward_layer(normalize(x), layer)
-    x = normalize(x)
-    assert not layer_norm_vars
-    return x, new_self_attention_k, new_self_attention_v
 
 
 @registry.register_hparams
@@ -731,6 +673,7 @@ def mtf_transformer_base():
   hparams.max_length = 256
   hparams.add_hparam("d_model", 512)
   hparams.add_hparam("d_kv", 128)
+  hparams.add_hparam("local_attention_window_size", 128)
   hparams.label_smoothing = 0.1
   # 8-way model-parallelism
   hparams.add_hparam("mesh_shape", "model:8")

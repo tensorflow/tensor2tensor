@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Experiments with mixture-of-experts architectures."""
+"""Languaeg modeling experiments in mtf."""
 
 
 from __future__ import absolute_import
@@ -30,12 +30,12 @@ def xmoe_dense_4k():
   """Series of architectural experiments on cheap language models.
 
   For all of these architectures, we run on languagemodel_lm1b8k_packed
-  for 32k-96 steps (1-3 epochs) on one TPU (8 cores).
+  for 32000 steps.
 
   All log-perplexities are per-token - multiply by 1.298 for per-word
 
   Results:
-  model             params(M)  einsum  alltoall  mxu-util  log-ppl(1ep) (3ep)
+  model             params(M)  einsum  alltoall  mxu-util  log-ppl
   xmoe_dense_4k     30         3.0e12  0         45%        3.31
   xmoe_dense_8k     46         4.7e12  0         49%        3.24
   xmoe_dense_64k    282        2.8e13  0                    3.06
@@ -44,7 +44,7 @@ def xmoe_dense_4k():
   xmoe_2d           282        5.3e12  7.6e8     34%        3.06
 
   Trained at 4x the batch size:
-  xmoe_2d_88        1090       2.1e13  3.0e9     24%
+  xmoe_2d_88        1090       2.1e13  3.0e9     24%        3.07
 
   Note: configurations and code are likely to change without notice.
 
@@ -52,6 +52,9 @@ def xmoe_dense_4k():
     a hparams
   """
   hparams = mtf_transformer.mtf_transformer_base_lm()
+  hparams.attention_dropout = 0.0
+  hparams.relu_dropout = 0.0
+  hparams.layer_prepostprocess_dropout = 0.0
 
   # The following hparams are constant across all these experiments.
   hparams.batch_size = 128
@@ -78,6 +81,7 @@ def xmoe_dense_8k():
 
 @registry.register_hparams
 def xmoe_dense_64k():
+  """Very wide layer- run on 4x4."""
   hparams = xmoe_dense_4k()
   hparams.d_ff = 65536
   hparams.mesh_shape = "model:4,batch:8"
@@ -86,7 +90,7 @@ def xmoe_dense_64k():
 
 @registry.register_hparams
 def xmoe_top_2():
-  """Mixture of experts."""
+  """Mixture of experts (16 experts)."""
   hparams = xmoe_dense_4k()
   moe.set_default_moe_hparams(hparams)
   hparams.mesh_shape = "all:8"
@@ -103,32 +107,8 @@ def xmoe_top_2_c15():
 
 
 @registry.register_hparams
-def mtf_transformer_lm_moe():
-  """Mixture of experts language model.
-
-  Compare to mtf_transformer.mtf_transformer_lm_baseline()
-
-  Run this on 2x2 on languagemodel_lm1b32k_packed for 272000 steps (10 epochs)
-  900M params.
-
-  Results on LM1B:
-         params/10^9  log-ppl(per-token)
-         0.90         TODO(noam): rerun experiment
-
-  Returns:
-    a hparams
-  """
-  hparams = mtf_transformer.mtf_transformer_lm_baseline()
-  hparams.decoder_layers = ["att", "moe"] * 4
-  moe.set_default_moe_hparams(hparams)
-  hparams.mesh_shape = "all:8"
-  hparams.layout = "batch:all;experts:all"
-  return hparams
-
-
-@registry.register_hparams
 def xmoe_2d():
-  """Two-dimensional hierarchical mixture of experts."""
+  """Two-dimensional hierarchical mixture of 16 experts."""
   hparams = xmoe_top_2()
   hparams.decoder_layers = ["att", "hmoe"] * 4
   hparams.mesh_shape = "b0:2;b1:4"
@@ -164,28 +144,34 @@ def xmoe_2d_c15():
 
 
 @registry.register_hparams
-def xmoe_2d_88():
-  """Two-dimensional hierarchical mixture of experts."""
+def xmoe_2d_x64():
+  """Two-dimensional hierarchical mixture of 64 experts."""
   hparams = xmoe_2d()
-  hparams.mesh_shape = "b0:4;b1:8"
-  hparams.batch_size = 512
+  # hparams.mesh_shape = "b0:4;b1:8"
   hparams.outer_batch_size = 4
   hparams.moe_num_experts = [8, 8]
   return hparams
 
 
 @registry.register_hparams
-def xmoe_wiki_base(sz):
-  """Series of architectural experiments on wikipedia text.
+def xmoe2_dense(sz):
+  """Series of architectural experiments on language modeling.
 
-  For all of these architectures, we run on languagemodel_wiki_noref_v8k_l1k
-  for 3 epochs.  (training set has ~7390100 sequences each of length 1024)
-  1 epoch = 57500 steps at batch_size=128
+  Larger models than the ones above.
 
-  Results:
-  model             params(M)  einsum  alltoall  mxu-util  log-ppl(1ep) (3ep)
+  All models are trained on sequences of 1024 tokens.
+
+  We assume infinite training data, so no dropout necessary.
+  We process 2^36 tokens in training = 524288 steps at batch size 128
+
+  TODO(noam): find a large enough dataset for these experiments.
+
+  You can use languagemodel_wiki_noref_v8k_l1k, but this is too small,
+  so training will cover about 9 epochs.
 
   Note: configurations and code are likely to change without notice.
+
+  Run on TPU 4x4 for 524288 steps unless otherwise indicated.
 
   Args:
     sz: an integer
@@ -194,49 +180,54 @@ def xmoe_wiki_base(sz):
     a hparams
   """
   hparams = mtf_transformer.mtf_transformer_paper_lm(sz)
-
+  hparams.attention_dropout = 0.0
+  hparams.relu_dropout = 0.0
+  hparams.layer_prepostprocess_dropout = 0.0
   hparams.max_length = 1024
   hparams.batch_size = 128
-  hparams.learning_rate_decay_steps = 57500
+  hparams.learning_rate_schedule = "rsqrt_decay*linear_decay"
+  hparams.learning_rate_decay_steps = 65536
   hparams.layout = "batch:batch;vocab:model;d_ff:model;heads:model"
   hparams.mesh_shape = "batch:32"
   return hparams
 
 
 @registry.register_hparams
-def xmoe_wiki_base_0():
-  return xmoe_wiki_base(0)
+def xmoe2_dense_0():
+  return xmoe2_dense(0)
 
 
 @registry.register_hparams
-def xmoe_wiki_base_1():
-  return xmoe_wiki_base(1)
+def xmoe2_dense_1():
+  return xmoe2_dense(1)
 
 
 @registry.register_hparams
-def xmoe_wiki_base_2():
-  return xmoe_wiki_base(2)
+def xmoe2_dense_2():
+  return xmoe2_dense(2)
 
 
 @registry.register_hparams
-def xmoe_wiki_base_3():
-  return xmoe_wiki_base(3)
+def xmoe2_dense_3():
+  return xmoe2_dense(3)
 
 
 @registry.register_hparams
-def xmoe_wiki_x():
-  """Baseline set of parameters for mixture-of-experts.
+def xmoe2_v1():
+  """Model incorporating mixture-of-experts and local-attention.
 
   ~6B parameters
+
+  32 experts in 3 hierarchichal moe layers.
 
   Returns:
     a hparams
   """
-  hparams = xmoe_wiki_base(0)
+  hparams = xmoe2_dense(0)
   moe.set_default_moe_hparams(hparams)
   hparams.decoder_layers = (
-      ["att", "drd", "att", "drd", "att", "hmoe"] * 3 +
-      ["att", "drd", "att", "drd"])
+      ["local_att", "local_att", "drd",
+       "att", "drd", "local_att", "local_att", "hmoe"] * 4)[:-1]
   hparams.d_ff = 2048
   hparams.d_kv = 128
   hparams.moe_hidden_size = 32768
@@ -249,32 +240,26 @@ def xmoe_wiki_x():
 
 
 @registry.register_hparams
-def xmoe_wiki_x_a32():
-  """Test 32-bit activations."""
-  hparams = xmoe_wiki_x()
-  hparams.activation_dtype = "float32"
-  return hparams
-
-
-@registry.register_hparams
-def xmoe_wiki_x128():
-  """128 experts, ~25B params on 8x8."""
-  hparams = xmoe_wiki_x()
+def xmoe2_v1_x128():
+  """128 experts, ~25B params - Train for 131072 steps on 8x8."""
+  hparams = xmoe2_v1()
   hparams.moe_num_experts = [16, 8]
   hparams.outer_batch_size = 8
   hparams.mesh_shape = "b0:8;b1:16"
   hparams.batch_size = 512
-  hparams.learning_rate_decay_steps = 14375
+  hparams.learning_rate_decay_steps = 16384
   return hparams
 
 
 @registry.register_hparams
-def xmoe_wiki_x_tiny():
+def xmoe2_tiny():
   """Test on local cpu."""
-  hparams = xmoe_wiki_x()
-  hparams.decoder_layers = (["att", "drd", "hmoe"] * 2 + ["att", "drd"])
+  hparams = xmoe2_v1()
+  hparams.decoder_layers = ["local_att", "att", "drd", "hmoe"]
+  hparams.d_model = 128
   hparams.moe_hidden_size = 512
-  hparams.batch_size = 16
+  hparams.outer_batch_size = 0
+  hparams.batch_size = 2
   hparams.mesh_shape = ""
   hparams.activation_dtype = "float32"
   return hparams
