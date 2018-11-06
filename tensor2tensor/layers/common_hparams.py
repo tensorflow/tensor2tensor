@@ -285,6 +285,17 @@ def basic_params1():
       tpu_enable_host_call=False,
       # Pad batch dim of inputs to nearest multiple of batch multiple.
       pad_batch=False,
+      # When true, do not evaluate on the language model data when running the
+      # multiproblem since it can take a while. If False, set eval_steps to
+      # something large like 6000 or 10000.
+      multiproblem_target_eval_only=False,
+      # Max out the vocab size to a power of 2 for efficiency and to reserve
+      # extra space in the vocabulary for new task ids and label classes.
+      multiproblem_vocab_size=-1,
+      # When using multiproblem with generation tasks, need to truncate the
+      # inputs and targets manually before concatenating them.
+      multiproblem_max_input_length=-1,
+      multiproblem_max_target_length=-1
   )
 
 
