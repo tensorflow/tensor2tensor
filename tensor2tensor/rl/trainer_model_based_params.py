@@ -61,7 +61,8 @@ def rlmb_base():
       autoencoder_hparams_set="autoencoder_discrete_pong",
       model_train_steps=15000,
       initial_epoch_train_steps_multiplier=3,
-      simulated_env_generator_num_steps=2000,
+      # Default: 1000 PPO epochs, 50 steps per epoch, 16 agents in batch.
+      num_simulated_env_steps_per_epoch=(1000 * 50 * 16),
       simulation_random_starts=True,  # Use random starts in PPO.
       # Flip the first random frame in PPO batch for the true beginning.
       simulation_flip_first_random_for_beginning=True,

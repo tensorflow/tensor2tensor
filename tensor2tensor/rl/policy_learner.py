@@ -30,7 +30,10 @@ class PolicyLearner(object):
     self.event_dir = event_dir
     self.agent_model_dir = agent_model_dir
 
-  def train(self, env_fn, hparams, target_num_epochs, simulated, epoch):
+  def train(
+      self, env_fn, hparams, num_env_steps, simulated, save_continuously,
+      epoch
+  ):
     # TODO(konradczechowski): target_num_steps instead of epochs
     # TODO(konradczechowski): move 'simulated' to  batch_env
     raise NotImplementedError()
@@ -42,19 +45,24 @@ class PolicyLearner(object):
 class PPOLearner(PolicyLearner):
   """PPO for policy learning."""
 
-  def train(self, env_fn, hparams, target_num_epochs, simulated, epoch):
+  def train(
+      self, env_fn, hparams, num_env_steps, simulated, save_continuously,
+      epoch
+  ):
+    target_num_epochs = None  # TODO
     hparams.set_hparam("epochs_num", target_num_epochs)
 
     if simulated:
       simulated_str = "sim"
-      hparams.save_models_every_epochs = 10
     else:
       # TODO(konradczechowski): refactor ppo
       assert hparams.num_agents == 1
+      simulated_str = "real"
+
+    if not save_continuously:
       # We do not save model, as that resets frames that we need at restarts.
       # But we need to save at the last step, so we set it very high.
       hparams.save_models_every_epochs = 1000000
-      simulated_str = "real"
 
     # TODO(konradczechowski) refactor ppo, pass these as arguments
     # (not inside hparams). Do the same in evaluate()
