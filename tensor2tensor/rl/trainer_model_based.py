@@ -185,7 +185,7 @@ def _update_hparams_from_hparams(target_hparams, source_hparams, prefix):
 def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
                 hparams, completed_epochs_num, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the simulated environment."""
-  del data_dir, is_final_epoch
+  del data_dir
 
   frame_stack_size = hparams.frame_stack_size
   initial_frame_rollouts = real_env.current_epoch_rollouts(
@@ -222,8 +222,7 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
   train_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
 
   _update_hparams_from_hparams(train_hparams, hparams, base_algo_str + "_")
-  # train_hparams.add_hparam("simulated", True)
-
+  completed_epochs_num += sim_ppo_epoch_increment(hparams, is_final_epoch)
   learner = LEARNERS[base_algo_str](frame_stack_size, event_dir,
                                     agent_model_dir)
   learner.train(env_fn, train_hparams, completed_epochs_num,
@@ -251,7 +250,6 @@ def train_agent_real_env(
                            hparams.real_ppo_effective_num_agents)
 
   completed_epochs_num += real_ppo_epoch_increment(hparams)
-  train_hparams.epochs_num = completed_epochs_num
 
   env_fn = rl.make_real_env_fn(env)
   learner = LEARNERS[base_algo_str](hparams.frame_stack_size, event_dir,
