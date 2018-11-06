@@ -138,7 +138,13 @@ class NextFrameBasicStochasticDiscrete(
         bit_p *= hparams.latent_rnn_max_sampling
         bits = tf.where(which_bit < bit_p, bits_pred, bits)
 
-    return add_bits(layer, bits), pred_loss
+    res = add_bits(layer, bits)
+    # During training, sometimes skip the latent to help action-conditioning.
+    res_p = common_layers.inverse_lin_decay(hparams.latent_rnn_warmup_steps / 2)
+    res_p *= hparams.latent_use_max_probability
+    res_rand = tf.random_uniform([layer_shape[0]])
+    res = tf.where(res_rand < res_p, res, layer)
+    return res, pred_loss
 
 
 @registry.register_hparams
@@ -190,7 +196,7 @@ def next_frame_basic_stochastic_discrete():
   hparams.scheduled_sampling_mode = "prob_inverse_lin"
   hparams.scheduled_sampling_decay_steps = 40000
   hparams.scheduled_sampling_max_prob = 1.0
-  hparams.dropout = 0.2
+  hparams.dropout = 0.15
   hparams.filter_double_steps = 3
   hparams.hidden_size = 96
   hparams.learning_rate_constant = 0.005
@@ -200,10 +206,11 @@ def next_frame_basic_stochastic_discrete():
   hparams.add_hparam("bottleneck_noise", 0.1)
   hparams.add_hparam("discretize_warmup_steps", 40000)
   hparams.add_hparam("latent_rnn_warmup_steps", 40000)
-  hparams.add_hparam("latent_rnn_max_sampling", 0.7)
+  hparams.add_hparam("latent_rnn_max_sampling", 0.6)
+  hparams.add_hparam("latent_use_max_probability", 0.8)
   hparams.add_hparam("full_latent_tower", False)
   hparams.add_hparam("latent_predictor_state_size", 128)
-  hparams.add_hparam("latent_predictor_temperature", 0.5)
+  hparams.add_hparam("latent_predictor_temperature", 0.9)
   hparams.add_hparam("complex_addn", True)
   return hparams
 
@@ -224,4 +231,5 @@ def next_frame_stochastic_discrete_range(rhp):
 def next_frame_stochastic_discrete_latent_range(rhp):
   rhp.set_float("latent_rnn_max_sampling", 0.1, 0.9)
   rhp.set_float("latent_predictor_temperature", 0.1, 1.2)
+  rhp.set_float("latent_use_max_probability", 0.4, 1.0)
   rhp.set_float("dropout", 0.1, 0.4)
