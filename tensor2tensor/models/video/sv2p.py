@@ -455,6 +455,11 @@ class NextFrameSv2pAtari(NextFrameSv2p):
         states.append((c, h))
       return states
 
+  def reset_internal_states_ops(self):
+    zeros = [(tf.zeros_like(c), tf.zeros_like(h))
+             for c, h in self.internal_states]
+    return self.save_internal_states_ops(zeros)
+
   def load_internal_states_ops(self):
     ops = [(c.read_value(), h.read_value()) for c, h in self.internal_states]
     return ops

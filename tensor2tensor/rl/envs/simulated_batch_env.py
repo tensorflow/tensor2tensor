@@ -122,6 +122,9 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
         trainable=False
     )
 
+    self._reset_model = tf.get_variable(
+        "reset_model", [], trainable=False, initializer=tf.zeros_initializer())
+
     self._model_dir = model_dir
 
   def initialize(self, sess):
@@ -149,7 +152,9 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
         hparams_target_frames = self._model.hparams.video_num_target_frames
         self._model.hparams.video_num_target_frames = 1
         model_output = self._model.infer(
-            {"inputs": history, "input_action": actions})
+            {"inputs": history,
+             "input_action": actions,
+             "reset_internal_states": self._reset_model.read_value()})
         self._model.hparams.video_num_target_frames = hparams_target_frames
 
       observ = tf.cast(tf.squeeze(model_output["targets"], axis=1),
@@ -181,7 +186,9 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
         with tf.control_dependencies(
             [self._observ.assign(observ),
              self.history_buffer.move_by_one_element(observ)]):
-          return tf.identity(reward), tf.identity(done)
+          clear_reset_model_op = tf.assign(self._reset_model, tf.constant(0.0))
+          with tf.control_dependencies([clear_reset_model_op]):
+            return tf.identity(reward), tf.identity(done)
 
   def _reset_non_empty(self, indices):
     """Reset the batch of environments.
@@ -195,7 +202,9 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     with tf.control_dependencies([self.history_buffer.reset(indices)]):
       with tf.control_dependencies([self._observ.assign(
           self.history_buffer.get_all_elements()[:, -1, ...])]):
-        return tf.gather(self._observ.read_value(), indices)
+        reset_model_op = tf.assign(self._reset_model, tf.constant(1.0))
+        with tf.control_dependencies([reset_model_op]):
+          return tf.gather(self._observ.read_value(), indices)
 
   @property
   def observ(self):

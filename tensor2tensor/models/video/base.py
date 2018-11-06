@@ -151,6 +151,10 @@ class NextFrameBase(t2t_model.T2TModel):
     """
     return None
 
+  def reset_internal_states_ops(self):
+    """Resets internal states to initial values."""
+    return [[tf.no_op()]]
+
   def load_internal_states_ops(self):
     """Loade internal states from class variables."""
     return [[tf.no_op()]]
@@ -602,7 +606,25 @@ class NextFrameBase(t2t_model.T2TModel):
       actions = merge(features["input_action"], features["target_action"])
     if self.has_rewards:
       rewards = merge(features["input_reward"], features["target_reward"])
-    return self.__process(frames, actions, rewards, frames_raw)
+
+    # Reset the internal states if the reset_internal_states has been
+    # passed as a feature and has greater value than 0.
+    if self.is_recurrent_model and self.internal_states is not None:
+      def reset_func():
+        reset_ops = flat_lists(self.reset_internal_states_ops())
+        with tf.control_dependencies(reset_ops):
+          return tf.no_op()
+      if self.is_predicting and "reset_internal_states" in features:
+        reset = features["reset_internal_states"]
+        reset = tf.greater(tf.reduce_sum(reset), 0.5)
+        reset_ops = tf.cond(reset, reset_func, tf.no_op)
+      else:
+        reset_ops = reset_func()
+      with tf.control_dependencies([reset_ops]):
+        frames[0] = tf.identity(frames[0])
+
+    with tf.control_dependencies([frames[0]]):
+      return self.__process(frames, actions, rewards, frames_raw)
 
 
 def next_frame_base():
