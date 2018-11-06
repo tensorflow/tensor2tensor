@@ -13,10 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Utilties for data generation for Wikipedia Revisions/GEC problems.
-
-Wikipedia revisions problems are defined in wiki_history.py
-Wikipedia GEC problems are defined in wiki_gec.py
+"""Utilties for data generation for Wikipedia Revision problem.
 """
 
 
