@@ -30,6 +30,7 @@ from tensor2tensor.rl.envs.simulated_batch_gym_env import SimulatedBatchGymEnv
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 
 @registry.register_hparams
@@ -245,8 +246,7 @@ def feed_forward_gaussian_fun(action_space, config, observations):
   logstd = tf.check_numerics(logstd, "logstd")
   value = tf.check_numerics(value, "value")
 
-  policy = tf.contrib.distributions.MultivariateNormalDiag(mean,
-                                                           tf.exp(logstd))
+  policy = tfp.distributions.MultivariateNormalDiag(mean, tf.exp(logstd))
 
   return NetworkOutput(policy, value, lambda a: tf.clip_by_value(a, -2., 2))
 
@@ -280,7 +280,7 @@ def feed_forward_categorical_fun(action_space, config, observations):
         x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
       value = tf.contrib.layers.fully_connected(x, 1, None)[..., 0]
   logits = clip_logits(logits, config)
-  policy = tf.contrib.distributions.Categorical(logits=logits)
+  policy = tfp.distributions.Categorical(logits=logits)
   return NetworkOutput(policy, value, lambda a: a)
 
 
@@ -309,7 +309,7 @@ def feed_forward_cnn_small_categorical_fun(action_space, config, observations):
 
       value = tf.contrib.layers.fully_connected(
           x, 1, activation_fn=None)[..., 0]
-      policy = tf.contrib.distributions.Categorical(logits=logits)
+      policy = tfp.distributions.Categorical(logits=logits)
   return NetworkOutput(policy, value, lambda a: a)
 
 
@@ -345,7 +345,7 @@ def feed_forward_cnn_small_categorical_fun_new(
       logits = clip_logits(logits, config)
 
       value = tf.layers.dense(x, 1, name="value")[..., 0]
-      policy = tf.contrib.distributions.Categorical(logits=logits)
+      policy = tfp.distributions.Categorical(logits=logits)
 
   return NetworkOutput(policy, value, lambda a: a)
 
@@ -371,7 +371,7 @@ def dense_bitwise_categorical_fun(action_space, config, observations):
 
       value = tf.contrib.layers.fully_connected(
           x, 1, activation_fn=None)[..., 0]
-      policy = tf.contrib.distributions.Categorical(logits=logits)
+      policy = tfp.distributions.Categorical(logits=logits)
 
   return NetworkOutput(policy, value, lambda a: a)
 

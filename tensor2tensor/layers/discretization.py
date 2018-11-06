@@ -25,6 +25,7 @@ from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 from tensorflow.python.training import moving_averages
 
@@ -1147,9 +1148,9 @@ def gumbel_softmax_nearest_neighbor_dvq(x,
   q_samples = tf.clip_by_value(gumbel_softmax_samples, 1e-6, 1 - 1e-6)
 
   if approximate_gs_entropy:
-    q_dist = tf.contrib.distributions.Multinomial(total_count=1.0, logits=-dist)
+    q_dist = tfp.distributions.Multinomial(total_count=1.0, logits=-dist)
   else:
-    q_dist = tf.contrib.distributions.RelaxedOneHotCategorical(
+    q_dist = tfp.distributions.RelaxedOneHotCategorical(
         temperature, logits=-dist)
 
   # Take mean over samples to approximate entropy.
@@ -1195,9 +1196,9 @@ def gumbel_softmax_nearest_neighbor_dvq(x,
       # which we can do without recalculating probabilities because the last
       # dimension of log_pi and q_samples are deterministic given the others.
       # Flow 2: Centered-softmax.
-      chained_bijectors = tf.contrib.distributions.bijectors.Chain([
-          tf.contrib.distributions.bijectors.SoftmaxCentered(),
-          tf.contrib.distributions.bijectors.Affine(
+      chained_bijectors = tfp.bijectors.Chain([
+          tfp.bijectors.SoftmaxCentered(),
+          tfp.bijectors.Affine(
               shift=log_pi[:, :, :-1],
               scale_identity_multiplier=1. / temperature)
       ])

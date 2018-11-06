@@ -47,6 +47,7 @@ setup(
         'scipy',
         'sympy',
         'six',
+        'tensorflow-probability',
         'tqdm',
     ],
     extras_require={

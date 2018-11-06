@@ -27,6 +27,7 @@ from tensor2tensor.layers import transformer_layers
 from tensor2tensor.utils import beam_search
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 DO_SUMMARIES = True
 
@@ -731,8 +732,8 @@ def iaf_flow(one_hot_assignments,
     # shifting the rest down by one (and removing the last dimension).
     padded_assignments = tf.pad(
         one_hot_assignments, [[0, 0], [0, 0], [1, 0], [0, 0]])[:, :, :-1, :]
-    scale_bijector = tf.contrib.distributions.bijectors.Affine(
-        scale_tril=tf.contrib.distributions.fill_triangular(scale_weights))
+    scale_bijector = tfp.distributions.bijectors.Affine(
+        scale_tril=tfp.distributions.fill_triangular(scale_weights))
     scale = scale_bijector.forward(
         tf.transpose(padded_assignments, [0, 1, 3, 2]))
     # Transpose the bijector output since it performs a batch matmul.
