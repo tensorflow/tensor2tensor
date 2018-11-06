@@ -23,6 +23,7 @@ from tensor2tensor.rl import rl_trainer_lib
 
 
 class PolicyLearner(object):
+  """API for policy learners."""
 
   def __init__(self, frame_stack_size, event_dir, agent_model_dir):
     self.frame_stack_size = frame_stack_size
@@ -39,6 +40,7 @@ class PolicyLearner(object):
 
 
 class PPOLearner(PolicyLearner):
+  """PPO for policy learning."""
 
   def train(self, env_fn, hparams, target_num_epochs, simulated, epoch):
     hparams.set_hparam("epochs_num", target_num_epochs)
@@ -77,5 +79,3 @@ class PPOLearner(PolicyLearner):
     hparams.add_hparam("frame_stack_size", self.frame_stack_size)
 
     rl_trainer_lib.evaluate(hparams, self.agent_model_dir)
-
-

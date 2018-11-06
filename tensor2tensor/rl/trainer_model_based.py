@@ -177,7 +177,7 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
 
 
 def _update_hparams_from_hparams(target_hparams, source_hparams, prefix):
-  "Copy a subset of hparams to target_hparams"
+  """Copy a subset of hparams to target_hparams."""
   for param_name in target_hparams.values().keys():
     prefixed_param_name = prefix + param_name
     if prefixed_param_name in source_hparams:
@@ -188,7 +188,7 @@ def _update_hparams_from_hparams(target_hparams, source_hparams, prefix):
 def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
                 hparams, completed_epochs_num, epoch=0, is_final_epoch=False):
   """Train the PPO agent in the simulated environment."""
-  del data_dir
+  del data_dir, is_final_epoch
 
   frame_stack_size = hparams.frame_stack_size
   initial_frame_rollouts = real_env.current_epoch_rollouts(
@@ -315,7 +315,7 @@ def evaluate_single_config(hparams, agent_model_dir):
   """Evaluate the PPO agent in the real environment."""
   eval_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
   eval_hparams.num_agents = hparams.num_agents
-  eval_hparams.add_hparam('stochastic', hparams.stochastic)
+  eval_hparams.add_hparam("stochastic", hparams.stochastic)
   env = setup_env(hparams, batch_size=hparams.num_agents)
   env.start_new_epoch(0)
   env_fn = rl.make_real_env_fn(env)
