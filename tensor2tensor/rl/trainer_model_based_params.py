@@ -744,17 +744,17 @@ def training_loop_hparams_from_scoped_overrides(scoped_overrides, trial_id):
   model_hp_name = trial_hp_overrides.get(
       "loop.generative_model_params", loop_hp.generative_model_params)
   model_hp = registry.hparams(model_hp_name).parse(FLAGS.hparams)
-  ppo_params_name = trial_hp_overrides.get(
-      "loop.ppo_params", loop_hp.ppo_params)
-  ppo_hp = registry.hparams(ppo_params_name)
+  base_algo_params_name = trial_hp_overrides.get(
+      "loop.base_algo_params", loop_hp.base_algo_params)
+  algo_hp = registry.hparams(base_algo_params_name)
 
   # Merge them and then override with the scoped overrides
   combined_hp = merge_unscoped_hparams(
-      zip(HP_SCOPES, [loop_hp, model_hp, ppo_hp]))
+      zip(HP_SCOPES, [loop_hp, model_hp, algo_hp]))
   combined_hp.override_from_dict(trial_hp_overrides)
 
   # Split out the component hparams
-  loop_hp, model_hp, ppo_hp = (
+  loop_hp, model_hp, algo_hp = (
       split_scoped_hparams(HP_SCOPES, combined_hp))
 
   # Dynamic register the model hp and set the new name in loop_hp
@@ -762,10 +762,10 @@ def training_loop_hparams_from_scoped_overrides(scoped_overrides, trial_id):
   dynamic_register_hparams(model_hp_name, model_hp)
   loop_hp.generative_model_params = model_hp_name
 
-  # Dynamic register the PPO hp and set the new name in loop_hp
-  ppo_hp_name = "ppo_hp_%s" % str(trial_id)
-  dynamic_register_hparams(ppo_hp_name, ppo_hp)
-  loop_hp.ppo_params = ppo_hp_name
+  # Dynamic register the algo hp and set the new name in loop_hp
+  algo_hp_name = "algo_hp_%s" % str(trial_id)
+  dynamic_register_hparams(algo_hp_name, algo_hp)
+  loop_hp.base_algo_params = algo_hp_name
 
   return loop_hp
 
