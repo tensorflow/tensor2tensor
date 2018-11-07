@@ -42,6 +42,8 @@ def softplus():  # alias, following tf.keras.constraints
   return Softplus()
 
 
+# TODO(dusenberrymw): Restructure the implementation of a trainable initializer
+# such that callers do not need to have type-conditional logic.
 class TrainableInitializer(tf.keras.initializers.Initializer):
   """An initializer with trainable variables.
 
@@ -113,6 +115,8 @@ class TrainableNormal(TrainableInitializer):
       raise ValueError('A TrainableInitializer must be built by a layer before '
                        'usage, and is currently only compatible with Bayesian '
                        'layers.')
+    # TODO(dusenberrymw): The softplus constraint seems to not be applied, so
+    # the following ends up being `mean + unconstrained_stddev * noise`.
     return ed.Normal(loc=self.mean, scale=self.stddev)
 
   def get_config(self):
@@ -239,6 +243,10 @@ class DenseReparameterization(tf.keras.layers.Dense):
       self.kernel_initializer.build([last_dim, self.units],
                                     self.dtype,
                                     self.add_weight)
+      if self.kernel_regularizer is not None:
+        self._handle_weight_regularization(
+            'kernel', self.kernel, self.kernel_regularizer)
+
     else:
       self._kernel = self.add_weight(
           'kernel',
@@ -249,14 +257,12 @@ class DenseReparameterization(tf.keras.layers.Dense):
           dtype=self.dtype,
           trainable=True)
 
-    if self.kernel_regularizer is not None:
-      self._handle_weight_regularization('kernel',
-                                         self.kernel,
-                                         self.kernel_regularizer)
-
     if self.use_bias:
       if isinstance(self.bias_initializer, TrainableInitializer):
         self.bias_initializer.build([self.units], self.dtype, self.add_weight)
+        if self.bias_regularizer is not None:
+          self._handle_weight_regularization(
+              'bias', self.bias, self.bias_regularizer)
       else:
         self._bias = self.add_weight(
             'bias',
@@ -267,13 +273,175 @@ class DenseReparameterization(tf.keras.layers.Dense):
             dtype=self.dtype,
             trainable=True)
 
-      if self.bias_regularizer is not None:
-        self._handle_weight_regularization('bias',
-                                           self.bias,
-                                           self.bias_regularizer)
+    else:
+      self._bias = None
+    self.built = True
+
+  # TODO(trandustin): Waiting on T2T to drop dependence on
+  # TF<=1.12rc2. A TF commit enables tf.colocate_with to work for
+  # Tensor-like inputs. This lets us use the parent method instead of
+  # this one.
+  def _handle_weight_regularization(self, name, variable, regularizer):
+    """Create lambdas which compute regularization losses."""
+
+    def _loss_for_variable(v):
+      """Creates a regularization loss `Tensor` for variable `v`."""
+      with tf.name_scope(name + '/Regularizer'):
+        regularization = regularizer(v)
+      return regularization
+
+    self.add_loss(functools.partial(_loss_for_variable, variable))
+
+
+class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
+  """Bayesian LSTM cell class estimated via reparameterization.
+
+  The layer computes a variational Bayesian approximation to the distribution
+  over LSTM cell functions,
+
+  ```
+  p(outputs | inputs) = int lstm_cell(inputs; weights, bias) p(weights, bias)
+    dweights dbias,
+  ```
+
+  where the weights consist of both input and recurrent weights.
+
+  It does this with a stochastic forward pass, sampling from learnable
+  distributions on the kernel, recurrent kernel, and bias. Gradients with
+  respect to the distributions' learnable parameters backpropagate via
+  reparameterization.  Minimizing cross-entropy plus the layer's losses performs
+  variational minimum description length, i.e., it minimizes an upper bound to
+  the negative marginal likelihood.
+  """
+
+  def __init__(self,
+               units,
+               activation='tanh',
+               recurrent_activation='hard_sigmoid',
+               use_bias=True,
+               kernel_initializer=None,
+               recurrent_initializer=None,
+               bias_initializer='zeros',
+               unit_forget_bias=True,
+               kernel_regularizer=normal_kl_divergence(),
+               recurrent_regularizer=normal_kl_divergence(),
+               bias_regularizer=None,
+               kernel_constraint=None,
+               recurrent_constraint=None,
+               bias_constraint=None,
+               dropout=0.,
+               recurrent_dropout=0.,
+               implementation=1,
+               **kwargs):
+    if not kernel_initializer:
+      kernel_initializer = trainable_normal()
+    if not recurrent_initializer:
+      recurrent_initializer = trainable_normal()
+    if not bias_initializer:
+      bias_initializer = trainable_normal()
+    super(LSTMCellReparameterization, self).__init__(
+        units=units,
+        activation=activation,
+        recurrent_activation=recurrent_activation,
+        use_bias=use_bias,
+        kernel_initializer=kernel_initializer,
+        recurrent_initializer=recurrent_initializer,
+        bias_initializer=bias_initializer,
+        unit_forget_bias=unit_forget_bias,
+        kernel_regularizer=kernel_regularizer,
+        recurrent_regularizer=recurrent_regularizer,
+        bias_regularizer=bias_regularizer,
+        kernel_constraint=kernel_constraint,
+        recurrent_constraint=recurrent_constraint,
+        bias_constraint=bias_constraint,
+        dropout=dropout,
+        recurrent_dropout=recurrent_dropout,
+        implementation=implementation,
+        **kwargs)
+
+  def build(self, input_shape):
+    input_shape = tf.TensorShape(input_shape)
+    input_dim = input_shape[-1]
+    if isinstance(input_dim, tf.Dimension):
+      input_dim = input_dim.value
+
+    if isinstance(self.kernel_initializer, TrainableInitializer):
+      self.kernel_initializer.build(
+          [input_dim, self.units * 4], self.dtype, self.add_weight)
+      self.kernel = self.kernel_initializer()
+      if self.kernel_regularizer is not None:
+        self._handle_weight_regularization(
+            'kernel', self.kernel, self.kernel_regularizer)
+
+    else:
+      self.kernel = self.add_weight(
+          shape=(input_dim, self.units * 4),
+          name='kernel',
+          initializer=self.kernel_initializer,
+          regularizer=self.kernel_regularizer,
+          constraint=self.kernel_constraint)
+
+    if isinstance(self.recurrent_initializer, TrainableInitializer):
+      self.recurrent_initializer.build(
+          [self.units, self.units * 4], self.dtype, self.add_weight)
+      self.recurrent_kernel = self.recurrent_initializer()
+      if self.recurrent_regularizer is not None:
+        self._handle_weight_regularization(
+            'recurrent_kernel', self.recurrent_kernel,
+            self.recurrent_regularizer)
+
+    else:
+      self.recurrent_kernel = self.add_weight(
+          shape=(self.units, self.units * 4),
+          name='recurrent_kernel',
+          initializer=self.recurrent_initializer,
+          regularizer=self.recurrent_regularizer,
+          constraint=self.recurrent_constraint)
+
+    if self.use_bias:
+      if isinstance(self.bias_initializer, TrainableInitializer):
+        self.bias_initializer.build(
+            [self.units * 4], self.dtype, self.add_weight)
+        self.bias = self.bias_initializer()
+        if self.bias_regularizer is not None:
+          self._handle_weight_regularization(
+              'bias', self.bias, self.bias_regularizer)
+      else:
+        if self.unit_forget_bias:
+
+          def bias_initializer(_, *args, **kwargs):
+            return tf.keras.backend.concatenate([
+                self.bias_initializer((self.units,), *args, **kwargs),
+                tf.keras.initializers.Ones()((self.units,), *args, **kwargs),
+                self.bias_initializer((self.units * 2,), *args, **kwargs),
+            ])
+        else:
+          bias_initializer = self.bias_initializer
+        self.bias = self.add_weight(
+            shape=(self.units * 4,),
+            name='bias',
+            initializer=bias_initializer,
+            regularizer=self.bias_regularizer,
+            constraint=self.bias_constraint)
     else:
       self.bias = None
     self.built = True
+
+  def sample_weights(self):
+    if isinstance(self.kernel_initializer, TrainableInitializer):
+      self.kernel = self.kernel_initializer()
+    if isinstance(self.recurrent_initializer, TrainableInitializer):
+      self.recurrent_kernel = self.recurrent_initializer()
+    if isinstance(self.bias_initializer, TrainableInitializer):
+      self.bias = self.bias_initializer()
+
+  # NOTE: This will not be called in TF < 1.11.
+  def get_initial_state(self, inputs=None, batch_size=None, dtype=None):
+    """Get the initial state and side-effect sampling of stochastic weights."""
+    if self.built:
+      self.sample_weights()
+    return super(LSTMCellReparameterization, self).get_initial_state(
+        inputs=inputs, batch_size=batch_size, dtype=dtype)
 
   # TODO(trandustin): Waiting on T2T to drop dependence on
   # TF<=1.12rc2. A TF commit enables tf.colocate_with to work for
