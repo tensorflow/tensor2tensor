@@ -19,7 +19,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import tensorflow as tf
+
+from tensorflow_probability import edward2 as ed
 
 
 class Softplus(tf.keras.constraints.Constraint):
@@ -110,11 +113,7 @@ class TrainableNormal(TrainableInitializer):
       raise ValueError('A TrainableInitializer must be built by a layer before '
                        'usage, and is currently only compatible with Bayesian '
                        'layers.')
-    noise = tf.random_normal(self.shape, dtype=self.dtype, seed=self.seed)
-    output = self.mean + self.stddev * noise
-    # TODO(trandustin): Hack to store parameters so KL reg. can operate on them.
-    output._parameters = (self.mean, self.stddev)  # pylint: disable=protected-access
-    return output
+    return ed.Normal(loc=self.mean, scale=self.stddev)
 
   def get_config(self):
     return {
@@ -151,12 +150,11 @@ class NormalKLDivergence(tf.keras.regularizers.Regularizer):
     self.stddev = stddev
 
   def __call__(self, x):
-    mean, stddev = x._parameters  # pylint: disable=protected-access
-    variance2 = tf.square(self.stddev)
-    variance_ratio = tf.square(stddev) / variance2
-    regularization = tf.square(mean - self.mean) / (2. * variance2)
-    regularization += (variance_ratio - 1. - tf.log(variance_ratio)) / 2.
-    return regularization
+    """Computes regularization given an ed.Normal random variable as input."""
+    if not isinstance(x, ed.RandomVariable):
+      raise ValueError('Input must be an ed.RandomVariable.')
+    random_variable = ed.Normal(loc=self.mean, scale=self.stddev)
+    return random_variable.distribution.kl_divergence(x.distribution)
 
   def get_config(self):
     return {
@@ -276,3 +274,18 @@ class DenseReparameterization(tf.keras.layers.Dense):
     else:
       self.bias = None
     self.built = True
+
+  # TODO(trandustin): Waiting on T2T to drop dependence on
+  # TF<=1.12rc2. A TF commit enables tf.colocate_with to work for
+  # Tensor-like inputs. This lets us use the parent method instead of
+  # this one.
+  def _handle_weight_regularization(self, name, variable, regularizer):
+    """Create lambdas which compute regularization losses."""
+
+    def _loss_for_variable(v):
+      """Creates a regularization loss `Tensor` for variable `v`."""
+      with tf.name_scope(name + '/Regularizer'):
+        regularization = regularizer(v)
+      return regularization
+
+    self.add_loss(functools.partial(_loss_for_variable, variable))
