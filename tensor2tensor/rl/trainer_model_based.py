@@ -328,6 +328,11 @@ def evaluate_single_config(hparams, agent_model_dir):
   )
 
 
+def get_metric_name(stochastic, max_num_noops, clipped):
+  return "mean_reward/eval/stochastic_{}_max_noops_{}_{}".format(
+      stochastic, max_num_noops, "clipped" if clipped else "unclipped")
+
+
 def evaluate_all_configs(hparams, agent_model_dir):
   """Evaluate the agent with multiple eval configurations."""
   def make_eval_hparams(hparams, stochastic, max_num_noops):
@@ -345,10 +350,7 @@ def evaluate_all_configs(hparams, agent_model_dir):
       eval_hparams = make_eval_hparams(hparams, stochastic, max_num_noops)
       scores = evaluate_single_config(eval_hparams, agent_model_dir)
       for (score, clipped) in zip(scores, (True, False)):
-        metric_name = "mean_reward/eval/stochastic_{}_max_noops_{}_{}".format(
-            stochastic, max_num_noops,
-            "clipped" if clipped else "unclipped"
-        )
+        metric_name = get_metric_name(stochastic, max_num_noops, clipped)
         metrics[metric_name] = score
 
   return metrics
@@ -591,8 +593,10 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     epoch_metrics.append(metrics)
     if report_fn:
       if report_metric == "mean_reward":
-        report_fn(eval_metrics["mean_reward/eval/{}_{}_max_noops_{}".format(
-            "mode", hparams.eval_max_num_noops, "unclipped")], epoch)
+        metric_name = get_metric_name(stochastic=False,
+                                      max_num_noops=hparams.eval_max_num_noops,
+                                      clipped=False)
+        report_fn(eval_metrics[metric_name], epoch)
       else:
         report_fn(eval_metrics[report_metric], epoch)
 
