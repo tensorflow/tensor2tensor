@@ -1570,6 +1570,28 @@ def transformer_tall_pretrain_lm():
 
 
 @registry.register_hparams
+def transformer_tall_pretrain_lm_tpu_adafactor():
+  """Hparams for transformer on LM pretraining (with 64k vocab) on TPU."""
+  hparams = transformer_tall_pretrain_lm()
+  update_hparams_for_tpu(hparams)
+  hparams.max_length = 1024
+  # For multi-problem on TPU we need it in absolute examples.
+  hparams.batch_size = 8
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tall_pretrain_lm_tpu():
+  """Hparams for transformer on LM pretraining on TPU with AdamW."""
+  hparams = transformer_tall_pretrain_lm_tpu_adafactor()
+  # Optimizer gets reset in update_hparams_for_tpu so we set it again here.
+  hparams.learning_rate_constant = 2e-4
+  hparams.learning_rate_schedule = ("linear_warmup * constant * cosdecay")
+  hparams.optimizer = "AdamW"
+  return hparams
+
+
+@registry.register_hparams
 def transformer_tall_finetune_cnndm():
   """Hparams for transformer on LM for finetuning on cnndm summarization."""
   hparams = transformer_tall()

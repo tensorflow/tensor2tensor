@@ -206,12 +206,15 @@ class MultiProblem(problem.Problem):
     self.get_hparams(model_hparams=hparams)
 
     if is_training:
-      problem_step = tf.get_variable("problem_step",
-                                     shape=[],
-                                     dtype=tf.int64,
-                                     initializer=tf.zeros_initializer(),
-                                     trainable=False,
-                                     use_resource=True)
+      # Using tf.Variable instead of get_variable to work around issues with
+      # queues on multiple hosts. Note that this will separately count steps
+      # on each host that's feeding the data, so in a large-scale setting you
+      # may need to adjust hparams for that. For example, a 4x4 slice of a TPU
+      # pod may use 2 data hosts, so we'll be only adding 1 here once for 2
+      # examples -- divide the corresponding hparams by 2 to compensate.
+      problem_step = tf.Variable(tf.constant(0, dtype=tf.int64),
+                                 trainable=False, use_resource=True,
+                                 dtype=tf.int64, name="problem_step")
       dataset_iterators = [d.make_one_shot_iterator() for d in datasets]
 
       def get_next_from_dataset(dataset_iter):
