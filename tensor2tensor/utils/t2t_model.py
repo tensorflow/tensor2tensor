@@ -223,7 +223,14 @@ class T2TModel(base.Layer):
 
       # Fathom
       if isinstance(sharded_logits, dict):
-        return {k:combine_shards(v) for k, v in sharded_logits.items()}, losses
+        return (
+            {
+                k: combine_shards(v)
+                for k, v in sharded_logits.items()
+                if k != FATHOM_DICT_FORMAT
+            },
+            losses
+        )
       else:
         return combine_shards(sharded_logits), losses
 
