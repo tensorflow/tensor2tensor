@@ -19,22 +19,23 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+
 from tensor2tensor.rl import rl_trainer_lib
 
 
 class PolicyLearner(object):
   """API for policy learners."""
 
-  def __init__(self, frame_stack_size, event_dir, agent_model_dir):
+  def __init__(self, frame_stack_size, base_event_dir, agent_model_dir):
     self.frame_stack_size = frame_stack_size
-    self.event_dir = event_dir
+    self.base_event_dir = base_event_dir
     self.agent_model_dir = agent_model_dir
 
   def train(
       self, env_fn, hparams, num_env_steps, simulated, save_continuously,
       epoch
   ):
-    # TODO(konradczechowski): target_num_steps instead of epochs
     # TODO(konradczechowski): move 'simulated' to  batch_env
     raise NotImplementedError()
 
@@ -45,12 +46,18 @@ class PolicyLearner(object):
 class PPOLearner(PolicyLearner):
   """PPO for policy learning."""
 
+  def __init__(self, *args, **kwargs):
+    super(PPOLearner, self).__init__(*args, **kwargs)
+    self._num_completed_iterations = 0
+
   def train(
       self, env_fn, hparams, num_env_steps, simulated, save_continuously,
       epoch
   ):
-    target_num_epochs = None  # TODO
-    hparams.set_hparam("epochs_num", target_num_epochs)
+    self._num_completed_iterations += num_env_steps // (
+        hparams.num_agents * hparams.epoch_length
+    )
+    hparams.epochs_num = self._num_completed_iterations
 
     if simulated:
       simulated_str = "sim"
@@ -71,8 +78,13 @@ class PPOLearner(PolicyLearner):
     hparams.add_hparam("frame_stack_size", self.frame_stack_size)
     name_scope = "ppo_{}{}".format(simulated_str, epoch + 1)
 
-    rl_trainer_lib.train(hparams, self.event_dir + simulated_str,
-                         self.agent_model_dir, name_scope=name_scope)
+    event_dir = os.path.join(
+        self.base_event_dir, "ppo_summaries", str(epoch) + simulated_str
+    )
+
+    rl_trainer_lib.train(
+        hparams, event_dir, self.agent_model_dir, name_scope=name_scope
+    )
 
   def evaluate(self, env_fn, hparams, stochastic):
     if stochastic:

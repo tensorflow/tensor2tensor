@@ -62,7 +62,7 @@ def rlmb_base():
       model_train_steps=15000,
       initial_epoch_train_steps_multiplier=3,
       # Default: 1000 PPO epochs, 50 steps per epoch, 16 agents in batch.
-      num_simulated_env_steps_per_epoch=(1000 * 50 * 16),
+      num_simulated_env_frames_per_epoch=(1000 * 50 * 16),
       simulation_random_starts=True,  # Use random starts in PPO.
       # Flip the first random frame in PPO batch for the true beginning.
       simulation_flip_first_random_for_beginning=True,
@@ -79,9 +79,6 @@ def rlmb_base():
       # Do not eval since simulated batch env does not produce dones
       ppo_eval_every_epochs=0,
       ppo_learning_rate=1e-4,  # Will be changed, just so it exists.
-      # Whether the PPO agent should be restored from the previous iteration, or
-      # should start fresh each time.
-      ppo_continue_training=True,
       # Resizing.
       resize_height_factor=2,
       resize_width_factor=2,
@@ -101,7 +98,6 @@ def rlmb_base():
       real_ppo_epoch_length=16*200,
       real_ppo_num_agents=1,
       real_ppo_learning_rate=1e-4,
-      real_ppo_continue_training=True,
       real_ppo_effective_num_agents=16,
       real_ppo_eval_every_epochs=0,
 
@@ -133,7 +129,7 @@ def rlmb_basetest():
   hparams.epochs = 2
   hparams.num_real_env_frames = 3200
   hparams.model_train_steps = 100
-  hparams.simulated_env_generator_num_steps = 20
+  hparams.num_simulated_env_frames_per_epoch = 2 * 50 * 16
   hparams.ppo_epochs_num = 2
   return hparams
 
@@ -392,7 +388,7 @@ def rlmb_tiny():
       tf.contrib.training.HParams(
           epochs=1,
           num_real_env_frames=128,
-          simulated_env_generator_num_steps=64,
+          num_simulated_env_frames_per_epoch=(2 * 2 * 2),
           model_train_steps=2,
           ppo_epochs_num=2,
           ppo_time_limit=5,
@@ -466,7 +462,7 @@ def rlmb_ae_basetest():
   hparams.num_real_env_frames = 3200
   hparams.model_train_steps = 100
   hparams.autoencoder_train_steps = 10
-  hparams.simulated_env_generator_num_steps = 20
+  hparams.num_simulated_env_frames_per_epoch = 2 * 50 * 16
   hparams.ppo_epochs_num = 2
   return hparams
 

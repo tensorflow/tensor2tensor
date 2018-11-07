@@ -57,19 +57,18 @@ LEARNERS = dict(
 )
 
 
-def real_ppo_epoch_increment(hparams):
+def real_env_step_increment(hparams):
   """PPO increment."""
   assert hparams.real_ppo_epochs_num is 0, (
       "Should be put to 0 to enforce better readability"
   )
   return int(math.ceil(
-      hparams.num_real_env_frames /
-      (hparams.epochs * hparams.real_ppo_epoch_length)
+      hparams.num_real_env_frames / hparams.epochs
   ))
 
 
-def sim_ppo_epoch_increment(hparams, is_final_epoch):
-  increment = hparams.ppo_epochs_num
+def sim_env_step_increment(hparams, is_final_epoch):
+  increment = hparams.num_simulated_env_frames_per_epoch
   if is_final_epoch:
     increment *= 2
   return increment
@@ -182,11 +181,10 @@ def _update_hparams_from_hparams(target_hparams, source_hparams, prefix):
                                 source_hparams.get(prefixed_param_name))
 
 
-def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
-                hparams, completed_epochs_num, epoch=0, is_final_epoch=False):
+def train_agent(
+    real_env, learner, world_model_dir, hparams, epoch, is_final_epoch
+):
   """Train the PPO agent in the simulated environment."""
-  del data_dir
-
   frame_stack_size = hparams.frame_stack_size
   initial_frame_rollouts = real_env.current_epoch_rollouts(
       split=tf.contrib.learn.ModeKeys.TRAIN,
@@ -222,21 +220,16 @@ def train_agent(real_env, agent_model_dir, event_dir, world_model_dir, data_dir,
   train_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
 
   _update_hparams_from_hparams(train_hparams, hparams, base_algo_str + "_")
-  completed_epochs_num += sim_ppo_epoch_increment(hparams, is_final_epoch)
-  learner = LEARNERS[base_algo_str](frame_stack_size, event_dir,
-                                    agent_model_dir)
-  learner.train(env_fn, train_hparams, completed_epochs_num,
-                simulated=True, epoch=epoch)
 
-  return completed_epochs_num
+  num_env_steps = sim_env_step_increment(hparams, is_final_epoch)
+  learner.train(
+      env_fn, train_hparams, num_env_steps, simulated=True,
+      save_continuously=True, epoch=epoch
+  )
 
 
-def train_agent_real_env(
-    env, agent_model_dir, event_dir, data_dir,
-    hparams, completed_epochs_num, epoch=0, is_final_epoch=False):
+def train_agent_real_env(env, learner, hparams, epoch):
   """Train the PPO agent in the real environment."""
-  del is_final_epoch, data_dir
-
   base_algo_str = hparams.base_algo
 
   train_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
@@ -249,17 +242,14 @@ def train_agent_real_env(
   train_hparams.add_hparam("effective_num_agents",
                            hparams.real_ppo_effective_num_agents)
 
-  completed_epochs_num += real_ppo_epoch_increment(hparams)
-
   env_fn = rl.make_real_env_fn(env)
-  learner = LEARNERS[base_algo_str](hparams.frame_stack_size, event_dir,
-                                    agent_model_dir)
-  learner.train(env_fn, train_hparams, completed_epochs_num,
-                simulated=False, epoch=epoch)
+  num_env_steps = real_env_step_increment(hparams)
+  learner.train(
+      env_fn, train_hparams, num_env_steps, simulated=False,
+      save_continuously=False, epoch=epoch
+  )
   # Save unfinished rollouts to history.
   env.reset()
-
-  return completed_epochs_num
 
 
 def train_world_model(
@@ -314,9 +304,10 @@ def evaluate_single_config(hparams, agent_model_dir):
   env = setup_env(hparams, batch_size=hparams.num_agents)
   env.start_new_epoch(0)
   env_fn = rl.make_real_env_fn(env)
-  learner = LEARNERS[hparams.base_algo](hparams.frame_stack_size,
-                                        event_dir=None,
-                                        agent_model_dir=agent_model_dir)
+  learner = LEARNERS[hparams.base_algo](
+      hparams.frame_stack_size, base_event_dir=None,
+      agent_model_dir=agent_model_dir
+  )
   learner.evaluate(env_fn, eval_hparams, eval_hparams.stochastic)
   rollouts = env.current_epoch_rollouts()[:hparams.num_agents]
   env.close()
@@ -498,6 +489,10 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   env = setup_env(hparams, batch_size=hparams.real_ppo_num_agents)
   env.start_new_epoch(epoch, data_dir)
 
+  learner = LEARNERS[hparams.base_algo](
+      hparams.frame_stack_size, directories["world_model"], directories["ppo"]
+  )
+
   # Timing log function
   log_relative_time = make_relative_timing_fn()
 
@@ -508,12 +503,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   # Collect data from the real environment with PPO or random policy.
   ppo_model_dir = directories["ppo"]
   tf.logging.info("Initial training of PPO in real environment.")
-  ppo_event_dir = os.path.join(directories["world_model"],
-                               "ppo_summaries/initial")
-  completed_epochs_num = train_agent_real_env(
-      env, ppo_model_dir, ppo_event_dir, data_dir, hparams,
-      completed_epochs_num=0, epoch=epoch, is_final_epoch=False
-  )
+  train_agent_real_env(env, learner, hparams, epoch)
   metrics["mean_reward/train/clipped"] = compute_mean_reward(
       env.current_epoch_rollouts(), clipped=True
   )
@@ -541,26 +531,15 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
     # Train PPO
     log("Training PPO in simulated environment.")
-    ppo_event_dir = os.path.join(directories["world_model"],
-                                 "ppo_summaries", str(epoch))
-    ppo_model_dir = directories["ppo"]
-    if not hparams.ppo_continue_training:
-      ppo_model_dir = ppo_event_dir
-
-    completed_epochs_num = train_agent(
-        env, ppo_model_dir, ppo_event_dir,
-        directories["world_model"], data_dir, hparams, completed_epochs_num,
-        epoch=epoch, is_final_epoch=is_final_epoch
+    train_agent(
+        env, learner, directories["world_model"], hparams, epoch, is_final_epoch
     )
 
     env.start_new_epoch(epoch, data_dir)
 
     # Train PPO on real env (short)
     log("Training PPO in real environment.")
-    completed_epochs_num = train_agent_real_env(
-        env, ppo_model_dir, ppo_event_dir, data_dir, hparams,
-        completed_epochs_num, epoch=epoch, is_final_epoch=is_final_epoch
-    )
+    train_agent_real_env(env, learner, hparams, epoch)
 
     if hparams.stop_loop_early:
       return 0.0
