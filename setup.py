@@ -48,6 +48,7 @@ setup(
         'sympy',
         'six',
         'tensorflow-probability',
+        'tfds-nightly',
         'tqdm',
     ],
     extras_require={
