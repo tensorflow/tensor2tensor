@@ -265,9 +265,8 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
           mu, logvar, posterior_states = self.lstm_gaussian(
               h_target, posterior_states, rnn_size, z_dim, posterior_rnn_layers)
 
-          # The original implementation has a multiplier of 0.5
-          # Removed here for simplicity i.e. replacing var with std
-          z = z * tf.exp(logvar) + mu
+          # Sample z from posterior distribution
+          z = z * tf.exp(tf.multiply(0.5, logvar)) + mu
 
         # Predict output encoding
         h_pred, predictor_states = self.stacked_lstm(
