@@ -3717,19 +3717,26 @@ def targeted_dropout(inputs,
     return inputs
 
 
-# TODO(mbz): use tf.distributions.kl_divergence instead.
-def kl_divergence(mu, log_sigma):
-  """KL divergence of diagonal gaussian N(mu,exp(log_sigma)) and N(0,1).
+def kl_divergence(mu, log_var, mu_p=0.0, log_var_p=0.0):
+  """KL divergence of diagonal gaussian N(mu,exp(log_var)) and N(0,1).
 
   Args:
     mu: mu parameter of the distribution.
-    log_sigma: log(sigma) parameter of the distribution.
+    log_var: log(var) parameter of the distribution.
+    mu_p: optional mu from a learned prior distribution
+    log_var_p: optional log(var) from a learned prior distribution
   Returns:
     the KL loss.
   """
+
   batch_size = shape_list(mu)[0]
-  kl = -.5 * tf.reduce_sum(1. + log_sigma - tf.square(mu) - tf.exp(log_sigma))
-  return kl / tf.to_float(batch_size)
+  prior_distribution = tf.distributions.Normal(
+      mu_p, tf.exp(tf.multiply(0.5, log_var_p)))
+  posterior_distribution = tf.distributions.Normal(
+      mu, tf.exp(tf.multiply(0.5, log_var)))
+  kld = tf.distributions.kl_divergence(
+      posterior_distribution, prior_distribution)
+  return tf.reduce_sum(kld) / tf.to_float(batch_size)
 
 
 def sparse_equals_constant(constant, tensor):
