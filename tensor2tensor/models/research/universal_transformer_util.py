@@ -1182,7 +1182,7 @@ def universal_transformer_act_basic(x, hparams, ffn_unit, attention_unit):
           state_shape[0],
           state_shape[1],
       ])
-      new_state.set_shape(state_shape)
+    new_state.set_shape(state_shape)
     step += 1
     return (transformed_state, step, halting_probability, remainders, n_updates,
             new_state)
@@ -1472,7 +1472,7 @@ def universal_transformer_act_global(x, hparams, ffn_unit, attention_unit):
       x.set_shape([
           state_shape[0],
       ])
-      new_state.set_shape(state_shape)
+    new_state.set_shape(state_shape)
 
     step += 1
     return [
@@ -1620,7 +1620,7 @@ def universal_transformer_act_random(x, hparams, ffn_unit, attention_unit):
           state_shape[0],
           state_shape[1],
       ])
-      new_state.set_shape(state_shape)
+    new_state.set_shape(state_shape)
     step += 1
     return [
         transformed_state, step, halting_probability, remainders, n_updates,
