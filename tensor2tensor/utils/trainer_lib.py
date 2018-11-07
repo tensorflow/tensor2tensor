@@ -40,11 +40,22 @@ from tensorflow.python import debug
 
 
 def next_checkpoint(model_dir, timeout_mins=240):
-  """Yields successive checkpoints from model_dir."""
+  """Yields successive checkpoints from model_dir.
+
+  Args:
+    model_dir: The directory in which checkpoints are saved.
+    timeout_mins: The maximum amount of time in minutes to wait
+                  between checkpoints. Set this to -1 to wait indefinitely.
+  Yields:
+    last_ckpt: a new checkpoint path, or None if the timeout was reached.
+  """
   last_ckpt = None
+  timeout_secs = None
+  if timeout_mins != -1:
+    timeout_secs = timeout_mins * 60
   while True:
     last_ckpt = tf.contrib.training.wait_for_new_checkpoint(
-        model_dir, last_ckpt, seconds_to_sleep=60, timeout=60 * timeout_mins)
+        model_dir, last_ckpt, seconds_to_sleep=60, timeout=timeout_secs)
 
     if last_ckpt is None:
       tf.logging.info(
@@ -499,12 +510,14 @@ class T2TExperiment(object):
 
   def continuous_eval(self):
     """Evaluate until checkpoints stop being produced."""
-    for _ in next_checkpoint(self._hparams.model_dir):
+    for _ in next_checkpoint(self._hparams.model_dir,
+                             self._hparams.eval_timeout_mins):
       self.evaluate()
 
   def continuous_eval_on_train_data(self):
     """Evaluate on train data until checkpoints stop being produced."""
-    for _ in next_checkpoint(self._hparams.model_dir):
+    for _ in next_checkpoint(self._hparams.model_dir,
+                             self._hparams.eval_timeout_mins):
       self.evaluate_on_train_data()
 
   def test(self):
@@ -624,6 +637,7 @@ def create_experiment(
     eval_early_stopping_metric=None,
     eval_early_stopping_metric_delta=None,
     eval_early_stopping_metric_minimize=True,
+    eval_timeout_mins=240,
     use_tpu=False,
     use_tpu_estimator=False,
     use_xla=False,
@@ -644,6 +658,7 @@ def create_experiment(
   hparams.add_hparam("warm_start_from", warm_start_from)
   hparams.add_hparam("std_server_protocol", std_server_protocol)
   hparams.add_hparam("eval_freq_in_steps", min_eval_frequency)
+  hparams.add_hparam("eval_timeout_mins", eval_timeout_mins)
   if decode_hparams is not None:
     decode_hparams.add_hparam("decode_from_file", decode_from_file)
     decode_hparams.add_hparam("decode_to_file", decode_to_file)
