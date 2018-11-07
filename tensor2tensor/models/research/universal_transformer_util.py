@@ -1133,7 +1133,7 @@ def universal_transformer_act_basic(x, hparams, ffn_unit, attention_unit):
           use_bias=True,
           bias_initializer=tf.constant_initializer(
               hparams.act_halting_bias_init))
-      p = tf.squeeze(p)
+      p = tf.squeeze(p, axis=-1)
 
     # Mask for inputs which have not halted yet
     still_running = tf.cast(tf.less(halting_probability, 1.0), tf.float32)
@@ -1285,7 +1285,7 @@ def universal_transformer_act_accumulated(x, hparams, ffn_unit, attention_unit):
           use_bias=True,
           bias_initializer=tf.constant_initializer(
               hparams.act_halting_bias_init))
-      p = tf.squeeze(p)
+      p = tf.squeeze(p, axis=-1)
 
     # Mask for inputs which have not halted yet
     still_running = tf.cast(tf.less(halting_probability, 1.0), tf.float32)
