@@ -143,12 +143,13 @@ class Glow(t2t_model.T2TModel):
         "top_prior", self.z_top_shape, learn_prior=self.hparams.top_prior)
 
   def body(self, features):
-    init_features = self.create_init_batch(features)
-    init_op = self.objective_tower(init_features, init=True)
-    init_op = tf.Print(
-        init_op, [init_op], message="Triggering data-dependent init.",
-        first_n=20)
-    tf.add_to_collection("glow_init_op", init_op)
+    if self.is_training:
+      init_features = self.create_init_batch(features)
+      init_op = self.objective_tower(init_features, init=True)
+      init_op = tf.Print(
+          init_op, [init_op], message="Triggering data-dependent init.",
+          first_n=20)
+      tf.add_to_collection("glow_init_op", init_op)
     train_op = self.objective_tower(features, init=False)
     return tf.zeros_like(features["targets"]), {"training": train_op}
 
