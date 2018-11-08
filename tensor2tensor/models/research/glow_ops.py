@@ -554,18 +554,24 @@ def temporal_tensor_to_dist(name, x, hparams, output_channels=None):
   Returns:
     dist: tf.distributions.Normal
   """
+  res_channels = common_layers.shape_list(x)[-1]
   if output_channels is None:
-    output_channels = common_layers.shape_list(x)[-1]
+    output_channels = res_channels
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
-    h = conv_block("conv3d_init", x, time_filter=2,
-                   mid_channels=hparams.latent_encoder_width)
-    h = conv("conv3d_zeros", h, apply_actnorm=False,
-             output_channels=2*output_channels, conv_init="zeros",
-             filter_size=[2, 3, 3])
+    h = x
+    for i in range(hparams.latent_encoder_depth):
+      h1 = conv_block("conv3d_1_%d" % i, h, time_filter=2,
+                      mid_channels=hparams.latent_encoder_width)
+      h2 = conv("conv3d_zeros_%d" % i, h1, apply_actnorm=False,
+                output_channels=res_channels, conv_init="zeros",
+                filter_size=[2, 3, 3])
+      h += h2
 
     # take last activation that should capture all context since padding is
     # on left.
     h = h[:, -1, :, :, :]
+    h = conv("res_final", h, apply_actnorm=False, conv_init="zeros",
+             output_channels=2*output_channels, filter_size=[1, 1])
     mean, log_scale = h[:, :, :, 0::2], h[:, :, :, 1::2]
   return tf.distributions.Normal(mean, tf.exp(log_scale))
 
