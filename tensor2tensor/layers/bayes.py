@@ -64,22 +64,22 @@ class TrainableNormal(TrainableInitializer):
 
   def __init__(self,
                mean_initializer=tf.random_normal_initializer(stddev=0.1),
-               unconstrained_stddev_initializer=tf.random_normal_initializer(
-                   mean=-3., stddev=0.1),
+               stddev_initializer=tf.random_uniform_initializer(
+                   minval=1e-5, maxval=0.1),
                mean_regularizer=None,
-               unconstrained_stddev_regularizer=None,
+               stddev_regularizer=None,
                mean_constraint=None,
-               unconstrained_stddev_constraint=softplus(),
+               stddev_constraint=softplus(),
                seed=None,
                dtype=tf.float32):
     """Constructs the initializer."""
     super(TrainableNormal, self).__init__()
     self.mean_initializer = mean_initializer
-    self.unconstrained_stddev_initializer = unconstrained_stddev_initializer
+    self.stddev_initializer = stddev_initializer
     self.mean_regularizer = mean_regularizer
-    self.unconstrained_stddev_regularizer = unconstrained_stddev_regularizer
+    self.stddev_regularizer = stddev_regularizer
     self.mean_constraint = mean_constraint
-    self.unconstrained_stddev_constraint = unconstrained_stddev_constraint
+    self.stddev_constraint = stddev_constraint
     self.seed = seed
     self.dtype = tf.as_dtype(dtype)
 
@@ -99,11 +99,11 @@ class TrainableNormal(TrainableInitializer):
         dtype=dtype,
         trainable=True)
     self.stddev = add_variable_fn(
-        'unconstrained_stddev',
+        'stddev',
         shape=shape,
-        initializer=self.unconstrained_stddev_initializer,
-        regularizer=self.unconstrained_stddev_regularizer,
-        constraint=self.unconstrained_stddev_constraint,
+        initializer=self.stddev_initializer,
+        regularizer=self.stddev_regularizer,
+        constraint=self.stddev_constraint,
         dtype=dtype,
         trainable=True)
     self.built = True
@@ -115,27 +115,22 @@ class TrainableNormal(TrainableInitializer):
       raise ValueError('A TrainableInitializer must be built by a layer before '
                        'usage, and is currently only compatible with Bayesian '
                        'layers.')
-    # TODO(dusenberrymw): The softplus constraint seems to not be applied, so
-    # the following ends up being `mean + unconstrained_stddev * noise`.
     return ed.Normal(loc=self.mean, scale=self.stddev)
 
   def get_config(self):
     return {
         'mean_initializer':
             tf.keras.initializers.serialize(self.mean_initializer),
-        'unconstrained_stddev_initializer':
-            tf.keras.initializers.serialize(
-                self.unconstrained_stddev_initializer),
+        'stddev_initializer':
+            tf.keras.initializers.serialize(self.stddev_initializer),
         'mean_regularizer':
             tf.keras.regularizers.serialize(self.mean_regularizer),
-        'unconstrained_stddev_regularizer':
-            tf.keras.regularizers.serialize(
-                self.unconstrained_stddev_regularizer),
+        'stddev_regularizer':
+            tf.keras.regularizers.serialize(self.stddev_regularizer),
         'mean_constraint':
             tf.keras.constraints.serialize(self.mean_constraint),
-        'unconstrained_stddev_constraint':
-            tf.keras.constraints.serialize(
-                self.unconstrained_stddev_constraint),
+        'stddev_constraint':
+            tf.keras.constraints.serialize(self.stddev_constraint),
         'seed': self.seed,
         'dtype': self.dtype.name,
     }

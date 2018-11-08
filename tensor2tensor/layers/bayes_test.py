@@ -29,6 +29,17 @@ import tensorflow as tf
 
 class BayesTest(parameterized.TestCase, tf.test.TestCase):
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes
+  def testTrainableNormalStddevConstraint(self):
+    layer = bayes.DenseReparameterization(
+        100, kernel_initializer=bayes.TrainableNormal())
+    inputs = tf.random_normal([1, 1])
+    out = layer(inputs)
+    stddev = layer.kernel.distribution.scale
+    self.evaluate(tf.global_variables_initializer())
+    res, _ = self.evaluate([stddev, out])
+    self.assertAllGreater(res, 0.)
+
   @parameterized.named_parameters(
       {"testcase_name": "_no_uncertainty", "kernel_initializer": "zeros",
        "bias_initializer": "zeros", "all_close": True},
