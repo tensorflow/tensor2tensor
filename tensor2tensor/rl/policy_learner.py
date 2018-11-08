@@ -23,6 +23,8 @@ import os
 
 from tensor2tensor.rl import rl_trainer_lib
 
+import tensorflow as tf
+
 
 class PolicyLearner(object):
   """API for policy learners."""
@@ -54,10 +56,6 @@ class PPOLearner(PolicyLearner):
       self, env_fn, hparams, num_env_steps, simulated, save_continuously,
       epoch, eval_env_fn=None
   ):
-    self._num_completed_iterations += num_env_steps // (
-        hparams.num_agents * hparams.epoch_length
-    )
-
     if not save_continuously:
       # We do not save model, as that resets frames that we need at restarts.
       # But we need to save at the last step, so we set it very high.
@@ -72,11 +70,26 @@ class PPOLearner(PolicyLearner):
         self.base_event_dir, "ppo_summaries", str(epoch) + simulated_str
     )
 
-    rl_trainer_lib.train(
-        env_fn, hparams, event_dir, self.agent_model_dir,
-        self._num_completed_iterations, name_scope=name_scope,
-        frame_stack_size=self.frame_stack_size, force_beginning_resets=simulated
-    )
+    with tf.Graph().as_default():
+      with tf.name_scope(name_scope):
+        with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+          env = env_fn(in_graph=True)
+          (train_summary_op, eval_summary_op, initializers) = (
+              rl_trainer_lib.define_train(
+                  env, hparams, eval_env_fn,
+                  frame_stack_size=self.frame_stack_size,
+                  force_beginning_resets=simulated
+              )
+          )
+
+        self._num_completed_iterations += num_env_steps // (
+            env.batch_size * hparams.epoch_length
+        )
+        rl_trainer_lib.train(
+            hparams, event_dir, self.agent_model_dir,
+            self._num_completed_iterations, train_summary_op, eval_summary_op,
+            initializers
+        )
 
   def evaluate(self, env_fn, hparams, stochastic):
     if stochastic:

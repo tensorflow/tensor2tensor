@@ -73,7 +73,7 @@ def define_ppo_step(data_points, optimizer, hparams, action_space):
     return [tf.identity(x) for x in losses + gradients_norms]
 
 
-def define_ppo_epoch(memory, hparams, action_space):
+def define_ppo_epoch(memory, hparams, action_space, batch_size):
   """PPO epoch."""
   observation, reward, done, action, old_pdf, value = memory
 
@@ -102,8 +102,8 @@ def define_ppo_epoch(memory, hparams, action_space):
   number_of_batches = ((hparams.epoch_length-1) * hparams.optimization_epochs
                        / hparams.optimization_batch_size)
 
-  if hasattr(hparams, "effective_num_agents"):
-    number_of_batches *= hparams.num_agents
+  if hparams.effective_num_agents is not None:
+    number_of_batches *= batch_size
     number_of_batches /= hparams.effective_num_agents
 
   dataset = tf.data.Dataset.from_tensor_slices(

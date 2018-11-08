@@ -67,15 +67,16 @@ def rlmb_base():
       # Flip the first random frame in PPO batch for the true beginning.
       simulation_flip_first_random_for_beginning=True,
       intrinsic_reward_scale=0.,
-      ppo_epochs_num=1000,  # This should be enough to see something
-      # Our simulated envs do not know how to reset.
-      # You should set ppo_time_limit to the value you believe that
-      # the simulated env produces a reasonable output.
-      ppo_time_limit=200,  # TODO(blazej): this param is unused
-      # It makes sense to have ppo_time_limit=ppo_epoch_length,
+      # Number of real environments to train on simultaneously.
+      real_batch_size=1,
+      # Number of simulated environments to train on simultaneously.
+      simulated_batch_size=16,
+      # Number of frames that can be taken from the simulated environment before
+      # it diverges, used for training the agent.
+      simulated_rollout_length=50,
+      # It makes sense to have simulated_rollout_length=ppo_epoch_length,
       # though it is not necessary.
       ppo_epoch_length=50,
-      ppo_num_agents=16,
       # Do not eval since simulated batch env does not produce dones
       ppo_eval_every_epochs=0,
       ppo_learning_rate=1e-4,  # Will be changed, just so it exists.
@@ -93,15 +94,15 @@ def rlmb_base():
       # In your experiments, you want to optimize this rate to your schedule.
       learning_rate_bump=3.0,
 
-      real_ppo_epochs_num=0,
       # This needs to be divisible by real_ppo_effective_num_agents.
       real_ppo_epoch_length=16*200,
-      real_ppo_num_agents=1,
       real_ppo_learning_rate=1e-4,
       real_ppo_effective_num_agents=16,
       real_ppo_eval_every_epochs=0,
 
-      eval_num_agents=30,
+      # Batch size during evaluation. Metrics are averaged over this number of
+      # rollouts.
+      eval_batch_size=30,
       eval_max_num_noops=8,
 
       game="pong",
@@ -111,7 +112,7 @@ def rlmb_base():
       # Number of concurrent rollouts in world model evaluation.
       wm_eval_batch_size=16,
       # Number of batches to run for world model evaluation.
-      wm_eval_epochs_num=8,
+      wm_eval_num_batches=8,
       # Ratios of ppo_epoch_length to report reward_accuracy on.
       wm_eval_rollout_ratios=[0.25, 0.5, 1, 2],
       stop_loop_early=False,  # To speed-up tests.
@@ -130,7 +131,6 @@ def rlmb_basetest():
   hparams.num_real_env_frames = 3200
   hparams.model_train_steps = 100
   hparams.num_simulated_env_frames_per_epoch = 2 * 50 * 16
-  hparams.ppo_epochs_num = 2
   return hparams
 
 
@@ -148,7 +148,7 @@ def rlmb_quick():
   hparams = rlmb_base()
   hparams.epochs = 2
   hparams.model_train_steps = 25000
-  hparams.ppo_epochs_num = 700
+  hparams.num_simulated_env_frames_per_epoch = 700 * 50 * 16
   hparams.ppo_epoch_length = 50
   return hparams
 
@@ -277,7 +277,7 @@ def rlmb_base_sv2p_flippy30():
   """Base setting with sv2p as world model."""
   hparams = rlmb_base()
   hparams.epochs = 30
-  hparams.ppo_epochs_num = 1000
+  hparams.num_simulated_env_frames_per_epoch = 1000 * 50 * 16
   hparams.model_train_steps = 15000
   hparams.learning_rate_bump = 1.0
   hparams.initial_epoch_train_steps_multiplier = 5
@@ -332,7 +332,7 @@ def rlmb_flippy60():
   """Schedule with a lot of epochs (slow)."""
   hparams = rlmb_base_sampling()
   hparams.epochs = 60
-  hparams.ppo_epochs_num = 500
+  hparams.num_simulated_env_frames_per_epoch = 500 * 50 * 16
   hparams.model_train_steps = 10000
   return hparams
 
@@ -342,7 +342,7 @@ def rlmb_flippy30():
   """Schedule with a lot of epochs (slow)."""
   hparams = rlmb_base_sampling()
   hparams.epochs = 30
-  hparams.ppo_epochs_num = 1000
+  hparams.num_simulated_env_frames_per_epoch = 1000 * 50 * 16
   hparams.model_train_steps = 15000
   return hparams
 
@@ -369,7 +369,7 @@ def rlmb_short():
   hparams = rlmb_base()
   hparams.num_real_env_frames //= 5
   hparams.model_train_steps //= 10
-  hparams.ppo_epochs_num //= 10
+  hparams.num_simulated_env_frames_per_epoch //= 10
   return hparams
 
 
@@ -377,7 +377,7 @@ def rlmb_short():
 def rlmb_model_only():
   hp = rlmb_base()
   hp.epochs = 1
-  hp.ppo_epochs_num = 0
+  hp.num_simulated_env_frames_per_epoch = 0
   return hp
 
 
@@ -390,22 +390,21 @@ def rlmb_tiny():
           num_real_env_frames=128,
           num_simulated_env_frames_per_epoch=(2 * 2 * 2),
           model_train_steps=2,
-          ppo_epochs_num=2,
-          ppo_time_limit=5,
+          simulated_batch_size=2,
+          simulated_rollout_length=2,
           ppo_epoch_length=2,
-          ppo_num_agents=2,
+          real_batch_size=1,
           real_ppo_epoch_length=36,
-          real_ppo_num_agents=1,
-          real_ppo_epochs_num=0,
           real_ppo_effective_num_agents=2,
-          eval_num_agents=1,
+          eval_batch_size=1,
+          eval_max_num_noops=1,
           generative_model_params="next_frame_tiny",
           stop_loop_early=True,
           resize_height_factor=2,
           resize_width_factor=2,
           game="pong",
           wm_eval_rollout_ratios=[1],
-          env_timesteps_limit=6,
+          env_timesteps_limit=7,
       ).values())
 
 
@@ -463,7 +462,6 @@ def rlmb_ae_basetest():
   hparams.model_train_steps = 100
   hparams.autoencoder_train_steps = 10
   hparams.num_simulated_env_frames_per_epoch = 2 * 50 * 16
-  hparams.ppo_epochs_num = 2
   return hparams
 
 
@@ -652,17 +650,22 @@ def rlmb_epochs_num(rhp):
 
 
 @registry.register_ranged_hparams
-def rlmb_ppo_epochs_num(rhp):
+def rlmb_num_simulated_env_frames_per_epoch(rhp):
   rhp.set_categorical("loop.game", gym_env.ATARI_WHITELIST_GAMES)
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
-  rhp.set_discrete("loop.ppo_epochs_num", [200, 1000, 2000, 4000])
+  rhp.set_discrete(
+      "loop.num_simulated_env_frames_per_epoch", [
+          16 * 50 * num_iterations
+          for num_iterations in [200, 1000, 2000, 4000]
+      ]
+  )
 
 
 @registry.register_ranged_hparams
-def rlmb_ppo_epoch_len(rhp):
+def rlmb_simulated_rollout_length(rhp):
   rhp.set_categorical("loop.game", gym_env.ATARI_WHITELIST_GAMES)
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
-  rhp.set_discrete("loop.ppo_epoch_length", [25, 50, 100])
+  rhp.set_discrete("loop.simulated_rollout_length", [25, 50, 100])
 
 
 @registry.register_ranged_hparams

@@ -93,7 +93,6 @@ def ppo_atari_base():
   """Pong base parameters."""
   hparams = ppo_discrete_action_base()
   hparams.learning_rate = 1e-4
-  hparams.num_agents = 8
   hparams.epoch_length = 200
   hparams.gae_gamma = 0.985
   hparams.gae_lambda = 0.985
