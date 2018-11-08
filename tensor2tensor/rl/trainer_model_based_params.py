@@ -74,8 +74,8 @@ def rlmb_base():
       # Number of frames that can be taken from the simulated environment before
       # it diverges, used for training the agent.
       simulated_rollout_length=50,
-      # It makes sense to have simulated_rollout_length=ppo_epoch_length,
-      # though it is not necessary.
+      # Should be equal to simulated_rollout_length.
+      # TODO(koz4k): Uncouple this by outputing done from SimulatedBatchEnv.
       ppo_epoch_length=50,
       # Do not eval since simulated batch env does not produce dones
       ppo_eval_every_epochs=0,
@@ -662,10 +662,10 @@ def rlmb_num_simulated_env_frames_per_epoch(rhp):
 
 
 @registry.register_ranged_hparams
-def rlmb_simulated_rollout_length(rhp):
+def rlmb_ppo_epoch_len(rhp):
   rhp.set_categorical("loop.game", gym_env.ATARI_WHITELIST_GAMES)
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
-  rhp.set_discrete("loop.simulated_rollout_length", [25, 50, 100])
+  rhp.set_discrete("loop.ppo_epoch_length", [25, 50, 100])
 
 
 @registry.register_ranged_hparams
