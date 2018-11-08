@@ -13,20 +13,18 @@ env:
     - T2T_PROBLEM=algorithmic_reverse_binary40_test
     - T2T_DATA_DIR=/tmp/t2t-data
     - T2T_TRAIN_DIR=/tmp/t2t-train
-    - TF_LATEST="1.11.*"
+    - TF_LATEST="1.12.*"
     # This is necessary to have gsutil work with Python 2.7
     - BOTO_CONFIG=/dev/null
   matrix:
-    # We test against recent versions of TensorFlow and tf-nightly.
+    # We test against the latest stable TensorFlow and tf-nightly.
     # If updating, also update TF_LATEST above
-    - TF_VERSION="1.10.*"
-    - TF_VERSION="1.11.*"
+    - TF_VERSION="1.12.*"
     - TF_VERSION="tf-nightly"
 matrix:
   exclude:
-    # We test against all versions in Python 2 but only the latest in Python 3
-    - python: "3.6"
-      env: TF_VERSION="1.10.*"
+    # We test against all versions in Python 2 but only the latest stable
+    # version in Python 3
     - python: "3.6"
       env: TF_VERSION="tf-nightly"
 before_install:
