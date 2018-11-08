@@ -153,11 +153,13 @@ def preprocess_example_common(example, hparams, mode):
   if hparams.max_target_seq_length > 0:
     example["targets"] = example["targets"][:hparams.max_target_seq_length]
   if hparams.split_to_length:
-    example["targets"] = tf.reshape(example["targets"],
-                                    [-1, hparams.split_to_length, 1, 1])
-    if len(example) != 1:
-      raise ValueError("split_to_length only works for LM problems")
-    return tf.data.Dataset.from_tensor_slices(example)
+    new_example = {}
+    for k, v in six.iteritems(example):
+      if k == "targets" or k == "inputs":
+        new_example[k] = tf.reshape(v, [-1, hparams.split_to_length, 1, 1])
+      else:
+        tf.logging.warning("Dropping feature %s" % k)
+    return tf.data.Dataset.from_tensor_slices(new_example)
   return example
 
 

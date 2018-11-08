@@ -166,8 +166,8 @@ def xmoe2_dense(sz):
 
   TODO(noam): find a large enough dataset for these experiments.
 
-  You can use languagemodel_wiki_noref_v8k_l1k, but this is too small,
-  so training will cover about 9 epochs.
+  You can use languagemodel_wiki_noref_v32k_l1k, but this is too small,
+  (1 epoch = ~46000 steps) so training will cover about 11 epochs.
 
   Note: configurations and code are likely to change without notice.
 
@@ -262,4 +262,71 @@ def xmoe2_tiny():
   hparams.batch_size = 2
   hparams.mesh_shape = ""
   hparams.activation_dtype = "float32"
+  return hparams
+
+
+@registry.register_hparams
+def xmoe2_v1_l4k():
+  """With sequence length 4096."""
+  hparams = xmoe2_v1()
+  hparams.batch_size = 32
+  hparams.max_length = 4096
+  hparams.split_to_length = 4096
+  return hparams
+
+
+@registry.register_hparams
+def xmoe2_v1_l4k_local_only():
+  """With sequence length 4096."""
+  hparams = xmoe2_v1_l4k()
+  hparams.decoder_layers = [
+      "local_att" if l == "att" else l for l in hparams.decoder_layers]
+  return hparams
+
+
+@registry.register_hparams
+def wiki_2x2_base():
+  """Set of architectural experiments - language model on wikipedia on a 2x2.
+
+  1 epoch = ~180k steps at batch size 32 - we may never finish an epoch!
+
+  Returns:
+    a hparams
+  """
+  hparams = mtf_transformer.mtf_transformer_base_lm()
+  hparams.shared_embedding_and_softmax_weights = False
+  # no dropout - dataset is big enough to avoid overfitting.
+  hparams.attention_dropout = 0.0
+  hparams.relu_dropout = 0.0
+  hparams.layer_prepostprocess_dropout = 0.0
+  hparams.max_length = 1024
+  # 4 sequences per core
+  hparams.batch_size = 32
+  # We don't use linear decay in these experiments, since we don't want
+  # a sharp jump in quality at the end of the training schedule.
+  # You can insert this once you find the right architecture.
+  hparams.learning_rate_schedule = "rsqrt_decay"
+  hparams.mesh_shape = "all:8"
+  hparams.layout = "batch:all;experts:all"
+
+  # parameters for mixture-of-experts
+  moe.set_default_moe_hparams(hparams)
+  hparams.moe_num_experts = 16
+  hparams.moe_hidden_size = 8192
+
+  hparams.decoder_layers = ["att", "drd"] * 6
+  hparams.d_model = 1024
+  hparams.d_ff = 2048
+  hparams.d_kv = 128
+  hparams.num_heads = 4
+
+  return hparams
+
+
+@registry.register_hparams
+def wiki_2x2_v1():
+  hparams = wiki_2x2_base()
+  hparams.decoder_layers = (
+      ["local_att", "local_att", "drd",
+       "att", "drd", "local_att", "local_att", "moe"] * 4)[:-1]
   return hparams

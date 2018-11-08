@@ -396,6 +396,19 @@ class LanguagemodelWikiNorefV32kL1k(LanguagemodelWikiNorefV8kL1k):
 
 
 @registry.register_problem
+class LanguagemodelWikiNorefV32kL16k(LanguagemodelWikiNorefV32kL1k):
+  """A language model on English Wikipedia.
+
+  References removed.  Chopped into segments of 16k tokens.
+  """
+
+  @property
+  def sequence_length(self):
+    """Length of each example (in tokens)."""
+    return 2**14
+
+
+@registry.register_problem
 class LanguagemodelWikiNorefV128kL1k(LanguagemodelWikiNorefV8kL1k):
   """128k vocab."""
 
