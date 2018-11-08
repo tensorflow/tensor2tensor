@@ -13,11 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""This module defines a dict of all PolicyLearners."""
+"""Utils common for trainer_model_{based,free}."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import six
 
 from tensor2tensor.rl.ppo_learner import PPOLearner
 
@@ -25,3 +27,10 @@ from tensor2tensor.rl.ppo_learner import PPOLearner
 LEARNERS = {
     "ppo": PPOLearner
 }
+
+
+def update_hparams_from_hparams(target_hparams, source_hparams, prefix):
+  """Copy a subset of hparams to target_hparams."""
+  for (param_name, param_value) in six.iteritems(source_hparams.values()):
+    if param_name.startswith(prefix):
+      target_hparams.set_hparam(param_name[len(prefix):], param_value)

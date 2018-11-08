@@ -20,7 +20,7 @@ Example invocation:
 python -m tensor2tensor.rl.trainer_model_free \
     --output_dir=$HOME/t2t/rl_v1 \
     --hparams_set=pong_model_free \
-    --loop_hparams='num_agents=15'
+    --loop_hparams='batch_size=15'
 """
 
 from __future__ import absolute_import
@@ -28,7 +28,7 @@ from __future__ import division
 from __future__ import print_function
 from tensor2tensor.data_generators import gym_env
 from tensor2tensor.models.research import rl
-from tensor2tensor.rl import rl_trainer_lib
+from tensor2tensor.rl import trainer_utils
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import trainer_lib
 
@@ -50,7 +50,7 @@ def initialize_env_specs(hparams):
   if getattr(hparams, "game", None):
     game_name = gym_env.camel_case_name(hparams.game)
     env = gym_env.T2TGymEnv("{}Deterministic-v4".format(game_name),
-                            batch_size=hparams.num_agents)
+                            batch_size=hparams.batch_size)
     env.start_new_epoch(0)
     hparams.add_hparam("env_fn", rl.make_real_env_fn(env))
     eval_env = gym_env.T2TGymEnv("{}Deterministic-v4".format(game_name),
@@ -62,7 +62,18 @@ def initialize_env_specs(hparams):
 
 def train(hparams, output_dir, report_fn=None):
   hparams = initialize_env_specs(hparams)
-  rl_trainer_lib.train(hparams, output_dir, output_dir, report_fn=report_fn)
+  learner = trainer_utils.LEARNERS[hparams.base_algo](
+      hparams.frame_stack_size, FLAGS.output_dir, output_dir
+  )
+  policy_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
+  trainer_utils.update_hparams_from_hparams(
+      policy_hparams, hparams, hparams.base_algo + "_"
+  )
+  learner.train(
+      hparams.env_fn, policy_hparams, hparams.num_frames, simulated=False,
+      save_continuously=True, epoch=0, eval_env_fn=hparams.eval_env_fn,
+      report_fn=report_fn
+  )
 
 
 def main(_):

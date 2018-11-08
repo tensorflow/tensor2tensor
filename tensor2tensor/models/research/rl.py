@@ -50,6 +50,7 @@ def ppo_base_v1():
   hparams.add_hparam("optimization_epochs", 15)
   hparams.add_hparam("epoch_length", 200)
   hparams.add_hparam("eval_every_epochs", 10)
+  hparams.add_hparam("num_eval_agents", 3)
   hparams.add_hparam("save_models_every_epochs", 30)
   hparams.add_hparam("optimization_batch_size", 50)
   hparams.add_hparam("max_gradients_norm", 0.5)
@@ -99,7 +100,6 @@ def ppo_atari_base():
   hparams.entropy_loss_coef = 0.003
   hparams.value_loss_coef = 1
   hparams.optimization_epochs = 3
-  hparams.epochs_num = 1000
   hparams.num_eval_agents = 1
   hparams.policy_network = feed_forward_cnn_small_categorical_fun
   hparams.clipping_coef = 0.2
@@ -182,27 +182,17 @@ def ppo_pong_ae_base():
 @registry.register_hparams
 def pong_model_free():
   """TODO(piotrmilos): Document this."""
-  hparams = tf.contrib.training.HParams(
-      epochs_num=4,
-      eval_every_epochs=2,
-      num_agents=2,
-      optimization_epochs=3,
-      epoch_length=30,
-      entropy_loss_coef=0.003,
-      learning_rate=8e-05,
-      optimizer="Adam",
-      policy_network=feed_forward_cnn_small_categorical_fun,
-      gae_lambda=0.985,
-      num_eval_agents=2,
-      max_gradients_norm=0.5,
-      gae_gamma=0.985,
-      optimization_batch_size=4,
-      clipping_coef=0.2,
-      value_loss_coef=1,
-      save_models_every_epochs=False,
-      frame_stack_size=4,
-      force_beginning_resets=False,
-  )
+  hparams = mfrl_base()
+  hparams.batch_size = 2
+  hparams.num_frames = 4 * 30 * 2
+  hparams.ppo_eval_every_epochs = 2
+  hparams.add_hparam("ppo_optimization_epochs", 3)
+  hparams.add_hparam("ppo_epoch_length", 30)
+  hparams.add_hparam("ppo_learning_rate", 8e-05)
+  hparams.add_hparam("ppo_optimizer", "Adam")
+  hparams.add_hparam("ppo_num_eval_agents", 2)
+  hparams.add_hparam("ppo_optimization_batch_size", 4)
+  hparams.add_hparam("ppo_save_models_every_epochs", 1000000)
   env = gym_env.T2TGymEnv("PongNoFrameskip-v4", batch_size=2)
   env.start_new_epoch(0)
   hparams.add_hparam("env_fn", make_real_env_fn(env))
@@ -214,11 +204,16 @@ def pong_model_free():
 
 @registry.register_hparams
 def mfrl_base():
-  hparams = ppo_original_params()
-  hparams.add_hparam("game", "")
-  hparams.epochs_num = 3000
-  hparams.eval_every_epochs = 100
-  return hparams
+  return tf.contrib.training.HParams(
+      game="",
+      # Default: 1000 PPO epochs, 200 steps per epoch, 30 agents in batch.
+      base_algo="ppo",
+      base_algo_params="ppo_atari_base",
+      batch_size=30,
+      frame_stack_size=4,
+      ppo_epochs_num=3000,
+      ppo_eval_every_epochs=100
+  )
 
 
 NetworkOutput = collections.namedtuple(

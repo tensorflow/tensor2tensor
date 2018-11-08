@@ -30,7 +30,7 @@ class PolicyLearner(object):
 
   def train(
       self, env_fn, hparams, num_env_steps, simulated, save_continuously,
-      epoch, eval_env_fn=None
+      epoch, eval_env_fn=None, report_fn=None
   ):
     # TODO(konradczechowski): move 'simulated' to  batch_env
     raise NotImplementedError()

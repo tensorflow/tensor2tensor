@@ -41,7 +41,7 @@ from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import trainer_model_based_params
-from tensor2tensor.rl.policy_learners import LEARNERS
+from tensor2tensor.rl import trainer_utils
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -163,13 +163,6 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
   getattr(exp, schedule)()
 
 
-def _update_hparams_from_hparams(target_hparams, source_hparams, prefix):
-  """Copy a subset of hparams to target_hparams."""
-  for (param_name, param_value) in six.iteritems(source_hparams.values()):
-    if param_name.startswith(prefix):
-      target_hparams.set_hparam(param_name[len(prefix):], param_value)
-
-
 def train_agent(
     real_env, learner, world_model_dir, hparams, epoch, is_final_epoch
 ):
@@ -208,7 +201,9 @@ def train_agent(
   base_algo_str = hparams.base_algo
   train_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
 
-  _update_hparams_from_hparams(train_hparams, hparams, base_algo_str + "_")
+  trainer_utils.update_hparams_from_hparams(
+      train_hparams, hparams, base_algo_str + "_"
+  )
 
   num_env_steps = sim_env_step_increment(hparams, is_final_epoch)
   learner.train(
@@ -222,8 +217,9 @@ def train_agent_real_env(env, learner, hparams, epoch):
   base_algo_str = hparams.base_algo
 
   train_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
-  _update_hparams_from_hparams(train_hparams, hparams,
-                               "real_" + base_algo_str + "_")
+  trainer_utils.update_hparams_from_hparams(
+      train_hparams, hparams, "real_" + base_algo_str + "_"
+  )
 
   env_fn = rl.make_real_env_fn(env)
   num_env_steps = real_env_step_increment(hparams)
@@ -287,7 +283,7 @@ def evaluate_single_config(hparams, stochastic, max_num_noops, agent_model_dir):
   )
   env.start_new_epoch(0)
   env_fn = rl.make_real_env_fn(env)
-  learner = LEARNERS[hparams.base_algo](
+  learner = trainer_utils.LEARNERS[hparams.base_algo](
       hparams.frame_stack_size, base_event_dir=None,
       agent_model_dir=agent_model_dir
   )
@@ -469,7 +465,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   )
   env.start_new_epoch(epoch, data_dir)
 
-  learner = LEARNERS[hparams.base_algo](
+  learner = trainer_utils.LEARNERS[hparams.base_algo](
       hparams.frame_stack_size, directories["world_model"],
       directories["policy"]
   )

@@ -36,7 +36,7 @@ class PPOLearner(PolicyLearner):
 
   def train(
       self, env_fn, hparams, num_env_steps, simulated, save_continuously,
-      epoch, eval_env_fn=None
+      epoch, eval_env_fn=None, report_fn=None
   ):
     if not save_continuously:
       # We do not save model, as that resets frames that we need at restarts.
@@ -70,7 +70,7 @@ class PPOLearner(PolicyLearner):
         rl_trainer_lib.train(
             hparams, event_dir, self.agent_model_dir,
             self._num_completed_iterations, train_summary_op, eval_summary_op,
-            initializers
+            initializers, report_fn=report_fn
         )
 
   def evaluate(self, env_fn, hparams, stochastic):
