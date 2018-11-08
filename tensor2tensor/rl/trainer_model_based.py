@@ -26,7 +26,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import copy
 import datetime
 import math
 import os
@@ -42,7 +41,7 @@ from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import trainer_model_based_params
-from tensor2tensor.rl.policy_learner import PPOLearner
+from tensor2tensor.rl.policy_learners import LEARNERS
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -50,11 +49,6 @@ import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
-
-
-LEARNERS = dict(
-    ppo=PPOLearner,
-)
 
 
 def real_env_step_increment(hparams):

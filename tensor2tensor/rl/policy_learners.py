@@ -13,27 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unified interface for different RL algorithms."""
+"""This module defines a dict of all PolicyLearners."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from tensor2tensor.rl.ppo_learner import PPOLearner
 
-class PolicyLearner(object):
-  """API for policy learners."""
 
-  def __init__(self, frame_stack_size, base_event_dir, agent_model_dir):
-    self.frame_stack_size = frame_stack_size
-    self.base_event_dir = base_event_dir
-    self.agent_model_dir = agent_model_dir
-
-  def train(
-      self, env_fn, hparams, num_env_steps, simulated, save_continuously,
-      epoch, eval_env_fn=None
-  ):
-    # TODO(konradczechowski): move 'simulated' to  batch_env
-    raise NotImplementedError()
-
-  def evaluate(self, env_fn, hparams, stochastic):
-    raise NotImplementedError()
+LEARNERS = {
+    "ppo": PPOLearner
+}
