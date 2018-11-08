@@ -19,12 +19,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from functools import partial
+import functools
 import six
 
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
+from tensor2tensor.layers import discretization
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -37,6 +38,28 @@ tfcl = tf.contrib.layers
 
 def flat_lists(list_of_lists):
   return [x for l in list_of_lists for x in l]
+
+
+def pixels_from_softmax(frame_logits, pure_sampling=False,
+                        temperature=1.0, gumbel_noise_factor=0.2):
+  """Given frame_logits from a per-pixel softmax, generate colors."""
+  # If we're purely sampling, just sample each pixel.
+  if pure_sampling or temperature == 0.0:
+    return common_layers.sample_with_temperature(frame_logits, temperature)
+
+  # Gumbel-sample from the pixel sofmax and average by pixel values.
+  pixel_range = tf.to_float(tf.range(256))
+  for _ in range(len(frame_logits.get_shape().as_list()) - 1):
+    pixel_range = tf.expand_dims(pixel_range, axis=0)
+
+  frame_logits = tf.nn.log_softmax(frame_logits)
+  gumbel_samples = discretization.gumbel_sample(
+      common_layers.shape_list(frame_logits)) * gumbel_noise_factor
+
+  frame = tf.nn.softmax((frame_logits + gumbel_samples) / temperature, axis=-1)
+  result = tf.reduce_sum(frame * pixel_range, axis=-1)
+  # Round on the forward pass, not on the backward one.
+  return result + tf.stop_gradient(tf.round(result) - result)
 
 
 @registry.register_model
@@ -252,9 +275,10 @@ class NextFrameBase(t2t_model.T2TModel):
 
       if isinstance(scheduled_sampling_func_var, tf.Tensor):
         tf.summary.scalar("scheduled_sampling_var", scheduled_sampling_func_var)
-      partial_func = partial(scheduled_sampling_func,
-                             batch_size=batch_size,
-                             scheduled_sample_var=scheduled_sampling_func_var)
+      partial_func = functools.partial(
+          scheduled_sampling_func,
+          batch_size=batch_size,
+          scheduled_sample_var=scheduled_sampling_func_var)
       return partial_func
 
   def get_scheduled_sample_inputs(self,
@@ -361,9 +385,8 @@ class NextFrameBase(t2t_model.T2TModel):
       frame_shape = common_layers.shape_list(pred_frame)
       target_shape = frame_shape[:-1] + [self.hparams.problem.num_channels]
       sampled_frame = tf.reshape(pred_frame, target_shape + [256])
-      # TODO(lukaszkaiser): should this be argmax or real sampling.
-      sampled_frame = tf.argmax(sampled_frame, axis=-1)
-      sampled_frame = tf.to_float(sampled_frame)
+      sampled_frame = pixels_from_softmax(
+          sampled_frame, temperature=self.hparams.pixel_sampling_temperature)
       # TODO(lukaszkaiser): this should be consistent with modality.bottom()
       sampled_frame = common_layers.standardize_images(sampled_frame)
     else:
@@ -417,11 +440,15 @@ class NextFrameBase(t2t_model.T2TModel):
       inputs_old = features["inputs"]
       features["inputs"] = tf.expand_dims(features["inputs"], 2)
 
-    def logits_to_samples(logits):
+    def logits_to_samples(logits, key):
       """Get samples from logits."""
       # If the last dimension is 1 then we're using L1/L2 loss.
       if common_layers.shape_list(logits)[-1] == 1:
         return tf.to_int32(tf.squeeze(logits, axis=-1))
+      if key == "targets":
+        return pixels_from_softmax(
+            logits, gumbel_noise_factor=0.0,
+            temperature=hparams.pixel_sampling_temperature)
       # Argmax in TF doesn't handle more than 5 dimensions yet.
       logits_shape = common_layers.shape_list(logits)
       argmax = tf.argmax(tf.reshape(logits, [-1, logits_shape[-1]]), axis=-1)
@@ -458,13 +485,13 @@ class NextFrameBase(t2t_model.T2TModel):
     if isinstance(logits, dict):
       results = {}
       for k, v in six.iteritems(logits):
-        results[k] = logits_to_samples(v)
+        results[k] = logits_to_samples(v, k)
         results["%s_logits" % k] = v
       # HACK: bypassing decoding issues.
       results["outputs"] = results["targets"]
       results["scores"] = results["targets"]
     else:
-      results = logits_to_samples(logits)
+      results = logits_to_samples(logits, "targets")
 
     # Restore inputs to not confuse Estimator in edge cases.
     if inputs_old is not None:
