@@ -54,7 +54,7 @@ def assign(w, initial_value):
 def get_cond_latents_at_level(cond_latents, level, hparams):
   """Returns a single or list of conditional latents at level 'level'."""
   if cond_latents:
-    if hparams.latent_dist_encoder == "conv_net":
+    if hparams.latent_dist_encoder in ["conv_net", "conv3d_net"]:
       return [cond_latent[level] for cond_latent in cond_latents]
     elif hparams.latent_dist_encoder in ["pointwise", "conv_lstm"]:
       return cond_latents[level]
@@ -90,6 +90,30 @@ def get_variable_ddi(name, shape, initial_value, dtype=tf.float32, init=False,
     return w
   else:
     return tf.cond(init, lambda: assign(w, initial_value), lambda: w)
+
+
+@add_arg_scope
+def actnorm_3d(name, x, logscale_factor=3.):
+  """Applies actnorm to each time-step independently.
+
+  There are a total of 2*n_channels*n_steps parameters learnt.
+
+  Args:
+    name: variable scope.
+    x: 5-D Tensor, (NTHWC)
+    logscale_factor: Increases the learning rate of the scale by
+                     logscale_factor.
+  Returns:
+    x: 5-D Tensor, (NTHWC) with the per-timestep, per-channel normalization.
+  """
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    x = tf.unstack(x, axis=1)
+    x_normed = []
+    for ind, x_step in enumerate(x):
+      x_step, _ = actnorm("actnorm_%d" % ind, x_step,
+                          logscale_factor=logscale_factor)
+      x_normed.append(x_step)
+    return tf.stack(x_normed, axis=1), None
 
 
 @add_arg_scope
@@ -292,17 +316,39 @@ def add_edge_bias(x, filter_size):
   return tf.concat([x, x_pad], axis=3)
 
 
+def time_pad(x, filter_size):
+  """Pad left across time and pad valid across the spatial components.
+
+  Args:
+    x: 5-D Tensor, (NTHWC)
+    filter_size: list of ints
+  Returns:
+    x_pad: 5-D Tensor.
+  """
+  if filter_size == [1, 1, 1]:
+    return x
+  a = (filter_size[1] - 1) // 2  # vertical padding size
+  b = (filter_size[2] - 1) // 2  # horizontal padding size
+  c = filter_size[0] - 1
+  padding = [[0, 0], [c, 0], [a, a], [b, b], [0, 0]]
+  return tf.pad(x, padding)
+
+
 @add_arg_scope
-def conv2d(name, x, output_channels, filter_size=None, stride=None,
-           logscale_factor=3.0, apply_actnorm=True, conv_init="default"):
-  """conv2d layer with edge bias padding and optional actnorm.
+def conv(name, x, output_channels, filter_size=None, stride=None,
+         logscale_factor=3.0, apply_actnorm=True, conv_init="default"):
+  """Convolutional layer with edge bias padding and optional actnorm.
+
+  If x is 5-dimensional, actnorm is applied independently across every
+  time-step.
 
   Args:
     name: variable scope.
-    x: 4-D Tensor of shape (NHWC)
+    x: 4-D Tensor or 5-D Tensor of shape NHWC or NTHWC
     output_channels: Number of output channels.
-    filter_size:
-    stride:
+    filter_size: list of ints, if None [3, 3] and [2, 3, 3] are defaults for
+                 4-D and 5-D input tensors respectively.
+    stride: list of ints, default stride: 1
     logscale_factor: see actnorm for parameter meaning.
     apply_actnorm: if apply_actnorm the activations of the first minibatch
                    have zero mean and unit variance. Else, there is no scaling
@@ -316,14 +362,28 @@ def conv2d(name, x, output_channels, filter_size=None, stride=None,
   if conv_init == "zeros" and apply_actnorm:
     raise ValueError("apply_actnorm is unstable when init is set to zeros.")
 
-  if filter_size is None:
-    filter_size = [3, 3]
-  if stride is None:
-    stride = [1, 1]
+  x_shape = common_layers.shape_list(x)
+  is_2d = len(x_shape) == 4
 
-  x = add_edge_bias(x, filter_size=filter_size)
-  _, _, _, in_channels = common_layers.shape_list(x)
+  # set filter_size, stride and in_channels
+  if is_2d:
+    if filter_size is None:
+      filter_size = [3, 3]
+    if stride is None:
+      stride = [1, 1]
+    actnorm_func = actnorm
+    x = add_edge_bias(x, filter_size=filter_size)
+    conv_filter = tf.nn.conv2d
+  else:
+    if filter_size is None:
+      filter_size = [2, 3, 3]
+    if stride is None:
+      stride = [1, 1, 1]
+    actnorm_func = actnorm_3d
+    x = time_pad(x, filter_size=filter_size)
+    conv_filter = tf.nn.conv3d
 
+  in_channels = common_layers.shape_list(x)[-1]
   filter_shape = filter_size + [in_channels, output_channels]
   stride_shape = [1] + stride + [1]
 
@@ -334,13 +394,10 @@ def conv2d(name, x, output_channels, filter_size=None, stride=None,
     elif conv_init == "zeros":
       initializer = tf.zeros_initializer()
 
-    w = tf.get_variable("W", filter_shape, tf.float32,
-                        initializer=initializer)
-    x = tf.nn.conv2d(x, w, stride_shape, padding="VALID", data_format="NHWC")
-
+    w = tf.get_variable("W", filter_shape, tf.float32, initializer=initializer)
+    x = conv_filter(x, w, stride_shape, padding="VALID")
     if apply_actnorm:
-      x, _ = actnorm("actnorm", x, logscale_factor=logscale_factor,
-                     trainable=True)
+      x, _ = actnorm_func("actnorm", x, logscale_factor=logscale_factor)
     else:
       x += tf.get_variable("b", [1, 1, 1, output_channels],
                            initializer=tf.zeros_initializer())
@@ -351,28 +408,36 @@ def conv2d(name, x, output_channels, filter_size=None, stride=None,
 
 
 @add_arg_scope
-def conv_block(name, x, mid_channels):
+def conv_block(name, x, mid_channels, time_filter=2):
   """2 layer conv block used in the affine coupling layer.
 
   Args:
     name: variable scope.
-    x: 4-D Tensor: (batch_size, height, width, channels).
+    x: 4-D or 5-D Tensor.
     mid_channels: Output channels of the second layer.
+    time_filter: Filter across time to capture context.
   Returns:
     x: 4-D Tensor: Output activations.
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
 
+    x_shape = common_layers.shape_list(x)
+    is_2d = len(x_shape) == 4
+    if is_2d:
+      first_filter = [3, 3]
+      second_filter = [1, 1]
+    else:
+      first_filter = [time_filter, 3, 3]
+      second_filter = [1, 1, 1]
+
     # Edge Padding + conv2d + actnorm + relu:
     # [output: 512 channels]
-    x = conv2d("1_1", x, output_channels=mid_channels, filter_size=[3, 3],
-               stride=[1, 1])
+    x = conv("1_1", x, output_channels=mid_channels, filter_size=first_filter)
     x = tf.nn.relu(x)
 
     # Padding + conv2d + actnorm + relu
     # [input, output: 512 channels]
-    x = conv2d("1_2", x, output_channels=mid_channels, filter_size=[1, 1],
-               stride=[1, 1])
+    x = conv("1_2", x, output_channels=mid_channels, filter_size=second_filter)
     x = tf.nn.relu(x)
     return x
 
@@ -395,9 +460,9 @@ def affine_coupling_network(name, x, mid_channels, output_channels):
     x = conv_block("conv_block", x, mid_channels=mid_channels)
 
     # Final layer.
-    x = conv2d("zeros", x, filter_size=[3, 3], stride=[1, 1],
-               output_channels=output_channels, apply_actnorm=False,
-               conv_init="zeros")
+    x = conv("zeros", x, filter_size=[3, 3], stride=[1, 1],
+             output_channels=output_channels, apply_actnorm=False,
+             conv_init="zeros")
   return x
 
 
@@ -478,6 +543,34 @@ def squeeze(name, x, factor=2, reverse=True):
 
 
 @add_arg_scope
+def temporal_tensor_to_dist(name, x, hparams, output_channels=None):
+  """Network that maps a time-indexed list of 3-D Tensors to a gaussian.
+
+  Args:
+    name: variable scope.
+    x: List of 4-D Tensors indexed by time, (NHWC)
+    hparams: tf.contrib.training.Hparams.
+    output_channels: int, Number of channels of the output gaussian mean.
+  Returns:
+    dist: tf.distributions.Normal
+  """
+  if output_channels is None:
+    output_channels = common_layers.shape_list(x)[-1]
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    h = conv_block("conv3d_init", x, time_filter=2,
+                   mid_channels=hparams.latent_encoder_width)
+    h = conv("conv3d_zeros", h, apply_actnorm=False,
+             output_channels=2*output_channels, conv_init="zeros",
+             filter_size=[2, 3, 3])
+
+    # take last activation that should capture all context since padding is
+    # on left.
+    h = h[:, -1, :, :, :]
+    mean, log_scale = h[:, :, :, 0::2], h[:, :, :, 1::2]
+  return tf.distributions.Normal(mean, tf.exp(log_scale))
+
+
+@add_arg_scope
 def tensor_to_dist(name, x, output_channels=None, architecture="single_conv",
                    depth=1, pre_output_channels=512, width=512):
   """Map x to the mean and log-scale of a Gaussian.
@@ -501,28 +594,28 @@ def tensor_to_dist(name, x, output_channels=None, architecture="single_conv",
     if output_channels is None:
       output_channels = x_shape[-1]
     if architecture == "single_conv":
-      mean_log_scale = conv2d("conv2d", x, output_channels=2*output_channels,
-                              conv_init="zeros", apply_actnorm=False)
+      mean_log_scale = conv("conv2d", x, output_channels=2*output_channels,
+                            conv_init="zeros", apply_actnorm=False)
     elif architecture == "glow_nn":
       mean_log_scale = x
       for layer in range(1, depth + 1):
         mid_channels = pre_output_channels // 2**(depth - layer)
         mean_log_scale = conv_block("glow_nn_%d" % layer, mean_log_scale,
                                     mid_channels=mid_channels)
-      mean_log_scale = conv2d("glow_nn_zeros", mean_log_scale,
-                              filter_size=[3, 3], stride=[1, 1],
-                              output_channels=2*output_channels,
-                              apply_actnorm=False, conv_init="zeros")
+      mean_log_scale = conv("glow_nn_zeros", mean_log_scale,
+                            filter_size=[3, 3], stride=[1, 1],
+                            output_channels=2*output_channels,
+                            apply_actnorm=False, conv_init="zeros")
     elif architecture == "glow_resnet":
       h = x
       for layer in range(depth):
         h2 = conv_block("glow_res_%d" % layer, h, mid_channels=width)
-        h3 = conv2d("glow_res_zeros_%d" % layer, h2, conv_init="zeros",
-                    output_channels=x_shape[-1], apply_actnorm=False)
+        h3 = conv("glow_res_zeros_%d" % layer, h2, conv_init="zeros",
+                  output_channels=x_shape[-1], apply_actnorm=False)
         h += h3
-      mean_log_scale = conv2d("glow_res_final", h, conv_init="zeros",
-                              output_channels=2*output_channels,
-                              apply_actnorm=False)
+      mean_log_scale = conv("glow_res_final", h, conv_init="zeros",
+                            output_channels=2*output_channels,
+                            apply_actnorm=False)
     else:
       raise ValueError("expected architecture to be single_conv or glow_nn "
                        "got %s" % architecture)
@@ -591,8 +684,10 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
         "latent_prior", latent, logscale_factor=3.0)
     cond_dist = merge_level_and_latent_dist(prior_dist, latent_dist,
                                             merge_std=merge_std)
+
   elif latent_dist_encoder == "conv_net":
     output_channels = common_layers.shape_list(z)[-1]
+    last_latent = latent[-1]
     latent_stack = tf.concat([prior_dist.loc] + latent, axis=-1)
     cond_dist = tensor_to_dist(
         "latent_stack", latent_stack, output_channels=output_channels,
@@ -600,10 +695,24 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
         depth=hparams.latent_encoder_depth,
         pre_output_channels=hparams.latent_pre_output_channels,
         width=hparams.latent_encoder_width)
-    if latent_skip:
-      cond_dist = tf.distributions.Normal(
-          cond_dist.loc + latent[-1], cond_dist.scale)
+
+  elif latent_dist_encoder == "conv3d_net":
+    last_latent = latent[-1]
+    output_channels = common_layers.shape_list(last_latent)[-1]
+    num_steps = len(latent)
+
+    # Stack across time.
+    cond_latents = tf.stack(latent, axis=1)
+
+    # Concat latents from previous levels across channels.
+    prev_latents = tf.tile(tf.expand_dims(prior_dist.loc, axis=1),
+                           [1, num_steps, 1, 1, 1])
+    cond_latents = tf.concat((cond_latents, prev_latents), axis=-1)
+    cond_dist = temporal_tensor_to_dist(
+        "latent_stack", cond_latents, hparams, output_channels=output_channels)
+
   elif latent_dist_encoder == "conv_lstm":
+    last_latent = latent
     output_channels = common_layers.shape_list(z)[-1]
     latent_stack = tf.concat((prior_dist.loc, latent), axis=-1)
     _, state = common_video.conv_lstm_2d(
@@ -611,9 +720,9 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
         name="conv_lstm")
     cond_dist = tensor_to_dist(
         "state_to_dist", state.h, output_channels=output_channels)
-    if latent_skip:
-      cond_dist = tf.distributions.Normal(
-          cond_dist.loc + latent, cond_dist.scale)
+  if latent_skip:
+    new_mean = cond_dist.loc + last_latent
+    cond_dist = tf.distributions.Normal(new_mean, cond_dist.scale)
   return cond_dist.loc, cond_dist.scale, state
 
 
@@ -646,6 +755,7 @@ def compute_prior(name, z, latent, hparams, condition=False, state=None):
       condition = tf.constant(condition, dtype=tf.bool)
     prior_dist = tensor_to_dist("level_prior", z, architecture="single_conv")
     prior_mean, prior_scale = prior_dist.loc, prior_dist.scale
+
     if latent is None:
       mean, scale = prior_mean, prior_scale
     else:

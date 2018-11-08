@@ -21,6 +21,7 @@ from __future__ import print_function
 
 import os
 import tempfile
+from absl.testing import parameterized
 import numpy as np
 from tensor2tensor.models.research import glow
 from tensor2tensor.models.research import glow_ops
@@ -34,7 +35,21 @@ arg_scope = tf.contrib.framework.arg_scope
 add_arg_scope = tf.contrib.framework.add_arg_scope
 
 
-class GlowOpsTest(tf.test.TestCase):
+class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
+
+  def get_glow_hparams(self):
+    hparams = glow.glow_hparams()
+    hparams.add_hparam("num_cond_latents", 1)
+    hparams.add_hparam("latent_architecture", "glow_resnet")
+    # Use latent skip connections
+    hparams.add_hparam("model_input", False)
+    hparams.add_hparam("latent_skip", True)
+    hparams.add_hparam("latent_encoder_depth", 2)
+    hparams.add_hparam("latent_encoder_width", 256)
+    hparams.add_hparam("latent_pre_output_channels", 256)
+    hparams.add_hparam("latent_dist_encoder", "conv_net")
+    hparams.add_hparam("latent_time_filter_size", 3)
+    return hparams
 
   def test_get_variable_ddi(self):
     with tf.Graph().as_default():
@@ -90,9 +105,9 @@ class GlowOpsTest(tf.test.TestCase):
       x = 10.0 * tf.random_uniform(shape=(16, 5, 5, 32))
 
       with arg_scope([glow_ops.actnorm], init=True):
-        actnorm_conv2d = glow_ops.conv2d(
+        actnorm_conv2d = glow_ops.conv(
             "actnorm_conv2d", x, output_channels=64, apply_actnorm=True)
-        actnorm_zeros2d = glow_ops.conv2d(
+        actnorm_zeros2d = glow_ops.conv(
             "actnorm_zeros2d", x, output_channels=64, apply_actnorm=False)
 
       with tf.Session() as session:
@@ -297,7 +312,14 @@ class GlowOpsTest(tf.test.TestCase):
     for merge_std in ["normal", "prev_level", "prev_step"]:
       self.check_split_latent_conditioning(merge_std)
 
-  def test_latent_dist_encoder_lstm(self):
+  @parameterized.named_parameters(
+      ("lstm_skip", "conv_lstm", True),
+      ("lstm_no_skip", "conv_lstm", False),
+      ("conv_net_skip", "conv_net", True),
+      ("conv_net_no_skip", "conv_net", False),
+      ("conv3d_skip", "conv3d_net", False),
+      ("conv3d_no_skip", "conv3d_net", True))
+  def test_latent_dist_encoder(self, encoder="conv_lstm", skip=True):
     with tf.Graph().as_default():
       rng = np.random.RandomState(0)
       # Initialize x, latent, state.
@@ -307,24 +329,94 @@ class GlowOpsTest(tf.test.TestCase):
       x_t = tf.convert_to_tensor(x_rand)
       latent_t = tf.convert_to_tensor(latent_rand)
       state_t = tf.convert_to_tensor(state_rand)
+      if encoder in ["conv_net", "conv3d_net"]:
+        latent_t = [latent_t, latent_t]
       init_state = tf.contrib.rnn.LSTMStateTuple(state_t, state_t)
-      hparams = glow.glow_hparams()
-      hparams.add_hparam("latent_dist_encoder", "conv_lstm")
-      hparams.add_hparam("latent_skip", True)
-      hparams.add_hparam("latent_encoder_width", 256)
+      hparams = self.get_glow_hparams()
+      hparams.latent_dist_encoder = encoder
+      hparams.latent_skip = skip
+      hparams.latent_encoder_width = 256
 
       prior_dist, new_state = glow_ops.compute_prior(
-          "lstm_prior", x_t, latent=latent_t, hparams=hparams, state=init_state,
+          "prior", x_t, latent=latent_t, hparams=hparams, state=init_state,
           condition=True)
       with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        # Test initialization (mu, sigma) = (z, 1.0)
-        ops = [prior_dist.loc, prior_dist.scale, new_state.h - init_state.h]
-        mean, scale, diff_np = sess.run(ops)
-        self.assertTrue(np.allclose(latent_rand - mean, 0.0))
+        # Test initialization:
+        # Scale is 1.0
+        # If skip is set to True, then mean equals the input latent.
+        # If skip, is set to False, then the mean is zero.
+        ops = [prior_dist.loc, prior_dist.scale]
+        mean, scale = sess.run(ops)
+
+        if skip:
+          self.assertTrue(np.allclose(latent_rand - mean, 0.0))
+        else:
+          self.assertTrue(np.allclose(mean, 0.0))
         self.assertTrue(np.allclose(scale, 1.0))
+
         # State update.
-        self.assertFalse(np.allclose(diff_np, 0.0))
+        if encoder == "conv_lstm":
+          state_diff = sess.run(new_state.h - init_state.h)
+          self.assertFalse(np.allclose(state_diff, 0.0))
+
+  def test_conv3d(self):
+    with tf.Graph().as_default():
+      x = 10.0 * tf.random_uniform(shape=(16, 4, 5, 5, 32))
+
+      with arg_scope([glow_ops.actnorm], init=True):
+        conv3d = glow_ops.conv(
+            "conv3d", x, output_channels=64, apply_actnorm=True)
+        conv3d_zeros = glow_ops.conv(
+            "conv3d_zeros", x, output_channels=64, apply_actnorm=False,
+            conv_init="zeros")
+
+      with tf.Session() as session:
+        session.run(tf.global_variables_initializer())
+
+        # test if apply_actnorm is set to True, the first minibatch has
+        # zero mean and unit variance.
+        conv3d_np, conv3d_zeros_np = session.run([conv3d, conv3d_zeros])
+        self.assertEqual(conv3d_np.shape, (16, 4, 5, 5, 64))
+        for i in range(4):
+          curr_step = conv3d_np[:, i, :, :, :]
+          mean = np.mean(curr_step, axis=(0, 1, 2))
+          var = np.var(curr_step, axis=(0, 1, 2))
+          self.assertTrue(np.allclose(mean, 0.0, atol=1e-5))
+          self.assertTrue(np.allclose(var, 1.0, atol=1e-5))
+
+        # test shape in case apply_actnorm is set to False,
+        self.assertTrue(np.allclose(conv3d_zeros_np, 0.0))
+
+  def test_actnorm_3d(self):
+    with tf.Graph().as_default():
+      x_t = tf.random_normal((16, 5, 32, 32, 3), mean=50.0, stddev=2.0)
+      ops = [glow_ops.actnorm, glow_ops.get_variable_ddi]
+      with arg_scope(ops, init=True):
+        x_act, _ = glow_ops.actnorm_3d("actnorm", x_t)
+      with tf.Session() as session:
+        x_act_np = session.run(x_act)
+        # Mean and standard deviation per time-step equals zero and one.
+        for time_step in range(5):
+          x_act_curr = x_act_np[:, time_step, :, :, :]
+          channel_mean = np.mean(x_act_curr, axis=(0, 1, 2))
+          channel_var = np.var(x_act_curr, axis=(0, 1, 2))
+          self.assertTrue(np.allclose(channel_mean, 0.0, atol=1e-3))
+          self.assertTrue(np.allclose(channel_var, 1.0, atol=1e-3))
+
+  def test_temporal_tensor_to_dist(self):
+    with tf.Graph().as_default():
+      hparams = self.get_glow_hparams()
+      latent_shape = (16, 5, 4, 4, 48)
+      latents = tf.random_normal(latent_shape)
+      dist = glow_ops.temporal_tensor_to_dist(
+          "tensor_to_dist", latents, hparams)
+      with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        mean, scale = dist.loc, dist.scale
+        mean_np, scale_np = sess.run([mean, scale])
+        self.assertTrue(np.allclose(mean_np, 0.0))
+        self.assertTrue(np.allclose(scale_np, 1.0))
 
 
 if __name__ == "__main__":
