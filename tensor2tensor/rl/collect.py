@@ -82,12 +82,15 @@ class _MemoryWrapper(WrapperBase):
       return tf.identity(reward), tf.identity(done)
 
 
-def define_collect(batch_env, hparams, scope):
+def define_collect(
+    batch_env, ppo_hparams, scope, frame_stack_size, eval_phase,
+    policy_to_actions_lambda, force_beginning_resets
+):
   """Collect trajectories.
 
   Args:
     batch_env: Batch environment.
-    hparams: HParams.
+    ppo_hparams: PPO hparams, defined in tensor2tensor.models.research.rl.
     scope: var scope.
 
   Returns:
@@ -95,14 +98,15 @@ def define_collect(batch_env, hparams, scope):
     pdfs, values_functions)
     containing a rollout of environment from nested wrapped structure.
   """
+  epoch_length = ppo_hparams.epoch_length
 
   to_initialize = []
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
-    num_agents = hparams.num_agents
+    num_agents = batch_env.batch_size
 
     to_initialize.append(batch_env)
     wrappers = [
-        (StackWrapper, {"history": hparams.frame_stack_size}),
+        (StackWrapper, {"history": frame_stack_size}),
         (_MemoryWrapper, {})
     ]
     rollout_metadata = None
@@ -121,8 +125,8 @@ def define_collect(batch_env, hparams, scope):
         batch_env.initialize(sess)
 
     memory = [
-        tf.get_variable("collect_memory_%d_%s" % (hparams.epoch_length, name),
-                        shape=[hparams.epoch_length] + shape,
+        tf.get_variable("collect_memory_%d_%s" % (epoch_length, name),
+                        shape=[epoch_length] + shape,
                         dtype=dtype,
                         initializer=tf.zeros_initializer(),
                         trainable=False)
@@ -131,13 +135,11 @@ def define_collect(batch_env, hparams, scope):
     cumulative_rewards = tf.get_variable("cumulative_rewards", len(batch_env),
                                          trainable=False)
 
-    eval_phase_t = tf.convert_to_tensor(hparams.eval_phase)
+    eval_phase_t = tf.convert_to_tensor(eval_phase)
     should_reset_var = tf.Variable(True, trainable=False)
     zeros_tensor = tf.zeros(len(batch_env))
 
-  force_beginning_resets = tf.convert_to_tensor(
-      hparams.force_beginning_resets
-  )
+  force_beginning_resets = tf.convert_to_tensor(force_beginning_resets)
 
   def reset_ops_group():
     return tf.group(batch_env.reset(tf.range(len(batch_env))),
@@ -154,7 +156,7 @@ def define_collect(batch_env, hparams, scope):
 
     def step(index, scores_sum, scores_num):
       """Single step."""
-      index %= hparams.epoch_length  # Only needed in eval runs.
+      index %= epoch_length  # Only needed in eval runs.
       # Note - the only way to ensure making a copy of tensor is to run simple
       # operation. We are waiting for tf.copy:
       # https://github.com/tensorflow/tensorflow/issues/11186
@@ -163,10 +165,10 @@ def define_collect(batch_env, hparams, scope):
       def env_step(arg1, arg2, arg3):  # pylint: disable=unused-argument
         """Step of the environment."""
         actor_critic = get_policy(
-            tf.expand_dims(obs_copy, 0), hparams, batch_env.action_space
+            tf.expand_dims(obs_copy, 0), ppo_hparams, batch_env.action_space
         )
         policy = actor_critic.policy
-        action = hparams.policy_to_actions_lambda(policy)
+        action = policy_to_actions_lambda(policy)
 
         postprocessed_action = actor_critic.action_postprocessing(action)
         reward, done = batch_env.simulate(postprocessed_action[0, ...])
@@ -224,7 +226,7 @@ def define_collect(batch_env, hparams, scope):
     def stop_condition(i, _, resets):
       return tf.cond(eval_phase_t,
                      lambda: resets < num_agents,
-                     lambda: i < hparams.epoch_length)
+                     lambda: i < epoch_length)
 
     init = [tf.constant(0), tf.constant(0.0), tf.constant(0)]
     index, scores_sum, scores_num = tf.while_loop(
@@ -255,14 +257,13 @@ def define_collect(batch_env, hparams, scope):
     # When generating real data together with PPO training we must use single
     # agent. For PPO to work we reshape the history, as if it was generated
     # by real_ppo_effective_num_agents.
-    if (getattr(hparams, "effective_num_agents", None) and
-        not hparams.eval_phase):
+    if ppo_hparams.effective_num_agents is not None and not eval_phase:
       new_memory = []
-      effective_num_agents = hparams.effective_num_agents
-      assert hparams.epoch_length % effective_num_agents == 0, (
-          "The rollout of hparams.epoch_length will be distributed amongst"
+      effective_num_agents = ppo_hparams.effective_num_agents
+      assert epoch_length % ppo_hparams.effective_num_agents == 0, (
+          "The rollout of ppo_hparams.epoch_length will be distributed amongst"
           "effective_num_agents of agents")
-      new_epoch_length = int(hparams.epoch_length / effective_num_agents)
+      new_epoch_length = int(epoch_length / effective_num_agents)
       for mem, info in zip(memory, rollout_metadata):
         shape, _, name = info
         new_shape = [effective_num_agents, new_epoch_length] + shape[1:]

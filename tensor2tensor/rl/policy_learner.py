@@ -34,7 +34,7 @@ class PolicyLearner(object):
 
   def train(
       self, env_fn, hparams, num_env_steps, simulated, save_continuously,
-      epoch
+      epoch, eval_env_fn=None
   ):
     # TODO(konradczechowski): move 'simulated' to  batch_env
     raise NotImplementedError()
@@ -52,38 +52,30 @@ class PPOLearner(PolicyLearner):
 
   def train(
       self, env_fn, hparams, num_env_steps, simulated, save_continuously,
-      epoch
+      epoch, eval_env_fn=None
   ):
     self._num_completed_iterations += num_env_steps // (
         hparams.num_agents * hparams.epoch_length
     )
-    hparams.epochs_num = self._num_completed_iterations
-
-    if simulated:
-      simulated_str = "sim"
-    else:
-      # TODO(konradczechowski): refactor ppo
-      assert hparams.num_agents == 1
-      simulated_str = "real"
 
     if not save_continuously:
       # We do not save model, as that resets frames that we need at restarts.
       # But we need to save at the last step, so we set it very high.
       hparams.save_models_every_epochs = 1000000
 
-    # TODO(konradczechowski) refactor ppo, pass these as arguments
-    # (not inside hparams). Do the same in evaluate()
-    hparams.add_hparam("force_beginning_resets", simulated)
-    hparams.add_hparam("env_fn", env_fn)
-    hparams.add_hparam("frame_stack_size", self.frame_stack_size)
+    if simulated:
+      simulated_str = "sim"
+    else:
+      simulated_str = "real"
     name_scope = "ppo_{}{}".format(simulated_str, epoch + 1)
-
     event_dir = os.path.join(
         self.base_event_dir, "ppo_summaries", str(epoch) + simulated_str
     )
 
     rl_trainer_lib.train(
-        hparams, event_dir, self.agent_model_dir, name_scope=name_scope
+        env_fn, hparams, event_dir, self.agent_model_dir,
+        self._num_completed_iterations, name_scope=name_scope,
+        frame_stack_size=self.frame_stack_size, force_beginning_resets=simulated
     )
 
   def evaluate(self, env_fn, hparams, stochastic):
@@ -91,11 +83,9 @@ class PPOLearner(PolicyLearner):
       policy_to_actions_lambda = lambda policy: policy.sample()
     else:
       policy_to_actions_lambda = lambda policy: policy.mode()
-    hparams.add_hparam(
-        "policy_to_actions_lambda", policy_to_actions_lambda
-    )
-    hparams.add_hparam("force_beginning_resets", False)
-    hparams.add_hparam("env_fn", env_fn)
-    hparams.add_hparam("frame_stack_size", self.frame_stack_size)
 
-    rl_trainer_lib.evaluate(hparams, self.agent_model_dir)
+    rl_trainer_lib.evaluate(
+        env_fn, hparams, self.agent_model_dir,
+        frame_stack_size=self.frame_stack_size, force_beginning_resets=False,
+        policy_to_actions_lambda=policy_to_actions_lambda
+    )

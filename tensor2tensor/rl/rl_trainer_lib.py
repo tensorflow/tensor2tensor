@@ -30,33 +30,31 @@ from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
 
 
-def define_train(hparams):
+def define_train(env_fn, ppo_hparams, eval_env_fn=None, **collect_kwargs):
   """Define the training setup."""
-  train_hparams = copy.copy(hparams)
-  train_hparams.add_hparam("eval_phase", False)
-  train_hparams.add_hparam(
-      "policy_to_actions_lambda", lambda policy: policy.sample()
-  )
-
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-    train_env = hparams.env_fn(in_graph=True)
+    train_env = env_fn(in_graph=True)
     memory, collect_summary, train_initialization = (
-        collect.define_collect(train_env, train_hparams, "ppo_train")
+        collect.define_collect(
+            train_env, ppo_hparams, "ppo_train", eval_phase=False,
+            policy_to_actions_lambda=(lambda policy: policy.sample()),
+            **collect_kwargs
+        )
     )
-    ppo_summary = ppo.define_ppo_epoch(memory, hparams, train_env.action_space)
+    ppo_summary = ppo.define_ppo_epoch(
+        memory, ppo_hparams, train_env.action_space
+    )
     train_summary = tf.summary.merge([collect_summary, ppo_summary])
 
-    if hparams.eval_every_epochs:
-      eval_hparams = copy.copy(hparams)
-      eval_hparams.add_hparam("eval_phase", True)
-      eval_hparams.add_hparam(
-          "policy_to_actions_lambda", lambda policy: policy.mode()
-      )
-      eval_env = hparams.eval_env_fn(in_graph=True)
-      eval_hparams.num_agents = hparams.num_eval_agents
-
+    if ppo_hparams.eval_every_epochs:
+      assert eval_env_fn is not None
+      eval_env = eval_env_fn(in_graph=True)
       _, eval_collect_summary, eval_initialization = (
-          collect.define_collect(eval_env, eval_hparams, "ppo_eval")
+          collect.define_collect(
+              eval_env, ppo_hparams, "ppo_eval", eval_phase=True,
+              policy_to_actions_lambda=(lambda policy: policy.mode()),
+              **collect_kwargs
+          )
       )
       return train_summary, eval_collect_summary, (train_initialization,
                                                    eval_initialization)
@@ -64,49 +62,47 @@ def define_train(hparams):
       return train_summary, None, (train_initialization,)
 
 
-def train(hparams, event_dir=None, model_dir=None,
-          restore_agent=True, name_scope="rl_train", report_fn=None):
+def train(
+    env_fn, ppo_hparams, event_dir, model_dir, num_target_iterations,
+    eval_env_fn=None, report_fn=None, name_scope="rl_train", **collect_kwargs
+):
   """Train."""
   with tf.Graph().as_default():
     with tf.name_scope(name_scope):
-      train_summary_op, eval_summary_op, initializers = define_train(hparams)
-      if event_dir:
-        summary_writer = tf.summary.FileWriter(
-            event_dir, graph=tf.get_default_graph(), flush_secs=60)
-      else:
-        summary_writer = None
+      train_summary_op, eval_summary_op, initializers = define_train(
+          env_fn, ppo_hparams, eval_env_fn, **collect_kwargs
+      )
+      summary_writer = tf.summary.FileWriter(
+          event_dir, graph=tf.get_default_graph(), flush_secs=60)
 
-      if model_dir:
-        model_saver = tf.train.Saver(
-            tf.global_variables(".*network_parameters.*"))
-      else:
-        model_saver = None
+      model_saver = tf.train.Saver(
+          tf.global_variables(".*network_parameters.*"))
 
       with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         for initializer in initializers:
           initializer(sess)
-        start_step = 0
-        if model_saver and restore_agent:
-          start_step = trainer_lib.restore_checkpoint(
-              model_dir, model_saver, sess)
+        num_completed_iterations = trainer_lib.restore_checkpoint(
+            model_dir, model_saver, sess)
 
         # Fail-friendly, complete only unfinished epoch
-        steps_to_go = hparams.epochs_num - start_step
+        num_iterations_to_go = num_target_iterations - num_completed_iterations
 
-        if steps_to_go <= 0:
-          tf.logging.info("Skipping PPO training. Requested %d steps while "
-                          "%d train steps already reached",
-                          hparams.epochs_num, start_step)
+        if num_iterations_to_go <= 0:
+          tf.logging.info(
+              "Skipping PPO training. Requested %d iterations while %d train "
+              "iterations already reached", num_target_iterations,
+              num_completed_iterations
+          )
           return
 
-        for epoch_index in range(steps_to_go):
+        for epoch_index in range(num_iterations_to_go):
           summary = sess.run(train_summary_op)
           if summary_writer:
             summary_writer.add_summary(summary, epoch_index)
 
-          if (hparams.eval_every_epochs and
-              epoch_index % hparams.eval_every_epochs == 0):
+          if (ppo_hparams.eval_every_epochs and
+              epoch_index % ppo_hparams.eval_every_epochs == 0):
             eval_summary = sess.run(eval_summary_op)
             if summary_writer:
               summary_writer.add_summary(eval_summary, epoch_index)
@@ -118,24 +114,26 @@ def train(hparams, event_dir=None, model_dir=None,
                   report_fn(elem.simple_value, epoch_index)
                   break
 
-          epoch_index_and_start = epoch_index + start_step
-          if (model_saver and hparams.save_models_every_epochs and
-              (epoch_index_and_start % hparams.save_models_every_epochs == 0 or
-               (epoch_index + 1) == steps_to_go)):
+          epoch_index_and_start = epoch_index + num_completed_iterations
+          if (model_saver and ppo_hparams.save_models_every_epochs and
+              (epoch_index_and_start %
+               ppo_hparams.save_models_every_epochs == 0 or
+               (epoch_index + 1) == num_iterations_to_go)):
             ckpt_path = os.path.join(
-                model_dir, "model.ckpt-{}".format(epoch_index + 1 + start_step))
+                model_dir, "model.ckpt-{}".format(
+                    epoch_index + 1 + num_completed_iterations
+                )
+            )
             model_saver.save(sess, ckpt_path)
 
 
-def evaluate(hparams, model_dir, name_scope="rl_eval"):
+def evaluate(env_fn, ppo_hparams, model_dir, **collect_kwargs):
   """Evaluate."""
-  hparams = copy.copy(hparams)
-  hparams.add_hparam("eval_phase", True)
   with tf.Graph().as_default():
-    with tf.name_scope(name_scope):
-      eval_env = hparams.env_fn(in_graph=True)
+    with tf.name_scope("rl_eval"):
+      eval_env = env_fn(in_graph=True)
       (collect_memory, _, collect_init) = collect.define_collect(
-          eval_env, hparams, "ppo_eval"
+          eval_env, ppo_hparams, "ppo_eval", eval_phase=True, **collect_kwargs
       )
       model_saver = tf.train.Saver(
           tf.global_variables(".*network_parameters.*")

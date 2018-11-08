@@ -42,7 +42,6 @@ def ppo_base_v1():
   hparams.add_hparam("init_logstd", 0.1)
   hparams.add_hparam("policy_layers", (100, 100))
   hparams.add_hparam("value_layers", (100, 100))
-  hparams.add_hparam("num_agents", 30)
   hparams.add_hparam("clipping_coef", 0.2)
   hparams.add_hparam("gae_gamma", 0.99)
   hparams.add_hparam("gae_lambda", 0.95)
@@ -50,18 +49,14 @@ def ppo_base_v1():
   hparams.add_hparam("value_loss_coef", 1)
   hparams.add_hparam("optimization_epochs", 15)
   hparams.add_hparam("epoch_length", 200)
-  hparams.add_hparam("epochs_num", 2000)
   hparams.add_hparam("eval_every_epochs", 10)
-  hparams.add_hparam("num_eval_agents", 3)
-  hparams.add_hparam("video_during_eval", False)
   hparams.add_hparam("save_models_every_epochs", 30)
   hparams.add_hparam("optimization_batch_size", 50)
   hparams.add_hparam("max_gradients_norm", 0.5)
-  hparams.add_hparam("simulation_random_starts", False)
-  hparams.add_hparam("simulation_flip_first_random_for_beginning", False)
   hparams.add_hparam("intrinsic_reward_scale", 0.)
   hparams.add_hparam("logits_clip", 4.0)
   hparams.add_hparam("dropout_ppo", 0.1)
+  hparams.add_hparam("effective_num_agents", None)
   return hparams
 
 
