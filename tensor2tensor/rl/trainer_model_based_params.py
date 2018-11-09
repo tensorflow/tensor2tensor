@@ -55,7 +55,7 @@ def rlmb_base():
       generative_model="next_frame_basic_deterministic",
       generative_model_params="next_frame_pixel_noise",
       base_algo="ppo",
-      base_algo_params="ppo_atari_base",
+      base_algo_params="ppo_original_params",
       autoencoder_train_steps=0,
       autoencoder_train_steps_initial_multiplier=10,
       autoencoder_hparams_set="autoencoder_discrete_pong",
@@ -688,6 +688,17 @@ def rlmb_logits_clip(rhp):
   rhp.set_categorical("loop.game", ["pong", "boxing", "seaquest"])
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_discrete("ppo.logits_clip", [0., 5.])
+
+
+@registry.register_ranged_hparams
+def rlmb_games_problematic_for_ppo(rhp):
+  games = [
+      "alien", "boxing", "breakout", "ms_pacman", "video_pinball",
+  ]
+  rhp.set_categorical("loop.game", games)
+  rhp.set_categorical("loop.base_algo_params", ["ppo_original_params"])
+  rhp.set_discrete("model.moe_loss_coef", list(range(10)))
+  rhp.set_discrete("ppo.dropout_ppo", [0., 0.1])
 
 
 @registry.register_ranged_hparams

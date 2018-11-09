@@ -114,6 +114,26 @@ def ppo_atari_base():
   return hparams
 
 
+@registry.register_hparams
+def ppo_original_params():
+  """Parameters based on the original PPO paper."""
+  hparams = ppo_atari_base()
+  hparams.learning_rate = 2.5e-4
+  hparams.gae_gamma = 0.99
+  hparams.gae_lambda = 0.95
+  hparams.clipping_coef = 0.1
+  hparams.value_loss_coef = 1
+  hparams.entropy_loss_coef = 0.01
+  hparams.eval_every_epochs = 200
+  hparams.dropout_ppo = 0.1
+  # The parameters below are modified to accommodate short epoch_length (which
+  # is needed for model based rollouts).
+  hparams.epoch_length = 50
+  hparams.num_agents = 16
+  hparams.optimization_batch_size = 20
+  return hparams
+
+
 def make_real_env_fn(env):
   """Creates a function returning a given real env, in or out of graph.
 
@@ -159,7 +179,7 @@ def get_policy(observations, hparams, action_space):
 @registry.register_hparams
 def ppo_pong_ae_base():
   """Pong autoencoder base parameters."""
-  hparams = ppo_atari_base()
+  hparams = ppo_original_params()
   hparams.learning_rate = 1e-4
   hparams.network = dense_bitwise_categorical_fun
   return hparams
@@ -200,7 +220,7 @@ def pong_model_free():
 
 @registry.register_hparams
 def mfrl_base():
-  hparams = ppo_atari_base()
+  hparams = ppo_original_params()
   hparams.add_hparam("game", "")
   hparams.epochs_num = 3000
   hparams.eval_every_epochs = 100
