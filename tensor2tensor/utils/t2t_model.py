@@ -739,13 +739,9 @@ class T2TModel(base.Layer):
     Raises:
       NotImplementedError: If use_tpu is set to true.
     """
-    if use_tpu:
-      raise NotImplementedError(
-          "Slow beam search inference on TPU is not supported")
-
     batch_size = common_layers.shape_list(features["inputs"])[0]
 
-    def symbols_to_logits_fn(ids):
+    def symbols_to_logits_fn(ids, i=None):
       """Go from ids to logits."""
       ids = tf.expand_dims(tf.expand_dims(ids, axis=2), axis=3)
       ids = tf.pad(ids[:, 1:], [[0, 0], [0, 1], [0, 0], [0, 0]])
@@ -757,6 +753,8 @@ class T2TModel(base.Layer):
         ids = tf.concat([pt, ids], axis=1)
 
       features["targets"] = ids
+      if i is not None:
+        features["decode_loop_step"] = i
       self._coverage = None
       logits, _ = self(features)  # pylint: disable=not-callable
       # now self._coverage is a coverage tensor for the first datashard.
@@ -786,7 +784,6 @@ class T2TModel(base.Layer):
     target_modality = self._problem_hparams.modality["targets"]
     vocab_size = target_modality.top_dimensionality
     # Setting decode length to input length + decode_length
-    decode_length = tf.constant(decode_length)
     if "partial_targets" not in features:
       inputs = features["inputs"]
       decode_length = (common_layers.shape_list(inputs)[1] +
@@ -798,7 +795,8 @@ class T2TModel(base.Layer):
         decode_length,
         vocab_size,
         alpha,
-        stop_early=(top_beams == 1))
+        stop_early=(top_beams == 1),
+        use_tpu=use_tpu)
 
     # Set inputs back to the unexpanded inputs to not to confuse the Estimator!
     if self.has_input:
@@ -1542,6 +1540,8 @@ class T2TModel(base.Layer):
     # Pass through remaining features
     for name, feature in features.items():
       if name not in list(predictions.keys()) + ["infer_targets"]:
+        if name == "decode_loop_step":
+          continue
         if not feature.shape.as_list():
           # All features must have a batch dimension
           batch_size = common_layers.shape_list(outputs)[0]

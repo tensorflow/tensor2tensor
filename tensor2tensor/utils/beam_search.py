@@ -557,7 +557,7 @@ def beam_search(symbols_to_logits_fn,
          dict of transformed decoding states)
     """
     # Get the logits for all the possible next symbols
-    if use_tpu:
+    if use_tpu and states:
       flat_ids = tf.reshape(
           tf.slice(alive_seq, [0, 0, i], [batch_size, beam_size, 1]),
           [batch_size * beam_size, -1])
@@ -570,6 +570,8 @@ def beam_search(symbols_to_logits_fn,
       flat_logits, flat_states = symbols_to_logits_fn(flat_ids, i, flat_states)
       states = nest.map_structure(
           lambda t: _unmerge_beam_dim(t, batch_size, beam_size), flat_states)
+    elif use_tpu:
+      flat_logits = symbols_to_logits_fn(flat_ids, i)
     else:
       flat_logits = symbols_to_logits_fn(flat_ids)
 
