@@ -186,7 +186,7 @@ def pong_model_free():
   hparams = mfrl_base()
   hparams.batch_size = 2
   hparams.ppo_eval_every_epochs = 2
-  hparams.add_hparam("ppo_epochs_num", 4)
+  hparams.ppo_epochs_num = 4
   hparams.add_hparam("ppo_optimization_epochs", 3)
   hparams.add_hparam("ppo_epoch_length", 30)
   hparams.add_hparam("ppo_learning_rate", 8e-05)

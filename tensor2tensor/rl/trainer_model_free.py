@@ -26,9 +26,12 @@ python -m tensor2tensor.rl.trainer_model_free \
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import six
+
 from tensor2tensor.data_generators import gym_env
 from tensor2tensor.models.research import rl
-from tensor2tensor.rl import trainer_utils
+from tensor2tensor.rl.ppo_learner import PPOLearner
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import trainer_lib
 
@@ -43,6 +46,18 @@ try:
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
 except:  # pylint: disable=bare-except
   pass
+
+
+LEARNERS = {
+    "ppo": PPOLearner
+}
+
+
+def update_hparams_from_hparams(target_hparams, source_hparams, prefix):
+  """Copy a subset of hparams to target_hparams."""
+  for (param_name, param_value) in six.iteritems(source_hparams.values()):
+    if param_name.startswith(prefix):
+      target_hparams.set_hparam(param_name[len(prefix):], param_value)
 
 
 def initialize_env_specs(hparams):
@@ -62,11 +77,11 @@ def initialize_env_specs(hparams):
 
 def train(hparams, output_dir, report_fn=None):
   hparams = initialize_env_specs(hparams)
-  learner = trainer_utils.LEARNERS[hparams.base_algo](
+  learner = LEARNERS[hparams.base_algo](
       hparams.frame_stack_size, FLAGS.output_dir, output_dir
   )
   policy_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
-  trainer_utils.update_hparams_from_hparams(
+  update_hparams_from_hparams(
       policy_hparams, hparams, hparams.base_algo + "_"
   )
   learner.train(
