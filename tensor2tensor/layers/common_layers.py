@@ -237,7 +237,6 @@ def convert_real_to_rgb(x):
   """Conversion of real numbers to pixel values."""
   with tf.name_scope("real_to_rgb", values=[x]):
     x *= 255.0
-    x = tf.round(x)
     return x
 
 
