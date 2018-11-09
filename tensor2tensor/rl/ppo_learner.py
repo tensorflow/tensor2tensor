@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import math
 import os
 
 from tensor2tensor.rl import rl_trainer_lib
@@ -35,8 +36,9 @@ class PPOLearner(PolicyLearner):
     self._num_completed_iterations = 0
 
   def train(
-      self, env_fn, hparams, num_env_steps, simulated, save_continuously,
-      epoch, eval_env_fn=None, report_fn=None
+      self, env_fn, hparams, simulated, save_continuously, epoch,
+      num_env_steps=None, env_step_multiplier=1, eval_env_fn=None,
+      report_fn=None
   ):
     if not save_continuously:
       # We do not save model, as that resets frames that we need at restarts.
@@ -64,9 +66,15 @@ class PPOLearner(PolicyLearner):
               )
           )
 
-        self._num_completed_iterations += num_env_steps // (
-            env.batch_size * hparams.epoch_length
-        )
+        if num_env_steps is None:
+          iteration_increment = hparams.epochs_num
+        else:
+          iteration_increment = int(math.ceil(
+              num_env_steps / (env.batch_size * hparams.epoch_length)
+          ))
+        iteration_increment *= env_step_multiplier
+
+        self._num_completed_iterations += iteration_increment
         rl_trainer_lib.train(
             hparams, event_dir, self.agent_model_dir,
             self._num_completed_iterations, train_summary_op, eval_summary_op,

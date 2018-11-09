@@ -29,8 +29,9 @@ class PolicyLearner(object):
     self.agent_model_dir = agent_model_dir
 
   def train(
-      self, env_fn, hparams, num_env_steps, simulated, save_continuously,
-      epoch, eval_env_fn=None, report_fn=None
+      self, env_fn, hparams, simulated, save_continuously, epoch,
+      num_env_steps=None, env_step_multiplier=1, eval_env_fn=None,
+      report_fn=None
   ):
     # TODO(konradczechowski): move 'simulated' to  batch_env
     raise NotImplementedError()

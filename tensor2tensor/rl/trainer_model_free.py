@@ -70,9 +70,8 @@ def train(hparams, output_dir, report_fn=None):
       policy_hparams, hparams, hparams.base_algo + "_"
   )
   learner.train(
-      hparams.env_fn, policy_hparams, hparams.num_frames, simulated=False,
-      save_continuously=True, epoch=0, eval_env_fn=hparams.eval_env_fn,
-      report_fn=report_fn
+      hparams.env_fn, policy_hparams, simulated=False, save_continuously=True,
+      epoch=0, eval_env_fn=hparams.eval_env_fn, report_fn=report_fn
   )
 
 

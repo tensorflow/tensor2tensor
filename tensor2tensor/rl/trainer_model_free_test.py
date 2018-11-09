@@ -28,9 +28,9 @@ class TrainTest(tf.test.TestCase):
 
   def test_train_pong(self):
     hparams = registry.hparams("pong_model_free")
-    hparams.num_frames = 12
     hparams.batch_size = 2
-    hparams.epoch_length = 3
+    hparams.ppo_epochs_num = 2
+    hparams.ppo_epoch_length = 3
     trainer_model_free.train(hparams, tf.test.get_temp_dir())
 
 

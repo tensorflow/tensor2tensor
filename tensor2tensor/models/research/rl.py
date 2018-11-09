@@ -49,6 +49,7 @@ def ppo_base_v1():
   hparams.add_hparam("value_loss_coef", 1)
   hparams.add_hparam("optimization_epochs", 15)
   hparams.add_hparam("epoch_length", 200)
+  hparams.add_hparam("epochs_num", 2000)
   hparams.add_hparam("eval_every_epochs", 10)
   hparams.add_hparam("num_eval_agents", 3)
   hparams.add_hparam("save_models_every_epochs", 30)
@@ -100,6 +101,7 @@ def ppo_atari_base():
   hparams.entropy_loss_coef = 0.003
   hparams.value_loss_coef = 1
   hparams.optimization_epochs = 3
+  hparams.epochs_num = 1000
   hparams.num_eval_agents = 1
   hparams.policy_network = feed_forward_cnn_small_categorical_fun
   hparams.clipping_coef = 0.2
@@ -123,7 +125,6 @@ def ppo_original_params():
   # The parameters below are modified to accommodate short epoch_length (which
   # is needed for model based rollouts).
   hparams.epoch_length = 50
-  hparams.num_agents = 16
   hparams.optimization_batch_size = 20
   return hparams
 
@@ -184,8 +185,8 @@ def pong_model_free():
   """TODO(piotrmilos): Document this."""
   hparams = mfrl_base()
   hparams.batch_size = 2
-  hparams.num_frames = 4 * 30 * 2
   hparams.ppo_eval_every_epochs = 2
+  hparams.add_hparam("ppo_epochs_num", 4)
   hparams.add_hparam("ppo_optimization_epochs", 3)
   hparams.add_hparam("ppo_epoch_length", 30)
   hparams.add_hparam("ppo_learning_rate", 8e-05)
@@ -203,17 +204,22 @@ def pong_model_free():
 
 
 @registry.register_hparams
-def mfrl_base():
+def mfrl_original():
   return tf.contrib.training.HParams(
       game="",
-      # Default: 1000 PPO epochs, 200 steps per epoch, 30 agents in batch.
       base_algo="ppo",
-      base_algo_params="ppo_atari_base",
-      batch_size=30,
+      base_algo_params="ppo_original_params",
+      batch_size=16,
       frame_stack_size=4,
-      ppo_epochs_num=3000,
-      ppo_eval_every_epochs=100
   )
+
+
+@registry.register_hparams
+def mfrl_base():
+  hparams = mfrl_original()
+  hparams.add_hparam("ppo_epochs_num", 3000)
+  hparams.add_hparam("ppo_eval_every_epochs", 100)
+  return hparams
 
 
 NetworkOutput = collections.namedtuple(

@@ -52,17 +52,10 @@ FLAGS = flags.FLAGS
 
 
 def real_env_step_increment(hparams):
-  """PPO increment."""
+  """Real env step increment."""
   return int(math.ceil(
       hparams.num_real_env_frames / hparams.epochs
   ))
-
-
-def sim_env_step_increment(hparams, is_final_epoch):
-  increment = hparams.num_simulated_env_frames_per_epoch
-  if is_final_epoch:
-    increment *= 2
-  return increment
 
 
 def world_model_step_increment(hparams, is_initial_epoch):
@@ -205,10 +198,10 @@ def train_agent(
       train_hparams, hparams, base_algo_str + "_"
   )
 
-  num_env_steps = sim_env_step_increment(hparams, is_final_epoch)
+  env_step_multiplier = 1 if not is_final_epoch else 2
   learner.train(
-      env_fn, train_hparams, num_env_steps, simulated=True,
-      save_continuously=True, epoch=epoch
+      env_fn, train_hparams, simulated=True, save_continuously=True,
+      epoch=epoch, env_step_multiplier=env_step_multiplier
   )
 
 
@@ -224,8 +217,8 @@ def train_agent_real_env(env, learner, hparams, epoch):
   env_fn = rl.make_real_env_fn(env)
   num_env_steps = real_env_step_increment(hparams)
   learner.train(
-      env_fn, train_hparams, num_env_steps, simulated=False,
-      save_continuously=False, epoch=epoch
+      env_fn, train_hparams, simulated=False, save_continuously=False,
+      epoch=epoch, num_env_steps=num_env_steps
   )
   # Save unfinished rollouts to history.
   env.reset()
@@ -506,16 +499,16 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
         world_model_steps_num, epoch
     )
 
-    # Train PPO
-    log("Training PPO in simulated environment.")
+    # Train agent
+    log("Training policy in simulated environment.")
     train_agent(
         env, learner, directories["world_model"], hparams, epoch, is_final_epoch
     )
 
     env.start_new_epoch(epoch, data_dir)
 
-    # Train PPO on real env (short)
-    log("Training PPO in real environment.")
+    # Train agent on real env (short)
+    log("Training policy in real environment.")
     train_agent_real_env(env, learner, hparams, epoch)
 
     if hparams.stop_loop_early:
