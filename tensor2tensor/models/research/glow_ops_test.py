@@ -139,11 +139,11 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
         # Initialized with zeros.
         self.assertTrue(np.allclose(nn_np, 0.0))
 
-  def check_tensor_to_dist(self, architecture):
+  def check_latent_to_dist(self, architecture):
     with tf.Graph().as_default():
       x = tf.random_uniform(shape=(16, 5, 5, 32))
-      x_prior = glow_ops.tensor_to_dist("split_prior", x,
-                                        architecture=architecture,
+      hparams = tf.contrib.training.HParams(architecture=architecture)
+      x_prior = glow_ops.latent_to_dist("split_prior", x, hparams=hparams,
                                         output_channels=64)
       mean_t, scale_t = x_prior.loc, x_prior.scale
       with tf.Session() as session:
@@ -154,9 +154,9 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
         self.assertTrue(np.allclose(mean, 0.0))
         self.assertTrue(np.allclose(scale, 1.0))
 
-  def test_tensor_to_dist(self):
+  def test_latent_to_dist(self):
     for architecture in ["single_conv", "glow_nn", "glow_resnet"]:
-      self.check_tensor_to_dist(architecture)
+      self.check_latent_to_dist(architecture)
 
   def test_split(self):
     with tf.Graph().as_default():
@@ -205,8 +205,8 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
         diff, x_inv_np, z_levels_np, z_inv_levels_np = session.run(
             [x - x_inv_inv, x_inv, z_levels, z_inv_levels])
 
-        self.assertEqual(len(z_levels_np), 2)
-        self.assertEqual(len(z_inv_levels_np), 2)
+        self.assertLen(z_levels_np, 2)
+        self.assertLen(z_inv_levels_np, 2)
         # (h_i, w_i, c_i) = (h_{i-1}/f, w_{i-1}/f, c_{i-1}*(2f)/2) where (f=2)
         self.assertEqual(z_levels_np[0].shape, (16, 32, 32, 8))
         self.assertEqual(z_levels_np[1].shape, (16, 16, 16, 16))
@@ -404,12 +404,12 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
           self.assertTrue(np.allclose(channel_mean, 0.0, atol=1e-3))
           self.assertTrue(np.allclose(channel_var, 1.0, atol=1e-3))
 
-  def test_temporal_tensor_to_dist(self):
+  def test_temporal_latent_to_dist(self):
     with tf.Graph().as_default():
       hparams = self.get_glow_hparams()
       latent_shape = (16, 5, 4, 4, 48)
       latents = tf.random_normal(latent_shape)
-      dist = glow_ops.temporal_tensor_to_dist(
+      dist = glow_ops.temporal_latent_to_dist(
           "tensor_to_dist", latents, hparams)
       with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())

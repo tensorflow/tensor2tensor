@@ -543,8 +543,8 @@ def squeeze(name, x, factor=2, reverse=True):
 
 
 @add_arg_scope
-def temporal_tensor_to_dist(name, x, hparams, output_channels=None):
-  """Network that maps a time-indexed list of 3-D Tensors to a gaussian.
+def temporal_latent_to_dist(name, x, hparams, output_channels=None):
+  """Network that maps a time-indexed list of 3-D latents to a gaussian.
 
   Args:
     name: variable scope.
@@ -577,32 +577,59 @@ def temporal_tensor_to_dist(name, x, hparams, output_channels=None):
 
 
 @add_arg_scope
-def tensor_to_dist(name, x, output_channels=None, architecture="single_conv",
-                   depth=1, pre_output_channels=512, width=512):
-  """Map x to the mean and log-scale of a Gaussian.
+def single_conv_dist(name, x, output_channels=None):
+  """A 3x3 convolution mapping x to a standard normal distribution at init.
 
   Args:
     name: variable scope.
-    x: 4-D Tensor of shape (NHWC)
-    output_channels: int, number of output channels of the mean.
-                     if not provided, set it to be the output channels of x.
-    architecture: "single_conv" or "glow_nn"
-    depth: depth of architecture mapping to the mean and std.
-    pre_output_channels: output channels before the final (mean, std) mapping.
-    width: Resnet width.
-  Returns:
-    dist: instance of tf.distributions.Normal
-  Raises:
-    ValueError: If architecture not in ["single_conv", "glow_nn"]
+    x: 4-D Tensor.
+    output_channels: number of channels of the mean and std.
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     x_shape = common_layers.shape_list(x)
     if output_channels is None:
       output_channels = x_shape[-1]
+    mean_log_scale = conv("conv2d", x, output_channels=2*output_channels,
+                          conv_init="zeros", apply_actnorm=False)
+    mean = mean_log_scale[:, :, :, 0::2]
+    log_scale = mean_log_scale[:, :, :, 1::2]
+    return tf.distributions.Normal(mean, tf.exp(log_scale))
+
+
+@add_arg_scope
+def latent_to_dist(name, x, hparams, output_channels=None):
+  """Map latent to the mean and log-scale of a Gaussian.
+
+  Args:
+    name: variable scope.
+    x: 4-D Tensor of shape (NHWC)
+    hparams: tf.contrib.training.HParams.
+      latent_architecture - can be "single_conv", "glow_nn" or "glow_resnet",
+                            default = single_conv
+      latent_encoder_depth - int, depth of architecture, valid if
+                             latent_architecture is "glow_nn" or "glow_resnet".
+      latent_pre_output_channels - 512, valid only when latent_architecture
+                                   is "glow_nn".
+      latent_encoder_width - 512, maximum width of the network
+    output_channels: int, number of output channels of the mean (and std).
+                     if not provided, set it to be the output channels of x.
+  Returns:
+    dist: instance of tf.distributions.Normal
+  Raises:
+    ValueError: If architecture not in ["single_conv", "glow_nn"]
+  """
+  architecture = hparams.get("latent_architecture", "single_conv")
+  depth = hparams.get("latent_encoder_depth", 1)
+  pre_output_channels = hparams.get("latent_pre_output_channels", 512)
+  width = hparams.get("latent_encoder_width", 512)
+
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    x_shape = common_layers.shape_list(x)
+    if output_channels is None:
+      output_channels = x_shape[-1]
     if architecture == "single_conv":
-      mean_log_scale = conv("conv2d", x, output_channels=2*output_channels,
-                            conv_init="zeros", apply_actnorm=False)
-    elif architecture == "glow_nn":
+      return single_conv_dist("single_conv", x, output_channels)
+    if architecture == "glow_nn":
       mean_log_scale = x
       for layer in range(1, depth + 1):
         mid_channels = pre_output_channels // 2**(depth - layer)
@@ -695,12 +722,9 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
     output_channels = common_layers.shape_list(z)[-1]
     last_latent = latent[-1]
     latent_stack = tf.concat([prior_dist.loc] + latent, axis=-1)
-    cond_dist = tensor_to_dist(
-        "latent_stack", latent_stack, output_channels=output_channels,
-        architecture=hparams.latent_architecture,
-        depth=hparams.latent_encoder_depth,
-        pre_output_channels=hparams.latent_pre_output_channels,
-        width=hparams.latent_encoder_width)
+    cond_dist = latent_to_dist(
+        "latent_stack", latent_stack, hparams=hparams,
+        output_channels=output_channels)
 
   elif latent_dist_encoder == "conv3d_net":
     last_latent = latent[-1]
@@ -714,7 +738,7 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
     prev_latents = tf.tile(tf.expand_dims(prior_dist.loc, axis=1),
                            [1, num_steps, 1, 1, 1])
     cond_latents = tf.concat((cond_latents, prev_latents), axis=-1)
-    cond_dist = temporal_tensor_to_dist(
+    cond_dist = temporal_latent_to_dist(
         "latent_stack", cond_latents, hparams, output_channels=output_channels)
 
   elif latent_dist_encoder == "conv_lstm":
@@ -724,7 +748,8 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
     _, state = common_video.conv_lstm_2d(
         latent_stack, state, hparams.latent_encoder_width, kernel_size=3,
         name="conv_lstm")
-    cond_dist = tensor_to_dist(
+
+    cond_dist = single_conv_dist(
         "state_to_dist", state.h, output_channels=output_channels)
   if latent_skip:
     new_mean = cond_dist.loc + last_latent
@@ -759,7 +784,7 @@ def compute_prior(name, z, latent, hparams, condition=False, state=None):
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     if isinstance(condition, bool):
       condition = tf.constant(condition, dtype=tf.bool)
-    prior_dist = tensor_to_dist("level_prior", z, architecture="single_conv")
+    prior_dist = single_conv_dist("level_prior", z)
     prior_mean, prior_scale = prior_dist.loc, prior_dist.scale
 
     if latent is None:
@@ -923,7 +948,7 @@ def top_prior(name, z_shape, learn_prior="normal"):
     if learn_prior == "normal":
       prior_dist = tf.distributions.Normal(h, tf.exp(h))
     elif learn_prior == "single_conv":
-      prior_dist = tensor_to_dist("top_learn_prior", h)
+      prior_dist = single_conv_dist("top_learn_prior", h)
     else:
       raise ValueError("Expected learn_prior to be normal or single_conv "
                        "got %s" % learn_prior)
