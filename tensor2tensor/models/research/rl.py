@@ -51,7 +51,6 @@ def ppo_base_v1():
   hparams.add_hparam("epoch_length", 200)
   hparams.add_hparam("epochs_num", 2000)
   hparams.add_hparam("eval_every_epochs", 10)
-  hparams.add_hparam("num_eval_agents", 3)
   hparams.add_hparam("save_models_every_epochs", 30)
   hparams.add_hparam("optimization_batch_size", 50)
   hparams.add_hparam("max_gradients_norm", 0.5)
@@ -102,7 +101,6 @@ def ppo_atari_base():
   hparams.value_loss_coef = 1
   hparams.optimization_epochs = 3
   hparams.epochs_num = 1000
-  hparams.num_eval_agents = 1
   hparams.policy_network = feed_forward_cnn_small_categorical_fun
   hparams.clipping_coef = 0.2
   hparams.optimization_batch_size = 20
@@ -191,7 +189,6 @@ def pong_model_free():
   hparams.add_hparam("ppo_epoch_length", 30)
   hparams.add_hparam("ppo_learning_rate", 8e-05)
   hparams.add_hparam("ppo_optimizer", "Adam")
-  hparams.add_hparam("ppo_num_eval_agents", 2)
   hparams.add_hparam("ppo_optimization_batch_size", 4)
   hparams.add_hparam("ppo_save_models_every_epochs", 1000000)
   env = gym_env.T2TGymEnv("PongNoFrameskip-v4", batch_size=2)
@@ -210,6 +207,7 @@ def mfrl_original():
       base_algo="ppo",
       base_algo_params="ppo_original_params",
       batch_size=16,
+      eval_batch_size=2,
       frame_stack_size=4,
   )
 

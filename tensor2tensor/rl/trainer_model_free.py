@@ -69,7 +69,7 @@ def initialize_env_specs(hparams):
     env.start_new_epoch(0)
     hparams.add_hparam("env_fn", rl.make_real_env_fn(env))
     eval_env = gym_env.T2TGymEnv("{}Deterministic-v4".format(game_name),
-                                 batch_size=hparams.num_eval_agents)
+                                 batch_size=hparams.eval_batch_size)
     eval_env.start_new_epoch(0)
     hparams.add_hparam("eval_env_fn", rl.make_real_env_fn(eval_env))
   return hparams
