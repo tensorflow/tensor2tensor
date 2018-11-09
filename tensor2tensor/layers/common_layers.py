@@ -29,6 +29,7 @@ import numpy as np
 from six.moves import range  # pylint: disable=redefined-builtin
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 from tensorflow.python.framework import function
 from tensorflow.python.framework import ops
@@ -1971,7 +1972,7 @@ def smoothing_cross_entropy(logits,
     if gaussian and confidence > 0.0:
       labels = tf.cast(labels, tf.float32)
 
-      normal_dist = tf.distributions.Normal(loc=labels, scale=confidence)
+      normal_dist = tfp.distributions.Normal(loc=labels, scale=confidence)
       # Locations to evaluate the probability distributions.
       soft_targets = normal_dist.prob(
           tf.cast(tf.range(vocab_size), tf.float32)[:, None, None, None, None])
@@ -3730,12 +3731,12 @@ def kl_divergence(mu, log_var, mu_p=0.0, log_var_p=0.0):
   """
 
   batch_size = shape_list(mu)[0]
-  prior_distribution = tf.distributions.Normal(
+  prior_distribution = tfp.distributions.Normal(
       mu_p, tf.exp(tf.multiply(0.5, log_var_p)))
-  posterior_distribution = tf.distributions.Normal(
+  posterior_distribution = tfp.distributions.Normal(
       mu, tf.exp(tf.multiply(0.5, log_var)))
-  kld = tf.distributions.kl_divergence(
-      posterior_distribution, prior_distribution)
+  kld = tfp.distributions.kl_divergence(posterior_distribution,
+                                        prior_distribution)
   return tf.reduce_sum(kld) / tf.to_float(batch_size)
 
 

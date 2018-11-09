@@ -137,7 +137,7 @@ class Glow(t2t_model.T2TModel):
     """Objective based on the prior over latent z.
 
     Returns:
-      dist: instance of tf.distributions.Normal, prior distribution.
+      dist: instance of tfp.distributions.Normal, prior distribution.
     """
     return glow_ops.top_prior(
         "top_prior", self.z_top_shape, learn_prior=self.hparams.top_prior)

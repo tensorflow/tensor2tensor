@@ -401,7 +401,7 @@ def random_policy_fun(action_space, unused_config, observations):
   obs_shape = observations.shape.as_list()
   with tf.variable_scope("network_parameters"):
     value = tf.zeros(obs_shape[:2])
-    policy = tf.distributions.Categorical(
-        probs=[[[1. / float(action_space.n)] * action_space.n
-               ] * (obs_shape[0] * obs_shape[1])])
+    policy = tfp.distributions.Categorical(
+        probs=[[[1. / float(action_space.n)] * action_space.n] *
+               (obs_shape[0] * obs_shape[1])])
   return NetworkOutput(policy, value, lambda a: a)
