@@ -136,8 +136,7 @@ def random_rollout_subsequences(rollouts, num_subsequences, subsequence_length):
 
 
 def make_simulated_env_fn(
-    real_env, hparams, batch_size, initial_frame_chooser, model_dir
-):
+    real_env, hparams, batch_size, initial_frame_chooser, model_dir):
   """Creates a simulated env_fn."""
   return rl.make_simulated_env_fn(
       reward_range=real_env.reward_range,
@@ -169,8 +168,7 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
 
 
 def train_agent(
-    real_env, learner, world_model_dir, hparams, epoch, is_final_epoch
-):
+    real_env, learner, world_model_dir, hparams, epoch, is_final_epoch):
   """Train the PPO agent in the simulated environment."""
   frame_stack_size = hparams.frame_stack_size
   initial_frame_rollouts = real_env.current_epoch_rollouts(

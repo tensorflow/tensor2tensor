@@ -23,6 +23,8 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
+FLAGS = tf.flags.FLAGS
+
 
 class TrainTest(tf.test.TestCase):
 
@@ -31,7 +33,8 @@ class TrainTest(tf.test.TestCase):
     hparams.batch_size = 2
     hparams.ppo_epochs_num = 2
     hparams.ppo_epoch_length = 3
-    trainer_model_free.train(hparams, tf.test.get_temp_dir())
+    FLAGS.output_dir = tf.test.get_temp_dir()
+    trainer_model_free.train(hparams, FLAGS.output_dir)
 
 
 if __name__ == "__main__":
