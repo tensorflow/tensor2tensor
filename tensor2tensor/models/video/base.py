@@ -391,7 +391,7 @@ class NextFrameBase(t2t_model.T2TModel):
       sampled_frame = common_layers.standardize_images(sampled_frame)
     else:
       x = common_layers.convert_real_to_rgb(pred_frame)
-      x = tf.cast(x, tf.uint8)
+      x = x - tf.stop_gradient(x + tf.round(x))
       x = common_layers.convert_rgb_to_real(x)
       return x
     return sampled_frame
