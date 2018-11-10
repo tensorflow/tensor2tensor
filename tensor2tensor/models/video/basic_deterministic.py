@@ -41,8 +41,8 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
   def is_recurrent_model(self):
     return False
 
-  def inject_latent(self, layer, inputs, target):
-    del inputs, target
+  def inject_latent(self, layer, inputs, target, action):
+    del inputs, target, action
     return layer, 0.0
 
   def middle_network(self, layer, internal_states):
@@ -68,6 +68,7 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     hparams = self.hparams
     filters = hparams.hidden_size
     kernel2 = (4, 4)
+    action = actions[-1]
 
     # Embed the inputs.
     stacked_frames = tf.concat(frames, axis=-1)
@@ -94,12 +95,11 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
 
     # Add embedded action if present.
     if self.has_actions:
-      action = actions[-1]
       x = common_video.inject_additional_input(
           x, action, "action_enc", hparams.action_injection)
 
     # Inject latent if present. Only for stochastic models.
-    x, extra_loss = self.inject_latent(x, frames, target_frame)
+    x, extra_loss = self.inject_latent(x, frames, target_frame, action)
 
     x_mid = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
     x, internal_states = self.middle_network(x, internal_states)

@@ -45,7 +45,7 @@ def next_frame_basic_deterministic():
   hparams.add_hparam("residual_dropout", 0.5)
   hparams.add_hparam("num_compress_steps", 6)
   hparams.add_hparam("filter_double_steps", 2)
-  hparams.add_hparam("pixel_sampling_temperature", 0.5)
+  hparams.add_hparam("pixel_sampling_temperature", 0.0)
   return hparams
 
 

@@ -41,8 +41,9 @@ class NextFrameBasicStochastic(
     base_vae.NextFrameBaseVae):
   """Stochastic version of basic next-frame model."""
 
-  def inject_latent(self, layer, inputs, target):
+  def inject_latent(self, layer, inputs, target, action):
     """Inject a VAE-style latent."""
+    del action
     # Latent for stochastic model
     filters = 128
     full_video = tf.stack(inputs + [target], axis=1)
@@ -65,7 +66,7 @@ class NextFrameBasicStochasticDiscrete(
     basic_deterministic.NextFrameBasicDeterministic):
   """Basic next-frame model with a tiny discrete latent."""
 
-  def inject_latent(self, layer, inputs, target):
+  def inject_latent(self, layer, inputs, target, action):
     """Inject a deterministic latent based on the target frame."""
     hparams = self.hparams
     final_filters = common_layers.shape_list(layer)[-1]
@@ -99,6 +100,11 @@ class NextFrameBasicStochasticDiscrete(
         frames, filters, name="latent_embed",
         bias_initializer=tf.random_normal_initializer(stddev=0.01))
     x = common_attention.add_timing_signal_nd(x)
+
+    # Add embedded action if present.
+    if action is not None:
+      x = common_video.inject_additional_input(
+          x, action, "action_enc_latent", hparams.action_injection)
 
     if hparams.full_latent_tower:
       for i in range(hparams.num_compress_steps):
