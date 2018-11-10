@@ -25,6 +25,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import translate
+from tensor2tensor.data_generators import wiki_lm
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -233,3 +234,16 @@ class TranslateEnfrWmtCharacters(TranslateEnfrWmtSmallCharacters):
   @property
   def use_small_dataset(self):
     return False
+
+
+@registry.register_problem
+class TranslateEnfrWmtMulti64k(TranslateEnfrWmtSmall32k):
+  """Translation with muli-lingual vocabulary."""
+
+  @property
+  def use_small_dataset(self):
+    return False
+
+  @property
+  def vocab_filename(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename

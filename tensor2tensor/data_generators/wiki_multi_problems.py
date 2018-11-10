@@ -23,6 +23,7 @@ from tensor2tensor.data_generators import cnn_dailymail
 from tensor2tensor.data_generators import multi_problem
 from tensor2tensor.data_generators import multinli
 from tensor2tensor.data_generators import text_problems
+from tensor2tensor.data_generators import translate_enfr
 from tensor2tensor.data_generators import wiki_lm
 from tensor2tensor.utils import registry
 
@@ -99,6 +100,21 @@ class LanguagemodelEnWikiLMSummarizeCnndmSubwords64k(
     self.task_list.append(wiki_lm.LanguagemodelEnWiki64k())
     self.task_list.append(
         cnn_dailymail.SummarizeCnnDailymailWikiLMSharedVocab64k())
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.SUBWORD
+
+
+@registry.register_problem
+class LanguagemodelMultiWikiTranslateFr(multi_problem.MultiProblem):
+  """Wiki multi-lingual LM and En-Fr translation."""
+
+  def __init__(self, was_reversed=False, was_copy=False):
+    super(LanguagemodelMultiWikiTranslateFr, self).__init__(
+        was_reversed, was_copy)
+    self.task_list.append(wiki_lm.LanguagemodelDeEnFrRoWiki64k())
+    self.task_list.append(translate_enfr.TranslateEnfrWmtMulti64k())
 
   @property
   def vocab_type(self):
