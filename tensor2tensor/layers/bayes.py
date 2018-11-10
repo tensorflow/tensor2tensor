@@ -19,7 +19,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import functools
 import tensorflow as tf
 
 from tensorflow_probability import edward2 as ed
@@ -239,8 +238,8 @@ class DenseReparameterization(tf.keras.layers.Dense):
                                     self.dtype,
                                     self.add_weight)
       if self.kernel_regularizer is not None:
-        self._handle_weight_regularization(
-            'kernel', self.kernel, self.kernel_regularizer)
+        self.add_loss(create_regularization_loss_fn(
+            'kernel', lambda: self.kernel, self.kernel_regularizer))
 
     else:
       self._kernel = self.add_weight(
@@ -256,8 +255,8 @@ class DenseReparameterization(tf.keras.layers.Dense):
       if isinstance(self.bias_initializer, TrainableInitializer):
         self.bias_initializer.build([self.units], self.dtype, self.add_weight)
         if self.bias_regularizer is not None:
-          self._handle_weight_regularization(
-              'bias', self.bias, self.bias_regularizer)
+          self.add_loss(create_regularization_loss_fn(
+              'bias', lambda: self.bias, self.bias_regularizer))
       else:
         self._bias = self.add_weight(
             'bias',
@@ -271,21 +270,6 @@ class DenseReparameterization(tf.keras.layers.Dense):
     else:
       self._bias = None
     self.built = True
-
-  # TODO(trandustin): Waiting on T2T to drop dependence on
-  # TF<=1.12rc2. A TF commit enables tf.colocate_with to work for
-  # Tensor-like inputs. This lets us use the parent method instead of
-  # this one.
-  def _handle_weight_regularization(self, name, variable, regularizer):
-    """Create lambdas which compute regularization losses."""
-
-    def _loss_for_variable(v):
-      """Creates a regularization loss `Tensor` for variable `v`."""
-      with tf.name_scope(name + '/Regularizer'):
-        regularization = regularizer(v)
-      return regularization
-
-    self.add_loss(functools.partial(_loss_for_variable, variable))
 
 
 class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
@@ -365,8 +349,11 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
           [input_dim, self.units * 4], self.dtype, self.add_weight)
       self.kernel = self.kernel_initializer()
       if self.kernel_regularizer is not None:
-        self._handle_weight_regularization(
-            'kernel', self.kernel, self.kernel_regularizer)
+        self.add_loss(create_regularization_loss_fn(
+            # Can't use the kernel directly because we actually need to create a
+            # new Edward RV.  The Dense layer already does this.
+            # Also note that the initializer is a callable.
+            'kernel', self.kernel_initializer, self.kernel_regularizer))
 
     else:
       self.kernel = self.add_weight(
@@ -381,9 +368,12 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
           [self.units, self.units * 4], self.dtype, self.add_weight)
       self.recurrent_kernel = self.recurrent_initializer()
       if self.recurrent_regularizer is not None:
-        self._handle_weight_regularization(
-            'recurrent_kernel', self.recurrent_kernel,
-            self.recurrent_regularizer)
+        self.add_loss(create_regularization_loss_fn(
+            # Can't use the kernel directly because we actually need to create a
+            # new Edward RV.  The Dense layer already does this.
+            # Also note that the initializer is a callable.
+            'recurrent_kernel', self.recurrent_initializer,
+            self.recurrent_regularizer))
 
     else:
       self.recurrent_kernel = self.add_weight(
@@ -399,8 +389,11 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
             [self.units * 4], self.dtype, self.add_weight)
         self.bias = self.bias_initializer()
         if self.bias_regularizer is not None:
-          self._handle_weight_regularization(
-              'bias', self.bias, self.bias_regularizer)
+          self.add_loss(create_regularization_loss_fn(
+              # Can't use the bias directly because we actually need to create a
+              # new Edward RV.  The Dense layer already does this.
+              # Also note that the initializer is a callable.
+              'bias', self.bias_initializer, self.bias_regularizer))
       else:
         if self.unit_forget_bias:
 
@@ -438,17 +431,25 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
     return super(LSTMCellReparameterization, self).get_initial_state(
         inputs=inputs, batch_size=batch_size, dtype=dtype)
 
-  # TODO(trandustin): Waiting on T2T to drop dependence on
-  # TF<=1.12rc2. A TF commit enables tf.colocate_with to work for
-  # Tensor-like inputs. This lets us use the parent method instead of
-  # this one.
-  def _handle_weight_regularization(self, name, variable, regularizer):
-    """Create lambdas which compute regularization losses."""
 
-    def _loss_for_variable(v):
-      """Creates a regularization loss `Tensor` for variable `v`."""
-      with tf.name_scope(name + '/Regularizer'):
-        regularization = regularizer(v)
-      return regularization
+def create_regularization_loss_fn(name, variable_fn, regularizer_fn):
+  """Create a regularization loss function.
 
-    self.add_loss(functools.partial(_loss_for_variable, variable))
+  The callable representing the variable allows for use with Bayesian Layers.
+
+  Args:
+    name: String name scope prefix.
+    variable_fn: Callable that returns a TF Variable or ed.RandomVariable.
+    regularizer_fn: Callable that returns a loss tensor when called with a TF
+      Variable or ed.RandomVariable.
+
+  Returns:
+    A callable that returns a regularization loss tensor when called.
+  """
+  def loss_fn():
+    """Creates a regularization loss `Tensor`."""
+    with tf.name_scope(name + '/Regularizer'):
+      regularization = regularizer_fn(variable_fn())
+    return regularization
+
+  return loss_fn

@@ -68,6 +68,43 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     layer.get_config()
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testDenseReparameterizationKL(self):
+    inputs = tf.to_float(np.random.rand(5, 12))
+    layer = bayes.DenseReparameterization(10)
+
+    # Imagine this is the 1st epoch.
+    with tf.GradientTape() as tape:
+      layer(inputs)  # first call forces a build, here inside this tape
+      layer(inputs)  # ensure robustness after multiple calls
+      loss = tf.reduce_sum([tf.reduce_sum(l) for l in layer.losses])
+
+    variables = [layer.kernel_initializer.mean, layer.kernel_initializer.stddev]
+    for v in variables:
+      self.assertIn(v, layer.variables)
+
+    # This will be fine, since the layer was built inside this tape, and thus
+    # the distribution init ops were inside this tape.
+    grads = tape.gradient(loss, variables)
+    for grad in grads:
+      self.assertIsNotNone(grad)
+
+    # Imagine this is the 2nd epoch.
+    with tf.GradientTape() as tape:
+      layer(inputs)  # build won't be called again
+      loss = tf.reduce_sum([tf.reduce_sum(l) for l in layer.losses])
+
+    variables = [layer.kernel_initializer.mean, layer.kernel_initializer.stddev]
+    for v in variables:
+      self.assertIn(v, layer.variables)
+
+    # This would fail, since the layer was built inside the tape from the 1st
+    # epoch, and thus the distribution init ops were inside that tape instead of
+    # this tape. By using a callable for the variable, this will no longer fail.
+    grads = tape.gradient(loss, variables)
+    for grad in grads:
+      self.assertIsNotNone(grad)
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testDenseReparameterizationModel(self):
     inputs = tf.to_float(np.random.rand(3, 4, 4, 1))
     model = tf.keras.Sequential([
@@ -125,6 +162,52 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     else:
       self.assertNotAllClose(res1, res3)
     cell.get_config()
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testLSTMCellReparameterizationKL(self):
+    inputs = tf.to_float(np.random.rand(5, 1, 12))
+    cell = bayes.LSTMCellReparameterization(10)
+    state = (tf.zeros([1, 10]), tf.zeros([1, 10]))
+
+    # Imagine this is the 1st epoch.
+    with tf.GradientTape() as tape:
+      cell(inputs[:, 0, :], state)  # first call forces a build, inside the tape
+      cell(inputs[:, 0, :], state)  # ensure robustness after multiple calls
+      cell.get_initial_state(inputs[:, 0, :])
+      cell(inputs[:, 0, :], state)  # ensure robustness after multiple calls
+      loss = tf.reduce_sum([tf.reduce_sum(l) for l in cell.losses])
+
+    variables = [
+        cell.kernel_initializer.mean, cell.kernel_initializer.stddev,
+        cell.recurrent_initializer.mean, cell.recurrent_initializer.stddev,
+    ]
+    for v in variables:
+      self.assertIn(v, cell.variables)
+
+    # This will be fine, since the layer was built inside this tape, and thus
+    # the distribution init ops were inside this tape.
+    grads = tape.gradient(loss, variables)
+    for grad in grads:
+      self.assertIsNotNone(grad)
+
+    # Imagine this is the 2nd epoch.
+    with tf.GradientTape() as tape:
+      cell(inputs[:, 0, :], state)  # build won't be called again
+      loss = tf.reduce_sum([tf.reduce_sum(l) for l in cell.losses])
+
+    variables = [
+        cell.kernel_initializer.mean, cell.kernel_initializer.stddev,
+        cell.recurrent_initializer.mean, cell.recurrent_initializer.stddev,
+    ]
+    for v in variables:
+      self.assertIn(v, cell.variables)
+
+    # This would fail, since the layer was built inside the tape from the 1st
+    # epoch, and thus the distribution init ops were inside that tape instead of
+    # this tape. By using a callable for the variable, this will no longer fail.
+    grads = tape.gradient(loss, variables)
+    for grad in grads:
+      self.assertIsNotNone(grad)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testLSTMCellReparameterizationModel(self):
