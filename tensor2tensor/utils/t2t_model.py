@@ -223,7 +223,18 @@ class T2TModel(base.Layer):
 
       # Fathom
       if isinstance(sharded_logits, dict):
-        return {k:combine_shards(v) for k, v in sharded_logits.items()}, losses
+        # skip FATHOM_DICT_FORMAT before passing to combine_shards
+        # TODO: figure out why this is needed here for multi gpu
+        # but handled inside combine_shards for 1 gpu
+        # https://app.asana.com/0/730593582890719/905516294620076/f
+        return (
+            {
+                k: combine_shards(v)
+                for k, v in sharded_logits.items()
+                if k != FATHOM_DICT_FORMAT
+            },
+            losses
+        )
       else:
         return combine_shards(sharded_logits), losses
 
