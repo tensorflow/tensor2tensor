@@ -18,7 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.rl import rl_trainer_lib
+from tensor2tensor.rl import trainer_model_free
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -28,10 +28,10 @@ class TrainTest(tf.test.TestCase):
 
   def test_train_pong(self):
     hparams = registry.hparams("pong_model_free")
-    hparams.epochs_num = 2
-    hparams.num_agents = 2
-    hparams.epoch_length = 3
-    rl_trainer_lib.train(hparams)
+    hparams.batch_size = 2
+    hparams.ppo_epochs_num = 2
+    hparams.ppo_epoch_length = 3
+    trainer_model_free.train(hparams, tf.test.get_temp_dir())
 
 
 if __name__ == "__main__":

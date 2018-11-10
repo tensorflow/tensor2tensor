@@ -61,26 +61,24 @@ def rlmb_base():
       autoencoder_hparams_set="autoencoder_discrete_pong",
       model_train_steps=15000,
       initial_epoch_train_steps_multiplier=3,
-      simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,  # Use random starts in PPO.
       # Flip the first random frame in PPO batch for the true beginning.
       simulation_flip_first_random_for_beginning=True,
       intrinsic_reward_scale=0.,
+      # Number of real environments to train on simultaneously.
+      real_batch_size=1,
+      # Number of simulated environments to train on simultaneously.
+      simulated_batch_size=16,
+      # Number of frames that can be taken from the simulated environment before
+      # it diverges, used for training the agent.
+      simulated_rollout_length=50,
       ppo_epochs_num=1000,  # This should be enough to see something
-      # Our simulated envs do not know how to reset.
-      # You should set ppo_time_limit to the value you believe that
-      # the simulated env produces a reasonable output.
-      ppo_time_limit=200,  # TODO(blazej): this param is unused
-      # It makes sense to have ppo_time_limit=ppo_epoch_length,
-      # though it is not necessary.
+      # Should be equal to simulated_rollout_length.
+      # TODO(koz4k): Uncouple this by outputing done from SimulatedBatchEnv.
       ppo_epoch_length=50,
-      ppo_num_agents=16,
       # Do not eval since simulated batch env does not produce dones
       ppo_eval_every_epochs=0,
       ppo_learning_rate=1e-4,  # Will be changed, just so it exists.
-      # Whether the PPO agent should be restored from the previous iteration, or
-      # should start fresh each time.
-      ppo_continue_training=True,
       # Resizing.
       resize_height_factor=2,
       resize_width_factor=2,
@@ -95,16 +93,17 @@ def rlmb_base():
       # In your experiments, you want to optimize this rate to your schedule.
       learning_rate_bump=3.0,
 
+      # Unused; number of PPO epochs is calculated from the real frame limit.
       real_ppo_epochs_num=0,
       # This needs to be divisible by real_ppo_effective_num_agents.
       real_ppo_epoch_length=16*200,
-      real_ppo_num_agents=1,
       real_ppo_learning_rate=1e-4,
-      real_ppo_continue_training=True,
       real_ppo_effective_num_agents=16,
       real_ppo_eval_every_epochs=0,
 
-      eval_num_agents=30,
+      # Batch size during evaluation. Metrics are averaged over this number of
+      # rollouts.
+      eval_batch_size=30,
       eval_max_num_noops=8,
 
       game="pong",
@@ -114,7 +113,7 @@ def rlmb_base():
       # Number of concurrent rollouts in world model evaluation.
       wm_eval_batch_size=16,
       # Number of batches to run for world model evaluation.
-      wm_eval_epochs_num=8,
+      wm_eval_num_batches=8,
       # Ratios of ppo_epoch_length to report reward_accuracy on.
       wm_eval_rollout_ratios=[0.25, 0.5, 1, 2],
       stop_loop_early=False,  # To speed-up tests.
@@ -132,7 +131,6 @@ def rlmb_basetest():
   hparams.epochs = 2
   hparams.num_real_env_frames = 3200
   hparams.model_train_steps = 100
-  hparams.simulated_env_generator_num_steps = 20
   hparams.ppo_epochs_num = 2
   return hparams
 
@@ -391,24 +389,24 @@ def rlmb_tiny():
       tf.contrib.training.HParams(
           epochs=1,
           num_real_env_frames=128,
-          simulated_env_generator_num_steps=64,
           model_train_steps=2,
           ppo_epochs_num=2,
-          ppo_time_limit=5,
+          simulated_batch_size=2,
+          simulated_rollout_length=2,
           ppo_epoch_length=2,
-          ppo_num_agents=2,
+          real_batch_size=1,
           real_ppo_epoch_length=36,
-          real_ppo_num_agents=1,
-          real_ppo_epochs_num=0,
           real_ppo_effective_num_agents=2,
-          eval_num_agents=1,
+          max_num_noops=1,
+          eval_batch_size=1,
+          eval_max_num_noops=1,
           generative_model_params="next_frame_tiny",
           stop_loop_early=True,
           resize_height_factor=2,
           resize_width_factor=2,
           game="pong",
           wm_eval_rollout_ratios=[1],
-          env_timesteps_limit=6,
+          env_timesteps_limit=7,
       ).values())
 
 
@@ -465,7 +463,6 @@ def rlmb_ae_basetest():
   hparams.num_real_env_frames = 3200
   hparams.model_train_steps = 100
   hparams.autoencoder_train_steps = 10
-  hparams.simulated_env_generator_num_steps = 20
   hparams.ppo_epochs_num = 2
   return hparams
 

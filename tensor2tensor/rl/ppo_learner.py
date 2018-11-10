@@ -13,17 +13,196 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Collect trajectories from interactions of agent with environment."""
+"""PPO learner."""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import math
+import os
 
 from tensor2tensor.models.research.rl import get_policy
+from tensor2tensor.rl import ppo
 from tensor2tensor.rl.envs.tf_atari_wrappers import StackWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import WrapperBase
+from tensor2tensor.rl.policy_learner import PolicyLearner
+from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
+
+
+class PPOLearner(PolicyLearner):
+  """PPO for policy learning."""
+
+  def __init__(self, *args, **kwargs):
+    super(PPOLearner, self).__init__(*args, **kwargs)
+    self._num_completed_iterations = 0
+
+  def train(
+      self, env_fn, hparams, simulated, save_continuously, epoch,
+      num_env_steps=None, env_step_multiplier=1, eval_env_fn=None,
+      report_fn=None
+  ):
+    if not save_continuously:
+      # We do not save model, as that resets frames that we need at restarts.
+      # But we need to save at the last step, so we set it very high.
+      hparams.save_models_every_epochs = 1000000
+
+    if simulated:
+      simulated_str = "sim"
+    else:
+      simulated_str = "real"
+    name_scope = "ppo_{}{}".format(simulated_str, epoch + 1)
+    event_dir = os.path.join(
+        self.base_event_dir, "ppo_summaries", str(epoch) + simulated_str
+    )
+
+    with tf.Graph().as_default():
+      with tf.name_scope(name_scope):
+        with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+          env = env_fn(in_graph=True)
+          (train_summary_op, eval_summary_op, initializers) = (
+              _define_train(
+                  env, hparams, eval_env_fn,
+                  frame_stack_size=self.frame_stack_size,
+                  force_beginning_resets=simulated
+              )
+          )
+
+        if num_env_steps is None:
+          iteration_increment = hparams.epochs_num
+        else:
+          iteration_increment = int(math.ceil(
+              num_env_steps / (env.batch_size * hparams.epoch_length)
+          ))
+        iteration_increment *= env_step_multiplier
+
+        self._num_completed_iterations += iteration_increment
+        _run_train(
+            hparams, event_dir, self.agent_model_dir,
+            self._num_completed_iterations, train_summary_op, eval_summary_op,
+            initializers, report_fn=report_fn
+        )
+
+  def evaluate(self, env_fn, hparams, stochastic):
+    if stochastic:
+      policy_to_actions_lambda = lambda policy: policy.sample()
+    else:
+      policy_to_actions_lambda = lambda policy: policy.mode()
+
+    with tf.Graph().as_default():
+      with tf.name_scope("rl_eval"):
+        eval_env = env_fn(in_graph=True)
+        (collect_memory, _, collect_init) = _define_collect(
+            eval_env, hparams, "ppo_eval", eval_phase=True,
+            frame_stack_size=self.frame_stack_size,
+            force_beginning_resets=False,
+            policy_to_actions_lambda=policy_to_actions_lambda
+        )
+        model_saver = tf.train.Saver(
+            tf.global_variables(".*network_parameters.*")
+        )
+
+        with tf.Session() as sess:
+          sess.run(tf.global_variables_initializer())
+          collect_init(sess)
+          trainer_lib.restore_checkpoint(
+              self.agent_model_dir, model_saver, sess
+          )
+          sess.run(collect_memory)
+
+
+def _define_train(train_env, ppo_hparams, eval_env_fn=None, **collect_kwargs):
+  """Define the training setup."""
+  memory, collect_summary, train_initialization = (
+      _define_collect(
+          train_env, ppo_hparams, "ppo_train", eval_phase=False,
+          policy_to_actions_lambda=(lambda policy: policy.sample()),
+          **collect_kwargs
+      )
+  )
+  ppo_summary = ppo.define_ppo_epoch(
+      memory, ppo_hparams, train_env.action_space, train_env.batch_size
+  )
+  train_summary = tf.summary.merge([collect_summary, ppo_summary])
+
+  if ppo_hparams.eval_every_epochs:
+    assert eval_env_fn is not None
+    eval_env = eval_env_fn(in_graph=True)
+    (_, eval_collect_summary, eval_initialization) = (
+        _define_collect(
+            eval_env, ppo_hparams, "ppo_eval", eval_phase=True,
+            policy_to_actions_lambda=(lambda policy: policy.mode()),
+            **collect_kwargs
+        )
+    )
+    return (
+        train_summary, eval_collect_summary,
+        (train_initialization, eval_initialization)
+    )
+  else:
+    return (train_summary, None, (train_initialization,))
+
+
+def _run_train(
+    ppo_hparams, event_dir, model_dir, num_target_iterations,
+    train_summary_op, eval_summary_op, initializers, report_fn=None
+):
+  """Train."""
+  summary_writer = tf.summary.FileWriter(
+      event_dir, graph=tf.get_default_graph(), flush_secs=60)
+
+  model_saver = tf.train.Saver(
+      tf.global_variables(".*network_parameters.*"))
+
+  with tf.Session() as sess:
+    sess.run(tf.global_variables_initializer())
+    for initializer in initializers:
+      initializer(sess)
+    num_completed_iterations = trainer_lib.restore_checkpoint(
+        model_dir, model_saver, sess)
+
+    # Fail-friendly, complete only unfinished epoch
+    num_iterations_to_go = num_target_iterations - num_completed_iterations
+
+    if num_iterations_to_go <= 0:
+      tf.logging.info(
+          "Skipping PPO training. Requested %d iterations while %d train "
+          "iterations already reached", num_target_iterations,
+          num_completed_iterations
+      )
+      return
+
+    for epoch_index in range(num_iterations_to_go):
+      summary = sess.run(train_summary_op)
+      if summary_writer:
+        summary_writer.add_summary(summary, epoch_index)
+
+      if (ppo_hparams.eval_every_epochs and
+          epoch_index % ppo_hparams.eval_every_epochs == 0):
+        eval_summary = sess.run(eval_summary_op)
+        if summary_writer:
+          summary_writer.add_summary(eval_summary, epoch_index)
+        if report_fn:
+          summary_proto = tf.Summary()
+          summary_proto.ParseFromString(eval_summary)
+          for elem in summary_proto.value:
+            if "mean_score" in elem.tag:
+              report_fn(elem.simple_value, epoch_index)
+              break
+
+      epoch_index_and_start = epoch_index + num_completed_iterations
+      if (model_saver and ppo_hparams.save_models_every_epochs and
+          (epoch_index_and_start %
+           ppo_hparams.save_models_every_epochs == 0 or
+           (epoch_index + 1) == num_iterations_to_go)):
+        ckpt_path = os.path.join(
+            model_dir, "model.ckpt-{}".format(
+                epoch_index + 1 + num_completed_iterations
+            )
+        )
+        model_saver.save(sess, ckpt_path)
 
 
 def _rollout_metadata(batch_env):
@@ -82,12 +261,15 @@ class _MemoryWrapper(WrapperBase):
       return tf.identity(reward), tf.identity(done)
 
 
-def define_collect(batch_env, hparams, scope):
+def _define_collect(
+    batch_env, ppo_hparams, scope, frame_stack_size, eval_phase,
+    policy_to_actions_lambda, force_beginning_resets
+):
   """Collect trajectories.
 
   Args:
     batch_env: Batch environment.
-    hparams: HParams.
+    ppo_hparams: PPO hparams, defined in tensor2tensor.models.research.rl.
     scope: var scope.
 
   Returns:
@@ -95,14 +277,15 @@ def define_collect(batch_env, hparams, scope):
     pdfs, values_functions)
     containing a rollout of environment from nested wrapped structure.
   """
+  epoch_length = ppo_hparams.epoch_length
 
   to_initialize = []
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
-    num_agents = hparams.num_agents
+    num_agents = batch_env.batch_size
 
     to_initialize.append(batch_env)
     wrappers = [
-        (StackWrapper, {"history": hparams.frame_stack_size}),
+        (StackWrapper, {"history": frame_stack_size}),
         (_MemoryWrapper, {})
     ]
     rollout_metadata = None
@@ -121,8 +304,8 @@ def define_collect(batch_env, hparams, scope):
         batch_env.initialize(sess)
 
     memory = [
-        tf.get_variable("collect_memory_%d_%s" % (hparams.epoch_length, name),
-                        shape=[hparams.epoch_length] + shape,
+        tf.get_variable("collect_memory_%d_%s" % (epoch_length, name),
+                        shape=[epoch_length] + shape,
                         dtype=dtype,
                         initializer=tf.zeros_initializer(),
                         trainable=False)
@@ -131,13 +314,11 @@ def define_collect(batch_env, hparams, scope):
     cumulative_rewards = tf.get_variable("cumulative_rewards", len(batch_env),
                                          trainable=False)
 
-    eval_phase_t = tf.convert_to_tensor(hparams.eval_phase)
+    eval_phase_t = tf.convert_to_tensor(eval_phase)
     should_reset_var = tf.Variable(True, trainable=False)
     zeros_tensor = tf.zeros(len(batch_env))
 
-  force_beginning_resets = tf.convert_to_tensor(
-      hparams.force_beginning_resets
-  )
+  force_beginning_resets = tf.convert_to_tensor(force_beginning_resets)
 
   def reset_ops_group():
     return tf.group(batch_env.reset(tf.range(len(batch_env))),
@@ -154,7 +335,7 @@ def define_collect(batch_env, hparams, scope):
 
     def step(index, scores_sum, scores_num):
       """Single step."""
-      index %= hparams.epoch_length  # Only needed in eval runs.
+      index %= epoch_length  # Only needed in eval runs.
       # Note - the only way to ensure making a copy of tensor is to run simple
       # operation. We are waiting for tf.copy:
       # https://github.com/tensorflow/tensorflow/issues/11186
@@ -163,10 +344,10 @@ def define_collect(batch_env, hparams, scope):
       def env_step(arg1, arg2, arg3):  # pylint: disable=unused-argument
         """Step of the environment."""
         actor_critic = get_policy(
-            tf.expand_dims(obs_copy, 0), hparams, batch_env.action_space
+            tf.expand_dims(obs_copy, 0), ppo_hparams, batch_env.action_space
         )
         policy = actor_critic.policy
-        action = hparams.policy_to_actions_lambda(policy)
+        action = policy_to_actions_lambda(policy)
 
         postprocessed_action = actor_critic.action_postprocessing(action)
         reward, done = batch_env.simulate(postprocessed_action[0, ...])
@@ -224,7 +405,7 @@ def define_collect(batch_env, hparams, scope):
     def stop_condition(i, _, resets):
       return tf.cond(eval_phase_t,
                      lambda: resets < num_agents,
-                     lambda: i < hparams.epoch_length)
+                     lambda: i < epoch_length)
 
     init = [tf.constant(0), tf.constant(0.0), tf.constant(0)]
     index, scores_sum, scores_num = tf.while_loop(
@@ -255,14 +436,13 @@ def define_collect(batch_env, hparams, scope):
     # When generating real data together with PPO training we must use single
     # agent. For PPO to work we reshape the history, as if it was generated
     # by real_ppo_effective_num_agents.
-    if (getattr(hparams, "effective_num_agents", None) and
-        not hparams.eval_phase):
+    if ppo_hparams.effective_num_agents is not None and not eval_phase:
       new_memory = []
-      effective_num_agents = hparams.effective_num_agents
-      assert hparams.epoch_length % effective_num_agents == 0, (
-          "The rollout of hparams.epoch_length will be distributed amongst"
+      effective_num_agents = ppo_hparams.effective_num_agents
+      assert epoch_length % ppo_hparams.effective_num_agents == 0, (
+          "The rollout of ppo_hparams.epoch_length will be distributed amongst"
           "effective_num_agents of agents")
-      new_epoch_length = int(hparams.epoch_length / effective_num_agents)
+      new_epoch_length = int(epoch_length / effective_num_agents)
       for mem, info in zip(memory, rollout_metadata):
         shape, _, name = info
         new_shape = [effective_num_agents, new_epoch_length] + shape[1:]

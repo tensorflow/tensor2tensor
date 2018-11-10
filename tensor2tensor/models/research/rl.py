@@ -42,7 +42,6 @@ def ppo_base_v1():
   hparams.add_hparam("init_logstd", 0.1)
   hparams.add_hparam("policy_layers", (100, 100))
   hparams.add_hparam("value_layers", (100, 100))
-  hparams.add_hparam("num_agents", 30)
   hparams.add_hparam("clipping_coef", 0.2)
   hparams.add_hparam("gae_gamma", 0.99)
   hparams.add_hparam("gae_lambda", 0.95)
@@ -52,16 +51,13 @@ def ppo_base_v1():
   hparams.add_hparam("epoch_length", 200)
   hparams.add_hparam("epochs_num", 2000)
   hparams.add_hparam("eval_every_epochs", 10)
-  hparams.add_hparam("num_eval_agents", 3)
-  hparams.add_hparam("video_during_eval", False)
   hparams.add_hparam("save_models_every_epochs", 30)
   hparams.add_hparam("optimization_batch_size", 50)
   hparams.add_hparam("max_gradients_norm", 0.5)
-  hparams.add_hparam("simulation_random_starts", False)
-  hparams.add_hparam("simulation_flip_first_random_for_beginning", False)
   hparams.add_hparam("intrinsic_reward_scale", 0.)
   hparams.add_hparam("logits_clip", 4.0)
   hparams.add_hparam("dropout_ppo", 0.1)
+  hparams.add_hparam("effective_num_agents", None)
   return hparams
 
 
@@ -98,7 +94,6 @@ def ppo_atari_base():
   """Pong base parameters."""
   hparams = ppo_discrete_action_base()
   hparams.learning_rate = 1e-4
-  hparams.num_agents = 8
   hparams.epoch_length = 200
   hparams.gae_gamma = 0.985
   hparams.gae_lambda = 0.985
@@ -106,7 +101,6 @@ def ppo_atari_base():
   hparams.value_loss_coef = 1
   hparams.optimization_epochs = 3
   hparams.epochs_num = 1000
-  hparams.num_eval_agents = 1
   hparams.policy_network = feed_forward_cnn_small_categorical_fun
   hparams.clipping_coef = 0.2
   hparams.optimization_batch_size = 20
@@ -129,7 +123,6 @@ def ppo_original_params():
   # The parameters below are modified to accommodate short epoch_length (which
   # is needed for model based rollouts).
   hparams.epoch_length = 50
-  hparams.num_agents = 16
   hparams.optimization_batch_size = 20
   return hparams
 
@@ -188,27 +181,16 @@ def ppo_pong_ae_base():
 @registry.register_hparams
 def pong_model_free():
   """TODO(piotrmilos): Document this."""
-  hparams = tf.contrib.training.HParams(
-      epochs_num=4,
-      eval_every_epochs=2,
-      num_agents=2,
-      optimization_epochs=3,
-      epoch_length=30,
-      entropy_loss_coef=0.003,
-      learning_rate=8e-05,
-      optimizer="Adam",
-      policy_network=feed_forward_cnn_small_categorical_fun,
-      gae_lambda=0.985,
-      num_eval_agents=2,
-      max_gradients_norm=0.5,
-      gae_gamma=0.985,
-      optimization_batch_size=4,
-      clipping_coef=0.2,
-      value_loss_coef=1,
-      save_models_every_epochs=False,
-      frame_stack_size=4,
-      force_beginning_resets=False,
-  )
+  hparams = mfrl_base()
+  hparams.batch_size = 2
+  hparams.ppo_eval_every_epochs = 2
+  hparams.ppo_epochs_num = 4
+  hparams.add_hparam("ppo_optimization_epochs", 3)
+  hparams.add_hparam("ppo_epoch_length", 30)
+  hparams.add_hparam("ppo_learning_rate", 8e-05)
+  hparams.add_hparam("ppo_optimizer", "Adam")
+  hparams.add_hparam("ppo_optimization_batch_size", 4)
+  hparams.add_hparam("ppo_save_models_every_epochs", 1000000)
   env = gym_env.T2TGymEnv("PongNoFrameskip-v4", batch_size=2)
   env.start_new_epoch(0)
   hparams.add_hparam("env_fn", make_real_env_fn(env))
@@ -219,11 +201,22 @@ def pong_model_free():
 
 
 @registry.register_hparams
+def mfrl_original():
+  return tf.contrib.training.HParams(
+      game="",
+      base_algo="ppo",
+      base_algo_params="ppo_original_params",
+      batch_size=16,
+      eval_batch_size=2,
+      frame_stack_size=4,
+  )
+
+
+@registry.register_hparams
 def mfrl_base():
-  hparams = ppo_original_params()
-  hparams.add_hparam("game", "")
-  hparams.epochs_num = 3000
-  hparams.eval_every_epochs = 100
+  hparams = mfrl_original()
+  hparams.add_hparam("ppo_epochs_num", 3000)
+  hparams.add_hparam("ppo_eval_every_epochs", 100)
   return hparams
 
 
