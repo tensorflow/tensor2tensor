@@ -279,6 +279,11 @@ class VideoProblem(problem.Problem):
     return True
 
   @property
+  def avoid_overlapping_frames(self):
+    """When True, each video has non overlapping frames with every other."""
+    return False
+
+  @property
   def use_not_breaking_batching(self):
     return True
 
@@ -426,6 +431,9 @@ class VideoProblem(problem.Problem):
           if self.only_keep_videos_from_0th_frame:
             not_broken = tf.logical_and(not_broken, tf.equal(
                 frame_numbers[0], 0))
+          if self.avoid_overlapping_frames:
+            non_overlap = tf.equal(tf.mod(frame_numbers[0], num_frames), 0)
+            not_broken = tf.logical_and(not_broken, non_overlap)
         else:
           tf.logging.warning("use_not_breaking_batching is True but "
                              "no frame_number is in the dataset.")
