@@ -456,7 +456,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   # Directories
   subdirectories = [
       "data", "tmp", "world_model", ("world_model", "debug_videos"),
-      "policy"
+      "policy", "eval_metrics"
   ]
   directories = setup_directories(output_dir, subdirectories)
 
@@ -469,7 +469,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   env.start_new_epoch(epoch, data_dir)
 
   learner = LEARNERS[hparams.base_algo](
-      hparams.frame_stack_size, directories["world_model"],
+      hparams.frame_stack_size, directories["policy"],
       directories["policy"]
   )
 
@@ -492,9 +492,9 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   ))
   env.generate_data(data_dir)
 
-  eval_metrics_event_dir = os.path.join(directories["world_model"],
-                                        "eval_metrics_event_dir")
-  eval_metrics_writer = tf.summary.FileWriter(eval_metrics_event_dir)
+  eval_metrics_writer = tf.summary.FileWriter(
+      directories["eval_metrics"]
+  )
 
   world_model_steps_num = 0
 
