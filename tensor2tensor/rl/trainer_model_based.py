@@ -443,6 +443,13 @@ def load_metrics(event_dir, epoch):
   """Loads metrics for this epoch if they have already been written.
 
   This reads the entire event file but it's small with just per-epoch metrics.
+
+  Args:
+    event_dir: TODO(koz4k): Document this.
+    epoch: TODO(koz4k): Document this.
+
+  Returns:
+    metrics.
   """
   metrics = {}
   for filename in os.listdir(event_dir):
