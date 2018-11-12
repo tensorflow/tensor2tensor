@@ -174,16 +174,14 @@ def _run_train(ppo_hparams,
         model_dir, model_saver, sess)
 
     # Fail-friendly, complete only unfinished epoch
-    num_iterations_to_go = num_target_iterations - num_completed_iterations
-
-    if num_iterations_to_go <= 0:
+    if num_target_iterations <= num_completed_iterations:
       tf.logging.info(
           "Skipping PPO training. Requested %d iterations while %d train "
           "iterations already reached", num_target_iterations,
           num_completed_iterations)
       return
 
-    for epoch_index in range(num_iterations_to_go):
+    for epoch_index in range(num_completed_iterations, num_target_iterations):
       summary = sess.run(train_summary_op)
       if summary_writer:
         summary_writer.add_summary(summary, epoch_index)
@@ -201,13 +199,12 @@ def _run_train(ppo_hparams,
               report_fn(elem.simple_value, epoch_index)
               break
 
-      epoch_index_and_start = epoch_index + num_completed_iterations
       if (model_saver and ppo_hparams.save_models_every_epochs and
-          (epoch_index_and_start % ppo_hparams.save_models_every_epochs == 0 or
-           (epoch_index + 1) == num_iterations_to_go)):
+          (epoch_index % ppo_hparams.save_models_every_epochs == 0 or
+           (epoch_index + 1) == num_target_iterations)):
         ckpt_path = os.path.join(
             model_dir,
-            "model.ckpt-{}".format(epoch_index + 1 + num_completed_iterations))
+            "model.ckpt-{}".format(epoch_index + 1))
         model_saver.save(sess, ckpt_path)
 
 
