@@ -41,6 +41,7 @@ from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import trainer_model_based_params
+from tensor2tensor.rl.dopamine_connector import DQNLearner
 from tensor2tensor.rl.ppo_learner import PPOLearner
 from tensor2tensor.utils import trainer_lib
 
@@ -52,7 +53,8 @@ FLAGS = flags.FLAGS
 
 
 LEARNERS = {
-    "ppo": PPOLearner
+    "ppo": PPOLearner,
+    "dqn": DQNLearner,
 }
 
 
