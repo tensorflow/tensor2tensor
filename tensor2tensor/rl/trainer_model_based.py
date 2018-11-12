@@ -439,6 +439,21 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
   }
 
 
+def load_metrics(event_dir, epoch):
+  """Loads metrics for this epoch if they have already been written.
+
+  This reads the entire event file but it's small with just per-epoch metrics.
+  """
+  metrics = {}
+  for filename in os.listdir(event_dir):
+    path = os.path.join(event_dir, filename)
+    for event in tf.train.summary_iterator(path):
+      if event.step == epoch and event.HasField("summary"):
+        value = event.summary.value[0]
+        metrics[value.tag] = value.simple_value
+  return metrics
+
+
 def summarize_metrics(eval_metrics_writer, metrics, epoch):
   """Write metrics to summary."""
   for (name, value) in six.iteritems(metrics):
@@ -456,7 +471,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   # Directories
   subdirectories = [
       "data", "tmp", "world_model", ("world_model", "debug_videos"),
-      "policy"
+      "policy", "eval_metrics"
   ]
   directories = setup_directories(output_dir, subdirectories)
 
@@ -469,7 +484,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   env.start_new_epoch(epoch, data_dir)
 
   learner = LEARNERS[hparams.base_algo](
-      hparams.frame_stack_size, directories["world_model"],
+      hparams.frame_stack_size, directories["policy"],
       directories["policy"]
   )
 
@@ -492,9 +507,9 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   ))
   env.generate_data(data_dir)
 
-  eval_metrics_event_dir = os.path.join(directories["world_model"],
-                                        "eval_metrics_event_dir")
-  eval_metrics_writer = tf.summary.FileWriter(eval_metrics_event_dir)
+  eval_metrics_writer = tf.summary.FileWriter(
+      directories["eval_metrics"]
+  )
 
   world_model_steps_num = 0
 
@@ -524,40 +539,50 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     if hparams.stop_loop_early:
       return 0.0
 
-    metrics["mean_reward/train/clipped"] = compute_mean_reward(
-        env.current_epoch_rollouts(), clipped=True
-    )
-    log("Mean training reward: {}".format(metrics["mean_reward/train/clipped"]))
-
-    eval_metrics = evaluate_all_configs(hparams, policy_model_dir)
-    log("Agent eval metrics:\n{}".format(pprint.pformat(eval_metrics)))
-    metrics.update(eval_metrics)
-
     env.generate_data(data_dir)
 
-    if hparams.eval_world_model:
-      debug_video_path = os.path.join(
-          directories["world_model", "debug_videos"],
-          "{}.avi".format(env.current_epoch)
+    metrics = load_metrics(directories["eval_metrics"], epoch)
+    if metrics:
+      # Skip eval if metrics have already been written for this epoch. Otherwise
+      # we'd overwrite them with wrong data.
+      log("Metrics found for this epoch, skipping evaluation.")
+    else:
+      metrics["mean_reward/train/clipped"] = compute_mean_reward(
+          env.current_epoch_rollouts(), clipped=True
       )
-      wm_metrics = evaluate_world_model(
-          env, hparams, directories["world_model"], debug_video_path
-      )
-      log("World model eval metrics:\n{}".format(pprint.pformat(wm_metrics)))
-      metrics.update(wm_metrics)
+      log("Mean training reward: {}".format(
+          metrics["mean_reward/train/clipped"]
+      ))
 
-    summarize_metrics(eval_metrics_writer, metrics, epoch)
+      eval_metrics = evaluate_all_configs(hparams, policy_model_dir)
+      log("Agent eval metrics:\n{}".format(pprint.pformat(eval_metrics)))
+      metrics.update(eval_metrics)
 
-    # Report metrics
+      if hparams.eval_world_model:
+        debug_video_path = os.path.join(
+            directories["world_model", "debug_videos"],
+            "{}.avi".format(env.current_epoch)
+        )
+        wm_metrics = evaluate_world_model(
+            env, hparams, directories["world_model"], debug_video_path
+        )
+        log("World model eval metrics:\n{}".format(pprint.pformat(wm_metrics)))
+        metrics.update(wm_metrics)
+
+      summarize_metrics(eval_metrics_writer, metrics, epoch)
+
+      # Report metrics
+      if report_fn:
+        if report_metric == "mean_reward":
+          metric_name = get_metric_name(
+              stochastic=False, max_num_noops=hparams.eval_max_num_noops,
+              clipped=False
+          )
+          report_fn(eval_metrics[metric_name], epoch)
+        else:
+          report_fn(eval_metrics[report_metric], epoch)
+
     epoch_metrics.append(metrics)
-    if report_fn:
-      if report_metric == "mean_reward":
-        metric_name = get_metric_name(stochastic=False,
-                                      max_num_noops=hparams.eval_max_num_noops,
-                                      clipped=False)
-        report_fn(eval_metrics[metric_name], epoch)
-      else:
-        report_fn(eval_metrics[report_metric], epoch)
 
   # Return the evaluation metrics from the final epoch
   return epoch_metrics[-1]
