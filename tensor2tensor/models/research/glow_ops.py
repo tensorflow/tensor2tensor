@@ -19,7 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from functools import partial
+import functools
 import numpy as np
 import scipy
 from tensor2tensor.layers import common_layers
@@ -29,6 +29,24 @@ import tensorflow_probability as tfp
 
 arg_scope = tf.contrib.framework.arg_scope
 add_arg_scope = tf.contrib.framework.add_arg_scope
+
+
+class TemperedNormal(tfp.distributions.Normal):
+  """Normal distribution with temperature T."""
+
+  def __init__(self, loc, scale, temperature=1.0):
+    self.temperature = temperature
+    new_scale = scale * self.temperature
+    tfp.distributions.Normal.__init__(self, loc=loc, scale=new_scale)
+
+  def sample(self, sample_shape=(), seed=None, name="sample"):
+    if self.temperature == 0.0:
+      if not sample_shape:
+        return self.loc
+      loc = tf.expand_dims(self.loc, axis=0)
+      return tf.tile(loc, (sample_shape[0], 1, 1))
+    return super(TemperedNormal, self).sample(
+        sample_shape=sample_shape, seed=seed, name=name)
 
 
 def default_initializer(std=0.05):
@@ -763,7 +781,8 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
 
 
 @add_arg_scope
-def compute_prior(name, z, latent, hparams, condition=False, state=None):
+def compute_prior(name, z, latent, hparams, condition=False, state=None,
+                  temperature=1.0):
   """Distribution on z_t conditioned on z_{t-1} and latent.
 
   Args:
@@ -779,6 +798,7 @@ def compute_prior(name, z, latent, hparams, condition=False, state=None):
     state: tf.contrib.rnn.LSTMStateTuple.
            the current state of a LSTM used to model the distribution. Used
            only if hparams.latent_dist_encoder = "conv_lstm".
+    temperature: float, temperature with which to sample from the Gaussian.
   Returns:
     prior_dist: instance of tfp.distributions.Normal
     state: Returns updated state.
@@ -800,13 +820,13 @@ def compute_prior(name, z, latent, hparams, condition=False, state=None):
       mean, scale = tf.cond(
           condition, lambda: (cond_mean, cond_scale),
           lambda: (prior_mean, prior_scale))
-    dist = tfp.distributions.Normal(mean, scale)
+    dist = TemperedNormal(mean, scale, temperature)
     return dist, state
 
 
 @add_arg_scope
 def split(name, x, reverse=False, eps=None, eps_std=None, cond_latents=None,
-          hparams=None, state=None, condition=False):
+          hparams=None, state=None, condition=False, temperature=1.0):
   """Splits / concatenates x into x1 and x2 across number of channels.
 
   For the forward pass, x2 is assumed be gaussian,
@@ -827,6 +847,7 @@ def split(name, x, reverse=False, eps=None, eps_std=None, cond_latents=None,
            Used only when hparams.latent_dist_encoder == "conv_lstm"
     condition: bool, Whether or not to condition the distribution on
                cond_latents.
+    temperature: Temperature with which to sample from the gaussian.
 
   Returns:
   Raises:
@@ -846,7 +867,8 @@ def split(name, x, reverse=False, eps=None, eps_std=None, cond_latents=None,
       return x1, logpb, eps, x2, state
     else:
       prior_dist, state = compute_prior(
-          "prior_on_z2", x, cond_latents, hparams, condition, state=state)
+          "prior_on_z2", x, cond_latents, hparams, condition, state=state,
+          temperature=temperature)
       if eps is not None:
         x2 = set_eps(prior_dist, eps)
       elif eps_std is not None:
@@ -873,10 +895,11 @@ def revnet_step(name, x, hparams, reverse=True):
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     ops = [
-        partial(actnorm, name="actnorm", reverse=reverse),
-        partial(invertible_1x1_conv, name="invertible", reverse=reverse),
-        partial(affine_coupling, name="affine", reverse=reverse,
-                mid_channels=hparams.affine_coupling_width)]
+        functools.partial(actnorm, name="actnorm", reverse=reverse),
+        functools.partial(invertible_1x1_conv, name="invertible",
+                          reverse=reverse),
+        functools.partial(affine_coupling, name="affine", reverse=reverse,
+                          mid_channels=hparams.affine_coupling_width)]
 
     if reverse:
       ops = ops[::-1]
@@ -931,7 +954,7 @@ def scale_gaussian_prior(name, z, logscale_factor=3.0, trainable=True):
 
 
 @add_arg_scope
-def top_prior(name, z_shape, learn_prior="normal"):
+def top_prior(name, z_shape, learn_prior="normal", temperature=1.0):
   """Unconditional prior distribution.
 
   Args:
@@ -943,6 +966,7 @@ def top_prior(name, z_shape, learn_prior="normal"):
                  and initialized such that the mean and std are zero and one.
                  If set to "normal", the prior is just a Gaussian with zero
                  mean and unit variance.
+    temperature: Temperature with which to sample from the Gaussian.
   Returns:
     objective: 1-D Tensor shape=(batch_size,) summed across spatial components.
   Raises:
@@ -957,7 +981,7 @@ def top_prior(name, z_shape, learn_prior="normal"):
     else:
       raise ValueError("Expected learn_prior to be normal or single_conv "
                        "got %s" % learn_prior)
-    return prior_dist
+    return TemperedNormal(prior_dist.loc, prior_dist.scale, temperature)
 
 
 def uniform_binning_correction(x, n_bits=8):
@@ -983,7 +1007,8 @@ def uniform_binning_correction(x, n_bits=8):
 
 @add_arg_scope
 def encoder_decoder(name, x, hparams, eps=None, reverse=False,
-                    cond_latents=None, condition=False, states=None):
+                    cond_latents=None, condition=False, states=None,
+                    temperature=1.0):
   """Glow encoder-decoder. n_levels of (Squeeze + Flow + Split.) operations."""
   # TODO(mechcoder) Change return_type to a dict to be backward compatible.
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
@@ -1037,7 +1062,8 @@ def encoder_decoder(name, x, hparams, eps=None, reverse=False,
           x, latent, state = split("split_%d" % level, x, eps=eps[level],
                                    reverse=True, cond_latents=curr_cond_latents,
                                    condition=condition, hparams=hparams,
-                                   state=states[level])
+                                   state=states[level],
+                                   temperature=temperature)
           new_states.append(state)
           all_latents.append(latent)
 

@@ -55,6 +55,7 @@ def glow_hparams():
   # initialization. A higher init_batch_size is required for training
   # stability especially when hparams.batch_size is low.
   hparams.add_hparam("init_batch_size", 256)
+  hparams.add_hparam("temperature", 1.0)
   return hparams
 
 
@@ -85,6 +86,12 @@ class Glow(t2t_model.T2TModel):
     x = x / n_bins - 0.5
     return x
 
+  @property
+  def temperature(self):
+    if self.is_predicting:
+      return self.hparams.temperature
+    return 1.0
+
   def scale(self, x):
     """Scale x from -0.5 - 0.5 to 0 - 255."""
     x = tf.where(tf.is_nan(x), tf.ones_like(x), x)
@@ -110,7 +117,8 @@ class Glow(t2t_model.T2TModel):
     # If eps=None, images are sampled from the prior.
     with arg_scope(ops, init=False), var_scope:
       predictions, _, _, _ = glow_ops.encoder_decoder(
-          "codec", self.z_sample, self.hparams, eps=None, reverse=True)
+          "codec", self.z_sample, self.hparams, eps=None, reverse=True,
+          temperature=self.temperature)
 
     return self.scale(predictions)
 
@@ -140,7 +148,8 @@ class Glow(t2t_model.T2TModel):
       dist: instance of tfp.distributions.Normal, prior distribution.
     """
     return glow_ops.top_prior(
-        "top_prior", self.z_top_shape, learn_prior=self.hparams.top_prior)
+        "top_prior", self.z_top_shape, learn_prior=self.hparams.top_prior,
+        temperature=self.temperature)
 
   def body(self, features):
     if self.is_training:

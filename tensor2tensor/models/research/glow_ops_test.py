@@ -418,6 +418,30 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
         self.assertTrue(np.allclose(mean_np, 0.0))
         self.assertTrue(np.allclose(scale_np, 1.0))
 
+  @parameterized.named_parameters(
+      ("temp_1.0", 1.0), ("temp_0.9", 0.9), ("temp_0.7", 0.7),
+      ("temp_0.3", 0.3), ("temp_0.1", 0.1), ("temp_0.0", 0.0))
+  def test_temperature_normal(self, temperature):
+    with tf.Graph().as_default():
+      rng = np.random.RandomState(0)
+      # in numpy, so that multiple calls don't trigger different random numbers.
+      loc_t = tf.convert_to_tensor(rng.randn(5, 5))
+      scale_t = tf.convert_to_tensor(rng.rand(5, 5))
+      tempered_normal = glow_ops.TemperedNormal(
+          loc=loc_t, scale=scale_t, temperature=temperature)
+      # smoke test for a single sample.
+      smoke_sample = tempered_normal.sample()
+      samples = tempered_normal.sample((10000,), seed=0)
+
+      with tf.Session() as sess:
+        ops = [samples, loc_t, scale_t, smoke_sample]
+        samples_np, loc_exp, scale_exp, _ = sess.run(ops)
+        scale_exp *= temperature
+        loc_act = np.mean(samples_np, axis=0)
+        scale_act = np.std(samples_np, axis=0)
+        self.assertTrue(np.allclose(loc_exp, loc_act, atol=1e-2))
+        self.assertTrue(np.allclose(scale_exp, scale_act, atol=1e-2))
+
 
 if __name__ == "__main__":
   tf.test.main()
