@@ -708,6 +708,7 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
   latent_dist_encoder = hparams.get("latent_dist_encoder", None)
   latent_skip = hparams.get("latent_skip", False)
   if latent_dist_encoder == "pointwise":
+    last_latent = latent
     merge_std = hparams.level_scale
     latent_shape = common_layers.shape_list(latent)
     z_shape = common_layers.shape_list(z)
