@@ -276,7 +276,10 @@ def invertible_1x1_conv(name, x, reverse=False):
     u = u * np.transpose(l_mask) + tf.diag(sign_s * tf.exp(log_s))
     w = tf.matmul(p, tf.matmul(l, u))
 
-    objective = tf.reduce_sum(log_s) * height * width
+    # If height or width cannot be statically determined then they end up as
+    # tf.int32 tensors, which cannot be directly multiplied with a floating
+    # point tensor without a cast.
+    objective = tf.reduce_sum(log_s) * tf.cast(height * width, log_s.dtype)
     if not reverse:
       w = tf.reshape(w, [1, 1] + w_shape)
       x = tf.nn.conv2d(x, w, [1, 1, 1, 1], "SAME", data_format="NHWC")
