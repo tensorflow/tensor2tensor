@@ -34,9 +34,17 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
   """Minimize loss."""
   loss = weight_decay_and_noise(loss, hparams, learning_rate)
   loss = tf.identity(loss, name="total_loss")
+  # Print trainable variables.
   log_variable_sizes(verbose=hparams.summarize_vars)
+  # Print non-trainable variables.
+  non_trainable_variables = list(
+      set(tf.global_variables()) - set(tf.trainable_variables()))
+  log_variable_sizes(non_trainable_variables, tag="Non-trainable variables",
+                     verbose=hparams.summarize_vars)
   if hparams.summarize_vars:
     summarize_variables()
+    # Summarize non-trainable variables as well
+    summarize_variables(non_trainable_variables, tag="Non-trainable variables")
   diet_vars = [
       v for v in tf.global_variables() if v.dtype == dtypes.float16_ref
   ]
