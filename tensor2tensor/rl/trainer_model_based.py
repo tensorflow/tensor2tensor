@@ -291,11 +291,9 @@ def evaluate_single_config(hparams, stochastic, max_num_noops, agent_model_dir):
       agent_model_dir=agent_model_dir
   )
   learner.evaluate(env_fn, eval_hparams, stochastic)
-  rollouts = env.current_epoch_rollouts()[:hparams.eval_batch_size]
+  rollouts = env.current_epoch_rollouts()
   env.close()
 
-  assert len(rollouts) == hparams.eval_batch_size, \
-      "{} {}".format(len(rollouts), hparams.eval_batch_size)
   return tuple(
       compute_mean_reward(rollouts, clipped) for clipped in (True, False)
   )
