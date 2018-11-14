@@ -453,3 +453,32 @@ def create_regularization_loss_fn(name, variable_fn, regularizer_fn):
     return regularization
 
   return loss_fn
+
+
+class MixtureLogistic(tf.keras.layers.Layer):
+  """Stochastic output layer, distributed as a mixture of logistics."""
+
+  def __init__(self, num_components, **kwargs):
+    super(MixtureLogistic, self).__init__(**kwargs)
+    self.num_components = num_components
+    self.layer = tf.keras.layers.Dense(num_components * 3)
+
+  def build(self, input_shape=None):
+    self.layer.build(input_shape)
+    self.built = True
+
+  def call(self, inputs):
+    net = self.layer(inputs)
+    logits, loc, unconstrained_scale = tf.split(net, 3, axis=-1)
+    scale = tf.nn.softplus(unconstrained_scale) + tf.keras.backend.epsilon()
+    return ed.MixtureSameFamily(
+        mixture_distribution=ed.Categorical(logits=logits).distribution,
+        components_distribution=ed.Logistic(loc=loc, scale=scale).distribution)
+
+  def compute_output_shape(self, input_shape):
+    return tf.TensorShape(input_shape)[:-1]
+
+  def get_config(self):
+    config = {'num_components': self.num_components}
+    base_config = super(MixtureLogistic, self).get_config()
+    return dict(list(base_config.items()) + list(config.items()))

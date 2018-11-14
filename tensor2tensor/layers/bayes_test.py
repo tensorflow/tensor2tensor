@@ -239,6 +239,23 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(res2, res3)
     self.assertLen(model.losses, 2)
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testMixtureLogistic(self):
+    batch_size = 3
+    features = tf.to_float(np.random.rand(batch_size, 4))
+    labels = tf.to_float(np.random.rand(batch_size))
+    model = tf.keras.Sequential([
+        tf.keras.layers.Dense(2, activation=None),
+        bayes.MixtureLogistic(5),
+    ])
+    outputs = model(features)
+    log_likelihood = tf.reduce_sum(outputs.distribution.log_prob(labels))
+    self.evaluate(tf.global_variables_initializer())
+    log_likelihood_val, outputs_val = self.evaluate([log_likelihood, outputs])
+    self.assertEqual(log_likelihood_val.shape, ())
+    self.assertLessEqual(log_likelihood_val, 0.)
+    self.assertEqual(outputs_val.shape, (batch_size,))
+
 
 if __name__ == "__main__":
   tf.test.main()
