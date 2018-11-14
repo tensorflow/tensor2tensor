@@ -1963,4 +1963,5 @@ def _create_target_modality(modality_dict):
   # differently for modalities which are "targets"
   # (e.g., modality.target_bottom). In the future, remove need for this
   # behavior.
-  return {k: v for k, v in six.iteritems(modality_dict) if "target" in k}
+  return {k: v for k, v in six.iteritems(modality_dict) if "target" in k
+          and k != "targets_segmentation" and k != "targets_position"}
