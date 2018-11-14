@@ -820,6 +820,37 @@ class ClassLabelModality(modality.Modality):
       return tf.expand_dims(res, 3)
 
 
+class VideoModalityIdentity(VideoModality):
+  """Video Modality where top and bottom is an identity function."""
+
+  def bottom(self, x):
+    common_video.gif_summary("inputs", x, max_outputs=1)
+    x = common_layers.standardize_images(x)
+    return x
+
+  def targets_bottom(self, x):
+    common_video.gif_summary("targets", x, max_outputs=1)
+    x = common_layers.standardize_images(x)
+    return x
+
+  def top(self, body_output, targets):
+    return body_output
+
+  def loss(self, top_out, targets):
+    """Compute loss numerator and denominator for one shard of output."""
+    # TODO(nikip): Try L2 loss
+    logits = top_out
+    logits = tf.reshape(logits, [-1] + common_layers.shape_list(logits)[2:])
+    targets = tf.reshape(targets, [-1] + common_layers.shape_list(targets)[2:])
+    cutoff = getattr(self._model_hparams, "video_modality_loss_cutoff", 0.01)
+    return common_layers.padded_cross_entropy(
+        logits,
+        targets,
+        self._model_hparams.label_smoothing,
+        cutoff=cutoff,
+        weights_fn=self.targets_weights_fn)
+
+
 class MultiLabelModality(ClassLabelModality):
   """Used for multi label task."""
 
