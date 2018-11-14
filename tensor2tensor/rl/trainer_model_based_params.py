@@ -61,7 +61,7 @@ def _rlmb_base():
       # Use random starts when learning agent on simulated env.
       simulation_random_starts=True,
       # Flip the first random frame in PPO batch for the true beginning.
-      simulation_flip_first_random_for_beginning=True,
+      simulation_flip_first_random_for_beginning=False,
       intrinsic_reward_scale=0.,
       # Resizing.
       resize_height_factor=2,
@@ -148,6 +148,8 @@ def rlmb_ppo_base():
       real_ppo_learning_rate=1e-4,
       real_ppo_effective_num_agents=16,
       real_ppo_eval_every_epochs=0,
+
+      simulation_flip_first_random_for_beginning=True,
   )
   update_hparams(hparams, ppo_params)
   return hparams
@@ -156,6 +158,26 @@ def rlmb_ppo_base():
 @registry.register_hparams
 def rlmb_base():
   return rlmb_ppo_base()
+
+
+@registry.register_hparams
+def rlmb_dqn_base():
+  hparams = _rlmb_base()
+  simulated_rollout_length = 10
+  dqn_params = dict(
+      base_algo="dqn",
+      base_algo_params="dqn_original_params",
+      real_batch_size=1,
+      simulated_batch_size=1,
+      dqn_agent_generates_trainable_dones=False,
+      eval_batch_size=1,
+      # Must be equal to dqn_time_limit for now
+      simulated_rollout_length=simulated_rollout_length,
+      dqn_time_limit=simulated_rollout_length,
+      simulation_flip_first_random_for_beginning=False,
+  )
+  update_hparams(hparams, dqn_params)
+  return hparams
 
 
 @registry.register_hparams
@@ -454,6 +476,23 @@ def rlmb_ppo_tiny():
 @registry.register_hparams
 def rlmb_tiny():
   return rlmb_ppo_tiny()
+
+
+@registry.register_hparams
+def rlmb_dqn_tiny():
+  """Tiny set for testing."""
+  hparams = rlmb_dqn_base()
+  hparams = hparams.override_from_dict(_rlmb_tiny_overrides())
+  update_hparams(hparams, dict(
+      simulated_rollout_length=2,
+      dqn_time_limit=2,
+      dqn_num_frames=128,
+      real_dqn_replay_buffer_replay_capacity=100,
+      dqn_replay_buffer_replay_capacity=100,
+      real_dqn_agent_min_replay_history=10,
+      dqn_agent_min_replay_history=10,
+  ))
+  return hparams
 
 
 @registry.register_hparams

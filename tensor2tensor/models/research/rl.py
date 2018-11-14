@@ -201,6 +201,44 @@ def pong_model_free():
 
 
 @registry.register_hparams
+def dqn_atari_base():
+  # These params are based on agents/dqn/configs/dqn.gin
+  # with some modifications taking into account our code
+  return tf.contrib.training.HParams(
+      agent_gamma=0.99,
+      agent_update_horizon=1,
+      agent_min_replay_history=20000,  # agent steps
+      agent_update_period=4,
+      agent_target_update_period=8000,  # agent steps
+      agent_epsilon_train=0.01,
+      agent_epsilon_eval=0.001,
+      agent_epsilon_decay_period=250000,  # agent steps
+      agent_generates_trainable_dones=True,
+
+      optimizer_class="RMSProp",
+      optimizer_learning_rate=0.00025,
+      optimizer_decay=0.95,
+      optimizer_momentum=0.0,
+      optimizer_epsilon=0.00001,
+      optimizer_centered=True,
+
+      replay_buffer_replay_capacity=1000000,
+      replay_buffer_batch_size=32,
+
+      time_limit=27000,
+      save_every_steps=50000,
+      num_frames=int(20 * 1e6),
+  )
+
+
+@registry.register_hparams
+def dqn_original_params():
+  hparams = dqn_atari_base()
+  hparams.set_hparam('num_frames', int(1e6))
+  return hparams
+
+
+@registry.register_hparams
 def mfrl_original():
   return tf.contrib.training.HParams(
       game="",
