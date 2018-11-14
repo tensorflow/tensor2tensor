@@ -508,7 +508,8 @@ def discrete_bottleneck(inputs,
                         noise_dev=1.,
                         startup_steps=50000,
                         summary=True,
-                        name=None):
+                        name=None,
+                        cond=True):
   """Discretization bottleneck.
 
   Args:
@@ -564,6 +565,7 @@ def discrete_bottleneck(inputs,
       only if bottleneck_kind is semhash.
     summary: Whether to write summaries.
     name: Name for the bottleneck scope.
+    cond: A tf.bool condition on whether to update the codebook.
 
   Returns:
     outputs_dense: Tensor of shape [..., output_dim]. The output dimension is
@@ -670,10 +672,11 @@ def discrete_bottleneck(inputs,
           tf.logging.info("Using EMA with beta = {}".format(beta))
           updated_ema_count_res = moving_averages.assign_moving_average(
               ema_count[i],
-              tf.reduce_sum(
-                  tf.reshape(
-                      x_means_hot_res, shape=[-1, num_blocks, block_v_size]),
-                  axis=0),
+              tf.where(cond,
+                       tf.reduce_sum(
+                           tf.reshape(x_means_hot_res,
+                                      shape=[-1, num_blocks, block_v_size]),
+                           axis=0), ema_count[i]),
               decay,
               zero_debias=False)
 
@@ -682,7 +685,8 @@ def discrete_bottleneck(inputs,
               tf.transpose(x_res, perm=[1, 0, 2]))
 
           updated_ema_means_res = moving_averages.assign_moving_average(
-              ema_means[i], dw, decay, zero_debias=False)
+              ema_means[i], tf.where(cond, dw, ema_means[i]),
+              decay, zero_debias=False)
           n = tf.reduce_sum(updated_ema_count_res, axis=-1, keep_dims=True)
           updated_ema_count_res = (
               (updated_ema_count_res + epsilon) / (n + 2**z_size * epsilon) * n)
@@ -692,7 +696,10 @@ def discrete_bottleneck(inputs,
           # pylint: enable=g-no-augmented-assignment
 
           with tf.control_dependencies([e_loss_res]):
-            update_means_res = tf.assign(means[i], updated_ema_means_res)
+            update_means_res = tf.assign(means[i],
+                                         tf.where(cond,
+                                                  updated_ema_means_res,
+                                                  means[i]))
             with tf.control_dependencies([update_means_res]):
               extra_loss += beta * e_loss_res
         else:
