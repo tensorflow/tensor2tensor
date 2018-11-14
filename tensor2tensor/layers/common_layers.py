@@ -272,13 +272,10 @@ def flatten4d3d(x):
 
 
 # TODO(noam): remove this function after TPUs do gather faster.
-def gather(params, indices, dtype=tf.float32):
+def gather(params, indices):
   """Version of tf.gather that works faster on tpu."""
-  if not is_xla_compiled():
-    return tf.gather(params, indices)
-  vocab_size = params.get_shape().as_list()[0]
   indices_flat = tf.reshape(indices, [-1])
-  out = tf.matmul(tf.one_hot(indices_flat, vocab_size, dtype=dtype), params)
+  out = tf.gather(params, indices_flat)
   out = reshape_like(out, tf.expand_dims(indices, -1))
   return out
 
@@ -352,7 +349,7 @@ def embedding(x,
     if not tf.contrib.eager.in_eager_mode():
       embedding_var = convert_gradient_to_tensor(embedding_var)
     x = dropout_no_scaling(x, 1.0 - symbol_dropout_rate)
-    emb_x = gather(embedding_var, x, dtype)
+    emb_x = gather(embedding_var, x)
     if multiplier != 1.0:
       emb_x *= multiplier
     static_shape = emb_x.shape.as_list()
