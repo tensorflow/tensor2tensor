@@ -99,7 +99,7 @@ def _rlmb_base():
       # uses algorithm specific hparams to set this during training.
       simulated_rollout_length=50,
 
-      # To be overriden
+      # To be overridden.
       base_algo="",
       base_algo_params="",
       # Number of real environments to train on simultaneously.
@@ -120,6 +120,7 @@ def update_hparams(hparams, other):
 
 @registry.register_hparams
 def rlmb_ppo_base():
+  """HParams for PPO base."""
   hparams = _rlmb_base()
   ppo_params = dict(
       base_algo="ppo",
@@ -417,7 +418,7 @@ def rlmb_model_only():
 
 
 def _rlmb_tiny_overrides():
-  """Parameters to override for tiny setting, excluding agent-related hparams"""
+  """Parameters to override for tiny setting excluding agent-related hparams."""
   return dict(
       epochs=1,
       num_real_env_frames=128,
