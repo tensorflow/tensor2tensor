@@ -21,6 +21,8 @@ from flask import Flask
 from flask import jsonify
 from flask import request
 from flask import send_from_directory
+from flask.json import JSONEncoder
+import numpy as np
 from gunicorn.app.base import BaseApplication
 from gunicorn.six import iteritems
 from tensor2tensor.insights import transformer_model
@@ -35,6 +37,23 @@ flags.DEFINE_string("configuration", "",
                     "models to run in the insight frontend.")
 flags.DEFINE_string("static_path", "",
                     "Path to static javascript and html files to serve.")
+
+
+_NUMPY_INT_DTYPES = [
+  np.int8, np.int16, np.int32, np.int64
+]
+_NUMPY_FP_DTYPES = [
+  np.float16, np.float32, np.float64
+]
+class NumpySerializationFix(JSONEncoder):
+  """json module cannot serialize numpy datatypes, reinterpret them first"""
+  def default(self, obj):
+    obj_type = type(obj)
+    if obj_type in _NUMPY_INT_DTYPES:
+      return int(obj)
+    if obj_type in _NUMPY_FP_DTYPES:
+      return float(obj)
+    return json.JSONEncoder.default(self, obj)
 
 
 class DebugFrontendApplication(BaseApplication):
@@ -101,6 +120,7 @@ def main(_):
       __name__.split(".")[0],
       static_url_path="/polymer",
       static_folder=FLAGS.static_path)
+  app.json_encoder = NumpySerializationFix
 
   # Disable static file caching.
   app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
@@ -113,7 +133,7 @@ def main(_):
       JSON for the languages.
     """
     return jsonify({
-        "language": languages.values()
+        "language": list(languages.values())
     })
 
   @app.route("/api/list_models/")
