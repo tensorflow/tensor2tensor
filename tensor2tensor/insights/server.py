@@ -16,17 +16,15 @@
 """A GUnicorn + Flask Debug Frontend for Transformer models."""
 
 import json
-
 from flask import Flask
 from flask import jsonify
 from flask import request
 from flask import send_from_directory
 from flask.json import JSONEncoder
-import numpy as np
 from gunicorn.app.base import BaseApplication
 from gunicorn.six import iteritems
+import numpy as np
 from tensor2tensor.insights import transformer_model
-
 import tensorflow as tf
 
 flags = tf.flags
@@ -40,13 +38,16 @@ flags.DEFINE_string("static_path", "",
 
 
 _NUMPY_INT_DTYPES = [
-  np.int8, np.int16, np.int32, np.int64
+    np.int8, np.int16, np.int32, np.int64
 ]
 _NUMPY_FP_DTYPES = [
-  np.float16, np.float32, np.float64
+    np.float16, np.float32, np.float64
 ]
+
+
 class NumpySerializationFix(JSONEncoder):
   """json module cannot serialize numpy datatypes, reinterpret them first"""
+
   def default(self, obj):
     obj_type = type(obj)
     if obj_type in _NUMPY_INT_DTYPES:
