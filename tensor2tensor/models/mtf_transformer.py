@@ -169,7 +169,16 @@ class MtfTransformer(mtf_model.MtfModel):
                 "inputs_segmentation", "inputs_position"]:
       if key in features:
         features[key] = pad_to_max_length(features[key])
-    shifted_targets = common_layers.shift_right_2d(targets)
+    if hparams.decoder_type == "autoregressive":
+      shifted_targets = common_layers.shift_right_2d(targets)
+    elif hparams.decoder_type == "masked":
+      shifted_targets = targets * tf.cast(
+          tf.greater(tf.random_uniform(tf.shape(targets), seed=123),
+                     hparams.mask_fraction),
+          targets.dtype)
+    else:
+      raise ValueError(
+          "unknown hparams.decoder_type = %s" % hparams.decoder_type)
 
     targets = self._import_to_batch_by_length(targets, "targets", mesh, hparams)
     shifted_targets = self._import_to_batch_by_length(
@@ -183,15 +192,18 @@ class MtfTransformer(mtf_model.MtfModel):
       targets_position = self._import_to_batch_by_length(
           features["targets_position"], "targets_position",
           mesh, hparams)
-      decoder_self_attention_mask = (
-          mtf.layers.attention_mask_autoregressive(
-              targets_position, dtype=self.activation_dtype) +
-          mtf.layers.attention_mask_same_segment(
-              targets_segmentation, dtype=self.activation_dtype))
+      decoder_self_attention_mask = mtf.layers.attention_mask_same_segment(
+          targets_segmentation, dtype=self.activation_dtype)
+      if hparams.decoder_type == "autoregressive":
+        decoder_self_attention_mask += mtf.layers.attention_mask_autoregressive(
+            targets_position, dtype=self.activation_dtype)
     else:
       targets_position = mtf.range(mesh, self.length_dim, dtype=tf.int32)
-      decoder_self_attention_mask = mtf.layers.attention_mask_autoregressive(
-          targets_position, dtype=self.activation_dtype)
+      if hparams.decoder_type == "autoregressive":
+        decoder_self_attention_mask = mtf.layers.attention_mask_autoregressive(
+            targets_position, dtype=self.activation_dtype)
+      else:
+        decoder_self_attention_mask = None
 
     def layer_prepostprocess_dropout(x):
       return mtf.dropout(
@@ -687,11 +699,18 @@ def mtf_transformer_base():
   hparams.layer_prepostprocess_dropout = 0.1
 
   # Describes what model architecture:
-  #   "encdec": encoder + autoregerssive decoder
+  #   "encdec": encoder + autoregressive decoder
   #   "decoder": single-stack autoregressive sequence model.
   #   "encoder": single-stack non-autoregressive model
   #      with equal-length inputs and outputs.
   hparams.add_hparam("transformer_type", "encdec")
+
+  # What does the decoder do:
+  #   "autoregressive": Decoder left to right
+  #   "masked": Fills in masked-out values simultaneously
+  hparams.add_hparam("decoder_type", "autoregressive")
+  # for "masked", the probability of masking out each token
+  hparams.add_hparam("mask_fraction", 0.15)
 
   # round up vocab sizes to be a multiple of this value
   hparams.vocab_divisor = 128
