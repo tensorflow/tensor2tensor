@@ -38,6 +38,8 @@ script:
 
   # Conditional commands should each be in a separate block to get proper
   # errors on Travis.
-  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "tf-nightly"  ]]; then
-        pylint -j 2 tensor2tensor;
-    fi
+  #
+  # TODO(afrozm): Re-enable if this becomes an issue.
+  # - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "tf-nightly"  ]]; then
+  #       pylint -j 2 tensor2tensor;
+  #   fi
