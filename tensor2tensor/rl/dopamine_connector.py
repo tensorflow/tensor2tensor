@@ -23,27 +23,22 @@ import gym
 from gym import spaces, Wrapper
 from gym.wrappers import TimeLimit
 import numpy as np
-import inspect
-import os
 import tensorflow as tf
 
 from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv
 from tensor2tensor.rl.policy_learner import PolicyLearner
 
-_dopamine_path = None
 try:
   # pylint: disable=wrong-import-position
-  import dopamine
   import cv2
   from dopamine.agents.dqn import dqn_agent
   from dopamine.atari import run_experiment
-  from dopamine.agents.dqn.dqn_agent import OBSERVATION_SHAPE, STACK_SIZE
+  from dopamine.agents.dqn.dqn_agent import NATURE_DQN_OBSERVATION_SHAPE, \
+      NATURE_DQN_STACK_SIZE
   from dopamine.replay_memory import circular_replay_buffer
   from dopamine.replay_memory.circular_replay_buffer import \
-  OutOfGraphReplayBuffer, ReplayElement
-
+      OutOfGraphReplayBuffer, ReplayElement
   # pylint: enable=wrong-import-position
-  _dopamine_path = os.path.dirname(inspect.getfile(dopamine))
 except ImportError:
   # Generally we do not need dopamine in tensor2tensor
   # We will raise exception if the code really tries to use it
@@ -103,8 +98,8 @@ class _DQNAgent(dqn_agent.DQNAgent):
   def _build_replay_buffer(self, use_staging):
     """Build WrappedReplayBuffer with custom OutOfGraphReplayBuffer"""
     replay_buffer_kwargs = dict(
-        observation_shape=OBSERVATION_SHAPE,
-        stack_size=STACK_SIZE,
+        observation_shape=NATURE_DQN_OBSERVATION_SHAPE,
+        stack_size=NATURE_DQN_STACK_SIZE,
         replay_capacity=self._replay_capacity,
         batch_size=self._batch_size,
         update_horizon=self.update_horizon,
