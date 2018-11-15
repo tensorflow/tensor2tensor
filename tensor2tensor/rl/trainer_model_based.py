@@ -450,7 +450,7 @@ def load_metrics(event_dir, epoch):
     metrics.
   """
   metrics = {}
-  for filename in os.listdir(event_dir):
+  for filename in tf.gfile.ListDirectory(event_dir):
     path = os.path.join(event_dir, filename)
     for event in tf.train.summary_iterator(path):
       if event.step == epoch and event.HasField("summary"):
