@@ -733,7 +733,7 @@ def beam_search(symbols_to_logits_fn,
       # which means the bound_is_met condition cannot be true in this case.
       lowest_score_of_finished_in_finished = tf.reduce_min(finished_scores)
     else:
-      # by taking the max score we only care about the the first beam;
+      # by taking the max score we only care about the first beam;
       # as soon as this first beam cannot be beaten from the alive beams
       # the beam decoder can stop.
       # similarly to the above, if the top beam is not completed, its

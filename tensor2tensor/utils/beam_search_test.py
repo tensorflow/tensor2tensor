@@ -153,7 +153,7 @@ class BeamSearchTest(tf.test.TestCase):
         vocab_size,
         0.0,
         eos_id=1,
-        stop_early=True)  # defaul value, but just to make this explicit
+        stop_early=True)  # default value, but just to make this explicit
 
     with self.test_session():
       ids = final_ids.eval()
