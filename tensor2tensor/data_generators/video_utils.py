@@ -75,15 +75,17 @@ def create_border(video, color="blue", border_percent=2):
 
 
 def convert_videos_to_summaries(input_videos, output_videos, target_videos,
-                                tag, decode_hparams):
+                                tag, decode_hparams,
+                                display_ground_truth=False):
   """Converts input, output and target videos into video summaries.
 
   Args:
     input_videos: 5-D NumPy array, (NTHWC) conditioning frames.
-    output_videos: 5-D NumPy array, (NTHWC) ground truth.
+    output_videos: 5-D NumPy array, (NTHWC) model predictions.
     target_videos: 5-D NumPy array, (NTHWC) target frames.
     tag: tf summary tag.
     decode_hparams: tf.contrib.training.HParams.
+    display_ground_truth: Whether or not to display ground truth videos.
   Returns:
     summaries: a list of tf frame-by-frame and video summaries.
   """
@@ -98,17 +100,19 @@ def convert_videos_to_summaries(input_videos, output_videos, target_videos,
   output_videos = create_border(
       output_videos, color="red", border_percent=border_percent)
 
-  # Video gif.
   all_input = np.concatenate((input_videos, target_videos), axis=1)
   all_output = np.concatenate((input_videos, output_videos), axis=1)
-  input_summ_vals, _ = common_video.py_gif_summary(
-      "%s/input" % tag, all_input, max_outputs=max_outputs, fps=fps,
-      return_summary_value=True)
   output_summ_vals, _ = common_video.py_gif_summary(
       "%s/output" % tag, all_output, max_outputs=max_outputs, fps=fps,
       return_summary_value=True)
-  all_summaries.extend(input_summ_vals)
   all_summaries.extend(output_summ_vals)
+
+  # Optionally display ground truth.
+  if display_ground_truth:
+    input_summ_vals, _ = common_video.py_gif_summary(
+        "%s/input" % tag, all_input, max_outputs=max_outputs, fps=fps,
+        return_summary_value=True)
+    all_summaries.extend(input_summ_vals)
 
   # Frame-by-frame summaries
   iterable = zip(all_input[:max_outputs], all_output[:max_outputs])
@@ -164,7 +168,8 @@ def display_video_hooks(hook_args):
     input_videos = np.asarray(input_videos, dtype=np.uint8)
     summaries = convert_videos_to_summaries(
         input_videos, output_videos, target_videos,
-        tag="decode_%d" % decode_ind, decode_hparams=hook_args.decode_hparams)
+        tag="decode_%d" % decode_ind, decode_hparams=hook_args.decode_hparams,
+        display_ground_truth=decode_ind == 0)
     all_summaries.extend(summaries)
   return all_summaries
 
