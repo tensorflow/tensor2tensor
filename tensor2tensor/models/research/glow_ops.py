@@ -338,27 +338,45 @@ def add_edge_bias(x, filter_size):
   return tf.concat([x, x_pad], axis=3)
 
 
-def time_pad(x, filter_size):
+def time_pad(x, filter_size, dilations):
   """Pad left across time and pad valid across the spatial components.
+
+  Also concats a binary feature that indicates if a feature is padded or not.
 
   Args:
     x: 5-D Tensor, (NTHWC)
     filter_size: list of ints
+    dilations: list of ints, dilations - 1 specifies the number of holes
+               between two filter elements.
   Returns:
     x_pad: 5-D Tensor.
   """
+  x_shape = common_layers.shape_list(x)
   if filter_size == [1, 1, 1]:
     return x
-  a = (filter_size[1] - 1) // 2  # vertical padding size
-  b = (filter_size[2] - 1) // 2  # horizontal padding size
+  _, h, w = filter_size
+  eff_h = h + (h - 1)*(dilations[2] - 1)
+  eff_w = w + (w - 1)*(dilations[3] - 1)
+  a = (eff_h - 1) // 2  # vertical padding size
+  b = (eff_w - 1) // 2  # horizontal padding size
   c = filter_size[0] - 1
+
+  # pad across edges.
   padding = [[0, 0], [c, 0], [a, a], [b, b], [0, 0]]
-  return tf.pad(x, padding)
+
+  # concat a binary feature across channels to indicate a padding.
+  # 1 indicates that the feature is a padding.
+  x_bias = tf.zeros(x_shape[:-1] + [1])
+  x_bias = tf.pad(x_bias, padding, constant_values=1)
+  x_pad = tf.pad(x, padding)
+  x_pad = tf.concat((x_bias, x_pad), axis=-1)
+  return x_pad
 
 
 @add_arg_scope
 def conv(name, x, output_channels, filter_size=None, stride=None,
-         logscale_factor=3.0, apply_actnorm=True, conv_init="default"):
+         logscale_factor=3.0, apply_actnorm=True, conv_init="default",
+         dilations=None):
   """Convolutional layer with edge bias padding and optional actnorm.
 
   If x is 5-dimensional, actnorm is applied independently across every
@@ -376,6 +394,7 @@ def conv(name, x, output_channels, filter_size=None, stride=None,
                    have zero mean and unit variance. Else, there is no scaling
                    applied.
     conv_init: default or zeros. default is a normal distribution with 0.05 std.
+    dilations: List of integers, apply dilations.
   Returns:
     x: actnorm(conv2d(x))
   Raises:
@@ -393,6 +412,8 @@ def conv(name, x, output_channels, filter_size=None, stride=None,
       filter_size = [3, 3]
     if stride is None:
       stride = [1, 1]
+    if dilations is None:
+      dilations = [1, 1, 1, 1]
     actnorm_func = actnorm
     x = add_edge_bias(x, filter_size=filter_size)
     conv_filter = tf.nn.conv2d
@@ -401,8 +422,10 @@ def conv(name, x, output_channels, filter_size=None, stride=None,
       filter_size = [2, 3, 3]
     if stride is None:
       stride = [1, 1, 1]
+    if dilations is None:
+      dilations = [1, 1, 1, 1, 1]
     actnorm_func = actnorm_3d
-    x = time_pad(x, filter_size=filter_size)
+    x = time_pad(x, filter_size=filter_size, dilations=dilations)
     conv_filter = tf.nn.conv3d
 
   in_channels = common_layers.shape_list(x)[-1]
@@ -417,7 +440,7 @@ def conv(name, x, output_channels, filter_size=None, stride=None,
       initializer = tf.zeros_initializer()
 
     w = tf.get_variable("W", filter_shape, tf.float32, initializer=initializer)
-    x = conv_filter(x, w, stride_shape, padding="VALID")
+    x = conv_filter(x, w, stride_shape, padding="VALID", dilations=dilations)
     if apply_actnorm:
       x, _ = actnorm_func("actnorm", x, logscale_factor=logscale_factor)
     else:
@@ -430,14 +453,14 @@ def conv(name, x, output_channels, filter_size=None, stride=None,
 
 
 @add_arg_scope
-def conv_block(name, x, mid_channels, time_filter=2):
+def conv_block(name, x, mid_channels, dilations=None):
   """2 layer conv block used in the affine coupling layer.
 
   Args:
     name: variable scope.
     x: 4-D or 5-D Tensor.
     mid_channels: Output channels of the second layer.
-    time_filter: Filter across time to capture context.
+    dilations: Optional, list of integers.
   Returns:
     x: 4-D Tensor: Output activations.
   """
@@ -449,42 +472,73 @@ def conv_block(name, x, mid_channels, time_filter=2):
       first_filter = [3, 3]
       second_filter = [1, 1]
     else:
-      first_filter = [time_filter, 3, 3]
+      first_filter = [2, 3, 3]
       second_filter = [1, 1, 1]
 
     # Edge Padding + conv2d + actnorm + relu:
     # [output: 512 channels]
-    x = conv("1_1", x, output_channels=mid_channels, filter_size=first_filter)
+    x = conv("1_1", x, output_channels=mid_channels, filter_size=first_filter,
+             dilations=dilations)
     x = tf.nn.relu(x)
 
     # Padding + conv2d + actnorm + relu
     # [input, output: 512 channels]
-    x = conv("1_2", x, output_channels=mid_channels, filter_size=second_filter)
+    x = conv("1_2", x, output_channels=mid_channels, filter_size=second_filter,
+             dilations=dilations)
     x = tf.nn.relu(x)
     return x
 
 
-@add_arg_scope
-def affine_coupling_network(name, x, mid_channels, output_channels):
-  """3-layer conv2d.
+def dilated_conv_stack(name, x, mid_channels, output_channels,
+                       dilation_rates):
+  """Dilated convolutional stack.
+
+  Features at different rates are computed independently using a 3 layer
+  convolutional stack and added.
 
   Args:
-    name:
-    x:
+    name: variable scope.
+    x: 5-D Tensor.
+    mid_channels: Number of output channels of the first layer in the conv
+                  stack.
+    output_channels: Number of output channels of the last layer.
+    dilation_rates: A list of dilation rates.
+  Returns:
+    output: 5-D Tensor.
+  """
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    output = 0.0
+    for dil_ind, dil_rate in enumerate(dilation_rates):
+      # TODO(mechcoder) try (concat across channels + 1x1) modulo memory issues.
+      curr_out = conv_stack("dil_%d" % dil_ind, x, mid_channels=mid_channels,
+                            output_channels=output_channels, dilations=dil_rate)
+      output += curr_out
+    return output
+
+
+@add_arg_scope
+def conv_stack(name, x, mid_channels, output_channels, dilations=None):
+  """3-layer convolutional stack.
+
+  Args:
+    name: variable scope.
+    x: 5-D Tensor.
     mid_channels: Number of output channels of the first layer.
     output_channels: Number of output channels.
+    dilations: Dilations to apply in the first 3x3 layer and the last 3x3 layer.
+               By default, apply no dilations.
 
   Returns:
-    output:
+    output: output of 3 layer conv network.
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
 
-    x = conv_block("conv_block", x, mid_channels=mid_channels)
+    x = conv_block("conv_block", x, mid_channels=mid_channels,
+                   dilations=dilations)
 
     # Final layer.
-    x = conv("zeros", x, filter_size=[3, 3], stride=[1, 1],
-             output_channels=output_channels, apply_actnorm=False,
-             conv_init="zeros")
+    x = conv("zeros", x, apply_actnorm=False, conv_init="zeros",
+             output_channels=output_channels, dilations=dilations)
   return x
 
 
@@ -511,8 +565,7 @@ def affine_coupling(name, x, mid_channels=512, reverse=False):
     # Else:
     # z2 = (x2 / scale) - shift
     z1 = x1
-    log_scale_and_shift = affine_coupling_network(
-        "nn", x1, mid_channels, x_shape[-1])
+    log_scale_and_shift = conv_stack("nn", x1, mid_channels, x_shape[-1])
     shift = log_scale_and_shift[:, :, :, 0::2]
     scale = tf.nn.sigmoid(log_scale_and_shift[:, :, :, 1::2] + 2.0)
     if not reverse:
@@ -564,6 +617,30 @@ def squeeze(name, x, factor=2, reverse=True):
     return x
 
 
+def get_dilation_rates(hparams, width):
+  """Get a list of valid dilation rates.
+
+  Args:
+    hparams: tf.contrib.training.HParams.
+    width: spatial dimension. Ensures that the effective filter size is
+           not larger than the spatial dimension.
+  Returns:
+    allowed_dilations: A list of dilation rates.
+  """
+  # dil_rate=1 means no dilation.
+  allowed_dilations = [[1]*5]
+  apply_dilations = hparams.get("latent_apply_dilations", False)
+  dilation_rates = [1, 3]   # Number of holes between each filter element.
+  if apply_dilations:
+    for rate in dilation_rates:
+      # k + (k - 1) * rate but k is harcoded to be 3 everywhere.
+      filter_size = 3 + 2 * rate
+      if filter_size <= width:
+        curr_dilation = [1, 1, rate+1, rate+1, 1]
+        allowed_dilations.append(curr_dilation)
+  return allowed_dilations
+
+
 @add_arg_scope
 def temporal_latent_to_dist(name, x, hparams, output_channels=None):
   """Network that maps a time-indexed list of 3-D latents to a gaussian.
@@ -576,17 +653,23 @@ def temporal_latent_to_dist(name, x, hparams, output_channels=None):
   Returns:
     dist: tfp.distributions.Normal
   """
-  res_channels = common_layers.shape_list(x)[-1]
+  _, _, width, _, res_channels = common_layers.shape_list(x)
   if output_channels is None:
     output_channels = res_channels
+  dilation_rates = get_dilation_rates(hparams, width)
+
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     h = x
     for i in range(hparams.latent_encoder_depth):
-      h1 = conv_block("conv3d_1_%d" % i, h, time_filter=2,
-                      mid_channels=hparams.latent_encoder_width)
-      h2 = conv("conv3d_zeros_%d" % i, h1, apply_actnorm=False,
-                output_channels=res_channels, conv_init="zeros",
-                filter_size=[2, 3, 3])
+      if hparams.latent_apply_dilations:
+        h2 = dilated_conv_stack("dil_latent_3d_res_%d" % i, h,
+                                mid_channels=hparams.latent_encoder_width,
+                                output_channels=res_channels,
+                                dilation_rates=dilation_rates)
+      else:
+        h2 = conv_stack("latent_3d_res_%d" % i, h,
+                        mid_channels=hparams.latent_encoder_width,
+                        output_channels=res_channels)
       h += h2
 
     # take last activation that should capture all context since padding is
@@ -664,9 +747,8 @@ def latent_to_dist(name, x, hparams, output_channels=None):
     elif architecture == "glow_resnet":
       h = x
       for layer in range(depth):
-        h2 = conv_block("glow_res_%d" % layer, h, mid_channels=width)
-        h3 = conv("glow_res_zeros_%d" % layer, h2, conv_init="zeros",
-                  output_channels=x_shape[-1], apply_actnorm=False)
+        h3 = conv_stack("latent_resnet_%d" % layer, h,
+                        mid_channels=width, output_channels=x_shape[-1])
         h += h3
       mean_log_scale = conv("glow_res_final", h, conv_init="zeros",
                             output_channels=2*output_channels,

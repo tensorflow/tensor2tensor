@@ -43,6 +43,7 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
     hparams.add_hparam("latent_architecture", "glow_resnet")
     # Use latent skip connections
     hparams.add_hparam("model_input", False)
+    hparams.add_hparam("latent_apply_dilations", False)
     hparams.add_hparam("latent_skip", True)
     hparams.add_hparam("latent_encoder_depth", 2)
     hparams.add_hparam("latent_encoder_width", 256)
@@ -125,11 +126,11 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
         # test shape in case apply_actnorm is set to False,
         self.assertEqual(zeros_np.shape, (16, 5, 5, 64))
 
-  def test_affine_coupling_network(self):
+  def test_conv_stack(self):
     """Test output shape."""
     with tf.Graph().as_default():
       x = 10.0 * tf.random_uniform(shape=(16, 5, 5, 32))
-      nn = glow_ops.affine_coupling_network("nn", x, 512, 64)
+      nn = glow_ops.conv_stack("nn", x, 512, 64)
 
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
@@ -404,19 +405,25 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
           self.assertTrue(np.allclose(channel_mean, 0.0, atol=1e-3))
           self.assertTrue(np.allclose(channel_var, 1.0, atol=1e-3))
 
-  def test_temporal_latent_to_dist(self):
+  @parameterized.named_parameters(
+      ("dilation", True), ("no_dilation", False))
+  def test_temporal_latent_to_dist(self, apply_dilation):
     with tf.Graph().as_default():
       hparams = self.get_glow_hparams()
-      latent_shape = (16, 5, 4, 4, 48)
+      hparams.latent_apply_dilations = apply_dilation
+      latent_shape = (16, 5, 32, 32, 48)
       latents = tf.random_normal(latent_shape)
       dist = glow_ops.temporal_latent_to_dist(
           "tensor_to_dist", latents, hparams)
       with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        mean, scale = dist.loc, dist.scale
-        mean_np, scale_np = sess.run([mean, scale])
-        self.assertTrue(np.allclose(mean_np, 0.0))
-        self.assertTrue(np.allclose(scale_np, 1.0))
+        # dilated conv_3d is not available on CPU.
+        is_gpu = tf.test.is_gpu_available()
+        if not apply_dilation or is_gpu:
+          mean, scale = dist.loc, dist.scale
+          mean_np, scale_np = sess.run([mean, scale])
+          self.assertTrue(np.allclose(mean_np, 0.0))
+          self.assertTrue(np.allclose(scale_np, 1.0))
 
   @parameterized.named_parameters(
       ("temp_1.0", 1.0), ("temp_0.9", 0.9), ("temp_0.7", 0.7),
