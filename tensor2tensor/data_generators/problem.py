@@ -802,7 +802,8 @@ class Problem(object):
                config=None,
                force_repeat=False,
                prevent_repeat=False,
-               dataset_kwargs=None):
+               dataset_kwargs=None,
+               batch_shuffle_size=512):
     """Builds input pipeline for problem.
 
     Args:
@@ -817,6 +818,8 @@ class Problem(object):
         Overrides force_repeat.
       dataset_kwargs: dict, if passed, will pass as kwargs to self.dataset
         method when called
+      batch_shuffle_size: int, the size of the buffer to shuffle batches.
+        if none, the batches will not be shuffled.
 
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
@@ -966,9 +969,8 @@ class Problem(object):
     # buffer size for record shuffling is smaller than the batch size. In such
     # cases, adding batch shuffling ensures that the data is in random order
     # during training
-    if hasattr(hparams, 'batch_shuffle_size'):
-      if is_training and hparams.batch_shuffle_size:
-        dataset = dataset.shuffle(hparams.batch_shuffle_size)
+    if is_training and batch_shuffle_size:
+      dataset = dataset.shuffle(batch_shuffle_size)
 
     def prepare_for_output(example):
       if not config or not config.use_tpu:

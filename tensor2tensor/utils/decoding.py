@@ -319,9 +319,8 @@ def decode_once(estimator,
     if decode_to_file:
       for i, (d_input, d_output, d_target) in enumerate(decoded_outputs):
         # Skip if all padding
-        if d_input:
-          if re.match("^({})+$".format(text_encoder.PAD), d_input):
-            continue
+        if re.match("^({})+$".format(text_encoder.PAD), d_input):
+          continue
         beam_score_str = ""
         if decode_hp.write_beam_scores:
           beam_score_str = "\t%.2f" % decoded_scores[i]
