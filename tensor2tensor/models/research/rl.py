@@ -28,6 +28,7 @@ from tensor2tensor.rl.envs.py_func_batch_env import PyFuncBatchEnv
 from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
 from tensor2tensor.rl.envs.simulated_batch_gym_env import SimulatedBatchGymEnv
 from tensor2tensor.utils import registry
+from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -124,6 +125,26 @@ def ppo_original_params():
   # is needed for model based rollouts).
   hparams.epoch_length = 50
   hparams.optimization_batch_size = 20
+  return hparams
+
+
+@registry.register_hparams
+def ppo_world_model():
+  """Parameters based on the original PPO paper."""
+  hparams = ppo_original_params()
+  hparams.policy_network = world_model_categorical_fun
+  hparams.add_hparam("generative_model_name", "next_frame_basic_deterministic")
+  hparams.add_hparam("generative_model_params", "next_frame_pixel_noise")
+  return hparams
+
+
+@registry.register_hparams
+def ppo_world_model_tiny():
+  """Parameters based on the original PPO paper."""
+  hparams = ppo_original_params()
+  hparams.policy_network = world_model_categorical_fun
+  hparams.add_hparam("generative_model_name", "next_frame_basic_deterministic")
+  hparams.add_hparam("generative_model_params", "next_frame_tiny")
   return hparams
 
 
@@ -436,4 +457,47 @@ def random_policy_fun(action_space, unused_config, observations):
     policy = tfp.distributions.Categorical(
         probs=[[[1. / float(action_space.n)] * action_space.n] *
                (obs_shape[0] * obs_shape[1])])
+  return NetworkOutput(policy, value, lambda a: a)
+
+
+def world_model_categorical_fun(action_space, config, observations):
+  """Policy based on world model features with categorical output."""
+  model_hparams = trainer_lib.create_hparams(config.generative_model_params)
+  problem = gym_env.DummyWorldModelProblem(action_space, reward_range=(-1, 1))
+  trainer_lib.add_problem_hparams(model_hparams, problem)
+  model_hparams.force_full_predict = True
+  model = registry.model(config.generative_model_name)(
+      model_hparams, tf.estimator.ModeKeys.PREDICT
+  )
+  model.agent_num_actions = action_space.n
+
+  obs_shape = common_layers.shape_list(observations)
+  observations = tf.reshape(observations, [
+      obs_shape[0] * obs_shape[1], obs_shape[2], obs_shape[3],
+      obs_shape[4] // 3, 3
+  ])
+  observations = tf.transpose(observations, [0, 3, 1, 2, 4])
+  inputs_shape = common_layers.shape_list(observations)
+  targets_shape = [
+      inputs_shape[0], 1, inputs_shape[2], inputs_shape[3], 3
+  ]
+  with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+    model({
+        "inputs": tf.cast(observations, tf.int32),
+        "input_action": tf.zeros(inputs_shape[:2], dtype=tf.int32),
+        "input_reward": tf.zeros(inputs_shape[:2], dtype=tf.int32),
+        "targets": tf.zeros(targets_shape, dtype=tf.int32),
+        "target_action": tf.zeros(targets_shape[:2], dtype=tf.int32),
+        "target_reward": tf.zeros(targets_shape[:2], dtype=tf.int32)
+    })
+  with tf.variable_scope("network_parameters"):
+    logits = tf.layers.dense(model.x_flat, action_space.n)
+    value = tf.layers.dense(model.x_flat, 1)
+  logits_shape = common_layers.shape_list(logits)
+  logits = tf.reshape(logits, [
+      obs_shape[0], obs_shape[1], logits_shape[1]
+  ])
+  value = tf.reshape(value, [obs_shape[0], obs_shape[1]])
+  logits = clip_logits(logits, config)
+  policy = tfp.distributions.Categorical(logits=logits)
   return NetworkOutput(policy, value, lambda a: a)

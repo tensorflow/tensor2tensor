@@ -111,13 +111,21 @@ class PPOLearner(PolicyLearner):
             force_beginning_resets=False,
             policy_to_actions_lambda=policy_to_actions_lambda)
         model_saver = tf.train.Saver(
-            tf.global_variables(".*network_parameters.*"))
+            tf.global_variables(".*network_parameters.*")
+        )
+        try:
+          wm_saver = tf.train.Saver(tf.global_variables(scope="next_frame.*"))
+          wm_dir = self.agent_model_dir + "/../world_model"
+        except ValueError:
+          wm_saver = None
 
         with tf.Session() as sess:
           sess.run(tf.global_variables_initializer())
           collect_init(sess)
           trainer_lib.restore_checkpoint(self.agent_model_dir, model_saver,
                                          sess)
+          if wm_saver is not None:
+            trainer_lib.restore_checkpoint(wm_dir, wm_saver, sess)
           sess.run(collect_memory)
 
 
@@ -165,6 +173,11 @@ def _run_train(ppo_hparams,
       event_dir, graph=tf.get_default_graph(), flush_secs=60)
 
   model_saver = tf.train.Saver(tf.global_variables(".*network_parameters.*"))
+  try:
+    wm_saver = tf.train.Saver(tf.global_variables(scope="next_frame.*"))
+    wm_dir = model_dir + "/../world_model"
+  except ValueError:
+    wm_saver = None
 
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
@@ -172,6 +185,8 @@ def _run_train(ppo_hparams,
       initializer(sess)
     num_completed_iterations = trainer_lib.restore_checkpoint(
         model_dir, model_saver, sess)
+    if wm_saver is not None:
+      trainer_lib.restore_checkpoint(wm_dir, wm_saver, sess)
 
     # Fail-friendly, complete only unfinished epoch
     if num_target_iterations <= num_completed_iterations:

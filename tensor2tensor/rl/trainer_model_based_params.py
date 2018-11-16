@@ -182,6 +182,13 @@ def rlmb_dqn_base():
 
 
 @registry.register_hparams
+def rlmb_base_wm_agent():
+  hparams = rlmb_base()
+  hparams.base_algo_params = "ppo_world_model"
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_basetest():
   """Base setting but quicker with only 2 epochs."""
   hparams = rlmb_base()
@@ -505,6 +512,13 @@ def rlmb_dqn_tiny():
       real_dqn_agent_min_replay_history=10,
       dqn_agent_min_replay_history=10,
   ))
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_tiny_wm_agent():
+  hparams = rlmb_tiny()
+  hparams.base_algo_params = "ppo_world_model_tiny"
   return hparams
 
 
