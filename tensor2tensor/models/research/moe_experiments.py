@@ -255,7 +255,8 @@ def xmoe2_v1_x128():
 def xmoe2_tiny():
   """Test on local cpu."""
   hparams = xmoe2_v1()
-  hparams.decoder_layers = ["local_att", "att", "drd", "hmoe"]
+  hparams.decoder_layers = [
+      "local_att", "att", "compressed_att", "drd", "hmoe"]
   hparams.d_model = 128
   hparams.moe_hidden_size = 512
   hparams.outer_batch_size = 0
@@ -272,6 +273,7 @@ def xmoe2_v1_l4k():
   hparams.batch_size = 32
   hparams.max_length = 4096
   hparams.split_to_length = 4096
+  hparams.reshape_logits_hack = True
   return hparams
 
 
@@ -281,6 +283,33 @@ def xmoe2_v1_l4k_local_only():
   hparams = xmoe2_v1_l4k()
   hparams.decoder_layers = [
       "local_att" if l == "att" else l for l in hparams.decoder_layers]
+  return hparams
+
+
+@registry.register_hparams
+def xmoe2_v1_l4k_global_only():
+  """With sequence length 4096."""
+  hparams = xmoe2_v1_l4k()
+  hparams.decoder_layers = [
+      "att" if l == "local_att" else l for l in hparams.decoder_layers]
+  return hparams
+
+
+@registry.register_hparams
+def xmoe2_v1_l4k_compressed_c4():
+  """With compressed attention."""
+  hparams = xmoe2_v1_l4k()
+  hparams.decoder_layers = [
+      "compressed_att" if l == "att" else l for l in hparams.decoder_layers]
+  hparams.compression_factor = 4
+  return hparams
+
+
+@registry.register_hparams
+def xmoe2_v1_l4k_compressed_c8():
+  """With compressed attention."""
+  hparams = xmoe2_v1_l4k_compressed_c4()
+  hparams.compression_factor = 8
   return hparams
 
 
@@ -329,4 +358,11 @@ def wiki_2x2_v1():
   hparams.decoder_layers = (
       ["local_att", "local_att", "drd",
        "att", "drd", "local_att", "local_att", "moe"] * 4)[:-1]
+  return hparams
+
+
+@registry.register_hparams
+def wiki_2x2_local():
+  hparams = wiki_2x2_base()
+  hparams.decoder_layers = ["local_att", "drd"] * 6
   return hparams

@@ -275,6 +275,19 @@ class MtfTransformer(mtf_model.MtfModel):
             self_attention_mask=decoder_self_attention_mask,
             encdec_attention_mask=encoder_decoder_attention_mask,
             losses=extra_losses)
+    if (hparams.reshape_logits_hack and
+        hparams.mode == tf.estimator.ModeKeys.TRAIN):
+      # For some reason, the logits computation is extremely slow on TPU
+      # in some cases where the batch size per core is 1.  Reshape the logits
+      # and the targets to double the batch size and halve the length.
+      # TODO(noam): file a bug.
+      new_dims = self.batch_dims[:-1] + [
+          mtf.Dimension(self.batch_dims[-1].name,
+                        self.batch_dims[-1].size * 2),
+          mtf.Dimension(self.length_dim.name, self.length_dim.size // 2)]
+      x = mtf.reshape(x, new_dims + [self.model_dim])
+      targets = mtf.reshape(targets, new_dims)
+
     logits = mtf.matmul(x, softmax_var)
     if hparams.mode == tf.estimator.ModeKeys.TRAIN:
       logits = mtf.layers.multiplicative_jitter(logits, epsilon=1e-2)
@@ -289,13 +302,17 @@ class MtfTransformer(mtf_model.MtfModel):
     loss = mtf.reduce_mean(loss * weights)
     for l in extra_losses:
       loss += l
-    logits = mtf.to_float(logits)
-    # combine batch dims
-    if len(self.batch_dims) > 1:
-      combined_batch_dim = mtf.Dimension(
-          self.batch_dims[0].name, mtf.Shape(self.batch_dims).size)
-      logits = mtf.reshape(
-          logits, [combined_batch_dim] + logits.shape.dims[-2:])
+    if (hparams.reshape_logits_hack and
+        hparams.mode == tf.estimator.ModeKeys.TRAIN):
+      logits = None
+    else:
+      logits = mtf.to_float(logits)
+      # combine batch dims
+      if len(self.batch_dims) > 1:
+        combined_batch_dim = mtf.Dimension(
+            self.batch_dims[0].name, mtf.Shape(self.batch_dims).size)
+        logits = mtf.reshape(
+            logits, [combined_batch_dim] + logits.shape.dims[-2:])
     return logits, loss
 
   def mtf_model_fn(self, features, mesh):
@@ -493,6 +510,22 @@ class MtfTransformer(mtf_model.MtfModel):
                         hparams.layout, hparams.mesh_shape,
                         self.max_length_dim),
                     name="local_att"))
+        elif layer_type == "compressed_att":
+          if is_incremental:
+            raise ValueError("compressed_att incremental not implemented")
+          else:
+            x += layer_prepostprocess_dropout(
+                mtf.layers.multihead_self_attention_memory_compressed(
+                    normalize(x),
+                    mask_right=True,
+                    compression_factor=hparams.compression_factor,
+                    kv_channels=self.kv_dim,
+                    heads=self.heads_dim,
+                    dropout=hparams.attention_dropout,
+                    dropout_broadcast_dims=[self.length_dim],
+                    master_dtype=self.master_dtype,
+                    slice_dtype=self.slice_dtype,
+                    name="compressed_att"))
         else:
           if is_incremental:
             # insert length dimension.
@@ -753,6 +786,10 @@ def mtf_transformer_base():
   # The two tensor dimensions have sizes hparams.outer_batch_size and
   # hparams.batch_size // hparams.outer_batch_size.
   hparams.add_hparam("outer_batch_size", 0)
+
+  # TODO(noam): file a bug
+  hparams.add_hparam("reshape_logits_hack", False)
+  hparams.add_hparam("compression_factor", 4)
 
   return hparams
 
