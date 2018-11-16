@@ -966,7 +966,8 @@ class Problem(object):
     # buffer size for record shuffling is smaller than the batch size. In such
     # cases, adding batch shuffling ensures that the data is in random order
     # during training
-    if is_training and hasattr(hparams, "batch_shuffle_size"):
+    if (is_training and hasattr(hparams, "batch_shuffle_size") and
+        hparams.batch_shuffle_size):
       dataset = dataset.shuffle(hparams.batch_shuffle_size)
 
     def prepare_for_output(example):
