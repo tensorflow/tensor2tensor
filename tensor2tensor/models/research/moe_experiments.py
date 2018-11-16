@@ -366,3 +366,114 @@ def wiki_2x2_local():
   hparams = wiki_2x2_base()
   hparams.decoder_layers = ["local_att", "drd"] * 6
   return hparams
+
+
+@registry.register_hparams
+def denoise_m15():
+  """Denoising experiment."""
+  hparams = xmoe2_dense_0()
+  hparams.decoder_type = "denoising"
+  hparams.noising_spec_train = {"type": "mask", "prob": 0.15}
+  return hparams
+
+
+@registry.register_hparams
+def denoise_m30():
+  """More masking during training."""
+  hparams = xmoe2_dense_0()
+  hparams.decoder_type = "denoising"
+  hparams.noising_spec_train = {"type": "mask", "prob": 0.3}
+  return hparams
+
+
+@registry.register_hparams
+def denoise_dense_2_m30():
+  """More masking during training."""
+  hparams = xmoe2_dense_2()
+  hparams.decoder_type = "denoising"
+  hparams.noising_spec_train = {"type": "mask", "prob": 0.3}
+  return hparams
+
+
+@registry.register_hparams
+def denoise_z15():
+  """Replace tokens instead of masking."""
+  hparams = xmoe2_dense_0()
+  hparams.decoder_type = "denoising"
+  hparams.noising_spec_train = {"type": "random_zipfian", "prob": 0.15}
+  hparams.noising_use_eval_during_train = 0.25
+  return hparams
+
+
+@registry.register_hparams
+def denoise_t15():
+  """Noise up with dropout and a little transformer."""
+  hparams = xmoe2_dense_0()
+  hparams.decoder_type = "denoising"
+  hparams.noising_spec_train = {
+      "type": "transformer",
+      "overrides": {
+          "noising_spec_train": {"type": "mask", "prob": 0.15},
+          "noising_use_eval_during_train": 0.0,
+          "decoder_layers": ["att", "drd"] * 4,
+          "num_heads": 4,
+          "d_model": 512,
+          "d_ff": 2048,
+      }
+  }
+  return hparams
+
+
+@registry.register_hparams
+def denoise_v1_m15():
+  """Denoising experiment."""
+  hparams = xmoe2_v1()
+  # no local attention
+  # TODO(noam): non-masked version of local-attention
+  hparams.decoder_layers = [
+      "att" if l == "local_att" else l for l in hparams.decoder_layers]
+  hparams.decoder_type = "denoising"
+  hparams.noising_spec_train = {"type": "mask", "prob": 0.15}
+  return hparams
+
+
+@registry.register_hparams
+def denoise_v1_m30():
+  """More masking during training."""
+  hparams = denoise_v1_m15()
+  hparams.noising_spec_train = {"type": "mask", "prob": 0.3}
+  return hparams
+
+
+@registry.register_hparams
+def denoise_v1_m50():
+  """More masking during training."""
+  hparams = denoise_v1_m15()
+  hparams.noising_spec_train = {"type": "mask", "prob": 0.5}
+  return hparams
+
+
+@registry.register_hparams
+def denoise_v1_z15():
+  """Replace tokens instead of masking."""
+  hparams = denoise_v1_m15()
+  hparams.noising_spec_train = {"type": "random_zipfian", "prob": 0.15}
+  return hparams
+
+
+@registry.register_hparams
+def denoise_v1_t15():
+  """Noise up with dropout and a little transformer."""
+  hparams = denoise_v1_m15()
+  hparams.noising_spec_train = {
+      "type": "transformer",
+      "overrides": {
+          "noising_spec_train": {"type": "mask", "prob": 0.15},
+          "noising_use_eval_during_train": 0.0,
+          "decoder_layers": ["att", "drd"] * 4,
+          "num_heads": 4,
+          "d_model": 512,
+          "d_ff": 2048,
+      }
+  }
+  return hparams

@@ -21,7 +21,6 @@ from __future__ import print_function
 
 import copy
 import mesh_tensorflow as mtf
-
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import modalities
@@ -151,9 +150,76 @@ class MtfTransformer(mtf_model.MtfModel):
     return (inputs_embedding_var, targets_embedding_var,
             softmax_var, positional_embedding_var)
 
+  def _noisy_targets_from_spec(self, targets, noising_spec, losses=None):
+    if noising_spec["type"] == "mask":
+      # Replace a randomly-chosen noising_spec["prob"] of input tokens with 0.
+      return targets * mtf.cast(
+          mtf.greater(mtf.random_uniform(targets.mesh, targets.shape),
+                      noising_spec["prob"]), targets.dtype)
+    elif noising_spec["type"] == "random_zipfian":
+      # Replace a randomly-chosen noising_spec["prob"] of input tokens.
+      # Rather than drawing the replacement tokens uniformly, we sample from
+      #   a distribution favoring lower token-ids, assuming that the ids have
+      #   been assigned in frequency order.  The probability of choosing an
+      #   id is proportional to 1/(id+10)
+      logits = mtf.log(1.0 / (mtf.range(
+          targets.mesh, self.targets_vocab_dim, dtype=tf.float32) + 10.0))
+      logits = mtf.broadcast(logits, new_shape=targets.shape + logits.shape)
+      r = mtf.sample_with_temperature(logits, self.targets_vocab_dim)
+      use_noise = mtf.less(
+          mtf.random_uniform(targets.mesh, targets.shape), noising_spec["prob"])
+      return mtf.where(use_noise, r, targets)
+    elif noising_spec["type"] == "transformer":
+      # Train a small transformer to fill in masked out values, then
+      # sample from it.
+      hparams = self._hparams
+      if hparams.mode != tf.estimator.ModeKeys.TRAIN:
+        raise NotImplementedError("Not implemented")
+      noiser_hparams = copy.copy(self._hparams)
+      noiser_hparams.del_hparam("mode")
+      noiser_hparams.override_from_dict(noising_spec["overrides"])
+      with tf.variable_scope("noiser"):
+        noiser = MtfTransformer(
+            noiser_hparams,
+            mode=hparams.mode,
+            problem_hparams=self._problem_hparams)
+        logits, loss = noiser._mtf_model_fn(  # pylint: disable=protected-access
+            self._original_features, targets.mesh)
+        samples = mtf.sample_with_temperature(logits, self.targets_vocab_dim)
+      losses.append(loss)
+      return samples
+    else:
+      raise ValueError("unknown noising spec %s" % noising_spec)
+
+  def _noisy_targets(self, targets, losses=None):
+    """Generate noisy targets for denoising models.
+
+    Args:
+      targets: a Tensor
+      losses: an optional list onto which to append traning losses
+    Returns:
+      a Tensor the same dtype and shape as Targets
+    """
+    hparams = self._hparams
+    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      nt_train = self._noisy_targets_from_spec(
+          targets, hparams.noising_spec_train, losses=losses)
+      if hparams.noising_use_eval_during_train > 0:
+        nt_eval = self._noisy_targets_from_spec(
+            targets, hparams.noising_spec_eval)
+        use_eval_noising = mtf.less(
+            mtf.random_uniform(targets.mesh, targets.shape - self.length_dim),
+            hparams.noising_use_eval_during_train)
+        nt_train = mtf.where(use_eval_noising, nt_eval, nt_train)
+      return nt_train
+    else:
+      return self._noisy_targets_from_spec(targets, hparams.noising_spec_eval)
+
   def _mtf_model_fn(self, features, mesh):
+    self._original_features = features
     features = copy.copy(features)
     hparams = self._hparams
+    extra_losses = []
     targets = tf.to_int32(features["targets"])
     if len(targets.get_shape()) > 2:
       tf.logging.info("targets = %s" % targets)
@@ -165,24 +231,19 @@ class MtfTransformer(mtf_model.MtfModel):
       x = tf.reshape(x, [hparams.batch_size, hparams.max_length])
       return x
     targets = pad_to_max_length(targets)
+    targets = self._import_to_batch_by_length(targets, "targets", mesh, hparams)
     for key in ["targets_segmentation", "targets_position",
                 "inputs_segmentation", "inputs_position"]:
       if key in features:
         features[key] = pad_to_max_length(features[key])
     if hparams.decoder_type == "autoregressive":
-      shifted_targets = common_layers.shift_right_2d(targets)
-    elif hparams.decoder_type == "masked":
-      shifted_targets = targets * tf.cast(
-          tf.greater(tf.random_uniform(tf.shape(targets), seed=123),
-                     hparams.mask_fraction),
-          targets.dtype)
+      shifted_targets = mtf.shift(
+          targets, offset=1, dim=self.length_dim, wrap=False)
+    elif hparams.decoder_type == "denoising":
+      shifted_targets = self._noisy_targets(targets, extra_losses)
     else:
       raise ValueError(
           "unknown hparams.decoder_type = %s" % hparams.decoder_type)
-
-    targets = self._import_to_batch_by_length(targets, "targets", mesh, hparams)
-    shifted_targets = self._import_to_batch_by_length(
-        shifted_targets, "shifted_targets", mesh, hparams)
 
     if "targets_segmentation" in features:
       # "Packed" dataset - keep the examples from seeing each other.
@@ -210,7 +271,6 @@ class MtfTransformer(mtf_model.MtfModel):
           x, keep_prob=1.0 - hparams.layer_prepostprocess_dropout,
           noise_shape=mtf.Shape(self.batch_dims + [self.model_dim]))
 
-    extra_losses = []
     (inputs_embedding_var,
      targets_embedding_var,
      softmax_var,
@@ -281,6 +341,7 @@ class MtfTransformer(mtf_model.MtfModel):
       # in some cases where the batch size per core is 1.  Reshape the logits
       # and the targets to double the batch size and halve the length.
       # TODO(noam): file a bug.
+      old_dims = self.batch_dims + [self.length_dim]
       new_dims = self.batch_dims[:-1] + [
           mtf.Dimension(self.batch_dims[-1].name,
                         self.batch_dims[-1].size * 2),
@@ -304,20 +365,20 @@ class MtfTransformer(mtf_model.MtfModel):
       loss += l
     if (hparams.reshape_logits_hack and
         hparams.mode == tf.estimator.ModeKeys.TRAIN):
-      logits = None
-    else:
-      logits = mtf.to_float(logits)
+      logits = mtf.reshape(logits, old_dims + [self.targets_vocab_dim])
+    logits = mtf.to_float(logits)
+    return logits, loss
+
+  def mtf_model_fn(self, features, mesh):
+    with tf.variable_scope("transformer"):
+      logits, loss = self._mtf_model_fn(features, mesh)
       # combine batch dims
       if len(self.batch_dims) > 1:
         combined_batch_dim = mtf.Dimension(
             self.batch_dims[0].name, mtf.Shape(self.batch_dims).size)
         logits = mtf.reshape(
             logits, [combined_batch_dim] + logits.shape.dims[-2:])
-    return logits, loss
-
-  def mtf_model_fn(self, features, mesh):
-    with tf.variable_scope("transformer"):
-      return self._mtf_model_fn(features, mesh)
+      return logits, loss
 
   @property
   def _targets_vocab_size(self):
@@ -740,10 +801,14 @@ def mtf_transformer_base():
 
   # What does the decoder do:
   #   "autoregressive": Decoder left to right
-  #   "masked": Fills in masked-out values simultaneously
+  #   "denoising": Fills in masked-out values simultaneously
   hparams.add_hparam("decoder_type", "autoregressive")
-  # for "masked", the probability of masking out each token
-  hparams.add_hparam("mask_fraction", 0.15)
+
+  # Parameters describing the noising algorithm for denoising decoders
+  hparams.add_hparam("noising_spec_train", {"type": "mask", "prob": 0.15})
+  hparams.add_hparam("noising_spec_eval", {"type": "mask", "prob": 0.15})
+  # during training, we use the eval noiser with this probability
+  hparams.add_hparam("noising_use_eval_during_train", 0.1)
 
   # round up vocab sizes to be a multiple of this value
   hparams.vocab_divisor = 128
@@ -827,6 +892,16 @@ def mtf_transformer_tiny_lm():
   hparams.transformer_type = "decoder"
   hparams.label_smoothing = 0.0
   hparams.sampling_method = "random"
+  return hparams
+
+
+@registry.register_hparams
+def mtf_transformer_tiny_denoising():
+  hparams = mtf_transformer_tiny_lm()
+  hparams.decoder_type = "denoising"
+  hparams.noising_spec_train = ("random_zipfian", 0.3)
+  hparams.noising_use_eval_during_train = 0.5
+  hparams.max_length = 1024
   return hparams
 
 
