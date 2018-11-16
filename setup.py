@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.10.0',
+    version='1.11.0',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -47,11 +47,13 @@ setup(
         'scipy',
         'sympy',
         'six',
+        'tensorflow-probability',
+        'tfds-nightly',
         'tqdm',
     ],
     extras_require={
-        'tensorflow': ['tensorflow>=1.9.0'],
-        'tensorflow_gpu': ['tensorflow-gpu>=1.9.0'],
+        'tensorflow': ['tensorflow>=1.12.0'],
+        'tensorflow_gpu': ['tensorflow-gpu>=1.12.0'],
         'tensorflow-hub': ['tensorflow-hub>=0.1.1'],
         'tests': [
             'absl-py',

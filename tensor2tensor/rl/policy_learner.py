@@ -13,26 +13,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests of basic flow of collecting trajectories and training PPO."""
+"""Unified interface for different RL algorithms."""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.utils import registry
 
-import tensorflow as tf
+class PolicyLearner(object):
+  """API for policy learners."""
 
+  def __init__(self, frame_stack_size, base_event_dir, agent_model_dir):
+    self.frame_stack_size = frame_stack_size
+    self.base_event_dir = base_event_dir
+    self.agent_model_dir = agent_model_dir
 
-class TrainTest(tf.test.TestCase):
+  def train(
+      self, env_fn, hparams, simulated, save_continuously, epoch,
+      num_env_steps=None, env_step_multiplier=1, eval_env_fn=None,
+      report_fn=None
+  ):
+    # TODO(konradczechowski): move 'simulated' to  batch_env
+    raise NotImplementedError()
 
-  def test_train_pong(self):
-    hparams = registry.hparams("pong_model_free")
-    hparams.epochs_num = 2
-    hparams.num_agents = 2
-    hparams.epoch_length = 3
-    rl_trainer_lib.train(hparams)
-
-
-if __name__ == "__main__":
-  tf.test.main()
+  def evaluate(self, env_fn, hparams, stochastic):
+    raise NotImplementedError()

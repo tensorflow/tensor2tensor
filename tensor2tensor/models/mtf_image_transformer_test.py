@@ -74,9 +74,10 @@ class MtfImageTransformerTest(tf.test.TestCase):
   def testMtfImageTransformer(self):
     hparams = mtf_image_transformer.mtf_image_transformer_single()
 
-    model, features, hparams = get_model(hparams)
+    # need to know layout ahead of time for local attention.
     hparams.mesh_shape = ""
     hparams.layout = ""
+    model, features, hparams = get_model(hparams)
     mesh, mesh_impl = get_placement_mesh(hparams)
 
     logits, _ = model.mtf_model_fn(features, mesh)
@@ -95,9 +96,10 @@ class MtfImageTransformerTest(tf.test.TestCase):
   def testMtfImageTransformerDataParallel(self):
     hparams = mtf_image_transformer.mtf_image_transformer_single()
 
-    model, features, hparams = get_model(hparams)
+    # need to know layout ahead of time for local attention.
     hparams.mesh_shape = "all:2"
     hparams.layout = "batch:all"
+    model, features, hparams = get_model(hparams)
     mesh, mesh_impl = get_placement_mesh(hparams)
 
     logits, _ = model.mtf_model_fn(features, mesh)
@@ -116,9 +118,10 @@ class MtfImageTransformerTest(tf.test.TestCase):
   def testMtfImageTransformerModelParallel(self):
     hparams = mtf_image_transformer.mtf_image_transformer_single()
 
-    model, features, hparams = get_model(hparams)
+    # need to know layout ahead of time for local attention.
     hparams.mesh_shape = "all:2"
     hparams.layout = "length:all"
+    model, features, hparams = get_model(hparams)
     mesh, mesh_impl = get_placement_mesh(hparams)
 
     logits, _ = model.mtf_model_fn(features, mesh)

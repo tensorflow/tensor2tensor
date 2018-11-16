@@ -60,6 +60,10 @@ class TimeseriesProblem(problem.Problem):
     }]
 
   @property
+  def has_inputs(self):
+    return True
+
+  @property
   def num_train_shards(self):
     """Number of training shards."""
     return 9
@@ -104,13 +108,15 @@ class TimeseriesProblem(problem.Problem):
 
   def preprocess_example(self, example, unused_mode, unused_hparams):
     # Time series are flat on disk, we un-flatten them back here.
-    flat_inputs = example["inputs"]
+    if self.has_inputs:
+      flat_inputs = example["inputs"]
     flat_targets = example["targets"]
     c = self.normalizing_constant
     # Tensor2Tensor models expect [height, width, depth] examples, here we
     # use height for time and set width to 1 and num_series is our depth.
-    example["inputs"] = tf.reshape(
-        flat_inputs, [self.num_input_timestamps, 1, self.num_series]) * c
+    if self.has_inputs:
+      example["inputs"] = tf.reshape(
+          flat_inputs, [self.num_input_timestamps, 1, self.num_series]) * c
     example["targets"] = tf.reshape(
         flat_targets, [self.num_target_timestamps, 1, self.num_series]) * c
     return example
@@ -134,8 +140,13 @@ class TimeseriesProblem(problem.Problem):
       # We need to flatten the lists on disk for tf,Example to work.
       flat_inputs = [item for sublist in inputs for item in sublist]
       flat_targets = [item for sublist in targets for item in sublist]
-      example_keys = ["inputs", "targets"]
-      ex_dict = dict(zip(example_keys, [flat_inputs, flat_targets]))
+      if self.has_inputs:
+        example_keys = ["inputs", "targets"]
+        ex_dict = dict(zip(example_keys, [flat_inputs, flat_targets]))
+      else:
+        example_keys = ["targets"]
+        ex_dict = dict(zip(example_keys, [flat_targets]))
+
       yield ex_dict
 
   def hparams(self, defaults, unused_model_hparams):
@@ -220,6 +231,20 @@ class TimeseriesToyProblem(TimeseriesProblem):
     series = [[float(i + n) for n in range(self.num_series)] for i in range(10)]
 
     return np.array(series)
+
+
+@registry.register_problem
+class TimeseriesToyProblemNoInputs(TimeseriesToyProblem):
+  """Timeseries problem with a toy dataset and without inputs."""
+
+  @property
+  def has_inputs(self):
+    return False
+
+  @property
+  def num_input_timestamps(self):
+    """Number of timestamps to include in the input."""
+    return 0
 
 
 @registry.register_problem

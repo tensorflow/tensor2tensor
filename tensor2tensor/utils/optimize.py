@@ -34,9 +34,17 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
   """Minimize loss."""
   loss = weight_decay_and_noise(loss, hparams, learning_rate)
   loss = tf.identity(loss, name="total_loss")
+  # Print trainable variables.
   log_variable_sizes(verbose=hparams.summarize_vars)
+  # Print non-trainable variables.
+  non_trainable_variables = list(
+      set(tf.global_variables()) - set(tf.trainable_variables()))
+  log_variable_sizes(non_trainable_variables, tag="Non-trainable variables",
+                     verbose=hparams.summarize_vars)
   if hparams.summarize_vars:
     summarize_variables()
+    # Summarize non-trainable variables as well
+    summarize_variables(non_trainable_variables, tag="Non-trainable variables")
   diet_vars = [
       v for v in tf.global_variables() if v.dtype == dtypes.float16_ref
   ]
@@ -118,6 +126,20 @@ class ConditionalOptimizer(tf.train.Optimizer):
           beta1=hparams.optimizer_adam_beta1,
           beta2=hparams.optimizer_adam_beta2,
           epsilon=hparams.optimizer_adam_epsilon)
+    elif optimizer_name == "AdamW":
+      # Openai gpt used weight decay.
+      # Given the internals of AdamW, weight decay dependent on the
+      # learning rate is chosen to match the openai implementation.
+      # The weight decay update to each parameter is applied before the adam
+      # gradients computation, which is different from that described
+      # in the paper and in the openai implementation:
+      # https://arxiv.org/pdf/1711.05101.pdf
+      self._opt = tf.contrib.opt.AdamWOptimizer(
+          0.01*lr,
+          lr,
+          beta1=hparams.optimizer_adam_beta1,
+          beta2=hparams.optimizer_adam_beta2,
+          epsilon=hparams.optimizer_adam_epsilon)
     elif optimizer_name == "Adafactor":
       self._opt = adafactor.adafactor_optimizer_from_hparams(hparams, lr)
     else:
@@ -169,7 +191,7 @@ def weight_noise(noise_rate, learning_rate, var_list):
   noise_ops = []
 
   for v in var_list:
-    with tf.device(v._ref().device):  # pylint: disable=protected-access
+    with tf.device(v.device):  # pylint: disable=protected-access
       scale = noise_rate * learning_rate * 0.001
       if common_layers.should_generate_summaries():
         tf.summary.scalar("weight_noise_scale", scale)

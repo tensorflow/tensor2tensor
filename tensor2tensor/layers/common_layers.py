@@ -29,6 +29,7 @@ import numpy as np
 from six.moves import range  # pylint: disable=redefined-builtin
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 from tensorflow.python.framework import function
 from tensorflow.python.framework import ops
@@ -271,13 +272,10 @@ def flatten4d3d(x):
 
 
 # TODO(noam): remove this function after TPUs do gather faster.
-def gather(params, indices, dtype=tf.float32):
+def gather(params, indices):
   """Version of tf.gather that works faster on tpu."""
-  if not is_xla_compiled():
-    return tf.gather(params, indices)
-  vocab_size = params.get_shape().as_list()[0]
   indices_flat = tf.reshape(indices, [-1])
-  out = tf.matmul(tf.one_hot(indices_flat, vocab_size, dtype=dtype), params)
+  out = tf.gather(params, indices_flat)
   out = reshape_like(out, tf.expand_dims(indices, -1))
   return out
 
@@ -351,7 +349,7 @@ def embedding(x,
     if not tf.contrib.eager.in_eager_mode():
       embedding_var = convert_gradient_to_tensor(embedding_var)
     x = dropout_no_scaling(x, 1.0 - symbol_dropout_rate)
-    emb_x = gather(embedding_var, x, dtype)
+    emb_x = gather(embedding_var, x)
     if multiplier != 1.0:
       emb_x *= multiplier
     static_shape = emb_x.shape.as_list()
@@ -1970,7 +1968,7 @@ def smoothing_cross_entropy(logits,
     if gaussian and confidence > 0.0:
       labels = tf.cast(labels, tf.float32)
 
-      normal_dist = tf.distributions.Normal(loc=labels, scale=confidence)
+      normal_dist = tfp.distributions.Normal(loc=labels, scale=confidence)
       # Locations to evaluate the probability distributions.
       soft_targets = normal_dist.prob(
           tf.cast(tf.range(vocab_size), tf.float32)[:, None, None, None, None])
@@ -2821,7 +2819,20 @@ def sample_with_temperature(logits, temperature):
 
 
 def ones_matrix_band_part(rows, cols, num_lower, num_upper, out_shape=None):
-  """Matrix band part of ones."""
+  """Matrix band part of ones.
+
+  Args:
+    rows: int determining number of rows in output
+    cols: int
+    num_lower: int, maximum distance backward. Negative values indicate
+      unlimited.
+    num_upper: int, maximum distance forward. Negative values indicate
+      unlimited.
+    out_shape: shape to reshape output by.
+
+  Returns:
+    Tensor of size rows * cols reshaped into shape out_shape.
+  """
   if all([isinstance(el, int) for el in [rows, cols, num_lower, num_upper]]):
     # Needed info is constant, so we construct in numpy
     if num_lower < 0:
@@ -3703,19 +3714,26 @@ def targeted_dropout(inputs,
     return inputs
 
 
-# TODO(mbz): use tf.distributions.kl_divergence instead.
-def kl_divergence(mu, log_sigma):
-  """KL divergence of diagonal gaussian N(mu,exp(log_sigma)) and N(0,1).
+def kl_divergence(mu, log_var, mu_p=0.0, log_var_p=0.0):
+  """KL divergence of diagonal gaussian N(mu,exp(log_var)) and N(0,1).
 
   Args:
     mu: mu parameter of the distribution.
-    log_sigma: log(sigma) parameter of the distribution.
+    log_var: log(var) parameter of the distribution.
+    mu_p: optional mu from a learned prior distribution
+    log_var_p: optional log(var) from a learned prior distribution
   Returns:
     the KL loss.
   """
+
   batch_size = shape_list(mu)[0]
-  kl = -.5 * tf.reduce_sum(1. + log_sigma - tf.square(mu) - tf.exp(log_sigma))
-  return kl / tf.to_float(batch_size)
+  prior_distribution = tfp.distributions.Normal(
+      mu_p, tf.exp(tf.multiply(0.5, log_var_p)))
+  posterior_distribution = tfp.distributions.Normal(
+      mu, tf.exp(tf.multiply(0.5, log_var)))
+  kld = tfp.distributions.kl_divergence(posterior_distribution,
+                                        prior_distribution)
+  return tf.reduce_sum(kld) / tf.to_float(batch_size)
 
 
 def sparse_equals_constant(constant, tensor):

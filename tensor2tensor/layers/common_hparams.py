@@ -163,18 +163,14 @@ def basic_params1():
       # embeddings and the target embeddings.
       # You can also share the input embeddings with the target embeddings
       # by using a problem_hparams that uses the same modality object for
-      # the input_modality and target_modality.
+      # the input modality and target modality.
       shared_embedding=False,
       # In SymbolModality, skip the top layer, assume we're providing logits.
       symbol_modality_skip_top=False,
-      # For each feature for which you want to override the default input
-      # modality, add an entry to this semicolon-separated string. Entries are
-      # formatted "feature_name:modality_type:modality_name", e.g.
-      # "inputs:symbol:default;other_inputs:audio:identity".
-      input_modalities="default",  # We don't use empty string in params.
-      # To override the default target modality, specify
-      # "modality_type:modality_name", e.g. "symbol:ctc".
-      target_modality="default",
+      # Modalities used to map from features to a space compatible with
+      # chosen model architecture. It comprises key-value pairs of a feature
+      # name (str) and its modality class.
+      modality={},
       # The maximum length of "input" sequence.
       # Sequences longer than this value will be truncated. 0 or negative values
       # mean there is no maximum or truncation.
@@ -290,6 +286,17 @@ def basic_params1():
       tpu_enable_host_call=False,
       # Pad batch dim of inputs to nearest multiple of batch multiple.
       pad_batch=False,
+      # When true, do not evaluate on the language model data when running the
+      # multiproblem since it can take a while. If False, set eval_steps to
+      # something large like 6000 or 10000.
+      multiproblem_target_eval_only=False,
+      # Max out the vocab size to a power of 2 for efficiency and to reserve
+      # extra space in the vocabulary for new task ids and label classes.
+      multiproblem_vocab_size=-1,
+      # When using multiproblem with generation tasks, need to truncate the
+      # inputs and targets manually before concatenating them.
+      multiproblem_max_input_length=-1,
+      multiproblem_max_target_length=-1
   )
 
 

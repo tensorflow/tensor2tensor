@@ -73,9 +73,11 @@ class VideoUtilsTest(tf.test.TestCase):
         hparams=decode_hparams, decode_hparams=decode_hparams,
         predictions=predictions)
     summaries = video_utils.display_video_hooks(decode_hooks)
-    # for {random, psnr_max, psnr_min, ssim_max, ssim_min}
+    # for {psnr_max, psnr_min, ssim_max, ssim_min}
+    # 10 output vids + 10 frame-by-frame.
+    # for {random}
     # 10 input vids + 10 output vids + 10 frame-by-frame.
-    self.assertEqual(len(summaries), 150)
+    self.assertEqual(len(summaries), 110)
     for summary in summaries:
       self.assertTrue(isinstance(summary, tf.Summary.Value))
 

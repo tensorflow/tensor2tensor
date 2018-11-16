@@ -28,6 +28,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from six.moves import reduce
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
@@ -654,6 +655,12 @@ class NextFrameEpva(sv2p.NextFrameSv2pLegacy):
     # all_rewards = tf.concat([input_rewards, target_rewards], axis=0)
 
     all_actions = tf.concat([input_actions, target_actions], axis=0)
+    # flatten actions tensor to have the shape: framesXbatch_sizeXaction_dims.
+    actions_shape = common_layers.shape_list(all_actions)
+    all_actions = tf.reshape(
+        all_actions,
+        [actions_shape[0], -1,
+         reduce(lambda x, y: x * y, actions_shape[2:])])
     all_frames = tf.concat([input_frames, target_frames], axis=0)
 
     all_frames = tf.unstack(all_frames, axis=0)
@@ -698,6 +705,9 @@ class NextFrameEpva(sv2p.NextFrameSv2pLegacy):
 
     predictions = tf.stack(van_on_enc_all)
 
+    if hparams.clip_pixel_values:
+      predictions = tf.clip_by_value(predictions, 0.0, 1.0)
+
     # TODO(mbz): clean this up!
     def fix_video_dims_and_concat_on_x_axis(x):
       x = tf.transpose(x, [1, 3, 4, 0, 2])
@@ -725,4 +735,3 @@ class NextFrameEpva(sv2p.NextFrameSv2pLegacy):
                            [-1]*5)
 
     return predictions, {'extra': epva_loss}
-

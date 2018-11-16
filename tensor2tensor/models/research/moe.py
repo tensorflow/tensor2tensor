@@ -27,9 +27,9 @@ import mesh_tensorflow as mtf
 import tensorflow as tf
 
 
-
-
-def transformer_moe_layer_v1(inputs, output_dim, hparams, train):
+def transformer_moe_layer_v1(inputs, output_dim, hparams, train,
+                             master_dtype=tf.bfloat16,
+                             slice_dtype=tf.float32):
   """Local mixture of experts that works well on TPU.
 
   Adapted from the paper https://arxiv.org/abs/1701.06538
@@ -86,6 +86,8 @@ def transformer_moe_layer_v1(inputs, output_dim, hparams, train):
     output_dim: a mtf.Dimension (for Transformer, this is input_dim)
     hparams: model hyperparameters
     train: a boolean
+    master_dtype: a tf.dtype
+    slice_dtype: a tf.dtype
 
   Returns:
     outputs: a Tensor with shape [<batch_dims...>, length_dim, output_dim]
@@ -137,9 +139,11 @@ def transformer_moe_layer_v1(inputs, output_dim, hparams, train):
   # Now feed the expert inputs through the experts.
   h = mtf.layers.dense(
       expert_inputs, hidden_dim, expert_dims=[experts_dim],
-      activation=mtf.relu, use_bias=False, name="x0")
+      activation=mtf.relu, use_bias=False, master_dtype=master_dtype,
+      slice_dtype=slice_dtype, name="x0")
   expert_output = mtf.layers.dense(
-      h, output_dim, expert_dims=[experts_dim], use_bias=False, name="x1")
+      h, output_dim, expert_dims=[experts_dim], use_bias=False,
+      master_dtype=master_dtype, slice_dtype=slice_dtype, name="x1")
 
   expert_output = mtf.reshape(expert_output, mtf.Shape(
       [experts_dim_unsplit, batch_dim, expert_capacity_dim, input_dim]))
@@ -152,7 +156,8 @@ def transformer_moe_layer_v1(inputs, output_dim, hparams, train):
   return output, loss * hparams.moe_loss_coef
 
 
-def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
+def transformer_moe_layer_v2(inputs, output_dim, hparams, train,
+                             master_dtype=tf.bfloat16, slice_dtype=tf.float32):
   """2-level mixture of experts.
 
   Adapted from the paper https://arxiv.org/abs/1701.06538
@@ -245,6 +250,8 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
     output_dim: a mtf.Dimension (for Transformer, this is input_dim)
     hparams: model hyperparameters
     train: a boolean
+    master_dtype: a tf.dtype
+    slice_dtype: a tf.dtype
 
   Returns:
     outputs: a Tensor with shape [a, b, l, n]
@@ -272,7 +279,7 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
   # over which those groups are split.
   num_groups, group_size = _split_into_groups(
       b1.size * l.size, hparams.moe_group_size,
-      _tensor_dim_to_mesh_dim_size(hparams, b1))
+      mtf.tensor_dim_to_mesh_dim_size(hparams.layout, hparams.mesh_shape, b1))
   g1 = mtf.Dimension(b1.name, num_groups)
   g = mtf.Dimension(b1.name + "_unsplit", g1.size)
   s = mtf.Dimension("group_size_x", group_size)
@@ -282,9 +289,8 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
   capacity_factor = (
       hparams.moe_capacity_factor_train if train else
       hparams.moe_capacity_factor_eval)
-  expert_capacity = min(
-      s.size,
-      int((s.size * capacity_factor) / x.size))
+  expert_capacity = min(s.size, int((s.size * capacity_factor) / x.size))
+  expert_capacity = max(expert_capacity, 4)
   c = mtf.Dimension("expert_capacity_x", expert_capacity)
 
   # We "cheat" here and look at the mesh shape and layout. This is to ensure
@@ -293,7 +299,7 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
   num_groups, group_size = _split_into_groups(
       a0.size * g.size * c.size,
       hparams.moe_group_size,
-      _tensor_dim_to_mesh_dim_size(hparams, a0))
+      mtf.tensor_dim_to_mesh_dim_size(hparams.layout, hparams.mesh_shape, a0))
   t = mtf.Dimension("group_size_y", group_size)
   h0 = mtf.Dimension(a0.name, num_groups)
   h = mtf.Dimension(a0.name + "_unsplit", h0.size)
@@ -301,6 +307,7 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
   expert_capacity = min(
       t.size,
       int((t.size * hparams.moe_capacity_factor_second_level) / y.size))
+  expert_capacity = max(expert_capacity, 4)
   d = mtf.Dimension("expert_capacity_y", expert_capacity)
 
   # First level of expert routing
@@ -367,13 +374,14 @@ def transformer_moe_layer_v2(inputs, output_dim, hparams, train):
   expert_inputs_y = mtf.reshape(expert_inputs_y, mtf.Shape(
       [y0, x1, h, d, m]))
 
-  # Now feed the expert inputs through the experts.
   hidden_output = mtf.layers.dense(
       expert_inputs_y, hidden_dim, expert_dims=[y0, x1],
-      activation=mtf.relu, use_bias=False, name="expert0")
+      activation=mtf.relu, use_bias=False, master_dtype=master_dtype,
+      slice_dtype=slice_dtype, name="expert0")
   expert_output = mtf.layers.dense(
       hidden_output, output_dim, expert_dims=[y0, x1],
-      use_bias=False, name="expert1")
+      use_bias=False, master_dtype=master_dtype, slice_dtype=slice_dtype,
+      name="expert1")
 
   # NOW COMBINE EXPERT OUTPUTS (reversing everything we have done)
   # expert_output has shape [y0, x1, h, d, n]
@@ -604,7 +612,6 @@ def _top_2_gating(
 
 def set_default_moe_hparams(hparams):
   """Add necessary hyperparameters for mixture-of-experts."""
-  hparams.feedforward_layer = "moe"
   hparams.moe_num_experts = 16
   hparams.moe_loss_coef = 1e-2
   hparams.add_hparam("moe_gating", "top_2")
@@ -670,14 +677,3 @@ def _split_into_groups(n, max_group_size, mesh_dim_size):
       " = (num_groups=%d group_size=%d)" %
       (n, max_group_size, mesh_dim_size, num_groups, group_size))
   return num_groups, group_size
-
-
-def _tensor_dim_to_mesh_dim_size(hparams, tensor_dim):
-  """Inspect hparams to figure out how many ways tensor_dim gets split."""
-  layout_rules = mtf.convert_to_layout_rules(hparams.layout)
-  mesh_shape = mtf.convert_to_shape(hparams.mesh_shape)
-  mesh_axis = layout_rules.tensor_dimension_to_mesh_axis(tensor_dim, mesh_shape)
-  if mesh_axis is None:
-    return 1
-  else:
-    return mesh_shape.dims[mesh_axis].size

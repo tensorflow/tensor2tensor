@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Experiments with mixture-of-experts architectures."""
+"""Languaeg modeling experiments in mtf."""
 
 
 from __future__ import absolute_import
@@ -30,12 +30,12 @@ def xmoe_dense_4k():
   """Series of architectural experiments on cheap language models.
 
   For all of these architectures, we run on languagemodel_lm1b8k_packed
-  for 32k-96 steps (1-3 epochs) on one TPU (8 cores).
+  for 32000 steps.
 
   All log-perplexities are per-token - multiply by 1.298 for per-word
 
   Results:
-  model             params(M)  einsum  alltoall  mxu-util  log-ppl(1ep) (3ep)
+  model             params(M)  einsum  alltoall  mxu-util  log-ppl
   xmoe_dense_4k     30         3.0e12  0         45%        3.31
   xmoe_dense_8k     46         4.7e12  0         49%        3.24
   xmoe_dense_64k    282        2.8e13  0                    3.06
@@ -44,27 +44,28 @@ def xmoe_dense_4k():
   xmoe_2d           282        5.3e12  7.6e8     34%        3.06
 
   Trained at 4x the batch size:
-  xmoe_2d_88        1090       2.1e13  3.0e9     24%
+  xmoe_2d_88        1090       2.1e13  3.0e9     24%        3.07
 
   Note: configurations and code are likely to change without notice.
 
   Returns:
     a hparams
   """
-  hparams = mtf_transformer.mtf_transformer_base()
+  hparams = mtf_transformer.mtf_transformer_base_lm()
+  hparams.attention_dropout = 0.0
+  hparams.relu_dropout = 0.0
+  hparams.layer_prepostprocess_dropout = 0.0
 
   # The following hparams are constant across all these experiments.
-  hparams.label_smoothing = 0.0
   hparams.batch_size = 128
   hparams.d_model = 512
   hparams.d_kv = 128
   hparams.num_heads = 4
-  hparams.num_decoder_layers = 4
+  hparams.decoder_layers = ["att", "drd"] * 4
   hparams.shared_embedding_and_softmax_weights = False
   hparams.learning_rate_schedule = "rsqrt_decay"
 
   # We will vary the following parameters related to the ffn/moe layers.
-  hparams.feedforward_layer = "dense_relu_dense"
   hparams.d_ff = 4096
   hparams.layout = "batch:batch;vocab:model;d_ff:model;heads:model"
   hparams.mesh_shape = "batch:8"
@@ -80,6 +81,7 @@ def xmoe_dense_8k():
 
 @registry.register_hparams
 def xmoe_dense_64k():
+  """Very wide layer- run on 4x4."""
   hparams = xmoe_dense_4k()
   hparams.d_ff = 65536
   hparams.mesh_shape = "model:4,batch:8"
@@ -88,7 +90,7 @@ def xmoe_dense_64k():
 
 @registry.register_hparams
 def xmoe_top_2():
-  """Mixture of experts."""
+  """Mixture of experts (16 experts)."""
   hparams = xmoe_dense_4k()
   moe.set_default_moe_hparams(hparams)
   hparams.mesh_shape = "all:8"
@@ -105,38 +107,31 @@ def xmoe_top_2_c15():
 
 
 @registry.register_hparams
-def mtf_transformer_lm_moe():
-  """Mixture of experts language model.
-
-  Compare to mtf_transformer.mtf_transformer_lm_baseline()
-
-  Run this on 2x2 on languagemodel_lm1b32k_packed for 272000 steps (10 epochs)
-  900M params.
-
-  Results on LM1B:
-         params/10^9  log-ppl(per-token)
-         0.90         TODO(noam): rerun experiment
-
-  Returns:
-    a hparams
-  """
-  hparams = mtf_transformer.mtf_transformer_lm_baseline()
-  moe.set_default_moe_hparams(hparams)
-  hparams.mesh_shape = "all:8"
-  hparams.layout = "batch:all;experts:all"
-  hparams.feedforward_layer = "moe"
-  return hparams
-
-
-@registry.register_hparams
 def xmoe_2d():
-  """Two-dimensional hierarchical mixture of experts."""
+  """Two-dimensional hierarchical mixture of 16 experts."""
   hparams = xmoe_top_2()
+  hparams.decoder_layers = ["att", "hmoe"] * 4
   hparams.mesh_shape = "b0:2;b1:4"
   hparams.outer_batch_size = 4
   hparams.layout = "outer_batch:b0;inner_batch:b1,expert_x:b1,expert_y:b0"
   hparams.moe_num_experts = [4, 4]
-  hparams.feedforward_layer = "hmoe"
+  return hparams
+
+
+@registry.register_hparams
+def xmoe_2d_debug():
+  """For debugging.
+
+  Running this model on TPU without the hack of casting to bfloat16 for
+  alltoall results in nan on the first step.
+  TODO(noam): debug
+
+  Returns:
+    a hparams
+  """
+  hparams = xmoe_2d()
+  hparams.decoder_layers = ["hmoe"] * 1
+  hparams.activation_dtype = "float32"
   return hparams
 
 
@@ -149,191 +144,189 @@ def xmoe_2d_c15():
 
 
 @registry.register_hparams
-def xmoe_2d_88():
-  """Two-dimensional hierarchical mixture of experts."""
+def xmoe_2d_x64():
+  """Two-dimensional hierarchical mixture of 64 experts."""
   hparams = xmoe_2d()
-  hparams.mesh_shape = "b0:4;b1:8"
-  hparams.batch_size = 512
+  # hparams.mesh_shape = "b0:4;b1:8"
   hparams.outer_batch_size = 4
   hparams.moe_num_experts = [8, 8]
   return hparams
 
 
 @registry.register_hparams
-def xmoe_wiki_base():
-  """Series of architectural experiments on wikipedia text.
+def xmoe2_dense(sz):
+  """Series of architectural experiments on language modeling.
 
-  For all of these architectures, we run on languagemodel_wiki_noref_v8k_l1k
-  for 3 epochs.  (training set has ~7390100 sequences each of length 1024)
-  1 epoch = 115000 steps at batch_size=64
+  Larger models than the ones above.
 
-  Results:
-  model             params(M)  einsum  alltoall  mxu-util  log-ppl(1ep) (3ep)
+  All models are trained on sequences of 1024 tokens.
+
+  We assume infinite training data, so no dropout necessary.
+  We process 2^36 tokens in training = 524288 steps at batch size 128
+
+  TODO(noam): find a large enough dataset for these experiments.
+
+  You can use languagemodel_wiki_noref_v32k_l1k, but this is too small,
+  (1 epoch = ~46000 steps) so training will cover about 11 epochs.
 
   Note: configurations and code are likely to change without notice.
+
+  Run on TPU 4x4 for 524288 steps unless otherwise indicated.
+
+  Args:
+    sz: an integer
 
   Returns:
     a hparams
   """
-  hparams = mtf_transformer.mtf_transformer_base()
-
-  # The following hparams are constant across all these experiments.
-  hparams.label_smoothing = 0.0
+  hparams = mtf_transformer.mtf_transformer_paper_lm(sz)
+  hparams.attention_dropout = 0.0
+  hparams.relu_dropout = 0.0
+  hparams.layer_prepostprocess_dropout = 0.0
   hparams.max_length = 1024
-  hparams.batch_size = 64
-  hparams.d_model = 1024
-  hparams.d_kv = 128
-  hparams.num_heads = 8
-  hparams.shared_embedding_and_softmax_weights = False
-  hparams.learning_rate_decay_steps = 115000
-
-  # We will vary the following parameters related to the ffn/moe layers.
-  hparams.feedforward_layer = "dense_relu_dense"
-  hparams.d_ff = 8192
+  hparams.batch_size = 128
+  hparams.learning_rate_schedule = "rsqrt_decay*linear_decay"
+  hparams.learning_rate_decay_steps = 65536
   hparams.layout = "batch:batch;vocab:model;d_ff:model;heads:model"
   hparams.mesh_shape = "batch:32"
   return hparams
 
 
 @registry.register_hparams
-def xmoe_wiki_f64k():
-  """d_ff = 64k.
-
-  Returns:
-    a hparams object.
-  """
-  hparams = xmoe_wiki_base()
-  hparams.moe_hidden_size = 8192
-  hparams.d_ff = 65536
-  hparams.mesh_shape = "model:8;batch:16"
-  return hparams
+def xmoe2_dense_0():
+  return xmoe2_dense(0)
 
 
 @registry.register_hparams
-def xmoe_wiki_x64():
-  """Two-dimensional hierarchical mixture of experts.
-
-  (8x8 experts) * (16M params/expert) * 6 layers = 6B params
-
-  Returns:
-    a hparams object.
-  """
-  hparams = xmoe_wiki_base()
-  moe.set_default_moe_hparams(hparams)
-  hparams.feedforward_layer = "hmoe"
-  hparams.moe_hidden_size = 8192
-  hparams.mesh_shape = "b0:4;b1:8"
-  hparams.layout = "outer_batch:b0;inner_batch:b1,expert_x:b1,expert_y:b0"
-  hparams.outer_batch_size = 4
-  hparams.moe_num_experts = [8, 8]
-  return hparams
+def xmoe2_dense_1():
+  return xmoe2_dense(1)
 
 
 @registry.register_hparams
-def xmoe_wiki_x32():
-  """Two-dimensional hierarchical mixture of experts.
+def xmoe2_dense_2():
+  return xmoe2_dense(2)
 
-  (8x4 experts) * (16M params/expert) * 6 layers = 3B params
+
+@registry.register_hparams
+def xmoe2_dense_3():
+  return xmoe2_dense(3)
+
+
+@registry.register_hparams
+def xmoe2_v1():
+  """Model incorporating mixture-of-experts and local-attention.
+
+  ~6B parameters
+
+  32 experts in 3 hierarchichal moe layers.
 
   Returns:
-    a hparams object.
+    a hparams
   """
-  hparams = xmoe_wiki_base()
+  hparams = xmoe2_dense(0)
   moe.set_default_moe_hparams(hparams)
-  hparams.feedforward_layer = "hmoe"
-  hparams.moe_hidden_size = 8192
+  hparams.decoder_layers = (
+      ["local_att", "local_att", "drd",
+       "att", "drd", "local_att", "local_att", "hmoe"] * 4)[:-1]
+  hparams.d_ff = 2048
+  hparams.d_kv = 128
+  hparams.moe_hidden_size = 32768
   hparams.mesh_shape = "b0:4;b1:8"
   hparams.layout = "outer_batch:b0;inner_batch:b1,expert_x:b1,expert_y:b0"
   hparams.outer_batch_size = 4
   hparams.moe_num_experts = [8, 4]
+  hparams.num_heads = 4
   return hparams
 
 
 @registry.register_hparams
-def xmoe_wiki_x64_h16k():
-  """Mixture of experts."""
-  hparams = xmoe_wiki_x64()
-  hparams.moe_hidden_size = 16384
-  return hparams
-
-
-@registry.register_hparams
-def xmoe_wiki_x64_c15():
-  """Mixture of experts."""
-  hparams = xmoe_wiki_x64()
-  hparams.moe_capacity_factor_train = 1.5
-  return hparams
-
-
-@registry.register_hparams
-def xmoe_wiki_x256():
-  """Two-dimensional hierarchical mixture of experts.
-
-  (16x16 experts) * (16M params/expert) * 6 layers = 24B params
-
-  Returns:
-    a hparams object.
-  """
-  hparams = xmoe_wiki_x64()
-  hparams.mesh_shape = "b0:8;b1:16"
+def xmoe2_v1_x128():
+  """128 experts, ~25B params - Train for 131072 steps on 8x8."""
+  hparams = xmoe2_v1()
+  hparams.moe_num_experts = [16, 8]
   hparams.outer_batch_size = 8
-  hparams.moe_num_experts = [16, 16]
-  hparams.batch_size = 256
-  hparams.learning_rate_decay_steps = 28750
+  hparams.mesh_shape = "b0:8;b1:16"
+  hparams.batch_size = 512
+  hparams.learning_rate_decay_steps = 16384
   return hparams
 
 
 @registry.register_hparams
-def xmoe_wiki_x256_h16k():
-  """Two-dimensional hierarchical mixture of experts.
+def xmoe2_tiny():
+  """Test on local cpu."""
+  hparams = xmoe2_v1()
+  hparams.decoder_layers = ["local_att", "att", "drd", "hmoe"]
+  hparams.d_model = 128
+  hparams.moe_hidden_size = 512
+  hparams.outer_batch_size = 0
+  hparams.batch_size = 2
+  hparams.mesh_shape = ""
+  hparams.activation_dtype = "float32"
+  return hparams
 
-  (16x16 experts) * (32M params/expert) * 6 layers = ~50B params
+
+@registry.register_hparams
+def xmoe2_v1_l4k():
+  """With sequence length 4096."""
+  hparams = xmoe2_v1()
+  hparams.batch_size = 32
+  hparams.max_length = 4096
+  hparams.split_to_length = 4096
+  return hparams
+
+
+@registry.register_hparams
+def xmoe2_v1_l4k_local_only():
+  """With sequence length 4096."""
+  hparams = xmoe2_v1_l4k()
+  hparams.decoder_layers = [
+      "local_att" if l == "att" else l for l in hparams.decoder_layers]
+  return hparams
+
+
+@registry.register_hparams
+def wiki_2x2_base():
+  """Set of architectural experiments - language model on wikipedia on a 2x2.
+
+  1 epoch = ~180k steps at batch size 32 - we may never finish an epoch!
 
   Returns:
-    a hparams object.
+    a hparams
   """
-  hparams = xmoe_wiki_x256()
-  hparams.moe_hidden_size = 16384
+  hparams = mtf_transformer.mtf_transformer_base_lm()
+  hparams.shared_embedding_and_softmax_weights = False
+  # no dropout - dataset is big enough to avoid overfitting.
+  hparams.attention_dropout = 0.0
+  hparams.relu_dropout = 0.0
+  hparams.layer_prepostprocess_dropout = 0.0
+  hparams.max_length = 1024
+  # 4 sequences per core
+  hparams.batch_size = 32
+  # We don't use linear decay in these experiments, since we don't want
+  # a sharp jump in quality at the end of the training schedule.
+  # You can insert this once you find the right architecture.
+  hparams.learning_rate_schedule = "rsqrt_decay"
+  hparams.mesh_shape = "all:8"
+  hparams.layout = "batch:all;experts:all"
+
+  # parameters for mixture-of-experts
+  moe.set_default_moe_hparams(hparams)
+  hparams.moe_num_experts = 16
+  hparams.moe_hidden_size = 8192
+
+  hparams.decoder_layers = ["att", "drd"] * 6
+  hparams.d_model = 1024
+  hparams.d_ff = 2048
+  hparams.d_kv = 128
+  hparams.num_heads = 4
+
   return hparams
 
 
 @registry.register_hparams
-def xmoe_wiki_x1024():
-  """Two-dimensional hierarchical mixture of experts.
-
-  (16x16 experts) * (16M params/expert) * 6 layers = ~100B params
-
-  Returns:
-    a hparams object.
-  """
-  hparams = xmoe_wiki_x64()
-  hparams.mesh_shape = "b0:16;b1:32"
-  hparams.outer_batch_size = 16
-  hparams.moe_num_experts = [32, 32]
-  hparams.batch_size = 4096
-  hparams.learning_rate_decay_steps = 7200
+def wiki_2x2_v1():
+  hparams = wiki_2x2_base()
+  hparams.decoder_layers = (
+      ["local_att", "local_att", "drd",
+       "att", "drd", "local_att", "local_att", "moe"] * 4)[:-1]
   return hparams
-
-
-@registry.register_hparams
-def xmoe_wiki_x1024_h16k():
-  """Two-dimensional hierarchical mixture of experts.
-
-  (32x32 experts) * (32M params/expert) * 6 layers = ~200B params
-
-  Returns:
-    a hparams object.
-  """
-  hparams = xmoe_wiki_x1024()
-  hparams.moe_hidden_size = 16384
-  return hparams
-
-
-@registry.register_hparams
-def xmoe_wiki_x256_c15():
-  """Mixture of experts."""
-  hparams = xmoe_wiki_x256()
-  hparams.moe_capacity_factor_train = 1.5
-  return hparams
-
-

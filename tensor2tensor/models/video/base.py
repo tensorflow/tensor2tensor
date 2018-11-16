@@ -19,12 +19,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from functools import partial
+import functools
 import six
 
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
+from tensor2tensor.layers import discretization
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -33,6 +34,32 @@ import tensorflow as tf
 
 tfl = tf.layers
 tfcl = tf.contrib.layers
+
+
+def flat_lists(list_of_lists):
+  return [x for l in list_of_lists for x in l]
+
+
+def pixels_from_softmax(frame_logits, pure_sampling=False,
+                        temperature=1.0, gumbel_noise_factor=0.2):
+  """Given frame_logits from a per-pixel softmax, generate colors."""
+  # If we're purely sampling, just sample each pixel.
+  if pure_sampling or temperature == 0.0:
+    return common_layers.sample_with_temperature(frame_logits, temperature)
+
+  # Gumbel-sample from the pixel sofmax and average by pixel values.
+  pixel_range = tf.to_float(tf.range(256))
+  for _ in range(len(frame_logits.get_shape().as_list()) - 1):
+    pixel_range = tf.expand_dims(pixel_range, axis=0)
+
+  frame_logits = tf.nn.log_softmax(frame_logits)
+  gumbel_samples = discretization.gumbel_sample(
+      common_layers.shape_list(frame_logits)) * gumbel_noise_factor
+
+  frame = tf.nn.softmax((frame_logits + gumbel_samples) / temperature, axis=-1)
+  result = tf.reduce_sum(frame * pixel_range, axis=-1)
+  # Round on the forward pass, not on the backward one.
+  return result + tf.stop_gradient(tf.round(result) - result)
 
 
 @registry.register_model
@@ -139,9 +166,33 @@ class NextFrameBase(t2t_model.T2TModel):
     """
     raise NotImplementedError("Base video model.")
 
+  def init_internal_states(self):
+    """Allows a model to preserve its internal model across multiple runs.
+
+    This optional function is only useful for any model with internal states
+    (usually recurrent models) which need to preserve states after any call.
+    """
+    return None
+
+  def reset_internal_states_ops(self):
+    """Resets internal states to initial values."""
+    return [[tf.no_op()]]
+
+  def load_internal_states_ops(self):
+    """Loade internal states from class variables."""
+    return [[tf.no_op()]]
+
+  def save_internal_states_ops(self, internal_states):
+    """Saves internal states into class variables."""
+    return [[tf.no_op()]]
+
   # ============================================================================
   # END SUBCLASS INTERFACE
   # ============================================================================
+
+  def __init__(self, *args, **kwargs):
+    super(NextFrameBase, self).__init__(*args, **kwargs)
+    self.internal_states = self.init_internal_states()
 
   @property
   def _target_modality(self):
@@ -224,9 +275,10 @@ class NextFrameBase(t2t_model.T2TModel):
 
       if isinstance(scheduled_sampling_func_var, tf.Tensor):
         tf.summary.scalar("scheduled_sampling_var", scheduled_sampling_func_var)
-      partial_func = partial(scheduled_sampling_func,
-                             batch_size=batch_size,
-                             scheduled_sample_var=scheduled_sampling_func_var)
+      partial_func = functools.partial(
+          scheduled_sampling_func,
+          batch_size=batch_size,
+          scheduled_sample_var=scheduled_sampling_func_var)
       return partial_func
 
   def get_scheduled_sample_inputs(self,
@@ -326,16 +378,22 @@ class NextFrameBase(t2t_model.T2TModel):
       sampled frame.
 
     """
-    if not self.is_per_pixel_softmax:
-      return pred_frame
-    frame_shape = common_layers.shape_list(pred_frame)
-    target_shape = frame_shape[:-1] + [self.hparams.problem.num_channels]
-    sampled_frame = tf.reshape(pred_frame, target_shape + [256])
-    # TODO(lukaszkaiser): should this be argmax or real sampling.
-    sampled_frame = tf.argmax(sampled_frame, axis=-1)
-    sampled_frame = tf.to_float(sampled_frame)
-    # TODO(lukaszkaiser): this should be consistent with modality.bottom()
-    sampled_frame = common_layers.standardize_images(sampled_frame)
+    # TODO(lukaszkaiser): the logic below heavily depend on the current
+    # (a bit strange) video modalities - we should change that.
+
+    if self.is_per_pixel_softmax:
+      frame_shape = common_layers.shape_list(pred_frame)
+      target_shape = frame_shape[:-1] + [self.hparams.problem.num_channels]
+      sampled_frame = tf.reshape(pred_frame, target_shape + [256])
+      sampled_frame = pixels_from_softmax(
+          sampled_frame, temperature=self.hparams.pixel_sampling_temperature)
+      # TODO(lukaszkaiser): this should be consistent with modality.bottom()
+      sampled_frame = common_layers.standardize_images(sampled_frame)
+    else:
+      x = common_layers.convert_real_to_rgb(pred_frame)
+      x = x - tf.stop_gradient(x + tf.round(x))
+      x = common_layers.convert_rgb_to_real(x)
+      return x
     return sampled_frame
 
   def __get_next_inputs(self, index, all_frames, all_actions, all_rewards):
@@ -382,11 +440,15 @@ class NextFrameBase(t2t_model.T2TModel):
       inputs_old = features["inputs"]
       features["inputs"] = tf.expand_dims(features["inputs"], 2)
 
-    def logits_to_samples(logits):
+    def logits_to_samples(logits, key):
       """Get samples from logits."""
       # If the last dimension is 1 then we're using L1/L2 loss.
       if common_layers.shape_list(logits)[-1] == 1:
         return tf.to_int32(tf.squeeze(logits, axis=-1))
+      if key == "targets":
+        return pixels_from_softmax(
+            logits, gumbel_noise_factor=0.0,
+            temperature=hparams.pixel_sampling_temperature)
       # Argmax in TF doesn't handle more than 5 dimensions yet.
       logits_shape = common_layers.shape_list(logits)
       argmax = tf.argmax(tf.reshape(logits, [-1, logits_shape[-1]]), axis=-1)
@@ -423,13 +485,13 @@ class NextFrameBase(t2t_model.T2TModel):
     if isinstance(logits, dict):
       results = {}
       for k, v in six.iteritems(logits):
-        results[k] = logits_to_samples(v)
+        results[k] = logits_to_samples(v, k)
         results["%s_logits" % k] = v
       # HACK: bypassing decoding issues.
       results["outputs"] = results["targets"]
       results["scores"] = results["targets"]
     else:
-      results = logits_to_samples(logits)
+      results = logits_to_samples(logits, "targets")
 
     # Restore inputs to not confuse Estimator in edge cases.
     if inputs_old is not None:
@@ -440,17 +502,13 @@ class NextFrameBase(t2t_model.T2TModel):
 
   def __process(self, all_frames, all_actions, all_rewards, all_raw_frames):
     """Main video processing function."""
-
-    # TODO(lukaszkaiser): the split axes and the argmax below heavily depend on
-    # using the default (a bit strange) video modality - we should change that.
-
     hparams = self.hparams
+    all_frames_copy = [tf.identity(frame) for frame in all_frames]
     orig_frame_shape = common_layers.shape_list(all_frames[0])
     batch_size = orig_frame_shape[0]
     ss_func = self.get_scheduled_sample_func(batch_size)
     target_frames = []
     extra_loss = 0.0
-    internal_states = None
 
     # Any extra info required by the model goes into here.
     video_features = self.video_features(
@@ -462,40 +520,66 @@ class NextFrameBase(t2t_model.T2TModel):
     else:
       input_index_range = range(hparams.video_num_target_frames)
 
+    # Setup the internal states as well as an auxiliary tf op
+    # to enforce syncronization between prediction steps.
+    if self.internal_states is None:
+      internal_states = None
+      sync_op = tf.no_op()
+    else:
+      internal_states = self.load_internal_states_ops()
+      with tf.control_dependencies(flat_lists(internal_states)):
+        sync_op = tf.no_op()
+
     res_frames, sampled_frames, res_rewards = [], [], []
     for i in input_index_range:
-      frames, actions, rewards, target_index = self.__get_next_inputs(
-          i, all_frames, all_actions, all_rewards)
-      target_frame = all_frames[target_index]
-      target_frames.append(tf.identity(target_frame))
+      with tf.control_dependencies([sync_op]):
+        frames, actions, rewards, target_index = self.__get_next_inputs(
+            i, all_frames, all_actions, all_rewards)
+        target_frame = all_frames[target_index]
+        target_frames.append(tf.identity(target_frame))
 
-      with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-        func_in = (frames, actions, rewards, target_frame,
-                   internal_states, video_features)
-        func_out = self.next_frame(*func_in)
-        res_frame, res_reward, res_extra_loss, internal_states = func_out
-        res_frames.append(res_frame)
-        res_rewards.append(res_reward)
-        extra_loss += res_extra_loss / float(len(input_index_range))
+        with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+          func_in = (frames, actions, rewards, target_frame,
+                     internal_states, video_features)
+          func_out = self.next_frame(*func_in)
+          res_frame, res_reward, res_extra_loss, internal_states = func_out
+          res_frames.append(res_frame)
+          res_rewards.append(res_reward)
+          extra_loss += res_extra_loss / float(len(input_index_range))
 
-      # Only for Softmax loss: sample frame so we can keep iterating.
-      sampled_frame = self.get_sampled_frame(res_frame)
-      sampled_frames.append(sampled_frame)
+          # Syncronizing the internals states
+          # Some Tensflow Magic to make sure everything happens as it should.
+          with tf.control_dependencies([res_frame]):
+            sync_op = tf.no_op()
+            if self.is_predicting and self.is_recurrent_model and i == 0:
+              # The internal state save happens at the end of the 1st iteration
+              # which essentially allows recurrent models to continue
+              # running after one prediction.
+              # Necessary for planning/rl applications.
+              save_ops = self.save_internal_states_ops(internal_states)
+              with tf.control_dependencies(flat_lists(save_ops)):
+                sync_op = tf.no_op()
 
-      if self.is_predicting:
-        all_frames[target_index] = sampled_frame
+        # Only for Softmax loss: sample frame so we can keep iterating.
+        sampled_frame = self.get_sampled_frame(res_frame)
+        sampled_frames.append(sampled_frame)
 
-      # Scheduled sampling during training.
-      if self.is_training:
+        # Check whether we are done with context frames or not
         if self.is_recurrent_model:
-          done_warm_start = i >= hparams.video_num_input_frames - 1
+          done_warm_start = (i >= hparams.video_num_input_frames - 1)
         else:
           done_warm_start = True  # Always true for non-reccurent networks.
-        groundtruth_items = [target_frame]
-        generated_items = [sampled_frame]
-        ss_frame, = self.get_scheduled_sample_inputs(
-            done_warm_start, groundtruth_items, generated_items, ss_func)
-        all_frames[target_index] = ss_frame
+
+        if self.is_predicting and done_warm_start:
+          all_frames[target_index] = sampled_frame
+
+        # Scheduled sampling during training.
+        if self.is_training:
+          groundtruth_items = [target_frame]
+          generated_items = [sampled_frame]
+          ss_frame, = self.get_scheduled_sample_inputs(
+              done_warm_start, groundtruth_items, generated_items, ss_func)
+          all_frames[target_index] = ss_frame
 
     video_extra_loss = self.video_extra_loss(
         sampled_frames, target_frames, internal_states, video_features)
@@ -506,7 +590,7 @@ class NextFrameBase(t2t_model.T2TModel):
       has_input_predictions = hparams.video_num_input_frames > 1
       if self.is_training and hparams.internal_loss and has_input_predictions:
         # add the loss for input frames as well.
-        extra_gts = all_frames[1:hparams.video_num_input_frames]
+        extra_gts = all_frames_copy[1:hparams.video_num_input_frames]
         extra_raw_gts = all_raw_frames[1:hparams.video_num_input_frames]
         extra_pds = res_frames[:hparams.video_num_input_frames-1]
         recon_loss = self.get_extra_internal_loss(
@@ -549,7 +633,25 @@ class NextFrameBase(t2t_model.T2TModel):
       actions = merge(features["input_action"], features["target_action"])
     if self.has_rewards:
       rewards = merge(features["input_reward"], features["target_reward"])
-    return self.__process(frames, actions, rewards, frames_raw)
+
+    # Reset the internal states if the reset_internal_states has been
+    # passed as a feature and has greater value than 0.
+    if self.is_recurrent_model and self.internal_states is not None:
+      def reset_func():
+        reset_ops = flat_lists(self.reset_internal_states_ops())
+        with tf.control_dependencies(reset_ops):
+          return tf.no_op()
+      if self.is_predicting and "reset_internal_states" in features:
+        reset = features["reset_internal_states"]
+        reset = tf.greater(tf.reduce_sum(reset), 0.5)
+        reset_ops = tf.cond(reset, reset_func, tf.no_op)
+      else:
+        reset_ops = reset_func()
+      with tf.control_dependencies([reset_ops]):
+        frames[0] = tf.identity(frames[0])
+
+    with tf.control_dependencies([frames[0]]):
+      return self.__process(frames, actions, rewards, frames_raw)
 
 
 def next_frame_base():

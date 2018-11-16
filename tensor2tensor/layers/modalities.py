@@ -25,9 +25,9 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 from tensor2tensor.layers import discretization
 from tensor2tensor.utils import modality
-from tensor2tensor.utils import registry
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 
 class SymbolModality(modality.Modality):
@@ -144,7 +144,7 @@ class SymbolModality(modality.Modality):
 
     if self._model_hparams.shared_embedding_and_softmax_weights:
       scope_name = "shared"
-      reuse = True
+      reuse = tf.AUTO_REUSE
     else:
       scope_name = "softmax"
       reuse = False
@@ -160,14 +160,8 @@ class SymbolModality(modality.Modality):
       else:
         body_output = tf.reshape(body_output, [-1, body_output_shape[-1]])
         logits = tf.matmul(body_output, var, transpose_b=True)
-        if (common_layers.is_xla_compiled() and
-            self._model_hparams.mode == tf.estimator.ModeKeys.TRAIN):
-          # TPU does not react kindly to extra dimensions.
-          # TODO(noam): remove this once TPU is more forgiving of extra dims.
-          return logits
-        else:
-          return tf.reshape(logits,
-                            body_output_shape[:-1] + [1, self._vocab_size])
+        return tf.reshape(logits,
+                          body_output_shape[:-1] + [1, self._vocab_size])
 
 
 class SymbolModalityWeightsAll(SymbolModality):
@@ -682,8 +676,7 @@ class VideoModalityPixelNoise(VideoModality):
   def bottom(self, x):
     inputs = x
     if self._model_hparams.mode == tf.estimator.ModeKeys.TRAIN:
-      background = tf.contrib.distributions.percentile(inputs, 50.,
-                                                       axis=[0, 1, 2, 3])
+      background = tfp.distributions.percentile(inputs, 50., axis=[0, 1, 2, 3])
       input_shape = common_layers.shape_list(inputs)
       input_size = tf.reduce_prod(input_shape[:-1])
       input_mask = tf.multinomial(
@@ -825,6 +818,37 @@ class ClassLabelModality(modality.Modality):
       x = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
       res = tf.layers.dense(x, self._vocab_size)
       return tf.expand_dims(res, 3)
+
+
+class VideoModalityIdentity(VideoModality):
+  """Video Modality where top and bottom is an identity function."""
+
+  def bottom(self, x):
+    common_video.gif_summary("inputs", x, max_outputs=1)
+    x = common_layers.standardize_images(x)
+    return x
+
+  def targets_bottom(self, x):
+    common_video.gif_summary("targets", x, max_outputs=1)
+    x = common_layers.standardize_images(x)
+    return x
+
+  def top(self, body_output, targets):
+    return body_output
+
+  def loss(self, top_out, targets):
+    """Compute loss numerator and denominator for one shard of output."""
+    # TODO(nikip): Try L2 loss
+    logits = top_out
+    logits = tf.reshape(logits, [-1] + common_layers.shape_list(logits)[2:])
+    targets = tf.reshape(targets, [-1] + common_layers.shape_list(targets)[2:])
+    cutoff = getattr(self._model_hparams, "video_modality_loss_cutoff", 0.01)
+    return common_layers.padded_cross_entropy(
+        logits,
+        targets,
+        self._model_hparams.label_smoothing,
+        cutoff=cutoff,
+        weights_fn=self.targets_weights_fn)
 
 
 class MultiLabelModality(ClassLabelModality):
@@ -1070,96 +1094,3 @@ class SoftmaxLastTimestepClassLabelModality(OneHotClassLabelModality):
       x = body_output
       x = tf.expand_dims(x[:, -1], 1)  # Pick the last timestep
       return tf.layers.dense(x, self._vocab_size)
-
-
-def create_modality(modality_spec, model_hparams):
-  """Creates modality.
-
-  Args:
-    modality_spec: tuple ("modality_type:modality_name", vocab_size).
-    model_hparams: tf.contrib.training.HParams.
-
-  Returns:
-    Modality.
-
-  Raises:
-    LookupError: if modality_type is not recognized. See registry.Modalities for
-      accepted types.
-  """
-  modality_full_name, vocab_size = modality_spec
-  modality_type, modality_name = parse_modality_name(modality_full_name)
-
-  if modality_type == registry.Modalities.SYMBOL:
-    modality_collection = {
-        "default": SymbolModality,
-        "identity": IdentitySymbolModality,
-        "weights_all": SymbolModalityWeightsAll,
-        "one_hot": SymbolModalityOneHot,
-        "ctc": CTCSymbolModality,
-    }
-  elif modality_type == registry.Modalities.IMAGE:
-    modality_collection = {
-        "default": ImageModality,
-        "identity": IdentityModality,
-        "image_channel_compress": ImageChannelCompressModality,
-        "image_channel_bottom_identity": ImageChannelBottomIdentityModality,
-        "channel_embeddings_bottom": ImageChannelEmbeddingsBottom,
-    }
-  elif modality_type == registry.Modalities.AUDIO:
-    modality_collection = {
-        "default": SpeechRecognitionModality,
-        "identity": IdentityModality,
-        "spectral": AudioSpectralModality,
-        "speech": SpeechRecognitionModality,
-    }
-  elif modality_type == registry.Modalities.VIDEO:
-    modality_collection = {
-        "default": VideoModality,
-        "identity": IdentityModality,
-        "bitwise": VideoModalityBitwise,
-        "pixel_noise": VideoModalityPixelNoise,
-        "l1": VideoModalityL1,
-        "l2": VideoModalityL2,
-        "l2raw": VideoModalityL2Raw,
-        "l1raw": VideoModalityL1Raw,
-    }
-  elif modality_type == registry.Modalities.CLASS_LABEL:
-    modality_collection = {
-        "default": ClassLabelModality,
-        "identity": IdentityModality,
-        "multi_label": MultiLabelModality,
-        "onehot": OneHotClassLabelModality,
-        "sigmoid": SigmoidClassLabelModality,
-        "sigmoid_max_pooling": SigmoidMaxPoolingClassLabelModality,
-        "onehot_softmax_max_pooling": SoftmaxMaxPoolingClassLabelModality,
-        "onehot_softmax_average_pooling":
-            SoftmaxAveragePoolingClassLabelModality,
-        "onehot_softmax_last_timestep": SoftmaxLastTimestepClassLabelModality,
-    }
-  elif modality_type == registry.Modalities.GENERIC:
-    modality_collection = {
-        "default": IdentityModality,
-        "l2_loss": GenericL2LossModality,
-    }
-  elif modality_type == registry.Modalities.REAL:
-    modality_collection = {
-        "default": RealL2LossModality,
-        "identity": IdentityModality,
-        "l2_loss": RealL2LossModality,
-        "log_poisson_loss": RealLogPoissonLossModality,
-    }
-  else:
-    modality_types = ("symbol", "image", "audio", "video", "class_label",
-                      "generic", "real")
-    raise LookupError("Modality type %s not recognized. Options are: %s" %
-                      (modality_type, list(modality_types)))
-
-  return modality_collection[modality_name](model_hparams, vocab_size)
-
-
-def parse_modality_name(name):
-  name_parts = name.split(":")
-  if len(name_parts) < 2:
-    name_parts.append("default")
-  modality_type, modality_name = name_parts
-  return modality_type, modality_name

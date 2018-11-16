@@ -280,6 +280,10 @@ class Text2TextProblem(problem.Problem):
   def batch_size_means_tokens(self):
     return True
 
+  @property
+  def already_shuffled(self):
+    return False
+
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
 
     filepath_fns = {
@@ -289,7 +293,7 @@ class Text2TextProblem(problem.Problem):
     }
 
     split_paths = [(split["split"], filepath_fns[split["split"]](
-        data_dir, split["shards"], shuffled=False))
+        data_dir, split["shards"], shuffled=self.already_shuffled))
                    for split in self.dataset_splits]
     all_paths = []
     for _, paths in split_paths:
@@ -539,9 +543,9 @@ class TextConcat2ClassProblem(Text2ClassProblem):
       inputs = []
       for idx, inp in enumerate(sample["inputs"]):
         inputs += encoder.encode(inp)
-        inputs.append(text_encoder.EOS_ID)
         if idx < len(sample["inputs"]) - 1:
           inputs.append(encoder.encode(self.CONCAT_TOKEN)[0])
+      inputs.append(text_encoder.EOS_ID)
       label = sample["label"]
       yield {"inputs": inputs, "targets": [label]}
 

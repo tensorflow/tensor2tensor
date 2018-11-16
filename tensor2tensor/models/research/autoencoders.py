@@ -24,6 +24,7 @@ from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
 from tensor2tensor.layers import latent_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -1104,8 +1105,10 @@ def autoencoder_residual_text():
   hparams.hidden_size = 64
   hparams.max_hidden_size = 512
   hparams.bottleneck_noise = 0.0
-  hparams.target_modality = "symbol:identity"
-  hparams.input_modalities = "symbol:identity"
+  hparams.modality = {
+      "inputs": modalities.IdentitySymbolModality,
+      "targets": modalities.IdentitySymbolModality,
+  }
   hparams.autoregressive_mode = "none"
   hparams.sample_width = 1
   return hparams
@@ -1209,8 +1212,10 @@ def autoencoder_ordered_text():
   hparams.batch_size = 1024
   hparams.autoregressive_mode = "conv5"
   hparams.max_hidden_size = 1024
-  hparams.target_modality = "symbol:identity"
-  hparams.input_modalities = "symbol:identity"
+  hparams.modality = {
+      "inputs": modalities.IdentitySymbolModality,
+      "targets": modalities.IdentitySymbolModality,
+  }
   hparams.sample_height = 128
   hparams.sample_width = 1
   return hparams

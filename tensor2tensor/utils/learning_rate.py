@@ -33,6 +33,13 @@ def learning_rate_factor(name, step_num, hparams):
   elif name == "linear_decay":
     ret = (hparams.train_steps - step_num) / hparams.learning_rate_decay_steps
     return tf.minimum(1.0, tf.maximum(0.0, ret))
+  elif name == "cosdecay":  # openai gpt
+    in_warmup = tf.cast(step_num <= hparams.learning_rate_warmup_steps,
+                        dtype=tf.float32)
+    ret = 0.5 * (1 + tf.cos(
+        np.pi * step_num / hparams.learning_rate_decay_steps))
+    # if in warmup stage return 1 else return the decayed value
+    return in_warmup * 1 + (1 - in_warmup) * ret
   elif name == "rsqrt_decay":
     return tf.rsqrt(tf.maximum(step_num, hparams.learning_rate_warmup_steps))
   elif name == "rsqrt_normalized_decay":

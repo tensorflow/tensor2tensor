@@ -44,9 +44,9 @@ class MtfModel(t2t_model.T2TModel):
                          mode,
                          config=None,
                          params=None,
-                         decode_hparams=None):
+                         decode_hparams=None,
+                         use_tpu=False):
     hparams = copy.deepcopy(hparams)
-    use_tpu = params and params.get("use_tpu", False)
     hparams.use_tpu = use_tpu
     # merge decode_hparams into hparams if present
     if mode == tf.estimator.ModeKeys.PREDICT and decode_hparams is not None:
@@ -212,7 +212,7 @@ class MtfModel(t2t_model.T2TModel):
           loss=loss)
 
   def estimator_spec_predict(self, features, mesh, mesh_impl, use_tpu):
-    mtf_samples = self.sample(features, mesh)
+    mtf_samples = mtf.anonymize(self.sample(features, mesh))
     lowering = mtf.Lowering(mesh.graph, {mesh: mesh_impl})
     outputs = lowering.export_to_tf_tensor(mtf_samples)
     if self.has_input:

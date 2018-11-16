@@ -32,7 +32,7 @@ The hyperparameters for the environment model and agent are nested within the
 ```
   generative_model="next_frame_basic",
   generative_model_params="next_frame_pixel_noise",
-  ppo_params="ppo_atari_base",
+  ppo_params="ppo_original_params",
 ```
 
 ## Model-free training
@@ -53,7 +53,7 @@ Training an agent in `PongNoFrameskip-v0`:
 ```
 python -m tensor2tensor.rl.trainer_model_free \
   --problem stacked_pong \
-  --hparams_set ppo_atari_base \
+  --hparams_set ppo_original_params \
   --hparams num_agents=5 \
   --output_dir dir_location
 ```

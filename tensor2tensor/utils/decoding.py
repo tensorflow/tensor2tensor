@@ -32,6 +32,7 @@ from six.moves import input  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
+from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
@@ -78,6 +79,7 @@ def decode_hparams(overrides=""):
       max_display_outputs=10,
       # Used for MLPerf compliance logging.
       mlperf_mode=False,
+      mlperf_decode_step=0.0,
       mlperf_threshold=25.0,
       mlperf_success=False)
   hp.parse(overrides)
@@ -123,7 +125,7 @@ def log_decode_results(inputs,
     save_path = os.path.join(
         output_dir, "%s_prediction_%d.jpg" % (problem_name, prediction_idx))
     show_and_save_image(inputs / 255., save_path)
-  elif inputs_vocab:
+  elif inputs is not None and inputs_vocab:
     if identity_output:
       decoded_inputs = " ".join(map(str, inputs.flatten()))
     else:
@@ -264,11 +266,13 @@ def decode_once(estimator,
   inputs_vocab = problem_hparams.vocabulary[inputs_vocab_key]
   targets_vocab = problem_hparams.vocabulary["targets"]
 
+  num_eval_samples = 0
   for num_predictions, prediction in enumerate(predictions):
+    num_eval_samples += 1
     num_predictions += 1
-    inputs = prediction["inputs"]
-    targets = prediction["targets"]
-    outputs = prediction["outputs"]
+    inputs = prediction.get("inputs")
+    targets = prediction.get("targets")
+    outputs = prediction.get("outputs")
 
     # Log predictions
     decoded_outputs = []
@@ -327,6 +331,8 @@ def decode_once(estimator,
     if (decode_hp.num_samples >= 0 and
         num_predictions >= decode_hp.num_samples):
       break
+
+  mlperf_log.transformer_print(key=mlperf_log.EVAL_SIZE, value=num_eval_samples)
 
   if decode_to_file:
     output_file.close()
@@ -391,6 +397,8 @@ def decode_from_file(estimator,
       output_beams = np.split(result["outputs"], decode_hp.beam_size, axis=0)
       scores = None
       if "scores" in result:
+        if np.isscalar(result["scores"]):
+          result["scores"] = result["scores"].reshape(1)
         scores = np.split(result["scores"], decode_hp.beam_size, axis=0)
       for k, beam in enumerate(output_beams):
         tf.logging.info("BEAM %d:" % k)
@@ -546,6 +554,8 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
       beams = np.split(result["outputs"], decode_hp.beam_size, axis=0)
       scores = None
       if "scores" in result:
+        if np.isscalar(result["scores"]):
+          result["scores"] = result["scores"].reshape(1)
         scores = np.split(result["scores"], decode_hp.beam_size, axis=0)
       for k, beam in enumerate(beams):
         tf.logging.info("BEAM %d:" % k)

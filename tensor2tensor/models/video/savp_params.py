@@ -18,6 +18,7 @@
 from __future__ import division
 from __future__ import print_function
 
+from tensor2tensor.layers import modalities
 from tensor2tensor.models.video import sv2p_params
 from tensor2tensor.utils import registry
 
@@ -35,9 +36,41 @@ def next_frame_savp():
   hparams.add_hparam("gan_loss_multiplier", 0.01)
   hparams.add_hparam("gan_vae_loss_multiplier", 0.01)
   hparams.add_hparam("gan_optimization", "joint")
-  hparams.target_modality = "video:l1raw"
-  hparams.input_modalities = "inputs:video:l1raw"
+  hparams.modality = {
+      "inputs": modalities.VideoModalityL1Raw,
+      "targets": modalities.VideoModalityL1Raw,
+  }
   hparams.latent_loss_multiplier_schedule = "linear"
   hparams.upsample_method = "bilinear_upsample_conv"
   hparams.internal_loss = False
+  hparams.reward_prediction = False
+  hparams.anneal_end = 100000
+  hparams.num_iterations_1st_stage = 0
+  hparams.num_iterations_2nd_stage = 50000
+  return hparams
+
+
+@registry.register_hparams
+def next_frame_savp_vae():
+  """SAVP - VAE only model."""
+  hparams = next_frame_savp()
+  hparams.use_vae = True
+  hparams.use_gan = False
+  hparams.latent_loss_multiplier = 1e-3
+  hparams.latent_loss_multiplier_schedule = "linear_anneal"
+  return hparams
+
+
+@registry.register_hparams
+def next_frame_savp_gan():
+  """SAVP - GAN only model."""
+  hparams = next_frame_savp()
+  hparams.use_gan = True
+  hparams.use_vae = False
+  hparams.gan_loss_multiplier = 0.001
+  hparams.optimizer_adam_beta1 = 0.5
+  hparams.learning_rate_constant = 2e-4
+  hparams.gan_loss = "cross_entropy"
+  hparams.learning_rate_decay_steps = 100000
+  hparams.learning_rate_schedule = "constant*linear_decay"
   return hparams
