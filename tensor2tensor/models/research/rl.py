@@ -491,8 +491,16 @@ def world_model_categorical_fun(action_space, config, observations):
         "target_reward": tf.zeros(targets_shape[:2], dtype=tf.int32)
     })
   with tf.variable_scope("network_parameters"):
-    logits = tf.layers.dense(model.x_flat, action_space.n)
-    value = tf.layers.dense(model.x_flat, 1)
+    x = model.x
+    x = tf.layers.conv2d(
+        x, model.hparams.hidden_size * 2, (4, 4),
+        activation=common_layers.belu,
+        strides=(2, 2), padding="SAME"
+    )
+    #x = common_layers.layer_norm(x)
+    x = tf.layers.flatten(x)
+    logits = tf.layers.dense(x, action_space.n)
+    value = tf.layers.dense(x, 1)
   logits_shape = common_layers.shape_list(logits)
   logits = tf.reshape(logits, [
       obs_shape[0], obs_shape[1], logits_shape[1]

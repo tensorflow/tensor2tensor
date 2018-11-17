@@ -110,7 +110,7 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
                              strides=(2, 2), padding="SAME")
         x = common_layers.layer_norm(x)
 
-    self.x_flat = tf.stop_gradient(tf.layers.flatten(x))
+    self.x = tf.stop_gradient(x)
 
     # Add embedded action if present.
     if self.has_actions:

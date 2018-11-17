@@ -125,7 +125,8 @@ class PPOLearner(PolicyLearner):
           trainer_lib.restore_checkpoint(self.agent_model_dir, model_saver,
                                          sess)
           if wm_saver is not None:
-            trainer_lib.restore_checkpoint(wm_dir, wm_saver, sess)
+            n = trainer_lib.restore_checkpoint(wm_dir, wm_saver, sess)
+            print("Loaded world model checkpoint", n, "for policy")
           sess.run(collect_memory)
 
 
@@ -186,7 +187,8 @@ def _run_train(ppo_hparams,
     num_completed_iterations = trainer_lib.restore_checkpoint(
         model_dir, model_saver, sess)
     if wm_saver is not None:
-      trainer_lib.restore_checkpoint(wm_dir, wm_saver, sess)
+      n = trainer_lib.restore_checkpoint(wm_dir, wm_saver, sess)
+      print("Loaded world model checkpoint", n, "for policy")
 
     # Fail-friendly, complete only unfinished epoch
     if num_target_iterations <= num_completed_iterations:
