@@ -93,8 +93,8 @@ class TransformerMoe(t2t_model.T2TModel):
       """Apply processing and capture the extra loss."""
       @expert_utils.add_var_scope()
       def decorated(x, *args, **kwargs):
-        x = dp_preprocess(x)
-        y, loss = fct(x, *args, **kwargs)
+        x_preprocessed = dp_preprocess(x)
+        y, loss = fct(x_preprocessed, *args, **kwargs)
         cache["extra_loss"] += loss
         return dp_postprocess(x, y)
       return decorated
