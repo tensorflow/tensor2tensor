@@ -56,7 +56,7 @@ def compute_mel_filterbank_features(
     waveforms,
     sample_rate=16000, dither=1.0 / np.iinfo(np.int16).max, preemphasis=0.97,
     frame_length=25, frame_step=10, fft_length=None,
-    window_fn=functools.partial(tf.signal.hann_window, periodic=True),
+    window_fn=functools.partial(tf.contrib.signal.hann_window, periodic=True),
     lower_edge_hertz=80.0, upper_edge_hertz=7600.0, num_mel_bins=80,
     log_noise_floor=1e-3, apply_mask=True):
   """Implement mel-filterbank extraction using tf ops.
@@ -101,7 +101,7 @@ def compute_mel_filterbank_features(
   if fft_length is None:
     fft_length = int(2**(np.ceil(np.log2(frame_length))))
 
-  stfts = tf.signal.stft(
+  stfts = tf.contrib.signal.stft(
       waveforms,
       frame_length=frame_length,
       frame_step=frame_step,
@@ -121,7 +121,7 @@ def compute_mel_filterbank_features(
   # Warp the linear-scale, magnitude spectrograms into the mel-scale.
   num_spectrogram_bins = magnitude_spectrograms.shape[-1].value
   linear_to_mel_weight_matrix = (
-      tf.signal.linear_to_mel_weight_matrix(
+      tf.contrib.signal.linear_to_mel_weight_matrix(
           num_mel_bins, num_spectrogram_bins, sample_rate, lower_edge_hertz,
           upper_edge_hertz))
   mel_spectrograms = tf.tensordot(
