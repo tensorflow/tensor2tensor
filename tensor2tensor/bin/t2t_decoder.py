@@ -232,6 +232,7 @@ def main(_):
     return
 
   hp = create_hparams()
+  # Fathom
   hp = update_hparams_for_inference(hp)
   decode_hp = create_decode_hparams()
 
