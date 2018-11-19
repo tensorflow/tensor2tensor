@@ -49,7 +49,9 @@ def glow_hparams():
   hparams.add_hparam("n_levels", 3)
   hparams.add_hparam("n_bits_x", 8)
   hparams.add_hparam("depth", 32)
-  hparams.add_hparam("affine_coupling_width", 512)
+  # Coupling layer, additive or affine.
+  hparams.add_hparam("coupling", "affine")
+  hparams.add_hparam("coupling_width", 512)
   hparams.add_hparam("top_prior", "single_conv")
   # init_batch_size denotes the number of examples used for data-dependent
   # initialization. A higher init_batch_size is required for training
@@ -152,6 +154,10 @@ class Glow(t2t_model.T2TModel):
         temperature=self.temperature)
 
   def body(self, features):
+    exp_coupling = ["affine", "additive"]
+    if self.hparams.coupling not in exp_coupling:
+      raise ValueError("Expected hparams.coupling to be in %s, got %s" %
+                       (exp_coupling, self.hparams.coupling))
     if self.is_training:
       init_features = self.create_init_batch(features)
       init_op = self.objective_tower(init_features, init=True)

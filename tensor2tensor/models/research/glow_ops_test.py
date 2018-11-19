@@ -86,8 +86,8 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
 
   def test_invertibility(self):
     rev_ops = [glow_ops.invertible_1x1_conv, glow_ops.affine_coupling,
-               glow_ops.actnorm]
-    names = ["inv_1X1_conv", "affine_coupling", "actnorm"]
+               glow_ops.actnorm, glow_ops.additive_coupling]
+    names = ["inv_1X1_conv", "affine_coupling", "actnorm", "additive_coupling"]
     for rev_op, name in zip(rev_ops, names):
       self.check_invertibility(rev_op, name)
 
@@ -171,10 +171,16 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
         self.assertEqual(x_inv_np.shape, (16, 5, 5, 16))
         self.assertTrue(np.allclose(diff, 0.0, atol=1e-5))
 
-  def check_revnet_reversibility(self, op, name):
+  @parameterized.named_parameters(
+      ("aff_revnet", glow_ops.revnet, "aff_rev", "affine"),
+      ("add_revnet", glow_ops.revnet, "add_rev", "additive"),
+      ("aff_rev_step", glow_ops.revnet_step, "aff_rev_step", "affine"),
+      ("add_rev_step", glow_ops.revnet_step, "add_rev_step", "additive"),)
+  def test_revnet_reversibility(self, op, name, coupling):
     with tf.Graph().as_default():
       hparams = glow.glow_hparams()
       hparams.depth = 2
+      hparams.coupling = coupling
       x = tf.random_uniform(shape=(16, 32, 32, 4), seed=0)
       x_inv, _ = op(name, x, hparams, reverse=False)
       x_inv_inv, _ = op(name, x_inv, hparams, reverse=True)
@@ -182,12 +188,6 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
         session.run(tf.global_variables_initializer())
         diff = session.run(x - x_inv_inv)
         self.assertTrue(np.allclose(diff, 0.0, atol=1e-2))
-
-  def test_revnet_reversibility(self):
-    ops = [glow_ops.revnet_step, glow_ops.revnet]
-    names = ["revnet_step", "revnet"]
-    for op, name in zip(ops, names):
-      self.check_revnet_reversibility(op, name)
 
   def test_encoder_decoder(self):
     with tf.Graph().as_default():

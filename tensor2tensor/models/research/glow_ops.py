@@ -543,13 +543,40 @@ def conv_stack(name, x, mid_channels, output_channels, dilations=None):
 
 
 @add_arg_scope
+def additive_coupling(name, x, mid_channels=512, reverse=False):
+  """Reversible additive coupling layer.
+
+  Args:
+    name: variable scope.
+    x: 4-D Tensor.
+    mid_channels: number of channels in the coupling layer.
+    reverse: Forward or reverse operation.
+  Returns:
+    output:
+    objective: 0.0
+  """
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    output_channels = common_layers.shape_list(x)[-1] // 2
+    x1, x2 = tf.split(x, num_or_size_splits=2, axis=-1)
+
+    z1 = x1
+    shift = conv_stack("nn", x1, mid_channels, output_channels=output_channels)
+
+    if not reverse:
+      z2 = x2 + shift
+    else:
+      z2 = x2 - shift
+    return tf.concat([z1, z2], axis=3), 0.0
+
+
+@add_arg_scope
 def affine_coupling(name, x, mid_channels=512, reverse=False):
   """Reversible affine coupling layer.
 
   Args:
-    name:
-    x:
-    mid_channels: intermediate
+    name: variable scope.
+    x: 4-D Tensor.
+    mid_channels: number of channels in the coupling layer.
     reverse: Forward or reverse operation.
   Returns:
     output:
@@ -969,19 +996,25 @@ def revnet_step(name, x, hparams, reverse=True):
   Args:
     name: used for variable scope.
     x: input
-    hparams: affine_coupling_width is the only hparam that is being used in
+    hparams: coupling_width is the only hparam that is being used in
              this function.
     reverse: forward or reverse pass.
   Returns:
     z: Output of one step of reversible flow.
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    if hparams.coupling == "additive":
+      coupling_layer = functools.partial(
+          additive_coupling, name="additive", reverse=reverse,
+          mid_channels=hparams.coupling_width)
+    else:
+      coupling_layer = functools.partial(
+          affine_coupling, name="affine", reverse=reverse,
+          mid_channels=hparams.coupling_width)
     ops = [
         functools.partial(actnorm, name="actnorm", reverse=reverse),
         functools.partial(invertible_1x1_conv, name="invertible",
-                          reverse=reverse),
-        functools.partial(affine_coupling, name="affine", reverse=reverse,
-                          mid_channels=hparams.affine_coupling_width)]
+                          reverse=reverse), coupling_layer]
 
     if reverse:
       ops = ops[::-1]
