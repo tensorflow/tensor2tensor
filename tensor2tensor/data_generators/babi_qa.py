@@ -454,7 +454,8 @@ class BabiQaConcat(BabiQa):
     p = defaults
     p.modality.pop('context', None)
     p.vocab_size.pop('context', None)
-    
+    p.vocab_size.pop(None, None)
+
 
 def _problems_to_register():
   """Problems for which we want to create datasets.
