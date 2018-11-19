@@ -75,7 +75,6 @@ flags.DEFINE_bool(
     "Whether to use TensorFlow DistributionStrategy instead of explicitly "
     "replicating the model. DistributionStrategy is used only if the "
     "model replication configuration is supported by the DistributionStrategy.")
-
 # To maintain compatibility with some internal libs, we guard against these flag
 # definitions possibly erroring. Apologies for the ugliness.
 try:
@@ -356,12 +355,15 @@ def run_std_server():
 
 def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
+  hparams = create_hparams()
   if FLAGS.schedule == "train" or FLAGS.schedule == "train_eval_and_decode":
-    mlperf_log.transformer_print(key=mlperf_log.RUN_START)
+    mlperf_log.transformer_print(key=mlperf_log.RUN_START,
+                                 mlperf_mode=hparams.mlperf_mode)
   if FLAGS.schedule == "run_std_server":
     run_std_server()
   mlperf_log.transformer_print(
-      key=mlperf_log.RUN_SET_RANDOM_SEED, value=FLAGS.random_seed)
+      key=mlperf_log.RUN_SET_RANDOM_SEED, value=FLAGS.random_seed,
+      mlperf_mode=hparams.mlperf_mode)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   maybe_log_registry_and_exit()
@@ -378,7 +380,6 @@ def main(argv):
 
   if argv:
     set_hparams_from_args(argv[1:])
-  hparams = create_hparams()
 
   exp_fn = create_experiment_fn()
   exp = exp_fn(create_run_config(hparams), hparams)
@@ -386,7 +387,8 @@ def main(argv):
     save_metadata(hparams)
   execute_schedule(exp)
   if FLAGS.schedule != "train":
-    mlperf_log.transformer_print(key=mlperf_log.RUN_FINAL)
+    mlperf_log.transformer_print(key=mlperf_log.RUN_FINAL,
+                                 mlperf_mode=hparams.mlperf_mode)
 
 
 if __name__ == "__main__":

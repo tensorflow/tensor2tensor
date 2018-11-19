@@ -78,7 +78,6 @@ def decode_hparams(overrides=""):
       # Total number of videos are max_display_outputs * num_decodes
       max_display_outputs=10,
       # Used for MLPerf compliance logging.
-      mlperf_mode=False,
       mlperf_decode_step=0.0,
       mlperf_threshold=25.0,
       mlperf_success=False)

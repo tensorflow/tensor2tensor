@@ -161,7 +161,10 @@ def _mlperf_print(key, value=None, benchmark=None, stack_offset=0,
 TRANSFORMER_TAG_SET = set(TRANSFORMER_TAGS)  # pylint: disable=undefined-variable
 
 
-def transformer_print(key, value=None, stack_offset=2, deferred=False):
+def transformer_print(key, value=None, stack_offset=2, deferred=False,
+                      mlperf_mode=False):
+  if not mlperf_mode:
+    return
   return _mlperf_print(
       key=key,
       value=value,

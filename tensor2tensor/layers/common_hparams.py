@@ -48,6 +48,8 @@ def basic_params1():
       clip_grad_norm=2.0,
       grad_noise_scale=0.0,
       summarize_grads=False,
+      # Flag for whether mlperf mode is on
+      mlperf_mode=False,
       # Whether to log the name and size of every variable
       summarize_vars=False,
       initializer="orthogonal",
