@@ -39,7 +39,8 @@ import fathomt2t
 from fathomt2t.common_flags import (
     setup_decoder_flags,
     decode_num_examples,
-    dataset_to_t2t_mode)
+    dataset_to_t2t_mode,
+    update_hparams_for_inference)
 from fathomairflow.dags.dag_management.xcom_manipulation import echo_yaml_for_xcom_ingest
 
 # Dependency imports
@@ -231,6 +232,8 @@ def main(_):
     return
 
   hp = create_hparams()
+  # Fathom
+  hp = update_hparams_for_inference(hp)
   decode_hp = create_decode_hparams()
 
   estimator = trainer_lib.create_estimator(
