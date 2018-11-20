@@ -39,6 +39,7 @@ class Metrics(object):
   ACC_PER_SEQ = "accuracy_per_sequence"
   ACC_MULTILABEL_MATCH3 = "accuracy_multilabel_match3"
   NEG_LOG_PERPLEXITY = "neg_log_perplexity"
+  MASKED_NEG_LOG_PERPLEXITY = "masked_neg_log_perplexity"
   APPROX_BLEU = "approx_bleu_score"
   RMSE = "rmse"
   LOG_POISSON = "log_poisson"
@@ -242,6 +243,18 @@ def padded_neg_log_perplexity(predictions,
   num, den = common_layers.padded_cross_entropy(
       predictions, labels, 0.0, weights_fn=weights_fn, reduce_sum=False)
   return (-num, den)
+
+
+def padded_neg_log_perplexity_with_masking(
+    predictions,
+    labels,
+    features,
+    weights_fn=None):
+  del weights_fn
+  if "target_mask" not in features:
+    raise ValueError("masked_neg_log_perplexity requires target_mask feature")
+  mask_fn = lambda labels: features["target_mask"]
+  return padded_neg_log_perplexity(predictions, labels, mask_fn)
 
 
 def dmol_neg_log_perplexity(predictions,
@@ -659,6 +672,7 @@ METRICS_FNS = {
     Metrics.ACC_PER_SEQ: padded_sequence_accuracy,
     Metrics.ACC_MULTILABEL_MATCH3: multilabel_accuracy_match3,
     Metrics.NEG_LOG_PERPLEXITY: padded_neg_log_perplexity,
+    Metrics.MASKED_NEG_LOG_PERPLEXITY: padded_neg_log_perplexity_with_masking,
     Metrics.APPROX_BLEU: bleu_hook.bleu_score,
     Metrics.RMSE: padded_rmse,
     Metrics.LOG_POISSON: padded_log_poisson,

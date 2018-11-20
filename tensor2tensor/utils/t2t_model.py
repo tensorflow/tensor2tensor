@@ -22,6 +22,7 @@ import collections
 import contextlib
 import copy
 import functools
+import inspect
 import math
 import time
 import six
@@ -1456,6 +1457,7 @@ class T2TModel(base.Layer):
         # For TPU, logits dict will be passed as keyword arguments to
         # eval_metrics_fn. Here we add the labels to those arguments.
         logits.update({"labels": labels})
+        logits.update({"features": features})
         return tf.contrib.tpu.TPUEstimatorSpec(
             tf.estimator.ModeKeys.EVAL,
             eval_metrics=(eval_metrics_fn, logits),
@@ -1464,7 +1466,7 @@ class T2TModel(base.Layer):
         eval_metrics_fn = create_tpu_eval_metrics_fn(problem, hparams)
         return tf.contrib.tpu.TPUEstimatorSpec(
             tf.estimator.ModeKeys.EVAL,
-            eval_metrics=(eval_metrics_fn, [logits, labels]),
+            eval_metrics=(eval_metrics_fn, [logits, labels, features]),
             loss=loss)
     else:
       task_list = [problem]
@@ -1643,9 +1645,12 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
       weights_fn = v.targets_weights_fn
 
       def make_metric_fn(metric_fn):
-
-        def wrapped_metric_fn(logits, labels, weights_fn=weights_fn):
-          num, den = metric_fn(logits, labels, weights_fn=weights_fn)
+        def wrapped_metric_fn(logits, labels, features, weights_fn=weights_fn):
+          kwargs = {}
+          args, _, keywords, _ = inspect.getargspec(metric_fn)
+          if ("features" in args) or keywords:
+            kwargs["features"] = features
+          num, den = metric_fn(logits, labels, weights_fn=weights_fn, **kwargs)
           return tf.metrics.mean(num, den)
 
         return wrapped_metric_fn
@@ -1660,9 +1665,12 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
     weights_fn = tm.targets_weights_fn
 
     def make_metric_fn(metric_fn):
-
-      def wrapped_metric_fn(logits, labels):
-        num, den = metric_fn(logits, labels, weights_fn=weights_fn)
+      def wrapped_metric_fn(logits, labels, features):
+        kwargs = {}
+        args, _, keywords, _ = inspect.getargspec(metric_fn)
+        if ("features" in args) or keywords:
+          kwargs["features"] = features
+        num, den = metric_fn(logits, labels, weights_fn=weights_fn, **kwargs)
         return tf.metrics.mean(num, den)
 
       return wrapped_metric_fn
@@ -1680,18 +1688,21 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
 
     if logits is None:
       logits = kwargs
+      features = logits["features"]
+    else:
+      features = kwargs["features"]
 
     for name, fn in metric_fns:
       if isinstance(logits, dict) and isinstance(labels, dict):
         for k, v in six.iteritems(logits):
-          metrics_dict["%s/%s" % (k, name)] = fn(v, labels[k])
+          metrics_dict["%s/%s" % (k, name)] = fn(v, labels[k], features)
       elif isinstance(logits, dict):
         tf.logging.warning("Logits is a dict, but labels is not; only "
                            "evaluating logits['targets'] against labels.")
         metrics_dict["%s/%s" % ("targets", name)] = fn(logits["targets"],
-                                                       labels)
+                                                       labels, features)
       else:
-        metrics_dict[name] = fn(logits, labels)
+        metrics_dict[name] = fn(logits, labels, features)
 
     return metrics_dict
 
