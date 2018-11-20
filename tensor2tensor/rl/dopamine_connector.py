@@ -20,6 +20,8 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
+import random
+import sys
 
 from dopamine.agents.dqn import dqn_agent
 from dopamine.replay_memory import circular_replay_buffer
@@ -99,10 +101,10 @@ class _DQNAgent(dqn_agent.DQNAgent):
   (some of) terminal episode transitions in training.
   """
 
-  def __init__(self, replay_capacity, batch_size, generates_trainable_dones,
-               **kwargs):
+  def __init__(self, replay_capacity, buffer_batch_size,
+               generates_trainable_dones, **kwargs):
     self._replay_capacity = replay_capacity
-    self._batch_size = batch_size
+    self._buffer_batch_size = buffer_batch_size
     self._generates_trainable_dones = generates_trainable_dones
     super(_DQNAgent, self).__init__(**kwargs)
 
@@ -112,7 +114,7 @@ class _DQNAgent(dqn_agent.DQNAgent):
         observation_shape=dqn_agent.NATURE_DQN_OBSERVATION_SHAPE,
         stack_size=dqn_agent.NATURE_DQN_STACK_SIZE,
         replay_capacity=self._replay_capacity,
-        batch_size=self._batch_size,
+        batch_size=self._buffer_batch_size,
         update_horizon=self.update_horizon,
         gamma=self.gamma,
         extra_storage_types=None,
@@ -127,6 +129,134 @@ class _DQNAgent(dqn_agent.DQNAgent):
         use_staging=use_staging,
         **replay_buffer_kwargs)
 
+
+class BatchDQNAgent(_DQNAgent):
+  """
+  Episodes are stored on done.
+
+  Assumes that all rollouts in batch would end at the same moment.
+  """
+
+  def __init__(self, env_batch_size, *args, **kwargs):
+    super(BatchDQNAgent, self).__init__(*args, **kwargs)
+    self.env_batch_size = env_batch_size
+    obs_size = NATURE_DQN_OBSERVATION_SHAPE
+    state_shape = [self.env_batch_size, 1, obs_size, obs_size,
+                   NATURE_DQN_STACK_SIZE]
+    self.state_batch = np.zeros(state_shape)
+    self.state = None  # assure it will be not used
+    self._current_rollouts = [] * self.env_batch_size
+
+  def _record_observation(self, observation_batch):
+    # Set current observation. Represents an batch_size x 84 x 84 x 1 image
+    # frame.
+    observation_batch = np.array(observation_batch)
+    self._observation_batch = observation_batch[:, :, :, 0]
+    # Swap out the oldest frames with the current frames.
+    self.state_batch = np.roll(self.state_batch, -1, axis=4)
+    self.state_batch[:, 0, :, :, -1] = self._observation
+
+  def _reset_state(self):
+    self.state_batch.fill(0)
+
+  def begin_episode(self, observation):
+    self._reset_state()
+    self._record_observation(observation)
+
+    if not self.eval_mode:
+      self._train_step()
+
+    self.action = self._select_action()
+    return self.action
+
+  def _update_current_rollouts(self, last_observation, action, reward,
+                              are_terminal):
+    transitions = zip(last_observation, action, reward, are_terminal)
+    for transition, rollout in zip(transitions, self._current_rollouts):
+      rollout.append(transition)
+
+  def _store_current_rollouts(self):
+    for rollout in self._current_rollouts:
+      for transition in rollout:
+        self._store_transition(*transition)
+    self._current_rollouts = [] * self.env_batch_size
+
+  def step(self, reward, observation):
+    self._last_observation = self._observation_batch
+    self._record_observation(observation)
+
+    if not self.eval_mode:
+      self._update_current_rollouts(self._last_observation, self.action, reward,
+                                    [False] * self.env_batch_size)
+      self._train_step()
+
+    self.action = self._select_action()
+    return self.action
+
+  def end_episode(self, reward):
+    if not self.eval_mode:
+      self._update_current_rollouts(self._observation, self.action, reward,
+                                    [True] * self.env_batch_size)
+      self._store_current_rollouts()
+
+  def _select_action(self):
+    epsilon = self.epsilon_eval if self.eval_mode else self.epsilon_fn(
+        self.epsilon_decay_period,
+        self.training_steps,
+        self.min_replay_history,
+        self.epsilon_train)
+
+    def choose_action(ix):
+      if random.random() <= epsilon:
+        # Choose a random action with probability epsilon.
+        return random.randint(0, self.num_actions - 1)
+      else:
+        # Choose the action with highest Q-value at the current state.
+        return self._sess.run(self._q_argmax,
+                              {self.state_ph: self.state_batch[ix]})
+
+    return np.array([choose_action(ix) for ix in range(self.env_batch_size)])
+
+
+class BatchRunner(run_experiment.Runner):
+  """
+
+  Assumes that all environments would end at the same moment.
+  """
+  def __init__(self, base_dir, create_agent_fn, batch_size, **kwargs):
+    super(BatchRunner, self).__init__(base_dir, create_agent_fn, **kwargs)
+    self.batch_size = batch_size
+
+  def _run_one_episode(self):
+    # This assumes that everything inside _run_one_episode works on batches,
+    # which is risky for future.
+    steps_number, total_rewards = super(BatchRunner, self)._run_one_episode()
+    return steps_number * self.batch_size, total_rewards
+
+  def _run_one_phase(self, min_steps, statistics, run_mode_str):
+    # Mostly copy of parent method.
+    step_count = 0
+    num_episodes = 0
+    sum_returns = 0.
+
+    while step_count < min_steps:
+      num_steps, episode_returns = self._run_one_episode()
+      for  episode_return in episode_returns:
+        statistics.append({
+            '{}_episode_lengths'.format(run_mode_str):
+                num_steps / self.batch_size,
+            '{}_episode_returns'.format(run_mode_str): episode_return
+        })
+      step_count += num_steps
+      sum_returns += sum(episode_returns)
+      num_episodes += self.batch_size
+      # We use sys.stdout.write instead of tf.logging so as to flush frequently
+      # without generating a line break.
+      sys.stdout.write('Steps executed: {} '.format(step_count) +
+                       'Batch episodes steps: {} '.format(num_steps) +
+                       'Returns: {}\r'.format(episode_returns))
+      sys.stdout.flush()
+    return step_count, sum_returns, num_episodes
 
 class _OutOfGraphReplayBuffer(OutOfGraphReplayBuffer):
   """Replay not sampling artificial_terminal transition.
