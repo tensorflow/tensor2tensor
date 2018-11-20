@@ -332,7 +332,9 @@ def decode_once(estimator,
         num_predictions >= decode_hp.num_samples):
       break
 
-  mlperf_log.transformer_print(key=mlperf_log.EVAL_SIZE, value=num_eval_samples)
+  mlperf_log.transformer_print(key=mlperf_log.EVAL_SIZE,
+                               value=num_eval_samples,
+                               mlperf_mode=hparams.mlperf_mode)
 
   if decode_to_file:
     output_file.close()
