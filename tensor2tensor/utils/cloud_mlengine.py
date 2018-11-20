@@ -22,6 +22,8 @@ import subprocess as sp
 import sys
 import tempfile
 
+from six.moves import input # pylint: disable=redefined-builtin
+
 from googleapiclient import discovery
 from oauth2client.client import GoogleCredentials
 
