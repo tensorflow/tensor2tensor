@@ -356,6 +356,8 @@ def run_std_server():
 def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
 
+  usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
+
   # If we just have to print the registry, do that and exit early.
   maybe_log_registry_and_exit()
 
@@ -372,7 +374,6 @@ def main(argv):
       key=mlperf_log.RUN_SET_RANDOM_SEED, value=FLAGS.random_seed,
       hparams=hparams)
   trainer_lib.set_random_seed(FLAGS.random_seed)
-  usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
   if FLAGS.cloud_mlengine:
     cloud_mlengine.launch()
