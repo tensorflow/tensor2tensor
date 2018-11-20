@@ -298,7 +298,9 @@ def basic_params1():
       # When using multiproblem with generation tasks, need to truncate the
       # inputs and targets manually before concatenating them.
       multiproblem_max_input_length=-1,
-      multiproblem_max_target_length=-1
+      multiproblem_max_target_length=-1,
+      # If positive, makes training targets fixed-length in MultiProblem.
+      multiproblem_fixed_train_length=-1
   )
 
 

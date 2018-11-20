@@ -46,7 +46,6 @@ class MultiProblem(problem.Problem):
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     assert len(self.task_list) > 1
-
     for task in self.task_list:
       task.generate_data(data_dir, tmp_dir, task_id)
 
@@ -75,25 +74,35 @@ class MultiProblem(problem.Problem):
           example["targets"] = example[
               "targets"][:hparams.multiproblem_max_target_length]
 
+    def make_constant_shape(x, size):
+      x = x[:size]
+      xlen = tf.shape(x)[0]
+      x = tf.pad(x, [[0, size - xlen]])
+      return tf.reshape(x, [size])
+
     if task.has_inputs:
       if is_infer:
         concat_list = [example["inputs"], [task.task_id]]
-        example["inputs"] = tf.concat(concat_list, 0)
+        example["inputs"] = tf.concat(concat_list, axis=0)
       else:
         inputs = example.pop("inputs")
         concat_list = [inputs, [task.task_id], example["targets"]]
-        example["targets"] = tf.concat(concat_list, 0)
+        example["targets"] = tf.concat(concat_list, axis=0)
+        if hparams.multiproblem_fixed_train_length > 0:
+          example["targets"] = make_constant_shape(
+              example["targets"], hparams.multiproblem_fixed_train_length)
     else:
       concat_list = [[task.task_id], example["targets"]]
-      example["targets"] = tf.concat(concat_list, 0)
+      example["targets"] = tf.concat(concat_list, axis=0)
+      if not is_infer and hparams.multiproblem_fixed_train_length > 0:
+        example["targets"] = make_constant_shape(
+            example["targets"], hparams.multiproblem_fixed_train_length)
 
-    min_task_id = min([t.task_id for t in self.task_list])
-    example["task_id"] = tf.constant([task.task_id - min_task_id],
-                                     dtype=tf.int64)
+    example["task_id"] = tf.constant([task.task_id], dtype=tf.int64)
     return example
 
   def filepattern(self, data_dir, mode, shard=None):
-    print("Generating multi problem filepattern")
+    tf.logging.info("Generating multi problem filepattern")
     return [task.filepattern(data_dir, mode, shard) for task in self.task_list]
 
   def get_hparams(self, model_hparams=None):
@@ -164,8 +173,9 @@ class MultiProblem(problem.Problem):
       raise ValueError("Only support language models as primary problem which "
                        "supplies the vocabulary and the hparams.")
     enc = primary_task.feature_encoders(data_dir=data_dir)["targets"]
+    self.update_task_ids(enc)
 
-    for idx, task in enumerate(self.task_list):
+    for task in self.task_list:
       task_dataset = task.dataset(mode=mode,
                                   data_dir=data_dir,
                                   num_threads=num_threads,
@@ -180,9 +190,6 @@ class MultiProblem(problem.Problem):
                                   shuffle_buffer_size=shuffle_buffer_size,
                                   max_records=max_records,
                                   only_last=only_last)
-
-      if idx == 0:
-        self.update_task_ids(enc)
 
       if is_training:
         task_dataset = task_dataset.repeat()
@@ -285,7 +292,6 @@ class MultiProblem(problem.Problem):
             A Tensor representing an example from the task that was sampled
             from.
           """
-
           if num_tasks_left == 0:
             return get_next_from_dataset(dataset_iterators[curr_task])
 
@@ -338,10 +344,10 @@ class MultiProblem(problem.Problem):
     """
     offset = encoder.vocab_size
 
-    for idx, _ in enumerate(self.task_list):
-      self.task_list[idx].set_task_id(idx + offset)
-      print(self.task_list[idx].name)
-      print(self.task_list[idx].task_id)
+    for idx, task in enumerate(self.task_list):
+      task.set_task_id(idx + offset)
+      tf.logging.info("Task %d (%s) has id %d." %
+                      (idx, task.name, task.task_id))
 
   def get_max_num_classes(self):
     """Compute the maximum number of classes any subtask has.

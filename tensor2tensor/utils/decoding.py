@@ -70,6 +70,8 @@ def decode_hparams(overrides=""):
       num_decodes=1,
       force_decode_length=False,
       display_decoded_images=False,
+      # Multi-problem decoding task id.
+      multiproblem_task_id=-1,
       # Used for video decoding.
       frames_per_second=10,
       skip_eos_postprocess=False,
@@ -368,9 +370,10 @@ def decode_from_file(estimator,
   num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
 
   def input_fn():
-    input_gen = _decode_batch_input_fn(num_decode_batches, sorted_inputs,
-                                       inputs_vocab, decode_hp.batch_size,
-                                       decode_hp.max_input_size)
+    input_gen = _decode_batch_input_fn(
+        num_decode_batches, sorted_inputs,
+        inputs_vocab, decode_hp.batch_size,
+        decode_hp.max_input_size, task_id=decode_hp.multiproblem_task_id)
     gen_fn = make_input_fn_from_generator(input_gen)
     example = gen_fn()
     return _decode_input_tensor_to_features_dict(example, hparams)
@@ -577,7 +580,7 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
 
 
 def _decode_batch_input_fn(num_decode_batches, sorted_inputs, vocabulary,
-                           batch_size, max_input_size):
+                           batch_size, max_input_size, task_id=-1):
   """Generator to produce batches of inputs."""
   tf.logging.info(" batch %d" % num_decode_batches)
   # First reverse all the input sentences so that if you're going to get OOMs,
@@ -592,7 +595,8 @@ def _decode_batch_input_fn(num_decode_batches, sorted_inputs, vocabulary,
       if max_input_size > 0:
         # Subtract 1 for the EOS_ID.
         input_ids = input_ids[:max_input_size - 1]
-      input_ids.append(text_encoder.EOS_ID)
+      final_id = text_encoder.EOS_ID if task_id < 0 else task_id
+      input_ids.append(final_id)
       batch_inputs.append(input_ids)
       if len(input_ids) > batch_length:
         batch_length = len(input_ids)
