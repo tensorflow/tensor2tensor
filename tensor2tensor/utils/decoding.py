@@ -334,7 +334,7 @@ def decode_once(estimator,
 
   mlperf_log.transformer_print(key=mlperf_log.EVAL_SIZE,
                                value=num_eval_samples,
-                               mlperf_mode=hparams.mlperf_mode)
+                               hparams=hparams)
 
   if decode_to_file:
     output_file.close()

@@ -90,17 +90,17 @@ class ConditionalOptimizer(tf.train.Optimizer):
 
     mlperf_log.transformer_print(key=mlperf_log.OPT_NAME,
                                  value=optimizer_name,
-                                 mlperf_mode=hparams.mlperf_mode)
+                                 hparams=hparams)
     mlperf_log.transformer_print(
         key=mlperf_log.OPT_HP_ADAM_BETA1, value=hparams.optimizer_adam_beta1,
-        mlperf_mode=hparams.mlperf_mode)
+        hparams=hparams)
     mlperf_log.transformer_print(
         key=mlperf_log.OPT_HP_ADAM_BETA2, value=hparams.optimizer_adam_beta2,
-        mlperf_mode=hparams.mlperf_mode)
+        hparams=hparams)
     mlperf_log.transformer_print(
         key=mlperf_log.OPT_HP_ADAM_EPSILON,
         value=hparams.optimizer_adam_epsilon,
-        mlperf_mode=hparams.mlperf_mode)
+        hparams=hparams)
 
     if optimizer_name == "Adam":
       # We change the default epsilon for Adam.
@@ -281,7 +281,7 @@ def get_variable_initializer(hparams):
 
   mlperf_log.transformer_print(key=mlperf_log.MODEL_HP_INITIALIZER_GAIN,
                                value=hparams.initializer_gain,
-                               mlperf_mode=hparams.mlperf_mode)
+                               hparams=hparams)
 
   if not tf.contrib.eager.in_eager_mode():
     tf.logging.info("Using variable initializer: %s", hparams.initializer)

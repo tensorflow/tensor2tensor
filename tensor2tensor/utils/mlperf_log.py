@@ -76,6 +76,11 @@ else:
   _STREAM_HANDLER.setLevel(logging.DEBUG)
 
 
+def get_mode(hparams):
+  """Returns whether we should do MLPerf logging."""
+  return "mlperf_mode" in hparams and hparams.mlperf_mode
+
+
 def get_caller(stack_index=2, root_dir=None):
   # pylint: disable=g-doc-args
   """Returns file.py:lineno of your caller.
@@ -162,8 +167,8 @@ TRANSFORMER_TAG_SET = set(TRANSFORMER_TAGS)  # pylint: disable=undefined-variabl
 
 
 def transformer_print(key, value=None, stack_offset=2, deferred=False,
-                      mlperf_mode=False):
-  if not mlperf_mode:
+                      hparams=None):
+  if not hparams or not get_mode(hparams):
     return
   return _mlperf_print(
       key=key,

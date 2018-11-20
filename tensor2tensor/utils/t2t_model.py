@@ -143,7 +143,7 @@ class T2TModel(base.Layer):
                 "vocab_size": target_modality.top_dimensionality,
                 "hidden_size": hidden_size
             },
-            mlperf_mode=hparams.mlperf_mode)
+            hparams=hparams)
 
     self._original_hparams = hparams
     self.set_mode(mode)

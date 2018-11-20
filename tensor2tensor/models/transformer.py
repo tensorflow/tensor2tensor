@@ -87,7 +87,7 @@ class Transformer(t2t_model.T2TModel):
     mlperf_log.transformer_print(
         key=mlperf_log.MODEL_HP_LAYER_POSTPROCESS_DROPOUT,
         value=hparams.layer_prepostprocess_dropout,
-        mlperf_mode=hparams.mlperf_mode)
+        hparams=hparams)
 
     encoder_input = tf.nn.dropout(encoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
@@ -138,7 +138,7 @@ class Transformer(t2t_model.T2TModel):
     mlperf_log.transformer_print(
         key=mlperf_log.MODEL_HP_LAYER_POSTPROCESS_DROPOUT,
         value=hparams.layer_prepostprocess_dropout,
-        mlperf_mode=hparams.mlperf_mode)
+        hparams=hparams)
     decoder_input = tf.nn.dropout(decoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
 
@@ -805,7 +805,7 @@ def fast_decode_tpu(encoder_output,
           "alpha": alpha,
           "max_decode_length": decode_length
       },
-      mlperf_mode=hparams.mlperf_mode)
+      hparams=hparams)
   if beam_size > 1:  # Beam Search
     initial_ids = sos_id * tf.ones([batch_size], dtype=tf.int32)
     decoded_ids, scores = beam_search.beam_search(
@@ -1226,11 +1226,11 @@ def transformer_decoder(decoder_input,
   mlperf_log.transformer_print(
       key=mlperf_log.MODEL_HP_NUM_HIDDEN_LAYERS,
       value=hparams.num_decoder_layers or hparams.num_hidden_layers,
-      mlperf_mode=hparams.mlperf_mode)
+      hparams=hparams)
   mlperf_log.transformer_print(
       key=mlperf_log.MODEL_HP_ATTENTION_DROPOUT,
       value=hparams.attention_dropout,
-      mlperf_mode=hparams.mlperf_mode)
+      hparams=hparams)
   mlperf_log.transformer_print(
       key=mlperf_log.MODEL_HP_ATTENTION_DENSE,
       value={
@@ -1238,7 +1238,7 @@ def transformer_decoder(decoder_input,
           "num_heads": hparams.num_heads,
           "hidden_size": hparams.hidden_size
       },
-      mlperf_mode=hparams.mlperf_mode)
+      hparams=hparams)
 
   with tf.variable_scope(name):
     for layer in range(hparams.num_decoder_layers or hparams.num_hidden_layers):
@@ -1306,7 +1306,7 @@ def transformer_decoder(decoder_input,
     mlperf_log.transformer_print(
         key=mlperf_log.MODEL_HP_NORM,
         value={"hidden_size": hparams.hidden_size},
-        mlperf_mode=hparams.mlperf_mode)
+        hparams=hparams)
     return common_layers.layer_preprocess(x, hparams)
 
 

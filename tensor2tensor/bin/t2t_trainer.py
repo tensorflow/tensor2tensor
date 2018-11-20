@@ -357,13 +357,12 @@ def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
   hparams = create_hparams()
   if FLAGS.schedule == "train" or FLAGS.schedule == "train_eval_and_decode":
-    mlperf_log.transformer_print(key=mlperf_log.RUN_START,
-                                 mlperf_mode=hparams.mlperf_mode)
+    mlperf_log.transformer_print(key=mlperf_log.RUN_START, hparams=hparams)
   if FLAGS.schedule == "run_std_server":
     run_std_server()
   mlperf_log.transformer_print(
       key=mlperf_log.RUN_SET_RANDOM_SEED, value=FLAGS.random_seed,
-      mlperf_mode=hparams.mlperf_mode)
+      hparams=hparams)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   maybe_log_registry_and_exit()
@@ -388,7 +387,7 @@ def main(argv):
   execute_schedule(exp)
   if FLAGS.schedule != "train":
     mlperf_log.transformer_print(key=mlperf_log.RUN_FINAL,
-                                 mlperf_mode=hparams.mlperf_mode)
+                                 hparams=hparams)
 
 
 if __name__ == "__main__":
