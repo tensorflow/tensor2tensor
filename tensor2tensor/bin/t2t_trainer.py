@@ -355,7 +355,15 @@ def run_std_server():
 
 def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
+
+  # If we just have to print the registry, do that and exit early.
+  maybe_log_registry_and_exit()
+
+  # Create HParams.
+  if argv:
+    set_hparams_from_args(argv[1:])
   hparams = create_hparams()
+
   if FLAGS.schedule == "train" or FLAGS.schedule == "train_eval_and_decode":
     mlperf_log.transformer_print(key=mlperf_log.RUN_START, hparams=hparams)
   if FLAGS.schedule == "run_std_server":
@@ -365,7 +373,6 @@ def main(argv):
       hparams=hparams)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-  maybe_log_registry_and_exit()
 
   if FLAGS.cloud_mlengine:
     cloud_mlengine.launch()
@@ -376,9 +383,6 @@ def main(argv):
 
   if cloud_mlengine.job_dir():
     FLAGS.output_dir = cloud_mlengine.job_dir()
-
-  if argv:
-    set_hparams_from_args(argv[1:])
 
   exp_fn = create_experiment_fn()
   exp = exp_fn(create_run_config(hparams), hparams)
