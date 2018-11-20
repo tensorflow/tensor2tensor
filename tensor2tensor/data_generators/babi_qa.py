@@ -452,12 +452,12 @@ class BabiQaConcat(BabiQa):
   def hparams(self, defaults, unused_model_hparams):
     super(BabiQaConcat, self).hparams(defaults, unused_model_hparams)
     p = defaults
-    p.modality.pop('context', None)
-    p.modality.pop(None, None)
-    p.modality.pop("", None)
-    p.vocab_size.pop('context', None)
-    p.vocab_size.pop(None, None)
-    p.vocab_size.pop("", None)
+
+    if 'context' in p.modality:
+      del p.modality['context']
+
+    if 'context' in p.vocab_size:
+      del p.vocab_size['context']
 
 
 def _problems_to_register():
