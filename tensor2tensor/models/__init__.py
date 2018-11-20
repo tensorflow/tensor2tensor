@@ -69,6 +69,7 @@ from tensor2tensor.models.video import emily
 from tensor2tensor.models.video import epva
 from tensor2tensor.models.video import savp
 from tensor2tensor.models.video import sv2p
+from tensor2tensor.models.video import svg_lp
 
 from tensor2tensor.utils import registry
 
