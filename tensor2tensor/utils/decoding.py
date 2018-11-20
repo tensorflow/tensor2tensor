@@ -63,6 +63,7 @@ def decode_hparams(overrides=""):
       delimiter="\n",
       decode_to_file=None,
       decode_in_memory=False,
+      summaries_log_dir="decode",  # Directory to write hook summaries.
       shards=1,    # How many shards of data to decode (treating 1 as None).
       shard_id=0,  # Which shard are we decoding if more than 1 above.
       shards_start_offset=0,  # Number of the first shard to decode.
@@ -858,7 +859,7 @@ def run_postdecode_hooks(decode_hook_args, dataset_split):
     return
   tf.logging.info("Running decode hooks.")
   parent_dir = os.path.join(decode_hook_args.output_dirs[0], os.pardir)
-  child_dir = "decode"
+  child_dir = decode_hook_args.decode_hparams.summaries_log_dir
   if dataset_split is not None:
     child_dir += "_{}".format(dataset_split)
   final_dir = os.path.join(parent_dir, child_dir)
