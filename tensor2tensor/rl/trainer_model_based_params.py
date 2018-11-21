@@ -781,7 +781,7 @@ def rlmb_games_problematic_for_ppo(rhp):
   rhp.set_categorical("loop.game", games)
   rhp.set_categorical("loop.base_algo_params", ["ppo_original_params"])
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
-  rhp.set_discrete("ppo.dropout_ppo", [0., 0.1])
+  rhp.set_discrete("ppo.logits_clip", [0., 4.0])
 
 
 @registry.register_ranged_hparams

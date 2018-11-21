@@ -55,7 +55,7 @@ def ppo_base_v1():
   hparams.add_hparam("optimization_batch_size", 50)
   hparams.add_hparam("max_gradients_norm", 0.5)
   hparams.add_hparam("intrinsic_reward_scale", 0.)
-  hparams.add_hparam("logits_clip", 4.0)
+  hparams.add_hparam("logits_clip", 0.0)
   hparams.add_hparam("dropout_ppo", 0.1)
   hparams.add_hparam("effective_num_agents", None)
   return hparams
