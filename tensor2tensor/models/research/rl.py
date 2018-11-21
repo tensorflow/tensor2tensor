@@ -233,8 +233,9 @@ def dqn_atari_base():
 
 @registry.register_hparams
 def dqn_original_params():
+  """dqn_original_params."""
   hparams = dqn_atari_base()
-  hparams.set_hparam('num_frames', int(1e6))
+  hparams.set_hparam("num_frames", int(1e6))
   return hparams
 
 

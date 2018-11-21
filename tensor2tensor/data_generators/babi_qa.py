@@ -34,9 +34,10 @@ import collections
 import os
 import shutil
 import tarfile
-import requests
+
 import six
 
+from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
@@ -108,12 +109,8 @@ def _prepare_babi_data(tmp_dir, data_dir):
   if not tf.gfile.Exists(data_dir):
     tf.gfile.MakeDirs(data_dir)
 
-  file_path = os.path.join(tmp_dir, _TAR)
-  headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.132 Safari/537.36'}
-  resp = requests.get(_URL, headers=headers)
-  with open(file_path, 'wb') as f:
-    f.write(resp.content)
-
+  # TODO(dehghani@): find a solution for blocking user-agent (download)
+  file_path = generator_utils.maybe_download(tmp_dir, _TAR, _URL)
   tar = tarfile.open(file_path)
   tar.extractall(tmp_dir)
   tar.close()
@@ -452,12 +449,8 @@ class BabiQaConcat(BabiQa):
   def hparams(self, defaults, unused_model_hparams):
     super(BabiQaConcat, self).hparams(defaults, unused_model_hparams)
     p = defaults
-
-    if 'context' in p.modality:
-      del p.modality['context']
-
-    if 'context' in p.vocab_size:
-      del p.vocab_size['context']
+    del p.modality['context']
+    del p.vocab_size['context']
 
 
 def _problems_to_register():

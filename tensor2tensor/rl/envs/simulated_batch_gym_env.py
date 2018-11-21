@@ -26,6 +26,8 @@ import tensorflow as tf
 
 
 class FlatBatchEnv(Env):
+  """TODO(konradczechowski): Add doc-string."""
+
   def __init__(self, batch_env):
     if batch_env.batch_size != 1:
       raise ValueError("Number of environments in batch must be equal to one")

@@ -47,7 +47,6 @@ pip install tensor2tensor && t2t-trainer \
 ### Contents
 
 * [Suggested Datasets and Models](#suggested-datasets-and-models)
-  * [Story, Question and Answer](#story-question-and-answer)
   * [Image Classification](#image-classification)
   * [Image Generation](#image-generation)
   * [Language Modeling](#language-modeling)
@@ -78,16 +77,6 @@ We give the problem and model below and we suggest a setting of
 hyperparameters that we know works well in our setup. We usually
 run either on Cloud TPUs or on 8-GPU machines; you might need
 to modify the hyperparameters if you run on a different setup.
-
-### Story, Question and Answer
-
-For answering questions based on a story, use
- 
-* the [bAbi][1] data-set: `--problem=babi_qa_concat_task1_1k`
-
-You can choose the bAbi task from the range [1,20] and the subset from 1k or 10k. To combine test data from all tasks into a single test set, use `--problem=babi_qa_concat_all_tasks_10k`
-
-[1] https://research.fb.com/downloads/babi/
 
 ### Image Classification
 

@@ -162,6 +162,7 @@ def rlmb_base():
 
 @registry.register_hparams
 def rlmb_dqn_base():
+  """rlmb_dqn_base params."""
   hparams = _rlmb_base()
   simulated_rollout_length = 10
   dqn_params = dict(
