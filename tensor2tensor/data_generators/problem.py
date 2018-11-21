@@ -476,6 +476,11 @@ class Problem(object):
     self._feature_info = None
     self._task_id = -1
 
+  @property
+  def was_reversed(self):
+    """Whether the problem was reversed."""
+    return self._was_reversed
+
   def get_feature_encoders(self, data_dir=None):
     if self._encoders is None:
       self._encoders = self.feature_encoders(data_dir)

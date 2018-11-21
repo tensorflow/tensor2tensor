@@ -587,6 +587,8 @@ def create_evaluation_metrics(problems, model_hparams):
   eval_metrics = dict()
   for problem_instance in problems:
     problem_name = problem_instance.name
+    if problem_instance.was_reversed:
+      problem_name += "_rev"
     metrics = problem_instance.eval_metrics()
     if hasattr(model_hparams.problem, "task_list"):
       metrics = model_hparams.problem.eval_metrics()

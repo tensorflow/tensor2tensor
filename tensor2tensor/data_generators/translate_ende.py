@@ -26,6 +26,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import translate
+from tensor2tensor.data_generators import wiki_lm
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -152,3 +153,12 @@ class TranslateEndeWmtCharacters(TranslateEndeWmt8k):
   @property
   def vocab_type(self):
     return text_problems.VocabType.CHARACTER
+
+
+@registry.register_problem
+class TranslateEndeWmtMulti64k(TranslateEndeWmt8k):
+  """Translation with muli-lingual vocabulary."""
+
+  @property
+  def vocab_filename(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename
