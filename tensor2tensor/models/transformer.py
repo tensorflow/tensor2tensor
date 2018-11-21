@@ -1367,6 +1367,10 @@ def transformer_base_v1():
   hparams.add_hparam("moe_overhead_eval", 2.0)
   hparams.moe_num_experts = 16
   hparams.moe_loss_coef = 1e-3
+  # If specified, use this value instead of problem name in metrics.py.
+  # This is useful for programs that can automatically compare experiments side
+  #   by side based on the same metric names.
+  hparams.add_hparam("overload_eval_metric_name", "")
   return hparams
 
 
