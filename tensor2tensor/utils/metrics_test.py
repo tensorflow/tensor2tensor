@@ -121,7 +121,7 @@ class MetricsTest(tf.test.TestCase):
     predictions = np.random.randint(4, size=(12, 12, 12, 1))
     targets = np.random.randint(4, size=(12, 12, 12, 1))
     features = {
-        'target_mask': tf.to_float(tf.not_equal(targets, 0))
+        'targets_mask': tf.to_float(tf.not_equal(targets, 0))
     }
     with self.test_session() as session:
       scores, _ = metrics.padded_neg_log_perplexity_with_masking(
@@ -140,7 +140,7 @@ class MetricsTest(tf.test.TestCase):
 
     with self.assertRaisesRegexp(
         ValueError,
-        'masked_neg_log_perplexity requires target_mask feature'):
+        'masked_neg_log_perplexity requires targets_mask feature'):
       with self.test_session() as session:
         scores, _ = metrics.padded_neg_log_perplexity_with_masking(
             tf.one_hot(predictions, depth=4, dtype=tf.float32),

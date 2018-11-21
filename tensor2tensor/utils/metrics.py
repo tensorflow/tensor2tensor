@@ -251,9 +251,9 @@ def padded_neg_log_perplexity_with_masking(
     features,
     weights_fn=None):
   del weights_fn
-  if "target_mask" not in features:
-    raise ValueError("masked_neg_log_perplexity requires target_mask feature")
-  mask_fn = lambda labels: features["target_mask"]
+  if "targets_mask" not in features:
+    raise ValueError("masked_neg_log_perplexity requires targets_mask feature")
+  mask_fn = lambda labels: features["targets_mask"]
   return padded_neg_log_perplexity(predictions, labels, mask_fn)
 
 
