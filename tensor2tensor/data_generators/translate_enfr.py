@@ -155,6 +155,10 @@ class TranslateEnfrWmt32kWithBacktranslateFr(TranslateEnfrWmt32k):
     return True
 
   @property
+  def skip_random_fraction_when_training(self):
+    return False
+
+  @property
   def backtranslate_data_filenames(self):
     """List of pairs of files with matched back-translated data."""
     # Files must be placed in tmp_dir, each similar size to authentic data.

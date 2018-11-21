@@ -316,6 +316,15 @@ class Problem(object):
     """
     return False
 
+  @property
+  def skip_random_fraction_when_training(self):
+    """Skip a random number of examples at the beginning of training."""
+    # Skip a random fraction at the beginning of the stream.  The skip is
+    # essential for synchronous highly-parallel training to avoid multiple
+    # replicas reading the same data in lock-step. So keep this true unless
+    # you have a very specific setting in which it needs to be turned off.
+    return True
+
   def dataset_filename(self):
     return self.name
 
@@ -871,7 +880,7 @@ class Problem(object):
       # Repeat and skip a random number of records
       dataset = dataset.repeat()
 
-    if is_training:
+    if is_training and self.skip_random_fraction_when_training:
       data_files = tf.contrib.slim.parallel_reader.get_data_files(
           self.filepattern(data_dir, mode))
       #  In continuous_train_and_eval when switching between train and
