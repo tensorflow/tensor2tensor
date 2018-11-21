@@ -112,7 +112,7 @@ class VideoBairRobotPushing(video_utils.VideoProblem):
 
     for f in filenames:
       print("Parsing ", f)
-      for serialized_example in tf.python_io.tf_record_iterator(f):
+      for serialized_example in tf.compat.v1.io.tf_record_iterator(f):
         x = tf.train.Example()
         x.ParseFromString(serialized_example)
         # there are 4 features per frame
@@ -176,4 +176,3 @@ class VideoBairRobotPushingWithActions(VideoBairRobotPushing):
         "action": tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="action"),
     }
     return data_fields, decoders
-

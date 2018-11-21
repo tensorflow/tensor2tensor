@@ -83,7 +83,7 @@ class VideoGoogleRobotPushing(video_utils.VideoProblem):
     action_key = "move/{}/commanded_pose/vec_pitch_yaw"
     state_key = "move/{}/endeffector/vec_pitch_yaw"
 
-    for serialized_example in tf.python_io.tf_record_iterator(filename):
+    for serialized_example in tf.compat.v1.io.tf_record_iterator(filename):
       x = tf.train.Example()
       x.ParseFromString(serialized_example)
       # there are 6 features per frame

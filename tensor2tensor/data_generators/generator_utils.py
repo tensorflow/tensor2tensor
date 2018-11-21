@@ -464,7 +464,7 @@ def get_or_generate_txt_vocab(data_dir, vocab_filename, vocab_size,
 
 
 def read_records(filename):
-  reader = tf.python_io.tf_record_iterator(filename)
+  reader = tf.compat.v1.io.tf_record_iterator(filename)
   records = []
   for record in reader:
     records.append(record)
