@@ -141,20 +141,21 @@ class BatchDQNAgent(_DQNAgent):
     super(BatchDQNAgent, self).__init__(*args, **kwargs)
     self.env_batch_size = env_batch_size
     obs_size = NATURE_DQN_OBSERVATION_SHAPE
-    state_shape = [self.env_batch_size, 1, obs_size, obs_size,
+    state_shape = [self.env_batch_size, obs_size, obs_size,
                    NATURE_DQN_STACK_SIZE]
     self.state_batch = np.zeros(state_shape)
     self.state = None  # assure it will be not used
-    self._current_rollouts = [] * self.env_batch_size
+    self._observation = None  # assure it will be not used
+    self._current_rollouts = [[] for _ in range(self.env_batch_size)]
 
   def _record_observation(self, observation_batch):
-    # Set current observation. Represents an batch_size x 84 x 84 x 1 image
+    # Set current observation. Represents an (batch_size x 84 x 84 x 1) image
     # frame.
     observation_batch = np.array(observation_batch)
     self._observation_batch = observation_batch[:, :, :, 0]
     # Swap out the oldest frames with the current frames.
-    self.state_batch = np.roll(self.state_batch, -1, axis=4)
-    self.state_batch[:, 0, :, :, -1] = self._observation
+    self.state_batch = np.roll(self.state_batch, -1, axis=3)
+    self.state_batch[:, :, :, -1] = self._observation_batch
 
   def _reset_state(self):
     self.state_batch.fill(0)
@@ -195,7 +196,7 @@ class BatchDQNAgent(_DQNAgent):
 
   def end_episode(self, reward):
     if not self.eval_mode:
-      self._update_current_rollouts(self._observation, self.action, reward,
+      self._update_current_rollouts(self._observation_batch, self.action, reward,
                                     [True] * self.env_batch_size)
       self._store_current_rollouts()
 
@@ -213,7 +214,7 @@ class BatchDQNAgent(_DQNAgent):
       else:
         # Choose the action with highest Q-value at the current state.
         return self._sess.run(self._q_argmax,
-                              {self.state_ph: self.state_batch[ix]})
+                              {self.state_ph: self.state_batch[ix:ix+1]})
 
     return np.array([choose_action(ix) for ix in range(self.env_batch_size)])
 
@@ -257,6 +258,7 @@ class BatchRunner(run_experiment.Runner):
                        'Returns: {}\r'.format(episode_returns))
       sys.stdout.flush()
     return step_count, sum_returns, num_episodes
+
 
 class _OutOfGraphReplayBuffer(OutOfGraphReplayBuffer):
   """Replay not sampling artificial_terminal transition.
