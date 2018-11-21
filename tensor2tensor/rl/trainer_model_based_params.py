@@ -277,6 +277,18 @@ def rlmb_base_stochastic_discrete():
 
 
 @registry.register_hparams
+def rlmb_long_stochastic_discrete():
+  """Long setting with stochastic discrete model."""
+  hparams = rlmb_base()
+  hparams.learning_rate_bump = 1.0
+  hparams.grayscale = False
+  hparams.generative_model = "next_frame_basic_stochastic_discrete"
+  hparams.generative_model_params = "next_frame_basic_stochastic_discrete_long"
+  hparams.ppo_epochs_num = 2000
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_base_stochastic_recurrent():
   """Base setting with recurrent model."""
   hparams = rlmb_base()

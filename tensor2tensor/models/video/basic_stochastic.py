@@ -270,6 +270,15 @@ def next_frame_basic_stochastic_discrete():
   return hparams
 
 
+@registry.register_hparams
+def next_frame_basic_stochastic_discrete_long():
+  """Conv model with stochastic discrete latent, long predictions."""
+  hparams = next_frame_basic_stochastic_discrete()
+  hparams.batch_size = 2
+  hparams.video_num_target_frames = 16
+  return hparams
+
+
 @registry.register_ranged_hparams
 def next_frame_stochastic_discrete_range(rhp):
   """Next frame stochastic discrete tuning grid."""
