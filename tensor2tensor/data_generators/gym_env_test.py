@@ -164,7 +164,7 @@ class GymEnvTest(tf.test.TestCase):
     self.assertTrue(filenames)
     for filename in filenames:
       path = os.path.join(self.out_dir, filename)
-      records = list(tf.compat.v1.io.tf_record_iterator(path))
+      records = list(tf.python_io.tf_record_iterator(path))
       self.assertTrue(records)
 
   def test_shards_per_epoch(self):
@@ -197,10 +197,12 @@ class GymEnvTest(tf.test.TestCase):
     )
 
     frame_numbers = [
-        tf.train.Example.FromString(record).features.feature["frame_number"]
-        .int64_list.value[0]
-        for (_, paths) in env.splits_and_paths(self.out_dir) for path in paths
-        for record in tf.compat.v1.io.tf_record_iterator(path)
+        tf.train.Example.FromString(
+            record
+        ).features.feature["frame_number"].int64_list.value[0]
+        for (_, paths) in env.splits_and_paths(self.out_dir)
+        for path in paths
+        for record in tf.python_io.tf_record_iterator(path)
     ]
     last_frame_number = -1
     for frame_number in frame_numbers:

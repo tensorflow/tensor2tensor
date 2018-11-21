@@ -534,7 +534,7 @@ class T2TEnv(EnvSimulationProblem):
 
     for path in paths:
       this_shard_empty = True
-      for example in tf.compat.v1.io.tf_record_iterator(path):
+      for example in tf.python_io.tf_record_iterator(path):
         this_shard_empty = False
 
         result = tf.train.Example.FromString(example)

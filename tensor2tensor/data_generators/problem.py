@@ -169,7 +169,7 @@ def _file_num_records_cached(filename):
   if filename in _file_num_records_cache:
     return _file_num_records_cache[filename]
   ret = 0
-  for _ in tf.compat.v1.io.tf_record_iterator(filename):
+  for _ in tf.python_io.tf_record_iterator(filename):
     ret += 1
   _file_num_records_cache[filename] = ret
   return ret
