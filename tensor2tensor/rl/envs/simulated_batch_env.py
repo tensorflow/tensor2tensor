@@ -93,8 +93,8 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
 
   def __init__(
       self, reward_range, observation_space, action_space, frame_stack_size,
-      initial_frame_chooser, batch_size, model_name, model_hparams, model_dir,
-      intrinsic_reward_scale=0.0
+      frame_height, frame_width, initial_frame_chooser, batch_size, model_name,
+      model_hparams, model_dir, intrinsic_reward_scale=0.0
   ):
     """Batch of environments inside the TensorFlow graph."""
     super(SimulatedBatchEnv, self).__init__(observation_space, action_space)
@@ -105,7 +105,8 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     self._intrinsic_reward_scale = intrinsic_reward_scale
 
     model_hparams = copy.copy(model_hparams)
-    problem = DummyWorldModelProblem(action_space, reward_range)
+    problem = DummyWorldModelProblem(action_space, reward_range,
+                                     frame_height, frame_width)
     trainer_lib.add_problem_hparams(model_hparams, problem)
     model_hparams.force_full_predict = True
     self._model = registry.model(model_name)(

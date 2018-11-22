@@ -1600,9 +1600,6 @@ def weights_multi_problem(labels, taskid=-1):
   Raises:
     ValueError: The Task ID must be valid.
   """
-  if taskid < 0:
-    raise ValueError("Task ID must be non-negative.")
-
   past_taskid = tf.cumsum(tf.to_float(tf.equal(labels, taskid)), axis=1)
   # Additionally zero out the task id location
   past_taskid *= tf.to_float(tf.not_equal(labels, taskid))

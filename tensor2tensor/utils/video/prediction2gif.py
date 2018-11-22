@@ -99,6 +99,7 @@ def main(_):
         "inputs": tf.placeholder(tf.float32, input_size + frame_shape),
         "input_action": tf.placeholder(tf.int64, input_size + [1]),
         "input_reward": tf.placeholder(tf.int64, input_size + [1]),
+        "reset_internal_states": tf.placeholder(tf.float32, []),
     }
   # Create model.
   model_cls = registry.model(FLAGS.model)
@@ -116,7 +117,7 @@ def main(_):
   writer = common_video.WholeVideoWriter(
       fps=FLAGS.fps, output_path=FLAGS.output_gif)
 
-  saver = tf.train.Saver()
+  saver = tf.train.Saver(tf.trainable_variables())
   with tf.train.SingularMonitoredSession() as sess:
     # Load latest checkpoint
     ckpt = tf.train.get_checkpoint_state(FLAGS.output_dir).model_checkpoint_path
@@ -171,6 +172,7 @@ def main(_):
             placeholders["inputs"]: inputs,
             placeholders["input_action"]: input_action,
             placeholders["input_reward"]: input_reward,
+            placeholders["reset_internal_states"]: float(step == 0),
         }
       predictions = sess.run(prediction_ops, feed_dict=feed)
 
@@ -191,8 +193,7 @@ def main(_):
 
       writer.write(np.round(predicted_states[0]).astype(np.uint8))
 
-    video = writer.finish()
-    writer.save_to_disk(video)
+    writer.finish_to_disk()
 
 if __name__ == "__main__":
   tf.app.run()

@@ -81,7 +81,6 @@ class NextFrameBaseVae(object):
     enumerated_inputs = enumerate(zip(means, log_vars, means_p, log_vars_p))
     if self.is_training and self.hparams.stochastic_model:
       for i, (mean, log_var, mean_p, log_var_p) in enumerated_inputs:
-        # Condition to compute kl divergence with learned prior
         kl_loss += common_layers.kl_divergence(mean, log_var, mean_p, log_var_p)
         tf.summary.histogram("posterior_mean_%d" % i, mean)
         tf.summary.histogram("posterior_log_var_%d" % i, log_var)

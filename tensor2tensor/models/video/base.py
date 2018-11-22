@@ -646,7 +646,7 @@ class NextFrameBase(t2t_model.T2TModel):
         reset = tf.greater(tf.reduce_sum(reset), 0.5)
         reset_ops = tf.cond(reset, reset_func, tf.no_op)
       else:
-        reset_ops = reset_func()
+        reset_ops = tf.no_op()
       with tf.control_dependencies([reset_ops]):
         frames[0] = tf.identity(frames[0])
 

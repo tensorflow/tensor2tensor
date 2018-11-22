@@ -431,7 +431,7 @@ class NextFrameSAVP(NextFrameSavpBase, sv2p.NextFrameSv2pLegacy):
         all_action = tf.concat([action, action], axis=0)
         all_rewards = tf.concat([reward, reward], axis=0)
 
-        all_pred_images, lstm_state = self.construct_predictive_tower(
+        all_pred_images, lstm_state, _ = self.construct_predictive_tower(
             all_image, all_rewards, all_action, lstm_state, all_latents,
             concat_latent=True)
 

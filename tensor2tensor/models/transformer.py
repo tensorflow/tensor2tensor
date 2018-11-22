@@ -86,7 +86,8 @@ class Transformer(t2t_model.T2TModel):
 
     mlperf_log.transformer_print(
         key=mlperf_log.MODEL_HP_LAYER_POSTPROCESS_DROPOUT,
-        value=hparams.layer_prepostprocess_dropout)
+        value=hparams.layer_prepostprocess_dropout,
+        hparams=hparams)
 
     encoder_input = tf.nn.dropout(encoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
@@ -136,7 +137,8 @@ class Transformer(t2t_model.T2TModel):
     """
     mlperf_log.transformer_print(
         key=mlperf_log.MODEL_HP_LAYER_POSTPROCESS_DROPOUT,
-        value=hparams.layer_prepostprocess_dropout)
+        value=hparams.layer_prepostprocess_dropout,
+        hparams=hparams)
     decoder_input = tf.nn.dropout(decoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
 
@@ -802,7 +804,8 @@ def fast_decode_tpu(encoder_output,
           "beam_size": beam_size,
           "alpha": alpha,
           "max_decode_length": decode_length
-      })
+      },
+      hparams=hparams)
   if beam_size > 1:  # Beam Search
     initial_ids = sos_id * tf.ones([batch_size], dtype=tf.int32)
     decoded_ids, scores = beam_search.beam_search(
@@ -1222,17 +1225,20 @@ def transformer_decoder(decoder_input,
 
   mlperf_log.transformer_print(
       key=mlperf_log.MODEL_HP_NUM_HIDDEN_LAYERS,
-      value=hparams.num_decoder_layers or hparams.num_hidden_layers)
+      value=hparams.num_decoder_layers or hparams.num_hidden_layers,
+      hparams=hparams)
   mlperf_log.transformer_print(
       key=mlperf_log.MODEL_HP_ATTENTION_DROPOUT,
-      value=hparams.attention_dropout)
+      value=hparams.attention_dropout,
+      hparams=hparams)
   mlperf_log.transformer_print(
       key=mlperf_log.MODEL_HP_ATTENTION_DENSE,
       value={
           "use_bias": "false",
           "num_heads": hparams.num_heads,
           "hidden_size": hparams.hidden_size
-      })
+      },
+      hparams=hparams)
 
   with tf.variable_scope(name):
     for layer in range(hparams.num_decoder_layers or hparams.num_hidden_layers):
@@ -1299,7 +1305,8 @@ def transformer_decoder(decoder_input,
     # a whole stack of unnormalized layer outputs.
     mlperf_log.transformer_print(
         key=mlperf_log.MODEL_HP_NORM,
-        value={"hidden_size": hparams.hidden_size})
+        value={"hidden_size": hparams.hidden_size},
+        hparams=hparams)
     return common_layers.layer_preprocess(x, hparams)
 
 
@@ -1360,6 +1367,10 @@ def transformer_base_v1():
   hparams.add_hparam("moe_overhead_eval", 2.0)
   hparams.moe_num_experts = 16
   hparams.moe_loss_coef = 1e-3
+  # If specified, use this value instead of problem name in metrics.py.
+  # This is useful for programs that can automatically compare experiments side
+  #   by side based on the same metric names.
+  hparams.add_hparam("overload_eval_metric_name", "")
   return hparams
 
 
@@ -1964,6 +1975,7 @@ def transformer_timeseries():
 def transformer_mlperf_tpu():
   """HParams for Transformer model on TPU for MLPerf on TPU 2x2."""
   hparams = transformer_base_v3()
+  hparams.mlperf_mode = True
   hparams.symbol_modality_num_shards = 1
   hparams.max_length = 256  # ignored when using "_packed" problems
   hparams.batch_size = 2048  # per-chip batch size matches the reference model

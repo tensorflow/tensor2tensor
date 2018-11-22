@@ -41,6 +41,7 @@ from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import trainer_model_based_params
+from tensor2tensor.rl.dopamine_connector import DQNLearner
 from tensor2tensor.rl.ppo_learner import PPOLearner
 from tensor2tensor.utils import trainer_lib
 
@@ -52,7 +53,8 @@ FLAGS = flags.FLAGS
 
 
 LEARNERS = {
-    "ppo": PPOLearner
+    "ppo": PPOLearner,
+    "dqn": DQNLearner,
 }
 
 
@@ -143,6 +145,7 @@ def make_simulated_env_fn(
       observation_space=real_env.observation_space,
       action_space=real_env.action_space,
       frame_stack_size=hparams.frame_stack_size,
+      frame_height=real_env.frame_height, frame_width=real_env.frame_width,
       initial_frame_chooser=initial_frame_chooser, batch_size=batch_size,
       model_name=hparams.generative_model,
       model_hparams=trainer_lib.create_hparams(hparams.generative_model_params),
@@ -580,7 +583,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       if report_fn:
         if report_metric == "mean_reward":
           metric_name = get_metric_name(
-              stochastic=False, max_num_noops=hparams.eval_max_num_noops,
+              stochastic=True, max_num_noops=hparams.eval_max_num_noops,
               clipped=False
           )
           report_fn(eval_metrics[metric_name], epoch)

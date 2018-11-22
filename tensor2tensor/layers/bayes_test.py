@@ -240,6 +240,37 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     self.assertLen(model.losses, 2)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testBayesianLinearModel(self):
+    """Tests that model makes reasonable predictions."""
+    np.random.seed(42)
+    train_batch_size = 5
+    test_batch_size = 2
+    num_features = 3
+    noise_variance = 0.01
+    coeffs = tf.range(num_features, dtype=tf.float32)
+    features = tf.to_float(np.random.randn(train_batch_size, num_features))
+    labels = (tf.tensordot(features, coeffs, [[-1], [0]])
+              + noise_variance * tf.to_float(np.random.randn(train_batch_size)))
+
+    model = bayes.BayesianLinearModel(noise_variance=noise_variance)
+    model.fit(features, labels)
+
+    test_features = tf.to_float(np.random.randn(test_batch_size, num_features))
+    test_labels = tf.tensordot(test_features, coeffs, [[-1], [0]])
+    outputs = model(test_features)
+    test_predictions = outputs.distribution.mean()
+    test_predictions_variance = outputs.distribution.variance()
+
+    [
+        test_labels_val, test_predictions_val, test_predictions_variance_val,
+    ] = self.evaluate(
+        [test_labels, test_predictions, test_predictions_variance])
+    self.assertEqual(test_predictions_val.shape, (test_batch_size,))
+    self.assertEqual(test_predictions_variance_val.shape, (test_batch_size,))
+    self.assertAllClose(test_predictions_val, test_labels_val, atol=0.1)
+    self.assertAllLessEqual(test_predictions_variance_val, noise_variance)
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testMixtureLogistic(self):
     batch_size = 3
     features = tf.to_float(np.random.rand(batch_size, 4))

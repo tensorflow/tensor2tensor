@@ -86,7 +86,7 @@ def _get_attention(inp_text, out_text, enc_atts, dec_atts, encdec_atts):
     dec_atts: numpy array, decoder self-attentions
         [num_layers, batch_size, num_heads, dec_length, dec_length]
     encdec_atts: numpy array, encoder-decoder attentions
-        [num_layers, batch_size, num_heads, enc_length, dec_length]
+        [num_layers, batch_size, num_heads, dec_length, enc_length]
 
   Returns:
     Dictionary of attention representations with the structure:

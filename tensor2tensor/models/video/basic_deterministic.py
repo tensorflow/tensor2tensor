@@ -61,6 +61,11 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
           x = common_layers.layer_norm(x + y)
     return x, internal_states
 
+  def update_internal_states_early(self, internal_states, frames):
+    """Update the internal states early in the network if requested."""
+    del frames
+    return internal_states
+
   def next_frame(self, frames, actions, rewards, target_frame,
                  internal_states, video_extra):
     del rewards, video_extra
@@ -70,9 +75,21 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     kernel2 = (4, 4)
     action = actions[-1]
 
-    # Embed the inputs.
-    stacked_frames = tf.concat(frames, axis=-1)
+    # Stack the inputs.
+    if internal_states is not None and hparams.concat_internal_states:
+      # Use the first part of the first internal state if asked to concatenate.
+      batch_size = common_layers.shape_list(frames[0])[0]
+      internal_state = internal_states[0][0][:batch_size, :, :, :]
+      stacked_frames = tf.concat(frames + [internal_state], axis=-1)
+    else:
+      stacked_frames = tf.concat(frames, axis=-1)
     inputs_shape = common_layers.shape_list(stacked_frames)
+
+    # Update internal states early if requested.
+    if hparams.concat_internal_states:
+      internal_states = self.update_internal_states_early(
+          internal_states, frames)
+
     # Using non-zero bias initializer below for edge cases of uniform inputs.
     x = tf.layers.dense(
         stacked_frames, filters, name="inputs_embed",

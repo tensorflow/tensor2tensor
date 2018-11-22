@@ -62,6 +62,7 @@ def next_frame_basic_recurrent():
   hparams.hidden_size = 64
   hparams.video_num_input_frames = 4
   hparams.video_num_target_frames = 4
+  hparams.concat_internal_states = False
   hparams.add_hparam("num_lstm_layers", 2)
   hparams.add_hparam("num_lstm_filters", 256)
   return hparams

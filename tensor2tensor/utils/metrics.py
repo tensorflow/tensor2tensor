@@ -39,6 +39,7 @@ class Metrics(object):
   ACC_PER_SEQ = "accuracy_per_sequence"
   ACC_MULTILABEL_MATCH3 = "accuracy_multilabel_match3"
   NEG_LOG_PERPLEXITY = "neg_log_perplexity"
+  MASKED_NEG_LOG_PERPLEXITY = "masked_neg_log_perplexity"
   APPROX_BLEU = "approx_bleu_score"
   RMSE = "rmse"
   LOG_POISSON = "log_poisson"
@@ -242,6 +243,18 @@ def padded_neg_log_perplexity(predictions,
   num, den = common_layers.padded_cross_entropy(
       predictions, labels, 0.0, weights_fn=weights_fn, reduce_sum=False)
   return (-num, den)
+
+
+def padded_neg_log_perplexity_with_masking(
+    predictions,
+    labels,
+    features,
+    weights_fn=None):
+  del weights_fn
+  if "targets_mask" not in features:
+    raise ValueError("masked_neg_log_perplexity requires targets_mask feature")
+  mask_fn = lambda labels: features["targets_mask"]
+  return padded_neg_log_perplexity(predictions, labels, mask_fn)
 
 
 def dmol_neg_log_perplexity(predictions,
@@ -574,6 +587,8 @@ def create_evaluation_metrics(problems, model_hparams):
   eval_metrics = dict()
   for problem_instance in problems:
     problem_name = problem_instance.name
+    if problem_instance.was_reversed:
+      problem_name += "_rev"
     metrics = problem_instance.eval_metrics()
     if hasattr(model_hparams.problem, "task_list"):
       metrics = model_hparams.problem.eval_metrics()
@@ -596,7 +611,13 @@ def create_evaluation_metrics(problems, model_hparams):
 
       for metric in metrics:
         metric_fn = METRICS_FNS[metric]
-        metric_name = "metrics-%s/%s/%s" % (problem_name, target_name, metric)
+        overload_eval_metric_name = getattr(
+            model_hparams, "overload_eval_metric_name", None)
+        if len(problems) == 1 and overload_eval_metric_name:
+          metric_name = "metrics-%s/%s/%s" % (
+              overload_eval_metric_name, target_name, metric)
+        else:
+          metric_name = "metrics-%s/%s/%s" % (problem_name, target_name, metric)
         if metric == Metrics.IMAGE_SUMMARY:
           eval_metrics[metric_name] = make_image_wrapped_metric_fn(metric_fn)
         else:
@@ -659,6 +680,7 @@ METRICS_FNS = {
     Metrics.ACC_PER_SEQ: padded_sequence_accuracy,
     Metrics.ACC_MULTILABEL_MATCH3: multilabel_accuracy_match3,
     Metrics.NEG_LOG_PERPLEXITY: padded_neg_log_perplexity,
+    Metrics.MASKED_NEG_LOG_PERPLEXITY: padded_neg_log_perplexity_with_masking,
     Metrics.APPROX_BLEU: bleu_hook.bleu_score,
     Metrics.RMSE: padded_rmse,
     Metrics.LOG_POISSON: padded_log_poisson,

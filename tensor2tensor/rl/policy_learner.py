@@ -33,6 +33,7 @@ class PolicyLearner(object):
       num_env_steps=None, env_step_multiplier=1, eval_env_fn=None,
       report_fn=None
   ):
+    # TODO(konradczechowski): pass name_scope instead of epoch?
     # TODO(konradczechowski): move 'simulated' to  batch_env
     raise NotImplementedError()
 

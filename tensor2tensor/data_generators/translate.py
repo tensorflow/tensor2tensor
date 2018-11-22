@@ -88,7 +88,7 @@ def compute_bleu_summaries(hook_args):
       decode_hparams.decode_reference, decode_hparams.decode_to_file)
   values.append(tf.Summary.Value(tag="BLEU", simple_value=bleu))
   tf.logging.info("%s: BLEU = %6.2f" % (decode_hparams.decode_to_file, bleu))
-  if decode_hparams.mlperf_mode:
+  if hook_args.hparams.mlperf_mode:
     current_step = decode_hparams.mlperf_decode_step
     mlperf_log.transformer_print(
         key=mlperf_log.EVAL_TARGET, value=decode_hparams.mlperf_threshold)

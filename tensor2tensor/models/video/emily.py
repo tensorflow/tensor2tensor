@@ -44,12 +44,13 @@ tfcl = tf.contrib.layers
 class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
   """Stochastic Variational Video Prediction Without Learned Prior."""
 
-  def encoder(self, inputs, nout):
+  def encoder(self, inputs, nout, has_batchnorm=True):
     """VGG based image encoder.
 
     Args:
       inputs: image tensor with size BSx64x64xC
       nout: number of output channels
+      has_batchnorm: variable to use or not use batch normalization
     Returns:
       net: encoded image with size BSxNout
       skips: skip connection after each layer
@@ -72,7 +73,8 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
     ds_idx = 0
     while res_x > 64:
       h = tfcl.repeat(net01, 2, vgg_layer, 64, scope="downscale%d" % ds_idx,
-                      is_training=self.is_training)
+                      is_training=self.is_training, activation=tf.nn.relu,
+                      has_batchnorm=has_batchnorm)
       net01 = tfl.max_pooling2d(h, [2, 2], strides=(2, 2),
                                 name="downscale%d_pool" % ds_idx)
       skips.append(h)
@@ -81,34 +83,41 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
 
     # h1
     net11 = tfcl.repeat(net01, 2, vgg_layer, 64,
-                        scope="h1", is_training=self.is_training)
+                        scope="h1", is_training=self.is_training,
+                        activation=tf.nn.relu, has_batchnorm=has_batchnorm)
     net12 = tfl.max_pooling2d(net11, [2, 2], strides=(2, 2), name="h1_pool")
     # h2
     net21 = tfcl.repeat(net12, 2, vgg_layer, 128,
-                        scope="h2", is_training=self.is_training)
+                        scope="h2", is_training=self.is_training,
+                        activation=tf.nn.relu, has_batchnorm=has_batchnorm)
     net22 = tfl.max_pooling2d(net21, [2, 2], strides=(2, 2), name="h2_pool")
     # h3
     net31 = tfcl.repeat(net22, 3, vgg_layer, 256,
-                        scope="h3", is_training=self.is_training)
+                        scope="h3", is_training=self.is_training,
+                        activation=tf.nn.relu, has_batchnorm=has_batchnorm)
     net32 = tfl.max_pooling2d(net31, [2, 2], strides=(2, 2), name="h3_pool")
     # h4
     net41 = tfcl.repeat(net32, 3, vgg_layer, 512,
-                        scope="h4", is_training=self.is_training)
+                        scope="h4", is_training=self.is_training,
+                        activation=tf.nn.relu, has_batchnorm=has_batchnorm)
     net42 = tfl.max_pooling2d(net41, [2, 2], strides=(2, 2), name="h4_pool")
     # h5
     net51 = tfcl.repeat(net42, 1, vgg_layer, nout,
-                        kernel_size=4, padding="VALID", activation=tf.tanh,
-                        scope="h5", is_training=self.is_training)
+                        kernel_size=4, padding="VALID", activation=tf.nn.relu,
+                        scope="h5", is_training=self.is_training,
+                        has_batchnorm=has_batchnorm)
+
     skips += [net11, net21, net31, net41]
     return net51, skips
 
-  def decoder(self, inputs, skips, nout):
+  def decoder(self, inputs, nout, skips=None, has_batchnorm=True):
     """VGG based image decoder.
 
     Args:
       inputs: image tensor with size BSxX
-      skips: skip connections from encoder
       nout: number of output channels
+      skips: optional skip connections from encoder
+      has_batchnorm: variable to use or not use batch normalization
     Returns:
       net: decoded image with size BSx64x64xNout
       skips: skip connection after each layer
@@ -117,37 +126,60 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
     net = inputs
     # d1
     net = tfl.conv2d_transpose(net, 512, kernel_size=4, padding="VALID",
-                               name="d1_deconv", activation=None)
-    net = tfl.batch_normalization(net, training=self.is_training, name="d1_bn")
-    net = tf.nn.leaky_relu(net)
+                               name="d1_deconv", activation=tf.nn.relu)
+    if has_batchnorm:
+      net = tfl.batch_normalization(
+          net, training=self.is_training, name="d1_bn")
+    net = tf.nn.relu(net)
     net = common_layers.upscale(net, 2)
     # d2
-    net = tf.concat([net, skips[-1]], axis=3)
-    net = tfcl.repeat(net, 2, vgg_layer, 512, scope="d2a")
-    net = tfcl.repeat(net, 1, vgg_layer, 256, scope="d2b")
+    if skips is not None:
+      net = tf.concat([net, skips[-1]], axis=3)
+    net = tfcl.repeat(net, 2, vgg_layer, 512, scope="d2a",
+                      is_training=self.is_training,
+                      activation=tf.nn.relu, has_batchnorm=has_batchnorm)
+    net = tfcl.repeat(net, 1, vgg_layer, 256, scope="d2b",
+                      is_training=self.is_training,
+                      activation=tf.nn.relu, has_batchnorm=has_batchnorm)
     net = common_layers.upscale(net, 2)
     # d3
-    net = tf.concat([net, skips[-2]], axis=3)
-    net = tfcl.repeat(net, 2, vgg_layer, 256, scope="d3a")
-    net = tfcl.repeat(net, 1, vgg_layer, 128, scope="d3b")
+    if skips is not None:
+      net = tf.concat([net, skips[-2]], axis=3)
+    net = tfcl.repeat(net, 2, vgg_layer, 256, scope="d3a",
+                      is_training=self.is_training,
+                      activation=tf.nn.relu, has_batchnorm=has_batchnorm)
+    net = tfcl.repeat(net, 1, vgg_layer, 128, scope="d3b",
+                      is_training=self.is_training,
+                      activation=tf.nn.relu, has_batchnorm=has_batchnorm)
     net = common_layers.upscale(net, 2)
     # d4
-    net = tf.concat([net, skips[-3]], axis=3)
-    net = tfcl.repeat(net, 1, vgg_layer, 128, scope="d4a")
-    net = tfcl.repeat(net, 1, vgg_layer, 64, scope="d4b")
+    if skips is not None:
+      net = tf.concat([net, skips[-3]], axis=3)
+    net = tfcl.repeat(net, 1, vgg_layer, 128, scope="d4a",
+                      is_training=self.is_training,
+                      activation=tf.nn.relu, has_batchnorm=has_batchnorm)
+    net = tfcl.repeat(net, 1, vgg_layer, 64, scope="d4b",
+                      is_training=self.is_training,
+                      activation=tf.nn.relu, has_batchnorm=has_batchnorm)
     net = common_layers.upscale(net, 2)
     # d5
-    net = tf.concat([net, skips[-4]], axis=3)
-    net = tfcl.repeat(net, 1, vgg_layer, 64, scope="d5")
+    if skips is not None:
+      net = tf.concat([net, skips[-4]], axis=3)
+    net = tfcl.repeat(net, 1, vgg_layer, 64, scope="d5",
+                      is_training=self.is_training,
+                      activation=tf.nn.relu, has_batchnorm=has_batchnorm)
 
-    # if there are still skip connections left, we have more downscaling to do
-    for i, s in enumerate(skips[-5::-1]):
-      net = common_layers.upscale(net, 2)
-      net = tf.concat([net, s], axis=3)
-      net = tfcl.repeat(net, 1, vgg_layer, 64, scope="upscale%d" % i)
+    # if there are still skip connections left, we have more upscaling to do
+    if skips is not None:
+      for i, s in enumerate(skips[-5::-1]):
+        net = common_layers.upscale(net, 2)
+        net = tf.concat([net, s], axis=3)
+        net = tfcl.repeat(net, 1, vgg_layer, 64, scope="upscale%d" % i,
+                          is_training=self.is_training,
+                          activation=tf.nn.relu, has_batchnorm=has_batchnorm)
 
     net = tfl.conv2d_transpose(net, nout, kernel_size=3, padding="SAME",
-                               name="d6_deconv", activation=tf.sigmoid)
+                               name="d6_deconv", activation=None)
     return net
 
   def stacked_lstm(self, inputs, states, hidden_size, output_size, nlayers):
@@ -229,6 +261,7 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
     posterior_rnn_layers = self.hparams.posterior_rnn_layers
     predictor_rnn_layers = self.hparams.predictor_rnn_layers
     context_frames = self.hparams.video_num_input_frames
+    has_batchnorm = self.hparams.has_batchnorm
 
     seq_len, batch_size, _, _, color_channels = common_layers.shape_list(images)
 
@@ -242,7 +275,7 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
     images = tf.unstack(images, axis=0)
     for i, image in enumerate(images):
       with tf.variable_scope("encoder", reuse=tf.AUTO_REUSE):
-        enc, skips = self.encoder(image, rnn_size)
+        enc, skips = self.encoder(image, rnn_size, has_batchnorm=has_batchnorm)
         enc = tfcl.flatten(enc)
         enc_images.append(enc)
         enc_skips.append(skips)
@@ -286,7 +319,9 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
         skip_index = min(context_frames-1, i)
 
         h_pred = tf.reshape(pred_enc[i], [batch_size, 1, 1, g_dim])
-        x_pred = self.decoder(h_pred, enc_skips[skip_index], color_channels)
+        x_pred = self.decoder(
+            h_pred, color_channels, enc_skips[skip_index],
+            has_batchnorm=has_batchnorm)
         gen_images.append(x_pred)
 
     tf.logging.info(">>>> Done")
@@ -298,11 +333,27 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
 def next_frame_emily():
   """Emily's model hparams."""
   hparams = sv2p_params.next_frame_sv2p()
-  hparams.latent_loss_multiplier = 1e-4
+  hparams.video_num_input_frames = 2
+  hparams.video_num_target_frames = 10
   hparams.learning_rate_constant = 1e-4
+  seq_length = hparams.video_num_input_frames + hparams.video_num_target_frames
+  # The latent_loss_multiplier is divided by the number of frames because
+  # the image sequence loss in t2t is averaged instead of added through
+  # time as they do in the SVG-LP paper
+  hparams.latent_loss_multiplier = 1e-4 / seq_length
+  hparams.reward_prediction = False
+  hparams.num_iterations_1st_stage = -1
+  hparams.num_iterations_2nd_stage = -1
+  hparams.optimizer_adam_beta1 = 0.9
+  hparams.optimizer_adam_beta2 = 0.999
+  hparams.optimizer_adam_epsilon = 1e-08
+  hparams.anneal_end = -1
+  hparams.clip_grad_norm = 5.0
   hparams.add_hparam("z_dim", 10)
   hparams.add_hparam("g_dim", 128)
   hparams.add_hparam("rnn_size", 256)
   hparams.add_hparam("posterior_rnn_layers", 1)
   hparams.add_hparam("predictor_rnn_layers", 2)
+  hparams.add_hparam("has_skips", True)
+  hparams.add_hparam("has_batchnorm", True)
   return hparams
