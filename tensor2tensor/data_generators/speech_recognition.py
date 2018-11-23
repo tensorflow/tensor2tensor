@@ -139,4 +139,7 @@ class SpeechRecognitionProblem(problem.Problem):
 
   def eval_metrics(self):
     defaults = super(SpeechRecognitionProblem, self).eval_metrics()
-    return defaults + [metrics.Metrics.EDIT_DISTANCE]
+    return defaults + [
+      metrics.Metrics.EDIT_DISTANCE,
+      metrics.Metrics.WORD_ERROR_RATE
+    ]
