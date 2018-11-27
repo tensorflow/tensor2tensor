@@ -189,7 +189,10 @@ class BatchDQNAgent(_DQNAgent):
     if not self.eval_mode:
       self._update_current_rollouts(self._last_observation, self.action, reward,
                                     [False] * self.env_batch_size)
-      self._train_step()
+      # We want to have the same train_step:env_step ratio not depending on
+      # batch size.
+      for _ in range(self.env_batch_size):
+        self._train_step()
 
     self.action = self._select_action()
     return self.action
