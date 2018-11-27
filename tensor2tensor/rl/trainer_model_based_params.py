@@ -77,6 +77,8 @@ def _rlmb_base():
       # In your experiments, you want to optimize this rate to your schedule.
       learning_rate_bump=3.0,
 
+      wm_agent=False,
+
       # Batch size during evaluation. Metrics are averaged over this number of
       # rollouts.
       eval_max_num_noops=8,
@@ -136,6 +138,9 @@ def rlmb_ppo_base():
       # Number of frames that can be taken from the simulated environment before
       # it diverges, used for training the agent.
 
+      ppo_wm_params="next_frame_pixel_noise",
+      real_ppo_wm_params="next_frame_pixel_noise",
+
       ppo_epochs_num=1000,  # This should be enough to see something
       # Should be equal to simulated_rollout_length.
       # TODO(koz4k): Uncouple this by outputing done from SimulatedBatchEnv.
@@ -185,6 +190,13 @@ def rlmb_dqn_base():
 def rlmb_base_wm_agent():
   hparams = rlmb_base()
   hparams.base_algo_params = "ppo_world_model"
+  hparams.ppo_learning_rate = 0.3
+  hparams.ppo_wm_params = "next_frame_tiny"
+  hparams.add_hparam("ppo_optimizer", "Adafactor")
+  hparams.real_ppo_learning_rate = 0.3
+  hparams.real_ppo_wm_params = "next_frame_tiny"
+  hparams.add_hparam("real_ppo_optimizer", "Adafactor")
+  hparams.wm_agent = True
   return hparams
 
 
@@ -519,6 +531,11 @@ def rlmb_dqn_tiny():
 def rlmb_tiny_wm_agent():
   hparams = rlmb_tiny()
   hparams.base_algo_params = "ppo_world_model_tiny"
+  hparams.ppo_learning_rate = 0.3
+  hparams.ppo_wm_params = "next_frame_tiny"
+  hparams.real_ppo_learning_rate = 0.3
+  hparams.real_ppo_wm_params = "next_frame_tiny"
+  hparams.wm_agent = True
   return hparams
 
 

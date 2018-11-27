@@ -27,9 +27,17 @@ from tensor2tensor.rl import ppo
 from tensor2tensor.rl.envs.tf_atari_wrappers import StackWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import WrapperBase
 from tensor2tensor.rl.policy_learner import PolicyLearner
+from tensor2tensor.utils import learning_rate
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
+
+
+flags = tf.flags
+FLAGS = flags.FLAGS
+
+
+flags.DEFINE_bool("wm_agent", False, "WM agent")
 
 
 class PPOLearner(PolicyLearner):
@@ -63,6 +71,8 @@ class PPOLearner(PolicyLearner):
                              str(epoch) + simulated_str)
 
     with tf.Graph().as_default():
+      lr = tf.Variable(hparams.learning_rate, trainable=False)
+      hparams.learning_rate = lr
       with tf.name_scope(name_scope):
         with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
           env = env_fn(in_graph=True)
@@ -110,23 +120,25 @@ class PPOLearner(PolicyLearner):
             frame_stack_size=self.frame_stack_size,
             force_beginning_resets=False,
             policy_to_actions_lambda=policy_to_actions_lambda)
-        model_saver = tf.train.Saver(
-            tf.global_variables(".*network_parameters.*")
-        )
-        try:
-          wm_saver = tf.train.Saver(tf.global_variables(scope="next_frame.*"))
-          wm_dir = self.agent_model_dir + "/../world_model"
-        except ValueError:
-          wm_saver = None
+        if not FLAGS.wm_agent:
+          model_saver = tf.train.Saver(
+              tf.global_variables(".*network_parameters.*") +
+              tf.global_variables("global_step")
+          )
+        else:
+          print("Loading world model for agent")
+          model_saver = tf.train.Saver(
+              tf.global_variables(scope=".*next_frame.*") +
+              tf.global_variables("global_step") +
+              tf.global_variables("losses_avg.*") +
+              tf.global_variables("train_stats.*")
+          )
 
         with tf.Session() as sess:
           sess.run(tf.global_variables_initializer())
           collect_init(sess)
           trainer_lib.restore_checkpoint(self.agent_model_dir, model_saver,
                                          sess)
-          if wm_saver is not None:
-            n = trainer_lib.restore_checkpoint(wm_dir, wm_saver, sess)
-            print("Loaded world model checkpoint", n, "for policy")
           sess.run(collect_memory)
 
 
@@ -173,35 +185,101 @@ def _run_train(ppo_hparams,
   summary_writer = tf.summary.FileWriter(
       event_dir, graph=tf.get_default_graph(), flush_secs=60)
 
-  model_saver = tf.train.Saver(tf.global_variables(".*network_parameters.*"))
-  try:
-    wm_saver = tf.train.Saver(tf.global_variables(scope="next_frame.*"))
-    wm_dir = model_dir + "/../world_model"
-  except ValueError:
-    wm_saver = None
+  if not FLAGS.wm_agent:
+    model_saver = tf.train.Saver(
+        tf.global_variables(".*network_parameters.*") +
+        tf.global_variables("global_step")
+    )
+    model_params = trainer_lib.create_hparams(ppo_hparams.wm_params)
+  else:
+    tf.logging.info("Loading world model for agent")
+    model_saver = tf.train.Saver(
+        tf.global_variables(scope=".*next_frame.*") +
+        tf.global_variables("global_step") +
+        tf.global_variables("losses_avg.*") +
+        tf.global_variables("train_stats.*")
+    )
+    with open("vars_before", "w") as f:
+      for var in tf.global_variables(".*next_frame.*"):
+        f.write("{}\n".format(var.name))
+    model_params = trainer_lib.create_hparams(ppo_hparams.wm_params)
+
+  global_step = tf.train.get_or_create_global_step()
 
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
     for initializer in initializers:
       initializer(sess)
-    num_completed_iterations = trainer_lib.restore_checkpoint(
-        model_dir, model_saver, sess)
-    if wm_saver is not None:
-      n = trainer_lib.restore_checkpoint(wm_dir, wm_saver, sess)
-      print("Loaded world model checkpoint", n, "for policy")
+    total_it = trainer_lib.restore_checkpoint(model_dir, model_saver, sess)
+    tf.logging.info("Loaded agent checkpoint %d", total_it)
 
-    # Fail-friendly, complete only unfinished epoch
-    if num_target_iterations <= num_completed_iterations:
+    it_counter_path = os.path.join(model_dir, "agent_iteration_counter")
+
+    def read_counters():
+      try:
+        with open(it_counter_path, "r") as f:
+          return tuple(
+              int(counter) for counter in f.read().split(" ")
+          )
+      except FileNotFoundError:
+        return (0, -1)
+
+    def write_counters(*counters):
+      with open(it_counter_path, "w") as f:
+        f.write("{} {}".format(*counters))
+
+    (num_its_done, total_it_at_start) = read_counters()
+
+    num_its_to_go = num_target_iterations - num_its_done
+
+    if num_its_to_go <= 0:
       tf.logging.info(
           "Skipping PPO training. Requested %d iterations while %d train "
           "iterations already reached", num_target_iterations,
-          num_completed_iterations)
+          num_its_done
+      )
       return
 
-    for epoch_index in range(num_completed_iterations, num_target_iterations):
+    if total_it_at_start != -1:
+      # Restart.
+      num_its_done_this_epoch = total_it - total_it_at_start
+      tf.logging.info(
+          "Restarting training world model, %d steps already done this epoch",
+          num_its_done_this_epoch
+      )
+      num_its_to_go -= num_its_done_this_epoch
+    else:
+      write_counters(num_its_done, total_it)
+
+    #orig_lr = sess.run(ppo_hparams.learning_rate.read_value())
+    lr = learning_rate.learning_rate_schedule(model_params)
+    tf.logging.info("LR before policy training: %f", sess.run(lr))
+    update_lr_op = tf.assign(ppo_hparams.learning_rate, lr)
+    with tf.control_dependencies([update_lr_op]):
+      lr_summary = tf.summary.scalar(
+          "agent_lr", ppo_hparams.learning_rate.read_value()
+      )
+      train_summary_op = tf.summary.merge([train_summary_op, lr_summary])
+
+    tf.logging.info(
+        "Training policy up to %d, %d to go", num_target_iterations,
+        num_its_to_go
+    )
+
+    with open("vars_after", "w") as f:
+      for var in tf.global_variables(".*next_frame.*"):
+        f.write("{}\n".format(var.name))
+
+    for epoch_index in range(
+        num_target_iterations - num_its_to_go, num_target_iterations
+    ):
       summary = sess.run(train_summary_op)
       if summary_writer:
         summary_writer.add_summary(summary, epoch_index)
+      sess.run(tf.assign_add(global_step, 1))
+      tf.logging.info(
+          "Global step: %d", tf.train.global_step(sess, global_step)
+      )
 
       if (ppo_hparams.eval_every_epochs and
           epoch_index % ppo_hparams.eval_every_epochs == 0):
@@ -221,8 +299,11 @@ def _run_train(ppo_hparams,
            (epoch_index + 1) == num_target_iterations)):
         ckpt_path = os.path.join(
             model_dir,
-            "model.ckpt-{}".format(epoch_index + 1))
+            "model.ckpt-{}".format(tf.train.global_step(sess, global_step)))
         model_saver.save(sess, ckpt_path)
+
+    write_counters(num_its_done + num_its_to_go, -1)
+    tf.logging.info("LR after policy training: %f", sess.run(lr))
 
 
 def _rollout_metadata(batch_env):

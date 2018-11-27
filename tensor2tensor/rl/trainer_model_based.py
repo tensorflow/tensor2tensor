@@ -249,16 +249,71 @@ def train_world_model(
   if epoch > 0:
     model_hparams.learning_rate *= hparams.learning_rate_bump
 
+  def get_total_step():
+    checkpoint = tf.train.latest_checkpoint(output_dir)
+    if checkpoint:
+      return int(checkpoint.split("-")[-1])
+    else:
+      return 0
+
+  it_counter_path = os.path.join(output_dir, "wm_iteration_counter")
+
+  def read_counters():
+    try:
+      with open(it_counter_path, "r") as f:
+        return tuple(
+            int(counter) for counter in f.read().split(" ")
+        )
+    except FileNotFoundError:
+      return (0, -1)
+
+  def write_counters(*counters):
+    with open(it_counter_path, "w") as f:
+      f.write("{} {}".format(*counters))
+
+  total_step = get_total_step()
+  tf.logging.info("Will load world model checkpoint %d", total_step)
+
+  (num_wm_steps_done, total_step_at_start) = read_counters()
+
+  num_steps_to_go = world_model_steps_num - num_wm_steps_done
+  if num_steps_to_go <= 0:
+    tf.logging.info(
+        "Skipping training world model, requested %d, already done %d",
+        world_model_steps_num, num_wm_steps_done
+    )
+    return world_model_steps_num
+
+  if total_step_at_start != -1:
+    # Restart.
+    num_steps_done_this_epoch = total_step - total_step_at_start
+    tf.logging.info(
+        "Restarting training world model, %d steps already done this epoch",
+        num_steps_done_this_epoch
+    )
+    num_steps_to_go -= num_steps_done_this_epoch
+  else:
+    write_counters(num_wm_steps_done, total_step)
+
+  target_num_steps = total_step + num_steps_to_go
+
+  tf.logging.info(
+      "Training world model up to %d, %d to go", world_model_steps_num,
+      num_steps_to_go
+  )
+
   train_supervised(
       problem=env,
       model_name=hparams.generative_model,
       hparams=model_hparams,
       data_dir=data_dir,
       output_dir=output_dir,
-      train_steps=world_model_steps_num,
+      train_steps=target_num_steps,
       eval_steps=100,
       local_eval_frequency=2000
   )
+
+  write_counters(world_model_steps_num, -1)
 
   return world_model_steps_num
 
@@ -491,6 +546,10 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   )
   env.start_new_epoch(epoch, data_dir)
 
+  if not hparams.wm_agent:
+    policy_model_dir = directories["policy"]
+  else:
+    policy_model_dir = directories["world_model"]
   learner = LEARNERS[hparams.base_algo](
       hparams.frame_stack_size, directories["policy"],
       directories["policy"]
@@ -504,8 +563,11 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   metrics = {}
 
   # Collect data from the real environment.
-  policy_model_dir = directories["policy"]
   tf.logging.info("Initial training of the policy in real environment.")
+  temp_learner = LEARNERS[hparams.base_algo](
+      hparams.frame_stack_size, directories["world_model"],
+      directories["policy"]
+  )
   train_agent_real_env(env, learner, hparams, epoch)
   metrics["mean_reward/train/clipped"] = compute_mean_reward(
       env.current_epoch_rollouts(), clipped=True

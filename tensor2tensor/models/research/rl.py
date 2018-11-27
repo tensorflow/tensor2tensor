@@ -59,6 +59,7 @@ def ppo_base_v1():
   hparams.add_hparam("logits_clip", 0.0)
   hparams.add_hparam("dropout_ppo", 0.1)
   hparams.add_hparam("effective_num_agents", None)
+  hparams.add_hparam("wm_params", "")
   return hparams
 
 
@@ -467,7 +468,7 @@ def world_model_categorical_fun(action_space, config, observations):
   trainer_lib.add_problem_hparams(model_hparams, problem)
   model_hparams.force_full_predict = True
   model = registry.model(config.generative_model_name)(
-      model_hparams, tf.estimator.ModeKeys.PREDICT
+      model_hparams, tf.estimator.ModeKeys.TRAIN
   )
   model.agent_num_actions = action_space.n
 
@@ -482,7 +483,9 @@ def world_model_categorical_fun(action_space, config, observations):
       inputs_shape[0], 1, inputs_shape[2], inputs_shape[3], 3
   ]
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-    model({
+    from tensor2tensor.utils import t2t_model
+    t2t_model._create_dummy_vars()
+    (outs, losses) = model({
         "inputs": tf.cast(observations, tf.int32),
         "input_action": tf.zeros(inputs_shape[:2], dtype=tf.int32),
         "input_reward": tf.zeros(inputs_shape[:2], dtype=tf.int32),
@@ -490,17 +493,16 @@ def world_model_categorical_fun(action_space, config, observations):
         "target_action": tf.zeros(targets_shape[:2], dtype=tf.int32),
         "target_reward": tf.zeros(targets_shape[:2], dtype=tf.int32)
     })
-  with tf.variable_scope("network_parameters"):
-    x = model.x
-    x = tf.layers.conv2d(
-        x, model.hparams.hidden_size * 2, (4, 4),
-        activation=common_layers.belu,
-        strides=(2, 2), padding="SAME"
-    )
-    #x = common_layers.layer_norm(x)
-    x = tf.layers.flatten(x)
-    logits = tf.layers.dense(x, action_space.n)
-    value = tf.layers.dense(x, 1)
+    print('model output:', outs)
+  logits = model.action_pred
+  value = model.value_pred
+
+  x_mean = tf.reduce_mean(tf.layers.flatten(outs["targets"]), axis=1, keepdims=True)
+  r_mean = tf.reduce_mean(tf.layers.flatten(outs["target_reward"]), axis=1, keepdims=True)
+  #extra = tf.broadcast_to(losses["extra"], tf.shape(x_mean))
+  just_for_gradients = (x_mean + r_mean) * 0.000001
+  value = just_for_gradients + value - just_for_gradients
+
   logits_shape = common_layers.shape_list(logits)
   logits = tf.reshape(logits, [
       obs_shape[0], obs_shape[1], logits_shape[1]

@@ -110,7 +110,18 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
                              strides=(2, 2), padding="SAME")
         x = common_layers.layer_norm(x)
 
-    self.x = tf.stop_gradient(x)
+    with tf.variable_scope("agent"):
+      #x = tf.stop_gradient(x)
+      #x = tf.layers.conv2d(
+      #    x, model.hparams.hidden_size * 2, (4, 4),
+      #    activation=common_layers.belu,
+      #    strides=(2, 2), padding="SAME"
+      #)
+      #x = common_layers.layer_norm(x)
+      x_flat = tf.layers.flatten(x)
+      self.agent_num_actions = 6
+      self.action_pred = tf.layers.dense(x_flat, self.agent_num_actions)
+      self.value_pred = tf.layers.dense(x_flat, 1)
 
     # Add embedded action if present.
     if self.has_actions:
@@ -160,4 +171,12 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
         reward_pred, 128, name="reward_pred"))
     reward_pred = tf.squeeze(reward_pred, axis=1)  # Remove extra dims
     reward_pred = tf.squeeze(reward_pred, axis=1)  # Remove extra dims
+
+    print('reward shape:', reward_pred)
+    just_for_gradients = tf.reduce_mean(tf.layers.flatten(self.action_pred), axis=1, keepdims=True)
+    just_for_gradients += tf.reduce_mean(tf.layers.flatten(self.value_pred), axis=1, keepdims=True)
+    just_for_gradients *= 0.000001
+    #just_for_gradients = tf.broadcast_to(just_for_gradients, tf.shape(reward_pred))
+    reward_pred = just_for_gradients + reward_pred - just_for_gradients
+
     return x, reward_pred, extra_loss, internal_states

@@ -22,14 +22,17 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.models.research.rl import get_policy
+from tensor2tensor.utils.adafactor import AdafactorOptimizer
 
 import tensorflow as tf
 
 
 def get_optimiser(config):
-  if config.optimizer == "Adam":
-    return tf.train.AdamOptimizer(learning_rate=config.learning_rate)
-  return config.optimizer(learning_rate=config.learning_rate)
+  print('get_optimiser: Adafactor')
+  #if config.optimizer == "Adam":
+  #  return tf.train.AdamOptimizer(learning_rate=config.learning_rate)
+  ##return config.optimizer(learning_rate=config.learning_rate)
+  return AdafactorOptimizer(learning_rate=config.learning_rate)
 
 
 def define_ppo_step(data_points, optimizer, hparams, action_space):
@@ -54,23 +57,37 @@ def define_ppo_step(data_points, optimizer, hparams, action_space):
 
   losses = [policy_loss, value_loss, entropy_loss]
 
-  gradients = [list(zip(*optimizer.compute_gradients(loss)))
-               for loss in losses]
+  loss = sum(losses)
+  train_op = tf.contrib.layers.optimize_loss(
+      name="training",
+      loss=loss,
+      global_step=tf.train.get_or_create_global_step(),
+      learning_rate=None,
+      clip_gradients=hparams.max_gradients_norm,
+      optimizer=optimizer,
+      increment_global_step=False
+  )
 
-  gradients_norms = [tf.global_norm(gradient[0]) for gradient in gradients]
+  #gradients = [list(zip(*optimizer.compute_gradients(loss)))
+  #             for loss in losses]
 
-  gradients_flat = sum([gradient[0] for gradient in gradients], ())
-  gradients_variables_flat = sum([gradient[1] for gradient in gradients], ())
+  #gradients_norms = [tf.global_norm(gradient[0]) for gradient in gradients]
 
-  if hparams.max_gradients_norm:
-    gradients_flat, _ = tf.clip_by_global_norm(gradients_flat,
-                                               hparams.max_gradients_norm)
+  #gradients_flat = sum([gradient[0] for gradient in gradients], ())
+  #gradients_variables_flat = sum([gradient[1] for gradient in gradients], ())
 
-  optimize_op = optimizer.apply_gradients(zip(gradients_flat,
-                                              gradients_variables_flat))
+  #if hparams.max_gradients_norm:
+  #  gradients_flat, _ = tf.clip_by_global_norm(gradients_flat,
+  #                                             hparams.max_gradients_norm)
 
-  with tf.control_dependencies([optimize_op]):
-    return [tf.identity(x) for x in losses + gradients_norms]
+  #optimize_op = optimizer.apply_gradients(zip(gradients_flat,
+  #                                            gradients_variables_flat))
+
+  #with tf.control_dependencies([optimize_op]):
+  #  return [tf.identity(x) for x in losses + gradients_norms]
+
+  with tf.control_dependencies([train_op]):
+    return [tf.identity(x) for x in losses + losses]
 
 
 def define_ppo_epoch(memory, hparams, action_space, batch_size):
