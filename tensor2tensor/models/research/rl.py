@@ -357,7 +357,7 @@ def dqn_atari_base():
       # TODO: change names maybe replay_buffer -> agent? Also batch_size is now
       # buffer_batch_size in _DQNAgent.
       replay_buffer_replay_capacity=1000000,
-      replay_buffer_batch_size=32,
+      replay_buffer_buffer_batch_size=32,
 
       time_limit=27000,
       save_every_steps=50000,

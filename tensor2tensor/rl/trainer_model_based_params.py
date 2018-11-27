@@ -193,7 +193,7 @@ def rlmb_dqn_base():
       base_algo="dqn",
       base_algo_params="dqn_original_params",
       real_batch_size=1,
-      simulated_batch_size=1,
+      simulated_batch_size=16,
       dqn_agent_generates_trainable_dones=False,
       eval_batch_size=1,
       # Must be equal to dqn_time_limit for now

@@ -327,7 +327,8 @@ def get_create_agent(agent_kwargs):
     Returns:
       a DQN agent.
     """
-    return _DQNAgent(
+    return BatchDQNAgent(
+        env_batch_size=environment.batch_size,
         sess=sess,
         num_actions=environment.action_space.n,
         summary_writer=summary_writer,
@@ -337,17 +338,116 @@ def get_create_agent(agent_kwargs):
   return create_agent
 
 
-def get_create_env_fun(batch_env_fn, time_limit):
+class ResizeBatchObservation(object):
+  """ TODO(konradczechowski): Add doc-string."""
+
+  def __init__(self, batch_env, size=84):
+    """Based on WarpFrame from openai baselines atari_wrappers.py.
+
+    Dopamine also uses cv2.resize(..., interpolation=cv2.INTER_AREA).
+
+    Args:
+      env: TODO(konradczechowski): Add doc-string.
+      size: TODO(konradczechowski): Add doc-string.
+    """
+    self.size = size
+    self.batch_env = batch_env
+    # self.width = size
+    # self.height = size
+    # assert env.observation_space.dtype == np.uint8
+    # self.observation_space = spaces.Box(
+    #     low=0,
+    #     high=255,
+    #     shape=(self.height, self.width, env.observation_space.shape[2]),
+    #     dtype=np.uint8)
+
+  def observation(self, frames):
+    if not cv2:
+      return frames
+    return np.array([cv2.resize(
+        frame, (self.size, self.size), interpolation=cv2.INTER_AREA)
+        for frame in frames])
+
+  def step(self, actions):
+    obs, rewards, dones = self.batch_env.step(actions)
+    obs = self.observation(obs)
+    return obs, rewards, dones
+
+  def reset(self):
+    return self.observation(self.batch_env.reset())
+
+  @property
+  def action_space(self):
+    return self.batch_env.action_space
+
+  @property
+  def batch_size(self):
+    return self.batch_env.batch_size
+
+
+class DopamineBatchEnv(object):
+  """Batch of environments.
+
+  Assumes that all given environments finishes at the same time.
+
+  Observations and rewards are returned as batches (arrays). Done are returned
+  as single boolean.
+  """
+  def __init__(self, batch_env, max_episode_steps):
+    self._batch_env = batch_env
+    self._max_episode_steps = max_episode_steps
+    self.game_over = None
+    self._elapsed_steps = 0
+
+  def reset(self):
+    self.game_over = False
+    self._elapsed_steps = 0
+    return np.array(self._batch_env.reset())
+
+  def step(self, actions):
+    # ret = [env.step(action) for env, action in zip(self.env_batch, actions)]
+    # obs, rewards, dones, infos = [np.array(r) for r in zip(*ret)]
+    self._elapsed_steps += 1
+    obs, rewards, dones = \
+        [np.array(r) for r in self._batch_env.step(actions)]
+    if self._elapsed_steps > self._max_episode_steps:
+      done = True
+      if self._elapsed_steps > self._max_episode_steps + 1:
+        rewards.fill(0)
+    else:
+      done = dones[0]
+      assert np.all(done == dones), "Current modifications of Dopamine " \
+                                    "require same number of steps for each " \
+                                    "environment in batch"
+      del dones
+
+    self.game_over = done
+    return obs, rewards, done, {}
+
+  def render(self, mode):
+    pass
+
+  def close(self):
+    pass
+
+  @property
+  def action_space(self):
+    return self._batch_env.action_space
+
+  @property
+  def batch_size(self):
+    return self._batch_env.batch_size
+
+
+def get_create_batch_env_fun(batch_env_fn, time_limit):
   """TODO(konradczechowski): Add doc-string."""
 
   def create_env_fun(game_name, sticky_actions=True):
     del game_name, sticky_actions
     batch_env = batch_env_fn(in_graph=False)
-    env = FlatBatchEnv(batch_env)
-    env = TimeLimit(env, max_episode_steps=time_limit)
-    env = ResizeObservation(env)  # pylint: disable=redefined-variable-type
-    env = GameOverOnDone(env)
-    return env
+    batch_env = ResizeBatchObservation(batch_env)  # pylint: disable=redefined-variable-type
+    batch_env = DopamineBatchEnv(batch_env, max_episode_steps=time_limit)
+    return batch_env
 
   return create_env_fun
 
@@ -404,10 +504,16 @@ class DQNLearner(PolicyLearner):
     agent_params["optimizer"] = optimizer
     agent_params.update(replay_buffer_params)
     create_agent_fn = get_create_agent(agent_params)
-    runner = run_experiment.Runner(
+    create_environment_fn = get_create_batch_env_fun(
+      env_fn, time_limit=hparams.time_limit)
+    batch_size = create_environment_fn(None).batch_size
+    runner = BatchRunner(
         base_dir=self.agent_model_dir,
         create_agent_fn=create_agent_fn,
-        create_environment_fn=get_create_env_fun(
+        batch_size=batch_size,
+        game_name="unused_arg",
+        sticky_actions="unused_arg",
+        create_environment_fn=get_create_batch_env_fun(
             env_fn, time_limit=hparams.time_limit),
         evaluation_steps=0,
         num_iterations=target_iterations,
@@ -458,7 +564,7 @@ class DQNLearner(PolicyLearner):
         "agent_epsilon_eval", min(hparams.agent_epsilon_eval * sampling_temp, 1)
     )
 
-    create_environment_fn = get_create_env_fun(
+    create_environment_fn = get_create_batch_env_fun(
         env_fn, time_limit=hparams.time_limit)
     env = create_environment_fn(
         game_name="unused_arg", sticky_actions="unused_arg")
