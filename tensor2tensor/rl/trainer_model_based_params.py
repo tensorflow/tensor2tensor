@@ -201,6 +201,14 @@ def rlmb_base_wm_agent():
 
 
 @registry.register_hparams
+def rlmb_quick_wm_agent():
+  hparams = rlmb_quick()
+  hparams.base_algo_params = "ppo_world_model"
+  hparams.wm_agent = True
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_basetest():
   """Base setting but quicker with only 2 epochs."""
   hparams = rlmb_base()

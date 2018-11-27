@@ -252,7 +252,7 @@ def _run_train(ppo_hparams,
       write_counters(num_its_done, total_it)
 
     #orig_lr = sess.run(ppo_hparams.learning_rate.read_value())
-    lr = learning_rate.learning_rate_schedule(model_params)
+    lr = learning_rate.learning_rate_schedule(model_params) * 3
     tf.logging.info("LR before policy training: %f", sess.run(lr))
     update_lr_op = tf.assign(ppo_hparams.learning_rate, lr)
     with tf.control_dependencies([update_lr_op]):
