@@ -250,9 +250,20 @@ def padded_neg_log_perplexity_with_masking(
     labels,
     features,
     weights_fn=None):
+  """Average log-perplexity with custom targets_mask."""
   del weights_fn
   if "targets_mask" not in features:
     raise ValueError("masked_neg_log_perplexity requires targets_mask feature")
+
+  # Features are 4 dimensional, so we need to reshape the targets_mask to match
+  # the shape of the labels. A lot of models rely on these features being 4D,
+  # so it's best to update the shape of the mask.
+  extended_targets_mask_shape = common_layers.shape_list(
+      features["targets_mask"])
+  extended_targets_mask_shape.extend([1, 1])
+  features["targets_mask"] = tf.reshape(features["targets_mask"],
+                                        shape=extended_targets_mask_shape)
+
   mask_fn = lambda labels: features["targets_mask"]
   return padded_neg_log_perplexity(predictions, labels, mask_fn)
 

@@ -383,6 +383,13 @@ def ae_transformer_internal(inputs,
     targets, _ = common_layers.pad_to_same_length(
         targets, max_targets_len_from_inputs,
         final_length_divisible_by=2**hparams.num_compress_steps)
+    # Add positional information
+    targets_shape = common_layers.shape_list(targets)
+    targets = tf.reshape(targets, [targets_shape[0], targets_shape[1],
+                                   targets_shape[3]])
+    targets = common_attention.add_positional_embedding(
+        targets, hparams.max_length, name="targets_position")
+    targets = tf.reshape(targets, shape=targets_shape)
     if hparams.word_dropout:
       mask = tf.random_uniform(shape=common_layers.shape_list(targets),
                                minval=0.0, maxval=1.0)
@@ -390,6 +397,7 @@ def ae_transformer_internal(inputs,
                                tf.zeros_like(targets))
     else:
       targets_noisy = targets
+
     targets_c = compress(targets_noisy, inputs, False, hparams, "compress")
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
       # Compress and bottleneck.
@@ -463,14 +471,11 @@ def ae_transformer_internal(inputs,
         latents_dense = embed(cache)
     # Postprocess.
     d = latents_dense
-    latent_len = common_layers.shape_list(latents_dense)[1]
-    if isinstance(latent_len, tf.Tensor):
-      # TODO(trandustin): Fix this in a better manner.
-      latent_len = max(1000, hparams.max_length)
-    pos = tf.get_variable("pos", [1, latent_len + 1, 1, hparams.hidden_size])
-    pos = pos[:, :common_layers.shape_list(latents_dense)[1] + 1, :, :]
-    latents_dense = tf.pad(latents_dense,
-                           [[0, 0], [1, 0], [0, 0], [0, 0]]) + pos
+    d_shape = common_layers.shape_list(d)
+    d = tf.reshape(d, [d_shape[0], d_shape[1], d_shape[3]])
+    d = common_attention.add_positional_embedding(
+        d, hparams.max_length, name="latents_position")
+    d = tf.reshape(d, shape=d_shape)
 
     # decompressing the dense latents
     for i in range(hparams.num_compress_steps):

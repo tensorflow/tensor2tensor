@@ -24,21 +24,21 @@ import tensorflow as tf
 from tensorflow_probability import edward2 as ed
 
 
-class Softplus(tf.keras.constraints.Constraint):
-  """Softplus constraint."""
+class Positive(tf.keras.constraints.Constraint):
+  """Positive constraint."""
 
   def __init__(self, epsilon=tf.keras.backend.epsilon()):
     self.epsilon = epsilon
 
   def __call__(self, w):
-    return tf.nn.softplus(w) + self.epsilon
+    return tf.maximum(w, self.epsilon)
 
   def get_config(self):
     return {'epsilon': self.epsilon}
 
 
-def softplus():  # alias, following tf.keras.constraints
-  return Softplus()
+def positive():  # alias, following tf.keras.constraints
+  return Positive()
 
 
 # TODO(dusenberrymw): Restructure the implementation of a trainable initializer
@@ -68,7 +68,7 @@ class TrainableNormal(TrainableInitializer):
                mean_regularizer=None,
                stddev_regularizer=None,
                mean_constraint=None,
-               stddev_constraint=softplus(),
+               stddev_constraint=positive(),
                seed=None,
                dtype=tf.float32):
     """Constructs the initializer."""
