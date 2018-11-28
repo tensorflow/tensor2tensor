@@ -83,11 +83,9 @@ to modify the hyperparameters if you run on a different setup.
 
 For answering questions based on a story, use
  
-* the [bAbi][1] data-set: `--problem=babi_qa_concat_task1_1k`
+* the [bAbi](https://research.fb.com/downloads/babi/) data-set: `--problem=babi_qa_concat_task1_1k`
 
 You can choose the bAbi task from the range [1,20] and the subset from 1k or 10k. To combine test data from all tasks into a single test set, use `--problem=babi_qa_concat_all_tasks_10k`
-
-[1] https://research.fb.com/downloads/babi/
 
 ### Image Classification
 
