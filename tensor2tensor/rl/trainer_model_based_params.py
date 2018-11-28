@@ -79,6 +79,7 @@ def _rlmb_base():
       learning_rate_bump=3.0,
 
       wm_agent=False,
+      lr_schedule_from_wm=False,
 
       # Batch size during evaluation. Metrics are averaged over this number of
       # rollouts.

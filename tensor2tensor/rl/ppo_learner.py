@@ -36,9 +36,10 @@ import tensorflow as tf
 class PPOLearner(PolicyLearner):
   """PPO for policy learning."""
 
-  def __init__(self, wm_agent, *args, **kwargs):
+  def __init__(self, wm_agent, lr_schedule_from_wm, *args, **kwargs):
     super(PPOLearner, self).__init__(*args, **kwargs)
     self.wm_agent = wm_agent
+    self.lr_schedule_from_wm = lr_schedule_from_wm
     self._num_completed_iterations = 0
 
   def train(self,
@@ -65,8 +66,6 @@ class PPOLearner(PolicyLearner):
                              str(epoch) + simulated_str)
 
     with tf.Graph().as_default():
-      lr = tf.Variable(hparams.learning_rate, trainable=False)
-      hparams.learning_rate = lr
       with tf.name_scope(name_scope):
         with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
           env = env_fn(in_graph=True)
@@ -95,7 +94,8 @@ class PPOLearner(PolicyLearner):
             train_summary_op,
             eval_summary_op,
             initializers,
-            self.wm_agent,
+            wm_agent=self.wm_agent,
+            lr_schedule_from_wm=self.lr_schedule_from_wm,
             report_fn=report_fn)
 
   def evaluate(self, env_fn, hparams, stochastic):
@@ -176,6 +176,7 @@ def _run_train(ppo_hparams,
                eval_summary_op,
                initializers,
                wm_agent,
+               lr_schedule_from_wm,
                report_fn=None):
   """Train."""
   summary_writer = tf.summary.FileWriter(
@@ -244,14 +245,16 @@ def _run_train(ppo_hparams,
     else:
       write_counters(num_its_done, total_it)
 
-    lr = learning_rate.learning_rate_schedule(model_params)
-    tf.logging.info("LR before policy training: %f", sess.run(lr))
-    update_lr_op = tf.assign(ppo_hparams.learning_rate, lr)
-    with tf.control_dependencies([update_lr_op]):
-      lr_summary = tf.summary.scalar(
-          "agent_lr", ppo_hparams.learning_rate.read_value()
-      )
-      train_summary_op = tf.summary.merge([train_summary_op, lr_summary])
+    if lr_schedule_from_wm:
+      ppo_hparams.learning_rate = tf.Variable(0.0, trainable=False)
+      lr = learning_rate.learning_rate_schedule(model_params)
+      tf.logging.info("LR before policy training: %f", sess.run(lr))
+      update_lr_op = tf.assign(ppo_hparams.learning_rate, lr)
+      with tf.control_dependencies([update_lr_op]):
+        lr_summary = tf.summary.scalar(
+            "agent_lr", ppo_hparams.learning_rate.read_value()
+        )
+        train_summary_op = tf.summary.merge([train_summary_op, lr_summary])
 
     tf.logging.info(
         "Training policy up to %d, %d to go", num_target_iterations,
@@ -291,7 +294,8 @@ def _run_train(ppo_hparams,
         model_saver.save(sess, ckpt_path)
 
     write_counters(num_its_done + num_its_to_go, -1)
-    tf.logging.info("LR after policy training: %f", sess.run(lr))
+    if lr_schedule_from_wm:
+      tf.logging.info("LR after policy training: %f", sess.run(lr))
 
 
 def _rollout_metadata(batch_env):
