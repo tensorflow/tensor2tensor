@@ -235,7 +235,7 @@ def rlmb_quick():
   hparams = rlmb_base()
   hparams.epochs = 2
   hparams.model_train_steps = 25000
-  hparams.ppo_epochs_num = 700 * 8
+  hparams.ppo_epochs_num = 700 #* 8
   hparams.ppo_epoch_length = 50
   return hparams
 
