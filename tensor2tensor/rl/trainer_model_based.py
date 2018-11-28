@@ -345,7 +345,7 @@ def evaluate_single_config(hparams, stochastic, max_num_noops, agent_model_dir):
   env.start_new_epoch(0)
   env_fn = rl.make_real_env_fn(env)
   learner = LEARNERS[hparams.base_algo](
-      hparams.frame_stack_size, base_event_dir=None,
+      hparams.wm_agent, hparams.frame_stack_size, base_event_dir=None,
       agent_model_dir=agent_model_dir
   )
   learner.evaluate(env_fn, eval_hparams, stochastic)
@@ -551,8 +551,8 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   else:
     policy_model_dir = directories["world_model"]
   learner = LEARNERS[hparams.base_algo](
-      hparams.frame_stack_size, directories["policy"],
-      directories["policy"]
+      hparams.wm_agent, hparams.frame_stack_size, directories["world_model"],
+      policy_model_dir
   )
 
   # Timing log function
@@ -564,10 +564,6 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   # Collect data from the real environment.
   tf.logging.info("Initial training of the policy in real environment.")
-  temp_learner = LEARNERS[hparams.base_algo](
-      hparams.frame_stack_size, directories["world_model"],
-      directories["policy"]
-  )
   train_agent_real_env(env, learner, hparams, epoch)
   metrics["mean_reward/train/clipped"] = compute_mean_reward(
       env.current_epoch_rollouts(), clipped=True

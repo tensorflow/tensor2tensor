@@ -33,18 +33,12 @@ from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
 
 
-flags = tf.flags
-FLAGS = flags.FLAGS
-
-
-flags.DEFINE_bool("wm_agent", False, "WM agent")
-
-
 class PPOLearner(PolicyLearner):
   """PPO for policy learning."""
 
-  def __init__(self, *args, **kwargs):
+  def __init__(self, wm_agent, *args, **kwargs):
     super(PPOLearner, self).__init__(*args, **kwargs)
+    self.wm_agent = wm_agent
     self._num_completed_iterations = 0
 
   def train(self,
@@ -101,6 +95,7 @@ class PPOLearner(PolicyLearner):
             train_summary_op,
             eval_summary_op,
             initializers,
+            self.wm_agent,
             report_fn=report_fn)
 
   def evaluate(self, env_fn, hparams, stochastic):
@@ -120,7 +115,7 @@ class PPOLearner(PolicyLearner):
             frame_stack_size=self.frame_stack_size,
             force_beginning_resets=False,
             policy_to_actions_lambda=policy_to_actions_lambda)
-        if not FLAGS.wm_agent:
+        if not self.wm_agent:
           model_saver = tf.train.Saver(
               tf.global_variables(".*network_parameters.*") +
               tf.global_variables("global_step")
@@ -180,12 +175,13 @@ def _run_train(ppo_hparams,
                train_summary_op,
                eval_summary_op,
                initializers,
+               wm_agent,
                report_fn=None):
   """Train."""
   summary_writer = tf.summary.FileWriter(
       event_dir, graph=tf.get_default_graph(), flush_secs=60)
 
-  if not FLAGS.wm_agent:
+  if not wm_agent:
     model_saver = tf.train.Saver(
         tf.global_variables(".*network_parameters.*") +
         tf.global_variables("global_step")
@@ -199,9 +195,6 @@ def _run_train(ppo_hparams,
         tf.global_variables("losses_avg.*") +
         tf.global_variables("train_stats.*")
     )
-    with open("vars_before", "w") as f:
-      for var in tf.global_variables(".*next_frame.*"):
-        f.write("{}\n".format(var.name))
     model_params = trainer_lib.create_hparams(ppo_hparams.wm_params)
 
   global_step = tf.train.get_or_create_global_step()
@@ -251,8 +244,7 @@ def _run_train(ppo_hparams,
     else:
       write_counters(num_its_done, total_it)
 
-    #orig_lr = sess.run(ppo_hparams.learning_rate.read_value())
-    lr = learning_rate.learning_rate_schedule(model_params) * 3
+    lr = learning_rate.learning_rate_schedule(model_params)
     tf.logging.info("LR before policy training: %f", sess.run(lr))
     update_lr_op = tf.assign(ppo_hparams.learning_rate, lr)
     with tf.control_dependencies([update_lr_op]):
@@ -265,10 +257,6 @@ def _run_train(ppo_hparams,
         "Training policy up to %d, %d to go", num_target_iterations,
         num_its_to_go
     )
-
-    with open("vars_after", "w") as f:
-      for var in tf.global_variables(".*next_frame.*"):
-        f.write("{}\n".format(var.name))
 
     for epoch_index in range(
         num_target_iterations - num_its_to_go, num_target_iterations

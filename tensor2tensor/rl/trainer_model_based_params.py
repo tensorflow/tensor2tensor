@@ -191,12 +191,6 @@ def rlmb_dqn_base():
 def rlmb_base_wm_agent():
   hparams = rlmb_base()
   hparams.base_algo_params = "ppo_world_model"
-  hparams.ppo_learning_rate = 0.3
-  hparams.ppo_wm_params = "next_frame_tiny"
-  hparams.add_hparam("ppo_optimizer", "Adafactor")
-  hparams.real_ppo_learning_rate = 0.3
-  hparams.real_ppo_wm_params = "next_frame_tiny"
-  hparams.add_hparam("real_ppo_optimizer", "Adafactor")
   hparams.wm_agent = True
   return hparams
 
@@ -540,10 +534,6 @@ def rlmb_dqn_tiny():
 def rlmb_tiny_wm_agent():
   hparams = rlmb_tiny()
   hparams.base_algo_params = "ppo_world_model_tiny"
-  hparams.ppo_learning_rate = 0.3
-  hparams.ppo_wm_params = "next_frame_tiny"
-  hparams.real_ppo_learning_rate = 0.3
-  hparams.real_ppo_wm_params = "next_frame_tiny"
   hparams.wm_agent = True
   return hparams
 
