@@ -460,11 +460,12 @@ def _define_collect(batch_env, ppo_hparams, scope, frame_stack_size, eval_phase,
         new_memory.append(mem)
       memory = new_memory
 
-    mean_score_summary = tf.cond(
-        tf.greater(scores_num, 0),
-        lambda: tf.summary.scalar("mean_score_this_iter", mean_score), str)
-    summaries = tf.summary.merge([
-        mean_score_summary,
-        tf.summary.scalar("episodes_finished_this_iter", scores_num)
-    ])
-    return memory, summaries, initialization_lambda
+    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
+      mean_score_summary = tf.cond(
+          tf.greater(scores_num, 0),
+          lambda: tf.summary.scalar("mean_score_this_iter", mean_score), str)
+      summaries = tf.summary.merge([
+          mean_score_summary,
+          tf.summary.scalar("episodes_finished_this_iter", scores_num)
+      ])
+      return memory, summaries, initialization_lambda
