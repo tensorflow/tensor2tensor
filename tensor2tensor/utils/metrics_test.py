@@ -121,7 +121,7 @@ class MetricsTest(tf.test.TestCase):
     predictions = np.random.randint(4, size=(12, 12, 12, 1))
     targets = np.random.randint(4, size=(12, 12, 12, 1))
     features = {
-        'targets_mask': tf.to_float(tf.not_equal(targets, 0))
+        'targets_mask': tf.to_float(tf.ones([12, 12]))
     }
     with self.test_session() as session:
       scores, _ = metrics.padded_neg_log_perplexity_with_masking(
