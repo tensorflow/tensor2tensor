@@ -114,9 +114,7 @@ class MtfModel(t2t_model.T2TModel):
       mtf_lr = mtf.import_tf_tensor(
           mesh, tf.convert_to_tensor(lr, dtype=tf.float32), mtf.Shape([]))
       optimizer = mtf.optimize.make_optimizer(hparams, mtf_lr)
-      update_ops = []
-      for grad, var in zip(var_grads, graph.trainable_variables):
-        update_ops.extend(optimizer.apply_grad(grad, var))
+      update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
 
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
 
