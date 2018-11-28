@@ -47,6 +47,7 @@ class Metrics(object):
   ROUGE_2_F = "rouge_2_fscore"
   ROUGE_L_F = "rouge_L_fscore"
   EDIT_DISTANCE = "edit_distance"
+  WORD_ERROR_RATE = "word_error_rate"
   SET_PRECISION = "set_precision"
   SET_RECALL = "set_recall"
   SOFTMAX_CROSS_ENTROPY_ONE_HOT = "softmax_cross_entropy_one_hot"
@@ -680,6 +681,68 @@ def create_eager_metrics(metric_names, weights_fn=common_layers.weights_all):
   return metric_accum, metric_means
 
 
+def word_error_rate(raw_predictions, labels, lookup=None,
+                    weights_fn=common_layers.weights_nonzero):
+  """
+  :param raw_predictions:
+  :param labels:
+  :param lookup:
+    A tf.constant mapping indices to output tokens.
+  :param weights_fn:
+  :return:
+    The word error rate.
+  """
+
+  def from_tokens(raw, lookup_):
+    gathered = tf.gather(lookup_, tf.cast(raw, tf.int32))
+    joined = tf.regex_replace(tf.reduce_join(gathered, axis=1), b'<EOS>.*', b'')
+    cleaned = tf.regex_replace(joined, b'_', b' ')
+    tokens = tf.string_split(cleaned, ' ')
+    return tokens
+
+  def from_characters(raw, lookup_):
+    """
+    Convert ascii+2 encoded codes to string-tokens.
+    """
+    corrected = tf.bitcast(
+      tf.clip_by_value(
+        tf.subtract(raw, 2), 0, 255
+      ), tf.uint8)
+
+    gathered = tf.gather(lookup_, tf.cast(corrected, tf.int32))[:, :, 0]
+    joined = tf.reduce_join(gathered, axis=1)
+    cleaned = tf.regex_replace(joined, b'\0', b'')
+    tokens = tf.string_split(cleaned, ' ')
+    return tokens
+
+  if lookup is None:
+    lookup = tf.constant([chr(i) for i in range(256)])
+    convert_fn = from_characters
+  else:
+    convert_fn = from_tokens
+
+  if weights_fn is not common_layers.weights_nonzero:
+    raise ValueError("Only weights_nonzero can be used for this metric.")
+
+  with tf.variable_scope("word_error_rate", values=[raw_predictions, labels]):
+
+    raw_predictions = tf.squeeze(
+      tf.argmax(raw_predictions, axis=-1), axis=(2, 3))
+    labels = tf.squeeze(labels, axis=(2, 3))
+
+    reference = convert_fn(labels, lookup)
+    predictions = convert_fn(raw_predictions, lookup)
+
+    distance = tf.reduce_sum(
+      tf.edit_distance(predictions, reference, normalize=False)
+    )
+    reference_length = tf.cast(
+      tf.size(reference.values, out_type=tf.int32), dtype=tf.float32
+    )
+
+    return distance / reference_length, reference_length
+
+
 # Metrics are functions that take predictions and labels and return
 # a tensor of metrics and a tensor of weights.
 # If the function has "features" as an argument, it will receive the whole
@@ -699,6 +762,7 @@ METRICS_FNS = {
     Metrics.ROUGE_2_F: rouge.rouge_2_fscore,
     Metrics.ROUGE_L_F: rouge.rouge_l_fscore,
     Metrics.EDIT_DISTANCE: sequence_edit_distance,
+    Metrics.WORD_ERROR_RATE: word_error_rate,
     Metrics.SOFTMAX_CROSS_ENTROPY_ONE_HOT: softmax_cross_entropy_one_hot,
     Metrics.SIGMOID_ACCURACY_ONE_HOT: sigmoid_accuracy_one_hot,
     Metrics.SIGMOID_RECALL_ONE_HOT: sigmoid_recall_one_hot,
