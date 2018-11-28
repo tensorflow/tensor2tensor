@@ -51,6 +51,7 @@ def _rlmb_base():
       # This number should be divisible by real_ppo_epoch_length*epochs
       # for our frame accounting to be preceise.
       num_real_env_frames=96000,
+      #num_real_env_frames=4096,
       generative_model="next_frame_basic_deterministic",
       generative_model_params="next_frame_pixel_noise",
       autoencoder_train_steps=0,
@@ -130,7 +131,7 @@ def rlmb_ppo_base():
       # Number of real environments to train on simultaneously.
       real_batch_size=1,
       # Number of simulated environments to train on simultaneously.
-      simulated_batch_size=16,
+      simulated_batch_size=2,
       eval_batch_size=30,
 
       # Unused; number of PPO epochs is calculated from the real frame limit.
@@ -149,9 +150,9 @@ def rlmb_ppo_base():
       ppo_eval_every_epochs=0,
       ppo_learning_rate=1e-4,  # Will be changed, just so it exists.
       # This needs to be divisible by real_ppo_effective_num_agents.
-      real_ppo_epoch_length=16 * 200,
+      real_ppo_epoch_length=2 * 200,
       real_ppo_learning_rate=1e-4,
-      real_ppo_effective_num_agents=16,
+      real_ppo_effective_num_agents=2,
       real_ppo_eval_every_epochs=0,
 
       simulation_flip_first_random_for_beginning=True,
@@ -234,7 +235,7 @@ def rlmb_quick():
   hparams = rlmb_base()
   hparams.epochs = 2
   hparams.model_train_steps = 25000
-  hparams.ppo_epochs_num = 700
+  hparams.ppo_epochs_num = 700 * 8
   hparams.ppo_epoch_length = 50
   return hparams
 
