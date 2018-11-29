@@ -453,20 +453,11 @@ class BabiQaConcat(BabiQa):
     super(BabiQaConcat, self).hparams(defaults, unused_model_hparams)
     p = defaults
 
-<<<<<<< HEAD
-    if 'context' in p.modality:
-      del p.modality['context']
-
-    if 'context' in p.vocab_size:
-      del p.vocab_size['context']
-=======
     if "context" in p.modality:
       del p.modality["context"]
 
     if "context" in p.vocab_size:
       del p.vocab_size["context"]
->>>>>>> e9554fc27f2d59fab0e37d35fecfb3bbe0ee523f
-
 
 def _problems_to_register():
   """Problems for which we want to create datasets.
