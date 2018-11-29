@@ -179,28 +179,6 @@ def ppo_pong_ae_base():
 
 
 @registry.register_hparams
-def pong_model_free():
-  """TODO(piotrmilos): Document this."""
-  hparams = mfrl_base()
-  hparams.batch_size = 2
-  hparams.ppo_eval_every_epochs = 2
-  hparams.ppo_epochs_num = 4
-  hparams.add_hparam("ppo_optimization_epochs", 3)
-  hparams.add_hparam("ppo_epoch_length", 30)
-  hparams.add_hparam("ppo_learning_rate", 8e-05)
-  hparams.add_hparam("ppo_optimizer", "Adam")
-  hparams.add_hparam("ppo_optimization_batch_size", 4)
-  hparams.add_hparam("ppo_save_models_every_epochs", 1000000)
-  env = gym_env.T2TGymEnv("PongNoFrameskip-v4", batch_size=2)
-  env.start_new_epoch(0)
-  hparams.add_hparam("env_fn", make_real_env_fn(env))
-  eval_env = gym_env.T2TGymEnv("PongNoFrameskip-v4", batch_size=2)
-  eval_env.start_new_epoch(0)
-  hparams.add_hparam("eval_env_fn", make_real_env_fn(eval_env))
-  return hparams
-
-
-@registry.register_hparams
 def dqn_atari_base():
   # These params are based on agents/dqn/configs/dqn.gin
   # with some modifications taking into account our code
@@ -242,7 +220,7 @@ def dqn_original_params():
 @registry.register_hparams
 def mfrl_original():
   return tf.contrib.training.HParams(
-      game="",
+      game="pong",
       base_algo="ppo",
       base_algo_params="ppo_original_params",
       batch_size=16,
