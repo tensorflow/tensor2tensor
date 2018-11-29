@@ -1588,6 +1588,7 @@ def transformer_tall_pretrain_lm_tpu_adafactor():
   hparams.max_length = 1024
   # For multi-problem on TPU we need it in absolute examples.
   hparams.batch_size = 8
+  hparams.multiproblem_vocab_size = 2**16
   return hparams
 
 

@@ -25,6 +25,7 @@ from tensor2tensor.data_generators import multinli
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import translate_ende
 from tensor2tensor.data_generators import translate_enfr
+from tensor2tensor.data_generators import translate_enro
 from tensor2tensor.data_generators import wiki_lm
 from tensor2tensor.utils import registry
 
@@ -132,9 +133,12 @@ class LanguagemodelMultiWikiTranslate(multi_problem.MultiProblem):
     self.task_list.append(wiki_lm.LanguagemodelDeEnFrRoWiki64k())
     self.task_list.append(translate_ende.TranslateEndeWmtMulti64k())
     self.task_list.append(translate_enfr.TranslateEnfrWmtMulti64k())
+    self.task_list.append(translate_enro.TranslateEnroWmtMulti64k())
     self.task_list.append(translate_ende.TranslateEndeWmtMulti64k(
         was_reversed=True))
     self.task_list.append(translate_enfr.TranslateEnfrWmtMulti64k(
+        was_reversed=True))
+    self.task_list.append(translate_enro.TranslateEnroWmtMulti64k(
         was_reversed=True))
 
   @property
