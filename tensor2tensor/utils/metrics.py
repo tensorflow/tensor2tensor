@@ -681,38 +681,38 @@ def create_eager_metrics(metric_names, weights_fn=common_layers.weights_all):
   return metric_accum, metric_means
 
 
-def word_error_rate(raw_predictions, labels, lookup=None,
+def word_error_rate(raw_predictions,
+                    labels,
+                    lookup=None,
                     weights_fn=common_layers.weights_nonzero):
-  """
-  :param raw_predictions:
-  :param labels:
-  :param lookup:
-    A tf.constant mapping indices to output tokens.
-  :param weights_fn:
-  :return:
+  """Calculate word error rate.
+
+  Args:
+    raw_predictions: The raw predictions.
+    labels: The actual labels.
+    lookup: A tf.constant mapping indices to output tokens.
+    weights_fn: Weighting function.
+
+  Returns:
     The word error rate.
   """
 
   def from_tokens(raw, lookup_):
     gathered = tf.gather(lookup_, tf.cast(raw, tf.int32))
-    joined = tf.regex_replace(tf.reduce_join(gathered, axis=1), b'<EOS>.*', b'')
-    cleaned = tf.regex_replace(joined, b'_', b' ')
-    tokens = tf.string_split(cleaned, ' ')
+    joined = tf.regex_replace(tf.reduce_join(gathered, axis=1), b"<EOS>.*", b"")
+    cleaned = tf.regex_replace(joined, b"_", b" ")
+    tokens = tf.string_split(cleaned, " ")
     return tokens
 
   def from_characters(raw, lookup_):
-    """
-    Convert ascii+2 encoded codes to string-tokens.
-    """
+    """Convert ascii+2 encoded codes to string-tokens."""
     corrected = tf.bitcast(
-      tf.clip_by_value(
-        tf.subtract(raw, 2), 0, 255
-      ), tf.uint8)
+        tf.clip_by_value(tf.subtract(raw, 2), 0, 255), tf.uint8)
 
     gathered = tf.gather(lookup_, tf.cast(corrected, tf.int32))[:, :, 0]
     joined = tf.reduce_join(gathered, axis=1)
-    cleaned = tf.regex_replace(joined, b'\0', b'')
-    tokens = tf.string_split(cleaned, ' ')
+    cleaned = tf.regex_replace(joined, b"\0", b"")
+    tokens = tf.string_split(cleaned, " ")
     return tokens
 
   if lookup is None:
@@ -727,18 +727,16 @@ def word_error_rate(raw_predictions, labels, lookup=None,
   with tf.variable_scope("word_error_rate", values=[raw_predictions, labels]):
 
     raw_predictions = tf.squeeze(
-      tf.argmax(raw_predictions, axis=-1), axis=(2, 3))
+        tf.argmax(raw_predictions, axis=-1), axis=(2, 3))
     labels = tf.squeeze(labels, axis=(2, 3))
 
     reference = convert_fn(labels, lookup)
     predictions = convert_fn(raw_predictions, lookup)
 
     distance = tf.reduce_sum(
-      tf.edit_distance(predictions, reference, normalize=False)
-    )
+        tf.edit_distance(predictions, reference, normalize=False))
     reference_length = tf.cast(
-      tf.size(reference.values, out_type=tf.int32), dtype=tf.float32
-    )
+        tf.size(reference.values, out_type=tf.int32), dtype=tf.float32)
 
     return distance / reference_length, reference_length
 

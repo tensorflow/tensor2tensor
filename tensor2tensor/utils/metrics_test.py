@@ -108,18 +108,18 @@ class MetricsTest(tf.test.TestCase):
   def testWordErrorRateMetric(self):
 
     ref = np.asarray([
-      # a b c
-      [97, 34, 98, 34, 99],
-      [97, 34, 98, 34, 99],
-      [97, 34, 98, 34, 99],
-      [97, 34, 98, 34, 99],
+        # a b c
+        [97, 34, 98, 34, 99],
+        [97, 34, 98, 34, 99],
+        [97, 34, 98, 34, 99],
+        [97, 34, 98, 34, 99],
     ])
 
     hyp = np.asarray([
-      [97, 34, 98, 34, 99],  # a b c
-      [97, 34, 98, 0, 0],  # a b
-      [97, 34, 98, 34, 100],  # a b d
-      [0, 0, 0, 0, 0]  # empty
+        [97, 34, 98, 34, 99],  # a b c
+        [97, 34, 98, 0, 0],  # a b
+        [97, 34, 98, 34, 100],  # a b d
+        [0, 0, 0, 0, 0]  # empty
     ])
 
     labels = np.reshape(ref, ref.shape + (1, 1))
@@ -130,9 +130,8 @@ class MetricsTest(tf.test.TestCase):
         predictions[i, j, 0, 0, idx] = 1
 
     with self.test_session() as session:
-      actual_wer, actual_ref_len = session.run(
-        metrics.word_error_rate(predictions, labels)
-      )
+      actual_wer, unused_actual_ref_len = session.run(
+          metrics.word_error_rate(predictions, labels))
 
     expected_wer = 0.417
     places = 3
