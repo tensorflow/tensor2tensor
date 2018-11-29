@@ -20,7 +20,6 @@ import functools
 import operator
 import gym
 
-from tensor2tensor.data_generators import gym_env
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization

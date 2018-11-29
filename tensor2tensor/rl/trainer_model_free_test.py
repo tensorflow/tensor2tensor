@@ -29,7 +29,7 @@ FLAGS = tf.flags.FLAGS
 class TrainTest(tf.test.TestCase):
 
   def test_train_pong(self):
-    hparams = registry.hparams("pong_model_free")
+    hparams = registry.hparams("mfrl_original")
     hparams.batch_size = 2
     hparams.ppo_epochs_num = 2
     hparams.ppo_epoch_length = 3
