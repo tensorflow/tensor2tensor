@@ -243,7 +243,7 @@ class UniversalTransformer(transformer.Transformer):
     return (self._slow_greedy_infer_tpu(features, decode_length) if use_tpu else
             self._slow_greedy_infer(features, decode_length))
 
-  def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha):
+  def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha, use_tpu=False):
     """Beam search decoding.
 
     Args:
@@ -266,7 +266,7 @@ class UniversalTransformer(transformer.Transformer):
     # Caching is not ebabled in Universal Transformer
     # TODO(dehghani): Support fast decoding for Universal Transformer
     return self._beam_decode_slow(features, decode_length, beam_size,
-                                  top_beams, alpha)
+                                  top_beams, alpha, use_tpu)
 
 
 @registry.register_model
