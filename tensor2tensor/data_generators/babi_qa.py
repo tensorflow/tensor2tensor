@@ -109,9 +109,9 @@ def _prepare_babi_data(tmp_dir, data_dir):
     tf.gfile.MakeDirs(data_dir)
 
   file_path = os.path.join(tmp_dir, _TAR)
-  headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.132 Safari/537.36'}
+  headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.132 Safari/537.36"}  # pylint: disable=line-too-long
   resp = requests.get(_URL, headers=headers)
-  with open(file_path, 'wb') as f:
+  with open(file_path, "wb") as f:
     f.write(resp.content)
 
   tar = tarfile.open(file_path)
@@ -458,6 +458,7 @@ class BabiQaConcat(BabiQa):
 
     if "context" in p.vocab_size:
       del p.vocab_size["context"]
+
 
 def _problems_to_register():
   """Problems for which we want to create datasets.
