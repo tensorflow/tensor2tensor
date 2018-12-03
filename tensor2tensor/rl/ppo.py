@@ -22,8 +22,10 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.models.research.rl import get_policy
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 
 def get_optimiser(config):
@@ -35,7 +37,10 @@ def get_optimiser(config):
 def define_ppo_step(data_points, optimizer, hparams, action_space):
   """Define ppo step."""
   observation, action, discounted_reward, norm_advantage, old_pdf = data_points
-  new_policy_dist, new_value, _ = get_policy(observation, hparams, action_space)
+
+  (logits, new_value) = get_policy(observation, hparams, action_space)
+  new_policy_dist = tfp.distributions.Categorical(logits=logits)
+
   new_pdf = new_policy_dist.prob(action)
 
   ratio = new_pdf / old_pdf

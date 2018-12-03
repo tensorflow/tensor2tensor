@@ -27,9 +27,11 @@ from tensor2tensor.rl import ppo
 from tensor2tensor.rl.envs.tf_atari_wrappers import StackWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import WrapperBase
 from tensor2tensor.rl.policy_learner import PolicyLearner
+from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 
 class PPOLearner(PolicyLearner):
@@ -111,7 +113,8 @@ class PPOLearner(PolicyLearner):
             force_beginning_resets=False,
             policy_to_actions_lambda=policy_to_actions_lambda)
         model_saver = tf.train.Saver(
-            tf.global_variables(".*network_parameters.*"))
+            tf.global_variables(hparams.policy_network + "/.*")
+        )
 
         with tf.Session() as sess:
           sess.run(tf.global_variables_initializer())
@@ -164,7 +167,9 @@ def _run_train(ppo_hparams,
   summary_writer = tf.summary.FileWriter(
       event_dir, graph=tf.get_default_graph(), flush_secs=60)
 
-  model_saver = tf.train.Saver(tf.global_variables(".*network_parameters.*"))
+  model_saver = tf.train.Saver(
+      tf.global_variables(ppo_hparams.policy_network + "/.*")
+  )
 
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
@@ -349,16 +354,16 @@ def _define_collect(batch_env, ppo_hparams, scope, frame_stack_size, eval_phase,
 
       def env_step(arg1, arg2, arg3):  # pylint: disable=unused-argument
         """Step of the environment."""
-        actor_critic = get_policy(
-            tf.expand_dims(obs_copy, 0), ppo_hparams, batch_env.action_space)
-        policy = actor_critic.policy
+
+        (logits, value_function) = get_policy(
+            tf.expand_dims(obs_copy, 0), ppo_hparams, batch_env.action_space
+        )
+        policy = tfp.distributions.Categorical(logits=logits)
         action = policy_to_actions_lambda(policy)
 
-        postprocessed_action = actor_critic.action_postprocessing(action)
-        reward, done = batch_env.simulate(postprocessed_action[0, ...])
+        reward, done = batch_env.simulate(action[0, ...])
 
-        pdf = policy.prob(action)[0]
-        value_function = actor_critic.value[0]
+        pdf = policy.prob(action)
         pdf = tf.reshape(pdf, shape=(num_agents,))
         value_function = tf.reshape(value_function, shape=(num_agents,))
         done = tf.reshape(done, shape=(num_agents,))
