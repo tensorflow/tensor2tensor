@@ -159,8 +159,7 @@ class MultiProblem(problem.Problem):
               partition_id=0,
               num_partitions=1,
               shuffle_buffer_size=1024,
-              max_records=-1,
-              only_last=False):
+              max_records=-1):
 
     # A list of datasets corresponding to the tasks in the task_list object
     # that need to be mixed.
@@ -188,8 +187,7 @@ class MultiProblem(problem.Problem):
                                   partition_id=partition_id,
                                   num_partitions=num_partitions,
                                   shuffle_buffer_size=shuffle_buffer_size,
-                                  max_records=max_records,
-                                  only_last=only_last)
+                                  max_records=max_records)
 
       if is_training:
         task_dataset = task_dataset.repeat()
