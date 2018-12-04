@@ -78,7 +78,8 @@ def train(hparams, output_dir, report_fn=None):
   if not steps or steps[-1] < eval_every_epochs:
     steps.append(eval_every_epochs)
   metric_name = rl_utils.get_metric_name(
-      stochastic=True, max_num_noops=hparams.eval_max_num_noops,
+      sampling_temp=hparams.eval_sampling_temps[0],
+      max_num_noops=hparams.eval_max_num_noops,
       clipped=False
   )
   for step in steps:

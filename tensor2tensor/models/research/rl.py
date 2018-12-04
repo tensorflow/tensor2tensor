@@ -61,12 +61,12 @@ def ppo_base_v1():
   return hparams
 
 
-@registry.register_hparams
-def ppo_continuous_action_base():
-  hparams = ppo_base_v1()
-  hparams.add_hparam("policy_network", feed_forward_gaussian_fun)
-  hparams.add_hparam("policy_network_params", "basic_policy_parameters")
-  return hparams
+#@registry.register_hparams
+#def ppo_continuous_action_base():
+#  hparams = ppo_base_v1()
+#  hparams.add_hparam("policy_network", feed_forward_gaussian_fun)
+#  hparams.add_hparam("policy_network_params", "basic_policy_parameters")
+#  return hparams
 
 
 @registry.register_hparams
@@ -85,7 +85,7 @@ def ppo_discrete_action_base():
 @registry.register_hparams
 def discrete_random_action_base():
   hparams = common_hparams.basic_params1()
-  hparams.add_hparam("policy_network", "random_policy_policy")
+  hparams.add_hparam("policy_network", "random_policy")
   return hparams
 
 
@@ -239,6 +239,12 @@ def mfrl_original():
       batch_size=16,
       eval_batch_size=2,
       frame_stack_size=4,
+      eval_sampling_temps=[0.0, 0.2, 0.5, 0.8, 1.0, 2.0],
+      eval_max_num_noops=8,
+      resize_height_factor=2,
+      resize_width_factor=2,
+      grayscale=0,
+      env_timesteps_limit=-1,
   )
 
 
@@ -248,11 +254,6 @@ def mfrl_base():
   hparams = mfrl_original()
   hparams.add_hparam("ppo_epochs_num", 3000)
   hparams.add_hparam("ppo_eval_every_epochs", 100)
-  hparams.add_hparam("eval_max_num_noops", 8)
-  hparams.add_hparam("resize_height_factor", 2)
-  hparams.add_hparam("resize_width_factor", 2)
-  hparams.add_hparam("grayscale", 0)
-  hparams.add_hparam("env_timesteps_limit", -1)
   return hparams
 
 
@@ -455,16 +456,12 @@ class RandomPolicy(DiscretePolicyBase):
   def body(self, features):
     observations = features["inputs"]
     obs_shape = observations.shape.as_list()
-    #logits = tf.constant(
-    #    1. / float(self.action_space.n),
-    #    shape=[1, obs_shape[0] * obs_shape[1], self.action_space.n]
-    #)
+    # Just so Saver doesn't complain because of no variables.
+    tf.get_variable("dummy_var", initializer=0.0)
+    num_actions = self._get_num_actions(features)
     logits = tf.constant(
-        1. / float(self.action_space.n),
-        shape=(obs_shape[:2] + [self._get_num_actions(features)])
+        1. / float(num_actions),
+        shape=(obs_shape[:2] + [num_actions])
     )
-    #policy = tfp.distributions.Categorical(
-    #    probs=[[[1. / float(self.action_space.n)] * self.action_space.n] *
-    #           (obs_shape[0] * obs_shape[1])])
     value = tf.zeros(obs_shape[:2])
     return {"target_action": logits, "target_value": value}

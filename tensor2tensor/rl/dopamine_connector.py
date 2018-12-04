@@ -297,7 +297,7 @@ class DQNLearner(PolicyLearner):
       num_env_steps = hparams.num_frames
 
     hparams = copy(hparams)
-    hparams.set_hparams(
+    hparams.set_hparam(
         "agent_epsilon_eval", min(hparams.agent_epsilon_eval * sampling_temp, 1)
     )
 
@@ -319,7 +319,7 @@ class DQNLearner(PolicyLearner):
     training_steps_per_iteration = 0
 
     hparams = copy(hparams)
-    hparams.set_hparams(
+    hparams.set_hparam(
         "agent_epsilon_eval", min(hparams.agent_epsilon_eval * sampling_temp, 1)
     )
 

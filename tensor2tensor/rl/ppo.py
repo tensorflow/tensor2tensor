@@ -116,7 +116,7 @@ def define_ppo_epoch(memory, hparams, action_space, batch_size):
   dataset = dataset.shuffle(buffer_size=hparams.epoch_length-1,
                             reshuffle_each_iteration=True)
   dataset = dataset.repeat(-1)
-  dataset = dataset.batch(hparams.optimization_batch_size)
+  dataset = dataset.batch(hparams.optimization_batch_size, drop_remainder=True)
   iterator = dataset.make_initializable_iterator()
   optimizer = get_optimiser(hparams)
 
