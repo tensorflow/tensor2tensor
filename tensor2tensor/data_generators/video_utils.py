@@ -138,7 +138,7 @@ def display_video_hooks(hook_args):
 
   with tf.Graph().as_default():
     _, best_decodes = video_metrics.compute_video_metrics_from_predictions(
-        predictions)
+        predictions, decode_hparams=hook_args.decode_hparams)
 
   all_summaries = []
   # Displays decodes corresponding to the best/worst metric,
@@ -189,7 +189,7 @@ def summarize_video_metrics(hook_args):
   with metrics_graph.as_default():
     if predictions:
       metrics_results, _ = video_metrics.compute_video_metrics_from_predictions(
-          predictions)
+          predictions, decode_hparams=hook_args.decode_hparams)
     else:
       metrics_results, _ = video_metrics.compute_video_metrics_from_png_files(
           output_dirs, problem_name, hparams.video_num_target_frames,
