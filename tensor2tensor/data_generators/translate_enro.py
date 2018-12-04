@@ -78,3 +78,33 @@ class TranslateEnroWmtMulti64k(TranslateEnroWmt8k):
   @property
   def vocab_filename(self):
     return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename
+
+
+@registry.register_problem
+class TranslateEnroWmtMultiSmall64k(TranslateEnroWmt8k):
+  """Translation with muli-lingual vocabulary, small (6K) training data."""
+
+  @property
+  def dataset_splits(self):
+    """Splits of data to produce and number of output shards for each."""
+    return [{
+        "split": problem.DatasetSplit.TRAIN,
+        "shards": 1,
+    }, {
+        "split": problem.DatasetSplit.EVAL,
+        "shards": 1,
+    }]
+
+  @property
+  def vocab_filename(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    """Generate just the first 6k samples for training."""
+    counter = 0
+    for x in super(TranslateEnroWmtMultiSmall64k, self).generate_samples(
+        data_dir, tmp_dir, dataset_split):
+      counter += 1
+      if counter > 6000 and dataset_split == problem.DatasetSplit.TRAIN:
+        raise StopIteration
+      yield x

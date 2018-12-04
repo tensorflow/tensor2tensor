@@ -133,12 +133,12 @@ class LanguagemodelMultiWikiTranslate(multi_problem.MultiProblem):
     self.task_list.append(wiki_lm.LanguagemodelDeEnFrRoWiki64k())
     self.task_list.append(translate_ende.TranslateEndeWmtMulti64k())
     self.task_list.append(translate_enfr.TranslateEnfrWmtMulti64k())
-    self.task_list.append(translate_enro.TranslateEnroWmtMulti64k())
+    self.task_list.append(translate_enro.TranslateEnroWmtMultiSmall64k())
     self.task_list.append(translate_ende.TranslateEndeWmtMulti64k(
         was_reversed=True))
     self.task_list.append(translate_enfr.TranslateEnfrWmtMulti64k(
         was_reversed=True))
-    self.task_list.append(translate_enro.TranslateEnroWmtMulti64k(
+    self.task_list.append(translate_enro.TranslateEnroWmtMultiSmall64k(
         was_reversed=True))
 
   @property

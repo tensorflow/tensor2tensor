@@ -118,6 +118,7 @@ class MultiProblem(problem.Problem):
     if model_hparams.multiproblem_vocab_size > new_vocab_size:
       new_vocab_size = model_hparams.multiproblem_vocab_size
     tf.logging.info("Old vocabulary size: %d" % vocab_size)
+    self.update_task_ids(vocab_size)
     tf.logging.info("New vocabulary size: %d" % new_vocab_size)
     self._hparams.vocab_size["targets"] = new_vocab_size
     self._hparams.modality["targets"] = modalities.SymbolModality(
@@ -172,7 +173,7 @@ class MultiProblem(problem.Problem):
       raise ValueError("Only support language models as primary problem which "
                        "supplies the vocabulary and the hparams.")
     enc = primary_task.feature_encoders(data_dir=data_dir)["targets"]
-    self.update_task_ids(enc)
+    self.update_task_ids(enc.vocab_size)
 
     for task in self.task_list:
       task_dataset = task.dataset(mode=mode,
@@ -331,19 +332,17 @@ class MultiProblem(problem.Problem):
         metrics.Metrics.ACC, metrics.Metrics.NEG_LOG_PERPLEXITY,
     ]
 
-  def update_task_ids(self, encoder):
+  def update_task_ids(self, encoder_vocab_size):
     """Generate task_ids for each problem.
 
     These ids correspond to the index of the task in the task_list.
 
     Args:
-      encoder: this provides the size of the vocab which is used to compute
+      encoder_vocab_size: the size of the vocab which is used to compute
         the index offset.
     """
-    offset = encoder.vocab_size
-
     for idx, task in enumerate(self.task_list):
-      task.set_task_id(idx + offset)
+      task.set_task_id(idx + encoder_vocab_size)
       tf.logging.info("Task %d (%s) has id %d." %
                       (idx, task.name, task.task_id))
 

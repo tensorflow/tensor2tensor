@@ -1618,6 +1618,8 @@ def transformer_tall_finetune_cnndm():
   # Set train steps to learning_rate_decay_steps or less
   hparams.learning_rate_decay_steps = 40000
   hparams.multiproblem_target_eval_only = True
+  hparams.multiproblem_vocab_size = 2**16
+  return hparams
 
 
 @registry.register_hparams
