@@ -233,6 +233,19 @@ def mfrl_base():
   hparams = mfrl_original()
   hparams.add_hparam("ppo_epochs_num", 3000)
   hparams.add_hparam("ppo_eval_every_epochs", 100)
+  hparams.add_hparam("eval_max_num_noops", 8)
+  hparams.add_hparam("resize_height_factor", 2)
+  hparams.add_hparam("resize_width_factor", 2)
+  hparams.add_hparam("grayscale", 1)
+  hparams.add_hparam("env_timesteps_limit", -1)
+  return hparams
+
+
+@registry.register_hparams
+def mfrl_tiny():
+  hparams = mfrl_base()
+  hparams.ppo_epochs_num = 100
+  hparams.ppo_eval_every_epochs = 10
   return hparams
 
 
