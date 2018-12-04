@@ -319,6 +319,19 @@ class MetricsTest(tf.test.TestCase):
       actual = session.run(a)
     self.assertAlmostEqual(actual, expected, places=6)
 
+  def testPearsonCorrelationCoefficient(self):
+    predictions = np.random.randint(4, size=(12, 12, 12, 1))
+    targets = np.random.randint(4, size=(12, 12, 12, 1))
+    
+    expected = np.corrcoef(np.squeeze(predictions), np.squeeze(targets))[0, 1]
+    with self.test_session() as session:
+      pearson, _ = metrics.pearson_correlation_coefficient(
+          tf.one_hot(predictions, depth=4, dtype=tf.float32),
+          tf.constant(targets, dtype=tf.int32))
+      a = tf.reduce_mean(pearson)
+      session.run(tf.global_variables_initializer())
+      actual = session.run(a)
+    self.assertAlmostEqual(actual, expected)
 
 if __name__ == '__main__':
   tf.test.main()

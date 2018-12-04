@@ -43,6 +43,7 @@ class Metrics(object):
   APPROX_BLEU = "approx_bleu_score"
   RMSE = "rmse"
   LOG_POISSON = "log_poisson"
+  PEARSON = "pearson"
   R2 = "r_squared"
   ROUGE_2_F = "rouge_2_fscore"
   ROUGE_L_F = "rouge_L_fscore"
@@ -100,6 +101,21 @@ def padded_log_poisson(predictions,
 
   lp_loss = tf.nn.log_poisson_loss(targets, predictions, compute_full_loss=True)
   return tf.reduce_sum(lp_loss * weights), tf.reduce_sum(weights)
+
+
+def pearson_correlation_coefficient(predictions, labels, weights_fn=None):
+  """Calculate pearson correlation coefficient.
+
+  Args:
+    predictions: The raw predictions.
+    labels: The actual labels.
+    weights_fn: Weighting function.
+
+  Returns:
+    The pearson correlation coefficient.
+  """
+  pearson = tf.contrib.metrics.streaming_pearson_correlation(predictions, labels)
+  return pearson, tf.constant(1.0)
 
 
 def padded_variance_explained(predictions,
@@ -756,6 +772,7 @@ METRICS_FNS = {
     Metrics.APPROX_BLEU: bleu_hook.bleu_score,
     Metrics.RMSE: padded_rmse,
     Metrics.LOG_POISSON: padded_log_poisson,
+    Metrics.PEARSON: pearson_correlation_coefficient,
     Metrics.R2: padded_variance_explained,
     Metrics.ROUGE_2_F: rouge.rouge_2_fscore,
     Metrics.ROUGE_L_F: rouge.rouge_l_fscore,
