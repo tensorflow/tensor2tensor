@@ -29,6 +29,7 @@ from tensor2tensor.models import lstm
 from tensor2tensor.models import mtf_image_transformer
 from tensor2tensor.models import mtf_resnet
 from tensor2tensor.models import mtf_transformer
+from tensor2tensor.models import mtf_transformer2
 from tensor2tensor.models import neural_gpu
 from tensor2tensor.models import resnet
 from tensor2tensor.models import revnet
