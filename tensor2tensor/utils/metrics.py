@@ -103,21 +103,6 @@ def padded_log_poisson(predictions,
   return tf.reduce_sum(lp_loss * weights), tf.reduce_sum(weights)
 
 
-def pearson_correlation_coefficient(predictions, labels, weights_fn=None):
-  """Calculate pearson correlation coefficient.
-
-  Args:
-    predictions: The raw predictions.
-    labels: The actual labels.
-    weights_fn: Weighting function.
-
-  Returns:
-    The pearson correlation coefficient.
-  """
-  pearson = tf.contrib.metrics.streaming_pearson_correlation(predictions, labels)
-  return pearson, tf.constant(1.0)
-
-
 def padded_variance_explained(predictions,
                               labels,
                               weights_fn=common_layers.weights_all):
@@ -756,6 +741,20 @@ def word_error_rate(raw_predictions,
 
     return distance / reference_length, reference_length
 
+
+def pearson_correlation_coefficient(predictions, labels, weights_fn=None):
+  """Calculate pearson correlation coefficient.
+
+  Args:
+    predictions: The raw predictions.
+    labels: The actual labels.
+    weights_fn: Weighting function.
+
+  Returns:
+    The pearson correlation coefficient.
+  """
+  pearson = tf.contrib.metrics.streaming_pearson_correlation(predictions, labels)
+  return pearson, tf.constant(1.0)
 
 # Metrics are functions that take predictions and labels and return
 # a tensor of metrics and a tensor of weights.
