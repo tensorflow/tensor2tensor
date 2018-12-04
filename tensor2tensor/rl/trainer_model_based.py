@@ -36,6 +36,7 @@ import time
 import numpy as np
 import six
 
+from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import rl_utils
