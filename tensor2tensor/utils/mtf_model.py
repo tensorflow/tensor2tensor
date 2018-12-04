@@ -179,7 +179,13 @@ class MtfModel(t2t_model.T2TModel):
     problem = hparams.problem
     if logits.get_shape().ndims == 3:
       logits = tf.expand_dims(tf.expand_dims(logits, 2), 3)
-    eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
+
+    # Support for multiproblem
+    task_list = [problem]
+    if hasattr(problem, "task_list"):
+      task_list = problem.task_list
+
+    eval_metrics_fns = metrics.create_evaluation_metrics(task_list, hparams)
 
     if use_tpu:
       def metric_fn(tf_logits, labels):
