@@ -215,12 +215,13 @@ def compute_all_metrics_statistics(all_results):
   return statistics, decode_inds
 
 
-def compute_video_metrics_from_predictions(predictions):
+def compute_video_metrics_from_predictions(predictions, decode_hparams):
   """Computes metrics from predictions.
 
   Args:
     predictions: list of list of dicts.
                  outer length: num_decodes, inner_length: num_samples
+    decode_hparams: Decode hparams. instance of tf.contrib.training.HParams.
   Returns:
     statistics: dict of Tensors, key being the metric with each Tensor
                 having the shape (num_samples, num_frames).

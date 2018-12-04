@@ -90,7 +90,6 @@ You can choose the bAbi task from the range [1,20] and the subset from 1k or
 10k. To combine test data from all tasks into a single test set, use
 `--problem=babi_qa_concat_all_tasks_10k`
 
-
 ### Image Classification
 
 For image classification, we have a number of standard data-sets:

@@ -1613,9 +1613,6 @@ def weights_multi_problem(labels, taskid=-1):
 def weights_multi_problem_all(labels, taskid=-1):
   """Assign weight 1.0 to only examples from the given task."""
   weights = tf.to_float(tf.not_equal(labels, 0))
-  if taskid < 0:
-    raise ValueError("Task ID must be non-negative.")
-
   past_taskid = tf.cumsum(tf.to_float(tf.equal(labels, taskid)), axis=1)
   # Additionally zero out the task id location
   past_taskid *= tf.to_float(tf.not_equal(labels, taskid))
