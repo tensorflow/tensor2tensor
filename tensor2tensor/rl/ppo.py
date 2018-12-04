@@ -22,7 +22,6 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.models.research.rl import get_policy
-from tensor2tensor.utils import registry
 
 import tensorflow as tf
 import tensorflow_probability as tfp

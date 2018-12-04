@@ -215,8 +215,13 @@ def train_agent_real_env(env, learner, hparams, epoch):
   env_fn = rl.make_real_env_fn(env)
   num_env_steps = real_env_step_increment(hparams)
   learner.train(
-      env_fn, train_hparams, simulated=False, save_continuously=False,
-      epoch=epoch, num_env_steps=num_env_steps
+      env_fn,
+      train_hparams,
+      simulated=False,
+      save_continuously=False,
+      epoch=epoch,
+      sampling_temp=hparams.real_sampling_temp,
+      num_env_steps=num_env_steps,
   )
   # Save unfinished rollouts to history.
   env.reset()
@@ -492,7 +497,8 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       if report_fn:
         if report_metric == "mean_reward":
           metric_name = rl_utils.get_metric_name(
-              stochastic=True, max_num_noops=hparams.eval_max_num_noops,
+              sampling_temp=hparams.eval_sampling_temps[0],
+              max_num_noops=hparams.eval_max_num_noops,
               clipped=False
           )
           report_fn(eval_metrics[metric_name], epoch)
