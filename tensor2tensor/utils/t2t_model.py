@@ -1497,18 +1497,10 @@ class T2TModel(base.Layer):
       else:
         predictions = {"predictions": logits}
 
-      evaluation_hooks = []
-      # Create a SummarySaverHook
-      eval_summary_hook = tf.train.SummarySaverHook(
-          save_steps=1, output_dir=self.hparams.model_dir + "/eval",
-          summary_op=tf.summary.merge_all())
-      evaluation_hooks.append(eval_summary_hook)
-
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
           predictions=predictions,
           eval_metric_ops=eval_metrics,
-          evaluation_hooks=evaluation_hooks,
           loss=loss)
 
   def estimator_spec_predict(self, features, use_tpu=False):
