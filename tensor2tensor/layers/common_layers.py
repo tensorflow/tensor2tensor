@@ -1588,6 +1588,16 @@ def weights_prepend_inputs_to_targets(labels):
   return tf.to_float(tf.not_equal(past_first_zero * nonzero, 0))
 
 
+def check_nonnegative(value):
+  """Check that the value is nonnegative."""
+  if isinstance(value, tf.Tensor):
+    with tf.control_dependencies([tf.assert_greater_equal(value, 0)]):
+      value = tf.identity(value)
+  elif value < 0:
+    raise ValueError("Value must be non-negative.")
+  return value
+
+
 def weights_multi_problem(labels, taskid=-1):
   """Assign weight 1.0 to only the "targets" portion of the labels.
 
@@ -1603,6 +1613,7 @@ def weights_multi_problem(labels, taskid=-1):
   Raises:
     ValueError: The Task ID must be valid.
   """
+  taskid = check_nonnegative(taskid)
   past_taskid = tf.cumsum(tf.to_float(tf.equal(labels, taskid)), axis=1)
   # Additionally zero out the task id location
   past_taskid *= tf.to_float(tf.not_equal(labels, taskid))
@@ -1612,6 +1623,7 @@ def weights_multi_problem(labels, taskid=-1):
 
 def weights_multi_problem_all(labels, taskid=-1):
   """Assign weight 1.0 to only examples from the given task."""
+  taskid = check_nonnegative(taskid)
   weights = tf.to_float(tf.not_equal(labels, 0))
   past_taskid = tf.cumsum(tf.to_float(tf.equal(labels, taskid)), axis=1)
   # Additionally zero out the task id location
@@ -1627,6 +1639,7 @@ def weights_multi_problem_all(labels, taskid=-1):
 
 def weights_multi_problem_input(labels, taskid=-1):
   """Assign weight 1.0 to only the inputs for the given task."""
+  taskid = check_nonnegative(taskid)
   weights_all_tokens = weights_multi_problem_all(labels, taskid)
   weights_target = weights_multi_problem(labels, taskid)
   return weights_all_tokens - weights_target
