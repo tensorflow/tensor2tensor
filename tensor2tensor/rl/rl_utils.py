@@ -13,8 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""Utilities for RL training
-"""
+"""Utilities for RL training."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -117,6 +116,7 @@ def setup_env(hparams, batch_size, max_num_noops):
                   base_env_timesteps_limit=hparams.env_timesteps_limit,
                   max_num_noops=max_num_noops)
   return env
+
 
 def update_hparams_from_hparams(target_hparams, source_hparams, prefix):
   """Copy a subset of hparams to target_hparams."""

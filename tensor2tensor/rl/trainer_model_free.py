@@ -59,6 +59,7 @@ def initialize_env_specs(hparams):
 
 
 def train(hparams, output_dir, report_fn=None):
+  """Train."""
   hparams = initialize_env_specs(hparams)
   learner = rl_utils.LEARNERS[hparams.base_algo](
       hparams.frame_stack_size, FLAGS.output_dir, output_dir
@@ -77,18 +78,18 @@ def train(hparams, output_dir, report_fn=None):
   if not steps or steps[-1] < eval_every_epochs:
     steps.append(eval_every_epochs)
   metric_name = rl_utils.get_metric_name(
-    stochastic=True, max_num_noops=hparams.eval_max_num_noops,
-    clipped=False
+      stochastic=True, max_num_noops=hparams.eval_max_num_noops,
+      clipped=False
   )
   for step in steps:
     policy_hparams.epochs_num = step
     learner.train(
-      hparams.env_fn, policy_hparams, simulated=False, save_continuously=True,
-      epoch=0
+        hparams.env_fn, policy_hparams, simulated=False, save_continuously=True,
+        epoch=0
     )
     eval_metrics = rl_utils.evaluate_all_configs(hparams, output_dir)
     tf.logging.info("Agent eval metrics:\n{}".format(
-      pprint.pformat(eval_metrics)))
+        pprint.pformat(eval_metrics)))
     if report_fn:
       report_fn(eval_metrics[metric_name], step)
 
