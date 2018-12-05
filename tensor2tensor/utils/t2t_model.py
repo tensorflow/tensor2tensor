@@ -24,6 +24,7 @@ import copy
 import functools
 import inspect
 import math
+import os
 import time
 import six
 
@@ -1497,10 +1498,22 @@ class T2TModel(base.Layer):
       else:
         predictions = {"predictions": logits}
 
+      evaluation_hooks = []
+      # Create a SummarySaverHook
+      eval_dir = os.path.join(
+          self.hparams.model_dir,
+          self.hparams.get("eval_dir_name", "eval"))
+      eval_summary_hook = tf.train.SummarySaverHook(
+          save_steps=1,
+          output_dir=eval_dir,
+          summary_op=tf.summary.merge_all())
+      evaluation_hooks.append(eval_summary_hook)
+
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
           predictions=predictions,
           eval_metric_ops=eval_metrics,
+          evaluation_hooks=evaluation_hooks,
           loss=loss)
 
   def estimator_spec_predict(self, features, use_tpu=False):

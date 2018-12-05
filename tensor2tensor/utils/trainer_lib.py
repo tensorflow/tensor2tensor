@@ -470,10 +470,12 @@ class T2TExperiment(object):
           self._train_spec.input_fn,
           steps=eval_steps,
           hooks=self._train_spec.hooks)
+      self._set_eval_dir_name("eval")
       self._estimator.evaluate(
           self._eval_spec.input_fn,
           steps=self._eval_spec.steps,
-          hooks=self._eval_spec.hooks)
+          hooks=self._eval_spec.hooks,
+          name="eval")
       if packed_dataset:
         problem = registry.problem(
             self._hparams.problem.name.replace("_packed", ""))
@@ -495,18 +497,30 @@ class T2TExperiment(object):
       mlperf_log.transformer_print(
           key=mlperf_log.RUN_STOP, value={"success": "false"})
 
+  def _set_eval_dir_name(self, eval_dir_name):
+    attr = "eval_dir_name"
+    hp = self._hparams
+    if attr not in hp:
+      hp.add_hparam(attr, "")
+    hp.eval_dir_name = eval_dir_name
+
   def evaluate(self):
+    name = "eval"
+    self._set_eval_dir_name("eval")
     return self._estimator.evaluate(
         self._eval_spec.input_fn,
         steps=self._eval_spec.steps,
-        hooks=self._eval_spec.hooks)
+        hooks=self._eval_spec.hooks,
+        name=name)
 
   def evaluate_on_train_data(self):
+    name = "eval_train"
+    self._set_eval_dir_name(name)
     self._estimator.evaluate(
         self._train_spec.input_fn,
         steps=self._eval_spec.steps,
         hooks=self._eval_spec.hooks,
-        name="eval_train")
+        name=name)
 
   def continuous_eval(self):
     """Evaluate until checkpoints stop being produced."""
@@ -521,7 +535,7 @@ class T2TExperiment(object):
       self.evaluate_on_train_data()
 
   def test(self):
-    """Perform 1 step of train and 2 step of eval."""
+    """Perform 1 train step and 1 eval step."""
     if self._use_validation_monitor:
       return self.train_and_evaluate()
 
