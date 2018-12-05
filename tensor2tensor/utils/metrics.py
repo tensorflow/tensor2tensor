@@ -753,7 +753,7 @@ def pearson_correlation_coefficient(predictions, labels, weights_fn=None):
   Returns:
     The pearson correlation coefficient.
   """
-  pearson = tf.contrib.metrics.streaming_pearson_correlation(predictions, labels)
+  _, pearson = tf.contrib.metrics.streaming_pearson_correlation(predictions, labels)
   return pearson, tf.constant(1.0)
 
 # Metrics are functions that take predictions and labels and return
