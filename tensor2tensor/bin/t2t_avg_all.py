@@ -63,7 +63,8 @@ def main(_):
       var_list = tf.contrib.framework.list_variables(model.filename)
       avg_values = {}
       for (name, shape) in var_list:
-        if not name.startswith("global_step"):
+        if not (name.startswith("global_step") or
+                name.startswith("train_stats/")):
           avg_values[name] = np.zeros(shape)
     models_processed += 1
 
@@ -88,6 +89,8 @@ def main(_):
         "global_step",
         initializer=tf.constant(model.steps, dtype=tf.int64),
         trainable=False)
+    with tf.variable_scope("train_stats"):
+      tf.get_variable("problem_0_steps", initializer=0, trainable=False)
     saver = tf.train.Saver(tf.global_variables())
 
     tf.logging.info("Running session for %s" % (out_file))
