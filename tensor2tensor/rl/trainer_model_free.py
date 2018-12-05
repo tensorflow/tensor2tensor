@@ -27,18 +27,19 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import six
+import pprint
 
-from tensor2tensor.data_generators import gym_env
 from tensor2tensor.models.research import rl
-from tensor2tensor.rl.ppo_learner import PPOLearner
+from tensor2tensor.rl import rl_utils
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
 
+
 flags = tf.flags
 FLAGS = flags.FLAGS
+
 
 # To maintain compatibility with some internal libs, we guard against these flag
 # definitions possibly erring. Apologies for the ugliness.
@@ -48,46 +49,48 @@ except:  # pylint: disable=bare-except
   pass
 
 
-LEARNERS = {
-    "ppo": PPOLearner
-}
-
-
-def update_hparams_from_hparams(target_hparams, source_hparams, prefix):
-  """Copy a subset of hparams to target_hparams."""
-  for (param_name, param_value) in six.iteritems(source_hparams.values()):
-    if param_name.startswith(prefix):
-      target_hparams.set_hparam(param_name[len(prefix):], param_value)
-
-
 def initialize_env_specs(hparams):
   """Initializes env_specs using T2TGymEnvs."""
-  if getattr(hparams, "game", None):
-    game_name = gym_env.camel_case_name(hparams.game)
-    env = gym_env.T2TGymEnv("{}Deterministic-v4".format(game_name),
-                            batch_size=hparams.batch_size)
-    env.start_new_epoch(0)
-    hparams.add_hparam("env_fn", rl.make_real_env_fn(env))
-    eval_env = gym_env.T2TGymEnv("{}Deterministic-v4".format(game_name),
-                                 batch_size=hparams.eval_batch_size)
-    eval_env.start_new_epoch(0)
-    hparams.add_hparam("eval_env_fn", rl.make_real_env_fn(eval_env))
+  env = rl_utils.setup_env(hparams, hparams.batch_size,
+                           hparams.eval_max_num_noops)
+  env.start_new_epoch(0)
+  hparams.add_hparam("env_fn", rl.make_real_env_fn(env))
   return hparams
 
 
 def train(hparams, output_dir, report_fn=None):
   hparams = initialize_env_specs(hparams)
-  learner = LEARNERS[hparams.base_algo](
+  learner = rl_utils.LEARNERS[hparams.base_algo](
       hparams.frame_stack_size, FLAGS.output_dir, output_dir
   )
   policy_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
-  update_hparams_from_hparams(
+  rl_utils.update_hparams_from_hparams(
       policy_hparams, hparams, hparams.base_algo + "_"
   )
-  learner.train(
-      hparams.env_fn, policy_hparams, simulated=False, save_continuously=True,
-      epoch=0, eval_env_fn=hparams.eval_env_fn, report_fn=report_fn
+  total_steps = policy_hparams.epochs_num
+  eval_every_epochs = policy_hparams.eval_every_epochs
+  if eval_every_epochs == 0:
+    eval_every_epochs = total_steps
+  policy_hparams.eval_every_epochs = 0
+
+  steps = list(range(eval_every_epochs, total_steps+1, eval_every_epochs))
+  if not steps or steps[-1] < eval_every_epochs:
+    steps.append(eval_every_epochs)
+  metric_name = rl_utils.get_metric_name(
+    stochastic=True, max_num_noops=hparams.eval_max_num_noops,
+    clipped=False
   )
+  for step in steps:
+    policy_hparams.epochs_num = step
+    learner.train(
+      hparams.env_fn, policy_hparams, simulated=False, save_continuously=True,
+      epoch=0
+    )
+    eval_metrics = rl_utils.evaluate_all_configs(hparams, output_dir)
+    tf.logging.info("Agent eval metrics:\n{}".format(
+      pprint.pformat(eval_metrics)))
+    if report_fn:
+      report_fn(eval_metrics[metric_name], step)
 
 
 def main(_):
