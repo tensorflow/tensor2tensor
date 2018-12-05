@@ -43,6 +43,7 @@ class Metrics(object):
   APPROX_BLEU = "approx_bleu_score"
   RMSE = "rmse"
   LOG_POISSON = "log_poisson"
+  PEARSON = "pearson"
   R2 = "r_squared"
   ROUGE_2_F = "rouge_2_fscore"
   ROUGE_L_F = "rouge_L_fscore"
@@ -741,6 +742,20 @@ def word_error_rate(raw_predictions,
     return distance / reference_length, reference_length
 
 
+def pearson_correlation_coefficient(predictions, labels, weights_fn=None):
+  """Calculate pearson correlation coefficient.
+
+  Args:
+    predictions: The raw predictions.
+    labels: The actual labels.
+    weights_fn: Weighting function.
+
+  Returns:
+    The pearson correlation coefficient.
+  """
+  _, pearson = tf.contrib.metrics.streaming_pearson_correlation(predictions, labels)
+  return pearson, tf.constant(1.0)
+
 # Metrics are functions that take predictions and labels and return
 # a tensor of metrics and a tensor of weights.
 # If the function has "features" as an argument, it will receive the whole
@@ -756,6 +771,7 @@ METRICS_FNS = {
     Metrics.APPROX_BLEU: bleu_hook.bleu_score,
     Metrics.RMSE: padded_rmse,
     Metrics.LOG_POISSON: padded_log_poisson,
+    Metrics.PEARSON: pearson_correlation_coefficient,
     Metrics.R2: padded_variance_explained,
     Metrics.ROUGE_2_F: rouge.rouge_2_fscore,
     Metrics.ROUGE_L_F: rouge.rouge_l_fscore,
