@@ -325,7 +325,9 @@ class MetricsTest(tf.test.TestCase):
     
     expected = np.corrcoef(np.squeeze(predictions), np.squeeze(targets))[0][1]
     with self.test_session() as session:
-      pearson, _ = metrics.pearson_correlation_coefficient(predictions, targets)
+      pearson, _ = metrics.pearson_correlation_coefficient(
+          tf.constant(predictions, dtype=tf.float32), 
+          tf.constant(targets, dtype=tf.float32))
       a = tf.reduce_mean(pearson)
       session.run(tf.global_variables_initializer())
       actual = session.run(a)
