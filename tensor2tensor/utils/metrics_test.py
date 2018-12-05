@@ -320,8 +320,8 @@ class MetricsTest(tf.test.TestCase):
     self.assertAlmostEqual(actual, expected, places=6)
 
   def testPearsonCorrelationCoefficient(self):
-    predictions = np.random.randint(4, size=(12, 1))
-    targets = np.random.randint(4, size=(12, 1))
+    predictions = np.random.rand(12, 1)
+    targets = np.random.rand(12, 1)
     
     expected = np.corrcoef(np.squeeze(predictions), np.squeeze(targets))[0][1]
     with self.test_session() as session:
