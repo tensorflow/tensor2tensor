@@ -89,7 +89,7 @@ class TranslateEnroWmtMultiSmall64k(TranslateEnroWmt8k):
     """Splits of data to produce and number of output shards for each."""
     return [{
         "split": problem.DatasetSplit.TRAIN,
-        "shards": 1,
+        "shards": 16,  # It's a small dataset, TPUs like at least a few shards.
     }, {
         "split": problem.DatasetSplit.EVAL,
         "shards": 1,
