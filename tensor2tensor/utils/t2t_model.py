@@ -24,6 +24,7 @@ import copy
 import functools
 import inspect
 import math
+import os
 import time
 import six
 
@@ -1499,8 +1500,12 @@ class T2TModel(base.Layer):
 
       evaluation_hooks = []
       # Create a SummarySaverHook
+      eval_dir = os.path.join(
+          self.hparams.model_dir,
+          self.hparams.get("eval_dir_name", "eval"))
       eval_summary_hook = tf.train.SummarySaverHook(
-          save_steps=1, output_dir=self.hparams.model_dir + "/eval",
+          save_steps=1,
+          output_dir=eval_dir,
           summary_op=tf.summary.merge_all())
       evaluation_hooks.append(eval_summary_hook)
 

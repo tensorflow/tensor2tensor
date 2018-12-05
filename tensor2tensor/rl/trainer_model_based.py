@@ -37,12 +37,10 @@ import numpy as np
 import six
 
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
-from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl
+from tensor2tensor.rl import rl_utils
 from tensor2tensor.rl import trainer_model_based_params
-from tensor2tensor.rl.dopamine_connector import DQNLearner
-from tensor2tensor.rl.ppo_learner import PPOLearner
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -50,19 +48,6 @@ import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
-
-
-LEARNERS = {
-    "ppo": PPOLearner,
-    "dqn": DQNLearner,
-}
-
-
-def update_hparams_from_hparams(target_hparams, source_hparams, prefix):
-  """Copy a subset of hparams to target_hparams."""
-  for (param_name, param_value) in six.iteritems(source_hparams.values()):
-    if param_name.startswith(prefix):
-      target_hparams.set_hparam(param_name[len(prefix):], param_value)
 
 
 def real_env_step_increment(hparams):
@@ -207,7 +192,7 @@ def train_agent(
   base_algo_str = hparams.base_algo
   train_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
 
-  update_hparams_from_hparams(
+  rl_utils.update_hparams_from_hparams(
       train_hparams, hparams, base_algo_str + "_"
   )
 
@@ -223,7 +208,7 @@ def train_agent_real_env(env, learner, hparams, epoch):
   base_algo_str = hparams.base_algo
 
   train_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
-  update_hparams_from_hparams(
+  rl_utils.update_hparams_from_hparams(
       train_hparams, hparams, "real_" + base_algo_str + "_"
   )
 
@@ -261,82 +246,6 @@ def train_world_model(
   )
 
   return world_model_steps_num
-
-
-def setup_env(hparams, batch_size, max_num_noops):
-  """Setup."""
-  game_mode = "Deterministic-v4"
-  camel_game_name = "".join(
-      [w[0].upper() + w[1:] for w in hparams.game.split("_")])
-  camel_game_name += game_mode
-  env_name = camel_game_name
-
-  env = T2TGymEnv(base_env_name=env_name,
-                  batch_size=batch_size,
-                  grayscale=hparams.grayscale,
-                  resize_width_factor=hparams.resize_width_factor,
-                  resize_height_factor=hparams.resize_height_factor,
-                  base_env_timesteps_limit=hparams.env_timesteps_limit,
-                  max_num_noops=max_num_noops)
-  return env
-
-
-def evaluate_single_config(hparams, stochastic, max_num_noops, agent_model_dir):
-  """Evaluate the PPO agent in the real environment."""
-  eval_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
-  env = setup_env(
-      hparams, batch_size=hparams.eval_batch_size, max_num_noops=max_num_noops
-  )
-  env.start_new_epoch(0)
-  env_fn = rl.make_real_env_fn(env)
-  learner = LEARNERS[hparams.base_algo](
-      hparams.frame_stack_size, base_event_dir=None,
-      agent_model_dir=agent_model_dir
-  )
-  learner.evaluate(env_fn, eval_hparams, stochastic)
-  rollouts = env.current_epoch_rollouts()
-  env.close()
-
-  return tuple(
-      compute_mean_reward(rollouts, clipped) for clipped in (True, False)
-  )
-
-
-def get_metric_name(stochastic, max_num_noops, clipped):
-  return "mean_reward/eval/stochastic_{}_max_noops_{}_{}".format(
-      stochastic, max_num_noops, "clipped" if clipped else "unclipped")
-
-
-def evaluate_all_configs(hparams, agent_model_dir):
-  """Evaluate the agent with multiple eval configurations."""
-  metrics = {}
-  # Iterate over all combinations of picking actions by sampling/mode and
-  # whether to do initial no-ops.
-  for stochastic in (True, False):
-    for max_num_noops in (hparams.eval_max_num_noops, 0):
-      scores = evaluate_single_config(
-          hparams, stochastic, max_num_noops, agent_model_dir
-      )
-      for (score, clipped) in zip(scores, (True, False)):
-        metric_name = get_metric_name(stochastic, max_num_noops, clipped)
-        metrics[metric_name] = score
-
-  return metrics
-
-
-def compute_mean_reward(rollouts, clipped):
-  """Calculate mean rewards from given epoch."""
-  reward_name = "reward" if clipped else "unclipped_reward"
-  rewards = []
-  for rollout in rollouts:
-    if rollout[-1].done:
-      rollout_reward = sum(getattr(frame, reward_name) for frame in rollout)
-      rewards.append(rollout_reward)
-  if rewards:
-    mean_rewards = np.mean(rewards)
-  else:
-    mean_rewards = 0
-  return mean_rewards
 
 
 def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
@@ -485,13 +394,13 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   epoch = -1
   data_dir = directories["data"]
-  env = setup_env(
+  env = rl_utils.setup_env(
       hparams, batch_size=hparams.real_batch_size,
       max_num_noops=hparams.max_num_noops
   )
   env.start_new_epoch(epoch, data_dir)
 
-  learner = LEARNERS[hparams.base_algo](
+  learner = rl_utils.LEARNERS[hparams.base_algo](
       hparams.frame_stack_size, directories["policy"],
       directories["policy"]
   )
@@ -507,7 +416,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   policy_model_dir = directories["policy"]
   tf.logging.info("Initial training of the policy in real environment.")
   train_agent_real_env(env, learner, hparams, epoch)
-  metrics["mean_reward/train/clipped"] = compute_mean_reward(
+  metrics["mean_reward/train/clipped"] = rl_utils.compute_mean_reward(
       env.current_epoch_rollouts(), clipped=True
   )
   tf.logging.info("Mean training reward (initial): {}".format(
@@ -555,14 +464,14 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       # we'd overwrite them with wrong data.
       log("Metrics found for this epoch, skipping evaluation.")
     else:
-      metrics["mean_reward/train/clipped"] = compute_mean_reward(
+      metrics["mean_reward/train/clipped"] = rl_utils.compute_mean_reward(
           env.current_epoch_rollouts(), clipped=True
       )
       log("Mean training reward: {}".format(
           metrics["mean_reward/train/clipped"]
       ))
 
-      eval_metrics = evaluate_all_configs(hparams, policy_model_dir)
+      eval_metrics = rl_utils.evaluate_all_configs(hparams, policy_model_dir)
       log("Agent eval metrics:\n{}".format(pprint.pformat(eval_metrics)))
       metrics.update(eval_metrics)
 
@@ -582,7 +491,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       # Report metrics
       if report_fn:
         if report_metric == "mean_reward":
-          metric_name = get_metric_name(
+          metric_name = rl_utils.get_metric_name(
               stochastic=True, max_num_noops=hparams.eval_max_num_noops,
               clipped=False
           )

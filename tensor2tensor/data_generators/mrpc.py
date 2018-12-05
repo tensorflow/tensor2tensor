@@ -38,8 +38,8 @@ class MSRParaphraseCorpus(text_problems.TextConcat2ClassProblem):
   # Link to data from GLUE: https://gluebenchmark.com/tasks
   DEV_IDS = ("https://firebasestorage.googleapis.com/v0/b/"
              "mtl-sentence-representations.appspot.com/o/"
-             "data%2FWNLI.zip?alt=media&token=068ad0a0-ded7-"
-             "4bd7-99a5-5e00222e0faf")
+             "data%2Fmrpc_dev_ids.tsv?alt=media&token=ec5c0836-31d5-"
+             "48f4-b431-7480817f1adc")
   MRPC_TRAIN = ("https://s3.amazonaws.com/senteval/senteval_data/"
                 "msr_paraphrase_train.txt")
   MRPC_TEST = ("https://s3.amazonaws.com/senteval/senteval_data/"

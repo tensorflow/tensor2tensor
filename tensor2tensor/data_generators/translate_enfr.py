@@ -180,12 +180,10 @@ class TranslateEnfrWmt32kWithBacktranslateFr(TranslateEnfrWmt32k):
     tag = "train" if dataset_split == problem.DatasetSplit.TRAIN else "dev"
     data_path = translate.compile_data(
         tmp_dir, datasets, "%s-compiled-%s" % (self.name, tag))
-    # Iterator over authentic data.
-    it_auth = text_problems.text2text_txt_iterator(
-        data_path + ".lang1", data_path + ".lang2")
     # For eval, use authentic data.
     if dataset_split != problem.DatasetSplit.TRAIN:
-      for example in it_auth:
+      for example in text_problems.text2text_txt_iterator(
+          data_path + ".lang1", data_path + ".lang2"):
         yield example
     else:  # For training, mix synthetic and authentic data as follows.
       for (file1, file2) in self.backtranslate_data_filenames:
@@ -195,7 +193,8 @@ class TranslateEnfrWmt32kWithBacktranslateFr(TranslateEnfrWmt32k):
         for example in text_problems.text2text_txt_iterator(path1, path2):
           yield example
         # Now authentic data.
-        for example in it_auth:
+        for example in text_problems.text2text_txt_iterator(
+            data_path + ".lang1", data_path + ".lang2"):
           yield example
 
 

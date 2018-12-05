@@ -41,16 +41,17 @@ class TestEnv(gym.Env):
   """
 
   action_space = Discrete(1)
+  # TODO(afrozm): Gym's Box has a bug for uint8 type, which doesn't allow
+  # sampling, send them a PR. Till that time let this be np.int64
   observation_space = Box(
-      low=0, high=255, shape=(2, 6, 3), dtype=np.uint8
+      low=0, high=255, shape=(2, 6, 3), dtype=np.int64
   )
 
   def __init__(self):
     self._counter = 0
 
   def _generate_ob(self):
-    return np.random.randint(255, size=self.observation_space.shape,
-                             dtype=self.observation_space.dtype)
+    return self.observation_space.sample()
 
   def step(self, action):
     done = self._counter % 2 == 1

@@ -571,8 +571,7 @@ class Problem(object):
               partition_id=0,
               num_partitions=1,
               shuffle_buffer_size=1024,
-              max_records=-1,
-              only_last=False):
+              max_records=-1):
     """Build a Dataset for this problem.
 
     Args:
@@ -596,7 +595,6 @@ class Problem(object):
       shuffle_buffer_size: if shuffle_files is True, this is the buffer size
         used to shuffle records.
       max_records: int, number of records to truncate to.
-      only_last: bool, whether we should include only files from last epoch.
 
     Returns:
       Dataset containing dict<feature name, Tensor>.
@@ -621,17 +619,9 @@ class Problem(object):
     _ = self.get_hparams(hparams)
 
     data_filepattern = self.filepattern(data_dir, dataset_split, shard=shard)
-    if only_last:
-      imprv_data_filepattern = data_filepattern + r"10.[\d+]"
-    else:
-      imprv_data_filepattern = data_filepattern
     tf.logging.info("Reading data files from %s", data_filepattern)
-    try:
-      data_files = sorted(tf.contrib.slim.parallel_reader.get_data_files(
-          imprv_data_filepattern))
-    except ValueError:
-      data_files = sorted(tf.contrib.slim.parallel_reader.get_data_files(
-          data_filepattern))
+    data_files = sorted(tf.contrib.slim.parallel_reader.get_data_files(
+        data_filepattern))
 
     # Functions used in dataset transforms below. `filenames` can be either a
     # `tf.string` tensor or `tf.data.Dataset` containing one or more filenames.

@@ -253,6 +253,7 @@ class UniversalTransformer(transformer.Transformer):
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
         the preference for longer translations.
+      use_tpu: Whether we should use TPU or not.
 
     Returns:
       A dict of decoding results {
