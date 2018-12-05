@@ -13,8 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""TextCNN model from "Convolutional Neural Networks for Sentence Classification".
-"""
+"""TextCNN (see Convolutional Neural Networks for Sentence Classification)."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -27,12 +26,14 @@ from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
+
 @registry.register_model
 class TextCNN(t2t_model.T2TModel):
   """Text CNN."""
 
   def body(self, features):
     """TextCNN main model_fn.
+
     Args:
       features: Map of features to the model. Should contain the following:
           "inputs": Text inputs.
@@ -54,16 +55,20 @@ class TextCNN(t2t_model.T2TModel):
     for _, filter_size in enumerate(hparams.filter_sizes):
       with tf.name_scope("conv-maxpool-%s" % filter_size):
         filter_shape = [filter_size, vocab_size, 1, hparams.num_filters]
-        filter_var = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.1), name="W")
-        filter_bias = tf.Variable(tf.constant(0.1, shape=[hparams.num_filters]), name="b")
+        filter_var = tf.Variable(
+            tf.truncated_normal(filter_shape, stddev=0.1), name="W")
+        filter_bias = tf.Variable(
+            tf.constant(0.1, shape=[hparams.num_filters]), name="b")
         conv = tf.nn.conv2d(
             inputs,
             filter_var,
             strides=[1, 1, 1, 1],
             padding="VALID",
             name="conv")
-        conv_outputs = tf.nn.relu(tf.nn.bias_add(conv, filter_bias), name="relu")
-        pooled = tf.math.reduce_max(conv_outputs, axis=1, keepdims=True, name="max")
+        conv_outputs = tf.nn.relu(
+            tf.nn.bias_add(conv, filter_bias), name="relu")
+        pooled = tf.math.reduce_max(
+            conv_outputs, axis=1, keepdims=True, name="max")
         pooled_outputs.append(pooled)
 
     num_filters_total = hparams.num_filters * len(hparams.filter_sizes)
@@ -75,6 +80,7 @@ class TextCNN(t2t_model.T2TModel):
     output = tf.reshape(output, [-1, 1, 1, num_filters_total])
 
     return output
+
 
 @registry.register_hparams
 def text_cnn_base():
