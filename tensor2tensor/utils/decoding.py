@@ -32,6 +32,7 @@ from six.moves import input  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
+from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
@@ -62,12 +63,15 @@ def decode_hparams(overrides=""):
       delimiter="\n",
       decode_to_file=None,
       decode_in_memory=False,
+      summaries_log_dir="decode",  # Directory to write hook summaries.
       shards=1,    # How many shards of data to decode (treating 1 as None).
       shard_id=0,  # Which shard are we decoding if more than 1 above.
       shards_start_offset=0,  # Number of the first shard to decode.
       num_decodes=1,
       force_decode_length=False,
       display_decoded_images=False,
+      # Multi-problem decoding task id.
+      multiproblem_task_id=-1,
       # Used for video decoding.
       frames_per_second=10,
       skip_eos_postprocess=False,
@@ -76,8 +80,12 @@ def decode_hparams(overrides=""):
       # Maximum number of videos displayed.
       # Total number of videos are max_display_outputs * num_decodes
       max_display_outputs=10,
+      # Used in computation of VGG feature based video metrics.
+      # Set this to be the path to a trained VGG ckpt to output
+      # useful metrics.
+      vgg_ckpt_path=None,
       # Used for MLPerf compliance logging.
-      mlperf_mode=False,
+      mlperf_decode_step=0.0,
       mlperf_threshold=25.0,
       mlperf_success=False)
   hp.parse(overrides)
@@ -264,7 +272,9 @@ def decode_once(estimator,
   inputs_vocab = problem_hparams.vocabulary[inputs_vocab_key]
   targets_vocab = problem_hparams.vocabulary["targets"]
 
+  num_eval_samples = 0
   for num_predictions, prediction in enumerate(predictions):
+    num_eval_samples += 1
     num_predictions += 1
     inputs = prediction.get("inputs")
     targets = prediction.get("targets")
@@ -315,7 +325,7 @@ def decode_once(estimator,
     if decode_to_file:
       for i, (d_input, d_output, d_target) in enumerate(decoded_outputs):
         # Skip if all padding
-        if re.match("^({})+$".format(text_encoder.PAD), d_input):
+        if d_input and re.match("^({})+$".format(text_encoder.PAD), d_input):
           continue
         beam_score_str = ""
         if decode_hp.write_beam_scores:
@@ -327,6 +337,10 @@ def decode_once(estimator,
     if (decode_hp.num_samples >= 0 and
         num_predictions >= decode_hp.num_samples):
       break
+
+  mlperf_log.transformer_print(key=mlperf_log.EVAL_SIZE,
+                               value=num_eval_samples,
+                               hparams=hparams)
 
   if decode_to_file:
     output_file.close()
@@ -360,9 +374,15 @@ def decode_from_file(estimator,
   num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
 
   def input_fn():
-    input_gen = _decode_batch_input_fn(num_decode_batches, sorted_inputs,
-                                       inputs_vocab, decode_hp.batch_size,
-                                       decode_hp.max_input_size)
+    if has_input:
+        input_gen = _decode_batch_input_fn(
+            num_decode_batches, sorted_inputs,
+            inputs_vocab, decode_hp.batch_size,
+            decode_hp.max_input_size, task_id=decode_hp.multiproblem_task_id)
+    else:
+        input_gen = _decode_batch_input_fn_no_padding(sorted_inputs=sorted_inputs, max_batch_size=decode_hp.batch_size,
+                                                      vocabulary=inputs_vocab, max_input_size=decode_hp.max_input_size)
+
     gen_fn = make_input_fn_from_generator(input_gen)
     example = gen_fn()
     return _decode_input_tensor_to_features_dict(example, hparams)
@@ -391,6 +411,8 @@ def decode_from_file(estimator,
       output_beams = np.split(result["outputs"], decode_hp.beam_size, axis=0)
       scores = None
       if "scores" in result:
+        if np.isscalar(result["scores"]):
+          result["scores"] = result["scores"].reshape(1)
         scores = np.split(result["scores"], decode_hp.beam_size, axis=0)
       for k, beam in enumerate(output_beams):
         tf.logging.info("BEAM %d:" % k)
@@ -546,6 +568,8 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
       beams = np.split(result["outputs"], decode_hp.beam_size, axis=0)
       scores = None
       if "scores" in result:
+        if np.isscalar(result["scores"]):
+          result["scores"] = result["scores"].reshape(1)
         scores = np.split(result["scores"], decode_hp.beam_size, axis=0)
       for k, beam in enumerate(beams):
         tf.logging.info("BEAM %d:" % k)
@@ -565,7 +589,7 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
 
 
 def _decode_batch_input_fn(num_decode_batches, sorted_inputs, vocabulary,
-                           batch_size, max_input_size):
+                           batch_size, max_input_size, task_id=-1):
   """Generator to produce batches of inputs."""
   tf.logging.info(" batch %d" % num_decode_batches)
   # First reverse all the input sentences so that if you're going to get OOMs,
@@ -580,7 +604,8 @@ def _decode_batch_input_fn(num_decode_batches, sorted_inputs, vocabulary,
       if max_input_size > 0:
         # Subtract 1 for the EOS_ID.
         input_ids = input_ids[:max_input_size - 1]
-      input_ids.append(text_encoder.EOS_ID)
+      final_id = text_encoder.EOS_ID if task_id < 0 else task_id
+      input_ids.append(final_id)
       batch_inputs.append(input_ids)
       if len(input_ids) > batch_length:
         batch_length = len(input_ids)
@@ -594,6 +619,71 @@ def _decode_batch_input_fn(num_decode_batches, sorted_inputs, vocabulary,
         "inputs": np.array(final_batch_inputs).astype(np.int32),
     }
 
+def _decode_batch_input_fn_no_padding(sorted_inputs, max_batch_size, vocabulary, max_input_size):
+    """Generator to produce batches of same length inputs (batch size will be variable)."""
+
+    # First reverse all the input sentences so that if you're going to get OOMs,
+    # you'll see it in the first batch
+    sorted_inputs.reverse()
+
+    #Get variable batch sizes
+    last_batch_length=None
+    batch_lengths, batch_indicies = [],[]
+    for batch_index,elm in enumerate(sorted_inputs):
+        #Exclude whitespace and empty strings from batch length.
+        this_batch_length=len(elm.split(' '))
+        if max_input_size>0:
+            if this_batch_length>max_input_size:
+                this_batch_length=max_input_size
+        if this_batch_length!=last_batch_length:
+            batch_lengths.append(this_batch_length)
+            batch_indicies.append(batch_index)
+            last_batch_length = this_batch_length
+    batch_indicies.append(len(sorted_inputs))
+
+    #Ensure no batches exceed the maximum batch_size
+    batch_sizes = np.diff(batch_indicies)
+    final_batch_sizes = []
+    final_batch_lengths = []
+    for ii,bs in enumerate(batch_sizes):
+      if bs<max_batch_size:
+          final_batch_sizes.append(bs)
+          final_batch_lengths.append(batch_lengths[ii])
+      else:
+          full_batches = bs//max_batch_size
+          partial_batch= bs%max_batch_size
+          for _ in range(full_batches):
+              final_batch_sizes.append(max_batch_size)
+              final_batch_lengths.append(batch_lengths[ii])
+          if partial_batch>0:
+              final_batch_sizes.append(partial_batch)
+              final_batch_lengths.append(batch_lengths[ii])
+
+    #Continue with now variable batch sizes, no need for padding.
+    last_index=0
+    for b,batch_size in enumerate(final_batch_sizes):
+        tf.logging.info("Decoding batch %d" % b)
+        # Batch length should be the same for the entire batch -- Add one additional term for <EOS> token insertion
+        batch_length = min(max_input_size,final_batch_lengths[b]) + 1
+        batch_inputs = []
+        for inputs in sorted_inputs[last_index:last_index+batch_size]:
+          input_ids = vocabulary.encode(inputs)
+          if max_input_size>0:
+              #For language modeling problems, more recent inputs are often more important.
+              input_ids = input_ids[-max_input_size:]
+          batch_inputs.append(input_ids)
+        last_index+=batch_size
+
+        final_batch_inputs = []
+        #Ensure consistent batch size
+        for in_ids in batch_inputs:
+          assert len(in_ids) == batch_length
+          x=in_ids
+          final_batch_inputs.append(x)
+
+        yield {
+            "inputs": np.array(final_batch_inputs).astype(np.int32),
+        }
 
 def _interactive_input_fn(hparams, decode_hp):
   """Generator that reads from the terminal and yields "interactive inputs".
@@ -849,7 +939,7 @@ def run_postdecode_hooks(decode_hook_args, dataset_split):
     return
   tf.logging.info("Running decode hooks.")
   parent_dir = os.path.join(decode_hook_args.output_dirs[0], os.pardir)
-  child_dir = "decode"
+  child_dir = decode_hook_args.decode_hparams.summaries_log_dir
   if dataset_split is not None:
     child_dir += "_{}".format(dataset_split)
   final_dir = os.path.join(parent_dir, child_dir)
