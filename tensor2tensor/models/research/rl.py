@@ -61,14 +61,6 @@ def ppo_base_v1():
   return hparams
 
 
-#@registry.register_hparams
-#def ppo_continuous_action_base():
-#  hparams = ppo_base_v1()
-#  hparams.add_hparam("policy_network", feed_forward_gaussian_fun)
-#  hparams.add_hparam("policy_network_params", "basic_policy_parameters")
-#  return hparams
-
-
 @registry.register_hparams
 def basic_policy_parameters():
   wrappers = None
@@ -158,7 +150,7 @@ def get_policy(observations, hparams, action_space):
   """Get a policy network.
 
   Args:
-    observations
+    observations: observations
     hparams: parameters
     action_space: action space
 

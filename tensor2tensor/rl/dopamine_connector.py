@@ -19,10 +19,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from copy import copy
+import copy
+
 from dopamine.agents.dqn import dqn_agent
-from dopamine.agents.dqn.dqn_agent import NATURE_DQN_OBSERVATION_SHAPE
-from dopamine.agents.dqn.dqn_agent import NATURE_DQN_STACK_SIZE
 from dopamine.atari import run_experiment
 from dopamine.replay_memory import circular_replay_buffer
 from dopamine.replay_memory.circular_replay_buffer import OutOfGraphReplayBuffer
@@ -45,7 +44,7 @@ except ImportError:
 
 
 class ResizeObservation(gym.ObservationWrapper):
-  """ TODO(konradczechowski): Add doc-string."""
+  """TODO(konradczechowski): Add doc-string."""
 
   def __init__(self, env, size=84):
     """Based on WarpFrame from openai baselines atari_wrappers.py.
@@ -91,7 +90,7 @@ class GameOverOnDone(Wrapper):
 
 
 class _DQNAgent(dqn_agent.DQNAgent):
-  """ Modify dopamine DQNAgent to match our needs.
+  """Modify dopamine DQNAgent to match our needs.
 
   Allow passing batch_size and replay_capacity to ReplayBuffer, allow not using
   (some of) terminal episode transitions in training.
@@ -107,8 +106,8 @@ class _DQNAgent(dqn_agent.DQNAgent):
   def _build_replay_buffer(self, use_staging):
     """Build WrappedReplayBuffer with custom OutOfGraphReplayBuffer."""
     replay_buffer_kwargs = dict(
-        observation_shape=NATURE_DQN_OBSERVATION_SHAPE,
-        stack_size=NATURE_DQN_STACK_SIZE,
+        observation_shape=dqn_agent.NATURE_DQN_OBSERVATION_SHAPE,
+        stack_size=dqn_agent.NATURE_DQN_STACK_SIZE,
         replay_capacity=self._replay_capacity,
         batch_size=self._batch_size,
         update_horizon=self.update_horizon,
@@ -127,7 +126,7 @@ class _DQNAgent(dqn_agent.DQNAgent):
 
 
 class _OutOfGraphReplayBuffer(OutOfGraphReplayBuffer):
-  """ Replay not sampling artificial_terminal transition.
+  """Replay not sampling artificial_terminal transition.
 
   Adds to stored tuples 'artificial_done' field (as last ReplayElement).
   When sampling, ignores tuples for which artificial_done is True.
@@ -238,7 +237,7 @@ def _get_optimizer(params):
 
 
 class DQNLearner(PolicyLearner):
-  """ Interface for learning dqn implemented in dopamine."""
+  """Interface for learning dqn implemented in dopamine."""
 
   def __init__(self, frame_stack_size, base_event_dir, agent_model_dir):
     super(DQNLearner, self).__init__(frame_stack_size, base_event_dir,
@@ -296,7 +295,7 @@ class DQNLearner(PolicyLearner):
     if num_env_steps is None:
       num_env_steps = hparams.num_frames
 
-    hparams = copy(hparams)
+    hparams = copy.copy(hparams)
     hparams.set_hparam(
         "agent_epsilon_eval", min(hparams.agent_epsilon_eval * sampling_temp, 1)
     )
@@ -318,7 +317,7 @@ class DQNLearner(PolicyLearner):
     target_iterations = 0
     training_steps_per_iteration = 0
 
-    hparams = copy(hparams)
+    hparams = copy.copy(hparams)
     hparams.set_hparam(
         "agent_epsilon_eval", min(hparams.agent_epsilon_eval * sampling_temp, 1)
     )
