@@ -31,8 +31,9 @@ class TrainTest(tf.test.TestCase):
   def test_train_pong(self):
     hparams = registry.hparams("mfrl_original")
     hparams.batch_size = 2
-    hparams.ppo_epochs_num = 2
-    hparams.ppo_epoch_length = 3
+    hparams.eval_sampling_temps = [0.0, 1.0]
+    hparams.add_hparam("ppo_epochs_num", 2)
+    hparams.add_hparam("ppo_epoch_length", 3)
     FLAGS.output_dir = tf.test.get_temp_dir()
     trainer_model_free.train(hparams, FLAGS.output_dir)
 

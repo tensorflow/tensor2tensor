@@ -77,8 +77,12 @@ def _rlmb_base():
       # In your experiments, you want to optimize this rate to your schedule.
       learning_rate_bump=3.0,
 
-      # Batch size during evaluation. Metrics are averaged over this number of
-      # rollouts.
+      # Policy sampling temperature to use when gathering data from the real
+      # environment.
+      real_sampling_temp=1.0,
+
+      # Sampling temperatures to try during eval.
+      eval_sampling_temps=[0.0, 0.2, 0.5, 0.8, 1.0, 2.0],
       eval_max_num_noops=8,
 
       game="pong",
@@ -106,6 +110,8 @@ def _rlmb_base():
       real_batch_size=-1,
       # Number of simulated environments to train on simultaneously.
       simulated_batch_size=-1,
+      # Batch size during evaluation. Metrics are averaged over this number of
+      # rollouts.
       eval_batch_size=-1,
   )
 
@@ -467,6 +473,7 @@ def _rlmb_tiny_overrides():
       wm_eval_rollout_ratios=[1],
       env_timesteps_limit=7,
       simulated_rollout_length=2,
+      eval_sampling_temps=[0.0, 1.0],
   )
 
 

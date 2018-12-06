@@ -50,13 +50,15 @@ def compute_mean_reward(rollouts, clipped):
   return mean_rewards
 
 
-def get_metric_name(stochastic, max_num_noops, clipped):
-  return "mean_reward/eval/stochastic_{}_max_noops_{}_{}".format(
-      stochastic, max_num_noops, "clipped" if clipped else "unclipped")
+def get_metric_name(sampling_temp, max_num_noops, clipped):
+  return "mean_reward/eval/sampling_temp_{}_max_noops_{}_{}".format(
+      sampling_temp, max_num_noops, "clipped" if clipped else "unclipped"
+  )
 
 
-def evaluate_single_config(hparams, stochastic, max_num_noops,
-                           agent_model_dir):
+def evaluate_single_config(
+    hparams, sampling_temp, max_num_noops, agent_model_dir
+):
   """Evaluate the PPO agent in the real environment."""
   eval_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
   env = setup_env(
@@ -68,7 +70,7 @@ def evaluate_single_config(hparams, stochastic, max_num_noops,
       hparams.frame_stack_size, base_event_dir=None,
       agent_model_dir=agent_model_dir
   )
-  learner.evaluate(env_fn, eval_hparams, stochastic)
+  learner.evaluate(env_fn, eval_hparams, sampling_temp)
   rollouts = env.current_epoch_rollouts()
   env.close()
 
@@ -80,15 +82,15 @@ def evaluate_single_config(hparams, stochastic, max_num_noops,
 def evaluate_all_configs(hparams, agent_model_dir):
   """Evaluate the agent with multiple eval configurations."""
   metrics = {}
-  # Iterate over all combinations of picking actions by sampling/mode and
-  # whether to do initial no-ops.
-  for stochastic in (True, False):
+  # Iterate over all combinations of sampling temperatures and whether to do
+  # initial no-ops.
+  for sampling_temp in hparams.eval_sampling_temps:
     for max_num_noops in (hparams.eval_max_num_noops, 0):
       scores = evaluate_single_config(
-          hparams, stochastic, max_num_noops, agent_model_dir
+          hparams, sampling_temp, max_num_noops, agent_model_dir
       )
       for (score, clipped) in zip(scores, (True, False)):
-        metric_name = get_metric_name(stochastic, max_num_noops, clipped)
+        metric_name = get_metric_name(sampling_temp, max_num_noops, clipped)
         metrics[metric_name] = score
 
   return metrics

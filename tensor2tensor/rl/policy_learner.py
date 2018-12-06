@@ -29,13 +29,21 @@ class PolicyLearner(object):
     self.agent_model_dir = agent_model_dir
 
   def train(
-      self, env_fn, hparams, simulated, save_continuously, epoch,
-      num_env_steps=None, env_step_multiplier=1, eval_env_fn=None,
+      self,
+      env_fn,
+      hparams,
+      simulated,
+      save_continuously,
+      epoch,
+      sampling_temp=1.0,
+      num_env_steps=None,
+      env_step_multiplier=1,
+      eval_env_fn=None,
       report_fn=None
   ):
     # TODO(konradczechowski): pass name_scope instead of epoch?
     # TODO(konradczechowski): move 'simulated' to  batch_env
     raise NotImplementedError()
 
-  def evaluate(self, env_fn, hparams, stochastic):
+  def evaluate(self, env_fn, hparams, sampling_temp):
     raise NotImplementedError()

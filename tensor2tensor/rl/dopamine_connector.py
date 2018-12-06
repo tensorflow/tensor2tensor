@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from copy import copy
 from dopamine.agents.dqn import dqn_agent
 from dopamine.agents.dqn.dqn_agent import NATURE_DQN_OBSERVATION_SHAPE
 from dopamine.agents.dqn.dqn_agent import NATURE_DQN_STACK_SIZE
@@ -285,6 +286,7 @@ class DQNLearner(PolicyLearner):
             simulated,
             save_continuously,
             epoch,
+            sampling_temp=1.0,
             num_env_steps=None,
             env_step_multiplier=1,
             eval_env_fn=None,
@@ -293,6 +295,11 @@ class DQNLearner(PolicyLearner):
     del epoch, eval_env_fn, simulated, report_fn
     if num_env_steps is None:
       num_env_steps = hparams.num_frames
+
+    hparams = copy(hparams)
+    hparams.set_hparam(
+        "agent_epsilon_eval", min(hparams.agent_epsilon_eval * sampling_temp, 1)
+    )
 
     target_iterations, training_steps_per_iteration = \
       self._target_iteractions_and_steps(
@@ -307,11 +314,14 @@ class DQNLearner(PolicyLearner):
 
     self.completed_iterations = target_iterations
 
-  def evaluate(self, env_fn, hparams, stochastic):
+  def evaluate(self, env_fn, hparams, sampling_temp):
     target_iterations = 0
     training_steps_per_iteration = 0
-    if not stochastic:
-      hparams.set_hparam("agent_epsilon_eval", 0.)
+
+    hparams = copy(hparams)
+    hparams.set_hparam(
+        "agent_epsilon_eval", min(hparams.agent_epsilon_eval * sampling_temp, 1)
+    )
 
     create_environment_fn = get_create_env_fun(
         env_fn, time_limit=hparams.time_limit)
