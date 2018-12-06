@@ -105,6 +105,38 @@ class MetricsTest(tf.test.TestCase):
     self.assertAlmostEqual(actual_scores, 3.0 / 13)
     self.assertEqual(actual_weight, 13)
 
+  def testWordErrorRateMetric(self):
+
+    ref = np.asarray([
+        # a b c
+        [97, 34, 98, 34, 99],
+        [97, 34, 98, 34, 99],
+        [97, 34, 98, 34, 99],
+        [97, 34, 98, 34, 99],
+    ])
+
+    hyp = np.asarray([
+        [97, 34, 98, 34, 99],  # a b c
+        [97, 34, 98, 0, 0],  # a b
+        [97, 34, 98, 34, 100],  # a b d
+        [0, 0, 0, 0, 0]  # empty
+    ])
+
+    labels = np.reshape(ref, ref.shape + (1, 1))
+    predictions = np.zeros((len(ref), np.max([len(s) for s in hyp]), 1, 1, 256))
+
+    for i, sample in enumerate(hyp):
+      for j, idx in enumerate(sample):
+        predictions[i, j, 0, 0, idx] = 1
+
+    with self.test_session() as session:
+      actual_wer, unused_actual_ref_len = session.run(
+          metrics.word_error_rate(predictions, labels))
+
+    expected_wer = 0.417
+    places = 3
+    self.assertAlmostEqual(round(actual_wer, places), expected_wer, places)
+
   def testNegativeLogPerplexity(self):
     predictions = np.random.randint(4, size=(12, 12, 12, 1))
     targets = np.random.randint(4, size=(12, 12, 12, 1))
@@ -116,6 +148,39 @@ class MetricsTest(tf.test.TestCase):
       session.run(tf.global_variables_initializer())
       actual = session.run(a)
     self.assertEqual(actual.shape, ())
+
+  def testNegativeLogPerplexityMasked(self):
+    predictions = np.random.randint(4, size=(12, 12, 12, 1))
+    targets = np.random.randint(4, size=(12, 12, 12, 1))
+    features = {
+        'targets_mask': tf.to_float(tf.ones([12, 12]))
+    }
+    with self.test_session() as session:
+      scores, _ = metrics.padded_neg_log_perplexity_with_masking(
+          tf.one_hot(predictions, depth=4, dtype=tf.float32),
+          tf.constant(targets, dtype=tf.int32),
+          features)
+      a = tf.reduce_mean(scores)
+      session.run(tf.global_variables_initializer())
+      actual = session.run(a)
+    self.assertEqual(actual.shape, ())
+
+  def testNegativeLogPerplexityMaskedAssert(self):
+    predictions = np.random.randint(4, size=(12, 12, 12, 1))
+    targets = np.random.randint(4, size=(12, 12, 12, 1))
+    features = {}
+
+    with self.assertRaisesRegexp(
+        ValueError,
+        'masked_neg_log_perplexity requires targets_mask feature'):
+      with self.test_session() as session:
+        scores, _ = metrics.padded_neg_log_perplexity_with_masking(
+            tf.one_hot(predictions, depth=4, dtype=tf.float32),
+            tf.constant(targets, dtype=tf.int32),
+            features)
+        a = tf.reduce_mean(scores)
+        session.run(tf.global_variables_initializer())
+        _ = session.run(a)
 
   def testSigmoidAccuracyOneHot(self):
     logits = np.array([
@@ -253,6 +318,20 @@ class MetricsTest(tf.test.TestCase):
       _ = session.run(a_op)
       actual = session.run(a)
     self.assertAlmostEqual(actual, expected, places=6)
+
+  def testPearsonCorrelationCoefficient(self):
+    predictions = np.random.rand(12, 1)
+    targets = np.random.rand(12, 1)
+
+    expected = np.corrcoef(np.squeeze(predictions), np.squeeze(targets))[0][1]
+    with self.test_session() as session:
+      pearson, _ = metrics.pearson_correlation_coefficient(
+          tf.constant(predictions, dtype=tf.float32),
+          tf.constant(targets, dtype=tf.float32))
+      session.run(tf.global_variables_initializer())
+      session.run(tf.local_variables_initializer())
+      actual = session.run(pearson)
+    self.assertAlmostEqual(actual, expected)
 
 
 if __name__ == '__main__':

@@ -44,6 +44,19 @@ tf.flags.DEFINE_string(
     "specified by --output_dir")
 
 
+def _get_hparams_path():
+  """Get hyper-parameters file path."""
+  hparams_path = None
+  if FLAGS.output_dir:
+    hparams_path = os.path.join(FLAGS.output_dir, "hparams.json")
+  else:
+    tf.logging.warning(
+        "--output_dir not specified. Hyper-parameters will be infered from"
+        "--hparams_set and --hparams only. These may not match training time"
+        "hyper-parameters.")
+  return hparams_path
+
+
 def create_estimator(run_config, hparams):
   return trainer_lib.create_estimator(
       FLAGS.model,
@@ -54,11 +67,13 @@ def create_estimator(run_config, hparams):
 
 
 def create_hparams():
+  """Create hyper-parameters object."""
   return trainer_lib.create_hparams(
       FLAGS.hparams_set,
       FLAGS.hparams,
       data_dir=os.path.expanduser(FLAGS.data_dir),
-      problem_name=FLAGS.problem)
+      problem_name=FLAGS.problem,
+      hparams_path=_get_hparams_path())
 
 
 # TODO(michalski): Move this method into tfhub utils.

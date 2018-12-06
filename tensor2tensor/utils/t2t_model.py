@@ -22,7 +22,9 @@ import collections
 import contextlib
 import copy
 import functools
+import inspect
 import math
+import os
 import time
 import six
 
@@ -141,7 +143,8 @@ class T2TModel(base.Layer):
             value={
                 "vocab_size": target_modality.top_dimensionality,
                 "hidden_size": hidden_size
-            })
+            },
+            hparams=hparams)
 
     self._original_hparams = hparams
     self.set_mode(mode)
@@ -739,13 +742,9 @@ class T2TModel(base.Layer):
     Raises:
       NotImplementedError: If use_tpu is set to true.
     """
-    if use_tpu:
-      raise NotImplementedError(
-          "Slow beam search inference on TPU is not supported")
-
     batch_size = common_layers.shape_list(features["inputs"])[0]
 
-    def symbols_to_logits_fn(ids):
+    def symbols_to_logits_fn(ids, i=None):
       """Go from ids to logits."""
       ids = tf.expand_dims(tf.expand_dims(ids, axis=2), axis=3)
       ids = tf.pad(ids[:, 1:], [[0, 0], [0, 1], [0, 0], [0, 0]])
@@ -757,6 +756,8 @@ class T2TModel(base.Layer):
         ids = tf.concat([pt, ids], axis=1)
 
       features["targets"] = ids
+      if i is not None:
+        features["decode_loop_step"] = i
       self._coverage = None
       logits, _ = self(features)  # pylint: disable=not-callable
       # now self._coverage is a coverage tensor for the first datashard.
@@ -786,7 +787,6 @@ class T2TModel(base.Layer):
     target_modality = self._problem_hparams.modality["targets"]
     vocab_size = target_modality.top_dimensionality
     # Setting decode length to input length + decode_length
-    decode_length = tf.constant(decode_length)
     if "partial_targets" not in features:
       inputs = features["inputs"]
       decode_length = (common_layers.shape_list(inputs)[1] +
@@ -798,7 +798,8 @@ class T2TModel(base.Layer):
         decode_length,
         vocab_size,
         alpha,
-        stop_early=(top_beams == 1))
+        stop_early=(top_beams == 1),
+        use_tpu=use_tpu)
 
     # Set inputs back to the unexpanded inputs to not to confuse the Estimator!
     if self.has_input:
@@ -1457,6 +1458,7 @@ class T2TModel(base.Layer):
         # For TPU, logits dict will be passed as keyword arguments to
         # eval_metrics_fn. Here we add the labels to those arguments.
         logits.update({"labels": labels})
+        logits.update({"features": features})
         return tf.contrib.tpu.TPUEstimatorSpec(
             tf.estimator.ModeKeys.EVAL,
             eval_metrics=(eval_metrics_fn, logits),
@@ -1465,7 +1467,7 @@ class T2TModel(base.Layer):
         eval_metrics_fn = create_tpu_eval_metrics_fn(problem, hparams)
         return tf.contrib.tpu.TPUEstimatorSpec(
             tf.estimator.ModeKeys.EVAL,
-            eval_metrics=(eval_metrics_fn, [logits, labels]),
+            eval_metrics=(eval_metrics_fn, [logits, labels, features]),
             loss=loss)
     else:
       task_list = [problem]
@@ -1495,10 +1497,23 @@ class T2TModel(base.Layer):
         predictions = logits
       else:
         predictions = {"predictions": logits}
+
+      evaluation_hooks = []
+      # Create a SummarySaverHook
+      eval_dir = os.path.join(
+          self.hparams.model_dir,
+          self.hparams.get("eval_dir_name", "eval"))
+      eval_summary_hook = tf.train.SummarySaverHook(
+          save_steps=1,
+          output_dir=eval_dir,
+          summary_op=tf.summary.merge_all())
+      evaluation_hooks.append(eval_summary_hook)
+
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
           predictions=predictions,
           eval_metric_ops=eval_metrics,
+          evaluation_hooks=evaluation_hooks,
           loss=loss)
 
   def estimator_spec_predict(self, features, use_tpu=False):
@@ -1533,6 +1548,8 @@ class T2TModel(base.Layer):
     # Pass through remaining features
     for name, feature in features.items():
       if name not in list(predictions.keys()) + ["infer_targets"]:
+        if name == "decode_loop_step":
+          continue
         if not feature.shape.as_list():
           # All features must have a batch dimension
           batch_size = common_layers.shape_list(outputs)[0]
@@ -1633,9 +1650,12 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
       weights_fn = v.targets_weights_fn
 
       def make_metric_fn(metric_fn):
-
-        def wrapped_metric_fn(logits, labels, weights_fn=weights_fn):
-          num, den = metric_fn(logits, labels, weights_fn=weights_fn)
+        def wrapped_metric_fn(logits, labels, features, weights_fn=weights_fn):
+          kwargs = {}
+          args, _, keywords, _ = inspect.getargspec(metric_fn)
+          if ("features" in args) or keywords:
+            kwargs["features"] = features
+          num, den = metric_fn(logits, labels, weights_fn=weights_fn, **kwargs)
           return tf.metrics.mean(num, den)
 
         return wrapped_metric_fn
@@ -1650,9 +1670,12 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
     weights_fn = tm.targets_weights_fn
 
     def make_metric_fn(metric_fn):
-
-      def wrapped_metric_fn(logits, labels):
-        num, den = metric_fn(logits, labels, weights_fn=weights_fn)
+      def wrapped_metric_fn(logits, labels, features):
+        kwargs = {}
+        args, _, keywords, _ = inspect.getargspec(metric_fn)
+        if ("features" in args) or keywords:
+          kwargs["features"] = features
+        num, den = metric_fn(logits, labels, weights_fn=weights_fn, **kwargs)
         return tf.metrics.mean(num, den)
 
       return wrapped_metric_fn
@@ -1670,18 +1693,21 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
 
     if logits is None:
       logits = kwargs
+      features = logits["features"]
+    else:
+      features = kwargs["features"]
 
     for name, fn in metric_fns:
       if isinstance(logits, dict) and isinstance(labels, dict):
         for k, v in six.iteritems(logits):
-          metrics_dict["%s/%s" % (k, name)] = fn(v, labels[k])
+          metrics_dict["%s/%s" % (k, name)] = fn(v, labels[k], features)
       elif isinstance(logits, dict):
         tf.logging.warning("Logits is a dict, but labels is not; only "
                            "evaluating logits['targets'] against labels.")
         metrics_dict["%s/%s" % ("targets", name)] = fn(logits["targets"],
-                                                       labels)
+                                                       labels, features)
       else:
-        metrics_dict[name] = fn(logits, labels)
+        metrics_dict[name] = fn(logits, labels, features)
 
     return metrics_dict
 
@@ -1954,4 +1980,5 @@ def _create_target_modality(modality_dict):
   # differently for modalities which are "targets"
   # (e.g., modality.target_bottom). In the future, remove need for this
   # behavior.
-  return {k: v for k, v in six.iteritems(modality_dict) if "target" in k}
+  return {k: v for k, v in six.iteritems(modality_dict) if "target" in k
+          and k != "targets_segmentation" and k != "targets_position"}

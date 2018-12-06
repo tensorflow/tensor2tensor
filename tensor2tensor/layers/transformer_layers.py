@@ -137,6 +137,14 @@ def transformer_encoder(encoder_input,
   mlperf_log.transformer_print(
       key=mlperf_log.MODEL_HP_ATTENTION_DROPOUT,
       value=hparams.attention_dropout)
+  mlperf_log.transformer_print(
+      key=mlperf_log.MODEL_HP_ATTENTION_DENSE,
+      value={
+          "use_bias": "false",
+          "num_heads": hparams.num_heads,
+          "hidden_size": hparams.hidden_size
+      })
+
   with tf.variable_scope(name):
     if nonpadding is not None:
       padding = 1.0 - nonpadding

@@ -692,10 +692,22 @@ class T2TGymEnv(T2TEnv):
 class DummyWorldModelProblem(EnvSimulationProblem):
   """Dummy Problem for world model prediction."""
 
-  def __init__(self, action_space, reward_range):
+  def __init__(self, action_space, reward_range, frame_height, frame_width):
     super(DummyWorldModelProblem, self).__init__()
     self.action_space = action_space
     self.reward_range = reward_range
+    self._frame_height = frame_height
+    self._frame_width = frame_width
+
+  @property
+  def frame_height(self):
+    """Height of each frame."""
+    return self._frame_height
+
+  @property
+  def frame_width(self):
+    """Width of each frame."""
+    return self._frame_width
 
 
 # Atari registration.

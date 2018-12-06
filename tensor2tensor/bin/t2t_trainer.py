@@ -19,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 import contextlib
+import copy
 import os
 import sys
 from tensor2tensor import models  # pylint: disable=unused-import
@@ -38,7 +39,7 @@ from tensorflow.contrib.tpu.python.tpu import tpu_config
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-# See flags.py for additional command-line flags.
+# See utils/flags.py for additional command-line flags.
 flags.DEFINE_string("t2t_usr_dir", None,
                     "Path to a Python module that will be imported. The "
                     "__init__.py file should include the necessary imports. "
@@ -52,7 +53,10 @@ flags.DEFINE_integer("iterations_per_loop", 100,
 flags.DEFINE_bool("use_tpu", False, "Whether to use TPU.")
 flags.DEFINE_bool("use_tpu_estimator", False, "Whether to use TPUEstimator. "
                   "This is always enabled when use_tpu is True.")
-flags.DEFINE_bool("xla_compile", False, "Whether to use XLA to compile graph.")
+flags.DEFINE_bool("xla_compile", False,
+                  "Whether to use XLA to compile model_fn.")
+flags.DEFINE_integer("xla_jit_level", -1,
+                     "GlobalJitLevel to use while compiling the full graph.")
 flags.DEFINE_integer("tpu_infeed_sleep_secs", None,
                      "How long to sleep the infeed thread.")
 flags.DEFINE_bool("generate_data", False, "Generate data before training?")
@@ -65,12 +69,12 @@ flags.DEFINE_integer("inter_op_parallelism_threads", 0,
 flags.DEFINE_integer("intra_op_parallelism_threads", 0,
                      "Number of intra_op_parallelism_threads to use for CPU. "
                      "See TensorFlow config.proto for details.")
+# TODO(lukaszkaiser): resolve memory and variable assign issues and set to True.
 flags.DEFINE_bool(
-    "optionally_use_dist_strat", True,
+    "optionally_use_dist_strat", False,
     "Whether to use TensorFlow DistributionStrategy instead of explicitly "
     "replicating the model. DistributionStrategy is used only if the "
     "model replication configuration is supported by the DistributionStrategy.")
-
 # To maintain compatibility with some internal libs, we guard against these flag
 # definitions possibly erroring. Apologies for the ugliness.
 try:
@@ -183,6 +187,7 @@ def create_experiment_fn():
       eval_early_stopping_metric_delta=FLAGS.eval_early_stopping_metric_delta,
       eval_early_stopping_metric_minimize=FLAGS
       .eval_early_stopping_metric_minimize,
+      eval_timeout_mins=FLAGS.eval_timeout_mins,
       use_tpu=FLAGS.use_tpu,
       use_tpu_estimator=FLAGS.use_tpu_estimator,
       use_xla=FLAGS.xla_compile,
@@ -242,6 +247,7 @@ def create_run_config(hp, output_dir=None):
       enable_graph_rewriter=FLAGS.enable_graph_rewriter,
       use_tpu=FLAGS.use_tpu,
       use_tpu_estimator=FLAGS.use_tpu_estimator,
+      xla_jit_level=FLAGS.xla_jit_level,
       schedule=FLAGS.schedule,
       no_data_parallelism=hp.no_data_parallelism,
       optionally_use_dist_strat=FLAGS.optionally_use_dist_strat,
@@ -325,9 +331,13 @@ def save_metadata(hparams):
       f.write(t2t_flags_str)
 
   # Save hparams as hparams.json
+  new_hparams = copy.deepcopy(hparams)
+
+  # Modality class is not JSON serializable so remove.
+  new_hparams.del_hparam("modality")
   hparams_fname = os.path.join(output_dir, "hparams.json")
   with tf.gfile.Open(hparams_fname, "w") as f:
-    f.write(hparams.to_json(indent=0, sort_keys=True))
+    f.write(new_hparams.to_json(indent=0, sort_keys=True))
 
 
 def execute_schedule(exp):
@@ -345,15 +355,25 @@ def run_std_server():
 
 def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
+
+  usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
+
+  # If we just have to print the registry, do that and exit early.
+  maybe_log_registry_and_exit()
+
+  # Create HParams.
+  if argv:
+    set_hparams_from_args(argv[1:])
+  hparams = create_hparams()
+
   if FLAGS.schedule == "train" or FLAGS.schedule == "train_eval_and_decode":
-    mlperf_log.transformer_print(key=mlperf_log.RUN_START)
+    mlperf_log.transformer_print(key=mlperf_log.RUN_START, hparams=hparams)
   if FLAGS.schedule == "run_std_server":
     run_std_server()
   mlperf_log.transformer_print(
-      key=mlperf_log.RUN_SET_RANDOM_SEED, value=FLAGS.random_seed)
+      key=mlperf_log.RUN_SET_RANDOM_SEED, value=FLAGS.random_seed,
+      hparams=hparams)
   trainer_lib.set_random_seed(FLAGS.random_seed)
-  usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-  maybe_log_registry_and_exit()
 
   if FLAGS.cloud_mlengine:
     cloud_mlengine.launch()
@@ -365,17 +385,14 @@ def main(argv):
   if cloud_mlengine.job_dir():
     FLAGS.output_dir = cloud_mlengine.job_dir()
 
-  if argv:
-    set_hparams_from_args(argv[1:])
-  hparams = create_hparams()
-
   exp_fn = create_experiment_fn()
   exp = exp_fn(create_run_config(hparams), hparams)
   if is_chief():
     save_metadata(hparams)
   execute_schedule(exp)
   if FLAGS.schedule != "train":
-    mlperf_log.transformer_print(key=mlperf_log.RUN_FINAL)
+    mlperf_log.transformer_print(key=mlperf_log.RUN_FINAL,
+                                 hparams=hparams)
 
 
 if __name__ == "__main__":

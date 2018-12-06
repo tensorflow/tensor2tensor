@@ -299,7 +299,8 @@ def vgg_layer(inputs,
               kernel_size=3,
               activation=tf.nn.leaky_relu,
               padding="SAME",
-              is_training=False,
+              is_training=True,
+              has_batchnorm=False,
               scope=None):
   """A layer of VGG network with batch norm.
 
@@ -310,6 +311,7 @@ def vgg_layer(inputs,
     activation: activation function
     padding: padding of the image
     is_training: whether it is training mode or not
+    has_batchnorm: whether batchnorm is applied or not
     scope: variable scope of the op
   Returns:
     net: output of layer
@@ -317,7 +319,8 @@ def vgg_layer(inputs,
   with tf.variable_scope(scope):
     net = tfl.conv2d(inputs, nout, kernel_size=kernel_size, padding=padding,
                      activation=None, name="conv")
-    net = tfl.batch_normalization(net, training=is_training, name="bn")
+    if has_batchnorm:
+      net = tfl.batch_normalization(net, training=is_training, name="bn")
     net = activation(net)
   return net
 

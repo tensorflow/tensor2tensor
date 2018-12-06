@@ -86,7 +86,8 @@ class Transformer(t2t_model.T2TModel):
 
     mlperf_log.transformer_print(
         key=mlperf_log.MODEL_HP_LAYER_POSTPROCESS_DROPOUT,
-        value=hparams.layer_prepostprocess_dropout)
+        value=hparams.layer_prepostprocess_dropout,
+        hparams=hparams)
 
     encoder_input = tf.nn.dropout(encoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
@@ -136,7 +137,8 @@ class Transformer(t2t_model.T2TModel):
     """
     mlperf_log.transformer_print(
         key=mlperf_log.MODEL_HP_LAYER_POSTPROCESS_DROPOUT,
-        value=hparams.layer_prepostprocess_dropout)
+        value=hparams.layer_prepostprocess_dropout,
+        hparams=hparams)
     decoder_input = tf.nn.dropout(decoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
 
@@ -802,7 +804,8 @@ def fast_decode_tpu(encoder_output,
           "beam_size": beam_size,
           "alpha": alpha,
           "max_decode_length": decode_length
-      })
+      },
+      hparams=hparams)
   if beam_size > 1:  # Beam Search
     initial_ids = sos_id * tf.ones([batch_size], dtype=tf.int32)
     decoded_ids, scores = beam_search.beam_search(
@@ -1222,10 +1225,20 @@ def transformer_decoder(decoder_input,
 
   mlperf_log.transformer_print(
       key=mlperf_log.MODEL_HP_NUM_HIDDEN_LAYERS,
-      value=hparams.num_decoder_layers or hparams.num_hidden_layers)
+      value=hparams.num_decoder_layers or hparams.num_hidden_layers,
+      hparams=hparams)
   mlperf_log.transformer_print(
       key=mlperf_log.MODEL_HP_ATTENTION_DROPOUT,
-      value=hparams.attention_dropout)
+      value=hparams.attention_dropout,
+      hparams=hparams)
+  mlperf_log.transformer_print(
+      key=mlperf_log.MODEL_HP_ATTENTION_DENSE,
+      value={
+          "use_bias": "false",
+          "num_heads": hparams.num_heads,
+          "hidden_size": hparams.hidden_size
+      },
+      hparams=hparams)
 
   with tf.variable_scope(name):
     for layer in range(hparams.num_decoder_layers or hparams.num_hidden_layers):
@@ -1292,7 +1305,8 @@ def transformer_decoder(decoder_input,
     # a whole stack of unnormalized layer outputs.
     mlperf_log.transformer_print(
         key=mlperf_log.MODEL_HP_NORM,
-        value={"hidden_size": hparams.hidden_size})
+        value={"hidden_size": hparams.hidden_size},
+        hparams=hparams)
     return common_layers.layer_preprocess(x, hparams)
 
 
@@ -1353,6 +1367,10 @@ def transformer_base_v1():
   hparams.add_hparam("moe_overhead_eval", 2.0)
   hparams.moe_num_experts = 16
   hparams.moe_loss_coef = 1e-3
+  # If specified, use this value instead of problem name in metrics.py.
+  # This is useful for programs that can automatically compare experiments side
+  #   by side based on the same metric names.
+  hparams.add_hparam("overload_eval_metric_name", "")
   return hparams
 
 
@@ -1501,6 +1519,9 @@ def transformer_big():
   hparams = transformer_base()
   hparams.hidden_size = 1024
   hparams.filter_size = 4096
+  # Reduce batch size to 2048 from 4096 to be able to train the model on a GPU
+  # with 12 GB memory. For example, NVIDIA TITAN V GPU.
+  hparams.batch_size = 2048
   hparams.num_heads = 16
   hparams.layer_prepostprocess_dropout = 0.3
   return hparams
@@ -1508,19 +1529,96 @@ def transformer_big():
 
 @registry.register_hparams
 def transformer_tall():
-  """Hparams for transformer on LM+MNLI."""
+  """Hparams for transformer on LM for pretraining/finetuning/mixing."""
   hparams = transformer_base()
   hparams.batch_size = 2048
   hparams.hidden_size = 768
   hparams.filter_size = 3072
   hparams.num_hidden_layers = 12
   hparams.num_heads = 12
-  hparams.learning_rate_schedule = (
-      "constant*linear_warmup*rsqrt_hidden_size")
-  hparams.learning_rate_constant = 2e-3
   hparams.label_smoothing = 0.0
   hparams.max_length = 512
   hparams.eval_drop_long_sequences = True
+  hparams.multiproblem_mixing_schedule = "pretrain"
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tall_finetune_textclass():
+  """Hparams for transformer on LM for finetuning on text class problems."""
+  hparams = transformer_tall()
+  hparams.learning_rate_constant = 6.25e-5
+  hparams.learning_rate_schedule = (
+      "linear_warmup*constant*linear_decay")
+  hparams.multiproblem_schedule_max_examples = 0
+  hparams.multiproblem_target_eval_only = True
+  hparams.multiproblem_class_loss_multiplier = 4
+  hparams.learning_rate_warmup_steps = 50
+  # Set train steps to learning_rate_decay_steps or less
+  hparams.learning_rate_decay_steps = 25000
+  hparams.multiproblem_reweight_label_loss = True
+  hparams.multiproblem_label_weight = 0.95
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tall_pretrain_lm():
+  """Hparams for transformer on LM pretraining (with 64k vocab)."""
+  hparams = transformer_tall()
+  hparams.learning_rate_constant = 2e-4
+  hparams.learning_rate_schedule = (
+      "linear_warmup*constant*cosdecay")
+  hparams.optimizer = "AdamW"
+  hparams.optimizer_adam_beta1 = 0.9
+  hparams.optimizer_adam_beta2 = 0.999
+  hparams.optimizer_adam_epsilon = 1e-8
+  # Set max examples to something big when pretraining only the LM, definitely
+  # something an order of magnitude bigger than number of train steps.
+  hparams.multiproblem_schedule_max_examples = 5e8
+  # Set train steps to learning_rate_decay_steps or less
+  hparams.learning_rate_decay_steps = 5000000
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tall_pretrain_lm_tpu_adafactor():
+  """Hparams for transformer on LM pretraining (with 64k vocab) on TPU."""
+  hparams = transformer_tall_pretrain_lm()
+  update_hparams_for_tpu(hparams)
+  hparams.max_length = 1024
+  # For multi-problem on TPU we need it in absolute examples.
+  hparams.batch_size = 8
+  hparams.multiproblem_vocab_size = 2**16
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tall_pretrain_lm_tpu():
+  """Hparams for transformer on LM pretraining on TPU with AdamW."""
+  hparams = transformer_tall_pretrain_lm_tpu_adafactor()
+  # Optimizer gets reset in update_hparams_for_tpu so we set it again here.
+  hparams.learning_rate_constant = 2e-4
+  hparams.learning_rate_schedule = ("linear_warmup * constant * cosdecay")
+  hparams.optimizer = "AdamW"
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tall_finetune_cnndm():
+  """Hparams for transformer on LM for finetuning on cnndm summarization."""
+  hparams = transformer_tall()
+  hparams.batch_size = 4096
+  hparams.multiproblem_max_input_length = 412
+  hparams.multiproblem_max_target_length = 100
+  hparams.multiproblem_schedule_max_examples = 0
+  hparams.learning_rate_schedule = (
+      "linear_warmup*constant*cosdecay")
+  hparams.learning_rate_constant = 5e-5
+  hparams.learning_rate_warmup_steps = 100
+  # Set train steps to learning_rate_decay_steps or less
+  hparams.learning_rate_decay_steps = 40000
+  hparams.multiproblem_target_eval_only = True
+  hparams.multiproblem_vocab_size = 2**16
   return hparams
 
 
@@ -1880,6 +1978,7 @@ def transformer_timeseries():
 def transformer_mlperf_tpu():
   """HParams for Transformer model on TPU for MLPerf on TPU 2x2."""
   hparams = transformer_base_v3()
+  hparams.mlperf_mode = True
   hparams.symbol_modality_num_shards = 1
   hparams.max_length = 256  # ignored when using "_packed" problems
   hparams.batch_size = 2048  # per-chip batch size matches the reference model

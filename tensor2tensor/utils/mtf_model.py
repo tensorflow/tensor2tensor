@@ -114,9 +114,7 @@ class MtfModel(t2t_model.T2TModel):
       mtf_lr = mtf.import_tf_tensor(
           mesh, tf.convert_to_tensor(lr, dtype=tf.float32), mtf.Shape([]))
       optimizer = mtf.optimize.make_optimizer(hparams, mtf_lr)
-      update_ops = []
-      for grad, var in zip(var_grads, graph.trainable_variables):
-        update_ops.extend(optimizer.apply_grad(grad, var))
+      update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
 
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
 
@@ -181,7 +179,13 @@ class MtfModel(t2t_model.T2TModel):
     problem = hparams.problem
     if logits.get_shape().ndims == 3:
       logits = tf.expand_dims(tf.expand_dims(logits, 2), 3)
-    eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
+
+    # Support for multiproblem
+    task_list = [problem]
+    if hasattr(problem, "task_list"):
+      task_list = problem.task_list
+
+    eval_metrics_fns = metrics.create_evaluation_metrics(task_list, hparams)
 
     if use_tpu:
       def metric_fn(tf_logits, labels):

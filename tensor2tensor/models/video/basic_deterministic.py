@@ -41,8 +41,8 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
   def is_recurrent_model(self):
     return False
 
-  def inject_latent(self, layer, inputs, target):
-    del inputs, target
+  def inject_latent(self, layer, inputs, target, action):
+    del inputs, target, action
     return layer, 0.0
 
   def middle_network(self, layer, internal_states):
@@ -61,6 +61,11 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
           x = common_layers.layer_norm(x + y)
     return x, internal_states
 
+  def update_internal_states_early(self, internal_states, frames):
+    """Update the internal states early in the network if requested."""
+    del frames
+    return internal_states
+
   def next_frame(self, frames, actions, rewards, target_frame,
                  internal_states, video_extra):
     del rewards, video_extra
@@ -68,10 +73,23 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     hparams = self.hparams
     filters = hparams.hidden_size
     kernel2 = (4, 4)
+    action = actions[-1]
 
-    # Embed the inputs.
-    stacked_frames = tf.concat(frames, axis=-1)
+    # Stack the inputs.
+    if internal_states is not None and hparams.concat_internal_states:
+      # Use the first part of the first internal state if asked to concatenate.
+      batch_size = common_layers.shape_list(frames[0])[0]
+      internal_state = internal_states[0][0][:batch_size, :, :, :]
+      stacked_frames = tf.concat(frames + [internal_state], axis=-1)
+    else:
+      stacked_frames = tf.concat(frames, axis=-1)
     inputs_shape = common_layers.shape_list(stacked_frames)
+
+    # Update internal states early if requested.
+    if hparams.concat_internal_states:
+      internal_states = self.update_internal_states_early(
+          internal_states, frames)
+
     # Using non-zero bias initializer below for edge cases of uniform inputs.
     x = tf.layers.dense(
         stacked_frames, filters, name="inputs_embed",
@@ -94,12 +112,11 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
 
     # Add embedded action if present.
     if self.has_actions:
-      action = actions[-1]
       x = common_video.inject_additional_input(
           x, action, "action_enc", hparams.action_injection)
 
     # Inject latent if present. Only for stochastic models.
-    x, extra_loss = self.inject_latent(x, frames, target_frame)
+    x, extra_loss = self.inject_latent(x, frames, target_frame, action)
 
     x_mid = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
     x, internal_states = self.middle_network(x, internal_states)

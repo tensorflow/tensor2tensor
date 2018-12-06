@@ -32,6 +32,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import expert_utils
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 from tensorflow.python.framework import function
 from tensorflow.python.ops import inplace_ops
@@ -327,9 +328,9 @@ def encoder_decoder_attention_loss(expected_attention_logits,
     return tf.reduce_mean(attentions, [0, 2])
 
   def kl_divergence_loss(expected_logits, actual_logits):
-    p = tf.contrib.distributions.Categorical(logits=expected_logits)
-    q = tf.contrib.distributions.Categorical(logits=actual_logits)
-    return tf.contrib.distributions.kl_divergence(p, q)
+    p = tfp.distributions.Categorical(logits=expected_logits)
+    q = tfp.distributions.Categorical(logits=actual_logits)
+    return tfp.distributions.kl_divergence(p, q)
 
   def mse_loss(expected_logits, actual_weights):
     expected_weights = tf.nn.softmax(expected_logits)

@@ -164,6 +164,15 @@ class ImageImagenet224(ImageImagenetRescaled):
 
 
 @registry.register_problem
+class ImageImagenet256(ImageImagenetRescaled):
+  """Imagenet rescaled to 256x256."""
+
+  @property
+  def rescale_size(self):
+    return [256, 256]
+
+
+@registry.register_problem
 class ImageImagenet32(ImageImagenetRescaled):
   """Imagenet rescaled to 32x32."""
 
@@ -190,7 +199,7 @@ class ImageImagenet32(ImageImagenetRescaled):
 
 @registry.register_problem
 class ImageImagenet32Gen(ImageImagenet):
-  """Imagenet 32 from the pixen cnn paper"""
+  """Imagenet 32 from the pixen cnn paper."""
 
   @property
   def train_shards(self):
@@ -224,7 +233,7 @@ class ImageImagenet32Gen(ImageImagenet):
 
 @registry.register_problem
 class ImageImagenet64Gen(ImageImagenet):
-  """Imagenet 64 from the pixen cnn paper"""
+  """Imagenet 64 from the pixen cnn paper."""
 
   @property
   def train_shards(self):
@@ -304,7 +313,7 @@ class ImageImagenetMultiResolutionGen(ImageImagenet64Gen):
 
 @registry.register_problem
 class ImageImagenet32Small(ImageImagenet):
-  """Imagenet small from the pixel cnn paper"""
+  """Imagenet small from the pixel cnn paper."""
 
   @property
   def is_small(self):

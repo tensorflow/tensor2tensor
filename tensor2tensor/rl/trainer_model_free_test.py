@@ -18,20 +18,24 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.rl import rl_trainer_lib
+from tensor2tensor.rl import trainer_model_free
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+
+FLAGS = tf.flags.FLAGS
 
 
 class TrainTest(tf.test.TestCase):
 
   def test_train_pong(self):
-    hparams = registry.hparams("pong_model_free")
-    hparams.epochs_num = 2
-    hparams.num_agents = 2
-    hparams.epoch_length = 3
-    rl_trainer_lib.train(hparams)
+    hparams = registry.hparams("mfrl_original")
+    hparams.batch_size = 2
+    hparams.eval_sampling_temps = [0.0, 1.0]
+    hparams.add_hparam("ppo_epochs_num", 2)
+    hparams.add_hparam("ppo_epoch_length", 3)
+    FLAGS.output_dir = tf.test.get_temp_dir()
+    trainer_model_free.train(hparams, FLAGS.output_dir)
 
 
 if __name__ == "__main__":

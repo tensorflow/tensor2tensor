@@ -20,8 +20,9 @@ source-target pairs of text reflecting wikipedia edits.
 
 WikiRevision problem - fragment of older revision -> fragment of newer revision.
 
-This implements data extraction from wikipedia as desribed in the arXiv paper,
-Weakly Supervised Grammatical Error Correction using Iterative Decoding.
+This implements data extraction from wikipedia as desribed in the paper,
+Weakly Supervised Grammatical Error Correction using Iterative Decoding
+(https://arxiv.org/pdf/1811.01710.pdf).
 """
 from __future__ import absolute_import
 from __future__ import division

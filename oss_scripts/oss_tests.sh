@@ -69,7 +69,12 @@ if [[ "$TRAVIS_PYTHON_VERSION" == "2.7"  ]] && [[ "$TF_VERSION" == "tf-nightly" 
 then
   # Ignores:
   # * Glow requires the CIFAR-10 dataset to be generated
-  pytest tensor2tensor/models/research --ignore=tensor2tensor/models/research/glow_test.py
+  pytest tensor2tensor/models/research \
+    --ignore=tensor2tensor/models/research/glow_test.py \
+    --ignore=tensor2tensor/models/video/nfg_conv3d_test.py \
+    --ignore=tensor2tensor/models/video/nfg_conv_lstm_test.py \
+    --ignore=tensor2tensor/models/video/nfg_conv_test.py \
+    --ignore=tensor2tensor/models/video/nfg_uncond_test.py \
   set_status
 fi
 

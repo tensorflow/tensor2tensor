@@ -27,6 +27,7 @@ from tensor2tensor.data_generators import lm1b
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
+from tensor2tensor.data_generators import wiki_lm
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
@@ -105,7 +106,9 @@ class MultiNLI(text_problems.TextConcat2ClassProblem):
     if dataset_split == problem.DatasetSplit.TRAIN:
       filesplit = ["train.tsv"]
     else:
-      filesplit = ["dev_matched.tsv", "dev_mismatched.tsv"]
+      # Using dev matched as the default for eval. Can also switch this to
+      # dev_mismatched.tsv
+      filesplit = ["dev_matched.tsv"]
 
     for fs in filesplit:
       filename = os.path.join(mnli_dir, fs)
@@ -132,3 +135,21 @@ class MultiNLISharedVocab(MultiNLI):
   @property
   def vocab_filename(self):
     return lm1b.LanguagemodelLm1b32k().vocab_filename
+
+
+@registry.register_problem
+class MultiNLIWikiLMSharedVocab(MultiNLI):
+  """MultiNLI classification problems with the Wiki vocabulary"""
+
+  @property
+  def vocab_filename(self):
+    return wiki_lm.LanguagemodelEnWiki32k().vocab_filename
+
+
+@registry.register_problem
+class MultiNLIWikiLMSharedVocab64k(MultiNLIWikiLMSharedVocab):
+  """MultiNLI classification problems with the Wiki vocabulary"""
+
+  @property
+  def vocab_filename(self):
+    return wiki_lm.LanguagemodelEnWiki64k().vocab_filename

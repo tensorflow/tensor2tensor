@@ -153,11 +153,13 @@ def preprocess_example_common(example, hparams, mode):
   if hparams.max_target_seq_length > 0:
     example["targets"] = example["targets"][:hparams.max_target_seq_length]
   if hparams.split_to_length:
-    example["targets"] = tf.reshape(example["targets"],
-                                    [-1, hparams.split_to_length, 1, 1])
-    if len(example) != 1:
-      raise ValueError("split_to_length only works for LM problems")
-    return tf.data.Dataset.from_tensor_slices(example)
+    new_example = {}
+    for k, v in six.iteritems(example):
+      if k == "targets" or k == "inputs":
+        new_example[k] = tf.reshape(v, [-1, hparams.split_to_length, 1, 1])
+      else:
+        tf.logging.warning("Dropping feature %s" % k)
+    return tf.data.Dataset.from_tensor_slices(new_example)
   return example
 
 
@@ -314,6 +316,15 @@ class Problem(object):
     """
     return False
 
+  @property
+  def skip_random_fraction_when_training(self):
+    """Skip a random number of examples at the beginning of training."""
+    # Skip a random fraction at the beginning of the stream.  The skip is
+    # essential for synchronous highly-parallel training to avoid multiple
+    # replicas reading the same data in lock-step. So keep this true unless
+    # you have a very specific setting in which it needs to be turned off.
+    return True
+
   def dataset_filename(self):
     return self.name
 
@@ -465,6 +476,11 @@ class Problem(object):
     self._feature_info = None
     self._task_id = -1
 
+  @property
+  def was_reversed(self):
+    """Whether the problem was reversed."""
+    return self._was_reversed
+
   def get_feature_encoders(self, data_dir=None):
     if self._encoders is None:
       self._encoders = self.feature_encoders(data_dir)
@@ -555,8 +571,7 @@ class Problem(object):
               partition_id=0,
               num_partitions=1,
               shuffle_buffer_size=1024,
-              max_records=-1,
-              only_last=False):
+              max_records=-1):
     """Build a Dataset for this problem.
 
     Args:
@@ -580,7 +595,6 @@ class Problem(object):
       shuffle_buffer_size: if shuffle_files is True, this is the buffer size
         used to shuffle records.
       max_records: int, number of records to truncate to.
-      only_last: bool, whether we should include only files from last epoch.
 
     Returns:
       Dataset containing dict<feature name, Tensor>.
@@ -605,17 +619,9 @@ class Problem(object):
     _ = self.get_hparams(hparams)
 
     data_filepattern = self.filepattern(data_dir, dataset_split, shard=shard)
-    if only_last:
-      imprv_data_filepattern = data_filepattern + r"10.[\d+]"
-    else:
-      imprv_data_filepattern = data_filepattern
     tf.logging.info("Reading data files from %s", data_filepattern)
-    try:
-      data_files = sorted(tf.contrib.slim.parallel_reader.get_data_files(
-          imprv_data_filepattern))
-    except ValueError:
-      data_files = sorted(tf.contrib.slim.parallel_reader.get_data_files(
-          data_filepattern))
+    data_files = sorted(tf.contrib.slim.parallel_reader.get_data_files(
+        data_filepattern))
 
     # Functions used in dataset transforms below. `filenames` can be either a
     # `tf.string` tensor or `tf.data.Dataset` containing one or more filenames.
@@ -800,8 +806,7 @@ class Problem(object):
                config=None,
                force_repeat=False,
                prevent_repeat=False,
-               dataset_kwargs=None,
-               batch_shuffle_size=512):
+               dataset_kwargs=None):
     """Builds input pipeline for problem.
 
     Args:
@@ -816,8 +821,6 @@ class Problem(object):
         Overrides force_repeat.
       dataset_kwargs: dict, if passed, will pass as kwargs to self.dataset
         method when called
-      batch_shuffle_size: int, the size of the buffer to shuffle batches.
-        if none, the batches will not be shuffled.
 
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
@@ -837,6 +840,8 @@ class Problem(object):
       num_shards = 1
 
     max_length = self.max_length(hparams)
+    mlperf_log.transformer_print(
+        key=mlperf_log.INPUT_MAX_LENGTH, value=max_length)
 
     def tpu_valid_size(example):
       return data_reader.example_valid_size(example, hparams.min_length,
@@ -870,7 +875,7 @@ class Problem(object):
       # Repeat and skip a random number of records
       dataset = dataset.repeat()
 
-    if is_training:
+    if is_training and self.skip_random_fraction_when_training:
       data_files = tf.contrib.slim.parallel_reader.get_data_files(
           self.filepattern(data_dir, mode))
       #  In continuous_train_and_eval when switching between train and
@@ -965,8 +970,9 @@ class Problem(object):
     # buffer size for record shuffling is smaller than the batch size. In such
     # cases, adding batch shuffling ensures that the data is in random order
     # during training
-    if is_training and batch_shuffle_size:
-      dataset = dataset.shuffle(batch_shuffle_size)
+    if (is_training and hasattr(hparams, "batch_shuffle_size") and
+        hparams.batch_shuffle_size):
+      dataset = dataset.shuffle(hparams.batch_shuffle_size)
 
     def prepare_for_output(example):
       if not config or not config.use_tpu:

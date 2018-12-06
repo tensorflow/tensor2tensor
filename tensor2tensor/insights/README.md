@@ -42,14 +42,14 @@ Start guide, a sample configuration would be:
         "hparams": "",
         "hparams_set": "transformer_base_single_gpu",
         "problem": "translate_ende_wmt32k"
-      },
-    }]
+      }
+    }],
     "language": [{
       "code": "en",
-      "name": "English",
+      "name": "English"
     },{
       "code": "de",
-      "name": "German",
+      "name": "German"
     }]
   }
 ```
