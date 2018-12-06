@@ -115,7 +115,7 @@ def setup_env(hparams, batch_size, max_num_noops):
                   grayscale=hparams.grayscale,
                   resize_width_factor=hparams.resize_width_factor,
                   resize_height_factor=hparams.resize_height_factor,
-                  base_env_timesteps_limit=hparams.env_timesteps_limit,
+                  rl_env_max_episode_steps=hparams.rl_env_max_episode_steps,
                   max_num_noops=max_num_noops)
   return env
 

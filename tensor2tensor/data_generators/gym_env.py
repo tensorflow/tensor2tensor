@@ -22,7 +22,6 @@ from __future__ import print_function
 import collections
 import itertools
 import random
-import gym
 from gym.spaces import Box
 import numpy as np
 
@@ -30,6 +29,7 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.layers import modalities
+from tensor2tensor.rl import gym_utils
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
@@ -77,17 +77,6 @@ class _Noncopyable(object):
 
   def __deepcopy__(self, memo):
     return self
-
-
-def make_gym_env(name, timesteps_limit=-1):
-  env = gym.make(name)
-  if timesteps_limit != -1:
-    # Replace TimeLimit Wrapper with one of proper time step limit.
-    if isinstance(env, gym.wrappers.TimeLimit):
-      env = env.env
-    env = gym.wrappers.TimeLimit(env,
-                                 max_episode_steps=timesteps_limit)
-  return env
 
 
 class EnvSimulationProblem(video_utils.VideoProblem):
@@ -587,7 +576,7 @@ class T2TGymEnv(T2TEnv):
 
   def __init__(self, base_env_name=None, batch_size=1, grayscale=False,
                resize_height_factor=2, resize_width_factor=2,
-               base_env_timesteps_limit=-1, max_num_noops=0, **kwargs):
+               rl_env_max_episode_steps=-1, max_num_noops=0, **kwargs):
     if base_env_name is None:
       base_env_name = self.base_env_name
     self._base_env_name = base_env_name
@@ -599,7 +588,8 @@ class T2TGymEnv(T2TEnv):
       # Set problem name if not registered.
       self.name = "Gym%s" % base_env_name
 
-    self._envs = [make_gym_env(base_env_name, base_env_timesteps_limit)
+    self._envs = [gym_utils.make_gym_env(
+        base_env_name, rl_env_max_episode_steps=rl_env_max_episode_steps)
                   for _ in range(self.batch_size)]
 
     # max_num_noops works only with atari envs.

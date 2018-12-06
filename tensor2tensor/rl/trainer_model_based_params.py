@@ -96,7 +96,7 @@ def _rlmb_base():
       # Ratios of ppo_epoch_length to report reward_accuracy on.
       wm_eval_rollout_ratios=[0.25, 0.5, 1, 2],
       stop_loop_early=False,  # To speed-up tests.
-      env_timesteps_limit=-1,  # Use default from gym.make()
+      rl_env_max_episode_steps=-1,  # Use default from gym.make()
       # Number of last observations to feed to the agent and world model.
       frame_stack_size=4,
       # This is only used for world-model evaluation currently, PolicyLearner
@@ -471,7 +471,7 @@ def _rlmb_tiny_overrides():
       resize_height_factor=2,
       resize_width_factor=2,
       wm_eval_rollout_ratios=[1],
-      env_timesteps_limit=7,
+      rl_env_max_episode_steps=7,
       simulated_rollout_length=2,
       eval_sampling_temps=[0.0, 1.0],
   )

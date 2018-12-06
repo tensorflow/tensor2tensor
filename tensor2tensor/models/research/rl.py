@@ -236,7 +236,7 @@ def mfrl_original():
       resize_height_factor=2,
       resize_width_factor=2,
       grayscale=0,
-      env_timesteps_limit=-1,
+      rl_env_max_episode_steps=-1,
   )
 
 
