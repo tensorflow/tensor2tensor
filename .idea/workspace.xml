@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="1d1ba984-6cd7-4cb1-9e16-6ed4e06a5e52" name="Default" comment="" />
+    <list default="true" id="1d1ba984-6cd7-4cb1-9e16-6ed4e06a5e52" name="Default" comment="">
+      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/tensor2tensor/utils/decoding.py" afterPath="$PROJECT_DIR$/tensor2tensor/utils/decoding.py" />
+    </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="TRACKING_ENABLED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
@@ -14,8 +16,8 @@
       <file leaf-file-name="decoding.py" pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/tensor2tensor/utils/decoding.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="609">
-              <caret line="937" column="69" lean-forward="false" selection-start-line="937" selection-start-column="69" selection-end-line="937" selection-end-column="69" />
+            <state relative-caret-position="526">
+              <caret line="396" column="17" lean-forward="true" selection-start-line="396" selection-start-column="17" selection-end-line="396" selection-end-column="17" />
               <folding />
             </state>
           </provider>
@@ -142,8 +144,8 @@
   <component name="editorHistoryManager">
     <entry file="file://$PROJECT_DIR$/tensor2tensor/utils/decoding.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="609">
-          <caret line="937" column="69" lean-forward="false" selection-start-line="937" selection-start-column="69" selection-end-line="937" selection-end-column="69" />
+        <state relative-caret-position="526">
+          <caret line="396" column="17" lean-forward="true" selection-start-line="396" selection-start-column="17" selection-end-line="396" selection-end-column="17" />
           <folding />
         </state>
       </provider>
