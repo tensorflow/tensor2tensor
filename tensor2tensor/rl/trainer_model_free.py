@@ -51,8 +51,10 @@ except:  # pylint: disable=bare-except
 
 def initialize_env_specs(hparams):
   """Initializes env_specs using T2TGymEnvs."""
-  env = rl_utils.setup_env(hparams, hparams.batch_size,
-                           hparams.eval_max_num_noops)
+  env = rl_utils.setup_env(
+      hparams, hparams.batch_size, hparams.eval_max_num_noops,
+      hparams.rl_env_max_episode_steps
+  )
   env.start_new_epoch(0)
   hparams.add_hparam("env_fn", rl.make_real_env_fn(env))
   return hparams

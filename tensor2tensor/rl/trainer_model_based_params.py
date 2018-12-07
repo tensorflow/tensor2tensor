@@ -97,6 +97,7 @@ def _rlmb_base():
       wm_eval_rollout_ratios=[0.25, 0.5, 1, 2],
       stop_loop_early=False,  # To speed-up tests.
       rl_env_max_episode_steps=-1,  # Use default from gym.make()
+      eval_rl_env_max_episode_steps=1000,  # To speed up the evaluation.
       # Number of last observations to feed to the agent and world model.
       frame_stack_size=4,
       # This is only used for world-model evaluation currently, PolicyLearner
@@ -489,6 +490,7 @@ def rlmb_ppo_tiny():
       real_ppo_effective_num_agents=2,
       real_batch_size=1,
       eval_batch_size=1,
+      eval_rl_env_max_episode_steps=4
   ))
   return hparams
 

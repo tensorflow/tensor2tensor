@@ -32,6 +32,7 @@ class TrainTest(tf.test.TestCase):
     hparams = registry.hparams("mfrl_original")
     hparams.batch_size = 2
     hparams.eval_sampling_temps = [0.0, 1.0]
+    hparams.eval_rl_env_max_episode_steps = 4
     hparams.add_hparam("ppo_epochs_num", 2)
     hparams.add_hparam("ppo_epoch_length", 3)
     FLAGS.output_dir = tf.test.get_temp_dir()

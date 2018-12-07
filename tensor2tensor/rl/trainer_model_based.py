@@ -408,7 +408,8 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   data_dir = directories["data"]
   env = rl_utils.setup_env(
       hparams, batch_size=hparams.real_batch_size,
-      max_num_noops=hparams.max_num_noops
+      max_num_noops=hparams.max_num_noops,
+      rl_env_max_episode_steps=hparams.rl_env_max_episode_steps
   )
   env.start_new_epoch(epoch, data_dir)
 

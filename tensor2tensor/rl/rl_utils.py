@@ -62,7 +62,8 @@ def evaluate_single_config(
   """Evaluate the PPO agent in the real environment."""
   eval_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
   env = setup_env(
-      hparams, batch_size=hparams.eval_batch_size, max_num_noops=max_num_noops
+      hparams, batch_size=hparams.eval_batch_size, max_num_noops=max_num_noops,
+      rl_env_max_episode_steps=hparams.eval_rl_env_max_episode_steps
   )
   env.start_new_epoch(0)
   env_fn = rl.make_real_env_fn(env)
@@ -102,7 +103,7 @@ LEARNERS = {
 }
 
 
-def setup_env(hparams, batch_size, max_num_noops):
+def setup_env(hparams, batch_size, max_num_noops, rl_env_max_episode_steps):
   """Setup."""
   game_mode = "Deterministic-v4"
   camel_game_name = "".join(
