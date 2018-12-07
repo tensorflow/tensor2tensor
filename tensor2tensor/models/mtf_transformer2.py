@@ -118,7 +118,8 @@ class MtfUnitransformer(mtf_model.MtfModel):
         input_vocab_size=input_vocab_size,
         output_vocab_size=self._targets_vocab_size,
         autoregressive=self.autoregressive,
-        max_length=hparams.max_length)
+        max_length=hparams.max_length,
+        z_loss=hparams.z_loss)
 
   def _mtf_model_fn(self, features, mesh):
     self._original_features = features
@@ -218,7 +219,8 @@ class MtfBitransformer(MtfUnitransformer):
         output_vocab_size=self._targets_vocab_size,
         max_length=hparams.max_length,
         shared_embedding=hparams.shared_embedding,
-        label_smoothing=hparams.label_smoothing)
+        label_smoothing=hparams.label_smoothing,
+        z_loss=hparams.z_loss)
 
   def _mtf_model_fn(self, features, mesh):
     self._original_features = features
@@ -298,6 +300,9 @@ def mtf_transformer2_base():
   hparams.batch_size = 4
   hparams.max_length = 1024
   hparams.label_smoothing = 0.0
+  # a small positive value - this seems important for stability when training
+  # with bfloat16 activations.
+  hparams.add_hparam("z_loss", 1e-4)
 
   # These hyperparameters are used in default_layer_stack()
   # They may not be respected if hparams uses a differet layer stack function.
