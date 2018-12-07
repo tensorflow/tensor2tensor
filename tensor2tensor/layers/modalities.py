@@ -811,7 +811,7 @@ class ClassLabelModality(modality.Modality):
       body_output: A Tensor with shape [batch, ?, ?, body_output_size].
 
     Returns:
-      a Tensors, each with shape [batch_size, ?, ?, vocab_size]
+      a Tensors, each with shape [batch_size, 1, 1, 1, vocab_size]
     """
     with tf.variable_scope(self.name):
       x = body_output
