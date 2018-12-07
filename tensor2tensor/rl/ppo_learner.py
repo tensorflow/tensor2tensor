@@ -28,6 +28,7 @@ from tensor2tensor.rl import ppo
 from tensor2tensor.rl.envs.tf_atari_wrappers import StackWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import WrapperBase
 from tensor2tensor.rl.policy_learner import PolicyLearner
+from tensor2tensor.rl.restarter import Restarter
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -183,42 +184,38 @@ def _run_train(ppo_hparams,
     sess.run(tf.global_variables_initializer())
     for initializer in initializers:
       initializer(sess)
-    num_completed_iterations = trainer_lib.restore_checkpoint(
-        model_dir, model_saver, sess)
+    trainer_lib.restore_checkpoint(model_dir, model_saver, sess)
 
-    # Fail-friendly, complete only unfinished epoch
-    if num_target_iterations <= num_completed_iterations:
-      tf.logging.info(
-          "Skipping PPO training. Requested %d iterations while %d train "
-          "iterations already reached", num_target_iterations,
-          num_completed_iterations)
+    restarter = Restarter("policy", model_dir, num_target_iterations)
+    if restarter.should_skip:
       return
-
-    for epoch_index in range(num_completed_iterations, num_target_iterations):
-      summary = sess.run(train_summary_op)
-      if summary_writer:
-        summary_writer.add_summary(summary, epoch_index)
-
-      if (ppo_hparams.eval_every_epochs and
-          epoch_index % ppo_hparams.eval_every_epochs == 0):
-        eval_summary = sess.run(eval_summary_op)
+    num_completed_iterations = num_target_iterations - restarter.steps_to_go
+    with restarter.training_loop():
+      for epoch_index in range(num_completed_iterations, num_target_iterations):
+        summary = sess.run(train_summary_op)
         if summary_writer:
-          summary_writer.add_summary(eval_summary, epoch_index)
-        if report_fn:
-          summary_proto = tf.Summary()
-          summary_proto.ParseFromString(eval_summary)
-          for elem in summary_proto.value:
-            if "mean_score" in elem.tag:
-              report_fn(elem.simple_value, epoch_index)
-              break
+          summary_writer.add_summary(summary, epoch_index)
 
-      if (model_saver and ppo_hparams.save_models_every_epochs and
-          (epoch_index % ppo_hparams.save_models_every_epochs == 0 or
-           (epoch_index + 1) == num_target_iterations)):
-        ckpt_path = os.path.join(
-            model_dir,
-            "model.ckpt-{}".format(epoch_index + 1))
-        model_saver.save(sess, ckpt_path)
+        if (ppo_hparams.eval_every_epochs and
+            epoch_index % ppo_hparams.eval_every_epochs == 0):
+          eval_summary = sess.run(eval_summary_op)
+          if summary_writer:
+            summary_writer.add_summary(eval_summary, epoch_index)
+          if report_fn:
+            summary_proto = tf.Summary()
+            summary_proto.ParseFromString(eval_summary)
+            for elem in summary_proto.value:
+              if "mean_score" in elem.tag:
+                report_fn(elem.simple_value, epoch_index)
+                break
+
+        if (model_saver and ppo_hparams.save_models_every_epochs and
+            (epoch_index % ppo_hparams.save_models_every_epochs == 0 or
+             (epoch_index + 1) == num_target_iterations)):
+          ckpt_path = os.path.join(
+              model_dir,
+              "model.ckpt-{}".format(epoch_index + 1))
+          model_saver.save(sess, ckpt_path)
 
 
 def _rollout_metadata(batch_env):
