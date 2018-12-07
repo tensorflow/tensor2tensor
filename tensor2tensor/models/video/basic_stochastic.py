@@ -257,15 +257,16 @@ def next_frame_basic_stochastic_discrete():
   hparams.learning_rate_warmup_steps = 2000
   hparams.learning_rate_schedule = "linear_warmup * constant"
   hparams.concat_internal_states = True
-  hparams.add_hparam("bottleneck_bits", 256)
+  hparams.video_modality_loss_cutoff = 0.03
+  hparams.add_hparam("bottleneck_bits", 128)
   hparams.add_hparam("bottleneck_noise", 0.1)
   hparams.add_hparam("discretize_warmup_steps", 40000)
   hparams.add_hparam("latent_rnn_warmup_steps", 40000)
-  hparams.add_hparam("latent_rnn_max_sampling", 0.6)
-  hparams.add_hparam("latent_use_max_probability", 0.8)
+  hparams.add_hparam("latent_rnn_max_sampling", 0.5)
+  hparams.add_hparam("latent_use_max_probability", 0.7)
   hparams.add_hparam("full_latent_tower", False)
   hparams.add_hparam("latent_predictor_state_size", 128)
-  hparams.add_hparam("latent_predictor_temperature", 0.9)
+  hparams.add_hparam("latent_predictor_temperature", 1.0)
   hparams.add_hparam("complex_addn", True)
   return hparams
 

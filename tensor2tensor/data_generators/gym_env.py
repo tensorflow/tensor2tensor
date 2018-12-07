@@ -790,7 +790,7 @@ def camel_case_name(snake_case_name):
   return "".join([w[0].upper() + w[1:] for w in snake_case_name.split("_")])
 
 
-def register_game(game_name, game_mode="Deterministic-v4"):
+def register_game(game_name, game_mode="NoFrameskip-v4"):
   """Create and register problems for the game.
 
   Args:

@@ -659,9 +659,9 @@ def rlmb_whitelisted_games(rhp):
 
 @registry.register_ranged_hparams
 def rlmb_human_score_games(rhp):
-  rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_categorical("loop.game",
                       gym_env.ATARI_GAMES_WITH_HUMAN_SCORE)
+  rhp.set_discrete("model.moe_loss_coef", list(range(5)))
 
 
 @registry.register_ranged_hparams

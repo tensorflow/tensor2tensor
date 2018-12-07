@@ -155,8 +155,7 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
   getattr(exp, schedule)()
 
 
-def train_agent(
-    real_env, learner, world_model_dir, hparams, epoch, is_final_epoch):
+def train_agent(real_env, learner, world_model_dir, hparams, epoch):
   """Train the PPO agent in the simulated environment."""
   frame_stack_size = hparams.frame_stack_size
   initial_frame_rollouts = real_env.current_epoch_rollouts(
@@ -196,7 +195,10 @@ def train_agent(
       train_hparams, hparams, base_algo_str + "_"
   )
 
-  env_step_multiplier = 1 if not is_final_epoch else 2
+  final_epoch = hparams.epochs - 1
+  is_special_epoch = (epoch + 3) == final_epoch or (epoch + 7) == final_epoch
+  is_final_epoch = epoch == final_epoch
+  env_step_multiplier = 3 if is_final_epoch else 2 if is_special_epoch else 1
   learner.train(
       env_fn, train_hparams, simulated=True, save_continuously=True,
       epoch=epoch, env_step_multiplier=env_step_multiplier
@@ -436,7 +438,6 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   world_model_steps_num = 0
 
   for epoch in range(hparams.epochs):
-    is_final_epoch = (epoch + 1) == hparams.epochs
     log = make_log_fn(epoch, log_relative_time)
 
     # Train world model
@@ -448,9 +449,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
     # Train agent
     log("Training policy in simulated environment.")
-    train_agent(
-        env, learner, directories["world_model"], hparams, epoch, is_final_epoch
-    )
+    train_agent(env, learner, directories["world_model"], hparams, epoch)
 
     env.start_new_epoch(epoch, data_dir)
 
