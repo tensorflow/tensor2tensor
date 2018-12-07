@@ -1451,6 +1451,7 @@ class T2TModel(base.Layer):
       raise NotImplementedError(_no_problem_err("estimator_spec_eval"))
 
     problem = hparams.problem
+
     if common_layers.is_xla_compiled():
       remove_summaries()
       if isinstance(logits, dict):
@@ -1508,6 +1509,8 @@ class T2TModel(base.Layer):
           output_dir=eval_dir,
           summary_op=tf.summary.merge_all())
       evaluation_hooks.append(eval_summary_hook)
+
+      evaluation_hooks += problem.eval_hooks(features, logits, hparams)
 
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
