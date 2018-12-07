@@ -189,7 +189,8 @@ def create_experiment_fn():
       export=FLAGS.export_saved_model,
       decode_hparams=decoding.decode_hparams(FLAGS.decode_hparams),
       use_tfdbg=FLAGS.tfdbg,
-      use_dbgprofile=FLAGS.dbgprofile,
+      #use_dbgprofile=FLAGS.dbgprofile,
+      use_dbgprofile=True,
       eval_early_stopping_steps=FLAGS.eval_early_stopping_steps,
       eval_early_stopping_metric=FLAGS.eval_early_stopping_metric,
       eval_early_stopping_metric_delta=FLAGS.eval_early_stopping_metric_delta,
@@ -288,8 +289,8 @@ def generate_data():
 
 @contextlib.contextmanager
 def profile_context():
-  #if FLAGS.profile:
-  if True:
+  if FLAGS.profile:
+  #if True:
     with tf.contrib.tfprof.ProfileContext(
         "t2tprof", trace_steps=[500], dump_steps=[500]) as pctx:
       opts = tf.profiler.ProfileOptionBuilder.time_and_memory()
