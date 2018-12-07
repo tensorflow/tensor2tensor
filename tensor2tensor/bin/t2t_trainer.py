@@ -288,11 +288,12 @@ def generate_data():
 
 @contextlib.contextmanager
 def profile_context():
-  if FLAGS.profile:
+  #if FLAGS.profile:
+  if True:
     with tf.contrib.tfprof.ProfileContext(
-        "t2tprof", trace_steps=range(100), dump_steps=range(100)) as pctx:
+        "t2tprof", trace_steps=[500], dump_steps=[500]) as pctx:
       opts = tf.profiler.ProfileOptionBuilder.time_and_memory()
-      pctx.add_auto_profiling("op", opts, range(100))
+      pctx.add_auto_profiling("op", opts, [500])
       yield
   else:
     yield
