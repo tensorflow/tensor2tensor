@@ -109,9 +109,9 @@ class MtfUnitransformer(mtf_model.MtfModel):
       # hparams.layer_stack is a function for creating a LayerStack
       layer_stack = hparams.layer_stack(hparams)
     if self.autoregressive:
-      input_vocab_size = self._inputs_vocab_size
-    else:
       input_vocab_size = self._targets_vocab_size
+    else:
+      input_vocab_size = self._inputs_vocab_size
     return transformer.Unitransformer(
         layer_stack=layer_stack,
         d_model=hparams.d_model,
