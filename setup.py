@@ -50,6 +50,7 @@ setup(
         'six',
         'sympy',
         'tensorflow-probability',
+        'tf-agents',
         'tfds-nightly',
         'tqdm',
     ],
