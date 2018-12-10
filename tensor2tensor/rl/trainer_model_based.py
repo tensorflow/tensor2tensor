@@ -414,7 +414,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   learner = rl_utils.LEARNERS[hparams.base_algo](
       hparams.frame_stack_size, directories["policy"],
-      directories["policy"]
+      directories["policy"], hparams.epochs
   )
 
   # Timing log function

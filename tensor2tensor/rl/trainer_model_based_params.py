@@ -148,10 +148,10 @@ def rlmb_ppo_base():
       ppo_epoch_length=hparams.simulated_rollout_length,
       # Do not eval since simulated batch env does not produce dones
       ppo_eval_every_epochs=0,
-      ppo_learning_rate=1e-4,  # Will be changed, just so it exists.
+      ppo_learning_rate_constant=1e-4,  # Will be changed, just so it exists.
       # This needs to be divisible by real_ppo_effective_num_agents.
       real_ppo_epoch_length=16 * 200,
-      real_ppo_learning_rate=1e-4,
+      real_ppo_learning_rate_constant=1e-4,
       real_ppo_effective_num_agents=16,
       real_ppo_eval_every_epochs=0,
 
@@ -635,7 +635,7 @@ def rlmb_three(rhp):
 def rlmb_test1(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_categorical("loop.game", ["breakout", "pong", "boxing"])
-  rhp.set_discrete("loop.ppo_learning_rate", [5e-5, 1e-4, 2e-4])
+  rhp.set_discrete("loop.ppo_learning_rate_constant", [5e-5, 1e-4, 2e-4])
   rhp.set_discrete("ppo.optimization_batch_size", [20, 40])
   rhp.set_discrete("loop.epochs", [3, 6])
 
@@ -696,20 +696,20 @@ def rlmb_ae_variance(rhp):
 def rlmb_ppolr_game(rhp):
   rhp.set_categorical("loop.game", ["breakout", "pong", "freeway"])
   base_lr = 1e-4
-  rhp.set_float("loop.ppo_learning_rate", base_lr / 2, base_lr * 2)
+  rhp.set_float("loop.ppo_learning_rate_constant", base_lr / 2, base_lr * 2)
 
 
 @registry.register_ranged_hparams
 def rlmb_ppolr(rhp):
   base_lr = 1e-4
-  rhp.set_float("loop.ppo_learning_rate", base_lr / 2, base_lr * 2)
+  rhp.set_float("loop.ppo_learning_rate_constant", base_lr / 2, base_lr * 2)
 
 
 @registry.register_ranged_hparams
 def rlmb_ae_ppo_lr(rhp):
   rhp.set_categorical("loop.game", ["breakout", "pong", "freeway"])
   base_lr = 1e-4
-  rhp.set_float("loop.ppo_learning_rate", base_lr / 2, base_lr * 2)
+  rhp.set_float("loop.ppo_learning_rate_constant", base_lr / 2, base_lr * 2)
 
 
 @registry.register_ranged_hparams

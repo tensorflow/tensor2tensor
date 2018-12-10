@@ -41,6 +41,7 @@ class PPOLearner(PolicyLearner):
   def __init__(self, *args, **kwargs):
     super(PPOLearner, self).__init__(*args, **kwargs)
     self._num_completed_iterations = 0
+    self._lr_decay_start = None
 
   def train(self,
             env_fn,
@@ -91,11 +92,29 @@ class PPOLearner(PolicyLearner):
         iteration_increment *= env_step_multiplier
 
         self._num_completed_iterations += iteration_increment
+
+        restarter = Restarter(
+            "policy", self.agent_model_dir, self._num_completed_iterations
+        )
+        if restarter.should_skip:
+          return
+
+        if hparams.lr_decay_in_final_epoch:
+          if epoch != self.total_num_epochs - 1:
+            # Extend the warmup period to the end of this epoch.
+            hparams.learning_rate_warmup_steps = restarter.target_global_step
+          else:
+            if self._lr_decay_start is None:
+              # Stop the warmup at the beginning of this epoch.
+              self._lr_decay_start = \
+                  restarter.target_global_step - iteration_increment
+            hparams.learning_rate_warmup_steps = self._lr_decay_start
+
         _run_train(
             hparams,
             event_dir,
             self.agent_model_dir,
-            self._num_completed_iterations,
+            restarter,
             train_summary_op,
             eval_summary_op,
             initializers,
@@ -167,7 +186,7 @@ def _define_train(
 def _run_train(ppo_hparams,
                event_dir,
                model_dir,
-               num_target_iterations,
+               restarter,
                train_summary_op,
                eval_summary_op,
                initializers,
@@ -177,8 +196,13 @@ def _run_train(ppo_hparams,
       event_dir, graph=tf.get_default_graph(), flush_secs=60)
 
   model_saver = tf.train.Saver(
-      tf.global_variables(ppo_hparams.policy_network + "/.*")
+      tf.global_variables(ppo_hparams.policy_network + "/.*") +
+      tf.global_variables("global_step")
   )
+
+  global_step = tf.train.get_or_create_global_step()
+  with tf.control_dependencies([tf.assign_add(global_step, 1)]):
+    train_summary_op = tf.identity(train_summary_op)
 
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
@@ -186,9 +210,7 @@ def _run_train(ppo_hparams,
       initializer(sess)
     trainer_lib.restore_checkpoint(model_dir, model_saver, sess)
 
-    restarter = Restarter("policy", model_dir, num_target_iterations)
-    if restarter.should_skip:
-      return
+    num_target_iterations = restarter.target_local_step
     num_completed_iterations = num_target_iterations - restarter.steps_to_go
     with restarter.training_loop():
       for epoch_index in range(num_completed_iterations, num_target_iterations):
@@ -214,7 +236,8 @@ def _run_train(ppo_hparams,
              (epoch_index + 1) == num_target_iterations)):
           ckpt_path = os.path.join(
               model_dir,
-              "model.ckpt-{}".format(epoch_index + 1))
+              "model.ckpt-{}".format(tf.train.global_step(sess, global_step))
+          )
           model_saver.save(sess, ckpt_path)
 
 

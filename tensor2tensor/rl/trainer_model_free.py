@@ -62,7 +62,7 @@ def train(hparams, output_dir, report_fn=None):
   """Train."""
   hparams = initialize_env_specs(hparams)
   learner = rl_utils.LEARNERS[hparams.base_algo](
-      hparams.frame_stack_size, FLAGS.output_dir, output_dir
+      hparams.frame_stack_size, FLAGS.output_dir, output_dir, total_num_epochs=1
   )
   policy_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
   rl_utils.update_hparams_from_hparams(
