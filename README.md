@@ -82,16 +82,20 @@ to modify the hyperparameters if you run on a different setup.
 
 ### Mathematical Language Understanding
 
-For evaluating mathematical expressions involving addition, subtraction and multiplication of both positive and negative decimal numbers with variable digits assigned to symbolic variables, use
+For evaluating mathematical expressions at the character level involving addition, subtraction and multiplication of both positive and negative decimal numbers with variable digits assigned to symbolic variables, use
 
-* the [MLU](https://arxiv.org/abs/1812.02825) data-set:
+* the [MLU](https://art.wangperawong.com/mathematical_language_understanding_train.tar.gz) data-set:
  `--problem=mathematical_language_understanding`
 
 You can try solving the problem with different transformer models and hyperparameters as described in the [paper](https://arxiv.org/abs/1812.02825):
+* Standard transformer:
 `--model=transformer`
 `--hparams_set=transformer_tiny`
+* Universal transformer:
 `--model=universal_transformer`
 `--hparams_set=universal_transformer_tiny`
+* Adaptive universal transformer:
+`--model=universal_transformer`
 `--hparams_set=adaptive_universal_transformer_tiny`
 
 ### Story, Question and Answer
