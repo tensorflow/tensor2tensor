@@ -109,9 +109,11 @@ def _prepare_babi_data(tmp_dir, data_dir):
     tf.gfile.MakeDirs(data_dir)
 
   file_path = os.path.join(tmp_dir, _TAR)
-  headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.132 Safari/537.36'}
+  headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_1) "
+                           "AppleWebKit/537.36 (KHTML, like Gecko) "
+                           "Chrome/63.0.3239.132 Safari/537.36"}
   resp = requests.get(_URL, headers=headers)
-  with open(file_path, 'wb') as f:
+  with open(file_path, "wb") as f:
     f.write(resp.content)
 
   tar = tarfile.open(file_path)
@@ -192,10 +194,12 @@ def _babi_parser(tmp_dir,
 
     tf.logging.info("Preparing dataset of all task together")
     globe_name = ("*_{}.txt")
+    mode_name = "test"
+    if dataset_split == problem.DatasetSplit.TRAIN:
+      mode_name = "train"
     files_name = os.path.join(
         tmp_dir, _DIR_NAME, subset,
-        globe_name.format("train" if dataset_split == problem.DatasetSplit.TRAIN
-                          else "test"))
+        globe_name.format(mode_name))
     with tf.gfile.GFile(data_file, "wb") as outfile:
       for filename in tf.gfile.Glob(files_name):
         if filename == data_file:
@@ -458,6 +462,7 @@ class BabiQaConcat(BabiQa):
 
     if "context" in p.vocab_size:
       del p.vocab_size["context"]
+
 
 def _problems_to_register():
   """Problems for which we want to create datasets.
