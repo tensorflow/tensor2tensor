@@ -49,6 +49,8 @@ def glow_hparams():
   hparams.add_hparam("n_levels", 3)
   hparams.add_hparam("n_bits_x", 8)
   hparams.add_hparam("depth", 32)
+  # Activation - Relu or Gatu
+  hparams.add_hparam("activation", "relu")
   # Coupling layer, additive or affine.
   hparams.add_hparam("coupling", "affine")
   hparams.add_hparam("coupling_width", 512)

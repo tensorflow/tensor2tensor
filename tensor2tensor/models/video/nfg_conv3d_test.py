@@ -24,8 +24,10 @@ from tensor2tensor.models.video import nfg_test_utils
 import tensorflow as tf
 
 conv3d_net_hparams = (
-    ("conv3d_net", 2, 2, "conv3d_net", "conditional", -1, 3),
-    ("conv3d_dil", 2, 2, "conv3d_net", "conditional", -1, -1, False, True),)
+    # ("conv3d_net", 2, 2, "conv3d_net", "conditional", -1, 3),
+    ("conv3d_net_gatu", 2, 2, "conv3d_net", "conditional", -1, 3, False, False,
+     "gatu"),)
+    # ("conv3d_dil", 2, 2, "conv3d_net", "conditional", -1, -1, False, True),)
 
 
 class NextFrameGlowConv3DTest(nfg_test_utils.NextFrameGlowTest,
@@ -36,12 +38,13 @@ class NextFrameGlowConv3DTest(nfg_test_utils.NextFrameGlowTest,
                              latent_dist_encoder="pointwise",
                              gen_mode="conditional", pretrain_steps=-1,
                              num_train_frames=-1, cond_first_frame=False,
-                             apply_dilations=False):
+                             apply_dilations=False, activation="relu"):
     self.GlowTrainAndDecode(
         in_frames=in_frames, out_frames=out_frames,
         latent_dist_encoder=latent_dist_encoder, gen_mode=gen_mode,
         pretrain_steps=pretrain_steps, num_train_frames=num_train_frames,
-        cond_first_frame=cond_first_frame, apply_dilations=apply_dilations)
+        cond_first_frame=cond_first_frame, apply_dilations=apply_dilations,
+        activation=activation)
 
 
 if __name__ == "__main__":

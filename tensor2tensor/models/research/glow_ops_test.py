@@ -50,6 +50,7 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
     hparams.add_hparam("latent_pre_output_channels", 256)
     hparams.add_hparam("latent_dist_encoder", "conv_net")
     hparams.add_hparam("latent_time_filter_size", 3)
+    hparams.add_hparam("latent_activation", "relu")
     return hparams
 
   def test_get_variable_ddi(self):
@@ -126,11 +127,14 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
         # test shape in case apply_actnorm is set to False,
         self.assertEqual(zeros_np.shape, (16, 5, 5, 64))
 
-  def test_conv_stack(self):
+  @parameterized.named_parameters(
+      ("relu_act", "relu"), ("gatu_act", "gatu"))
+  def test_conv_stack(self, activation="relu"):
     """Test output shape."""
     with tf.Graph().as_default():
       x = 10.0 * tf.random_uniform(shape=(16, 5, 5, 32))
-      nn = glow_ops.conv_stack("nn", x, 512, 64)
+      nn = glow_ops.conv_stack("nn", x, mid_channels=512, output_channels=64,
+                               activation=activation)
 
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
@@ -406,11 +410,13 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
           self.assertTrue(np.allclose(channel_var, 1.0, atol=1e-3))
 
   @parameterized.named_parameters(
-      ("dilation", True), ("no_dilation", False))
-  def test_temporal_latent_to_dist(self, apply_dilation):
+      ("dil_relu", True, "relu"), ("no_dil_relu", False, "relu"),
+      ("dil_gatu", True, "gatu"), ("no_dil_gatu", False, "gatu"),)
+  def test_temporal_latent_to_dist(self, apply_dilation, activation):
     with tf.Graph().as_default():
       hparams = self.get_glow_hparams()
       hparams.latent_apply_dilations = apply_dilation
+      hparams.latent_activation = activation
       latent_shape = (16, 5, 32, 32, 48)
       latents = tf.random_normal(latent_shape)
       dist = glow_ops.temporal_latent_to_dist(

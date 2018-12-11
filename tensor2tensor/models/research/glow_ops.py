@@ -453,7 +453,7 @@ def conv(name, x, output_channels, filter_size=None, stride=None,
 
 
 @add_arg_scope
-def conv_block(name, x, mid_channels, dilations=None):
+def conv_block(name, x, mid_channels, dilations=None, activation="relu"):
   """2 layer conv block used in the affine coupling layer.
 
   Args:
@@ -461,6 +461,9 @@ def conv_block(name, x, mid_channels, dilations=None):
     x: 4-D or 5-D Tensor.
     mid_channels: Output channels of the second layer.
     dilations: Optional, list of integers.
+    activation: relu or gatu.
+      If relu, the second layer is relu(W*x)
+      If gatu, the second layer is tanh(W1*x) * sigmoid(W2*x)
   Returns:
     x: 4-D Tensor: Output activations.
   """
@@ -481,16 +484,24 @@ def conv_block(name, x, mid_channels, dilations=None):
              dilations=dilations)
     x = tf.nn.relu(x)
 
-    # Padding + conv2d + actnorm + relu
+    # Padding + conv2d + actnorm + activation.
     # [input, output: 512 channels]
-    x = conv("1_2", x, output_channels=mid_channels, filter_size=second_filter,
-             dilations=dilations)
-    x = tf.nn.relu(x)
+    if activation == "relu":
+      x = conv("1_2", x, output_channels=mid_channels,
+               filter_size=second_filter, dilations=dilations)
+      x = tf.nn.relu(x)
+    elif activation == "gatu":
+      # x = tanh(w1*x) * sigm(w2*x)
+      x_tanh = conv("1_tanh", x, output_channels=mid_channels,
+                    filter_size=second_filter, dilations=dilations)
+      x_sigm = conv("1_sigm", x, output_channels=mid_channels,
+                    filter_size=second_filter, dilations=dilations)
+      x = tf.nn.tanh(x_tanh) * tf.nn.sigmoid(x_sigm)
     return x
 
 
 def dilated_conv_stack(name, x, mid_channels, output_channels,
-                       dilation_rates):
+                       dilation_rates, activation="relu"):
   """Dilated convolutional stack.
 
   Features at different rates are computed independently using a 3 layer
@@ -503,6 +514,7 @@ def dilated_conv_stack(name, x, mid_channels, output_channels,
                   stack.
     output_channels: Number of output channels of the last layer.
     dilation_rates: A list of dilation rates.
+    activation: Can be either "relu" or "gatu"
   Returns:
     output: 5-D Tensor.
   """
@@ -511,13 +523,15 @@ def dilated_conv_stack(name, x, mid_channels, output_channels,
     for dil_ind, dil_rate in enumerate(dilation_rates):
       # TODO(mechcoder) try (concat across channels + 1x1) modulo memory issues.
       curr_out = conv_stack("dil_%d" % dil_ind, x, mid_channels=mid_channels,
-                            output_channels=output_channels, dilations=dil_rate)
+                            output_channels=output_channels, dilations=dil_rate,
+                            activation=activation)
       output += curr_out
     return output
 
 
 @add_arg_scope
-def conv_stack(name, x, mid_channels, output_channels, dilations=None):
+def conv_stack(name, x, mid_channels, output_channels, dilations=None,
+               activation="relu"):
   """3-layer convolutional stack.
 
   Args:
@@ -527,14 +541,16 @@ def conv_stack(name, x, mid_channels, output_channels, dilations=None):
     output_channels: Number of output channels.
     dilations: Dilations to apply in the first 3x3 layer and the last 3x3 layer.
                By default, apply no dilations.
-
+    activation: relu or gatu.
+      If relu, the second layer is relu(W*x)
+      If gatu, the second layer is tanh(W1*x) * sigmoid(W2*x)
   Returns:
     output: output of 3 layer conv network.
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
 
     x = conv_block("conv_block", x, mid_channels=mid_channels,
-                   dilations=dilations)
+                   dilations=dilations, activation=activation)
 
     # Final layer.
     x = conv("zeros", x, apply_actnorm=False, conv_init="zeros",
@@ -543,7 +559,8 @@ def conv_stack(name, x, mid_channels, output_channels, dilations=None):
 
 
 @add_arg_scope
-def additive_coupling(name, x, mid_channels=512, reverse=False):
+def additive_coupling(name, x, mid_channels=512, reverse=False,
+                      activation="relu"):
   """Reversible additive coupling layer.
 
   Args:
@@ -551,6 +568,7 @@ def additive_coupling(name, x, mid_channels=512, reverse=False):
     x: 4-D Tensor.
     mid_channels: number of channels in the coupling layer.
     reverse: Forward or reverse operation.
+    activation: "relu" or "gatu"
   Returns:
     output:
     objective: 0.0
@@ -560,7 +578,8 @@ def additive_coupling(name, x, mid_channels=512, reverse=False):
     x1, x2 = tf.split(x, num_or_size_splits=2, axis=-1)
 
     z1 = x1
-    shift = conv_stack("nn", x1, mid_channels, output_channels=output_channels)
+    shift = conv_stack("nn", x1, mid_channels, output_channels=output_channels,
+                       activation=activation)
 
     if not reverse:
       z2 = x2 + shift
@@ -570,17 +589,19 @@ def additive_coupling(name, x, mid_channels=512, reverse=False):
 
 
 @add_arg_scope
-def affine_coupling(name, x, mid_channels=512, reverse=False):
+def affine_coupling(name, x, mid_channels=512, activation="relu",
+                    reverse=False):
   """Reversible affine coupling layer.
 
   Args:
     name: variable scope.
     x: 4-D Tensor.
     mid_channels: number of channels in the coupling layer.
+    activation: Can be either "relu" or "gatu".
     reverse: Forward or reverse operation.
   Returns:
-    output:
-    objective:
+    output: input s
+    objective: log-determinant of the jacobian
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     x_shape = common_layers.shape_list(x)
@@ -592,7 +613,8 @@ def affine_coupling(name, x, mid_channels=512, reverse=False):
     # Else:
     # z2 = (x2 / scale) - shift
     z1 = x1
-    log_scale_and_shift = conv_stack("nn", x1, mid_channels, x_shape[-1])
+    log_scale_and_shift = conv_stack(
+        "nn", x1, mid_channels, x_shape[-1], activation=activation)
     shift = log_scale_and_shift[:, :, :, 0::2]
     scale = tf.nn.sigmoid(log_scale_and_shift[:, :, :, 1::2] + 2.0)
     if not reverse:
@@ -684,7 +706,6 @@ def temporal_latent_to_dist(name, x, hparams, output_channels=None):
   if output_channels is None:
     output_channels = res_channels
   dilation_rates = get_dilation_rates(hparams, width)
-
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     h = x
     for i in range(hparams.latent_encoder_depth):
@@ -692,11 +713,13 @@ def temporal_latent_to_dist(name, x, hparams, output_channels=None):
         h2 = dilated_conv_stack("dil_latent_3d_res_%d" % i, h,
                                 mid_channels=hparams.latent_encoder_width,
                                 output_channels=res_channels,
-                                dilation_rates=dilation_rates)
+                                dilation_rates=dilation_rates,
+                                activation=hparams.latent_activation)
       else:
         h2 = conv_stack("latent_3d_res_%d" % i, h,
                         mid_channels=hparams.latent_encoder_width,
-                        output_channels=res_channels)
+                        output_channels=res_channels,
+                        activation=hparams.latent_activation)
       h += h2
 
     # take last activation that should capture all context since padding is
@@ -1006,11 +1029,13 @@ def revnet_step(name, x, hparams, reverse=True):
     if hparams.coupling == "additive":
       coupling_layer = functools.partial(
           additive_coupling, name="additive", reverse=reverse,
-          mid_channels=hparams.coupling_width)
+          mid_channels=hparams.coupling_width,
+          activation=hparams.activation)
     else:
       coupling_layer = functools.partial(
           affine_coupling, name="affine", reverse=reverse,
-          mid_channels=hparams.coupling_width)
+          mid_channels=hparams.coupling_width,
+          activation=hparams.activation)
     ops = [
         functools.partial(actnorm, name="actnorm", reverse=reverse),
         functools.partial(invertible_1x1_conv, name="invertible",

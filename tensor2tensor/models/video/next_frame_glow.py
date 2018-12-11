@@ -62,6 +62,7 @@ def next_frame_glow_hparams():
   hparams.add_hparam("latent_encoder_depth", 2)
   hparams.add_hparam("latent_encoder_width", 512)
   hparams.add_hparam("latent_pre_output_channels", 512)
+  hparams.add_hparam("latent_activation", "relu")
   # Pretrains the glow encoder for "pretrain_steps" number of steps.
   # By default, don't pretrain and learn end-to-end
   hparams.add_hparam("pretrain_steps", -1)
