@@ -264,3 +264,12 @@ class SummarizeCnnDailymailWikiLMSharedVocab64k(SummarizeCnnDailymail32k):
   @property
   def vocab_filename(self):
     return wiki_lm.LanguagemodelEnWiki64k().vocab_filename
+
+
+@registry.register_problem
+class SummarizeCnnDailymailWikiLMMultiVocab64k(SummarizeCnnDailymail32k):
+  """Summarize CNN and Daily Mail articles using multi-lingual 64k vocab."""
+
+  @property
+  def vocab_filename(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename

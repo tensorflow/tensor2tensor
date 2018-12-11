@@ -140,6 +140,9 @@ class LanguagemodelMultiWikiTranslate(multi_problem.MultiProblem):
         was_reversed=True))
     self.task_list.append(translate_enro.TranslateEnroWmtMultiSmall64k(
         was_reversed=True))
+    self.task_list.append(
+        cnn_dailymail.SummarizeCnnDailymailWikiLMMultiVocab64k())
+    self.task_list.append(multinli.MultiNLIWikiLMMultiVocab64k())
 
   @property
   def vocab_type(self):

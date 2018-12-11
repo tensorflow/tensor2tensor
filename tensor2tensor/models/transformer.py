@@ -242,8 +242,9 @@ class Transformer(t2t_model.T2TModel):
         self._hparams.self_attention_type != "dot_product"):
       return  super(Transformer, self)._greedy_infer(features, decode_length)
     with tf.variable_scope(self.name):
-      return (self._fast_decode_tpu(features, decode_length) if use_tpu else
-              self._fast_decode(features, decode_length))
+      if use_tpu:
+        return self._fast_decode_tpu(features, decode_length)
+      return self._fast_decode(features, decode_length)
 
   def _beam_decode(self,
                    features,
@@ -280,11 +281,11 @@ class Transformer(t2t_model.T2TModel):
       return self._beam_decode_slow(features, decode_length, beam_size,
                                     top_beams, alpha, use_tpu)
     with tf.variable_scope(self.name):
-      return (
-          self._fast_decode_tpu(
-              features, decode_length, beam_size, top_beams, alpha) if use_tpu
-          else self._fast_decode(
-              features, decode_length, beam_size, top_beams, alpha))
+      if use_tpu:
+        return self._fast_decode_tpu(
+            features, decode_length, beam_size, top_beams, alpha)
+      return self._fast_decode(
+          features, decode_length, beam_size, top_beams, alpha)
 
   def _fast_decode_tpu(self,
                        features,
@@ -831,8 +832,9 @@ def fast_decode_tpu(encoder_output,
       """One step of greedy decoding."""
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       log_probs = common_layers.log_prob_from_logits(logits)
-      temperature = (0.0 if hparams.sampling_method == "argmax" else
-                     hparams.sampling_temp)
+      temperature = hparams.sampling_temp
+      if hparams.sampling_method == "argmax":
+        temperature = 0.0
       next_id = common_layers.sample_with_temperature(logits, temperature)
       hit_eos |= tf.equal(next_id, eos_id)
 
@@ -998,8 +1000,9 @@ def fast_decode(encoder_output,
       """One step of greedy decoding."""
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       log_probs = common_layers.log_prob_from_logits(logits)
-      temperature = (0.0 if hparams.sampling_method == "argmax" else
-                     hparams.sampling_temp)
+      temperature = hparams.sampling_temp
+      if hparams.sampling_method == "argmax":
+        temperature = 0.0
       next_id = common_layers.sample_with_temperature(logits, temperature)
       hit_eos |= tf.equal(next_id, eos_id)
 
@@ -1589,6 +1592,19 @@ def transformer_tall_pretrain_lm_tpu_adafactor():
   # For multi-problem on TPU we need it in absolute examples.
   hparams.batch_size = 8
   hparams.multiproblem_vocab_size = 2**16
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tall_pretrain_lm_tpu_adafactor_large():
+  """Hparams for transformer on LM pretraining on TPU, large model."""
+  hparams = transformer_tall_pretrain_lm_tpu_adafactor()
+  hparams.hidden_size = 1024
+  hparams.num_heads = 16
+  hparams.filter_size = 32768
+  hparams.batch_size = 4
+  hparams.multiproblem_mixing_schedule = "constant"
+  hparams.multiproblem_schedule_threshold = 0.3
   return hparams
 
 

@@ -118,7 +118,7 @@ class MultiNLI(text_problems.TextConcat2ClassProblem):
 
 @registry.register_problem
 class MultiNLICharacters(MultiNLI):
-  """MultiNLI classification problems, character level"""
+  """MultiNLI classification problems, character level."""
 
   @property
   def vocab_type(self):
@@ -130,7 +130,7 @@ class MultiNLICharacters(MultiNLI):
 
 @registry.register_problem
 class MultiNLISharedVocab(MultiNLI):
-  """MultiNLI classification problems with the LM1b vocabulary"""
+  """MultiNLI classification problems with the LM1b vocabulary."""
 
   @property
   def vocab_filename(self):
@@ -139,7 +139,7 @@ class MultiNLISharedVocab(MultiNLI):
 
 @registry.register_problem
 class MultiNLIWikiLMSharedVocab(MultiNLI):
-  """MultiNLI classification problems with the Wiki vocabulary"""
+  """MultiNLI classification problems with the Wiki vocabulary."""
 
   @property
   def vocab_filename(self):
@@ -148,8 +148,17 @@ class MultiNLIWikiLMSharedVocab(MultiNLI):
 
 @registry.register_problem
 class MultiNLIWikiLMSharedVocab64k(MultiNLIWikiLMSharedVocab):
-  """MultiNLI classification problems with the Wiki vocabulary"""
+  """MultiNLI classification problems with the Wiki vocabulary."""
 
   @property
   def vocab_filename(self):
     return wiki_lm.LanguagemodelEnWiki64k().vocab_filename
+
+
+@registry.register_problem
+class MultiNLIWikiLMMultiVocab64k(MultiNLIWikiLMSharedVocab):
+  """MultiNLI classification problems with the multi-lingual vocabulary."""
+
+  @property
+  def vocab_filename(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename
