@@ -45,7 +45,7 @@ from __future__ import division
 from __future__ import print_function
 
 import inspect
-import re
+from tensor2tensor.utils import misc_utils
 import tensorflow as tf
 
 _ATTACKS = {}
@@ -56,16 +56,6 @@ _PROBLEMS = {}
 _PRUNING_PARAMS = {}
 _PRUNING_STRATEGY = {}
 _RANGED_HPARAMS = {}
-
-
-# Camel case to snake case utils
-_first_cap_re = re.compile("(.)([A-Z][a-z0-9]+)")
-_all_cap_re = re.compile("([a-z0-9])([A-Z])")
-
-
-def _convert_camel_to_snake(name):
-  s1 = _first_cap_re.sub(r"\1_\2", name)
-  return _all_cap_re.sub(r"\1_\2", s1).lower()
 
 
 def _reset():
@@ -82,7 +72,7 @@ def default_name(obj_class):
   Returns:
     The registry's default name for the class.
   """
-  return _convert_camel_to_snake(obj_class.__name__)
+  return misc_utils.camelcase_to_snakecase(obj_class.__name__)
 
 
 def default_object_name(obj):

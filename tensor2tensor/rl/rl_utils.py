@@ -26,6 +26,7 @@ from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl.dopamine_connector import DQNLearner
 from tensor2tensor.rl.ppo_learner import PPOLearner
+from tensor2tensor.utils import misc_utils
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -105,8 +106,7 @@ LEARNERS = {
 def setup_env(hparams, batch_size, max_num_noops):
   """Setup."""
   game_mode = "Deterministic-v4"
-  camel_game_name = "".join(
-      [w[0].upper() + w[1:] for w in hparams.game.split("_")])
+  camel_game_name = misc_utils.snakecase_to_camelcase(hparams.game)
   camel_game_name += game_mode
   env_name = camel_game_name
 

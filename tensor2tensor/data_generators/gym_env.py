@@ -31,6 +31,7 @@ from tensor2tensor.data_generators import video_utils
 from tensor2tensor.layers import modalities
 from tensor2tensor.rl import gym_utils
 from tensor2tensor.utils import metrics
+from tensor2tensor.utils import misc_utils
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -786,10 +787,6 @@ ATARI_GAME_MODES = [
 ]
 
 
-def camel_case_name(snake_case_name):
-  return "".join([w[0].upper() + w[1:] for w in snake_case_name.split("_")])
-
-
 def register_game(game_name, game_mode="NoFrameskip-v4"):
   """Create and register problems for the game.
 
@@ -804,7 +801,7 @@ def register_game(game_name, game_mode="NoFrameskip-v4"):
     raise ValueError("Game %s not in ATARI_GAMES" % game_name)
   if game_mode not in ATARI_GAME_MODES:
     raise ValueError("Unknown ATARI game mode: %s." % game_mode)
-  camel_game_name = camel_case_name(game_name) + game_mode
+  camel_game_name = misc_utils.snakecase_to_camelcase(game_name) + game_mode
   # Create and register the Problem
   cls = type("Gym%sRandom" % camel_game_name,
              (T2TGymEnv,), {"base_env_name": camel_game_name})
