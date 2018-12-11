@@ -15,7 +15,7 @@
 
 """Training restarter."""
 
-from contextlib import contextmanager
+import contextlib
 import os
 
 import tensorflow as tf
@@ -41,6 +41,7 @@ class Restarter(object):
     should_skip (bool): Whether training should be skipped because the number of
         local steps already done is higher than the target. This happens during
         restarts.
+    steps_to_go: how many steps to go.
     restarting (bool): Whether the current epoch of training has been
         interrupted and is being restarted.
   """
@@ -85,12 +86,9 @@ class Restarter(object):
 
     self.target_global_step = self._global_step + self.steps_to_go
 
-  @contextmanager
+  @contextlib.contextmanager
   def training_loop(self):
-    """Context manager wrapping the training loop.
-
-    Takes care of updating the step counters.
-    """
+    """Context manager wrapping the training loop, updates step counters."""
     if not self.restarting:
       self._write_counters(self._local_step_at_start, self._global_step)
 
