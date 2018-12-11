@@ -243,8 +243,7 @@ class UniversalTransformer(transformer.Transformer):
     return (self._slow_greedy_infer_tpu(features, decode_length) if use_tpu else
             self._slow_greedy_infer(features, decode_length))
 
-  def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha,
-                   use_tpu=False):
+  def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha, use_tpu=False):
     """Beam search decoding.
 
     Args:
