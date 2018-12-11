@@ -41,6 +41,7 @@ from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import rl_utils
 from tensor2tensor.rl import trainer_model_based_params
+from tensor2tensor.rl.restarter import Restarter
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -241,16 +242,20 @@ def train_world_model(
   if epoch > 0:
     model_hparams.learning_rate *= hparams.learning_rate_bump
 
-  train_supervised(
-      problem=env,
-      model_name=hparams.generative_model,
-      hparams=model_hparams,
-      data_dir=data_dir,
-      output_dir=output_dir,
-      train_steps=world_model_steps_num,
-      eval_steps=100,
-      local_eval_frequency=2000
-  )
+  restarter = Restarter("world_model", output_dir, world_model_steps_num)
+  if restarter.should_skip:
+    return world_model_steps_num
+  with restarter.training_loop():
+    train_supervised(
+        problem=env,
+        model_name=hparams.generative_model,
+        hparams=model_hparams,
+        data_dir=data_dir,
+        output_dir=output_dir,
+        train_steps=restarter.target_global_step,
+        eval_steps=100,
+        local_eval_frequency=2000
+    )
 
   return world_model_steps_num
 
@@ -409,7 +414,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   learner = rl_utils.LEARNERS[hparams.base_algo](
       hparams.frame_stack_size, directories["policy"],
-      directories["policy"]
+      directories["policy"], hparams.epochs
   )
 
   # Timing log function

@@ -22,18 +22,14 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.models.research.rl import get_policy
+from tensor2tensor.utils import learning_rate
+from tensor2tensor.utils import optimize
 
 import tensorflow as tf
 import tensorflow_probability as tfp
 
 
-def get_optimiser(config):
-  if config.optimizer == "Adam":
-    return tf.train.AdamOptimizer(learning_rate=config.learning_rate)
-  return config.optimizer(learning_rate=config.learning_rate)
-
-
-def define_ppo_step(data_points, optimizer, hparams, action_space):
+def define_ppo_step(data_points, hparams, action_space, lr):
   """Define ppo step."""
   observation, action, discounted_reward, norm_advantage, old_pdf = data_points
 
@@ -57,24 +53,11 @@ def define_ppo_step(data_points, optimizer, hparams, action_space):
   entropy_loss = -hparams.entropy_loss_coef * tf.reduce_mean(entropy)
 
   losses = [policy_loss, value_loss, entropy_loss]
+  loss = sum(losses)
+  train_op = optimize.optimize(loss, lr, hparams)
 
-  gradients = [list(zip(*optimizer.compute_gradients(loss)))
-               for loss in losses]
-
-  gradients_norms = [tf.global_norm(gradient[0]) for gradient in gradients]
-
-  gradients_flat = sum([gradient[0] for gradient in gradients], ())
-  gradients_variables_flat = sum([gradient[1] for gradient in gradients], ())
-
-  if hparams.max_gradients_norm:
-    gradients_flat, _ = tf.clip_by_global_norm(gradients_flat,
-                                               hparams.max_gradients_norm)
-
-  optimize_op = optimizer.apply_gradients(zip(gradients_flat,
-                                              gradients_variables_flat))
-
-  with tf.control_dependencies([optimize_op]):
-    return [tf.identity(x) for x in losses + gradients_norms]
+  with tf.control_dependencies([train_op]):
+    return [tf.identity(x) for x in losses]
 
 
 def define_ppo_epoch(memory, hparams, action_space, batch_size):
@@ -118,22 +101,25 @@ def define_ppo_epoch(memory, hparams, action_space, batch_size):
   dataset = dataset.repeat(-1)
   dataset = dataset.batch(hparams.optimization_batch_size, drop_remainder=True)
   iterator = dataset.make_initializable_iterator()
-  optimizer = get_optimiser(hparams)
+
+  lr = learning_rate.learning_rate_schedule(hparams)
 
   with tf.control_dependencies([iterator.initializer]):
     ppo_step_rets = tf.scan(
         lambda a, i: add_lists_elementwise(  # pylint: disable=g-long-lambda
             a, define_ppo_step(
-                iterator.get_next(), optimizer, hparams, action_space
+                iterator.get_next(), hparams, action_space, lr
             )),
         tf.range(number_of_batches),
-        [0., 0., 0., 0., 0., 0.],
+        [0., 0., 0.],
         parallel_iterations=1)
 
   ppo_summaries = [tf.reduce_mean(ret) / number_of_batches
                    for ret in ppo_step_rets]
-  summaries_names = ["policy_loss", "value_loss", "entropy_loss",
-                     "policy_gradient", "value_gradient", "entropy_gradient"]
+  ppo_summaries.append(lr)
+  summaries_names = [
+      "policy_loss", "value_loss", "entropy_loss", "learning_rate"
+  ]
 
   summaries = [tf.summary.scalar(summary_name, summary)
                for summary_name, summary in zip(summaries_names, ppo_summaries)]

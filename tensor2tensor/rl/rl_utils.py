@@ -68,7 +68,7 @@ def evaluate_single_config(
   env_fn = rl.make_real_env_fn(env)
   learner = LEARNERS[hparams.base_algo](
       hparams.frame_stack_size, base_event_dir=None,
-      agent_model_dir=agent_model_dir
+      agent_model_dir=agent_model_dir, total_num_epochs=1
   )
   learner.evaluate(env_fn, eval_hparams, sampling_temp)
   rollouts = env.current_epoch_rollouts()

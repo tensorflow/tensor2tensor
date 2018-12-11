@@ -37,7 +37,11 @@ import tensorflow_probability as tfp
 def ppo_base_v1():
   """Set of hyperparameters."""
   hparams = common_hparams.basic_params1()
-  hparams.learning_rate = 1e-4
+  hparams.learning_rate_schedule = "constant"
+  hparams.learning_rate_constant = 1e-4
+  hparams.clip_grad_norm = 0.5
+  # If set, extends the LR warmup to all epochs except the final one.
+  hparams.add_hparam("lr_decay_in_final_epoch", False)
   hparams.add_hparam("init_mean_factor", 0.1)
   hparams.add_hparam("init_logstd", 0.1)
   hparams.add_hparam("policy_layers", (100, 100))
@@ -53,7 +57,6 @@ def ppo_base_v1():
   hparams.add_hparam("eval_every_epochs", 10)
   hparams.add_hparam("save_models_every_epochs", 30)
   hparams.add_hparam("optimization_batch_size", 50)
-  hparams.add_hparam("max_gradients_norm", 0.5)
   hparams.add_hparam("intrinsic_reward_scale", 0.)
   hparams.add_hparam("logits_clip", 0.0)
   hparams.add_hparam("dropout_ppo", 0.1)
@@ -85,7 +88,7 @@ def discrete_random_action_base():
 def ppo_atari_base():
   """Pong base parameters."""
   hparams = ppo_discrete_action_base()
-  hparams.learning_rate = 1e-4
+  hparams.learning_rate_constant = 1e-4
   hparams.epoch_length = 200
   hparams.gae_gamma = 0.985
   hparams.gae_lambda = 0.985
@@ -96,7 +99,7 @@ def ppo_atari_base():
   hparams.policy_network = "feed_forward_cnn_small_categorical_policy"
   hparams.clipping_coef = 0.2
   hparams.optimization_batch_size = 20
-  hparams.max_gradients_norm = 0.5
+  hparams.clip_grad_norm = 0.5
   return hparams
 
 
@@ -104,7 +107,7 @@ def ppo_atari_base():
 def ppo_original_params():
   """Parameters based on the original PPO paper."""
   hparams = ppo_atari_base()
-  hparams.learning_rate = 2.5e-4
+  hparams.learning_rate_constant = 2.5e-4
   hparams.gae_gamma = 0.99
   hparams.gae_lambda = 0.95
   hparams.clipping_coef = 0.1
@@ -178,7 +181,7 @@ def get_policy(observations, hparams, action_space):
 def ppo_pong_ae_base():
   """Pong autoencoder base parameters."""
   hparams = ppo_original_params()
-  hparams.learning_rate = 1e-4
+  hparams.learning_rate_constant = 1e-4
   hparams.network = "dense_bitwise_categorical_policy"
   return hparams
 

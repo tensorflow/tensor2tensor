@@ -23,10 +23,13 @@ from __future__ import print_function
 class PolicyLearner(object):
   """API for policy learners."""
 
-  def __init__(self, frame_stack_size, base_event_dir, agent_model_dir):
+  def __init__(
+      self, frame_stack_size, base_event_dir, agent_model_dir, total_num_epochs
+  ):
     self.frame_stack_size = frame_stack_size
     self.base_event_dir = base_event_dir
     self.agent_model_dir = agent_model_dir
+    self.total_num_epochs = total_num_epochs
 
   def train(
       self,
