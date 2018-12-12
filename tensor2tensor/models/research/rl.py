@@ -226,7 +226,7 @@ def dqn_original_params():
 
 
 @registry.register_hparams
-def mfrl_original():
+def rlmf_original():
   return tf.contrib.training.HParams(
       game="pong",
       base_algo="ppo",
@@ -244,17 +244,17 @@ def mfrl_original():
 
 
 @registry.register_hparams
-def mfrl_base():
+def rlmf_base():
   """Base set of hparams for model-free PPO."""
-  hparams = mfrl_original()
+  hparams = rlmf_original()
   hparams.add_hparam("ppo_epochs_num", 3000)
   hparams.add_hparam("ppo_eval_every_epochs", 100)
   return hparams
 
 
 @registry.register_hparams
-def mfrl_tiny():
-  hparams = mfrl_base()
+def rlmf_tiny():
+  hparams = rlmf_base()
   hparams.ppo_epochs_num = 100
   hparams.ppo_eval_every_epochs = 10
   return hparams
