@@ -28,6 +28,11 @@ represented at the character level. About 12 million unique samples were thus
 generated and randomly split into training and test sets at an approximate
 ratio of 9:1, respectively.
 
+Example lines from training file:
+y=691,x=-999,y*x:-690309
+y=210,x=-995,y+x:-785
+x=-995,y=210,x*x:990025
+
 For more information check the following paper:
 Artit Wangperawong. Attending to Mathematical Language with Transformers,
 arXiv:1812.02825 (https://arxiv.org/abs/1812.02825).
@@ -49,7 +54,7 @@ import tensorflow as tf
 
 
 @registry.register_problem
-class MathematicalLanguageUnderstanding(text_problems.Text2TextProblem):
+class AlgorithmicMathTwoVariables(text_problems.Text2TextProblem):
   """Mathematical language understanding, see arxiv.org/abs/1812.02825."""
 
   URL = ("https://art.wangperawong.com/mathematical_language_understanding"
@@ -96,8 +101,7 @@ class MathematicalLanguageUnderstanding(text_problems.Text2TextProblem):
         tmp_dir, compressed_filename, self.URL)
     with tarfile.open(download_path, "r:gz") as tar:
       tar.extractall(tmp_dir)
-    filepath = os.path.join(tmp_dir,
-                            "mathematical_language_understanding_train.txt")
+    filepath = os.path.join(tmp_dir, "symbolic_math_train.txt")
     with open(filepath, "r") as fp:
       for l in fp:
         prob, ans = l.strip().split(":")

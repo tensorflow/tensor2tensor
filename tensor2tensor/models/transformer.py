@@ -2042,6 +2042,7 @@ def update_hparams_for_tpu(hparams):
   hparams.attention_dropout_broadcast_dims = "0,1"  # batch, heads
   hparams.relu_dropout_broadcast_dims = "1"  # length
   hparams.layer_prepostprocess_dropout_broadcast_dims = "1"  # length
+  return hparams
 
 
 @registry.register_hparams

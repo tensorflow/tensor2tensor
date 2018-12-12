@@ -442,6 +442,15 @@ def universal_transformer_base():
 
 
 @registry.register_hparams
+def universal_transformer_base_tpu():
+  hparams = transformer.transformer_big()
+  hparams = update_hparams_for_universal_transformer(hparams)
+  transformer.update_hparams_for_tpu(hparams)
+  hparams.add_step_timing_signal = False
+  return hparams
+
+
+@registry.register_hparams
 def universal_transformer_big():
   hparams = transformer.transformer_big()
   hparams = update_hparams_for_universal_transformer(hparams)
