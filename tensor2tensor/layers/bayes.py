@@ -114,7 +114,9 @@ class TrainableNormal(TrainableInitializer):
       raise ValueError('A TrainableInitializer must be built by a layer before '
                        'usage, and is currently only compatible with Bayesian '
                        'layers.')
-    return ed.Normal(loc=self.mean, scale=self.stddev)
+    return ed.Independent(
+        ed.Normal(loc=self.mean, scale=self.stddev).distribution,
+        reinterpreted_batch_ndims=len(self.shape))
 
   def get_config(self):
     return {
@@ -151,7 +153,12 @@ class NormalKLDivergence(tf.keras.regularizers.Regularizer):
     """Computes regularization given an ed.Normal random variable as input."""
     if not isinstance(x, ed.RandomVariable):
       raise ValueError('Input must be an ed.RandomVariable.')
-    random_variable = ed.Normal(loc=self.mean, scale=self.stddev)
+    random_variable = ed.Independent(
+        ed.Normal(
+            loc=tf.broadcast_to(self.mean, x.distribution.event_shape),
+            scale=tf.broadcast_to(self.stddev, x.distribution.event_shape)
+        ).distribution,
+        reinterpreted_batch_ndims=len(x.distribution.event_shape))
     return random_variable.distribution.kl_divergence(x.distribution)
 
   def get_config(self):

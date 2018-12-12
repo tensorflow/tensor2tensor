@@ -35,7 +35,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
         100, kernel_initializer=bayes.TrainableNormal())
     inputs = tf.random_normal([1, 1])
     out = layer(inputs)
-    stddev = layer.kernel.distribution.scale
+    stddev = layer.kernel.distribution.stddev()
     self.evaluate(tf.global_variables_initializer())
     res, _ = self.evaluate([stddev, out])
     self.assertAllGreater(res, 0.)
@@ -76,7 +76,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     with tf.GradientTape() as tape:
       layer(inputs)  # first call forces a build, here inside this tape
       layer(inputs)  # ensure robustness after multiple calls
-      loss = tf.reduce_sum([tf.reduce_sum(l) for l in layer.losses])
+      loss = sum(layer.losses)
 
     variables = [layer.kernel_initializer.mean, layer.kernel_initializer.stddev]
     for v in variables:
@@ -91,7 +91,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     # Imagine this is the 2nd epoch.
     with tf.GradientTape() as tape:
       layer(inputs)  # build won't be called again
-      loss = tf.reduce_sum([tf.reduce_sum(l) for l in layer.losses])
+      loss = sum(layer.losses)
 
     variables = [layer.kernel_initializer.mean, layer.kernel_initializer.stddev]
     for v in variables:
@@ -175,7 +175,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
       cell(inputs[:, 0, :], state)  # ensure robustness after multiple calls
       cell.get_initial_state(inputs[:, 0, :])
       cell(inputs[:, 0, :], state)  # ensure robustness after multiple calls
-      loss = tf.reduce_sum([tf.reduce_sum(l) for l in cell.losses])
+      loss = sum(cell.losses)
 
     variables = [
         cell.kernel_initializer.mean, cell.kernel_initializer.stddev,
@@ -193,7 +193,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     # Imagine this is the 2nd epoch.
     with tf.GradientTape() as tape:
       cell(inputs[:, 0, :], state)  # build won't be called again
-      loss = tf.reduce_sum([tf.reduce_sum(l) for l in cell.losses])
+      loss = sum(cell.losses)
 
     variables = [
         cell.kernel_initializer.mean, cell.kernel_initializer.stddev,
