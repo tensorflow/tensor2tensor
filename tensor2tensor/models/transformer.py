@@ -832,7 +832,7 @@ def fast_decode_tpu(encoder_output,
       """One step of greedy decoding."""
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       log_probs = common_layers.log_prob_from_logits(logits)
-      temperature = hparams.sampling_temp
+      temperature = getattr(hparams, "sampling_temp", 0.0)
       if hparams.sampling_method == "argmax":
         temperature = 0.0
       next_id = common_layers.sample_with_temperature(logits, temperature)
@@ -1000,7 +1000,7 @@ def fast_decode(encoder_output,
       """One step of greedy decoding."""
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       log_probs = common_layers.log_prob_from_logits(logits)
-      temperature = hparams.sampling_temp
+      temperature = getattr(hparams, "sampling_temp", 0.0)
       if hparams.sampling_method == "argmax":
         temperature = 0.0
       next_id = common_layers.sample_with_temperature(logits, temperature)
