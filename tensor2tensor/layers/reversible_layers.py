@@ -39,14 +39,16 @@ class MADE(tf.keras.Model):
   """Masked autoencoder for distribution estimation (Germain et al., 2015).
 
   MADE takes as input a real Tensor of shape [..., length] and returns a
-  Tensor of shape [..., 2 * length] and same dtype. It masks layer weights to
-  respect autoregressive constraints: for a given ordering, each input dimension
-  can be reconstructed from previous input dimensions. The output dimensions
-  represent two heads for, e.g., location and scale transforms in a flow.
+  Tensor of shape [..., num_heads * length] and same dtype. It masks layer
+  weights to respect autoregressive constraints: for a given ordering, each
+  input dimension can be reconstructed from previous input dimensions. The
+  output dimensions represent multiple heads for, e.g., location and scale
+  transforms in a flow.
   """
 
   def __init__(self,
                hidden_dims,
+               num_heads=2,
                input_order='left-to-right',
                hidden_order='left-to-right',
                activation=None,
@@ -57,7 +59,9 @@ class MADE(tf.keras.Model):
     Args:
       hidden_dims: list with the number of hidden units per layer. It does not
         include the output layer; those number of units will always be set to
-        the input dimension multiplied by 2.
+        the input dimension multiplied by `num_heads`.
+      num_heads: The number of output heads. The default is 2 representing
+        the location and scale transform of an autoregressive flow.
       input_order: Order of degrees to the input units: 'random',
         'left-to-right', 'right-to-left', or an array of an explicit order.
         For example, 'left-to-right' builds an autoregressive model
@@ -70,6 +74,7 @@ class MADE(tf.keras.Model):
     """
     super(MADE, self).__init__(**kwargs)
     self.hidden_dims = hidden_dims
+    self.num_heads = num_heads
     self.input_order = input_order
     self.hidden_order = hidden_order
     self.activation = tf.keras.activations.get(activation)
@@ -97,9 +102,9 @@ class MADE(tf.keras.Model):
           use_bias=self.use_bias)
       self.network.add(layer)
 
-    mask = tf.tile(masks[-1], [1, 2])  # for two-headed autoregressive output
+    mask = tf.tile(masks[-1], [1, self.num_heads])
     layer = tf.keras.layers.Dense(
-        last_dim * 2,
+        last_dim * self.num_heads,
         kernel_initializer=make_masked_initializer(mask),
         kernel_constraint=make_masked_constraint(mask),
         activation=None,
