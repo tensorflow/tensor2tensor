@@ -1477,11 +1477,14 @@ def dot_product_attention(q,
     return tf.matmul(weights, v)
 
 
-def _generate_relative_positions_matrix(length, max_relative_position):
+def _generate_relative_positions_matrix(length, max_relative_position, cache=False):
   """Generates matrix of relative positions between inputs."""
-  range_vec = tf.range(length)
-  range_mat = tf.reshape(tf.tile(range_vec, [length]), [length, length])
-  distance_mat = range_mat - tf.transpose(range_mat)
+  if not cache:
+      range_vec = tf.range(length)
+      range_mat = tf.reshape(tf.tile(range_vec, [length]), [length, length])
+      distance_mat = range_mat - tf.transpose(range_mat)
+  else:
+      distance_mat = tf.expand_dims(tf.range(-length+1, 1, 1), 0)
   distance_mat_clipped = tf.clip_by_value(distance_mat, -max_relative_position,
                                           max_relative_position)
   # Shift values to be >= 0. Each integer still uniquely identifies a relative
@@ -1491,11 +1494,15 @@ def _generate_relative_positions_matrix(length, max_relative_position):
 
 
 def _generate_relative_positions_embeddings(length, depth,
-                                            max_relative_position, name):
-  """Generates tensor of size [length, length, depth]."""
+                                            max_relative_position, name,
+                                            cache=False):
+  """
+  Generates tensor of size [length, length, depth] if not cache.
+  Generates tensor of size [1, length, depth] if cache.
+  """
   with tf.variable_scope(name):
     relative_positions_matrix = _generate_relative_positions_matrix(
-        length, max_relative_position)
+        length, max_relative_position, cache=cache)
     vocab_size = max_relative_position * 2 + 1
     # Generates embedding for each relative position of dimension depth.
     embeddings_table = tf.get_variable("embeddings", [vocab_size, depth])
@@ -1509,9 +1516,9 @@ def _relative_attention_inner(x, y, z, transpose):
   This batches matrix multiply calculations to avoid unnecessary broadcasting.
 
   Args:
-    x: Tensor with shape [batch_size, heads, length, length or depth].
-    y: Tensor with shape [batch_size, heads, length, depth].
-    z: Tensor with shape [length, length, depth].
+    x: Tensor with shape [batch_size, heads, length or 1, length or depth].
+    y: Tensor with shape [batch_size, heads, length or 1, depth].
+    z: Tensor with shape [length or 1, length, depth].
     transpose: Whether to transpose inner matrices of y and z. Should be true if
         last dimension of x is depth, not length.
 
@@ -1522,17 +1529,17 @@ def _relative_attention_inner(x, y, z, transpose):
   heads = x.get_shape().as_list()[1]
   length = tf.shape(x)[2]
 
-  # xy_matmul is [batch_size, heads, length, length or depth]
+  # xy_matmul is [batch_size, heads, length or 1, length or depth]
   xy_matmul = tf.matmul(x, y, transpose_b=transpose)
-  # x_t is [length, batch_size, heads, length or depth]
+  # x_t is [length or 1, batch_size, heads, length or depth]
   x_t = tf.transpose(x, [2, 0, 1, 3])
-  # x_t_r is [length, batch_size * heads, length or depth]
+  # x_t_r is [length or 1, batch_size * heads, length or depth]
   x_t_r = tf.reshape(x_t, [length, heads * batch_size, -1])
-  # x_tz_matmul is [length, batch_size * heads, length or depth]
+  # x_tz_matmul is [length or 1, batch_size * heads, length or depth]
   x_tz_matmul = tf.matmul(x_t_r, z, transpose_b=transpose)
-  # x_tz_matmul_r is [length, batch_size, heads, length or depth]
+  # x_tz_matmul_r is [length or 1, batch_size, heads, length or depth]
   x_tz_matmul_r = tf.reshape(x_tz_matmul, [length, batch_size, heads, -1])
-  # x_tz_matmul_r_t is [batch_size, heads, length, length or depth]
+  # x_tz_matmul_r_t is [batch_size, heads, length or 1, length or depth]
   x_tz_matmul_r_t = tf.transpose(x_tz_matmul_r, [1, 2, 0, 3])
   return xy_matmul + x_tz_matmul_r_t
 
@@ -1545,7 +1552,8 @@ def dot_product_attention_relative(q,
                                    dropout_rate=0.0,
                                    image_shapes=None,
                                    name=None,
-                                   make_image_summary=True):
+                                   make_image_summary=True,
+                                   cache=False):
   """Calculate relative position-aware dot-product self-attention.
 
   The attention calculation is augmented with learned representations for the
@@ -1562,6 +1570,7 @@ def dot_product_attention_relative(q,
     image_shapes: optional tuple of integer scalars.
     name: an optional string.
     make_image_summary: Whether to make an attention image summary.
+    cache: whether use cache mode
 
   Returns:
     A Tensor.
@@ -1577,16 +1586,17 @@ def dot_product_attention_relative(q,
 
     # This calculation only works for self attention.
     # q, k and v must therefore have the same shape.
-    q.get_shape().assert_is_compatible_with(k.get_shape())
-    q.get_shape().assert_is_compatible_with(v.get_shape())
+    if not cache:
+        q.get_shape().assert_is_compatible_with(k.get_shape())
+        q.get_shape().assert_is_compatible_with(v.get_shape())
 
     # Use separate embeddings suitable for keys and values.
-    depth = q.get_shape().as_list()[3]
-    length = common_layers.shape_list(q)[2]
+    depth = k.get_shape().as_list()[3]
+    length = common_layers.shape_list(k)[2]
     relations_keys = _generate_relative_positions_embeddings(
-        length, depth, max_relative_position, "relative_positions_keys")
+        length, depth, max_relative_position, "relative_positions_keys", cache=cache)
     relations_values = _generate_relative_positions_embeddings(
-        length, depth, max_relative_position, "relative_positions_values")
+        length, depth, max_relative_position, "relative_positions_values", cache=cache)
 
     # Compute self attention considering the relative position embeddings.
     logits = _relative_attention_inner(q, k, relations_keys, True)
@@ -3389,7 +3399,7 @@ def multihead_attention(query_antecedent,
                             kv_filter_width, q_padding, kv_padding,
                             vars_3d_num_heads=vars_3d_num_heads)
     if cache is not None:
-      if attention_type != "dot_product":
+      if attention_type not in ["dot_product", "dot_product_relative"]:
         # TODO(petershaw): Support caching when using relative position
         # representations, i.e. "dot_product_relative" attention.
         raise NotImplementedError(
@@ -3456,7 +3466,8 @@ def multihead_attention(query_antecedent,
           max_relative_position,
           dropout_rate,
           image_shapes,
-          make_image_summary=make_image_summary)
+          make_image_summary=make_image_summary,
+          cache=cache is not None)
     elif attention_type == "dot_product_unmasked_relative_v2":
       x = dot_product_unmasked_self_attention_relative_v2(
           q,
