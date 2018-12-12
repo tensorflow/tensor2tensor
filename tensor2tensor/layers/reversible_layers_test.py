@@ -29,6 +29,31 @@ import tensorflow as tf
 class ReversibleLayersTest(tf.test.TestCase):
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testActNorm(self):
+    np.random.seed(83243)
+    batch_size = 25
+    length = 15
+    channels = 4
+    inputs = 3. + 0.8 * np.random.randn(batch_size, length, channels)
+    inputs = tf.cast(inputs, tf.float32)
+    layer = reversible.ActNorm()
+    outputs = layer(inputs)
+    mean, variance = tf.nn.moments(outputs, axes=[0, 1])
+    self.evaluate(tf.global_variables_initializer())
+    mean_val, variance_val = self.evaluate([mean, variance])
+    self.assertAllClose(mean_val, np.zeros(channels), atol=1e-3)
+    self.assertAllClose(variance_val, np.ones(channels), atol=1e-3)
+
+    inputs = 3. + 0.8 * np.random.randn(batch_size, length, channels)
+    inputs = tf.cast(inputs, tf.float32)
+    outputs = layer(inputs)
+    mean, variance = tf.nn.moments(outputs, axes=[0, 1])
+    self.evaluate(tf.global_variables_initializer())
+    mean_val, variance_val = self.evaluate([mean, variance])
+    self.assertAllClose(mean_val, np.zeros(channels), atol=0.25)
+    self.assertAllClose(variance_val, np.ones(channels), atol=0.25)
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testMADELeftToRight(self):
     np.random.seed(83243)
     batch_size = 2
