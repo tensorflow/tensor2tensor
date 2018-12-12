@@ -29,6 +29,8 @@ from __future__ import print_function
 import datetime
 import math
 import os
+import PIL.Image
+import PIL.ImageDraw
 import pprint
 import random
 import time
@@ -315,14 +317,35 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
     assert np.all(sim_init_obs == real_init_obs)
 
     debug_frame_batches = []
-    def append_debug_frame_batch(sim_obs, real_obs):
+    def append_debug_frame_batch(sim_obs, real_obs, sim_cum_rews,
+                                 real_cum_rews, sim_rews, real_rews):
+      rews = [[sim_cum_rews, sim_rews], [real_cum_rews, real_rews]]
+      headers = []
+      for j in range(len(sim_obs)):
+        local_nps = []
+        for i in range(2):
+          img = PIL.Image.new('RGB', (sim_obs.shape[-2], 11),)
+          draw = PIL.ImageDraw.Draw(img)
+          draw.text((0, 0), "c:{:3}, r:{:3}".format(int(rews[i][0][j]),
+                                                    int(rews[i][1][j])),
+                    fill=(255, 0, 0))
+          local_nps.append(np.asarray(img))
+        local_nps.append(np.zeros_like(local_nps[0]))
+        headers.append(np.concatenate(local_nps, axis=1))
       errs = np.maximum(
           np.abs(sim_obs.astype(np.int) - real_obs, dtype=np.int) - 10, 0
       ).astype(np.uint8)
+      headers = np.stack(headers)
       debug_frame_batches.append(  # pylint: disable=cell-var-from-loop
-          np.concatenate([sim_obs, real_obs, errs], axis=2)
+          np.concatenate([headers,
+                          np.concatenate([sim_obs, real_obs, errs], axis=2)],
+                          axis=1)
       )
-    append_debug_frame_batch(sim_init_obs, real_init_obs)
+    append_debug_frame_batch(sim_init_obs, real_init_obs,
+                             np.zeros(hparams.wm_eval_batch_size),
+                             np.zeros(hparams.wm_eval_batch_size),
+                             np.zeros(hparams.wm_eval_batch_size),
+                             np.zeros(hparams.wm_eval_batch_size))
 
     (sim_cum_rewards, real_cum_rewards) = (
         np.zeros(hparams.wm_eval_batch_size) for _ in range(2)
@@ -332,9 +355,10 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
       (sim_obs, sim_rewards, _) = sim_env.step(actions)
       sim_cum_rewards += sim_rewards
 
-      real_cum_rewards += [
+      real_rewards = np.array([
           subsequence[i + 1].reward for subsequence in eval_subsequences
-      ]
+      ])
+      real_cum_rewards += real_rewards
       for (length, reward_accuracies) in six.iteritems(
           reward_accuracies_by_length
       ):
@@ -345,7 +369,8 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
           )
 
       real_obs = decode_real_obs(i + 1)
-      append_debug_frame_batch(sim_obs, real_obs)
+      append_debug_frame_batch(sim_obs, real_obs, sim_cum_rewards,
+                               real_cum_rewards, sim_rewards, real_rewards)
 
     for debug_frames in np.stack(debug_frame_batches, axis=1):
       for debug_frame in debug_frames:
