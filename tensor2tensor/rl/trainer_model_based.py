@@ -29,8 +29,6 @@ from __future__ import print_function
 import datetime
 import math
 import os
-import PIL.Image
-import PIL.ImageDraw
 import pprint
 import random
 import time
@@ -51,6 +49,18 @@ import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
+
+
+# Lazy load PIL.Image
+def PIL_Image():  # pylint: disable=invalid-name
+  from PIL import Image  # pylint: disable=g-import-not-at-top
+  return Image
+
+
+# Lazy load PIL.Image
+def PIL_ImageDraw():  # pylint: disable=invalid-name
+  from PIL import ImageDraw  # pylint: disable=g-import-not-at-top
+  return ImageDraw
 
 
 def real_env_step_increment(hparams):
@@ -324,8 +334,8 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
       for j in range(len(sim_obs)):
         local_nps = []
         for i in range(2):
-          img = PIL.Image.new('RGB', (sim_obs.shape[-2], 11),)
-          draw = PIL.ImageDraw.Draw(img)
+          img = PIL_Image().new('RGB', (sim_obs.shape[-2], 11),)
+          draw = PIL_ImageDraw().Draw(img)
           draw.text((0, 0), "c:{:3}, r:{:3}".format(int(rews[i][0][j]),
                                                     int(rews[i][1][j])),
                     fill=(255, 0, 0))
