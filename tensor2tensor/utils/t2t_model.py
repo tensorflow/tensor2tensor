@@ -209,9 +209,11 @@ class T2TModel(base.Layer):
       if self.hparams.optimizer != "Adafactor":
         raise NotImplementedError(
             "weight_dtype=bfloat16 only implemented with Adafactor optimizer")
+      activation_dtype = tf.float32
+      if self.hparams.activation_dtype == "bfloat16":
+        activation_dtype = tf.bfloat16
       return quantization.EighthPowerEncoding().custom_getter(
-          activation_dtype=tf.bfloat16
-          if self.hparams.activation_dtype == "bfloat16" else tf.float32)
+          activation_dtype=activation_dtype)
     elif self.hparams.activation_dtype == "bfloat16":
       return quantization.bfloat16_activations_var_getter
     else:
@@ -834,8 +836,9 @@ class T2TModel(base.Layer):
           "losses": a dictionary: {loss-name (string): floating point `Scalar`}
       }
     """
-    return (self._slow_greedy_infer_tpu(features, decode_length)
-            if use_tpu else self._slow_greedy_infer(features, decode_length))
+    if use_tpu:
+      return self._slow_greedy_infer_tpu(features, decode_length)
+    return self._slow_greedy_infer(features, decode_length)
 
   def _slow_greedy_infer_tpu(self, features, decode_length):
     """A slow greedy inference method on TPU.
@@ -1383,8 +1386,9 @@ class T2TModel(base.Layer):
 
     # TRAIN mode
     assert mode == tf.estimator.ModeKeys.TRAIN
-    num_async_replicas = (1 if (use_tpu or not config) else
-                          config.t2t_device_info["num_async_replicas"])
+    num_async_replicas = 1
+    if config and not use_tpu:
+      num_async_replicas = config.t2t_device_info["num_async_replicas"]
     return model.estimator_spec_train(
         loss, num_async_replicas=num_async_replicas, use_tpu=use_tpu)
 
@@ -1522,11 +1526,11 @@ class T2TModel(base.Layer):
   def estimator_spec_predict(self, features, use_tpu=False):
     """Constructs `tf.estimator.EstimatorSpec` for PREDICT (inference) mode."""
     decode_hparams = self._decode_hparams
+    top_beams = decode_hparams.beam_size if decode_hparams.return_beams else 1
     infer_out = self.infer(
         features,
         beam_size=decode_hparams.beam_size,
-        top_beams=(decode_hparams.beam_size
-                   if decode_hparams.return_beams else 1),
+        top_beams=top_beams,
         alpha=decode_hparams.alpha,
         decode_length=decode_hparams.extra_length,
         use_tpu=use_tpu)

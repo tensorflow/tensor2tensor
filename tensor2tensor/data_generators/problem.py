@@ -368,6 +368,7 @@ class Problem(object):
     ]
 
   def eval_hooks(self, features, logits, hparams):
+    del features, logits, hparams
     return []
 
   @property
@@ -854,9 +855,9 @@ class Problem(object):
 
     def gpu_valid_size(example):
       drop_long_sequences = is_training or hparams.eval_drop_long_sequences
+      max_validate_length = max_length if drop_long_sequences else 10**9
       return data_reader.example_valid_size(example, hparams.min_length,
-                                            max_length
-                                            if drop_long_sequences else 10**9)
+                                            max_validate_length)
 
     def define_shapes(example):
       batch_size = config and config.use_tpu and params["batch_size"]
