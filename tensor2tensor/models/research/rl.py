@@ -305,8 +305,10 @@ def rlmf_tiny():
   return hparams
 
 
-class DiscretePolicyBase(t2t_model.T2TModel):
-  pass
+class PolicyBase(t2t_model.T2TModel):
+
+  def loss(self, *args, **kwargs):
+    return 0.0
 
 
 class DummyPolicyProblem(video_utils.VideoProblem):
@@ -401,14 +403,12 @@ def clip_logits(logits, config):
 
 
 @registry.register_model
-class FeedForwardCategoricalPolicy(DiscretePolicyBase):
+class FeedForwardCategoricalPolicy(PolicyBase):
   """Feed-forward categorical."""
 
   def body(self, features):
     observations = features["inputs"]
-    flat_observations = tf.reshape(observations, [
-        tf.shape(observations)[0], tf.shape(observations)[1],
-        functools.reduce(operator.mul, observations.shape.as_list()[2:], 1)])
+    flat_observations = tf.layers.flatten(observations)
     with tf.variable_scope("policy"):
       x = flat_observations
       for size in self.hparams.policy_layers:
@@ -416,17 +416,18 @@ class FeedForwardCategoricalPolicy(DiscretePolicyBase):
       logits = tf.contrib.layers.fully_connected(
           x, self.hparams.problem.num_actions, activation_fn=None
       )
+      logits = tf.expand_dims(logits, axis=1)
     with tf.variable_scope("value"):
       x = flat_observations
       for size in self.hparams.value_layers:
         x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-      value = tf.contrib.layers.fully_connected(x, 1, None)[..., 0]
+      value = tf.contrib.layers.fully_connected(x, 1, None)
     logits = clip_logits(logits, self.hparams)
     return {"target_policy": logits, "target_value": value}
 
 
 @registry.register_model
-class FeedForwardCnnSmallCategoricalPolicy(DiscretePolicyBase):
+class FeedForwardCnnSmallCategoricalPolicy(PolicyBase):
   """Small cnn network with categorical output."""
 
   def body(self, features):
@@ -456,18 +457,16 @@ class FeedForwardCnnSmallCategoricalPolicy(DiscretePolicyBase):
           x, 1, activation_fn=None)
     return {"target_policy": logits, "target_value": value}
 
-  def loss(self, *args, **kwargs):
-    return 0.0
-
 
 @registry.register_model
-class FeedForwardCnnSmallCategoricalPolicyNew(DiscretePolicyBase):
+class FeedForwardCnnSmallCategoricalPolicyNew(PolicyBase):
   """Small cnn network with categorical output."""
 
   def body(self, features):
     observations = features["inputs"]
-    obs_shape = common_layers.shape_list(observations)
-    x = tf.reshape(observations, [-1] + obs_shape[2:])
+    x = tf.transpose(observations, [0, 2, 3, 1, 4])
+    x_shape = common_layers.shape_list(x)
+    x = tf.reshape(x, x_shape[:-2] + [-1])
     dropout = getattr(self.hparams, "dropout_ppo", 0.0)
     with tf.variable_scope("feed_forward_cnn_small"):
       x = tf.to_float(x) / 255.0
@@ -484,34 +483,29 @@ class FeedForwardCnnSmallCategoricalPolicyNew(DiscretePolicyBase):
           x, 128, (4, 4), strides=(2, 2), name="conv3",
           activation=common_layers.belu, padding="SAME")
 
-      flat_x = tf.reshape(
-          x, [obs_shape[0], obs_shape[1],
-              functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
+      flat_x = tf.layers.flatten(x)
       flat_x = tf.nn.dropout(flat_x, keep_prob=1.0 - dropout)
       x = tf.layers.dense(flat_x, 128, activation=tf.nn.relu, name="dense1")
 
       logits = tf.layers.dense(
           x, self.hparams.problem.num_actions, name="dense2"
       )
+      logits = tf.expand_dims(logits, axis=1)
       logits = clip_logits(logits, self.hparams)
 
-      value = tf.layers.dense(x, 1, name="value")[..., 0]
-    return {"target_action": logits, "target_value": value}
+      value = tf.layers.dense(x, 1, name="value")
+    return {"target_policy": logits, "target_value": value}
 
 
 @registry.register_model
-class DenseBitwiseCategoricalPolicy(DiscretePolicyBase):
+class DenseBitwiseCategoricalPolicy(PolicyBase):
   """Dense network with bitwise input and categorical output."""
 
   def body(self, features):
     observations = features["inputs"]
-    obs_shape = common_layers.shape_list(observations)
-    x = tf.reshape(observations, [-1] + obs_shape[2:])
+    flat_x = tf.layers.flatten(observations)
     with tf.variable_scope("dense_bitwise"):
-      x = discretization.int_to_bit_embed(x, 8, 32)
-      flat_x = tf.reshape(
-          x, [obs_shape[0], obs_shape[1],
-              functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
+      flat_x = discretization.int_to_bit_embed(flat_x, 8, 32)
 
       x = tf.contrib.layers.fully_connected(flat_x, 256, tf.nn.relu)
       x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
@@ -523,11 +517,11 @@ class DenseBitwiseCategoricalPolicy(DiscretePolicyBase):
       value = tf.contrib.layers.fully_connected(
           x, 1, activation_fn=None)[..., 0]
 
-    return {"target_action": logits, "target_value": value}
+    return {"target_policy": logits, "target_value": value}
 
 
 @registry.register_model
-class RandomPolicy(DiscretePolicyBase):
+class RandomPolicy(PolicyBase):
   """Random policy with categorical output."""
 
   def body(self, features):
@@ -538,7 +532,7 @@ class RandomPolicy(DiscretePolicyBase):
     num_actions = self.hparams.problem.num_actions
     logits = tf.constant(
         1. / float(num_actions),
-        shape=(obs_shape[:2] + [num_actions])
+        shape=(obs_shape[:1] + [1, num_actions])
     )
-    value = tf.zeros(obs_shape[:2])
-    return {"target_action": logits, "target_value": value}
+    value = tf.zeros(obs_shape[:1] + [1])
+    return {"target_policy": logits, "target_value": value}
