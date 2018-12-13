@@ -90,9 +90,11 @@ class MtfUnitransformer(mtf_model.MtfModel):
       return None
     x = tf.to_int32(features[key])
     x = common_layers.expand_squeeze_to_nd(x, 2)
+    batch_size = mtf.Shape(self.batch_dims).size
     # pad to length
     extra_length = self.length_dim.size - tf.shape(x)[1]
-    x = tf.pad(x, [[0, 0], [0, extra_length]])
+    extra_batch = batch_size - tf.shape(x)[0]
+    x = tf.pad(x, [[0, extra_batch], [0, extra_length]])
     mtf_shape = mtf.Shape(self.batch_dims + [self.length_dim])
     x = tf.reshape(x, mtf_shape.to_integer_list)
     return mtf.import_fully_replicated(mesh, x, mtf_shape, name=key)
@@ -260,12 +262,21 @@ class MtfBitransformer(MtfUnitransformer):
         decode_length_constant=hparams.decode_length_constant)
 
 
+def attention_kwargs_from_hparams(hparams):
+  return {
+      "dropout_rate": hparams.attention_dropout,
+      "extra_logit": 0.0 if hparams.extra_logit else None,
+  }
+
+
 def default_layer_stack(hparams):
   return transformer.LayerStack(
       [transformer_layers.SelfAttention(
           num_heads=hparams.num_heads,
+          num_memory_heads=hparams.num_memory_heads,
           key_value_size=hparams.d_kv,
-          dropout_rate=hparams.attention_dropout),
+          shared_kv=hparams.shared_kv,
+          attention_kwargs=attention_kwargs_from_hparams(hparams)),
        transformer_layers.DenseReluDense(
            hidden_size=hparams.d_ff,
            dropout_rate=hparams.relu_dropout),
@@ -278,12 +289,16 @@ def default_layer_stack_with_encoder_attention(hparams):
   return transformer.LayerStack(
       [transformer_layers.SelfAttention(
           num_heads=hparams.num_heads,
+          num_memory_heads=hparams.num_memory_heads,
           key_value_size=hparams.d_kv,
-          dropout_rate=hparams.attention_dropout),
+          shared_kv=hparams.shared_kv,
+          attention_kwargs=attention_kwargs_from_hparams(hparams)),
        transformer_layers.EncDecAttention(
            num_heads=hparams.num_heads,
+           num_memory_heads=hparams.num_memory_heads,
            key_value_size=hparams.d_kv,
-           dropout_rate=hparams.attention_dropout),
+           shared_kv=hparams.shared_kv,
+           attention_kwargs=attention_kwargs_from_hparams(hparams)),
        transformer_layers.DenseReluDense(
            hidden_size=hparams.d_ff,
            dropout_rate=hparams.relu_dropout),
@@ -311,7 +326,13 @@ def mtf_transformer2_base():
   hparams.add_hparam("d_kv", 128)
   hparams.add_hparam("attention_dropout", 0.0)
   hparams.add_hparam("relu_dropout", 0.0)
+  # share attention keys and values
+  hparams.add_hparam("shared_kv", False)
+  # default of 0 for standard transformer behavior
+  # 1 means a single set of keys and values that are read by all query heads
+  hparams.add_hparam("num_memory_heads", 0)
   hparams.layer_prepostprocess_dropout = 0.0
+  hparams.add_hparam("extra_logit", False)
 
   # round up vocab sizes to be a multiple of this value
   hparams.vocab_divisor = 128
@@ -373,6 +394,7 @@ def mtf_bitransformer_base():
   #        decode_length_multiplier * input_length + decode_length_constant)
   hparams.add_hparam("decode_length_multiplier", 1.5)
   hparams.add_hparam("decode_length_constant", 10.0)
+  hparams.sampling_temp = 0.0
   return hparams
 
 
@@ -495,7 +517,6 @@ def mtr_lm_v1():
   return hparams
 
 
-@registry.register_hparams
 def mtr_tr_dense(sz):
   """Series of machine translation models.
 
@@ -551,8 +572,113 @@ def mtr_tr_dense_3():
   return mtr_tr_dense(3)
 
 
+def mtr_tr_dense_local(sz):
+  """With local self-attention in the decoder."""
+  hparams = mtr_tr_dense(sz)
+  hparams.add_hparam("local_attention_radius", 32)
+  hparams.decoder_layer_stack = transformer.LayerStack(
+      [transformer_layers.LocalSelfAttention(
+          num_heads=hparams.num_heads,
+          num_memory_heads=hparams.num_memory_heads,
+          key_value_size=hparams.d_kv,
+          radius=hparams.local_attention_radius,
+          shared_kv=hparams.shared_kv,
+          attention_kwargs=attention_kwargs_from_hparams(hparams)),
+       transformer_layers.EncDecAttention(
+           num_heads=hparams.num_heads,
+           num_memory_heads=hparams.num_memory_heads,
+           key_value_size=hparams.d_kv,
+           shared_kv=hparams.shared_kv,
+           attention_kwargs=attention_kwargs_from_hparams(hparams)),
+       transformer_layers.DenseReluDense(
+           hidden_size=hparams.d_ff,
+           dropout_rate=hparams.relu_dropout),
+      ] * hparams.num_hidden_layers,
+      dropout_rate=hparams.layer_prepostprocess_dropout,
+      norm_epsilon=hparams.norm_epsilon)
+  return hparams
+
+
 @registry.register_hparams
-def mtr_tr_dense_0_short():
-  hparams = mtr_tr_dense(0)
-  hparams.num_hidden_layers = 3
+def mtr_tr_dense_local_0():
+  return mtr_tr_dense_local(0)
+
+
+@registry.register_hparams
+def mtr_tr_dense_local_0_w8():
+  hparams = mtr_tr_dense_local_0()
+  hparams.local_attention_radius = 8
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_dense_local_0_h1_16():
+  hparams = mtr_tr_dense_local_0()
+  hparams.num_heads = 16
+  hparams.num_memory_heads = 1
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_dense_local_0_h1_16_shared_kv():
+  hparams = mtr_tr_dense_local_0_h1_16()
+  hparams.shared_kv = True
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_dense_0_h4():
+  hparams = mtr_tr_dense_0()
+  hparams.num_heads = 4
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_dense_0_h16():
+  hparams = mtr_tr_dense_0()
+  hparams.num_heads = 16
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_dense_0_extra_logit():
+  hparams = mtr_tr_dense_0()
+  hparams.extra_logit = True
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_dense_0_h1_8():
+  hparams = mtr_tr_dense_0()
+  hparams.num_memory_heads = 1
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_dense_0_h1_1():
+  hparams = mtr_tr_dense_0()
+  hparams.num_heads = 1
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_dense_0_h1_16():
+  hparams = mtr_tr_dense_0()
+  hparams.num_heads = 16
+  hparams.num_memory_heads = 1
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_dense_0_h2_16():
+  hparams = mtr_tr_dense_0()
+  hparams.num_heads = 16
+  hparams.num_memory_heads = 2
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_dense_0_shared_kv():
+  hparams = mtr_tr_dense_0()
+  hparams.shared_kv = True
   return hparams
