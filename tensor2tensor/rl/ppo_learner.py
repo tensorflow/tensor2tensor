@@ -384,12 +384,12 @@ def _define_collect(batch_env, ppo_hparams, scope, frame_stack_size, eval_phase,
         """Step of the environment."""
 
         (logits, value_function) = get_policy(
-            tf.expand_dims(obs_copy, 0), ppo_hparams, batch_env.action_space
+            obs_copy, ppo_hparams, batch_env.action_space
         )
         action = common_layers.sample_with_temperature(logits, sampling_temp)
         action = tf.cast(action, tf.int32)
 
-        reward, done = batch_env.simulate(action[0, ...])
+        reward, done = batch_env.simulate(action[:, 0, ...])
 
         pdf = tfp.distributions.Categorical(logits=logits).prob(action)
         pdf = tf.reshape(pdf, shape=(num_agents,))

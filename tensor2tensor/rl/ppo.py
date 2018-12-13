@@ -21,6 +21,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from tensor2tensor.layers import common_layers
 from tensor2tensor.models.research.rl import get_policy
 from tensor2tensor.utils import learning_rate
 from tensor2tensor.utils import optimize
@@ -33,7 +34,13 @@ def define_ppo_step(data_points, hparams, action_space, lr):
   """Define ppo step."""
   observation, action, discounted_reward, norm_advantage, old_pdf = data_points
 
+  obs_shape = common_layers.shape_list(observation)
+  observation = tf.reshape(
+      observation, [obs_shape[0] * obs_shape[1]] + obs_shape[2:]
+  )
   (logits, new_value) = get_policy(observation, hparams, action_space)
+  logits = tf.reshape(logits, obs_shape[:2] + [action_space.n])
+  new_value = tf.reshape(new_value, obs_shape[:2])
   new_policy_dist = tfp.distributions.Categorical(logits=logits)
 
   new_pdf = new_policy_dist.prob(action)
