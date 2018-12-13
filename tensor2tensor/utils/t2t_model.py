@@ -1337,7 +1337,7 @@ class T2TModel(base.Layer):
       # by logits["self_generated_targets"].
       tf.logging.info("Replacing targets with model-provided targets.")
       features["targets"] = labels = logits.pop("self_generated_targets")
-      assert logits.keys() == ["logits"], (
+      assert list(logits.keys()) == ["logits"], (
           # See "Returns" in the "top" method docstring for the expected
           # "logits" format when targets are generated at training time.
           "Expect only key 'logits' when there is 'self_generated_targets'. "
