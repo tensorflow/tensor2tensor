@@ -21,6 +21,9 @@ from __future__ import print_function
 
 import numpy as np
 import tensorflow as tf
+import tensorflow_probability as tfp
+
+from tensorflow_probability import edward2 as ed
 
 
 class Reverse(tf.keras.layers.Layer):
