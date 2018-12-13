@@ -136,6 +136,7 @@ def rlmb_ppo_base():
       # Number of simulated environments to train on simultaneously.
       simulated_batch_size=16,
       eval_batch_size=30,
+      wm_policy_param_sharing=False,
 
       # Unused; number of PPO epochs is calculated from the real frame limit.
       real_ppo_epochs_num=0,

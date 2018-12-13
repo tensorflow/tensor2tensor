@@ -197,7 +197,10 @@ def _run_train(ppo_hparams,
 
   model_saver = tf.train.Saver(
       tf.global_variables(ppo_hparams.policy_network + "/.*") +
-      tf.global_variables("global_step")
+      tf.global_variables("training/" + ppo_hparams.policy_network + "/.*") +
+      tf.global_variables("global_step") +
+      tf.global_variables("losses_avg.*") +
+      tf.global_variables("train_stats.*")
   )
 
   global_step = tf.train.get_or_create_global_step()

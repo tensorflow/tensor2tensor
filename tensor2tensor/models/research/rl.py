@@ -217,6 +217,7 @@ def get_policy(observations, hparams, action_space):
       "target_value": tf.zeros(obs_shape[:1] + [1])
   }
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+    t2t_model.create_dummy_vars()
     (targets, _) = model(features)
   return (targets["target_policy"], targets["target_value"])
 

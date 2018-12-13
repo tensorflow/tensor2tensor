@@ -150,11 +150,15 @@ class ConditionalOptimizer(tf.train.Optimizer):
     else:
       self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
 
+    self._zero_grads = hparams.optimizer_zero_grads
+
   def compute_gradients(self, loss, var_list=None, **kwargs):  # pylint: disable=arguments-differ
     gradients = self._opt.compute_gradients(loss, var_list, **kwargs)
     def cast_grad(g, v):
       if v is not None and g is not None:
         g = common_layers.cast_like(g, v)
+      if self._zero_grads and g is None:
+        g = tf.zeros_like(v)
       return (g, v)
     gradients = [cast_grad(g, v) for g, v in gradients]
     return gradients

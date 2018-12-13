@@ -70,6 +70,10 @@ def basic_params1():
       optimizer_adafactor_multiply_by_parameter_scale=True,
       # Number of accumulating steps for multi step optimizers.
       optimizer_multistep_accumulate_steps=None,
+      # Whether to zero gradients that were not computed, so that the
+      # appropriate slots are created. Useful for sharing checkpoints between
+      # models with different sets of heads.
+      optimizer_zero_grads=False,
       weight_decay=1e-6,
       weight_noise=0.0,
       # Defines the learning rate as a product of named functions.
