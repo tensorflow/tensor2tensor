@@ -273,7 +273,8 @@ class Transformer(t2t_model.T2TModel):
               None if using greedy decoding (beam_size=1)
       }
     """
-    if self._hparams.self_attention_type not in ["dot_product", "dot_product_relative1"]:
+    if (self._hparams.self_attention_type not in ["dot_product",
+                                                  "dot_product_relative"]):
       # Caching is not guaranteed to work with attention types other than
       # dot_product.
       # TODO(petershaw): Support fast decoding when using relative

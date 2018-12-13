@@ -1477,14 +1477,15 @@ def dot_product_attention(q,
     return tf.matmul(weights, v)
 
 
-def _generate_relative_positions_matrix(length, max_relative_position, cache=False):
+def _generate_relative_positions_matrix(length, max_relative_position,
+                                        cache=False):
   """Generates matrix of relative positions between inputs."""
   if not cache:
-      range_vec = tf.range(length)
-      range_mat = tf.reshape(tf.tile(range_vec, [length]), [length, length])
-      distance_mat = range_mat - tf.transpose(range_mat)
+    range_vec = tf.range(length)
+    range_mat = tf.reshape(tf.tile(range_vec, [length]), [length, length])
+    distance_mat = range_mat - tf.transpose(range_mat)
   else:
-      distance_mat = tf.expand_dims(tf.range(-length+1, 1, 1), 0)
+    distance_mat = tf.expand_dims(tf.range(-length+1, 1, 1), 0)
   distance_mat_clipped = tf.clip_by_value(distance_mat, -max_relative_position,
                                           max_relative_position)
   # Shift values to be >= 0. Each integer still uniquely identifies a relative
@@ -1496,10 +1497,7 @@ def _generate_relative_positions_matrix(length, max_relative_position, cache=Fal
 def _generate_relative_positions_embeddings(length, depth,
                                             max_relative_position, name,
                                             cache=False):
-  """
-  Generates tensor of size [length, length, depth] if not cache.
-  Generates tensor of size [1, length, depth] if cache.
-  """
+  """Generates tensor of size [1 if cache else length, length, depth]."""
   with tf.variable_scope(name):
     relative_positions_matrix = _generate_relative_positions_matrix(
         length, max_relative_position, cache=cache)
@@ -1587,16 +1585,18 @@ def dot_product_attention_relative(q,
     # This calculation only works for self attention.
     # q, k and v must therefore have the same shape.
     if not cache:
-        q.get_shape().assert_is_compatible_with(k.get_shape())
-        q.get_shape().assert_is_compatible_with(v.get_shape())
+      q.get_shape().assert_is_compatible_with(k.get_shape())
+      q.get_shape().assert_is_compatible_with(v.get_shape())
 
     # Use separate embeddings suitable for keys and values.
     depth = k.get_shape().as_list()[3]
     length = common_layers.shape_list(k)[2]
     relations_keys = _generate_relative_positions_embeddings(
-        length, depth, max_relative_position, "relative_positions_keys", cache=cache)
+        length, depth, max_relative_position, "relative_positions_keys",
+        cache=cache)
     relations_values = _generate_relative_positions_embeddings(
-        length, depth, max_relative_position, "relative_positions_values", cache=cache)
+        length, depth, max_relative_position, "relative_positions_values",
+        cache=cache)
 
     # Compute self attention considering the relative position embeddings.
     logits = _relative_attention_inner(q, k, relations_keys, True)
