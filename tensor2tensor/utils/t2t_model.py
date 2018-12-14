@@ -58,6 +58,63 @@ _no_problem_err = (
     lambda method_name: _no_problem_err_str % (method_name, method_name))
 
 
+def _flatten_dict(original_dict):
+  """Flatten dict of dicts into a single dict with appropriate prefixes.
+
+  Handles only 2 levels of nesting in the original dict.
+
+  Args:
+    original_dict: Dict which may contain one or more dicts.
+  Returns:
+    flat_dict: Dict without any nesting. Any dicts in the original dict have
+      their keys as prefixes in the new dict.
+  Raises:
+    ValueError if the original dict has more than two levels of nesting.
+  """
+  flat_dict = {}
+  for key, value in original_dict.items():
+    if isinstance(value, dict):
+      for name, tensor in value.items():
+        if isinstance(tensor, dict):
+          raise ValueError("flatten_dict only handles 2 levels of nesting.")
+        flat_key = "__" + key + "_" + name
+        flat_dict[flat_key] = tensor
+    else:
+      flat_dict[key] = value
+
+  return flat_dict
+
+
+def _unflatten_dict(flat_dict, prefixes):
+  """Returns a dict of dicts if any prefixes match keys in the flat dict.
+
+    The function handles the case where the prefix may not be a dict.
+
+  Args:
+    flat_dict: A dict without any nesting.
+    prefixes: A list of strings which may have been dicts in the
+      original structure.
+
+  """
+  original_dict = {}
+  for key, value in flat_dict.items():
+    prefix_found = False
+    for prefix in prefixes:
+      full_prefix = "__" + prefix + "_"
+      if key.startswith(full_prefix):
+        # Add a dict to the original dict with key=prefix
+        if prefix not in original_dict:
+          original_dict[prefix] = {}
+        original_dict[prefix][key[len(full_prefix):]] = value
+        prefix_found = True
+        break
+    if not prefix_found:
+      # No key matched a prefix in the for loop.
+      original_dict[key] = value
+
+  return original_dict
+
+
 class T2TModel(base.Layer):
   """Abstract base class for models.
 
@@ -1458,22 +1515,30 @@ class T2TModel(base.Layer):
 
     if common_layers.is_xla_compiled():
       remove_summaries()
-      if isinstance(logits, dict):
-        eval_metrics_fn = create_tpu_eval_metrics_fn(problem, hparams)
-        # For TPU, logits dict will be passed as keyword arguments to
-        # eval_metrics_fn. Here we add the labels to those arguments.
-        logits.update({"labels": labels})
-        logits.update({"features": features})
-        return tf.contrib.tpu.TPUEstimatorSpec(
-            tf.estimator.ModeKeys.EVAL,
-            eval_metrics=(eval_metrics_fn, logits),
-            loss=loss)
-      else:
-        eval_metrics_fn = create_tpu_eval_metrics_fn(problem, hparams)
-        return tf.contrib.tpu.TPUEstimatorSpec(
-            tf.estimator.ModeKeys.EVAL,
-            eval_metrics=(eval_metrics_fn, [logits, labels, features]),
-            loss=loss)
+      eval_metrics_fn = create_tpu_eval_metrics_fn(problem, hparams)
+
+      batch_size = [feature.shape.as_list()[0] for _, feature
+                    in features.items() if feature.shape.ndims][0]
+
+      # Add batch dimension to all features since tpu requires the batch
+      # dimension on all tensors.
+      for name, feature in features.items():
+        if not feature.shape.as_list():
+          # All features must have a batch dimension
+          feature = tf.tile(tf.expand_dims(feature, 0), [batch_size])
+        features[name] = feature
+
+      eval_metrics_fn_args = dict(
+          logits=logits,  # possibly a dict
+          labels=labels,
+          features=features,  # dict
+      )
+
+      eval_metrics_fn_flat_args = _flatten_dict(eval_metrics_fn_args)
+      return tf.contrib.tpu.TPUEstimatorSpec(
+          tf.estimator.ModeKeys.EVAL,
+          eval_metrics=(eval_metrics_fn, eval_metrics_fn_flat_args),
+          loss=loss)
     else:
       task_list = [problem]
       if hasattr(problem, "task_list"):
@@ -1694,15 +1759,18 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
       name = "metrics-%s/%s" % (problem.name, metric)
       metric_fns.append((name, make_metric_fn(metrics.METRICS_FNS[metric])))
 
-  def all_metrics_fn(logits=None, labels=None, **kwargs):
+  def all_metrics_fn(**kwargs):
     """Construct metrics dictionary."""
-    metrics_dict = {}
 
-    if logits is None:
-      logits = kwargs
-      features = logits["features"]
-    else:
-      features = kwargs["features"]
+    original_kwargs = _unflatten_dict(kwargs, prefixes=["logits", "features"])
+    del kwargs
+
+    logits = original_kwargs["logits"]
+    labels = original_kwargs["labels"]
+    features = original_kwargs["features"]
+    del original_kwargs
+
+    metrics_dict = {}
 
     for name, fn in metric_fns:
       if isinstance(logits, dict) and isinstance(labels, dict):
