@@ -20,8 +20,28 @@ from __future__ import division
 from __future__ import print_function
 
 import gym
+from gym import spaces
+import numpy as np
 from tensor2tensor.rl import gym_utils
 import tensorflow as tf
+
+
+class SimpleEnv(gym.Env):
+  """A simple environment with a 3x3 observation space, is done on action=1."""
+
+  def __init__(self):
+    self.reward_range = (-1.0, 1.0)
+    self.action_space = spaces.Discrete(2)
+    self.observation_space = spaces.Box(low=0, high=255, shape=(3, 3))
+
+  def reset(self):
+    return self.observation_space.low
+
+  def step(self, action):
+    if action == 0:
+      return self.reset(), -1.0, False, {}
+    else:
+      return self.observation_space.high, +1.0, True, {}
 
 
 class GymUtilsTest(tf.test.TestCase):
@@ -44,6 +64,20 @@ class GymUtilsTest(tf.test.TestCase):
     self.assertTrue(isinstance(env, gym.Env))
     self.assertTrue(isinstance(env, gym.wrappers.TimeLimit))
     self.assertTrue(env._max_episode_steps is None)
+
+  def test_gym_registration(self):
+    env = gym_utils.register_gym_env(
+        "tensor2tensor.rl.gym_utils_test:SimpleEnv")
+
+    # Most basic check.
+    self.assertTrue(isinstance(env, gym.Env))
+
+    # Just make sure we got the same environment.
+    self.assertTrue(np.allclose(env.reset(),
+                                np.zeros(shape=(3, 3), dtype=np.uint8)))
+
+    _, _, done, _ = env.step(1)
+    self.assertTrue(done)
 
 
 if __name__ == "__main__":

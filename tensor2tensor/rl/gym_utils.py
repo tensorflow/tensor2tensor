@@ -54,3 +54,17 @@ def make_gym_env(name, rl_env_max_episode_steps=-1):
     env = env.env
 
   return gym.wrappers.TimeLimit(env, max_episode_steps=rl_env_max_episode_steps)
+
+
+def register_gym_env(class_entry_point, version="v0"):
+  """Registers the class with its snake case name in Gym and returns it."""
+
+  split_on_colon = class_entry_point.split(":")
+  assert len(split_on_colon) == 2
+
+  class_name = split_on_colon[1]
+  # We have to add the version to conform to gym's API.
+  env_name = "{}-{}".format(class_name, version)
+  gym.envs.register(id=env_name, entry_point=class_entry_point)
+
+  return gym.make(env_name)
