@@ -1549,6 +1549,7 @@ def dot_product_attention_relative(q,
                                    max_relative_position,
                                    dropout_rate=0.0,
                                    image_shapes=None,
+                                   save_weights_to=None,
                                    name=None,
                                    make_image_summary=True,
                                    cache=False):
@@ -1566,6 +1567,9 @@ def dot_product_attention_relative(q,
         inputs that unique position embeddings should be learned for.
     dropout_rate: a floating point number.
     image_shapes: optional tuple of integer scalars.
+    save_weights_to: an optional dictionary to capture attention weights
+      for visualization; the weights tensor will be appended there under
+      a string key created from the variable scope (including name).
     name: an optional string.
     make_image_summary: Whether to make an attention image summary.
     cache: whether use cache mode
@@ -1580,7 +1584,7 @@ def dot_product_attention_relative(q,
     raise ValueError("Max relative position (%s) should be > 0 when using "
                      "relative self attention." % (max_relative_position))
   with tf.variable_scope(
-      name, default_name="dot_product_attention_relative", values=[q, k, v]):
+      name, default_name="dot_product_attention_relative", values=[q, k, v]) as scope:
 
     # This calculation only works for self attention.
     # q, k and v must therefore have the same shape.
@@ -1603,6 +1607,9 @@ def dot_product_attention_relative(q,
     if bias is not None:
       logits += bias
     weights = tf.nn.softmax(logits, name="attention_weights")
+    if save_weights_to is not None:
+      save_weights_to[scope.name] = weights
+      save_weights_to[scope.name + "/logits"] = logits
     weights = tf.nn.dropout(weights, 1.0 - dropout_rate)
     if not tf.get_variable_scope().reuse and make_image_summary:
       attention_image_summary(weights, image_shapes)
@@ -3466,6 +3473,7 @@ def multihead_attention(query_antecedent,
           max_relative_position,
           dropout_rate,
           image_shapes,
+          save_weights_to=save_weights_to,
           make_image_summary=make_image_summary,
           cache=cache is not None)
     elif attention_type == "dot_product_unmasked_relative_v2":
