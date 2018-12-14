@@ -1200,7 +1200,8 @@ def universal_transformer_act_basic(x, hparams, ffn_unit, attention_unit):
   # Do while loop iterations until predicate above is false.
   (_, _, _, remainder, n_updates, new_state) = tf.while_loop(
       should_continue, ut_function,
-      (state, step, halting_probability, remainders, n_updates, previous_state))
+      (state, step, halting_probability, remainders, n_updates, previous_state),
+      maximum_iterations=act_max_steps + 1)
 
   ponder_times = n_updates
   remainders = remainder
@@ -1351,7 +1352,8 @@ def universal_transformer_act_accumulated(x, hparams, ffn_unit, attention_unit):
   # Do while loop iterations until predicate above is false.
   (_, _, _, remainder, n_updates, accumulated_state) = tf.while_loop(
       should_continue, ut_function, (state, step, halting_probability,
-                                     remainders, n_updates, accumulated_state))
+                                     remainders, n_updates, accumulated_state),
+      maximum_iterations=act_max_steps + 1)
 
   ponder_times = n_updates
   remainders = remainder
@@ -1476,10 +1478,8 @@ def universal_transformer_act_global(x, hparams, ffn_unit, attention_unit):
     new_state.set_shape(state_shape)
 
     step += 1
-    return [
-        transformed_state, step, halting_probability, remainders, n_updates,
-        new_state
-    ]
+    return (transformed_state, step, halting_probability,
+            remainders, n_updates, new_state)
 
   # While loop stops when this predicate is FALSE.
   # Ie all (probability < 1-eps AND counter < N) are false.
@@ -1493,7 +1493,8 @@ def universal_transformer_act_global(x, hparams, ffn_unit, attention_unit):
   # Do while loop iterations until predicate above is false.
   (_, _, _, remainder, n_updates, new_state) = tf.while_loop(
       should_continue, ut_function,
-      (state, step, halting_probability, remainders, n_updates, previous_state))
+      (state, step, halting_probability, remainders, n_updates, previous_state),
+      maximum_iterations=act_max_steps + 1)
 
   ponder_times = n_updates
   remainders = remainder
@@ -1516,7 +1517,6 @@ def universal_transformer_act_random(x, hparams, ffn_unit, attention_unit):
     the output tensor,  (ponder_times, remainders)
 
   """
-
   state = x
   act_max_steps = hparams.act_max_steps
   threshold = 1.0 - hparams.act_epsilon
@@ -1623,10 +1623,8 @@ def universal_transformer_act_random(x, hparams, ffn_unit, attention_unit):
       ])
     new_state.set_shape(state_shape)
     step += 1
-    return [
-        transformed_state, step, halting_probability, remainders, n_updates,
-        new_state
-    ]
+    return (transformed_state, step,
+            halting_probability, remainders, n_updates, new_state)
 
   # While loop stops when this predicate is FALSE.
   # Ie all (probability < 1-eps AND counter < N) are false.
@@ -1640,7 +1638,8 @@ def universal_transformer_act_random(x, hparams, ffn_unit, attention_unit):
   # Do while loop iterations until predicate above is false.
   (_, _, _, remainder, n_updates, new_state) = tf.while_loop(
       should_continue, ut_function,
-      (state, step, halting_probability, remainders, n_updates, previous_state))
+      (state, step, halting_probability, remainders, n_updates, previous_state),
+      maximum_iterations=act_max_steps + 1)
 
   ponder_times = n_updates
   remainders = remainder

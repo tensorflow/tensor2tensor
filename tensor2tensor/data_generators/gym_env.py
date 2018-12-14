@@ -577,7 +577,8 @@ class T2TGymEnv(T2TEnv):
 
   def __init__(self, base_env_name=None, batch_size=1, grayscale=False,
                resize_height_factor=2, resize_width_factor=2,
-               rl_env_max_episode_steps=-1, max_num_noops=0, **kwargs):
+               rl_env_max_episode_steps=-1, max_num_noops=0,
+               maxskip_envs=False, **kwargs):
     if base_env_name is None:
       base_env_name = self.base_env_name
     self._base_env_name = base_env_name
@@ -589,9 +590,11 @@ class T2TGymEnv(T2TEnv):
       # Set problem name if not registered.
       self.name = "Gym%s" % base_env_name
 
-    self._envs = [gym_utils.make_gym_env(
-        base_env_name, rl_env_max_episode_steps=rl_env_max_episode_steps)
-                  for _ in range(self.batch_size)]
+    self._envs = [
+        gym_utils.make_gym_env(
+            base_env_name, rl_env_max_episode_steps=rl_env_max_episode_steps,
+            maxskip_env=maxskip_envs)
+        for _ in range(self.batch_size)]
 
     # max_num_noops works only with atari envs.
     if max_num_noops > 0:

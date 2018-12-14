@@ -105,7 +105,7 @@ LEARNERS = {
 
 def setup_env(hparams, batch_size, max_num_noops):
   """Setup."""
-  game_mode = "Deterministic-v4"
+  game_mode = "NoFrameskip-v4"
   camel_game_name = misc_utils.snakecase_to_camelcase(hparams.game)
   camel_game_name += game_mode
   env_name = camel_game_name
@@ -116,7 +116,7 @@ def setup_env(hparams, batch_size, max_num_noops):
                   resize_width_factor=hparams.resize_width_factor,
                   resize_height_factor=hparams.resize_height_factor,
                   rl_env_max_episode_steps=hparams.rl_env_max_episode_steps,
-                  max_num_noops=max_num_noops)
+                  max_num_noops=max_num_noops, maxskip_envs=True)
   return env
 
 

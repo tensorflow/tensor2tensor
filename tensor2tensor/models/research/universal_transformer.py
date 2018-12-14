@@ -514,6 +514,14 @@ def adaptive_universal_transformer_base():
 
 
 @registry.register_hparams
+def adaptive_universal_transformer_base_tpu():
+  hparams = adaptive_universal_transformer_base()
+  transformer.update_hparams_for_tpu(hparams)
+  hparams.add_step_timing_signal = False
+  return hparams
+
+
+@registry.register_hparams
 def adaptive_universal_transformer_small():
   hparams = universal_transformer_small()
   hparams.recurrence_type = "act"
@@ -532,6 +540,14 @@ def adaptive_universal_transformer_global_base():
   hparams = universal_transformer_base()
   hparams.recurrence_type = "act"
   hparams.act_type = "global"
+  return hparams
+
+
+@registry.register_hparams
+def adaptive_universal_transformer_global_base_tpu():
+  hparams = adaptive_universal_transformer_global_base()
+  transformer.update_hparams_for_tpu(hparams)
+  hparams.add_step_timing_signal = False
   return hparams
 
 
