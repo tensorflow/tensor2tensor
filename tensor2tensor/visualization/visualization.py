@@ -183,9 +183,8 @@ def get_att_mats(translate_model):
   encdec_atts = []
 
   prefix = 'transformer/body/'
-  if translate_model.hparams.self_attention_type != "dot_product_relative":
-    postfix_self_attention = '/multihead_attention/dot_product_attention'
-  else:
+  postfix_self_attention = '/multihead_attention/dot_product_attention'
+  if translate_model.hparams.self_attention_type == "dot_product_relative":
     postfix_self_attention = '/multihead_attention/dot_product_attention_relative'
   postfix_encdec = '/multihead_attention/dot_product_attention'
 
