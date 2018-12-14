@@ -247,7 +247,8 @@ def universal_transformer_layer(x,
                                               attention_unit, pad_remover)
 
       output, _, extra_output = tf.foldl(
-          ut_function, tf.range(hparams.num_rec_steps), initializer=initializer)
+          ut_function, tf.range(hparams.num_rec_steps),
+          initializer=initializer)
 
       # Right now, this is only possible when the transition function is an lstm
       if (hparams.recurrence_type == "lstm" and
@@ -1710,9 +1711,9 @@ def _ffn_layer_multi_inputs(inputs_list,
     for i, inputs in enumerate(inputs_list):
       inputs_list[i] = remove_pads(inputs)
 
-  ffn_inputs = (
-      inputs_list[0]
-      if len(inputs_list) == 1 else tf.concat(inputs_list, axis=-1))
+  ffn_inputs = inputs_list[0]
+  if len(inputs_list) != 1:
+    ffn_inputs = tf.concat(inputs_list, axis=-1)
 
   if ffn_layer_type == "dense":
     output = common_layers.dense(
@@ -1866,9 +1867,10 @@ def add_position_timing_signal(x, step, hparams):
 
   elif hparams.position_start_index == "step":
     # Shift positions based on the step
-    num_steps = (
-        hparams.act_max_steps
-        if hparams.recurrence_type == "act" else hparams.num_rec_steps)
+    if hparams.recurrence_type == "act":
+      num_steps = hparams.act_max_steps
+    else:
+      num_steps = hparams.num_rec_steps
     index = tf.cast(
         common_layers.shape_list(x)[1] * step / num_steps, dtype=tf.int32)
 
@@ -1903,9 +1905,10 @@ def add_step_timing_signal(x, step, hparams):
     a Tensor with the same shape as x.
 
   """
-  num_steps = (
-      hparams.act_max_steps
-      if hparams.recurrence_type == "act" else hparams.num_rec_steps)
+  if hparams.recurrence_type == "act":
+    num_steps = hparams.act_max_steps
+  else:
+    num_steps = hparams.num_rec_steps
   channels = common_layers.shape_list(x)[-1]
 
   if hparams.step_timing_signal_type == "learned":

@@ -209,9 +209,11 @@ class T2TModel(base.Layer):
       if self.hparams.optimizer != "Adafactor":
         raise NotImplementedError(
             "weight_dtype=bfloat16 only implemented with Adafactor optimizer")
+      activation_dtype = tf.float32
+      if self.hparams.activation_dtype == "bfloat16":
+        activation_dtype = tf.bfloat16
       return quantization.EighthPowerEncoding().custom_getter(
-          activation_dtype=tf.bfloat16
-          if self.hparams.activation_dtype == "bfloat16" else tf.float32)
+          activation_dtype=activation_dtype)
     elif self.hparams.activation_dtype == "bfloat16":
       return quantization.bfloat16_activations_var_getter
     else:
@@ -834,8 +836,9 @@ class T2TModel(base.Layer):
           "losses": a dictionary: {loss-name (string): floating point `Scalar`}
       }
     """
-    return (self._slow_greedy_infer_tpu(features, decode_length)
-            if use_tpu else self._slow_greedy_infer(features, decode_length))
+    if use_tpu:
+      return self._slow_greedy_infer_tpu(features, decode_length)
+    return self._slow_greedy_infer(features, decode_length)
 
   def _slow_greedy_infer_tpu(self, features, decode_length):
     """A slow greedy inference method on TPU.
@@ -1294,7 +1297,7 @@ class T2TModel(base.Layer):
       TPUEstimatorSpec if use tpu else EstimatorSpec
     """
     if mode == tf.estimator.ModeKeys.TRAIN:
-      _create_dummy_vars()
+      create_dummy_vars()
     hparams = copy.deepcopy(hparams)
 
     # Instantiate model
@@ -1334,7 +1337,7 @@ class T2TModel(base.Layer):
       # by logits["self_generated_targets"].
       tf.logging.info("Replacing targets with model-provided targets.")
       features["targets"] = labels = logits.pop("self_generated_targets")
-      assert logits.keys() == ["logits"], (
+      assert list(logits.keys()) == ["logits"], (
           # See "Returns" in the "top" method docstring for the expected
           # "logits" format when targets are generated at training time.
           "Expect only key 'logits' when there is 'self_generated_targets'. "
@@ -1383,8 +1386,9 @@ class T2TModel(base.Layer):
 
     # TRAIN mode
     assert mode == tf.estimator.ModeKeys.TRAIN
-    num_async_replicas = (1 if (use_tpu or not config) else
-                          config.t2t_device_info["num_async_replicas"])
+    num_async_replicas = 1
+    if config and not use_tpu:
+      num_async_replicas = config.t2t_device_info["num_async_replicas"]
     return model.estimator_spec_train(
         loss, num_async_replicas=num_async_replicas, use_tpu=use_tpu)
 
@@ -1451,6 +1455,7 @@ class T2TModel(base.Layer):
       raise NotImplementedError(_no_problem_err("estimator_spec_eval"))
 
     problem = hparams.problem
+
     if common_layers.is_xla_compiled():
       remove_summaries()
       if isinstance(logits, dict):
@@ -1509,6 +1514,8 @@ class T2TModel(base.Layer):
           summary_op=tf.summary.merge_all())
       evaluation_hooks.append(eval_summary_hook)
 
+      evaluation_hooks += problem.eval_hooks(features, logits, hparams)
+
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
           predictions=predictions,
@@ -1519,11 +1526,11 @@ class T2TModel(base.Layer):
   def estimator_spec_predict(self, features, use_tpu=False):
     """Constructs `tf.estimator.EstimatorSpec` for PREDICT (inference) mode."""
     decode_hparams = self._decode_hparams
+    top_beams = decode_hparams.beam_size if decode_hparams.return_beams else 1
     infer_out = self.infer(
         features,
         beam_size=decode_hparams.beam_size,
-        top_beams=(decode_hparams.beam_size
-                   if decode_hparams.return_beams else 1),
+        top_beams=top_beams,
         alpha=decode_hparams.alpha,
         decode_length=decode_hparams.extra_length,
         use_tpu=use_tpu)
@@ -1615,7 +1622,7 @@ def _with_timing(fn, msg, silent=False):
   return fn_with_timing
 
 
-def _create_dummy_vars():
+def create_dummy_vars():
   """Dummy vars for restore to work when not using TPU codepath."""
   var_names = set([v.name for v in tf.global_variables()])
   if "losses_avg/problem_0/total_loss:0" in var_names:

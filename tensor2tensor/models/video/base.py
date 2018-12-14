@@ -112,6 +112,8 @@ class NextFrameBase(t2t_model.T2TModel):
               where C is 3 for L1/L2 modality and 3*256 for Softmax.
       pred_reward: the same size as input reward.
               None if the model does not detect rewards.
+      pred_action: predicted action logits
+      pred_value: predicted value
       extra_loss: any extra loss other than predicted frame and reward.
               e.g. KL loss in case of VAE models.
       internal_states: updated internal models states.
@@ -530,7 +532,8 @@ class NextFrameBase(t2t_model.T2TModel):
       with tf.control_dependencies(flat_lists(internal_states)):
         sync_op = tf.no_op()
 
-    res_frames, sampled_frames, res_rewards = [], [], []
+    res_frames, sampled_frames, res_rewards, res_policies, res_values = \
+        [], [], [], [], []
     for i in input_index_range:
       with tf.control_dependencies([sync_op]):
         frames, actions, rewards, target_index = self.__get_next_inputs(
@@ -542,9 +545,12 @@ class NextFrameBase(t2t_model.T2TModel):
           func_in = (frames, actions, rewards, target_frame,
                      internal_states, video_features)
           func_out = self.next_frame(*func_in)
-          res_frame, res_reward, res_extra_loss, internal_states = func_out
+          res_frame, res_reward, res_policy, res_value, res_extra_loss, \
+              internal_states = func_out
           res_frames.append(res_frame)
           res_rewards.append(res_reward)
+          res_policies.append(res_policy)
+          res_values.append(res_value)
           extra_loss += res_extra_loss / float(len(input_index_range))
 
           # Syncronizing the internals states
@@ -599,6 +605,8 @@ class NextFrameBase(t2t_model.T2TModel):
       # Cut the predicted input frames.
       res_frames = res_frames[hparams.video_num_input_frames-1:]
       res_rewards = res_rewards[hparams.video_num_input_frames-1:]
+      res_policies = res_policies[hparams.video_num_input_frames-1:]
+      res_values = res_values[hparams.video_num_input_frames-1:]
       sampled_frames = sampled_frames[hparams.video_num_input_frames-1:]
       target_frames = target_frames[hparams.video_num_input_frames-1:]
 
@@ -607,15 +615,28 @@ class NextFrameBase(t2t_model.T2TModel):
     output_frames = tf.stack(res_frames, axis=1)
     targets = output_frames
 
-    if self.has_rewards:
-      output_rewards = tf.stack(res_rewards, axis=1)
-      targets = {"targets": output_frames, "target_reward": output_rewards}
+    if any((self.has_rewards, self.has_policies, self.has_values)):
+      targets = {"targets": output_frames}
+      if self.has_rewards:
+        targets["target_reward"] = tf.stack(res_rewards, axis=1)
+      if self.has_policies:
+        targets["target_policy"] = tf.stack(res_policies, axis=1)
+      if self.has_values:
+        targets["target_value"] = tf.stack(res_values, axis=1)
 
     return targets, extra_loss
+
+  def loss(self, *args, **kwargs):
+    if "policy_network" in self.hparams.values():
+      return 0.0
+    else:
+      return super(NextFrameBase, self).loss(*args, **kwargs)
 
   def body(self, features):
     self.has_actions = "input_action" in features
     self.has_rewards = "target_reward" in features
+    self.has_policies = "target_policy" in features
+    self.has_values = "target_value" in features
     hparams = self.hparams
 
     def merge(inputs, targets):

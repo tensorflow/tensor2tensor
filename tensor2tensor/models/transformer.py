@@ -273,7 +273,8 @@ class Transformer(t2t_model.T2TModel):
               None if using greedy decoding (beam_size=1)
       }
     """
-    if self._hparams.self_attention_type not in ["dot_product", "dot_product_relative"]:
+    if (self._hparams.self_attention_type not in ["dot_product",
+                                                  "dot_product_relative"]):
       # Caching is not guaranteed to work with attention types other than
       # dot_product.
       # TODO(petershaw): Support fast decoding when using relative
@@ -2042,6 +2043,7 @@ def update_hparams_for_tpu(hparams):
   hparams.attention_dropout_broadcast_dims = "0,1"  # batch, heads
   hparams.relu_dropout_broadcast_dims = "1"  # length
   hparams.layer_prepostprocess_dropout_broadcast_dims = "1"  # length
+  return hparams
 
 
 @registry.register_hparams

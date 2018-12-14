@@ -47,7 +47,10 @@ pytest \
   --ignore=tensor2tensor/data_generators/allen_brain_test.py \
   --ignore=tensor2tensor/rl \
   --ignore=tensor2tensor/models/research \
-  --ignore=tensor2tensor/models/video/nfg_*.py \
+  --ignore=tensor2tensor/models/video/nfg_conv_test.py \
+  --ignore=tensor2tensor/models/video/nfg_conv3d_test.py \
+  --ignore=tensor2tensor/models/video/nfg_conv_lstm_test.py \
+  --ignore=tensor2tensor/models/video/nfg_uncond_test.py \
   --deselect=tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary \
   --deselect=tensor2tensor/utils/beam_search_test.py::BeamSearchTest::testTPUBeam
 set_status
