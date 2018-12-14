@@ -22,7 +22,7 @@ from __future__ import print_function
 import copy
 
 from dopamine.agents.dqn import dqn_agent
-from dopamine.discrete_domains import run_experiment
+#from dopamine.discrete_domains import run_experiment
 from dopamine.replay_memory import circular_replay_buffer
 from dopamine.replay_memory.circular_replay_buffer import OutOfGraphReplayBuffer
 from dopamine.replay_memory.circular_replay_buffer import ReplayElement

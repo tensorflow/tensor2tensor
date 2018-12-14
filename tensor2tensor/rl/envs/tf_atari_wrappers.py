@@ -104,19 +104,19 @@ class StackWrapper(WrapperBase):
 
   @property
   def observ_shape(self):
-    return self.old_shape[:-1] + (self.old_shape[-1] * self.history,)
+    return (self.history,) + self.old_shape
 
   def simulate(self, action):
     reward, done = self._batch_env.simulate(action)
     with tf.control_dependencies([reward, done]):
-      new_observ = self._batch_env.observ + 0
+      new_observ = tf.expand_dims(self._batch_env.observ, axis=1)
       old_observ = tf.gather(
           self._observ.read_value(),
-          list(range(self.old_shape[-1], self.old_shape[-1] * self.history)),
-          axis=-1)
+          list(range(1, self.history)),
+          axis=1)
       with tf.control_dependencies([new_observ, old_observ]):
         with tf.control_dependencies([self._observ.assign(
-            tf.concat([old_observ, new_observ], axis=-1))]):
+            tf.concat([old_observ, new_observ], axis=1))]):
           return tf.identity(reward), tf.identity(done)
 
   def _reset_non_empty(self, indices):
@@ -124,23 +124,9 @@ class StackWrapper(WrapperBase):
     new_values = self._batch_env._reset_non_empty(indices)
     # pylint: enable=protected-access
     initial_frames = getattr(self._batch_env, "history_observations", None)
-    if initial_frames is not None:
-      # Using history buffer frames for initialization, if they are available.
-      with tf.control_dependencies([new_values]):
-        # Transpose to [batch, height, width, history, channels] and merge
-        # history and channels into one dimension.
-        initial_frames = tf.transpose(initial_frames, [0, 2, 3, 1, 4])
-        initial_frames = tf.reshape(initial_frames,
-                                    (len(self),) + self.observ_shape)
-    else:
-      inx = tf.concat(
-          [
-              tf.ones(tf.size(tf.shape(new_values)),
-                      dtype=tf.int64)[:-1],
-              [self.history]
-          ],
-          axis=0)
-      initial_frames = tf.tile(new_values, inx)
+    if initial_frames is None:
+      inx = [1, self.history, 1, 1, 1]
+      initial_frames = tf.tile(tf.expand_dims(new_values, axis=1), inx)
     assign_op = tf.scatter_update(self._observ, indices, initial_frames)
     with tf.control_dependencies([assign_op]):
       return tf.gather(self.observ, indices)

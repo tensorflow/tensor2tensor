@@ -1297,7 +1297,7 @@ class T2TModel(base.Layer):
       TPUEstimatorSpec if use tpu else EstimatorSpec
     """
     if mode == tf.estimator.ModeKeys.TRAIN:
-      _create_dummy_vars()
+      create_dummy_vars()
     hparams = copy.deepcopy(hparams)
 
     # Instantiate model
@@ -1622,7 +1622,7 @@ def _with_timing(fn, msg, silent=False):
   return fn_with_timing
 
 
-def _create_dummy_vars():
+def create_dummy_vars():
   """Dummy vars for restore to work when not using TPU codepath."""
   var_names = set([v.name for v in tf.global_variables()])
   if "losses_avg/problem_0/total_loss:0" in var_names:

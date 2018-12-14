@@ -110,6 +110,12 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
                              strides=(2, 2), padding="SAME")
         x = common_layers.layer_norm(x)
 
+    with tf.variable_scope("policy"):
+      x_flat = tf.layers.flatten(x)
+      policy_pred = tf.layers.dense(x_flat, self.hparams.problem.num_actions)
+      value_pred = tf.layers.dense(x_flat, 1)
+      value_pred = tf.squeeze(value_pred, axis=-1)
+
     # Add embedded action if present.
     if self.has_actions:
       x = common_video.inject_additional_input(
@@ -148,14 +154,13 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     else:
       x = tf.layers.dense(x, hparams.problem.num_channels, name="logits")
 
-    # No reward prediction if not needed.
-    if not self.has_rewards:
-      return x, None, extra_loss, internal_states
+    reward_pred = None
+    if self.has_rewards:
+      # Reward prediction based on middle and final logits.
+      reward_pred = tf.concat([x_mid, x_fin], axis=-1)
+      reward_pred = tf.nn.relu(tf.layers.dense(
+          reward_pred, 128, name="reward_pred"))
+      reward_pred = tf.squeeze(reward_pred, axis=1)  # Remove extra dims
+      reward_pred = tf.squeeze(reward_pred, axis=1)  # Remove extra dims
 
-    # Reward prediction based on middle and final logits.
-    reward_pred = tf.concat([x_mid, x_fin], axis=-1)
-    reward_pred = tf.nn.relu(tf.layers.dense(
-        reward_pred, 128, name="reward_pred"))
-    reward_pred = tf.squeeze(reward_pred, axis=1)  # Remove extra dims
-    reward_pred = tf.squeeze(reward_pred, axis=1)  # Remove extra dims
-    return x, reward_pred, extra_loss, internal_states
+    return x, reward_pred, policy_pred, value_pred, extra_loss, internal_states

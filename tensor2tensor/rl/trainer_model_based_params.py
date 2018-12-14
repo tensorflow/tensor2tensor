@@ -136,6 +136,7 @@ def rlmb_ppo_base():
       # Number of simulated environments to train on simultaneously.
       simulated_batch_size=16,
       eval_batch_size=30,
+      wm_policy_param_sharing=False,
 
       # Unused; number of PPO epochs is calculated from the real frame limit.
       real_ppo_epochs_num=0,
@@ -158,6 +159,15 @@ def rlmb_ppo_base():
       simulation_flip_first_random_for_beginning=True,
   )
   update_hparams(hparams, ppo_params)
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_ppo_base_param_sharing():
+  """HParams for PPO base with parameter sharing."""
+  hparams = rlmb_ppo_base()
+  hparams.wm_policy_param_sharing = True
+  hparams.base_algo_params = "ppo_original_world_model"
   return hparams
 
 
@@ -208,13 +218,28 @@ def rlmb_noresize():
 
 
 @registry.register_hparams
-def rlmb_quick():
+def rlmb_ppo_quick():
   """Base setting but quicker with only 2 epochs."""
-  hparams = rlmb_base()
+  hparams = rlmb_ppo_base()
   hparams.epochs = 2
   hparams.model_train_steps = 25000
   hparams.ppo_epochs_num = 700
   hparams.ppo_epoch_length = 50
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_quick():
+  """Base setting but quicker with only 2 epochs."""
+  return rlmb_ppo_quick()
+
+
+@registry.register_hparams
+def rlmb_ppo_quick_param_sharing():
+  """HParams for PPO quick with parameter sharing."""
+  hparams = rlmb_ppo_quick()
+  hparams.wm_policy_param_sharing = True
+  hparams.base_algo_params = "ppo_original_world_model"
   return hparams
 
 

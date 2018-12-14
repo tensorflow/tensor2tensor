@@ -138,6 +138,9 @@ def random_rollout_subsequences(rollouts, num_subsequences, subsequence_length):
 def make_simulated_env_fn(
     real_env, hparams, batch_size, initial_frame_chooser, model_dir):
   """Creates a simulated env_fn."""
+  model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
+  if hparams.wm_policy_param_sharing:
+    model_hparams.optimizer_zero_grads = True
   return rl.make_simulated_env_fn(
       reward_range=real_env.reward_range,
       observation_space=real_env.observation_space,
@@ -203,6 +206,8 @@ def train_agent(real_env, learner, world_model_dir, hparams, epoch):
   )
   base_algo_str = hparams.base_algo
   train_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
+  if hparams.wm_policy_param_sharing:
+    train_hparams.optimizer_zero_grads = True
 
   rl_utils.update_hparams_from_hparams(
       train_hparams, hparams, base_algo_str + "_"
@@ -226,6 +231,8 @@ def train_agent_real_env(env, learner, hparams, epoch):
   rl_utils.update_hparams_from_hparams(
       train_hparams, hparams, "real_" + base_algo_str + "_"
   )
+  if hparams.wm_policy_param_sharing:
+    train_hparams.optimizer_zero_grads = True
 
   env_fn = rl.make_real_env_fn(env)
   num_env_steps = real_env_step_increment(hparams)
@@ -253,6 +260,8 @@ def train_world_model(
   model_hparams.learning_rate = model_hparams.learning_rate_constant
   if epoch > 0:
     model_hparams.learning_rate *= hparams.learning_rate_bump
+  if hparams.wm_policy_param_sharing:
+    model_hparams.optimizer_zero_grads = True
 
   restarter = Restarter("world_model", output_dir, world_model_steps_num)
   if restarter.should_skip:
@@ -448,9 +457,13 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   )
   env.start_new_epoch(epoch, data_dir)
 
+  if hparams.wm_policy_param_sharing:
+    policy_model_dir = directories["world_model"]
+  else:
+    policy_model_dir = directories["policy"]
   learner = rl_utils.LEARNERS[hparams.base_algo](
-      hparams.frame_stack_size, directories["policy"],
-      directories["policy"], hparams.epochs
+      hparams.frame_stack_size, policy_model_dir,
+      policy_model_dir, hparams.epochs
   )
 
   # Timing log function
@@ -461,7 +474,6 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   metrics = {}
 
   # Collect data from the real environment.
-  policy_model_dir = directories["policy"]
   tf.logging.info("Initial training of the policy in real environment.")
   train_agent_real_env(env, learner, hparams, epoch)
   metrics["mean_reward/train/clipped"] = rl_utils.compute_mean_reward(

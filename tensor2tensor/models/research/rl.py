@@ -19,15 +19,21 @@ import collections
 import functools
 import operator
 import gym
+import six
 
+from tensor2tensor.data_generators import problem
+from tensor2tensor.data_generators import video_utils
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
+from tensor2tensor.layers import modalities
+from tensor2tensor.models.video import basic_deterministic_params
 from tensor2tensor.rl.envs.py_func_batch_env import PyFuncBatchEnv
 from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
 from tensor2tensor.rl.envs.simulated_batch_gym_env import SimulatedBatchGymEnv
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
+from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -122,6 +128,36 @@ def ppo_original_params():
   return hparams
 
 
+@registry.register_hparams
+def ppo_original_world_model():
+  """Atari parameters with world model as policy."""
+  hparams = ppo_original_params()
+  hparams.policy_network = "next_frame_basic_deterministic"
+  hparams_keys = hparams.values().keys()
+  video_hparams = basic_deterministic_params.next_frame_basic_deterministic()
+  for (name, value) in six.iteritems(video_hparams.values()):
+    if name in hparams_keys:
+      hparams.set_hparam(name, value)
+    else:
+      hparams.add_hparam(name, value)
+  return hparams
+
+
+@registry.register_hparams
+def ppo_tiny_world_model():
+  """Atari parameters with world model as policy."""
+  hparams = ppo_original_params()
+  hparams.policy_network = "next_frame_basic_deterministic"
+  hparams_keys = hparams.values().keys()
+  video_hparams = basic_deterministic_params.next_frame_tiny()
+  for (name, value) in six.iteritems(video_hparams.values()):
+    if name in hparams_keys:
+      hparams.set_hparam(name, value)
+    else:
+      hparams.add_hparam(name, value)
+  return hparams
+
+
 def make_real_env_fn(env):
   """Creates a function returning a given real env, in or out of graph.
 
@@ -163,18 +199,27 @@ def get_policy(observations, hparams, action_space):
   if not isinstance(action_space, gym.spaces.Discrete):
     raise ValueError("Expecting discrete action space.")
 
+  policy_problem = DummyPolicyProblem(action_space)
+  trainer_lib.add_problem_hparams(hparams, policy_problem)
+  hparams.force_full_predict = True
   model = registry.model(hparams.policy_network)(
       hparams, tf.estimator.ModeKeys.TRAIN
   )
   obs_shape = common_layers.shape_list(observations)
   features = {
       "inputs": observations,
-      "target_action": tf.zeros(obs_shape[:2] + [action_space.n]),
-      "target_value": tf.zeros(obs_shape[:2])
+      "input_action": tf.zeros(obs_shape[:2] + [1], dtype=tf.int32),
+      "input_reward": tf.zeros(obs_shape[:2] + [1], dtype=tf.int32),
+      "targets": tf.zeros(obs_shape[:1] + [1] + obs_shape[2:]),
+      "target_action": tf.zeros(obs_shape[:1] + [1, 1], dtype=tf.int32),
+      "target_reward": tf.zeros(obs_shape[:1] + [1, 1], dtype=tf.int32),
+      "target_policy": tf.zeros(obs_shape[:1] + [1] + [action_space.n]),
+      "target_value": tf.zeros(obs_shape[:1] + [1])
   }
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+    t2t_model.create_dummy_vars()
     (targets, _) = model(features)
-  return (targets["target_action"], targets["target_value"])
+  return (targets["target_policy"], targets["target_value"])
 
 
 @registry.register_hparams
@@ -260,11 +305,47 @@ def rlmf_tiny():
   return hparams
 
 
-class DiscretePolicyBase(t2t_model.T2TModel):
+class PolicyBase(t2t_model.T2TModel):
 
-  @staticmethod
-  def _get_num_actions(features):
-    return common_layers.shape_list(features["target_action"])[2]
+  def loss(self, *args, **kwargs):
+    return 0.0
+
+
+class DummyPolicyProblem(video_utils.VideoProblem):
+  """Dummy Problem for running the policy."""
+
+  def __init__(self, action_space):
+    super(DummyPolicyProblem, self).__init__()
+    self.action_space = action_space
+
+  @property
+  def num_actions(self):
+    return self.action_space.n
+
+  def hparams(self, defaults, unused_model_hparams):
+    p = defaults
+    p.modality = {
+        "inputs": modalities.VideoModality,
+        "input_action": modalities.SymbolModalityWeightsAll,
+        "input_reward": modalities.SymbolModalityWeightsAll,
+        "targets": modalities.VideoModality,
+        "target_action": modalities.SymbolModalityWeightsAll,
+        "target_reward": modalities.SymbolModalityWeightsAll,
+        "target_policy": modalities.IdentityModality,
+        "target_value": modalities.IdentityModality,
+    }
+    p.vocab_size = {
+        "inputs": 256,
+        "input_action": self.num_actions,
+        "input_reward": 3,
+        "targets": 256,
+        "target_action": self.num_actions,
+        "target_reward": 3,
+        "target_policy": None,
+        "target_value": None,
+    }
+    p.input_space_id = problem.SpaceID.IMAGE
+    p.target_space_id = problem.SpaceID.IMAGE
 
 
 NetworkOutput = collections.namedtuple(
@@ -322,38 +403,38 @@ def clip_logits(logits, config):
 
 
 @registry.register_model
-class FeedForwardCategoricalPolicy(DiscretePolicyBase):
+class FeedForwardCategoricalPolicy(PolicyBase):
   """Feed-forward categorical."""
 
   def body(self, features):
     observations = features["inputs"]
-    flat_observations = tf.reshape(observations, [
-        tf.shape(observations)[0], tf.shape(observations)[1],
-        functools.reduce(operator.mul, observations.shape.as_list()[2:], 1)])
+    flat_observations = tf.layers.flatten(observations)
     with tf.variable_scope("policy"):
       x = flat_observations
       for size in self.hparams.policy_layers:
         x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
       logits = tf.contrib.layers.fully_connected(
-          x, self._get_num_actions(features), activation_fn=None
+          x, self.hparams.problem.num_actions, activation_fn=None
       )
+      logits = tf.expand_dims(logits, axis=1)
     with tf.variable_scope("value"):
       x = flat_observations
       for size in self.hparams.value_layers:
         x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-      value = tf.contrib.layers.fully_connected(x, 1, None)[..., 0]
+      value = tf.contrib.layers.fully_connected(x, 1, None)
     logits = clip_logits(logits, self.hparams)
-    return {"target_action": logits, "target_value": value}
+    return {"target_policy": logits, "target_value": value}
 
 
 @registry.register_model
-class FeedForwardCnnSmallCategoricalPolicy(DiscretePolicyBase):
+class FeedForwardCnnSmallCategoricalPolicy(PolicyBase):
   """Small cnn network with categorical output."""
 
   def body(self, features):
     observations = features["inputs"]
-    obs_shape = common_layers.shape_list(observations)
-    x = tf.reshape(observations, [-1] + obs_shape[2:])
+    x = tf.transpose(observations, [0, 2, 3, 1, 4])
+    x_shape = common_layers.shape_list(x)
+    x = tf.reshape(x, x_shape[:-2] + [-1])
     dropout = getattr(self.hparams, "dropout_ppo", 0.0)
     with tf.variable_scope("feed_forward_cnn_small"):
       x = tf.cast(x, tf.float32) / 255.0
@@ -368,24 +449,26 @@ class FeedForwardCnnSmallCategoricalPolicy(DiscretePolicyBase):
       flat_x = tf.nn.dropout(flat_x, rate=dropout)
       x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
 
-      logits = tf.contrib.layers.fully_connected(
-          x, self._get_num_actions(features), activation_fn=None
+      logits = tf.layers.dense(
+          x, self.hparams.problem.num_actions, name="dense2"
       )
       logits = clip_logits(logits, self.hparams)
+      logits = tf.expand_dims(logits, axis=1)
 
       value = tf.contrib.layers.fully_connected(
-          x, 1, activation_fn=None)[..., 0]
-    return {"target_action": logits, "target_value": value}
+          x, 1, activation_fn=None)
+    return {"target_policy": logits, "target_value": value}
 
 
 @registry.register_model
-class FeedForwardCnnSmallCategoricalPolicyNew(DiscretePolicyBase):
+class FeedForwardCnnSmallCategoricalPolicyNew(PolicyBase):
   """Small cnn network with categorical output."""
 
   def body(self, features):
     observations = features["inputs"]
-    obs_shape = common_layers.shape_list(observations)
-    x = tf.reshape(observations, [-1] + obs_shape[2:])
+    x = tf.transpose(observations, [0, 2, 3, 1, 4])
+    x_shape = common_layers.shape_list(x)
+    x = tf.reshape(x, x_shape[:-2] + [-1])
     dropout = getattr(self.hparams, "dropout_ppo", 0.0)
     with tf.variable_scope("feed_forward_cnn_small"):
       x = tf.cast(x, tf.float32) / 255.0
@@ -402,50 +485,46 @@ class FeedForwardCnnSmallCategoricalPolicyNew(DiscretePolicyBase):
           x, 128, (4, 4), strides=(2, 2), name="conv3",
           activation=common_layers.belu, padding="SAME")
 
-      flat_x = tf.reshape(
-          x, [obs_shape[0], obs_shape[1],
-              functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
-      flat_x = tf.nn.dropout(flat_x, rate=dropout)
+
+      flat_x = tf.layers.flatten(x)
+      flat_x = tf.nn.dropout(flat_x, keep_prob=1.0 - dropout)
       x = tf.layers.dense(flat_x, 128, activation=tf.nn.relu, name="dense1")
 
       logits = tf.layers.dense(
-          x, self._get_num_actions(features), name="dense2"
+          x, self.hparams.problem.num_actions, name="dense2"
       )
+      logits = tf.expand_dims(logits, axis=1)
       logits = clip_logits(logits, self.hparams)
 
-      value = tf.layers.dense(x, 1, name="value")[..., 0]
-    return {"target_action": logits, "target_value": value}
+      value = tf.layers.dense(x, 1, name="value")
+    return {"target_policy": logits, "target_value": value}
 
 
 @registry.register_model
-class DenseBitwiseCategoricalPolicy(DiscretePolicyBase):
+class DenseBitwiseCategoricalPolicy(PolicyBase):
   """Dense network with bitwise input and categorical output."""
 
   def body(self, features):
     observations = features["inputs"]
-    obs_shape = common_layers.shape_list(observations)
-    x = tf.reshape(observations, [-1] + obs_shape[2:])
+    flat_x = tf.layers.flatten(observations)
     with tf.variable_scope("dense_bitwise"):
-      x = discretization.int_to_bit_embed(x, 8, 32)
-      flat_x = tf.reshape(
-          x, [obs_shape[0], obs_shape[1],
-              functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
+      flat_x = discretization.int_to_bit_embed(flat_x, 8, 32)
 
       x = tf.contrib.layers.fully_connected(flat_x, 256, tf.nn.relu)
       x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
 
       logits = tf.contrib.layers.fully_connected(
-          x, self._get_num_actions(features), activation_fn=None
+          x, self.hparams.problem.num_actions, activation_fn=None
       )
 
       value = tf.contrib.layers.fully_connected(
           x, 1, activation_fn=None)[..., 0]
 
-    return {"target_action": logits, "target_value": value}
+    return {"target_policy": logits, "target_value": value}
 
 
 @registry.register_model
-class RandomPolicy(DiscretePolicyBase):
+class RandomPolicy(PolicyBase):
   """Random policy with categorical output."""
 
   def body(self, features):
@@ -453,10 +532,10 @@ class RandomPolicy(DiscretePolicyBase):
     obs_shape = observations.shape.as_list()
     # Just so Saver doesn't complain because of no variables.
     tf.get_variable("dummy_var", initializer=0.0)
-    num_actions = self._get_num_actions(features)
+    num_actions = self.hparams.problem.num_actions
     logits = tf.constant(
         1. / float(num_actions),
-        shape=(obs_shape[:2] + [num_actions])
+        shape=(obs_shape[:1] + [1, num_actions])
     )
-    value = tf.zeros(obs_shape[:2])
-    return {"target_action": logits, "target_value": value}
+    value = tf.zeros(obs_shape[:1] + [1])
+    return {"target_policy": logits, "target_value": value}

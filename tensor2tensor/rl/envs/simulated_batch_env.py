@@ -152,10 +152,11 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
         # We only need 1 target frame here, set it.
         hparams_target_frames = self._model.hparams.video_num_target_frames
         self._model.hparams.video_num_target_frames = 1
-        model_output = self._model.infer(
-            {"inputs": history,
-             "input_action": actions,
-             "reset_internal_states": self._reset_model.read_value()})
+        model_output = self._model.infer({
+            "inputs": history,
+            "input_action": actions,
+            "reset_internal_states": self._reset_model.read_value()
+        })
         self._model.hparams.video_num_target_frames = hparams_target_frames
 
       observ = tf.cast(tf.squeeze(model_output["targets"], axis=1),
