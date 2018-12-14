@@ -89,7 +89,7 @@ class WrapperBase(InGraphBatchEnv):
 
 
 class StackWrapper(WrapperBase):
-  """ A wrapper which stacks previously seen frames. """
+  """A wrapper which stacks previously seen frames."""
 
   def __init__(self, batch_env, history=4):
     super(StackWrapper, self).__init__(batch_env)

@@ -311,6 +311,7 @@ class PolicyBase(t2t_model.T2TModel):
     return 0.0
 
 
+# TODO(lukaszkaiser): move this class or clean up the whole file.
 class DummyPolicyProblem(video_utils.VideoProblem):
   """Dummy Problem for running the policy."""
 
@@ -443,9 +444,7 @@ class FeedForwardCnnSmallCategoricalPolicy(PolicyBase):
       x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
                                    activation_fn=tf.nn.relu, padding="SAME")
 
-      flat_x = tf.reshape(
-          x, [obs_shape[0], obs_shape[1],
-              functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
+      flat_x = tf.layers.flatten(x)
       flat_x = tf.nn.dropout(flat_x, rate=dropout)
       x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
 
@@ -485,9 +484,8 @@ class FeedForwardCnnSmallCategoricalPolicyNew(PolicyBase):
           x, 128, (4, 4), strides=(2, 2), name="conv3",
           activation=common_layers.belu, padding="SAME")
 
-
       flat_x = tf.layers.flatten(x)
-      flat_x = tf.nn.dropout(flat_x, keep_prob=1.0 - dropout)
+      flat_x = tf.nn.dropout(flat_x, rate=dropout)
       x = tf.layers.dense(flat_x, 128, activation=tf.nn.relu, name="dense1")
 
       logits = tf.layers.dense(

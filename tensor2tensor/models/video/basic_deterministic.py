@@ -110,11 +110,14 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
                              strides=(2, 2), padding="SAME")
         x = common_layers.layer_norm(x)
 
-    with tf.variable_scope("policy"):
-      x_flat = tf.layers.flatten(x)
-      policy_pred = tf.layers.dense(x_flat, self.hparams.problem.num_actions)
-      value_pred = tf.layers.dense(x_flat, 1)
-      value_pred = tf.squeeze(value_pred, axis=-1)
+    if self.has_actions:
+      with tf.variable_scope("policy"):
+        x_flat = tf.layers.flatten(x)
+        policy_pred = tf.layers.dense(x_flat, self.hparams.problem.num_actions)
+        value_pred = tf.layers.dense(x_flat, 1)
+        value_pred = tf.squeeze(value_pred, axis=-1)
+    else:
+      policy_pred, value_pred = None, None
 
     # Add embedded action if present.
     if self.has_actions:

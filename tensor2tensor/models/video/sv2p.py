@@ -368,7 +368,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
                  internal_states, video_features):
     del target_frame
 
-    if self.has_pred_actions or self.has_values:
+    if self.has_policies or self.has_values:
       raise NotImplementedError("Parameter sharing with policy not supported.")
 
     latent, latent_mean, latent_std = video_features
@@ -384,7 +384,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
         frames, None, actions, internal_states, latent)
 
     if not self.has_rewards:
-      return pred_image, None, extra_loss, internal_states
+      return pred_image, None, None, None, extra_loss, internal_states
 
     pred_reward = self.reward_prediction(
         pred_image, actions, rewards, latent, mid_outputs)
