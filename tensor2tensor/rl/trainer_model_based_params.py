@@ -308,6 +308,15 @@ def rlmb_base_stochastic_discrete():
 
 
 @registry.register_hparams
+def rlmb_base_stochastic_discrete_param_sharing():
+  """Base setting with stochastic discrete model with parameter sharing."""
+  hparams = rlmb_base_stochastic_discrete()
+  hparams.wm_policy_param_sharing = True
+  hparams.base_algo_params = "ppo_original_world_model_stochastic_discrete"
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_long_stochastic_discrete():
   """Long setting with stochastic discrete model."""
   hparams = rlmb_base()
