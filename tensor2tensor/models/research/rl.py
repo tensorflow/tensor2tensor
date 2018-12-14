@@ -356,7 +356,7 @@ class FeedForwardCnnSmallCategoricalPolicy(DiscretePolicyBase):
     x = tf.reshape(observations, [-1] + obs_shape[2:])
     dropout = getattr(self.hparams, "dropout_ppo", 0.0)
     with tf.variable_scope("feed_forward_cnn_small"):
-      x = tf.to_float(x) / 255.0
+      x = tf.cast(x, tf.float32) / 255.0
       x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
                                    activation_fn=tf.nn.relu, padding="SAME")
       x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
@@ -365,7 +365,7 @@ class FeedForwardCnnSmallCategoricalPolicy(DiscretePolicyBase):
       flat_x = tf.reshape(
           x, [obs_shape[0], obs_shape[1],
               functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
-      flat_x = tf.nn.dropout(flat_x, keep_prob=1.0 - dropout)
+      flat_x = tf.nn.dropout(flat_x, rate=dropout)
       x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
 
       logits = tf.contrib.layers.fully_connected(
@@ -388,16 +388,16 @@ class FeedForwardCnnSmallCategoricalPolicyNew(DiscretePolicyBase):
     x = tf.reshape(observations, [-1] + obs_shape[2:])
     dropout = getattr(self.hparams, "dropout_ppo", 0.0)
     with tf.variable_scope("feed_forward_cnn_small"):
-      x = tf.to_float(x) / 255.0
-      x = tf.nn.dropout(x, keep_prob=1.0 - dropout)
+      x = tf.cast(x, tf.float32) / 255.0
+      x = tf.nn.dropout(x, rate=dropout)
       x = tf.layers.conv2d(
           x, 32, (4, 4), strides=(2, 2), name="conv1",
           activation=common_layers.belu, padding="SAME")
-      x = tf.nn.dropout(x, keep_prob=1.0 - dropout)
+      x = tf.nn.dropout(x, rate=dropout)
       x = tf.layers.conv2d(
           x, 64, (4, 4), strides=(2, 2), name="conv2",
           activation=common_layers.belu, padding="SAME")
-      x = tf.nn.dropout(x, keep_prob=1.0 - dropout)
+      x = tf.nn.dropout(x, rate=dropout)
       x = tf.layers.conv2d(
           x, 128, (4, 4), strides=(2, 2), name="conv3",
           activation=common_layers.belu, padding="SAME")
@@ -405,7 +405,7 @@ class FeedForwardCnnSmallCategoricalPolicyNew(DiscretePolicyBase):
       flat_x = tf.reshape(
           x, [obs_shape[0], obs_shape[1],
               functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
-      flat_x = tf.nn.dropout(flat_x, keep_prob=1.0 - dropout)
+      flat_x = tf.nn.dropout(flat_x, rate=dropout)
       x = tf.layers.dense(flat_x, 128, activation=tf.nn.relu, name="dense1")
 
       logits = tf.layers.dense(
