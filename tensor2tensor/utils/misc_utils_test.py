@@ -55,6 +55,22 @@ class MiscUtilsTest(tf.test.TestCase):
     self.assertEqual("LstmSeq2Seq",
                      misc_utils.snakecase_to_camelcase("lstm_seq2_seq"))
 
+  def test_pprint_hparams(self):
+    hparams = tf.contrib.training.HParams(
+        int_=1, str_="str", bool_=True, float_=1.1, list_int=[1, 2], none=None)
+
+    # pylint: disable=g-inconsistent-quotes
+    expected_string = r"""
+{'bool_': True,
+ 'float_': 1.1,
+ 'int_': 1,
+ 'list_int': [1,
+              2],
+ 'none': None,
+ 'str_': 'str'}"""
+    # pylint: enable=g-inconsistent-quotes
+
+    self.assertEqual(expected_string, misc_utils.pprint_hparams(hparams))
 
 if __name__ == "__main__":
   tf.test.main()

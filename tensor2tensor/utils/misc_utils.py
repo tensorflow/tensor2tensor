@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import pprint
 import re
 
 # Camel case to snake case utils
@@ -34,3 +35,7 @@ def camelcase_to_snakecase(name):
 def snakecase_to_camelcase(name):
   return "".join([w[0].upper() + w[1:] for w in name.split("_")])
 
+
+def pprint_hparams(hparams):
+  """Represents hparams using its dictionary and calls pprint.pformat on it."""
+  return "\n{}".format(pprint.pformat(hparams.values(), width=1))
