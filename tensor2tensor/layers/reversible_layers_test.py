@@ -63,7 +63,7 @@ class ReversibleLayersTest(tf.test.TestCase):
     outputs = network(inputs)
 
     num_weights = sum([np.prod(weight.shape) for weight in network.weights])
-    self.assertLen(network.weights, 4)
+    self.assertEqual(len(network.weights), 4)
     self.assertEqual(num_weights, (3*4 + 4) + (4*3*2 + 3*2))
 
     self.evaluate(tf.global_variables_initializer())
@@ -84,7 +84,7 @@ class ReversibleLayersTest(tf.test.TestCase):
     outputs = network(inputs)
 
     num_weights = sum([np.prod(weight.shape) for weight in network.weights])
-    self.assertLen(network.weights, 3)
+    self.assertEqual(len(network.weights), 3)
     self.assertEqual(num_weights, 3*4 + 4*3 + 3*3*2)
 
     self.evaluate(tf.global_variables_initializer())
@@ -102,7 +102,7 @@ class ReversibleLayersTest(tf.test.TestCase):
     outputs = network(inputs)
 
     num_weights = sum([np.prod(weight.shape) for weight in network.weights])
-    self.assertLen(network.weights, 2)
+    self.assertEqual(len(network.weights), 2)
     self.assertEqual(num_weights, 3*3*2 + 3*2)
 
     self.evaluate(tf.global_variables_initializer())
