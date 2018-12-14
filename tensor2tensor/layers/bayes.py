@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 from tensorflow_probability import edward2 as ed
 
@@ -39,6 +40,54 @@ class Positive(tf.keras.constraints.Constraint):
 
 def positive():  # alias, following tf.keras.constraints
   return Positive()
+
+
+class Zeros(object):
+  """Function returning zeros tensor of same shape excluding the last dim."""
+
+  def __call__(self, inputs):
+    return tf.zeros(tf.shape(inputs)[:-1], inputs.dtype)
+
+  def get_config(self):
+    return {}
+
+
+class ExponentiatedQuadratic(object):
+  """Exponentiated quadratic kernel."""
+
+  def __init__(self, variance, lengthscale):
+    self.variance = variance
+    self.lengthscale = lengthscale
+
+  def __call__(self, x1, x2):
+    """Computes exponentiated quadratic over all pairs of inputs.
+
+    Args:
+      x1: Tensor of shape [batch_x1, ...]. Slices along the batch axis denote an
+        individual input to be passed to the kernel. It is computed pairwise
+        with each input sliced from x2.
+      x2: Tensor of shape [batch_x2, ...]. Slices along the batch axis denote an
+        individual input passed to the kernel function. It is computed pairwise
+        with each input sliced from x1.
+
+    Returns:
+      Tensor of shape [batch_x1, batch_x2].
+    """
+    size = tf.convert_to_tensor(x1).shape.ndims
+    if size > 2:
+      raise NotImplementedError('Multiple feature dimensions is not yet '
+                                'supported.')
+    x1 = x1 / self.lengthscale
+    x2 = x2 / self.lengthscale
+    x1_squared = tf.reduce_sum(tf.square(x1), list(range(1, len(x1.shape))))
+    x2_squared = tf.reduce_sum(tf.square(x2), list(range(1, len(x2.shape))))
+    square = (x1_squared[:, tf.newaxis] +
+              x2_squared[tf.newaxis, :] -
+              2 * tf.matmul(x1, x2, transpose_b=True))
+    return self.variance * tf.exp(-square / 2)
+
+  def get_config(self):
+    return {'variance': self.variance, 'lengthscale': self.lengthscale}
 
 
 # TODO(dusenberrymw): Restructure the implementation of a trainable initializer
@@ -277,6 +326,159 @@ class DenseReparameterization(tf.keras.layers.Dense):
     else:
       self._bias = None
     self.built = True
+
+
+class GaussianProcess(tf.keras.layers.Layer):
+  r"""Gaussian process layer.
+
+  The layer represents a distribution over functions, where a
+  stochastic forward pass appears as
+
+  ```none
+  f ~ GP(f | conditional_inputs, conditional_outputs; mean_fn, covariance_fn)
+  outputs = f(inputs)
+  ```
+
+  The optional arguments `conditional_inputs` and `conditional_outputs`
+  capture data that the GP "memorizes", i.e., it forms a posterior predictive
+  distribution. If left unspecified, the GP posits a prior predictive.
+
+  Given a call to `inputs`, an equivalent formulation in terms of function
+  outputs is
+
+  ```none
+  outputs ~ \prod_{unit=1}^{units} MultivariateNormal(output[:, unit] |
+      mean = mean_fn(inputs) + Knm Kmm^{-1} (conditional_outputs[:, unit]-mean),
+      covariance = Knn - Knm Kmm^{-1} Kmn)
+  ```
+
+  where Knm is the covariance function evaluated between all `inputs` and
+  `conditional_inputs`; Knn is between all `inputs`; Kmm is between all
+  `conditional_inputs`; and mean is the mean function evaluated on
+  `conditional_inputs`. The multivariate normal is correlated across input
+  dimensions and is independent across output dimensions.
+  """
+
+  def __init__(
+      self,
+      units,
+      mean_fn=Zeros(),
+      covariance_fn=ExponentiatedQuadratic(variance=1., lengthscale=1.),
+      conditional_inputs=None,
+      conditional_outputs=None,
+      **kwargs):
+    """Constructs layer.
+
+    Args:
+      units: integer, dimensionality of layer.
+      mean_fn: Mean function, a callable taking an inputs Tensor of shape
+        [batch, ...] and returning a Tensor of shape [batch].
+      covariance_fn: Covariance function, a callable taking two input Tensors
+        of shape [batch_x1, ...] and [batch_x2, ...] respectively, and returning
+        a positive semi-definite matrix of shape [batch_x1, batch_x2].
+      conditional_inputs: Tensor of shape [batch, ...], where batch must be the
+        same as conditional_outputs', and ellipses must match layer inputs.
+      conditional_outputs: Tensor of shape [batch, units], where batch must be
+        the same as conditional_inputs' and units is the layer's units size.
+      **kwargs: kwargs passed to parent class.
+    """
+    super(GaussianProcess, self).__init__(**kwargs)
+    self.units = int(units)
+    self.mean_fn = mean_fn
+    self.covariance_fn = covariance_fn
+    self.conditional_inputs = conditional_inputs
+    self.conditional_outputs = conditional_outputs
+
+    self.supports_masking = True
+    self.input_spec = tf.keras.layers.InputSpec(min_ndim=2)
+
+  def build(self, input_shape=None):
+    # Don't track trainable variables such as in the kernel. The user should
+    # refer to any via, e.g., self.covariance_fn or the user environment.
+    self.built = True
+
+  def call(self, inputs):
+    if self.conditional_inputs is None and self.conditional_outputs is None:
+      covariance_matrix = self.covariance_fn(inputs, inputs)
+      # Tile locations so output has shape [units, batch_size]. Covariance will
+      # broadcast to [units, batch_size, batch_size], and we perform
+      # shape manipulations to get a random variable over [batch_size, units].
+      loc = self.mean_fn(inputs)
+      loc = tf.tile(loc[tf.newaxis], [self.units] + [1] * len(loc.shape))
+    else:
+      knn = self.covariance_fn(inputs, inputs)
+      knm = self.covariance_fn(inputs, self.conditional_inputs)
+      kmm = self.covariance_fn(self.conditional_inputs, self.conditional_inputs)
+      kmm = tf.matrix_set_diag(
+          kmm, tf.matrix_diag_part(kmm) + tf.keras.backend.epsilon())
+      kmm_tril = tf.linalg.cholesky(kmm)
+      kmm_tril_operator = tf.linalg.LinearOperatorLowerTriangular(kmm_tril)
+      knm_operator = tf.linalg.LinearOperatorFullMatrix(knm)
+
+      # TODO(trandustin): Vectorize linear algebra for multiple outputs. For
+      # now, we do each separately and stack to obtain a locations Tensor of
+      # shape [units, batch_size].
+      loc = []
+      for conditional_outputs_unit in tf.unstack(self.conditional_outputs,
+                                                 axis=-1):
+        center = conditional_outputs_unit - self.mean_fn(
+            self.conditional_inputs)
+        loc_unit = knm_operator.matvec(
+            kmm_tril_operator.solvevec(kmm_tril_operator.solvevec(center),
+                                       adjoint=True))
+        loc.append(loc_unit)
+      loc = tf.stack(loc) + self.mean_fn(inputs)[tf.newaxis]
+
+      covariance_matrix = knn
+      covariance_matrix -= knm_operator.matmul(
+          kmm_tril_operator.solve(
+              kmm_tril_operator.solve(knm, adjoint_arg=True), adjoint=True))
+
+    covariance_matrix = tf.matrix_set_diag(
+        covariance_matrix,
+        tf.matrix_diag_part(covariance_matrix) + tf.keras.backend.epsilon())
+
+    # Form a multivariate normal random variable with batch_shape units and
+    # event_shape batch_size. Then make it be independent across the units
+    # dimension. Then transpose its dimensions so it is [batch_size, units].
+    random_variable = ed.MultivariateNormalFullCovariance(
+        loc=loc, covariance_matrix=covariance_matrix)
+    random_variable = ed.Independent(random_variable.distribution,
+                                     reinterpreted_batch_ndims=1)
+    bijector = tfp.bijectors.Inline(
+        forward_fn=lambda x: tf.transpose(x, [1, 0]),
+        inverse_fn=lambda y: tf.transpose(y, [1, 0]),
+        forward_event_shape_fn=lambda input_shape: input_shape[::-1],
+        forward_event_shape_tensor_fn=lambda input_shape: input_shape[::-1],
+        inverse_log_det_jacobian_fn=lambda y: tf.cast(0, y.dtype),
+        forward_min_event_ndims=2)
+    random_variable = ed.TransformedDistribution(random_variable.distribution,
+                                                 bijector=bijector)
+    return random_variable
+
+  def compute_output_shape(self, input_shape):
+    input_shape = tf.TensorShape(input_shape)
+    input_shape = input_shape.with_rank_at_least(2)
+    input_dim = input_shape[-1]
+    if isinstance(input_dim, tf.Dimension):
+      input_dim = input_dim.value
+    if input_dim is None:
+      raise ValueError(
+          'The innermost dimension of input_shape must be defined, but saw: %s'
+          % input_shape)
+    return input_shape[:-1].concatenate(self.units)
+
+  def get_config(self):
+    config = {
+        'units': self.units,
+        'mean_fn': tf.keras.utils.serialize_keras_object(self.mean_fn),
+        'covariance_fn': tf.keras.utils.serialize_keras_object(
+            self.covariance_fn),
+        'conditional_inputs': None,  # don't serialize as it can be large
+        'conditional_outputs': None,  # don't serialize as it can be large
+    }
+    base_config = super(GaussianProcess, self).get_config()
+    return dict(list(base_config.items()) + list(config.items()))
 
 
 class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
