@@ -56,7 +56,7 @@ class ActNorm(tf.keras.layers.Layer):
     if isinstance(last_dim, tf.Dimension):
       last_dim = last_dim.value
     if last_dim is None:
-      raise ValueError('The last dimension of the inputs to `Dense` '
+      raise ValueError('The last dimension of the inputs to `ActNorm` '
                        'should be defined. Found `None`.')
     bias = self.add_weight('bias', [last_dim], dtype=self.dtype)
     log_scale = self.add_weight('log_scale', [last_dim], dtype=self.dtype)
