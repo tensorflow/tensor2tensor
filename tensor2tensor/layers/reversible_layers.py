@@ -109,17 +109,20 @@ class ActNorm(tf.keras.layers.Layer):
 class MADE(tf.keras.Model):
   """Masked autoencoder for distribution estimation (Germain et al., 2015).
 
-  MADE takes as input a real Tensor of shape [..., length] and returns a
-  Tensor of shape [..., num_heads * length] and same dtype. It masks layer
-  weights to respect autoregressive constraints: for a given ordering, each
-  input dimension can be reconstructed from previous input dimensions. The
-  output dimensions represent multiple heads for, e.g., location and scale
-  transforms in a flow.
+  MADE takes as input a real Tensor of shape [..., length, channels] and returns
+  a Tensor of shape [..., length, units] and same dtype. It masks layer weights
+  to satisfy autoregressive constraints with respect to the length dimension. In
+  particular, for a given ordering, each input dimension of length can be
+  reconstructed from previous dimensions.
+
+  The output's units dimension captures per-time-step representations. For
+  example, setting units to 2 can parameterize the location and log-scale of an
+  autoregressive Gaussian distribution.
   """
 
   def __init__(self,
+               units,
                hidden_dims,
-               num_heads=2,
                input_order='left-to-right',
                hidden_order='left-to-right',
                activation=None,
@@ -128,24 +131,26 @@ class MADE(tf.keras.Model):
     """Constructs network.
 
     Args:
+      units: Positive integer, dimensionality of the output space.
       hidden_dims: list with the number of hidden units per layer. It does not
         include the output layer; those number of units will always be set to
-        the input dimension multiplied by `num_heads`.
-      num_heads: The number of output heads. The default is 2 representing
-        the location and scale transform of an autoregressive flow.
+        the input dimension multiplied by `num_heads`. Each hidden unit size
+        must be at least the size of length (otherwise autoregressivity is not
+        possible).
       input_order: Order of degrees to the input units: 'random',
         'left-to-right', 'right-to-left', or an array of an explicit order.
         For example, 'left-to-right' builds an autoregressive model
         p(x) = p(x1) p(x2 | x1) ... p(xD | x<D).
       hidden_order: Order of degrees to the hidden units: 'random',
-        'left-to-right'.
+        'left-to-right'. If 'left-to-right', hidden units are allocated equally
+        (up to a remainder term) to each degree.
       activation: Activation function.
       use_bias: Whether to use a bias.
       **kwargs: Keyword arguments of parent class.
     """
     super(MADE, self).__init__(**kwargs)
+    self.units = int(units)
     self.hidden_dims = hidden_dims
-    self.num_heads = num_heads
     self.input_order = input_order
     self.hidden_order = hidden_order
     self.activation = tf.keras.activations.get(activation)
@@ -154,17 +159,38 @@ class MADE(tf.keras.Model):
 
   def build(self, input_shape):
     input_shape = tf.TensorShape(input_shape)
-    last_dim = input_shape[-1]
-    if isinstance(last_dim, tf.Dimension):
-      last_dim = last_dim.value
-    if last_dim is None:
-      raise ValueError('The last dimension of the inputs to '
+    length = input_shape[-2]
+    channels = input_shape[-1]
+    if isinstance(length, tf.Dimension):
+      length = length.value
+    if isinstance(channels, tf.Dimension):
+      channels = channels.value
+    if length is None or channels is None:
+      raise ValueError('The two last dimensions of the inputs to '
                        '`MADE` should be defined. Found `None`.')
-    masks = create_masks(input_dim=last_dim,
+    masks = create_masks(input_dim=length,
                          hidden_dims=self.hidden_dims,
                          input_order=self.input_order,
                          hidden_order=self.hidden_order)
-    for l in range(len(self.hidden_dims)):
+
+    # Input-to-hidden layer: [..., length, channels] -> [..., hidden_dims[0]].
+    self.network.add(tf.keras.layers.Reshape([length * channels]))
+    # Tile the mask so each element repeats contiguously; this is compatible
+    # with the autoregressive contraints unlike naive tiling.
+    mask = masks[0]
+    mask = tf.tile(mask[:, tf.newaxis, :], [1, channels, 1])
+    mask = tf.reshape(mask, [mask.shape[0] * channels, mask.shape[-1]])
+    if self.hidden_dims:
+      layer = tf.keras.layers.Dense(
+          self.hidden_dims[0],
+          kernel_initializer=make_masked_initializer(mask),
+          kernel_constraint=make_masked_constraint(mask),
+          activation=self.activation,
+          use_bias=self.use_bias)
+      self.network.add(layer)
+
+    # Hidden-to-hidden layers: [..., hidden_dims[l-1]] -> [..., hidden_dims[l]].
+    for l in range(1, len(self.hidden_dims)):
       layer = tf.keras.layers.Dense(
           self.hidden_dims[l],
           kernel_initializer=make_masked_initializer(masks[l]),
@@ -173,14 +199,21 @@ class MADE(tf.keras.Model):
           use_bias=self.use_bias)
       self.network.add(layer)
 
-    mask = tf.tile(masks[-1], [1, self.num_heads])
+    # Hidden-to-output layer: [..., hidden_dims[-1]] -> [..., length, units].
+    # Tile the mask so each element repeats contiguously; this is compatible
+    # with the autoregressive contraints unlike naive tiling.
+    if self.hidden_dims:
+      mask = masks[-1]
+    mask = tf.tile(mask[..., tf.newaxis], [1, 1, self.units])
+    mask = tf.reshape(mask, [mask.shape[0], mask.shape[1] * self.units])
     layer = tf.keras.layers.Dense(
-        last_dim * self.num_heads,
+        length * self.units,
         kernel_initializer=make_masked_initializer(mask),
         kernel_constraint=make_masked_constraint(mask),
         activation=None,
         use_bias=self.use_bias)
     self.network.add(layer)
+    self.network.add(tf.keras.layers.Reshape([length, self.units]))
     self.built = True
 
   def call(self, inputs):
@@ -199,14 +232,15 @@ def create_degrees(input_dim,
   Args:
     input_dim: Number of inputs.
     hidden_dims: list with the number of hidden units per layer. It does not
-      include the output layer; those number of units will always be set to
-      input_dim downstream.
+      include the output layer. Each hidden unit size must be at least the size
+      of length (otherwise autoregressivity is not possible).
     input_order: Order of degrees to the input units: 'random', 'left-to-right',
       'right-to-left', or an array of an explicit order. For example,
       'left-to-right' builds an autoregressive model
       p(x) = p(x1) p(x2 | x1) ... p(xD | x<D).
     hidden_order: Order of degrees to the hidden units: 'random',
-      'left-to-right'.
+      'left-to-right'. If 'left-to-right', hidden units are allocated equally
+      (up to a remainder term) to each degree.
   """
   if (isinstance(input_order, str) and
       input_order not in ('random', 'left-to-right', 'right-to-left')):
@@ -250,13 +284,15 @@ def create_masks(input_dim,
     input_dim: Number of inputs.
     hidden_dims: list with the number of hidden units per layer. It does not
       include the output layer; those number of units will always be set to
-      input_dim downstream.
+      input_dim downstream. Each hidden unit size must be at least the size of
+      length (otherwise autoregressivity is not possible).
     input_order: Order of degrees to the input units: 'random', 'left-to-right',
       'right-to-left', or an array of an explicit order. For example,
       'left-to-right' builds an autoregressive model
       p(x) = p(x1) p(x2 | x1) ... p(xD | x<D).
     hidden_order: Order of degrees to the hidden units: 'random',
-      'left-to-right'.
+      'left-to-right'. If 'left-to-right', hidden units are allocated equally
+      (up to a remainder term) to each degree.
   """
   degrees = create_degrees(input_dim, hidden_dims, input_order, hidden_order)
   masks = []

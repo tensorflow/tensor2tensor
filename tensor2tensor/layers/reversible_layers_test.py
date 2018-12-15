@@ -58,57 +58,63 @@ class ReversibleLayersTest(tf.test.TestCase):
     np.random.seed(83243)
     batch_size = 2
     length = 3
-    network = reversible.MADE([4], activation=tf.nn.relu)
-    inputs = tf.zeros([batch_size, length])
+    channels = 1
+    units = 5
+    network = reversible.MADE(units, [4], activation=tf.nn.relu)
+    inputs = tf.zeros([batch_size, length, channels])
     outputs = network(inputs)
 
     num_weights = sum([np.prod(weight.shape) for weight in network.weights])
     self.assertEqual(len(network.weights), 4)
-    self.assertEqual(num_weights, (3*4 + 4) + (4*3*2 + 3*2))
+    self.assertEqual(num_weights, (3*1*4 + 4) + (4*3*5 + 3*5))
 
     self.evaluate(tf.global_variables_initializer())
     outputs_val = self.evaluate(outputs)
-    self.assertAllEqual(outputs_val[:, 0], tf.zeros(batch_size))
-    self.assertEqual(outputs_val.shape, (batch_size, 2 * length))
+    self.assertAllEqual(outputs_val[:, 0, :], np.zeros((batch_size, units)))
+    self.assertEqual(outputs_val.shape, (batch_size, length, units))
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testMADERightToLeft(self):
     np.random.seed(1328)
     batch_size = 2
     length = 3
-    network = reversible.MADE([4, 3],
+    channels = 5
+    units = 1
+    network = reversible.MADE(units, [4, 3],
                               input_order='right-to-left',
                               activation=tf.nn.relu,
                               use_bias=False)
-    inputs = tf.zeros([batch_size, length])
+    inputs = tf.zeros([batch_size, length, channels])
     outputs = network(inputs)
 
     num_weights = sum([np.prod(weight.shape) for weight in network.weights])
     self.assertEqual(len(network.weights), 3)
-    self.assertEqual(num_weights, 3*4 + 4*3 + 3*3*2)
+    self.assertEqual(num_weights, 3*5*4 + 4*3 + 3*3*1)
 
     self.evaluate(tf.global_variables_initializer())
     outputs_val = self.evaluate(outputs)
-    self.assertAllEqual(outputs_val[:, -1], tf.zeros(batch_size))
-    self.assertEqual(outputs_val.shape, (batch_size, 2 * length))
+    self.assertAllEqual(outputs_val[:, -1, :], np.zeros((batch_size, units)))
+    self.assertEqual(outputs_val.shape, (batch_size, length, units))
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testMADENoHidden(self):
     np.random.seed(532)
     batch_size = 2
     length = 3
-    network = reversible.MADE([], input_order='left-to-right')
-    inputs = tf.zeros([batch_size, length])
+    channels = 5
+    units = 4
+    network = reversible.MADE(units, [], input_order='left-to-right')
+    inputs = tf.zeros([batch_size, length, channels])
     outputs = network(inputs)
 
     num_weights = sum([np.prod(weight.shape) for weight in network.weights])
     self.assertEqual(len(network.weights), 2)
-    self.assertEqual(num_weights, 3*3*2 + 3*2)
+    self.assertEqual(num_weights, 3*5*3*4 + 3*4)
 
     self.evaluate(tf.global_variables_initializer())
     outputs_val = self.evaluate(outputs)
-    self.assertAllEqual(outputs_val[:, 0], tf.zeros(batch_size))
-    self.assertEqual(outputs_val.shape, (batch_size, 2 * length))
+    self.assertAllEqual(outputs_val[:, 0, :], np.zeros((batch_size, units)))
+    self.assertEqual(outputs_val.shape, (batch_size, length, units))
 
 
 if __name__ == '__main__':
