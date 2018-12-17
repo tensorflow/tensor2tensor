@@ -619,7 +619,7 @@ def add_timing_signal_nd(x, min_timescale=1.0, max_timescale=1.0e4):
   return x
 
 
-def add_positional_embedding(x, max_length, name, positions=None):
+def add_positional_embedding(x, max_length, name=None, positions=None):
   """Adds positional embedding.
 
   Args:
@@ -645,7 +645,7 @@ def add_positional_embedding(x, max_length, name, positions=None):
       return x + tf.gather(var, tf.to_int32(positions))
 
 
-def add_positional_embedding_nd(x, max_length, name):
+def add_positional_embedding_nd(x, max_length, name=None):
   """Adds n-dimensional positional embedding.
 
   The embeddings add to all positional dimensions of the tensor.
