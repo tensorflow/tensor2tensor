@@ -253,7 +253,7 @@ def expand_squeeze_to_nd(x, n, squeeze_dim=2, expand_dim=-1):
 
 def standardize_images(x):
   """Image standardization on batches and videos."""
-  with tf.name_scope("standardize_images", [x]):
+  with tf.name_scope("standardize_images", values=[x]):
     x_shape = shape_list(x)
     x = tf.to_float(tf.reshape(x, [-1] + x_shape[-3:]))
     x_mean = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
