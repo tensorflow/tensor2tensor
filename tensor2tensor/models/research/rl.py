@@ -234,14 +234,14 @@ def get_policy(observations, hparams, action_space):
       "input_action": tf.zeros(obs_shape[:2] + [1], dtype=tf.int32),
       "input_reward": tf.zeros(obs_shape[:2] + [1], dtype=tf.int32),
       "targets": tf.zeros(obs_shape[:1] + [num_target_frames] + obs_shape[2:]),
-      "target_action": \
-          tf.zeros(obs_shape[:1] + [num_target_frames, 1], dtype=tf.int32),
-      "target_reward": \
-          tf.zeros(obs_shape[:1] + [num_target_frames, 1], dtype=tf.int32),
-      "target_policy": \
-          tf.zeros(obs_shape[:1] + [num_target_frames] + [action_space.n]),
-      "target_value": \
-          tf.zeros(obs_shape[:1] + [num_target_frames])
+      "target_action": tf.zeros(
+          obs_shape[:1] + [num_target_frames, 1], dtype=tf.int32),
+      "target_reward": tf.zeros(
+          obs_shape[:1] + [num_target_frames, 1], dtype=tf.int32),
+      "target_policy": tf.zeros(
+          obs_shape[:1] + [num_target_frames] + [action_space.n]),
+      "target_value": tf.zeros(
+          obs_shape[:1] + [num_target_frames])
   }
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
     t2t_model.create_dummy_vars()
