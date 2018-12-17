@@ -391,8 +391,9 @@ def _define_collect(batch_env, ppo_hparams, scope, frame_stack_size, eval_phase,
         )
         action = common_layers.sample_with_temperature(logits, sampling_temp)
         action = tf.cast(action, tf.int32)
+        action = tf.reshape(action, shape=(num_agents,))
 
-        reward, done = batch_env.simulate(action[:, 0, ...])
+        reward, done = batch_env.simulate(action)
 
         pdf = tfp.distributions.Categorical(logits=logits).prob(action)
         pdf = tf.reshape(pdf, shape=(num_agents,))

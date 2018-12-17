@@ -28,6 +28,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
 from tensor2tensor.layers import modalities
 from tensor2tensor.models.video import basic_deterministic_params
+from tensor2tensor.models.video import basic_stochastic
 from tensor2tensor.rl.envs.py_func_batch_env import PyFuncBatchEnv
 from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
 from tensor2tensor.rl.envs.simulated_batch_gym_env import SimulatedBatchGymEnv
@@ -158,6 +159,23 @@ def ppo_tiny_world_model():
   return hparams
 
 
+@registry.register_hparams
+def ppo_original_world_model_stochastic_discrete():
+  """Atari parameters with stochastic discrete world model as policy."""
+  hparams = ppo_original_params()
+  hparams.policy_network = "next_frame_basic_stochastic_discrete"
+  hparams_keys = hparams.values().keys()
+  video_hparams = basic_stochastic.next_frame_basic_stochastic_discrete()
+  for (name, value) in six.iteritems(video_hparams.values()):
+    if name in hparams_keys:
+      hparams.set_hparam(name, value)
+    else:
+      hparams.add_hparam(name, value)
+  # To avoid OOM. Probably way to small.
+  hparams.optimization_batch_size = 1
+  return hparams
+
+
 def make_real_env_fn(env):
   """Creates a function returning a given real env, in or out of graph.
 
@@ -199,27 +217,36 @@ def get_policy(observations, hparams, action_space):
   if not isinstance(action_space, gym.spaces.Discrete):
     raise ValueError("Expecting discrete action space.")
 
-  policy_problem = DummyPolicyProblem(action_space)
+  obs_shape = common_layers.shape_list(observations)
+  (frame_height, frame_width) = obs_shape[2:4]
+  policy_problem = DummyPolicyProblem(action_space, frame_height, frame_width)
   trainer_lib.add_problem_hparams(hparams, policy_problem)
   hparams.force_full_predict = True
   model = registry.model(hparams.policy_network)(
       hparams, tf.estimator.ModeKeys.TRAIN
   )
-  obs_shape = common_layers.shape_list(observations)
+  try:
+    num_target_frames = hparams.video_num_target_frames
+  except AttributeError:
+    num_target_frames = 1
   features = {
       "inputs": observations,
       "input_action": tf.zeros(obs_shape[:2] + [1], dtype=tf.int32),
       "input_reward": tf.zeros(obs_shape[:2] + [1], dtype=tf.int32),
-      "targets": tf.zeros(obs_shape[:1] + [1] + obs_shape[2:]),
-      "target_action": tf.zeros(obs_shape[:1] + [1, 1], dtype=tf.int32),
-      "target_reward": tf.zeros(obs_shape[:1] + [1, 1], dtype=tf.int32),
-      "target_policy": tf.zeros(obs_shape[:1] + [1] + [action_space.n]),
-      "target_value": tf.zeros(obs_shape[:1] + [1])
+      "targets": tf.zeros(obs_shape[:1] + [num_target_frames] + obs_shape[2:]),
+      "target_action": \
+          tf.zeros(obs_shape[:1] + [num_target_frames, 1], dtype=tf.int32),
+      "target_reward": \
+          tf.zeros(obs_shape[:1] + [num_target_frames, 1], dtype=tf.int32),
+      "target_policy": \
+          tf.zeros(obs_shape[:1] + [num_target_frames] + [action_space.n]),
+      "target_value": \
+          tf.zeros(obs_shape[:1] + [num_target_frames])
   }
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
     t2t_model.create_dummy_vars()
     (targets, _) = model(features)
-  return (targets["target_policy"], targets["target_value"])
+  return (targets["target_policy"][:, 0, :], targets["target_value"][:, 0])
 
 
 @registry.register_hparams
@@ -315,9 +342,21 @@ class PolicyBase(t2t_model.T2TModel):
 class DummyPolicyProblem(video_utils.VideoProblem):
   """Dummy Problem for running the policy."""
 
-  def __init__(self, action_space):
+  def __init__(self, action_space, frame_height, frame_width):
     super(DummyPolicyProblem, self).__init__()
     self.action_space = action_space
+    self._frame_height = frame_height
+    self._frame_width = frame_width
+
+  @property
+  def frame_height(self):
+    """Height of each frame."""
+    return self._frame_height
+
+  @property
+  def frame_width(self):
+    """Width of each frame."""
+    return self._frame_width
 
   @property
   def num_actions(self):
