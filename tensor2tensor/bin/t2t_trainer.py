@@ -289,8 +289,7 @@ def generate_data():
 
 @contextlib.contextmanager
 def profile_context():
-  #if FLAGS.profile:
-  if True:
+  if FLAGS.profile:
     with tf.contrib.tfprof.ProfileContext(
         "t2tprof", trace_steps=[600], dump_steps=[600]) as pctx:
       opts = tf.profiler.ProfileOptionBuilder.time_and_memory()
@@ -382,7 +381,7 @@ def main(argv):
   # Fathom commented out
   # if cloud_mlengine.job_dir():
   #   FLAGS.output_dir = cloud_mlengine.job_dir()
-    
+
   if argv:
     set_hparams_from_args(argv[1:])
   hparams = create_hparams()
