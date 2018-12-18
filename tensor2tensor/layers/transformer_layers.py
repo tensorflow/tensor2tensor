@@ -176,7 +176,11 @@ def transformer_encoder(encoder_input,
               make_image_summary=make_image_summary,
               dropout_broadcast_dims=attention_dropout_broadcast_dims,
               max_length=hparams.get("max_length"),
-              vars_3d=hparams.get("attention_variables_3d"))
+              vars_3d=hparams.get("attention_variables_3d"),
+              use_td=hparams.use_td,
+              keep_prob=hparams.keep_prob,
+              targeting_rate=hparams.targeting_rate,
+              is_training=hparams.mode == tf.estimator.ModeKeys.TRAIN)
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -186,7 +190,7 @@ def transformer_encoder(encoder_input,
               conv_padding="SAME",
               nonpadding_mask=nonpadding,
               losses=losses)
-          x = common_layers.layer_postprocess(x, y, hparams)
+          x = common_layers.layer_postprocess(x, y, hparams)          
     # if normalization is done in layer_preprocess, then it should also be done
     # on the output, since the output can grow very large, being the sum of
     # a whole stack of unnormalized layer outputs.

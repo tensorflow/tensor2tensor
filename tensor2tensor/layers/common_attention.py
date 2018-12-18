@@ -3309,6 +3309,10 @@ def multihead_attention(query_antecedent,
                         make_image_summary=True,
                         dropout_broadcast_dims=None,
                         vars_3d=False,
+                        use_td=False,
+                        keep_prob=None,
+                        targeting_rate=None,
+                        is_training=True,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -3398,6 +3402,25 @@ def multihead_attention(query_antecedent,
                             total_key_depth, total_value_depth, q_filter_width,
                             kv_filter_width, q_padding, kv_padding,
                             vars_3d_num_heads=vars_3d_num_heads)
+      if use_td and keep_prob < 1.0:
+        targeting_fn = common_layers.weight_targeting
+
+        k = common_layers.targeted_dropout(
+            k,
+            targeting_rate * tf.to_float(kv_filter_width),
+            keep_prob,
+            targeting_fn,
+            is_training,
+            do_prune=True)
+        
+        v = common_layers.targeted_dropout(
+            v,
+            targeting_rate * tf.to_float(kv_filter_width),
+            keep_prob,
+            targeting_fn,
+            is_training,
+            do_prune=True)
+            
     if cache is not None:
       if attention_type not in ["dot_product", "dot_product_relative"]:
         # TODO(petershaw): Support caching when using relative position
@@ -3442,7 +3465,6 @@ def multihead_attention(query_antecedent,
     if cache is None:
       k = split_heads(k, num_heads)
       v = split_heads(v, num_heads)
-
     key_depth_per_head = total_key_depth // num_heads
     if not vars_3d:
       q *= key_depth_per_head**-0.5
@@ -3529,6 +3551,16 @@ def multihead_attention(query_antecedent,
 
     # Set last dim specifically.
     x.set_shape(x.shape.as_list()[:-1] + [total_value_depth])
+    if use_td and keep_prob < 1.0:
+      targeting_fn = common_layers.weight_targeting
+
+      x = common_layers.targeted_dropout(
+          x,
+          targeting_rate * tf.to_float(total_value_depth * q_filter_width),
+          keep_prob,
+          targeting_fn,
+          is_training,
+          do_prune=True)
 
     if vars_3d:
       o_var = tf.get_variable(

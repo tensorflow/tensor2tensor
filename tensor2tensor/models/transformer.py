@@ -1375,6 +1375,12 @@ def transformer_base_v1():
   # This is useful for programs that can automatically compare experiments side
   #   by side based on the same metric names.
   hparams.add_hparam("overload_eval_metric_name", "")
+
+  # Targeted dropout
+  hparams.add_hparam("use_td", False)
+  hparams.add_hparam("targeting_rate", None)
+  hparams.add_hparam("keep_prob", None)
+
   return hparams
 
 
@@ -2294,4 +2300,14 @@ def transformer_tpu_1b():
   hparams.weight_dtype = "bfloat16"
   # maximize number of parameters relative to computation by not sharing.
   hparams.shared_embedding_and_softmax_weights = False
+  return hparams
+
+@registry.register_hparams
+def transformer_targeted_dropout():
+  """HParams for training ASR model on LibriSpeech V1."""
+  hparams = transformer_base()
+
+  hparams.use_td = "weight"
+  hparams.targeting_rate = 0.5
+  hparams.keep_prob = 0.5
   return hparams
