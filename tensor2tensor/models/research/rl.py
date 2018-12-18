@@ -447,7 +447,7 @@ class FeedForwardCategoricalPolicy(PolicyBase):
   """Feed-forward categorical."""
 
   def body(self, features):
-    observations = features["inputs"]
+    observations = features["inputs_raw"]
     flat_observations = tf.layers.flatten(observations)
     with tf.variable_scope("policy"):
       x = flat_observations
@@ -471,7 +471,7 @@ class FeedForwardCnnSmallCategoricalPolicy(PolicyBase):
   """Small cnn network with categorical output."""
 
   def body(self, features):
-    observations = features["inputs"]
+    observations = features["inputs_raw"]
     x = tf.transpose(observations, [0, 2, 3, 1, 4])
     x_shape = common_layers.shape_list(x)
     x = tf.reshape(x, x_shape[:-2] + [-1])
