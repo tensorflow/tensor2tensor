@@ -271,8 +271,6 @@ def basic_params1():
       # A list of supported schedules can be found in
       # `data_generators.multi_problem.py`.
       multiproblem_mixing_schedule="constant",
-      # A scalar to upweight the classifier loss in a multiproblem setting.
-      multiproblem_class_loss_multiplier=0.0,
       # A boolean that decides whether input sequence losses and target label
       # losses in classification problems should be reweighted.
       multiproblem_reweight_label_loss=False,

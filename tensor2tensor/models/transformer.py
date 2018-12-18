@@ -1556,7 +1556,6 @@ def transformer_tall_finetune_textclass():
       "linear_warmup*constant*linear_decay")
   hparams.multiproblem_schedule_max_examples = 0
   hparams.multiproblem_target_eval_only = True
-  hparams.multiproblem_class_loss_multiplier = 4
   hparams.learning_rate_warmup_steps = 50
   # Set train steps to learning_rate_decay_steps or less
   hparams.learning_rate_decay_steps = 25000
