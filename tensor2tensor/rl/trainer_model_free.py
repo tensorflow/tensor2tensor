@@ -131,9 +131,9 @@ def train(hparams, output_dir, report_fn=None):
 def main(_):
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
 
-  tf.logging.log("Starting model free training.")
+  tf.logging.info("Starting model free training.")
   train(hparams, FLAGS.output_dir)
-  tf.logging.log("Ended model free training.")
+  tf.logging.info("Ended model free training.")
 
 
 if __name__ == "__main__":
