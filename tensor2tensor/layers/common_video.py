@@ -60,7 +60,9 @@ def decode_to_shape(inputs, shape, scope):
 def basic_lstm(inputs, state, num_units, name=None):
   """Basic LSTM."""
   input_shape = common_layers.shape_list(inputs)
-  cell = tf.contrib.rnn.BasicLSTMCell(num_units, name=name)
+  # reuse parameters across time-steps.
+  cell = tf.nn.rnn_cell.BasicLSTMCell(
+      num_units, name=name, reuse=tf.AUTO_REUSE)
   if state is None:
     state = cell.zero_state(input_shape[0], tf.float32)
   outputs, new_state = cell(inputs, state)
