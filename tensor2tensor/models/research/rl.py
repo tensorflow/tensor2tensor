@@ -484,7 +484,7 @@ class FeedForwardCnnSmallCategoricalPolicy(PolicyBase):
                                    activation_fn=tf.nn.relu, padding="SAME")
 
       flat_x = tf.layers.flatten(x)
-      flat_x = tf.nn.dropout(flat_x, rate=dropout)
+      flat_x = tf.layers.dropout(flat_x, rate=dropout)
       x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
 
       logits = tf.layers.dense(
