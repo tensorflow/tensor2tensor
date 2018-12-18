@@ -153,7 +153,7 @@ def log_decode_results(inputs,
     if targets is not None and log_results:
       decoded_targets = targets_vocab.decode(_save_until_eos(
           targets, skip_eos_postprocess))
-  if not is_video:
+  if log_results and not is_video:
     tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
   if targets is not None and log_results and not is_video:
     tf.logging.info("Inference results TARGET: %s" % decoded_targets)
@@ -373,15 +373,33 @@ def decode_from_file(estimator,
   sorted_inputs, sorted_keys = _get_sorted_inputs(filename, decode_hp.delimiter)
   num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
 
-  def input_fn():
-    input_gen = _decode_batch_input_fn(
-        num_decode_batches, sorted_inputs,
-        inputs_vocab, decode_hp.batch_size,
-        decode_hp.max_input_size, task_id=decode_hp.multiproblem_task_id)
-    gen_fn = make_input_fn_from_generator(input_gen)
-    example = gen_fn()
-    return _decode_input_tensor_to_features_dict(example, hparams)
-
+  if estimator.config.use_tpu:
+    length = getattr(hparams, "length", hparams.max_length)
+    batch_ids = []
+    for line in sorted_inputs:
+      ids = inputs_vocab.encode(line.strip()) + [1]
+      if len(ids) < length:
+        ids.extend([0] * (length - len(ids)))
+      else:
+        ids = ids[:length]
+      batch_ids.append(ids)
+    np_ids = np.array(batch_ids, dtype=np.int32)
+    def input_fn(params):
+      batch_size = params["batch_size"]
+      dataset = tf.data.Dataset.from_tensor_slices({"inputs": np_ids})
+      dataset = dataset.map(
+          lambda ex: {"inputs": tf.reshape(ex["inputs"], (length, 1, 1))})
+      dataset = dataset.batch(batch_size)
+      return dataset
+  else:
+    def input_fn():
+      input_gen = _decode_batch_input_fn(
+          num_decode_batches, sorted_inputs,
+          inputs_vocab, decode_hp.batch_size,
+          decode_hp.max_input_size, task_id=decode_hp.multiproblem_task_id)
+      gen_fn = make_input_fn_from_generator(input_gen)
+      example = gen_fn()
+      return _decode_input_tensor_to_features_dict(example, hparams)
   decodes = []
   result_iter = estimator.predict(input_fn, checkpoint_path=checkpoint_path)
 
@@ -448,10 +466,6 @@ def decode_from_file(estimator,
                   (total_time_per_step / total_cnt,
                    total_time_per_step, total_cnt))
 
-  # Reversing the decoded inputs and outputs because they were reversed in
-  # _decode_batch_input_fn
-  sorted_inputs.reverse()
-  decodes.reverse()
   # If decode_to_file was provided use it as the output filename without change
   # (except for adding shard_id if using more shards for decoding).
   # Otherwise, use the input filename plus model, hp, problem, beam, alpha.
@@ -587,9 +601,6 @@ def _decode_batch_input_fn(num_decode_batches, sorted_inputs, vocabulary,
                            batch_size, max_input_size, task_id=-1):
   """Generator to produce batches of inputs."""
   tf.logging.info(" batch %d" % num_decode_batches)
-  # First reverse all the input sentences so that if you're going to get OOMs,
-  # you'll see it in the first batch
-  sorted_inputs.reverse()
   for b in range(num_decode_batches):
     tf.logging.info("Decoding batch %d" % b)
     batch_length = 0
@@ -604,6 +615,7 @@ def _decode_batch_input_fn(num_decode_batches, sorted_inputs, vocabulary,
       batch_inputs.append(input_ids)
       if len(input_ids) > batch_length:
         batch_length = len(input_ids)
+    batch_length = max_input_size
     final_batch_inputs = []
     for input_ids in batch_inputs:
       assert len(input_ids) <= batch_length
@@ -655,8 +667,8 @@ def _interactive_input_fn(hparams, decode_hp):
               "  dl=<decode_length>  (changes decode length, default: 100)\n"
               "  <%s>                (decode)\n"
               "  q                   (quit)\n"
-              ">" % (num_samples, decode_length, "source_string"
-                     if has_input else "target_prefix"))
+              ">" % (num_samples, decode_length,
+                     "source_string" if has_input else "target_prefix"))
     input_string = input(prompt)
     if input_string == "q":
       return
@@ -728,7 +740,13 @@ def show_and_save_image(img, save_path):
 
 
 def _get_sorted_inputs(filename, delimiter="\n"):
-  """Returning inputs sorted according to length.
+  """Returning inputs sorted according to decreasing length.
+
+  This causes inputs of similar lengths to be processed in the same batch,
+  facilitating early stopping for short sequences.
+
+  Longer sequences are sorted first so that if you're going to get OOMs,
+  you'll see it in the first batch.
 
   Args:
     filename: path to file with inputs, 1 per line.
@@ -746,7 +764,7 @@ def _get_sorted_inputs(filename, delimiter="\n"):
     # Strip the last empty line.
     if not inputs[-1]:
       inputs.pop()
-  input_lens = [(i, len(line.split())) for i, line in enumerate(inputs)]
+  input_lens = [(i, -len(line.split())) for i, line in enumerate(inputs)]
   sorted_input_lens = sorted(input_lens, key=operator.itemgetter(1))
   # We'll need the keys to rearrange the inputs back into their original order
   sorted_keys = {}

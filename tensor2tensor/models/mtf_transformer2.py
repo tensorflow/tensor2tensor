@@ -540,20 +540,27 @@ def mtr_lm_dense_3():
 
 
 @registry.register_hparams
-def mtr_lm_v1():
+def mtr_lm_v1(num_heads=8, num_memory_heads=0):
   """Model incorporating mixture-of-experts, local and global attention.
 
   ~6B parameters
 
   32 experts in 3 hierarchichal moe layers.
 
+  Args:
+    num_heads: an optional integer
+    num_memory_heads: an optional integer
+
   Returns:
     a hparams
   """
   hparams = mtr_lm_dense(0)
   local_att = transformer_layers.LocalSelfAttention(
-      num_heads=4, key_value_size=128)
-  att = transformer_layers.SelfAttention(num_heads=4, key_value_size=128)
+      num_heads=num_heads, num_memory_heads=num_memory_heads,
+      key_value_size=128)
+  att = transformer_layers.SelfAttention(
+      num_heads=num_heads, num_memory_heads=num_memory_heads,
+      key_value_size=128)
   drd = transformer_layers.DenseReluDense(hidden_size=2048)
   hmoe = moe.MoE2D(expert_x=8, expert_y=4, hidden_size=32768)
   hparams.layer_stack = transformer.LayerStack(
@@ -563,6 +570,12 @@ def mtr_lm_v1():
   hparams.layout = "outer_batch:b0;inner_batch:b1,expert_x:b1,expert_y:b0"
   hparams.outer_batch_size = 4
   return hparams
+
+
+@registry.register_hparams
+def mtr_lm_v1_h1_8():
+  """Version for fast decoding."""
+  return mtr_lm_v1(num_heads=8, num_memory_heads=1)
 
 
 def mtr_tr_dense(sz):
@@ -593,7 +606,7 @@ def mtr_tr_dense(sz):
   # one epoch for translate_enfr_wmt32k_packed = 51400 steps
   hparams.learning_rate_decay_steps = 51400
   hparams.layout = "batch:batch;vocab:model;d_ff:model;heads:model"
-  hparams.mesh_shape = "model:4;batch:8"
+  hparams.mesh_shape = "batch:32"
   hparams.label_smoothing = 0.1
   hparams.layer_prepostprocess_dropout = 0.1
   hparams.attention_dropout = 0.1
@@ -613,18 +626,31 @@ def mtr_tr_dense_1():
 
 @registry.register_hparams
 def mtr_tr_dense_2():
-  return mtr_tr_dense(2)
+  hparams = mtr_tr_dense(2)
+  hparams.mesh_shape = "model:4;batch:8"
+  return hparams
 
 
 @registry.register_hparams
 def mtr_tr_dense_3():
-  return mtr_tr_dense(3)
+  hparams = mtr_tr_dense(3)
+  hparams.mesh_shape = "model:4;batch:8"
+  return hparams
 
 
 @registry.register_hparams
 def mtr_tr_dense_3_88():
   hparams = mtr_tr_dense(3)
   hparams.mesh_shape = "model:8;batch:16"
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_dense_3_fast():
+  hparams = mtr_tr_dense(3)
+  hparams.decoder_local_attention_radius = 32
+  hparams.decoder_num_heads = 128
+  hparams.decoder_num_memory_heads = 8
   return hparams
 
 
