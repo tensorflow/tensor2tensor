@@ -841,13 +841,16 @@ def _decode_input_tensor_to_features_dict(feature_map, hparams):
   return features
 
 
+def get_step_from_ckpt_path(path):
+  return int(os.path.basename(path).split("-")[1])
+
+
 def latest_checkpoint_step(ckpt_dir):
   ckpt = tf.train.get_checkpoint_state(ckpt_dir)
   if not ckpt:
     return None
   path = ckpt.model_checkpoint_path
-  step = int(path.split("-")[-1])
-  return step
+  return get_step_from_ckpt_path(path)
 
 
 class DecodeHookArgs(collections.namedtuple(

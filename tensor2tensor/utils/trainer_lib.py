@@ -524,14 +524,24 @@ class T2TExperiment(object):
 
   def continuous_eval(self):
     """Evaluate until checkpoints stop being produced."""
-    for _ in next_checkpoint(self._hparams.model_dir,
-                             self._hparams.eval_timeout_mins):
+    for ckpt_path in next_checkpoint(self._hparams.model_dir,
+                                     self._hparams.eval_timeout_mins):
+      # Skip zero'th step.
+      train_step = decoding.get_step_from_ckpt_path(ckpt_path)
+      if train_step == 0:
+        tf.logging.info("Skipping evaluation at step 0")
+        continue
       self.evaluate()
 
   def continuous_eval_on_train_data(self):
     """Evaluate on train data until checkpoints stop being produced."""
-    for _ in next_checkpoint(self._hparams.model_dir,
-                             self._hparams.eval_timeout_mins):
+    for ckpt_path in next_checkpoint(self._hparams.model_dir,
+                                     self._hparams.eval_timeout_mins):
+      # Skip zero'th step.
+      train_step = decoding.get_step_from_ckpt_path(ckpt_path)
+      if train_step == 0:
+        tf.logging.info("Skipping evaluation at step 0")
+        continue
       self.evaluate_on_train_data()
 
   def test(self):
@@ -600,7 +610,7 @@ class T2TExperiment(object):
       ckpt_generator = next_checkpoint(self._hparams.model_dir)
 
     for ckpt in ckpt_generator:
-      current_step = int(os.path.basename(ckpt).split("-")[1])
+      current_step = decoding.get_step_from_ckpt_path(ckpt)
       tf.logging.info("Decoding step %d" % current_step)
       # Skip checkpoint 0.
       if current_step == 0:
