@@ -66,6 +66,10 @@ class NextFrameBasicStochasticDiscrete(
     basic_deterministic.NextFrameBasicDeterministic):
   """Basic next-frame model with a tiny discrete latent."""
 
+  @property
+  def is_recurrent_model(self):
+    return True
+
   def init_internal_states(self):
     if not self.hparams.concat_internal_states:
       return None
