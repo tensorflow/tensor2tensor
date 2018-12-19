@@ -13,284 +13,318 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Play with a world model."""
+"""Play with a world model.
+
+Run this script with the same parameters as trainer_model_based.py. Note that
+values of most of them have no effect on player, so running just
+
+python -m tensor2tensor/rl/player.py \
+    --output_dir=path/to/your/experiment \
+    --loop_hparams_set=rlmb_base
+
+might work for you.
+
+Use wsad and SPACE to control the agent, 'r' to reset env.
+
+"""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import copy
 import os
+import re
+from copy import deepcopy
 
+import gym
+from gym import wrappers
 from gym.core import Env
+from gym.envs.atari.atari_env import ACTION_MEANING
 from gym.spaces import Box
-from gym.spaces import Discrete
-from gym.utils import play
 
 import numpy as np
 
-from PIL import Image
-from PIL import ImageDraw
-from PIL import ImageFont
-
-from tensor2tensor.data_generators import gym_env
-from tensor2tensor.models.research.rl import get_policy
-from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
-from tensor2tensor.rl.trainer_model_based import FLAGS
+import rl_utils
+from envs.simulated_batch_gym_env import FlatBatchEnv
+from tensor2tensor.rl.trainer_model_based import FLAGS, make_simulated_env_fn, \
+  random_rollout_subsequences, PIL_Image, PIL_ImageDraw
 from tensor2tensor.rl.trainer_model_based import setup_directories
-from tensor2tensor.rl.trainer_model_based import temporary_flags
 
 from tensor2tensor.utils import registry
-from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
 
 
-_font = None
-FONT_SIZE = 20
+flags = tf.flags
+FLAGS = flags.FLAGS
 
 
-def _get_font():
-  global _font
-  if _font is None:
-    font_paths = []
-    for path in font_paths:
-      try:
-        _font = ImageFont.truetype(path, FONT_SIZE)
-        return _font
-      except:  # pylint: disable=bare-except
-        pass
+flags.DEFINE_string("video_dir", "/tmp/gym-results",
+                    "Where to save played trajectories.")
+flags.DEFINE_string("zoom", '4',
+                    "Resize factor of displayed game.")
+flags.DEFINE_string("fps", '20',
+                    "Frames per second.")
 
 
-def _assert_image(img):
-  if isinstance(img, np.ndarray):
-    img = Image.fromarray(np.ndarray.astype(img, np.uint8))
-  return img
+def make_simulated_env(real_env, world_model_dir, hparams, random_starts):
+  # Based on train_agent() from rlmb pipeline.
+  frame_stack_size = hparams.frame_stack_size
+  initial_frame_rollouts = real_env.current_epoch_rollouts(
+      split=tf.contrib.learn.ModeKeys.TRAIN,
+      minimal_rollout_frames=frame_stack_size,
+  )
+  # TODO: use the same version as train_agent? But skip
+  def initial_frame_chooser(batch_size):
+    """Frame chooser."""
+
+    deterministic_initial_frames =\
+        initial_frame_rollouts[0][:frame_stack_size]
+    if not random_starts:
+      # Deterministic starts: repeat first frames from the first rollout.
+      initial_frames = [deterministic_initial_frames] * batch_size
+    else:
+      # Random starts: choose random initial frames from random rollouts.
+      initial_frames = random_rollout_subsequences(
+          initial_frame_rollouts, batch_size, frame_stack_size
+      )
+    return np.stack([
+        [frame.observation.decode() for frame in initial_frame_stack]
+        for initial_frame_stack in initial_frames
+    ])
+  env_fn = make_simulated_env_fn(
+      real_env, hparams,
+      batch_size=1,
+      initial_frame_chooser=initial_frame_chooser,
+      model_dir=world_model_dir
+  )
+  env = env_fn(in_graph=False)
+  flat_env = FlatBatchEnv(env)
+  return flat_env
 
 
-def write_on_image(img, text="", position=(0, 0), color=(255, 255, 255)):
-  img = _assert_image(img)
-  if not text:
-    return img
-  draw = ImageDraw.Draw(img)
-  font = _get_font()
-  draw.text(position, text, color, font=font)
-  return img
+def last_epoch(data_dir):
+  """Infer highest epoch number from file names in data_dir."""
+  names = os.listdir(data_dir)
+  epochs_str = [re.findall(pattern='.*\.(-?\d+)$', string=name)
+                for name in names]
+  epochs_str = sum(epochs_str, [])
+  return max([int(epoch_str) for epoch_str in epochs_str])
 
 
-def concatenate_images(imgs, axis=1):
-  imgs = [_assert_image(img) for img in imgs]
-  imgs_np = [np.array(img) for img in imgs]
-  concatenated_im_np = np.concatenate(imgs_np, axis=axis)
-  return _assert_image(concatenated_im_np)
+class SimulatedEnv(Env):
+  def __init__(self, output_dir, hparams, which_epoch_data='last',
+               random_starts=True):
+    """"Gym environment interface for simulated environment."""
+    hparams = deepcopy(hparams)
+    self._output_dir = output_dir
 
+    subdirectories = [
+      "data", "tmp", "world_model", ("world_model", "debug_videos"),
+      "policy", "eval_metrics"
+    ]
+    directories = setup_directories(output_dir, subdirectories)
+    data_dir = directories["data"]
 
-class DebugBatchEnv(Env):
-  """Debugging Environment."""
-  INFO_PANE_WIDTH = 250
+    if which_epoch_data == 'last':
+      which_epoch_data = last_epoch(data_dir)
+    assert isinstance(which_epoch_data, int), \
+        '{}'.format(type(which_epoch_data))
 
-  def __init__(self, hparams, sess=None):
-    self.action_space = Discrete(6)
-    self.observation_space = Box(
-        low=0, high=255, shape=(210, 160+DebugBatchEnv.INFO_PANE_WIDTH, 3),
-        dtype=np.uint8)
-    self._tmp = 1
-    self.res = None
-    self.sess = sess if sess is not None else tf.Session()
-    self._prepare_networks(hparams, self.sess)
+    self.t2t_env = rl_utils.setup_env(
+      hparams, batch_size=hparams.real_batch_size,
+      max_num_noops=hparams.max_num_noops
+    )
 
-  def _prepare_networks(self, hparams, sess):
-    self.action = tf.placeholder(shape=(1,), dtype=tf.int32)
-    batch_env = SimulatedBatchEnv(hparams.environment_spec, hparams.num_agents)
-    self.reward, self.done = batch_env.simulate(self.action)
-    self.observation = batch_env.observ
-    self.reset_op = batch_env.reset(tf.constant([0], dtype=tf.int32))
+    # Load data.
+    self.t2t_env.start_new_epoch(which_epoch_data, data_dir)
 
-    environment_wrappers = hparams.environment_spec.wrappers
-    wrappers = copy.copy(environment_wrappers) if environment_wrappers else []
+    self.env = make_simulated_env(self.t2t_env, directories["world_model"],
+                                  hparams, random_starts=random_starts)
 
-    to_initialize = [batch_env]
-    for w in wrappers:
-      batch_env = w[0](batch_env, **w[1])
-      to_initialize.append(batch_env)
-
-    def initialization_lambda():
-      for batch_env in to_initialize:
-        batch_env.initialize(sess)
-
-    self.initialize = initialization_lambda
-
-    obs_copy = batch_env.observ + 0
-
-    actor_critic = get_policy(tf.expand_dims(obs_copy, 0), hparams)
-    self.policy_probs = actor_critic.policy.probs[0, 0, :]
-    self.value = actor_critic.value[0, :]
-
-  def render(self, mode="human"):
-    raise NotImplementedError()
-
-  def _fake_reset(self):
-    self._tmp = 0
-    observ = np.ones(shape=(210, 160, 3), dtype=np.uint8) * 10 * self._tmp
-    observ[0, 0, 0] = 0
-    observ[0, 0, 1] = 255
-    self.res = (observ, 0, False, [0.1, 0.5, 0.5], 1.1)
-
-  def _reset_env(self):
-    observ = self.sess.run(self.reset_op)[0, ...]
-    observ[0, 0, 0] = 0
-    observ[0, 0, 1] = 255
-    # TODO(pmilos): put correct numbers
-    self.res = (observ, 0, False, [0.1, 0.5, 0.5], 1.1)
+  def step(self, *args, **kwargs):
+    ob, reward, done, info = self.env.step(*args, **kwargs)
+    return ob, reward, done, info
 
   def reset(self):
-    self._reset_env()
-    observ = self._augment_observation()
-    return observ
+    return self.env.reset()
 
-  def _step_fake(self, action):
-    observ = np.ones(shape=(210, 160, 3), dtype=np.uint8)*10*self._tmp
-    observ[0, 0, 0] = 0
-    observ[0, 0, 1] = 255
+  @property
+  def observation_space(self):
+    return self.t2t_env.observation_space
 
-    self._tmp += 1
-    if self._tmp > 20:
-      self._tmp = 0
+  @property
+  def action_space(self):
+    return self.t2t_env.action_space
 
-    rew = 1
-    done = False
-    probs = np.ones(shape=(6,), dtype=np.float32)/6
-    vf = 0.0
 
-    return observ, rew, done, probs, vf
+class PlayerEnvWrapper(gym.Wrapper):
 
-  def _step_env(self, action):
-    observ, rew, done, probs, vf = self.sess.\
-      run([self.observation, self.reward, self.done, self.policy_probs,
-           self.value],
-          feed_dict={self.action: [action]})
+  RESET_ACTION = 101
 
-    return observ[0, ...], rew[0, ...], done[0, ...], probs, vf
+  HEADER_HIGHT = 11
 
-  def _augment_observation(self):
-    observ, rew, _, probs, vf = self.res
-    info_pane = np.zeros(shape=(210, DebugBatchEnv.INFO_PANE_WIDTH, 3),
-                         dtype=np.uint8)
-    probs_str = ""
-    for p in probs:
-      probs_str += "%.2f" % p + ", "
+  def __init__(self, env):
+    super(PlayerEnvWrapper, self).__init__(env)
 
-    probs_str = probs_str[:-2]
+    # Set observation space
+    orig = self.env.observation_space
+    shape = tuple([orig.shape[0] + self.HEADER_HIGHT] + list(orig.shape[1:]))
+    self.observation_space = gym.spaces.Box(low=orig.low.min(),
+                                            high=orig.high.max(),
+                                            shape=shape, dtype=orig.dtype)
 
-    action = np.argmax(probs)
-    info_str = " Policy:{}\n Action:{}\n Value function:{}\n Reward:{}".format(
-        probs_str, action, vf, rew)
-    print("Info str:{}".format(info_str))
-    # info_pane = write_on_image(info_pane, info_str)
+    # gym play() looks for get_keys_to_action() only on top and bottom level
+    # of env and wrappers stack.
+    self.unwrapped.get_keys_to_action = self.get_keys_to_action
 
-    augmented_observ = concatenate_images([observ, info_pane])
-    augmented_observ = np.array(augmented_observ)
-    return augmented_observ
+  def get_action_meanings(self):
+    return [ACTION_MEANING[i] for i in range(self.action_space.n)]
+
+  def get_keys_to_action(self):
+    # Based on gym atari.py AtariEnv.get_keys_to_action()
+    KEYWORD_TO_KEY = {
+      'UP': ord('w'),
+      'DOWN': ord('s'),
+      'LEFT': ord('a'),
+      'RIGHT': ord('d'),
+      'FIRE': ord(' '),
+    }
+
+    keys_to_action = {}
+
+    for action_id, action_meaning in enumerate(self.get_action_meanings()):
+      keys = []
+      for keyword, key in KEYWORD_TO_KEY.items():
+        if keyword in action_meaning:
+          keys.append(key)
+      keys = tuple(sorted(keys))
+
+      assert keys not in keys_to_action
+      keys_to_action[keys] = action_id
+
+    # Add utility actions
+    keys_to_action[(ord("r"),)] = self.RESET_ACTION
+    return keys_to_action
 
   def step(self, action):
     # Special codes
-    if action == 100:
-      # skip action
-      _, rew, done, _, _ = self.res
-      observ = self._augment_observation()
-      return observ, rew, done, {}
 
-    if action == 101:
-      # reset
-      self.reset()
-      _, rew, done, _, _ = self.res
-      observ = self._augment_observation()
-      return observ, rew, done, {}
+    if action == self.RESET_ACTION:
+      # ob, reward, _, _ = self._last_step
+      ob = np.zeros(self.observation_space.shape)
+      # ob = self._augment_observation(ob, reward)
+      return ob, 0, True, {}
 
-    if action == 102:
-      # play
-      raise NotImplementedError()
+    ob, reward, done, info = self.env.step(action)
+    self._last_step = ob, reward, done, info
 
-    # standard codes
-    observ, rew, done, probs, vf = self._step_env(action)
-    self.res = (observ, rew, done, probs, vf)
+    self.total_reward += reward
 
-    observ = self._augment_observation()
-    return observ, rew, done, {"probs": probs, "vf": vf}
+    ob = self.augment_observation(ob, reward, self.total_reward)
+    return ob, reward, done, info
+
+  def reset(self):
+    ob = self.env.reset()
+    self.total_reward = 0
+    return self.augment_observation(ob, 0, self.total_reward)
+
+  @staticmethod
+  def augment_observation(ob, reward, total_reward):
+    img = PIL_Image().new("RGB", (ob.shape[1], 11,), )
+    draw = PIL_ImageDraw().Draw(img)
+    draw.text((0, 0), "c:{:3}, r:{:3}".format(int(total_reward), int(reward)),
+              fill=(255, 0, 0))
+    header = np.asarray(img)
+    return np.concatenate([header, ob], axis=0)
+
+
+class MockEnv(SimulatedEnv):
+  def __init__(self, *args, **kwargs):
+    self.env = gym.make('FrostbiteDeterministic-v4')
+    self.t2t_env = gym.make('FrostbiteDeterministic-v4')
+
+class MockWrapper(gym.Wrapper):
+  def step(self, action):
+    return self.env.step(action)
+
+  def reset(self):
+    return self.env.reset()
+
+
+def create_simulated_env(
+        output_dir, grayscale, resize_width_factor, resize_height_factor,
+        frame_stack_size, generative_model, generative_model_params,
+        random_starts=True, which_epoch_data='last', **other_hparams
+):
+  # We need these, to initialize T2TGymEnv, but these values (hopefully) have
+  # no effect on player.
+  a_bit_risky_defaults = {
+    'game': 'pong',  # assumes that T2TGymEnv has always reward_range (-1,1)
+    'real_batch_size': 1,
+    'rl_env_max_episode_steps': -1,
+    'max_num_noops': 0
+  }
+
+  for key in a_bit_risky_defaults:
+    if key not in other_hparams:
+      other_hparams[key] = a_bit_risky_defaults[key]
+
+
+  hparams = tf.contrib.training.HParams(
+    grayscale=grayscale,
+    resize_width_factor=resize_width_factor,
+    resize_height_factor=resize_height_factor,
+    frame_stack_size=frame_stack_size,
+    generative_model=generative_model,
+    generative_model_params=generative_model_params,
+    **other_hparams
+  )
+  return SimulatedEnv(output_dir, hparams, which_epoch_data=which_epoch_data,
+                      random_starts=random_starts)
 
 
 def main(_):
   hparams = registry.hparams(FLAGS.loop_hparams_set)
   hparams.parse(FLAGS.loop_hparams)
+  # TODO(konradczechowski) remove this?
+  if 'wm_policy_param_sharing' not in hparams.values().keys():
+    hparams.add_hparam('wm_policy_param_sharing', False)
   output_dir = FLAGS.output_dir
+  video_dir = FLAGS.video_dir
+  fps = int(FLAGS.fps)
+  zoom = int(FLAGS.zoom)
 
-  subdirectories = ["data", "tmp", "world_model", "ppo"]
-  using_autoencoder = hparams.autoencoder_train_steps > 0
-  if using_autoencoder:
-    subdirectories.append("autoencoder")
-  directories = setup_directories(output_dir, subdirectories)
+  # Two options to initialize env:
+  # 1 - with hparams from rlmb run
+  env = SimulatedEnv(output_dir, hparams)
 
-  if hparams.game in gym_env.ATARI_GAMES:
-    game_with_mode = hparams.game + "_deterministic-v4"
-  else:
-    game_with_mode = hparams.game
+  # 2 - explicitly with minimal parameters required.
+  # env = create_simulated_env(
+  #     output_dir=output_dir, grayscale=hparams.grayscale,
+  #     resize_width_factor=hparams.resize_width_factor,
+  #     resize_height_factor=hparams.resize_height_factor,
+  #     frame_stack_size=hparams.frame_stack_size,
+  #     epochs=hparams.epochs,
+  #     generative_model=hparams.generative_model,
+  #     generative_model_params=hparams.generative_model_params,
+  #     intrinsic_reward_scale=0.,
+  # )
 
-  if using_autoencoder:
-    simulated_problem_name = (
-        "gym_simulated_discrete_problem_with_agent_on_%s_autoencoded"
-        % game_with_mode)
-  else:
-    simulated_problem_name = ("gym_simulated_discrete_problem_with_agent_on_%s"
-                              % game_with_mode)
-    if simulated_problem_name not in registry.list_problems():
-      tf.logging.info("Game Problem %s not found; dynamically registering",
-                      simulated_problem_name)
-      gym_env.register_game(hparams.game, game_mode="Deterministic-v4")
+  # Debug option:
+  # env = MockEnv()
 
-  epoch = hparams.epochs-1
-  epoch_data_dir = os.path.join(directories["data"], str(epoch))
-  ppo_model_dir = directories["ppo"]
+  env = PlayerEnvWrapper(env)
 
-  world_model_dir = directories["world_model"]
+  # Not working yet
+  env = wrappers.Monitor(env, video_dir, force=True,
+                         write_upon_reset=True)
 
-  gym_problem = registry.problem(simulated_problem_name)
-
-  model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
-  environment_spec = copy.copy(gym_problem.environment_spec)
-  environment_spec.simulation_random_starts = hparams.simulation_random_starts
-
-  batch_env_hparams = trainer_lib.create_hparams(hparams.ppo_params)
-  batch_env_hparams.add_hparam("model_hparams", model_hparams)
-  batch_env_hparams.add_hparam("environment_spec", environment_spec)
-  batch_env_hparams.num_agents = 1
-
-  with temporary_flags({
-      "problem": simulated_problem_name,
-      "model": hparams.generative_model,
-      "hparams_set": hparams.generative_model_params,
-      "output_dir": world_model_dir,
-      "data_dir": epoch_data_dir,
-  }):
-    sess = tf.Session()
-    env = DebugBatchEnv(batch_env_hparams, sess)
-    sess.run(tf.global_variables_initializer())
-    env.initialize()
-
-    env_model_loader = tf.train.Saver(
-        tf.global_variables("next_frame*"))
-    trainer_lib.restore_checkpoint(world_model_dir, env_model_loader, sess,
-                                   must_restore=True)
-
-    model_saver = tf.train.Saver(
-        tf.global_variables(".*network_parameters.*"))
-    trainer_lib.restore_checkpoint(ppo_model_dir, model_saver, sess)
-
-    key_mapping = gym_problem.env.env.get_keys_to_action()
-    # map special codes
-    key_mapping[()] = 100
-    key_mapping[(ord("r"),)] = 101
-    key_mapping[(ord("p"),)] = 102
-
-    play.play(env, zoom=2, fps=10, keys_to_action=key_mapping)
+  # env.reset()
+  # for i in range(50):
+  #   env.step(i % 3)
+  # k2a = PlayerEnvWrapper.get_keys_to_action(env)
+  from gym.utils import play
+  play.play(env, zoom=zoom, fps=fps)
 
 
 if __name__ == "__main__":
