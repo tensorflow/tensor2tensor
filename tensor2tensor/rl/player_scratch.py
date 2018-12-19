@@ -101,24 +101,94 @@ class SimulatedEnv(Env):
 
     data_dir = directories["data"]
 
-    t2t_env = rl_utils.setup_env(
+    self.t2t_env = rl_utils.setup_env(
       hparams, batch_size=hparams.real_batch_size,
       max_num_noops=hparams.max_num_noops
     )
     # Load data from epochs
     for epoch in range(-1, last_epoch + 1):
-      t2t_env.start_new_epoch(epoch, data_dir)
+      self.t2t_env.start_new_epoch(epoch, data_dir)
       # train_agent_real_env(env, learner, hparams, epoch)
-      t2t_env.generate_data(data_dir)
-
-    self.env = make_simulated_env(t2t_env, directories["world_model"], hparams,
+      # self.t2t_env.generate_data(data_dir)
+      
+    self.env = make_simulated_env(self.t2t_env, directories["world_model"], hparams,
                                   random_starts=random_starts)
 
   def step(self, *args, **kwargs):
-    return self.env.step(*args, **kwargs)
+    self._counter += 1
+    ob, rew, done, info = self.env.step(*args, **kwargs)
+    if self._counter > 50:
+      done = True
+    return ob, rew, done, info
 
   def reset(self):
+    self._counter = 0
     return self.env.reset()
+
+  @property
+  def observation_space(self):
+    return self.t2t_env.observation_space
+
+  @property
+  def action_space(self):
+    return self.t2t_env.action_space
+
+
+class MockEnv(SimulatedEnv):
+  def __init__(self, *args, **kwargs):
+    import gym
+    self.env = gym.make('FrostbiteDeterministic-v4')
+    self.t2t_env = gym.make('FrostbiteDeterministic-v4')
+
+
+ACTION_MEANING = {
+    0 : "NOOP",
+    1 : "FIRE",
+    2 : "UP",
+    3 : "RIGHT",
+    4 : "LEFT",
+    5 : "DOWN",
+    6 : "UPRIGHT",
+    7 : "UPLEFT",
+    8 : "DOWNRIGHT",
+    9 : "DOWNLEFT",
+    10 : "UPFIRE",
+    11 : "RIGHTFIRE",
+    12 : "LEFTFIRE",
+    13 : "DOWNFIRE",
+    14 : "UPRIGHTFIRE",
+    15 : "UPLEFTFIRE",
+    16 : "DOWNRIGHTFIRE",
+    17 : "DOWNLEFTFIRE",
+}
+
+def get_action_meanings(env):
+  # return [ACTION_MEANING[i] for i in self._action_set]
+  return [ACTION_MEANING[i] for i in range(env.action_space.n)]
+
+
+def get_keys_to_action(env):
+  KEYWORD_TO_KEY = {
+    'UP': ord('w'),
+    'DOWN': ord('s'),
+    'LEFT': ord('a'),
+    'RIGHT': ord('d'),
+    'FIRE': ord(' '),
+  }
+
+  keys_to_action = {}
+
+  for action_id, action_meaning in enumerate(get_action_meanings(env)):
+    keys = []
+    for keyword, key in KEYWORD_TO_KEY.items():
+      if keyword in action_meaning:
+        keys.append(key)
+    keys = tuple(sorted(keys))
+
+    assert keys not in keys_to_action
+    keys_to_action[keys] = action_id
+
+  return keys_to_action
 
 
 def create_simulated_env(
@@ -161,27 +231,32 @@ def main(_):
 
   # Two options to initialize env:
   # 1 - with hparams from rlmb run
-  env1 = SimulatedEnv(output_dir, hparams)
+  env = SimulatedEnv(output_dir, hparams)
 
   # 2 - explicitly with minimal parameters required.
-  env2 = create_simulated_env(
-      output_dir=output_dir, grayscale=hparams.grayscale,
-      resize_width_factor=hparams.resize_width_factor,
-      resize_height_factor=hparams.resize_height_factor,
-      frame_stack_size=hparams.frame_stack_size,
-      epochs=hparams.epochs,
-      generative_model=hparams.generative_model,
-      generative_model_params=hparams.generative_model_params,
-      intrinsic_reward_scale=0.,
-  )
+  # env = create_simulated_env(
+  #     output_dir=output_dir, grayscale=hparams.grayscale,
+  #     resize_width_factor=hparams.resize_width_factor,
+  #     resize_height_factor=hparams.resize_height_factor,
+  #     frame_stack_size=hparams.frame_stack_size,
+  #     epochs=hparams.epochs,
+  #     generative_model=hparams.generative_model,
+  #     generative_model_params=hparams.generative_model_params,
+  #     intrinsic_reward_scale=0.,
+  # )
 
-  for env in [env1, env2]:
-    for _ in range(5):
-      ob = env.reset()
-      for i in range(50):
-        ob, rew, _, _ = env.step(i % 3)
+  # Debug option:
+  # env = MockEnv()
 
-  a = 1
+  from gym import wrappers
+
+  env = wrappers.Monitor(env, "/tmp/gym-results", force=True,
+                         write_upon_reset=True)
+
+  from gym.utils import play
+
+  k2a = get_keys_to_action(env)
+  play.play(env, zoom=4, fps=50, keys_to_action=k2a)
 
 
 if __name__ == "__main__":
