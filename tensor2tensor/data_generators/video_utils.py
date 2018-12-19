@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import os
 import numpy as np
 import six
@@ -27,6 +28,7 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
@@ -50,6 +52,35 @@ def resize_video_frames(images, size):
             tf.image.resize_images(image, [size, size],
                                    tf.image.ResizeMethod.BILINEAR)))
   return resized_images
+
+
+def video_augmentation(features, hue=False, saturate=False, contrast=False):
+  """Augments video with optional hue, saturation and constrast.
+
+  Args:
+    features: dict, with keys "inputs", "targets".
+              features["inputs"], 4-D Tensor, shape=(THWC)
+              features["targets"], 4-D Tensor, shape=(THWC)
+    hue: bool, apply hue_transform.
+    saturate: bool, apply saturation transform.
+    contrast: bool, apply constrast transform.
+  Returns:
+    augment_features: dict with transformed "inputs" and "targets".
+  """
+  inputs, targets = features["inputs"], features["targets"]
+  in_steps = common_layers.shape_list(inputs)[0]
+
+  # makes sure that the same augmentation is applied to both input and targets.
+  # if input is 4-D, then tf.image applies the same transform across the batch.
+  video = tf.concat((inputs, targets), axis=0)
+  if hue:
+    video = tf.image.random_hue(video, max_delta=0.2)
+  if saturate:
+    video = tf.image.random_saturation(video, lower=0.5, upper=1.5)
+  if contrast:
+    video = tf.image.random_contrast(video, lower=0.5, upper=1.5)
+  features["inputs"], features["targets"] = video[:in_steps], video[in_steps:]
+  return features
 
 
 def create_border(video, color="blue", border_percent=2):
@@ -635,6 +666,37 @@ class VideoProblemOld(problem.Problem):
         metrics.Metrics.NEG_LOG_PERPLEXITY
     ]
     return eval_metrics
+
+
+class VideoAugmentationProblem(VideoProblem):
+  """Base class for video data-augmentation.
+
+  By default applies a random hue, contrast and saturation transformation
+  to every video. To disable any of these transformations, inherit
+  this class and set the corresponding property to False.
+  """
+
+  @property
+  def hue(self):
+    return True
+
+  @property
+  def contrast(self):
+    return True
+
+  @property
+  def saturate(self):
+    return True
+
+  def preprocess(self, dataset, mode, hparams, interleave=True):
+    dataset = super(VideoAugmentationProblem, self).preprocess(
+        dataset=dataset, mode=mode, hparams=hparams, interleave=interleave)
+    video_augment_func = functools.partial(
+        video_augmentation, hue=self.hue, contrast=self.contrast,
+        saturate=self.saturate)
+    if mode == tf.estimator.ModeKeys.TRAIN:
+      dataset = dataset.map(video_augment_func)
+    return dataset
 
 
 class Video2ClassProblem(VideoProblemOld):

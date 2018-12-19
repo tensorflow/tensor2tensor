@@ -45,6 +45,19 @@ class VideoUtilsTest(tf.test.TestCase):
     problem = registry.problem("video_stochastic_shapes10k")
     return predictions, problem
 
+  def testVideoAugmentation(self):
+    # smoke-test, test for shapes.
+    with tf.Graph().as_default():
+      inputs = tf.random_uniform(shape=(3, 64, 64, 3))
+      targets = tf.random_uniform(shape=(10, 64, 64, 3))
+      features = {"inputs": inputs, "targets": targets}
+      augment = video_utils.video_augmentation(
+          features, hue=True, saturate=True, contrast=True)
+      with tf.Session() as sess:
+        augment_dict = sess.run(augment)
+        self.assertEqual(augment_dict["inputs"].shape, (3, 64, 64, 3))
+        self.assertEqual(augment_dict["targets"].shape, (10, 64, 64, 3))
+
   def testDecodeInMemoryTrue(self):
     predictions, problem = self.get_predictions()
     decode_hparams = decoding.decode_hparams()
