@@ -67,9 +67,10 @@ class VideoBairRobotPushing(video_utils.VideoProblem):
   def is_generate_per_split(self):
     return True
 
+  # num_train_files * num_videos * num_frames
   @property
   def total_number_of_frames(self):
-    return 1305600
+    return 167 * 256 * 30
 
   @property
   def random_skip(self):
@@ -144,12 +145,19 @@ class VideoBairRobotPushing(video_utils.VideoProblem):
     tar.extractall(tmp_dir)
     tar.close()
 
-    if dataset_split == problem.DatasetSplit.TRAIN:
-      base_dir = os.path.join(tmp_dir, "softmotion30_44k/train/*")
-    else:
+    if dataset_split == problem.DatasetSplit.TEST:
       base_dir = os.path.join(tmp_dir, "softmotion30_44k/test/*")
+      filenames = tf.gfile.Glob(base_dir)
+    else:
+      base_dir = os.path.join(tmp_dir, "softmotion30_44k/train/*")
+      filenames = tf.gfile.Glob(base_dir)
 
-    filenames = tf.gfile.Glob(base_dir)
+      # the test-set contains just 256 videos so this should be sufficient.
+      if dataset_split == problem.DatasetSplit.TRAIN:
+        filenames = filenames[:-2]
+      else:
+        filenames = filenames[-2:]
+
     for frame_number, frame, state, action in self.parse_frames(filenames):
       yield {
           "frame_number": [frame_number],
