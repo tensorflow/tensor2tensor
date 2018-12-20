@@ -24,8 +24,11 @@ python -m tensor2tensor/rl/player.py \
 
 might work for you.
 
-Use wsad and SPACE to control the agent, 'r' to reset env.
-
+Controls:
+  WSAD and SPACE to control the agent.
+  R key to reset env.
+  C key to toggle WAIT mode.
+  N to perform NOOP action under WAIT mode.
 """
 
 from __future__ import absolute_import
@@ -37,6 +40,7 @@ import re
 from copy import deepcopy
 
 import gym
+import six
 from gym import wrappers
 from gym.core import Env
 from gym.envs.atari.atari_env import ACTION_MEANING
@@ -64,6 +68,10 @@ flags.DEFINE_string("zoom", '4',
                     "Resize factor of displayed game.")
 flags.DEFINE_string("fps", '20',
                     "Frames per second.")
+flags.DEFINE_string("epoch", 'last',
+                    "Data from which epoch to use.")
+flags.DEFINE_string("env", 'simulated',
+                    "Either to use 'simulated' or 'real' env.")
 
 
 def make_simulated_env(real_env, world_model_dir, hparams, random_starts):
@@ -160,15 +168,17 @@ class SimulatedEnv(Env):
 class PlayerEnvWrapper(gym.Wrapper):
 
   RESET_ACTION = 101
+  TOGGLE_WAIT_ACTION = 102
+  WAIT_MODE_NOOP_ACTION = 103
 
-  HEADER_HIGHT = 11
+  HEADER_HEIGHT = 12
 
   def __init__(self, env):
     super(PlayerEnvWrapper, self).__init__(env)
 
     # Set observation space
     orig = self.env.observation_space
-    shape = tuple([orig.shape[0] + self.HEADER_HIGHT] + list(orig.shape[1:]))
+    shape = tuple([orig.shape[0] + self.HEADER_HEIGHT] + list(orig.shape[1:]))
     self.observation_space = gym.spaces.Box(low=orig.low.min(),
                                             high=orig.high.max(),
                                             shape=shape, dtype=orig.dtype)
@@ -177,8 +187,14 @@ class PlayerEnvWrapper(gym.Wrapper):
     # of env and wrappers stack.
     self.unwrapped.get_keys_to_action = self.get_keys_to_action
 
+    self._wait = True
+    self.action_meaning = {i: ACTION_MEANING[i]
+                           for i in range(self.action_space.n)}
+    self.name_to_action_num = {v: k for k, v in
+                               six.iteritems(self.action_meaning)}
+
   def get_action_meanings(self):
-    return [ACTION_MEANING[i] for i in range(self.action_space.n)]
+    return [self.action_meaning[i] for i in range(self.action_space.n)]
 
   def get_keys_to_action(self):
     # Based on gym atari.py AtariEnv.get_keys_to_action()
@@ -204,16 +220,31 @@ class PlayerEnvWrapper(gym.Wrapper):
 
     # Add utility actions
     keys_to_action[(ord("r"),)] = self.RESET_ACTION
+    keys_to_action[(ord("c"),)] = self.TOGGLE_WAIT_ACTION
+    keys_to_action[(ord("n"),)] = self.WAIT_MODE_NOOP_ACTION
+
     return keys_to_action
 
   def step(self, action):
     # Special codes
+    if action == self.TOGGLE_WAIT_ACTION:
+      self._wait = not self._wait
+      ob, reward, done, info = self._last_step
+      ob = self.augment_observation(ob, reward, self.total_reward)
+      return ob, reward, done, info
 
     if action == self.RESET_ACTION:
-      # ob, reward, _, _ = self._last_step
-      ob = np.zeros(self.observation_space.shape)
-      # ob = self._augment_observation(ob, reward)
+      ob = self.empty_observation()
       return ob, 0, True, {}
+
+    if self._wait and action == self.name_to_action_num['NOOP']:
+      ob, reward, done, info = self._last_step
+      ob = self.augment_observation(ob, reward, self.total_reward)
+      return ob, reward, done, info
+
+    if action == self.WAIT_MODE_NOOP_ACTION:
+      action = self.name_to_action_num['NOOP']
+
 
     ob, reward, done, info = self.env.step(action)
     self._last_step = ob, reward, done, info
@@ -225,23 +256,34 @@ class PlayerEnvWrapper(gym.Wrapper):
 
   def reset(self):
     ob = self.env.reset()
+    self._last_step = ob, 0, False, {}
     self.total_reward = 0
     return self.augment_observation(ob, 0, self.total_reward)
 
-  @staticmethod
-  def augment_observation(ob, reward, total_reward):
-    img = PIL_Image().new("RGB", (ob.shape[1], 11,), )
+  def empty_observation(self):
+    return np.zeros(self.observation_space.shape)
+
+  def augment_observation(self, ob, reward, total_reward):
+    img = PIL_Image().new("RGB",
+                          (ob.shape[1], PlayerEnvWrapper.HEADER_HEIGHT,))
     draw = PIL_ImageDraw().Draw(img)
-    draw.text((0, 0), "c:{:3}, r:{:3}".format(int(total_reward), int(reward)),
+    draw.text((1, 0), "c:{:3}, r:{:3}".format(int(total_reward), int(reward)),
               fill=(255, 0, 0))
     header = np.asarray(img)
+    del img
+    header.setflags(write=1)
+    if self._wait:
+      pixel_fill = (0, 255, 0)
+    else:
+      pixel_fill = (255, 0, 0)
+    header[0, :, :] = pixel_fill
     return np.concatenate([header, ob], axis=0)
 
 
 class MockEnv(SimulatedEnv):
   def __init__(self, *args, **kwargs):
-    self.env = gym.make('FrostbiteDeterministic-v4')
-    self.t2t_env = gym.make('FrostbiteDeterministic-v4')
+    self.env = gym.make('PongDeterministic-v4')
+    self.t2t_env = gym.make('PongDeterministic-v4')
 
 class MockWrapper(gym.Wrapper):
   def step(self, action):
@@ -293,10 +335,16 @@ def main(_):
   video_dir = FLAGS.video_dir
   fps = int(FLAGS.fps)
   zoom = int(FLAGS.zoom)
+  epoch = FLAGS.epoch if FLAGS.epoch == 'last' else int(FLAGS.epoch)
 
   # Two options to initialize env:
   # 1 - with hparams from rlmb run
-  env = SimulatedEnv(output_dir, hparams)
+  if FLAGS.env == "simulated":
+    env = SimulatedEnv(output_dir, hparams)
+  elif FLAGS.env == "real":
+    env = MockEnv()
+  else:
+    raise ValueError("Invalid 'env' flag {}".format(FLAGS.env))
 
   # 2 - explicitly with minimal parameters required.
   # env = create_simulated_env(
@@ -310,12 +358,8 @@ def main(_):
   #     intrinsic_reward_scale=0.,
   # )
 
-  # Debug option:
-  # env = MockEnv()
-
   env = PlayerEnvWrapper(env)
 
-  # Not working yet
   env = wrappers.Monitor(env, video_dir, force=True,
                          write_upon_reset=True)
 
