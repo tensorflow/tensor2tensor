@@ -679,7 +679,7 @@ def get_dilation_rates(hparams, width):
   # dil_rate=1 means no dilation.
   allowed_dilations = [[1]*5]
   apply_dilations = hparams.get("latent_apply_dilations", False)
-  dilation_rates = [1, 3]   # Number of holes between each filter element.
+  dilation_rates = hparams.get("latent_dilation_rates", [1, 3])
   if apply_dilations:
     for rate in dilation_rates:
       # k + (k - 1) * rate but k is harcoded to be 3 everywhere.

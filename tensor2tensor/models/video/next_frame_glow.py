@@ -55,6 +55,7 @@ def next_frame_glow_hparams():
   hparams.add_hparam("num_cond_latents", 1)
   hparams.add_hparam("latent_architecture", "glow_resnet")
   hparams.add_hparam("latent_apply_dilations", False)
+  hparams.add_hparam("latent_dilation_rates", [1, 3])
   # Use latent skip connections
   hparams.add_hparam("model_input", False)
   hparams.add_hparam("cond_first_frame", False)

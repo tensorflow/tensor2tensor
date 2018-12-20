@@ -24,10 +24,10 @@ from tensor2tensor.models.video import nfg_test_utils
 import tensorflow as tf
 
 conv3d_net_hparams = (
-    # ("conv3d_net", 2, 2, "conv3d_net", "conditional", -1, 3),
+    ("conv3d_net", 2, 2, "conv3d_net", "conditional", -1, 3),
     ("conv3d_net_gatu", 2, 2, "conv3d_net", "conditional", -1, 3, False, False,
-     "gatu"),)
-    # ("conv3d_dil", 2, 2, "conv3d_net", "conditional", -1, -1, False, True),)
+     "gatu"),
+    ("conv3d_dil", 2, 2, "conv3d_net", "conditional", -1, -1, False, True),)
 
 
 class NextFrameGlowConv3DTest(nfg_test_utils.NextFrameGlowTest,
