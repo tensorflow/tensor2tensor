@@ -1604,7 +1604,8 @@ def transformer_tall_pretrain_lm_tpu_adafactor_large():
   hparams.filter_size = 32768
   hparams.batch_size = 4
   hparams.multiproblem_mixing_schedule = "constant"
-  hparams.multiproblem_schedule_threshold = 0.3
+  # Task order: LM, en-de/fr/ro/de-en/fr-en/ro-en/cnndm/mnli/squad.
+  hparams.multiproblem_per_task_threshold = "16,4,8,1,4,8,1,2,1,2"
   return hparams
 
 

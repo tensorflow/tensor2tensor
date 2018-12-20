@@ -262,6 +262,14 @@ def basic_params1():
       # mixing should stop (eg: 0.5 means stop at 50-50 mixing, 0.8 means stop
       # at 20-80 mixing for the primary-others mixing case.)
       multiproblem_schedule_threshold=0.5,
+      # For more than 2 tasks, we may want to specify per-task thresholds here.
+      # In that case, this needs to be a string with as many floating point
+      # numbers as the number of tasks in the multi-problem. These numbers
+      # are later normalized to add up to 1 and taken as probabilities for
+      # each task. This enforces a constant mixing schedule and if this is
+      # empty then the threshold from above is used for the first task and
+      # the other tasks get the remaining probability split uniformly.
+      multiproblem_per_task_threshold="",
       # The number of examples at which the proportion of the mixed in datasets
       # is multiproblem_schedule_threshold
       multiproblem_schedule_max_examples=1e7,

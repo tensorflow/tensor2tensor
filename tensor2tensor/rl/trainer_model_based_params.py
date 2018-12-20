@@ -82,7 +82,7 @@ def _rlmb_base():
       real_sampling_temp=1.0,
 
       # Sampling temperatures to try during eval.
-      eval_sampling_temps=[0.0, 0.2, 0.5, 0.8, 1.0, 2.0],
+      eval_sampling_temps=[0.5, 0.0, 1.0],
       eval_max_num_noops=8,
 
       game="pong",
@@ -94,7 +94,7 @@ def _rlmb_base():
       # Number of batches to run for world model evaluation.
       wm_eval_num_batches=8,
       # Ratios of ppo_epoch_length to report reward_accuracy on.
-      wm_eval_rollout_ratios=[0.25, 0.5, 1, 2],
+      wm_eval_rollout_ratios=[0.25, 1],
       stop_loop_early=False,  # To speed-up tests.
       rl_env_max_episode_steps=-1,  # Use default from gym.make()
       # Number of last observations to feed to the agent and world model.
@@ -135,7 +135,7 @@ def rlmb_ppo_base():
       real_batch_size=1,
       # Number of simulated environments to train on simultaneously.
       simulated_batch_size=16,
-      eval_batch_size=30,
+      eval_batch_size=64,
       wm_policy_param_sharing=False,
 
       # Unused; number of PPO epochs is calculated from the real frame limit.

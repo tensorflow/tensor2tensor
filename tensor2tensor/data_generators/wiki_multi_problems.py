@@ -22,6 +22,7 @@ from __future__ import print_function
 from tensor2tensor.data_generators import cnn_dailymail
 from tensor2tensor.data_generators import multi_problem
 from tensor2tensor.data_generators import multinli
+from tensor2tensor.data_generators import squad
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import translate_ende
 from tensor2tensor.data_generators import translate_enfr
@@ -143,6 +144,7 @@ class LanguagemodelMultiWikiTranslate(multi_problem.MultiProblem):
     self.task_list.append(
         cnn_dailymail.SummarizeCnnDailymailWikiLMMultiVocab64k())
     self.task_list.append(multinli.MultiNLIWikiLMMultiVocab64k())
+    self.task_list.append(squad.SquadConcatMulti64k())
 
   @property
   def vocab_type(self):

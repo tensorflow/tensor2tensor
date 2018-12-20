@@ -275,6 +275,21 @@ class MultiProblem(problem.Problem):
         tf.logging.info("Schedule mixing threshold "
                         "%.2f" % hparams.multiproblem_schedule_threshold)
 
+        # If per-task thresholds are specified, use them.
+        thresholds = None
+        if hparams.multiproblem_per_task_threshold:
+          thresholds = hparams.multiproblem_per_task_threshold.split(",")
+          thresholds = [float(t) for t in thresholds]  # Convert to floats.
+          thresholds_sum = sum(thresholds)
+          tf.logging.info("Per-task thresholds: %s." % str(thresholds))
+          thresholds = [t / thresholds_sum for t in thresholds]  # Normalize.
+          thresholds = [sum(thresholds[:i+1]) for i in range(len(thresholds))]
+          tf.logging.info("Per-task threshold sums: %s." % str(thresholds))
+          if len(thresholds) != len(self.task_list):
+            tf.logging.warn("Specified %d thresholds but encountered %d tasks."
+                            % (len(thresholds), len(self.task_list)))
+            thresholds = None
+
         def sample_task(curr_task, num_tasks_left, randnum):
           """A recursive function to sample a task.
 
@@ -293,6 +308,14 @@ class MultiProblem(problem.Problem):
           """
           if num_tasks_left == 0:
             return get_next_from_dataset(dataset_iterators[curr_task])
+
+          if thresholds is not None:  # Use per-task thresholds if specified.
+            prob_sum = thresholds[curr_task]
+            return tf.cond(
+                randnum < prob_sum,
+                lambda: get_next_from_dataset(dataset_iterators[curr_task]),
+                lambda: sample_task(curr_task+1, num_tasks_left-1, randnum)
+            )
 
           # When curr_task is 0, the primary task, the new prob is the same as
           # the original probability. `tf.greater` indicates that the primary
