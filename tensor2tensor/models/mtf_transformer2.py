@@ -121,7 +121,9 @@ class MtfUnitransformer(mtf_model.MtfModel):
         output_vocab_size=self._targets_vocab_size,
         autoregressive=self.autoregressive,
         max_length=hparams.max_length,
-        z_loss=hparams.z_loss)
+        z_loss=hparams.z_loss,
+        layout=hparams.layout,
+        mesh_shape=hparams.mesh_shape)
 
   def _mtf_model_fn(self, features, mesh):
     self._original_features = features
@@ -222,7 +224,9 @@ class MtfBitransformer(MtfUnitransformer):
         max_length=hparams.max_length,
         shared_embedding=hparams.shared_embedding,
         label_smoothing=hparams.label_smoothing,
-        z_loss=hparams.z_loss)
+        z_loss=hparams.z_loss,
+        layout=hparams.layout,
+        mesh_shape=hparams.mesh_shape)
 
   def _mtf_model_fn(self, features, mesh):
     self._original_features = features
@@ -647,7 +651,7 @@ def mtr_tr_dense_3_88():
 
 @registry.register_hparams
 def mtr_tr_dense_3_fast():
-  hparams = mtr_tr_dense(3)
+  hparams = mtr_tr_dense_3()
   hparams.decoder_local_attention_radius = 32
   hparams.decoder_num_heads = 128
   hparams.decoder_num_memory_heads = 8
@@ -678,6 +682,15 @@ def mtr_tr_dense_local_0_h1_16():
   hparams = mtr_tr_dense_local_0()
   hparams.decoder_num_heads = 16
   hparams.decoder_num_memory_heads = 1
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_dense_local_0_h1_8_kv256():
+  hparams = mtr_tr_dense_local_0()
+  hparams.decoder_num_heads = 8
+  hparams.decoder_num_memory_heads = 1
+  hparams.d_kv = 256
   return hparams
 
 
