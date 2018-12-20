@@ -127,7 +127,8 @@ class StackWrapper(WrapperBase):
     if initial_frames is None:
       inx = [1, self.history, 1, 1, 1]
       initial_frames = tf.tile(tf.expand_dims(new_values, axis=1), inx)
-    assign_op = tf.scatter_update(self._observ, indices, initial_frames)
+    with tf.control_dependencies([new_values]):
+      assign_op = tf.scatter_update(self._observ, indices, initial_frames)
     with tf.control_dependencies([assign_op]):
       return tf.gather(self.observ, indices)
 
