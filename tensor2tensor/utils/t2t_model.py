@@ -1456,6 +1456,8 @@ class T2TModel(base.Layer):
     if already_has_ckpt:
       return
 
+    log_info("Checkpoint dir: %s", ckpt_dir)
+
     # TODO(mitchellstern): Add support for partitioned variables?
     reader = tf.contrib.framework.load_checkpoint(ckpt_dir)
     variable_map = {}
@@ -1499,6 +1501,11 @@ class T2TModel(base.Layer):
     else:
       if self._hparams.warm_start_from:
         self.initialize_from_ckpt(self._hparams.warm_start_from)
+
+      # When loading weights from a pre-trained model, you want to be able to
+      # load separate weights into the encoder and decoder.
+      if self._hparams.warm_start_from_second:
+        self.initialize_from_ckpt(self._hparams.warm_start_from_second)
 
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.TRAIN, loss=loss, train_op=train_op)

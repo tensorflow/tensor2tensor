@@ -310,7 +310,11 @@ def basic_params1():
       multiproblem_max_input_length=-1,
       multiproblem_max_target_length=-1,
       # If positive, makes training targets fixed-length in MultiProblem.
-      multiproblem_fixed_train_length=-1
+      multiproblem_fixed_train_length=-1,
+      # Load weights from a second model. For instance, when using
+      # pre-trained weights, you might want to initialize the encoder
+      # and decoder by loading different models.
+      warm_start_from_second=""
   )
 
 

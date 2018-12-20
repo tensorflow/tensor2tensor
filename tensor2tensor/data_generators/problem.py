@@ -1163,6 +1163,11 @@ def _create_modalities(problem_hparams, hparams):
   modality = {}
   for feature_name, modality_cls in six.iteritems(problem_hparams.modality):
     vocab_size = problem_hparams.vocab_size[feature_name]
+    # If needed for using a pre-trained model's vocabulary where extra indices
+    # were allocated for adding new tasks with unique task ids.
+    if (hasattr(hparams, "multiproblem_vocab_size") and
+        hparams.multiproblem_vocab_size > 0):
+      vocab_size = hparams.multiproblem_vocab_size
     modality_cls = modality_overrides.get(feature_name, modality_cls)
     modality[feature_name] = modality_cls(hparams, vocab_size)
   problem_hparams.modality = modality

@@ -50,17 +50,32 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
     inputs_segmentation = features["inputs_segmentation"]
     inputs_position = features["inputs_position"]
     targets_segmentation = features["targets_segmentation"]
-    encoder_self_attention_bias = common_attention.attention_bias_same_segment(
-        inputs_segmentation, inputs_segmentation)
+    if (hasattr(hparams, "unidirectional_encoder") and
+        hparams.unidirectional_encoder):
+      tf.logging.info("Using unidirectional encoder")
+      encoder_self_attention_bias = (
+          common_attention.attention_bias_lower_triangle(
+              common_layers.shape_list(inputs)[1]))
+    else:
+      encoder_self_attention_bias = (
+          common_attention.attention_bias_same_segment(
+              inputs_segmentation, inputs_segmentation))
     encoder_decoder_attention_bias = (
         common_attention.attention_bias_same_segment(targets_segmentation,
                                                      inputs_segmentation))
   else:
-    # Usual case - not a packed dataset.
     encoder_padding = common_attention.embedding_to_padding(encoder_input)
     ignore_padding = common_attention.attention_bias_ignore_padding(
         encoder_padding)
-    encoder_self_attention_bias = ignore_padding
+    if (hasattr(hparams, "unidirectional_encoder") and
+        hparams.unidirectional_encoder):
+      tf.logging.info("Using unidirectional encoder")
+      encoder_self_attention_bias = (
+          common_attention.attention_bias_lower_triangle(
+              common_layers.shape_list(inputs)[1]))
+    else:
+      # Usual case - not a packed dataset.
+      encoder_self_attention_bias = ignore_padding
     encoder_decoder_attention_bias = ignore_padding
     inputs_position = None
   if hparams.proximity_bias:
@@ -103,7 +118,8 @@ def transformer_encoder(encoder_input,
                         nonpadding=None,
                         save_weights_to=None,
                         make_image_summary=True,
-                        losses=None):
+                        losses=None,
+                        attn_bias_for_padding=None):
   """A stack of transformer layers.
 
   Args:
@@ -123,6 +139,8 @@ def transformer_encoder(encoder_input,
       a string key created from the variable scope (including name).
     make_image_summary: Whether to make an attention image summary.
     losses: optional list onto which to append extra training losses
+    attn_bias_for_padding: Padded attention bias in case a unidirectional
+      encoder is being used where future attention is masked.
 
   Returns:
     y: a Tensors
@@ -149,8 +167,10 @@ def transformer_encoder(encoder_input,
     if nonpadding is not None:
       padding = 1.0 - nonpadding
     else:
-      padding = common_attention.attention_bias_to_padding(
-          encoder_self_attention_bias)
+      attention_bias = encoder_self_attention_bias
+      if attn_bias_for_padding is not None:
+        attention_bias = attn_bias_for_padding
+      padding = common_attention.attention_bias_to_padding(attention_bias)
       nonpadding = 1.0 - padding
     pad_remover = None
     if hparams.use_pad_remover and not common_layers.is_xla_compiled():

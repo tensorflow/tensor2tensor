@@ -92,6 +92,11 @@ class Transformer(t2t_model.T2TModel):
     encoder_input = tf.nn.dropout(encoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
 
+    attn_bias_for_padding = None
+    # Otherwise the encoder will just use encoder_self_attention_bias.
+    if hparams.unidirectional_encoder:
+      attn_bias_for_padding = encoder_decoder_attention_bias
+
     encoder_output = transformer_encoder(
         encoder_input,
         self_attention_bias,
@@ -99,7 +104,8 @@ class Transformer(t2t_model.T2TModel):
         nonpadding=features_to_nonpadding(features, "inputs"),
         save_weights_to=self.attention_weights,
         make_image_summary=not common_layers.is_xla_compiled(),
-        losses=losses)
+        losses=losses,
+        attn_bias_for_padding=attn_bias_for_padding)
 
     return encoder_output, encoder_decoder_attention_bias
 
@@ -1375,6 +1381,9 @@ def transformer_base_v1():
   # This is useful for programs that can automatically compare experiments side
   #   by side based on the same metric names.
   hparams.add_hparam("overload_eval_metric_name", "")
+  # For making a transformer encoder unidirectional by using masked
+  # attention.
+  hparams.add_hparam("unidirectional_encoder", False)
   return hparams
 
 
