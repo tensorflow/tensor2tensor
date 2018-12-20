@@ -54,6 +54,7 @@ def glow_hparams():
   # Coupling layer, additive or affine.
   hparams.add_hparam("coupling", "affine")
   hparams.add_hparam("coupling_width", 512)
+  hparams.add_hparam("coupling_dropout", 0.0)
   hparams.add_hparam("top_prior", "single_conv")
   # init_batch_size denotes the number of examples used for data-dependent
   # initialization. A higher init_batch_size is required for training
