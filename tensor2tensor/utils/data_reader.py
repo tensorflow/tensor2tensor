@@ -46,10 +46,13 @@ def example_length(example):
 
 def example_valid_size(example, min_length, max_length):
   length = example_length(example)
-  return tf.logical_and(
+  is_valid = tf.logical_and(
       length >= min_length,
       length <= max_length,
   )
+  if not is_valid:
+    print(f"Invalid example {example['example_id']}")
+  return is_valid
 
 
 def padded_batch(dataset, batch_size, padded_shapes=None):

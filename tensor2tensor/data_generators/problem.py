@@ -279,6 +279,8 @@ class Problem(object):
     Returns:
       an integer
     """
+    # TODO fathom debug
+    print(f'max_length = {model_hparams.split_to_length} {model_hparams.max_length} {model_hparams.batch_size}')
     return (model_hparams.split_to_length or model_hparams.max_length or
             model_hparams.batch_size)
 
@@ -837,6 +839,8 @@ class Problem(object):
       return data_reader.example_valid_size(example, hparams.min_length,
                                             max_length)
 
+    # TODO Fathom debug logging
+    print(f'Drop long sequences? {is_training} {hparams.eval_drop_long_sequences}')
     def gpu_valid_size(example):
       drop_long_sequences = is_training or hparams.eval_drop_long_sequences
       return data_reader.example_valid_size(example, hparams.min_length,
@@ -928,6 +932,7 @@ class Problem(object):
             hparams,
             shard_multiplier=num_shards,
             length_multiplier=self.get_hparams().batch_size_multiplier)
+        print(f'Batching scheme = {batching_scheme}')
         if hparams.use_fixed_batch_size:
           # Here  batch_size really means examples per datashard.
           batching_scheme["batch_sizes"] = [hparams.batch_size]
