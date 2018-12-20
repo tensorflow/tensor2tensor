@@ -1550,9 +1550,83 @@ def transformer_tall():
   hparams.num_hidden_layers = 12
   hparams.num_heads = 12
   hparams.label_smoothing = 0.0
-  hparams.max_length = 512
+  hparams.max_length = 1024
   hparams.eval_drop_long_sequences = True
   hparams.multiproblem_mixing_schedule = "pretrain"
+  hparams.multiproblem_vocab_size = 65536
+  hparams.clip_grad_norm = 1.0
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tall_finetune_tied():
+  """Tied means fine-tune CNN/DM summarization as LM."""
+  hparams = transformer_tall()
+  hparams.multiproblem_max_input_length = 750
+  hparams.multiproblem_max_target_length = 100
+  hparams.multiproblem_schedule_max_examples = 0
+  hparams.learning_rate_schedule = (
+      "linear_warmup*constant*cosdecay")
+  hparams.learning_rate_constant = 5e-5
+  hparams.learning_rate_warmup_steps = 100
+  # Set train steps to learning_rate_decay_steps or less
+  hparams.learning_rate_decay_steps = 80000
+  hparams.multiproblem_target_eval_only = True
+  hparams.multiproblem_reweight_label_loss = True
+  hparams.multiproblem_label_weight = 1.0
+  hparams.optimizer = "TrueAdam"
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tall_train_tied():
+  """Tied means train CNN/DM summarization as LM."""
+  hparams = transformer_tall()
+  hparams.multiproblem_max_input_length = 750
+  hparams.multiproblem_max_target_length = 100
+  hparams.multiproblem_schedule_max_examples = 0
+  hparams.learning_rate_schedule = (
+      "linear_warmup*constant*cosdecay")
+  hparams.learning_rate_constant = 2e-4
+  hparams.learning_rate_warmup_steps = 8000
+  # Set train steps to learning_rate_decay_steps or less
+  hparams.learning_rate_decay_steps = 150000
+  hparams.multiproblem_target_eval_only = True
+  hparams.multiproblem_reweight_label_loss = True
+  hparams.multiproblem_label_weight = 1.0
+  hparams.optimizer = "TrueAdam"
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tall_finetune_uniencdec():
+  """Fine-tune CNN/DM with a unidirectional encoder and decoder."""
+  hparams = transformer_tall()
+  hparams.max_input_seq_length = 750
+  hparams.max_target_seq_length = 100
+  hparams.optimizer = "TrueAdam"
+  hparams.learning_rate_schedule = (
+      "linear_warmup*constant*cosdecay")
+  hparams.learning_rate_decay_steps = 80000
+  hparams.learning_rate_constant = 5e-5
+  hparams.learning_rate_warmup_steps = 100
+  hparams.unidirectional_encoder = True
+  hparams.load_encoder = False
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tall_train_uniencdec():
+  """Train CNN/DM with a unidirectional encoder and decoder."""
+  hparams = transformer_tall()
+  hparams.max_input_seq_length = 750
+  hparams.max_target_seq_length = 100
+  hparams.optimizer = "TrueAdam"
+  hparams.learning_rate_schedule = (
+      "linear_warmup*constant*cosdecay")
+  hparams.learning_rate_decay_steps = 150000
+  hparams.learning_rate_constant = 2e-4
+  hparams.unidirectional_encoder = True
   return hparams
 
 
@@ -1626,25 +1700,6 @@ def transformer_tall_pretrain_lm_tpu():
   hparams.learning_rate_constant = 2e-4
   hparams.learning_rate_schedule = ("linear_warmup * constant * cosdecay")
   hparams.optimizer = "AdamW"
-  return hparams
-
-
-@registry.register_hparams
-def transformer_tall_finetune_cnndm():
-  """Hparams for transformer on LM for finetuning on cnndm summarization."""
-  hparams = transformer_tall()
-  hparams.batch_size = 4096
-  hparams.multiproblem_max_input_length = 412
-  hparams.multiproblem_max_target_length = 100
-  hparams.multiproblem_schedule_max_examples = 0
-  hparams.learning_rate_schedule = (
-      "linear_warmup*constant*cosdecay")
-  hparams.learning_rate_constant = 5e-5
-  hparams.learning_rate_warmup_steps = 100
-  # Set train steps to learning_rate_decay_steps or less
-  hparams.learning_rate_decay_steps = 40000
-  hparams.multiproblem_target_eval_only = True
-  hparams.multiproblem_vocab_size = 2**16
   return hparams
 
 
