@@ -61,7 +61,8 @@ def define_ppo_step(data_points, hparams, action_space, lr):
 
   losses = [policy_loss, value_loss, entropy_loss]
   loss = sum(losses)
-  train_op = optimize.optimize(loss, lr, hparams)
+  variables = tf.global_variables(hparams.policy_network + "/.*")
+  train_op = optimize.optimize(loss, lr, hparams, variables=variables)
 
   with tf.control_dependencies([train_op]):
     return [tf.identity(x) for x in losses]
