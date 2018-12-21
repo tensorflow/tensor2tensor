@@ -136,7 +136,8 @@ def random_rollout_subsequences(rollouts, num_subsequences, subsequence_length):
 
 
 def make_simulated_env_fn(
-    real_env, hparams, batch_size, initial_frame_chooser, model_dir):
+    real_env, hparams, batch_size, initial_frame_chooser, model_dir,
+    sim_video_dir=None):
   """Creates a simulated env_fn."""
   model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
   if hparams.wm_policy_param_sharing:
@@ -152,6 +153,7 @@ def make_simulated_env_fn(
       model_hparams=trainer_lib.create_hparams(hparams.generative_model_params),
       model_dir=model_dir,
       intrinsic_reward_scale=hparams.intrinsic_reward_scale,
+      sim_video_dir=sim_video_dir,
   )
 
 
@@ -202,7 +204,8 @@ def train_agent(real_env, learner, world_model_dir, hparams, epoch):
     ])
   env_fn = make_simulated_env_fn(
       real_env, hparams, hparams.simulated_batch_size, initial_frame_chooser,
-      world_model_dir
+      world_model_dir, os.path.join(learner.agent_model_dir,
+                                    "sim_videos_{}".format(epoch))
   )
   base_algo_str = hparams.base_algo
   train_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
