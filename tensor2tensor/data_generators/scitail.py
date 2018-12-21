@@ -21,7 +21,6 @@ from __future__ import print_function
 
 import os
 import zipfile
-import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import lm1b
 from tensor2tensor.data_generators import problem
@@ -83,10 +82,7 @@ class SciTail(text_problems.TextConcat2ClassProblem):
   def example_generator(self, filename):
     label_list = self.class_labels(data_dir=None)
     for line in tf.gfile.Open(filename, "rb"):
-      if six.PY2:
-        line = unicode(line.strip(), "utf-8")
-      else:
-        line = line.strip().decode("utf-8")
+      line = text_encoder.to_unicode_utf8(line.strip())
       split_line = line.split("\t")
       s1, s2 = split_line[:2]
       l = label_list.index(split_line[2])

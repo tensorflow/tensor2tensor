@@ -98,6 +98,10 @@ def to_unicode_ignore_errors(s):
   return to_unicode(s, ignore_errors=True)
 
 
+def to_unicode_utf8(s):
+  return unicode(s, "utf-8") if six.PY2 else s.decode("utf-8")
+
+
 def strip_ids(ids, ids_to_strip):
   """Strip ids_to_strip from the end ids."""
   ids = list(ids)
