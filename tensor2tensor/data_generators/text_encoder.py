@@ -78,13 +78,7 @@ def unicode_to_native(s):
 
 
 def is_unicode(s):
-  if six.PY2:
-    if isinstance(s, unicode):
-      return True
-  else:
-    if isinstance(s, str):
-      return True
-  return False
+  return isinstance(s, six.text_type)
 
 
 def to_unicode(s, ignore_errors=False):
