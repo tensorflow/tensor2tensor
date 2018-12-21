@@ -23,8 +23,9 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
-import numpy as np
 import os
+
+import numpy as np
 
 from tensor2tensor.data_generators.gym_env import DummyWorldModelProblem
 from tensor2tensor.layers import common_layers
@@ -119,8 +120,8 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     self._num_frames = frame_stack_size
     self._intrinsic_reward_scale = intrinsic_reward_scale
     self._episode_counter = tf.get_variable(
-      "episode_counter", initializer=tf.zeros((), dtype=tf.int32),
-      trainable=False, dtype=tf.int32)
+        "episode_counter", initializer=tf.zeros((), dtype=tf.int32),
+        trainable=False, dtype=tf.int32)
     if sim_video_dir:
       self._video_every_epochs = 100
       self._video_dir = sim_video_dir
@@ -128,7 +129,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
       self._video_counter = 0
       tf.gfile.MakeDirs(self._video_dir)
       self._video_condition = tf.equal(
-        self._episode_counter.read_value() % self._video_every_epochs, 0)
+          self._episode_counter.read_value() % self._video_every_epochs, 0)
     else:
       self._video_condition = tf.constant(False, dtype=tf.bool, shape=())
 
@@ -214,9 +215,9 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
 
       with tf.control_dependencies([observ]):
         dump_frame_op = tf.cond(self._video_condition,
-                                lambda: tf.py_func(self._video_dump_frame,
+                                lambda: tf.py_func(self._video_dump_frame,  # pylint: disable=g-long-lambda
                                                    [observ, reward], []),
-                                lambda: tf.no_op())
+                                tf.no_op)
         with tf.control_dependencies(
             [self._observ.assign(observ),
              self.history_buffer.move_by_one_element(observ), dump_frame_op]):
@@ -233,19 +234,21 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     Returns:
       Batch tensor of the new observations.
     """
-    reset_video_op = tf.cond(self._video_condition,
-                             lambda: tf.py_func(self._video_reset_writer, [], []),
-                             lambda: tf.no_op())
+    reset_video_op = tf.cond(
+        self._video_condition,
+        lambda: tf.py_func(self._video_reset_writer, [], []),
+        tf.no_op)
     with tf.control_dependencies([reset_video_op]):
       inc_op = tf.assign_add(self._episode_counter, 1)
-      with tf.control_dependencies([self.history_buffer.reset(indices), inc_op]):
+      with tf.control_dependencies([self.history_buffer.reset(indices),
+                                    inc_op]):
         initial_frame_dump_op = tf.cond(
             self._video_condition,
-            lambda: tf.py_func(self._video_dump_frames,
+            lambda: tf.py_func(self._video_dump_frames,  # pylint: disable=g-long-lambda
                                [self.history_buffer.get_all_elements()], []),
-            lambda: tf.no_op())
+            tf.no_op)
         observ_assign_op = self._observ.assign(
-          self.history_buffer.get_all_elements()[:, -1, ...])
+            self.history_buffer.get_all_elements()[:, -1, ...])
         with tf.control_dependencies([observ_assign_op, initial_frame_dump_op]):
           reset_model_op = tf.assign(self._reset_model, tf.constant(1.0))
           with tf.control_dependencies([reset_model_op]):
@@ -264,11 +267,11 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     if self._video_writer is None:
       self._video_counter += 1
       self._video_writer = common_video.WholeVideoWriter(
-        fps=10,
-        output_path=os.path.join(self._video_dir,
-                                 "{}.avi".format(self._video_counter)),
-        file_format="avi")
-    img = PIL_Image().new("RGB", (obs.shape[-2], 11), )
+          fps=10,
+          output_path=os.path.join(self._video_dir,
+                                   "{}.avi".format(self._video_counter)),
+          file_format="avi")
+    img = PIL_Image().new("RGB", (obs.shape[-2], 11),)
     draw = PIL_ImageDraw().Draw(img)
     draw.text((0, 0), "r:{:3}".format(int(rews[0])), fill=(255, 0, 0))
     self._video_writer.write(np.concatenate([np.asarray(img), obs[0]], axis=0))
