@@ -61,6 +61,7 @@ def glow_hparams():
   # stability especially when hparams.batch_size is low.
   hparams.add_hparam("init_batch_size", 256)
   hparams.add_hparam("temperature", 1.0)
+
   return hparams
 
 
@@ -192,7 +193,10 @@ class Glow(t2t_model.T2TModel):
     # through optimisation.
     ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
     with arg_scope(ops, init=init):
-      self.z, encoder_objective, self.eps, _, _ = glow_ops.encoder_decoder(
+      encoder = glow_ops.encoder_decoder
+
+
+      self.z, encoder_objective, self.eps, _, _ = encoder(
           "codec", x, self.hparams, eps=None, reverse=False)
       objective += encoder_objective
 
