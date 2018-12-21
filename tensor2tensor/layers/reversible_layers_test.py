@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from absl.testing import parameterized
 import numpy as np
 
 from tensor2tensor.layers import reversible_layers as reversible
@@ -26,7 +27,7 @@ from tensor2tensor.layers import reversible_layers as reversible
 import tensorflow as tf
 
 
-class ReversibleLayersTest(tf.test.TestCase):
+class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testActNorm(self):
@@ -65,7 +66,9 @@ class ReversibleLayersTest(tf.test.TestCase):
     outputs = network(inputs)
 
     num_weights = sum([np.prod(weight.shape) for weight in network.weights])
+    # Disable lint error for open-source. pylint: disable=g-generic-assert
     self.assertEqual(len(network.weights), 4)
+    # pylint: enable=g-generic-assert
     self.assertEqual(num_weights, (3*1*4 + 4) + (4*3*5 + 3*5))
 
     self.evaluate(tf.global_variables_initializer())
@@ -88,7 +91,9 @@ class ReversibleLayersTest(tf.test.TestCase):
     outputs = network(inputs)
 
     num_weights = sum([np.prod(weight.shape) for weight in network.weights])
+    # Disable lint error for open-source. pylint: disable=g-generic-assert
     self.assertEqual(len(network.weights), 3)
+    # pylint: enable=g-generic-assert
     self.assertEqual(num_weights, 3*5*4 + 4*3 + 3*3*1)
 
     self.evaluate(tf.global_variables_initializer())
@@ -108,7 +113,9 @@ class ReversibleLayersTest(tf.test.TestCase):
     outputs = network(inputs)
 
     num_weights = sum([np.prod(weight.shape) for weight in network.weights])
+    # Disable lint error for open-source. pylint: disable=g-generic-assert
     self.assertEqual(len(network.weights), 2)
+    # pylint: enable=g-generic-assert
     self.assertEqual(num_weights, 3*5*3*4 + 3*4)
 
     self.evaluate(tf.global_variables_initializer())
