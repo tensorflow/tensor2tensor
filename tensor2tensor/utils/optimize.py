@@ -30,19 +30,21 @@ import tensorflow as tf
 from tensorflow.python.framework import dtypes
 
 
-def optimize(loss, learning_rate, hparams, use_tpu=False):
+def optimize(loss, learning_rate, hparams, use_tpu=False, variables=None):
   """Minimize loss."""
   loss = weight_decay_and_noise(loss, hparams, learning_rate)
   loss = tf.identity(loss, name="total_loss")
+  if variables is None:
+    variables = tf.trainable_variables()
   # Print trainable variables.
-  log_variable_sizes(verbose=hparams.summarize_vars)
+  log_variable_sizes(variables, verbose=hparams.summarize_vars)
   # Print non-trainable variables.
   non_trainable_variables = list(
-      set(tf.global_variables()) - set(tf.trainable_variables()))
+      set(tf.global_variables()) - set(variables))
   log_variable_sizes(non_trainable_variables, tag="Non-trainable variables",
                      verbose=hparams.summarize_vars)
   if hparams.summarize_vars:
-    summarize_variables()
+    summarize_variables(variables)
     # Summarize non-trainable variables as well
     summarize_variables(non_trainable_variables, tag="Non-trainable variables")
   diet_vars = [
@@ -78,7 +80,8 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
       gradient_noise_scale=hparams.grad_noise_scale or None,
       optimizer=opt,
       summaries=opt_summaries,
-      colocate_gradients_with_ops=True)
+      colocate_gradients_with_ops=True,
+      variables=variables)
   return train_op
 
 
