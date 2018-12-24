@@ -1,0 +1,73 @@
+<!doctype html>
+<!--
+@license
+Copyright 2018 The Tensor2Tensor Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-touch-fullscreen" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style"
+        content="black-translucent" >
+  <meta name="format-detection" content="telephone=no">
+
+  <title>NMT Research Frontend</title>
+  <meta name="description" content="Debug your favorite Neural Machine Translation model">
+  <meta name="application-name" content="NMT Research Frontend">
+
+  <meta property="og:title" content="Get started debugging">
+  <meta property="og:type" content="article">
+  <meta property="og:description" content="Link up to an NMT Service and find out what's going on with it.">
+
+  <link class="favicon" href="//ssl.gstatic.com/translate/translate_1x_web_logo_24dp.png" rel="icon">
+  <link async href="https://fonts.googleapis.com/css?family=Product+Sans" rel="stylesheet">
+
+  <script async type="text/javascript" src="webcomponentsjs/webcomponents-lite.js"></script>
+
+  <link rel="import" href="insights_app/insights-app.html">
+
+  <style>
+    html, body {
+      height: 100%;
+      width: 100%;
+      -webkit-tap-highlight-color: rgba(0,0,0,0);
+    }
+
+    body {
+      margin: 0;
+      background-color: #eee;
+      background-repeat: no-repeat;
+      background-position: 50%;
+      font-family: "RobotoDraft", sans-serif;
+      color: #444;
+      fill: #444;
+      font-weight: 400;
+    }
+  </style>
+</head>
+<body class="fullbleed">
+  <insights-app id="app"></insights-app>
+
+  <script type="text/javascript">
+    // Once webcomponents are fully initialized, assign any initial values to
+    // the main scaffolding element.
+    document.addEventListener('WebComponentsReady', function() {
+      var app = document.querySelector('#app');
+    });
+  </script>
+</body>
+</html>

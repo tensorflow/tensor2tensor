@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,9 +18,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
@@ -40,7 +37,8 @@ class NeuralGPUTest(tf.test.TestCase):
     input_vocab_size = 9
     target_vocab_size = 11
     p_hparams = problem_hparams.test_problem_hparams(input_vocab_size,
-                                                     target_vocab_size)
+                                                     target_vocab_size,
+                                                     hparams)
     inputs = -1 + np.random.random_integers(
         input_vocab_size, size=(batch_size, input_length, 1, 1))
     targets = -1 + np.random.random_integers(

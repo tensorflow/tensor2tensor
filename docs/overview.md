@@ -14,7 +14,7 @@ to training, evaluation, and decoding.
 
 Some key files and their functions:
 
-*   [`tpu_trainer.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/tpu/tpu_trainer.py) and [`tpu_trainer_lib.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/tpu/tpu_trainer_lib.py):
+*   [`t2t_trainer.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/bin/t2t_trainer.py) and [`trainer_lib.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/trainer_lib.py):
     Main entrypoint for training and evaluation.  Constructs and runs all the
     main components of the system (the `Problem`, the `HParams`, the
     `Estimator`, the `Experiment`, the `input_fn`s and `model_fn`).
@@ -134,7 +134,7 @@ The default implementations of `bottom`, `top`, and `loss` depend on the
 
 The actual training loop and related services (checkpointing, summaries,
 continuous evaluation, etc.) are all handled by `Estimator` and `Experiment`
-objects. `tpu_trainer.py` is the main entrypoint and uses `tpu_trainer_lib.py`
+objects. `t2t_trainer.py` is the main entrypoint and uses `trainer_lib.py`
 to construct the various components.
 
 ## Decoding
@@ -144,7 +144,7 @@ to construct the various components.
 
 ## System Overview for Train/Eval
 
-See `tpu_trainer.py`.
+See `t2t_trainer.py` and `trainer_lib.py`.
 
 * Create HParams
 * Create `RunConfig`, including `Parallelism` object (i.e. `data_parallelism`)

@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2017 The Tensor2Tensor Authors.
+ * Copyright 2018 The Tensor2Tensor Authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-goog.module('t2t.GraphVisualization');
 
 /**
  * `<graph-visualization>` Presents a beam search decoding graph.
@@ -106,10 +105,16 @@ class GraphVisualization extends Polymer.Element {
     this.container_ = undefined;
   }
 
+  /**
+   * @return {string} The component name.
+   */
   static get is() {
     return 'graph-visualization';
   }
 
+  /**
+   * @return {!Object} The component properties.
+   */
   static get properties() {
     return {
       /**
@@ -153,6 +158,9 @@ class GraphVisualization extends Polymer.Element {
     };
   }
 
+  /**
+   * @return {!Array<string>} The component observers.
+   */
   static get observers() {
     return [
       'zoomDepthChanged_(zoomDepth_)',
@@ -818,5 +826,3 @@ class GraphVisualization extends Polymer.Element {
 }
 
 customElements.define(GraphVisualization.is, GraphVisualization);
-
-exports = {GraphVisualization};

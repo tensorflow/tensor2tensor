@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Module for postprocessing and displaying tranformer attentions.
+"""Module for postprocessing and displaying transformer attentions.
 
 This module is designed to be called from an ipython notebook.
 """
@@ -59,21 +59,20 @@ def _show_attention(att_json):
   display.display(display.Javascript(vis_js))
 
 
-def resize(att_mat, max_length=30):
+def resize(att_mat, max_length=None):
   """Normalize attention matrices and reshape as necessary."""
-  layer_mats = []
-  for att in att_mat:
-    # Sum across different heads.
-    att = att[ :, :max_length, :max_length]
-    row_sums = np.sum(att, axis=0)
-    # Normalize
-    layer_mat = att / row_sums[np.newaxis, :]
-    lsh = layer_mat.shape
+  for i, att in enumerate(att_mat):
     # Add extra batch dim for viz code to work.
-    if len(np.shape(lsh)) == 3:
-      layer_mat = np.reshape(layer_mat, (1, lsh[0], lsh[1], lsh[2]))
-    layer_mats.append(layer_mat)
-  return layer_mats
+    if att.ndim == 3:
+      att = np.expand_dims(att, axis=0)
+    if max_length is not None:
+      # Sum across different attention values for each token.
+      att = att[:, :, :max_length, :max_length]
+      row_sums = np.sum(att, axis=2)
+      # Normalize
+      att /= row_sums[:, :, np.newaxis]
+    att_mat[i] = att
+  return att_mat
 
 
 def _get_attention(inp_text, out_text, enc_atts, dec_atts, encdec_atts):
@@ -87,7 +86,7 @@ def _get_attention(inp_text, out_text, enc_atts, dec_atts, encdec_atts):
     dec_atts: numpy array, decoder self-attentions
         [num_layers, batch_size, num_heads, dec_length, dec_length]
     encdec_atts: numpy array, encoder-decoder attentions
-        [num_layers, batch_size, num_heads, enc_length, dec_length]
+        [num_layers, batch_size, num_heads, dec_length, enc_length]
 
   Returns:
     Dictionary of attention representations with the structure:

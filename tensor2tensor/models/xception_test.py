@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,20 +19,18 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
+from tensor2tensor.layers import modalities
 from tensor2tensor.models import xception
-from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
 
 class XceptionTest(tf.test.TestCase):
 
-  def _testXception(self, img_size, output_size):
+  def _test_xception(self, img_size):
     vocab_size = 9
     batch_size = 3
     x = np.random.random_integers(
@@ -40,8 +38,12 @@ class XceptionTest(tf.test.TestCase):
     y = np.random.random_integers(
         1, high=vocab_size - 1, size=(batch_size, 1, 1, 1))
     hparams = xception.xception_tiny()
-    p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
-    p_hparams.input_modality["inputs"] = (registry.Modalities.IMAGE, None)
+    p_hparams = problem_hparams.test_problem_hparams(vocab_size,
+                                                     vocab_size,
+                                                     hparams)
+    p_hparams.modality["inputs"] = modalities.ImageModality(hparams)
+    p_hparams.modality["targets"] = modalities.ClassLabelModality(
+        hparams, vocab_size)
     with self.test_session() as session:
       features = {
           "inputs": tf.constant(x, dtype=tf.int32),
@@ -51,13 +53,13 @@ class XceptionTest(tf.test.TestCase):
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
-    self.assertEqual(res.shape, output_size + (1, vocab_size))
+    self.assertEqual(res.shape, (batch_size, 1, 1, 1, vocab_size))
 
-  def testXceptionSmall(self):
-    self._testXception(img_size=9, output_size=(3, 5, 5))
+  def testXceptionSmallImage(self):
+    self._test_xception(img_size=9)
 
-  def testXceptionLarge(self):
-    self._testXception(img_size=256, output_size=(3, 8, 8))
+  def testXceptionLargeImage(self):
+    self._test_xception(img_size=256)
 
 
 if __name__ == "__main__":

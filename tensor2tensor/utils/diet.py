@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ by using the fn_with_diet_vars decorator.
 from collections import defaultdict
 import copy
 import math
-# Dependency imports
+
 from tensor2tensor.layers import common_layers
 import tensorflow as tf
 
@@ -54,7 +54,7 @@ def diet_expert(x, hidden_size, params):
   """A two-layer feed-forward network with relu activation on hidden layer.
 
   Uses diet variables.
-  Recompuets hidden layer on backprop to save activation memory.
+  Recomputes hidden layer on backprop to save activation memory.
 
   Args:
     x: a Tensor with shape [batch, io_size]
@@ -120,7 +120,7 @@ class DietAdamOptimizer(DietVariableOptimizer):
 
   Diet variables should be created with the
   DietAdamOptimizer.get_variable() method.  The resulting variables
-  have extra fields pointing to the otpimizer and to the accumulator
+  have extra fields pointing to the optimizer and to the accumulator
   slots.
 
   The variable is kept in quantized form, so you need to call
@@ -135,7 +135,7 @@ class DietAdamOptimizer(DietVariableOptimizer):
   diet_expert() for an example of how all of this is done.
 
   To facilitate fixed-point quantization and to make it easier to
-  choose a learning rate, all varaibles are initialized with unit
+  choose a learning rate, all variables are initialized with unit
   normal initialization.  If you want smaller values, downscale on the
   outside.
   """
@@ -185,7 +185,7 @@ class DietAdamOptimizer(DietVariableOptimizer):
                           global_step**-0.5)
     else:
       assert params.learning_rate_decay_scheme == "none"
-      lrate *= tf.minumum(global_step / params.learning_rate_warmup_steps, 1.0)
+      lrate *= tf.minimum(global_step / params.learning_rate_warmup_steps, 1.0)
 
     # compute adjustment due to second moment
     slots = params.slots[var.op.name]
@@ -193,10 +193,10 @@ class DietAdamOptimizer(DietVariableOptimizer):
     beta2_pow = tf.pow(params.beta2, global_step)
     if params.factored_second_moment_accumulator and len(var.shape) == 2:
       vr_update = tf.assign(slots["adam_vr"], slots["adam_vr"] * params.beta2 +
-                            tf.reduce_mean(grad_squared, 1, keep_dims=True) *
+                            tf.reduce_mean(grad_squared, 1, keepdims=True) *
                             (1.0 - params.beta2))
       vc_update = tf.assign(slots["adam_vc"], slots["adam_vc"] * params.beta2 +
-                            tf.reduce_mean(grad_squared, 0, keep_dims=True) *
+                            tf.reduce_mean(grad_squared, 0, keepdims=True) *
                             (1.0 - params.beta2))
       with tf.control_dependencies([vr_update, vc_update]):
         vr = tf.sqrt(slots["adam_vr"] / (1.0 - beta2_pow)) + params.epsilon
@@ -260,6 +260,7 @@ def make_diet_var_getter(params):
   """Create a custom variable getter for diet variables according to params."""
 
   def diet_var_initializer(shape, dtype, partition_info=None):
+    """Initializer for a diet variable."""
     del dtype
     del partition_info
 
@@ -297,6 +298,7 @@ def _fn_with_diet_vars(fn, args, params):
   vs_ctr = []
 
   def grad_fn(inputs, variables, outputs, output_grads):
+    """Custom gradient function."""
     del outputs  # recomputing below
     with common_layers.fn_device_dependency("diet_grad",
                                             output_grads[0].device) as out_dep:

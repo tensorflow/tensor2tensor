@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,12 +24,10 @@ import os
 import random
 import re
 import zipfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -75,28 +73,18 @@ PB_CPP = CodingPbConstants(
 CodingPbInfo = collections.namedtuple("CodingPbInfo", "desc_file, code_files")
 
 
-class Desc2CodeProblem(problem.Text2TextProblem):
+class Desc2CodeProblem(text_problems.Text2TextProblem):
   """Base class for Description2Code problems."""
 
   @property
-  def is_character_level(self):
-    return False
-
-  @property
-  def num_shards(self):
-    return 10
-
-  @property
-  def use_subword_tokenizer(self):
-    return True
-
-  @property
-  def input_space_id(self):
-    return problem.SpaceID.EN_TOK
-
-  @property
-  def target_space_id(self):
-    return self.pb_constants.target_space
+  def dataset_splits(self):
+    return [{
+        "split": problem.DatasetSplit.TRAIN,
+        "shards": 10,
+    }, {
+        "split": problem.DatasetSplit.EVAL,
+        "shards": 1,
+    }]
 
   @property
   def input_vocab_size(self):
@@ -138,15 +126,19 @@ class Desc2CodeProblem(problem.Text2TextProblem):
         "targets": target_token,
     }
 
-  def generator(self, data_dir, tmp_dir, train):
+  def is_generate_per_split(self):
+    return True
+
+  def generate_encoded_samples(self, data_dir, tmp_dir, dataset_split):
+    train = dataset_split == problem.DatasetSplit.TRAIN
     # Called twice: for train and test
 
     # Get the list of the training samples (coding challenge samples)
     samples = list(generator_samples(tmp_dir, self.pb_constants))
 
     # Split between train and dev
-    # Suffle to get problems from diverse sources (CodeChef and CodeForces) and
-    # dificulties in each set.
+    # Shuffle to get problems from diverse sources (CodeChef and CodeForces) and
+    # difficulties in each set.
     # Need to sort the samples first before shuffling (as walk() isn't
     # deterministic)
     samples.sort(key=lambda x: x.desc_file)  # in-place
@@ -165,6 +157,7 @@ class Desc2CodeProblem(problem.Text2TextProblem):
     ))
 
     def generator_samples_content(get_source, get_target):
+      """Generate samples."""
       source, target = None, None
       # Iterate over the coding samples
       for sample in samples:
@@ -188,8 +181,11 @@ class Desc2CodeProblem(problem.Text2TextProblem):
 
     # Generate vocab for both source and target
 
-    source_vocab = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, self.vocab_input_filename, self.input_vocab_size)
+    # TODO(lukaszkaiser): Fix vocab generation call. No sources given.
+    assert not self.vocab_input_filename
+    source_vocab = None
+    # source_vocab = generator_utils.get_or_generate_vocab(
+    #     data_dir, tmp_dir, self.vocab_input_filename, self.input_vocab_size)
 
     target_vocab = generator_utils.get_or_generate_vocab_inner(
         data_dir=data_dir,
@@ -294,7 +290,7 @@ def generator_samples(tmp_dir, pb_cst):
     for f in tf.gfile.Glob(code_pattern):
       with tf.gfile.GFile(f, mode="r") as target_file:
         # Hack to filter C++/Java files. In theory some python comments could
-        # make the file be concidered as C++ but in practice the chance of
+        # make the file be considered as C++ but in practice the chance of
         # getting a false negative is low.
         content = target_file.read()
         if not any(p in content for p in pb_cst.filter_patterns):

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,9 +19,6 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-
-# Dependency imports
-
 import tensorflow as tf
 
 from tensorboard.backend.event_processing import event_accumulator
@@ -86,6 +83,7 @@ class MetricsBasedHook(tf.train.SessionRunHook):
     self._after_run(run_context, run_values, global_step, metrics)
 
   def _after_run(self, run_context, run_values, global_step, metrics):
+    del run_values
     if self._process_metrics(global_step, metrics):
       run_context.request_stop()
 
@@ -118,6 +116,7 @@ class MetricsBasedHook(tf.train.SessionRunHook):
     Returns:
       should_stop: bool. If True, will request that the session stops.
     """
+    del global_step, metrics
     return False
 
 
@@ -157,10 +156,10 @@ class EarlyStoppingHook(MetricsBasedHook):
 
   def _process_metrics(self, global_step, metrics):
     if not metrics:
-      return
+      return None
 
     if not list(metrics.values())[0]:
-      return
+      return None
 
     # Metrics should have just a single subdir and a single tag
     steps, vals = list(metrics.values())[0][self._tags[0]]

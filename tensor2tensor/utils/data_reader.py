@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,20 +18,16 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# Dependency imports
-
-import numpy as np
-
 import six
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 import tensorflow as tf
 
 
-def cast_int64_to_int32(features):
+def cast_ints_to_int32(features):
   f = {}
-  for k, v in six.iteritems(features):
-    if v.dtype == tf.int64:
+  for k, v in sorted(six.iteritems(features)):
+    if v.dtype in [tf.int64, tf.uint8]:
       v = tf.to_int32(v)
     f[k] = v
   return f
@@ -40,7 +36,7 @@ def cast_int64_to_int32(features):
 def example_length(example):
   length = 0
   # Length of the example is the maximum length of the feature lengths
-  for v in example.values():
+  for _, v in sorted(six.iteritems(example)):
     # For images the sequence length is the size of the spatial dimensions.
     feature_length = (tf.shape(v)[0] if len(v.get_shape()) < 3 else
                       tf.shape(v)[0] * tf.shape(v)[1])
@@ -54,58 +50,6 @@ def example_valid_size(example, min_length, max_length):
       length >= min_length,
       length <= max_length,
   )
-
-
-def bucket_by_sequence_length(dataset,
-                              example_length_fn,
-                              bucket_boundaries,
-                              bucket_batch_sizes,
-                              padded_shapes=None):
-  """Bucket entries in dataset by length.
-
-  Args:
-    dataset: Dataset of dict<feature name, Tensor>.
-    example_length_fn: function from example to int, determines the length of
-      the example, which will determine the bucket it goes into.
-    bucket_boundaries: list<int>, boundaries of the buckets.
-    bucket_batch_sizes: list<int>, batch size per bucket.
-    padded_shapes: dict<feature name, list<int>>, optional, shapes of the
-      features with None where feature should be padded to max in that dim.
-
-  Returns:
-    Dataset of padded and batched examples.
-  """
-  with tf.name_scope("bucket_by_seq_length"):
-
-    def example_to_bucket_id(example):
-      """Return int64 id of the length bucket for this example."""
-      seq_length = example_length_fn(example)
-
-      boundaries = list(bucket_boundaries)
-      buckets_min = [np.iinfo(np.int32).min] + boundaries
-      buckets_max = boundaries + [np.iinfo(np.int32).max]
-      conditions_c = tf.logical_and(
-          tf.less_equal(buckets_min, seq_length),
-          tf.less(seq_length, buckets_max))
-      bucket_id = tf.reduce_min(tf.where(conditions_c))
-
-      return bucket_id
-
-    def window_size_fn(bucket_id):
-      # window size = batch size
-      batch_sizes = tf.constant(bucket_batch_sizes, dtype=tf.int64)
-      window_size = batch_sizes[bucket_id]
-      return window_size
-
-    def batching_fn(bucket_id, grouped_dataset):
-      batch_sizes = tf.constant(bucket_batch_sizes, dtype=tf.int64)
-      batch_size = batch_sizes[bucket_id]
-      return padded_batch(grouped_dataset, batch_size, padded_shapes)
-
-    dataset = dataset.apply(
-        tf.contrib.data.group_by_window(example_to_bucket_id, batching_fn, None,
-                                        window_size_fn))
-    return dataset
 
 
 def padded_batch(dataset, batch_size, padded_shapes=None):
@@ -136,7 +80,7 @@ def _batching_scheme(batch_size,
                      min_length=0):
   """A batching scheme based on model hyperparameters.
 
-  Every batch containins a number of sequences divisible by `shard_multiplier`.
+  Every batch contains a number of sequences divisible by `shard_multiplier`.
 
   Args:
     batch_size: int, total number of tokens in a batch.
@@ -177,7 +121,7 @@ def _batching_scheme(batch_size,
   ]
   max_batch_size = max(batch_sizes)
   # Since the Datasets API only allows a single constant for window_size,
-  # and it needs divide all bucket_batch_sizes, we pick a highly-compoisite
+  # and it needs divide all bucket_batch_sizes, we pick a highly-composite
   # window size and then round down all batch sizes to divisors of that window
   # size, so that a window can always be divided evenly into batches.
   # TODO(noam): remove this when Dataset API improves.
@@ -191,7 +135,7 @@ def _batching_scheme(batch_size,
   ]
   window_size = max(
       [i for i in highly_composite_numbers if i <= 3 * max_batch_size])
-  divisors = [i for i in xrange(1, window_size + 1) if window_size % i == 0]
+  divisors = [i for i in range(1, window_size + 1) if window_size % i == 0]
   batch_sizes = [max([d for d in divisors if d <= bs]) for bs in batch_sizes]
   window_size *= shard_multiplier
   batch_sizes = [bs * shard_multiplier for bs in batch_sizes]

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,9 +25,6 @@ class QueryProcessor(object):
   TODO(kstevens): Define how the visualization structures should look once the
   protos are in better shape.
   """
-
-  def __init__(self):
-    pass
 
   def process(self, query):
     """Returns the generated visualizations for query.

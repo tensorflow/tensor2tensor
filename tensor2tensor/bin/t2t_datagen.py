@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,24 +29,31 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import multiprocessing
 import os
 import random
 import tempfile
 
-# Dependency imports
-
 import numpy as np
 
-from tensor2tensor.data_generators import algorithmic_math
-from tensor2tensor.data_generators import all_problems  # pylint: disable=unused-import
-from tensor2tensor.data_generators import audio
+from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.data_generators import generator_utils
-from tensor2tensor.data_generators import snli
-from tensor2tensor.data_generators import wsj_parsing
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir
 
-import tensorflow as tf
+try:
+  # pylint: disable=g-import-not-at-top
+  from tensor2tensor.data_generators import algorithmic_math
+  from tensor2tensor.data_generators import audio
+  from tensor2tensor.data_generators import snli
+  from tensor2tensor.data_generators import wsj_parsing
+  # pylint: enable=g-import-not-at-top
+except ImportError:
+  pass
+
+# Improrting here to prevent pylint from ungrouped-imports warning.
+import tensorflow as tf  # pylint: disable=g-import-not-at-top
+
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -66,6 +73,11 @@ flags.DEFINE_bool("only_list", False,
                   "If true, we only list the problems that will be generated.")
 flags.DEFINE_integer("random_seed", 429459, "Random seed to use.")
 flags.DEFINE_integer("task_id", -1, "For distributed data generation.")
+flags.DEFINE_integer("task_id_start", -1, "For distributed data generation.")
+flags.DEFINE_integer("task_id_end", -1, "For distributed data generation.")
+flags.DEFINE_integer(
+    "num_concurrent_processes", None,
+    "Applies only to problems for which multiprocess_generate=True.")
 flags.DEFINE_string("t2t_usr_dir", "",
                     "Path to a Python module that will be imported. The "
                     "__init__.py file should include the necessary imports. "
@@ -78,40 +90,46 @@ flags.DEFINE_string("t2t_usr_dir", "",
 _SUPPORTED_PROBLEM_GENERATORS = {
     "algorithmic_algebra_inverse": (
         lambda: algorithmic_math.algebra_inverse(26, 0, 2, 100000),
-        lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000)),
+        lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000),
+        lambda: None),  # test set
     "parsing_english_ptb8k": (
         lambda: wsj_parsing.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 2**13, 2**9),
         lambda: wsj_parsing.parsing_token_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**13, 2**9)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**13, 2**9),
+        lambda: None),  # test set
     "parsing_english_ptb16k": (
         lambda: wsj_parsing.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 2**14, 2**9),
         lambda: wsj_parsing.parsing_token_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**14, 2**9)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**14, 2**9),
+        lambda: None),  # test set
     "inference_snli32k": (
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, False, 2**15),
-    ),
+        lambda: None),  # test set
     "audio_timit_characters_test": (
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 1718),
         lambda: audio.timit_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 626)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 626),
+        lambda: None),  # test set
     "audio_timit_tokens_8k_test": (
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 1718,
             vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13),
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
-            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13)),
+            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13),
+        lambda: None),  # test set
     "audio_timit_tokens_32k_test": (
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 1718,
             vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15),
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
-            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15)),
+            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15),
+        lambda: None),  # test set
 }
 
 # pylint: enable=g-long-lambda
@@ -125,7 +143,6 @@ def set_random_seed():
 
 
 def main(_):
-  tf.logging.set_verbosity(tf.logging.INFO)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
   # Calculate the list of problems to generate.
@@ -136,17 +153,19 @@ def main(_):
       problems = [p for p in problems if exclude not in p]
   if FLAGS.problem and FLAGS.problem[-1] == "*":
     problems = [p for p in problems if p.startswith(FLAGS.problem[:-1])]
+  elif FLAGS.problem and "," in FLAGS.problem:
+    problems = [p for p in problems if p in FLAGS.problem.split(",")]
   elif FLAGS.problem:
     problems = [p for p in problems if p == FLAGS.problem]
   else:
     problems = []
 
   # Remove TIMIT if paths are not given.
-  if not FLAGS.timit_paths:
+  if getattr(FLAGS, "timit_paths", None):
     problems = [p for p in problems if "timit" not in p]
   # Remove parsing if paths are not given.
-  if not FLAGS.parsing_path:
-    problems = [p for p in problems if "parsing" not in p]
+  if getattr(FLAGS, "parsing_path", None):
+    problems = [p for p in problems if "parsing_english_ptb" not in p]
 
   if not problems:
     problems_str = "\n  * ".join(
@@ -162,6 +181,8 @@ def main(_):
     tf.logging.warning("It is strongly recommended to specify --data_dir. "
                        "Data will be written to default data_dir=%s.",
                        FLAGS.data_dir)
+  FLAGS.data_dir = os.path.expanduser(FLAGS.data_dir)
+  tf.gfile.MakeDirs(FLAGS.data_dir)
 
   tf.logging.info("Generating problems:\n%s"
                   % registry.display_list_by_prefix(problems,
@@ -179,33 +200,65 @@ def main(_):
 
 def generate_data_for_problem(problem):
   """Generate data for a problem in _SUPPORTED_PROBLEM_GENERATORS."""
-  training_gen, dev_gen = _SUPPORTED_PROBLEM_GENERATORS[problem]
+  training_gen, dev_gen, test_gen = _SUPPORTED_PROBLEM_GENERATORS[problem]
 
-  num_shards = FLAGS.num_shards or 10
+  num_train_shards = FLAGS.num_shards or 10
   tf.logging.info("Generating training data for %s.", problem)
   train_output_files = generator_utils.train_data_filenames(
-      problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir, num_shards)
+      problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir,
+      num_train_shards)
   generator_utils.generate_files(training_gen(), train_output_files,
                                  FLAGS.max_cases)
+  num_dev_shards = int(num_train_shards * 0.1)
   tf.logging.info("Generating development data for %s.", problem)
   dev_output_files = generator_utils.dev_data_filenames(
-      problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir, 1)
+      problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir,
+      num_dev_shards)
   generator_utils.generate_files(dev_gen(), dev_output_files)
-  all_output_files = train_output_files + dev_output_files
+  num_test_shards = int(num_train_shards * 0.1)
+  test_output_files = []
+  test_gen_data = test_gen()
+  if test_gen_data is not None:
+    tf.logging.info("Generating test data for %s.", problem)
+    test_output_files = generator_utils.test_data_filenames(
+        problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir,
+        num_test_shards)
+    generator_utils.generate_files(test_gen_data, test_output_files)
+  all_output_files = train_output_files + dev_output_files + test_output_files
   generator_utils.shuffle_dataset(all_output_files)
 
 
+def generate_data_in_process(arg):
+  problem_name, data_dir, tmp_dir, task_id = arg
+  problem = registry.problem(problem_name)
+  problem.generate_data(data_dir, tmp_dir, task_id)
+
+
 def generate_data_for_registered_problem(problem_name):
+  """Generate data for a registered problem."""
   tf.logging.info("Generating data for %s.", problem_name)
   if FLAGS.num_shards:
     raise ValueError("--num_shards should not be set for registered Problem.")
   problem = registry.problem(problem_name)
   task_id = None if FLAGS.task_id < 0 else FLAGS.task_id
-  problem.generate_data(
-      os.path.expanduser(FLAGS.data_dir),
-      os.path.expanduser(FLAGS.tmp_dir),
-      task_id=task_id)
-
+  data_dir = os.path.expanduser(FLAGS.data_dir)
+  tmp_dir = os.path.expanduser(FLAGS.tmp_dir)
+  if task_id is None and problem.multiprocess_generate:
+    if FLAGS.task_id_start != -1:
+      assert FLAGS.task_id_end != -1
+      task_id_start = FLAGS.task_id_start
+      task_id_end = FLAGS.task_id_end
+    else:
+      task_id_start = 0
+      task_id_end = problem.num_generate_tasks
+    pool = multiprocessing.Pool(processes=FLAGS.num_concurrent_processes)
+    problem.prepare_to_generate(data_dir, tmp_dir)
+    args = [(problem_name, data_dir, tmp_dir, task_id)
+            for task_id in range(task_id_start, task_id_end)]
+    pool.map(generate_data_in_process, args)
+  else:
+    problem.generate_data(data_dir, tmp_dir, task_id)
 
 if __name__ == "__main__":
+  tf.logging.set_verbosity(tf.logging.INFO)
   tf.app.run()

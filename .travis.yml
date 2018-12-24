@@ -1,29 +1,45 @@
+sudo: required
 language: python
+git:
+  depth: 10
+  quiet: true
+services:
+  - docker
 python:
   - "2.7"
   - "3.6"
-before_install:
-  - sudo apt-get update -qq
-  - sudo apt-get install -qq libhdf5-dev
-install:
-  - pip install tensorflow
-  - pip install .[tests]
 env:
   global:
     - T2T_PROBLEM=algorithmic_reverse_binary40_test
     - T2T_DATA_DIR=/tmp/t2t-data
     - T2T_TRAIN_DIR=/tmp/t2t-train
+    - TF_LATEST="1.12.*"
+    # This is necessary to have gsutil work with Python 2.7
+    - BOTO_CONFIG=/dev/null
+  matrix:
+    # We test against the latest stable TensorFlow and tf-nightly.
+    # If updating, also update TF_LATEST above
+    - TF_VERSION="1.12.*"
+    - TF_VERSION="tf-nightly"
+matrix:
+  exclude:
+    # We test against all versions in Python 2 but only the latest stable
+    # version in Python 3
+    - python: "3.6"
+      env: TF_VERSION="tf-nightly"
+before_install:
+  - sudo apt-get update -qq
+  - sudo apt-get install -qq libhdf5-dev
+install:
+  - ./oss_scripts/oss_pip_install.sh
 script:
-  - pytest --ignore=tensor2tensor/utils/registry_test.py --ignore=tensor2tensor/problems_test.py --ignore=tensor2tensor/tpu/tpu_trainer_lib_test.py --ignore=tensor2tensor/data_generators/algorithmic_math_test.py
-  - pytest tensor2tensor/utils/registry_test.py
-  - pytest tensor2tensor/tpu/tpu_trainer_lib_test.py
-  - t2t-datagen 2>&1 | grep translate && echo passed
-  - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
-  - t2t-trainer --registry_help
-  - mkdir $T2T_DATA_DIR
-  - mkdir $T2T_TRAIN_DIR
-  - t2t-datagen --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR
-  - t2t-trainer --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --train_steps=5 --eval_steps=5 --output_dir=$T2T_TRAIN_DIR
-  - t2t-decoder --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR --decode_hparams='num_samples=10'
-git:
-  depth: 3
+  - ./oss_scripts/oss_tests.sh
+  - ./oss_scripts/oss_integration_test.sh
+
+  # Conditional commands should each be in a separate block to get proper
+  # errors on Travis.
+  #
+  # TODO(afrozm): Re-enable if this becomes an issue.
+  # - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "tf-nightly"  ]]; then
+  #       pylint -j 2 tensor2tensor;
+  #   fi

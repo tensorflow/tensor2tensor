@@ -16,3 +16,9 @@ dist/
 # Sublime project files
 *.sublime-project
 *.sublime-workspace
+
+# Tests
+.pytest_cache/
+
+# Other
+*.DS_Store

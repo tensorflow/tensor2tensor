@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,11 +23,13 @@ from __future__ import unicode_literals
 import collections
 import io
 import os
+import random
 import shutil
+import string
 
-# Dependency imports
 import mock
 import six
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import text_encoder
 import tensorflow as tf
@@ -68,7 +70,7 @@ class TokenTextEncoderTest(tf.test.TestCase):
     """Make sure the test dir exists and is empty."""
     cls.test_temp_dir = os.path.join(tf.test.get_temp_dir(), "encoder_test")
     shutil.rmtree(cls.test_temp_dir, ignore_errors=True)
-    os.mkdir(cls.test_temp_dir)
+    tf.gfile.MakeDirs(cls.test_temp_dir)
 
   def test_save_and_reload(self):
     """Test that saving and reloading doesn't change the vocab.
@@ -112,7 +114,7 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     """Make sure the test dir exists and is empty."""
     cls.test_temp_dir = os.path.join(tf.test.get_temp_dir(), "encoder_test")
     shutil.rmtree(cls.test_temp_dir, ignore_errors=True)
-    os.mkdir(cls.test_temp_dir)
+    tf.gfile.MakeDirs(cls.test_temp_dir)
 
   def test_encode_decode(self):
     corpus = (
@@ -120,7 +122,7 @@ class SubwordTextEncoderTest(tf.test.TestCase):
         "to build a vocabulary. It will be used when strings are encoded "
         "with a TextEncoder subclass. The encoder was coded by a coder.")
     token_counts = collections.Counter(corpus.split(" "))
-    alphabet = set(corpus) ^ {" "}
+    alphabet = set(corpus) - {" "}
 
     original = "This is a coded sentence encoded by the SubwordTextEncoder."
     token_counts.update(original.split(" "))
@@ -161,7 +163,7 @@ class SubwordTextEncoderTest(tf.test.TestCase):
   def test_small_vocab(self):
     corpus = "The quick brown fox jumps over the lazy dog"
     token_counts = collections.Counter(corpus.split(" "))
-    alphabet = set(corpus) ^ {" "}
+    alphabet = set(corpus) - {" "}
 
     encoder = text_encoder.SubwordTextEncoder.build_to_target_size(
         10, token_counts, 2, 10)
@@ -172,6 +174,61 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     self.assertTrue(alphabet.issubset(encoder._alphabet))
     for a in alphabet:
       self.assertIn(a, encoder.all_subtoken_strings)
+
+  def test_long_tokens(self):
+    """Subword tokenization should still run efficiently with long tokens.
+
+    To make it run efficiently, we need to use the `max_subtoken_length`
+    argument when calling SubwordTextEncoder.build_to_target_size.
+    """
+    token_length = 4000
+    num_tokens = 50
+    target_vocab_size = 600
+    max_subtoken_length = 10  # Set this to `None` to get problems.
+    max_count = 500
+
+    # Generate some long random strings.
+    random.seed(0)
+    long_tokens = []
+    for _ in range(num_tokens):
+      long_token = "".join([random.choice(string.ascii_uppercase)
+                            for _ in range(token_length)])
+      long_tokens.append(long_token)
+
+    corpus = " ".join(long_tokens)
+    token_counts = collections.Counter(corpus.split(" "))
+    alphabet = set(corpus) - {" "}
+
+    encoder = text_encoder.SubwordTextEncoder.build_to_target_size(
+        target_vocab_size, token_counts, 1, max_count, num_iterations=1,
+        max_subtoken_length=max_subtoken_length)
+
+    # All vocabulary elements are in the alphabet and subtoken strings even
+    # if we requested a smaller vocabulary to assure all expected strings
+    # are encodable.
+    self.assertTrue(alphabet.issubset(encoder._alphabet))
+    for a in alphabet:
+      self.assertIn(a, encoder.all_subtoken_strings)
+
+  def test_custom_reserved_tokens(self):
+    """Test that we can pass custom reserved tokens to SubwordTextEncoder."""
+    corpus = "The quick brown fox jumps over the lazy dog"
+    token_counts = collections.Counter(corpus.split(" "))
+
+    start_symbol = "<S>"
+    end_symbol = "<E>"
+    reserved_tokens = text_encoder.RESERVED_TOKENS + [start_symbol,
+                                                      end_symbol]
+    encoder = text_encoder.SubwordTextEncoder.build_to_target_size(
+        10, token_counts, 2, 10, reserved_tokens=reserved_tokens)
+
+    # Make sure that reserved tokens appear in the right places.
+    self.assertEqual(encoder.decode([2]), start_symbol)
+    self.assertEqual(encoder.decode([3]), end_symbol)
+
+    # Make sure that we haven't messed up the ability to reconstruct.
+    reconstructed_corpus = encoder.decode(encoder.encode(corpus))
+    self.assertEqual(corpus, reconstructed_corpus)
 
   def test_encodable_when_not_in_alphabet(self):
     corpus = "the quick brown fox jumps over the lazy dog"
@@ -279,6 +336,49 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     self.assertEqual(encoder._subtoken_string_to_id,
                      new_encoder._subtoken_string_to_id)
     self.assertEqual(encoder._max_subtoken_len, new_encoder._max_subtoken_len)
+
+  def test_build_from_generator(self):
+
+    corpus = "The quick brown fox jumps over the lazy dog"
+
+    def gen():
+      for _ in range(3):
+        yield corpus
+
+    start_symbol = "<S>"
+    end_symbol = "<E>"
+    reserved_tokens = text_encoder.RESERVED_TOKENS + [start_symbol,
+                                                      end_symbol]
+    encoder = text_encoder.SubwordTextEncoder.build_from_generator(
+        gen(), 10, reserved_tokens=reserved_tokens)
+
+    # Make sure that reserved tokens appear in the right places.
+    self.assertEqual(encoder.decode([2]), start_symbol)
+    self.assertEqual(encoder.decode([3]), end_symbol)
+
+    self.assertEqual("hi%s" % start_symbol,
+                     encoder.decode(encoder.encode("hi") + [2]))
+
+    # Make sure that we haven't messed up the ability to reconstruct.
+    reconstructed_corpus = encoder.decode(encoder.encode(corpus))
+    self.assertEqual(corpus, reconstructed_corpus)
+
+
+class OneHotClassLabelEncoderTest(tf.test.TestCase):
+
+  def test_one_hot_encode(self):
+    encoder = text_encoder.OneHotClassLabelEncoder(
+        class_labels=["zero", "one", "two"])
+    self.assertEqual(encoder.encode("zero"), [1, 0, 0])
+    self.assertEqual(encoder.encode("one"), [0, 1, 0])
+    self.assertEqual(encoder.encode("two"), [0, 0, 1])
+
+  def test_one_hot_decode(self):
+    encoder = text_encoder.OneHotClassLabelEncoder(
+        class_labels=["zero", "one", "two"])
+    self.assertEqual(encoder.decode([1, 0, 0]), "zero")
+    self.assertEqual(encoder.decode([0, 1, 0]), "one")
+    self.assertEqual(encoder.decode([0, 0, 1]), "two")
 
 
 if __name__ == "__main__":

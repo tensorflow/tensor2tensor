@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,10 +18,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
-import six
 from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.utils import registry
 
@@ -32,10 +28,12 @@ import tensorflow as tf
 def basic_params1():
   """A set of basic hyperparameters."""
   return tf.contrib.training.HParams(
-      # If the features are variable length, this is in tokens per batch per
-      # GPU. If the features are of known shape (e.g. image problems), this is
-      # the actual batch size.
+      # If the problem consists of variable-length sequences
+      # (see problem.batch_size_means_tokens()), then this is the number
+      # of tokens per batch per GPU or per TPU core.  Otherwise, this is
+      # the number of examples per GPU or per TPU core.
       batch_size=4096,
+      batch_shuffle_size=512,
       # If True, then if the features are of variable length, the batch_size is
       # used as the actual batch size (and not tokens per batch).
       use_fixed_batch_size=False,
@@ -50,6 +48,10 @@ def basic_params1():
       clip_grad_norm=2.0,
       grad_noise_scale=0.0,
       summarize_grads=False,
+      # Flag for whether mlperf mode is on
+      mlperf_mode=False,
+      # Whether to log the name and size of every variable
+      summarize_vars=False,
       initializer="orthogonal",
       initializer_gain=1.5,
       label_smoothing=0.1,
@@ -58,15 +60,43 @@ def basic_params1():
       optimizer_adam_beta1=0.85,
       optimizer_adam_beta2=0.997,
       optimizer_momentum_momentum=0.9,
-      weight_decay=0.1,
+      optimizer_momentum_nesterov=False,
+      optimizer_adafactor_beta1=0.0,
+      optimizer_adafactor_beta2=0.999,
+      optimizer_adafactor_factored=True,
+      optimizer_adafactor_decay_type="pow",
+      optimizer_adafactor_memory_exponent=0.8,
+      optimizer_adafactor_clipping_threshold=1.0,
+      optimizer_adafactor_multiply_by_parameter_scale=True,
+      # Number of accumulating steps for multi step optimizers.
+      optimizer_multistep_accumulate_steps=None,
+      # Whether to zero gradients that were not computed, so that the
+      # appropriate slots are created. Useful for sharing checkpoints between
+      # models with different sets of heads.
+      optimizer_zero_grads=False,
+      weight_decay=1e-6,
       weight_noise=0.0,
+      # Defines the learning rate as a product of named functions.
+      # Available functions are listed in learning_rate._LEARNING_RATE_FUNCTIONS
+      # e.g. "constant*linear_warmup*rsqrt_decay*rsqrt_hidden_size"
+      learning_rate_schedule="legacy",
+      learning_rate_constant=1.0,
+      # If learning_rate_schedule=="legacy",
+      # then we specify decay scheme here.  Warmup is always exponential,
+      # except with "noam" learning rate decay scheme.
+      # see optimize.legacy_learning_rate_schedule()
+      # TODO(noam): migrate everyone away from this.
       learning_rate_decay_scheme="none",
+      # decay_steps and decay_staircase for learning_rate_decay_scheme=="exp"
+      learning_rate_decay_steps=5000,
+      learning_rate_decay_staircase=False,
+      learning_rate_minimum=None,
+      learning_rate_decay_rate=1.0,
       learning_rate_warmup_steps=100,
       learning_rate_cosine_cycle_steps=250000,
       learning_rate=0.1,
       sampling_method="argmax",  # "argmax" or "random"
       sampling_temp=1.0,  # temperature for sampling
-      problem_choice="adaptive",  # "uniform", "adaptive", "distributed"
       # expand the logits a piece at a time - saves memory.
       factored_logits=False,
       multiply_embedding_mode="sqrt_depth",
@@ -77,13 +107,13 @@ def basic_params1():
       moe_loss_coef=1e-2,
       # Sequences of operations to perform on layer input and layer output.
       # Used by common_layers.layer_preprocess, common_layers.layer_postprocess
-      # Each character repsesnts an operation:
+      # Each character represents an operation:
       # none: no preprocessing
       #    d: apply dropout
       #    n: apply normalization (see norm_type and norm_epsilon)
       #    a: add layer input (residual connection - only during postprocess)
       # The special string "none" is used instead of the empty string
-      # to indicate no pre/postprocesisng, since the empty string causes
+      # to indicate no pre/postprocessing, since the empty string causes
       # trouble for hyperparameter tuning.
       # TODO(noam): The current settings ("", "dan") are the published version
       # of the transformer.  ("n", "da") seems better for harder-to-learn
@@ -92,11 +122,20 @@ def basic_params1():
       layer_postprocess_sequence="dan",
       # dropout rate to use during layer_preprocess and layer_postprocess
       layer_prepostprocess_dropout=0.1,
+      # broadcast dimensions for layer_prepostprocess_dropout
+      # a comma-separated list of integers.
+      # see common_layers.dropout_with_broadcast_dims()
+      # Change this to "1" to save memory.
+      layer_prepostprocess_dropout_broadcast_dims="",
+      # dropout some symbols (set them to 0) before embedding.
+      symbol_dropout=0.0,
       # What type of normalization to use
       norm_type="layer",  # "batch", layer", "noam", "none".
       # epsilon parameter to normalization function
       norm_epsilon=1e-6,
-      symbol_modality_num_shards=16,
+      symbol_modality_num_shards=1,
+      # pad vocabularies so that this value divides the vocabulary size.
+      vocab_divisor=1,
       # During training, we drop sequences whose inputs and targets are shorter
       # than min_length
       min_length=0,
@@ -123,34 +162,41 @@ def basic_params1():
       # during eval
       eval_run_autoregressive=False,
       # TODO(lukaszkaiser): these parameters should probably be set elsewhere.
-      # in SymbolModality, share the output embeddings and the softmax
-      # variables.
-      # You can also share the input embeddings with the output embeddings
-      # by using a problem_hparams that uses the same modality object for
-      # the input_modality and target_modality.
+      # (SymbolModality) - If this flag is on, we try to share all of the input
+      # embeddings, the target embeddings and the softmax weights.
       shared_embedding_and_softmax_weights=False,
+      # (SymbolModality) - If this flag is on, we try to share the input
+      # embeddings and the target embeddings.
+      # You can also share the input embeddings with the target embeddings
+      # by using a problem_hparams that uses the same modality object for
+      # the input modality and target modality.
+      shared_embedding=False,
       # In SymbolModality, skip the top layer, assume we're providing logits.
       symbol_modality_skip_top=False,
-      # For each feature for which you want to override the default input
-      # modality, add an entry to this semicolon-separated string. Entries are
-      # formatted "feature_name:modality_type:modality_name", e.g.
-      # "inputs:symbol:default;other_inputs:audio:identity".
-      input_modalities="default",  # We don't use empty string in params.
-      # To override the default target modality, specify
-      # "modality_type:modality_name", e.g. "symbol:ctc".
-      target_modality="default",
+      # Modalities used to map from features to a space compatible with
+      # chosen model architecture. It comprises key-value pairs of a feature
+      # name (str) and its modality class.
+      modality={},
       # The maximum length of "input" sequence.
       # Sequences longer than this value will be truncated. 0 or negative values
       # mean there is no maximum or truncation.
-      # You can change this behavior by overridding preprocess_example() method
+      # You can change this behavior by overriding preprocess_example() method
       # in your problem class.
       max_input_seq_length=0,
       # The maximum length of "target" sequence.
       # Sequences longer than this value will be truncated. 0 or negative values
       # mean there is no maximum or truncation.
-      # You can change this behavior by overridding preprocess_example() method
+      # You can change this behavior by overriding preprocess_example() method
       # in your problem class.
       max_target_seq_length=0,
+      # if nonzero, we split the target sequences on example read.
+      # This is for use with language modeling problems with fixed length
+      # examples.  e.g.  The examples may be written with length 65536, but we
+      # want to split each example into 64 examples of length 1024.
+      split_to_length=0,
+      # Video settings: how many frames to batch on input and targets.
+      video_num_input_frames=1,
+      video_num_target_frames=1,
       # This flag allows us to optionally treat a seq-to-seq problem
       # as a language model.  Legal values are:
       #
@@ -183,21 +229,92 @@ def basic_params1():
       scheduled_sampling_warmup_steps=50000,
       scheduled_sampling_gold_mixin_prob=0.5,
       # This setting controls whether to copy variables around in a daisy chain
-      # (if true) or leave their placement to Tensorflow. It only affects multi
+      # (if true) or leave their placement to TensorFlow. It only affects multi
       # device training and mostly should be turned on for performance. One
       # exception are recurrent models: with dynamic loops it must be off.
       daisy_chain_variables=True,
-      # This is the actual batch size, *not* tokens per batch (i.e. for
-      # language models this is the number of sentences in the batch)
-      tpu_batch_size_per_shard=24,
-      # Set by tpu_trainer to let the model know whether we are on TPU.
-      # Switching on/off tpu should not invalidate checkpoints.
-      use_tpu=False,
       # If True in PREDICT mode, then last-position-only optimizations are not
       # used.
       force_full_predict=False,
       # Set this for pure model parallelism.  There is only one data shard.
       no_data_parallelism=False,
+      # dtype used for activations. - "float32" or "bfloat16"
+      # activation_dtype="bfloat16" currently only works on TPU.
+      #    It lowers activation-memory usage
+      #    and does not appear to affect quality.
+      #    You can train on TPU with activation_dtype="bfloat16" and evaluate
+      #    on CPU/GPU with activation_dtype="float32"
+      activation_dtype="float32",
+      # dtype used for parameters: "float32" or "bfloat16"
+      # bfloat16 currently only works with optimizer="adafactor".
+      #   The savings in memory allow for training larger models.
+      #   Weights are encoded as (w*128)^8, using pseudostochastic
+      #   roundoff.  Initial experiments show that model quality is similar
+      #   to baseline for about 3M training steps, but worse thereafter.
+      weight_dtype="float32",
+      # Directory containing a checkpoint for a pretrained model. This will only
+      # be used if a new run is being started. Parameters not found in the
+      # pretrained model will be randomly initialized. Superfluous parameters in
+      # the pretrained model will be ignored.
+      pretrained_model_dir="",
+      # Threshold used for two cases: the primary task probability for the
+      # constant mixing schedule, and the exponential schedule limit for when
+      # mixing should stop (eg: 0.5 means stop at 50-50 mixing, 0.8 means stop
+      # at 20-80 mixing for the primary-others mixing case.)
+      multiproblem_schedule_threshold=0.5,
+      # For more than 2 tasks, we may want to specify per-task thresholds here.
+      # In that case, this needs to be a string with as many floating point
+      # numbers as the number of tasks in the multi-problem. These numbers
+      # are later normalized to add up to 1 and taken as probabilities for
+      # each task. This enforces a constant mixing schedule and if this is
+      # empty then the threshold from above is used for the first task and
+      # the other tasks get the remaining probability split uniformly.
+      multiproblem_per_task_threshold="",
+      # The number of examples at which the proportion of the mixed in datasets
+      # is multiproblem_schedule_threshold
+      multiproblem_schedule_max_examples=1e7,
+      # When training multiproblems, we can mix the data according to different
+      # schedules. Example: a constant schedule mixing 20-80 between the primary
+      # and other tasks.
+      # A list of supported schedules can be found in
+      # `data_generators.multi_problem.py`.
+      multiproblem_mixing_schedule="constant",
+      # A boolean that decides whether input sequence losses and target label
+      # losses in classification problems should be reweighted.
+      multiproblem_reweight_label_loss=False,
+      # How much weight the targets in classification problems receive. Inputs
+      # receive 1 minus this weight.
+      multiproblem_label_weight=0.5,
+      # Hyperparameters for relative attention.
+      # The maximum relative positional distance to learn an embedding for.
+      max_relative_position=0,
+      # If heads share the same relative embedding.
+      heads_share_relative_embedding=False,
+      # If relative embedding terms are added to values too.
+      add_relative_to_values=False,
+      # If enable the host_call which is executed every training step.
+      # There could be a performance drop if host_call function is slow and
+      # cannot keep up with the TPU-side computation.
+      tpu_enable_host_call=False,
+      # Pad batch dim of inputs to nearest multiple of batch multiple.
+      pad_batch=False,
+      # When true, do not evaluate on the language model data when running the
+      # multiproblem since it can take a while. If False, set eval_steps to
+      # something large like 6000 or 10000.
+      multiproblem_target_eval_only=False,
+      # Max out the vocab size to a power of 2 for efficiency and to reserve
+      # extra space in the vocabulary for new task ids and label classes.
+      multiproblem_vocab_size=-1,
+      # When using multiproblem with generation tasks, need to truncate the
+      # inputs and targets manually before concatenating them.
+      multiproblem_max_input_length=-1,
+      multiproblem_max_target_length=-1,
+      # If positive, makes training targets fixed-length in MultiProblem.
+      multiproblem_fixed_train_length=-1,
+      # Load weights from a second model. For instance, when using
+      # pre-trained weights, you might want to initialize the encoder
+      # and decoder by loading different models.
+      warm_start_from_second=""
   )
 
 
@@ -209,10 +326,15 @@ class RangedHParams(object):
   LOG_SCALE = 2
   REVERSE_LOG_SCALE = 3
 
+  SCALES_STR = {
+      LINEAR_SCALE: "UNIT_LINEAR_SCALE",
+      LOG_SCALE: "UNIT_LOG_SCALE",
+      REVERSE_LOG_SCALE: "UNIT_REVERSE_LOG_SCALE",
+  }
+
   def __init__(self):
     self._categorical_params = {}
     self._discrete_params = {}
-    self._discrete_float_params = {}
     self._float_params = {}
     self._int_params = {}
 
@@ -222,10 +344,12 @@ class RangedHParams(object):
     if name in orig_ctr:
       tf.logging.warning("Overwriting hparam %s", name)
 
-    ctr_names = [(self._categorical_params,
-                  "categorical"), (self._discrete_params, "discrete"),
-                 (self._float_params, "float"), (self._int_params, "int"),
-                 (self._discrete_float_params, "discrete_float")]
+    ctr_names = [
+        (self._categorical_params, "categorical"),
+        (self._discrete_params, "discrete"),
+        (self._float_params, "float"),
+        (self._int_params, "int"),
+    ]
     ctrs, names = list(zip(*ctr_names))
     orig_name = names[ctrs.index(orig_ctr)]
 
@@ -248,14 +372,8 @@ class RangedHParams(object):
     self._discrete_params[name] = (name, feasible_points, scale, length)
 
   def set_float(self, name, min_val, max_val, scale=None, length=None):
-    if name in self._discrete_float_params:
-      del self._discrete_float_params[name]
     self._check_reset_and_type_change(name, self._float_params)
     self._float_params[name] = (name, min_val, max_val, scale, length)
-
-  def set_discrete_float(self, name, val):
-    self._check_reset_and_type_change(name, self._discrete_float_params)
-    self._discrete_float_params[name] = (name, [val])
 
   def set_int(self, name, min_val, max_val, scale=None, length=None):
     self._check_reset_and_type_change(name, self._int_params)
@@ -263,8 +381,8 @@ class RangedHParams(object):
 
   def fix_select_params(self, hp):
     ctrs = [
-        self._categorical_params, self._discrete_params,
-        self._discrete_float_params, self._float_params, self._int_params
+        self._categorical_params, self._discrete_params, self._float_params,
+        self._int_params
     ]
     for key, val in hp.values().iteritems():
       for ctr in ctrs:
@@ -272,52 +390,56 @@ class RangedHParams(object):
           del ctr[key]
       self.set_discrete(key, [val])
 
+  def to_parameter_specs(self, name_prefix=""):
+    """To list of dicts suitable for Cloud ML Engine hyperparameter tuning."""
+    specs = []
+    for name, categories, _ in self._categorical_params.values():
+      spec = {
+          "parameterName": name_prefix + name,
+          "type": "CATEGORICAL",
+          "categoricalValues": categories,
+      }
+      specs.append(spec)
 
-def fill_ranged_hparams_from_hparams(hparams, ranged_hparams):
-  """Fill ranged_hparams with singleton values from hparams.
+    for name, feasible_points, scale, _ in self._discrete_params.values():
+      spec = {
+          "parameterName": name_prefix + name,
+          "type": "DISCRETE",
+          "discreteValues": feasible_points,
+      }
+      if scale:
+        spec["scaleType"] = self.SCALES_STR[scale]
+      specs.append(spec)
 
-  HParams are placed in RangedHParams with the following functions, according to
-  type:
-    * int: set_discrete
-    * bool: set_discrete
-    * float: set_discrete_float
-    * str: set_categorical
+    for name, min_val, max_val, scale, _ in self._float_params.values():
+      spec = {
+          "parameterName": name_prefix + name,
+          "type": "DOUBLE",
+          "minValue": min_val,
+          "maxValue": max_val,
+      }
+      if scale:
+        spec["scaleType"] = self.SCALES_STR[scale]
+      specs.append(spec)
 
-  Args:
-    hparams: tf.contrib.training.HParams; contains the hyperparameters to copy
-      over to ranged_hparams.
-    ranged_hparams: RangedHParams; will have hparams values copied to it.
+    for name, min_val, max_val, scale, _ in self._int_params.values():
+      spec = {
+          "parameterName": name_prefix + name,
+          "type": "INTEGER",
+          "minValue": min_val,
+          "maxValue": max_val,
+      }
+      if scale:
+        spec["scaleType"] = self.SCALES_STR[scale]
+      specs.append(spec)
 
-  Raises:
-    ValueError: if hparams contains a hyperparameter not of type
-      {int, float, str, bool}.
-  """
-  for name, (hp_type, is_multivalent) in six.iteritems(hparams._hparam_types):  # pylint: disable=protected-access
-
-    if is_multivalent:
-      raise ValueError("Multivalent hparams not supported in RangedHParams. "
-                       "Hyperparameter %s is multivalent." % name)
-    val = getattr(hparams, name)
-    if hp_type == int:
-      ranged_hparams.set_discrete(name, [val])
-    elif hp_type == bool:
-      ranged_hparams.set_discrete(name, [int(val)])
-    elif hp_type == float:
-      ranged_hparams.set_discrete_float(name, val)
-    elif hp_type == str:
-      ranged_hparams.set_categorical(name, [val])
-    else:
-      raise ValueError("Unsupported type %s for param %s" % (hp_type, name))
+    return specs
 
 
 @registry.register_ranged_hparams("basic1")
 def basic_range1(ranged_hparams):
   """A basic range of hyperparameters."""
   rhp = ranged_hparams
-
-  hparams = basic_params1()
-  fill_ranged_hparams_from_hparams(hparams, rhp)
-
   rhp.set_discrete("batch_size", [1024, 2048, 4096])
   rhp.set_discrete("num_hidden_layers", [1, 2, 3, 4, 5, 6])
   rhp.set_discrete("hidden_size", [32, 64, 128, 256, 512], scale=rhp.LOG_SCALE)
@@ -333,10 +455,16 @@ def basic_range1(ranged_hparams):
                       ["uniform", "orthogonal", "uniform_unit_scaling"])
   rhp.set_float("initializer_gain", 0.5, 3.5)
   rhp.set_categorical("learning_rate_decay_scheme",
-                      ["none", "sqrt", "noam", "exp10k"])
+                      ["none", "sqrt", "noam", "exp"])
   rhp.set_float("optimizer_adam_epsilon", 1e-7, 1e-2, scale=rhp.LOG_SCALE)
   rhp.set_float("optimizer_adam_beta1", 0.8, 0.9)
   rhp.set_float("optimizer_adam_beta2", 0.995, 0.999)
   rhp.set_categorical(
       "optimizer",
       ["Adam", "Adagrad", "Momentum", "RMSProp", "SGD", "YellowFin"])
+
+
+@registry.register_ranged_hparams
+def basic_moe_range(rhp):
+  """Moe range; when this parameter is unused, it allows us to see variance."""
+  rhp.set_float("moe_loss_coef", 0.01, 0.02)

@@ -1,107 +1,50 @@
 # Running on Cloud TPUs
 
-Tensor2Tensor supports running on Google Cloud Platforms TPUs, chips specialized
-for ML training.
+Tensor2Tensor supports running on Google Cloud Platforms TPUs, chips
+specialized for ML training. See the official tutorials for [running the
+T2T Transformer for text on Cloud TPUs](https://cloud.google.com/tpu/docs/tutorials/transformer) and
+[Transformer for Speech Recognition](https://cloud.google.com/tpu/docs/tutorials/automated-speech-recognition).
 
-Models and hparams that are known to work on TPU:
-* `transformer` with `transformer_tpu`
-* `xception` with `xception_base`
-* `resnet50` with `resnet_base`
+## Other models on TPU
 
-To run on TPUs, you need to be part of the alpha program; if you're not, these
-commands won't work for you currently, but access will expand soon, so get
-excited for your future ML supercomputers in the cloud.
+Many of Tensor2Tensor's models work on TPU.
 
-## Tutorial: Transformer En-De translation on TPU
+You can provision a VM and TPU with `ctpu up`. Use the `t2t-trainer` command
+on the VM as usual with the additional flags `--use_tpu` and
+`--cloud_tpu_name=$TPU_NAME`.
 
-Update `gcloud`: `gcloud components update`
+Note that because the `TPUEstimator` does not catch the `OutOfRangeError`
+during evaluation, you should ensure that `--eval_steps` is small enough to
+not exhaust the evaluation data.
 
-Set your default zone to a TPU-enabled zone. TPU machines are only available in
-certain zones for now.
-```
-gcloud config set compute/zone us-central1-f
-```
+A non-exhaustive list of T2T models that work on TPU:
 
-Launch a GCE instance; this will run the Python trainer.
-```
-gcloud compute instances create $USER-vm \
-  --machine-type=n1-standard-8 \
-  --image-family=tf-nightly \
-  --image-project=ml-images \
-  --scopes=https://www.googleapis.com/auth/cloud-platform
-```
+* Image generation: `imagetransformer` with `imagetransformer_base_tpu` (or
+  `imagetransformer_tiny_tpu`)
+* Super-resolution: `img2img_transformer` with `img2img_transformer_base_tpu`
+  (or `img2img_transformer_tiny_tpu`)
+* `resnet` with `resnet_50` (or `resnet_18` or `resnet_34`)
+* `revnet` with `revnet_104` (or `revnet_38_cifar`)
+* `shake_shake` with `shakeshake_tpu` (or `shakeshake_small`)
 
-Launch the TPU instance; the Python program will connect to this to train on the
-TPU device.
-```
-TPU_IP=10.240.0.2
-gcloud alpha compute tpus create \
-  $USER-tpu \
-  --range=${TPU_IP/%2/0}/29 \
-  --version=nightly
-```
+## Example invocation
 
-To see all TPU instances running: `gcloud alpha compute tpus list`.  The
-`TPU_IP` should be unique amongst the list and follow the format `10.240.i.2`.
+Use `ctpu up` to bring up the VM and TPU machines; once the machines are ready
+it will SSH you into the VM and you can run the following:
 
-SSH in with port forwarding for TensorBoard
 ```
-gcloud compute ssh $USER-vm -- -L 6006:localhost:6006
-```
+# DATA_DIR and OUT_DIR should be GCS buckets
+# TPU_NAME should have been set automatically by the ctpu tool
 
-Now that you're on the cloud instance, install T2T:
-```
-pip install tensor2tensor --user
-# If your python bin dir isn't already in your path
-export PATH=$HOME/.local/bin:$PATH
-```
-
-Generate data to GCS
-If you already have the data, use `gsutil cp` to copy to GCS.
-```
-GCS_BUCKET=gs://my-bucket
-DATA_DIR=$GCS_BUCKET/t2t/data/
-t2t-datagen --problem=translate_ende_wmt8k --data_dir=$DATA_DIR
-```
-
-Setup some vars used below. `TPU_IP` and `DATA_DIR` should be the same as what
-was used above. Note that the `DATA_DIR` and `OUT_DIR` must be GCS buckets.
-```
-TPU_IP=<IP of TPU machine>
-DATA_DIR=$GCS_BUCKET/t2t/data/
-OUT_DIR=$GCS_BUCKET/t2t/training/
-TPU_MASTER=grpc://$TPU_IP:8470
-```
-
-Launch TensorBoard in the background so you can monitor training:
-```
-tensorboard --logdir=$OUT_DIR > /tmp/tensorboard_logs.txt 2>&1 &
-```
-
-Train and evaluate.
-```
 t2t-trainer \
-  --model=transformer \
-  --hparams_set=transformer_tpu \
-  --problems=translate_ende_wmt8k \
-  --train_steps=10 \
-  --eval_steps=10 \
-  --local_eval_frequency=10 \
-  --iterations_per_loop=10 \
-  --master=$TPU_MASTER \
-  --use_tpu=True \
+  --model=shake_shake \
+  --hparams_set=shakeshake_tpu \
+  --problem=image_cifar10 \
+  --train_steps=180000 \
+  --eval_steps=9 \
+  --local_eval_frequency=100 \
   --data_dir=$DATA_DIR \
-  --output_dir=$OUT_DIR
+  --output_dir=$OUT_DIR \
+  --use_tpu \
+  --cloud_tpu_name=$TPU_NAME
 ```
-
-The above command will train for 10 steps, then evaluate for 10 steps. You can
-(and should) increase the number of total training steps with the
-`--train_steps` flag. Evaluation will happen every `--local_eval_frequency`
-steps, each time for `--eval_steps`. When you increase then number of training
-steps, also increase `--iterations_per_loop`, which controls how frequently the
-TPU machine returns control to the host machine (1000 seems like a fine number).
-
-Back on your local machine, open your browser and navigate to `localhost:6006`
-for TensorBoard.
-
-Voila. Enjoy your new supercomputer.

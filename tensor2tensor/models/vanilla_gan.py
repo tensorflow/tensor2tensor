@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,8 +22,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# Dependency imports
-
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
@@ -32,136 +30,188 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
-def generator(z, hparams, reuse=False):
-  """Initalizes generator layers."""
-
-  g_h1 = tf.layers.dense(z, hparams.weight_size, activation=tf.nn.relu,
-                         name="l1", reuse=reuse)
-  g_log_prob = tf.layers.dense(g_h1, hparams.input_size, name="logp",
-                               reuse=reuse)
-  g_prob = tf.nn.sigmoid(g_log_prob)
-
-  return g_prob
+def lrelu(input_, leak=0.2, name="lrelu"):
+  return tf.maximum(input_, leak * input_, name=name)
 
 
-def discriminator(x, hparams, reuse=False):
-  """Initalizes discriminator layers."""
+def deconv2d(
+    input_, output_shape, k_h, k_w, d_h, d_w, stddev=0.02, name="deconv2d"):
+  """Deconvolution layer."""
+  with tf.variable_scope(name):
+    w = tf.get_variable(
+        "w", [k_h, k_w, output_shape[-1], input_.get_shape()[-1]],
+        initializer=tf.random_normal_initializer(stddev=stddev))
+    deconv = tf.nn.conv2d_transpose(
+        input_, w, output_shape=output_shape, strides=[1, d_h, d_w, 1])
+    biases = tf.get_variable(
+        "biases", [output_shape[-1]], initializer=tf.constant_initializer(0.0))
+    return tf.reshape(tf.nn.bias_add(deconv, biases), deconv.get_shape())
 
-  d_h1 = tf.layers.dense(x, hparams.weight_size, activation=tf.nn.relu,
-                         name="d_h1", reuse=reuse)
-  d_logit = tf.layers.dense(d_h1, 1, name="d_logit", reuse=reuse)
-  d_prob = tf.nn.sigmoid(d_logit)
 
-  return d_prob, d_logit
+def reverse_gradient(x):
+  return -x + tf.stop_gradient(2 * x)
 
 
-def reverse_grad(x):
-  return tf.stop_gradient(2*x) - x
+class AbstractGAN(t2t_model.T2TModel):
+  """Base class for all GANs."""
 
+  def discriminator(self, x, is_training, reuse=False):
+    """Discriminator architecture based on InfoGAN.
 
-def vanilla_gan_internal(inputs, hparams, train):
-  with tf.variable_scope("vanilla_gan", reuse=tf.AUTO_REUSE):
-    x = common_layers.flatten4d3d(inputs)
+    Args:
+      x: input images, shape [bs, h, w, channels]
+      is_training: boolean, are we in train or eval model.
+      reuse: boolean, should params be re-used.
 
-    batch_size = tf.shape(inputs)[0]
-    # Currently uses one of three color layers.
-    x = x[:, :, 0]
-    x.set_shape([None, hparams.input_size])
+    Returns:
+      out_logit: the output logits (before sigmoid).
+    """
+    hparams = self.hparams
+    with tf.variable_scope(
+        "discriminator", reuse=reuse,
+        initializer=tf.random_normal_initializer(stddev=0.02)):
+      batch_size, height, width = common_layers.shape_list(x)[:3]
+      # Mapping x from [bs, h, w, c] to [bs, 1]
+      net = tf.layers.conv2d(x, 64, (4, 4), strides=(2, 2),
+                             padding="SAME", name="d_conv1")
+      # [bs, h/2, w/2, 64]
+      net = lrelu(net)
+      net = tf.layers.conv2d(net, 128, (4, 4), strides=(2, 2),
+                             padding="SAME", name="d_conv2")
+      # [bs, h/4, w/4, 128]
+      if hparams.discriminator_batchnorm:
+        net = tf.layers.batch_normalization(net, training=is_training,
+                                            momentum=0.999, name="d_bn2")
+      net = lrelu(net)
+      size = height * width
+      net = tf.reshape(net, [batch_size, size * 8])  # [bs, h * w * 8]
+      net = tf.layers.dense(net, 1024, name="d_fc3")  # [bs, 1024]
+      if hparams.discriminator_batchnorm:
+        net = tf.layers.batch_normalization(net, training=is_training,
+                                            momentum=0.999, name="d_bn3")
+      net = lrelu(net)
+      return net
 
-    if train:
-      z = tf.random_uniform(shape=[batch_size,
-                                   hparams.random_sample_size],
-                            minval=-1, maxval=1, name="z")
-    else:
-      z = tf.random_uniform(shape=[1, hparams.random_sample_size],
-                            minval=-1, maxval=1, name="z")
+  def generator(self, z, is_training, out_shape):
+    """Generator outputting image in [0, 1]."""
+    hparams = self.hparams
+    height, width, c_dim = out_shape
+    batch_size = hparams.batch_size
+    with tf.variable_scope(
+        "generator",
+        initializer=tf.random_normal_initializer(stddev=0.02)):
+      net = tf.layers.dense(z, 1024, name="g_fc1")
+      net = tf.layers.batch_normalization(net, training=is_training,
+                                          momentum=0.999, name="g_bn1")
+      net = lrelu(net)
+      net = tf.layers.dense(net, 128 * (height // 4) * (width // 4),
+                            name="g_fc2")
+      net = tf.layers.batch_normalization(net, training=is_training,
+                                          momentum=0.999, name="g_bn2")
+      net = lrelu(net)
+      net = tf.reshape(net, [batch_size, height // 4, width // 4, 128])
+      net = deconv2d(net, [batch_size, height // 2, width // 2, 64],
+                     4, 4, 2, 2, name="g_dc3")
+      net = tf.layers.batch_normalization(net, training=is_training,
+                                          momentum=0.999, name="g_bn3")
+      net = lrelu(net)
+      net = deconv2d(net, [batch_size, height, width, c_dim],
+                     4, 4, 2, 2, name="g_dc4")
+      out = tf.nn.sigmoid(net)
+      return common_layers.convert_real_to_rgb(out)
 
-    g_sample = generator(z, hparams)
+  def losses(self, inputs, generated):
+    """Return the losses dictionary."""
+    raise NotImplementedError
 
-    d_real, _ = discriminator(x, hparams)
+  def body(self, features):
+    """Body of the model.
 
-    d_fake, _ = discriminator(reverse_grad(g_sample), hparams,
-                              reuse=True)
-    d_loss = -tf.reduce_mean(tf.log(d_real+hparams.epsilon)
-                             + tf.log(1. - d_fake))
-    g_loss = -tf.reduce_mean(tf.log(d_fake+hparams.epsilon))
+    Args:
+      features: a dictionary with the tensors.
 
-    losses = {}
-    losses["discriminator"] = d_loss
-    losses["generator"] = g_loss
+    Returns:
+      A pair (predictions, losses) where predictions is the generated image
+      and losses is a dictionary of losses (that get added for the final loss).
+    """
+    features["targets"] = features["inputs"]
+    is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
 
-    z_sampled = tf.random_uniform(shape=[1, hparams.random_sample_size],
-                                  minval=-1, maxval=1, name="z")
-    g_sample = generator(z_sampled, hparams, reuse=True)
-    g_reshaped_sample = tf.reshape(g_sample,
-                                   [1, hparams.height, hparams.width, 1])
-    tf.summary.image("generated", g_reshaped_sample, max_outputs=1)
+    # Input images.
+    inputs = tf.to_float(features["targets_raw"])
 
-    if train:
-      # Returns an empty output, and loss dictionary.
-      return tf.zeros(shape=[1, 1]), losses
-    else:
-      return g_sample, losses
+    # Noise vector.
+    z = tf.random_uniform([self.hparams.batch_size,
+                           self.hparams.bottleneck_bits],
+                          minval=-1, maxval=1, name="z")
+
+    # Generator output: fake images.
+    out_shape = common_layers.shape_list(inputs)[1:4]
+    g = self.generator(z, is_training, out_shape)
+
+    losses = self.losses(inputs, g)  # pylint: disable=not-callable
+
+    summary_g_image = tf.reshape(
+        g[0, :], [1] + common_layers.shape_list(inputs)[1:])
+    tf.summary.image("generated", summary_g_image, max_outputs=1)
+
+    if is_training:  # Returns an dummy output and the losses dictionary.
+      return tf.zeros_like(inputs), losses
+    return tf.reshape(g, tf.shape(inputs)), losses
+
+  def top(self, body_output, features):
+    """Override the top function to not do anything."""
+    return body_output
 
 
 @registry.register_model
-class VanillaGan(t2t_model.T2TModel):
-  """Simple GAN.
-  """
+class SlicedGan(AbstractGAN):
+  """Sliced GAN for demonstration."""
 
-  def body(self, features):
-    """Computes the generator and discriminator loss.
+  def losses(self, inputs, generated):
+    """Losses in the sliced case."""
+    is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
+    def discriminate(x):
+      return self.discriminator(x, is_training=is_training, reuse=False)
+    generator_loss = common_layers.sliced_gan_loss(
+        inputs, reverse_gradient(generated), discriminate,
+        self.hparams.num_sliced_vecs)
+    return {"training": - generator_loss}
 
-    Args:
-      features: A dictionary of key to Tensor. Each Tensor has shape
-         [batch_size, ?, ?, hidden_size].
+  def infer(self, *args, **kwargs):  # pylint: disable=arguments-differ
+    del args, kwargs
 
-    Returns:
-      output: Tensor containing one zero. GANs do not make use of the modality
-        loss.
-      losses: a dictionary of losses containing the generator and discriminator
-        losses.
-    """
-    train = self._hparams.mode == tf.estimator.ModeKeys.TRAIN
-    return vanilla_gan_internal(features["targets"], self._hparams, train)
+    try:
+      num_channels = self.hparams.problem.num_channels
+    except AttributeError:
+      num_channels = 1
 
-  def infer(self,
-            features=None,
-            decode_length=50,
-            beam_size=1,
-            top_beams=1,
-            last_position_only=False,
-            alpha=0.0):
     with tf.variable_scope("body/vanilla_gan", reuse=tf.AUTO_REUSE):
-      z = tf.random_uniform(shape=[1, self._hparams.random_sample_size],
+      hparams = self.hparams
+      z = tf.random_uniform([hparams.batch_size, hparams.bottleneck_bits],
                             minval=-1, maxval=1, name="z")
-
-      g_sample = generator(z, self._hparams)
+      out_shape = (hparams.sample_height, hparams.sample_width, num_channels)
+      g_sample = self.generator(z, False, out_shape)
       return g_sample
 
 
 @registry.register_hparams
-def vanilla_gan():
+def sliced_gan():
   """Basic parameters for a vanilla_gan."""
-
   hparams = common_hparams.basic_params1()
-
-  hparams.input_modalities = "inputs:image:zero_loss"
-  hparams.target_modality = "image:zero_loss"
-
-  hparams.batch_size = 32
+  hparams.optimizer = "Adam"
+  hparams.learning_rate_constant = 0.0002
+  hparams.learning_rate_warmup_steps = 500
+  hparams.learning_rate_schedule = "constant * linear_warmup"
   hparams.label_smoothing = 0.0
-  hparams.add_hparam("startup_steps", 10000)
-
-  hparams.train_steps = 100
-  hparams.add_hparam("weight_size", 128)
-  hparams.add_hparam("random_sample_size", 100)
-  hparams.add_hparam("height", 28)
-  hparams.add_hparam("width", 28)
-  hparams.add_hparam("colors", 1)
-  hparams.add_hparam("input_size", 784)
-  hparams.add_hparam("epsilon", 1e-4)
-  hparams.learning_rate_warmup_steps = 0
-  hparams.learning_rate = 0.2
-  hparams.learning_rate_decay_scheme = "none"
+  hparams.batch_size = 128
+  hparams.hidden_size = 128
+  hparams.initializer = "uniform_unit_scaling"
+  hparams.initializer_gain = 1.0
+  hparams.weight_decay = 1e-6
+  hparams.kernel_height = 4
+  hparams.kernel_width = 4
+  hparams.bottleneck_bits = 128
+  hparams.add_hparam("discriminator_batchnorm", True)
+  hparams.add_hparam("num_sliced_vecs", 4096)
   return hparams

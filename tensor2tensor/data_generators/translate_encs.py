@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,12 +18,9 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
-from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import translate
 from tensor2tensor.utils import registry
 
@@ -39,9 +36,9 @@ _ENCS_TRAIN_DATASETS = [
       "11234/1-1458/data-plaintext-format.tar"),
      ("tsv", 3, 2, "data.plaintext-format/*train.gz")],
     [
-        "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v12.tgz",  # pylint: disable=line-too-long
-        ("training/news-commentary-v12.cs-en.en",
-         "training/news-commentary-v12.cs-en.cs")
+        "http://data.statmt.org/wmt18/translation-task/training-parallel-nc-v13.tgz",  # pylint: disable=line-too-long
+        ("training-parallel-nc-v13/news-commentary-v13.cs-en.en",
+         "training-parallel-nc-v13/news-commentary-v13.cs-en.cs")
     ],
     [
         "http://www.statmt.org/wmt13/training-parallel-commoncrawl.tgz",
@@ -65,43 +62,26 @@ class TranslateEncsWmt32k(translate.TranslateProblem):
   """Problem spec for WMT English-Czech translation."""
 
   @property
-  def targeted_vocab_size(self):
+  def approx_vocab_size(self):
     return 2**15  # 32768
 
-  @property
-  def vocab_name(self):
-    return "vocab.encs"
+  def source_data_files(self, dataset_split):
+    train = dataset_split == problem.DatasetSplit.TRAIN
+    return _ENCS_TRAIN_DATASETS if train else _ENCS_TEST_DATASETS
 
-  def generator(self, data_dir, tmp_dir, train):
-    datasets = _ENCS_TRAIN_DATASETS if train else _ENCS_TEST_DATASETS
-    tag = "train" if train else "dev"
+  def vocab_data_files(self):
+    datasets = self.source_data_files(problem.DatasetSplit.TRAIN)
     vocab_datasets = []
-    data_path = translate.compile_data(tmp_dir, datasets,
-                                       "wmt_encs_tok_%s" % tag)
-    # CzEng contains 100 gz files with tab-separated columns, so let's expect
-    # it is the first dataset in datasets and use the newly created *.lang{1,2}
-    # files for vocab construction.
     if datasets[0][0].endswith("data-plaintext-format.tar"):
       vocab_datasets.append([
-          datasets[0][0],
-          ["wmt_encs_tok_%s.lang1" % tag,
-           "wmt_encs_tok_%s.lang2" % tag]
+          datasets[0][0], [
+              "%s-compiled-train.lang1" % self.name,
+              "%s-compiled-train.lang2" % self.name
+          ]
       ])
       datasets = datasets[1:]
     vocab_datasets += [[item[0], [item[1][0], item[1][1]]] for item in datasets]
-    symbolizer_vocab = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, self.vocab_file, self.targeted_vocab_size,
-        vocab_datasets)
-    return translate.token_generator(data_path + ".lang1", data_path + ".lang2",
-                                     symbolizer_vocab, EOS)
-
-  @property
-  def input_space_id(self):
-    return problem.SpaceID.EN_TOK
-
-  @property
-  def target_space_id(self):
-    return problem.SpaceID.CS_TOK
+    return vocab_datasets
 
 
 @registry.register_problem
@@ -109,22 +89,14 @@ class TranslateEncsWmtCharacters(translate.TranslateProblem):
   """Problem spec for WMT En-Cs character-based translation."""
 
   @property
-  def is_character_level(self):
-    return True
+  def vocab_type(self):
+    return text_problems.VocabType.CHARACTER
 
-  def generator(self, data_dir, tmp_dir, train):
-    character_vocab = text_encoder.ByteTextEncoder()
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    train = dataset_split == problem.DatasetSplit.TRAIN
     datasets = _ENCS_TRAIN_DATASETS if train else _ENCS_TEST_DATASETS
     tag = "train" if train else "dev"
     data_path = translate.compile_data(tmp_dir, datasets,
                                        "wmt_encs_chr_%s" % tag)
-    return translate.character_generator(
-        data_path + ".lang1", data_path + ".lang2", character_vocab, EOS)
-
-  @property
-  def input_space_id(self):
-    return problem.SpaceID.EN_CHR
-
-  @property
-  def target_space_id(self):
-    return problem.SpaceID.CS_CHR
+    return text_problems.text2text_txt_iterator(data_path + ".lang1",
+                                                data_path + ".lang2")

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.data_generators import dna_encoder
@@ -30,7 +27,7 @@ import tensorflow as tf
 
 class GeneticsTest(tf.test.TestCase):
 
-  def _oneHotBases(self, bases):
+  def _one_hot_bases(self, bases):
     ref = ["A", "C", "T", "G"]
     one_hots = []
     for base in bases:
@@ -45,7 +42,7 @@ class GeneticsTest(tf.test.TestCase):
     raw_inputs = ["A", "C", "G", "N", "C", "T"]
 
     # Put in numpy arrays in the same format as in the h5 file
-    inputs = self._oneHotBases(raw_inputs)
+    inputs = self._one_hot_bases(raw_inputs)
     mask = np.array([True, False, True])
     outputs = np.array([[1.0, 2.0, 3.0], [5.0, 1.0, 0.2], [5.1, 2.3, 2.3]])
     # Convert to example dict

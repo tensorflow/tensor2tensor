@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,12 +18,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import re
-
-# Dependency imports
-
 from tensor2tensor.layers import common_layers
-from tensor2tensor.utils import registry
+from tensor2tensor.utils import misc_utils
 
 import tensorflow as tf
 
@@ -56,12 +52,13 @@ class Modality(object):
 
   def __init__(self, model_hparams, vocab_size=None):
     self._model_hparams = model_hparams
+    if vocab_size is not None and hasattr(model_hparams, "vocab_divisor"):
+      vocab_size += (0 - vocab_size) % model_hparams.vocab_divisor
     self._vocab_size = vocab_size
 
   @property
   def name(self):
-    camelcase_name = type(self).__name__  # DeCamelCase for TF readability.
-    return re.sub("([A-Z]+)", r"_\1", camelcase_name).lower()[1:]
+    return misc_utils.camelcase_to_snakecase(type(self).__name__)
 
   @property
   def top_dimensionality(self):
@@ -179,14 +176,16 @@ class Modality(object):
     """
     return data_parallelism(self.top, sharded_body_output, sharded_targets)
 
-  def loss(self, top_out, targets):
+  def loss(self, top_out, targets, weights_fn=None):
     """Compute loss numerator and denominator for one shard of output."""
     logits = top_out
+    if weights_fn is None:
+      weights_fn = self.targets_weights_fn
     return common_layers.padded_cross_entropy(
         logits,
         targets,
         self._model_hparams.label_smoothing,
-        weights_fn=self.targets_weights_fn)
+        weights_fn=weights_fn)
 
   def loss_sharded(self, sharded_top_out, sharded_targets, data_parallelism):
     """Compute loss for all shards."""
@@ -198,4 +197,4 @@ class Modality(object):
 
   @property
   def is_class_modality(self):
-    return self.name.startswith(registry.Modalities.CLASS_LABEL)
+    return self.name.startswith("class_label")

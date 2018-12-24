@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -38,18 +38,16 @@ from __future__ import print_function
 import math
 import multiprocessing as mp
 import os
-
-# Dependency imports
-
 import h5py
 import numpy as np
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import dna_encoder
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
@@ -130,7 +128,7 @@ class GeneExpressionProblem(problem.Problem):
     # Start and wait for processes in batches
     num_batches = int(
         math.ceil(float(len(processes)) / MAX_CONCURRENT_PROCESSES))
-    for i in xrange(num_batches):
+    for i in range(num_batches):
       start = i * MAX_CONCURRENT_PROCESSES
       end = start + MAX_CONCURRENT_PROCESSES
       current = processes[start:end]
@@ -144,10 +142,10 @@ class GeneExpressionProblem(problem.Problem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    vocab_size = self._encoders["inputs"].vocab_size
-    p.input_modality = {"inputs": (registry.Modalities.SYMBOL, vocab_size)}
-    p.target_modality = ("%s:log_poisson_loss" % registry.Modalities.REAL,
-                         self.num_output_predictions)
+    p.modality = {"inputs": modalities.SymbolModality,
+                  "targets": modalities.RealLogPoissonLossModality}
+    p.vocab_size = {"inputs": self._encoders["inputs"].vocab_size,
+                    "targets": self.num_output_predictions}
     p.input_space_id = problem.SpaceID.DNA
     p.target_space_id = problem.SpaceID.REAL
 
@@ -211,7 +209,7 @@ def generate_shard_args(outfiles, num_examples):
   """Generate start and end indices per outfile."""
   num_shards = len(outfiles)
   num_examples_per_shard = num_examples // num_shards
-  start_idxs = [i * num_examples_per_shard for i in xrange(num_shards)]
+  start_idxs = [i * num_examples_per_shard for i in range(num_shards)]
   end_idxs = list(start_idxs)
   end_idxs.pop(0)
   end_idxs.append(num_examples)
@@ -236,6 +234,7 @@ def dataset_generator(filepath,
                       chunk_size=1,
                       start_idx=None,
                       end_idx=None):
+  """Generate example dicts."""
   encoder = dna_encoder.DNAEncoder(chunk_size=chunk_size)
   with h5py.File(filepath, "r") as h5_file:
     # Get input keys from h5_file
@@ -249,7 +248,7 @@ def dataset_generator(filepath,
     if end_idx is None:
       end_idx = inp_data.len()
 
-    for i in xrange(start_idx, end_idx):
+    for i in range(start_idx, end_idx):
       if i % 100 == 0:
         print("Generating example %d for %s" % (i, dataset))
       inputs, mask, outputs = inp_data[i], mask_data[i], out_data[i]

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,27 +21,21 @@ from __future__ import print_function
 
 import os
 import tarfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import translate
+from tensor2tensor.data_generators import wiki_lm
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
-FLAGS = tf.flags.FLAGS
-
-# End-of-sentence marker.
-EOS = text_encoder.EOS_ID
-
 _ENDE_TRAIN_DATASETS = [
     [
-        "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v12.tgz",  # pylint: disable=line-too-long
-        ("training/news-commentary-v12.de-en.en",
-         "training/news-commentary-v12.de-en.de")
+        "http://data.statmt.org/wmt18/translation-task/training-parallel-nc-v13.tgz",  # pylint: disable=line-too-long
+        ("training-parallel-nc-v13/news-commentary-v13.de-en.en",
+         "training-parallel-nc-v13/news-commentary-v13.de-en.de")
     ],
     [
         "http://www.statmt.org/wmt13/training-parallel-commoncrawl.tgz",
@@ -79,41 +73,32 @@ class TranslateEndeWmtBpe32k(translate.TranslateProblem):
   """Problem spec for WMT En-De translation, BPE version."""
 
   @property
-  def targeted_vocab_size(self):
-    return 32000
+  def vocab_type(self):
+    return text_problems.VocabType.TOKEN
 
   @property
-  def vocab_name(self):
-    return "vocab.bpe"
+  def oov_token(self):
+    return "UNK"
 
-  def feature_encoders(self, data_dir):
-    vocab_filename = os.path.join(data_dir, self.vocab_file)
-    encoder = text_encoder.TokenTextEncoder(vocab_filename, replace_oov="UNK")
-    return {"inputs": encoder, "targets": encoder}
-
-  def generator(self, data_dir, tmp_dir, train):
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
     """Instance of token generator for the WMT en->de task, training set."""
+    train = dataset_split == problem.DatasetSplit.TRAIN
     dataset_path = ("train.tok.clean.bpe.32000"
                     if train else "newstest2013.tok.bpe.32000")
     train_path = _get_wmt_ende_bpe_dataset(tmp_dir, dataset_path)
-    token_tmp_path = os.path.join(tmp_dir, self.vocab_file)
-    token_path = os.path.join(data_dir, self.vocab_file)
-    tf.gfile.Copy(token_tmp_path, token_path, overwrite=True)
-    with tf.gfile.GFile(token_path, mode="r") as f:
-      vocab_data = "<pad>\n<EOS>\n" + f.read() + "UNK\n"
-    with tf.gfile.GFile(token_path, mode="w") as f:
-      f.write(vocab_data)
-    token_vocab = text_encoder.TokenTextEncoder(token_path, replace_oov="UNK")
-    return translate.token_generator(train_path + ".en", train_path + ".de",
-                                     token_vocab, EOS)
 
-  @property
-  def input_space_id(self):
-    return problem.SpaceID.EN_BPE_TOK
+    # Vocab
+    vocab_path = os.path.join(data_dir, self.vocab_filename)
+    if not tf.gfile.Exists(vocab_path):
+      bpe_vocab = os.path.join(tmp_dir, "vocab.bpe.32000")
+      with tf.gfile.Open(bpe_vocab) as f:
+        vocab_list = f.read().split("\n")
+      vocab_list.append(self.oov_token)
+      text_encoder.TokenTextEncoder(
+          None, vocab_list=vocab_list).store_to_file(vocab_path)
 
-  @property
-  def target_space_id(self):
-    return problem.SpaceID.DE_BPE_TOK
+    return text_problems.text2text_txt_iterator(train_path + ".en",
+                                                train_path + ".de")
 
 
 @registry.register_problem
@@ -121,38 +106,19 @@ class TranslateEndeWmt8k(translate.TranslateProblem):
   """Problem spec for WMT En-De translation."""
 
   @property
-  def targeted_vocab_size(self):
+  def approx_vocab_size(self):
     return 2**13  # 8192
 
-  @property
-  def vocab_name(self):
-    return "vocab.ende"
-
-  def generator(self, data_dir, tmp_dir, train):
-    symbolizer_vocab = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, self.vocab_file, self.targeted_vocab_size,
-        _ENDE_TRAIN_DATASETS)
-    datasets = _ENDE_TRAIN_DATASETS if train else _ENDE_TEST_DATASETS
-    tag = "train" if train else "dev"
-    data_path = translate.compile_data(tmp_dir, datasets,
-                                       "wmt_ende_tok_%s" % tag)
-    return translate.token_generator(data_path + ".lang1", data_path + ".lang2",
-                                     symbolizer_vocab, EOS)
-
-  @property
-  def input_space_id(self):
-    return problem.SpaceID.EN_TOK
-
-  @property
-  def target_space_id(self):
-    return problem.SpaceID.DE_TOK
+  def source_data_files(self, dataset_split):
+    train = dataset_split == problem.DatasetSplit.TRAIN
+    return _ENDE_TRAIN_DATASETS if train else _ENDE_TEST_DATASETS
 
 
 @registry.register_problem
 class TranslateEndeWmt32k(TranslateEndeWmt8k):
 
   @property
-  def targeted_vocab_size(self):
+  def approx_vocab_size(self):
     return 2**15  # 32768
 
 
@@ -163,32 +129,36 @@ class TranslateEndeWmt32kPacked(TranslateEndeWmt32k):
   def packed_length(self):
     return 256
 
+  @property
+  def vocab_filename(self):
+    return TranslateEndeWmt32k().vocab_filename
+
 
 @registry.register_problem
-class TranslateEndeWmtCharacters(translate.TranslateProblem):
+class TranslateEndeWmt8kPacked(TranslateEndeWmt8k):
+
+  @property
+  def packed_length(self):
+    return 256
+
+  @property
+  def vocab_filename(self):
+    return TranslateEndeWmt8k().vocab_filename
+
+
+@registry.register_problem
+class TranslateEndeWmtCharacters(TranslateEndeWmt8k):
   """Problem spec for WMT En-De translation."""
 
   @property
-  def is_character_level(self):
-    return True
+  def vocab_type(self):
+    return text_problems.VocabType.CHARACTER
+
+
+@registry.register_problem
+class TranslateEndeWmtMulti64k(TranslateEndeWmt8k):
+  """Translation with muli-lingual vocabulary."""
 
   @property
-  def vocab_name(self):
-    return "vocab.ende"
-
-  def generator(self, _, tmp_dir, train):
-    character_vocab = text_encoder.ByteTextEncoder()
-    datasets = _ENDE_TRAIN_DATASETS if train else _ENDE_TEST_DATASETS
-    tag = "train" if train else "dev"
-    data_path = translate.compile_data(tmp_dir, datasets,
-                                       "wmt_ende_chr_%s" % tag)
-    return translate.character_generator(
-        data_path + ".lang1", data_path + ".lang2", character_vocab, EOS)
-
-  @property
-  def input_space_id(self):
-    return problem.SpaceID.EN_CHR
-
-  @property
-  def target_space_id(self):
-    return problem.SpaceID.DE_CHR
+  def vocab_filename(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename
