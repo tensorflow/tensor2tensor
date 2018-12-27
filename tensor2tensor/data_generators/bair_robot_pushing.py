@@ -88,6 +88,14 @@ class VideoBairRobotPushing(video_utils.VideoProblem):
     return True
 
   @property
+  def dataset_splits(self):
+    """Splits of data to produce and number of output shards for each."""
+    return [
+        {"split": problem.DatasetSplit.TRAIN, "shards": 10},
+        {"split": problem.DatasetSplit.EVAL, "shards": 1},
+        {"split": problem.DatasetSplit.TEST, "shards": 1}]
+
+  @property
   def extra_reading_spec(self):
     """Additional data fields to store on disk and their decoders."""
     data_fields = {
