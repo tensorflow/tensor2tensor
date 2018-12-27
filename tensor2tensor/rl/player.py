@@ -47,9 +47,11 @@ from gym.envs.atari.atari_env import ACTION_MEANING
 from gym.spaces import Box
 
 import numpy as np
+from gym.wrappers import TimeLimit
 
 import rl_utils
 from envs.simulated_batch_gym_env import FlatBatchEnv
+from player_utils import SimulatedEnv, MockEnv, wrap_with_monitor
 from tensor2tensor.rl.trainer_model_based import FLAGS, make_simulated_env_fn, \
   random_rollout_subsequences, PIL_Image, PIL_ImageDraw
 from tensor2tensor.rl.trainer_model_based import setup_directories
@@ -72,97 +74,6 @@ flags.DEFINE_string("epoch", 'last',
                     "Data from which epoch to use.")
 flags.DEFINE_string("env", 'simulated',
                     "Either to use 'simulated' or 'real' env.")
-
-
-def make_simulated_env(real_env, world_model_dir, hparams, random_starts):
-  # Based on train_agent() from rlmb pipeline.
-  frame_stack_size = hparams.frame_stack_size
-  initial_frame_rollouts = real_env.current_epoch_rollouts(
-      split=tf.contrib.learn.ModeKeys.TRAIN,
-      minimal_rollout_frames=frame_stack_size,
-  )
-  # TODO: use the same version as train_agent? But skip
-  def initial_frame_chooser(batch_size):
-    """Frame chooser."""
-
-    deterministic_initial_frames =\
-        initial_frame_rollouts[0][:frame_stack_size]
-    if not random_starts:
-      # Deterministic starts: repeat first frames from the first rollout.
-      initial_frames = [deterministic_initial_frames] * batch_size
-    else:
-      # Random starts: choose random initial frames from random rollouts.
-      initial_frames = random_rollout_subsequences(
-          initial_frame_rollouts, batch_size, frame_stack_size
-      )
-    return np.stack([
-        [frame.observation.decode() for frame in initial_frame_stack]
-        for initial_frame_stack in initial_frames
-    ])
-  env_fn = make_simulated_env_fn(
-      real_env, hparams,
-      batch_size=1,
-      initial_frame_chooser=initial_frame_chooser,
-      model_dir=world_model_dir
-  )
-  env = env_fn(in_graph=False)
-  flat_env = FlatBatchEnv(env)
-  return flat_env
-
-
-def last_epoch(data_dir):
-  """Infer highest epoch number from file names in data_dir."""
-  names = os.listdir(data_dir)
-  epochs_str = [re.findall(pattern='.*\.(-?\d+)$', string=name)
-                for name in names]
-  epochs_str = sum(epochs_str, [])
-  return max([int(epoch_str) for epoch_str in epochs_str])
-
-
-class SimulatedEnv(Env):
-  def __init__(self, output_dir, hparams, which_epoch_data='last',
-               random_starts=True):
-    """"Gym environment interface for simulated environment."""
-    hparams = deepcopy(hparams)
-    self._output_dir = output_dir
-
-    subdirectories = [
-      "data", "tmp", "world_model", ("world_model", "debug_videos"),
-      "policy", "eval_metrics"
-    ]
-    directories = setup_directories(output_dir, subdirectories)
-    data_dir = directories["data"]
-
-    if which_epoch_data == 'last':
-      which_epoch_data = last_epoch(data_dir)
-    assert isinstance(which_epoch_data, int), \
-        '{}'.format(type(which_epoch_data))
-
-    self.t2t_env = rl_utils.setup_env(
-      hparams, batch_size=hparams.real_batch_size,
-      max_num_noops=hparams.max_num_noops
-    )
-
-    # Load data.
-    self.t2t_env.start_new_epoch(which_epoch_data, data_dir)
-
-    self.env = make_simulated_env(self.t2t_env, directories["world_model"],
-                                  hparams, random_starts=random_starts)
-
-  def step(self, *args, **kwargs):
-    ob, reward, done, info = self.env.step(*args, **kwargs)
-    return ob, reward, done, info
-
-  def reset(self):
-    return self.env.reset()
-
-  @property
-  def observation_space(self):
-    return self.t2t_env.observation_space
-
-  @property
-  def action_space(self):
-    return self.t2t_env.action_space
 
 
 class PlayerEnvWrapper(gym.Wrapper):
@@ -280,52 +191,8 @@ class PlayerEnvWrapper(gym.Wrapper):
     return np.concatenate([header, ob], axis=0)
 
 
-class MockEnv(SimulatedEnv):
-  def __init__(self, *args, **kwargs):
-    self.env = gym.make('PongDeterministic-v4')
-    self.t2t_env = gym.make('PongDeterministic-v4')
-
-class MockWrapper(gym.Wrapper):
-  def step(self, action):
-    return self.env.step(action)
-
-  def reset(self):
-    return self.env.reset()
-
-
-def create_simulated_env(
-        output_dir, grayscale, resize_width_factor, resize_height_factor,
-        frame_stack_size, generative_model, generative_model_params,
-        random_starts=True, which_epoch_data='last', **other_hparams
-):
-  # We need these, to initialize T2TGymEnv, but these values (hopefully) have
-  # no effect on player.
-  a_bit_risky_defaults = {
-    'game': 'pong',  # assumes that T2TGymEnv has always reward_range (-1,1)
-    'real_batch_size': 1,
-    'rl_env_max_episode_steps': -1,
-    'max_num_noops': 0
-  }
-
-  for key in a_bit_risky_defaults:
-    if key not in other_hparams:
-      other_hparams[key] = a_bit_risky_defaults[key]
-
-
-  hparams = tf.contrib.training.HParams(
-    grayscale=grayscale,
-    resize_width_factor=resize_width_factor,
-    resize_height_factor=resize_height_factor,
-    frame_stack_size=frame_stack_size,
-    generative_model=generative_model,
-    generative_model_params=generative_model_params,
-    **other_hparams
-  )
-  return SimulatedEnv(output_dir, hparams, which_epoch_data=which_epoch_data,
-                      random_starts=random_starts)
-
-
 def main(_):
+  # gym.logger.set_level(gym.logger.DEBUG)
   hparams = registry.hparams(FLAGS.loop_hparams_set)
   hparams.parse(FLAGS.loop_hparams)
   # TODO(konradczechowski) remove this?
@@ -337,36 +204,24 @@ def main(_):
   zoom = int(FLAGS.zoom)
   epoch = FLAGS.epoch if FLAGS.epoch == 'last' else int(FLAGS.epoch)
 
-  # Two options to initialize env:
-  # 1 - with hparams from rlmb run
   if FLAGS.env == "simulated":
-    env = SimulatedEnv(output_dir, hparams)
+    env = SimulatedEnv(output_dir, hparams, which_epoch_data=epoch)
   elif FLAGS.env == "real":
     env = MockEnv()
   else:
     raise ValueError("Invalid 'env' flag {}".format(FLAGS.env))
 
-  # 2 - explicitly with minimal parameters required.
-  # env = create_simulated_env(
-  #     output_dir=output_dir, grayscale=hparams.grayscale,
-  #     resize_width_factor=hparams.resize_width_factor,
-  #     resize_height_factor=hparams.resize_height_factor,
-  #     frame_stack_size=hparams.frame_stack_size,
-  #     epochs=hparams.epochs,
-  #     generative_model=hparams.generative_model,
-  #     generative_model_params=hparams.generative_model_params,
-  #     intrinsic_reward_scale=0.,
-  # )
-
   env = PlayerEnvWrapper(env)
 
-  env = wrappers.Monitor(env, video_dir, force=True,
-                         write_upon_reset=True)
+  env = wrap_with_monitor(env, video_dir)
 
-  # env.reset()
-  # for i in range(50):
-  #   env.step(i % 3)
-  # k2a = PlayerEnvWrapper.get_keys_to_action(env)
+  # for _ in range(5):
+  #   env.reset()
+  #   for i in range(50):
+  #     env.step(i % 3)
+  #   env.step(101)
+  # raise ValueError('it worked out!')
+
   from gym.utils import play
   play.play(env, zoom=zoom, fps=fps)
 
