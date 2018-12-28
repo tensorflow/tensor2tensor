@@ -21,10 +21,22 @@ so running just
 
 python -m tensor2tensor/rl/record_ppo.py \
     --output_dir=path/to/your/experiment \
-    --loop_hparams_set=rlmb_base \
-    --loop_hparams=game=right_game
+    --loop_hparams_set=rlmb_base
 
 might work for you.
+
+More advanced example:
+
+python -m tensor2tensor/rl/record_ppo.py \
+    --output_dir=path/to/your/experiment \
+    --loop_hparams_set=rlmb_base \
+    --loop_hparams=game=<right game in case of problems> \
+    --video_dir="my/video/dir" \
+    --env=real \
+    --simulated_episode_len="50" \
+    --num_episodes="5" \
+
+Check flags definitions under imports for more details.
 """
 
 from __future__ import absolute_import

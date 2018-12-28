@@ -15,6 +15,12 @@
 
 """Play with a world model.
 
+Controls:
+  WSAD and SPACE to control the agent.
+  R key to reset env.
+  C key to toggle WAIT mode.
+  N to perform NOOP action under WAIT mode.
+
 Run this script with the same parameters as trainer_model_based.py. Note that
 values of most of them have no effect on player, so running just
 
@@ -24,38 +30,36 @@ python -m tensor2tensor/rl/player.py \
 
 might work for you.
 
-Controls:
-  WSAD and SPACE to control the agent.
-  R key to reset env.
-  C key to toggle WAIT mode.
-  N to perform NOOP action under WAIT mode.
+More advanced example:
+
+python -m tensor2tensor/rl/record_ppo.py \
+    --output_dir=path/to/your/experiment \
+    --loop_hparams_set=rlmb_base \
+    --loop_hparams=game=<right game in case of problems> \
+    --video_dir=my/video/dir \
+    --zoom="6" \
+    --fps="50" \
+    --env=real \
+    --epoch="-1"
+
+Check flags definitions under imports for more details.
 """
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
-import re
-from copy import deepcopy
+import six
 
 import gym
-import six
-from gym import wrappers
-from gym.core import Env
 from gym.envs.atari.atari_env import ACTION_MEANING
 from gym.spaces import Box
-
 import numpy as np
-from gym.wrappers import TimeLimit
 
-import rl_utils
 from envs.simulated_batch_gym_env import FlatBatchEnv
-from player_utils import SimulatedEnv, MockEnv, wrap_with_monitor, load_t2t_env, \
+from player_utils import SimulatedEnv, wrap_with_monitor, load_t2t_env, \
   join_and_check
-from tensor2tensor.rl.trainer_model_based import FLAGS, make_simulated_env_fn, \
-  random_rollout_subsequences, PIL_Image, PIL_ImageDraw
-from tensor2tensor.rl.trainer_model_based import setup_directories
+from tensor2tensor.rl.trainer_model_based import FLAGS, PIL_Image, PIL_ImageDraw
 
 from tensor2tensor.utils import registry
 import tensorflow as tf
