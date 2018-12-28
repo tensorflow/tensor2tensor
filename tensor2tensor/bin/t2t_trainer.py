@@ -188,6 +188,7 @@ def create_experiment_fn():
       eval_early_stopping_metric_minimize=FLAGS
       .eval_early_stopping_metric_minimize,
       eval_timeout_mins=FLAGS.eval_timeout_mins,
+      eval_use_test_set=FLAGS.eval_use_test_set,
       use_tpu=FLAGS.use_tpu,
       use_tpu_estimator=FLAGS.use_tpu_estimator,
       use_xla=FLAGS.xla_compile,

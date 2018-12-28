@@ -662,6 +662,7 @@ def create_experiment(
     eval_early_stopping_metric_delta=None,
     eval_early_stopping_metric_minimize=True,
     eval_timeout_mins=240,
+    eval_use_test_set=False,
     use_tpu=False,
     use_tpu_estimator=False,
     use_xla=False,
@@ -704,8 +705,12 @@ def create_experiment(
   problem = hparams.problem
   train_input_fn = problem.make_estimator_input_fn(tf.estimator.ModeKeys.TRAIN,
                                                    hparams)
+
+  dataset_split = "test" if eval_use_test_set else None
+  dataset_kwargs = {"dataset_split": dataset_split}
   eval_input_fn = problem.make_estimator_input_fn(tf.estimator.ModeKeys.EVAL,
-                                                  hparams)
+                                                  hparams,
+                                                  dataset_kwargs=dataset_kwargs)
 
   # Export
   exporter = None
