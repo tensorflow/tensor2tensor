@@ -51,7 +51,8 @@ from gym.wrappers import TimeLimit
 
 import rl_utils
 from envs.simulated_batch_gym_env import FlatBatchEnv
-from player_utils import SimulatedEnv, MockEnv, wrap_with_monitor
+from player_utils import SimulatedEnv, MockEnv, wrap_with_monitor, load_t2t_env, \
+  join_and_check
 from tensor2tensor.rl.trainer_model_based import FLAGS, make_simulated_env_fn, \
   random_rollout_subsequences, PIL_Image, PIL_ImageDraw
 from tensor2tensor.rl.trainer_model_based import setup_directories
@@ -66,15 +67,17 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_string("video_dir", "/tmp/gym-results",
                     "Where to save played trajectories.")
-flags.DEFINE_string("zoom", '4',
+flags.DEFINE_string("zoom", "4",
                     "Resize factor of displayed game.")
-flags.DEFINE_string("fps", '20',
+flags.DEFINE_string("fps", "20",
                     "Frames per second.")
-flags.DEFINE_string("epoch", 'last',
+flags.DEFINE_string("epoch", "last",
                     "Data from which epoch to use.")
-flags.DEFINE_string("env", 'simulated',
+flags.DEFINE_string("env", "simulated",
                     "Either to use 'simulated' or 'real' env.")
-
+flags.DEFINE_string("dry_run", "no",
+                    "Dry run - without pygame interaction and display, just "
+                    "some random actions on environment")
 
 class PlayerEnvWrapper(gym.Wrapper):
 
@@ -110,11 +113,11 @@ class PlayerEnvWrapper(gym.Wrapper):
   def get_keys_to_action(self):
     # Based on gym atari.py AtariEnv.get_keys_to_action()
     KEYWORD_TO_KEY = {
-      'UP': ord('w'),
-      'DOWN': ord('s'),
-      'LEFT': ord('a'),
-      'RIGHT': ord('d'),
-      'FIRE': ord(' '),
+      "UP": ord("w"),
+      "DOWN": ord("s"),
+      "LEFT": ord("a"),
+      "RIGHT": ord("d"),
+      "FIRE": ord(" "),
     }
 
     keys_to_action = {}
@@ -148,13 +151,13 @@ class PlayerEnvWrapper(gym.Wrapper):
       ob = self.empty_observation()
       return ob, 0, True, {}
 
-    if self._wait and action == self.name_to_action_num['NOOP']:
+    if self._wait and action == self.name_to_action_num["NOOP"]:
       ob, reward, done, info = self._last_step
       ob = self.augment_observation(ob, reward, self.total_reward)
       return ob, reward, done, info
 
     if action == self.WAIT_MODE_NOOP_ACTION:
-      action = self.name_to_action_num['NOOP']
+      action = self.name_to_action_num["NOOP"]
 
 
     ob, reward, done, info = self.env.step(action)
@@ -195,19 +198,22 @@ def main(_):
   # gym.logger.set_level(gym.logger.DEBUG)
   hparams = registry.hparams(FLAGS.loop_hparams_set)
   hparams.parse(FLAGS.loop_hparams)
-  # TODO(konradczechowski) remove this?
-  if 'wm_policy_param_sharing' not in hparams.values().keys():
-    hparams.add_hparam('wm_policy_param_sharing', False)
+  # Not important for experiments past 2018
+  if "wm_policy_param_sharing" not in hparams.values().keys():
+    hparams.add_hparam("wm_policy_param_sharing", False)
   output_dir = FLAGS.output_dir
   video_dir = FLAGS.video_dir
   fps = int(FLAGS.fps)
   zoom = int(FLAGS.zoom)
-  epoch = FLAGS.epoch if FLAGS.epoch == 'last' else int(FLAGS.epoch)
+  epoch = FLAGS.epoch if FLAGS.epoch == "last" else int(FLAGS.epoch)
 
   if FLAGS.env == "simulated":
     env = SimulatedEnv(output_dir, hparams, which_epoch_data=epoch)
   elif FLAGS.env == "real":
-    env = MockEnv()
+    env = load_t2t_env(hparams,
+                       data_dir=join_and_check(output_dir, "data"),
+                       which_epoch_data=epoch)
+    env = FlatBatchEnv(env)
   else:
     raise ValueError("Invalid 'env' flag {}".format(FLAGS.env))
 
@@ -215,12 +221,13 @@ def main(_):
 
   env = wrap_with_monitor(env, video_dir)
 
-  # for _ in range(5):
-  #   env.reset()
-  #   for i in range(50):
-  #     env.step(i % 3)
-  #   env.step(101)
-  # raise ValueError('it worked out!')
+  if FLAGS.dry_run == 'yes':
+    for _ in range(5):
+      env.reset()
+      for i in range(50):
+        env.step(i % 3)
+      env.step(101)  # reset
+    return
 
   from gym.utils import play
   play.play(env, zoom=zoom, fps=fps)

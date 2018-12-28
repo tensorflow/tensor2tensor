@@ -85,41 +85,56 @@ def make_simulated_env(real_env, world_model_dir, hparams, random_starts):
 def last_epoch(data_dir):
   """Infer highest epoch number from file names in data_dir."""
   names = os.listdir(data_dir)
-  epochs_str = [re.findall(pattern='.*\.(-?\d+)$', string=name)
+  epochs_str = [re.findall(pattern=".*\.(-?\d+)$", string=name)
                 for name in names]
   epochs_str = sum(epochs_str, [])
   return max([int(epoch_str) for epoch_str in epochs_str])
 
 
+def load_t2t_env(hparams, data_dir, which_epoch_data=None,
+                 allow_saving_episodes=False):
+  t2t_env = rl_utils.setup_env(
+    hparams, batch_size=hparams.real_batch_size,
+    max_num_noops=hparams.max_num_noops
+  )
+  # Load data.
+  if which_epoch_data is not None:
+    if which_epoch_data == "last":
+      which_epoch_data = last_epoch(data_dir)
+    assert isinstance(which_epoch_data, int), \
+        "{}".format(type(which_epoch_data))
+    t2t_env.start_new_epoch(which_epoch_data, data_dir)
+  else:
+    t2t_env.start_new_epoch(-999)
+
+  if not allow_saving_episodes:
+    # Ensure no data will be saved to disk by this instance.
+    def generate_data_guard(*args, **kwargs):
+      raise ValueError("This instance should not write episodes to disk.")
+    t2t_env.generate_data = generate_data_guard
+  return t2t_env
+
+
+def join_and_check(output_dir, subdirectory):
+  """Join paths, check if exist."""
+  path = os.path.join(output_dir, subdirectory)
+  assert os.path.exists(path), "{} does not exists".format(path)
+  return path
+
 class SimulatedEnv(Env):
-  def __init__(self, output_dir, hparams, which_epoch_data='last',
+  def __init__(self, output_dir, hparams, which_epoch_data="last",
                random_starts=True):
     """"Gym environment interface for simulated environment."""
     hparams = deepcopy(hparams)
     self._output_dir = output_dir
 
-    subdirectories = [
-      "data", "tmp", "world_model", ("world_model", "debug_videos"),
-      "policy", "eval_metrics"
-    ]
-    directories = setup_directories(output_dir, subdirectories)
-    data_dir = directories["data"]
+    self.t2t_env = load_t2t_env(hparams,
+                                data_dir=join_and_check(output_dir, "data"),
+                                which_epoch_data=which_epoch_data)
 
-    if which_epoch_data == 'last':
-      which_epoch_data = last_epoch(data_dir)
-    assert isinstance(which_epoch_data, int), \
-        '{}'.format(type(which_epoch_data))
-
-    self.t2t_env = rl_utils.setup_env(
-      hparams, batch_size=hparams.real_batch_size,
-      max_num_noops=hparams.max_num_noops
-    )
-
-    # Load data.
-    self.t2t_env.start_new_epoch(which_epoch_data, data_dir)
-
-    self.env = make_simulated_env(self.t2t_env, directories["world_model"],
-                                  hparams, random_starts=random_starts)
+    self.env = make_simulated_env(
+        self.t2t_env, world_model_dir=join_and_check(output_dir, "world_model"),
+        hparams=hparams, random_starts=random_starts)
 
   def step(self, *args, **kwargs):
     ob, reward, done, info = self.env.step(*args, **kwargs)
@@ -139,8 +154,8 @@ class SimulatedEnv(Env):
 
 class MockEnv(SimulatedEnv):
   def __init__(self, *args, **kwargs):
-    self.env = gym.make('PongDeterministic-v4')
-    self.t2t_env = gym.make('PongDeterministic-v4')
+    self.env = gym.make("PongDeterministic-v4")
+    self.t2t_env = gym.make("PongDeterministic-v4")
 
 
 class MockWrapper(gym.Wrapper):
@@ -154,7 +169,7 @@ class MockWrapper(gym.Wrapper):
 class ExtendToEvenDimentions(gym.ObservationWrapper):
   """ Force even dimentions of both height and width.
 
-  Adds single zero row/column if needed.
+  Adds single zero row/column to observations if needed.
   """
   HW_AXES = (0, 1)
   def __init__(self, env):
@@ -190,8 +205,8 @@ class ExtendToEvenDimentions(gym.ObservationWrapper):
 class RenderObservations(gym.Wrapper):
   def __init__(self, env):
     super(RenderObservations, self).__init__(env)
-    if 'rgb_array' not in self.metadata['render.modes']:
-      self.metadata['render.modes'].append('rgb_array')
+    if "rgb_array" not in self.metadata["render.modes"]:
+      self.metadata["render.modes"].append("rgb_array")
 
   def step(self, action):
     ret = self.env.step(action)
@@ -202,8 +217,8 @@ class RenderObservations(gym.Wrapper):
     self.last_ob = self.env.reset(**kwargs)
     return self.last_ob
 
-  def render(self, mode='human', **kwargs):
-    assert mode == 'rgb_array'
+  def render(self, mode="human", **kwargs):
+    assert mode == "rgb_array"
     return self.last_ob
 
 
@@ -219,15 +234,15 @@ def wrap_with_monitor(env, video_dir):
 def create_simulated_env(
         output_dir, grayscale, resize_width_factor, resize_height_factor,
         frame_stack_size, generative_model, generative_model_params,
-        random_starts=True, which_epoch_data='last', **other_hparams
+        random_starts=True, which_epoch_data="last", **other_hparams
 ):
   # We need these, to initialize T2TGymEnv, but these values (hopefully) have
   # no effect on player.
   a_bit_risky_defaults = {
-    'game': 'pong',  # assumes that T2TGymEnv has always reward_range (-1,1)
-    'real_batch_size': 1,
-    'rl_env_max_episode_steps': -1,
-    'max_num_noops': 0
+    "game": "pong",  # assumes that T2TGymEnv has always reward_range (-1,1)
+    "real_batch_size": 1,
+    "rl_env_max_episode_steps": -1,
+    "max_num_noops": 0
   }
 
   for key in a_bit_risky_defaults:
@@ -254,7 +269,7 @@ class PPOPolicyInferencer(object):
   Initialize fram
   """
   def __init__(self, hparams, action_space, observation_space, policy_dir):
-    assert hparams.base_algo == 'ppo'
+    assert hparams.base_algo == "ppo"
     ppo_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
 
     frame_stack_shape = (1, hparams.frame_stack_size) + observation_space.shape
@@ -282,7 +297,7 @@ class PPOPolicyInferencer(object):
       self._frame_stack.fill(0)
     else:
       assert frame_stack.shape == self.frame_stack_shape, \
-        '{}, {}'.format(frame_stack.shape, self.frame_stack_shape)
+        "{}, {}".format(frame_stack.shape, self.frame_stack_shape)
       self._frame_stack = frame_stack.copy()
 
   def _add_to_stack(self, ob):

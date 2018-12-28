@@ -31,28 +31,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
-import re
-from copy import deepcopy
-
-import gym
-import six
-from gym import wrappers
-from gym.core import Env
-from gym.envs.atari.atari_env import ACTION_MEANING
-from gym.spaces import Box
-
 import numpy as np
 from gym.wrappers import TimeLimit
 
-import rl_utils
 from envs.simulated_batch_gym_env import FlatBatchEnv
-from player_utils import SimulatedEnv, wrap_with_monitor, PPOPolicyInferencer
-from tensor2tensor.models.research.rl import get_policy
+from player_utils import SimulatedEnv, wrap_with_monitor, PPOPolicyInferencer, \
+  load_t2t_env, join_and_check
 from tensor2tensor.rl.trainer_model_based import FLAGS
-from tensor2tensor.rl.trainer_model_based import setup_directories
-
-from tensor2tensor.utils import registry, trainer_lib
+from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
@@ -62,25 +48,26 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_string("video_dir", "/tmp/record_ppo_out",
                     "Where to save recorded trajectories.")
-flags.DEFINE_string("epoch", 'last',
+flags.DEFINE_string("epoch", "last",
                     "Data from which epoch to use.")
-flags.DEFINE_string("env", 'simulated',
+flags.DEFINE_string("env", "simulated",
                     "Either to use 'simulated' or 'real' env.")
-flags.DEFINE_string("simulated_episode_len", '100',
+flags.DEFINE_string("simulated_episode_len", "100",
                     "Timesteps limit for simulated env")
-flags.DEFINE_string("num_episodes", '20',
+flags.DEFINE_string("num_episodes", "20",
                     "How many episodes record.")
 
 
 def main(_):
+  # TODO(konradczechowski): add initial frame stack for policy?
   hparams = registry.hparams(FLAGS.loop_hparams_set)
   hparams.parse(FLAGS.loop_hparams)
-  # TODO(konradczechowski) remove this?
-  if 'wm_policy_param_sharing' not in hparams.values().keys():
-    hparams.add_hparam('wm_policy_param_sharing', False)
+  # Not important for experiments past 2018
+  if "wm_policy_param_sharing" not in hparams.values().keys():
+    hparams.add_hparam("wm_policy_param_sharing", False)
   output_dir = FLAGS.output_dir
   video_dir = FLAGS.video_dir
-  epoch = FLAGS.epoch if FLAGS.epoch == 'last' else int(FLAGS.epoch)
+  epoch = FLAGS.epoch if FLAGS.epoch == "last" else int(FLAGS.epoch)
   simulated_episode_len = int(FLAGS.simulated_episode_len)
   num_episodes = int(FLAGS.num_episodes)
 
@@ -88,37 +75,30 @@ def main(_):
     env = SimulatedEnv(output_dir, hparams, which_epoch_data=epoch)
     env = TimeLimit(env, max_episode_steps=simulated_episode_len)
   elif FLAGS.env == "real":
-    # TODO(konradczechowski): Implement this
-    raise NotImplementedError
-    # env = MockEnv()
+    env = load_t2t_env(hparams,
+                       data_dir=join_and_check(output_dir, "data"),
+                       which_epoch_data=None)
+    env = FlatBatchEnv(env)
   else:
     raise ValueError("Invalid 'env' flag {}".format(FLAGS.env))
 
   env = wrap_with_monitor(env, video_dir=video_dir)
+  ppo = PPOPolicyInferencer(hparams,
+                           action_space=env.action_space,
+                           observation_space=env.observation_space,
+                           policy_dir=join_and_check(output_dir, "policy"))
 
-  subdirectories = [
-    "data", "tmp", "world_model", ("world_model", "debug_videos"),
-    "policy", "eval_metrics"
-  ]
-  directories = setup_directories(output_dir, subdirectories)
-
-  policy_dir = directories['policy']
-  action_space = env.action_space
-  observation_space = env.observation_space
-  pi = PPOPolicyInferencer(hparams, action_space, observation_space,
-                           policy_dir)
-
-  pi.reset_frame_stack()
+  ppo.reset_frame_stack()
   ob = env.reset()
   for _ in range(num_episodes):
     done = False
     while not done:
-      logits, vf = pi.infer(ob)
+      logits, vf = ppo.infer(ob)
       probs = np.exp(logits) / np.sum(np.exp(logits))
       action = np.random.choice(probs.size, p=probs[0])
       ob, rew, done, _ = env.step(action)
     ob = env.reset()
-    pi.reset_frame_stack()
+    ppo.reset_frame_stack()
 
 
 if __name__ == "__main__":
