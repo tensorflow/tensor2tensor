@@ -42,7 +42,10 @@ FLAGS = flags.FLAGS
 
 
 def make_simulated_env(real_env, world_model_dir, hparams, random_starts):
-  # Based on train_agent() from rlmb pipeline.
+  """Gym environment with world model.
+
+  Based on train_agent() from rlmb pipeline.
+  """
   frame_stack_size = hparams.frame_stack_size
   initial_frame_rollouts = real_env.current_epoch_rollouts(
       split=tf.contrib.learn.ModeKeys.TRAIN,
@@ -156,7 +159,7 @@ class SimulatedEnv(Env):
 class ExtendToEvenDimentions(gym.ObservationWrapper):
   """ Force even dimentions of both height and width.
 
-  Adds single zero row/column to observations if needed.
+  Specifically, it adds single zero row/column to observations if needed.
   """
   HW_AXES = (0, 1)
   def __init__(self, env):
@@ -176,6 +179,7 @@ class ExtendToEvenDimentions(gym.ObservationWrapper):
         dtype=np.uint8)
 
   def observation(self, frame):
+    """Add single zero row/column to observation if needed."""
     if frame.shape == self.observation_space.shape:
       return frame
     else:
@@ -190,6 +194,7 @@ class ExtendToEvenDimentions(gym.ObservationWrapper):
 
 
 class RenderObservations(gym.Wrapper):
+  """Add observations rendering in 'rgb_array' mode."""
   def __init__(self, env):
     super(RenderObservations, self).__init__(env)
     if "rgb_array" not in self.metadata["render.modes"]:
@@ -197,19 +202,25 @@ class RenderObservations(gym.Wrapper):
 
   def step(self, action):
     ret = self.env.step(action)
-    self.last_ob = ret[0]
+    self.last_observation = ret[0]
     return ret
 
   def reset(self, **kwargs):
-    self.last_ob = self.env.reset(**kwargs)
-    return self.last_ob
+    self.last_observation = self.env.reset(**kwargs)
+    return self.last_observation
 
   def render(self, mode="human", **kwargs):
     assert mode == "rgb_array"
-    return self.last_ob
+    return self.last_observation
 
 
 def wrap_with_monitor(env, video_dir):
+  """Wrap environment with gym.Monitor
+
+  Video recording provided by Monitor requires
+    1) both height and width of observation to be even numbers.
+    2) rendering of environment
+  """
   env = ExtendToEvenDimentions(env)
   env = RenderObservations(env)  # pylint: disable=redefined-variable-type
   env = wrappers.Monitor(env, video_dir, force=True,
@@ -223,6 +234,7 @@ def create_simulated_env(
     frame_stack_size, generative_model, generative_model_params,
     random_starts=True, which_epoch_data="last", **other_hparams
 ):
+  """"Create SimulatedEnv with minimal subset of hparams."""
   # We need these, to initialize T2TGymEnv, but these values (hopefully) have
   # no effect on player.
   a_bit_risky_defaults = {
@@ -235,7 +247,6 @@ def create_simulated_env(
   for key in a_bit_risky_defaults:
     if key not in other_hparams:
       other_hparams[key] = a_bit_risky_defaults[key]
-
 
   hparams = tf.contrib.training.HParams(
       grayscale=grayscale,
@@ -251,9 +262,15 @@ def create_simulated_env(
 
 
 class PPOPolicyInferencer(object):
-  """Non-tensorflow api for infering policy.
+  """Non-tensorflow API for infering policy (and value function).
 
-  By default initialize frame stack with zeroes.
+  Example:
+    >>> ppo = PPOPolicyInferencer(...)
+    >>> ppo.reset_frame_stack()
+    >>> ob = env.reset()
+    >>> while not done:
+    >>>   logits, value = ppo.infer(ob)
+    >>>   ob, _, done, _ = env.step(action)
   """
   def __init__(self, hparams, action_space, observation_space, policy_dir):
     assert hparams.base_algo == "ppo"
@@ -293,7 +310,7 @@ class PPOPolicyInferencer(object):
     self._frame_stack = stack
 
   def infer(self, ob):
-    """Add new observation to frame stack and infer.
+    """Add new observation to frame stack and infer policy.
 
     Args:
       ob: array of shape (height, width, channels)
@@ -303,7 +320,7 @@ class PPOPolicyInferencer(object):
     return logits, vf
 
   def infer_from_frame_stack(self, ob_stack):
-    """ Infer from stack of observations
+    """ Infer policy from stack of observations.
 
     Args:
       ob_stack: array of shape (1, frame_stack_size, height, width, channels)

@@ -37,10 +37,10 @@ python -m tensor2tensor/rl/record_ppo.py \
     --loop_hparams_set=rlmb_base \
     --loop_hparams=game=<right game in case of problems> \
     --video_dir=my/video/dir \
-    --zoom="6" \
-    --fps="50" \
+    --zoom=6 \
+    --fps=50 \
     --env=real \
-    --epoch="-1"
+    --epoch=-1
 
 Check flags definitions under imports for more details.
 """
@@ -83,6 +83,10 @@ flags.DEFINE_string("dry_run", "no",
                     "some random actions on environment")
 
 class PlayerEnvWrapper(gym.Wrapper):
+  """ Environment Wrapper for gym.utils.play.
+
+  This probably will be highly refactored.
+  """
 
   RESET_ACTION = 101
   TOGGLE_WAIT_ACTION = 102
