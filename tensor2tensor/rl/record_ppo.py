@@ -96,19 +96,19 @@ def main(_):
 
   env = wrap_with_monitor(env, video_dir=video_dir)
   ppo = PPOPolicyInferencer(hparams,
-                           action_space=env.action_space,
-                           observation_space=env.observation_space,
-                           policy_dir=join_and_check(output_dir, "policy"))
+                            action_space=env.action_space,
+                            observation_space=env.observation_space,
+                            policy_dir=join_and_check(output_dir, "policy"))
 
   ppo.reset_frame_stack()
   ob = env.reset()
   for _ in range(num_episodes):
     done = False
     while not done:
-      logits, vf = ppo.infer(ob)
+      logits, _ = ppo.infer(ob)
       probs = np.exp(logits) / np.sum(np.exp(logits))
       action = np.random.choice(probs.size, p=probs[0])
-      ob, rew, done, _ = env.step(action)
+      ob, _, done, _ = env.step(action)
     ob = env.reset()
     ppo.reset_frame_stack()
 

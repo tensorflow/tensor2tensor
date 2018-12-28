@@ -24,22 +24,16 @@ import re
 from copy import deepcopy
 
 import gym
-import six
 from gym import wrappers, spaces
 from gym.core import Env
-from gym.envs.atari.atari_env import ACTION_MEANING
-from gym.spaces import Box
-
 import numpy as np
 
 import rl_utils
 from envs.simulated_batch_gym_env import FlatBatchEnv
 from tensor2tensor.models.research.rl import get_policy
-from tensor2tensor.rl.trainer_model_based import FLAGS, make_simulated_env_fn, \
-  random_rollout_subsequences, PIL_Image, PIL_ImageDraw
-from tensor2tensor.rl.trainer_model_based import setup_directories
-
-from tensor2tensor.utils import registry, trainer_lib
+from tensor2tensor.rl.trainer_model_based import make_simulated_env_fn, \
+  random_rollout_subsequences
+from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
 
 
@@ -85,7 +79,7 @@ def make_simulated_env(real_env, world_model_dir, hparams, random_starts):
 def last_epoch(data_dir):
   """Infer highest epoch number from file names in data_dir."""
   names = os.listdir(data_dir)
-  epochs_str = [re.findall(pattern=".*\.(-?\d+)$", string=name)
+  epochs_str = [re.findall(pattern=r".*\.(-?\d+)$", string=name)
                 for name in names]
   epochs_str = sum(epochs_str, [])
   return max([int(epoch_str) for epoch_str in epochs_str])
@@ -93,9 +87,16 @@ def last_epoch(data_dir):
 
 def load_t2t_env(hparams, data_dir, which_epoch_data=None,
                  allow_saving_episodes=False):
+  """Load T2TBatchGymEnv
+
+  Args:
+      which_epoch_data: data from which epoch to load.
+      allow_saving_episodes: if False overrides generate_data() method of env to
+          prevent accidental experiment data corruption.
+  """
   t2t_env = rl_utils.setup_env(
-    hparams, batch_size=hparams.real_batch_size,
-    max_num_noops=hparams.max_num_noops
+      hparams, batch_size=hparams.real_batch_size,
+      max_num_noops=hparams.max_num_noops
   )
   # Load data.
   if which_epoch_data is not None:
@@ -150,20 +151,6 @@ class SimulatedEnv(Env):
   @property
   def action_space(self):
     return self.t2t_env.action_space
-
-
-class MockEnv(SimulatedEnv):
-  def __init__(self, *args, **kwargs):
-    self.env = gym.make("PongDeterministic-v4")
-    self.t2t_env = gym.make("PongDeterministic-v4")
-
-
-class MockWrapper(gym.Wrapper):
-  def step(self, action):
-    return self.env.step(action)
-
-  def reset(self):
-    return self.env.reset()
 
 
 class ExtendToEvenDimentions(gym.ObservationWrapper):
@@ -224,7 +211,7 @@ class RenderObservations(gym.Wrapper):
 
 def wrap_with_monitor(env, video_dir):
   env = ExtendToEvenDimentions(env)
-  env = RenderObservations(env)
+  env = RenderObservations(env)  # pylint: disable=redefined-variable-type
   env = wrappers.Monitor(env, video_dir, force=True,
                          video_callable=lambda idx: True,
                          write_upon_reset=True)
@@ -232,17 +219,17 @@ def wrap_with_monitor(env, video_dir):
 
 
 def create_simulated_env(
-        output_dir, grayscale, resize_width_factor, resize_height_factor,
-        frame_stack_size, generative_model, generative_model_params,
-        random_starts=True, which_epoch_data="last", **other_hparams
+    output_dir, grayscale, resize_width_factor, resize_height_factor,
+    frame_stack_size, generative_model, generative_model_params,
+    random_starts=True, which_epoch_data="last", **other_hparams
 ):
   # We need these, to initialize T2TGymEnv, but these values (hopefully) have
   # no effect on player.
   a_bit_risky_defaults = {
-    "game": "pong",  # assumes that T2TGymEnv has always reward_range (-1,1)
-    "real_batch_size": 1,
-    "rl_env_max_episode_steps": -1,
-    "max_num_noops": 0
+      "game": "pong",  # assumes that T2TGymEnv has always reward_range (-1,1)
+      "real_batch_size": 1,
+      "rl_env_max_episode_steps": -1,
+      "max_num_noops": 0
   }
 
   for key in a_bit_risky_defaults:
@@ -251,13 +238,13 @@ def create_simulated_env(
 
 
   hparams = tf.contrib.training.HParams(
-    grayscale=grayscale,
-    resize_width_factor=resize_width_factor,
-    resize_height_factor=resize_height_factor,
-    frame_stack_size=frame_stack_size,
-    generative_model=generative_model,
-    generative_model_params=generative_model_params,
-    **other_hparams
+      grayscale=grayscale,
+      resize_width_factor=resize_width_factor,
+      resize_height_factor=resize_height_factor,
+      frame_stack_size=frame_stack_size,
+      generative_model=generative_model,
+      generative_model_params=generative_model_params,
+      **other_hparams
   )
   return SimulatedEnv(output_dir, hparams, which_epoch_data=which_epoch_data,
                       random_starts=random_starts)
@@ -266,7 +253,7 @@ def create_simulated_env(
 class PPOPolicyInferencer(object):
   """Non-tensorflow api for infering policy.
 
-  Initialize fram
+  By default initialize frame stack with zeroes.
   """
   def __init__(self, hparams, action_space, observation_space, policy_dir):
     assert hparams.base_algo == "ppo"
@@ -278,10 +265,10 @@ class PPOPolicyInferencer(object):
     with tf.Graph().as_default():
       self.obs_t = tf.placeholder(shape=self.frame_stack_shape, dtype=np.uint8)
       self.logits_t, self.value_function_t = get_policy(
-        self.obs_t, ppo_hparams, action_space
+          self.obs_t, ppo_hparams, action_space
       )
       model_saver = tf.train.Saver(
-        tf.global_variables(ppo_hparams.policy_network + "/.*")
+          tf.global_variables(scope=ppo_hparams.policy_network + "/.*")  # pylint: disable=unexpected-keyword-arg
       )
       self.sess = tf.Session()
       self.sess.run(tf.global_variables_initializer())

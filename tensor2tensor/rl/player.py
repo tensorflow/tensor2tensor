@@ -53,7 +53,6 @@ import six
 
 import gym
 from gym.envs.atari.atari_env import ACTION_MEANING
-from gym.spaces import Box
 import numpy as np
 
 from envs.simulated_batch_gym_env import FlatBatchEnv
@@ -116,25 +115,25 @@ class PlayerEnvWrapper(gym.Wrapper):
 
   def get_keys_to_action(self):
     # Based on gym atari.py AtariEnv.get_keys_to_action()
-    KEYWORD_TO_KEY = {
-      "UP": ord("w"),
-      "DOWN": ord("s"),
-      "LEFT": ord("a"),
-      "RIGHT": ord("d"),
-      "FIRE": ord(" "),
+    keyword_to_key = {
+        "UP": ord("w"),
+        "DOWN": ord("s"),
+        "LEFT": ord("a"),
+        "RIGHT": ord("d"),
+        "FIRE": ord(" "),
     }
 
     keys_to_action = {}
 
     for action_id, action_meaning in enumerate(self.get_action_meanings()):
       keys = []
-      for keyword, key in KEYWORD_TO_KEY.items():
+      for keyword, key in keyword_to_key.items():
         if keyword in action_meaning:
           keys.append(key)
-      keys = tuple(sorted(keys))
-
-      assert keys not in keys_to_action
-      keys_to_action[keys] = action_id
+      keys_tuple = tuple(sorted(keys))
+      del keys
+      assert keys_tuple not in keys_to_action
+      keys_to_action[keys_tuple] = action_id
 
     # Add utility actions
     keys_to_action[(ord("r"),)] = self.RESET_ACTION
