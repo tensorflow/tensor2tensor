@@ -53,6 +53,7 @@ import six
 
 import gym
 from gym.envs.atari.atari_env import ACTION_MEANING
+from gym.utils import play
 import numpy as np
 
 from envs.simulated_batch_gym_env import FlatBatchEnv
@@ -236,7 +237,6 @@ def main(_):
       env.step(101)  # reset
     return
 
-  from gym.utils import play
   play.play(env, zoom=zoom, fps=fps)
 
 
