@@ -1122,7 +1122,7 @@ class TransformerEncoder(t2t_model.T2TModel):
     return encoder_output
 
 @registry.register_model
-class TransformerRegressor(transformer.TransformerEncoder):
+class TransformerRegressor(TransformerEncoder):
   """Transformer inheriting from Encoder, for the regression problem.
   Final res is a tensor that has a shape of (?, 1, 1, 1)
   """
