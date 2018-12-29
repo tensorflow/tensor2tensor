@@ -322,11 +322,27 @@ class SummarizeFrac1CnnDailymailWikiLMSharedVocab64k(
 
 
 @registry.register_problem
+class SummarizeFrac2CnnDailymailWikiLMSharedVocab64k(
+    SummarizeFracCnnDailymailWikiLMSharedVocab64k):
+
+  def fraction_of_data(self):
+    return 0.02
+
+
+@registry.register_problem
 class SummarizeFrac5CnnDailymailWikiLMSharedVocab64k(
     SummarizeFracCnnDailymailWikiLMSharedVocab64k):
 
   def fraction_of_data(self):
     return 0.05
+
+
+@registry.register_problem
+class SummarizeFrac10CnnDailymailWikiLMSharedVocab64k(
+    SummarizeFracCnnDailymailWikiLMSharedVocab64k):
+
+  def fraction_of_data(self):
+    return 0.1
 
 
 @registry.register_problem

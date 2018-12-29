@@ -1611,7 +1611,6 @@ def transformer_tall_finetune_uniencdec():
   hparams.learning_rate_constant = 5e-5
   hparams.learning_rate_warmup_steps = 100
   hparams.unidirectional_encoder = True
-  hparams.load_encoder = False
   return hparams
 
 

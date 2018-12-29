@@ -149,3 +149,105 @@ class LanguagemodelMultiWikiTranslate(multi_problem.MultiProblem):
   @property
   def vocab_type(self):
     return text_problems.VocabType.SUBWORD
+
+
+@registry.register_problem
+class LanguagemodelEnWikiLMSummarizeFrac1CnndmSubwords64k(
+    multi_problem.MultiProblem):
+  """Wiki LM and CNN/DM summarization mixed problem class."""
+
+  def __init__(self, was_reversed=False, was_copy=False):
+    super(LanguagemodelEnWikiLMSummarizeFrac1CnndmSubwords64k, self).__init__(
+        was_reversed, was_copy)
+    self.task_list.append(wiki_lm.LanguagemodelEnWiki64k())
+    self.task_list.append(
+        cnn_dailymail.SummarizeFrac1CnnDailymailWikiLMSharedVocab64k())
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.SUBWORD
+
+
+@registry.register_problem
+class LanguagemodelEnWikiLMSummarizeFrac2CnndmSubwords64k(
+    multi_problem.MultiProblem):
+  """Wiki LM and CNN/DM summarization mixed problem class."""
+
+  def __init__(self, was_reversed=False, was_copy=False):
+    super(LanguagemodelEnWikiLMSummarizeFrac2CnndmSubwords64k, self).__init__(
+        was_reversed, was_copy)
+    self.task_list.append(wiki_lm.LanguagemodelEnWiki64k())
+    self.task_list.append(
+        cnn_dailymail.SummarizeFrac2CnnDailymailWikiLMSharedVocab64k())
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.SUBWORD
+
+
+@registry.register_problem
+class LanguagemodelEnWikiLMSummarizeFrac5CnndmSubwords64k(
+    multi_problem.MultiProblem):
+  """Wiki LM and CNN/DM summarization mixed problem class."""
+
+  def __init__(self, was_reversed=False, was_copy=False):
+    super(LanguagemodelEnWikiLMSummarizeFrac5CnndmSubwords64k, self).__init__(
+        was_reversed, was_copy)
+    self.task_list.append(wiki_lm.LanguagemodelEnWiki64k())
+    self.task_list.append(
+        cnn_dailymail.SummarizeFrac5CnnDailymailWikiLMSharedVocab64k())
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.SUBWORD
+
+
+@registry.register_problem
+class LanguagemodelEnWikiLMSummarizeFrac10CnndmSubwords64k(
+    multi_problem.MultiProblem):
+  """Wiki LM and CNN/DM summarization mixed problem class."""
+
+  def __init__(self, was_reversed=False, was_copy=False):
+    super(LanguagemodelEnWikiLMSummarizeFrac10CnndmSubwords64k, self).__init__(
+        was_reversed, was_copy)
+    self.task_list.append(wiki_lm.LanguagemodelEnWiki64k())
+    self.task_list.append(
+        cnn_dailymail.SummarizeFrac10CnnDailymailWikiLMSharedVocab64k())
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.SUBWORD
+
+
+@registry.register_problem
+class LanguagemodelEnWikiLMSummarizeFrac20CnndmSubwords64k(
+    multi_problem.MultiProblem):
+  """Wiki LM and CNN/DM summarization mixed problem class."""
+
+  def __init__(self, was_reversed=False, was_copy=False):
+    super(LanguagemodelEnWikiLMSummarizeFrac20CnndmSubwords64k, self).__init__(
+        was_reversed, was_copy)
+    self.task_list.append(wiki_lm.LanguagemodelEnWiki64k())
+    self.task_list.append(
+        cnn_dailymail.SummarizeFrac20CnnDailymailWikiLMSharedVocab64k())
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.SUBWORD
+
+
+@registry.register_problem
+class LanguagemodelEnWikiLMSummarizeFrac50CnndmSubwords64k(
+    multi_problem.MultiProblem):
+  """Wiki LM and CNN/DM summarization mixed problem class."""
+
+  def __init__(self, was_reversed=False, was_copy=False):
+    super(LanguagemodelEnWikiLMSummarizeFrac50CnndmSubwords64k, self).__init__(
+        was_reversed, was_copy)
+    self.task_list.append(wiki_lm.LanguagemodelEnWiki64k())
+    self.task_list.append(
+        cnn_dailymail.SummarizeFrac50CnnDailymailWikiLMSharedVocab64k())
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.SUBWORD
