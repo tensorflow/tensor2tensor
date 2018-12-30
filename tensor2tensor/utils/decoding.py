@@ -615,8 +615,6 @@ def _decode_batch_input_fn(num_decode_batches, sorted_inputs, vocabulary,
       batch_inputs.append(input_ids)
       if len(input_ids) > batch_length:
         batch_length = len(input_ids)
-    if max_input_size != -1:
-      batch_length = max_input_size
     final_batch_inputs = []
     for input_ids in batch_inputs:
       assert len(input_ids) <= batch_length
