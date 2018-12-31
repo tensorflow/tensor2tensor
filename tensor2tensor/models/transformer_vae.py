@@ -155,13 +155,12 @@ def nearest(x, means, hparams):
   return tf.stop_gradient(nearest_hot)
 
 
-def kmeans(x, means, hparams, name):
-  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
-    x_means_hot = nearest(x, means, hparams)
-    x_means = tf.gather(means, tf.argmax(x_means_hot, axis=-1))
-    q_loss = tf.reduce_mean((tf.stop_gradient(x) - x_means)**2)
-    e_loss = tf.reduce_mean((x - tf.stop_gradient(x_means))**2)
-    return x_means_hot, x_means, q_loss, e_loss
+def kmeans(x, means, hparams):
+  x_means_hot = nearest(x, means, hparams)
+  x_means = tf.gather(means, tf.argmax(x_means_hot, axis=-1))
+  q_loss = tf.reduce_mean((tf.stop_gradient(x) - x_means)**2)
+  e_loss = tf.reduce_mean((x - tf.stop_gradient(x_means))**2)
+  return x_means_hot, x_means, q_loss, e_loss
 
 
 def bit_to_int(x_bit, nbits):
@@ -184,11 +183,23 @@ def int_to_bit(x_int, nbits):
   return tf.to_float(res)
 
 
-def bottleneck(x, hparams, filter_size, name):
+def bottleneck(x,
+               hparams,
+               filter_size,
+               name,
+               means=None,
+               ema_count=None,
+               ema_means=None):
   """Bottleneck."""
+  if hparams.bottleneck_kind == "vq-vae":
+    assert means is not None
+    if hparams.ema:
+      assert ema_count is not None
+      assert ema_means is not None
+
   def embed(x):
     """Embedding function; must be compatible with the code later."""
-    with tf.variable_scope(name, reuse=True):
+    with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
       if hparams.bottleneck_kind == "semhash":
         c = int_to_bit(x, z_size)
         h1a = tf.layers.dense(c, filter_size, name="vch1a")
@@ -199,16 +210,11 @@ def bottleneck(x, hparams, filter_size, name):
         h1 = tf.layers.dense(hot, hparams.hidden_size, name="dae_dense")
       elif hparams.bottleneck_kind == "vq-vae":
         if hparams.ema:
-          ema_means = tf.get_variable(
-              name="ema_means",
-              shape=[hparams.v_size, hparams.hidden_size],
-              initializer=tf.random_normal_initializer())
+          ema_means = tf.get_variable(name="ema_means")
           means = ema_means
         else:
-          means = tf.get_variable(
-              name="means",
-              shape=[hparams.v_size, hparams.hidden_size],
-              initializer=tf.random_normal_initializer())
+          tf.logging.info("means = {}".format(means))
+
         h1 = tf.gather(means, x)
       elif hparams.bottleneck_kind == "rounding":
         h1 = x
@@ -216,7 +222,7 @@ def bottleneck(x, hparams, filter_size, name):
       h2 = tf.layers.dense(tf.nn.relu(h1), filter_size, name="vch2")
       return tf.layers.dense(tf.nn.relu(h2), hparams.hidden_size, name="vcfin")
 
-  with tf.variable_scope(name):
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     z_size = hparams.z_size
     l = tf.constant(0.0)
     if hparams.bottleneck_kind == "dense":
@@ -254,20 +260,7 @@ def bottleneck(x, hparams, filter_size, name):
       c = tf.argmax(hot, axis=-1)
       h1 = tf.layers.dense(hot, hparams.hidden_size, name="dae_dense")
     if hparams.bottleneck_kind == "vq-vae":
-      means = tf.Variable(
-          tf.random_normal([hparams.v_size, hparams.hidden_size]), name="means")
-
-      # Use EMA if ema flag is set
-      if hparams.ema:
-        ema_count = tf.get_variable(
-            "ema_count", [hparams.v_size],
-            initializer=tf.constant_initializer(0))
-        with tf.colocate_with(means):
-          ema_means = tf.get_variable(
-              "ema_means", initializer=means.initialized_value())
-
-      x_means_hot, x_means, q_loss, e_loss = kmeans(
-          x, means, hparams, name="vq-vae-kmeans")
+      x_means_hot, x_means, q_loss, e_loss = kmeans(x, means, hparams)
       c = tf.argmax(x_means_hot, axis=-1)
 
       # Update the ema variables
@@ -289,8 +282,8 @@ def bottleneck(x, hparams, filter_size, name):
         updated_ema_means /= tf.expand_dims(updated_ema_count, axis=-1)
 
         with tf.control_dependencies([e_loss]):
-          update_w = tf.assign(means, updated_ema_means)
-          with tf.control_dependencies([update_w]):
+          update_means = tf.assign(means, updated_ema_means)
+          with tf.control_dependencies([update_means]):
             l = hparams.beta * e_loss
       else:
         l = q_loss + e_loss
@@ -400,8 +393,15 @@ def ae_latent_sample(latents_dense, inputs, ed, embed, iters, hparams):
   return latents_discrete
 
 
-def ae_transformer_internal(inputs, targets, target_space, hparams,
-                            cache=None, predict_mask=1.0):
+def ae_transformer_internal(inputs,
+                            targets,
+                            target_space,
+                            hparams,
+                            cache=None,
+                            predict_mask=1.0,
+                            means=None,
+                            ema_count=None,
+                            ema_means=None):
   """AE Transformer, main step used for training."""
   # Summaries break with the do_refine cond, turn them off in that case.
   global _DO_SUMMARIES
@@ -430,7 +430,7 @@ def ae_transformer_internal(inputs, targets, target_space, hparams,
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
       # Compress and bottleneck.
       latents_dense, latents_discrete, extra_loss, _ = bottleneck(
-          targets_c, hparams, 2*2048, "vc")
+          targets_c, hparams, 2 * 2048, "vc", means, ema_count, ema_means)
       if _DO_SUMMARIES:
         tf.summary.histogram("b0", tf.reshape(latents_discrete[:, 0, :], [-1]))
       pc = common_layers.inverse_exp_decay(hparams.startup_steps) * 0.95
@@ -454,7 +454,8 @@ def ae_transformer_internal(inputs, targets, target_space, hparams,
         losses["latent_pred"] = tf.reduce_mean((inputs_c - targets_c)**2) * 20
         def bn_inputs():
           with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-            bn, _, _, _ = bottleneck(inputs_c, hparams, 2*2048, "vc")
+            bn, _, _, _ = bottleneck(inputs_c, hparams, 2 * 2048, "vc", means,
+                                     ema_count, ema_means)
           return bn
         pbn = 0.8 if hparams.mode == tf.estimator.ModeKeys.TRAIN else 1.0
         inputs_c = tf.cond(tf.less(tf.random_uniform([]), pbn),
@@ -466,10 +467,11 @@ def ae_transformer_internal(inputs, targets, target_space, hparams,
     else:
       if hparams.bottleneck_kind in ["dense", "vae"]:
         inputs_c = decode_transformer(inputs, ed, targets_c, hparams, "dec_c")
-        latents_dense, _, _, _ = bottleneck(inputs_c, hparams, 2*2048, "vc")
+        latents_dense, _, _, _ = bottleneck(inputs_c, hparams, 2 * 2048, "vc",
+                                            means, ema_count, ema_means)
       else:
         latent_len = common_layers.shape_list(targets_c)[1]
-        _, _, _, embed = bottleneck(targets_c, hparams, 2*2048, "vc")
+        _, _, _, embed = bottleneck(targets_c, hparams, 2 * 2048, "vc", means)
         latents_dense = tf.zeros_like(targets_c[:, :latent_len, :, :])
         if cache is None:
           cache = ae_latent_sample(latents_dense, inputs, ed, embed, 8, hparams)
@@ -529,6 +531,25 @@ class TransformerAE(t2t_model.T2TModel):
     super(TransformerAE, self).__init__(*args, **kwargs)
     self.predict_mask = 1.0
 
+    # Define the embeddings if we are using vq-vae
+    self.means = None
+    self.ema_count = None
+    self.ema_means = None
+    if self._hparams.bottleneck_kind == "vq-vae":
+      self.means = tf.get_variable(
+          name="means",
+          shape=[self._hparams.v_size, self._hparams.hidden_size],
+          initializer=tf.random_normal_initializer())
+
+      # Create the shadow variables if we are using EMA
+      if self._hparams.ema:
+        self.ema_count = tf.get_variable(
+            "ema_count", [self._hparams.v_size],
+            initializer=tf.constant_initializer(0))
+        with tf.colocate_with(self.means):
+          self.ema_means = tf.get_variable(
+              "ema_means", initializer=self.means.initialized_value())
+
   @property
   def has_input(self):
     return self._problem_hparams.input_modality
@@ -540,9 +561,15 @@ class TransformerAE(t2t_model.T2TModel):
     reuse = "cache_raw" in features
     with tf.variable_scope(tf.get_variable_scope(), reuse=reuse):
       res, loss, _ = ae_transformer_internal(
-          inputs, features["targets"], features["target_space_id"],
-          self._hparams, features.get("cache_raw", None),
-          predict_mask=self.predict_mask)
+          inputs,
+          features["targets"],
+          features["target_space_id"],
+          self._hparams,
+          features.get("cache_raw", None),
+          predict_mask=self.predict_mask,
+          means=self.means,
+          ema_count=self.ema_count,
+          ema_means=self.ema_means)
       return res, loss
 
   def prepare_features_for_infer(self, features):
@@ -557,7 +584,8 @@ class TransformerAE(t2t_model.T2TModel):
     targets = tf.zeros([beam_batch_size, 1, 1, self._hparams.hidden_size])
     with tf.variable_scope("body"):
       _, _, cache = ae_transformer_internal(
-          inputs, targets, features["target_space_id"], self._hparams)
+          inputs, targets, features["target_space_id"], self._hparams,
+          self.means, self.ema_count, self.ema_means)
     features["cache_raw"] = cache
 
   def infer(self, features=None, decode_length=50, beam_size=1, top_beams=1,
@@ -635,7 +663,7 @@ def transformer_ae_small():
   hparams.add_hparam("do_vae", True)
   hparams.add_hparam("bit_vae", True)
   hparams.add_hparam("beta", 0.25)
-  hparams.add_hparam("epsilon", 1e-5)
+  hparams.add_hparam("epsilon", 1e-1)
   hparams.add_hparam("decay", 0.999)
   hparams.add_hparam("ema", True)
   hparams.kl_warmup_steps = 150000
