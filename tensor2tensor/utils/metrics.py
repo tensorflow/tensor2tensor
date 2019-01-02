@@ -637,14 +637,34 @@ def create_eager_metrics_for_problem(problem, model_hparams):
   """See create_eager_metrics."""
   metric_fns = problem.eval_metric_fns(model_hparams)
   tm = problem.get_hparams(model_hparams).modality["targets"]
-  return create_eager_metrics(metric_fns, weights_fn=tm.targets_weights_fn)
+  return create_eager_metrics_internal(
+        metric_fns, weights_fn=tm.targets_weights_fn)
 
 
-def create_eager_metrics(metric_fns, weights_fn=common_layers.weights_all):
+def create_eager_metrics(metric_names, weights_fn=common_layers.weights_all):
   """Create metrics accumulators and averager for Eager mode.
 
   Args:
-    metric_names: dict<metric name, metric function>.
+    metric_names: list<str> from Metrics enum
+    weights_fn: function that takes labels and returns a weights mask. Defaults
+      to weights of all 1, i.e. common_layers.weights_all. Use
+      common_layers.weights_nonzero if labels have 0-padding.
+
+  Returns:
+    (accum_fn(predictions, targets) => None,
+     result_fn() => dict<str metric_name, float avg_val>
+  """
+  metric_fns = dict(
+      [(name, METRICS_FNS[name]) for name in metric_names])
+  return create_eager_metrics_internal(metric_fns, weights_fn)
+
+
+def create_eager_metrics_internal(metric_fns,
+                                  weights_fn=common_layers.weights_all):
+  """Create metrics accumulators and averager for Eager mode.
+
+  Args:
+    metric_names: dict<metric name, metric function>
     weights_fn: function that takes labels and returns a weights mask. Defaults
       to weights of all 1, i.e. common_layers.weights_all. Use
       common_layers.weights_nonzero if labels have 0-padding.
