@@ -594,20 +594,24 @@ class T2TExperiment(object):
 
   def continuous_decode(self):
     """Decode from dataset on new checkpoint."""
-    for _ in next_checkpoint(self._hparams.model_dir):
+    for _ in next_checkpoint(self._hparams.model_dir,
+                             self._decode_hparams.decode_timeout_mins):
       self.decode()
 
   def continuous_decode_on_train_data(self):
     """Decode from dataset on new checkpoint."""
-    for _ in next_checkpoint(self._hparams.model_dir):
+    for _ in next_checkpoint(self._hparams.model_dir,
+                             self._decode_hparams.decode_timeout_mins):
       self.decode(dataset_split=tf.estimator.ModeKeys.TRAIN)
 
   def continuous_decode_on_eval_data(self):
     """Decode from dataset on new checkpoint."""
     if self._hparams.mlperf_mode:
-      ckpt_generator = next_undecoded_checkpoint(self._hparams.model_dir)
+      ckpt_generator = next_undecoded_checkpoint(
+          self._hparams.model_dir, self._decode_hparams.decode_timeout_mins)
     else:
-      ckpt_generator = next_checkpoint(self._hparams.model_dir)
+      ckpt_generator = next_checkpoint(self._hparams.model_dir,
+                                       self._decode_hparams.decode_timeout_mins)
 
     for ckpt in ckpt_generator:
       current_step = decoding.get_step_from_ckpt_path(ckpt)
@@ -638,7 +642,8 @@ class T2TExperiment(object):
 
   def continuous_decode_from_file(self):
     """Decode from file on new checkpoint."""
-    for _ in next_checkpoint(self._hparams.model_dir):
+    for _ in next_checkpoint(self._hparams.model_dir,
+                             self._decode_hparams.decode_timeout_mins):
       self.decode(decode_from_file=True)
 
 

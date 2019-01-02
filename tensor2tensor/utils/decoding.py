@@ -63,6 +63,8 @@ def decode_hparams(overrides=""):
       delimiter="\n",
       decode_to_file=None,
       decode_in_memory=False,
+      # How much decode should wait for the next checkpoint
+      decode_timeout_mins=240,
       summaries_log_dir="decode",  # Directory to write hook summaries.
       shards=1,    # How many shards of data to decode (treating 1 as None).
       shard_id=0,  # Which shard are we decoding if more than 1 above.
