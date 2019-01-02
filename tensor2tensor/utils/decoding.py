@@ -83,7 +83,7 @@ def decode_hparams(overrides=""):
       # Used in computation of VGG feature based video metrics.
       # Set this to be the path to a trained VGG ckpt to output
       # useful metrics.
-      vgg_ckpt_path=None,
+      vgg_ckpt_path="",
       # Used for MLPerf compliance logging.
       mlperf_decode_step=0.0,
       mlperf_threshold=25.0,
