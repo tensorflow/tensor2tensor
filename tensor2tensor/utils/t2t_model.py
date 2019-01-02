@@ -1739,7 +1739,7 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
 
         return wrapped_metric_fn
 
-      for metric, metric_fn in eval_metrics.items():
+      for metric, metric_fn in six.iteritems(eval_metrics):
         if metric in TPU_METRIC_BLACKLIST:
           log_warn("Skipping eval metric %s in TPU_METRIC_BLACKLIST", metric)
           continue
@@ -1759,7 +1759,7 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
 
       return wrapped_metric_fn
 
-    for metric, metric_fn in eval_metrics.items():
+    for metric, metric_fn in six.iteritems(eval_metrics):
       if metric in TPU_METRIC_BLACKLIST:
         log_warn("Skipping eval metric %s in TPU_METRIC_BLACKLIST", metric)
         continue

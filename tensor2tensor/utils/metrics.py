@@ -616,7 +616,7 @@ def create_evaluation_metrics(problems, model_hparams):
         ptid = problem_instance.task_id  # pylint: disable=cell-var-from-loop
         weights_fn = weights_fn_for_mp(ptid)
 
-      for metric, metric_fn in metrics.items():
+      for metric, metric_fn in six.iteritems(metrics):
         overload_eval_metric_name = getattr(
             model_hparams, "overload_eval_metric_name", None)
         if len(problems) == 1 and overload_eval_metric_name:
