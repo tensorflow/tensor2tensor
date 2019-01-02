@@ -47,6 +47,7 @@ def ppo_base_v1():
   hparams.learning_rate_schedule = "constant"
   hparams.learning_rate_constant = 1e-4
   hparams.clip_grad_norm = 0.5
+  hparams.weight_decay = 0
   # If set, extends the LR warmup to all epochs except the final one.
   hparams.add_hparam("lr_decay_in_final_epoch", False)
   hparams.add_hparam("init_mean_factor", 0.1)
@@ -141,6 +142,8 @@ def ppo_original_world_model():
       hparams.set_hparam(name, value)
     else:
       hparams.add_hparam(name, value)
+  # Mostly to avoid decaying WM params when training the policy.
+  hparams.weight_decay = 0
   return hparams
 
 
@@ -156,6 +159,7 @@ def ppo_tiny_world_model():
       hparams.set_hparam(name, value)
     else:
       hparams.add_hparam(name, value)
+  hparams.weight_decay = 0
   return hparams
 
 
@@ -173,6 +177,7 @@ def ppo_original_world_model_stochastic_discrete():
       hparams.add_hparam(name, value)
   # To avoid OOM. Probably way to small.
   hparams.optimization_batch_size = 1
+  hparams.weight_decay = 0
   return hparams
 
 
