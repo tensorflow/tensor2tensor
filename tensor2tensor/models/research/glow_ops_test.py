@@ -39,6 +39,7 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
 
   def get_glow_hparams(self):
     hparams = glow.glow_hparams()
+    hparams.add_hparam("mode", tf.estimator.ModeKeys.TRAIN)
     hparams.add_hparam("num_cond_latents", 1)
     hparams.add_hparam("latent_architecture", "glow_resnet")
     # Use latent skip connections
@@ -52,6 +53,7 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
     hparams.add_hparam("latent_time_filter_size", 3)
     hparams.add_hparam("latent_activation", "relu")
     hparams.add_hparam("latent_dropout", 0.0)
+    hparams.add_hparam("latent_noise", 0.0)
     return hparams
 
   def test_get_variable_ddi(self):
@@ -88,8 +90,9 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
       x = tf.random_uniform(shape=(16, 32, 32, 4))
 
       if op in [glow_ops.affine_coupling, glow_ops.additive_coupling]:
-        x_inv, _ = op(name, x, reverse=False, dropout=dropout)
-        x_inv_inv, _ = op(name, x_inv, reverse=True, dropout=dropout)
+        with arg_scope([glow_ops.get_dropout], init=False):
+          x_inv, _ = op(name, x, reverse=False, dropout=dropout)
+          x_inv_inv, _ = op(name, x_inv, reverse=True, dropout=dropout)
       else:
         x_inv, _ = op(name, x, reverse=False)
         x_inv_inv, _ = op(name, x_inv, reverse=True)
@@ -331,9 +334,10 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
       ("conv3d_skip", "conv3d_net", False),
       ("conv3d_no_skip", "conv3d_net", True),
       ("conv3d_skip_drop", "conv3d_net", False, 0.1),
-      ("conv3d_no_skip_drop", "conv3d_net", True, 0.1))
+      ("conv3d_no_skip_drop", "conv3d_net", True, 0.1),
+      ("conv3d_no_skip_drop_noise", "conv3d_net", True, 0.1, 0.1),)
   def test_latent_dist_encoder(self, encoder="conv_lstm", skip=True,
-                               dropout=0.0):
+                               dropout=0.0, noise=0.1):
     with tf.Graph().as_default():
       rng = np.random.RandomState(0)
       # Initialize x, latent, state.
@@ -351,10 +355,12 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
       hparams.latent_skip = skip
       hparams.latent_encoder_width = 256
       hparams.latent_dropout = dropout
+      hparams.latent_noise = noise
 
-      prior_dist, new_state = glow_ops.compute_prior(
-          "prior", x_t, latent=latent_t, hparams=hparams, state=init_state,
-          condition=True)
+      with arg_scope([glow_ops.get_dropout], init=False):
+        prior_dist, new_state = glow_ops.compute_prior(
+            "prior", x_t, latent=latent_t, hparams=hparams, state=init_state,
+            condition=True)
       with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         # Test initialization:
@@ -423,14 +429,16 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
       ("dil_relu", True, "relu"), ("no_dil_relu", False, "relu"),
       ("dil_gatu", True, "gatu"), ("no_dil_gatu", False, "gatu"),
       ("dil_relu_drop", True, "relu", 0.1),
-      ("dil_gatu_drop", True, "gatu", 0.1))
+      ("dil_gatu_drop", True, "gatu", 0.1),
+      ("dil_gatu_drop_noise", True, "gatu", 0.1, 0.1))
   def test_temporal_latent_to_dist(self, apply_dilation, activation,
-                                   dropout=0.0):
+                                   dropout=0.0, noise=0.1):
     with tf.Graph().as_default():
       hparams = self.get_glow_hparams()
       hparams.latent_apply_dilations = apply_dilation
       hparams.latent_activation = activation
       hparams.latent_dropout = dropout
+      hparams.latent_noise = noise
       latent_shape = (16, 5, 32, 32, 48)
       latents = tf.random_normal(latent_shape)
       dist = glow_ops.temporal_latent_to_dist(
