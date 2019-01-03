@@ -22,6 +22,7 @@ import collections
 import operator
 import os
 import re
+import string
 import time
 
 import numpy as np
@@ -373,14 +374,23 @@ def decode_from_file(estimator,
   problem_name = FLAGS.problem
   filename = _add_shard_to_filename(filename, decode_hp)
   tf.logging.info("Performing decoding from file (%s)." % filename)
-  sorted_inputs, sorted_keys = _get_sorted_inputs(filename, decode_hp.delimiter)
+  if has_input:
+    sorted_inputs, sorted_keys = _get_sorted_inputs(
+        filename, decode_hp.delimiter)
+  else:
+    sorted_inputs = _get_language_modeling_inputs(
+        filename, decode_hp.delimiter, repeat=decode_hp.num_decodes)
+    sorted_keys = range(len(sorted_inputs))
   num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
 
   if estimator.config.use_tpu:
     length = getattr(hparams, "length", hparams.max_length)
     batch_ids = []
     for line in sorted_inputs:
-      ids = inputs_vocab.encode(line.strip()) + [1]
+      if has_input:
+        ids = inputs_vocab.encode(line.strip()) + [1]
+      else:
+        ids = targets_vocab.encode(line)
       if len(ids) < length:
         ids.extend([0] * (length - len(ids)))
       else:
@@ -739,6 +749,37 @@ def show_and_save_image(img, save_path):
   plt.imshow(img)
   with tf.gfile.Open(save_path, "wb") as sp:
     plt.savefig(sp)
+
+
+def _get_language_modeling_inputs(filename,
+                                  delimiter="\n",
+                                  repeat=1,
+                                  append_space_to_final_punctionation=True):
+  """Read a file of partial texts to continue.
+
+  The purpose of append_space_to_final_punctionation is that SubwordTokenizer
+  groups punctuation and the ensuing space in the same token.  Adding a space
+  causes the token to be completed.
+
+  Args:
+    filename: a string
+    delimiter: a string
+    repeat: an integer - we repeat the entire file that many times.
+    append_space_to_final_punctionation: a boolean
+
+  Returns:
+    a list of strings
+  """
+  with tf.gfile.Open(filename) as f:
+    text = f.read()
+  inputs = text.split(delimiter)
+  if not inputs[-1]:
+    inputs.pop()
+  inputs *= repeat
+  if append_space_to_final_punctionation:
+    inputs = [
+        s + " " if s and s[-1] in string.punctuation else s for s in inputs]
+  return inputs
 
 
 def _get_sorted_inputs(filename, delimiter="\n"):
