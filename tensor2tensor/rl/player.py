@@ -57,8 +57,8 @@ from gym.utils import play
 import numpy as np
 
 from envs.simulated_batch_gym_env import FlatBatchEnv
-from player_utils import SimulatedEnv, wrap_with_monitor, load_t2t_env, \
-  join_and_check
+from player_utils import wrap_with_monitor, load_t2t_env, join_and_check, \
+  load_data_and_make_simulated_env
 from tensor2tensor.rl.trainer_model_based import FLAGS, PIL_Image, PIL_ImageDraw
 
 from tensor2tensor.utils import registry
@@ -67,7 +67,6 @@ import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
-
 
 flags.DEFINE_string("video_dir", "/tmp/gym-results",
                     "Where to save played trajectories.")
@@ -216,7 +215,8 @@ def main(_):
   epoch = FLAGS.epoch if FLAGS.epoch == "last" else int(FLAGS.epoch)
 
   if FLAGS.env == "simulated":
-    env = SimulatedEnv(output_dir, hparams, which_epoch_data=epoch)
+    env = load_data_and_make_simulated_env(output_dir, hparams,
+                                           which_epoch_data=epoch)
   elif FLAGS.env == "real":
     env = load_t2t_env(hparams,
                        data_dir=join_and_check(output_dir, "data"),

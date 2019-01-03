@@ -25,7 +25,6 @@ from copy import deepcopy
 
 import gym
 from gym import wrappers, spaces
-from gym.core import Env
 import numpy as np
 
 import rl_utils
@@ -125,35 +124,17 @@ def join_and_check(output_dir, subdirectory):
   assert os.path.exists(path), "{} does not exists".format(path)
   return path
 
-class SimulatedEnv(Env):
-  def __init__(self, output_dir, hparams, which_epoch_data="last",
-               random_starts=True):
-    """"Gym environment interface for simulated environment."""
-    hparams = deepcopy(hparams)
-    self._output_dir = output_dir
 
-    self.t2t_env = load_t2t_env(hparams,
-                                data_dir=join_and_check(output_dir, "data"),
-                                which_epoch_data=which_epoch_data)
-
-    self.env = make_simulated_env(
-        self.t2t_env, world_model_dir=join_and_check(output_dir, "world_model"),
-        hparams=hparams, random_starts=random_starts)
-
-  def step(self, *args, **kwargs):
-    ob, reward, done, info = self.env.step(*args, **kwargs)
-    return ob, reward, done, info
-
-  def reset(self):
-    return self.env.reset()
-
-  @property
-  def observation_space(self):
-    return self.t2t_env.observation_space
-
-  @property
-  def action_space(self):
-    return self.t2t_env.action_space
+def load_data_and_make_simulated_env(
+    output_dir, hparams, which_epoch_data="last", random_starts=True
+):
+  hparams = deepcopy(hparams)
+  t2t_env = load_t2t_env(hparams,
+                         data_dir=join_and_check(output_dir, "data"),
+                         which_epoch_data=which_epoch_data)
+  return make_simulated_env(
+      t2t_env, world_model_dir=join_and_check(output_dir, "world_model"),
+      hparams=hparams, random_starts=random_starts)
 
 
 class ExtendToEvenDimentions(gym.ObservationWrapper):
@@ -257,8 +238,9 @@ def create_simulated_env(
       generative_model_params=generative_model_params,
       **other_hparams
   )
-  return SimulatedEnv(output_dir, hparams, which_epoch_data=which_epoch_data,
-                      random_starts=random_starts)
+  return load_data_and_make_simulated_env(output_dir, hparams,
+                                          which_epoch_data=which_epoch_data,
+                                          random_starts=random_starts)
 
 
 class PPOPolicyInferencer(object):

@@ -47,8 +47,8 @@ import numpy as np
 from gym.wrappers import TimeLimit
 
 from envs.simulated_batch_gym_env import FlatBatchEnv
-from player_utils import SimulatedEnv, wrap_with_monitor, PPOPolicyInferencer, \
-  load_t2t_env, join_and_check
+from player_utils import wrap_with_monitor, PPOPolicyInferencer, load_t2t_env, \
+  join_and_check, load_data_and_make_simulated_env
 from tensor2tensor.rl.trainer_model_based import FLAGS
 from tensor2tensor.utils import registry
 import tensorflow as tf
@@ -84,7 +84,8 @@ def main(_):
   num_episodes = int(FLAGS.num_episodes)
 
   if FLAGS.env == "simulated":
-    env = SimulatedEnv(output_dir, hparams, which_epoch_data=epoch)
+    env = load_data_and_make_simulated_env(output_dir, hparams,
+                                           which_epoch_data=epoch)
     env = TimeLimit(env, max_episode_steps=simulated_episode_len)
   elif FLAGS.env == "real":
     env = load_t2t_env(hparams,
