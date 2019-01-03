@@ -18,6 +18,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+from absl.testing import parameterized
 import numpy as np
 from tensor2tensor.data_generators import video_generated  # pylint: disable=unused-import
 from tensor2tensor.data_generators import video_utils
@@ -27,9 +28,9 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
-class VideoUtilsTest(tf.test.TestCase):
+class VideoUtilsTest(parameterized.TestCase, tf.test.TestCase):
 
-  def get_predictions(self):
+  def get_predictions(self, num_decodes=2):
     rng = np.random.RandomState(0)
     # num_samples=4
     inputs = rng.randint(0, 255, (4, 2, 64, 64, 3))
@@ -41,7 +42,7 @@ class VideoUtilsTest(tf.test.TestCase):
       predictions.append(curr_pred)
 
     # num_decodes=2
-    predictions = [predictions] * 2
+    predictions = [predictions] * num_decodes
     problem = registry.problem("video_stochastic_shapes10k")
     return predictions, problem
 
@@ -68,7 +69,9 @@ class VideoUtilsTest(tf.test.TestCase):
         predictions=predictions)
     metrics = video_utils.summarize_video_metrics(decode_hooks)
 
-  def testConvertPredictionsToVideoSummaries(self):
+  @parameterized.named_parameters(
+      ("two", 5), ("ten", 10))
+  def testConvertPredictionsToVideoSummaries(self, num_decodes=2):
     # Initialize predictions.
     rng = np.random.RandomState(0)
     inputs = rng.randint(0, 255, (2, 32, 32, 3))
@@ -77,8 +80,9 @@ class VideoUtilsTest(tf.test.TestCase):
 
     # batch it up.
     prediction = [{"outputs": outputs, "inputs": inputs, "targets": targets}]*5
-    predictions = [prediction]
-    decode_hparams = decoding.decode_hparams()
+    predictions = [prediction] * num_decodes
+    decode_hparams = decoding.decode_hparams(
+        overrides="max_display_decodes=5")
 
     decode_hooks = decoding.DecodeHookArgs(
         estimator=None, problem=None, output_dirs=None,
@@ -87,7 +91,7 @@ class VideoUtilsTest(tf.test.TestCase):
     summaries = video_utils.display_video_hooks(decode_hooks)
 
     for summary in summaries:
-      self.assertTrue(isinstance(summary, tf.Summary.Value))
+      self.assertIsInstance(summary, tf.Summary.Value)
 
 
 if __name__ == "__main__":

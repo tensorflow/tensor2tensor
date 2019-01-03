@@ -166,6 +166,7 @@ def display_video_hooks(hook_args):
   """Hooks to display videos at decode time."""
   predictions = hook_args.predictions
   max_outputs = hook_args.decode_hparams.max_display_outputs
+  max_decodes = hook_args.decode_hparams.max_display_decodes
 
   with tf.Graph().as_default():
     _, best_decodes = video_metrics.compute_video_metrics_from_predictions(
@@ -190,7 +191,7 @@ def display_video_hooks(hook_args):
     all_summaries.extend(summaries)
 
   # Display random decodes for ten conditioning frames.
-  for decode_ind, decode in enumerate(predictions):
+  for decode_ind, decode in enumerate(predictions[: max_decodes]):
     target_videos = video_metrics.stack_data_given_key(decode, "targets")
     output_videos = video_metrics.stack_data_given_key(decode, "outputs")
     input_videos = video_metrics.stack_data_given_key(decode, "inputs")

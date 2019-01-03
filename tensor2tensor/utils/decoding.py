@@ -80,8 +80,9 @@ def decode_hparams(overrides=""):
       # Creates a blue/red border covering border_percent of the frame.
       border_percent=2,
       # Maximum number of videos displayed.
-      # Total number of videos are max_display_outputs * num_decodes
+      # number of videos displayed = max_display_outputs * max_display_decodes
       max_display_outputs=10,
+      max_display_decodes=5,
       # Used in computation of VGG feature based video metrics.
       # Set this to be the path to a trained VGG ckpt to output
       # useful metrics.
