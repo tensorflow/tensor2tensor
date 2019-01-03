@@ -30,7 +30,7 @@ import numpy as np
 import rl_utils
 from envs.simulated_batch_gym_env import FlatBatchEnv
 from tensor2tensor.models.research.rl import get_policy
-from tensor2tensor.rl.trainer_model_based import make_simulated_env_fn
+from tensor2tensor.models.research.rl import make_simulated_env_fn_from_hparams
 from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
 
@@ -46,7 +46,7 @@ def make_simulated_gym_env(real_env, world_model_dir, hparams, random_starts):
       simulation_random_starts=random_starts,
       simulation_flip_first_random_for_beginning=False
   )
-  env_fn = make_simulated_env_fn(
+  env_fn = make_simulated_env_fn_from_hparams(
       real_env, hparams,
       batch_size=1,
       initial_frame_chooser=initial_frame_chooser,
@@ -104,7 +104,7 @@ def load_data_and_make_simulated_env(
   t2t_env = load_t2t_env(hparams,
                          data_dir=os.path.join(output_dir, "data"),
                          which_epoch_data=which_epoch_data)
-  return make_simulated_env(
+  return make_simulated_gym_env(
       t2t_env, world_model_dir=os.path.join(output_dir, "world_model"),
       hparams=hparams, random_starts=random_starts)
 

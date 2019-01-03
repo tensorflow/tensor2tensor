@@ -203,6 +203,28 @@ def make_simulated_env_fn(**env_kwargs):
   return env_fn
 
 
+def make_simulated_env_fn_from_hparams(
+    real_env, hparams, batch_size, initial_frame_chooser, model_dir,
+    sim_video_dir=None):
+  """Creates a simulated env_fn."""
+  model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
+  if hparams.wm_policy_param_sharing:
+    model_hparams.optimizer_zero_grads = True
+  return make_simulated_env_fn(
+      reward_range=real_env.reward_range,
+      observation_space=real_env.observation_space,
+      action_space=real_env.action_space,
+      frame_stack_size=hparams.frame_stack_size,
+      frame_height=real_env.frame_height, frame_width=real_env.frame_width,
+      initial_frame_chooser=initial_frame_chooser, batch_size=batch_size,
+      model_name=hparams.generative_model,
+      model_hparams=trainer_lib.create_hparams(hparams.generative_model_params),
+      model_dir=model_dir,
+      intrinsic_reward_scale=hparams.intrinsic_reward_scale,
+      sim_video_dir=sim_video_dir,
+  )
+
+
 def get_policy(observations, hparams, action_space):
   """Get a policy network.
 
