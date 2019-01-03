@@ -118,22 +118,15 @@ def load_t2t_env(hparams, data_dir, which_epoch_data=None,
   return t2t_env
 
 
-def join_and_check(output_dir, subdirectory):
-  """Join paths, check if exist."""
-  path = os.path.join(output_dir, subdirectory)
-  assert os.path.exists(path), "{} does not exists".format(path)
-  return path
-
-
 def load_data_and_make_simulated_env(
     output_dir, hparams, which_epoch_data="last", random_starts=True
 ):
   hparams = deepcopy(hparams)
   t2t_env = load_t2t_env(hparams,
-                         data_dir=join_and_check(output_dir, "data"),
+                         data_dir=os.path.join(output_dir, "data"),
                          which_epoch_data=which_epoch_data)
   return make_simulated_env(
-      t2t_env, world_model_dir=join_and_check(output_dir, "world_model"),
+      t2t_env, world_model_dir=os.path.join(output_dir, "world_model"),
       hparams=hparams, random_starts=random_starts)
 
 

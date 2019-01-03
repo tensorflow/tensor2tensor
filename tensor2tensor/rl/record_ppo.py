@@ -43,12 +43,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+
 import numpy as np
 from gym.wrappers import TimeLimit
 
 from envs.simulated_batch_gym_env import FlatBatchEnv
-from player_utils import wrap_with_monitor, PPOPolicyInferencer, load_t2t_env, \
-  join_and_check, load_data_and_make_simulated_env
+from player_utils import wrap_with_monitor, PPOPolicyInferencer, load_t2t_env,\
+  load_data_and_make_simulated_env
 from tensor2tensor.rl.trainer_model_based import FLAGS
 from tensor2tensor.utils import registry
 import tensorflow as tf
@@ -89,7 +91,7 @@ def main(_):
     env = TimeLimit(env, max_episode_steps=simulated_episode_len)
   elif FLAGS.env == "real":
     env = load_t2t_env(hparams,
-                       data_dir=join_and_check(output_dir, "data"),
+                       data_dir=os.path.join(output_dir, "data"),
                        which_epoch_data=None)
     env = FlatBatchEnv(env)
   else:
@@ -99,7 +101,7 @@ def main(_):
   ppo = PPOPolicyInferencer(hparams,
                             action_space=env.action_space,
                             observation_space=env.observation_space,
-                            policy_dir=join_and_check(output_dir, "policy"))
+                            policy_dir=os.path.join(output_dir, "policy"))
 
   ppo.reset_frame_stack()
   ob = env.reset()
