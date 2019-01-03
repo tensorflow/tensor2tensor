@@ -175,33 +175,10 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
 
 def train_agent(real_env, learner, world_model_dir, hparams, epoch):
   """Train the PPO agent in the simulated environment."""
-  frame_stack_size = hparams.frame_stack_size
-  initial_frame_rollouts = real_env.current_epoch_rollouts(
-      split=tf.estimator.ModeKeys.TRAIN,
-      minimal_rollout_frames=frame_stack_size,
+  initial_frame_chooser = rl_utils.make_initial_frame_chooser(
+      real_env, hparams.frame_stack_size, hparams.simulation_random_starts,
+      hparams.simulation_flip_first_random_for_beginning
   )
-  # TODO(koz4k): Move this to a different module.
-  def initial_frame_chooser(batch_size):
-    """Frame chooser."""
-
-    deterministic_initial_frames =\
-        initial_frame_rollouts[0][:frame_stack_size]
-    if not hparams.simulation_random_starts:
-      # Deterministic starts: repeat first frames from the first rollout.
-      initial_frames = [deterministic_initial_frames] * batch_size
-    else:
-      # Random starts: choose random initial frames from random rollouts.
-      initial_frames = random_rollout_subsequences(
-          initial_frame_rollouts, batch_size, frame_stack_size
-      )
-      if hparams.simulation_flip_first_random_for_beginning:
-        # Flip first entry in the batch for deterministic initial frames.
-        initial_frames[0] = deterministic_initial_frames
-
-    return np.stack([
-        [frame.observation.decode() for frame in initial_frame_stack]
-        for initial_frame_stack in initial_frames
-    ])
   env_fn = make_simulated_env_fn(
       real_env, hparams, hparams.simulated_batch_size, initial_frame_chooser,
       world_model_dir, os.path.join(learner.agent_model_dir,

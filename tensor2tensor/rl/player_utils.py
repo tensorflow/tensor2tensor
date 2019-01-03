@@ -30,8 +30,7 @@ import numpy as np
 import rl_utils
 from envs.simulated_batch_gym_env import FlatBatchEnv
 from tensor2tensor.models.research.rl import get_policy
-from tensor2tensor.rl.trainer_model_based import make_simulated_env_fn, \
-  random_rollout_subsequences
+from tensor2tensor.rl.trainer_model_based import make_simulated_env_fn
 from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
 
@@ -40,33 +39,13 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 
-def make_simulated_env(real_env, world_model_dir, hparams, random_starts):
-  """Gym environment with world model.
-
-  Based on train_agent() from rlmb pipeline.
-  """
-  frame_stack_size = hparams.frame_stack_size
-  initial_frame_rollouts = real_env.current_epoch_rollouts(
-      split=tf.contrib.learn.ModeKeys.TRAIN,
-      minimal_rollout_frames=frame_stack_size,
+def make_simulated_gym_env(real_env, world_model_dir, hparams, random_starts):
+  """Gym environment with world model."""
+  initial_frame_chooser = rl_utils.make_initial_frame_chooser(
+      real_env, hparams.frame_stack_size,
+      simulation_random_starts=random_starts,
+      simulation_flip_first_random_for_beginning=False
   )
-  def initial_frame_chooser(batch_size):
-    """Frame chooser."""
-
-    deterministic_initial_frames =\
-        initial_frame_rollouts[0][:frame_stack_size]
-    if not random_starts:
-      # Deterministic starts: repeat first frames from the first rollout.
-      initial_frames = [deterministic_initial_frames] * batch_size
-    else:
-      # Random starts: choose random initial frames from random rollouts.
-      initial_frames = random_rollout_subsequences(
-          initial_frame_rollouts, batch_size, frame_stack_size
-      )
-    return np.stack([
-        [frame.observation.decode() for frame in initial_frame_stack]
-        for initial_frame_stack in initial_frames
-    ])
   env_fn = make_simulated_env_fn(
       real_env, hparams,
       batch_size=1,

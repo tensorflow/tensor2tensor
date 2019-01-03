@@ -19,6 +19,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import random
+
 import numpy as np
 import six
 
@@ -125,3 +127,50 @@ def update_hparams_from_hparams(target_hparams, source_hparams, prefix):
   for (param_name, param_value) in six.iteritems(source_hparams.values()):
     if param_name.startswith(prefix):
       target_hparams.set_hparam(param_name[len(prefix):], param_value)
+
+
+def random_rollout_subsequences(rollouts, num_subsequences, subsequence_length):
+  """Chooses a random frame sequence of given length from a set of rollouts."""
+  def choose_subsequence():
+    # TODO(koz4k): Weigh rollouts by their lengths so sampling is uniform over
+    # frames and not rollouts.
+    rollout = random.choice(rollouts)
+    try:
+      from_index = random.randrange(len(rollout) - subsequence_length + 1)
+    except ValueError:
+      # Rollout too short; repeat.
+      return choose_subsequence()
+    return rollout[from_index:(from_index + subsequence_length)]
+
+  return [choose_subsequence() for _ in range(num_subsequences)]
+
+
+def make_initial_frame_chooser(real_env, frame_stack_size,
+                               simulation_random_starts,
+                               simulation_flip_first_random_for_beginning):
+  initial_frame_rollouts = real_env.current_epoch_rollouts(
+      split=tf.estimator.ModeKeys.TRAIN,
+      minimal_rollout_frames=frame_stack_size,
+  )
+  def initial_frame_chooser(batch_size):
+    """Frame chooser."""
+
+    deterministic_initial_frames =\
+        initial_frame_rollouts[0][:frame_stack_size]
+    if not simulation_random_starts:
+      # Deterministic starts: repeat first frames from the first rollout.
+      initial_frames = [deterministic_initial_frames] * batch_size
+    else:
+      # Random starts: choose random initial frames from random rollouts.
+      initial_frames = random_rollout_subsequences(
+          initial_frame_rollouts, batch_size, frame_stack_size
+      )
+      if simulation_flip_first_random_for_beginning:
+        # Flip first entry in the batch for deterministic initial frames.
+        initial_frames[0] = deterministic_initial_frames
+
+    return np.stack([
+        [frame.observation.decode() for frame in initial_frame_stack]
+        for initial_frame_stack in initial_frames
+    ])
+  return initial_frame_chooser
