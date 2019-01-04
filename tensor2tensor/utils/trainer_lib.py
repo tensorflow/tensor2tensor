@@ -339,7 +339,7 @@ def create_hooks(use_tfdbg=False,
     # Recorded traces can be visualized with chrome://tracing/
     # The memory/tensor lifetime is also profiled
     tf.logging.info("Using ProfilerHook")
-    defaults = dict(save_steps=500, show_dataflow=True, show_memory=True)
+    defaults = dict(save_steps=10, show_dataflow=True, show_memory=True)
     defaults.update(dbgprofile_kwargs)
     train_hooks.append(tf.train.ProfilerHook(**defaults))
 
