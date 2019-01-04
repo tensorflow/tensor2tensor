@@ -51,19 +51,19 @@ class AttentionVisualizer(object):
 
   def encode(self, input_str):
     """Input str to features dict, ready for inference."""
-    inputs = self.encoders['inputs'].encode(input_str) + [EOS_ID]
+    inputs = self.encoders["inputs"].encode(input_str) + [EOS_ID]
     batch_inputs = np.reshape(inputs, [1, -1, 1, 1])  # Make it 3D.
     return batch_inputs
 
   def decode(self, integers):
     """List of ints to str."""
     integers = list(np.squeeze(integers))
-    return self.encoders['inputs'].decode(integers)
+    return self.encoders["inputs"].decode(integers)
 
   def decode_list(self, integers):
     """List of ints to list of str."""
     integers = list(np.squeeze(integers))
-    return self.encoders['inputs'].decode_list(integers)
+    return self.encoders["inputs"].decode_list(integers)
 
   def get_vis_data_from_string(self, sess, input_string):
     """Constructs the data needed for visualizing attentions.
@@ -135,11 +135,11 @@ def build_model(hparams_set, model_name, data_dir, problem_name, beam_size=1):
   translate_model = registry.model(model_name)(
       hparams, tf.estimator.ModeKeys.EVAL)
 
-  inputs = tf.placeholder(tf.int32, shape=(1, None, 1, 1), name='inputs')
-  targets = tf.placeholder(tf.int32, shape=(1, None, 1, 1), name='targets')
+  inputs = tf.placeholder(tf.int32, shape=(1, None, 1, 1), name="inputs")
+  targets = tf.placeholder(tf.int32, shape=(1, None, 1, 1), name="targets")
   translate_model({
-      'inputs': inputs,
-      'targets': targets,
+      "inputs": inputs,
+      "targets": targets,
   })
 
   # Must be called after building the training graph, so that the dict will
@@ -150,8 +150,8 @@ def build_model(hparams_set, model_name, data_dir, problem_name, beam_size=1):
 
   with tf.variable_scope(tf.get_variable_scope(), reuse=True):
     samples = translate_model.infer({
-        'inputs': inputs,
-    }, beam_size=beam_size)['outputs']
+        "inputs": inputs,
+    }, beam_size=beam_size)["outputs"]
 
   return inputs, targets, samples, att_mats
 
@@ -182,19 +182,22 @@ def get_att_mats(translate_model):
   dec_atts = []
   encdec_atts = []
 
-  prefix = 'transformer/body/'
-  postfix_self_attention = '/multihead_attention/dot_product_attention'
+  prefix = "transformer/body/"
+  postfix_self_attention = "/multihead_attention/dot_product_attention"
   if translate_model.hparams.self_attention_type == "dot_product_relative":
-    postfix_self_attention = '/multihead_attention/dot_product_attention_relative'
-  postfix_encdec = '/multihead_attention/dot_product_attention'
+    postfix_self_attention = ("/multihead_attention/"
+                              "dot_product_attention_relative")
+  postfix_encdec = "/multihead_attention/dot_product_attention"
 
   for i in range(translate_model.hparams.num_hidden_layers):
     enc_att = translate_model.attention_weights[
-        '%sencoder/layer_%i/self_attention%s' % (prefix, i, postfix_self_attention)]
+        "%sencoder/layer_%i/self_attention%s"
+        % (prefix, i, postfix_self_attention)]
     dec_att = translate_model.attention_weights[
-        '%sdecoder/layer_%i/self_attention%s' % (prefix, i, postfix_self_attention)]
+        "%sdecoder/layer_%i/self_attention%s"
+        % (prefix, i, postfix_self_attention)]
     encdec_att = translate_model.attention_weights[
-        '%sdecoder/layer_%i/encdec_attention%s' % (prefix, i, postfix_encdec)]
+        "%sdecoder/layer_%i/encdec_attention%s" % (prefix, i, postfix_encdec)]
     enc_atts.append(enc_att)
     dec_atts.append(dec_att)
     encdec_atts.append(encdec_att)
