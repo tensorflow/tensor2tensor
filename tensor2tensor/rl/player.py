@@ -58,11 +58,13 @@ from gym.envs.atari.atari_env import ACTION_MEANING
 from gym.utils import play
 import numpy as np
 
+from envs.simulated_batch_env import PIL_Image, PIL_ImageDraw
 from envs.simulated_batch_gym_env import FlatBatchEnv
 from player_utils import wrap_with_monitor, load_t2t_env, \
   load_data_and_make_simulated_env
-from tensor2tensor.rl.trainer_model_based import FLAGS, PIL_Image, PIL_ImageDraw
-
+# Import flags from t2t_trainer and trainer_model_based
+from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
+import tensor2tensor.rl.trainer_model_based_params # pylint: disable=unused-import
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
@@ -72,17 +74,17 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_string("video_dir", "/tmp/gym-results",
                     "Where to save played trajectories.")
-flags.DEFINE_string("zoom", "4",
-                    "Resize factor of displayed game.")
-flags.DEFINE_string("fps", "20",
-                    "Frames per second.")
+flags.DEFINE_float("zoom", 4.,
+                   "Resize factor of displayed game.")
+flags.DEFINE_float("fps", 20.,
+                   "Frames per second.")
 flags.DEFINE_string("epoch", "last",
                     "Data from which epoch to use.")
-flags.DEFINE_string("env", "simulated",
-                    "Either to use 'simulated' or 'real' env.")
-flags.DEFINE_string("dry_run", "no",
-                    "Dry run - without pygame interaction and display, just "
-                    "some random actions on environment")
+flags.DEFINE_boolean("simulated_env", True,
+                     "Either to use 'simulated' or 'real' env.")
+flags.DEFINE_boolean("dry_run", False,
+                     "Dry run - without pygame interaction and display, just "
+                     "some random actions on environment")
 
 class PlayerEnvWrapper(gym.Wrapper):
   """ Environment Wrapper for gym.utils.play.
@@ -212,34 +214,30 @@ def main(_):
     hparams.add_hparam("wm_policy_param_sharing", False)
   output_dir = FLAGS.output_dir
   video_dir = FLAGS.video_dir
-  fps = int(FLAGS.fps)
-  zoom = int(FLAGS.zoom)
   epoch = FLAGS.epoch if FLAGS.epoch == "last" else int(FLAGS.epoch)
 
-  if FLAGS.env == "simulated":
+  if FLAGS.simulated_env:
     env = load_data_and_make_simulated_env(output_dir, hparams,
                                            which_epoch_data=epoch)
-  elif FLAGS.env == "real":
+  else:
     env = load_t2t_env(hparams,
                        data_dir=os.path.join(output_dir, "data"),
                        which_epoch_data=epoch)
     env = FlatBatchEnv(env)
-  else:
-    raise ValueError("Invalid 'env' flag {}".format(FLAGS.env))
 
   env = PlayerEnvWrapper(env)
 
   env = wrap_with_monitor(env, video_dir)
 
-  if FLAGS.dry_run == 'yes':
+  if FLAGS.dry_run:
     for _ in range(5):
       env.reset()
       for i in range(50):
         env.step(i % 3)
-      env.step(101)  # reset
+      env.step(PlayerEnvWrapper.RESET_ACTION)  # reset
     return
 
-  play.play(env, zoom=zoom, fps=fps)
+  play.play(env, zoom=FLAGS.zoom, fps=FLAGS.fps)
 
 
 if __name__ == "__main__":

@@ -51,7 +51,9 @@ from gym.wrappers import TimeLimit
 from envs.simulated_batch_gym_env import FlatBatchEnv
 from player_utils import wrap_with_monitor, PPOPolicyInferencer, load_t2t_env,\
   load_data_and_make_simulated_env
-from tensor2tensor.rl.trainer_model_based import FLAGS
+# Import flags from t2t_trainer and trainer_model_based
+from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
+import tensor2tensor.rl.trainer_model_based_params # pylint: disable=unused-import
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
@@ -64,12 +66,12 @@ flags.DEFINE_string("video_dir", "/tmp/record_ppo_out",
                     "Where to save recorded trajectories.")
 flags.DEFINE_string("epoch", "last",
                     "Data from which epoch to use.")
-flags.DEFINE_string("env", "simulated",
-                    "Either to use 'simulated' or 'real' env.")
-flags.DEFINE_string("simulated_episode_len", "100",
-                    "Timesteps limit for simulated env")
-flags.DEFINE_string("num_episodes", "20",
-                    "How many episodes record.")
+flags.DEFINE_boolean("simulated_env", True,
+                     "Either to use 'simulated' or 'real' env.")
+flags.DEFINE_integer("simulated_episode_len", 100,
+                     "Timesteps limit for simulated env")
+flags.DEFINE_integer("num_episodes", 20,
+                     "How many episodes record.")
 
 
 def main(_):
@@ -82,20 +84,16 @@ def main(_):
   output_dir = FLAGS.output_dir
   video_dir = FLAGS.video_dir
   epoch = FLAGS.epoch if FLAGS.epoch == "last" else int(FLAGS.epoch)
-  simulated_episode_len = int(FLAGS.simulated_episode_len)
-  num_episodes = int(FLAGS.num_episodes)
 
-  if FLAGS.env == "simulated":
+  if FLAGS.simulated_env:
     env = load_data_and_make_simulated_env(output_dir, hparams,
                                            which_epoch_data=epoch)
-    env = TimeLimit(env, max_episode_steps=simulated_episode_len)
-  elif FLAGS.env == "real":
+    env = TimeLimit(env, max_episode_steps=FLAGS.simulated_episode_len)
+  else:
     env = load_t2t_env(hparams,
                        data_dir=os.path.join(output_dir, "data"),
                        which_epoch_data=None)
     env = FlatBatchEnv(env)
-  else:
-    raise ValueError("Invalid 'env' flag {}".format(FLAGS.env))
 
   env = wrap_with_monitor(env, video_dir=video_dir)
   ppo = PPOPolicyInferencer(hparams,
@@ -105,7 +103,7 @@ def main(_):
 
   ppo.reset_frame_stack()
   ob = env.reset()
-  for _ in range(num_episodes):
+  for _ in range(FLAGS.num_episodes):
     done = False
     while not done:
       logits, _ = ppo.infer(ob)

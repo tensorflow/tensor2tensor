@@ -36,6 +36,7 @@ import time
 import numpy as np
 import six
 
+from envs.simulated_batch_env import PIL_ImageDraw, PIL_Image
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl
@@ -50,18 +51,6 @@ import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
-
-
-# Lazy load PIL.Image
-def PIL_Image():  # pylint: disable=invalid-name
-  from PIL import Image  # pylint: disable=g-import-not-at-top
-  return Image
-
-
-# Lazy load PIL.Image
-def PIL_ImageDraw():  # pylint: disable=invalid-name
-  from PIL import ImageDraw  # pylint: disable=g-import-not-at-top
-  return ImageDraw
 
 
 def real_env_step_increment(hparams):
