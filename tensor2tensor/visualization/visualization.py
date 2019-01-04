@@ -183,15 +183,18 @@ def get_att_mats(translate_model):
   encdec_atts = []
 
   prefix = 'transformer/body/'
-  postfix = '/multihead_attention/dot_product_attention'
+  postfix_self_attention = '/multihead_attention/dot_product_attention'
+  if translate_model.hparams.self_attention_type == "dot_product_relative":
+    postfix_self_attention = '/multihead_attention/dot_product_attention_relative'
+  postfix_encdec = '/multihead_attention/dot_product_attention'
 
   for i in range(translate_model.hparams.num_hidden_layers):
     enc_att = translate_model.attention_weights[
-        '%sencoder/layer_%i/self_attention%s' % (prefix, i, postfix)]
+        '%sencoder/layer_%i/self_attention%s' % (prefix, i, postfix_self_attention)]
     dec_att = translate_model.attention_weights[
-        '%sdecoder/layer_%i/self_attention%s' % (prefix, i, postfix)]
+        '%sdecoder/layer_%i/self_attention%s' % (prefix, i, postfix_self_attention)]
     encdec_att = translate_model.attention_weights[
-        '%sdecoder/layer_%i/encdec_attention%s' % (prefix, i, postfix)]
+        '%sdecoder/layer_%i/encdec_attention%s' % (prefix, i, postfix_encdec)]
     enc_atts.append(enc_att)
     dec_atts.append(dec_att)
     encdec_atts.append(encdec_att)
