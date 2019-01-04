@@ -1721,7 +1721,7 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
   """Create the metrics_fn that TPUEstimatorSpec expects."""
 
   metric_fns = []
-  eval_metrics = problem.eval_metrics()
+  eval_metrics = problem.eval_metric_fns(model_hparams)
 
   tm = _create_target_modality(problem.get_hparams(model_hparams).modality)
   if isinstance(tm, dict):
@@ -1739,12 +1739,12 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
 
         return wrapped_metric_fn
 
-      for metric in eval_metrics:
+      for metric, metric_fn in six.iteritems(eval_metrics):
         if metric in TPU_METRIC_BLACKLIST:
           log_warn("Skipping eval metric %s in TPU_METRIC_BLACKLIST", metric)
           continue
         name = "%s/metrics-%s/%s" % (k, problem.name, metric)
-        metric_fns.append((name, make_metric_fn(metrics.METRICS_FNS[metric])))
+        metric_fns.append((name, make_metric_fn(metric_fn)))
   else:
     weights_fn = tm.targets_weights_fn
 
@@ -1759,12 +1759,12 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
 
       return wrapped_metric_fn
 
-    for metric in eval_metrics:
+    for metric, metric_fn in six.iteritems(eval_metrics):
       if metric in TPU_METRIC_BLACKLIST:
         log_warn("Skipping eval metric %s in TPU_METRIC_BLACKLIST", metric)
         continue
       name = "metrics-%s/%s" % (problem.name, metric)
-      metric_fns.append((name, make_metric_fn(metrics.METRICS_FNS[metric])))
+      metric_fns.append((name, make_metric_fn(metric_fn)))
 
   def all_metrics_fn(**kwargs):
     """Construct metrics dictionary."""
