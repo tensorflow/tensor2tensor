@@ -127,6 +127,8 @@ class MtfUnitransformer(mtf_model.MtfModel):
         output_vocab_size=self._targets_vocab_size,
         autoregressive=self.autoregressive,
         max_length=hparams.max_length,
+        shared_embedding_and_softmax_weights=(
+            hparams.shared_embedding_and_softmax_weights),
         z_loss=hparams.z_loss,
         layout=hparams.layout,
         mesh_shape=hparams.mesh_shape)
@@ -229,6 +231,8 @@ class MtfBitransformer(MtfUnitransformer):
         output_vocab_size=self._targets_vocab_size,
         max_length=hparams.max_length,
         shared_embedding=hparams.shared_embedding,
+        shared_embedding_and_softmax_weights=(
+            hparams.shared_embedding_and_softmax_weights),
         label_smoothing=hparams.label_smoothing,
         z_loss=hparams.z_loss,
         layout=hparams.layout,
@@ -701,6 +705,13 @@ def mtr_tr_dense_local_0_h1_16():
 
 
 @registry.register_hparams
+def mtr_tr_dense_local_0_h1_16_shared():
+  hparams = mtr_tr_dense_local_0_h1_16()
+  hparams.shared_embedding_and_softmax_weights = True
+  return hparams
+
+
+@registry.register_hparams
 def mtr_tr_dense_local_0_h1_8_kv256():
   hparams = mtr_tr_dense_local_0()
   hparams.decoder_num_heads = 8
@@ -771,4 +782,32 @@ def mtr_tr_dense_0_h2_16():
 def mtr_tr_dense_0_shared_kv():
   hparams = mtr_tr_dense_0()
   hparams.decoder_shared_kv = True
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_enfr_v0():
+  # good parameters for wmt-en-fr
+  hparams = mtr_tr_dense_local_0_h1_16()
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_ende_v0():
+  # good parameters for wmt-en-de
+  hparams = mtr_tr_dense_local_0_h1_16()
+  hparams.learning_rate_decay_steps = 20000
+  hparams.shared_embedding_and_softmax_weights = True
+  hparams.layer_prepostprocess_dropout = 0.2
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_ende_deep():
+  hparams = mtr_tr_ende_v0()
+  hparams.decoder_num_heads = 8
+  hparams.encoder_num_heads = 4
+  hparams.d_ff = 2048
+  hparams.encoder_num_layers = 12
+  hparams.decoder_num_layers = 12
   return hparams
