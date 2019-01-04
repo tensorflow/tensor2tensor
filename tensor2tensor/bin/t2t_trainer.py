@@ -290,9 +290,9 @@ def generate_data():
 def profile_context():
   if FLAGS.profile:
     with tf.contrib.tfprof.ProfileContext(
-        "t2tprof", trace_steps=[100], dump_steps=[100]) as pctx:
+        "t2tprof", trace_steps=range(100), dump_steps=range(100)) as pctx:
       opts = tf.profiler.ProfileOptionBuilder.time_and_memory()
-      pctx.add_auto_profiling("op", opts, [100])
+      pctx.add_auto_profiling("op", opts, range(100))
       yield
   else:
     yield
@@ -380,7 +380,7 @@ def main(argv):
   # Fathom commented out
   # if cloud_mlengine.job_dir():
   #   FLAGS.output_dir = cloud_mlengine.job_dir()
-
+    
   if argv:
     set_hparams_from_args(argv[1:])
   hparams = create_hparams()
