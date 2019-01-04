@@ -22,7 +22,6 @@ import collections
 import contextlib
 import copy
 import functools
-import inspect
 import math
 import os
 import time
@@ -48,6 +47,7 @@ import tensorflow as tf
 from tensorflow.python.layers import base
 from tensorflow.python.ops import inplace_ops
 from tensorflow.python.ops import variable_scope
+from tensorflow.python.util import tf_inspect as inspect
 
 _no_problem_err_str = (
     "The default implementation of %s requires that the "
