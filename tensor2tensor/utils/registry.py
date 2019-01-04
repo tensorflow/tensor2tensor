@@ -44,9 +44,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import inspect
 from tensor2tensor.utils import misc_utils
 import tensorflow as tf
+from tensorflow.python.util import tf_inspect as inspect
 
 _ATTACKS = {}
 _ATTACK_PARAMS = {}
