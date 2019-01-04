@@ -26,8 +26,8 @@ import gym
 from gym import wrappers, spaces
 import numpy as np
 
-import rl_utils
-from envs.simulated_batch_gym_env import FlatBatchEnv
+from tensor2tensor.rl import rl_utils
+from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv
 from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.models.research.rl import get_policy
 from tensor2tensor.models.research.rl import make_simulated_env_fn_from_hparams

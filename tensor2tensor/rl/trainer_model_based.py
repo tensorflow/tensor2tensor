@@ -36,7 +36,7 @@ import time
 import numpy as np
 import six
 
-from envs.simulated_batch_env import PIL_ImageDraw, PIL_Image
+from tensor2tensor.rl.envs.simulated_batch_env import PIL_ImageDraw, PIL_Image
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.layers import common_video

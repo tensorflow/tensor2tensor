@@ -58,9 +58,9 @@ from gym.envs.atari.atari_env import ACTION_MEANING
 from gym.utils import play
 import numpy as np
 
-from envs.simulated_batch_env import PIL_Image, PIL_ImageDraw
-from envs.simulated_batch_gym_env import FlatBatchEnv
-from player_utils import wrap_with_monitor, load_data_and_make_simulated_env
+from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image, PIL_ImageDraw
+from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv
+from tensor2tensor.rl.player_utils import wrap_with_monitor, load_data_and_make_simulated_env
 # Import flags from t2t_trainer and trainer_model_based
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 import tensor2tensor.rl.trainer_model_based_params # pylint: disable=unused-import

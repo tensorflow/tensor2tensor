@@ -48,7 +48,7 @@ import os
 import numpy as np
 from gym.wrappers import TimeLimit
 
-from envs.simulated_batch_gym_env import FlatBatchEnv
+from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv
 from player_utils import wrap_with_monitor, PPOPolicyInferencer, \
   load_data_and_make_simulated_env
 # Import flags from t2t_trainer and trainer_model_based
