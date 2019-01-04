@@ -638,7 +638,7 @@ def create_eager_metrics_for_problem(problem, model_hparams):
   metric_fns = problem.eval_metric_fns(model_hparams)
   tm = problem.get_hparams(model_hparams).modality["targets"]
   return create_eager_metrics_internal(
-        metric_fns, weights_fn=tm.targets_weights_fn)
+      metric_fns, weights_fn=tm.targets_weights_fn)
 
 
 def create_eager_metrics(metric_names, weights_fn=common_layers.weights_all):
@@ -664,7 +664,7 @@ def create_eager_metrics_internal(metric_fns,
   """Create metrics accumulators and averager for Eager mode.
 
   Args:
-    metric_names: dict<metric name, metric function>
+    metric_fns: dict<metric name, metric function>
     weights_fn: function that takes labels and returns a weights mask. Defaults
       to weights of all 1, i.e. common_layers.weights_all. Use
       common_layers.weights_nonzero if labels have 0-padding.

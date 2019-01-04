@@ -368,6 +368,7 @@ class Problem(object):
     ]
 
   def eval_metric_fns(self, model_hparams):
+    del model_hparams
     metric_names = self.eval_metrics()
     if not all([m in metrics.METRICS_FNS for m in metric_names]):
       error_str = ("Unrecognized metric. Problem %s specified metrics "
