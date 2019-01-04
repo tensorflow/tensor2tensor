@@ -20,7 +20,6 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-import re
 from copy import deepcopy
 
 import gym
@@ -29,6 +28,7 @@ import numpy as np
 
 import rl_utils
 from envs.simulated_batch_gym_env import FlatBatchEnv
+from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.models.research.rl import get_policy
 from tensor2tensor.models.research.rl import make_simulated_env_fn_from_hparams
 from tensor2tensor.utils import trainer_lib
@@ -57,53 +57,13 @@ def make_simulated_gym_env(real_env, world_model_dir, hparams, random_starts):
   return flat_env
 
 
-def last_epoch(data_dir):
-  """Infer highest epoch number from file names in data_dir."""
-  names = os.listdir(data_dir)
-  epochs_str = [re.findall(pattern=r".*\.(-?\d+)$", string=name)
-                for name in names]
-  epochs_str = sum(epochs_str, [])
-  return max([int(epoch_str) for epoch_str in epochs_str])
-
-
-def load_t2t_env(hparams, data_dir, which_epoch_data=None,
-                 allow_saving_episodes=False):
-  """Load T2TBatchGymEnv
-
-  Args:
-      which_epoch_data: data from which epoch to load.
-      allow_saving_episodes: if False overrides generate_data() method of env to
-          prevent accidental experiment data corruption.
-  """
-  t2t_env = rl_utils.setup_env(
-      hparams, batch_size=hparams.real_batch_size,
-      max_num_noops=hparams.max_num_noops
-  )
-  # Load data.
-  if which_epoch_data is not None:
-    if which_epoch_data == "last":
-      which_epoch_data = last_epoch(data_dir)
-    assert isinstance(which_epoch_data, int), \
-        "{}".format(type(which_epoch_data))
-    t2t_env.start_new_epoch(which_epoch_data, data_dir)
-  else:
-    t2t_env.start_new_epoch(-999)
-
-  if not allow_saving_episodes:
-    # Ensure no data will be saved to disk by this instance.
-    def generate_data_guard(*args, **kwargs):
-      raise ValueError("This instance should not write episodes to disk.")
-    t2t_env.generate_data = generate_data_guard
-  return t2t_env
-
-
 def load_data_and_make_simulated_env(
     output_dir, hparams, which_epoch_data="last", random_starts=True
 ):
   hparams = deepcopy(hparams)
-  t2t_env = load_t2t_env(hparams,
-                         data_dir=os.path.join(output_dir, "data"),
-                         which_epoch_data=which_epoch_data)
+  t2t_env = T2TGymEnv.setup_and_load_epoch(
+      hparams, data_dir=os.path.join(output_dir, "data"),
+      which_epoch_data=which_epoch_data)
   return make_simulated_gym_env(
       t2t_env, world_model_dir=os.path.join(output_dir, "world_model"),
       hparams=hparams, random_starts=random_starts)

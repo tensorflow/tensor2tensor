@@ -49,11 +49,13 @@ import numpy as np
 from gym.wrappers import TimeLimit
 
 from envs.simulated_batch_gym_env import FlatBatchEnv
-from player_utils import wrap_with_monitor, PPOPolicyInferencer, load_t2t_env,\
+from player_utils import wrap_with_monitor, PPOPolicyInferencer, \
   load_data_and_make_simulated_env
 # Import flags from t2t_trainer and trainer_model_based
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 import tensor2tensor.rl.trainer_model_based_params # pylint: disable=unused-import
+
+from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
@@ -90,9 +92,9 @@ def main(_):
                                            which_epoch_data=epoch)
     env = TimeLimit(env, max_episode_steps=FLAGS.simulated_episode_len)
   else:
-    env = load_t2t_env(hparams,
-                       data_dir=os.path.join(output_dir, "data"),
-                       which_epoch_data=None)
+    env = T2TGymEnv.setup_and_load_epoch(
+        hparams, data_dir=os.path.join(output_dir, "data"),
+        which_epoch_data=None)
     env = FlatBatchEnv(env)
 
   env = wrap_with_monitor(env, video_dir=video_dir)

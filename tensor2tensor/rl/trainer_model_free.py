@@ -29,6 +29,7 @@ from __future__ import print_function
 
 import pprint
 
+from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import rl_utils
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
@@ -52,8 +53,9 @@ except:  # pylint: disable=bare-except
 
 def initialize_env_specs(hparams):
   """Initializes env_specs using T2TGymEnvs."""
-  env = rl_utils.setup_env(hparams, hparams.batch_size,
-                           hparams.eval_max_num_noops)
+  env = T2TGymEnv.setup_env_from_hparams(
+      hparams, hparams.batch_size, hparams.eval_max_num_noops
+  )
   env.start_new_epoch(0)
 
   # TODO(afrozm): Decouple env_fn from hparams and return both, is there

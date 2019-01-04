@@ -38,6 +38,7 @@ import six
 
 from envs.simulated_batch_env import PIL_ImageDraw, PIL_Image
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
+from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl
 from tensor2tensor.models.research.rl import make_simulated_env_fn_from_hparams
@@ -399,7 +400,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   epoch = -1
   data_dir = directories["data"]
-  env = rl_utils.setup_env(
+  env = T2TGymEnv.setup_env_from_hparams(
       hparams, batch_size=hparams.real_batch_size,
       max_num_noops=hparams.max_num_noops
   )
