@@ -126,14 +126,21 @@ class T2TModel(base.Layer):
       # If vocabularies differ, unset shared_embedding_and_softmax_weights.
       input_modality = self._problem_hparams.input_modality.get("inputs")
       target_modality = self._problem_hparams.target_modality
-      """Fathom disable t2t turning off shared embedding softmax weights
       if (isinstance(input_modality, modality.Modality) and
           isinstance(target_modality, modality.Modality) and
           input_modality.top_dimensionality !=
           target_modality.top_dimensionality):
         log_info("Unsetting shared_embedding_and_softmax_weights.")
         hparams.shared_embedding_and_softmax_weights = 0
-      """
+      # Fathom
+      # we can force sharing to be on
+      # hparams.force_shared_embedding_and_softmax_weights
+      if hparams.get("force_shared_embedding_and_softmax_weights"):
+        log_info("Keeping shared_embedding_and_softmax_weights "
+                 "to remain on.")
+        hparams.shared_embedding_and_softmax_weights = True
+        log_info("Forcing shared_embedding_and_softmax_weights to be on.")
+      # End Fathom
     self._original_hparams = hparams
     self.set_mode(mode)
 
