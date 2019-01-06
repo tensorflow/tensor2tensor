@@ -26,9 +26,9 @@ from tensor2tensor.utils import bleu_hook
 from tensor2tensor.utils import rouge
 
 import tensorflow as tf
-
-from tensorflow.contrib.eager.python import tfe
 from tensorflow.python.util import tf_inspect as inspect
+
+tfe = tf.contrib.eager
 
 
 class Metrics(object):
