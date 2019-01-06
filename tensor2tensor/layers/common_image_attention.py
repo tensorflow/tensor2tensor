@@ -501,7 +501,7 @@ def postprocess_image(x, rows, cols, hparams):
                               use_bias=True,
                               activation=None,
                               name="output_conv")
-  if (hparams.mode == tf.contrib.learn.ModeKeys.INFER and
+  if (hparams.mode == tf.estimator.ModeKeys.PREDICT and
       hparams.block_raster_scan):
     y = targets
     yshape = common_layers.shape_list(y)
@@ -547,7 +547,7 @@ def prepare_decoder(targets, hparams):
 
   # during training, images are [batch, IMG_LEN, IMG_LEN, 3].
   # At inference, they are [batch, curr_infer_length, 1, 1]
-  if hparams.mode == tf.contrib.learn.ModeKeys.INFER:
+  if hparams.mode == tf.estimator.ModeKeys.PREDICT:
     curr_infer_length = targets_shape[1]
     if hparams.block_raster_scan:
       assert hparams.img_len*channels % hparams.query_shape[1] == 0

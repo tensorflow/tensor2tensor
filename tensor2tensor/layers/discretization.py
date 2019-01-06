@@ -473,7 +473,7 @@ def gumbel_softmax(x,
     d_dev = -tf.reduce_mean(d_variance)
     ret = s
 
-    if mode != tf.contrib.learn.ModeKeys.TRAIN:
+    if mode != tf.estimator.ModeKeys.TRAIN:
       ret = tf.reshape(maxvhot, common_layers.shape_list(s))  # Just hot @eval.
     return m, ret, d_dev * 5.0 + tf.reduce_mean(kl) * 0.002
 
