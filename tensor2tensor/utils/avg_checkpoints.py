@@ -75,13 +75,13 @@ def main(_):
   tf.logging.info("Reading variables and averaging checkpoints:")
   for c in checkpoints:
     tf.logging.info("%s ", c)
-  var_list = tf.contrib.framework.list_variables(checkpoints[0])
+  var_list = tf.train.list_variables(checkpoints[0])
   var_values, var_dtypes = {}, {}
   for (name, shape) in var_list:
     if not name.startswith("global_step"):
       var_values[name] = np.zeros(shape)
   for checkpoint in checkpoints:
-    reader = tf.contrib.framework.load_checkpoint(checkpoint)
+    reader = tf.train.load_checkpoint(checkpoint)
     for name in var_values:
       tensor = reader.get_tensor(name)
       var_dtypes[name] = tensor.dtype

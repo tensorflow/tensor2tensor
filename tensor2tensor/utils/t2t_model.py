@@ -1459,7 +1459,7 @@ class T2TModel(base.Layer):
     log_info("Checkpoint dir: %s", ckpt_dir)
 
     # TODO(mitchellstern): Add support for partitioned variables?
-    reader = tf.contrib.framework.load_checkpoint(ckpt_dir)
+    reader = tf.train.load_checkpoint(ckpt_dir)
     variable_map = {}
     for var in tf.contrib.framework.get_trainable_variables():
       var_name = var.name.split(":")[0]

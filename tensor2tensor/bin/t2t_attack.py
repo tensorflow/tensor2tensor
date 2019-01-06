@@ -200,7 +200,7 @@ def main(argv):
     sur_ch_model.get_probs(inputs)
 
     checkpoint_path = os.path.expanduser(FLAGS.surrogate_output_dir)
-    tf.contrib.framework.init_from_checkpoint(
+    tf.train.init_from_checkpoint(
         tf.train.latest_checkpoint(checkpoint_path), {"/": "surrogate/"})
     sess.run(tf.global_variables_initializer())
 
