@@ -103,7 +103,7 @@ def main(_):
 
   # Build a model consisting only of variables, set them to the average values.
   with tf.Session() as sess:
-    sess.run(tf.initialize_all_variables())
+    sess.run(tf.global_variables_initializer())
     for p, assign_op, (name, value) in zip(placeholders, assign_ops,
                                            six.iteritems(var_values)):
       sess.run(assign_op, {p: value})
