@@ -55,7 +55,7 @@ def load_videos(template, video_length, frame_shape):
   dataset_len = len(filenames)
   filenames = tf.constant(filenames)
   dataset = tf.data.Dataset.from_tensor_slices(filenames)
-  dataset = dataset.apply(tf.contrib.data.map_and_batch(
+  dataset = dataset.apply(tf.data.experimental.map_and_batch(
       lambda filename: load_image_map_function(filename, frame_shape),
       video_length, drop_remainder=True))
   return dataset, dataset_len
