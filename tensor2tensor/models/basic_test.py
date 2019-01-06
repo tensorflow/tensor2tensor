@@ -30,8 +30,8 @@ import tensorflow as tf
 class BasicTest(tf.test.TestCase):
 
   def testBasicFcRelu(self):
-    x = np.random.random_integers(0, high=255, size=(1, 28, 28, 1))
-    y = np.random.random_integers(0, high=9, size=(1, 1))
+    x = np.random.randint(256, size=(1, 28, 28, 1))
+    y = np.random.randint(10, size=(1, 1))
     hparams = trainer_lib.create_hparams(
         "basic_fc_small", problem_name="image_mnist", data_dir=".")
     with self.test_session() as session:

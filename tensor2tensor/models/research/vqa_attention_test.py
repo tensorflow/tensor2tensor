@@ -39,10 +39,10 @@ class VqaAttentionBaselineTest(tf.test.TestCase):
     question_length = 5
     answer_length = 10
     x = 2 * np.random.rand(batch_size, image_size, image_size, 3) - 1
-    q = np.random.random_integers(
-        1, high=vocab_size - 1, size=(batch_size, question_length, 1, 1))
-    a = np.random.random_integers(
-        0, high=num_classes, size=(batch_size, answer_length, 1, 1))
+    q = np.random.randint(
+        1, high=vocab_size, size=(batch_size, question_length, 1, 1))
+    a = np.random.randint(
+        num_classes + 1, size=(batch_size, answer_length, 1, 1))
     hparams = vqa_attention.vqa_attention_base()
     p_hparams = problem_hparams.test_problem_hparams(vocab_size,
                                                      vocab_size,
