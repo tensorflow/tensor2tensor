@@ -478,10 +478,10 @@ class FeedForwardCnnSmallCategoricalPolicy(PolicyBase):
     dropout = getattr(self.hparams, "dropout_ppo", 0.0)
     with tf.variable_scope("feed_forward_cnn_small"):
       x = tf.cast(x, tf.float32) / 255.0
-      x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
-                                   activation_fn=tf.nn.relu, padding="SAME")
-      x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
-                                   activation_fn=tf.nn.relu, padding="SAME")
+      x = tf.layers.conv2d(x, 32, (5, 5), strides=(2, 2),
+                           activation=tf.nn.relu, padding="same")
+      x = tf.layers.conv2d(x, 32, (5, 5), strides=(2, 2),
+                           activation=tf.nn.relu, padding="same")
 
       flat_x = tf.layers.flatten(x)
       flat_x = tf.layers.dropout(flat_x, rate=dropout)
