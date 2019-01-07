@@ -23,6 +23,7 @@ import os
 from copy import deepcopy
 
 import gym
+import six
 from gym import wrappers, spaces
 import numpy as np
 
@@ -58,14 +59,14 @@ def make_simulated_gym_env(real_env, world_model_dir, hparams, random_starts):
 
 
 def load_data_and_make_simulated_env(
-    output_dir, hparams, which_epoch_data="last", random_starts=True
+    data_dir, wm_dir, hparams, which_epoch_data="last", random_starts=True
 ):
   hparams = deepcopy(hparams)
   t2t_env = T2TGymEnv.setup_and_load_epoch(
-      hparams, data_dir=os.path.join(output_dir, "data"),
+      hparams, data_dir=data_dir,
       which_epoch_data=which_epoch_data)
   return make_simulated_gym_env(
-      t2t_env, world_model_dir=os.path.join(output_dir, "world_model"),
+      t2t_env, world_model_dir=wm_dir,
       hparams=hparams, random_starts=random_starts)
 
 
@@ -242,3 +243,18 @@ class PPOPolicyInferencer(object):
     logits, vf = self.sess.run([self.logits_t, self.value_function_t],
                                feed_dict={self.obs_t: ob_stack})
     return logits, vf
+
+
+def infer_paths(output_dir, **subdirs):
+  """
+
+  Example:
+    >>> infer_paths("/some/output/dir/", policy="", model="custom/path")
+    {"policy": "/some/output/dir/policy", "model": "custom/path",
+    "output_dir":"/some/output/dir/"}
+  """
+  directories = dict()
+  for name, path in six.iteritems(subdirs):
+    directories[name] = path if path else os.path.join(output_dir, name)
+  directories['output_dir'] = output_dir
+  return directories

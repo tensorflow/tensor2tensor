@@ -49,8 +49,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
-
 import six
 
 import gym
@@ -60,7 +58,8 @@ import numpy as np
 
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image, PIL_ImageDraw
 from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv
-from tensor2tensor.rl.player_utils import wrap_with_monitor, load_data_and_make_simulated_env
+from tensor2tensor.rl.player_utils import wrap_with_monitor, \
+  load_data_and_make_simulated_env, infer_paths
 # Import flags from t2t_trainer and trainer_model_based
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 import tensor2tensor.rl.trainer_model_based_params # pylint: disable=unused-import
@@ -86,6 +85,17 @@ flags.DEFINE_boolean("simulated_env", True,
 flags.DEFINE_boolean("dry_run", False,
                      "Dry run - without pygame interaction and display, just "
                      "some random actions on environment")
+flags.DEFINE_string("model_ckpt", "",
+                    "World model checkpoint path.")
+flags.DEFINE_string("wm_dir", "",
+                    "Directory with world model checkpoints. Inferred from "
+                    "output_dir if empty.")
+flags.DEFINE_string("policy_dir", "",
+                    "Directory with policy. Inferred from output_dir if empty.")
+flags.DEFINE_string("episodes_data_dir", "",
+                    "Path to data for simulated environment initialization. "
+                    "Inferred from output_dir if empty.")
+
 
 class PlayerEnvWrapper(gym.Wrapper):
   """ Environment Wrapper for gym.utils.play.
@@ -171,7 +181,6 @@ class PlayerEnvWrapper(gym.Wrapper):
     if action == self.WAIT_MODE_NOOP_ACTION:
       action = self.name_to_action_num["NOOP"]
 
-
     ob, reward, done, info = self.env.step(action)
     self._last_step = ob, reward, done, info
 
@@ -213,22 +222,25 @@ def main(_):
   # Not important for experiments past 2018
   if "wm_policy_param_sharing" not in hparams.values().keys():
     hparams.add_hparam("wm_policy_param_sharing", False)
-  output_dir = FLAGS.output_dir
-  video_dir = FLAGS.video_dir
+  directories = infer_paths(output_dir=FLAGS.output_dir,
+                            world_model=FLAGS.wm_dir,
+                            policy=FLAGS.policy_dir,
+                            data=FLAGS.episodes_data_dir)
   epoch = FLAGS.epoch if FLAGS.epoch == "last" else int(FLAGS.epoch)
 
   if FLAGS.simulated_env:
-    env = load_data_and_make_simulated_env(output_dir, hparams,
-                                           which_epoch_data=epoch)
+    env = load_data_and_make_simulated_env(directories["data"],
+                                           directories["world_model"],
+                                           hparams, which_epoch_data=epoch)
   else:
     env = T2TGymEnv.setup_and_load_epoch(
-        hparams, data_dir=os.path.join(output_dir, "data"),
+        hparams, data_dir=directories["data"],
         which_epoch_data=epoch)
     env = FlatBatchEnv(env)
 
   env = PlayerEnvWrapper(env)  # pylint: disable=redefined-variable-type
 
-  env = wrap_with_monitor(env, video_dir)
+  env = wrap_with_monitor(env, FLAGS.video_dir)
 
   if FLAGS.dry_run:
     for _ in range(5):
