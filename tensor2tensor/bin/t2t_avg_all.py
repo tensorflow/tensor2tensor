@@ -60,7 +60,7 @@ def main(_):
   for model in bleu_hook.stepfiles_iterator(model_dir, FLAGS.wait_minutes,
                                             FLAGS.min_steps):
     if models_processed == 0:
-      var_list = tf.contrib.framework.list_variables(model.filename)
+      var_list = tf.train.list_variables(model.filename)
       avg_values = {}
       for (name, shape) in var_list:
         if not (name.startswith("global_step") or
@@ -69,7 +69,7 @@ def main(_):
     models_processed += 1
 
     tf.logging.info("Loading [%d]: %s" % (models_processed, model.filename))
-    reader = tf.contrib.framework.load_checkpoint(model.filename)
+    reader = tf.train.load_checkpoint(model.filename)
     for name in avg_values:
       avg_values[name] += reader.get_tensor(name) / FLAGS.n
     queue.append(model)
@@ -106,7 +106,7 @@ def main(_):
     tf.reset_default_graph()
     first_model = queue.popleft()
 
-    reader = tf.contrib.framework.load_checkpoint(first_model.filename)
+    reader = tf.train.load_checkpoint(first_model.filename)
     for name in avg_values:
       avg_values[name] -= reader.get_tensor(name) / FLAGS.n
 

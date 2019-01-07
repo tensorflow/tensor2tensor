@@ -636,7 +636,7 @@ class PadRemover(object):
           x,
           indices=self.nonpad_ids,
       )
-      if not tf.contrib.eager.in_eager_mode():
+      if not tf.executing_eagerly():
         # This is a hack but for some reason, gather_nd return a tensor of
         # undefined shape, so the shape is set up manually
         x.set_shape([None] + x_shape[1:])
@@ -986,7 +986,7 @@ def ffn_expert_fn(input_size,
 def flatten_all_but_last(a):
   """Flatten all dimensions of a except the last."""
   ret = tf.reshape(a, [-1, tf.shape(a)[-1]])
-  if not tf.contrib.eager.in_eager_mode():
+  if not tf.executing_eagerly():
     ret.set_shape([None] + a.get_shape().as_list()[-1:])
   return ret
 

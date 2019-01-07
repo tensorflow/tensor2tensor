@@ -977,7 +977,7 @@ def compute_prior(name, z, latent, hparams, condition=False, state=None,
             The first-three dimensions of the latent should be the same as z.
     hparams: next_frame_glow_hparams.
     condition: Whether or not to condition the distribution on latent.
-    state: tf.contrib.rnn.LSTMStateTuple.
+    state: tf.nn.rnn_cell.LSTMStateTuple.
            the current state of a LSTM used to model the distribution. Used
            only if hparams.latent_dist_encoder = "conv_lstm".
     temperature: float, temperature with which to sample from the Gaussian.
@@ -1025,7 +1025,7 @@ def split(name, x, reverse=False, eps=None, eps_std=None, cond_latents=None,
     eps_std: Sample x2 with the provided eps_std.
     cond_latents: optionally condition x2 on cond_latents.
     hparams: next_frame_glow hparams.
-    state: tf.contrib.rnn.LSTMStateTuple. Current state of the LSTM over z_2.
+    state: tf.nn.rnn_cell.LSTMStateTuple. Current state of the LSTM over z_2.
            Used only when hparams.latent_dist_encoder == "conv_lstm"
     condition: bool, Whether or not to condition the distribution on
                cond_latents.
