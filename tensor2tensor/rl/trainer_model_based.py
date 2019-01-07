@@ -177,7 +177,7 @@ def train_agent(real_env, learner, world_model_dir, hparams, epoch):
   """Train the PPO agent in the simulated environment."""
   frame_stack_size = hparams.frame_stack_size
   initial_frame_rollouts = real_env.current_epoch_rollouts(
-      split=tf.contrib.learn.ModeKeys.TRAIN,
+      split=tf.estimator.ModeKeys.TRAIN,
       minimal_rollout_frames=frame_stack_size,
   )
   # TODO(koz4k): Move this to a different module.
@@ -304,7 +304,7 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
       max(hparams.wm_eval_rollout_ratios) * hparams.simulated_rollout_length
   )
   rollouts = real_env.current_epoch_rollouts(
-      split=tf.contrib.learn.ModeKeys.EVAL,
+      split=tf.estimator.ModeKeys.EVAL,
       minimal_rollout_frames=(subsequence_length + frame_stack_size)
   )
 

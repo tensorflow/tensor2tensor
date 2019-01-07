@@ -108,7 +108,7 @@ def make_grpc_request_fn(servable_name, server, timeout_secs):
     request = predict_pb2.PredictRequest()
     request.model_spec.name = servable_name
     request.inputs["input"].CopyFrom(
-        tf.contrib.util.make_tensor_proto(
+        tf.make_tensor_proto(
             [ex.SerializeToString() for ex in examples], shape=[len(examples)]))
     response = stub.Predict(request, timeout_secs)
     outputs = tf.make_ndarray(response.outputs["outputs"])

@@ -349,7 +349,7 @@ def embedding(x,
     # On the backwards pass, we want to convert the gradient from
     # an indexed-slices to a regular tensor before sending it back to the
     # parameter server. This avoids excess computation on the parameter server.
-    if not tf.contrib.eager.in_eager_mode():
+    if not tf.executing_eagerly():
       embedding_var = convert_gradient_to_tensor(embedding_var)
     x = dropout_no_scaling(x, 1.0 - symbol_dropout_rate)
     emb_x = gather(embedding_var, x, dtype)
@@ -2868,7 +2868,7 @@ def ones_matrix_band_part(rows, cols, num_lower, num_upper, out_shape=None):
 def reshape_like_all_dims(a, b):
   """Reshapes a to match the shape of b."""
   ret = tf.reshape(a, tf.shape(b))
-  if not tf.contrib.eager.in_eager_mode():
+  if not tf.executing_eagerly():
     ret.set_shape(b.get_shape())
   return ret
 
@@ -3193,7 +3193,7 @@ def should_generate_summaries():
 def reshape_like(a, b):
   """Reshapes a to match the shape of b in all but the last dimension."""
   ret = tf.reshape(a, tf.concat([tf.shape(b)[:-1], tf.shape(a)[-1:]], 0))
-  if not tf.contrib.eager.in_eager_mode():
+  if not tf.executing_eagerly():
     ret.set_shape(b.get_shape().as_list()[:-1] + a.get_shape().as_list()[-1:])
   return ret
 
@@ -3205,7 +3205,7 @@ def summarize_video(video, prefix, max_outputs=1):
     raise ValueError("Assuming videos given as tensors in the format "
                      "[batch, time, height, width, channels] but got one "
                      "of shape: %s" % str(video_shape))
-  if tf.contrib.eager.in_eager_mode():
+  if tf.executing_eagerly():
     return
   if video.get_shape().as_list()[1] is None:
     tf.summary.image(
