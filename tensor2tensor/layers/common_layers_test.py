@@ -48,7 +48,7 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testFlatten4D3D(self):
-    x = np.random.random_integers(1, high=8, size=(3, 5, 2))
+    x = np.random.randint(1, high=9, size=(3, 5, 2))
     y = common_layers.flatten4d3d(common_layers.embedding(x, 10, 7))
     self.evaluate(tf.global_variables_initializer())
     res = self.evaluate(y)
@@ -56,7 +56,7 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testEmbedding(self):
-    x = np.random.random_integers(1, high=8, size=(3, 5))
+    x = np.random.randint(1, high=9, size=(3, 5))
     y = common_layers.embedding(x, 10, 16)
     self.evaluate(tf.global_variables_initializer())
     res = self.evaluate(y)

@@ -39,7 +39,7 @@ class ModalityTest(tf.test.TestCase):
     model_hparams = common_hparams.basic_params1()
     model_hparams.hidden_size = hidden_size
     model_hparams.mode = tf.estimator.ModeKeys.TRAIN
-    x = -1 + np.random.random_integers(
+    x = np.random.randint(
         vocab_size, size=(batch_size, length, 1, 1))
     m = modalities.SymbolModality(model_hparams, vocab_size)
     data_parallelism = expert_utils.Parallelism(
@@ -62,9 +62,9 @@ class ModalityTest(tf.test.TestCase):
     model_hparams = common_hparams.basic_params1()
     model_hparams.hidden_size = hidden_size
     model_hparams.mode = tf.estimator.ModeKeys.TRAIN
-    body_output = -1 + np.random.random_integers(
+    body_output = np.random.randint(
         100, size=(batch_size, length, height, hidden_size))
-    targets = -1 + np.random.random_integers(
+    targets = np.random.randint(
         vocab_size, size=(batch_size, length, height, 1))
     m = modalities.SymbolModality(model_hparams, vocab_size)
     data_parallelism = expert_utils.Parallelism(
@@ -92,9 +92,9 @@ class ModalityTest(tf.test.TestCase):
     model_hparams.factored_logits = True
     model_hparams.hidden_size = hidden_size
     model_hparams.mode = tf.estimator.ModeKeys.TRAIN
-    body_output = -1 + np.random.random_integers(
+    body_output = np.random.randint(
         100, size=(batch_size, length, height, hidden_size))
-    targets = -1 + np.random.random_integers(
+    targets = np.random.randint(
         vocab_size, size=(batch_size, length, height, 1))
     m = modalities.SymbolModality(model_hparams, vocab_size)
     data_parallelism = expert_utils.Parallelism(

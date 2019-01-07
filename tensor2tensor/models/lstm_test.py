@@ -30,8 +30,8 @@ class LSTMTest(tf.test.TestCase):
 
   def testLSTMSeq2Seq(self):
     vocab_size = 9
-    x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
-    y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
+    x = np.random.randint(1, high=vocab_size, size=(3, 5, 1, 1))
+    y = np.random.randint(1, high=vocab_size, size=(3, 6, 1, 1))
     hparams = lstm.lstm_seq2seq()
     p_hparams = problem_hparams.test_problem_hparams(vocab_size,
                                                      vocab_size,
@@ -50,8 +50,8 @@ class LSTMTest(tf.test.TestCase):
 
   def testLSTMSeq2SeqAttention(self):
     vocab_size = 9
-    x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
-    y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
+    x = np.random.randint(1, high=vocab_size, size=(3, 5, 1, 1))
+    y = np.random.randint(1, high=vocab_size, size=(3, 6, 1, 1))
     hparams = lstm.lstm_attention()
 
     p_hparams = problem_hparams.test_problem_hparams(vocab_size,
@@ -74,8 +74,8 @@ class LSTMTest(tf.test.TestCase):
 
   def testLSTMSeq2seqBidirectionalEncoder(self):
     vocab_size = 9
-    x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
-    y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
+    x = np.random.randint(1, high=vocab_size, size=(3, 5, 1, 1))
+    y = np.random.randint(1, high=vocab_size, size=(3, 6, 1, 1))
     hparams = lstm.lstm_seq2seq()
     p_hparams = problem_hparams.test_problem_hparams(vocab_size,
                                                      vocab_size,
@@ -94,8 +94,8 @@ class LSTMTest(tf.test.TestCase):
 
   def testLSTMSeq2seqAttentionBidirectionalEncoder(self):
     vocab_size = 9
-    x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
-    y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
+    x = np.random.randint(1, high=vocab_size, size=(3, 5, 1, 1))
+    y = np.random.randint(1, high=vocab_size, size=(3, 6, 1, 1))
     hparams = lstm.lstm_attention()
 
     p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)

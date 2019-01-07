@@ -48,9 +48,9 @@ class UniversalTransformerTest(tf.test.TestCase):
       del p_hparams.modality["inputs"]
     hparams.problems = [p_hparams]
 
-    inputs = -1 + np.random.random_integers(
+    inputs = np.random.randint(
         VOCAB_SIZE, size=(BATCH_SIZE, INPUT_LENGTH, 1, 1))
-    targets = -1 + np.random.random_integers(
+    targets = np.random.randint(
         VOCAB_SIZE, size=(BATCH_SIZE, TARGET_LENGTH, 1, 1))
     features = {
         "targets": tf.constant(targets, dtype=tf.int32, name="targets"),
