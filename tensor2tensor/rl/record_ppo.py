@@ -88,8 +88,10 @@ def main(_):
   epoch = FLAGS.epoch if FLAGS.epoch == "last" else int(FLAGS.epoch)
 
   if FLAGS.simulated_env:
-    env = load_data_and_make_simulated_env(output_dir, hparams,
-                                           which_epoch_data=epoch)
+    env = load_data_and_make_simulated_env(
+        os.path.join(output_dir, 'data'),
+        os.path.join(output_dir, 'world_model'), hparams,
+        which_epoch_data=epoch)
     env = TimeLimit(env, max_episode_steps=FLAGS.simulated_episode_len)
   else:
     env = T2TGymEnv.setup_and_load_epoch(
