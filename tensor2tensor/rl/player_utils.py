@@ -34,6 +34,7 @@ from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv
 from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
 
+from tensor2tensor.utils.misc_utils import camelcase_to_snakecase
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -151,6 +152,20 @@ def setup_and_load_epoch(hparams, data_dir, which_epoch_data=None):
   else:
     t2t_env.start_new_epoch(-999)
   return t2t_env
+
+
+def infer_game_name_from_filenames(data_dir, snake_case=True):
+  names = os.listdir(data_dir)
+  game_names = [re.findall(pattern=r"^Gym(.*)NoFrameskip", string=name)
+                for name in names]
+  assert game_names, "No data files found in {}".format(data_dir)
+  game_names = sum(game_names, [])
+  game_name = game_names[0]
+  assert all(game_name == other for other in game_names), \
+      "There are multiple different game names in {}".format(data_dir)
+  if snake_case:
+    game_name = camelcase_to_snakecase(game_name)
+  return game_name
 
 
 def load_data_and_make_simulated_env(

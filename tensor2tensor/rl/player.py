@@ -38,6 +38,7 @@ python -m tensor2tensor/rl/record_ppo.py \
     --loop_hparams_set=rlmb_base \
     --sim_and_real=False \
     --simulated_env=False \
+    --loop_hparams=generative_model="next_frame" \
     --video_dir=my/video/dir \
     --zoom=6 \
     --fps=50 \
@@ -99,7 +100,9 @@ flags.DEFINE_string("policy_dir", "",
 flags.DEFINE_string("episodes_data_dir", "",
                     "Path to data for simulated environment initialization. "
                     "Inferred from output_dir if empty.")
-
+flags.DEFINE_boolean("game_from_filenames", True,
+                     "If infer game name from data_dir filenames or from "
+                     "hparams.")
 
 class PlayerEnv(gym.Env):
   """Base (abstract) environment for interactive human play with gym.utils.play.
@@ -244,8 +247,8 @@ class PlayerEnv(gym.Env):
         fill=(255, 0, 0)
     )
     draw.text(
-      (1, 15), "fc:{:3}".format(int(self._frame_counter)),
-      fill=(255, 0, 0)
+        (1, 15), "fc:{:3}".format(int(self._frame_counter)),
+        fill=(255, 0, 0)
     )
     header = np.asarray(img)
     del img
@@ -497,6 +500,10 @@ def main(_):
       world_model=FLAGS.wm_dir,
       policy=FLAGS.policy_dir,
       data=FLAGS.episodes_data_dir)
+  if FLAGS.game_from_filenames:
+    hparams.set_hparam(
+        'game', player_utils.infer_game_name_from_filenames(directories['data'])
+    )
   epoch = FLAGS.epoch if FLAGS.epoch == "last" else int(FLAGS.epoch)
 
   def make_real_env():
