@@ -398,8 +398,8 @@ def feed_forward_gaussian_fun(action_space, config, observations):
   if not isinstance(action_space, gym.spaces.box.Box):
     raise ValueError("Expecting continuous action space.")
 
-  mean_weights_initializer = tf.contrib.layers.variance_scaling_initializer(
-      factor=config.init_mean_factor)
+  mean_weights_initializer = tf.initializers.variance_scaling(
+      scale=config.init_mean_factor)
   logstd_initializer = tf.random_normal_initializer(config.init_logstd, 1e-10)
 
   flat_observations = tf.reshape(observations, [

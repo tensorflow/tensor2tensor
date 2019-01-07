@@ -587,7 +587,7 @@ class TransformerAE(t2t_model.T2TModel):
                 self._hparams.num_residuals, self._hparams.num_blocks,
                 self._hparams.hidden_size, block_dim
             ],
-            initializer=tf.contrib.layers.xavier_initializer(),
+            initializer=tf.initializers.glorot_uniform(),
             trainable=self._hparams.trainable_projections)
 
         self._hparams.bottleneck = functools.partial(

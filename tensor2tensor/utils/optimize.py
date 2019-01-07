@@ -304,6 +304,6 @@ def get_variable_initializer(hparams):
     return tf.variance_scaling_initializer(
         hparams.initializer_gain, mode="fan_avg", distribution="uniform")
   elif hparams.initializer == "xavier":
-    return tf.contrib.layers.xavier_initializer()
+    return tf.initializers.glorot_uniform()
   else:
     raise ValueError("Unrecognized initializer: %s" % hparams.initializer)
