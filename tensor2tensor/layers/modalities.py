@@ -111,7 +111,7 @@ class SymbolModality(modality.Modality):
       ret = common_layers.gather(var, x)
       if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
         ret *= self._body_input_depth**0.5
-      ret *= tf.expand_dims(tf.to_float(tf.not_equal(x, 0)), -1)
+      ret *= tf.expand_dims(common_layers.cast_like(tf.not_equal(x, 0), ret), -1)
       return ret
 
   def bottom(self, x):
@@ -148,7 +148,6 @@ class SymbolModality(modality.Modality):
     else:
       scope_name = "softmax"
       reuse = False
-
     with tf.variable_scope(scope_name, reuse=reuse):
       body_output_shape = common_layers.shape_list(body_output)
       var = self._get_weights(body_output_shape[-1])
