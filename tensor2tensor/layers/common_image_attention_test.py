@@ -61,7 +61,7 @@ class CommonImageAttentionTest(parameterized.TestCase, tf.test.TestCase):
         block_raster_scan=True,
         hidden_size=2,
         likelihood=likelihood,
-        mode=tf.estimator.ModeKeys.PREDICT,
+        mode=tf.contrib.learn.ModeKeys.INFER,
         num_mixtures=num_mixtures,
         query_shape=[block_length, block_width],
     )

@@ -75,13 +75,13 @@ def main(_):
   tf.logging.info("Reading variables and averaging checkpoints:")
   for c in checkpoints:
     tf.logging.info("%s ", c)
-  var_list = tf.train.list_variables(checkpoints[0])
+  var_list = tf.contrib.framework.list_variables(checkpoints[0])
   var_values, var_dtypes = {}, {}
   for (name, shape) in var_list:
     if not name.startswith("global_step"):
       var_values[name] = np.zeros(shape)
   for checkpoint in checkpoints:
-    reader = tf.train.load_checkpoint(checkpoint)
+    reader = tf.contrib.framework.load_checkpoint(checkpoint)
     for name in var_values:
       tensor = reader.get_tensor(name)
       var_dtypes[name] = tensor.dtype
@@ -103,7 +103,7 @@ def main(_):
 
   # Build a model consisting only of variables, set them to the average values.
   with tf.Session() as sess:
-    sess.run(tf.global_variables_initializer())
+    sess.run(tf.initialize_all_variables())
     for p, assign_op, (name, value) in zip(placeholders, assign_ops,
                                            six.iteritems(var_values)):
       sess.run(assign_op, {p: value})

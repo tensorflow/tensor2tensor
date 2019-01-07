@@ -423,7 +423,7 @@ class Problem(object):
 
     if interleave:
       dataset = dataset.apply(
-          tf.data.experimental.parallel_interleave(
+          tf.contrib.data.parallel_interleave(
               _preprocess, sloppy=True, cycle_length=8))
     else:
       dataset = dataset.flat_map(_preprocess)
@@ -674,7 +674,7 @@ class Problem(object):
     # Create data-set from files by parsing, pre-processing and interleaving.
     if shuffle_files:
       dataset = dataset.apply(
-          tf.data.experimental.parallel_interleave(
+          tf.contrib.data.parallel_interleave(
               _load_records_and_preprocess, sloppy=True, cycle_length=8))
     else:
       dataset = _load_records_and_preprocess(dataset)
@@ -963,7 +963,7 @@ class Problem(object):
           batching_scheme["batch_sizes"] = [hparams.batch_size]
           batching_scheme["boundaries"] = []
         dataset = dataset.apply(
-            tf.data.experimental.bucket_by_sequence_length(
+            tf.contrib.data.bucket_by_sequence_length(
                 data_reader.example_length, batching_scheme["boundaries"],
                 batching_scheme["batch_sizes"]))
 
@@ -1040,7 +1040,7 @@ class Problem(object):
         tf.shape(serialized_example, out_type=tf.int64)[0],
         dataset.output_shapes)
     dataset = dataset.map(standardize_shapes)
-    features = tf.data.experimental.get_single_element(dataset)
+    features = tf.contrib.data.get_single_element(dataset)
 
     if self.has_inputs:
       features.pop("targets", None)

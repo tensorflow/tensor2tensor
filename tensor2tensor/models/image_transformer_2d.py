@@ -46,7 +46,7 @@ class Imagetransformer2d(t2t_model.T2TModel):
     targets = features["targets"]
     targets_shape = common_layers.shape_list(targets)
     if not (tf.get_variable_scope().reuse or
-            hparams.mode == tf.estimator.ModeKeys.PREDICT):
+            hparams.mode == tf.contrib.learn.ModeKeys.INFER):
       tf.summary.image("targets", targets, max_outputs=1)
 
     decoder_input, rows, cols = cia.prepare_decoder(
@@ -76,7 +76,7 @@ class Img2imgTransformer(t2t_model.T2TModel):
     targets = features["targets"]
     inputs = features["inputs"]
     if not (tf.get_variable_scope().reuse or
-            hparams.mode == tf.estimator.ModeKeys.PREDICT):
+            hparams.mode == tf.contrib.learn.ModeKeys.INFER):
       tf.summary.image("inputs", inputs, max_outputs=1)
       tf.summary.image("targets", targets, max_outputs=1)
 
@@ -112,7 +112,7 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
     targets = features["targets"]
     inputs = features["inputs"]
     if not (tf.get_variable_scope().reuse or
-            hparams.mode == tf.estimator.ModeKeys.PREDICT):
+            hparams.mode == tf.contrib.learn.ModeKeys.INFER):
       tf.summary.image("inputs", inputs, max_outputs=1)
       tf.summary.image("targets", targets, max_outputs=1)
 

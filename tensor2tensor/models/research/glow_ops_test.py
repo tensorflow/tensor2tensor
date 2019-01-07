@@ -349,7 +349,7 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
       state_t = tf.convert_to_tensor(state_rand)
       if encoder in ["conv_net", "conv3d_net"]:
         latent_t = [latent_t, latent_t]
-      init_state = tf.nn.rnn_cell.LSTMStateTuple(state_t, state_t)
+      init_state = tf.contrib.rnn.LSTMStateTuple(state_t, state_t)
       hparams = self.get_glow_hparams()
       hparams.latent_dist_encoder = encoder
       hparams.latent_skip = skip

@@ -103,7 +103,7 @@ def top_k_softmax(x, k):
 def top_k_experts(x, k, hparams):
   x_shape = common_layers.shape_list(x)
   x_flat = tf.reshape(x, [-1, common_layers.shape_list(x)[-1]])
-  is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
+  is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
   gates, load = expert_utils.noisy_top_k_gating(
       x_flat, 2 ** hparams.z_size, is_training, k)
   gates_shape = [x_shape[0], x_shape[1], x_shape[2], 2 ** hparams.z_size]

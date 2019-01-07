@@ -473,7 +473,7 @@ def gumbel_softmax(x,
     d_dev = -tf.reduce_mean(d_variance)
     ret = s
 
-    if mode != tf.estimator.ModeKeys.TRAIN:
+    if mode != tf.contrib.learn.ModeKeys.TRAIN:
       ret = tf.reshape(maxvhot, common_layers.shape_list(s))  # Just hot @eval.
     return m, ret, d_dev * 5.0 + tf.reduce_mean(kl) * 0.002
 
@@ -822,7 +822,7 @@ def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
 
   with tf.variable_scope("predict_bits_with_lstm"):
     # Layers and cell state creation.
-    lstm_cell = tf.nn.rnn_cell.LSTMCell(state_size)
+    lstm_cell = tf.contrib.rnn.LSTMCell(state_size)
     discrete_predict = tf.layers.Dense(2**bits_at_once, name="discrete_predict")
     discrete_embed = tf.layers.Dense(state_size, name="discrete_embed")
     batch_size = common_layers.shape_list(prediction_source)[0]

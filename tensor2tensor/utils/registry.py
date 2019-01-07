@@ -93,7 +93,7 @@ def register_model(name=None):
   def decorator(model_cls, registration_name=None):
     """Registers & returns model_cls with registration_name or default name."""
     model_name = registration_name or default_name(model_cls)
-    if model_name in _MODELS and not tf.executing_eagerly():
+    if model_name in _MODELS and not tf.contrib.eager.in_eager_mode():
       raise LookupError("Model %s already registered." % model_name)
     model_cls.REGISTERED_NAME = model_name
     _MODELS[model_name] = model_cls
@@ -125,7 +125,7 @@ def register_hparams(name=None):
   def decorator(hp_fn, registration_name=None):
     """Registers & returns hp_fn with registration_name or default name."""
     hp_name = registration_name or default_name(hp_fn)
-    if hp_name in _HPARAMS and not tf.executing_eagerly():
+    if hp_name in _HPARAMS and not tf.contrib.eager.in_eager_mode():
       raise LookupError("HParams set %s already registered." % hp_name)
     _HPARAMS[hp_name] = hp_fn
     return hp_fn
@@ -199,7 +199,7 @@ def register_problem(name=None):
   def decorator(p_cls, registration_name=None):
     """Registers & returns p_cls with registration_name or default name."""
     p_name = registration_name or default_name(p_cls)
-    if p_name in _PROBLEMS and not tf.executing_eagerly():
+    if p_name in _PROBLEMS and not tf.contrib.eager.in_eager_mode():
       raise LookupError("Problem %s already registered." % p_name)
 
     _PROBLEMS[p_name] = p_cls
@@ -259,7 +259,7 @@ def register_attack(name=None):
   def decorator(attack_fn, registration_name=None):
     """Registers & returns attack_fn with registration_name or default name."""
     attack_name = registration_name or default_name(attack_fn)
-    if attack_name in _ATTACKS and not tf.executing_eagerly():
+    if attack_name in _ATTACKS and not tf.contrib.eager.in_eager_mode():
       raise LookupError("Attack %s already registered." % attack_name)
     _ATTACKS[attack_name] = attack_fn
     return attack_fn
@@ -299,7 +299,7 @@ def register_attack_params(name=None):
   def decorator(ap_fn, registration_name=None):
     """Registers & returns ap_fn with registration_name or default name."""
     ap_name = registration_name or default_name(ap_fn)
-    if ap_name in _ATTACK_PARAMS and not tf.executing_eagerly():
+    if ap_name in _ATTACK_PARAMS and not tf.contrib.eager.in_eager_mode():
       raise LookupError("Attack HParams set %s already registered." % ap_name)
     _ATTACK_PARAMS[ap_name] = ap_fn
     return ap_fn
@@ -338,7 +338,7 @@ def register_pruning_params(name=None):
   def decorator(pp_fn, registration_name=None):
     """Registers & returns pp_fn with registration_name or default name."""
     pp_name = registration_name or default_name(pp_fn)
-    if pp_name in _PRUNING_PARAMS and not tf.executing_eagerly():
+    if pp_name in _PRUNING_PARAMS and not tf.contrib.eager.in_eager_mode():
       raise LookupError("Pruning HParams set %s already registered." % pp_name)
     _PRUNING_PARAMS[pp_name] = pp_fn
     return pp_fn
@@ -376,7 +376,7 @@ def register_pruning_strategy(name=None):
   def decorator(ps_fn, registration_name=None):
     """Registers & returns ps_fn with registration_name or default name."""
     ps_name = registration_name or default_name(ps_fn)
-    if ps_name in _PRUNING_STRATEGY and not tf.executing_eagerly():
+    if ps_name in _PRUNING_STRATEGY and not tf.contrib.eager.in_eager_mode():
       raise LookupError("Pruning strategy %s already registered." % ps_name)
     _PRUNING_STRATEGY[ps_name] = ps_fn
     return ps_fn
