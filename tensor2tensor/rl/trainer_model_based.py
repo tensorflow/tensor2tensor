@@ -37,7 +37,6 @@ import numpy as np
 import six
 
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
-from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl
 from tensor2tensor.models.research.rl import make_simulated_env_fn_from_hparams
@@ -401,9 +400,10 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   epoch = -1
   data_dir = directories["data"]
-  env = T2TGymEnv.setup_env_from_hparams(
+  env = rl_utils.setup_env(
       hparams, batch_size=hparams.real_batch_size,
-      max_num_noops=hparams.max_num_noops
+      max_num_noops=hparams.max_num_noops,
+      rl_env_max_episode_steps=hparams.rl_env_max_episode_steps
   )
   env.start_new_epoch(epoch, data_dir)
 

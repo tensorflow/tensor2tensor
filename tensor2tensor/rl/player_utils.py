@@ -21,6 +21,7 @@ from __future__ import print_function
 
 import copy
 import os
+import re
 
 import gym
 import numpy as np
@@ -37,6 +38,42 @@ import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
+
+
+def infer_last_epoch_num(data_dir):
+  """Infer highest epoch number from file names in data_dir."""
+  names = os.listdir(data_dir)
+  epochs_str = [re.findall(pattern=r".*\.(-?\d+)$", string=name)
+                for name in names]
+  epochs_str = sum(epochs_str, [])
+  return max([int(epoch_str) for epoch_str in epochs_str])
+
+
+def setup_and_load_epoch(hparams, data_dir, which_epoch_data=None):
+  """Load T2TGymEnv with data from one epoch.
+
+  Args:
+    hparams: hparams.
+    data_dir: data directory.
+    which_epoch_data: data from which epoch to load.
+
+  Returns:
+    env.
+  """
+  t2t_env = rl_utils.setup_env(
+      hparams, batch_size=hparams.real_batch_size,
+      max_num_noops=hparams.max_num_noops
+  )
+  # Load data.
+  if which_epoch_data is not None:
+    if which_epoch_data == "last":
+      which_epoch_data = infer_last_epoch_num(data_dir)
+    assert isinstance(which_epoch_data, int), \
+      "{}".format(type(which_epoch_data))
+    t2t_env.start_new_epoch(which_epoch_data, data_dir)
+  else:
+    t2t_env.start_new_epoch(-999)
+  return t2t_env
 
 
 def make_simulated_gym_env(real_env, world_model_dir, hparams, random_starts):
@@ -61,7 +98,7 @@ def load_data_and_make_simulated_env(
     data_dir, wm_dir, hparams, which_epoch_data="last", random_starts=True
 ):
   hparams = copy.deepcopy(hparams)
-  t2t_env = T2TGymEnv.setup_and_load_epoch(
+  t2t_env = setup_and_load_epoch(
       hparams, data_dir=data_dir,
       which_epoch_data=which_epoch_data)
   return make_simulated_gym_env(
