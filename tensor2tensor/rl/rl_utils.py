@@ -130,6 +130,7 @@ def random_rollout_subsequences(rollouts, num_subsequences, subsequence_length):
 def make_initial_frame_chooser(real_env, frame_stack_size,
                                simulation_random_starts,
                                simulation_flip_first_random_for_beginning):
+  """Make frame chooser."""
   initial_frame_rollouts = real_env.current_epoch_rollouts(
       split=tf.estimator.ModeKeys.TRAIN,
       minimal_rollout_frames=frame_stack_size,

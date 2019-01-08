@@ -19,19 +19,18 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import copy
 import os
-from copy import deepcopy
 
 import gym
-import six
-from gym import wrappers, spaces
 import numpy as np
+import six
 
-from tensor2tensor.rl import rl_utils
-from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv
 from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.models.research.rl import get_policy
 from tensor2tensor.models.research.rl import make_simulated_env_fn_from_hparams
+from tensor2tensor.rl import rl_utils
+from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv
 from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
 
@@ -61,7 +60,7 @@ def make_simulated_gym_env(real_env, world_model_dir, hparams, random_starts):
 def load_data_and_make_simulated_env(
     data_dir, wm_dir, hparams, which_epoch_data="last", random_starts=True
 ):
-  hparams = deepcopy(hparams)
+  hparams = copy.deepcopy(hparams)
   t2t_env = T2TGymEnv.setup_and_load_epoch(
       hparams, data_dir=data_dir,
       which_epoch_data=which_epoch_data)
@@ -71,11 +70,9 @@ def load_data_and_make_simulated_env(
 
 
 class ExtendToEvenDimentions(gym.ObservationWrapper):
-  """ Force even dimentions of both height and width.
-
-  Specifically, it adds single zero row/column to observations if needed.
-  """
+  """Force even dimentions of both height and width by adding zeros."""
   HW_AXES = (0, 1)
+
   def __init__(self, env):
     gym.ObservationWrapper.__init__(self, env)
 
@@ -86,7 +83,7 @@ class ExtendToEvenDimentions(gym.ObservationWrapper):
         extended_shape[axis] += 1
 
     assert env.observation_space.dtype == np.uint8
-    self.observation_space = spaces.Box(
+    self.observation_space = gym.spaces.Box(
         low=0,
         high=255,
         shape=extended_shape,
@@ -109,6 +106,7 @@ class ExtendToEvenDimentions(gym.ObservationWrapper):
 
 class RenderObservations(gym.Wrapper):
   """Add observations rendering in 'rgb_array' mode."""
+
   def __init__(self, env):
     super(RenderObservations, self).__init__(env)
     if "rgb_array" not in self.metadata["render.modes"]:
@@ -129,17 +127,24 @@ class RenderObservations(gym.Wrapper):
 
 
 def wrap_with_monitor(env, video_dir):
-  """Wrap environment with gym.Monitor
+  """Wrap environment with gym.Monitor.
 
   Video recording provided by Monitor requires
     1) both height and width of observation to be even numbers.
     2) rendering of environment
+
+  Args:
+    env: environment.
+    video_dir: video directory.
+
+  Returns:
+    wrapped environment.
   """
   env = ExtendToEvenDimentions(env)
   env = RenderObservations(env)  # pylint: disable=redefined-variable-type
-  env = wrappers.Monitor(env, video_dir, force=True,
-                         video_callable=lambda idx: True,
-                         write_upon_reset=True)
+  env = gym.wrappers.Monitor(env, video_dir, force=True,
+                             video_callable=lambda idx: True,
+                             write_upon_reset=True)
   return env
 
 
@@ -171,9 +176,10 @@ def create_simulated_env(
       generative_model_params=generative_model_params,
       **other_hparams
   )
-  return load_data_and_make_simulated_env(output_dir, hparams,
-                                          which_epoch_data=which_epoch_data,
-                                          random_starts=random_starts)
+  return load_data_and_make_simulated_env(
+      output_dir, wm_dir=None, hparams=hparams,
+      which_epoch_data=which_epoch_data,
+      random_starts=random_starts)
 
 
 class PPOPolicyInferencer(object):
@@ -187,6 +193,7 @@ class PPOPolicyInferencer(object):
     >>>   logits, value = ppo.infer(ob)
     >>>   ob, _, done, _ = env.step(action)
   """
+
   def __init__(self, hparams, action_space, observation_space, policy_dir):
     assert hparams.base_algo == "ppo"
     ppo_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
@@ -229,16 +236,22 @@ class PPOPolicyInferencer(object):
 
     Args:
       ob: array of shape (height, width, channels)
+
+    Returns:
+      logits and vf.
     """
     self._add_to_stack(ob)
     logits, vf = self.infer_from_frame_stack(self._frame_stack)
     return logits, vf
 
   def infer_from_frame_stack(self, ob_stack):
-    """ Infer policy from stack of observations.
+    """Infer policy from stack of observations.
 
     Args:
       ob_stack: array of shape (1, frame_stack_size, height, width, channels)
+
+    Returns:
+      logits and vf.
     """
     logits, vf = self.sess.run([self.logits_t, self.value_function_t],
                                feed_dict={self.obs_t: ob_stack})
@@ -246,15 +259,22 @@ class PPOPolicyInferencer(object):
 
 
 def infer_paths(output_dir, **subdirs):
-  """
+  """Infers standard paths to policy and model directories.
 
   Example:
     >>> infer_paths("/some/output/dir/", policy="", model="custom/path")
     {"policy": "/some/output/dir/policy", "model": "custom/path",
     "output_dir":"/some/output/dir/"}
+
+  Args:
+    output_dir: output directory.
+    **subdirs: sub-directories.
+
+  Returns:
+    a dictionary with the directories.
   """
   directories = dict()
   for name, path in six.iteritems(subdirs):
     directories[name] = path if path else os.path.join(output_dir, name)
-  directories['output_dir'] = output_dir
+  directories["output_dir"] = output_dir
   return directories

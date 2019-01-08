@@ -672,7 +672,12 @@ class T2TGymEnv(T2TEnv):
     """Load T2TBatchGymEnv with data from one epoch.
 
     Args:
-        which_epoch_data: data from which epoch to load.
+      hparams: hparams.
+      data_dir: data directory.
+      which_epoch_data: data from which epoch to load.
+
+    Returns:
+      env.
     """
     t2t_env = T2TGymEnv.setup_env_from_hparams(
         hparams, batch_size=hparams.real_batch_size,

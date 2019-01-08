@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Play with a world model.
+r"""Play with a world model.
 
 Controls:
   WSAD and SPACE to control the agent.
@@ -49,22 +49,20 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import six
-
 import gym
 from gym.envs.atari.atari_env import ACTION_MEANING
 from gym.utils import play
 import numpy as np
+import six
 
-from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image, PIL_ImageDraw
-from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv
-from tensor2tensor.rl.player_utils import wrap_with_monitor, \
-  load_data_and_make_simulated_env, infer_paths
-# Import flags from t2t_trainer and trainer_model_based
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
-import tensor2tensor.rl.trainer_model_based_params # pylint: disable=unused-import
-
 from tensor2tensor.data_generators.gym_env import T2TGymEnv
+from tensor2tensor.rl import player_utils
+from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image
+from tensor2tensor.rl.envs.simulated_batch_env import PIL_ImageDraw
+from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv
+# Import flags from t2t_trainer and trainer_model_based
+import tensor2tensor.rl.trainer_model_based_params  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
@@ -98,10 +96,7 @@ flags.DEFINE_string("episodes_data_dir", "",
 
 
 class PlayerEnvWrapper(gym.Wrapper):
-  """ Environment Wrapper for gym.utils.play.
-
-  This probably will be highly refactored.
-  """
+  """Environment Wrapper for gym.utils.play."""
 
   RESET_ACTION = 101
   TOGGLE_WAIT_ACTION = 102
@@ -222,16 +217,17 @@ def main(_):
   # Not important for experiments past 2018
   if "wm_policy_param_sharing" not in hparams.values().keys():
     hparams.add_hparam("wm_policy_param_sharing", False)
-  directories = infer_paths(output_dir=FLAGS.output_dir,
-                            world_model=FLAGS.wm_dir,
-                            policy=FLAGS.policy_dir,
-                            data=FLAGS.episodes_data_dir)
+  directories = player_utils.infer_paths(
+      output_dir=FLAGS.output_dir,
+      world_model=FLAGS.wm_dir,
+      policy=FLAGS.policy_dir,
+      data=FLAGS.episodes_data_dir)
   epoch = FLAGS.epoch if FLAGS.epoch == "last" else int(FLAGS.epoch)
 
   if FLAGS.simulated_env:
-    env = load_data_and_make_simulated_env(directories["data"],
-                                           directories["world_model"],
-                                           hparams, which_epoch_data=epoch)
+    env = player_utils.load_data_and_make_simulated_env(
+        directories["data"], directories["world_model"],
+        hparams, which_epoch_data=epoch)
   else:
     env = T2TGymEnv.setup_and_load_epoch(
         hparams, data_dir=directories["data"],
@@ -240,7 +236,7 @@ def main(_):
 
   env = PlayerEnvWrapper(env)  # pylint: disable=redefined-variable-type
 
-  env = wrap_with_monitor(env, FLAGS.video_dir)
+  env = player_utils.wrap_with_monitor(env, FLAGS.video_dir)
 
   if FLAGS.dry_run:
     for _ in range(5):
