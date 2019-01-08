@@ -98,30 +98,21 @@ flags.DEFINE_string("episodes_data_dir", "",
                     "Inferred from output_dir if empty.")
 
 
-class PlayerEnvWrapper(gym.Env):
+class PlayerEnv(gym.Env):
   """Environment Wrapper for gym.utils.play."""
 
-  FORCE_RESET_ACTION = 101
+  RETURN_DONE_ACTION = 101
   TOGGLE_WAIT_ACTION = 102
   WAIT_MODE_NOOP_ACTION = 103
 
   HEADER_HEIGHT = 12
 
-  def __init__(self, env):
-    # super(PlayerEnvWrapper, self).__init__(env)
-    self.env = env
-    # Set observation space
-    orig = self.env.observation_space
-    shape = tuple([orig.shape[0] + self.HEADER_HEIGHT] + list(orig.shape[1:]))
-    self.observation_space = gym.spaces.Box(low=orig.low.min(),
-                                            high=orig.high.max(),
-                                            shape=shape, dtype=orig.dtype)
-    self.action_space = self.env.action_space
-    # gym play() looks for get_keys_to_action() only on top and bottom level
-    # of env and wrappers stack.
-    self.unwrapped.get_keys_to_action = self.get_keys_to_action
-
+  def __init__(self):
     self._wait = True
+
+  def init_action_space_from_env(self, env):
+    self.action_space = env.action_space
+
     self.action_meaning = {i: ACTION_MEANING[i]
                            for i in range(self.action_space.n)}
     self.name_to_action_num = {v: k for k, v in
@@ -153,63 +144,47 @@ class PlayerEnvWrapper(gym.Env):
       keys_to_action[keys_tuple] = action_id
 
     # Add utility actions
-    keys_to_action[(ord("r"),)] = self.FORCE_RESET_ACTION
+    keys_to_action[(ord("r"),)] = self.RETURN_DONE_ACTION
     keys_to_action[(ord("c"),)] = self.TOGGLE_WAIT_ACTION
     keys_to_action[(ord("n"),)] = self.WAIT_MODE_NOOP_ACTION
 
     return keys_to_action
 
-  @property
   def player_actions(self):
     return {
-        self.FORCE_RESET_ACTION: self.player_force_reset_action,
+        self.RETURN_DONE_ACTION: self.player_return_done_action,
         self.TOGGLE_WAIT_ACTION: self.player_toggle_wait_action,
     }
 
-  def player_force_reset_action(self):
-    # TODO: should it be here or in subclasses? Remember about augmentation.
-    ob = self.empty_observation()
-    return ob, 0, True, {}
-
   def player_toggle_wait_action(self):
     self._wait = not self._wait
-    ob, reward, done, info = self._last_step
-    # ob = self.augment_observation(ob, reward, self.total_reward)
-    return ob, reward, done, info
+    return self._last_step_returns
+
+  def player_return_done_action(self):
+    raise NotImplementedError
 
   def step(self, action):
     # Special codes
-    if action in self.player_actions:
-      step_return = self.player_actions[action]()
+    if action in self.player_actions():
+      envs_step_returns = self.player_actions()[action]()
     elif self._wait and action == self.name_to_action_num["NOOP"]:
-      # Ignore no-op, do not pass to environment
-      step_return = self._last_step
-      # ob = self.augment_observation(ob, reward, self.total_reward)
-      # return ob, reward, done, info
+      # Ignore no-op, do not pass to environment.
+      envs_step_returns = self._last_step_returns
     else:
       # Run action on environment(s).
       if action == self.WAIT_MODE_NOOP_ACTION:
         action = self.name_to_action_num["NOOP"]
       # normal action to pass to env
-      step_return = self.pass_action_on_envs(action)
-      self.update_statistics(step_return)
+      envs_step_returns = self.pass_action_to_envs(action)
+      self.update_statistics(envs_step_returns)
 
-    self._last_step = step_return
-    ob, reward, done, info = self.construct_step_return(step_return)
+    self._last_step_returns = envs_step_returns
+    ob, reward, done, info = self.construct_step_return(envs_step_returns)
     return ob, reward, done, info
-
-  def reset(self):
-    ob = self.env.reset()
-    self._last_step = ob, 0, False, {}
-    self.total_reward = 0
-    return self.augment_observation(ob, 0, self.total_reward)
-
-  def empty_observation(self):
-    return np.zeros(self.env.observation_space.shape)
 
   def augment_observation(self, ob, reward, total_reward):
     img = PIL_Image().new("RGB",
-                          (ob.shape[1], PlayerEnvWrapper.HEADER_HEIGHT,))
+                          (ob.shape[1], self.HEADER_HEIGHT,))
     draw = PIL_ImageDraw().Draw(img)
     draw.text((1, 0), "c:{:3}, r:{:3}".format(int(total_reward), int(reward)),
               fill=(255, 0, 0))
@@ -223,17 +198,71 @@ class PlayerEnvWrapper(gym.Env):
     header[0, :, :] = pixel_fill
     return np.concatenate([header, ob], axis=0)
 
-  def pass_action_on_envs(self, action):
-    return self.env.step(action)
+  def pass_action_to_envs(self, action):
+    raise NotImplementedError
 
-  def update_statistics(self, step_return):
-    reward = step_return[1]
-    self.total_reward += reward
+  def update_statistics(self, envs_step_returns):
+    raise NotImplementedError
 
-  def construct_step_return(self, step_return):
-    ob, reward, done, info = step_return
+  def construct_step_return(self, envs_step_returns):
+    raise NotImplementedError
+
+
+class SimAndRealEnvPlayer(PlayerEnv):
+  def __init__(self, real_env, sim_env):
+    super().__init__()
+    self.real_env = real_env
+    self.sim_env = sim_env
+    # TODO: Set observation space
+    # orig = self.env.observation_space
+    # shape = tuple([orig.shape[0] + self.HEADER_HEIGHT] + list(orig.shape[1:]))
+    # self.observation_space = gym.spaces.Box(low=orig.low.min(),
+    #                                         high=orig.high.max(),
+    #                                         shape=shape, dtype=orig.dtype)
+    self.init_action_space_from_env(sim_env)
+
+
+
+class SingleEnvPlayer(PlayerEnv):
+
+  def __init__(self, env):
+    super().__init__()
+    self.env = env
+    # Set observation space
+    orig = self.env.observation_space
+    shape = tuple([orig.shape[0] + self.HEADER_HEIGHT] + list(orig.shape[1:]))
+    self.observation_space = gym.spaces.Box(low=orig.low.min(),
+                                            high=orig.high.max(),
+                                            shape=shape, dtype=orig.dtype)
+    self.init_action_space_from_env(env)
+
+  def construct_step_return(self, envs_step_returns):
+    ob, reward, done, info = envs_step_returns['env']
     ob = self.augment_observation(ob, reward, self.total_reward)
     return ob, reward, done, info
+
+  def pack_step_return(self, ob, reward, done, info):
+    return dict(env=(ob, reward, done, info))
+
+  def pass_action_to_envs(self, action):
+    return self.pack_step_return(*self.env.step(action))
+
+  def reset(self):
+    ob = self.env.reset()
+    self._last_step_returns = self.pack_step_return(ob, 0, False, {})
+    self.total_reward = 0
+    return self.augment_observation(ob, 0, self.total_reward)
+
+  def update_statistics(self, envs_step_returns):
+    reward = envs_step_returns['env'][1]
+    self.total_reward += reward
+
+  def empty_observation(self):
+    return np.zeros(self.env.observation_space.shape)
+
+  def player_return_done_action(self):
+    ob = self.empty_observation()
+    return self.pack_step_return(ob, 0, True, {})
 
 
 def main(_):
@@ -260,7 +289,14 @@ def main(_):
         which_epoch_data=None)
     env = FlatBatchEnv(env)
 
-  env = PlayerEnvWrapper(env)  # pylint: disable=redefined-variable-type
+  env = SingleEnvPlayer(env)  # pylint: disable=redefined-variable-type
+
+  # TODO:TMP
+  # for i in range(100):
+  #   ob = env.reset()
+  #   print("mean ob", np.mean(ob))
+  #   player_utils._FRAMES_FOR_CHOOSER.fill(i)
+  # ######
 
   env = player_utils.wrap_with_monitor(env, FLAGS.video_dir)
 
@@ -269,7 +305,7 @@ def main(_):
       env.reset()
       for i in range(50):
         env.step(i % 3)
-      env.step(PlayerEnvWrapper.FORCE_RESET_ACTION)  # reset
+      env.step(PlayerEnv.RETURN_DONE_ACTION)  # reset
     return
 
   play.play(env, zoom=FLAGS.zoom, fps=FLAGS.fps)

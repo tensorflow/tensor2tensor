@@ -25,6 +25,7 @@ import os
 import gym
 import numpy as np
 import six
+from gym import Env
 
 from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.models.research.rl import get_policy
@@ -39,34 +40,66 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 
-def make_simulated_gym_env(real_env, world_model_dir, hparams, random_starts):
-  """Gym environment with world model."""
-  initial_frame_chooser = rl_utils.make_initial_frame_chooser(
-      real_env, hparams.frame_stack_size,
-      simulation_random_starts=random_starts,
-      simulation_flip_first_random_for_beginning=False
-  )
-  env_fn = make_simulated_env_fn_from_hparams(
+class SimulatedGymEnv(gym.Env):
+  """Gym environment, running with world model.
+
+  Allows passing custom initial frames.
+  """
+
+  def __init__(self, real_env, world_model_dir, hparams, random_starts,
+               setable_initial_frames=False):
+    self.setable_initial_frames = setable_initial_frames
+
+    if self.setable_initial_frames:
+      real_obs_shape = real_env.observation_space.shape
+      shape = (1, hparams.frame_stack_size) + real_obs_shape
+      self._initial_frames = np.zeros(shape=shape, dtype=np.uint8)
+      def initial_frame_chooser(batch_size):
+        assert batch_size==1
+        return self._initial_frames
+
+    else:
+      initial_frame_chooser = rl_utils.make_initial_frame_chooser(
+        real_env, hparams.frame_stack_size,
+        simulation_random_starts=random_starts,
+        simulation_flip_first_random_for_beginning=False
+      )
+    env_fn = make_simulated_env_fn_from_hparams(
       real_env, hparams,
       batch_size=1,
       initial_frame_chooser=initial_frame_chooser,
-      model_dir=world_model_dir
-  )
-  env = env_fn(in_graph=False)
-  flat_env = FlatBatchEnv(env)
-  return flat_env
+      model_dir=world_model_dir,
+    )
+
+    env = env_fn(in_graph=False)
+    self.env = FlatBatchEnv(env)
+
+    self.observation_space = self.env.observation_space
+    self.action_space = self.env.action_space
+
+  def reset(self):
+    return self.env.reset()
+
+  def step(self, action):
+    return self.env.step(action)
+
+  def set_initial_frames(self, frames):
+    assert frames.shape == self._initial_frames.shape[1:]
+    self._initial_frames[0, ...] = frames
 
 
 def load_data_and_make_simulated_env(
-    data_dir, wm_dir, hparams, which_epoch_data="last", random_starts=True
+    data_dir, wm_dir, hparams, which_epoch_data="last", random_starts=True,
+    setable_initial_frames=False
 ):
   hparams = copy.deepcopy(hparams)
   t2t_env = T2TGymEnv.setup_and_load_epoch(
       hparams, data_dir=data_dir,
       which_epoch_data=which_epoch_data)
-  return make_simulated_gym_env(
+  return SimulatedGymEnv(
       t2t_env, world_model_dir=wm_dir,
-      hparams=hparams, random_starts=random_starts)
+      hparams=hparams, random_starts=random_starts,
+      setable_initial_frames=setable_initial_frames)
 
 
 class ExtendToEvenDimentions(gym.ObservationWrapper):
