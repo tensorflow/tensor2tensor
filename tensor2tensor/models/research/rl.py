@@ -335,6 +335,7 @@ def rlmf_original():
       frame_stack_size=4,
       eval_sampling_temps=[0.0, 0.2, 0.5, 0.8, 1.0, 2.0],
       eval_max_num_noops=8,
+      eval_rl_env_max_episode_steps=1000,
       resize_height_factor=2,
       resize_width_factor=2,
       grayscale=0,

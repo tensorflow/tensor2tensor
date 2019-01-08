@@ -56,7 +56,6 @@ import numpy as np
 import six
 
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
-from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.rl import player_utils
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_ImageDraw
@@ -229,7 +228,7 @@ def main(_):
         directories["data"], directories["world_model"],
         hparams, which_epoch_data=epoch)
   else:
-    env = T2TGymEnv.setup_and_load_epoch(
+    env = player_utils.setup_and_load_epoch(
         hparams, data_dir=directories["data"],
         which_epoch_data=epoch)
     env = FlatBatchEnv(env)
