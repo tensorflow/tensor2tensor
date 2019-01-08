@@ -825,12 +825,10 @@ class VideoModalityIdentity(VideoModality):
 
   def bottom(self, x):
     common_video.gif_summary("inputs", x, max_outputs=1)
-    x = common_layers.standardize_images(x)
     return x
 
   def targets_bottom(self, x):
     common_video.gif_summary("targets", x, max_outputs=1)
-    x = common_layers.standardize_images(x)
     return x
 
   def top(self, body_output, targets):
