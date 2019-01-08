@@ -18,11 +18,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from collections import defaultdict
-
+import collections
 import contextlib
 import functools
-from functools import partial
 import math
 
 import numpy as np
@@ -1253,7 +1251,7 @@ def dense_dropconnect(inputs,
 
   if dropconnect_dropout != 0.0:
     tf.logging.info("Applying dropconnect as the kernel regularization.")
-    kwargs["kernel_regularizer"] = partial(
+    kwargs["kernel_regularizer"] = functools.partial(
         tf.nn.dropout, keep_prob=1.0 - dropconnect_dropout)
 
   return dense(inputs, output_size, use_bias=True, name=name, **kwargs)
@@ -1797,7 +1795,7 @@ def split_to_discretized_mix_logistic_params(inputs):
     shape [batch, height, width, num_mixtures]. Other parameters have shape
     [batch, height, width, num_mixtures, 3].
   """
-  batch, height, width, output_dim = shape_list(inputs)
+  batch, height, width, output_dim = shape_list(inputs)  # pylint: disable=unbalanced-tuple-unpacking
   num_mixtures = output_dim // 10
   logits, locs, log_scales, coeffs = tf.split(
       inputs,
@@ -1852,7 +1850,7 @@ def discretized_mix_logistic_loss(pred, labels):
       pred)
 
   # Tile labels to broadcast compute across the mixture dimension.
-  batch, height, width, num_mixtures = shape_list(logits)
+  batch, height, width, num_mixtures = shape_list(logits)  # pylint: disable=unbalanced-tuple-unpacking
   labels = tf.tile(
       tf.reshape(labels, [batch, height, width, 1, 3]),
       [1, 1, 1, num_mixtures, 1])
@@ -2333,7 +2331,8 @@ def ravanbakhsh_set_layer(layer_size,
 def fn_device_dependency_dict():
   """State container for fn_device_dependency."""
   if not hasattr(tf.get_default_graph(), "dependency_dict"):
-    setattr(tf.get_default_graph(), "dependency_dict", defaultdict(list))
+    setattr(tf.get_default_graph(), "dependency_dict",
+            collections.defaultdict(list))
   return tf.get_default_graph().dependency_dict
 
 
@@ -3064,6 +3063,23 @@ def belu(x):
   return tf.reshape(tf.concat([y1, y2], axis=-1), x_shape)
 
 
+def gelu(x):
+  """Gaussian Error Linear Unit.
+
+  This is a smoother version of the RELU.
+  Original paper: https://arxiv.org/abs/1606.08415
+
+  Args:
+    x: float Tensor to perform activation.
+
+  Returns:
+    x with the GELU activation applied.
+  """
+  cdf = 0.5 * (1.0 + tf.tanh(
+      (np.sqrt(2 / np.pi) * (x + 0.044715 * tf.pow(x, 3)))))
+  return x * cdf
+
+
 def nac(x, depth, name=None, reuse=None):
   """NAC as in https://arxiv.org/abs/1808.00508."""
   with tf.variable_scope(name, default_name="nac", values=[x], reuse=reuse):
@@ -3348,7 +3364,7 @@ def deep_discriminator(x,
   """Discriminator architecture based on InfoGAN."""
   with tf.variable_scope(
       "discriminator", initializer=tf.random_normal_initializer(stddev=0.02)):
-    batch_size, height, width = shape_list(x)[:3]
+    batch_size, height, width = shape_list(x)[:3]  # pylint: disable=unbalanced-tuple-unpacking
     net = tf.layers.conv2d(
         x, filters, filter_size, strides=stride, padding="SAME", name="conv1")
     net = lrelu(net)
@@ -3505,7 +3521,7 @@ def double_discriminator(x, filters1=128, filters2=None,
 
 def upscale(inputs, f, method=tf.image.ResizeMethod.NEAREST_NEIGHBOR):
   """Upscaling the image by a factor of f."""
-  height, width = shape_list(inputs)[1:3]
+  height, width = shape_list(inputs)[1:3]  # pylint: disable=unbalanced-tuple-unpacking
   return tf.image.resize_images(inputs, (height * f, width * f), method)
 
 
@@ -3786,7 +3802,9 @@ def sparse_eye(size):
 # modification from https://github.com/tensorflow/tensorflow/pull/21276
 # without special initialization for g
 class WeightNorm(tf.keras.layers.Wrapper):
-  """ This wrapper reparameterizes a layer by decoupling the weight's
+  """Decouple weight magnitude and direction.
+
+  This wrapper reparameterizes a layer by decoupling the weight's
   magnitude and direction. This speeds up convergence by improving the
   conditioning of the optimization problem.
 
