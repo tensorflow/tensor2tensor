@@ -13,284 +13,244 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Play with a world model."""
+"""Play with a world model.
+
+Controls:
+  WSAD and SPACE to control the agent.
+  R key to reset env.
+  C key to toggle WAIT mode.
+  N to perform NOOP action under WAIT mode.
+
+Run this script with the same parameters as trainer_model_based.py. Note that
+values of most of them have no effect on player, so running just
+
+python -m tensor2tensor/rl/player.py \
+    --output_dir=path/to/your/experiment \
+    --loop_hparams_set=rlmb_base
+
+might work for you.
+
+More advanced example:
+
+python -m tensor2tensor/rl/record_ppo.py \
+    --output_dir=path/to/your/experiment \
+    --loop_hparams_set=rlmb_base \
+    --loop_hparams=game=<right game in case of problems> \
+    --video_dir=my/video/dir \
+    --zoom=6 \
+    --fps=50 \
+    --env=real \
+    --epoch=-1
+
+Check flags definitions under imports for more details.
+"""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import copy
-import os
+import six
 
-from gym.core import Env
-from gym.spaces import Box
-from gym.spaces import Discrete
+import gym
+from gym.envs.atari.atari_env import ACTION_MEANING
 from gym.utils import play
-
 import numpy as np
 
-from PIL import Image
-from PIL import ImageDraw
-from PIL import ImageFont
+from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image, PIL_ImageDraw
+from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv
+from tensor2tensor.rl.player_utils import wrap_with_monitor, \
+  load_data_and_make_simulated_env, infer_paths
+# Import flags from t2t_trainer and trainer_model_based
+from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
+import tensor2tensor.rl.trainer_model_based_params # pylint: disable=unused-import
 
-from tensor2tensor.data_generators import gym_env
-from tensor2tensor.models.research.rl import get_policy
-from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
-from tensor2tensor.rl.trainer_model_based import FLAGS
-from tensor2tensor.rl.trainer_model_based import setup_directories
-from tensor2tensor.rl.trainer_model_based import temporary_flags
-
+from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.utils import registry
-from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
 
 
-_font = None
-FONT_SIZE = 20
+flags = tf.flags
+FLAGS = flags.FLAGS
+
+flags.DEFINE_string("video_dir", "/tmp/gym-results",
+                    "Where to save played trajectories.")
+flags.DEFINE_float("zoom", 4.,
+                   "Resize factor of displayed game.")
+flags.DEFINE_float("fps", 20.,
+                   "Frames per second.")
+flags.DEFINE_string("epoch", "last",
+                    "Data from which epoch to use.")
+flags.DEFINE_boolean("simulated_env", True,
+                     "Either to use 'simulated' or 'real' env.")
+flags.DEFINE_boolean("dry_run", False,
+                     "Dry run - without pygame interaction and display, just "
+                     "some random actions on environment")
+flags.DEFINE_string("model_ckpt", "",
+                    "World model checkpoint path.")
+flags.DEFINE_string("wm_dir", "",
+                    "Directory with world model checkpoints. Inferred from "
+                    "output_dir if empty.")
+flags.DEFINE_string("policy_dir", "",
+                    "Directory with policy. Inferred from output_dir if empty.")
+flags.DEFINE_string("episodes_data_dir", "",
+                    "Path to data for simulated environment initialization. "
+                    "Inferred from output_dir if empty.")
 
 
-def _get_font():
-  global _font
-  if _font is None:
-    font_paths = []
-    for path in font_paths:
-      try:
-        _font = ImageFont.truetype(path, FONT_SIZE)
-        return _font
-      except:  # pylint: disable=bare-except
-        pass
+class PlayerEnvWrapper(gym.Wrapper):
+  """ Environment Wrapper for gym.utils.play.
 
+  This probably will be highly refactored.
+  """
 
-def _assert_image(img):
-  if isinstance(img, np.ndarray):
-    img = Image.fromarray(np.ndarray.astype(img, np.uint8))
-  return img
+  RESET_ACTION = 101
+  TOGGLE_WAIT_ACTION = 102
+  WAIT_MODE_NOOP_ACTION = 103
 
+  HEADER_HEIGHT = 12
 
-def write_on_image(img, text="", position=(0, 0), color=(255, 255, 255)):
-  img = _assert_image(img)
-  if not text:
-    return img
-  draw = ImageDraw.Draw(img)
-  font = _get_font()
-  draw.text(position, text, color, font=font)
-  return img
+  def __init__(self, env):
+    super(PlayerEnvWrapper, self).__init__(env)
 
+    # Set observation space
+    orig = self.env.observation_space
+    shape = tuple([orig.shape[0] + self.HEADER_HEIGHT] + list(orig.shape[1:]))
+    self.observation_space = gym.spaces.Box(low=orig.low.min(),
+                                            high=orig.high.max(),
+                                            shape=shape, dtype=orig.dtype)
 
-def concatenate_images(imgs, axis=1):
-  imgs = [_assert_image(img) for img in imgs]
-  imgs_np = [np.array(img) for img in imgs]
-  concatenated_im_np = np.concatenate(imgs_np, axis=axis)
-  return _assert_image(concatenated_im_np)
+    # gym play() looks for get_keys_to_action() only on top and bottom level
+    # of env and wrappers stack.
+    self.unwrapped.get_keys_to_action = self.get_keys_to_action
 
+    self._wait = True
+    self.action_meaning = {i: ACTION_MEANING[i]
+                           for i in range(self.action_space.n)}
+    self.name_to_action_num = {v: k for k, v in
+                               six.iteritems(self.action_meaning)}
 
-class DebugBatchEnv(Env):
-  """Debugging Environment."""
-  INFO_PANE_WIDTH = 250
+  def get_action_meanings(self):
+    return [self.action_meaning[i] for i in range(self.action_space.n)]
 
-  def __init__(self, hparams, sess=None):
-    self.action_space = Discrete(6)
-    self.observation_space = Box(
-        low=0, high=255, shape=(210, 160+DebugBatchEnv.INFO_PANE_WIDTH, 3),
-        dtype=np.uint8)
-    self._tmp = 1
-    self.res = None
-    self.sess = sess if sess is not None else tf.Session()
-    self._prepare_networks(hparams, self.sess)
+  def get_keys_to_action(self):
+    # Based on gym atari.py AtariEnv.get_keys_to_action()
+    keyword_to_key = {
+        "UP": ord("w"),
+        "DOWN": ord("s"),
+        "LEFT": ord("a"),
+        "RIGHT": ord("d"),
+        "FIRE": ord(" "),
+    }
 
-  def _prepare_networks(self, hparams, sess):
-    self.action = tf.placeholder(shape=(1,), dtype=tf.int32)
-    batch_env = SimulatedBatchEnv(hparams.environment_spec, hparams.num_agents)
-    self.reward, self.done = batch_env.simulate(self.action)
-    self.observation = batch_env.observ
-    self.reset_op = batch_env.reset(tf.constant([0], dtype=tf.int32))
+    keys_to_action = {}
 
-    environment_wrappers = hparams.environment_spec.wrappers
-    wrappers = copy.copy(environment_wrappers) if environment_wrappers else []
+    for action_id, action_meaning in enumerate(self.get_action_meanings()):
+      keys = []
+      for keyword, key in keyword_to_key.items():
+        if keyword in action_meaning:
+          keys.append(key)
+      keys_tuple = tuple(sorted(keys))
+      del keys
+      assert keys_tuple not in keys_to_action
+      keys_to_action[keys_tuple] = action_id
 
-    to_initialize = [batch_env]
-    for w in wrappers:
-      batch_env = w[0](batch_env, **w[1])
-      to_initialize.append(batch_env)
+    # Add utility actions
+    keys_to_action[(ord("r"),)] = self.RESET_ACTION
+    keys_to_action[(ord("c"),)] = self.TOGGLE_WAIT_ACTION
+    keys_to_action[(ord("n"),)] = self.WAIT_MODE_NOOP_ACTION
 
-    def initialization_lambda():
-      for batch_env in to_initialize:
-        batch_env.initialize(sess)
-
-    self.initialize = initialization_lambda
-
-    obs_copy = batch_env.observ + 0
-
-    actor_critic = get_policy(tf.expand_dims(obs_copy, 0), hparams)
-    self.policy_probs = actor_critic.policy.probs[0, 0, :]
-    self.value = actor_critic.value[0, :]
-
-  def render(self, mode="human"):
-    raise NotImplementedError()
-
-  def _fake_reset(self):
-    self._tmp = 0
-    observ = np.ones(shape=(210, 160, 3), dtype=np.uint8) * 10 * self._tmp
-    observ[0, 0, 0] = 0
-    observ[0, 0, 1] = 255
-    self.res = (observ, 0, False, [0.1, 0.5, 0.5], 1.1)
-
-  def _reset_env(self):
-    observ = self.sess.run(self.reset_op)[0, ...]
-    observ[0, 0, 0] = 0
-    observ[0, 0, 1] = 255
-    # TODO(pmilos): put correct numbers
-    self.res = (observ, 0, False, [0.1, 0.5, 0.5], 1.1)
-
-  def reset(self):
-    self._reset_env()
-    observ = self._augment_observation()
-    return observ
-
-  def _step_fake(self, action):
-    observ = np.ones(shape=(210, 160, 3), dtype=np.uint8)*10*self._tmp
-    observ[0, 0, 0] = 0
-    observ[0, 0, 1] = 255
-
-    self._tmp += 1
-    if self._tmp > 20:
-      self._tmp = 0
-
-    rew = 1
-    done = False
-    probs = np.ones(shape=(6,), dtype=np.float32)/6
-    vf = 0.0
-
-    return observ, rew, done, probs, vf
-
-  def _step_env(self, action):
-    observ, rew, done, probs, vf = self.sess.\
-      run([self.observation, self.reward, self.done, self.policy_probs,
-           self.value],
-          feed_dict={self.action: [action]})
-
-    return observ[0, ...], rew[0, ...], done[0, ...], probs, vf
-
-  def _augment_observation(self):
-    observ, rew, _, probs, vf = self.res
-    info_pane = np.zeros(shape=(210, DebugBatchEnv.INFO_PANE_WIDTH, 3),
-                         dtype=np.uint8)
-    probs_str = ""
-    for p in probs:
-      probs_str += "%.2f" % p + ", "
-
-    probs_str = probs_str[:-2]
-
-    action = np.argmax(probs)
-    info_str = " Policy:{}\n Action:{}\n Value function:{}\n Reward:{}".format(
-        probs_str, action, vf, rew)
-    print("Info str:{}".format(info_str))
-    # info_pane = write_on_image(info_pane, info_str)
-
-    augmented_observ = concatenate_images([observ, info_pane])
-    augmented_observ = np.array(augmented_observ)
-    return augmented_observ
+    return keys_to_action
 
   def step(self, action):
     # Special codes
-    if action == 100:
-      # skip action
-      _, rew, done, _, _ = self.res
-      observ = self._augment_observation()
-      return observ, rew, done, {}
+    if action == self.TOGGLE_WAIT_ACTION:
+      self._wait = not self._wait
+      ob, reward, done, info = self._last_step
+      ob = self.augment_observation(ob, reward, self.total_reward)
+      return ob, reward, done, info
 
-    if action == 101:
-      # reset
-      self.reset()
-      _, rew, done, _, _ = self.res
-      observ = self._augment_observation()
-      return observ, rew, done, {}
+    if action == self.RESET_ACTION:
+      ob = self.empty_observation()
+      return ob, 0, True, {}
 
-    if action == 102:
-      # play
-      raise NotImplementedError()
+    if self._wait and action == self.name_to_action_num["NOOP"]:
+      ob, reward, done, info = self._last_step
+      ob = self.augment_observation(ob, reward, self.total_reward)
+      return ob, reward, done, info
 
-    # standard codes
-    observ, rew, done, probs, vf = self._step_env(action)
-    self.res = (observ, rew, done, probs, vf)
+    if action == self.WAIT_MODE_NOOP_ACTION:
+      action = self.name_to_action_num["NOOP"]
 
-    observ = self._augment_observation()
-    return observ, rew, done, {"probs": probs, "vf": vf}
+    ob, reward, done, info = self.env.step(action)
+    self._last_step = ob, reward, done, info
+
+    self.total_reward += reward
+
+    ob = self.augment_observation(ob, reward, self.total_reward)
+    return ob, reward, done, info
+
+  def reset(self):
+    ob = self.env.reset()
+    self._last_step = ob, 0, False, {}
+    self.total_reward = 0
+    return self.augment_observation(ob, 0, self.total_reward)
+
+  def empty_observation(self):
+    return np.zeros(self.observation_space.shape)
+
+  def augment_observation(self, ob, reward, total_reward):
+    img = PIL_Image().new("RGB",
+                          (ob.shape[1], PlayerEnvWrapper.HEADER_HEIGHT,))
+    draw = PIL_ImageDraw().Draw(img)
+    draw.text((1, 0), "c:{:3}, r:{:3}".format(int(total_reward), int(reward)),
+              fill=(255, 0, 0))
+    header = np.asarray(img)
+    del img
+    header.setflags(write=1)
+    if self._wait:
+      pixel_fill = (0, 255, 0)
+    else:
+      pixel_fill = (255, 0, 0)
+    header[0, :, :] = pixel_fill
+    return np.concatenate([header, ob], axis=0)
 
 
 def main(_):
+  # gym.logger.set_level(gym.logger.DEBUG)
   hparams = registry.hparams(FLAGS.loop_hparams_set)
   hparams.parse(FLAGS.loop_hparams)
-  output_dir = FLAGS.output_dir
+  # Not important for experiments past 2018
+  if "wm_policy_param_sharing" not in hparams.values().keys():
+    hparams.add_hparam("wm_policy_param_sharing", False)
+  directories = infer_paths(output_dir=FLAGS.output_dir,
+                            world_model=FLAGS.wm_dir,
+                            policy=FLAGS.policy_dir,
+                            data=FLAGS.episodes_data_dir)
+  epoch = FLAGS.epoch if FLAGS.epoch == "last" else int(FLAGS.epoch)
 
-  subdirectories = ["data", "tmp", "world_model", "ppo"]
-  using_autoencoder = hparams.autoencoder_train_steps > 0
-  if using_autoencoder:
-    subdirectories.append("autoencoder")
-  directories = setup_directories(output_dir, subdirectories)
-
-  if hparams.game in gym_env.ATARI_GAMES:
-    game_with_mode = hparams.game + "_deterministic-v4"
+  if FLAGS.simulated_env:
+    env = load_data_and_make_simulated_env(directories["data"],
+                                           directories["world_model"],
+                                           hparams, which_epoch_data=epoch)
   else:
-    game_with_mode = hparams.game
+    env = T2TGymEnv.setup_and_load_epoch(
+        hparams, data_dir=directories["data"],
+        which_epoch_data=epoch)
+    env = FlatBatchEnv(env)
 
-  if using_autoencoder:
-    simulated_problem_name = (
-        "gym_simulated_discrete_problem_with_agent_on_%s_autoencoded"
-        % game_with_mode)
-  else:
-    simulated_problem_name = ("gym_simulated_discrete_problem_with_agent_on_%s"
-                              % game_with_mode)
-    if simulated_problem_name not in registry.list_problems():
-      tf.logging.info("Game Problem %s not found; dynamically registering",
-                      simulated_problem_name)
-      gym_env.register_game(hparams.game, game_mode="Deterministic-v4")
+  env = PlayerEnvWrapper(env)  # pylint: disable=redefined-variable-type
 
-  epoch = hparams.epochs-1
-  epoch_data_dir = os.path.join(directories["data"], str(epoch))
-  ppo_model_dir = directories["ppo"]
+  env = wrap_with_monitor(env, FLAGS.video_dir)
 
-  world_model_dir = directories["world_model"]
+  if FLAGS.dry_run:
+    for _ in range(5):
+      env.reset()
+      for i in range(50):
+        env.step(i % 3)
+      env.step(PlayerEnvWrapper.RESET_ACTION)  # reset
+    return
 
-  gym_problem = registry.problem(simulated_problem_name)
-
-  model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
-  environment_spec = copy.copy(gym_problem.environment_spec)
-  environment_spec.simulation_random_starts = hparams.simulation_random_starts
-
-  batch_env_hparams = trainer_lib.create_hparams(hparams.ppo_params)
-  batch_env_hparams.add_hparam("model_hparams", model_hparams)
-  batch_env_hparams.add_hparam("environment_spec", environment_spec)
-  batch_env_hparams.num_agents = 1
-
-  with temporary_flags({
-      "problem": simulated_problem_name,
-      "model": hparams.generative_model,
-      "hparams_set": hparams.generative_model_params,
-      "output_dir": world_model_dir,
-      "data_dir": epoch_data_dir,
-  }):
-    sess = tf.Session()
-    env = DebugBatchEnv(batch_env_hparams, sess)
-    sess.run(tf.global_variables_initializer())
-    env.initialize()
-
-    env_model_loader = tf.train.Saver(
-        tf.global_variables("next_frame*"))
-    trainer_lib.restore_checkpoint(world_model_dir, env_model_loader, sess,
-                                   must_restore=True)
-
-    model_saver = tf.train.Saver(
-        tf.global_variables(".*network_parameters.*"))
-    trainer_lib.restore_checkpoint(ppo_model_dir, model_saver, sess)
-
-    key_mapping = gym_problem.env.env.get_keys_to_action()
-    # map special codes
-    key_mapping[()] = 100
-    key_mapping[(ord("r"),)] = 101
-    key_mapping[(ord("p"),)] = 102
-
-    play.play(env, zoom=2, fps=10, keys_to_action=key_mapping)
+  play.play(env, zoom=FLAGS.zoom, fps=FLAGS.fps)
 
 
 if __name__ == "__main__":

@@ -19,6 +19,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import random
+
 import numpy as np
 import six
 
@@ -26,7 +28,6 @@ from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl.dopamine_connector import DQNLearner
 from tensor2tensor.rl.ppo_learner import PPOLearner
-from tensor2tensor.utils import misc_utils
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -62,7 +63,7 @@ def evaluate_single_config(
 ):
   """Evaluate the PPO agent in the real environment."""
   eval_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
-  env = setup_env(
+  env = T2TGymEnv.setup_env_from_hparams(
       hparams, batch_size=hparams.eval_batch_size, max_num_noops=max_num_noops
   )
   env.start_new_epoch(0)
@@ -103,25 +104,55 @@ LEARNERS = {
 }
 
 
-def setup_env(hparams, batch_size, max_num_noops):
-  """Setup."""
-  game_mode = "NoFrameskip-v4"
-  camel_game_name = misc_utils.snakecase_to_camelcase(hparams.game)
-  camel_game_name += game_mode
-  env_name = camel_game_name
-
-  env = T2TGymEnv(base_env_name=env_name,
-                  batch_size=batch_size,
-                  grayscale=hparams.grayscale,
-                  resize_width_factor=hparams.resize_width_factor,
-                  resize_height_factor=hparams.resize_height_factor,
-                  rl_env_max_episode_steps=hparams.rl_env_max_episode_steps,
-                  max_num_noops=max_num_noops, maxskip_envs=True)
-  return env
-
-
 def update_hparams_from_hparams(target_hparams, source_hparams, prefix):
   """Copy a subset of hparams to target_hparams."""
   for (param_name, param_value) in six.iteritems(source_hparams.values()):
     if param_name.startswith(prefix):
       target_hparams.set_hparam(param_name[len(prefix):], param_value)
+
+
+def random_rollout_subsequences(rollouts, num_subsequences, subsequence_length):
+  """Chooses a random frame sequence of given length from a set of rollouts."""
+  def choose_subsequence():
+    # TODO(koz4k): Weigh rollouts by their lengths so sampling is uniform over
+    # frames and not rollouts.
+    rollout = random.choice(rollouts)
+    try:
+      from_index = random.randrange(len(rollout) - subsequence_length + 1)
+    except ValueError:
+      # Rollout too short; repeat.
+      return choose_subsequence()
+    return rollout[from_index:(from_index + subsequence_length)]
+
+  return [choose_subsequence() for _ in range(num_subsequences)]
+
+
+def make_initial_frame_chooser(real_env, frame_stack_size,
+                               simulation_random_starts,
+                               simulation_flip_first_random_for_beginning):
+  initial_frame_rollouts = real_env.current_epoch_rollouts(
+      split=tf.estimator.ModeKeys.TRAIN,
+      minimal_rollout_frames=frame_stack_size,
+  )
+  def initial_frame_chooser(batch_size):
+    """Frame chooser."""
+
+    deterministic_initial_frames =\
+        initial_frame_rollouts[0][:frame_stack_size]
+    if not simulation_random_starts:
+      # Deterministic starts: repeat first frames from the first rollout.
+      initial_frames = [deterministic_initial_frames] * batch_size
+    else:
+      # Random starts: choose random initial frames from random rollouts.
+      initial_frames = random_rollout_subsequences(
+          initial_frame_rollouts, batch_size, frame_stack_size
+      )
+      if simulation_flip_first_random_for_beginning:
+        # Flip first entry in the batch for deterministic initial frames.
+        initial_frames[0] = deterministic_initial_frames
+
+    return np.stack([
+        [frame.observation.decode() for frame in initial_frame_stack]
+        for initial_frame_stack in initial_frames
+    ])
+  return initial_frame_chooser
