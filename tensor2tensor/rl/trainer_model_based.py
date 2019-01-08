@@ -377,15 +377,6 @@ def load_metrics(event_dir, epoch):
   return metrics
 
 
-def summarize_metrics(eval_metrics_writer, metrics, epoch):
-  """Write metrics to summary."""
-  for (name, value) in six.iteritems(metrics):
-    summary = tf.Summary()
-    summary.value.add(tag=name, simple_value=value)
-    eval_metrics_writer.add_summary(summary, epoch)
-  eval_metrics_writer.flush()
-
-
 def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   """Run the main training loop."""
   if report_fn:
@@ -493,7 +484,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
         log("World model eval metrics:\n{}".format(pprint.pformat(wm_metrics)))
         metrics.update(wm_metrics)
 
-      summarize_metrics(eval_metrics_writer, metrics, epoch)
+      rl_utils.summarize_metrics(eval_metrics_writer, metrics, epoch)
 
       # Report metrics
       if report_fn:

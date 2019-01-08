@@ -100,6 +100,15 @@ def evaluate_all_configs(hparams, agent_model_dir):
   return metrics
 
 
+def summarize_metrics(eval_metrics_writer, metrics, epoch):
+  """Write metrics to summary."""
+  for (name, value) in six.iteritems(metrics):
+    summary = tf.Summary()
+    summary.value.add(tag=name, simple_value=value)
+    eval_metrics_writer.add_summary(summary, epoch)
+  eval_metrics_writer.flush()
+
+
 LEARNERS = {
     "ppo": PPOLearner,
     "dqn": DQNLearner,
