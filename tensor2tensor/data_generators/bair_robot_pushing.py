@@ -72,6 +72,9 @@ class VideoBairRobotPushing(video_utils.VideoProblem):
   def total_number_of_frames(self):
     return 167 * 256 * 30
 
+  def max_frames_per_video(self, hparams):
+    return 30
+
   @property
   def random_skip(self):
     return False

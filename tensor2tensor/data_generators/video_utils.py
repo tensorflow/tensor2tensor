@@ -123,6 +123,7 @@ def convert_videos_to_summaries(input_videos, output_videos, target_videos,
   fps = decode_hparams.frames_per_second
   border_percent = decode_hparams.border_percent
   max_outputs = decode_hparams.max_display_outputs
+  target_steps = target_videos.shape[1]
   all_summaries = []
   input_videos = create_border(
       input_videos, color="blue", border_percent=border_percent)
@@ -146,7 +147,8 @@ def convert_videos_to_summaries(input_videos, output_videos, target_videos,
     all_summaries.extend(input_summ_vals)
 
   # Frame-by-frame summaries
-  iterable = zip(all_input[:max_outputs], all_output[:max_outputs])
+  iterable = zip(output_videos[:max_outputs, :target_steps],
+                 target_videos[:max_outputs])
   for ind, (input_video, output_video) in enumerate(iterable):
     t, h, w, c = input_video.shape
     # Tile vertically
@@ -258,6 +260,25 @@ class VideoProblem(problem.Problem):
     self.settable_random_skip = True
     self.settable_use_not_breaking_batching = True
     self.shuffle = True
+
+  def max_frames_per_video(self, hparams):
+    """Maximum number of frames per video as determined by the dataset.
+
+    This is used only in PREDICT mode and handles the corner case where
+    video_num_input_frames + video_num_target_frames is greater than the
+    maximum number of frames per video in the dataset. For eg, 30 in BAIR.
+
+    For this special case, setting this to return "x" limits the input pipeline
+    to handle "x" (input + target) frames. The corresponding video model can
+    then decode arbitrary number of target frames via
+    hparams.video_num_target_frames.
+
+    Args:
+      hparams: tf.contrib.training.HParams.
+    Returns:
+      num_frames: int.
+    """
+    return hparams.video_num_input_frames + hparams.video_num_target_frames
 
   @property
   def num_channels(self):
@@ -491,8 +512,12 @@ class VideoProblem(problem.Problem):
       return dataset
 
     preprocessed_dataset = dataset.map(_preprocess)
+
     num_frames = (
         hparams.video_num_input_frames + hparams.video_num_target_frames)
+    if mode == tf.estimator.ModeKeys.PREDICT:
+      num_frames = min(self.max_frames_per_video(hparams), num_frames)
+
     # We jump by a random position at the beginning to add variety.
     if (self.random_skip and self.settable_random_skip and interleave and
         mode == tf.estimator.ModeKeys.TRAIN):

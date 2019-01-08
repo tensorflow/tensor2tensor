@@ -70,12 +70,14 @@ class VideoUtilsTest(parameterized.TestCase, tf.test.TestCase):
     metrics = video_utils.summarize_video_metrics(decode_hooks)
 
   @parameterized.named_parameters(
-      ("two", 5), ("ten", 10))
-  def testConvertPredictionsToVideoSummaries(self, num_decodes=2):
+      ("d5_o6", 5, 6))
+      # ("d5", 5), ("d10", 10), ("d5_o6", 5, 6))
+  def testConvertPredictionsToVideoSummaries(self, num_decodes=5,
+                                             max_output_steps=5):
     # Initialize predictions.
     rng = np.random.RandomState(0)
     inputs = rng.randint(0, 255, (2, 32, 32, 3))
-    outputs = rng.randint(0, 255, (5, 32, 32, 3))
+    outputs = rng.randint(0, 255, (max_output_steps, 32, 32, 3))
     targets = rng.randint(0, 255, (5, 32, 32, 3))
 
     # batch it up.
