@@ -23,6 +23,7 @@ import collections
 import itertools
 import os
 import random
+import re
 
 from gym.spaces import Box
 import numpy as np
@@ -640,6 +641,58 @@ class T2TGymEnv(T2TEnv):
   @property
   def num_channels(self):
     return self.observation_space.shape[2]
+
+  @staticmethod
+  def infer_last_epoch_num(data_dir):
+    """Infer highest epoch number from file names in data_dir."""
+    names = os.listdir(data_dir)
+    epochs_str = [re.findall(pattern=r".*\.(-?\d+)$", string=name)
+                  for name in names]
+    epochs_str = sum(epochs_str, [])
+    return max([int(epoch_str) for epoch_str in epochs_str])
+
+  @staticmethod
+  def setup_env_from_hparams(hparams, batch_size, max_num_noops):
+    game_mode = "NoFrameskip-v4"
+    camel_game_name = misc_utils.snakecase_to_camelcase(hparams.game)
+    camel_game_name += game_mode
+    env_name = camel_game_name
+
+    env = T2TGymEnv(base_env_name=env_name,
+                    batch_size=batch_size,
+                    grayscale=hparams.grayscale,
+                    resize_width_factor=hparams.resize_width_factor,
+                    resize_height_factor=hparams.resize_height_factor,
+                    rl_env_max_episode_steps=hparams.rl_env_max_episode_steps,
+                    max_num_noops=max_num_noops, maxskip_envs=True)
+    return env
+
+  @staticmethod
+  def setup_and_load_epoch(hparams, data_dir, which_epoch_data=None):
+    """Load T2TBatchGymEnv with data from one epoch.
+
+    Args:
+      hparams: hparams.
+      data_dir: data directory.
+      which_epoch_data: data from which epoch to load.
+
+    Returns:
+      env.
+    """
+    t2t_env = T2TGymEnv.setup_env_from_hparams(
+        hparams, batch_size=hparams.real_batch_size,
+        max_num_noops=hparams.max_num_noops
+    )
+    # Load data.
+    if which_epoch_data is not None:
+      if which_epoch_data == "last":
+        which_epoch_data = T2TGymEnv.infer_last_epoch_num(data_dir)
+      assert isinstance(which_epoch_data, int), \
+        "{}".format(type(which_epoch_data))
+      t2t_env.start_new_epoch(which_epoch_data, data_dir)
+    else:
+      t2t_env.start_new_epoch(-999)
+    return t2t_env
 
   def _derive_observation_space(self, orig_observ_space):
     height, width, channels = orig_observ_space.shape

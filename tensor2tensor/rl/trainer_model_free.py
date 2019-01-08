@@ -20,7 +20,7 @@ Example invocation:
 python -m tensor2tensor.rl.trainer_model_free \
     --output_dir=$HOME/t2t/rl_v1 \
     --hparams_set=pong_model_free \
-    --hparams='batch_size=15'
+    --loop_hparams='batch_size=15'
 """
 
 from __future__ import absolute_import
@@ -29,6 +29,7 @@ from __future__ import print_function
 
 import pprint
 
+from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import rl_utils
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
@@ -52,9 +53,9 @@ except:  # pylint: disable=bare-except
 
 def initialize_env_specs(hparams):
   """Initializes env_specs using T2TGymEnvs."""
-  env = rl_utils.setup_env(hparams, hparams.batch_size,
-                           hparams.eval_max_num_noops,
-                           hparams.rl_env_max_episode_steps)
+  env = T2TGymEnv.setup_env_from_hparams(
+      hparams, hparams.batch_size, hparams.eval_max_num_noops
+  )
   env.start_new_epoch(0)
 
   # TODO(afrozm): Decouple env_fn from hparams and return both, is there

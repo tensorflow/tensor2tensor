@@ -28,7 +28,6 @@ from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl.dopamine_connector import DQNLearner
 from tensor2tensor.rl.ppo_learner import PPOLearner
-from tensor2tensor.utils import misc_utils
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -64,9 +63,8 @@ def evaluate_single_config(
 ):
   """Evaluate the PPO agent in the real environment."""
   eval_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
-  env = setup_env(
-      hparams, batch_size=hparams.eval_batch_size, max_num_noops=max_num_noops,
-      rl_env_max_episode_steps=hparams.eval_rl_env_max_episode_steps
+  env = T2TGymEnv.setup_env_from_hparams(
+      hparams, batch_size=hparams.eval_batch_size, max_num_noops=max_num_noops
   )
   env.start_new_epoch(0)
   env_fn = rl.make_real_env_fn(env)
@@ -100,36 +98,10 @@ def evaluate_all_configs(hparams, agent_model_dir):
   return metrics
 
 
-def summarize_metrics(eval_metrics_writer, metrics, epoch):
-  """Write metrics to summary."""
-  for (name, value) in six.iteritems(metrics):
-    summary = tf.Summary()
-    summary.value.add(tag=name, simple_value=value)
-    eval_metrics_writer.add_summary(summary, epoch)
-  eval_metrics_writer.flush()
-
-
 LEARNERS = {
     "ppo": PPOLearner,
     "dqn": DQNLearner,
 }
-
-
-def setup_env(hparams, batch_size, max_num_noops, rl_env_max_episode_steps=-1):
-  """Setup."""
-  game_mode = "NoFrameskip-v4"
-  camel_game_name = misc_utils.snakecase_to_camelcase(hparams.game)
-  camel_game_name += game_mode
-  env_name = camel_game_name
-
-  env = T2TGymEnv(base_env_name=env_name,
-                  batch_size=batch_size,
-                  grayscale=hparams.grayscale,
-                  resize_width_factor=hparams.resize_width_factor,
-                  resize_height_factor=hparams.resize_height_factor,
-                  rl_env_max_episode_steps=rl_env_max_episode_steps,
-                  max_num_noops=max_num_noops, maxskip_envs=True)
-  return env
 
 
 def update_hparams_from_hparams(target_hparams, source_hparams, prefix):
