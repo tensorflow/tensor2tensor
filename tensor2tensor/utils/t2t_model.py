@@ -224,7 +224,7 @@ class T2TModel(base.Layer):
     def create_hparams_summary(hparams, name):
       hparams_strs = [tf.convert_to_tensor([k, str(v)])
                       for k, v in hparams.values().items()]
-      tf.summary.text(name, tf.stack(hparams_strs))
+      tf.summary.text(name, tf.cast(tf.stack(hparams_strs), tf.string))
 
     create_hparams_summary(self._hparams, "%s_hparams" % self.name)
     if self._problem_hparams:
@@ -573,7 +573,7 @@ class T2TModel(base.Layer):
         target_modality = target_modality["targets"]
       return self._top_single(body_output, target_modality, features)
 
-  def _loss_single(self, logits, target_modality, feature):
+  def _loss_single(self, logits, target_modality, feature, weights=None):
     # The current bfloat16 version still uses float32 for most parts of backward
     # propagation to keep model quality, so cast back before computing the loss
     # value.
@@ -582,11 +582,44 @@ class T2TModel(base.Layer):
       return (tf.constant(0., dtype=tf.float32),
               tf.constant(1., dtype=tf.float32))
 
-    loss_num, loss_den = target_modality.loss(logits, feature)
+    # Calculate loss contribution.
+    if weights is None:
+      loss_num, loss_den = target_modality.loss(logits, feature)
+    else:
+
+      def weights_fn(labels):
+        """Per-token weights for loss."""
+        # Use target_weights_fn() given by modality as well as explicitly given
+        # weights.
+        modality_weights = target_modality.targets_weights_fn(labels)
+
+        # Broadcast 'weights' along minor dimensions (TF's default is major).
+        explicit_weights = weights
+        if len(explicit_weights.shape) < len(modality_weights.shape):
+          explicit_weights = common_layers.expand_squeeze_to_nd(
+              weights, modality_weights.shape.ndims)
+
+        return explicit_weights * modality_weights
+
+      # Ensure that target.modality_loss() supports "weights_fn" keyword
+      # argument. If it doesn't and "weights" is specified, raise an exception.
+      argument_names = inspect.getargspec(target_modality.loss).args
+      if "weights_fn" not in argument_names:
+        raise ValueError(
+            "Explicit 'weights' given but target_modality.loss doesn't "
+            "support 'weights_fn' keyword argument: %s.loss(%s)." %
+            (type(target_modality), ", ".join(argument_names)))
+
+      loss_num, loss_den = target_modality.loss(
+          logits, feature, weights_fn=weights_fn)
+
     loss_num *= self._problem_hparams.loss_multiplier
 
     if hasattr(self.hparams, "problem") and hasattr(
         self.hparams.problem, "task_list"):
+      if weights_fn is not None:
+        raise NotImplementedError("weights not yet implemented in "
+                                  "multitask setting.")
       loss_num, loss_den, summaries = multi_problem.aggregate_task_losses(
           self.hparams,
           self._problem_hparams,
@@ -613,7 +646,11 @@ class T2TModel(base.Layer):
             "problem_hparams.modality's dict." % k)
       losses = {}
       for k, v in six.iteritems(logits):
-        losses[k] = self._loss_single(v, target_modality[k], features[k])
+        losses[k] = self._loss_single(
+            v,
+            target_modality[k],
+            features[k],
+            weights=features.get(k + "_mask"))
 
         n, d = losses[k]
         if common_layers.should_generate_summaries():
@@ -637,7 +674,11 @@ class T2TModel(base.Layer):
             "model_body returned single logits so 'targets' must be a key "
             "since problem_hparams.modality is a dict.")
         target_modality = target_modality["targets"]
-      return self._loss_single(logits, target_modality, features["targets"])
+      return self._loss_single(
+          logits,
+          target_modality,
+          features["targets"],
+          weights=features.get("targets_mask"))
 
   def optimize(self, loss, num_async_replicas=1, use_tpu=False):
     """Return a training op minimizing loss."""

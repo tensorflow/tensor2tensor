@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from tensor2tensor.utils import modality
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
@@ -37,6 +38,43 @@ class T2TModelTest(tf.test.TestCase):
       self.assertEquals(
           len(tf.get_collection(tf.GraphKeys.SUMMARIES, scope="losses")),
           len(losses))
+
+  def testLossSingleWeights(self):
+    """Ensure _loss_single() respects optional 'weights' argument."""
+    with tf.Graph().as_default():
+      with self.test_session() as sess:
+        batch_size = 2
+        sequence_size = 16
+        vocab_size = 3
+
+        model_hparams = tf.contrib.training.HParams()
+        model_hparams.label_smoothing = 0.0
+        model_hparams.shared_embedding_and_softmax_weights = False
+
+        problem_hparams = tf.contrib.training.HParams()
+        problem_hparams.loss_multiplier = 1.0
+        problem_hparams.modality = {}
+
+        model = t2t_model.T2TModel(
+            model_hparams, problem_hparams=problem_hparams)
+        logits = tf.zeros((batch_size, sequence_size, 1, 1, vocab_size))
+        target_modality = modality.Modality(model_hparams)
+        feature = tf.ones((batch_size, sequence_size, 1, 1))
+
+        # all-zero weights == zero loss.
+        weights = tf.zeros((batch_size, sequence_size))
+        loss_num, loss_denom = model._loss_single(
+            logits, target_modality, feature, weights=weights)
+        self.assertAllClose(tf.zeros_like(loss_num), sess.run(loss_num))
+        self.assertAllClose(tf.zeros_like(loss_denom), sess.run(loss_denom))
+
+        # non-zero weights > zero loss.
+        weights = tf.ones((batch_size, sequence_size))
+        loss_num, loss_denom = model._loss_single(
+            logits, target_modality, feature, weights=weights)
+        self.assertAllLess(0.0, sess.run(loss_num))
+        self.assertAllClose(batch_size * sequence_size, sess.run(loss_denom))
+
 
 if __name__ == "__main__":
   tf.test.main()
