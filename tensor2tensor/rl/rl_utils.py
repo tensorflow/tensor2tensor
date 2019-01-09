@@ -59,8 +59,20 @@ def get_metric_name(sampling_temp, max_num_noops, clipped):
   )
 
 
+def _eval_fn_with_learner(
+    env, hparams, policy_hparams, policy_dir, sampling_temp
+):
+  env_fn = rl.make_real_env_fn(env)
+  learner = LEARNERS[hparams.base_algo](
+      hparams.frame_stack_size, base_event_dir=None,
+      agent_model_dir=policy_dir, total_num_epochs=1
+  )
+  learner.evaluate(env_fn, policy_hparams, sampling_temp)
+
+
 def evaluate_single_config(
-    hparams, sampling_temp, max_num_noops, agent_model_dir
+    hparams, sampling_temp, max_num_noops, agent_model_dir,
+    eval_fn=_eval_fn_with_learner
 ):
   """Evaluate the PPO agent in the real environment."""
   eval_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
@@ -69,12 +81,7 @@ def evaluate_single_config(
       rl_env_max_episode_steps=hparams.eval_rl_env_max_episode_steps
   )
   env.start_new_epoch(0)
-  env_fn = rl.make_real_env_fn(env)
-  learner = LEARNERS[hparams.base_algo](
-      hparams.frame_stack_size, base_event_dir=None,
-      agent_model_dir=agent_model_dir, total_num_epochs=1
-  )
-  learner.evaluate(env_fn, eval_hparams, sampling_temp)
+  eval_fn(env, hparams, eval_hparams, agent_model_dir, sampling_temp)
   rollouts = env.current_epoch_rollouts()
   env.close()
 
@@ -83,7 +90,9 @@ def evaluate_single_config(
   )
 
 
-def evaluate_all_configs(hparams, agent_model_dir):
+def evaluate_all_configs(
+    hparams, agent_model_dir, eval_fn=_eval_fn_with_learner
+):
   """Evaluate the agent with multiple eval configurations."""
   metrics = {}
   # Iterate over all combinations of sampling temperatures and whether to do
@@ -91,7 +100,7 @@ def evaluate_all_configs(hparams, agent_model_dir):
   for sampling_temp in hparams.eval_sampling_temps:
     for max_num_noops in (hparams.eval_max_num_noops, 0):
       scores = evaluate_single_config(
-          hparams, sampling_temp, max_num_noops, agent_model_dir
+          hparams, sampling_temp, max_num_noops, agent_model_dir, eval_fn
       )
       for (score, clipped) in zip(scores, (True, False)):
         metric_name = get_metric_name(sampling_temp, max_num_noops, clipped)
@@ -185,3 +194,49 @@ def make_initial_frame_chooser(real_env, frame_stack_size,
         for initial_frame_stack in initial_frames
     ])
   return initial_frame_chooser
+
+
+class BatchAgent(object):
+  """Python API for agents.
+
+  Runs a batch of parallel agents. Operates on Numpy arrays.
+  """
+
+  def __init__(self, action_space):
+    self.action_space = action_space
+
+  def act(self, observations):
+    """Picks actions based on observations.
+
+    Args:
+      observations: A batch of observations.
+
+    Returns:
+      A batch of actions.
+    """
+    raise NotImplementedError
+
+  def estimate_value(self, observations):
+    """Estimates values of states based on observations.
+
+    Used for temporal-difference planning.
+
+    Args:
+      observations: A batch of observations.
+
+    Returns:
+      A batch of values.
+    """
+    raise NotImplementedError
+
+
+class RandomAgent(BatchAgent):
+  """Random agent, sampling actions from the uniform distribution."""
+
+  def act(self, observations):
+    return np.array([
+        self.action_space.sample() for _ in range(observations.shape[0])
+    ])
+
+  def estimate_value(self, observations):
+    return np.zeros(observations.shape[0])
