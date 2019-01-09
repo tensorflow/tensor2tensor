@@ -194,3 +194,49 @@ def make_initial_frame_chooser(real_env, frame_stack_size,
         for initial_frame_stack in initial_frames
     ])
   return initial_frame_chooser
+
+
+class BatchAgent(object):
+  """Python API for agents.
+
+  Runs a batch of parallel agents. Operates on Numpy arrays.
+  """
+
+  def __init__(self, action_space):
+    self.action_space = action_space
+
+  def act(self, observations):
+    """Picks actions based on observations.
+
+    Args:
+      observations: A batch of observations.
+
+    Returns:
+      A batch of actions.
+    """
+    raise NotImplementedError
+
+  def estimate_value(self, observations):
+    """Estimates values of states based on observations.
+
+    Used for temporal-difference planning.
+
+    Args:
+      observations: A batch of observations.
+
+    Returns:
+      A batch of values.
+    """
+    raise NotImplementedError
+
+
+class RandomAgent(BatchAgent):
+  """Random agent, sampling actions from the uniform distribution."""
+
+  def act(self, observations):
+    return np.array([
+        self.action_space.sample() for _ in range(observations.shape[0])
+    ])
+
+  def estimate_value(self, observations):
+    return np.zeros(observations.shape[0])
