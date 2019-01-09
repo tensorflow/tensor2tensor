@@ -617,7 +617,7 @@ class T2TModel(base.Layer):
 
     if hasattr(self.hparams, "problem") and hasattr(
         self.hparams.problem, "task_list"):
-      if weights_fn is not None:
+      if weights is not None:
         raise NotImplementedError("weights not yet implemented in "
                                   "multitask setting.")
       loss_num, loss_den, summaries = multi_problem.aggregate_task_losses(
