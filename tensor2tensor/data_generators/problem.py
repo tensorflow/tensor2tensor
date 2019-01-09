@@ -20,8 +20,6 @@ from __future__ import print_function
 
 import collections
 import copy
-import functools
-import multiprocessing
 import os
 import random
 import six
@@ -161,27 +159,6 @@ def preprocess_example_common(example, hparams, mode):
         tf.logging.warning("Dropping feature %s" % k)
     return tf.data.Dataset.from_tensor_slices(new_example)
   return example
-
-
-def _file_num_records_cached(filename):
-  """Return the number of TFRecords in a file."""
-  # Cache the result, as this is expensive to compute
-  if filename in _file_num_records_cache:
-    return _file_num_records_cache[filename]
-  ret = 0
-  for _ in tf.python_io.tf_record_iterator(filename):
-    ret += 1
-  _file_num_records_cache[filename] = ret
-  return ret
-
-
-_file_num_records_cache = {}
-
-
-def cpu_count():
-  """Return the number of available cores."""
-  num_available_cores = multiprocessing.cpu_count()
-  return num_available_cores
 
 
 class Problem(object):
@@ -846,40 +823,12 @@ class Problem(object):
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
     partition_id, num_partitions = self._dataset_partition(mode, config)
-
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     if config and config.use_tpu:
       num_threads = 64
     else:
-      num_threads = cpu_count() if is_training else 1
-
-    if config and hasattr(config,
-                          "data_parallelism") and config.data_parallelism:
-      num_shards = config.data_parallelism.n
-    else:
-      num_shards = 1
-
-    max_length = self.max_length(hparams)
-    mlperf_log.transformer_print(
-        key=mlperf_log.INPUT_MAX_LENGTH, value=max_length)
-
-    def tpu_valid_size(example):
-      return data_reader.example_valid_size(example, hparams.min_length,
-                                            max_length)
-
-    def gpu_valid_size(example):
-      drop_long_sequences = is_training or hparams.eval_drop_long_sequences
-      max_validate_length = max_length if drop_long_sequences else 10**9
-      return data_reader.example_valid_size(example, hparams.min_length,
-                                            max_validate_length)
-
-    def define_shapes(example):
-      batch_size = config and config.use_tpu and params["batch_size"]
-      return standardize_shapes(example, batch_size=batch_size)
-
-    # Read and preprocess
+      num_threads = data_reader.cpu_count() if is_training else 1
     data_dir = data_dir or (hasattr(hparams, "data_dir") and hparams.data_dir)
-
     dataset_kwargs = dataset_kwargs or {}
     dataset_kwargs.update({
         "mode": mode,
@@ -889,131 +838,20 @@ class Problem(object):
         "partition_id": partition_id,
         "num_partitions": num_partitions,
     })
-
-    dataset = self.dataset(**dataset_kwargs)
-    if (force_repeat or is_training) and not prevent_repeat:
-      # Repeat and skip a random number of records
-      dataset = dataset.repeat()
-
-    if is_training and self.skip_random_fraction_when_training:
-      data_files = tf.contrib.slim.parallel_reader.get_data_files(
-          self.filepattern(data_dir, mode))
-      #  In continuous_train_and_eval when switching between train and
-      #  eval, this input_fn method gets called multiple times and it
-      #  would give you the exact same samples from the last call
-      #  (because the Graph seed is set). So this skip gives you some
-      #  shuffling.
-      dataset = skip_random_fraction(dataset, data_files[0])
-
-    dataset = dataset.map(
-        data_reader.cast_ints_to_int32, num_parallel_calls=num_threads)
-
-    if self.batch_size_means_tokens:
-      batch_size_means_tokens = True
-    else:
-      if _are_shapes_fully_defined(dataset.output_shapes):
-        batch_size_means_tokens = False
-      else:
-        tf.logging.warning(
-            "Shapes are not fully defined. Assuming batch_size means tokens.")
-        batch_size_means_tokens = True
-
-    # Batching
-    if not batch_size_means_tokens:
-      # Batch size means examples per datashard.
-      if config and config.use_tpu:
-        # on TPU, we use params["batch_size"], which specifies the number of
-        # examples across all datashards
-        batch_size = params["batch_size"]
-        dataset = dataset.batch(batch_size, drop_remainder=True)
-      else:
-        batch_size = hparams.batch_size * num_shards
-        dataset = dataset.batch(batch_size)
-    else:
-      # batch_size means tokens per datashard
-      if config and config.use_tpu:
-        dataset = dataset.filter(tpu_valid_size)
-        padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
-        # on TPU, we use params["batch_size"], which specifies the number of
-        # examples across all datashards
-        batch_size = params["batch_size"]
-        if hparams.pad_batch:
-          tf.logging.warn(
-              "Padding the batch to ensure that remainder eval batches are "
-              "processed. This may lead to incorrect metrics for "
-              "non-zero-padded features, e.g. images. Use a smaller batch "
-              "size that has no remainder in that case.")
-          dataset = dataset.padded_batch(
-              batch_size, padded_shapes, drop_remainder=False)
-          dataset = dataset.map(
-              functools.partial(pad_batch, batch_multiple=batch_size),
-              num_parallel_calls=num_threads)
-        else:
-          dataset = dataset.padded_batch(
-              batch_size, padded_shapes, drop_remainder=True)
-      else:
-        # On GPU, bucket by length
-        dataset = dataset.filter(gpu_valid_size)
-        batching_scheme = data_reader.hparams_to_batching_scheme(
-            hparams,
-            shard_multiplier=num_shards,
-            length_multiplier=self.get_hparams().batch_size_multiplier)
-        if hparams.use_fixed_batch_size:
-          # Here  batch_size really means examples per datashard.
-          batching_scheme["batch_sizes"] = [hparams.batch_size]
-          batching_scheme["boundaries"] = []
-        dataset = dataset.apply(
-            tf.data.experimental.bucket_by_sequence_length(
-                data_reader.example_length, batching_scheme["boundaries"],
-                batching_scheme["batch_sizes"]))
-
-        if not is_training:
-          batch_multiple = num_shards
-          if hparams.use_fixed_batch_size:
-            # Make sure the last batch has the same fixed size as the rest.
-            batch_multiple *= hparams.batch_size
-          if batch_multiple > 1:
-            tf.logging.warn(
-                "Padding the batch to ensure that remainder eval batches have "
-                "a batch size divisible by the number of data shards. This may "
-                "lead to incorrect metrics for non-zero-padded features, e.g. "
-                "images. Use a single datashard (i.e. 1 GPU) in that case.")
-            dataset = dataset.map(
-                functools.partial(pad_batch, batch_multiple=batch_multiple),
-                num_parallel_calls=num_threads)
-
-    dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
-
-    # Add shuffling for training batches. This is necessary along with record
-    # level shuffling in the dataset generation. Record shuffling will shuffle
-    # the examples. However, in some cases, it's possible that the shuffle
-    # buffer size for record shuffling is smaller than the batch size. In such
-    # cases, adding batch shuffling ensures that the data is in random order
-    # during training
-    if (is_training and hasattr(hparams, "batch_shuffle_size") and
-        hparams.batch_shuffle_size):
-      dataset = dataset.shuffle(hparams.batch_shuffle_size)
-
-    def prepare_for_output(example):
-      if not config or not config.use_tpu:
-        _summarize_features(example, num_shards)
-      if mode == tf.estimator.ModeKeys.PREDICT:
-        example["infer_targets"] = example.pop("targets")
-        return example
-      else:
-        return example, example["targets"]
-
-    dataset = dataset.map(prepare_for_output, num_parallel_calls=num_threads)
-    dataset = dataset.prefetch(2)
-
-    if mode == tf.estimator.ModeKeys.PREDICT:
-      # This is because of a bug in the Estimator that short-circuits prediction
-      # if it doesn't see a QueueRunner. DummyQueueRunner implements the
-      # minimal expected interface but does nothing.
-      tf.add_to_collection(tf.GraphKeys.QUEUE_RUNNERS,
-                           data_reader.DummyQueueRunner())
-
-    return dataset
+    return data_reader.input_fn(
+        self.dataset(**dataset_kwargs),
+        self.filepattern(data_dir, mode),
+        self.skip_random_fraction_when_training,
+        self.batch_size_means_tokens,
+        self.get_hparams().batch_size_multiplier,
+        self.max_length(hparams),
+        mode,
+        hparams,
+        data_dir=data_dir,
+        params=params,
+        config=config,
+        force_repeat=force_repeat,
+        prevent_repeat=prevent_repeat)
 
   @property
   def export_assets(self):
@@ -1039,7 +877,7 @@ class Problem(object):
     dataset = dataset.padded_batch(
         tf.shape(serialized_example, out_type=tf.int64)[0],
         dataset.output_shapes)
-    dataset = dataset.map(standardize_shapes)
+    dataset = dataset.map(data_reader.standardize_shapes)
     features = tf.data.experimental.get_single_element(dataset)
 
     if self.has_inputs:
@@ -1047,33 +885,6 @@ class Problem(object):
 
     return tf.estimator.export.ServingInputReceiver(
         features=features, receiver_tensors=serialized_example)
-
-  def _pad_for_tpu(self, shapes_dict, hparams):
-    """Pads unknown features' dimensions for TPU."""
-    max_length = self.max_length(hparams)
-    padded_shapes = {}
-
-    def get_filler(specified_max_length):
-      if not specified_max_length:
-        return max_length
-      return min(specified_max_length, max_length)
-
-    inputs_none_filler = get_filler(hparams.max_input_seq_length)
-    targets_none_filler = get_filler(hparams.max_target_seq_length)
-
-    def pad_one_shape(shape, none_filler):
-      return [
-          (dim if dim is not None else none_filler) for dim in shape.as_list()
-      ]
-
-    for key, shape in six.iteritems(shapes_dict):
-      if key == "inputs":
-        padded_shapes[key] = pad_one_shape(shape, inputs_none_filler)
-      elif key == "targets":
-        padded_shapes[key] = pad_one_shape(shape, targets_none_filler)
-      else:
-        padded_shapes[key] = pad_one_shape(shape, max_length)
-    return padded_shapes
 
 
 class FeatureInfo(object):
@@ -1222,71 +1033,6 @@ def _default_hparams():
       target_space_id=SpaceID.GENERIC)
 
 
-def _are_shapes_fully_defined(shapes_dict):
-  for shape in shapes_dict.values():
-    if not shape.is_fully_defined():
-      return False
-  return True
-
-
-def _summarize_features(features, num_shards=1):
-  with tf.name_scope("input_stats"):
-    for (k, v) in six.iteritems(features):
-      if isinstance(v, tf.Tensor) and v.get_shape().ndims > 1:
-        tf.summary.scalar("%s_batch" % k, tf.shape(v)[0] // num_shards)
-        tf.summary.scalar("%s_length" % k, tf.shape(v)[1])
-        nonpadding = tf.to_float(tf.not_equal(v, 0))
-        nonpadding_tokens = tf.reduce_sum(nonpadding)
-        tf.summary.scalar("%s_nonpadding_tokens" % k, nonpadding_tokens)
-        tf.summary.scalar("%s_nonpadding_fraction" % k,
-                          tf.reduce_mean(nonpadding))
-
-
-def standardize_shapes(features, batch_size=None):
-  """Set the right shapes for the features."""
-
-  for fname in ["inputs", "targets"]:
-    if fname not in features:
-      continue
-
-    f = features[fname]
-    while len(f.get_shape()) < 4:
-      f = tf.expand_dims(f, axis=-1)
-
-    features[fname] = f
-
-  if batch_size:
-    # Ensure batch size is set on all features
-    for _, t in six.iteritems(features):
-      shape = t.get_shape().as_list()
-      shape[0] = batch_size
-      t.set_shape(t.get_shape().merge_with(shape))
-      # Assert shapes are fully known
-      t.get_shape().assert_is_fully_defined()
-
-  return features
-
-
-def pad_batch(features, batch_multiple):
-  """Pad batch dim of features to nearest multiple of batch_multiple."""
-  feature = list(features.items())[0][1]
-  batch_size = tf.shape(feature)[0]
-  mod = batch_size % batch_multiple
-  has_mod = tf.cast(tf.cast(mod, tf.bool), tf.int32)
-  batch_padding = batch_multiple * has_mod - mod
-
-  padded_features = {}
-  for k, feature in features.items():
-    rank = len(feature.shape)
-    paddings = []
-    for _ in range(rank):
-      paddings.append([0, 0])
-    paddings[0][1] = batch_padding
-    padded_feature = tf.pad(feature, paddings)
-    padded_features[k] = padded_feature
-  return padded_features
-
-
 def problem_hparams_to_features(problem_hparams):
   input_space_id, target_space_id = 0, 0
   if problem_hparams:
@@ -1296,11 +1042,3 @@ def problem_hparams_to_features(problem_hparams):
       "input_space_id": input_space_id,
       "target_space_id": target_space_id,
   }
-
-
-def skip_random_fraction(dataset, data_file):
-  # Skip a random fraction at the beginning of the stream.  The skip is
-  # essential for synchronous highly-parallel training to avoid multiple
-  # replicas reading the same data in lock-step.
-  num_skip = random.randint(0, _file_num_records_cached(data_file))
-  return dataset.skip(num_skip)
