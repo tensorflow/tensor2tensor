@@ -1491,26 +1491,7 @@ class T2TModel(base.Layer):
         loss, num_async_replicas=num_async_replicas, use_tpu=use_tpu)
 
   def initialize_from_ckpt(self, ckpt_dir):
-    model_dir = self._hparams.get("model_dir", None)
-    already_has_ckpt = (
-        model_dir and tf.train.latest_checkpoint(model_dir) is not None)
-    if already_has_ckpt:
-      return
-
-    log_info("Checkpoint dir: %s", ckpt_dir)
-
-    # TODO(mitchellstern): Add support for partitioned variables?
-    reader = tf.train.load_checkpoint(ckpt_dir)
-    variable_map = {}
-    for var in tf.contrib.framework.get_trainable_variables():
-      var_name = var.name.split(":")[0]
-      if reader.has_tensor(var_name):
-        log_info("Loading variable from checkpoint: %s", var_name)
-        variable_map[var_name] = var
-      else:
-        log_info(
-            "Cannot find variable in checkpoint, skipping: %s", var_name)
-    tf.train.init_from_checkpoint(ckpt_dir, variable_map)
+    return initialize_from_ckpt(ckpt_dir=ckpt_dir, hparams=self._hparams)
 
   def estimator_spec_train(self, loss, num_async_replicas=1, use_tpu=False):
     """Constructs `tf.estimator.EstimatorSpec` for TRAIN (training) mode."""
@@ -2105,3 +2086,25 @@ def _create_target_modality(modality_dict):
   # behavior.
   return {k: v for k, v in six.iteritems(modality_dict) if "target" in k
           and k != "targets_segmentation" and k != "targets_position"}
+
+
+def initialize_from_ckpt(ckpt_dir, hparams):
+  """Initialize variables from given directory."""
+  model_dir = hparams.get("model_dir", None)
+  already_has_ckpt = (
+      model_dir and tf.train.latest_checkpoint(model_dir) is not None)
+  if already_has_ckpt:
+    return
+
+  tf.logging.info("Checkpoint dir: %s", ckpt_dir)
+  reader = tf.contrib.framework.load_checkpoint(ckpt_dir)
+  variable_map = {}
+  for var in tf.contrib.framework.get_trainable_variables():
+    var_name = var.name.split(":")[0]
+    if reader.has_tensor(var_name):
+      tf.logging.info("Loading variable from checkpoint: %s", var_name)
+      variable_map[var_name] = var
+    else:
+      tf.logging.info("Cannot find variable in checkpoint, skipping: %s",
+                      var_name)
+  tf.train.init_from_checkpoint(ckpt_dir, variable_map)
