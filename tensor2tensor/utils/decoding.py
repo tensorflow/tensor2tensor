@@ -70,6 +70,7 @@ def decode_hparams(overrides=""):
       shards=1,    # How many shards of data to decode (treating 1 as None).
       shard_id=0,  # Which shard are we decoding if more than 1 above.
       shards_start_offset=0,  # Number of the first shard to decode.
+      shard_google_format=False,  # If True use Google shard naming format.
       num_decodes=1,
       force_decode_length=False,
       display_decoded_images=False,
@@ -510,7 +511,11 @@ def decode_from_file(estimator,
 def _add_shard_to_filename(filename, decode_hp):
   if decode_hp.shards > 1:
     shard_id = decode_hp.shard_id + decode_hp.shards_start_offset
-    filename = filename + ("%.3d" % shard_id)
+    if decode_hp.shard_google_format:
+      filename = filename + "-{0:05d}-of-{1:05d}".format(shard_id,
+                                                         decode_hp.shards)
+    else:
+      filename = filename + ("%.3d" % shard_id)
   return filename
 
 
