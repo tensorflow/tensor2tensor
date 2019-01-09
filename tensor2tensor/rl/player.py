@@ -20,6 +20,7 @@ Controls:
   R key to reset env.
   C key to toggle WAIT mode.
   N to perform NOOP action under WAIT mode.
+  X to reset simulated env only, when running sim-real comparison.
 
 Run this script with the same parameters as trainer_model_based.py. Note that
 values of most of them have no effect on player, so running just
@@ -35,7 +36,8 @@ More advanced example:
 python -m tensor2tensor/rl/record_ppo.py \
     --output_dir=path/to/your/experiment \
     --loop_hparams_set=rlmb_base \
-    --loop_hparams=game=<right game in case of problems> \
+    --sim_and_real=False \
+    --simulated_env=False \
     --video_dir=my/video/dir \
     --zoom=6 \
     --fps=50 \
@@ -54,6 +56,7 @@ from gym.envs.atari.atari_env import ACTION_MEANING
 
 from rl_utils import absolute_hinge_difference
 
+# TODO(konradczechowski): try-except is only for development, remove this.
 try:
   from gym.utils import play
 except:
@@ -84,6 +87,8 @@ flags.DEFINE_float("fps", 20.,
                    "Frames per second.")
 flags.DEFINE_string("epoch", "last",
                     "Data from which epoch to use.")
+flags.DEFINE_boolean("sim_and_real", True,
+                     "Compare simulated and real environment.")
 flags.DEFINE_boolean("simulated_env", True,
                      "Either to use 'simulated' or 'real' env.")
 flags.DEFINE_boolean("dry_run", False,
@@ -102,7 +107,12 @@ flags.DEFINE_string("episodes_data_dir", "",
 
 
 class PlayerEnv(gym.Env):
-  """Environment Wrapper for gym.utils.play."""
+  """Base (abstract) environment with custom actions for gym.utils.play.
+
+  Notation:
+    envs_step_tuples: dict(env_name=(observation, reward, done, info), ...)
+      Dictionary of tuples similar to those returned by gym.Env.step().
+  """
 
   RETURN_DONE_ACTION = 101
   TOGGLE_WAIT_ACTION = 102
@@ -178,7 +188,7 @@ class PlayerEnv(gym.Env):
       if action == self.WAIT_MODE_NOOP_ACTION:
         action = self.name_to_action_num["NOOP"]
       # normal action to pass to env
-      envs_step_tuples = self.pass_action_to_envs(action)
+      envs_step_tuples = self.step_envs(action)
       self.update_statistics(envs_step_tuples)
 
     self._last_step_returns = envs_step_tuples
@@ -201,7 +211,7 @@ class PlayerEnv(gym.Env):
     header[0, :, :] = pixel_fill
     return np.concatenate([header, ob], axis=0)
 
-  def pass_action_to_envs(self, action):
+  def step_envs(self, action):
     raise NotImplementedError
 
   def update_statistics(self, envs_step_tuples):
@@ -212,8 +222,12 @@ class PlayerEnv(gym.Env):
 
 
 class SimAndRealEnvPlayer(PlayerEnv):
+  # TODO(konradczechowski): document
+
+  RESTART_SIMULATED_ENV_ACTION = 110
+
   def __init__(self, real_env, sim_env):
-    super().__init__()
+    super(SimAndRealEnvPlayer, self).__init__()
     assert real_env.observation_space.shape == sim_env.observation_space.shape
     self.real_env = real_env
     self.sim_env = sim_env
@@ -229,8 +243,20 @@ class SimAndRealEnvPlayer(PlayerEnv):
                                             shape=shape, dtype=orig.dtype)
     self.init_action_space_from_env(sim_env)
 
+  def player_actions(self):
+    actions = super(SimAndRealEnvPlayer, self).player_actions()
+    actions.update({
+        self.RESTART_SIMULATED_ENV_ACTION:
+            self.player_restart_simulated_env_action,
+    })
+    return actions
+
+  def get_keys_to_action(self):
+    keys_to_action = super(SimAndRealEnvPlayer, self).get_keys_to_action()
+    keys_to_action[(ord("x"),)] = self.RESTART_SIMULATED_ENV_ACTION
+    return keys_to_action
+
   def player_step_tuple(self, envs_step_tuples):
-    # TODO(konradczechowski): document
     ob_real, reward_real = envs_step_tuples['real_env'][:2]
     ob_sim, reward_sim = envs_step_tuples['sim_env'][:2]
     ob_err = absolute_hinge_difference(ob_sim, ob_real)
@@ -252,16 +278,18 @@ class SimAndRealEnvPlayer(PlayerEnv):
   def reset(self):
     ob_real = self.real_env.reset()
     self.sim_env.add_to_initial_stack(ob_real)
-    for i in range(12):
-      ob_real, _, _, _ = self.real_env.step(np.random.choice([2,3, 4, 5]))
+    # TODO(konradczechowski): remove when not longer needed.
+    # for i in range(12):
+    #   ob_real, _, _, _ = self.real_env.step(np.random.choice([2,3, 4, 5]))
+    #   self.sim_env.add_to_initial_stack(ob_real)
+    for i in range(3):
+      ob_real, _, _, _ = self.real_env.step(self.name_to_action_num['NOOP'])
       self.sim_env.add_to_initial_stack(ob_real)
-
     ob_sim = self.sim_env.reset()
     assert np.all(ob_real == ob_sim)
     self._last_step_returns = self.pack_step_return((ob_real, 0, False, {}),
                                                     (ob_sim, 0, False, {}))
-    self.total_real_reward = 0
-    self.total_sim_reward = 0
+    self.set_zero_total_rewards()
     ob, _, _, _ = self.player_step_tuple(self._last_step_returns)
     return ob
 
@@ -269,26 +297,42 @@ class SimAndRealEnvPlayer(PlayerEnv):
     return dict(real_env=real_env_step_tuple,
                 sim_env=sim_env_step_tuple)
 
-  def pass_action_to_envs(self, action):
-    return self.pack_step_return(self.real_env.step(action),
-                                 self.sim_env.step(action))
+  def set_zero_total_rewards(self):
+    self.total_real_reward = 0
+    self.total_sim_reward = 0
+
+  def step_envs(self, action):
+    """Perform step, update initial_frame_stack for simulated environment."""
+    real_env_step_tuple = self.real_env.step(action)
+    sim_env_step_tuple = self.sim_env.step(action)
+    self.sim_env.add_to_initial_stack(real_env_step_tuple[0])
+    return self.pack_step_return(real_env_step_tuple, sim_env_step_tuple)
 
   def update_statistics(self, envs_step_tuples):
     self.total_real_reward += envs_step_tuples['real_env'][1]
     self.total_sim_reward += envs_step_tuples['sim_env'][1]
-
-  # def empty_observation(self):
-  #   orig_shape = self.real_env.observation_space.shape
-  #   return np.zeros((orig_shape[0], orig_shape[1] * 3, orig_shape[2]),
-  #                   dtype=np.uint8)
 
   def player_return_done_action(self):
     ob = np.zeros(self.real_env.observation_space.shape, dtype=np.uint8)
     return self.pack_step_return((ob, 0, True, {}),
                                  (ob, 0, True, {}))
 
+  def player_restart_simulated_env_action(self):
+    ob = self.sim_env.reset()
+
+    # TODO(konradczechowski): remove when this will be not needed
+    # new_ob, _, _, _ = self.sim_env.step(2)
+    # print("\n\n\n\ndiff {}\n\n\n\n".format((ob - new_ob).sum()))
+    # ##########
+
+    assert np.all(self._last_step_returns['real_env'][0] == ob)
+    self.set_zero_total_rewards()
+    return self.pack_step_return(self._last_step_returns['real_env'],
+                                 (ob, 0, False, {}))
+
 
 class SingleEnvPlayer(PlayerEnv):
+  # TODO(konradczechowski): document
 
   def __init__(self, env):
     super().__init__()
@@ -309,21 +353,18 @@ class SingleEnvPlayer(PlayerEnv):
   def pack_step_return(self, env_step_tuple):
     return dict(env=env_step_tuple)
 
-  def pass_action_to_envs(self, action):
-    return self.pack_step_return(self.env.step(action))
-
   def reset(self):
     ob = self.env.reset()
     self._last_step_returns = self.pack_step_return((ob, 0, False, {}))
     self.total_reward = 0
     return self.augment_observation(ob, 0, self.total_reward)
 
+  def step_envs(self, action):
+    return self.pack_step_return(self.env.step(action))
+
   def update_statistics(self, envs_step_tuples):
     reward = envs_step_tuples['env'][1]
     self.total_reward += reward
-
-  # def empty_observation(self):
-  #   return np.zeros(self.env.observation_space.shape, dtype=np.uint8)
 
   def player_return_done_action(self):
     ob = np.zeros(self.env.observation_space.shape, dtype=np.uint8)
@@ -344,35 +385,31 @@ def main(_):
       data=FLAGS.episodes_data_dir)
   epoch = FLAGS.epoch if FLAGS.epoch == "last" else int(FLAGS.epoch)
 
-  # if FLAGS.simulated_env:
-  #   env = player_utils.load_data_and_make_simulated_env(
-  #       directories["data"], directories["world_model"],
-  #       hparams, which_epoch_data=epoch)
-  # else:
-  #   env = T2TGymEnv.setup_and_load_epoch(
-  #       hparams, data_dir=directories["data"],
-  #       which_epoch_data=None)
-  #   env = FlatBatchEnv(env)
-  #
-  # env = SingleEnvPlayer(env)  # pylint: disable=redefined-variable-type
 
-  sim_env = player_utils.load_data_and_make_simulated_env(
-      directories["data"], directories["world_model"],
-      hparams, which_epoch_data=epoch, setable_initial_frames=True)
+  def make_real_env():
+    env = T2TGymEnv.setup_and_load_epoch(
+            hparams, data_dir=directories["data"],
+            which_epoch_data=None)
+    env = FlatBatchEnv(env)
+    return env
 
-  real_env = T2TGymEnv.setup_and_load_epoch(
-      hparams, data_dir=directories["data"],
-      which_epoch_data=None)
-  real_env = FlatBatchEnv(real_env)
+  def make_simulated_env(setable_initial_frames):
+    env = player_utils.load_data_and_make_simulated_env(
+        directories["data"], directories["world_model"],
+        hparams, which_epoch_data=epoch,
+        setable_initial_frames=setable_initial_frames)
+    return env
 
-  env = SimAndRealEnvPlayer(real_env, sim_env)
-
-  # TODO:TMP
-  # for i in range(100):
-  #   ob = env.reset()
-  #   print("mean ob", np.mean(ob))
-  #   player_utils._FRAMES_FOR_CHOOSER.fill(i)
-  # ######
+  if FLAGS.sim_and_real:
+    sim_env = make_simulated_env(setable_initial_frames=True)
+    real_env = make_real_env()
+    env = SimAndRealEnvPlayer(real_env, sim_env)
+  else:
+    if FLAGS.simulated_env:
+      env = make_simulated_env(setable_initial_frames=False)
+    else:
+      env = make_real_env()
+    env = SingleEnvPlayer(env)  # pylint: disable=redefined-variable-type
 
   env = player_utils.wrap_with_monitor(env, FLAGS.video_dir)
 
