@@ -112,6 +112,22 @@ def get_variable_ddi(name, shape, initial_value, dtype=tf.float32, init=False,
 
 
 @add_arg_scope
+def get_dropout(x, rate=0.0, init=True):
+  """Zero dropout during init or prediction time.
+
+  Args:
+    x: 4-D Tensor, shape=(NHWC).
+    rate: Dropout rate.
+    init: Initialization.
+  Returns:
+    x: activations after dropout.
+  """
+  if init or rate == 0:
+    return x
+  return tf.layers.dropout(x, rate=rate, training=True)
+
+
+@add_arg_scope
 def actnorm_3d(name, x, logscale_factor=3.):
   """Applies actnorm to each time-step independently.
 
@@ -485,8 +501,7 @@ def conv_block(name, x, mid_channels, dilations=None, activation="relu",
     x = conv("1_1", x, output_channels=mid_channels, filter_size=first_filter,
              dilations=dilations)
     x = tf.nn.relu(x)
-    if dropout != 0.0:
-      x = tf.nn.dropout(x, keep_prob=1.0 - dropout)
+    x = get_dropout(x, rate=dropout)
 
     # Padding + conv2d + actnorm + activation.
     # [input, output: 512 channels]
@@ -502,8 +517,7 @@ def conv_block(name, x, mid_channels, dilations=None, activation="relu",
                     filter_size=second_filter, dilations=dilations)
       x = tf.nn.tanh(x_tanh) * tf.nn.sigmoid(x_sigm)
 
-    if dropout != 0.0:
-      x = tf.nn.dropout(x, keep_prob=1.0 - dropout)
+    x = get_dropout(x, rate=dropout)
     return x
 
 
@@ -830,6 +844,22 @@ def latent_to_dist(name, x, hparams, output_channels=None):
 
 
 @add_arg_scope
+def noise_op(latents, hparams):
+  """Adds isotropic gaussian-noise to each latent.
+
+  Args:
+    latents: 4-D or 5-D tensor, shape=(NTHWC) or (NHWC).
+    hparams: tf.contrib.training.HParams.
+  Returns:
+    latents: latents with isotropic gaussian noise appended.
+  """
+  if hparams.latent_noise == 0 or hparams.mode != tf.estimator.ModeKeys.TRAIN:
+    return latents
+  latent_shape = common_layers.shape_list(latents)
+  return latents + tf.random_normal(latent_shape, stddev=hparams.latent_noise)
+
+
+@add_arg_scope
 def merge_level_and_latent_dist(level_dist, latent_dist,
                                 merge_std="prev_level"):
   """Merge level_dist and latent_dist.
@@ -894,6 +924,7 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
     output_channels = common_layers.shape_list(z)[-1]
     last_latent = latent[-1]
     latent_stack = tf.concat([prior_dist.loc] + latent, axis=-1)
+    latent_stack = noise_op(latent_stack, hparams)
     cond_dist = latent_to_dist(
         "latent_stack", latent_stack, hparams=hparams,
         output_channels=output_channels)
@@ -910,6 +941,7 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
     prev_latents = tf.tile(tf.expand_dims(prior_dist.loc, axis=1),
                            [1, num_steps, 1, 1, 1])
     cond_latents = tf.concat((cond_latents, prev_latents), axis=-1)
+    cond_latents = noise_op(cond_latents, hparams)
     cond_dist = temporal_latent_to_dist(
         "latent_stack", cond_latents, hparams, output_channels=output_channels)
 
@@ -917,6 +949,7 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
     last_latent = latent
     output_channels = common_layers.shape_list(z)[-1]
     latent_stack = tf.concat((prior_dist.loc, latent), axis=-1)
+    latent_stack = noise_op(latent_stack, hparams)
     _, state = common_video.conv_lstm_2d(
         latent_stack, state, hparams.latent_encoder_width, kernel_size=3,
         name="conv_lstm")
@@ -944,7 +977,7 @@ def compute_prior(name, z, latent, hparams, condition=False, state=None,
             The first-three dimensions of the latent should be the same as z.
     hparams: next_frame_glow_hparams.
     condition: Whether or not to condition the distribution on latent.
-    state: tf.contrib.rnn.LSTMStateTuple.
+    state: tf.nn.rnn_cell.LSTMStateTuple.
            the current state of a LSTM used to model the distribution. Used
            only if hparams.latent_dist_encoder = "conv_lstm".
     temperature: float, temperature with which to sample from the Gaussian.
@@ -992,7 +1025,7 @@ def split(name, x, reverse=False, eps=None, eps_std=None, cond_latents=None,
     eps_std: Sample x2 with the provided eps_std.
     cond_latents: optionally condition x2 on cond_latents.
     hparams: next_frame_glow hparams.
-    state: tf.contrib.rnn.LSTMStateTuple. Current state of the LSTM over z_2.
+    state: tf.nn.rnn_cell.LSTMStateTuple. Current state of the LSTM over z_2.
            Used only when hparams.latent_dist_encoder == "conv_lstm"
     condition: bool, Whether or not to condition the distribution on
                cond_latents.

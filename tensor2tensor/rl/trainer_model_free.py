@@ -20,7 +20,7 @@ Example invocation:
 python -m tensor2tensor.rl.trainer_model_free \
     --output_dir=$HOME/t2t/rl_v1 \
     --hparams_set=pong_model_free \
-    --loop_hparams='batch_size=15'
+    --hparams='batch_size=15'
 """
 
 from __future__ import absolute_import
@@ -53,7 +53,8 @@ except:  # pylint: disable=bare-except
 def initialize_env_specs(hparams):
   """Initializes env_specs using T2TGymEnvs."""
   env = rl_utils.setup_env(hparams, hparams.batch_size,
-                           hparams.eval_max_num_noops)
+                           hparams.eval_max_num_noops,
+                           hparams.rl_env_max_episode_steps)
   env.start_new_epoch(0)
 
   # TODO(afrozm): Decouple env_fn from hparams and return both, is there

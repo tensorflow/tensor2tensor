@@ -22,6 +22,7 @@ from __future__ import print_function
 import collections
 import itertools
 import random
+
 from gym.spaces import Box
 import numpy as np
 
@@ -185,7 +186,10 @@ class T2TEnv(EnvSimulationProblem):
     if not rollouts_by_split:
       if split is not None:
         raise ValueError(
-            "generate_data() should first be called in the current epoch"
+            "Data is not splitted into train/dev/test. If data created by "
+            "environment interaction (NOT loaded from disk) you should call "
+            "generate_data() first. Note that generate_data() will write to "
+            "disk and can corrupt your experiment data."
         )
       else:
         rollouts = self._current_epoch_rollouts

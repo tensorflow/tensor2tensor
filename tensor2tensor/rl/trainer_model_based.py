@@ -39,8 +39,11 @@ import six
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl
+from tensor2tensor.models.research.rl import make_simulated_env_fn_from_hparams
 from tensor2tensor.rl import rl_utils
 from tensor2tensor.rl import trainer_model_based_params
+from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image
+from tensor2tensor.rl.envs.simulated_batch_env import PIL_ImageDraw
 from tensor2tensor.rl.restarter import Restarter
 from tensor2tensor.utils import trainer_lib
 
@@ -49,18 +52,6 @@ import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
-
-
-# Lazy load PIL.Image
-def PIL_Image():  # pylint: disable=invalid-name
-  from PIL import Image  # pylint: disable=g-import-not-at-top
-  return Image
-
-
-# Lazy load PIL.Image
-def PIL_ImageDraw():  # pylint: disable=invalid-name
-  from PIL import ImageDraw  # pylint: disable=g-import-not-at-top
-  return ImageDraw
 
 
 def real_env_step_increment(hparams):
@@ -135,28 +126,6 @@ def random_rollout_subsequences(rollouts, num_subsequences, subsequence_length):
   return [choose_subsequence() for _ in range(num_subsequences)]
 
 
-def make_simulated_env_fn(
-    real_env, hparams, batch_size, initial_frame_chooser, model_dir,
-    sim_video_dir=None):
-  """Creates a simulated env_fn."""
-  model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
-  if hparams.wm_policy_param_sharing:
-    model_hparams.optimizer_zero_grads = True
-  return rl.make_simulated_env_fn(
-      reward_range=real_env.reward_range,
-      observation_space=real_env.observation_space,
-      action_space=real_env.action_space,
-      frame_stack_size=hparams.frame_stack_size,
-      frame_height=real_env.frame_height, frame_width=real_env.frame_width,
-      initial_frame_chooser=initial_frame_chooser, batch_size=batch_size,
-      model_name=hparams.generative_model,
-      model_hparams=trainer_lib.create_hparams(hparams.generative_model_params),
-      model_dir=model_dir,
-      intrinsic_reward_scale=hparams.intrinsic_reward_scale,
-      sim_video_dir=sim_video_dir,
-  )
-
-
 def train_supervised(problem, model_name, hparams, data_dir, output_dir,
                      train_steps, eval_steps, local_eval_frequency=None,
                      schedule="continuous_train_and_eval"):
@@ -175,34 +144,11 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
 
 def train_agent(real_env, learner, world_model_dir, hparams, epoch):
   """Train the PPO agent in the simulated environment."""
-  frame_stack_size = hparams.frame_stack_size
-  initial_frame_rollouts = real_env.current_epoch_rollouts(
-      split=tf.contrib.learn.ModeKeys.TRAIN,
-      minimal_rollout_frames=frame_stack_size,
+  initial_frame_chooser = rl_utils.make_initial_frame_chooser(
+      real_env, hparams.frame_stack_size, hparams.simulation_random_starts,
+      hparams.simulation_flip_first_random_for_beginning
   )
-  # TODO(koz4k): Move this to a different module.
-  def initial_frame_chooser(batch_size):
-    """Frame chooser."""
-
-    deterministic_initial_frames =\
-        initial_frame_rollouts[0][:frame_stack_size]
-    if not hparams.simulation_random_starts:
-      # Deterministic starts: repeat first frames from the first rollout.
-      initial_frames = [deterministic_initial_frames] * batch_size
-    else:
-      # Random starts: choose random initial frames from random rollouts.
-      initial_frames = random_rollout_subsequences(
-          initial_frame_rollouts, batch_size, frame_stack_size
-      )
-      if hparams.simulation_flip_first_random_for_beginning:
-        # Flip first entry in the batch for deterministic initial frames.
-        initial_frames[0] = deterministic_initial_frames
-
-    return np.stack([
-        [frame.observation.decode() for frame in initial_frame_stack]
-        for initial_frame_stack in initial_frames
-    ])
-  env_fn = make_simulated_env_fn(
+  env_fn = make_simulated_env_fn_from_hparams(
       real_env, hparams, hparams.simulated_batch_size, initial_frame_chooser,
       world_model_dir, os.path.join(learner.agent_model_dir,
                                     "sim_videos_{}".format(epoch))
@@ -295,7 +241,7 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
         for subsequence in rollout_subsequences
     ])
 
-  env_fn = make_simulated_env_fn(
+  env_fn = make_simulated_env_fn_from_hparams(
       real_env, hparams, hparams.wm_eval_batch_size, initial_frame_chooser,
       world_model_dir
   )
@@ -304,7 +250,7 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
       max(hparams.wm_eval_rollout_ratios) * hparams.simulated_rollout_length
   )
   rollouts = real_env.current_epoch_rollouts(
-      split=tf.contrib.learn.ModeKeys.EVAL,
+      split=tf.estimator.ModeKeys.EVAL,
       minimal_rollout_frames=(subsequence_length + frame_stack_size)
   )
 
@@ -431,15 +377,6 @@ def load_metrics(event_dir, epoch):
   return metrics
 
 
-def summarize_metrics(eval_metrics_writer, metrics, epoch):
-  """Write metrics to summary."""
-  for (name, value) in six.iteritems(metrics):
-    summary = tf.Summary()
-    summary.value.add(tag=name, simple_value=value)
-    eval_metrics_writer.add_summary(summary, epoch)
-  eval_metrics_writer.flush()
-
-
 def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   """Run the main training loop."""
   if report_fn:
@@ -456,7 +393,8 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   data_dir = directories["data"]
   env = rl_utils.setup_env(
       hparams, batch_size=hparams.real_batch_size,
-      max_num_noops=hparams.max_num_noops
+      max_num_noops=hparams.max_num_noops,
+      rl_env_max_episode_steps=hparams.rl_env_max_episode_steps
   )
   env.start_new_epoch(epoch, data_dir)
 
@@ -546,7 +484,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
         log("World model eval metrics:\n{}".format(pprint.pformat(wm_metrics)))
         metrics.update(wm_metrics)
 
-      summarize_metrics(eval_metrics_writer, metrics, epoch)
+      rl_utils.summarize_metrics(eval_metrics_writer, metrics, epoch)
 
       # Report metrics
       if report_fn:

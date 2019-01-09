@@ -47,6 +47,7 @@ def ppo_base_v1():
   hparams.learning_rate_schedule = "constant"
   hparams.learning_rate_constant = 1e-4
   hparams.clip_grad_norm = 0.5
+  hparams.weight_decay = 0
   # If set, extends the LR warmup to all epochs except the final one.
   hparams.add_hparam("lr_decay_in_final_epoch", False)
   hparams.add_hparam("init_mean_factor", 0.1)
@@ -141,6 +142,8 @@ def ppo_original_world_model():
       hparams.set_hparam(name, value)
     else:
       hparams.add_hparam(name, value)
+  # Mostly to avoid decaying WM params when training the policy.
+  hparams.weight_decay = 0
   return hparams
 
 
@@ -156,6 +159,7 @@ def ppo_tiny_world_model():
       hparams.set_hparam(name, value)
     else:
       hparams.add_hparam(name, value)
+  hparams.weight_decay = 0
   return hparams
 
 
@@ -173,6 +177,7 @@ def ppo_original_world_model_stochastic_discrete():
       hparams.add_hparam(name, value)
   # To avoid OOM. Probably way to small.
   hparams.optimization_batch_size = 1
+  hparams.weight_decay = 0
   return hparams
 
 
@@ -201,6 +206,28 @@ def make_simulated_env_fn(**env_kwargs):
     class_ = SimulatedBatchEnv if in_graph else SimulatedBatchGymEnv
     return class_(**env_kwargs)
   return env_fn
+
+
+def make_simulated_env_fn_from_hparams(
+    real_env, hparams, batch_size, initial_frame_chooser, model_dir,
+    sim_video_dir=None):
+  """Creates a simulated env_fn."""
+  model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
+  if hparams.wm_policy_param_sharing:
+    model_hparams.optimizer_zero_grads = True
+  return make_simulated_env_fn(
+      reward_range=real_env.reward_range,
+      observation_space=real_env.observation_space,
+      action_space=real_env.action_space,
+      frame_stack_size=hparams.frame_stack_size,
+      frame_height=real_env.frame_height, frame_width=real_env.frame_width,
+      initial_frame_chooser=initial_frame_chooser, batch_size=batch_size,
+      model_name=hparams.generative_model,
+      model_hparams=trainer_lib.create_hparams(hparams.generative_model_params),
+      model_dir=model_dir,
+      intrinsic_reward_scale=hparams.intrinsic_reward_scale,
+      sim_video_dir=sim_video_dir,
+  )
 
 
 def get_policy(observations, hparams, action_space):
@@ -308,6 +335,7 @@ def rlmf_original():
       frame_stack_size=4,
       eval_sampling_temps=[0.0, 0.2, 0.5, 0.8, 1.0, 2.0],
       eval_max_num_noops=8,
+      eval_rl_env_max_episode_steps=1000,
       resize_height_factor=2,
       resize_width_factor=2,
       grayscale=0,

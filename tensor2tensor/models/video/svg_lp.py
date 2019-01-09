@@ -57,13 +57,13 @@ class NextFrameSVGLP(emily.NextFrameEmily):
     """
     layers_units = [hidden_size] * nlayers
     if rnn_type == "lstm":
-      rnn_cell = tf.contrib.rnn.LSTMCell
+      rnn_cell = tf.nn.rnn_cell.LSTMCell
     elif rnn_type == "gru":
-      rnn_cell = tf.contrib.rnn.GRUCell
+      rnn_cell = tf.nn.rnn_cell.GRUCell
     else:
-      rnn_cell = tf.contrib.rnn.RNNCell
+      rnn_cell = tf.nn.rnn_cell.RNNCell
     cells = [rnn_cell(units, name=name) for units in layers_units]
-    stacked_rnn = tf.contrib.rnn.MultiRNNCell(cells)
+    stacked_rnn = tf.nn.rnn_cell.MultiRNNCell(cells)
     return stacked_rnn
 
   def deterministic_rnn(self, cell, inputs, states, output_size, scope):

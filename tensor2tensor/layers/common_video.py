@@ -82,7 +82,7 @@ def lstm_cell(inputs,
               name=None):
   """Full LSTM cell."""
   input_shape = common_layers.shape_list(inputs)
-  cell = tf.contrib.rnn.LSTMCell(num_units,
+  cell = tf.nn.rnn_cell.LSTMCell(num_units,
                                  use_peepholes=use_peepholes,
                                  cell_clip=cell_clip,
                                  initializer=initializer,

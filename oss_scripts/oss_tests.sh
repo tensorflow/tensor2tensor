@@ -74,7 +74,7 @@ then
   # Ignores:
   # * Glow requires the CIFAR-10 dataset to be generated
   pytest tensor2tensor/models/research \
-    --ignore=tensor2tensor/models/research/glow_test.py \
+    --ignore=tensor2tensor/models/research/glow_test.py
   set_status
 fi
 

@@ -1122,6 +1122,23 @@ class TransformerEncoder(t2t_model.T2TModel):
     return encoder_output
 
 
+@registry.register_model
+class TransformerRegressor(TransformerEncoder):
+  """Transformer inheriting from Encoder, for the regression problem.
+
+  Final result is a tensor that has a shape of (?, 1, 1, 1).
+  """
+
+  def top(self, body_output, features):
+    """Computes single scalar value from body_output."""
+
+    with tf.variable_scope("reg_top_ffn"):
+      x = body_output
+      x = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
+      res = tf.layers.dense(x, 1, name="model_top")
+      return res
+
+
 def features_to_nonpadding(features, inputs_or_targets="inputs"):
   key = inputs_or_targets + "_segmentation"
   if features and key in features:

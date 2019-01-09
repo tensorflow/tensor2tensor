@@ -33,8 +33,8 @@ class AutoencoderTest(tf.test.TestCase):
   def get_mnist_random_output(self, model_name, hparams_set=None,
                               mode=tf.estimator.ModeKeys.TRAIN):
     hparams_set = hparams_set or model_name
-    x = np.random.random_integers(0, high=255, size=(1, 28, 28, 1))
-    y = np.random.random_integers(0, high=9, size=(1, 1))
+    x = np.random.randint(256, size=(1, 28, 28, 1))
+    y = np.random.randint(10, size=(1, 1))
     features = {
         "targets": tf.constant(x, dtype=tf.int32),
         "inputs": tf.constant(y, dtype=tf.int32),

@@ -18,17 +18,18 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import inspect
 import numpy as np
 import six
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import bleu_hook
 from tensor2tensor.utils import rouge
+from tensor2tensor.utils import sari_hook
 
 import tensorflow as tf
 
 from tensorflow.contrib.eager.python import tfe
+from tensorflow.python.util import tf_inspect as inspect
 
 
 class Metrics(object):
@@ -41,6 +42,7 @@ class Metrics(object):
   NEG_LOG_PERPLEXITY = "neg_log_perplexity"
   MASKED_NEG_LOG_PERPLEXITY = "masked_neg_log_perplexity"
   APPROX_BLEU = "approx_bleu_score"
+  APPROX_SARI = "approx_sari_score"
   RMSE = "rmse"
   LOG_POISSON = "log_poisson"
   PEARSON = "pearson"
@@ -602,15 +604,9 @@ def create_evaluation_metrics(problems, model_hparams):
     problem_name = problem_instance.name
     if problem_instance.was_reversed:
       problem_name += "_rev"
-    metrics = problem_instance.eval_metrics()
+    metrics = problem_instance.eval_metric_fns(model_hparams)
     if hasattr(model_hparams.problem, "task_list"):
-      metrics = model_hparams.problem.eval_metrics()
-    if not all([m in METRICS_FNS for m in metrics]):
-      error_str = ("Unrecognized metric. Problem %s specified metrics "
-                   "%s. Recognized metrics are %s.")
-      raise ValueError(error_str % (problem_name,
-                                    metrics,
-                                    list(METRICS_FNS.keys())))
+      metrics = model_hparams.problem.eval_metric_fns(model_hparams)
 
     tm = problem_instance.get_hparams(model_hparams).modality["targets"]
     if not isinstance(tm, dict):
@@ -622,8 +618,7 @@ def create_evaluation_metrics(problems, model_hparams):
         ptid = problem_instance.task_id  # pylint: disable=cell-var-from-loop
         weights_fn = weights_fn_for_mp(ptid)
 
-      for metric in metrics:
-        metric_fn = METRICS_FNS[metric]
+      for metric, metric_fn in six.iteritems(metrics):
         overload_eval_metric_name = getattr(
             model_hparams, "overload_eval_metric_name", None)
         if len(problems) == 1 and overload_eval_metric_name:
@@ -642,9 +637,10 @@ def create_evaluation_metrics(problems, model_hparams):
 
 def create_eager_metrics_for_problem(problem, model_hparams):
   """See create_eager_metrics."""
-  metric_names = problem.eval_metrics()
+  metric_fns = problem.eval_metric_fns(model_hparams)
   tm = problem.get_hparams(model_hparams).modality["targets"]
-  return create_eager_metrics(metric_names, weights_fn=tm.targets_weights_fn)
+  return create_eager_metrics_internal(
+      metric_fns, weights_fn=tm.targets_weights_fn)
 
 
 def create_eager_metrics(metric_names, weights_fn=common_layers.weights_all):
@@ -662,9 +658,26 @@ def create_eager_metrics(metric_names, weights_fn=common_layers.weights_all):
   """
   metric_fns = dict(
       [(name, METRICS_FNS[name]) for name in metric_names])
+  return create_eager_metrics_internal(metric_fns, weights_fn)
+
+
+def create_eager_metrics_internal(metric_fns,
+                                  weights_fn=common_layers.weights_all):
+  """Create metrics accumulators and averager for Eager mode.
+
+  Args:
+    metric_fns: dict<metric name, metric function>
+    weights_fn: function that takes labels and returns a weights mask. Defaults
+      to weights of all 1, i.e. common_layers.weights_all. Use
+      common_layers.weights_nonzero if labels have 0-padding.
+
+  Returns:
+    (accum_fn(predictions, targets) => None,
+     result_fn() => dict<str metric_name, float avg_val>
+  """
   tfe_metrics = dict()
 
-  for name in metric_names:
+  for name in metric_fns:
     tfe_metrics[name] = tfe.metrics.Mean(name=name)
 
   def metric_accum(predictions, targets):
@@ -675,7 +688,7 @@ def create_eager_metrics(metric_names, weights_fn=common_layers.weights_all):
 
   def metric_means():
     avgs = {}
-    for name in metric_names:
+    for name in metric_fns:
       avgs[name] = tfe_metrics[name].result().numpy()
     return avgs
 
@@ -771,6 +784,7 @@ METRICS_FNS = {
     Metrics.NEG_LOG_PERPLEXITY: padded_neg_log_perplexity,
     Metrics.MASKED_NEG_LOG_PERPLEXITY: padded_neg_log_perplexity_with_masking,
     Metrics.APPROX_BLEU: bleu_hook.bleu_score,
+    Metrics.APPROX_SARI: sari_hook.sari_score,
     Metrics.RMSE: padded_rmse,
     Metrics.LOG_POISSON: padded_log_poisson,
     Metrics.PEARSON: pearson_correlation_coefficient,

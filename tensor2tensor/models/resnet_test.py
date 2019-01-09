@@ -40,10 +40,10 @@ class ResnetTest(tf.test.TestCase):
   def _test_resnet(self, img_size, output_size):
     vocab_size = 9
     batch_size = 2
-    x = np.random.random_integers(
-        0, high=255, size=(batch_size, img_size, img_size, 3))
-    y = np.random.random_integers(
-        1, high=vocab_size - 1, size=(batch_size, 1, 1, 1))
+    x = np.random.randint(
+        256, size=(batch_size, img_size, img_size, 3))
+    y = np.random.randint(
+        1, high=vocab_size, size=(batch_size, 1, 1, 1))
     hparams = resnet_tiny_cpu()
     p_hparams = problem_hparams.test_problem_hparams(vocab_size,
                                                      vocab_size,

@@ -90,6 +90,41 @@ class ExponentiatedQuadratic(object):
     return {'variance': self.variance, 'lengthscale': self.lengthscale}
 
 
+class LinearKernel(object):
+  """Linear kernel, optionally on top of a feature extractor (e.g., encoder)."""
+
+  def __init__(self, variance, bias, encoder=tf.identity):
+    self.variance = variance
+    self.bias = bias
+    self.encoder = encoder
+
+  def __call__(self, x1, x2):
+    """Computes scaled dot product of over all pairs of encoded inputs.
+
+    Args:
+      x1: Tensor of shape [batch_x1] + encoder domain. Slices along the batch
+        axis denote an individual input to be passed to the kernel. It is
+        computed pairwise with each input sliced from x2.
+      x2: Tensor of shape [batch_x2] + encoder domain. Slices along the batch
+        axis denote an individual input to be passed to the kernel. It is
+        computed pairwise with each input sliced from x1.
+
+    Returns:
+      Tensor of shape [batch_x1, batch_x2].
+    """
+    encoded_x1 = self.encoder(x1)
+    encoded_x2 = self.encoder(x2)
+    dot_product = tf.matmul(encoded_x1, encoded_x2, transpose_b=True)
+    return tf.sqrt(self.variance) * dot_product + self.bias
+
+  def get_config(self):
+    return {
+        'variance': self.variance,
+        'bias': self.bias,
+        'encoder': tf.keras.utils.serialize_keras_object(self.encoder),
+    }
+
+
 # TODO(dusenberrymw): Restructure the implementation of a trainable initializer
 # such that callers do not need to have type-conditional logic.
 class TrainableInitializer(tf.keras.initializers.Initializer):

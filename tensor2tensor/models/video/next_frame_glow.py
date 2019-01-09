@@ -65,6 +65,7 @@ def next_frame_glow_hparams():
   hparams.add_hparam("latent_dropout", 0.0)
   hparams.add_hparam("latent_pre_output_channels", 512)
   hparams.add_hparam("latent_activation", "relu")
+  hparams.add_hparam("latent_noise", 0.0)
   # Pretrains the glow encoder for "pretrain_steps" number of steps.
   # By default, don't pretrain and learn end-to-end
   hparams.add_hparam("pretrain_steps", -1)
@@ -170,7 +171,7 @@ class NextFrameGlow(glow.Glow):
     else:
       num_target_frames = self.hparams.video_num_target_frames
 
-    ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
+    ops = [glow_ops.get_variable_ddi, glow_ops.actnorm, glow_ops.get_dropout]
     var_scope = tf.variable_scope("next_frame_glow/body", reuse=True)
     all_frames = []
 
@@ -285,6 +286,7 @@ class NextFrameGlow(glow.Glow):
         cond_top_latents = tf.concat(cond_top_latents, axis=-1)
 
         # Maps the latent-stack to a distribution.
+        cond_top_latents = glow_ops.noise_op(cond_top_latents, self.hparams)
         top = glow_ops.latent_to_dist(
             name, cond_top_latents, hparams=self.hparams,
             output_channels=output_channels)
@@ -293,6 +295,7 @@ class NextFrameGlow(glow.Glow):
         output_channels = common_layers.shape_list(cond_top_latents)[-1]
         # (h_t, c_t) = LSTM(z_{t-1}; (h_{t-1}, c_{t-1}))
         # (mu_t, sigma_t) = conv(h_t)
+        cond_top_latents = glow_ops.noise_op(cond_top_latents, self.hparams)
         _, self.top_state = common_video.conv_lstm_2d(
             cond_top_latents, self.top_state, self.hparams.latent_encoder_width,
             kernel_size=3, name="conv_lstm")
@@ -300,8 +303,10 @@ class NextFrameGlow(glow.Glow):
             name, self.top_state.h, output_channels=output_channels)
       elif self.hparams.latent_dist_encoder == "conv3d_net":
         last_latent = cond_top_latents[-1]
+        cond_top_latents = tf.stack(cond_top_latents, axis=1)
+        cond_top_latents = glow_ops.noise_op(cond_top_latents, self.hparams)
         top = glow_ops.temporal_latent_to_dist(
-            "conv3d", tf.stack(cond_top_latents, axis=1), self.hparams)
+            "conv3d", cond_top_latents, self.hparams)
 
       # mu(z_{t}) = z_{t-1} + latent_encoder(z_{cond})
       if self.hparams.latent_skip:
@@ -477,7 +482,7 @@ class NextFrameGlow(glow.Glow):
 
     cond_level_latents, cond_top_latents = None, None
     total_objective = 0.0
-    ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
+    ops = [glow_ops.get_variable_ddi, glow_ops.actnorm, glow_ops.get_dropout]
 
     with arg_scope(ops, init=init):
       for frame_ind, frame in enumerate(all_frames):

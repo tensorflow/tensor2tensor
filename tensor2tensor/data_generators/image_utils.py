@@ -262,7 +262,7 @@ class Image2ClassProblem(ImageProblem):
 
 def encode_images_as_png(images):
   """Yield images encoded as pngs."""
-  if tf.contrib.eager.in_eager_mode():
+  if tf.executing_eagerly():
     for image in images:
       yield tf.image.encode_png(image).numpy()
   else:

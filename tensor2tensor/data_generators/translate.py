@@ -36,6 +36,7 @@ FLAGS = tf.flags.FLAGS
 class TranslateProblem(text_problems.Text2TextProblem):
   """Base class for translation problems."""
 
+  @property
   def is_generate_per_split(self):
     return True
 

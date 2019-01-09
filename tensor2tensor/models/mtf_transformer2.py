@@ -54,6 +54,12 @@ class MtfUnitransformer(mtf_model.MtfModel):
           mtf.Dimension("inner_batch",
                         hparams.batch_size // hparams.outer_batch_size)]
 
+  def combine_batch_dims(self, x):
+    if len(self.batch_dims) <= 1:
+      return x
+    return mtf.replace_dimensions(
+        x, self.batch_dims, mtf.combined_dimension(self.batch_dims))
+
   @property
   def autoregressive(self):
     return self._hparams.autoregressive
@@ -121,6 +127,8 @@ class MtfUnitransformer(mtf_model.MtfModel):
         output_vocab_size=self._targets_vocab_size,
         autoregressive=self.autoregressive,
         max_length=hparams.max_length,
+        shared_embedding_and_softmax_weights=(
+            hparams.shared_embedding_and_softmax_weights),
         z_loss=hparams.z_loss,
         layout=hparams.layout,
         mesh_shape=hparams.mesh_shape)
@@ -151,11 +159,7 @@ class MtfUnitransformer(mtf_model.MtfModel):
   def mtf_model_fn(self, features, mesh):
     logits, loss = self._mtf_model_fn(features, mesh)
     # combine batch dims
-    if len(self.batch_dims) > 1:
-      combined_batch_dim = mtf.Dimension(
-          self.batch_dims[0].name, mtf.Shape(self.batch_dims).size)
-      logits = mtf.reshape(
-          logits, [combined_batch_dim] + logits.shape.dims[-2:])
+    logits = self.combine_batch_dims(logits)
     return logits, loss
 
   @property
@@ -185,16 +189,20 @@ class MtfUnitransformer(mtf_model.MtfModel):
       partial_targets = import_feature("inputs")
       if partial_targets is None:
         partial_targets = import_feature("targets")
-      if partial_targets is None:
+      if partial_targets:
+        partial_targets *= mtf.cast(
+            mtf.not_equal(partial_targets, 1), partial_targets.dtype)
+      else:
         ids_shape = mtf.Shape(self.batch_dims + [self.length_dim])
         partial_targets = mtf.constant(mesh, 0, ids_shape, dtype=tf.int32)
       if hparams.beam_size > 1:
         raise NotImplementedError(
             "Beam search not implemented for unitransformer.")
-      return model.sample_autoregressive(
+      ret = model.sample_autoregressive(
           partial_targets,
           temperature=hparams.sampling_temp,
           variable_dtype=self.variable_dtype)
+      return self.combine_batch_dims(ret)
     else:
       raise ValueError(
           "Don't know how to sample from non-autoregressive unitransformer")
@@ -223,6 +231,8 @@ class MtfBitransformer(MtfUnitransformer):
         output_vocab_size=self._targets_vocab_size,
         max_length=hparams.max_length,
         shared_embedding=hparams.shared_embedding,
+        shared_embedding_and_softmax_weights=(
+            hparams.shared_embedding_and_softmax_weights),
         label_smoothing=hparams.label_smoothing,
         z_loss=hparams.z_loss,
         layout=hparams.layout,
@@ -258,7 +268,7 @@ class MtfBitransformer(MtfUnitransformer):
     hparams = self._hparams
     model = self.model()
     inputs = self._import_feature(features, mesh, "inputs")
-    return model.decode(
+    ret = model.decode(
         inputs,
         self.variable_dtype,
         beam_size=hparams.beam_size,
@@ -266,6 +276,7 @@ class MtfBitransformer(MtfUnitransformer):
         temperature=hparams.sampling_temp if hparams.beam_size == 1 else 0,
         decode_length_multiplier=hparams.decode_length_multiplier,
         decode_length_constant=hparams.decode_length_constant)
+    return self.combine_batch_dims(ret)
 
 
 # The following functions construct layers based on hyperparmeters
@@ -525,6 +536,14 @@ def mtr_lm_dense_0():
 
 
 @registry.register_hparams
+def mtr_lm_dense_0_h1_16():
+  hparams = mtr_lm_dense_0()
+  hparams.decoder_num_heads = 16
+  hparams.decoder_num_memory_heads = 1
+  return hparams
+
+
+@registry.register_hparams
 def mtr_lm_dense_1():
   return mtr_lm_dense(1)
 
@@ -686,6 +705,13 @@ def mtr_tr_dense_local_0_h1_16():
 
 
 @registry.register_hparams
+def mtr_tr_dense_local_0_h1_16_shared():
+  hparams = mtr_tr_dense_local_0_h1_16()
+  hparams.shared_embedding_and_softmax_weights = True
+  return hparams
+
+
+@registry.register_hparams
 def mtr_tr_dense_local_0_h1_8_kv256():
   hparams = mtr_tr_dense_local_0()
   hparams.decoder_num_heads = 8
@@ -756,4 +782,32 @@ def mtr_tr_dense_0_h2_16():
 def mtr_tr_dense_0_shared_kv():
   hparams = mtr_tr_dense_0()
   hparams.decoder_shared_kv = True
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_enfr_v0():
+  # good parameters for wmt-en-fr
+  hparams = mtr_tr_dense_local_0_h1_16()
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_ende_v0():
+  # good parameters for wmt-en-de
+  hparams = mtr_tr_dense_local_0_h1_16()
+  hparams.learning_rate_decay_steps = 20000
+  hparams.shared_embedding_and_softmax_weights = True
+  hparams.layer_prepostprocess_dropout = 0.2
+  return hparams
+
+
+@registry.register_hparams
+def mtr_tr_ende_deep():
+  hparams = mtr_tr_ende_v0()
+  hparams.decoder_num_heads = 8
+  hparams.encoder_num_heads = 4
+  hparams.d_ff = 2048
+  hparams.encoder_num_layers = 12
+  hparams.decoder_num_layers = 12
   return hparams

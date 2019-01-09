@@ -34,14 +34,14 @@ import tensorflow as tf
 FLAGS = tf.flags.FLAGS
 
 CONSOLE_URL = "https://console.cloud.google.com/mlengine/jobs/"
-RUNTIME_VERSION = "1.9"
+RUNTIME_VERSION = "1.12"
 
 
 class Gcloud(object):
   """gcloud command strings."""
   # Note these can be modified by set_versions
-  VM_VERSION = "tf-1-9"
-  TPU_VERSION = "1.9"
+  VM_VERSION = "tf-1-12"
+  TPU_VERSION = "1.12"
 
   @classmethod
   def set_versions(cls, vm, tpu):

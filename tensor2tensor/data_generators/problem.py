@@ -367,6 +367,20 @@ class Problem(object):
         metrics.Metrics.ACC_PER_SEQ, metrics.Metrics.NEG_LOG_PERPLEXITY
     ]
 
+  def eval_metric_fns(self, model_hparams):
+    del model_hparams
+    metric_names = self.eval_metrics()
+    if not all([m in metrics.METRICS_FNS for m in metric_names]):
+      error_str = ("Unrecognized metric. Problem %s specified metrics "
+                   "%s. Recognized metrics are %s.")
+      raise ValueError(error_str % (self.name,
+                                    metric_names,
+                                    list(metrics.METRICS_FNS.keys())))
+    return {
+        metric_name: metrics.METRICS_FNS[metric_name]
+        for metric_name in metric_names
+    }
+
   def eval_hooks(self, features, logits, hparams):
     del features, logits, hparams
     return []
@@ -409,7 +423,7 @@ class Problem(object):
 
     if interleave:
       dataset = dataset.apply(
-          tf.contrib.data.parallel_interleave(
+          tf.data.experimental.parallel_interleave(
               _preprocess, sloppy=True, cycle_length=8))
     else:
       dataset = dataset.flat_map(_preprocess)
@@ -660,7 +674,7 @@ class Problem(object):
     # Create data-set from files by parsing, pre-processing and interleaving.
     if shuffle_files:
       dataset = dataset.apply(
-          tf.contrib.data.parallel_interleave(
+          tf.data.experimental.parallel_interleave(
               _load_records_and_preprocess, sloppy=True, cycle_length=8))
     else:
       dataset = _load_records_and_preprocess(dataset)
@@ -949,7 +963,7 @@ class Problem(object):
           batching_scheme["batch_sizes"] = [hparams.batch_size]
           batching_scheme["boundaries"] = []
         dataset = dataset.apply(
-            tf.contrib.data.bucket_by_sequence_length(
+            tf.data.experimental.bucket_by_sequence_length(
                 data_reader.example_length, batching_scheme["boundaries"],
                 batching_scheme["batch_sizes"]))
 
@@ -1026,7 +1040,7 @@ class Problem(object):
         tf.shape(serialized_example, out_type=tf.int64)[0],
         dataset.output_shapes)
     dataset = dataset.map(standardize_shapes)
-    features = tf.contrib.data.get_single_element(dataset)
+    features = tf.data.experimental.get_single_element(dataset)
 
     if self.has_inputs:
       features.pop("targets", None)

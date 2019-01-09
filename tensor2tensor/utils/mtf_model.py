@@ -160,14 +160,27 @@ class MtfModel(t2t_model.T2TModel):
       else:
         host_call = None
 
+      if hparams.warm_start_from:
+
+        def scaffold_fn():
+          t2t_model.initialize_from_ckpt(
+              ckpt_dir=hparams.warm_start_from, hparams=hparams)
+          return tf.train.Scaffold()
+      else:
+        scaffold_fn = None
+
       t2t_model.remove_summaries()
       return tpu_estimator.TPUEstimatorSpec(
           mode=tf.estimator.ModeKeys.TRAIN,
           loss=tf_loss,
           train_op=train_op,
           host_call=host_call,
-          training_hooks=[restore_hook, saver_hook])
+          training_hooks=[restore_hook, saver_hook],
+          scaffold_fn=scaffold_fn)
     else:
+      if hparams.warm_start_from:
+        t2t_model.initialize_from_ckpt(
+            ckpt_dir=hparams.warm_start_from, hparams=hparams)
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.TRAIN, loss=tf_loss, train_op=train_op,
           training_chief_hooks=[restore_hook, saver_hook])

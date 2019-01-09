@@ -22,6 +22,7 @@ import collections
 import operator
 import os
 import re
+import string
 import time
 
 import numpy as np
@@ -63,6 +64,8 @@ def decode_hparams(overrides=""):
       delimiter="\n",
       decode_to_file=None,
       decode_in_memory=False,
+      # How much decode should wait for the next checkpoint
+      decode_timeout_mins=240,
       summaries_log_dir="decode",  # Directory to write hook summaries.
       shards=1,    # How many shards of data to decode (treating 1 as None).
       shard_id=0,  # Which shard are we decoding if more than 1 above.
@@ -78,12 +81,13 @@ def decode_hparams(overrides=""):
       # Creates a blue/red border covering border_percent of the frame.
       border_percent=2,
       # Maximum number of videos displayed.
-      # Total number of videos are max_display_outputs * num_decodes
+      # number of videos displayed = max_display_outputs * max_display_decodes
       max_display_outputs=10,
+      max_display_decodes=5,
       # Used in computation of VGG feature based video metrics.
       # Set this to be the path to a trained VGG ckpt to output
       # useful metrics.
-      vgg_ckpt_path=None,
+      vgg_ckpt_path="",
       # Used for MLPerf compliance logging.
       mlperf_decode_step=0.0,
       mlperf_threshold=25.0,
@@ -370,14 +374,23 @@ def decode_from_file(estimator,
   problem_name = FLAGS.problem
   filename = _add_shard_to_filename(filename, decode_hp)
   tf.logging.info("Performing decoding from file (%s)." % filename)
-  sorted_inputs, sorted_keys = _get_sorted_inputs(filename, decode_hp.delimiter)
+  if has_input:
+    sorted_inputs, sorted_keys = _get_sorted_inputs(
+        filename, decode_hp.delimiter)
+  else:
+    sorted_inputs = _get_language_modeling_inputs(
+        filename, decode_hp.delimiter, repeat=decode_hp.num_decodes)
+    sorted_keys = range(len(sorted_inputs))
   num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
 
   if estimator.config.use_tpu:
     length = getattr(hparams, "length", hparams.max_length)
     batch_ids = []
     for line in sorted_inputs:
-      ids = inputs_vocab.encode(line.strip()) + [1]
+      if has_input:
+        ids = inputs_vocab.encode(line.strip()) + [1]
+      else:
+        ids = targets_vocab.encode(line)
       if len(ids) < length:
         ids.extend([0] * (length - len(ids)))
       else:
@@ -615,8 +628,6 @@ def _decode_batch_input_fn(num_decode_batches, sorted_inputs, vocabulary,
       batch_inputs.append(input_ids)
       if len(input_ids) > batch_length:
         batch_length = len(input_ids)
-    if max_input_size != -1:
-      batch_length = max_input_size
     final_batch_inputs = []
     for input_ids in batch_inputs:
       assert len(input_ids) <= batch_length
@@ -738,6 +749,37 @@ def show_and_save_image(img, save_path):
   plt.imshow(img)
   with tf.gfile.Open(save_path, "wb") as sp:
     plt.savefig(sp)
+
+
+def _get_language_modeling_inputs(filename,
+                                  delimiter="\n",
+                                  repeat=1,
+                                  append_space_to_final_punctionation=True):
+  """Read a file of partial texts to continue.
+
+  The purpose of append_space_to_final_punctionation is that SubwordTokenizer
+  groups punctuation and the ensuing space in the same token.  Adding a space
+  causes the token to be completed.
+
+  Args:
+    filename: a string
+    delimiter: a string
+    repeat: an integer - we repeat the entire file that many times.
+    append_space_to_final_punctionation: a boolean
+
+  Returns:
+    a list of strings
+  """
+  with tf.gfile.Open(filename) as f:
+    text = f.read()
+  inputs = text.split(delimiter)
+  if not inputs[-1]:
+    inputs.pop()
+  inputs *= repeat
+  if append_space_to_final_punctionation:
+    inputs = [
+        s + " " if s and s[-1] in string.punctuation else s for s in inputs]
+  return inputs
 
 
 def _get_sorted_inputs(filename, delimiter="\n"):
