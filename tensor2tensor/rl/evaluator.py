@@ -28,13 +28,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import numpy as np
+
 from tensor2tensor.models.research import rl  # pylint: disable=unused-import
 from tensor2tensor.rl import rl_utils
 from tensor2tensor.rl import trainer_model_based_params  # pylint: disable=unused-import
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import trainer_lib
 
-import numpy as np
 import tensorflow as tf
 
 
@@ -65,6 +66,8 @@ def make_agent(agent_type, action_space):
 def make_eval_fn_with_agent(agent_type):
   """Returns an out-of-graph eval_fn using the Agent API."""
   def eval_fn(env, hparams, policy_hparams, policy_dir, sampling_temp):
+    """Eval function."""
+    del hparams, policy_hparams, policy_dir, sampling_temp
     agent = make_agent(agent_type, env.action_space)
     num_dones = 0
     first_dones = [False] * env.batch_size
