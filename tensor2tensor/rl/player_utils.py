@@ -83,9 +83,17 @@ class SimulatedGymEnv(gym.Env):
   def step(self, action):
     return self.env.step(action)
 
-  def set_initial_frames(self, frames):
+  def set_initial_frame_stack(self, frames):
     assert frames.shape == self._initial_frames.shape[1:]
     self._initial_frames[0, ...] = frames
+
+  def add_to_initial_stack(self, frame):
+    """Adds new frame to (initial) frame stack, removes last one."""
+    assert frame.shape == self._initial_frames.shape[2:], \
+        '{}'.format(frame.shape, self._initial_frames.shape[:1])
+    initial_frames = np.roll(self._initial_frames, shift=-1, axis=1)
+    initial_frames[0, -1, ...] = frame
+    self._initial_frames = initial_frames
 
 
 def load_data_and_make_simulated_env(
