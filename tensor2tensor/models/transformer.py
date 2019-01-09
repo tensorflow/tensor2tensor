@@ -781,9 +781,16 @@ def fast_decode_tpu(encoder_output,
               hparams.num_heads),
       } for layer in range(num_layers)
   }
+
+  # If `ffn_layer` is in `["dense_relu_dense" or "conv_hidden_relu"]`, then the
+  # cache key "f" won't be used, which means that the` shape of cache["f"]`
+  # won't be changed to
+  # `[beamsize*batch_size, decode_length, hparams.hidden_size]` and may cause
+  # error when applying `nest.map reshape function` on it.
   if hparams.ffn_layer not in ["dense_relu_dense", "conv_hidden_relu"]:
     for layer in range(num_layers):
-      cache["layer_%d" % layer]["f"] = tf.zeros([batch_size, 0, hparams.hidden_size])
+      cache["layer_%d" % layer]["f"] = tf.zeros(
+          [batch_size, 0, hparams.hidden_size])
 
   if encoder_output is not None:
     for layer in range(num_layers):
@@ -960,9 +967,16 @@ def fast_decode(encoder_output,
                   tf.zeros([batch_size, 0, value_channels]), hparams.num_heads),
       } for layer in range(num_layers)
   }
+
+  # If `ffn_layer` is in `["dense_relu_dense" or "conv_hidden_relu"]`, then the
+  # cache key "f" won't be used, which means that the` shape of cache["f"]`
+  # won't be changed to
+  # `[beamsize*batch_size, decode_length, hparams.hidden_size]` and may cause
+  # error when applying `nest.map reshape function` on it.
   if hparams.ffn_layer not in ["dense_relu_dense", "conv_hidden_relu"]:
     for layer in range(num_layers):
-      cache["layer_%d" % layer]["f"] = tf.zeros([batch_size, 0, hparams.hidden_size])
+      cache["layer_%d" % layer]["f"] = tf.zeros(
+          [batch_size, 0, hparams.hidden_size])
 
   if encoder_output is not None:
     for layer in range(num_layers):
