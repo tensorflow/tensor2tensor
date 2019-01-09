@@ -24,6 +24,7 @@ import six
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import bleu_hook
 from tensor2tensor.utils import rouge
+from tensor2tensor.utils import sari_hook
 
 import tensorflow as tf
 
@@ -41,6 +42,7 @@ class Metrics(object):
   NEG_LOG_PERPLEXITY = "neg_log_perplexity"
   MASKED_NEG_LOG_PERPLEXITY = "masked_neg_log_perplexity"
   APPROX_BLEU = "approx_bleu_score"
+  APPROX_SARI = "approx_sari_score"
   RMSE = "rmse"
   LOG_POISSON = "log_poisson"
   PEARSON = "pearson"
@@ -782,6 +784,7 @@ METRICS_FNS = {
     Metrics.NEG_LOG_PERPLEXITY: padded_neg_log_perplexity,
     Metrics.MASKED_NEG_LOG_PERPLEXITY: padded_neg_log_perplexity_with_masking,
     Metrics.APPROX_BLEU: bleu_hook.bleu_score,
+    Metrics.APPROX_SARI: sari_hook.sari_score,
     Metrics.RMSE: padded_rmse,
     Metrics.LOG_POISSON: padded_log_poisson,
     Metrics.PEARSON: pearson_correlation_coefficient,
