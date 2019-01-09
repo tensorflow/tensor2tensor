@@ -779,10 +779,11 @@ def fast_decode_tpu(encoder_output,
           common_attention.split_heads(
               tf.zeros([batch_size, decode_length, value_channels]),
               hparams.num_heads),
-          "f":
-          tf.zeros([batch_size, decode_length, hparams.hidden_size]),
       } for layer in range(num_layers)
   }
+  if hparams.ffn_layer not in ["dense_relu_dense", "conv_hidden_relu"]:
+    for layer in range(num_layers):
+      cache["layer_%d" % layer]["f"] = tf.zeros([batch_size, 0, hparams.hidden_size])
 
   if encoder_output is not None:
     for layer in range(num_layers):
@@ -957,10 +958,11 @@ def fast_decode(encoder_output,
           "v":
               common_attention.split_heads(
                   tf.zeros([batch_size, 0, value_channels]), hparams.num_heads),
-          "f":
-              tf.zeros([batch_size, 0, hparams.hidden_size]),
       } for layer in range(num_layers)
   }
+  if hparams.ffn_layer not in ["dense_relu_dense", "conv_hidden_relu"]:
+    for layer in range(num_layers):
+      cache["layer_%d" % layer]["f"] = tf.zeros([batch_size, 0, hparams.hidden_size])
 
   if encoder_output is not None:
     for layer in range(num_layers):
