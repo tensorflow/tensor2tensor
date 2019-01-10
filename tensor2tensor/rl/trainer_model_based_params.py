@@ -306,6 +306,8 @@ def rlmb_base_stochastic_discrete():
   hparams.grayscale = False
   hparams.generative_model = "next_frame_basic_stochastic_discrete"
   hparams.generative_model_params = "next_frame_basic_stochastic_discrete"
+  hparams.ppo_epoch_length = 50
+  hparams.simulated_rollout_length = 50
   return hparams
 
 
@@ -321,12 +323,9 @@ def rlmb_base_stochastic_discrete_param_sharing():
 @registry.register_hparams
 def rlmb_long_stochastic_discrete():
   """Long setting with stochastic discrete model."""
-  hparams = rlmb_base()
-  hparams.learning_rate_bump = 1.0
-  hparams.grayscale = False
-  hparams.generative_model = "next_frame_basic_stochastic_discrete"
+  hparams = rlmb_base_stochastic_discrete()
   hparams.generative_model_params = "next_frame_basic_stochastic_discrete_long"
-  hparams.ppo_epochs_num = 2000
+  hparams.ppo_epochs_num = 1000
   return hparams
 
 
@@ -697,7 +696,15 @@ def rlmb_whitelisted_games(rhp):
 @registry.register_ranged_hparams
 def rlmb_human_score_games(rhp):
   rhp.set_categorical("loop.game",
-                      gym_env.ATARI_GAMES_WITH_HUMAN_SCORE)
+                      gym_env.ATARI_GAMES_WITH_HUMAN_SCORE_NICE)
+  rhp.set_discrete("model.moe_loss_coef", list(range(5)))
+
+
+@registry.register_ranged_hparams
+def rlmb_human_score_games_v100unfriendly(rhp):
+  """Games that for strange reasons often fail on v100s but work on p100s."""
+  rhp.set_categorical("loop.game",
+                      ["chopper_command", "boxing", "asterix", "seaquest"])
   rhp.set_discrete("model.moe_loss_coef", list(range(5)))
 
 
