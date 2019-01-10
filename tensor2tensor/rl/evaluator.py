@@ -61,10 +61,10 @@ def make_agent(
 ):
   """Factory function for Agents."""
   return {
-      "random": lambda: rl_utils.RandomAgent(
+      "random": lambda: rl_utils.RandomAgent(  # pylint: disable=g-long-lambda
           env.batch_size, env.observation_space, env.action_space
       ),
-      "policy": lambda: rl_utils.PolicyAgent(
+      "policy": lambda: rl_utils.PolicyAgent(  # pylint: disable=g-long-lambda
           env.batch_size, env.observation_space, env.action_space,
           policy_hparams, policy_dir, sampling_temp
       ),
