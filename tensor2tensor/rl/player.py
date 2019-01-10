@@ -132,7 +132,7 @@ class PlayerEnv(gym.Env):
   TOGGLE_WAIT_ACTION = 102
   WAIT_MODE_NOOP_ACTION = 103
 
-  HEADER_HEIGHT = 12
+  HEADER_HEIGHT = 27
 
   def __init__(self):
     self._wait = True
@@ -242,6 +242,10 @@ class PlayerEnv(gym.Env):
     draw.text(
         (1, 0), "c:{:3}, r:{:3}".format(int(cumulative_reward), int(reward)),
         fill=(255, 0, 0)
+    )
+    draw.text(
+      (1, 15), "fc:{:3}".format(int(self._frame_counter)),
+      fill=(255, 0, 0)
     )
     header = np.asarray(img)
     del img
@@ -368,6 +372,7 @@ class SimAndRealEnvPlayer(PlayerEnv):
 
   def reset(self):
     """Reset simulated and real environments."""
+    self._frame_counter = 0
     ob_real = self.real_env.reset()
     # Initialize simulated environment with frames from real one.
     self.sim_env.add_to_initial_stack(ob_real)
@@ -399,6 +404,7 @@ class SimAndRealEnvPlayer(PlayerEnv):
 
     Update initial_frame_stack for simulated environment.
     """
+    self._frame_counter += 1
     real_env_step_tuple = self.real_env.step(action)
     sim_env_step_tuple = self.sim_env.step(action)
     self.sim_env.add_to_initial_stack(real_env_step_tuple[0])
@@ -414,6 +420,7 @@ class SimAndRealEnvPlayer(PlayerEnv):
                                   (ob, 0, True, {}))
 
   def player_restart_simulated_env_action(self):
+    self._frame_counter = 0
     ob = self.sim_env.reset()
     # TODO(konradczechowski): remove when this will be not needed.
     # new_ob, _, _, _ = self.sim_env.step(2)
@@ -459,12 +466,14 @@ class SingleEnvPlayer(PlayerEnv):
     return dict(env=env_step_tuple)
 
   def reset(self):
+    self._frame_counter = 0
     ob = self.env.reset()
     self._last_step_tuples = self._pack_step_tuples((ob, 0, False, {}))
     self.cumulative_reward = 0
     return self._augment_observation(ob, 0, self.cumulative_reward)
 
   def _step_envs(self, action):
+    self._frame_counter += 1
     return self._pack_step_tuples(self.env.step(action))
 
   def _update_statistics(self, envs_step_tuples):
