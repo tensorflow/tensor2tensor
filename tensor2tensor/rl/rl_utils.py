@@ -158,8 +158,16 @@ def make_initial_frame_chooser(real_env, frame_stack_size,
     ])
   return initial_frame_chooser
 
-
 def absolute_hinge_difference(arr1, arr2, min_diff=10, dtype=np.uint8):
-  """Point-wise, hinge loss-like, difference between arrays."""
-  diff = np.abs(arr1.astype(np.int) - arr2.astype(np.int), dtype=np.int)
+  """Point-wise, hinge loss-like, difference between arrays.
+
+  Args:
+    arr1, arr2: integer arrays to compare.
+    min_diff: minimal difference taken into consideration.
+    dtype: dtype of returned array.
+
+  Returns:
+    array
+  """
+  diff = np.abs(arr1.astype(np.int) - arr2, dtype=np.int)
   return np.maximum(diff - min_diff, 0).astype(dtype)
