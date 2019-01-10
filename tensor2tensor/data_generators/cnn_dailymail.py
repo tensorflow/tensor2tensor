@@ -22,8 +22,8 @@ from __future__ import print_function
 import hashlib
 import io
 import os
+import random
 import tarfile
-import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -156,10 +156,7 @@ def example_generator(all_files, urls_path, sum_token):
     summary = []
     reading_highlights = False
     for line in tf.gfile.Open(story_file, "rb"):
-      if six.PY2:
-        line = unicode(line.strip(), "utf-8")
-      else:
-        line = line.strip().decode("utf-8")
+      line = text_encoder.to_unicode_utf8(line.strip())
       line = fix_run_on_sents(line)
       if not line:
         continue
@@ -264,3 +261,97 @@ class SummarizeCnnDailymailWikiLMSharedVocab64k(SummarizeCnnDailymail32k):
   @property
   def vocab_filename(self):
     return wiki_lm.LanguagemodelEnWiki64k().vocab_filename
+
+
+@registry.register_problem
+class SummarizeCnnDailymailWikiLMMultiVocab64k(SummarizeCnnDailymail32k):
+  """Summarize CNN and Daily Mail articles using multi-lingual 64k vocab."""
+
+  @property
+  def vocab_filename(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename
+
+
+@registry.register_problem
+class SummarizeFracCnnDailymailWikiLMSharedVocab64k(SummarizeCnnDailymail32k):
+  """Summarize a fraction of CNN/DM articles using the Wiki 64k vocab."""
+
+  @property
+  def vocab_filename(self):
+    return wiki_lm.LanguagemodelEnWiki64k().vocab_filename
+
+  def fraction_of_data(self):
+    return 1.
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    del data_dir
+    all_data = []
+    all_files, urls_path = _maybe_download_corpora(tmp_dir, dataset_split)
+    write_raw_text_to_files(all_files, urls_path, dataset_split, tmp_dir)
+    for example in example_generator(all_files, urls_path, sum_token=True):
+      story, summary = _story_summary_split(example)
+      all_data.append((story, summary))
+
+    if dataset_split == problem.DatasetSplit.TRAIN:
+      random.shuffle(all_data)
+      fractional_len = int(self.fraction_of_data() * len(all_data))
+      all_data = all_data[:fractional_len]
+
+    for story, summary in all_data:
+      yield {"inputs": story, "targets": summary}
+
+
+@registry.register_problem
+class SummarizeFrac0p1CnnDailymailWikiLMSharedVocab64k(
+    SummarizeFracCnnDailymailWikiLMSharedVocab64k):
+
+  def fraction_of_data(self):
+    return 0.001
+
+
+@registry.register_problem
+class SummarizeFrac1CnnDailymailWikiLMSharedVocab64k(
+    SummarizeFracCnnDailymailWikiLMSharedVocab64k):
+
+  def fraction_of_data(self):
+    return 0.01
+
+
+@registry.register_problem
+class SummarizeFrac2CnnDailymailWikiLMSharedVocab64k(
+    SummarizeFracCnnDailymailWikiLMSharedVocab64k):
+
+  def fraction_of_data(self):
+    return 0.02
+
+
+@registry.register_problem
+class SummarizeFrac5CnnDailymailWikiLMSharedVocab64k(
+    SummarizeFracCnnDailymailWikiLMSharedVocab64k):
+
+  def fraction_of_data(self):
+    return 0.05
+
+
+@registry.register_problem
+class SummarizeFrac10CnnDailymailWikiLMSharedVocab64k(
+    SummarizeFracCnnDailymailWikiLMSharedVocab64k):
+
+  def fraction_of_data(self):
+    return 0.1
+
+
+@registry.register_problem
+class SummarizeFrac20CnnDailymailWikiLMSharedVocab64k(
+    SummarizeFracCnnDailymailWikiLMSharedVocab64k):
+
+  def fraction_of_data(self):
+    return 0.2
+
+
+@registry.register_problem
+class SummarizeFrac50CnnDailymailWikiLMSharedVocab64k(
+    SummarizeFracCnnDailymailWikiLMSharedVocab64k):
+
+  def fraction_of_data(self):
+    return 0.5

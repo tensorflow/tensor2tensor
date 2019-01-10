@@ -29,7 +29,7 @@ import numpy as np
 
 from tensor2tensor.data_generators import gym_env
 from tensor2tensor.data_generators import problem
-from tensor2tensor.data_generators.gym_env import make_gym_env
+from tensor2tensor.rl.gym_utils import make_gym_env
 
 import tensorflow as tf
 

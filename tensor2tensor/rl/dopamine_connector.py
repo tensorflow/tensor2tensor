@@ -22,7 +22,6 @@ from __future__ import print_function
 import copy
 
 from dopamine.agents.dqn import dqn_agent
-from dopamine.atari import run_experiment
 from dopamine.replay_memory import circular_replay_buffer
 from dopamine.replay_memory.circular_replay_buffer import OutOfGraphReplayBuffer
 from dopamine.replay_memory.circular_replay_buffer import ReplayElement
@@ -40,6 +39,10 @@ try:
   import cv2
 except ImportError:
   cv2 = None
+try:
+  from dopamine.atari import run_experiment
+except ImportError:
+  run_experiment = None
 # pylint: enable=g-import-not-at-top
 
 
@@ -267,8 +270,6 @@ class DQNLearner(PolicyLearner):
     agent_params.update(replay_buffer_params)
     create_agent_fn = get_create_agent(agent_params)
     runner = run_experiment.Runner(
-        game_name="unused_arg",
-        sticky_actions="unused_arg",
         base_dir=self.agent_model_dir,
         create_agent_fn=create_agent_fn,
         create_environment_fn=get_create_env_fun(

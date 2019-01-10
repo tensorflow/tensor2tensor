@@ -35,7 +35,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
         100, kernel_initializer=bayes.TrainableNormal())
     inputs = tf.random_normal([1, 1])
     out = layer(inputs)
-    stddev = layer.kernel.distribution.scale
+    stddev = layer.kernel.distribution.stddev()
     self.evaluate(tf.global_variables_initializer())
     res, _ = self.evaluate([stddev, out])
     self.assertAllGreater(res, 0.)
@@ -76,7 +76,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     with tf.GradientTape() as tape:
       layer(inputs)  # first call forces a build, here inside this tape
       layer(inputs)  # ensure robustness after multiple calls
-      loss = tf.reduce_sum([tf.reduce_sum(l) for l in layer.losses])
+      loss = sum(layer.losses)
 
     variables = [layer.kernel_initializer.mean, layer.kernel_initializer.stddev]
     for v in variables:
@@ -91,7 +91,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     # Imagine this is the 2nd epoch.
     with tf.GradientTape() as tape:
       layer(inputs)  # build won't be called again
-      loss = tf.reduce_sum([tf.reduce_sum(l) for l in layer.losses])
+      loss = sum(layer.losses)
 
     variables = [layer.kernel_initializer.mean, layer.kernel_initializer.stddev]
     for v in variables:
@@ -120,6 +120,46 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     res = self.evaluate(outputs)
     self.assertEqual(res.shape, (3, 2))
     self.assertLen(model.losses, 1)
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testGaussianProcessPosterior(self):
+    train_batch_size = 3
+    test_batch_size = 2
+    input_dim = 4
+    output_dim = 5
+    features = tf.to_float(np.random.rand(train_batch_size, input_dim))
+    labels = tf.to_float(np.random.rand(train_batch_size, output_dim))
+    layer = bayes.GaussianProcess(output_dim,
+                                  conditional_inputs=features,
+                                  conditional_outputs=labels)
+    test_features = tf.to_float(np.random.rand(test_batch_size, input_dim))
+    test_labels = tf.to_float(np.random.rand(test_batch_size, output_dim))
+    test_outputs = layer(test_features)
+    test_nats = -test_outputs.distribution.log_prob(test_labels)
+    self.evaluate(tf.global_variables_initializer())
+    test_nats_val, outputs_val = self.evaluate([test_nats, test_outputs])
+    self.assertEqual(test_nats_val.shape, ())
+    self.assertGreaterEqual(test_nats_val, 0.)
+    self.assertEqual(outputs_val.shape, (test_batch_size, output_dim))
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testGaussianProcessPrior(self):
+    batch_size = 3
+    input_dim = 4
+    output_dim = 5
+    features = tf.to_float(np.random.rand(batch_size, input_dim))
+    labels = tf.to_float(np.random.rand(batch_size, output_dim))
+    model = tf.keras.Sequential([
+        tf.keras.layers.Dense(2, activation=None),
+        bayes.GaussianProcess(output_dim),
+    ])
+    outputs = model(features)
+    log_prob = outputs.distribution.log_prob(labels)
+    self.evaluate(tf.global_variables_initializer())
+    log_prob_val, outputs_val = self.evaluate([log_prob, outputs])
+    self.assertEqual(log_prob_val.shape, ())
+    self.assertLessEqual(log_prob_val, 0.)
+    self.assertEqual(outputs_val.shape, (batch_size, output_dim))
 
   @parameterized.named_parameters(
       {"testcase_name": "_no_uncertainty", "kernel_initializer": "zeros",
@@ -175,7 +215,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
       cell(inputs[:, 0, :], state)  # ensure robustness after multiple calls
       cell.get_initial_state(inputs[:, 0, :])
       cell(inputs[:, 0, :], state)  # ensure robustness after multiple calls
-      loss = tf.reduce_sum([tf.reduce_sum(l) for l in cell.losses])
+      loss = sum(cell.losses)
 
     variables = [
         cell.kernel_initializer.mean, cell.kernel_initializer.stddev,
@@ -193,7 +233,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     # Imagine this is the 2nd epoch.
     with tf.GradientTape() as tape:
       cell(inputs[:, 0, :], state)  # build won't be called again
-      loss = tf.reduce_sum([tf.reduce_sum(l) for l in cell.losses])
+      loss = sum(cell.losses)
 
     variables = [
         cell.kernel_initializer.mean, cell.kernel_initializer.stddev,

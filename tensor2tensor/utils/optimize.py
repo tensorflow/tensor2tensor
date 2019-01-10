@@ -30,19 +30,21 @@ import tensorflow as tf
 from tensorflow.python.framework import dtypes
 
 
-def optimize(loss, learning_rate, hparams, use_tpu=False):
+def optimize(loss, learning_rate, hparams, use_tpu=False, variables=None):
   """Minimize loss."""
   loss = weight_decay_and_noise(loss, hparams, learning_rate)
   loss = tf.identity(loss, name="total_loss")
+  if variables is None:
+    variables = tf.trainable_variables()
   # Print trainable variables.
-  log_variable_sizes(verbose=hparams.summarize_vars)
+  log_variable_sizes(variables, verbose=hparams.summarize_vars)
   # Print non-trainable variables.
   non_trainable_variables = list(
-      set(tf.global_variables()) - set(tf.trainable_variables()))
+      set(tf.global_variables()) - set(variables))
   log_variable_sizes(non_trainable_variables, tag="Non-trainable variables",
                      verbose=hparams.summarize_vars)
   if hparams.summarize_vars:
-    summarize_variables()
+    summarize_variables(variables)
     # Summarize non-trainable variables as well
     summarize_variables(non_trainable_variables, tag="Non-trainable variables")
   diet_vars = [
@@ -78,7 +80,8 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
       gradient_noise_scale=hparams.grad_noise_scale or None,
       optimizer=opt,
       summaries=opt_summaries,
-      colocate_gradients_with_ops=True)
+      colocate_gradients_with_ops=True,
+      variables=variables)
   return train_op
 
 
@@ -150,11 +153,15 @@ class ConditionalOptimizer(tf.train.Optimizer):
     else:
       self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
 
+    self._zero_grads = hparams.optimizer_zero_grads
+
   def compute_gradients(self, loss, var_list=None, **kwargs):  # pylint: disable=arguments-differ
     gradients = self._opt.compute_gradients(loss, var_list, **kwargs)
     def cast_grad(g, v):
       if v is not None and g is not None:
         g = common_layers.cast_like(g, v)
+      if self._zero_grads and g is None:
+        g = tf.zeros_like(v)
       return (g, v)
     gradients = [cast_grad(g, v) for g, v in gradients]
     return gradients
@@ -283,7 +290,7 @@ def get_variable_initializer(hparams):
                                value=hparams.initializer_gain,
                                hparams=hparams)
 
-  if not tf.contrib.eager.in_eager_mode():
+  if not tf.executing_eagerly():
     tf.logging.info("Using variable initializer: %s", hparams.initializer)
   if hparams.initializer == "orthogonal":
     return tf.orthogonal_initializer(gain=hparams.initializer_gain)

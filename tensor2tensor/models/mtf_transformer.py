@@ -35,6 +35,27 @@ import tensorflow as tf
 class MtfTransformer(mtf_model.MtfModel):
   """Transformer in mesh_tensorflow."""
 
+  def __init__(self,
+               hparams,
+               mode=tf.estimator.ModeKeys.TRAIN,
+               problem_hparams=None,
+               data_parallelism=None,
+               decode_hparams=None,
+               **kwargs):
+    """Init with assignments of hparams.encoder_layers / decoder_layers."""
+    # Finalize encoder_layers, decoder_layers
+    hparams.encoder_layers = (
+        hparams.encoder_layers * hparams.encoder_replicate_factor)
+    hparams.decoder_layers = (
+        hparams.decoder_layers * hparams.decoder_replicate_factor)
+
+    super(MtfTransformer, self).__init__(hparams,
+                                         mode=mode,
+                                         problem_hparams=problem_hparams,
+                                         data_parallelism=data_parallelism,
+                                         decode_hparams=decode_hparams,
+                                         **kwargs)
+
   @property
   def batch_dims(self):
     hparams = self._hparams
@@ -786,6 +807,8 @@ def mtf_transformer_base():
   hparams.add_hparam("layout", "batch:batch;vocab:model;d_ff:model;heads:model")
   hparams.add_hparam("num_heads", 8)
   hparams.add_hparam("d_ff", 2048)
+  hparams.add_hparam("encoder_replicate_factor", 1)
+  hparams.add_hparam("decoder_replicate_factor", 1)
   hparams.add_hparam("encoder_layers", ["att", "drd"] * 6)
   hparams.add_hparam("decoder_layers", ["att", "enc_att", "drd"] * 6)
   hparams.add_hparam("attention_dropout", 0.1)

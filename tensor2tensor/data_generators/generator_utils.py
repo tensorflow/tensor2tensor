@@ -494,22 +494,37 @@ def generate_dataset_and_shuffle(train_gen,
     shuffle_dataset(train_paths + dev_paths)
 
 
-def _shuffle_single(fname):
+def _shuffle_single(fname, extra_fn=None):
+  """Shuffle a single file of records.
+
+  Args:
+    fname: a string
+    extra_fn: an optional function from list of TFRecords to list of TFRecords
+      to be called after shuffling.
+  """
   records = read_records(fname)
   random.shuffle(records)
+  if extra_fn is not None:
+    records = extra_fn(records)
   out_fname = fname.replace(UNSHUFFLED_SUFFIX, "")
   write_records(records, out_fname)
   tf.gfile.Remove(fname)
 
 
-def shuffle_dataset(filenames):
-  """Shuffles the dataset."""
+def shuffle_dataset(filenames, extra_fn=None):
+  """Shuffles the dataset.
+
+  Args:
+    filenames: a list of strings
+    extra_fn: an optional function from list of records to list of records
+      to be called after shuffling a file.
+  """
   if outputs_exist(filenames):
     tf.logging.info("Skipping shuffle because output files exist")
     return
   tf.logging.info("Shuffling data...")
   for filename in filenames:
-    _shuffle_single(filename)
+    _shuffle_single(filename, extra_fn=extra_fn)
   tf.logging.info("Data shuffled.")
 
 

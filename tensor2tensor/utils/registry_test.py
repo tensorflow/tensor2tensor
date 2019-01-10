@@ -87,19 +87,6 @@ class ModelRegistryTest(tf.test.TestCase):
 
     self.assertSetEqual(set(["m1", "m2"]), set(registry.list_models()))
 
-  def testSnakeCase(self):
-    convert = registry._convert_camel_to_snake
-
-    self.assertEqual("typical_camel_case", convert("TypicalCamelCase"))
-    self.assertEqual("numbers_fuse2gether", convert("NumbersFuse2gether"))
-    self.assertEqual("numbers_fuse2_gether", convert("NumbersFuse2Gether"))
-    self.assertEqual("lstm_seq2_seq", convert("LSTMSeq2Seq"))
-    self.assertEqual("starts_lower", convert("startsLower"))
-    self.assertEqual("starts_lower_caps", convert("startsLowerCAPS"))
-    self.assertEqual("caps_fuse_together", convert("CapsFUSETogether"))
-    self.assertEqual("startscap", convert("Startscap"))
-    self.assertEqual("s_tartscap", convert("STartscap"))
-
 
 class HParamRegistryTest(tf.test.TestCase):
 

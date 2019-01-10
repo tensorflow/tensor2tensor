@@ -19,6 +19,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import random
+
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import translate
@@ -99,12 +101,48 @@ class TranslateEnroWmtMultiSmall64k(TranslateEnroWmt8k):
   def vocab_filename(self):
     return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename
 
+  @property
+  def how_many_examples_to_sample(self):
+    return 6000
+
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
     """Generate just the first 6k samples for training."""
+    # If not training, do the same as before.
+    if dataset_split != problem.DatasetSplit.TRAIN:
+      for x in super(TranslateEnroWmtMultiSmall64k, self).generate_samples(
+          data_dir, tmp_dir, dataset_split):
+        yield x
+      raise StopIteration
+    # Now we assume we're training.
     counter = 0
+    # The size of this data-set in total is around 614K, we want to sample so
+    # that in expectation we take the requested number of samples in 1 go.
+    sample_prob = self.how_many_examples_to_sample / float(614000)
+    # Let's sample.
     for x in super(TranslateEnroWmtMultiSmall64k, self).generate_samples(
         data_dir, tmp_dir, dataset_split):
+      if random.random() > sample_prob:
+        continue
       counter += 1
-      if counter > 6000 and dataset_split == problem.DatasetSplit.TRAIN:
+      if counter > self.how_many_examples_to_sample:
         raise StopIteration
       yield x
+    # We do it again if we don't have enough samples.
+    if counter < self.how_many_examples_to_sample:
+      for x in super(TranslateEnroWmtMultiSmall64k, self).generate_samples(
+          data_dir, tmp_dir, dataset_split):
+        if random.random() > sample_prob:
+          continue
+        counter += 1
+        if counter > self.how_many_examples_to_sample:
+          raise StopIteration
+        yield x
+
+
+@registry.register_problem
+class TranslateEnroWmtMultiTiny64k(TranslateEnroWmtMultiSmall64k):
+  """Translation with muli-lingual vocabulary, tiny (6K) training data."""
+
+  @property
+  def how_many_examples_to_sample(self):
+    return 600

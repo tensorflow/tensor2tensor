@@ -22,6 +22,7 @@ import collections
 import operator
 import os
 import re
+import string
 import time
 
 import numpy as np
@@ -63,10 +64,13 @@ def decode_hparams(overrides=""):
       delimiter="\n",
       decode_to_file=None,
       decode_in_memory=False,
+      # How much decode should wait for the next checkpoint
+      decode_timeout_mins=240,
       summaries_log_dir="decode",  # Directory to write hook summaries.
       shards=1,    # How many shards of data to decode (treating 1 as None).
       shard_id=0,  # Which shard are we decoding if more than 1 above.
       shards_start_offset=0,  # Number of the first shard to decode.
+      shard_google_format=False,  # If True use Google shard naming format.
       num_decodes=1,
       force_decode_length=False,
       display_decoded_images=False,
@@ -78,12 +82,13 @@ def decode_hparams(overrides=""):
       # Creates a blue/red border covering border_percent of the frame.
       border_percent=2,
       # Maximum number of videos displayed.
-      # Total number of videos are max_display_outputs * num_decodes
+      # number of videos displayed = max_display_outputs * max_display_decodes
       max_display_outputs=10,
+      max_display_decodes=5,
       # Used in computation of VGG feature based video metrics.
       # Set this to be the path to a trained VGG ckpt to output
       # useful metrics.
-      vgg_ckpt_path=None,
+      vgg_ckpt_path="",
       # Used for MLPerf compliance logging.
       mlperf_decode_step=0.0,
       mlperf_threshold=25.0,
@@ -153,7 +158,7 @@ def log_decode_results(inputs,
     if targets is not None and log_results:
       decoded_targets = targets_vocab.decode(_save_until_eos(
           targets, skip_eos_postprocess))
-  if not is_video:
+  if log_results and not is_video:
     tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
   if targets is not None and log_results and not is_video:
     tf.logging.info("Inference results TARGET: %s" % decoded_targets)
@@ -370,23 +375,50 @@ def decode_from_file(estimator,
   problem_name = FLAGS.problem
   filename = _add_shard_to_filename(filename, decode_hp)
   tf.logging.info("Performing decoding from file (%s)." % filename)
-  sorted_inputs, sorted_keys = _get_sorted_inputs(filename, decode_hp.delimiter)
+  if has_input:
+    sorted_inputs, sorted_keys = _get_sorted_inputs(
+        filename, decode_hp.delimiter)
+  else:
+    sorted_inputs = _get_language_modeling_inputs(
+        filename, decode_hp.delimiter, repeat=decode_hp.num_decodes)
+    sorted_keys = range(len(sorted_inputs))
   num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
 
-  def input_fn():
-    if has_input:
+  if estimator.config.use_tpu:
+    length = getattr(hparams, "length", hparams.max_length)
+    batch_ids = []
+    for line in sorted_inputs:
+      if has_input:
+        ids = inputs_vocab.encode(line.strip()) + [1]
+      else:
+        ids = targets_vocab.encode(line)
+      if len(ids) < length:
+        ids.extend([0] * (length - len(ids)))
+      else:
+        ids = ids[:length]
+      batch_ids.append(ids)
+    np_ids = np.array(batch_ids, dtype=np.int32)
+    def input_fn(params):
+      batch_size = params["batch_size"]
+      dataset = tf.data.Dataset.from_tensor_slices({"inputs": np_ids})
+      dataset = dataset.map(
+          lambda ex: {"inputs": tf.reshape(ex["inputs"], (length, 1, 1))})
+      dataset = dataset.batch(batch_size)
+      return dataset
+  else:
+    def input_fn():
+      if has_input:
         input_gen = _decode_batch_input_fn(
             num_decode_batches, sorted_inputs,
             inputs_vocab, decode_hp.batch_size,
             decode_hp.max_input_size, task_id=decode_hp.multiproblem_task_id)
-    else:
+      else:
         input_gen = _decode_batch_input_fn_no_padding(sorted_inputs=sorted_inputs,max_batch_size=decode_hp.batch_size,
                                                       vocabulary=inputs_vocab,max_input_size=decode_hp.max_input_size,
                                                       decode_hp=decode_hp)
     gen_fn = make_input_fn_from_generator(input_gen)
     example = gen_fn()
     return _decode_input_tensor_to_features_dict(example, hparams)
-
   decodes = []
   result_iter = estimator.predict(input_fn, checkpoint_path=checkpoint_path)
 
@@ -453,10 +485,6 @@ def decode_from_file(estimator,
                   (total_time_per_step / total_cnt,
                    total_time_per_step, total_cnt))
 
-  # Reversing the decoded inputs and outputs because they were reversed in
-  # _decode_batch_input_fn
-  sorted_inputs.reverse()
-  decodes.reverse()
   # If decode_to_file was provided use it as the output filename without change
   # (except for adding shard_id if using more shards for decoding).
   # Otherwise, use the input filename plus model, hp, problem, beam, alpha.
@@ -488,7 +516,11 @@ def decode_from_file(estimator,
 def _add_shard_to_filename(filename, decode_hp):
   if decode_hp.shards > 1:
     shard_id = decode_hp.shard_id + decode_hp.shards_start_offset
-    filename = filename + ("%.3d" % shard_id)
+    if decode_hp.shard_google_format:
+      filename = filename + "-{0:05d}-of-{1:05d}".format(shard_id,
+                                                         decode_hp.shards)
+    else:
+      filename = filename + ("%.3d" % shard_id)
   return filename
 
 
@@ -592,9 +624,6 @@ def _decode_batch_input_fn(num_decode_batches, sorted_inputs, vocabulary,
                            batch_size, max_input_size, task_id=-1):
   """Generator to produce batches of inputs."""
   tf.logging.info(" batch %d" % num_decode_batches)
-  # First reverse all the input sentences so that if you're going to get OOMs,
-  # you'll see it in the first batch
-  sorted_inputs.reverse()
   for b in range(num_decode_batches):
     tf.logging.info("Decoding batch %d" % b)
     batch_length = 0
@@ -727,8 +756,8 @@ def _interactive_input_fn(hparams, decode_hp):
               "  dl=<decode_length>  (changes decode length, default: 100)\n"
               "  <%s>                (decode)\n"
               "  q                   (quit)\n"
-              ">" % (num_samples, decode_length, "source_string"
-                     if has_input else "target_prefix"))
+              ">" % (num_samples, decode_length,
+                     "source_string" if has_input else "target_prefix"))
     input_string = input(prompt)
     if input_string == "q":
       return
@@ -799,8 +828,45 @@ def show_and_save_image(img, save_path):
     plt.savefig(sp)
 
 
+def _get_language_modeling_inputs(filename,
+                                  delimiter="\n",
+                                  repeat=1,
+                                  append_space_to_final_punctionation=True):
+  """Read a file of partial texts to continue.
+
+  The purpose of append_space_to_final_punctionation is that SubwordTokenizer
+  groups punctuation and the ensuing space in the same token.  Adding a space
+  causes the token to be completed.
+
+  Args:
+    filename: a string
+    delimiter: a string
+    repeat: an integer - we repeat the entire file that many times.
+    append_space_to_final_punctionation: a boolean
+
+  Returns:
+    a list of strings
+  """
+  with tf.gfile.Open(filename) as f:
+    text = f.read()
+  inputs = text.split(delimiter)
+  if not inputs[-1]:
+    inputs.pop()
+  inputs *= repeat
+  if append_space_to_final_punctionation:
+    inputs = [
+        s + " " if s and s[-1] in string.punctuation else s for s in inputs]
+  return inputs
+
+
 def _get_sorted_inputs(filename, delimiter="\n"):
-  """Returning inputs sorted according to length.
+  """Returning inputs sorted according to decreasing length.
+
+  This causes inputs of similar lengths to be processed in the same batch,
+  facilitating early stopping for short sequences.
+
+  Longer sequences are sorted first so that if you're going to get OOMs,
+  you'll see it in the first batch.
 
   Args:
     filename: path to file with inputs, 1 per line.
@@ -818,7 +884,7 @@ def _get_sorted_inputs(filename, delimiter="\n"):
     # Strip the last empty line.
     if not inputs[-1]:
       inputs.pop()
-  input_lens = [(i, len(line.split())) for i, line in enumerate(inputs)]
+  input_lens = [(i, -len(line.split())) for i, line in enumerate(inputs)]
   sorted_input_lens = sorted(input_lens, key=operator.itemgetter(1))
   # We'll need the keys to rearrange the inputs back into their original order
   sorted_keys = {}
@@ -913,13 +979,16 @@ def _decode_input_tensor_to_features_dict(feature_map, hparams):
   return features
 
 
+def get_step_from_ckpt_path(path):
+  return int(os.path.basename(path).split("-")[1])
+
+
 def latest_checkpoint_step(ckpt_dir):
   ckpt = tf.train.get_checkpoint_state(ckpt_dir)
   if not ckpt:
     return None
   path = ckpt.model_checkpoint_path
-  step = int(path.split("-")[-1])
-  return step
+  return get_step_from_ckpt_path(path)
 
 
 class DecodeHookArgs(collections.namedtuple(

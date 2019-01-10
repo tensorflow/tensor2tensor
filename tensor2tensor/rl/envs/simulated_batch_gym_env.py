@@ -26,7 +26,7 @@ import tensorflow as tf
 
 
 class FlatBatchEnv(Env):
-  """TODO(konradczechowski): Add doc-string."""
+  """Gym environment interface for Batched Environments (with batch size 1)."""
 
   def __init__(self, batch_env):
     if batch_env.batch_size != 1:

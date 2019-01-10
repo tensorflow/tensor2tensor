@@ -70,6 +70,10 @@ def basic_params1():
       optimizer_adafactor_multiply_by_parameter_scale=True,
       # Number of accumulating steps for multi step optimizers.
       optimizer_multistep_accumulate_steps=None,
+      # Whether to zero gradients that were not computed, so that the
+      # appropriate slots are created. Useful for sharing checkpoints between
+      # models with different sets of heads.
+      optimizer_zero_grads=False,
       weight_decay=1e-6,
       weight_noise=0.0,
       # Defines the learning rate as a product of named functions.
@@ -258,6 +262,14 @@ def basic_params1():
       # mixing should stop (eg: 0.5 means stop at 50-50 mixing, 0.8 means stop
       # at 20-80 mixing for the primary-others mixing case.)
       multiproblem_schedule_threshold=0.5,
+      # For more than 2 tasks, we may want to specify per-task thresholds here.
+      # In that case, this needs to be a string with as many floating point
+      # numbers as the number of tasks in the multi-problem. These numbers
+      # are later normalized to add up to 1 and taken as probabilities for
+      # each task. This enforces a constant mixing schedule and if this is
+      # empty then the threshold from above is used for the first task and
+      # the other tasks get the remaining probability split uniformly.
+      multiproblem_per_task_threshold="",
       # The number of examples at which the proportion of the mixed in datasets
       # is multiproblem_schedule_threshold
       multiproblem_schedule_max_examples=1e7,
@@ -267,8 +279,6 @@ def basic_params1():
       # A list of supported schedules can be found in
       # `data_generators.multi_problem.py`.
       multiproblem_mixing_schedule="constant",
-      # A scalar to upweight the classifier loss in a multiproblem setting.
-      multiproblem_class_loss_multiplier=0.0,
       # A boolean that decides whether input sequence losses and target label
       # losses in classification problems should be reweighted.
       multiproblem_reweight_label_loss=False,
@@ -300,7 +310,11 @@ def basic_params1():
       multiproblem_max_input_length=-1,
       multiproblem_max_target_length=-1,
       # If positive, makes training targets fixed-length in MultiProblem.
-      multiproblem_fixed_train_length=-1
+      multiproblem_fixed_train_length=-1,
+      # Load weights from a second model. For instance, when using
+      # pre-trained weights, you might want to initialize the encoder
+      # and decoder by loading different models.
+      warm_start_from_second=""
   )
 
 

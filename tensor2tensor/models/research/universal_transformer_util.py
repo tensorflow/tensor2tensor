@@ -247,7 +247,8 @@ def universal_transformer_layer(x,
                                               attention_unit, pad_remover)
 
       output, _, extra_output = tf.foldl(
-          ut_function, tf.range(hparams.num_rec_steps), initializer=initializer)
+          ut_function, tf.range(hparams.num_rec_steps),
+          initializer=initializer)
 
       # Right now, this is only possible when the transition function is an lstm
       if (hparams.recurrence_type == "lstm" and
@@ -1199,7 +1200,8 @@ def universal_transformer_act_basic(x, hparams, ffn_unit, attention_unit):
   # Do while loop iterations until predicate above is false.
   (_, _, _, remainder, n_updates, new_state) = tf.while_loop(
       should_continue, ut_function,
-      (state, step, halting_probability, remainders, n_updates, previous_state))
+      (state, step, halting_probability, remainders, n_updates, previous_state),
+      maximum_iterations=act_max_steps + 1)
 
   ponder_times = n_updates
   remainders = remainder
@@ -1350,7 +1352,8 @@ def universal_transformer_act_accumulated(x, hparams, ffn_unit, attention_unit):
   # Do while loop iterations until predicate above is false.
   (_, _, _, remainder, n_updates, accumulated_state) = tf.while_loop(
       should_continue, ut_function, (state, step, halting_probability,
-                                     remainders, n_updates, accumulated_state))
+                                     remainders, n_updates, accumulated_state),
+      maximum_iterations=act_max_steps + 1)
 
   ponder_times = n_updates
   remainders = remainder
@@ -1475,10 +1478,8 @@ def universal_transformer_act_global(x, hparams, ffn_unit, attention_unit):
     new_state.set_shape(state_shape)
 
     step += 1
-    return [
-        transformed_state, step, halting_probability, remainders, n_updates,
-        new_state
-    ]
+    return (transformed_state, step, halting_probability,
+            remainders, n_updates, new_state)
 
   # While loop stops when this predicate is FALSE.
   # Ie all (probability < 1-eps AND counter < N) are false.
@@ -1492,7 +1493,8 @@ def universal_transformer_act_global(x, hparams, ffn_unit, attention_unit):
   # Do while loop iterations until predicate above is false.
   (_, _, _, remainder, n_updates, new_state) = tf.while_loop(
       should_continue, ut_function,
-      (state, step, halting_probability, remainders, n_updates, previous_state))
+      (state, step, halting_probability, remainders, n_updates, previous_state),
+      maximum_iterations=act_max_steps + 1)
 
   ponder_times = n_updates
   remainders = remainder
@@ -1515,7 +1517,6 @@ def universal_transformer_act_random(x, hparams, ffn_unit, attention_unit):
     the output tensor,  (ponder_times, remainders)
 
   """
-
   state = x
   act_max_steps = hparams.act_max_steps
   threshold = 1.0 - hparams.act_epsilon
@@ -1622,10 +1623,8 @@ def universal_transformer_act_random(x, hparams, ffn_unit, attention_unit):
       ])
     new_state.set_shape(state_shape)
     step += 1
-    return [
-        transformed_state, step, halting_probability, remainders, n_updates,
-        new_state
-    ]
+    return (transformed_state, step,
+            halting_probability, remainders, n_updates, new_state)
 
   # While loop stops when this predicate is FALSE.
   # Ie all (probability < 1-eps AND counter < N) are false.
@@ -1639,7 +1638,8 @@ def universal_transformer_act_random(x, hparams, ffn_unit, attention_unit):
   # Do while loop iterations until predicate above is false.
   (_, _, _, remainder, n_updates, new_state) = tf.while_loop(
       should_continue, ut_function,
-      (state, step, halting_probability, remainders, n_updates, previous_state))
+      (state, step, halting_probability, remainders, n_updates, previous_state),
+      maximum_iterations=act_max_steps + 1)
 
   ponder_times = n_updates
   remainders = remainder
@@ -1710,9 +1710,9 @@ def _ffn_layer_multi_inputs(inputs_list,
     for i, inputs in enumerate(inputs_list):
       inputs_list[i] = remove_pads(inputs)
 
-  ffn_inputs = (
-      inputs_list[0]
-      if len(inputs_list) == 1 else tf.concat(inputs_list, axis=-1))
+  ffn_inputs = inputs_list[0]
+  if len(inputs_list) != 1:
+    ffn_inputs = tf.concat(inputs_list, axis=-1)
 
   if ffn_layer_type == "dense":
     output = common_layers.dense(
@@ -1866,9 +1866,10 @@ def add_position_timing_signal(x, step, hparams):
 
   elif hparams.position_start_index == "step":
     # Shift positions based on the step
-    num_steps = (
-        hparams.act_max_steps
-        if hparams.recurrence_type == "act" else hparams.num_rec_steps)
+    if hparams.recurrence_type == "act":
+      num_steps = hparams.act_max_steps
+    else:
+      num_steps = hparams.num_rec_steps
     index = tf.cast(
         common_layers.shape_list(x)[1] * step / num_steps, dtype=tf.int32)
 
@@ -1903,9 +1904,10 @@ def add_step_timing_signal(x, step, hparams):
     a Tensor with the same shape as x.
 
   """
-  num_steps = (
-      hparams.act_max_steps
-      if hparams.recurrence_type == "act" else hparams.num_rec_steps)
+  if hparams.recurrence_type == "act":
+    num_steps = hparams.act_max_steps
+  else:
+    num_steps = hparams.num_rec_steps
   channels = common_layers.shape_list(x)[-1]
 
   if hparams.step_timing_signal_type == "learned":

@@ -19,7 +19,6 @@ from __future__ import division
 from __future__ import print_function
 
 import contextlib
-import copy
 import os
 import sys
 from tensor2tensor import models  # pylint: disable=unused-import
@@ -188,6 +187,7 @@ def create_experiment_fn():
       eval_early_stopping_metric_minimize=FLAGS
       .eval_early_stopping_metric_minimize,
       eval_timeout_mins=FLAGS.eval_timeout_mins,
+      eval_use_test_set=FLAGS.eval_use_test_set,
       use_tpu=FLAGS.use_tpu,
       use_tpu_estimator=FLAGS.use_tpu_estimator,
       use_xla=FLAGS.xla_compile,
@@ -331,10 +331,11 @@ def save_metadata(hparams):
       f.write(t2t_flags_str)
 
   # Save hparams as hparams.json
-  new_hparams = copy.deepcopy(hparams)
-
+  hp_vals = hparams.values()
   # Modality class is not JSON serializable so remove.
-  new_hparams.del_hparam("modality")
+  del hp_vals["modality"]
+  new_hparams = tf.contrib.training.HParams(**hp_vals)
+
   hparams_fname = os.path.join(output_dir, "hparams.json")
   with tf.gfile.Open(hparams_fname, "w") as f:
     f.write(new_hparams.to_json(indent=0, sort_keys=True))

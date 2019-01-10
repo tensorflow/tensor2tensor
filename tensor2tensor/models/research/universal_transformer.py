@@ -240,8 +240,9 @@ class UniversalTransformer(transformer.Transformer):
     Raises:
       NotImplementedError: If there are multiple data shards.
     """
-    return (self._slow_greedy_infer_tpu(features, decode_length) if use_tpu else
-            self._slow_greedy_infer(features, decode_length))
+    if use_tpu:
+      return self._slow_greedy_infer_tpu(features, decode_length)
+    return self._slow_greedy_infer(features, decode_length)
 
   def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha,
                    use_tpu=False):
@@ -441,6 +442,15 @@ def universal_transformer_base():
 
 
 @registry.register_hparams
+def universal_transformer_base_tpu():
+  hparams = transformer.transformer_big()
+  hparams = update_hparams_for_universal_transformer(hparams)
+  transformer.update_hparams_for_tpu(hparams)
+  hparams.add_step_timing_signal = False
+  return hparams
+
+
+@registry.register_hparams
 def universal_transformer_big():
   hparams = transformer.transformer_big()
   hparams = update_hparams_for_universal_transformer(hparams)
@@ -504,6 +514,14 @@ def adaptive_universal_transformer_base():
 
 
 @registry.register_hparams
+def adaptive_universal_transformer_base_tpu():
+  hparams = adaptive_universal_transformer_base()
+  transformer.update_hparams_for_tpu(hparams)
+  hparams.add_step_timing_signal = False
+  return hparams
+
+
+@registry.register_hparams
 def adaptive_universal_transformer_small():
   hparams = universal_transformer_small()
   hparams.recurrence_type = "act"
@@ -522,6 +540,14 @@ def adaptive_universal_transformer_global_base():
   hparams = universal_transformer_base()
   hparams.recurrence_type = "act"
   hparams.act_type = "global"
+  return hparams
+
+
+@registry.register_hparams
+def adaptive_universal_transformer_global_base_tpu():
+  hparams = adaptive_universal_transformer_global_base()
+  transformer.update_hparams_for_tpu(hparams)
+  hparams.add_step_timing_signal = False
   return hparams
 
 

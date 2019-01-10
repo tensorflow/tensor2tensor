@@ -132,6 +132,18 @@ class CommonVideoTest(parameterized.TestCase, tf.test.TestCase):
         is_present.append(np.allclose(curr_patch, video_patch))
       self.assertTrue(np.any(is_present))
 
+  def testBasicLstm(self):
+    """Tests that the parameters of the LSTM are shared across time."""
+    with tf.Graph().as_default():
+      state = None
+      for _ in range(10):
+        inputs = tf.random_uniform(shape=(32, 16))
+        _, state = common_video.basic_lstm(
+            inputs, state, num_units=100, name="basic")
+      num_params = np.sum([np.prod(v.shape) for v in tf.trainable_variables()])
+      # 4 * ((100 + 16)*100 + 100) => 4 * (W_{xh} + W_{hh} + b)
+      self.assertEqual(num_params, 46800)
+
   @parameterized.named_parameters(
       ("two_frames", 2), ("ten_frames", 10), ("default", -1))
   def testExtractRandomVideoPatch(self, num_frames=2):

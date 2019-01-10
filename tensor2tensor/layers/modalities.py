@@ -93,7 +93,7 @@ class SymbolModality(modality.Modality):
     else:
       ret = tf.concat(shards, 0)
     # Convert ret to tensor.
-    if not tf.contrib.eager.in_eager_mode():
+    if not tf.executing_eagerly():
       ret = common_layers.convert_gradient_to_tensor(ret)
     return ret
 
@@ -226,7 +226,7 @@ class ImageModality(modality.Modality):
 
   def bottom(self, x):
     with tf.variable_scope(self.name):
-      if not tf.contrib.eager.in_eager_mode():
+      if not tf.executing_eagerly():
         tf.summary.image(
             "inputs", common_layers.tpu_safe_image_summary(x), max_outputs=2)
       return tf.to_float(x)
@@ -234,7 +234,7 @@ class ImageModality(modality.Modality):
   def targets_bottom(self, x):
     inputs = x
     with tf.variable_scope(self.name):
-      if not tf.contrib.eager.in_eager_mode():
+      if not tf.executing_eagerly():
         tf.summary.image(
             "targets_bottom",
             common_layers.tpu_safe_image_summary(inputs),
@@ -811,7 +811,7 @@ class ClassLabelModality(modality.Modality):
       body_output: A Tensor with shape [batch, ?, ?, body_output_size].
 
     Returns:
-      a Tensors, each with shape [batch_size, ?, ?, vocab_size]
+      a Tensors, each with shape [batch_size, 1, 1, 1, vocab_size]
     """
     with tf.variable_scope(self.name):
       x = body_output
@@ -825,12 +825,10 @@ class VideoModalityIdentity(VideoModality):
 
   def bottom(self, x):
     common_video.gif_summary("inputs", x, max_outputs=1)
-    x = common_layers.standardize_images(x)
     return x
 
   def targets_bottom(self, x):
     common_video.gif_summary("targets", x, max_outputs=1)
-    x = common_layers.standardize_images(x)
     return x
 
   def top(self, body_output, targets):

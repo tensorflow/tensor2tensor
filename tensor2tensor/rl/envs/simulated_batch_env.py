@@ -23,14 +23,30 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
+import os
+
+import numpy as np
 
 from tensor2tensor.data_generators.gym_env import DummyWorldModelProblem
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import common_video
 from tensor2tensor.rl.envs import in_graph_batch_env
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
+
+
+# Lazy load PIL.Image
+def PIL_Image():  # pylint: disable=invalid-name
+  from PIL import Image  # pylint: disable=g-import-not-at-top
+  return Image
+
+
+# Lazy load PIL.Image
+def PIL_ImageDraw():  # pylint: disable=invalid-name
+  from PIL import ImageDraw  # pylint: disable=g-import-not-at-top
+  return ImageDraw
 
 
 class HistoryBuffer(object):
@@ -94,7 +110,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   def __init__(
       self, reward_range, observation_space, action_space, frame_stack_size,
       frame_height, frame_width, initial_frame_chooser, batch_size, model_name,
-      model_hparams, model_dir, intrinsic_reward_scale=0.0
+      model_hparams, model_dir, intrinsic_reward_scale=0.0, sim_video_dir=None
   ):
     """Batch of environments inside the TensorFlow graph."""
     super(SimulatedBatchEnv, self).__init__(observation_space, action_space)
@@ -103,6 +119,19 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     self._min_reward = reward_range[0]
     self._num_frames = frame_stack_size
     self._intrinsic_reward_scale = intrinsic_reward_scale
+    self._episode_counter = tf.get_variable(
+        "episode_counter", initializer=tf.zeros((), dtype=tf.int32),
+        trainable=False, dtype=tf.int32)
+    if sim_video_dir:
+      self._video_every_epochs = 100
+      self._video_dir = sim_video_dir
+      self._video_writer = None
+      self._video_counter = 0
+      tf.gfile.MakeDirs(self._video_dir)
+      self._video_condition = tf.equal(
+          self._episode_counter.read_value() % self._video_every_epochs, 0)
+    else:
+      self._video_condition = tf.constant(False, dtype=tf.bool, shape=())
 
     model_hparams = copy.copy(model_hparams)
     problem = DummyWorldModelProblem(action_space, reward_range,
@@ -132,9 +161,12 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     model_loader = tf.train.Saver(
         var_list=tf.global_variables(scope="next_frame*")  # pylint:disable=unexpected-keyword-arg
     )
-    trainer_lib.restore_checkpoint(
-        self._model_dir, saver=model_loader, sess=sess, must_restore=True
-    )
+    if tf.io.gfile.isdir(self._model_dir):
+      trainer_lib.restore_checkpoint(
+          self._model_dir, saver=model_loader, sess=sess, must_restore=True
+      )
+    else:
+      model_loader.restore(sess=sess, save_path=self._model_dir)
 
   def __str__(self):
     return "SimulatedEnv"
@@ -152,10 +184,11 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
         # We only need 1 target frame here, set it.
         hparams_target_frames = self._model.hparams.video_num_target_frames
         self._model.hparams.video_num_target_frames = 1
-        model_output = self._model.infer(
-            {"inputs": history,
-             "input_action": actions,
-             "reset_internal_states": self._reset_model.read_value()})
+        model_output = self._model.infer({
+            "inputs": history,
+            "input_action": actions,
+            "reset_internal_states": self._reset_model.read_value()
+        })
         self._model.hparams.video_num_target_frames = hparams_target_frames
 
       observ = tf.cast(tf.squeeze(model_output["targets"], axis=1),
@@ -184,9 +217,13 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
       done = tf.constant(False, tf.bool, shape=(self.batch_size,))
 
       with tf.control_dependencies([observ]):
+        dump_frame_op = tf.cond(self._video_condition,
+                                lambda: tf.py_func(self._video_dump_frame,  # pylint: disable=g-long-lambda
+                                                   [observ, reward], []),
+                                tf.no_op)
         with tf.control_dependencies(
             [self._observ.assign(observ),
-             self.history_buffer.move_by_one_element(observ)]):
+             self.history_buffer.move_by_one_element(observ), dump_frame_op]):
           clear_reset_model_op = tf.assign(self._reset_model, tf.constant(0.0))
           with tf.control_dependencies([clear_reset_model_op]):
             return tf.identity(reward), tf.identity(done)
@@ -200,12 +237,25 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     Returns:
       Batch tensor of the new observations.
     """
-    with tf.control_dependencies([self.history_buffer.reset(indices)]):
-      with tf.control_dependencies([self._observ.assign(
-          self.history_buffer.get_all_elements()[:, -1, ...])]):
-        reset_model_op = tf.assign(self._reset_model, tf.constant(1.0))
-        with tf.control_dependencies([reset_model_op]):
-          return tf.gather(self._observ.read_value(), indices)
+    reset_video_op = tf.cond(
+        self._video_condition,
+        lambda: tf.py_func(self._video_reset_writer, [], []),
+        tf.no_op)
+    with tf.control_dependencies([reset_video_op]):
+      inc_op = tf.assign_add(self._episode_counter, 1)
+      with tf.control_dependencies([self.history_buffer.reset(indices),
+                                    inc_op]):
+        initial_frame_dump_op = tf.cond(
+            self._video_condition,
+            lambda: tf.py_func(self._video_dump_frames,  # pylint: disable=g-long-lambda
+                               [self.history_buffer.get_all_elements()], []),
+            tf.no_op)
+        observ_assign_op = self._observ.assign(
+            self.history_buffer.get_all_elements()[:, -1, ...])
+        with tf.control_dependencies([observ_assign_op, initial_frame_dump_op]):
+          reset_model_op = tf.assign(self._reset_model, tf.constant(1.0))
+          with tf.control_dependencies([reset_model_op]):
+            return tf.gather(self._observ.read_value(), indices)
 
   @property
   def observ(self):
@@ -215,3 +265,30 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   @property
   def history_observations(self):
     return self.history_buffer.get_all_elements()
+
+  def _video_dump_frame(self, obs, rews):
+    if self._video_writer is None:
+      self._video_counter += 1
+      self._video_writer = common_video.WholeVideoWriter(
+          fps=10,
+          output_path=os.path.join(self._video_dir,
+                                   "{}.avi".format(self._video_counter)),
+          file_format="avi")
+    img = PIL_Image().new("RGB", (obs.shape[-2], 11),)
+    draw = PIL_ImageDraw().Draw(img)
+    draw.text((0, 0), "r:{:3}".format(int(rews[0])), fill=(255, 0, 0))
+    self._video_writer.write(np.concatenate([np.asarray(img), obs[0]], axis=0))
+
+  def _video_dump_frames(self, obs):
+    zeros = np.zeros(obs.shape[0])
+    for i in range(obs.shape[1]):
+      self._video_dump_frame(obs[:, i, :], zeros)
+
+  def _video_reset_writer(self):
+    if self._video_writer:
+      self._video_writer.finish_to_disk()
+    self._video_writer = None
+
+  def __del__(self):
+    self._video_reset_writer()
+    super(SimulatedBatchEnv, self).__del__()
