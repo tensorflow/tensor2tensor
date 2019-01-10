@@ -38,7 +38,6 @@ import six
 
 from rl_utils import absolute_hinge_difference
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
-from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl
 from tensor2tensor.models.research.rl import make_simulated_env_fn_from_hparams
@@ -377,15 +376,6 @@ def load_metrics(event_dir, epoch):
   return metrics
 
 
-def summarize_metrics(eval_metrics_writer, metrics, epoch):
-  """Write metrics to summary."""
-  for (name, value) in six.iteritems(metrics):
-    summary = tf.Summary()
-    summary.value.add(tag=name, simple_value=value)
-    eval_metrics_writer.add_summary(summary, epoch)
-  eval_metrics_writer.flush()
-
-
 def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   """Run the main training loop."""
   if report_fn:
@@ -400,9 +390,10 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   epoch = -1
   data_dir = directories["data"]
-  env = T2TGymEnv.setup_env_from_hparams(
+  env = rl_utils.setup_env(
       hparams, batch_size=hparams.real_batch_size,
-      max_num_noops=hparams.max_num_noops
+      max_num_noops=hparams.max_num_noops,
+      rl_env_max_episode_steps=hparams.rl_env_max_episode_steps
   )
   env.start_new_epoch(epoch, data_dir)
 
@@ -492,7 +483,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
         log("World model eval metrics:\n{}".format(pprint.pformat(wm_metrics)))
         metrics.update(wm_metrics)
 
-      summarize_metrics(eval_metrics_writer, metrics, epoch)
+      rl_utils.summarize_metrics(eval_metrics_writer, metrics, epoch)
 
       # Report metrics
       if report_fn:

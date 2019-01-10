@@ -21,8 +21,8 @@ from __future__ import print_function
 
 import os
 from tensor2tensor.data_generators import algorithmic
-from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.models import transformer  # pylint: disable=unused-import
+from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
@@ -82,7 +82,7 @@ class TrainerLibTest(tf.test.TestCase):
                               algorithmic.TinyAlgo.data_dir)
     dataset = dataset.repeat(None).padded_batch(10, dataset.output_shapes)
     features = dataset.make_one_shot_iterator().get_next()
-    features = problem_lib.standardize_shapes(features)
+    features = data_reader.standardize_shapes(features)
 
     # Model
     model = registry.model("transformer")(hparams, tf.estimator.ModeKeys.TRAIN)
@@ -119,7 +119,7 @@ class TrainerLibTest(tf.test.TestCase):
                               algorithmic.TinyAlgo.data_dir)
     dataset = dataset.repeat(None).padded_batch(10, dataset.output_shapes)
     features = dataset.make_one_shot_iterator().get_next()
-    features = problem_lib.standardize_shapes(features)
+    features = data_reader.standardize_shapes(features)
     features["targets_A"] = features["targets_B"] = features["targets"]
 
     # Model

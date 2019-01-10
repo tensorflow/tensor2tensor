@@ -28,6 +28,7 @@ from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl.dopamine_connector import DQNLearner
 from tensor2tensor.rl.ppo_learner import PPOLearner
+from tensor2tensor.utils import misc_utils
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -58,21 +59,29 @@ def get_metric_name(sampling_temp, max_num_noops, clipped):
   )
 
 
-def evaluate_single_config(
-    hparams, sampling_temp, max_num_noops, agent_model_dir
+def _eval_fn_with_learner(
+    env, hparams, policy_hparams, policy_dir, sampling_temp
 ):
-  """Evaluate the PPO agent in the real environment."""
-  eval_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
-  env = T2TGymEnv.setup_env_from_hparams(
-      hparams, batch_size=hparams.eval_batch_size, max_num_noops=max_num_noops
-  )
-  env.start_new_epoch(0)
   env_fn = rl.make_real_env_fn(env)
   learner = LEARNERS[hparams.base_algo](
       hparams.frame_stack_size, base_event_dir=None,
-      agent_model_dir=agent_model_dir, total_num_epochs=1
+      agent_model_dir=policy_dir, total_num_epochs=1
   )
-  learner.evaluate(env_fn, eval_hparams, sampling_temp)
+  learner.evaluate(env_fn, policy_hparams, sampling_temp)
+
+
+def evaluate_single_config(
+    hparams, sampling_temp, max_num_noops, agent_model_dir,
+    eval_fn=_eval_fn_with_learner
+):
+  """Evaluate the PPO agent in the real environment."""
+  eval_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
+  env = setup_env(
+      hparams, batch_size=hparams.eval_batch_size, max_num_noops=max_num_noops,
+      rl_env_max_episode_steps=hparams.eval_rl_env_max_episode_steps
+  )
+  env.start_new_epoch(0)
+  eval_fn(env, hparams, eval_hparams, agent_model_dir, sampling_temp)
   rollouts = env.current_epoch_rollouts()
   env.close()
 
@@ -81,7 +90,9 @@ def evaluate_single_config(
   )
 
 
-def evaluate_all_configs(hparams, agent_model_dir):
+def evaluate_all_configs(
+    hparams, agent_model_dir, eval_fn=_eval_fn_with_learner
+):
   """Evaluate the agent with multiple eval configurations."""
   metrics = {}
   # Iterate over all combinations of sampling temperatures and whether to do
@@ -89,7 +100,7 @@ def evaluate_all_configs(hparams, agent_model_dir):
   for sampling_temp in hparams.eval_sampling_temps:
     for max_num_noops in (hparams.eval_max_num_noops, 0):
       scores = evaluate_single_config(
-          hparams, sampling_temp, max_num_noops, agent_model_dir
+          hparams, sampling_temp, max_num_noops, agent_model_dir, eval_fn
       )
       for (score, clipped) in zip(scores, (True, False)):
         metric_name = get_metric_name(sampling_temp, max_num_noops, clipped)
@@ -98,10 +109,36 @@ def evaluate_all_configs(hparams, agent_model_dir):
   return metrics
 
 
+def summarize_metrics(eval_metrics_writer, metrics, epoch):
+  """Write metrics to summary."""
+  for (name, value) in six.iteritems(metrics):
+    summary = tf.Summary()
+    summary.value.add(tag=name, simple_value=value)
+    eval_metrics_writer.add_summary(summary, epoch)
+  eval_metrics_writer.flush()
+
+
 LEARNERS = {
     "ppo": PPOLearner,
     "dqn": DQNLearner,
 }
+
+
+def setup_env(hparams, batch_size, max_num_noops, rl_env_max_episode_steps=-1):
+  """Setup."""
+  game_mode = "NoFrameskip-v4"
+  camel_game_name = misc_utils.snakecase_to_camelcase(hparams.game)
+  camel_game_name += game_mode
+  env_name = camel_game_name
+
+  env = T2TGymEnv(base_env_name=env_name,
+                  batch_size=batch_size,
+                  grayscale=hparams.grayscale,
+                  resize_width_factor=hparams.resize_width_factor,
+                  resize_height_factor=hparams.resize_height_factor,
+                  rl_env_max_episode_steps=rl_env_max_episode_steps,
+                  max_num_noops=max_num_noops, maxskip_envs=True)
+  return env
 
 
 def update_hparams_from_hparams(target_hparams, source_hparams, prefix):
@@ -158,6 +195,7 @@ def make_initial_frame_chooser(real_env, frame_stack_size,
     ])
   return initial_frame_chooser
 
+
 def absolute_hinge_difference(arr1, arr2, min_diff=10, dtype=np.uint8):
   """Point-wise, hinge loss-like, difference between arrays.
 
@@ -171,3 +209,49 @@ def absolute_hinge_difference(arr1, arr2, min_diff=10, dtype=np.uint8):
   """
   diff = np.abs(arr1.astype(np.int) - arr2, dtype=np.int)
   return np.maximum(diff - min_diff, 0).astype(dtype)
+
+
+class BatchAgent(object):
+  """Python API for agents.
+
+  Runs a batch of parallel agents. Operates on Numpy arrays.
+  """
+
+  def __init__(self, action_space):
+    self.action_space = action_space
+
+  def act(self, observations):
+    """Picks actions based on observations.
+
+    Args:
+      observations: A batch of observations.
+
+    Returns:
+      A batch of actions.
+    """
+    raise NotImplementedError
+
+  def estimate_value(self, observations):
+    """Estimates values of states based on observations.
+
+    Used for temporal-difference planning.
+
+    Args:
+      observations: A batch of observations.
+
+    Returns:
+      A batch of values.
+    """
+    raise NotImplementedError
+
+
+class RandomAgent(BatchAgent):
+  """Random agent, sampling actions from the uniform distribution."""
+
+  def act(self, observations):
+    return np.array([
+        self.action_space.sample() for _ in range(observations.shape[0])
+    ])
+
+  def estimate_value(self, observations):
+    return np.zeros(observations.shape[0])

@@ -84,6 +84,8 @@ def _rlmb_base():
       # Sampling temperatures to try during eval.
       eval_sampling_temps=[0.5, 0.0, 1.0],
       eval_max_num_noops=8,
+      # To speed up the pipeline. Some games want to run forever.
+      eval_rl_env_max_episode_steps=1000,
 
       game="pong",
       # Whether to evaluate the world model in each iteration of the loop to get
@@ -506,6 +508,7 @@ def _rlmb_tiny_overrides():
       resize_width_factor=2,
       wm_eval_rollout_ratios=[1],
       rl_env_max_episode_steps=7,
+      eval_rl_env_max_episode_steps=7,
       simulated_rollout_length=2,
       eval_sampling_temps=[0.0, 1.0],
   )

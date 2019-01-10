@@ -290,7 +290,7 @@ def ae_latent_sample_beam(latents_dense_in, inputs, ed, embed, hparams):
 
   initial_ids = tf.zeros([tf.shape(latents_dense_in)[0]], dtype=tf.int32)
   length = tf.shape(latents_dense_in)[1]
-  ids, _ = beam_search.beam_search(
+  ids, _, _ = beam_search.beam_search(
       symbols_to_logits_fn, initial_ids, beam_size, length,
       vocab_size, alpha=0.0, eos_id=-1, stop_early=False)
 

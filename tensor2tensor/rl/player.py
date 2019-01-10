@@ -61,7 +61,6 @@ import numpy as np
 import six
 
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
-from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.rl import player_utils
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_ImageDraw
@@ -491,9 +490,8 @@ def main(_):
       data=FLAGS.episodes_data_dir)
   epoch = FLAGS.epoch if FLAGS.epoch == "last" else int(FLAGS.epoch)
 
-
   def make_real_env():
-    env = T2TGymEnv.setup_and_load_epoch(
+    env = player_utils.setup_and_load_epoch(
         hparams, data_dir=directories["data"],
         which_epoch_data=None)
     env = FlatBatchEnv(env)  # pylint: disable=redefined-variable-type
