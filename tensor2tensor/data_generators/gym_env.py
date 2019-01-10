@@ -746,6 +746,14 @@ ATARI_GAMES_WITH_HUMAN_SCORE = [
     "up_n_down", "video_pinball", "yars_revenge",
 ]
 
+
+# Blacklist a few games where it makes little sense to run on for now.
+ATARI_GAMES_WITH_HUMAN_SCORE_NICE = [
+    g for g in ATARI_GAMES_WITH_HUMAN_SCORE if g not in [
+        "solaris", "pitfall", "montezuma_revenge", "enduro",
+        "video_pinball", "double_dunk"]]
+
+
 ATARI_WHITELIST_GAMES = [
     "amidar",
     "bank_heist",
