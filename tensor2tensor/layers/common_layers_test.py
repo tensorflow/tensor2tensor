@@ -685,8 +685,8 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     num_channels = 3
     output_filters = 10
     stride = [2, 3]  # we want height to be x2 and width to be x3
-    random_input = np.random.rand(batch, height, width, num_channels).astype(
-        np.float32)
+    random_input = tf.convert_to_tensor(
+        np.random.rand(batch, height, width, num_channels), dtype=tf.float32)
 
     # conv2d_transpose is a little tricky.
     # height_new = (height_old - 1) * stride + kernel - 2*padding - correction
