@@ -891,7 +891,7 @@ class T2TModel(base.Layer):
       inputs = features["inputs"]
       decode_length = (common_layers.shape_list(inputs)[1] +
                        features.get("decode_length", decode_length))
-    ids, scores = beam_search.beam_search(
+    ids, scores, _ = beam_search.beam_search(
         symbols_to_logits_fn,
         initial_ids,
         beam_size,

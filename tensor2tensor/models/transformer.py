@@ -910,7 +910,8 @@ def fast_decode(encoder_output,
                 eos_id=beam_search.EOS_ID,
                 batch_size=None,
                 force_decode_length=False,
-                scope_prefix="body/"):
+                scope_prefix="body/",
+                cache=None):
   """Given encoder output and a symbols to logits function, does fast decoding.
 
   Implements both greedy and beam search decoding, uses beam search iff
@@ -957,7 +958,9 @@ def fast_decode(encoder_output,
   vars_3d_num_heads = (
       hparams.num_heads if hparams.get("attention_variables_3d") else 0)
 
-  cache = {
+  if cache is None:
+    cache = dict()
+  cache.update({
       "layer_%d" % layer: {
           "k":
               common_attention.split_heads(
@@ -966,7 +969,7 @@ def fast_decode(encoder_output,
               common_attention.split_heads(
                   tf.zeros([batch_size, 0, value_channels]), hparams.num_heads),
       } for layer in range(num_layers)
-  }
+  })
 
   # If `ffn_layer` is in `["dense_relu_dense" or "conv_hidden_relu"]`, then the
   # cache key "f" won't be used, which means that the` shape of cache["f"]`
@@ -1000,7 +1003,7 @@ def fast_decode(encoder_output,
 
   if beam_size > 1:  # Beam Search
     initial_ids = sos_id * tf.ones([batch_size], dtype=tf.int32)
-    decoded_ids, scores = beam_search.beam_search(
+    decoded_ids, scores, cache = beam_search.beam_search(
         symbols_to_logits_fn,
         initial_ids,
         beam_size,
@@ -1047,7 +1050,7 @@ def fast_decode(encoder_output,
     hit_eos = tf.fill([batch_size], False)
     next_id = sos_id * tf.ones([batch_size, 1], dtype=tf.int64)
     initial_log_prob = tf.zeros([batch_size], dtype=tf.float32)
-    _, _, _, decoded_ids, _, log_prob = tf.while_loop(
+    _, _, _, decoded_ids, cache, log_prob = tf.while_loop(
         is_not_finished,
         inner_loop, [
             tf.constant(0), hit_eos, next_id, decoded_ids, cache,
@@ -1063,7 +1066,7 @@ def fast_decode(encoder_output,
         ])
     scores = log_prob
 
-  return {"outputs": decoded_ids, "scores": scores}
+  return {"outputs": decoded_ids, "scores": scores, "cache": cache}
 
 
 @registry.register_model
