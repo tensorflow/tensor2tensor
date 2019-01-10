@@ -506,13 +506,13 @@ def main(_):
 
   if FLAGS.sim_and_real:
     sim_env = make_simulated_env(
-        which_epoch_data=epoch, setable_initial_frames=True)
+        which_epoch_data=None, setable_initial_frames=True)
     real_env = make_real_env()
     env = SimAndRealEnvPlayer(real_env, sim_env)
   else:
     if FLAGS.simulated_env:
       env = make_simulated_env(  # pylint: disable=redefined-variable-type
-          which_epoch_data=None, setable_initial_frames=False)
+          which_epoch_data=epoch, setable_initial_frames=False)
     else:
       env = make_real_env()
     env = SingleEnvPlayer(env)  # pylint: disable=redefined-variable-type
