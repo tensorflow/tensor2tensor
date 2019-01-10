@@ -56,19 +56,30 @@ flags.DEFINE_bool(
 )
 
 
-def make_agent(agent_type, action_space):
+def make_agent(
+    agent_type, env, policy_hparams, policy_dir, sampling_temp
+):
   """Factory function for Agents."""
   return {
-      "random": rl_utils.RandomAgent,
-  }[agent_type](action_space)
+      "random": lambda: rl_utils.RandomAgent(
+          env.batch_size, env.observation_space, env.action_space
+      ),
+      "policy": lambda: rl_utils.PolicyAgent(
+          env.batch_size, env.observation_space, env.action_space,
+          policy_hparams, policy_dir, sampling_temp
+      ),
+  }[agent_type]()
 
 
 def make_eval_fn_with_agent(agent_type):
   """Returns an out-of-graph eval_fn using the Agent API."""
   def eval_fn(env, hparams, policy_hparams, policy_dir, sampling_temp):
     """Eval function."""
-    del hparams, policy_hparams, policy_dir, sampling_temp
-    agent = make_agent(agent_type, env.action_space)
+    base_env = env
+    env = rl_utils.BatchStackWrapper(env, hparams.frame_stack_size)
+    agent = make_agent(
+        agent_type, env, policy_hparams, policy_dir, sampling_temp
+    )
     num_dones = 0
     first_dones = [False] * env.batch_size
     observations = env.reset()
@@ -89,7 +100,7 @@ def make_eval_fn_with_agent(agent_type):
         for (i, observation) in zip(now_done_indices, reset_observations):
           observations[i] = observation
       observations = np.array(observations)
-    assert len(env.current_epoch_rollouts()) == env.batch_size
+    assert len(base_env.current_epoch_rollouts()) == env.batch_size
   return eval_fn
 
 
