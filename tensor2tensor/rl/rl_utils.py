@@ -202,7 +202,8 @@ def absolute_hinge_difference(arr1, arr2, min_diff=10, dtype=np.uint8):
   """Point-wise, hinge loss-like, difference between arrays.
 
   Args:
-    arr1, arr2: integer arrays to compare.
+    arr1: integer array to compare.
+    arr2: integer array to compare.
     min_diff: minimal difference taken into consideration.
     dtype: dtype of returned array.
 

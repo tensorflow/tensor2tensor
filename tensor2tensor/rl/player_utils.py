@@ -59,7 +59,7 @@ class SimulatedGymEnv(gym.Env):
 
   def __init__(self, real_env, world_model_dir, hparams, random_starts,
                setable_initial_frames=False):
-    """
+    """Init.
 
     Args:
        real_env: gym environment.
@@ -111,9 +111,9 @@ class SimulatedGymEnv(gym.Env):
     """Adds new frame to (initial) frame stack, removes last one."""
     if not self._setable_initial_frames:
       raise ValueError(
-          "This instace does not allow to manually set initial frame stack.")
-    assert frame.shape == self._initial_frames.shape[2:], \
-        '{}, {}'.format(frame.shape, self._initial_frames.shape[:1])
+          "This instance does not allow to manually set initial frame stack.")
+    assert_msg = "{}, {}".format(frame.shape, self._initial_frames.shape[:1])
+    assert frame.shape == self._initial_frames.shape[2:], assert_msg
     initial_frames = np.roll(self._initial_frames, shift=-1, axis=1)
     initial_frames[0, -1, ...] = frame
     self._initial_frames = initial_frames
@@ -156,6 +156,7 @@ def setup_and_load_epoch(hparams, data_dir, which_epoch_data=None):
 
 
 def infer_game_name_from_filenames(data_dir, snake_case=True):
+  """Infer name from filenames."""
   names = os.listdir(data_dir)
   game_names = [re.findall(pattern=r"^Gym(.*)NoFrameskip", string=name)
                 for name in names]

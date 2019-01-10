@@ -103,6 +103,7 @@ flags.DEFINE_boolean("game_from_filenames", True,
                      "If infer game name from data_dir filenames or from "
                      "hparams.")
 
+
 class PlayerEnv(gym.Env):
   """Base (abstract) environment for interactive human play with gym.utils.play.
 
@@ -205,10 +206,7 @@ class PlayerEnv(gym.Env):
     return self._last_step_tuples
 
   def step(self, action):
-    """Pass action to underlying environment(s) or perform special action.
-
-    For returned tuple explanation see _player_step_tuple() in subclasses.
-    """
+    """Pass action to underlying environment(s) or perform special action."""
     # Special codes
     if action in self._player_actions():
       envs_step_tuples = self._player_actions()[action]()
@@ -272,15 +270,16 @@ class PlayerEnv(gym.Env):
     raise NotImplementedError
 
   def _player_return_done_action(self):
-    """
+    """Function.
 
     Returns:
        envs_step_tuples: such that `player_step_tuple(envs_step_tuples)`
-        will return done."""
+        will return done.
+    """
     raise NotImplementedError
 
   def _player_step_tuple(self, envs_step_tuples):
-    """Infer return tuple for step() given underlying environment(s) tuple(s)"""
+    """Infer return tuple for step() given underlying environment tuple(s)."""
     raise NotImplementedError
 
 
@@ -308,7 +307,7 @@ class SimAndRealEnvPlayer(PlayerEnv):
   RESTART_SIMULATED_ENV_ACTION = 110
 
   def __init__(self, real_env, sim_env):
-    """
+    """Init.
 
     Args:
       real_env: real environment such as `FlatBatchEnv<T2TGymEnv>`.
@@ -348,6 +347,9 @@ class SimAndRealEnvPlayer(PlayerEnv):
   def _player_step_tuple(self, envs_step_tuples):
     """Construct observation, return usual step tuple.
 
+    Args:
+      envs_step_tuples: tuples.
+
     Returns:
       Step tuple: ob, reward, done, info
         ob: concatenated images [simulated observation, real observation,
@@ -356,8 +358,8 @@ class SimAndRealEnvPlayer(PlayerEnv):
         done: True iff. envs_step_tuples['real_env'][2] is True
         info: real environment info
     """
-    ob_real, reward_real, _, _ = envs_step_tuples['real_env']
-    ob_sim, reward_sim, _, _ = envs_step_tuples['sim_env']
+    ob_real, reward_real, _, _ = envs_step_tuples["real_env"]
+    ob_sim, reward_sim, _, _ = envs_step_tuples["sim_env"]
     ob_err = absolute_hinge_difference(ob_sim, ob_real)
 
     ob_real_aug = self._augment_observation(ob_real, reward_real,
@@ -369,7 +371,7 @@ class SimAndRealEnvPlayer(PlayerEnv):
         self.cumulative_sim_reward - self.cumulative_real_reward
     )
     ob = np.concatenate([ob_sim_aug, ob_real_aug, ob_err_aug], axis=1)
-    _, reward, done, info = envs_step_tuples['real_env']
+    _, reward, done, info = envs_step_tuples["real_env"]
     return ob, reward, done, info
 
   def reset(self):
@@ -379,7 +381,7 @@ class SimAndRealEnvPlayer(PlayerEnv):
     # Initialize simulated environment with frames from real one.
     self.sim_env.add_to_initial_stack(ob_real)
     for _ in range(3):
-      ob_real, _, _, _ = self.real_env.step(self.name_to_action_num['NOOP'])
+      ob_real, _, _, _ = self.real_env.step(self.name_to_action_num["NOOP"])
       self.sim_env.add_to_initial_stack(ob_real)
     # TODO(konradczechowski): remove when not longer needed.
     # for i in range(12):
@@ -402,10 +404,7 @@ class SimAndRealEnvPlayer(PlayerEnv):
     self.cumulative_sim_reward = 0
 
   def _step_envs(self, action):
-    """Perform `step(action)` on both environments.
-
-    Update initial_frame_stack for simulated environment.
-    """
+    """Perform step(action) on environments and update initial_frame_stack."""
     self._frame_counter += 1
     real_env_step_tuple = self.real_env.step(action)
     sim_env_step_tuple = self.sim_env.step(action)
@@ -413,8 +412,8 @@ class SimAndRealEnvPlayer(PlayerEnv):
     return self._pack_step_tuples(real_env_step_tuple, sim_env_step_tuple)
 
   def _update_statistics(self, envs_step_tuples):
-    self.cumulative_real_reward += envs_step_tuples['real_env'][1]
-    self.cumulative_sim_reward += envs_step_tuples['sim_env'][1]
+    self.cumulative_real_reward += envs_step_tuples["real_env"][1]
+    self.cumulative_sim_reward += envs_step_tuples["sim_env"][1]
 
   def _player_return_done_action(self):
     ob = np.zeros(self.real_env.observation_space.shape, dtype=np.uint8)
@@ -427,11 +426,10 @@ class SimAndRealEnvPlayer(PlayerEnv):
     # TODO(konradczechowski): remove when this will be not needed.
     # new_ob, _, _, _ = self.sim_env.step(2)
     # print("\n\n\n\ndiff {}\n\n\n\n".format((ob - new_ob).sum()))
-    # ##########
-    assert np.all(self._last_step_tuples['real_env'][0] == ob)
+    assert np.all(self._last_step_tuples["real_env"][0] == ob)
     self.set_zero_cumulative_rewards()
     return self._pack_step_tuples(
-        self._last_step_tuples['real_env'], (ob, 0, False, {}))
+        self._last_step_tuples["real_env"], (ob, 0, False, {}))
 
 
 class SingleEnvPlayer(PlayerEnv):
@@ -460,7 +458,7 @@ class SingleEnvPlayer(PlayerEnv):
 
   def _player_step_tuple(self, envs_step_tuples):
     """Augment observation, return usual step tuple."""
-    ob, reward, done, info = envs_step_tuples['env']
+    ob, reward, done, info = envs_step_tuples["env"]
     ob = self._augment_observation(ob, reward, self.cumulative_reward)
     return ob, reward, done, info
 
@@ -479,7 +477,7 @@ class SingleEnvPlayer(PlayerEnv):
     return self._pack_step_tuples(self.env.step(action))
 
   def _update_statistics(self, envs_step_tuples):
-    _, reward, _, _ = envs_step_tuples['env']
+    _, reward, _, _ = envs_step_tuples["env"]
     self.cumulative_reward += reward
 
   def _player_return_done_action(self):
@@ -501,7 +499,7 @@ def main(_):
       data=FLAGS.episodes_data_dir)
   if FLAGS.game_from_filenames:
     hparams.set_hparam(
-        'game', player_utils.infer_game_name_from_filenames(directories['data'])
+        "game", player_utils.infer_game_name_from_filenames(directories["data"])
     )
   epoch = FLAGS.epoch if FLAGS.epoch == "last" else int(FLAGS.epoch)
 
