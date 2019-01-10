@@ -32,11 +32,91 @@ from tensor2tensor.models.research.rl import make_simulated_env_fn_from_hparams
 from tensor2tensor.rl import rl_utils
 from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv
 from tensor2tensor.utils import trainer_lib
+from tensor2tensor.utils.misc_utils import camelcase_to_snakecase
+
 import tensorflow as tf
 
 
 flags = tf.flags
 FLAGS = flags.FLAGS
+
+
+class SimulatedGymEnv(gym.Env):
+  """Gym environment, running with world model.
+
+  Allows passing custom initial frames.
+
+  Examples:
+    Setup simulated env from some point of real rollout.
+      >>> sim_env = SimulatedGymEnv(setable_initial_frames=True, **kwargs)
+      >>> real_env = FlatBatchEnv(T2TGymEnv(...))
+      >>> while ...:
+      >>>   ob, _, _, _ = real_env.step(action)
+      >>>   sim_env.add_to_initial_stack(ob)
+      >>> sim_env.reset()
+      >>> # Continue sim_env rollout.
+  """
+
+  def __init__(self, real_env, world_model_dir, hparams, random_starts,
+               setable_initial_frames=False):
+    """
+
+    Args:
+       real_env: gym environment.
+       world_model_dir: path to world model checkpoint directory.
+       hparams: hparams for rlmb pipeline.
+       random_starts: if restart world model from random frames, or only
+         from initial ones (from beginning of episodes). Valid only when
+         `setable_initial_fames` set to False.
+       setable_initial_frames: if True, initial_frames for world model should be
+         set by `add_to_initial_stack`.
+    """
+
+    self._setable_initial_frames = setable_initial_frames
+
+    if self._setable_initial_frames:
+      real_obs_shape = real_env.observation_space.shape
+      shape = (1, hparams.frame_stack_size) + real_obs_shape
+      self._initial_frames = np.zeros(shape=shape, dtype=np.uint8)
+      def initial_frame_chooser(batch_size):
+        assert batch_size == 1
+        return self._initial_frames
+
+    else:
+      initial_frame_chooser = rl_utils.make_initial_frame_chooser(
+          real_env, hparams.frame_stack_size,
+          simulation_random_starts=random_starts,
+          simulation_flip_first_random_for_beginning=False
+      )
+    env_fn = make_simulated_env_fn_from_hparams(
+        real_env, hparams,
+        batch_size=1,
+        initial_frame_chooser=initial_frame_chooser,
+        model_dir=world_model_dir,
+    )
+
+    env = env_fn(in_graph=False)
+    self.env = FlatBatchEnv(env)
+
+    self.observation_space = self.env.observation_space
+    self.action_space = self.env.action_space
+
+  def reset(self):
+    return self.env.reset()
+
+  def step(self, action):
+    return self.env.step(action)
+
+  def add_to_initial_stack(self, frame):
+    """Adds new frame to (initial) frame stack, removes last one."""
+    if not self._setable_initial_frames:
+      raise ValueError(
+          "This instace does not allow to manually set initial frame stack.")
+    assert frame.shape == self._initial_frames.shape[2:], \
+        '{}, {}'.format(frame.shape, self._initial_frames.shape[:1])
+    initial_frames = np.roll(self._initial_frames, shift=-1, axis=1)
+    initial_frames[0, -1, ...] = frame
+    self._initial_frames = initial_frames
 
 
 def infer_last_epoch_num(data_dir):
@@ -75,34 +155,32 @@ def setup_and_load_epoch(hparams, data_dir, which_epoch_data=None):
   return t2t_env
 
 
-def make_simulated_gym_env(real_env, world_model_dir, hparams, random_starts):
-  """Gym environment with world model."""
-  initial_frame_chooser = rl_utils.make_initial_frame_chooser(
-      real_env, hparams.frame_stack_size,
-      simulation_random_starts=random_starts,
-      simulation_flip_first_random_for_beginning=False
-  )
-  env_fn = make_simulated_env_fn_from_hparams(
-      real_env, hparams,
-      batch_size=1,
-      initial_frame_chooser=initial_frame_chooser,
-      model_dir=world_model_dir
-  )
-  env = env_fn(in_graph=False)
-  flat_env = FlatBatchEnv(env)
-  return flat_env
+def infer_game_name_from_filenames(data_dir, snake_case=True):
+  names = os.listdir(data_dir)
+  game_names = [re.findall(pattern=r"^Gym(.*)NoFrameskip", string=name)
+                for name in names]
+  assert game_names, "No data files found in {}".format(data_dir)
+  game_names = sum(game_names, [])
+  game_name = game_names[0]
+  assert all(game_name == other for other in game_names), \
+      "There are multiple different game names in {}".format(data_dir)
+  if snake_case:
+    game_name = camelcase_to_snakecase(game_name)
+  return game_name
 
 
 def load_data_and_make_simulated_env(
-    data_dir, wm_dir, hparams, which_epoch_data="last", random_starts=True
+    data_dir, wm_dir, hparams, which_epoch_data="last", random_starts=True,
+    setable_initial_frames=False
 ):
   hparams = copy.deepcopy(hparams)
   t2t_env = setup_and_load_epoch(
       hparams, data_dir=data_dir,
       which_epoch_data=which_epoch_data)
-  return make_simulated_gym_env(
+  return SimulatedGymEnv(
       t2t_env, world_model_dir=wm_dir,
-      hparams=hparams, random_starts=random_starts)
+      hparams=hparams, random_starts=random_starts,
+      setable_initial_frames=setable_initial_frames)
 
 
 class ExtendToEvenDimentions(gym.ObservationWrapper):

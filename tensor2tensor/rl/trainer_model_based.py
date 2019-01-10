@@ -45,6 +45,7 @@ from tensor2tensor.rl import trainer_model_based_params
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_ImageDraw
 from tensor2tensor.rl.restarter import Restarter
+from tensor2tensor.rl.rl_utils import absolute_hinge_difference
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -301,9 +302,7 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
           local_nps.append(np.asarray(img))
         local_nps.append(np.zeros_like(local_nps[0]))
         headers.append(np.concatenate(local_nps, axis=1))
-      errs = np.maximum(
-          np.abs(sim_obs.astype(np.int) - real_obs, dtype=np.int) - 10, 0
-      ).astype(np.uint8)
+      errs = absolute_hinge_difference(sim_obs, real_obs)
       headers = np.stack(headers)
       debug_frame_batches.append(  # pylint: disable=cell-var-from-loop
           np.concatenate([headers,
