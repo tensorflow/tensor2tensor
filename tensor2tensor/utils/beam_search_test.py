@@ -182,7 +182,7 @@ class BeamSearchTest(tf.test.TestCase):
       logits = tf.to_float(tf.log(probabilities[pos - 1, :]))
       return logits
 
-    final_ids, final_probs = beam_search.beam_search(
+    final_ids, final_probs, _ = beam_search.beam_search(
         symbols_to_logits,
         initial_ids,
         beam_size,
@@ -390,10 +390,10 @@ class BeamSearchTest(tf.test.TestCase):
         0.0,
         eos_id=1,
         states=states)
-    
+
     with self.test_session() as sess:
       final_states = sess.run(final_states)
-    self.assertAllEqual([[1]], final_states["state"])
+    self.assertAllEqual([[[2]]], final_states["state"])
 
   def testStateBeamTwo(self):
     batch_size = 1
@@ -476,7 +476,7 @@ class BeamSearchTest(tf.test.TestCase):
     states["state"] = tf.placeholder_with_default(
         states["state"], shape=(None, 1))
 
-    final_ids, _ = beam_search.beam_search(
+    final_ids, _, _ = beam_search.beam_search(
         symbols_to_logits,
         initial_ids,
         beam_size,

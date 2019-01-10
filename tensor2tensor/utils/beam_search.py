@@ -751,6 +751,13 @@ def beam_search(symbols_to_logits_fn,
     return tf.logical_and(
         tf.less(i, decode_length), tf.logical_not(bound_is_met))
 
+  inner_shape = tf.TensorShape([None, None, None])
+  if use_tpu:
+    inner_shape = tf.TensorShape([batch_size, beam_size, decode_length + 1])
+  if use_tpu:
+    state_struc = nest.map_structure(lambda state: state.get_shape(), states)
+  else:
+    state_struc = nest.map_structure(get_state_shape_invariants, states)
   (_, alive_seq, alive_log_probs, finished_seq, finished_scores,
    finished_flags, states) = tf.while_loop(
        _is_finished,
@@ -760,16 +767,12 @@ def beam_search(symbols_to_logits_fn,
        ],
        shape_invariants=[
            tf.TensorShape([]),
-           (tf.TensorShape([batch_size, beam_size, decode_length + 1])
-            if use_tpu else tf.TensorShape([None, None, None])),
+           inner_shape,
            alive_log_probs.get_shape(),
-           (tf.TensorShape([batch_size, beam_size, decode_length + 1])
-            if use_tpu else tf.TensorShape([None, None, None])),
+           inner_shape,
            finished_scores.get_shape(),
            finished_flags.get_shape(),
-           (nest.map_structure(lambda state: state.get_shape(), states)
-            if use_tpu else
-            nest.map_structure(get_state_shape_invariants, states)),
+           state_struc
        ],
        parallel_iterations=1,
        back_prop=False)

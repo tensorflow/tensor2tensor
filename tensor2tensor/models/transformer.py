@@ -57,7 +57,7 @@ class Transformer(t2t_model.T2TModel):
 
   def __init__(self, *args, **kwargs):
     super(Transformer, self).__init__(*args, **kwargs)
-    self.attention_weights = dict()  # For visualizing attention heads.
+    self.attention_weights = {}  # For visualizing attention heads.
 
   def encode(self, inputs, target_space, hparams, features=None, losses=None):
     """Encode transformer inputs.
@@ -824,7 +824,7 @@ def fast_decode_tpu(encoder_output,
       hparams=hparams)
   if beam_size > 1:  # Beam Search
     initial_ids = sos_id * tf.ones([batch_size], dtype=tf.int32)
-    decoded_ids, scores = beam_search.beam_search(
+    decoded_ids, scores, _ = beam_search.beam_search(
         symbols_to_logits_fn,
         initial_ids,
         beam_size,
@@ -936,6 +936,7 @@ def fast_decode(encoder_output,
     force_decode_length: bool, whether to force the full decode length, or if
       False, stop when all beams hit eos_id.
     scope_prefix: str, prefix for decoder layer variable scopes.
+    cache: cache dictionary for additional predictions.
 
   Returns:
       A dict of decoding results {
@@ -959,7 +960,7 @@ def fast_decode(encoder_output,
       hparams.num_heads if hparams.get("attention_variables_3d") else 0)
 
   if cache is None:
-    cache = dict()
+    cache = {}
   cache.update({
       "layer_%d" % layer: {
           "k":
