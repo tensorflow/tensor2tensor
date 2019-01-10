@@ -37,7 +37,6 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
-from tensor2tensor.utils.misc_utils import camelcase_to_snakecase
 
 Frame = collections.namedtuple(
     # Order of elements reflects time progression within a frame.

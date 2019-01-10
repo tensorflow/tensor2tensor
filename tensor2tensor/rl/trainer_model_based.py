@@ -36,7 +36,6 @@ import time
 import numpy as np
 import six
 
-from rl_utils import absolute_hinge_difference
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl
@@ -46,6 +45,7 @@ from tensor2tensor.rl import trainer_model_based_params
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_ImageDraw
 from tensor2tensor.rl.restarter import Restarter
+from tensor2tensor.rl.rl_utils import absolute_hinge_difference
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf

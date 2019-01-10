@@ -54,9 +54,6 @@ from __future__ import print_function
 
 import gym
 from gym.envs.atari.atari_env import ACTION_MEANING
-
-from rl_utils import absolute_hinge_difference
-
 from gym.utils import play
 import numpy as np
 import six
@@ -66,9 +63,11 @@ from tensor2tensor.rl import player_utils
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_ImageDraw
 from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv
+from tensor2tensor.rl.rl_utils import absolute_hinge_difference
 # Import flags from t2t_trainer and trainer_model_based
 import tensor2tensor.rl.trainer_model_based_params  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
+
 import tensorflow as tf
 
 

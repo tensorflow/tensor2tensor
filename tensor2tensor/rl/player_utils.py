@@ -32,9 +32,10 @@ from tensor2tensor.models.research.rl import make_simulated_env_fn_from_hparams
 from tensor2tensor.rl import rl_utils
 from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv
 from tensor2tensor.utils import trainer_lib
+from tensor2tensor.utils.misc_utils import camelcase_to_snakecase
+
 import tensorflow as tf
 
-from tensor2tensor.utils.misc_utils import camelcase_to_snakecase
 
 flags = tf.flags
 FLAGS = flags.FLAGS
