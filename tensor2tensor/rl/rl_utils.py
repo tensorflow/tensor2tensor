@@ -21,10 +21,12 @@ from __future__ import print_function
 
 import random
 
+from gym.spaces import Box
 import numpy as np
 import six
 
 from tensor2tensor.data_generators.gym_env import T2TGymEnv
+from tensor2tensor.layers import common_layers
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl.dopamine_connector import DQNLearner
 from tensor2tensor.rl.ppo_learner import PPOLearner
@@ -202,7 +204,9 @@ class BatchAgent(object):
   Runs a batch of parallel agents. Operates on Numpy arrays.
   """
 
-  def __init__(self, action_space):
+  def __init__(self, batch_size, observation_space, action_space):
+    self.batch_size = batch_size
+    self.observation_space = observation_space
     self.action_space = action_space
 
   def act(self, observations):
@@ -240,3 +244,94 @@ class RandomAgent(BatchAgent):
 
   def estimate_value(self, observations):
     return np.zeros(observations.shape[0])
+
+
+class PolicyAgent(BatchAgent):
+  """Agent based on a policy network."""
+
+  def __init__(
+      self, batch_size, observation_space, action_space, policy_hparams,
+      policy_dir, sampling_temp
+  ):
+    super(PolicyAgent, self).__init__(
+        batch_size, observation_space, action_space
+    )
+    self._sampling_temp = sampling_temp
+    with tf.Graph().as_default():
+      self._observations_t = tf.placeholder(
+          shape=((batch_size,) + self.observation_space.shape),
+          dtype=self.observation_space.dtype
+      )
+      (logits, self._values_t) = rl.get_policy(
+          self._observations_t, policy_hparams, self.action_space
+      )
+      actions = common_layers.sample_with_temperature(logits, sampling_temp)
+      self._actions_t = tf.cast(actions, tf.int32)
+      model_saver = tf.train.Saver(
+          tf.global_variables(policy_hparams.policy_network + "/.*")  # pylint: disable=unexpected-keyword-arg
+      )
+      self._sess = tf.Session()
+      self._sess.run(tf.global_variables_initializer())
+      trainer_lib.restore_checkpoint(policy_dir, model_saver, self._sess)
+
+  def _run(self, observations):
+    return self._sess.run(
+        [self._actions_t, self._values_t],
+        feed_dict={self._observations_t: observations}
+    )
+
+  def act(self, observations):
+    (actions, _) = self._run(observations)
+    return actions
+
+  def estimate_value(self, observations):
+    (_, values) = self._run(observations)
+    return values
+
+
+# TODO(koz4k): Unify interfaces of batch envs.
+class BatchStackWrapper(object):
+  """Out-of-graph batch stack wrapper."""
+
+  def __init__(self, env, stack_size):
+    self.env = env
+    self.stack_size = stack_size
+    inner_space = env.observation_space
+    self.observation_space = Box(
+        low=np.array([inner_space.low] * self.stack_size),
+        high=np.array([inner_space.high] * self.stack_size),
+        dtype=inner_space.dtype,
+    )
+    self._history_buffer = np.zeros(
+        (self.batch_size,) + self.observation_space.shape
+    )
+
+  @property
+  def batch_size(self):
+    return self.env.batch_size
+
+  @property
+  def action_space(self):
+    return self.env.action_space
+
+  @property
+  def reward_range(self):
+    return self.env.reward_range
+
+  def reset(self, indices=None):
+    if indices is None:
+      indices = range(self.batch_size)
+
+    observations = self.env.reset(indices)
+    for (index, observation) in zip(indices, observations):
+      self._history_buffer[index, ...] = [observation] * self.stack_size
+    return self._history_buffer
+
+  def step(self, actions):
+    (observations, rewards, dones) = self.env.step(actions)
+    self._history_buffer = np.roll(self._history_buffer, shift=-1, axis=1)
+    self._history_buffer[:, -1, ...] = observations
+    return (self._history_buffer, rewards, dones)
+
+  def close(self):
+    self.env.close()
