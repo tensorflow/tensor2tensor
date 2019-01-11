@@ -410,7 +410,8 @@ def decode_from_file(estimator,
       input_gen = _decode_batch_input_fn(
           num_decode_batches, sorted_inputs,
           inputs_vocab, decode_hp.batch_size,
-          decode_hp.max_input_size, task_id=decode_hp.multiproblem_task_id)
+          decode_hp.max_input_size,
+          task_id=decode_hp.multiproblem_task_id, has_input=has_input)
       gen_fn = make_input_fn_from_generator(input_gen)
       example = gen_fn()
       return _decode_input_tensor_to_features_dict(example, hparams)
@@ -616,7 +617,8 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
 
 
 def _decode_batch_input_fn(num_decode_batches, sorted_inputs, vocabulary,
-                           batch_size, max_input_size, task_id=-1):
+                           batch_size, max_input_size,
+                           task_id=-1, has_input=True):
   """Generator to produce batches of inputs."""
   tf.logging.info(" batch %d" % num_decode_batches)
   for b in range(num_decode_batches):
@@ -628,8 +630,9 @@ def _decode_batch_input_fn(num_decode_batches, sorted_inputs, vocabulary,
       if max_input_size > 0:
         # Subtract 1 for the EOS_ID.
         input_ids = input_ids[:max_input_size - 1]
-      final_id = text_encoder.EOS_ID if task_id < 0 else task_id
-      input_ids.append(final_id)
+      if has_input or task_id > -1:  # Do not append EOS for pure LM tasks.
+        final_id = text_encoder.EOS_ID if task_id < 0 else task_id
+        input_ids.append(final_id)
       batch_inputs.append(input_ids)
       if len(input_ids) > batch_length:
         batch_length = len(input_ids)
