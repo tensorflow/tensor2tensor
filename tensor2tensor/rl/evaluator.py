@@ -28,13 +28,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import numpy as np
-
 from tensor2tensor.models.research import rl  # pylint: disable=unused-import
 from tensor2tensor.rl import rl_utils
 from tensor2tensor.rl import trainer_model_based_params  # pylint: disable=unused-import
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import trainer_lib
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -44,20 +43,38 @@ FLAGS = flags.FLAGS
 
 
 flags.DEFINE_string("policy_dir", "", "Directory with policy checkpoints.")
+flags.DEFINE_string("model_dir", "", "Directory with model checkpoints.")
 flags.DEFINE_string(
     "eval_metrics_dir", "", "Directory to output the eval metrics at."
 )
 flags.DEFINE_bool("full_eval", True, "Whether to ignore the timestep limit.")
-flags.DEFINE_enum("agent", "policy", ["random", "policy"], "Agent type to use.")
+flags.DEFINE_enum(
+    "agent", "policy", ["random", "policy", "planner"], "Agent type to use."
+)
 flags.DEFINE_bool(
     "eval_with_learner", True,
     "Whether to use the PolicyLearner.evaluate function instead of an "
     "out-of-graph one. Works only with --agent=policy."
 )
+flags.DEFINE_string(
+    "planner_hparams_set", "planner_tiny", "Planner hparam set."
+)
+flags.DEFINE_string("planner_hparams", "", "Planner hparam overrides.")
+
+
+@registry.register_hparams
+def planner_tiny():
+  return tf.contrib.training.HParams(
+      num_rollouts=1,
+      planning_horizon=2,
+      rollout_agent_type="random",
+  )
 
 
 def make_agent(
-    agent_type, env, policy_hparams, policy_dir, sampling_temp
+    agent_type, env, policy_hparams, policy_dir, sampling_temp,
+    sim_env_kwargs=None, frame_stack_size=None, planning_horizon=None,
+    rollout_agent_type=None
 ):
   """Factory function for Agents."""
   return {
@@ -68,45 +85,40 @@ def make_agent(
           env.batch_size, env.observation_space, env.action_space,
           policy_hparams, policy_dir, sampling_temp
       ),
+      "planner": lambda: rl_utils.PlannerAgent(  # pylint: disable=g-long-lambda
+          env.batch_size, make_agent(
+              rollout_agent_type, env, policy_hparams, policy_dir, sampling_temp
+          ), rl_utils.SimulatedBatchGymEnvWithFixedInitialFrames(
+              **sim_env_kwargs
+          ), lambda env: rl_utils.BatchStackWrapper(env, frame_stack_size),
+          planning_horizon
+      ),
   }[agent_type]()
 
 
-def make_eval_fn_with_agent(agent_type):
+def make_eval_fn_with_agent(agent_type, planner_hparams, model_dir):
   """Returns an out-of-graph eval_fn using the Agent API."""
-  def eval_fn(env, hparams, policy_hparams, policy_dir, sampling_temp):
+  def eval_fn(env, loop_hparams, policy_hparams, policy_dir, sampling_temp):
     """Eval function."""
     base_env = env
-    env = rl_utils.BatchStackWrapper(env, hparams.frame_stack_size)
-    agent = make_agent(
-        agent_type, env, policy_hparams, policy_dir, sampling_temp
+    env = rl_utils.BatchStackWrapper(env, loop_hparams.frame_stack_size)
+    sim_env_kwargs = rl.make_simulated_env_kwargs(
+        base_env, loop_hparams, batch_size=planner_hparams.num_rollouts,
+        model_dir=model_dir
     )
-    num_dones = 0
-    first_dones = [False] * env.batch_size
-    observations = env.reset()
-    while num_dones < env.batch_size:
-      actions = agent.act(observations)
-      (observations, _, dones) = env.step(actions)
-      observations = list(observations)
-      now_done_indices = []
-      for (i, done) in enumerate(dones):
-        if done and not first_dones[i]:
-          now_done_indices.append(i)
-          first_dones[i] = True
-          num_dones += 1
-      if now_done_indices:
-        # Reset only envs done the first time in this timestep to ensure that
-        # we collect exactly 1 rollout from each env.
-        reset_observations = env.reset(now_done_indices)
-        for (i, observation) in zip(now_done_indices, reset_observations):
-          observations[i] = observation
-      observations = np.array(observations)
+    agent = make_agent(
+        agent_type, env, policy_hparams, policy_dir, sampling_temp,
+        sim_env_kwargs, loop_hparams.frame_stack_size,
+        planner_hparams.planning_horizon, planner_hparams.rollout_agent_type
+    )
+    rl_utils.run_rollouts(env, agent, env.reset())
     assert len(base_env.current_epoch_rollouts()) == env.batch_size
   return eval_fn
 
 
 def evaluate(
-    hparams, policy_dir, eval_metrics_dir, agent_type, eval_with_learner,
-    report_fn=None, report_metric=None
+    loop_hparams, planner_hparams, policy_dir, model_dir, eval_metrics_dir,
+    agent_type, eval_with_learner, report_fn=None, report_metric=None
 ):
   """Evaluate."""
   if eval_with_learner:
@@ -118,16 +130,20 @@ def evaluate(
   eval_metrics_writer = tf.summary.FileWriter(eval_metrics_dir)
   kwargs = {}
   if not eval_with_learner:
-    kwargs["eval_fn"] = make_eval_fn_with_agent(agent_type)
-  eval_metrics = rl_utils.evaluate_all_configs(hparams, policy_dir, **kwargs)
+    kwargs["eval_fn"] = make_eval_fn_with_agent(
+        agent_type, planner_hparams, model_dir
+    )
+  eval_metrics = rl_utils.evaluate_all_configs(
+      loop_hparams, policy_dir, **kwargs
+  )
   rl_utils.summarize_metrics(eval_metrics_writer, eval_metrics, 0)
 
   # Report metrics
   if report_fn:
     if report_metric == "mean_reward":
       metric_name = rl_utils.get_metric_name(
-          sampling_temp=hparams.eval_sampling_temps[0],
-          max_num_noops=hparams.eval_max_num_noops,
+          sampling_temp=loop_hparams.eval_sampling_temps[0],
+          max_num_noops=loop_hparams.eval_max_num_noops,
           clipped=False
       )
       report_fn(eval_metrics[metric_name], 0)
@@ -137,12 +153,17 @@ def evaluate(
 
 
 def main(_):
-  hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
+  loop_hparams = trainer_lib.create_hparams(
+      FLAGS.loop_hparams_set, FLAGS.loop_hparams
+  )
   if FLAGS.full_eval:
-    hparams.eval_rl_env_max_episode_steps = -1
+    loop_hparams.eval_rl_env_max_episode_steps = -1
+  planner_hparams = trainer_lib.create_hparams(
+      FLAGS.planner_hparams_set, FLAGS.planner_hparams
+  )
   evaluate(
-      hparams, FLAGS.policy_dir, FLAGS.eval_metrics_dir, FLAGS.agent,
-      FLAGS.eval_with_learner
+      loop_hparams, planner_hparams, FLAGS.policy_dir, FLAGS.model_dir,
+      FLAGS.eval_metrics_dir, FLAGS.agent, FLAGS.eval_with_learner
   )
 
 
