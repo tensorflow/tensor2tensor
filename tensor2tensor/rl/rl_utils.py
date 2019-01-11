@@ -29,6 +29,7 @@ from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl.dopamine_connector import DQNLearner
+from tensor2tensor.rl.envs.simulated_batch_gym_env import SimulatedBatchGymEnv
 from tensor2tensor.rl.ppo_learner import PPOLearner
 from tensor2tensor.utils import misc_utils
 from tensor2tensor.utils import trainer_lib
@@ -358,6 +359,52 @@ class PolicyAgent(BatchAgent):
     return values
 
 
+class PlannerAgent(BatchAgent):
+  """Agent based on temporal difference planning."""
+
+  def __init__(
+      self, batch_size, rollout_agent, sim_env, wrapper_fn, planning_horizon,
+      discount_factor=1.0
+  ):
+    super(PlannerAgent, self).__init__(
+        batch_size, rollout_agent.observation_space, rollout_agent.action_space
+    )
+    self._rollout_agent = rollout_agent
+    self._sim_env = sim_env
+    self._wrapped_env = wrapper_fn(sim_env)
+    self._discount_factor = discount_factor
+    self._planning_horizon = planning_horizon
+
+  def act(self, observations):
+    def run_batch_from(observation, action):
+      self._sim_env.initial_frames = np.array(
+          [observation] * self._sim_env.batch_size
+      )
+      self._wrapped_env.reset()
+      (initial_observations, initial_rewards, _) = self._wrapped_env.step(
+          np.array([action] * self._wrapped_env.batch_size)
+      )
+      (final_observations, cum_rewards) = run_rollouts(
+          self._wrapped_env, self._rollout_agent, initial_observations,
+          discount_factor=self._discount_factor,
+          step_limit=self._planning_horizon
+      )
+      values = self._rollout_agent.estimate_value(final_observations)
+      total_values = (
+          initial_rewards + self._discount_factor * cum_rewards +
+          self._discount_factor ** (self._planning_horizon + 1) * values
+      )
+      return total_values.mean()
+
+    def choose_best_action(observation):
+      return max(
+          range(self.action_space.n),
+          key=(lambda action: run_batch_from(observation, action))
+      )
+
+    return np.array(list(map(choose_best_action, observations)))
+
+
 # TODO(koz4k): Unify interfaces of batch envs.
 class BatchWrapper(object):
   """Base class for batch env wrappers."""
@@ -392,7 +439,8 @@ class BatchStackWrapper(BatchWrapper):
         dtype=inner_space.dtype,
     )
     self._history_buffer = np.zeros(
-        (self.batch_size,) + self.observation_space.shape
+        (self.batch_size,) + self.observation_space.shape,
+        dtype=inner_space.dtype
     )
 
   def reset(self, indices=None):
@@ -410,3 +458,16 @@ class BatchStackWrapper(BatchWrapper):
     self._history_buffer[:, -1, ...] = observations
     return (self._history_buffer, rewards, dones)
 
+
+class SimulatedBatchGymEnvWithFixedInitialFrames(BatchWrapper):
+  """Wrapper for SimulatedBatchGymEnv that allows to fix initial frames."""
+
+  def __init__(self, *args, **kwargs):
+    self.initial_frames = None
+    def initial_frame_chooser(batch_size):
+      assert batch_size == self.initial_frames.shape[0]
+      return self.initial_frames
+    env = SimulatedBatchGymEnv(
+        *args, initial_frame_chooser=initial_frame_chooser, **kwargs
+    )
+    super(SimulatedBatchGymEnvWithFixedInitialFrames, self).__init__(env)

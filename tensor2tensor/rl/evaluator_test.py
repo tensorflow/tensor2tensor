@@ -27,11 +27,12 @@ import tensorflow as tf
 class EvalTest(tf.test.TestCase):
 
   def test_evaluate_pong_random_agent(self):
-    hparams = registry.hparams("rlmb_tiny")
+    loop_hparams = registry.hparams("rlmb_tiny")
+    planner_hparams = registry.hparams("planner_tiny")
     temp_dir = tf.test.get_temp_dir()
     evaluator.evaluate(
-        hparams, temp_dir, temp_dir, agent_type="random",
-        eval_with_learner=False
+        loop_hparams, planner_hparams, temp_dir, temp_dir, temp_dir,
+        agent_type="random", eval_with_learner=False
     )
 
 
