@@ -53,17 +53,15 @@ from __future__ import division
 from __future__ import print_function
 
 import gym
-from gym.envs.atari.atari_env import ACTION_MEANING
 from gym.utils import play
 import numpy as np
-import six
 
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.rl import player_utils
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_ImageDraw
 from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv
-from tensor2tensor.rl.rl_utils import absolute_hinge_difference
+from tensor2tensor.rl.rl_utils import absolute_hinge_difference, full_game_name
 # Import flags from t2t_trainer and trainer_model_based
 import tensor2tensor.rl.trainer_model_based_params  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
@@ -137,24 +135,23 @@ class PlayerEnv(gym.Env):
 
   HEADER_HEIGHT = 27
 
-  def __init__(self):
+  def __init__(self, action_meanings):
+    """
+
+    Args:
+      action_meanings: list of strings indicating action names. Can be obtain by
+        >>> env = gym.make("PongNoFrameskip-v4")  # insert your game name
+        >>> env.unwrapped.get_action_meanings()
+        See gym AtariEnv get_action_meanings() for more details.
+    """
+    self.action_meanings = action_meanings
     self._wait = True
     # If action_space will be needed, one could use e.g. gym.spaces.Dict.
     self.action_space = None
     self._last_step_tuples = None
-
-  def _init_action_mappings(self, env):
-    # Atari dependant. In case of problems with keyboard key interpretation
-    # switch to _action_set instead of range(env.action_space.n) (similarly to
-    # how gym AtariEnv does). _action_set can probably be obtain from full
-    # game name.
-    self.action_meaning = {i: ACTION_MEANING[i]
-                           for i in range(env.action_space.n)}
-    self.name_to_action_num = {v: k for k, v in
-                               six.iteritems(self.action_meaning)}
-
-  def _get_action_meanings(self):
-    return [self.action_meaning[i] for i in range(len(self.action_meaning))]
+    self.action_meanings = action_meanings
+    self.name_to_action_num = {name: num for num, name in
+                               enumerate(self.action_meanings)}
 
   def get_keys_to_action(self):
     """Get mapping from keyboard keys to actions.
@@ -178,7 +175,7 @@ class PlayerEnv(gym.Env):
 
     keys_to_action = {}
 
-    for action_id, action_meaning in enumerate(self._get_action_meanings()):
+    for action_id, action_meaning in enumerate(self.action_meanings):
       keys = []
       for keyword, key in keyword_to_key.items():
         if keyword in action_meaning:
@@ -255,6 +252,7 @@ class PlayerEnv(gym.Env):
       pixel_fill = (0, 255, 0)
     else:
       pixel_fill = (255, 0, 0)
+      pixel_fill = (255, 0, 0)
     header[0, :, :] = pixel_fill
     return np.concatenate([header, ob], axis=0)
 
@@ -306,7 +304,7 @@ class SimAndRealEnvPlayer(PlayerEnv):
 
   RESTART_SIMULATED_ENV_ACTION = 110
 
-  def __init__(self, real_env, sim_env):
+  def __init__(self, real_env, sim_env, action_meanings):
     """Init.
 
     Args:
@@ -315,7 +313,7 @@ class SimAndRealEnvPlayer(PlayerEnv):
         `SimulatedGymEnv` must allow to update initial frames for next reset
         with `add_to_initial_stack` method.
     """
-    super(SimAndRealEnvPlayer, self).__init__()
+    super(SimAndRealEnvPlayer, self).__init__(action_meanings)
     assert real_env.observation_space.shape == sim_env.observation_space.shape
     self.real_env = real_env
     self.sim_env = sim_env
@@ -329,7 +327,6 @@ class SimAndRealEnvPlayer(PlayerEnv):
     self.observation_space = gym.spaces.Box(low=orig.low.min(),
                                             high=orig.high.max(),
                                             shape=shape, dtype=orig.dtype)
-    self._init_action_mappings(sim_env)
 
   def _player_actions(self):
     actions = super(SimAndRealEnvPlayer, self)._player_actions()
@@ -438,8 +435,8 @@ class SingleEnvPlayer(PlayerEnv):
       Plural form used for consistency with `PlayerEnv`.
   """
 
-  def __init__(self, env):
-    super(SingleEnvPlayer, self).__init__()
+  def __init__(self, env, action_meanings):
+    super(SingleEnvPlayer, self).__init__(action_meanings)
     self.env = env
     # Set observation space
     orig = self.env.observation_space
@@ -447,7 +444,6 @@ class SingleEnvPlayer(PlayerEnv):
     self.observation_space = gym.spaces.Box(low=orig.low.min(),
                                             high=orig.high.max(),
                                             shape=shape, dtype=orig.dtype)
-    self._init_action_mappings(env)
 
   def _player_step_tuple(self, envs_step_tuples):
     """Augment observation, return usual step tuple."""
@@ -494,6 +490,8 @@ def main(_):
     hparams.set_hparam(
         "game", player_utils.infer_game_name_from_filenames(directories["data"])
     )
+  action_meanings = gym.make(full_game_name(hparams.game)).\
+      unwrapped.get_action_meanings()
   epoch = FLAGS.epoch if FLAGS.epoch == "last" else int(FLAGS.epoch)
 
   def make_real_env():
@@ -514,18 +512,19 @@ def main(_):
     sim_env = make_simulated_env(
         which_epoch_data=None, setable_initial_frames=True)
     real_env = make_real_env()
-    env = SimAndRealEnvPlayer(real_env, sim_env)
+    env = SimAndRealEnvPlayer(real_env, sim_env, action_meanings)
   else:
     if FLAGS.simulated_env:
       env = make_simulated_env(  # pylint: disable=redefined-variable-type
           which_epoch_data=epoch, setable_initial_frames=False)
     else:
       env = make_real_env()
-    env = SingleEnvPlayer(env)  # pylint: disable=redefined-variable-type
+    env = SingleEnvPlayer(env, action_meanings)  # pylint: disable=redefined-variable-type
 
   env = player_utils.wrap_with_monitor(env, FLAGS.video_dir)
 
   if FLAGS.dry_run:
+    env.unwrapped.get_keys_to_action()
     for _ in range(5):
       env.reset()
       for i in range(50):

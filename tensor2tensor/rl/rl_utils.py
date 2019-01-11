@@ -126,12 +126,26 @@ LEARNERS = {
 }
 
 
+ATARI_GAME_MODE = "NoFrameskip-v4"
+
+
+def full_game_name(short_name):
+  """CamelCase game name with mode suffix.
+
+  Args:
+    short_name: snake_case name without mode e.g "crazy_climber"
+
+  Returns:
+    full game name e.g. "CrazyClimberNoFrameskip-v4"
+  """
+  camel_game_name = misc_utils.snakecase_to_camelcase(short_name)
+  full_name = camel_game_name + ATARI_GAME_MODE
+  return full_name
+
+
 def setup_env(hparams, batch_size, max_num_noops, rl_env_max_episode_steps=-1):
   """Setup."""
-  game_mode = "NoFrameskip-v4"
-  camel_game_name = misc_utils.snakecase_to_camelcase(hparams.game)
-  camel_game_name += game_mode
-  env_name = camel_game_name
+  env_name = full_game_name(hparams.game)
 
   env = T2TGymEnv(base_env_name=env_name,
                   batch_size=batch_size,
