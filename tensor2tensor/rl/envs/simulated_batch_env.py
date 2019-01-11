@@ -161,7 +161,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     model_loader = tf.train.Saver(
         var_list=tf.global_variables(scope="next_frame*")  # pylint:disable=unexpected-keyword-arg
     )
-    if tf.io.gfile.isdir(self._model_dir):
+    if tf.gfile.IsDirectory(self._model_dir):
       trainer_lib.restore_checkpoint(
           self._model_dir, saver=model_loader, sess=sess, must_restore=True
       )
