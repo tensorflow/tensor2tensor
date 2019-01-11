@@ -53,7 +53,8 @@ class SimulatedBatchGymEnv(Env):
 
       self._actions_t = tf.placeholder(shape=(self.batch_size,), dtype=tf.int32)
       self._rewards_t, self._dones_t = self._batch_env.simulate(self._actions_t)
-      self._obs_t = self._batch_env.observ
+      with tf.control_dependencies([self._rewards_t]):
+        self._obs_t = self._batch_env.observ
       self._reset_op = self._batch_env.reset(
           tf.range(self.batch_size, dtype=tf.int32)
       )
