@@ -228,6 +228,45 @@ def absolute_hinge_difference(arr1, arr2, min_diff=10, dtype=np.uint8):
   return np.maximum(diff - min_diff, 0).astype(dtype)
 
 
+def run_rollouts(
+    env, agent, initial_observations, step_limit=None, discount_factor=1.0
+):
+  """Runs a batch of rollouts from given initial observations."""
+  num_dones = 0
+  first_dones = [False] * env.batch_size
+  observations = initial_observations
+  step_index = 0
+  cum_rewards = 0
+
+  def proceed():
+    if step_limit is not None:
+      return step_index < step_limit
+    else:
+      return num_dones < env.batch_size
+
+  while proceed():
+    actions = agent.act(observations)
+    (observations, rewards, dones) = env.step(actions)
+    observations = list(observations)
+    now_done_indices = []
+    for (i, done) in enumerate(dones):
+      if done and not first_dones[i]:
+        now_done_indices.append(i)
+        first_dones[i] = True
+        num_dones += 1
+    if now_done_indices:
+      # Reset only envs done the first time in this timestep to ensure that
+      # we collect exactly 1 rollout from each env.
+      reset_observations = env.reset(now_done_indices)
+      for (i, observation) in zip(now_done_indices, reset_observations):
+        observations[i] = observation
+    observations = np.array(observations)
+    cum_rewards = cum_rewards * discount_factor + rewards
+    step_index += 1
+
+  return (observations, cum_rewards)
+
+
 class BatchAgent(object):
   """Python API for agents.
 

@@ -80,26 +80,7 @@ def make_eval_fn_with_agent(agent_type):
     agent = make_agent(
         agent_type, env, policy_hparams, policy_dir, sampling_temp
     )
-    num_dones = 0
-    first_dones = [False] * env.batch_size
-    observations = env.reset()
-    while num_dones < env.batch_size:
-      actions = agent.act(observations)
-      (observations, _, dones) = env.step(actions)
-      observations = list(observations)
-      now_done_indices = []
-      for (i, done) in enumerate(dones):
-        if done and not first_dones[i]:
-          now_done_indices.append(i)
-          first_dones[i] = True
-          num_dones += 1
-      if now_done_indices:
-        # Reset only envs done the first time in this timestep to ensure that
-        # we collect exactly 1 rollout from each env.
-        reset_observations = env.reset(now_done_indices)
-        for (i, observation) in zip(now_done_indices, reset_observations):
-          observations[i] = observation
-      observations = np.array(observations)
+    rl_utils.run_rollouts(env, agent, env.reset())
     assert len(base_env.current_epoch_rollouts()) == env.batch_size
   return eval_fn
 
