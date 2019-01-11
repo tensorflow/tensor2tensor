@@ -359,11 +359,31 @@ class PolicyAgent(BatchAgent):
 
 
 # TODO(koz4k): Unify interfaces of batch envs.
-class BatchStackWrapper(object):
+class BatchWrapper(object):
+  """Base class for batch env wrappers."""
+
+  def __init__(self, env):
+    self.env = env
+    self.batch_size = env.batch_size
+    self.observation_space = env.observation_space
+    self.action_space = env.action_space
+    self.reward_range = env.reward_range
+
+  def reset(self, indices=None):
+    return self.env.reset(indices)
+
+  def step(self, actions):
+    return self.env.step(actions)
+
+  def close(self):
+    self.env.close()
+
+
+class BatchStackWrapper(BatchWrapper):
   """Out-of-graph batch stack wrapper."""
 
   def __init__(self, env, stack_size):
-    self.env = env
+    super(BatchStackWrapper, self).__init__(env)
     self.stack_size = stack_size
     inner_space = env.observation_space
     self.observation_space = Box(
@@ -374,18 +394,6 @@ class BatchStackWrapper(object):
     self._history_buffer = np.zeros(
         (self.batch_size,) + self.observation_space.shape
     )
-
-  @property
-  def batch_size(self):
-    return self.env.batch_size
-
-  @property
-  def action_space(self):
-    return self.env.action_space
-
-  @property
-  def reward_range(self):
-    return self.env.reward_range
 
   def reset(self, indices=None):
     if indices is None:
@@ -402,5 +410,3 @@ class BatchStackWrapper(object):
     self._history_buffer[:, -1, ...] = observations
     return (self._history_buffer, rewards, dones)
 
-  def close(self):
-    self.env.close()
