@@ -202,8 +202,15 @@ def configure_job():
     )
 
   timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-  job_name = "%s_%s_t2t_%s" % (FLAGS.model, FLAGS.problem, timestamp)
-  job_spec = {"jobId": job_name, "trainingInput": training_input}
+  job_spec = {
+    "jobId": "%s_%s_t2t_%s" % (FLAGS.model, FLAGS.problem, timestamp),
+    "labels": {
+      "model": FLAGS.model,
+      "problem": FLAGS.problem,
+      "hparams": FLAGS.hparams_set
+    },
+    "trainingInput": training_input,
+  }
   return job_spec
 
 
