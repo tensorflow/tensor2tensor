@@ -61,7 +61,8 @@ from tensor2tensor.rl import player_utils
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_ImageDraw
 from tensor2tensor.rl.envs.simulated_batch_gym_env import FlatBatchEnv
-from tensor2tensor.rl.rl_utils import absolute_hinge_difference, full_game_name
+from tensor2tensor.rl.rl_utils import absolute_hinge_difference
+from tensor2tensor.rl.rl_utils import full_game_name
 # Import flags from t2t_trainer and trainer_model_based
 import tensor2tensor.rl.trainer_model_based_params  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
@@ -136,7 +137,7 @@ class PlayerEnv(gym.Env):
   HEADER_HEIGHT = 27
 
   def __init__(self, action_meanings):
-    """
+    """Constructor for PlayerEnv.
 
     Args:
       action_meanings: list of strings indicating action names. Can be obtain by
@@ -252,7 +253,6 @@ class PlayerEnv(gym.Env):
       pixel_fill = (0, 255, 0)
     else:
       pixel_fill = (255, 0, 0)
-      pixel_fill = (255, 0, 0)
     header[0, :, :] = pixel_fill
     return np.concatenate([header, ob], axis=0)
 
@@ -312,6 +312,10 @@ class SimAndRealEnvPlayer(PlayerEnv):
       sim_env: simulation of `real_env` to be compared with. E.g.
         `SimulatedGymEnv` must allow to update initial frames for next reset
         with `add_to_initial_stack` method.
+      action_meanings: list of strings indicating action names. Can be obtain by
+        >>> env = gym.make("PongNoFrameskip-v4")  # insert your game name
+        >>> env.unwrapped.get_action_meanings()
+        See gym AtariEnv get_action_meanings() for more details.
     """
     super(SimAndRealEnvPlayer, self).__init__(action_meanings)
     assert real_env.observation_space.shape == sim_env.observation_space.shape
