@@ -306,8 +306,10 @@ def rlmb_base_stochastic_discrete():
   hparams.grayscale = False
   hparams.generative_model = "next_frame_basic_stochastic_discrete"
   hparams.generative_model_params = "next_frame_basic_stochastic_discrete"
+  # The parameters below are the same as base, but repeated for easier reading.
   hparams.ppo_epoch_length = 50
   hparams.simulated_rollout_length = 50
+  hparams.simulated_batch_size = 16
   return hparams
 
 
@@ -321,6 +323,14 @@ def rlmb_base_stochastic_discrete_param_sharing():
 
 
 @registry.register_hparams
+def rlmb_long():
+  """Long setting with base model."""
+  hparams = rlmb_base()
+  hparams.generative_model_params = "next_frame_pixel_noise_long"
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_long_stochastic_discrete():
   """Long setting with stochastic discrete model."""
   hparams = rlmb_base_stochastic_discrete()
@@ -330,7 +340,41 @@ def rlmb_long_stochastic_discrete():
 
 
 @registry.register_hparams
-def rlmb_base_stochastic_recurrent():
+def rlmb_long_stochastic_discrete_100steps():
+  """Long setting with stochastic discrete model, changed ppo steps."""
+  hparams = rlmb_long_stochastic_discrete()
+  hparams.ppo_epoch_length = 100
+  hparams.simulated_rollout_length = 100
+  hparams.simulated_batch_size = 8
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_long_stochastic_discrete_25steps():
+  """Long setting with stochastic discrete model, changed ppo steps."""
+  hparams = rlmb_long_stochastic_discrete()
+  hparams.ppo_epoch_length = 25
+  hparams.simulated_rollout_length = 25
+  hparams.simulated_batch_size = 32
+  return hparams
+
+
+def rlmb_long_stochastic_discrete_gamma95():
+  """Long setting with stochastic discrete model, changed gamma."""
+  hparams = rlmb_long_stochastic_discrete()
+  hparams.base_algo_params = "ppo_original_params_gamma95"
+  return hparams
+
+
+def rlmb_long_stochastic_discrete_gamma90():
+  """Long setting with stochastic discrete model, changed gamma."""
+  hparams = rlmb_long_stochastic_discrete()
+  hparams.base_algo_params = "ppo_original_params_gamma90"
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_base_recurrent():
   """Base setting with recurrent model."""
   hparams = rlmb_base()
   hparams.generative_model = "next_frame_basic_recurrent"

@@ -131,6 +131,22 @@ def ppo_original_params():
 
 
 @registry.register_hparams
+def ppo_original_params_gamma95():
+  """Parameters based on the original PPO paper, changed gamma."""
+  hparams = ppo_original_params()
+  hparams.gae_gamma = 0.95
+  return hparams
+
+
+@registry.register_hparams
+def ppo_original_params_gamma90():
+  """Parameters based on the original PPO paper, changed gamma."""
+  hparams = ppo_original_params()
+  hparams.gae_gamma = 0.90
+  return hparams
+
+
+@registry.register_hparams
 def ppo_original_world_model():
   """Atari parameters with world model as policy."""
   hparams = ppo_original_params()
