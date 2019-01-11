@@ -430,16 +430,18 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
       ("dil_gatu", True, "gatu"), ("no_dil_gatu", False, "gatu"),
       ("dil_relu_drop", True, "relu", 0.1),
       ("dil_gatu_drop", True, "gatu", 0.1),
-      ("dil_gatu_drop_noise", True, "gatu", 0.1, 0.1))
+      ("dil_gatu_drop_noise", True, "gatu", 0.1, 0.1),
+      ("gatu_drop_single_step", False, "gatu", 0.1, 0.1, 1),
+      ("dil_gatu_drop_single_step", True, "gatu", 0.1, 0.1, 1),)
   def test_temporal_latent_to_dist(self, apply_dilation, activation,
-                                   dropout=0.0, noise=0.1):
+                                   dropout=0.0, noise=0.1, num_steps=5):
     with tf.Graph().as_default():
       hparams = self.get_glow_hparams()
       hparams.latent_apply_dilations = apply_dilation
       hparams.latent_activation = activation
       hparams.latent_dropout = dropout
       hparams.latent_noise = noise
-      latent_shape = (16, 5, 32, 32, 48)
+      latent_shape = (16, num_steps, 32, 32, 48)
       latents = tf.random_normal(latent_shape)
       dist = glow_ops.temporal_latent_to_dist(
           "tensor_to_dist", latents, hparams)

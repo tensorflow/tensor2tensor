@@ -421,6 +421,7 @@ def conv(name, x, output_channels, filter_size=None, stride=None,
 
   x_shape = common_layers.shape_list(x)
   is_2d = len(x_shape) == 4
+  num_steps = x_shape[1]
 
   # set filter_size, stride and in_channels
   if is_2d:
@@ -435,7 +436,10 @@ def conv(name, x, output_channels, filter_size=None, stride=None,
     conv_filter = tf.nn.conv2d
   else:
     if filter_size is None:
-      filter_size = [2, 3, 3]
+      if num_steps == 1:
+        filter_size = [1, 3, 3]
+      else:
+        filter_size = [2, 3, 3]
     if stride is None:
       stride = [1, 1, 1]
     if dilations is None:
@@ -489,11 +493,17 @@ def conv_block(name, x, mid_channels, dilations=None, activation="relu",
 
     x_shape = common_layers.shape_list(x)
     is_2d = len(x_shape) == 4
+    num_steps = x_shape[1]
     if is_2d:
       first_filter = [3, 3]
       second_filter = [1, 1]
     else:
-      first_filter = [2, 3, 3]
+      # special case when number of steps equal 1 to avoid
+      # padding.
+      if num_steps == 1:
+        first_filter = [1, 3, 3]
+      else:
+        first_filter = [2, 3, 3]
       second_filter = [1, 1, 1]
 
     # Edge Padding + conv2d + actnorm + relu:
@@ -1025,7 +1035,7 @@ def split(name, x, reverse=False, eps=None, eps_std=None, cond_latents=None,
     eps_std: Sample x2 with the provided eps_std.
     cond_latents: optionally condition x2 on cond_latents.
     hparams: next_frame_glow hparams.
-    state: tf.nn.rnn_cell.LSTMStateTuple. Current state of the LSTM over z_2.
+    state: tf.nn.rnn_cell.LSTMStateTuple.. Current state of the LSTM over z_2.
            Used only when hparams.latent_dist_encoder == "conv_lstm"
     condition: bool, Whether or not to condition the distribution on
                cond_latents.
