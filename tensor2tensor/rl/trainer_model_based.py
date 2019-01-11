@@ -150,9 +150,11 @@ def train_agent(real_env, learner, world_model_dir, hparams, epoch):
       hparams.simulation_flip_first_random_for_beginning
   )
   env_fn = make_simulated_env_fn_from_hparams(
-      real_env, hparams, hparams.simulated_batch_size, initial_frame_chooser,
-      world_model_dir, os.path.join(learner.agent_model_dir,
-                                    "sim_videos_{}".format(epoch))
+      real_env, hparams, batch_size=hparams.simulated_batch_size,
+      initial_frame_chooser=initial_frame_chooser, model_dir=world_model_dir,
+      sim_video_dir=os.path.join(
+          learner.agent_model_dir, "sim_videos_{}".format(epoch)
+      )
   )
   base_algo_str = hparams.base_algo
   train_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
@@ -243,8 +245,8 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
     ])
 
   env_fn = make_simulated_env_fn_from_hparams(
-      real_env, hparams, hparams.wm_eval_batch_size, initial_frame_chooser,
-      world_model_dir
+      real_env, hparams, batch_size=hparams.wm_eval_batch_size,
+      initial_frame_chooser=initial_frame_chooser, model_dir=world_model_dir
   )
   sim_env = env_fn(in_graph=False)
   subsequence_length = int(
