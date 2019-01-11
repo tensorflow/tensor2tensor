@@ -426,8 +426,8 @@ def feed_forward_gaussian_fun(action_space, config, observations):
   if not isinstance(action_space, gym.spaces.box.Box):
     raise ValueError("Expecting continuous action space.")
 
-  mean_weights_initializer = tf.contrib.layers.variance_scaling_initializer(
-      factor=config.init_mean_factor)
+  mean_weights_initializer = tf.initializers.variance_scaling(
+      scale=config.init_mean_factor)
   logstd_initializer = tf.random_normal_initializer(config.init_logstd, 1e-10)
 
   flat_observations = tf.reshape(observations, [
@@ -438,10 +438,10 @@ def feed_forward_gaussian_fun(action_space, config, observations):
     with tf.variable_scope("policy"):
       x = flat_observations
       for size in config.policy_layers:
-        x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-      mean = tf.contrib.layers.fully_connected(
-          x, action_space.shape[0], tf.tanh,
-          weights_initializer=mean_weights_initializer)
+        x = tf.layers.dense(x, size, activation=tf.nn.relu)
+      mean = tf.layers.dense(
+          x, action_space.shape[0], activation=tf.tanh,
+          kernel_initializer=mean_weights_initializer)
       logstd = tf.get_variable(
           "logstd", mean.shape[2:], tf.float32, logstd_initializer)
       logstd = tf.tile(
@@ -450,8 +450,8 @@ def feed_forward_gaussian_fun(action_space, config, observations):
     with tf.variable_scope("value"):
       x = flat_observations
       for size in config.value_layers:
-        x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-      value = tf.contrib.layers.fully_connected(x, 1, None)[..., 0]
+        x = tf.layers.dense(x, size, activation=tf.nn.relu)
+      value = tf.layers.dense(x, 1)[..., 0]
   mean = tf.check_numerics(mean, "mean")
   logstd = tf.check_numerics(logstd, "logstd")
   value = tf.check_numerics(value, "value")
@@ -480,16 +480,14 @@ class FeedForwardCategoricalPolicy(PolicyBase):
     with tf.variable_scope("policy"):
       x = flat_observations
       for size in self.hparams.policy_layers:
-        x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-      logits = tf.contrib.layers.fully_connected(
-          x, self.hparams.problem.num_actions, activation_fn=None
-      )
+        x = tf.layers.dense(x, size, activation=tf.nn.relu)
+      logits = tf.layers.dense(x, self.hparams.problem.num_actions)
       logits = tf.expand_dims(logits, axis=1)
     with tf.variable_scope("value"):
       x = flat_observations
       for size in self.hparams.value_layers:
-        x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-      value = tf.contrib.layers.fully_connected(x, 1, None)
+        x = tf.layers.dense(x, size, activation=tf.nn.relu)
+      value = tf.layers.dense(x, 1)
     logits = clip_logits(logits, self.hparams)
     return {"target_policy": logits, "target_value": value}
 
@@ -506,14 +504,14 @@ class FeedForwardCnnSmallCategoricalPolicy(PolicyBase):
     dropout = getattr(self.hparams, "dropout_ppo", 0.0)
     with tf.variable_scope("feed_forward_cnn_small"):
       x = tf.cast(x, tf.float32) / 255.0
-      x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
-                                   activation_fn=tf.nn.relu, padding="SAME")
-      x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
-                                   activation_fn=tf.nn.relu, padding="SAME")
+      x = tf.layers.conv2d(x, 32, (5, 5), strides=(2, 2),
+                           activation=tf.nn.relu, padding="same")
+      x = tf.layers.conv2d(x, 32, (5, 5), strides=(2, 2),
+                           activation=tf.nn.relu, padding="same")
 
       flat_x = tf.layers.flatten(x)
       flat_x = tf.layers.dropout(flat_x, rate=dropout)
-      x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
+      x = tf.layers.dense(flat_x, 128, activation=tf.nn.relu)
 
       logits = tf.layers.dense(
           x, self.hparams.problem.num_actions, name="dense2"
@@ -521,8 +519,7 @@ class FeedForwardCnnSmallCategoricalPolicy(PolicyBase):
       logits = clip_logits(logits, self.hparams)
       logits = tf.expand_dims(logits, axis=1)
 
-      value = tf.contrib.layers.fully_connected(
-          x, 1, activation_fn=None)
+      value = tf.layers.dense(x, 1)
     return {"target_policy": logits, "target_value": value}
 
 
@@ -575,15 +572,12 @@ class DenseBitwiseCategoricalPolicy(PolicyBase):
     with tf.variable_scope("dense_bitwise"):
       flat_x = discretization.int_to_bit_embed(flat_x, 8, 32)
 
-      x = tf.contrib.layers.fully_connected(flat_x, 256, tf.nn.relu)
-      x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
+      x = tf.layers.dense(flat_x, 256, activation=tf.nn.relu)
+      x = tf.layers.dense(flat_x, 128, activation=tf.nn.relu)
 
-      logits = tf.contrib.layers.fully_connected(
-          x, self.hparams.problem.num_actions, activation_fn=None
-      )
+      logits = tf.layers.dense(x, self.hparams.problem.num_actions)
 
-      value = tf.contrib.layers.fully_connected(
-          x, 1, activation_fn=None)[..., 0]
+      value = tf.layers.dense(x, 1)[..., 0]
 
     return {"target_policy": logits, "target_value": value}
 

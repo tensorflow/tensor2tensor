@@ -32,10 +32,6 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
-tfl = tf.layers
-tfcl = tf.contrib.layers
-
-
 def flat_lists(list_of_lists):
   return [x for l in list_of_lists for x in l]
 

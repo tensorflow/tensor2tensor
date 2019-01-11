@@ -3577,21 +3577,21 @@ def cyclegan_upsample(net, num_outputs, stride, method="conv2d_transpose"):
       net = tf.image.resize_nearest_neighbor(
           net, [stride[0] * height, stride[1] * width])
       net = tf.pad(net, spatial_pad_1, "REFLECT")
-      net = tf.contrib.layers.conv2d(
-          net, num_outputs, kernel_size=[3, 3], padding="valid")
+      net = tf.layers.conv2d(
+          net, num_outputs, (3, 3), activation=tf.nn.relu)
     elif method == "bilinear_upsample_conv":
       net = tf.image.resize_bilinear(net,
                                      [stride[0] * height, stride[1] * width])
       net = tf.pad(net, spatial_pad_1, "REFLECT")
-      net = tf.contrib.layers.conv2d(
-          net, num_outputs, kernel_size=[3, 3], padding="valid")
+      net = tf.layers.conv2d(
+          net, num_outputs, (3, 3), activation=tf.nn.relu)
     elif method == "conv2d_transpose":
       # This corrects 1 pixel offset for images with even width and height.
       # conv2d is left aligned and conv2d_transpose is right aligned for even
       # sized images (while doing "SAME" padding).
       # Note: This doesn"t reflect actual model in paper.
-      net = tf.contrib.layers.conv2d_transpose(
-          net, num_outputs, kernel_size=[3, 3], stride=stride, padding="valid")
+      net = tf.layers.conv2d_transpose(
+          net, num_outputs, (3, 3), strides=stride, activation=tf.nn.relu)
       net = net[:, 1:, 1:, :]
     else:
       raise ValueError("Unknown method: [%s]" % method)
