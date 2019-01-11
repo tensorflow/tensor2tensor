@@ -383,10 +383,6 @@ class SimAndRealEnvPlayer(PlayerEnv):
     for _ in range(3):
       ob_real, _, _, _ = self.real_env.step(self.name_to_action_num["NOOP"])
       self.sim_env.add_to_initial_stack(ob_real)
-    # TODO(konradczechowski): remove when not longer needed.
-    # for i in range(12):
-    #   ob_real, _, _, _ = self.real_env.step(np.random.choice([2,3, 4, 5]))
-    #   self.sim_env.add_to_initial_stack(ob_real)
     ob_sim = self.sim_env.reset()
     assert np.all(ob_real == ob_sim)
     self._last_step_tuples = self._pack_step_tuples((ob_real, 0, False, {}),
@@ -423,9 +419,6 @@ class SimAndRealEnvPlayer(PlayerEnv):
   def player_restart_simulated_env_action(self):
     self._frame_counter = 0
     ob = self.sim_env.reset()
-    # TODO(konradczechowski): remove when this will be not needed.
-    # new_ob, _, _, _ = self.sim_env.step(2)
-    # print("\n\n\n\ndiff {}\n\n\n\n".format((ob - new_ob).sum()))
     assert np.all(self._last_step_tuples["real_env"][0] == ob)
     self.set_zero_cumulative_rewards()
     return self._pack_step_tuples(
