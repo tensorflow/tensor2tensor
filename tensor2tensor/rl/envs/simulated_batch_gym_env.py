@@ -20,9 +20,11 @@ from __future__ import division
 from __future__ import print_function
 
 from gym import Env
-from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
 
 import numpy as np
+
+from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
+
 import tensorflow as tf
 
 

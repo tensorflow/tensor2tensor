@@ -377,6 +377,7 @@ class PlannerAgent(BatchAgent):
 
   def act(self, observations):
     def run_batch_from(observation, action):
+      """Run a batch of actions."""
       self._sim_env.initial_frames = np.array(
           [observation] * self._sim_env.batch_size
       )
