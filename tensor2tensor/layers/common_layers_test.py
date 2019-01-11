@@ -631,8 +631,8 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
             dx, df1, df2, dnorm_scale, dnorm_bias,
             dx_f, df1_f, df2_f, dnorm_scale_f, dnorm_bias_f])
     self.assertAllClose(y, y_forget)
-    self.assertAllClose(df2, df2_f)
-    self.assertAllClose(df1, df1_f)
+    self.assertAllClose(df2, df2_f, rtol=2e-6, atol=2e-6)
+    self.assertAllClose(df1, df1_f, rtol=2e-6, atol=2e-6)
     self.assertAllClose(dnorm_scale, dnorm_scale_f)
     self.assertAllClose(dnorm_bias, dnorm_bias_f)
     self.assertAllClose(dx, dx_f)
