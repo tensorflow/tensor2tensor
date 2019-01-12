@@ -485,10 +485,11 @@ class Problem(object):
 
   def get_hparams(self, model_hparams=None):
     """Returns problem_hparams."""
-    if model_hparams is None:
-      model_hparams = default_model_hparams()
     if self._hparams is not None:
       return self._hparams
+
+    if model_hparams is None:
+      model_hparams = default_model_hparams()
 
     if self._encoders is None:
       data_dir = (model_hparams and hasattr(model_hparams, "data_dir") and
