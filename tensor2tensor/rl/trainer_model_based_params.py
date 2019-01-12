@@ -359,6 +359,7 @@ def rlmb_long_stochastic_discrete_25steps():
   return hparams
 
 
+@registry.register_hparams
 def rlmb_long_stochastic_discrete_gamma95():
   """Long setting with stochastic discrete model, changed gamma."""
   hparams = rlmb_long_stochastic_discrete()
@@ -366,6 +367,7 @@ def rlmb_long_stochastic_discrete_gamma95():
   return hparams
 
 
+@registry.register_hparams
 def rlmb_long_stochastic_discrete_gamma90():
   """Long setting with stochastic discrete model, changed gamma."""
   hparams = rlmb_long_stochastic_discrete()
