@@ -1720,11 +1720,11 @@ def transformer_tall_pretrain_lm_tpu_adafactor_large():
   hparams = transformer_tall_pretrain_lm_tpu_adafactor()
   hparams.hidden_size = 1024
   hparams.num_heads = 16
-  hparams.filter_size = 32768
+  hparams.filter_size = 32768  # max fitting in 16G memory is 49152, batch 2
   hparams.batch_size = 4
   hparams.multiproblem_mixing_schedule = "constant"
-  # Task order: LM, en-de/fr/ro/de-en/fr-en/ro-en/cnndm/mnli/squad.
-  hparams.multiproblem_per_task_threshold = "16,4,8,1,4,8,1,2,1,2"
+  # Task order: lm/en-de/en-fr/en-ro/de-en/fr-en/ro-en/cnndm/mnli/squad.
+  hparams.multiproblem_per_task_threshold = "32,8,16,1,8,16,1,2,2,1"
   return hparams
 
 

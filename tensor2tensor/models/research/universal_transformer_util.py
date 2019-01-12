@@ -212,34 +212,36 @@ def universal_transformer_layer(x,
     ValueError: Unknown recurrence type
   """
 
-  def add_vanilla_transformer_layer(x, num_layers):
+  def add_vanilla_transformer_layer(x, num_layers, name):
     """Passes the input through num_layers of vanilla transformer layers.
 
     Args:
      x: input
      num_layers: number of layers
+     name: string, prefix of layer names
 
     Returns:
        output of vanilla_transformer_layer
     """
-
     if hparams.add_position_timing_signal:
       # In case of add_position_timing_signal=true, we set  hparams.pos=None
       # and add position timing signal at the beginning of each step, so for
       # the vanilla transformer, we need to add timing signal here.
       x = common_attention.add_timing_signal_1d(x)
     for layer in range(num_layers):
-      with tf.variable_scope("layer_%d" % layer):
+      with tf.variable_scope(name + "layer_%d" % layer):
         x = ffn_unit(attention_unit(x))
     return x
 
   with tf.variable_scope("universal_transformer_%s" % hparams.recurrence_type):
 
-    if hparams.mix_with_transformer == "before_ut":
-      x = add_vanilla_transformer_layer(x, hparams.num_mixedin_layers)
+    if "before_ut" in hparams.mix_with_transformer:
+      x = add_vanilla_transformer_layer(x, hparams.num_mixedin_layers,
+                                        "before_ut_")
 
     if hparams.recurrence_type == "act":
-      return universal_transformer_act(x, hparams, ffn_unit, attention_unit)
+      output, extra_output = universal_transformer_act(
+          x, hparams, ffn_unit, attention_unit)
 
     else:  # for all the other recurrency types with fixed number of steps
 
@@ -255,8 +257,9 @@ def universal_transformer_layer(x,
           hparams.get("use_memory_as_final_state", False)):
         output = extra_output
 
-    if hparams.mix_with_transformer == "after_ut":
-      output = add_vanilla_transformer_layer(output, hparams.num_mixedin_layers)
+    if "after_ut" in hparams.mix_with_transformer:
+      output = add_vanilla_transformer_layer(output, hparams.num_mixedin_layers,
+                                             "after_ut_")
 
     return output, extra_output
 
@@ -574,9 +577,11 @@ def universal_transformer_basic(layer_inputs,
   """
   state, inputs, memory = tf.unstack(layer_inputs, num=None, axis=0,
                                      name="unstack")
-  state = step_preprocess(state, step, hparams)
+  new_state = step_preprocess(state, step, hparams)
 
-  new_state = ffn_unit(attention_unit(state))
+  for i in range(hparams.num_inrecurrence_layers):
+    with tf.variable_scope("rec_layer_%d" % i):
+      new_state = ffn_unit(attention_unit(new_state))
 
   return new_state, inputs, memory
 
@@ -616,10 +621,13 @@ def universal_transformer_highway(layer_inputs,
   """
 
   state, inputs, memory = layer_inputs
-  state = step_preprocess(state, step, hparams)
+  new_state = step_preprocess(state, step, hparams)
 
-  transformed_state = ffn_unit(attention_unit(state))
-  state.get_shape().assert_is_compatible_with(state.get_shape())
+  for i in range(hparams.num_inrecurrence_layers):
+    with tf.variable_scope("rec_layer_%d" % i):
+      new_state = ffn_unit(attention_unit(new_state))
+
+  transformed_state = new_state
 
   gate_inputs = []
   if "s" in hparams.gates_inputs:
@@ -705,9 +713,13 @@ def universal_transformer_skip(layer_inputs,
   """
 
   state, inputs, memory = layer_inputs
-  state = step_preprocess(state, step, hparams)
+  new_state = step_preprocess(state, step, hparams)
 
-  transformed_state = ffn_unit(attention_unit(state))
+  for i in range(hparams.num_inrecurrence_layers):
+    with tf.variable_scope("rec_layer_%d" % i):
+      new_state = ffn_unit(attention_unit(new_state))
+
+  transformed_state = new_state
 
   inputs.get_shape().assert_is_compatible_with(state.get_shape())
 
@@ -804,10 +816,11 @@ def universal_transformer_depthwise_attention(layer_inputs,
   state_to_be_transformed = tf.reduce_sum(
       (states_so_far * states_so_far_weights), axis=0)
 
-  state_to_be_transformed = step_preprocess(state_to_be_transformed, step,
-                                            hparams)
+  new_state = step_preprocess(state_to_be_transformed, step, hparams)
 
-  new_state = ffn_unit(attention_unit(state_to_be_transformed))
+  for i in range(hparams.num_inrecurrence_layers):
+    with tf.variable_scope("rec_layer_%d" % i):
+      new_state = ffn_unit(attention_unit(new_state))
 
   # add the new state to the memory
   memory = fill_memory_slot(memory, new_state, step + 1)
@@ -1170,7 +1183,10 @@ def universal_transformer_act_basic(x, hparams, ffn_unit, attention_unit):
                                     -1)
 
     # apply transformation on the state
-    transformed_state = ffn_unit(attention_unit(state))
+    transformed_state = state
+    for i in range(hparams.num_inrecurrence_layers):
+      with tf.variable_scope("rec_layer_%d" % i):
+        transformed_state = ffn_unit(attention_unit(transformed_state))
 
     # update running part in the weighted state and keep the rest
     new_state = ((transformed_state * update_weights) +
@@ -1323,7 +1339,12 @@ def universal_transformer_act_accumulated(x, hparams, ffn_unit, attention_unit):
                                     -1)
 
     # apply transformation on the state
-    transformed_state = ffn_unit(attention_unit(state))
+    new_state = state
+    for i in range(hparams.num_inrecurrence_layers):
+      with tf.variable_scope("rec_layer_%d" % i):
+        new_state = ffn_unit(attention_unit(new_state))
+
+    transformed_state = new_state
 
     # Add in the weighted state
     accumulated_state = (transformed_state * update_weights) + accumulated_state
@@ -1463,7 +1484,12 @@ def universal_transformer_act_global(x, hparams, ffn_unit, attention_unit):
         tf.expand_dims(p * still_running + new_halted * remainders, -1), -1)
 
     # apply transformation on the state
-    transformed_state = ffn_unit(attention_unit(state))
+    new_state = state
+    for i in range(hparams.num_inrecurrence_layers):
+      with tf.variable_scope("rec_layer_%d" % i):
+        new_state = ffn_unit(attention_unit(new_state))
+
+    transformed_state = new_state
 
     # Add in the weighted state
     new_state = ((transformed_state * update_weights) +
@@ -1608,7 +1634,12 @@ def universal_transformer_act_random(x, hparams, ffn_unit, attention_unit):
                                     -1)
 
     # apply transformation on the state
-    transformed_state = ffn_unit(attention_unit(state))
+    new_state = state
+    for i in range(hparams.num_inrecurrence_layers):
+      with tf.variable_scope("rec_layer_%d" % i):
+        new_state = ffn_unit(attention_unit(new_state))
+
+    transformed_state = new_state
 
     # update running part in the weighted state and keep the rest
     new_state = ((transformed_state * update_weights) +
