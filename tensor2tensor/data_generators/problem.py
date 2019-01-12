@@ -972,30 +972,30 @@ def _reverse_problem_hparams(p_hparams):
   p.was_reversed = True
 
 
-def _create_modalities(problem_hparams, hparams):
+def _create_modalities(problem_hparams, model_hparams):
   """Creates modalities and overrides any according to model hparams.
 
   Args:
     problem_hparams: tf.contrib.training.HParams for the Problem. It must have
       modality which is a dict of strings to Modality classes.
-    hparams: tf.contrib.training.HParams for the model. It may have
+    model_hparams: tf.contrib.training.HParams for the model. It may have
       input_modalities and target_modality, which will override
       problem_hparams' modality input and target keys.
 
   Returns:
     None
   """
-  modality_overrides = getattr(hparams, "modality", {})
+  modality_overrides = getattr(model_hparams, "modality", {})
   modality = {}
   for feature_name, modality_cls in six.iteritems(problem_hparams.modality):
     vocab_size = problem_hparams.vocab_size[feature_name]
     # If needed for using a pre-trained model's vocabulary where extra indices
     # were allocated for adding new tasks with unique task ids.
-    if (hasattr(hparams, "multiproblem_vocab_size") and
-        hparams.multiproblem_vocab_size > 0):
-      vocab_size = hparams.multiproblem_vocab_size
+    if (hasattr(model_hparams, "multiproblem_vocab_size") and
+        model_hparams.multiproblem_vocab_size > 0):
+      vocab_size = model_hparams.multiproblem_vocab_size
     modality_cls = modality_overrides.get(feature_name, modality_cls)
-    modality[feature_name] = modality_cls(hparams, vocab_size)
+    modality[feature_name] = modality_cls(model_hparams, vocab_size)
   problem_hparams.modality = modality
 
 
