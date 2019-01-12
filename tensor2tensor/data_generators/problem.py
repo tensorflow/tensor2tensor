@@ -19,7 +19,6 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
-import copy
 import os
 import random
 import six
@@ -511,7 +510,6 @@ class Problem(object):
     if self._was_copy:
       _copy_problem_hparams(hp)
 
-    model_hparams = copy.copy(model_hparams)
     _create_modalities(hp, model_hparams)
 
     self._hparams = hp
