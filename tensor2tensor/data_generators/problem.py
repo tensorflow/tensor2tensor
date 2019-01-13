@@ -137,7 +137,7 @@ def default_model_hparams():
       data_dir=None)
 
 
-def preprocess_example_common(example, hparams, mode):
+def preprocess_example_common(example, mode, hparams):
   """Preprocessing steps common to all models."""
   if hparams.max_input_seq_length > 0:
     example["inputs"] = example["inputs"][:hparams.max_input_seq_length]
@@ -197,7 +197,7 @@ class Problem(object):
     * example_reading_spec
         - Specify the names and types of the features on disk.
         - Specify tf.contrib.slim.tfexample_decoder
-    * preprocess_example(example, mode)
+    * preprocess_example(example, mode, hparams)
         - Preprocess the example feature dict from feature name to Tensor or
           SparseTensor.
         - Used in training, eval, and inference (specified by mode).
@@ -342,7 +342,7 @@ class Problem(object):
     Returns:
       dict or Dataset
     """
-    return preprocess_example_common(example, hparams, mode)
+    return preprocess_example_common(example, mode, hparams)
 
   def eval_metrics(self):
     return [
