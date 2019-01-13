@@ -314,6 +314,13 @@ class Problem(object):
     }
 
   def example_reading_spec(self):
+    """Define how data is serialized to file and read back.
+
+    Returns:
+      data_fields: A dictionary mapping data names to its feature type.
+      data_items_to_decoders: A dictionary mapping data names to TF Example
+         decoders, to be used when reading back TF examples from disk.
+    """
     data_fields = {
         "inputs": tf.VarLenFeature(tf.int64),
         "targets": tf.VarLenFeature(tf.int64)
