@@ -74,6 +74,15 @@ def planner_tiny():
   )
 
 
+@registry.register_hparams
+def planner_small():
+  return tf.contrib.training.HParams(
+      num_rollouts=16,
+      planning_horizon=16,
+      rollout_agent_type="policy"
+  )
+
+
 def make_agent(
     agent_type, env, policy_hparams, policy_dir, sampling_temp,
     sim_env_kwargs=None, frame_stack_size=None, planning_horizon=None,
