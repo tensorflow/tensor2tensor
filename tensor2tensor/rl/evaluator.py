@@ -106,7 +106,7 @@ def make_agent(
           ), rl_utils.SimulatedBatchGymEnvWithFixedInitialFrames(
               **sim_env_kwargs
           ), lambda env: rl_utils.BatchStackWrapper(env, frame_stack_size),
-          planning_horizon
+          planning_horizon, discount_factor=policy_hparams.gae_gamma
       ),
   }[agent_type]()
 
