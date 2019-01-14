@@ -60,6 +60,9 @@ flags.DEFINE_string(
     "planner_hparams_set", "planner_tiny", "Planner hparam set."
 )
 flags.DEFINE_string("planner_hparams", "", "Planner hparam overrides.")
+flags.DEFINE_integer(
+    "log_every_steps", 0, "Log every how many environment steps."
+)
 
 
 @registry.register_hparams
@@ -96,7 +99,9 @@ def make_agent(
   }[agent_type]()
 
 
-def make_eval_fn_with_agent(agent_type, planner_hparams, model_dir):
+def make_eval_fn_with_agent(
+    agent_type, planner_hparams, model_dir, log_every_steps=None
+):
   """Returns an out-of-graph eval_fn using the Agent API."""
   def eval_fn(env, loop_hparams, policy_hparams, policy_dir, sampling_temp):
     """Eval function."""
@@ -111,14 +116,17 @@ def make_eval_fn_with_agent(agent_type, planner_hparams, model_dir):
         sim_env_kwargs, loop_hparams.frame_stack_size,
         planner_hparams.planning_horizon, planner_hparams.rollout_agent_type
     )
-    rl_utils.run_rollouts(env, agent, env.reset())
+    rl_utils.run_rollouts(
+        env, agent, env.reset(), log_every_steps=log_every_steps
+    )
     assert len(base_env.current_epoch_rollouts()) == env.batch_size
   return eval_fn
 
 
 def evaluate(
     loop_hparams, planner_hparams, policy_dir, model_dir, eval_metrics_dir,
-    agent_type, eval_with_learner, report_fn=None, report_metric=None
+    agent_type, eval_with_learner, log_every_steps, report_fn=None,
+    report_metric=None
 ):
   """Evaluate."""
   if eval_with_learner:
@@ -131,7 +139,7 @@ def evaluate(
   kwargs = {}
   if not eval_with_learner:
     kwargs["eval_fn"] = make_eval_fn_with_agent(
-        agent_type, planner_hparams, model_dir
+        agent_type, planner_hparams, model_dir, log_every_steps=log_every_steps
     )
   eval_metrics = rl_utils.evaluate_all_configs(
       loop_hparams, policy_dir, **kwargs
@@ -163,9 +171,11 @@ def main(_):
   )
   evaluate(
       loop_hparams, planner_hparams, FLAGS.policy_dir, FLAGS.model_dir,
-      FLAGS.eval_metrics_dir, FLAGS.agent, FLAGS.eval_with_learner
+      FLAGS.eval_metrics_dir, FLAGS.agent, FLAGS.eval_with_learner,
+      FLAGS.log_every_steps if FLAGS.log_every_steps > 0 else None
   )
 
 
 if __name__ == "__main__":
+  tf.logging.set_verbosity(tf.logging.INFO)
   tf.app.run()
