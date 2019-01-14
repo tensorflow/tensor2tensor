@@ -77,20 +77,23 @@ def planner_tiny():
 def make_agent(
     agent_type, env, policy_hparams, policy_dir, sampling_temp,
     sim_env_kwargs=None, frame_stack_size=None, planning_horizon=None,
-    rollout_agent_type=None
+    rollout_agent_type=None, batch_size=None, num_rollouts=None
 ):
   """Factory function for Agents."""
+  if batch_size is None:
+    batch_size = env.batch_size
   return {
       "random": lambda: rl_utils.RandomAgent(  # pylint: disable=g-long-lambda
-          env.batch_size, env.observation_space, env.action_space
+          batch_size, env.observation_space, env.action_space
       ),
       "policy": lambda: rl_utils.PolicyAgent(  # pylint: disable=g-long-lambda
-          env.batch_size, env.observation_space, env.action_space,
+          batch_size, env.observation_space, env.action_space,
           policy_hparams, policy_dir, sampling_temp
       ),
       "planner": lambda: rl_utils.PlannerAgent(  # pylint: disable=g-long-lambda
-          env.batch_size, make_agent(
-              rollout_agent_type, env, policy_hparams, policy_dir, sampling_temp
+          batch_size, make_agent(
+              rollout_agent_type, env, policy_hparams, policy_dir,
+              sampling_temp, batch_size=num_rollouts
           ), rl_utils.SimulatedBatchGymEnvWithFixedInitialFrames(
               **sim_env_kwargs
           ), lambda env: rl_utils.BatchStackWrapper(env, frame_stack_size),
@@ -114,7 +117,8 @@ def make_eval_fn_with_agent(
     agent = make_agent(
         agent_type, env, policy_hparams, policy_dir, sampling_temp,
         sim_env_kwargs, loop_hparams.frame_stack_size,
-        planner_hparams.planning_horizon, planner_hparams.rollout_agent_type
+        planner_hparams.planning_horizon, planner_hparams.rollout_agent_type,
+        num_rollouts=planner_hparams.num_rollouts
     )
     rl_utils.run_rollouts(
         env, agent, env.reset(), log_every_steps=log_every_steps
