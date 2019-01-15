@@ -37,10 +37,6 @@ from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
 
 
-flags = tf.flags
-FLAGS = flags.FLAGS
-
-
 def compute_mean_reward(rollouts, clipped):
   """Calculate mean rewards from given epoch."""
   reward_name = "reward" if clipped else "unclipped_reward"
@@ -104,7 +100,7 @@ def evaluate_all_configs(
   # Iterate over all combinations of sampling temperatures and whether to do
   # initial no-ops.
   for sampling_temp in hparams.eval_sampling_temps:
-    for max_num_noops in {hparams.eval_max_num_noops, 0}:
+    for max_num_noops in [hparams.eval_max_num_noops, 0]:
       scores = evaluate_single_config(
           hparams, sampling_temp, max_num_noops, agent_model_dir, eval_fn
       )
