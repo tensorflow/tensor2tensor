@@ -104,7 +104,7 @@ def evaluate_all_configs(
   # Iterate over all combinations of sampling temperatures and whether to do
   # initial no-ops.
   for sampling_temp in hparams.eval_sampling_temps:
-    for max_num_noops in (hparams.eval_max_num_noops, 0):
+    for max_num_noops in {hparams.eval_max_num_noops, 0}:
       scores = evaluate_single_config(
           hparams, sampling_temp, max_num_noops, agent_model_dir, eval_fn
       )
