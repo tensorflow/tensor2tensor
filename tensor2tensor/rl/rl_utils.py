@@ -269,6 +269,7 @@ def run_rollouts(
     cum_rewards = cum_rewards * discount_factor + rewards
     step_index += 1
 
+    # TODO(afrozm): Clean this up with tf.logging.log_every_n
     if log_every_steps is not None and step_index % log_every_steps == 0:
       tf.logging.info("Step %d, mean_score: %f", step_index, cum_rewards.mean())
 
