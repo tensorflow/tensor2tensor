@@ -240,10 +240,12 @@ class UniversalTransformer(transformer.Transformer):
     Raises:
       NotImplementedError: If there are multiple data shards.
     """
-    return (self._slow_greedy_infer_tpu(features, decode_length) if use_tpu else
-            self._slow_greedy_infer(features, decode_length))
+    if use_tpu:
+      return self._slow_greedy_infer_tpu(features, decode_length)
+    return self._slow_greedy_infer(features, decode_length)
 
-  def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha, use_tpu=False):
+  def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha,
+                   use_tpu=False):
     """Beam search decoding.
 
     Args:
@@ -361,11 +363,13 @@ def update_hparams_for_universal_transformer(hparams):
   hparams.daisy_chain_variables = False  # Breaks multi-gpu in while loops.
 
   # If not None, mixes vanilla transformer with Universal Transformer.
-  # Options: None, "before_ut", and "after_ut".
-  hparams.add_hparam("mix_with_transformer", None)
+  # Options: "", "before_ut", and "after_ut".
+  hparams.add_hparam("mix_with_transformer", "")
 
   # Number of vanilla transformer layers used to be mixed with u-transofmer.
   hparams.add_hparam("num_mixedin_layers", 2)
+  # Number of transformer layers within the recurrent block (default is 1).
+  hparams.add_hparam("num_inrecurrence_layers", 1)
 
   # Type of recurrency:
   # basic, highway, skip, dwa, act, rnn, gru, lstm.
@@ -440,6 +444,15 @@ def universal_transformer_base():
 
 
 @registry.register_hparams
+def universal_transformer_base_tpu():
+  hparams = transformer.transformer_big()
+  hparams = update_hparams_for_universal_transformer(hparams)
+  transformer.update_hparams_for_tpu(hparams)
+  hparams.add_step_timing_signal = False
+  return hparams
+
+
+@registry.register_hparams
 def universal_transformer_big():
   hparams = transformer.transformer_big()
   hparams = update_hparams_for_universal_transformer(hparams)
@@ -503,6 +516,30 @@ def adaptive_universal_transformer_base():
 
 
 @registry.register_hparams
+def adaptive_universal_transformer_base_tpu():
+  hparams = adaptive_universal_transformer_base()
+  transformer.update_hparams_for_tpu(hparams)
+  hparams.add_step_timing_signal = False
+  return hparams
+
+
+@registry.register_hparams
+def adaptive_universal_transformer_multilayer_tpu():
+  """Multi-layer config for adaptive Transformer on TPU."""
+  hparams = adaptive_universal_transformer_base_tpu()
+  hparams.num_inrecurrence_layers = 2
+  hparams.mix_with_transformer = "before_ut,after_ut"
+  hparams.num_mixedin_layers = 1
+  hparams.transformer_ffn_type = "sepconv"
+  # TODO(lukaszkaiser): the options below don't work on TPU yet, make them work.
+  # hparams.add_step_timing_signal = True
+  # hparams.add_sru = True
+  # hparams.self_attention_type = "dot_product_relative_v2"
+  # hparams.max_relative_position = 256
+  return hparams
+
+
+@registry.register_hparams
 def adaptive_universal_transformer_small():
   hparams = universal_transformer_small()
   hparams.recurrence_type = "act"
@@ -521,6 +558,14 @@ def adaptive_universal_transformer_global_base():
   hparams = universal_transformer_base()
   hparams.recurrence_type = "act"
   hparams.act_type = "global"
+  return hparams
+
+
+@registry.register_hparams
+def adaptive_universal_transformer_global_base_tpu():
+  hparams = adaptive_universal_transformer_global_base()
+  transformer.update_hparams_for_tpu(hparams)
+  hparams.add_step_timing_signal = False
   return hparams
 
 
