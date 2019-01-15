@@ -71,6 +71,7 @@ def planner_tiny():
       num_rollouts=1,
       planning_horizon=2,
       rollout_agent_type="random",
+      batch_size=1,
   )
 
 
@@ -79,14 +80,16 @@ def planner_small():
   return tf.contrib.training.HParams(
       num_rollouts=16,
       planning_horizon=16,
-      rollout_agent_type="policy"
+      rollout_agent_type="policy",
+      batch_size=16,
   )
 
 
 def make_agent(
     agent_type, env, policy_hparams, policy_dir, sampling_temp,
     sim_env_kwargs=None, frame_stack_size=None, planning_horizon=None,
-    rollout_agent_type=None, batch_size=None, num_rollouts=None
+    rollout_agent_type=None, batch_size=None, num_rollouts=None,
+    inner_batch_size=None
 ):
   """Factory function for Agents."""
   if batch_size is None:
@@ -102,11 +105,12 @@ def make_agent(
       "planner": lambda: rl_utils.PlannerAgent(  # pylint: disable=g-long-lambda
           batch_size, make_agent(
               rollout_agent_type, env, policy_hparams, policy_dir,
-              sampling_temp, batch_size=num_rollouts
+              sampling_temp, batch_size=inner_batch_size
           ), rl_utils.SimulatedBatchGymEnvWithFixedInitialFrames(
               **sim_env_kwargs
           ), lambda env: rl_utils.BatchStackWrapper(env, frame_stack_size),
-          planning_horizon, discount_factor=policy_hparams.gae_gamma
+          num_rollouts, planning_horizon,
+          discount_factor=policy_hparams.gae_gamma
       ),
   }[agent_type]()
 
@@ -120,14 +124,15 @@ def make_eval_fn_with_agent(
     base_env = env
     env = rl_utils.BatchStackWrapper(env, loop_hparams.frame_stack_size)
     sim_env_kwargs = rl.make_simulated_env_kwargs(
-        base_env, loop_hparams, batch_size=planner_hparams.num_rollouts,
+        base_env, loop_hparams, batch_size=planner_hparams.batch_size,
         model_dir=model_dir
     )
     agent = make_agent(
         agent_type, env, policy_hparams, policy_dir, sampling_temp,
         sim_env_kwargs, loop_hparams.frame_stack_size,
         planner_hparams.planning_horizon, planner_hparams.rollout_agent_type,
-        num_rollouts=planner_hparams.num_rollouts
+        num_rollouts=planner_hparams.num_rollouts,
+        inner_batch_size=planner_hparams.batch_size
     )
     rl_utils.run_rollouts(
         env, agent, env.reset(), log_every_steps=log_every_steps

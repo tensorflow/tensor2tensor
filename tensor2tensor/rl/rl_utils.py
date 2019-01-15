@@ -104,7 +104,7 @@ def evaluate_all_configs(
   # Iterate over all combinations of sampling temperatures and whether to do
   # initial no-ops.
   for sampling_temp in hparams.eval_sampling_temps:
-    for max_num_noops in (hparams.eval_max_num_noops, 0):
+    for max_num_noops in {hparams.eval_max_num_noops, 0}:
       scores = evaluate_single_config(
           hparams, sampling_temp, max_num_noops, agent_model_dir, eval_fn
       )
@@ -371,8 +371,8 @@ class PlannerAgent(BatchAgent):
   """Agent based on temporal difference planning."""
 
   def __init__(
-      self, batch_size, rollout_agent, sim_env, wrapper_fn, planning_horizon,
-      discount_factor=1.0
+      self, batch_size, rollout_agent, sim_env, wrapper_fn, num_rollouts,
+      planning_horizon, discount_factor=1.0
   ):
     super(PlannerAgent, self).__init__(
         batch_size, rollout_agent.observation_space, rollout_agent.action_space
@@ -380,6 +380,7 @@ class PlannerAgent(BatchAgent):
     self._rollout_agent = rollout_agent
     self._sim_env = sim_env
     self._wrapped_env = wrapper_fn(sim_env)
+    self._num_batches = num_rollouts // rollout_agent.batch_size
     self._discount_factor = discount_factor
     self._planning_horizon = planning_horizon
 
@@ -405,10 +406,15 @@ class PlannerAgent(BatchAgent):
       )
       return total_values.mean()
 
+    def run_batches_from(observation, action):
+      return sum(
+          run_batch_from(observation, action) for _ in range(self._num_batches)
+      ) / self._num_batches
+
     def choose_best_action(observation):
       return max(
           range(self.action_space.n),
-          key=(lambda action: run_batch_from(observation, action))
+          key=(lambda action: run_batches_from(observation, action))
       )
 
     return np.array(list(map(choose_best_action, observations)))
