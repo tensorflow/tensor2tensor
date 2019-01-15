@@ -58,6 +58,7 @@ def next_frame_savp_l2():
       "inputs": modalities.VideoModalityL2Raw,
       "targets": modalities.VideoModalityL2Raw,
   }
+  return hparams
 
 
 @registry.register_hparams
