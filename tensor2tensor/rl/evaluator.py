@@ -60,6 +60,9 @@ flags.DEFINE_string(
     "planner_hparams_set", "planner_tiny", "Planner hparam set."
 )
 flags.DEFINE_string("planner_hparams", "", "Planner hparam overrides.")
+flags.DEFINE_integer(
+    "log_every_steps", 0, "Log every how many environment steps."
+)
 
 
 @registry.register_hparams
@@ -71,32 +74,46 @@ def planner_tiny():
   )
 
 
+@registry.register_hparams
+def planner_small():
+  return tf.contrib.training.HParams(
+      num_rollouts=16,
+      planning_horizon=16,
+      rollout_agent_type="policy"
+  )
+
+
 def make_agent(
     agent_type, env, policy_hparams, policy_dir, sampling_temp,
     sim_env_kwargs=None, frame_stack_size=None, planning_horizon=None,
-    rollout_agent_type=None
+    rollout_agent_type=None, batch_size=None, num_rollouts=None
 ):
   """Factory function for Agents."""
+  if batch_size is None:
+    batch_size = env.batch_size
   return {
       "random": lambda: rl_utils.RandomAgent(  # pylint: disable=g-long-lambda
-          env.batch_size, env.observation_space, env.action_space
+          batch_size, env.observation_space, env.action_space
       ),
       "policy": lambda: rl_utils.PolicyAgent(  # pylint: disable=g-long-lambda
-          env.batch_size, env.observation_space, env.action_space,
+          batch_size, env.observation_space, env.action_space,
           policy_hparams, policy_dir, sampling_temp
       ),
       "planner": lambda: rl_utils.PlannerAgent(  # pylint: disable=g-long-lambda
-          env.batch_size, make_agent(
-              rollout_agent_type, env, policy_hparams, policy_dir, sampling_temp
+          batch_size, make_agent(
+              rollout_agent_type, env, policy_hparams, policy_dir,
+              sampling_temp, batch_size=num_rollouts
           ), rl_utils.SimulatedBatchGymEnvWithFixedInitialFrames(
               **sim_env_kwargs
           ), lambda env: rl_utils.BatchStackWrapper(env, frame_stack_size),
-          planning_horizon
+          planning_horizon, discount_factor=policy_hparams.gae_gamma
       ),
   }[agent_type]()
 
 
-def make_eval_fn_with_agent(agent_type, planner_hparams, model_dir):
+def make_eval_fn_with_agent(
+    agent_type, planner_hparams, model_dir, log_every_steps=None
+):
   """Returns an out-of-graph eval_fn using the Agent API."""
   def eval_fn(env, loop_hparams, policy_hparams, policy_dir, sampling_temp):
     """Eval function."""
@@ -109,16 +126,20 @@ def make_eval_fn_with_agent(agent_type, planner_hparams, model_dir):
     agent = make_agent(
         agent_type, env, policy_hparams, policy_dir, sampling_temp,
         sim_env_kwargs, loop_hparams.frame_stack_size,
-        planner_hparams.planning_horizon, planner_hparams.rollout_agent_type
+        planner_hparams.planning_horizon, planner_hparams.rollout_agent_type,
+        num_rollouts=planner_hparams.num_rollouts
     )
-    rl_utils.run_rollouts(env, agent, env.reset())
+    rl_utils.run_rollouts(
+        env, agent, env.reset(), log_every_steps=log_every_steps
+    )
     assert len(base_env.current_epoch_rollouts()) == env.batch_size
   return eval_fn
 
 
 def evaluate(
     loop_hparams, planner_hparams, policy_dir, model_dir, eval_metrics_dir,
-    agent_type, eval_with_learner, report_fn=None, report_metric=None
+    agent_type, eval_with_learner, log_every_steps, report_fn=None,
+    report_metric=None
 ):
   """Evaluate."""
   if eval_with_learner:
@@ -131,7 +152,7 @@ def evaluate(
   kwargs = {}
   if not eval_with_learner:
     kwargs["eval_fn"] = make_eval_fn_with_agent(
-        agent_type, planner_hparams, model_dir
+        agent_type, planner_hparams, model_dir, log_every_steps=log_every_steps
     )
   eval_metrics = rl_utils.evaluate_all_configs(
       loop_hparams, policy_dir, **kwargs
@@ -163,9 +184,11 @@ def main(_):
   )
   evaluate(
       loop_hparams, planner_hparams, FLAGS.policy_dir, FLAGS.model_dir,
-      FLAGS.eval_metrics_dir, FLAGS.agent, FLAGS.eval_with_learner
+      FLAGS.eval_metrics_dir, FLAGS.agent, FLAGS.eval_with_learner,
+      FLAGS.log_every_steps if FLAGS.log_every_steps > 0 else None
   )
 
 
 if __name__ == "__main__":
+  tf.logging.set_verbosity(tf.logging.INFO)
   tf.app.run()

@@ -78,6 +78,9 @@ def evaluate_single_config(
     eval_fn=_eval_fn_with_learner
 ):
   """Evaluate the PPO agent in the real environment."""
+  tf.logging.info("Evaluating metric %s", get_metric_name(
+      sampling_temp, max_num_noops, clipped=False
+  ))
   eval_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
   env = setup_env(
       hparams, batch_size=hparams.eval_batch_size, max_num_noops=max_num_noops,
@@ -230,7 +233,8 @@ def absolute_hinge_difference(arr1, arr2, min_diff=10, dtype=np.uint8):
 
 
 def run_rollouts(
-    env, agent, initial_observations, step_limit=None, discount_factor=1.0
+    env, agent, initial_observations, step_limit=None, discount_factor=1.0,
+    log_every_steps=None
 ):
   """Runs a batch of rollouts from given initial observations."""
   num_dones = 0
@@ -264,6 +268,9 @@ def run_rollouts(
     observations = np.array(observations)
     cum_rewards = cum_rewards * discount_factor + rewards
     step_index += 1
+
+    if log_every_steps is not None and step_index % log_every_steps == 0:
+      tf.logging.info("Step %d, mean_score: %f", step_index, cum_rewards.mean())
 
   return (observations, cum_rewards)
 
