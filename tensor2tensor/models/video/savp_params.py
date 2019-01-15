@@ -51,6 +51,16 @@ def next_frame_savp():
 
 
 @registry.register_hparams
+def next_frame_savp_l2():
+  """SAVP with L2 reconstruction loss."""
+  hparams = next_frame_savp()
+  hparams.modality = {
+      "inputs": modalities.VideoModalityL2Raw,
+      "targets": modalities.VideoModalityL2Raw,
+  }
+
+
+@registry.register_hparams
 def next_frame_savp_vae():
   """SAVP - VAE only model."""
   hparams = next_frame_savp()
