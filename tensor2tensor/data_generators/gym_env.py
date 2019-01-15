@@ -22,7 +22,7 @@ from __future__ import print_function
 import collections
 import itertools
 import random
-import gym
+
 from gym.spaces import Box
 import numpy as np
 
@@ -30,7 +30,9 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.layers import modalities
+from tensor2tensor.rl import gym_utils
 from tensor2tensor.utils import metrics
+from tensor2tensor.utils import misc_utils
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -77,17 +79,6 @@ class _Noncopyable(object):
 
   def __deepcopy__(self, memo):
     return self
-
-
-def make_gym_env(name, timesteps_limit=-1):
-  env = gym.make(name)
-  if timesteps_limit != -1:
-    # Replace TimeLimit Wrapper with one of proper time step limit.
-    if isinstance(env, gym.wrappers.TimeLimit):
-      env = env.env
-    env = gym.wrappers.TimeLimit(env,
-                                 max_episode_steps=timesteps_limit)
-  return env
 
 
 class EnvSimulationProblem(video_utils.VideoProblem):
@@ -195,7 +186,10 @@ class T2TEnv(EnvSimulationProblem):
     if not rollouts_by_split:
       if split is not None:
         raise ValueError(
-            "generate_data() should first be called in the current epoch"
+            "Data is not splitted into train/dev/test. If data created by "
+            "environment interaction (NOT loaded from disk) you should call "
+            "generate_data() first. Note that generate_data() will write to "
+            "disk and can corrupt your experiment data."
         )
       else:
         rollouts = self._current_epoch_rollouts
@@ -587,7 +581,8 @@ class T2TGymEnv(T2TEnv):
 
   def __init__(self, base_env_name=None, batch_size=1, grayscale=False,
                resize_height_factor=2, resize_width_factor=2,
-               base_env_timesteps_limit=-1, max_num_noops=0, **kwargs):
+               rl_env_max_episode_steps=-1, max_num_noops=0,
+               maxskip_envs=False, **kwargs):
     if base_env_name is None:
       base_env_name = self.base_env_name
     self._base_env_name = base_env_name
@@ -599,8 +594,11 @@ class T2TGymEnv(T2TEnv):
       # Set problem name if not registered.
       self.name = "Gym%s" % base_env_name
 
-    self._envs = [make_gym_env(base_env_name, base_env_timesteps_limit)
-                  for _ in range(self.batch_size)]
+    self._envs = [
+        gym_utils.make_gym_env(
+            base_env_name, rl_env_max_episode_steps=rl_env_max_episode_steps,
+            maxskip_env=maxskip_envs)
+        for _ in range(self.batch_size)]
 
     # max_num_noops works only with atari envs.
     if max_num_noops > 0:
@@ -748,6 +746,14 @@ ATARI_GAMES_WITH_HUMAN_SCORE = [
     "up_n_down", "video_pinball", "yars_revenge",
 ]
 
+
+# Blacklist a few games where it makes little sense to run on for now.
+ATARI_GAMES_WITH_HUMAN_SCORE_NICE = [
+    g for g in ATARI_GAMES_WITH_HUMAN_SCORE if g not in [
+        "solaris", "pitfall", "montezuma_revenge", "enduro",
+        "video_pinball", "double_dunk"]]
+
+
 ATARI_WHITELIST_GAMES = [
     "amidar",
     "bank_heist",
@@ -796,11 +802,7 @@ ATARI_GAME_MODES = [
 ]
 
 
-def camel_case_name(snake_case_name):
-  return "".join([w[0].upper() + w[1:] for w in snake_case_name.split("_")])
-
-
-def register_game(game_name, game_mode="Deterministic-v4"):
+def register_game(game_name, game_mode="NoFrameskip-v4"):
   """Create and register problems for the game.
 
   Args:
@@ -814,7 +816,7 @@ def register_game(game_name, game_mode="Deterministic-v4"):
     raise ValueError("Game %s not in ATARI_GAMES" % game_name)
   if game_mode not in ATARI_GAME_MODES:
     raise ValueError("Unknown ATARI game mode: %s." % game_mode)
-  camel_game_name = camel_case_name(game_name) + game_mode
+  camel_game_name = misc_utils.snakecase_to_camelcase(game_name) + game_mode
   # Create and register the Problem
   cls = type("Gym%sRandom" % camel_game_name,
              (T2TGymEnv,), {"base_env_name": camel_game_name})

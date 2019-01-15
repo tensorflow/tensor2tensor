@@ -49,8 +49,8 @@ def wrapped_partial(fn, *args, **kwargs):
   return wrapped
 
 
-conv_initializer = tf.contrib.layers.variance_scaling_initializer(
-    factor=2.0, mode='FAN_OUT')
+conv_initializer = tf.initializers.variance_scaling(
+    scale=2.0, mode='fan_out')
 
 CONFIG = {'2d': {'conv': wrapped_partial(
     tf.layers.conv2d, kernel_initializer=conv_initializer),

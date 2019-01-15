@@ -60,6 +60,15 @@ def next_frame_pixel_noise():
 
 
 @registry.register_hparams
+def next_frame_pixel_noise_long():
+  """Long scheduled sampling setting."""
+  hparams = next_frame_pixel_noise()
+  hparams.batch_size = 2
+  hparams.video_num_target_frames = 16
+  return hparams
+
+
+@registry.register_hparams
 def next_frame_sampling():
   """Basic conv model with scheduled sampling."""
   hparams = next_frame_basic_deterministic()

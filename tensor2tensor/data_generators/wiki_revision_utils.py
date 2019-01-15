@@ -27,16 +27,10 @@ import random
 import re
 import subprocess
 
-import six
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
 
 import tensorflow as tf
-
-
-def to_unicode(s):
-  return unicode(s, "utf-8") if six.PY2 else s.decode("utf-8")
 
 
 def include_revision(revision_num, skip_factor=1.1):
@@ -118,7 +112,7 @@ def get_title(page):
   assert start_pos != -1
   assert end_pos != -1
   start_pos += len("<title>")
-  return to_unicode(page[start_pos:end_pos])
+  return text_encoder.to_unicode_utf8(page[start_pos:end_pos])
 
 
 def get_id(page):
@@ -257,7 +251,7 @@ def get_text(revision, strip=True):
     ret = revision[end_tag_pos:end_pos]
   if strip:
     ret = strip_text(ret)
-  ret = to_unicode(ret)
+  ret = text_encoder.to_unicode_utf8(ret)
   return ret
 
 

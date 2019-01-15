@@ -34,8 +34,9 @@ MODES = tf.estimator.ModeKeys
 def fill_hparams(hparams, in_frames, out_frames, gen_mode="conditional",
                  latent_dist_encoder="pointwise", pretrain_steps=-1,
                  num_train_frames=-1, cond_first_frame=False,
-                 apply_dilations=False):
+                 apply_dilations=False, activation="relu"):
   """Set next_frame_glow hparams."""
+  hparams.latent_activation = activation
   hparams.latent_apply_dilations = apply_dilations
   hparams.video_num_input_frames = in_frames
   hparams.video_num_target_frames = out_frames
@@ -129,7 +130,7 @@ class NextFrameGlowTest(tf.test.TestCase):
                          latent_dist_encoder="pointwise",
                          gen_mode="conditional", pretrain_steps=-1,
                          num_train_frames=-1, cond_first_frame=False,
-                         apply_dilations=False):
+                         apply_dilations=False, activation="relu"):
     """Test 1 forward pass and sampling gives reasonable results."""
     if num_train_frames == -1:
       total_frames = in_frames + out_frames
@@ -145,7 +146,7 @@ class NextFrameGlowTest(tf.test.TestCase):
       hparams = fill_hparams(hparams, in_frames, out_frames,
                              gen_mode, latent_dist_encoder, pretrain_steps,
                              num_train_frames, cond_first_frame,
-                             apply_dilations)
+                             apply_dilations, activation)
       features = create_basic_features(hparams)
       model = next_frame_glow.NextFrameGlow(hparams, MODES.TRAIN)
       _, train_op = model(features)
@@ -161,7 +162,7 @@ class NextFrameGlowTest(tf.test.TestCase):
       hparams = fill_hparams(hparams, in_frames, out_frames,
                              gen_mode, latent_dist_encoder, pretrain_steps,
                              num_train_frames, cond_first_frame,
-                             apply_dilations)
+                             apply_dilations, activation)
       features = create_basic_features(hparams)
       model = next_frame_glow.NextFrameGlow(
           hparams, tf.estimator.ModeKeys.PREDICT)

@@ -47,6 +47,7 @@ pip install tensor2tensor && t2t-trainer \
 ### Contents
 
 * [Suggested Datasets and Models](#suggested-datasets-and-models)
+  * [Mathematical Language Understanding](#mathematical-language-understanding)
   * [Story, Question and Answer](#story-question-and-answer)
   * [Image Classification](#image-classification)
   * [Image Generation](#image-generation)
@@ -78,6 +79,24 @@ We give the problem and model below and we suggest a setting of
 hyperparameters that we know works well in our setup. We usually
 run either on Cloud TPUs or on 8-GPU machines; you might need
 to modify the hyperparameters if you run on a different setup.
+
+### Mathematical Language Understanding
+
+For evaluating mathematical expressions at the character level involving addition, subtraction and multiplication of both positive and negative decimal numbers with variable digits assigned to symbolic variables, use
+
+* the [MLU](https://art.wangperawong.com/mathematical_language_understanding_train.tar.gz) data-set:
+ `--problem=mathematical_language_understanding`
+
+You can try solving the problem with different transformer models and hyperparameters as described in the [paper](https://arxiv.org/abs/1812.02825):
+* Standard transformer:
+`--model=transformer`
+`--hparams_set=transformer_tiny`
+* Universal transformer:
+`--model=universal_transformer`
+`--hparams_set=universal_transformer_tiny`
+* Adaptive universal transformer:
+`--model=universal_transformer`
+`--hparams_set=adaptive_universal_transformer_tiny`
 
 ### Story, Question and Answer
 
@@ -464,5 +483,6 @@ T2T](https://research.googleblog.com/2017/06/accelerating-deep-learning-research
 * [Fast Decoding in Sequence Models using Discrete Latent Variables](https://arxiv.org/abs/1803.03382)
 * [Adafactor: Adaptive Learning Rates with Sublinear Memory Cost](https://arxiv.org/abs/1804.04235)
 * [Universal Transformers](https://arxiv.org/abs/1807.03819)
+* [Attending to Mathematical Language with Transformers](https://arxiv.org/abs/1812.02825)
 
 *Note: This is not an official Google product.*

@@ -60,7 +60,9 @@ def decode_to_shape(inputs, shape, scope):
 def basic_lstm(inputs, state, num_units, name=None):
   """Basic LSTM."""
   input_shape = common_layers.shape_list(inputs)
-  cell = tf.contrib.rnn.BasicLSTMCell(num_units, name=name)
+  # reuse parameters across time-steps.
+  cell = tf.nn.rnn_cell.BasicLSTMCell(
+      num_units, name=name, reuse=tf.AUTO_REUSE)
   if state is None:
     state = cell.zero_state(input_shape[0], tf.float32)
   outputs, new_state = cell(inputs, state)
@@ -80,7 +82,7 @@ def lstm_cell(inputs,
               name=None):
   """Full LSTM cell."""
   input_shape = common_layers.shape_list(inputs)
-  cell = tf.contrib.rnn.LSTMCell(num_units,
+  cell = tf.nn.rnn_cell.LSTMCell(num_units,
                                  use_peepholes=use_peepholes,
                                  cell_clip=cell_clip,
                                  initializer=initializer,
@@ -355,8 +357,8 @@ def _encode_gif(images, fps):
   """Encodes numpy images into gif string.
 
   Args:
-    images: A 5-D `uint8` `np.array` (or a list of 4-D images) of shape
-      `[batch_size, time, height, width, channels]` where `channels` is 1 or 3.
+    images: A 4-D `uint8` `np.array` (or a list of 3-D images) of shape
+      `[time, height, width, channels]` where `channels` is 1 or 3.
     fps: frames per second of the animation
 
   Returns:
@@ -368,6 +370,16 @@ def _encode_gif(images, fps):
   writer = WholeVideoWriter(fps)
   writer.write_multi(images)
   return writer.finish()
+
+
+def ffmpeg_works():
+  """Tries to encode images with ffmpeg to check if it works."""
+  images = np.zeros((2, 32, 32, 3), dtype=np.uint8)
+  try:
+    _encode_gif(images, 2)
+    return True
+  except (IOError, OSError):
+    return False
 
 
 def py_gif_summary(tag, images, max_outputs, fps, return_summary_value=False):
@@ -695,7 +707,7 @@ class WholeVideoWriter(VideoWriter):
   def __init_ffmpeg(self, image_shape):
     """Initializes ffmpeg to write frames."""
     import itertools  # pylint: disable=g-import-not-at-top
-    from subprocess import Popen, PIPE  # pylint: disable=g-import-not-at-top,g-multiple-import
+    from subprocess import Popen, PIPE  # pylint: disable=g-import-not-at-top,g-multiple-import,g-importing-member
     ffmpeg = "ffmpeg"
     height, width, channels = image_shape
     self.cmd = [

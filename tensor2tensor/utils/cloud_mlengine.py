@@ -34,14 +34,14 @@ import tensorflow as tf
 FLAGS = tf.flags.FLAGS
 
 CONSOLE_URL = "https://console.cloud.google.com/mlengine/jobs/"
-RUNTIME_VERSION = "1.9"
+RUNTIME_VERSION = "1.12"
 
 
 class Gcloud(object):
   """gcloud command strings."""
   # Note these can be modified by set_versions
-  VM_VERSION = "tf-1-9"
-  TPU_VERSION = "1.9"
+  VM_VERSION = "tf-1-12"
+  TPU_VERSION = "1.12"
 
   @classmethod
   def set_versions(cls, vm, tpu):
@@ -202,8 +202,15 @@ def configure_job():
     )
 
   timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-  job_name = "%s_%s_t2t_%s" % (FLAGS.model, FLAGS.problem, timestamp)
-  job_spec = {"jobId": job_name, "trainingInput": training_input}
+  job_spec = {
+      "jobId": "%s_%s_t2t_%s" % (FLAGS.model, FLAGS.problem, timestamp),
+      "labels": {
+          "model": FLAGS.model,
+          "problem": FLAGS.problem,
+          "hparams": FLAGS.hparams_set
+      },
+      "trainingInput": training_input,
+  }
   return job_spec
 
 

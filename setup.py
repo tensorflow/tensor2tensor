@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.11.0',
+    version='1.12.0',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -24,6 +24,7 @@ setup(
         'tensor2tensor/bin/t2t-datagen',
         'tensor2tensor/bin/t2t-decoder',
         'tensor2tensor/bin/t2t-make-tf-configs',
+        'tensor2tensor/bin/t2t-eval',
         'tensor2tensor/bin/t2t-exporter',
         'tensor2tensor/bin/t2t-query-server',
         'tensor2tensor/bin/t2t-insights-server',
@@ -50,6 +51,7 @@ setup(
         'six',
         'sympy',
         'tensorflow-probability',
+        'tf-agents',
         'tfds-nightly',
         'tqdm',
     ],

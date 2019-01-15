@@ -46,9 +46,9 @@ class ImagetransformerTest(parameterized.TestCase, tf.test.TestCase):
     p_hparams = problem_hparams.test_problem_hparams(vocab_size,
                                                      vocab_size,
                                                      hparams)
-    inputs = -1 + np.random.random_integers(
+    inputs = np.random.randint(
         vocab_size, size=(batch_size, 1, 1, 1))
-    targets = -1 + np.random.random_integers(
+    targets = np.random.randint(
         vocab_size, size=(batch_size, size, size, 3))
     with self.test_session() as session:
       features = {

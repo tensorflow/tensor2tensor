@@ -57,7 +57,7 @@ class Transformer(t2t_model.T2TModel):
 
   def __init__(self, *args, **kwargs):
     super(Transformer, self).__init__(*args, **kwargs)
-    self.attention_weights = dict()  # For visualizing attention heads.
+    self.attention_weights = {}  # For visualizing attention heads.
 
   def encode(self, inputs, target_space, hparams, features=None, losses=None):
     """Encode transformer inputs.
@@ -92,6 +92,11 @@ class Transformer(t2t_model.T2TModel):
     encoder_input = tf.nn.dropout(encoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
 
+    attn_bias_for_padding = None
+    # Otherwise the encoder will just use encoder_self_attention_bias.
+    if hparams.unidirectional_encoder:
+      attn_bias_for_padding = encoder_decoder_attention_bias
+
     encoder_output = transformer_encoder(
         encoder_input,
         self_attention_bias,
@@ -99,7 +104,8 @@ class Transformer(t2t_model.T2TModel):
         nonpadding=features_to_nonpadding(features, "inputs"),
         save_weights_to=self.attention_weights,
         make_image_summary=not common_layers.is_xla_compiled(),
-        losses=losses)
+        losses=losses,
+        attn_bias_for_padding=attn_bias_for_padding)
 
     return encoder_output, encoder_decoder_attention_bias
 
@@ -242,8 +248,9 @@ class Transformer(t2t_model.T2TModel):
         self._hparams.self_attention_type != "dot_product"):
       return  super(Transformer, self)._greedy_infer(features, decode_length)
     with tf.variable_scope(self.name):
-      return (self._fast_decode_tpu(features, decode_length) if use_tpu else
-              self._fast_decode(features, decode_length))
+      if use_tpu:
+        return self._fast_decode_tpu(features, decode_length)
+      return self._fast_decode(features, decode_length)
 
   def _beam_decode(self,
                    features,
@@ -272,7 +279,8 @@ class Transformer(t2t_model.T2TModel):
               None if using greedy decoding (beam_size=1)
       }
     """
-    if self._hparams.self_attention_type != "dot_product":
+    if (self._hparams.self_attention_type not in ["dot_product",
+                                                  "dot_product_relative"]):
       # Caching is not guaranteed to work with attention types other than
       # dot_product.
       # TODO(petershaw): Support fast decoding when using relative
@@ -280,11 +288,11 @@ class Transformer(t2t_model.T2TModel):
       return self._beam_decode_slow(features, decode_length, beam_size,
                                     top_beams, alpha, use_tpu)
     with tf.variable_scope(self.name):
-      return (
-          self._fast_decode_tpu(
-              features, decode_length, beam_size, top_beams, alpha) if use_tpu
-          else self._fast_decode(
-              features, decode_length, beam_size, top_beams, alpha))
+      if use_tpu:
+        return self._fast_decode_tpu(
+            features, decode_length, beam_size, top_beams, alpha)
+      return self._fast_decode(
+          features, decode_length, beam_size, top_beams, alpha)
 
   def _fast_decode_tpu(self,
                        features,
@@ -771,10 +779,18 @@ def fast_decode_tpu(encoder_output,
           common_attention.split_heads(
               tf.zeros([batch_size, decode_length, value_channels]),
               hparams.num_heads),
-          "f":
-          tf.zeros([batch_size, decode_length, hparams.hidden_size]),
       } for layer in range(num_layers)
   }
+
+  # If `ffn_layer` is in `["dense_relu_dense" or "conv_hidden_relu"]`, then the
+  # cache key "f" won't be used, which means that the` shape of cache["f"]`
+  # won't be changed to
+  # `[beamsize*batch_size, decode_length, hparams.hidden_size]` and may cause
+  # error when applying `nest.map reshape function` on it.
+  if hparams.ffn_layer not in ["dense_relu_dense", "conv_hidden_relu"]:
+    for layer in range(num_layers):
+      cache["layer_%d" % layer]["f"] = tf.zeros(
+          [batch_size, 0, hparams.hidden_size])
 
   if encoder_output is not None:
     for layer in range(num_layers):
@@ -808,7 +824,7 @@ def fast_decode_tpu(encoder_output,
       hparams=hparams)
   if beam_size > 1:  # Beam Search
     initial_ids = sos_id * tf.ones([batch_size], dtype=tf.int32)
-    decoded_ids, scores = beam_search.beam_search(
+    decoded_ids, scores, _ = beam_search.beam_search(
         symbols_to_logits_fn,
         initial_ids,
         beam_size,
@@ -831,8 +847,9 @@ def fast_decode_tpu(encoder_output,
       """One step of greedy decoding."""
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       log_probs = common_layers.log_prob_from_logits(logits)
-      temperature = (0.0 if hparams.sampling_method == "argmax" else
-                     hparams.sampling_temp)
+      temperature = getattr(hparams, "sampling_temp", 0.0)
+      if hparams.sampling_method == "argmax":
+        temperature = 0.0
       next_id = common_layers.sample_with_temperature(logits, temperature)
       hit_eos |= tf.equal(next_id, eos_id)
 
@@ -893,7 +910,8 @@ def fast_decode(encoder_output,
                 eos_id=beam_search.EOS_ID,
                 batch_size=None,
                 force_decode_length=False,
-                scope_prefix="body/"):
+                scope_prefix="body/",
+                cache=None):
   """Given encoder output and a symbols to logits function, does fast decoding.
 
   Implements both greedy and beam search decoding, uses beam search iff
@@ -918,6 +936,7 @@ def fast_decode(encoder_output,
     force_decode_length: bool, whether to force the full decode length, or if
       False, stop when all beams hit eos_id.
     scope_prefix: str, prefix for decoder layer variable scopes.
+    cache: cache dictionary for additional predictions.
 
   Returns:
       A dict of decoding results {
@@ -940,7 +959,9 @@ def fast_decode(encoder_output,
   vars_3d_num_heads = (
       hparams.num_heads if hparams.get("attention_variables_3d") else 0)
 
-  cache = {
+  if cache is None:
+    cache = {}
+  cache.update({
       "layer_%d" % layer: {
           "k":
               common_attention.split_heads(
@@ -948,10 +969,18 @@ def fast_decode(encoder_output,
           "v":
               common_attention.split_heads(
                   tf.zeros([batch_size, 0, value_channels]), hparams.num_heads),
-          "f":
-              tf.zeros([batch_size, 0, hparams.hidden_size]),
       } for layer in range(num_layers)
-  }
+  })
+
+  # If `ffn_layer` is in `["dense_relu_dense" or "conv_hidden_relu"]`, then the
+  # cache key "f" won't be used, which means that the` shape of cache["f"]`
+  # won't be changed to
+  # `[beamsize*batch_size, decode_length, hparams.hidden_size]` and may cause
+  # error when applying `nest.map reshape function` on it.
+  if hparams.ffn_layer not in ["dense_relu_dense", "conv_hidden_relu"]:
+    for layer in range(num_layers):
+      cache["layer_%d" % layer]["f"] = tf.zeros(
+          [batch_size, 0, hparams.hidden_size])
 
   if encoder_output is not None:
     for layer in range(num_layers):
@@ -975,7 +1004,7 @@ def fast_decode(encoder_output,
 
   if beam_size > 1:  # Beam Search
     initial_ids = sos_id * tf.ones([batch_size], dtype=tf.int32)
-    decoded_ids, scores = beam_search.beam_search(
+    decoded_ids, scores, cache = beam_search.beam_search(
         symbols_to_logits_fn,
         initial_ids,
         beam_size,
@@ -998,8 +1027,9 @@ def fast_decode(encoder_output,
       """One step of greedy decoding."""
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       log_probs = common_layers.log_prob_from_logits(logits)
-      temperature = (0.0 if hparams.sampling_method == "argmax" else
-                     hparams.sampling_temp)
+      temperature = getattr(hparams, "sampling_temp", 0.0)
+      if hparams.sampling_method == "argmax":
+        temperature = 0.0
       next_id = common_layers.sample_with_temperature(logits, temperature)
       hit_eos |= tf.equal(next_id, eos_id)
 
@@ -1021,7 +1051,7 @@ def fast_decode(encoder_output,
     hit_eos = tf.fill([batch_size], False)
     next_id = sos_id * tf.ones([batch_size, 1], dtype=tf.int64)
     initial_log_prob = tf.zeros([batch_size], dtype=tf.float32)
-    _, _, _, decoded_ids, _, log_prob = tf.while_loop(
+    _, _, _, decoded_ids, cache, log_prob = tf.while_loop(
         is_not_finished,
         inner_loop, [
             tf.constant(0), hit_eos, next_id, decoded_ids, cache,
@@ -1037,7 +1067,7 @@ def fast_decode(encoder_output,
         ])
     scores = log_prob
 
-  return {"outputs": decoded_ids, "scores": scores}
+  return {"outputs": decoded_ids, "scores": scores, "cache": cache}
 
 
 @registry.register_model
@@ -1110,6 +1140,23 @@ class TransformerEncoder(t2t_model.T2TModel):
     encoder_output = tf.expand_dims(encoder_output, 2)
 
     return encoder_output
+
+
+@registry.register_model
+class TransformerRegressor(TransformerEncoder):
+  """Transformer inheriting from Encoder, for the regression problem.
+
+  Final result is a tensor that has a shape of (?, 1, 1, 1).
+  """
+
+  def top(self, body_output, features):
+    """Computes single scalar value from body_output."""
+
+    with tf.variable_scope("reg_top_ffn"):
+      x = body_output
+      x = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
+      res = tf.layers.dense(x, 1, name="model_top")
+      return res
 
 
 def features_to_nonpadding(features, inputs_or_targets="inputs"):
@@ -1371,6 +1418,9 @@ def transformer_base_v1():
   # This is useful for programs that can automatically compare experiments side
   #   by side based on the same metric names.
   hparams.add_hparam("overload_eval_metric_name", "")
+  # For making a transformer encoder unidirectional by using masked
+  # attention.
+  hparams.add_hparam("unidirectional_encoder", False)
   return hparams
 
 
@@ -1537,9 +1587,82 @@ def transformer_tall():
   hparams.num_hidden_layers = 12
   hparams.num_heads = 12
   hparams.label_smoothing = 0.0
-  hparams.max_length = 512
+  hparams.max_length = 1024
   hparams.eval_drop_long_sequences = True
   hparams.multiproblem_mixing_schedule = "pretrain"
+  hparams.multiproblem_vocab_size = 65536
+  hparams.clip_grad_norm = 1.0
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tall_finetune_tied():
+  """Tied means fine-tune CNN/DM summarization as LM."""
+  hparams = transformer_tall()
+  hparams.multiproblem_max_input_length = 750
+  hparams.multiproblem_max_target_length = 100
+  hparams.multiproblem_schedule_max_examples = 0
+  hparams.learning_rate_schedule = (
+      "linear_warmup*constant*cosdecay")
+  hparams.learning_rate_constant = 5e-5
+  hparams.learning_rate_warmup_steps = 100
+  # Set train steps to learning_rate_decay_steps or less
+  hparams.learning_rate_decay_steps = 80000
+  hparams.multiproblem_target_eval_only = True
+  hparams.multiproblem_reweight_label_loss = True
+  hparams.multiproblem_label_weight = 1.0
+  hparams.optimizer = "TrueAdam"
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tall_train_tied():
+  """Tied means train CNN/DM summarization as LM."""
+  hparams = transformer_tall()
+  hparams.multiproblem_max_input_length = 750
+  hparams.multiproblem_max_target_length = 100
+  hparams.multiproblem_schedule_max_examples = 0
+  hparams.learning_rate_schedule = (
+      "linear_warmup*constant*cosdecay")
+  hparams.learning_rate_constant = 2e-4
+  hparams.learning_rate_warmup_steps = 8000
+  # Set train steps to learning_rate_decay_steps or less
+  hparams.learning_rate_decay_steps = 150000
+  hparams.multiproblem_target_eval_only = True
+  hparams.multiproblem_reweight_label_loss = True
+  hparams.multiproblem_label_weight = 1.0
+  hparams.optimizer = "TrueAdam"
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tall_finetune_uniencdec():
+  """Fine-tune CNN/DM with a unidirectional encoder and decoder."""
+  hparams = transformer_tall()
+  hparams.max_input_seq_length = 750
+  hparams.max_target_seq_length = 100
+  hparams.optimizer = "TrueAdam"
+  hparams.learning_rate_schedule = (
+      "linear_warmup*constant*cosdecay")
+  hparams.learning_rate_decay_steps = 80000
+  hparams.learning_rate_constant = 5e-5
+  hparams.learning_rate_warmup_steps = 100
+  hparams.unidirectional_encoder = True
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tall_train_uniencdec():
+  """Train CNN/DM with a unidirectional encoder and decoder."""
+  hparams = transformer_tall()
+  hparams.max_input_seq_length = 750
+  hparams.max_target_seq_length = 100
+  hparams.optimizer = "TrueAdam"
+  hparams.learning_rate_schedule = (
+      "linear_warmup*constant*cosdecay")
+  hparams.learning_rate_decay_steps = 150000
+  hparams.learning_rate_constant = 2e-4
+  hparams.unidirectional_encoder = True
   return hparams
 
 
@@ -1552,7 +1675,6 @@ def transformer_tall_finetune_textclass():
       "linear_warmup*constant*linear_decay")
   hparams.multiproblem_schedule_max_examples = 0
   hparams.multiproblem_target_eval_only = True
-  hparams.multiproblem_class_loss_multiplier = 4
   hparams.learning_rate_warmup_steps = 50
   # Set train steps to learning_rate_decay_steps or less
   hparams.learning_rate_decay_steps = 25000
@@ -1593,6 +1715,20 @@ def transformer_tall_pretrain_lm_tpu_adafactor():
 
 
 @registry.register_hparams
+def transformer_tall_pretrain_lm_tpu_adafactor_large():
+  """Hparams for transformer on LM pretraining on TPU, large model."""
+  hparams = transformer_tall_pretrain_lm_tpu_adafactor()
+  hparams.hidden_size = 1024
+  hparams.num_heads = 16
+  hparams.filter_size = 32768  # max fitting in 16G memory is 49152, batch 2
+  hparams.batch_size = 4
+  hparams.multiproblem_mixing_schedule = "constant"
+  # Task order: lm/en-de/en-fr/en-ro/de-en/fr-en/ro-en/cnndm/mnli/squad.
+  hparams.multiproblem_per_task_threshold = "32,8,16,1,8,16,1,2,2,1"
+  return hparams
+
+
+@registry.register_hparams
 def transformer_tall_pretrain_lm_tpu():
   """Hparams for transformer on LM pretraining on TPU with AdamW."""
   hparams = transformer_tall_pretrain_lm_tpu_adafactor()
@@ -1600,25 +1736,6 @@ def transformer_tall_pretrain_lm_tpu():
   hparams.learning_rate_constant = 2e-4
   hparams.learning_rate_schedule = ("linear_warmup * constant * cosdecay")
   hparams.optimizer = "AdamW"
-  return hparams
-
-
-@registry.register_hparams
-def transformer_tall_finetune_cnndm():
-  """Hparams for transformer on LM for finetuning on cnndm summarization."""
-  hparams = transformer_tall()
-  hparams.batch_size = 4096
-  hparams.multiproblem_max_input_length = 412
-  hparams.multiproblem_max_target_length = 100
-  hparams.multiproblem_schedule_max_examples = 0
-  hparams.learning_rate_schedule = (
-      "linear_warmup*constant*cosdecay")
-  hparams.learning_rate_constant = 5e-5
-  hparams.learning_rate_warmup_steps = 100
-  # Set train steps to learning_rate_decay_steps or less
-  hparams.learning_rate_decay_steps = 40000
-  hparams.multiproblem_target_eval_only = True
-  hparams.multiproblem_vocab_size = 2**16
   return hparams
 
 
@@ -2026,6 +2143,7 @@ def update_hparams_for_tpu(hparams):
   hparams.attention_dropout_broadcast_dims = "0,1"  # batch, heads
   hparams.relu_dropout_broadcast_dims = "1"  # length
   hparams.layer_prepostprocess_dropout_broadcast_dims = "1"  # length
+  return hparams
 
 
 @registry.register_hparams

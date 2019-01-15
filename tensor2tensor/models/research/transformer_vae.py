@@ -103,7 +103,7 @@ def top_k_softmax(x, k):
 def top_k_experts(x, k, hparams):
   x_shape = common_layers.shape_list(x)
   x_flat = tf.reshape(x, [-1, common_layers.shape_list(x)[-1]])
-  is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
+  is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
   gates, load = expert_utils.noisy_top_k_gating(
       x_flat, 2 ** hparams.z_size, is_training, k)
   gates_shape = [x_shape[0], x_shape[1], x_shape[2], 2 ** hparams.z_size]
@@ -290,7 +290,7 @@ def ae_latent_sample_beam(latents_dense_in, inputs, ed, embed, hparams):
 
   initial_ids = tf.zeros([tf.shape(latents_dense_in)[0]], dtype=tf.int32)
   length = tf.shape(latents_dense_in)[1]
-  ids, _ = beam_search.beam_search(
+  ids, _, _ = beam_search.beam_search(
       symbols_to_logits_fn, initial_ids, beam_size, length,
       vocab_size, alpha=0.0, eos_id=-1, stop_early=False)
 
@@ -587,7 +587,7 @@ class TransformerAE(t2t_model.T2TModel):
                 self._hparams.num_residuals, self._hparams.num_blocks,
                 self._hparams.hidden_size, block_dim
             ],
-            initializer=tf.contrib.layers.xavier_initializer(),
+            initializer=tf.initializers.glorot_uniform(),
             trainable=self._hparams.trainable_projections)
 
         self._hparams.bottleneck = functools.partial(

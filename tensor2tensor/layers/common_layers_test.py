@@ -48,7 +48,7 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testFlatten4D3D(self):
-    x = np.random.random_integers(1, high=8, size=(3, 5, 2))
+    x = np.random.randint(1, high=9, size=(3, 5, 2))
     y = common_layers.flatten4d3d(common_layers.embedding(x, 10, 7))
     self.evaluate(tf.global_variables_initializer())
     res = self.evaluate(y)
@@ -56,7 +56,7 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testEmbedding(self):
-    x = np.random.random_integers(1, high=8, size=(3, 5))
+    x = np.random.randint(1, high=9, size=(3, 5))
     y = common_layers.embedding(x, 10, 16)
     self.evaluate(tf.global_variables_initializer())
     res = self.evaluate(y)
@@ -490,6 +490,40 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(actual_loss_val, expected_loss_val)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testWeightsMultiProblemAll(self):
+    labels = tf.constant(np.array([[12, 15, 1, 20, 100],
+                                   [67, 1, 34, 45, 124],
+                                   [78, 2, 34, 18, 29],
+                                   [78, 123, 55, 1, 33],
+                                   [1, 18, 22, 36, 59]]), dtype=tf.int32)
+    taskid = 1
+    expected_mask = np.array([[1, 1, 1, 1, 1],
+                              [1, 1, 1, 1, 1],
+                              [0, 0, 0, 0, 0],
+                              [1, 1, 1, 1, 1],
+                              [1, 1, 1, 1, 1]])
+    actual_mask = common_layers.weights_multi_problem_all(labels, taskid)
+    actual_mask_eval = self.evaluate(actual_mask)
+    self.assertAllClose(expected_mask, actual_mask_eval)
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testWeightsMultiProblem(self):
+    labels = tf.constant(np.array([[12, 15, 1, 20, 100],
+                                   [67, 1, 34, 45, 124],
+                                   [78, 2, 34, 18, 29],
+                                   [78, 123, 55, 1, 33],
+                                   [1, 18, 22, 36, 59]]), dtype=tf.int32)
+    taskid = 1
+    expected_mask = np.array([[0, 0, 0, 1, 1],
+                              [0, 0, 1, 1, 1],
+                              [0, 0, 0, 0, 0],
+                              [0, 0, 0, 0, 1],
+                              [0, 1, 1, 1, 1]])
+    actual_mask = common_layers.weights_multi_problem(labels, taskid)
+    actual_mask_eval = self.evaluate(actual_mask)
+    self.assertAllClose(expected_mask, actual_mask_eval)
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testDiscretizedMixLogisticLoss(self):
     batch = 2
     height = 4
@@ -597,8 +631,8 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
             dx, df1, df2, dnorm_scale, dnorm_bias,
             dx_f, df1_f, df2_f, dnorm_scale_f, dnorm_bias_f])
     self.assertAllClose(y, y_forget)
-    self.assertAllClose(df2, df2_f)
-    self.assertAllClose(df1, df1_f)
+    self.assertAllClose(df2, df2_f, rtol=2e-6, atol=2e-6)
+    self.assertAllClose(df1, df1_f, rtol=2e-6, atol=2e-6)
     self.assertAllClose(dnorm_scale, dnorm_scale_f)
     self.assertAllClose(dnorm_bias, dnorm_bias_f)
     self.assertAllClose(dx, dx_f)
@@ -651,8 +685,8 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     num_channels = 3
     output_filters = 10
     stride = [2, 3]  # we want height to be x2 and width to be x3
-    random_input = np.random.rand(batch, height, width, num_channels).astype(
-        np.float32)
+    random_input = tf.convert_to_tensor(
+        np.random.rand(batch, height, width, num_channels), dtype=tf.float32)
 
     # conv2d_transpose is a little tricky.
     # height_new = (height_old - 1) * stride + kernel - 2*padding - correction

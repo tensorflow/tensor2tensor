@@ -57,13 +57,13 @@ class NextFrameSVGLP(emily.NextFrameEmily):
     """
     layers_units = [hidden_size] * nlayers
     if rnn_type == "lstm":
-      rnn_cell = tf.contrib.rnn.LSTMCell
+      rnn_cell = tf.nn.rnn_cell.LSTMCell
     elif rnn_type == "gru":
-      rnn_cell = tf.contrib.rnn.GRUCell
+      rnn_cell = tf.nn.rnn_cell.GRUCell
     else:
-      rnn_cell = tf.contrib.rnn.RNNCell
+      rnn_cell = tf.nn.rnn_cell.RNNCell
     cells = [rnn_cell(units, name=name) for units in layers_units]
-    stacked_rnn = tf.contrib.rnn.MultiRNNCell(cells)
+    stacked_rnn = tf.nn.rnn_cell.MultiRNNCell(cells)
     return stacked_rnn
 
   def deterministic_rnn(self, cell, inputs, states, output_size, scope):
@@ -180,7 +180,7 @@ class NextFrameSVGLP(emily.NextFrameEmily):
     for i, image in enumerate(images):
       with tf.variable_scope("encoder", reuse=tf.AUTO_REUSE):
         enc, skips = self.encoder(image, g_dim, has_batchnorm=has_batchnorm)
-        enc = tfcl.flatten(enc)
+        enc = tfl.flatten(enc)
         enc_images.append(enc)
         enc_skips.append(skips)
 
@@ -199,7 +199,7 @@ class NextFrameSVGLP(emily.NextFrameEmily):
           h_current = enc_images[i-1]
         else:
           h_current, _ = self.encoder(gen_images[-1], g_dim)
-          h_current = tfcl.flatten(h_current)
+          h_current = tfl.flatten(h_current)
 
         # target encoding
         h_target = enc_images[i]

@@ -234,10 +234,10 @@ def image_encoder(image_feat,
 
 def _get_rnn_cell(hparams):
   if hparams.rnn_type == "lstm":
-    rnn_cell = tf.contrib.rnn.BasicLSTMCell
+    rnn_cell = tf.nn.rnn_cell.BasicLSTMCell
   elif hparams.rnn_type == "lstm_layernorm":
     rnn_cell = tf.contrib.rnn.LayerNormBasicLSTMCell
-  return tf.contrib.rnn.DropoutWrapper(
+  return tf.nn.rnn_cell.DropoutWrapper(
       rnn_cell(hparams.hidden_size),
       output_keep_prob=1.0-hparams.dropout)
 
@@ -269,7 +269,7 @@ def question_encoder(question, hparams, name="encoder"):
 
     # rnn_layers = [_get_rnn_cell(hparams)
     #               for _ in range(hparams.num_rnn_layers)]
-    # rnn_multi_cell = tf.contrib.rnn.MultiRNNCell(rnn_layers)
+    # rnn_multi_cell = tf.nn.rnn_cell.MultiRNNCell(rnn_layers)
     rnn_cell = _get_rnn_cell(hparams)
     # outputs, _ = tf.nn.dynamic_rnn(
     #     rnn_cell, question, length, dtype=tf.float32)

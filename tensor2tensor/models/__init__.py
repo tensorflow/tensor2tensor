@@ -17,6 +17,9 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import six
+
 # pylint: disable=unused-import
 
 from tensor2tensor.layers import modalities  # pylint: disable=g-import-not-at-top
@@ -54,6 +57,7 @@ from tensor2tensor.models.research import similarity_transformer
 from tensor2tensor.models.research import super_lm
 from tensor2tensor.models.research import transformer_moe
 from tensor2tensor.models.research import transformer_nat
+from tensor2tensor.models.research import transformer_parallel
 from tensor2tensor.models.research import transformer_revnet
 from tensor2tensor.models.research import transformer_sketch
 from tensor2tensor.models.research import transformer_symshard

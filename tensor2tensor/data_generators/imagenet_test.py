@@ -43,6 +43,12 @@ class ImagenetTest(parameterized.TestCase, tf.test.TestCase):
     self.assertLen(preprocessed_example, 1)
     self.assertEqual(preprocessed_example["inputs"].shape, (42, 32, 3))
 
+  def testImagenetIsNormalized(self):
+    problem = imagenet.ImageImagenet224()
+    self.assertTrue(problem.normalize_image)
+    problem = imagenet.ImageImagenet224NoNormalization()
+    self.assertFalse(problem.normalize_image)
+
 
 if __name__ == "__main__":
   tf.test.main()

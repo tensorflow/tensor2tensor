@@ -498,6 +498,9 @@ class NextFrameSavpRl(NextFrameSavpBase, sv2p.NextFrameSv2p):
     if not self.hparams.use_vae or self.hparams.use_gan:
       raise NotImplementedError("Only supporting VAE for now.")
 
+    if self.has_pred_actions or self.has_values:
+      raise NotImplementedError("Parameter sharing with policy not supported.")
+
     image, action, reward = frames[0], actions[0], rewards[0]
     latent_dims = self.hparams.z_dim
     batch_size = common_layers.shape_list(image)[0]
@@ -555,4 +558,4 @@ class NextFrameSavpRl(NextFrameSavpBase, sv2p.NextFrameSv2p):
 
     pred_reward = self.reward_prediction(
         pred_image, action, reward, latent)
-    return pred_image, pred_reward, 0.0, internal_states
+    return pred_image, pred_reward, None, None, 0.0, internal_states

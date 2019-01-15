@@ -77,9 +77,15 @@ def _rlmb_base():
       # In your experiments, you want to optimize this rate to your schedule.
       learning_rate_bump=3.0,
 
-      # Batch size during evaluation. Metrics are averaged over this number of
-      # rollouts.
+      # Policy sampling temperature to use when gathering data from the real
+      # environment.
+      real_sampling_temp=1.0,
+
+      # Sampling temperatures to try during eval.
+      eval_sampling_temps=[0.5, 0.0, 1.0],
       eval_max_num_noops=8,
+      # To speed up the pipeline. Some games want to run forever.
+      eval_rl_env_max_episode_steps=1000,
 
       game="pong",
       # Whether to evaluate the world model in each iteration of the loop to get
@@ -90,9 +96,9 @@ def _rlmb_base():
       # Number of batches to run for world model evaluation.
       wm_eval_num_batches=8,
       # Ratios of ppo_epoch_length to report reward_accuracy on.
-      wm_eval_rollout_ratios=[0.25, 0.5, 1, 2],
+      wm_eval_rollout_ratios=[0.25, 1],
       stop_loop_early=False,  # To speed-up tests.
-      env_timesteps_limit=-1,  # Use default from gym.make()
+      rl_env_max_episode_steps=-1,  # Use default from gym.make()
       # Number of last observations to feed to the agent and world model.
       frame_stack_size=4,
       # This is only used for world-model evaluation currently, PolicyLearner
@@ -106,6 +112,8 @@ def _rlmb_base():
       real_batch_size=-1,
       # Number of simulated environments to train on simultaneously.
       simulated_batch_size=-1,
+      # Batch size during evaluation. Metrics are averaged over this number of
+      # rollouts.
       eval_batch_size=-1,
   )
 
@@ -129,7 +137,8 @@ def rlmb_ppo_base():
       real_batch_size=1,
       # Number of simulated environments to train on simultaneously.
       simulated_batch_size=16,
-      eval_batch_size=30,
+      eval_batch_size=64,
+      wm_policy_param_sharing=False,
 
       # Unused; number of PPO epochs is calculated from the real frame limit.
       real_ppo_epochs_num=0,
@@ -142,16 +151,25 @@ def rlmb_ppo_base():
       ppo_epoch_length=hparams.simulated_rollout_length,
       # Do not eval since simulated batch env does not produce dones
       ppo_eval_every_epochs=0,
-      ppo_learning_rate=1e-4,  # Will be changed, just so it exists.
+      ppo_learning_rate_constant=1e-4,  # Will be changed, just so it exists.
       # This needs to be divisible by real_ppo_effective_num_agents.
       real_ppo_epoch_length=16 * 200,
-      real_ppo_learning_rate=1e-4,
+      real_ppo_learning_rate_constant=1e-4,
       real_ppo_effective_num_agents=16,
       real_ppo_eval_every_epochs=0,
 
       simulation_flip_first_random_for_beginning=True,
   )
   update_hparams(hparams, ppo_params)
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_ppo_base_param_sharing():
+  """HParams for PPO base with parameter sharing."""
+  hparams = rlmb_ppo_base()
+  hparams.wm_policy_param_sharing = True
+  hparams.base_algo_params = "ppo_original_world_model"
   return hparams
 
 
@@ -202,13 +220,28 @@ def rlmb_noresize():
 
 
 @registry.register_hparams
-def rlmb_quick():
+def rlmb_ppo_quick():
   """Base setting but quicker with only 2 epochs."""
-  hparams = rlmb_base()
+  hparams = rlmb_ppo_base()
   hparams.epochs = 2
   hparams.model_train_steps = 25000
   hparams.ppo_epochs_num = 700
   hparams.ppo_epoch_length = 50
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_quick():
+  """Base setting but quicker with only 2 epochs."""
+  return rlmb_ppo_quick()
+
+
+@registry.register_hparams
+def rlmb_ppo_quick_param_sharing():
+  """HParams for PPO quick with parameter sharing."""
+  hparams = rlmb_ppo_quick()
+  hparams.wm_policy_param_sharing = True
+  hparams.base_algo_params = "ppo_original_world_model"
   return hparams
 
 
@@ -273,23 +306,77 @@ def rlmb_base_stochastic_discrete():
   hparams.grayscale = False
   hparams.generative_model = "next_frame_basic_stochastic_discrete"
   hparams.generative_model_params = "next_frame_basic_stochastic_discrete"
+  # The parameters below are the same as base, but repeated for easier reading.
+  hparams.ppo_epoch_length = 50
+  hparams.simulated_rollout_length = 50
+  hparams.simulated_batch_size = 16
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_base_stochastic_discrete_param_sharing():
+  """Base setting with stochastic discrete model with parameter sharing."""
+  hparams = rlmb_base_stochastic_discrete()
+  hparams.wm_policy_param_sharing = True
+  hparams.base_algo_params = "ppo_original_world_model_stochastic_discrete"
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_long():
+  """Long setting with base model."""
+  hparams = rlmb_base()
+  hparams.generative_model_params = "next_frame_pixel_noise_long"
   return hparams
 
 
 @registry.register_hparams
 def rlmb_long_stochastic_discrete():
   """Long setting with stochastic discrete model."""
-  hparams = rlmb_base()
-  hparams.learning_rate_bump = 1.0
-  hparams.grayscale = False
-  hparams.generative_model = "next_frame_basic_stochastic_discrete"
+  hparams = rlmb_base_stochastic_discrete()
   hparams.generative_model_params = "next_frame_basic_stochastic_discrete_long"
-  hparams.ppo_epochs_num = 2000
+  hparams.ppo_epochs_num = 1000
   return hparams
 
 
 @registry.register_hparams
-def rlmb_base_stochastic_recurrent():
+def rlmb_long_stochastic_discrete_100steps():
+  """Long setting with stochastic discrete model, changed ppo steps."""
+  hparams = rlmb_long_stochastic_discrete()
+  hparams.ppo_epoch_length = 100
+  hparams.simulated_rollout_length = 100
+  hparams.simulated_batch_size = 8
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_long_stochastic_discrete_25steps():
+  """Long setting with stochastic discrete model, changed ppo steps."""
+  hparams = rlmb_long_stochastic_discrete()
+  hparams.ppo_epoch_length = 25
+  hparams.simulated_rollout_length = 25
+  hparams.simulated_batch_size = 32
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_long_stochastic_discrete_gamma95():
+  """Long setting with stochastic discrete model, changed gamma."""
+  hparams = rlmb_long_stochastic_discrete()
+  hparams.base_algo_params = "ppo_original_params_gamma95"
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_long_stochastic_discrete_gamma90():
+  """Long setting with stochastic discrete model, changed gamma."""
+  hparams = rlmb_long_stochastic_discrete()
+  hparams.base_algo_params = "ppo_original_params_gamma90"
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_base_recurrent():
   """Base setting with recurrent model."""
   hparams = rlmb_base()
   hparams.generative_model = "next_frame_basic_recurrent"
@@ -465,8 +552,10 @@ def _rlmb_tiny_overrides():
       resize_height_factor=2,
       resize_width_factor=2,
       wm_eval_rollout_ratios=[1],
-      env_timesteps_limit=7,
+      rl_env_max_episode_steps=7,
+      eval_rl_env_max_episode_steps=7,
       simulated_rollout_length=2,
+      eval_sampling_temps=[0.0, 1.0],
   )
 
 
@@ -628,7 +717,7 @@ def rlmb_three(rhp):
 def rlmb_test1(rhp):
   rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_categorical("loop.game", ["breakout", "pong", "boxing"])
-  rhp.set_discrete("loop.ppo_learning_rate", [5e-5, 1e-4, 2e-4])
+  rhp.set_discrete("loop.ppo_learning_rate_constant", [5e-5, 1e-4, 2e-4])
   rhp.set_discrete("ppo.optimization_batch_size", [20, 40])
   rhp.set_discrete("loop.epochs", [3, 6])
 
@@ -652,9 +741,17 @@ def rlmb_whitelisted_games(rhp):
 
 @registry.register_ranged_hparams
 def rlmb_human_score_games(rhp):
-  rhp.set_discrete("model.moe_loss_coef", list(range(10)))
   rhp.set_categorical("loop.game",
-                      gym_env.ATARI_GAMES_WITH_HUMAN_SCORE)
+                      gym_env.ATARI_GAMES_WITH_HUMAN_SCORE_NICE)
+  rhp.set_discrete("model.moe_loss_coef", list(range(5)))
+
+
+@registry.register_ranged_hparams
+def rlmb_human_score_games_v100unfriendly(rhp):
+  """Games that for strange reasons often fail on v100s but work on p100s."""
+  rhp.set_categorical("loop.game",
+                      ["chopper_command", "boxing", "asterix", "seaquest"])
+  rhp.set_discrete("model.moe_loss_coef", list(range(5)))
 
 
 @registry.register_ranged_hparams
@@ -689,20 +786,20 @@ def rlmb_ae_variance(rhp):
 def rlmb_ppolr_game(rhp):
   rhp.set_categorical("loop.game", ["breakout", "pong", "freeway"])
   base_lr = 1e-4
-  rhp.set_float("loop.ppo_learning_rate", base_lr / 2, base_lr * 2)
+  rhp.set_float("loop.ppo_learning_rate_constant", base_lr / 2, base_lr * 2)
 
 
 @registry.register_ranged_hparams
 def rlmb_ppolr(rhp):
   base_lr = 1e-4
-  rhp.set_float("loop.ppo_learning_rate", base_lr / 2, base_lr * 2)
+  rhp.set_float("loop.ppo_learning_rate_constant", base_lr / 2, base_lr * 2)
 
 
 @registry.register_ranged_hparams
 def rlmb_ae_ppo_lr(rhp):
   rhp.set_categorical("loop.game", ["breakout", "pong", "freeway"])
   base_lr = 1e-4
-  rhp.set_float("loop.ppo_learning_rate", base_lr / 2, base_lr * 2)
+  rhp.set_float("loop.ppo_learning_rate_constant", base_lr / 2, base_lr * 2)
 
 
 @registry.register_ranged_hparams

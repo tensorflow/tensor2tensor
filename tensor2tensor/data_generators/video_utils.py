@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import os
 import numpy as np
 import six
@@ -27,6 +28,7 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
@@ -50,6 +52,35 @@ def resize_video_frames(images, size):
             tf.image.resize_images(image, [size, size],
                                    tf.image.ResizeMethod.BILINEAR)))
   return resized_images
+
+
+def video_augmentation(features, hue=False, saturate=False, contrast=False):
+  """Augments video with optional hue, saturation and constrast.
+
+  Args:
+    features: dict, with keys "inputs", "targets".
+              features["inputs"], 4-D Tensor, shape=(THWC)
+              features["targets"], 4-D Tensor, shape=(THWC)
+    hue: bool, apply hue_transform.
+    saturate: bool, apply saturation transform.
+    contrast: bool, apply constrast transform.
+  Returns:
+    augment_features: dict with transformed "inputs" and "targets".
+  """
+  inputs, targets = features["inputs"], features["targets"]
+  in_steps = common_layers.shape_list(inputs)[0]
+
+  # makes sure that the same augmentation is applied to both input and targets.
+  # if input is 4-D, then tf.image applies the same transform across the batch.
+  video = tf.concat((inputs, targets), axis=0)
+  if hue:
+    video = tf.image.random_hue(video, max_delta=0.2)
+  if saturate:
+    video = tf.image.random_saturation(video, lower=0.5, upper=1.5)
+  if contrast:
+    video = tf.image.random_contrast(video, lower=0.5, upper=1.5)
+  features["inputs"], features["targets"] = video[:in_steps], video[in_steps:]
+  return features
 
 
 def create_border(video, color="blue", border_percent=2):
@@ -92,6 +123,7 @@ def convert_videos_to_summaries(input_videos, output_videos, target_videos,
   fps = decode_hparams.frames_per_second
   border_percent = decode_hparams.border_percent
   max_outputs = decode_hparams.max_display_outputs
+  target_steps = target_videos.shape[1]
   all_summaries = []
   input_videos = create_border(
       input_videos, color="blue", border_percent=border_percent)
@@ -115,7 +147,8 @@ def convert_videos_to_summaries(input_videos, output_videos, target_videos,
     all_summaries.extend(input_summ_vals)
 
   # Frame-by-frame summaries
-  iterable = zip(all_input[:max_outputs], all_output[:max_outputs])
+  iterable = zip(output_videos[:max_outputs, :target_steps],
+                 target_videos[:max_outputs])
   for ind, (input_video, output_video) in enumerate(iterable):
     t, h, w, c = input_video.shape
     # Tile vertically
@@ -135,6 +168,7 @@ def display_video_hooks(hook_args):
   """Hooks to display videos at decode time."""
   predictions = hook_args.predictions
   max_outputs = hook_args.decode_hparams.max_display_outputs
+  max_decodes = hook_args.decode_hparams.max_display_decodes
 
   with tf.Graph().as_default():
     _, best_decodes = video_metrics.compute_video_metrics_from_predictions(
@@ -159,7 +193,7 @@ def display_video_hooks(hook_args):
     all_summaries.extend(summaries)
 
   # Display random decodes for ten conditioning frames.
-  for decode_ind, decode in enumerate(predictions):
+  for decode_ind, decode in enumerate(predictions[: max_decodes]):
     target_videos = video_metrics.stack_data_given_key(decode, "targets")
     output_videos = video_metrics.stack_data_given_key(decode, "outputs")
     input_videos = video_metrics.stack_data_given_key(decode, "inputs")
@@ -226,6 +260,25 @@ class VideoProblem(problem.Problem):
     self.settable_random_skip = True
     self.settable_use_not_breaking_batching = True
     self.shuffle = True
+
+  def max_frames_per_video(self, hparams):
+    """Maximum number of frames per video as determined by the dataset.
+
+    This is used only in PREDICT mode and handles the corner case where
+    video_num_input_frames + video_num_target_frames is greater than the
+    maximum number of frames per video in the dataset. For eg, 30 in BAIR.
+
+    For this special case, setting this to return "x" limits the input pipeline
+    to handle "x" (input + target) frames. The corresponding video model can
+    then decode arbitrary number of target frames via
+    hparams.video_num_target_frames.
+
+    Args:
+      hparams: tf.contrib.training.HParams.
+    Returns:
+      num_frames: int.
+    """
+    return hparams.video_num_input_frames + hparams.video_num_target_frames
 
   @property
   def num_channels(self):
@@ -459,8 +512,12 @@ class VideoProblem(problem.Problem):
       return dataset
 
     preprocessed_dataset = dataset.map(_preprocess)
+
     num_frames = (
         hparams.video_num_input_frames + hparams.video_num_target_frames)
+    if mode == tf.estimator.ModeKeys.PREDICT:
+      num_frames = min(self.max_frames_per_video(hparams), num_frames)
+
     # We jump by a random position at the beginning to add variety.
     if (self.random_skip and self.settable_random_skip and interleave and
         mode == tf.estimator.ModeKeys.TRAIN):
@@ -635,6 +692,37 @@ class VideoProblemOld(problem.Problem):
         metrics.Metrics.NEG_LOG_PERPLEXITY
     ]
     return eval_metrics
+
+
+class VideoAugmentationProblem(VideoProblem):
+  """Base class for video data-augmentation.
+
+  By default applies a random hue, contrast and saturation transformation
+  to every video. To disable any of these transformations, inherit
+  this class and set the corresponding property to False.
+  """
+
+  @property
+  def hue(self):
+    return True
+
+  @property
+  def contrast(self):
+    return True
+
+  @property
+  def saturate(self):
+    return True
+
+  def preprocess(self, dataset, mode, hparams, interleave=True):
+    dataset = super(VideoAugmentationProblem, self).preprocess(
+        dataset=dataset, mode=mode, hparams=hparams, interleave=interleave)
+    video_augment_func = functools.partial(
+        video_augmentation, hue=self.hue, contrast=self.contrast,
+        saturate=self.saturate)
+    if mode == tf.estimator.ModeKeys.TRAIN:
+      dataset = dataset.map(video_augment_func)
+    return dataset
 
 
 class Video2ClassProblem(VideoProblemOld):

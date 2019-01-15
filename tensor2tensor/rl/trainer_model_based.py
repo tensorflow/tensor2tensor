@@ -39,8 +39,13 @@ import six
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl
+from tensor2tensor.models.research.rl import make_simulated_env_fn_from_hparams
 from tensor2tensor.rl import rl_utils
 from tensor2tensor.rl import trainer_model_based_params
+from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image
+from tensor2tensor.rl.envs.simulated_batch_env import PIL_ImageDraw
+from tensor2tensor.rl.restarter import Restarter
+from tensor2tensor.rl.rl_utils import absolute_hinge_difference
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -122,23 +127,6 @@ def random_rollout_subsequences(rollouts, num_subsequences, subsequence_length):
   return [choose_subsequence() for _ in range(num_subsequences)]
 
 
-def make_simulated_env_fn(
-    real_env, hparams, batch_size, initial_frame_chooser, model_dir):
-  """Creates a simulated env_fn."""
-  return rl.make_simulated_env_fn(
-      reward_range=real_env.reward_range,
-      observation_space=real_env.observation_space,
-      action_space=real_env.action_space,
-      frame_stack_size=hparams.frame_stack_size,
-      frame_height=real_env.frame_height, frame_width=real_env.frame_width,
-      initial_frame_chooser=initial_frame_chooser, batch_size=batch_size,
-      model_name=hparams.generative_model,
-      model_hparams=trainer_lib.create_hparams(hparams.generative_model_params),
-      model_dir=model_dir,
-      intrinsic_reward_scale=hparams.intrinsic_reward_scale,
-  )
-
-
 def train_supervised(problem, model_name, hparams, data_dir, output_dir,
                      train_steps, eval_steps, local_eval_frequency=None,
                      schedule="continuous_train_and_eval"):
@@ -155,48 +143,32 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
   getattr(exp, schedule)()
 
 
-def train_agent(
-    real_env, learner, world_model_dir, hparams, epoch, is_final_epoch):
+def train_agent(real_env, learner, world_model_dir, hparams, epoch):
   """Train the PPO agent in the simulated environment."""
-  frame_stack_size = hparams.frame_stack_size
-  initial_frame_rollouts = real_env.current_epoch_rollouts(
-      split=tf.contrib.learn.ModeKeys.TRAIN,
-      minimal_rollout_frames=frame_stack_size,
+  initial_frame_chooser = rl_utils.make_initial_frame_chooser(
+      real_env, hparams.frame_stack_size, hparams.simulation_random_starts,
+      hparams.simulation_flip_first_random_for_beginning
   )
-  # TODO(koz4k): Move this to a different module.
-  def initial_frame_chooser(batch_size):
-    """Frame chooser."""
-
-    deterministic_initial_frames =\
-        initial_frame_rollouts[0][:frame_stack_size]
-    if not hparams.simulation_random_starts:
-      # Deterministic starts: repeat first frames from the first rollout.
-      initial_frames = [deterministic_initial_frames] * batch_size
-    else:
-      # Random starts: choose random initial frames from random rollouts.
-      initial_frames = random_rollout_subsequences(
-          initial_frame_rollouts, batch_size, frame_stack_size
+  env_fn = make_simulated_env_fn_from_hparams(
+      real_env, hparams, batch_size=hparams.simulated_batch_size,
+      initial_frame_chooser=initial_frame_chooser, model_dir=world_model_dir,
+      sim_video_dir=os.path.join(
+          learner.agent_model_dir, "sim_videos_{}".format(epoch)
       )
-      if hparams.simulation_flip_first_random_for_beginning:
-        # Flip first entry in the batch for deterministic initial frames.
-        initial_frames[0] = deterministic_initial_frames
-
-    return np.stack([
-        [frame.observation.decode() for frame in initial_frame_stack]
-        for initial_frame_stack in initial_frames
-    ])
-  env_fn = make_simulated_env_fn(
-      real_env, hparams, hparams.simulated_batch_size, initial_frame_chooser,
-      world_model_dir
   )
   base_algo_str = hparams.base_algo
   train_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
+  if hparams.wm_policy_param_sharing:
+    train_hparams.optimizer_zero_grads = True
 
   rl_utils.update_hparams_from_hparams(
       train_hparams, hparams, base_algo_str + "_"
   )
 
-  env_step_multiplier = 1 if not is_final_epoch else 2
+  final_epoch = hparams.epochs - 1
+  is_special_epoch = (epoch + 3) == final_epoch or (epoch + 7) == final_epoch
+  is_final_epoch = epoch == final_epoch
+  env_step_multiplier = 3 if is_final_epoch else 2 if is_special_epoch else 1
   learner.train(
       env_fn, train_hparams, simulated=True, save_continuously=True,
       epoch=epoch, env_step_multiplier=env_step_multiplier
@@ -211,12 +183,19 @@ def train_agent_real_env(env, learner, hparams, epoch):
   rl_utils.update_hparams_from_hparams(
       train_hparams, hparams, "real_" + base_algo_str + "_"
   )
+  if hparams.wm_policy_param_sharing:
+    train_hparams.optimizer_zero_grads = True
 
   env_fn = rl.make_real_env_fn(env)
   num_env_steps = real_env_step_increment(hparams)
   learner.train(
-      env_fn, train_hparams, simulated=False, save_continuously=False,
-      epoch=epoch, num_env_steps=num_env_steps
+      env_fn,
+      train_hparams,
+      simulated=False,
+      save_continuously=False,
+      epoch=epoch,
+      sampling_temp=hparams.real_sampling_temp,
+      num_env_steps=num_env_steps,
   )
   # Save unfinished rollouts to history.
   env.reset()
@@ -233,17 +212,23 @@ def train_world_model(
   model_hparams.learning_rate = model_hparams.learning_rate_constant
   if epoch > 0:
     model_hparams.learning_rate *= hparams.learning_rate_bump
+  if hparams.wm_policy_param_sharing:
+    model_hparams.optimizer_zero_grads = True
 
-  train_supervised(
-      problem=env,
-      model_name=hparams.generative_model,
-      hparams=model_hparams,
-      data_dir=data_dir,
-      output_dir=output_dir,
-      train_steps=world_model_steps_num,
-      eval_steps=100,
-      local_eval_frequency=2000
-  )
+  restarter = Restarter("world_model", output_dir, world_model_steps_num)
+  if restarter.should_skip:
+    return world_model_steps_num
+  with restarter.training_loop():
+    train_supervised(
+        problem=env,
+        model_name=hparams.generative_model,
+        hparams=model_hparams,
+        data_dir=data_dir,
+        output_dir=output_dir,
+        train_steps=restarter.target_global_step,
+        eval_steps=100,
+        local_eval_frequency=2000
+    )
 
   return world_model_steps_num
 
@@ -259,16 +244,16 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
         for subsequence in rollout_subsequences
     ])
 
-  env_fn = make_simulated_env_fn(
-      real_env, hparams, hparams.wm_eval_batch_size, initial_frame_chooser,
-      world_model_dir
+  env_fn = make_simulated_env_fn_from_hparams(
+      real_env, hparams, batch_size=hparams.wm_eval_batch_size,
+      initial_frame_chooser=initial_frame_chooser, model_dir=world_model_dir
   )
   sim_env = env_fn(in_graph=False)
   subsequence_length = int(
       max(hparams.wm_eval_rollout_ratios) * hparams.simulated_rollout_length
   )
   rollouts = real_env.current_epoch_rollouts(
-      split=tf.contrib.learn.ModeKeys.EVAL,
+      split=tf.estimator.ModeKeys.EVAL,
       minimal_rollout_frames=(subsequence_length + frame_stack_size)
   )
 
@@ -303,14 +288,34 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
     assert np.all(sim_init_obs == real_init_obs)
 
     debug_frame_batches = []
-    def append_debug_frame_batch(sim_obs, real_obs):
-      errs = np.maximum(
-          np.abs(sim_obs.astype(np.int) - real_obs, dtype=np.int) - 10, 0
-      ).astype(np.uint8)
+    def append_debug_frame_batch(sim_obs, real_obs, sim_cum_rews,
+                                 real_cum_rews, sim_rews, real_rews):
+      """Add a debug frame."""
+      rews = [[sim_cum_rews, sim_rews], [real_cum_rews, real_rews]]
+      headers = []
+      for j in range(len(sim_obs)):
+        local_nps = []
+        for i in range(2):
+          img = PIL_Image().new("RGB", (sim_obs.shape[-2], 11),)
+          draw = PIL_ImageDraw().Draw(img)
+          draw.text((0, 0), "c:{:3}, r:{:3}".format(int(rews[i][0][j]),
+                                                    int(rews[i][1][j])),
+                    fill=(255, 0, 0))
+          local_nps.append(np.asarray(img))
+        local_nps.append(np.zeros_like(local_nps[0]))
+        headers.append(np.concatenate(local_nps, axis=1))
+      errs = absolute_hinge_difference(sim_obs, real_obs)
+      headers = np.stack(headers)
       debug_frame_batches.append(  # pylint: disable=cell-var-from-loop
-          np.concatenate([sim_obs, real_obs, errs], axis=2)
+          np.concatenate([headers,
+                          np.concatenate([sim_obs, real_obs, errs], axis=2)],
+                         axis=1)
       )
-    append_debug_frame_batch(sim_init_obs, real_init_obs)
+    append_debug_frame_batch(sim_init_obs, real_init_obs,
+                             np.zeros(hparams.wm_eval_batch_size),
+                             np.zeros(hparams.wm_eval_batch_size),
+                             np.zeros(hparams.wm_eval_batch_size),
+                             np.zeros(hparams.wm_eval_batch_size))
 
     (sim_cum_rewards, real_cum_rewards) = (
         np.zeros(hparams.wm_eval_batch_size) for _ in range(2)
@@ -320,9 +325,10 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
       (sim_obs, sim_rewards, _) = sim_env.step(actions)
       sim_cum_rewards += sim_rewards
 
-      real_cum_rewards += [
+      real_rewards = np.array([
           subsequence[i + 1].reward for subsequence in eval_subsequences
-      ]
+      ])
+      real_cum_rewards += real_rewards
       for (length, reward_accuracies) in six.iteritems(
           reward_accuracies_by_length
       ):
@@ -333,7 +339,8 @@ def evaluate_world_model(real_env, hparams, world_model_dir, debug_video_path):
           )
 
       real_obs = decode_real_obs(i + 1)
-      append_debug_frame_batch(sim_obs, real_obs)
+      append_debug_frame_batch(sim_obs, real_obs, sim_cum_rewards,
+                               real_cum_rewards, sim_rewards, real_rewards)
 
     for debug_frames in np.stack(debug_frame_batches, axis=1):
       for debug_frame in debug_frames:
@@ -371,15 +378,6 @@ def load_metrics(event_dir, epoch):
   return metrics
 
 
-def summarize_metrics(eval_metrics_writer, metrics, epoch):
-  """Write metrics to summary."""
-  for (name, value) in six.iteritems(metrics):
-    summary = tf.Summary()
-    summary.value.add(tag=name, simple_value=value)
-    eval_metrics_writer.add_summary(summary, epoch)
-  eval_metrics_writer.flush()
-
-
 def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   """Run the main training loop."""
   if report_fn:
@@ -396,13 +394,18 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   data_dir = directories["data"]
   env = rl_utils.setup_env(
       hparams, batch_size=hparams.real_batch_size,
-      max_num_noops=hparams.max_num_noops
+      max_num_noops=hparams.max_num_noops,
+      rl_env_max_episode_steps=hparams.rl_env_max_episode_steps
   )
   env.start_new_epoch(epoch, data_dir)
 
+  if hparams.wm_policy_param_sharing:
+    policy_model_dir = directories["world_model"]
+  else:
+    policy_model_dir = directories["policy"]
   learner = rl_utils.LEARNERS[hparams.base_algo](
-      hparams.frame_stack_size, directories["policy"],
-      directories["policy"]
+      hparams.frame_stack_size, policy_model_dir,
+      policy_model_dir, hparams.epochs
   )
 
   # Timing log function
@@ -413,7 +416,6 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   metrics = {}
 
   # Collect data from the real environment.
-  policy_model_dir = directories["policy"]
   tf.logging.info("Initial training of the policy in real environment.")
   train_agent_real_env(env, learner, hparams, epoch)
   metrics["mean_reward/train/clipped"] = rl_utils.compute_mean_reward(
@@ -431,7 +433,6 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   world_model_steps_num = 0
 
   for epoch in range(hparams.epochs):
-    is_final_epoch = (epoch + 1) == hparams.epochs
     log = make_log_fn(epoch, log_relative_time)
 
     # Train world model
@@ -443,9 +444,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
     # Train agent
     log("Training policy in simulated environment.")
-    train_agent(
-        env, learner, directories["world_model"], hparams, epoch, is_final_epoch
-    )
+    train_agent(env, learner, directories["world_model"], hparams, epoch)
 
     env.start_new_epoch(epoch, data_dir)
 
@@ -486,13 +485,14 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
         log("World model eval metrics:\n{}".format(pprint.pformat(wm_metrics)))
         metrics.update(wm_metrics)
 
-      summarize_metrics(eval_metrics_writer, metrics, epoch)
+      rl_utils.summarize_metrics(eval_metrics_writer, metrics, epoch)
 
       # Report metrics
       if report_fn:
         if report_metric == "mean_reward":
           metric_name = rl_utils.get_metric_name(
-              stochastic=True, max_num_noops=hparams.eval_max_num_noops,
+              sampling_temp=hparams.eval_sampling_temps[0],
+              max_num_noops=hparams.eval_max_num_noops,
               clipped=False
           )
           report_fn(eval_metrics[metric_name], epoch)

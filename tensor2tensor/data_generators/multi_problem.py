@@ -275,6 +275,21 @@ class MultiProblem(problem.Problem):
         tf.logging.info("Schedule mixing threshold "
                         "%.2f" % hparams.multiproblem_schedule_threshold)
 
+        # If per-task thresholds are specified, use them.
+        thresholds = None
+        if hparams.multiproblem_per_task_threshold:
+          thresholds = hparams.multiproblem_per_task_threshold.split(",")
+          thresholds = [float(t) for t in thresholds]  # Convert to floats.
+          thresholds_sum = sum(thresholds)
+          tf.logging.info("Per-task thresholds: %s." % str(thresholds))
+          thresholds = [t / thresholds_sum for t in thresholds]  # Normalize.
+          thresholds = [sum(thresholds[:i+1]) for i in range(len(thresholds))]
+          tf.logging.info("Per-task threshold sums: %s." % str(thresholds))
+          if len(thresholds) != len(self.task_list):
+            tf.logging.warn("Specified %d thresholds but encountered %d tasks."
+                            % (len(thresholds), len(self.task_list)))
+            thresholds = None
+
         def sample_task(curr_task, num_tasks_left, randnum):
           """A recursive function to sample a task.
 
@@ -293,6 +308,14 @@ class MultiProblem(problem.Problem):
           """
           if num_tasks_left == 0:
             return get_next_from_dataset(dataset_iterators[curr_task])
+
+          if thresholds is not None:  # Use per-task thresholds if specified.
+            prob_sum = thresholds[curr_task]
+            return tf.cond(
+                randnum < prob_sum,
+                lambda: get_next_from_dataset(dataset_iterators[curr_task]),
+                lambda: sample_task(curr_task+1, num_tasks_left-1, randnum)
+            )
 
           # When curr_task is 0, the primary task, the new prob is the same as
           # the original probability. `tf.greater` indicates that the primary
@@ -372,6 +395,14 @@ def aggregate_task_losses(hparams,
                           target_modality,
                           feature):
   """Multiproblem loss function."""
+
+  # If no reweighting, we want the default loss to mimic the LM loss.
+  if not hparams.multiproblem_reweight_label_loss:
+    return aggregate_task_lm_losses(hparams=hparams,
+                                    logits=logits,
+                                    target_modality=target_modality,
+                                    feature=feature)
+
   summaries = []
   main_task_id = hparams.problem.task_list[0].task_id
   # Primary task loss
@@ -418,11 +449,7 @@ def aggregate_task_losses(hparams,
         label_loss *= hparams.multiproblem_label_weight
         seq_loss *= (1 - hparams.multiproblem_label_weight)
 
-      if hparams.multiproblem_class_loss_multiplier:
-        label_loss *= hparams.multiproblem_class_loss_multiplier
-        summaries.append([task.name+"_scaled_label_loss", label_loss])
-
-      # This is the training loss for the optimizer after all the scaling.
+      # This is the training loss for the optimizer after scaling.
       task_loss_val = seq_loss + label_loss
 
       loss_den_ = label_loss_den
@@ -456,5 +483,28 @@ def aggregate_task_losses(hparams,
     loss_num += task_loss_val
     loss_den += tf.minimum(tf.convert_to_tensor(1, dtype=tf.float32),
                            loss_den_)
+
+  return loss_num, loss_den, summaries
+
+
+def aggregate_task_lm_losses(hparams,
+                             logits,
+                             target_modality,
+                             feature):
+  """LM loss for multiproblems."""
+  summaries = []
+  loss_num = 0.
+  loss_den = 0.
+  for task in hparams.problem.task_list:
+    loss_num_, loss_den_ = target_modality.loss(
+        logits, feature,
+        weights_fn=
+        lambda x: common_layers.weights_multi_problem_all(x, task.task_id))  # pylint: disable=cell-var-from-loop
+
+    loss_num += loss_num_
+    loss_den += loss_den_
+
+    loss_val = loss_num_ / tf.maximum(1.0, loss_den_)
+    summaries.append([task.name+"_loss", loss_val])
 
   return loss_num, loss_den, summaries

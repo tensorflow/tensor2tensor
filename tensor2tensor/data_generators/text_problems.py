@@ -242,6 +242,32 @@ class Text2TextProblem(problem.Problem):
           "Unrecognized VocabType: %s" % str(self.vocab_type))
     return encoder
 
+  def _pack_fn(self):
+    """For packed datasets, returns a function to pack examples.
+
+    Returns:
+      None or a function from list of TFRecords to list of TFRecords
+    """
+    if not self.packed_length:
+      return None
+    def my_fn(records):
+      """Function from list of TFRecords to list of TFRecords."""
+      examples = []
+      for record in records:
+        x = tf.train.Example()
+        x.ParseFromString(record)
+        example_dict = {}
+        if self.has_inputs:
+          example_dict["inputs"] = [
+              int(i) for i in x.features.feature["inputs"].int64_list.value]
+        example_dict["targets"] = [
+            int(i) for i in x.features.feature["targets"].int64_list.value]
+        examples.append(example_dict)
+      examples = list(self._maybe_pack_examples(examples))
+      return [
+          generator_utils.to_example(x).SerializeToString() for x in examples]
+    return my_fn
+
   def _maybe_pack_examples(self, generator):
     """Wraps generator with packer if self.packed_length."""
     if not self.packed_length:
@@ -302,15 +328,13 @@ class Text2TextProblem(problem.Problem):
     if self.is_generate_per_split:
       for split, paths in split_paths:
         generator_utils.generate_files(
-            self._maybe_pack_examples(
-                self.generate_encoded_samples(data_dir, tmp_dir, split)), paths)
+            self.generate_encoded_samples(data_dir, tmp_dir, split), paths)
     else:
       generator_utils.generate_files(
-          self._maybe_pack_examples(
-              self.generate_encoded_samples(
-                  data_dir, tmp_dir, problem.DatasetSplit.TRAIN)), all_paths)
+          self.generate_encoded_samples(
+              data_dir, tmp_dir, problem.DatasetSplit.TRAIN), all_paths)
 
-    generator_utils.shuffle_dataset(all_paths)
+    generator_utils.shuffle_dataset(all_paths, extra_fn=self._pack_fn())
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
@@ -1169,10 +1193,9 @@ class DistributedText2TextProblem(Text2TextProblem):
 
     # Actually generate examples.
     generator_utils.generate_files(
-        self._maybe_pack_examples(
-            self.generate_encoded_samples(
-                data_dir, tmp_dir, split, input_files)),
+        self.generate_encoded_samples(
+            data_dir, tmp_dir, split, input_files),
         [output_file])
 
     # Shuffle the output.
-    generator_utils.shuffle_dataset([output_file])
+    generator_utils.shuffle_dataset([output_file], extra_fn=self._pack_fn())

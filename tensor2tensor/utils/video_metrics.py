@@ -55,7 +55,7 @@ def load_videos(template, video_length, frame_shape):
   dataset_len = len(filenames)
   filenames = tf.constant(filenames)
   dataset = tf.data.Dataset.from_tensor_slices(filenames)
-  dataset = dataset.apply(tf.contrib.data.map_and_batch(
+  dataset = dataset.apply(tf.data.experimental.map_and_batch(
       lambda filename: load_image_map_function(filename, frame_shape),
       video_length, drop_remainder=True))
   return dataset, dataset_len
@@ -115,7 +115,10 @@ def get_zipped_dataset_from_predictions(predictions):
   """Creates dataset from in-memory predictions."""
   targets = stack_data_given_key(predictions, "targets")
   outputs = stack_data_given_key(predictions, "outputs")
-  num_videos = len(targets)
+  num_videos, num_steps = targets.shape[:2]
+
+  # Truncate output time-steps to match target time-steps
+  outputs = outputs[:, :num_steps]
 
   targets_placeholder = tf.placeholder(targets.dtype, targets.shape)
   outputs_placeholder = tf.placeholder(outputs.dtype, outputs.shape)

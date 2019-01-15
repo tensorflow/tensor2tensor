@@ -39,6 +39,7 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
 
   def get_glow_hparams(self):
     hparams = glow.glow_hparams()
+    hparams.add_hparam("mode", tf.estimator.ModeKeys.TRAIN)
     hparams.add_hparam("num_cond_latents", 1)
     hparams.add_hparam("latent_architecture", "glow_resnet")
     # Use latent skip connections
@@ -50,6 +51,9 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
     hparams.add_hparam("latent_pre_output_channels", 256)
     hparams.add_hparam("latent_dist_encoder", "conv_net")
     hparams.add_hparam("latent_time_filter_size", 3)
+    hparams.add_hparam("latent_activation", "relu")
+    hparams.add_hparam("latent_dropout", 0.0)
+    hparams.add_hparam("latent_noise", 0.0)
     return hparams
 
   def test_get_variable_ddi(self):
@@ -73,23 +77,29 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
         self.assertTrue(np.allclose(channel_mean, 0.0, atol=1e-3))
         self.assertTrue(np.allclose(channel_var, 1.0, atol=1e-3))
 
-  def check_invertibility(self, op, name):
+  @parameterized.named_parameters(
+      ("inv_1x1", glow_ops.invertible_1x1_conv, "inv_1x1"),
+      ("affine", glow_ops.affine_coupling, "affine_coupling"),
+      ("additive", glow_ops.additive_coupling, "additive_coupling"),
+      ("actnorm", glow_ops.actnorm, "actnorm"),
+      ("affine_drop", glow_ops.affine_coupling, "affine_dropout", 0.5),
+      ("additive_drop", glow_ops.additive_coupling, "additive_dropout", 0.5))
+  def test_invertibility(self, op, name, dropout=0.0):
     with tf.Graph().as_default():
+      tf.set_random_seed(42)
       x = tf.random_uniform(shape=(16, 32, 32, 4))
 
-      x_inv, _ = op(name, x, reverse=False)
-      x_inv_inv, _ = op(name, x_inv, reverse=True)
+      if op in [glow_ops.affine_coupling, glow_ops.additive_coupling]:
+        with arg_scope([glow_ops.get_dropout], init=False):
+          x_inv, _ = op(name, x, reverse=False, dropout=dropout)
+          x_inv_inv, _ = op(name, x_inv, reverse=True, dropout=dropout)
+      else:
+        x_inv, _ = op(name, x, reverse=False)
+        x_inv_inv, _ = op(name, x_inv, reverse=True)
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
         diff = session.run(x - x_inv_inv)
         self.assertTrue(np.allclose(diff, 0.0, atol=1e-5))
-
-  def test_invertibility(self):
-    rev_ops = [glow_ops.invertible_1x1_conv, glow_ops.affine_coupling,
-               glow_ops.actnorm, glow_ops.additive_coupling]
-    names = ["inv_1X1_conv", "affine_coupling", "actnorm", "additive_coupling"]
-    for rev_op, name in zip(rev_ops, names):
-      self.check_invertibility(rev_op, name)
 
   def test_add_edge_bias(self):
     with tf.Graph().as_default():
@@ -126,11 +136,14 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
         # test shape in case apply_actnorm is set to False,
         self.assertEqual(zeros_np.shape, (16, 5, 5, 64))
 
-  def test_conv_stack(self):
+  @parameterized.named_parameters(
+      ("relu_act", "relu"), ("gatu_act", "gatu"))
+  def test_conv_stack(self, activation="relu"):
     """Test output shape."""
     with tf.Graph().as_default():
       x = 10.0 * tf.random_uniform(shape=(16, 5, 5, 32))
-      nn = glow_ops.conv_stack("nn", x, 512, 64)
+      nn = glow_ops.conv_stack("nn", x, mid_channels=512, output_channels=64,
+                               activation=activation)
 
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
@@ -319,8 +332,12 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
       ("conv_net_skip", "conv_net", True),
       ("conv_net_no_skip", "conv_net", False),
       ("conv3d_skip", "conv3d_net", False),
-      ("conv3d_no_skip", "conv3d_net", True))
-  def test_latent_dist_encoder(self, encoder="conv_lstm", skip=True):
+      ("conv3d_no_skip", "conv3d_net", True),
+      ("conv3d_skip_drop", "conv3d_net", False, 0.1),
+      ("conv3d_no_skip_drop", "conv3d_net", True, 0.1),
+      ("conv3d_no_skip_drop_noise", "conv3d_net", True, 0.1, 0.1),)
+  def test_latent_dist_encoder(self, encoder="conv_lstm", skip=True,
+                               dropout=0.0, noise=0.1):
     with tf.Graph().as_default():
       rng = np.random.RandomState(0)
       # Initialize x, latent, state.
@@ -332,15 +349,18 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
       state_t = tf.convert_to_tensor(state_rand)
       if encoder in ["conv_net", "conv3d_net"]:
         latent_t = [latent_t, latent_t]
-      init_state = tf.contrib.rnn.LSTMStateTuple(state_t, state_t)
+      init_state = tf.nn.rnn_cell.LSTMStateTuple(state_t, state_t)
       hparams = self.get_glow_hparams()
       hparams.latent_dist_encoder = encoder
       hparams.latent_skip = skip
       hparams.latent_encoder_width = 256
+      hparams.latent_dropout = dropout
+      hparams.latent_noise = noise
 
-      prior_dist, new_state = glow_ops.compute_prior(
-          "prior", x_t, latent=latent_t, hparams=hparams, state=init_state,
-          condition=True)
+      with arg_scope([glow_ops.get_dropout], init=False):
+        prior_dist, new_state = glow_ops.compute_prior(
+            "prior", x_t, latent=latent_t, hparams=hparams, state=init_state,
+            condition=True)
       with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         # Test initialization:
@@ -406,12 +426,22 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
           self.assertTrue(np.allclose(channel_var, 1.0, atol=1e-3))
 
   @parameterized.named_parameters(
-      ("dilation", True), ("no_dilation", False))
-  def test_temporal_latent_to_dist(self, apply_dilation):
+      ("dil_relu", True, "relu"), ("no_dil_relu", False, "relu"),
+      ("dil_gatu", True, "gatu"), ("no_dil_gatu", False, "gatu"),
+      ("dil_relu_drop", True, "relu", 0.1),
+      ("dil_gatu_drop", True, "gatu", 0.1),
+      ("dil_gatu_drop_noise", True, "gatu", 0.1, 0.1),
+      ("gatu_drop_single_step", False, "gatu", 0.1, 0.1, 1),
+      ("dil_gatu_drop_single_step", True, "gatu", 0.1, 0.1, 1),)
+  def test_temporal_latent_to_dist(self, apply_dilation, activation,
+                                   dropout=0.0, noise=0.1, num_steps=5):
     with tf.Graph().as_default():
       hparams = self.get_glow_hparams()
       hparams.latent_apply_dilations = apply_dilation
-      latent_shape = (16, 5, 32, 32, 48)
+      hparams.latent_activation = activation
+      hparams.latent_dropout = dropout
+      hparams.latent_noise = noise
+      latent_shape = (16, num_steps, 32, 32, 48)
       latents = tf.random_normal(latent_shape)
       dist = glow_ops.temporal_latent_to_dist(
           "tensor_to_dist", latents, hparams)

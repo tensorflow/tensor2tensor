@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 """Tests for Transformer."""
 
 from __future__ import absolute_import
@@ -40,6 +41,7 @@ class UniversalTransformerTest(tf.test.TestCase):
     hparams.filter_size = 32
     hparams.num_heads = 1
     hparams.layer_prepostprocess_dropout = 0.0
+    hparams.mix_with_transformer = ""
 
     p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE,
                                                      VOCAB_SIZE,
@@ -48,9 +50,9 @@ class UniversalTransformerTest(tf.test.TestCase):
       del p_hparams.modality["inputs"]
     hparams.problems = [p_hparams]
 
-    inputs = -1 + np.random.random_integers(
+    inputs = np.random.randint(
         VOCAB_SIZE, size=(BATCH_SIZE, INPUT_LENGTH, 1, 1))
-    targets = -1 + np.random.random_integers(
+    targets = np.random.randint(
         VOCAB_SIZE, size=(BATCH_SIZE, TARGET_LENGTH, 1, 1))
     features = {
         "targets": tf.constant(targets, dtype=tf.int32, name="targets"),
