@@ -362,9 +362,9 @@ def update_hparams_for_universal_transformer(hparams):
   """
   hparams.daisy_chain_variables = False  # Breaks multi-gpu in while loops.
 
-  # If not None, mixes vanilla transformer with Universal Transformer.
-  # Options: None, "before_ut", and "after_ut".
-  hparams.add_hparam("mix_with_transformer", None)
+  # If not "", mixes vanilla transformer with Universal Transformer.
+  # Options: "", "before_ut", and "after_ut".
+  hparams.add_hparam("mix_with_transformer", "")
 
   # Number of vanilla transformer layers used to be mixed with u-transofmer.
   hparams.add_hparam("num_mixedin_layers", 2)
