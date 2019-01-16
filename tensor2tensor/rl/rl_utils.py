@@ -496,7 +496,10 @@ class BatchWrapper(object):
 
 
 class BatchStackWrapper(BatchWrapper):
-  """Out-of-graph batch stack wrapper."""
+  """Out-of-graph batch stack wrapper.
+
+  Its behavior is consistent with tf_atari_wrappers.StackWrapper.
+  """
 
   def __init__(self, env, stack_size):
     super(BatchStackWrapper, self).__init__(env)
@@ -517,8 +520,14 @@ class BatchStackWrapper(BatchWrapper):
       indices = range(self.batch_size)
 
     observations = self.env.reset(indices)
-    for (index, observation) in zip(indices, observations):
-      self._history_buffer[index, ...] = [observation] * self.stack_size
+    try:
+      # If we wrap the simulated env, take the initial frames from there.
+      assert self.env.initial_frames.shape[1] == self.stack_size
+      self._history_buffer[...] = self.env.initial_frames
+    except AttributeError:
+      # Otherwise, repeat the first observation stack_size times.
+      for (index, observation) in zip(indices, observations):
+        self._history_buffer[index, ...] = [observation] * self.stack_size
     return self._history_buffer
 
   def step(self, actions):
