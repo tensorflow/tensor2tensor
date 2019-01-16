@@ -102,7 +102,9 @@ def evaluate_all_configs(
   # Iterate over all combinations of sampling temperatures and whether to do
   # initial no-ops.
   for sampling_temp in hparams.eval_sampling_temps:
-    for max_num_noops in [hparams.eval_max_num_noops, 0]:
+    # Iterate over a set so that if eval_max_num_noops == 0, there is just one
+    # iteration.
+    for max_num_noops in {hparams.eval_max_num_noops, 0}:
       scores = evaluate_single_config(
           hparams, sampling_temp, max_num_noops, agent_model_dir, eval_fn
       )
@@ -306,7 +308,7 @@ def run_rollouts(
       ob = observations[0, -1]
       debug_frame = augment_observation(
           ob, reward=rewards[0], cum_reward=cum_rewards[0],
-          frame_index=(step_index + 1), bar_color=(255, 0, 0)
+          frame_index=step_index, bar_color=(255, 0, 0)
       )
       video_writer.write(debug_frame)
 
@@ -496,7 +498,10 @@ class BatchWrapper(object):
 
 
 class BatchStackWrapper(BatchWrapper):
-  """Out-of-graph batch stack wrapper."""
+  """Out-of-graph batch stack wrapper.
+
+  Its behavior is consistent with tf_atari_wrappers.StackWrapper.
+  """
 
   def __init__(self, env, stack_size):
     super(BatchStackWrapper, self).__init__(env)
@@ -517,8 +522,14 @@ class BatchStackWrapper(BatchWrapper):
       indices = range(self.batch_size)
 
     observations = self.env.reset(indices)
-    for (index, observation) in zip(indices, observations):
-      self._history_buffer[index, ...] = [observation] * self.stack_size
+    try:
+      # If we wrap the simulated env, take the initial frames from there.
+      assert self.env.initial_frames.shape[1] == self.stack_size
+      self._history_buffer[...] = self.env.initial_frames
+    except AttributeError:
+      # Otherwise, repeat the first observation stack_size times.
+      for (index, observation) in zip(indices, observations):
+        self._history_buffer[index, ...] = [observation] * self.stack_size
     return self._history_buffer
 
   def step(self, actions):
