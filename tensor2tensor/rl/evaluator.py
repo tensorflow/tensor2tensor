@@ -93,8 +93,7 @@ def make_agent(
     agent_type, env, policy_hparams, policy_dir, sampling_temp,
     sim_env_kwargs=None, frame_stack_size=None, planning_horizon=None,
     rollout_agent_type=None, batch_size=None, num_rollouts=None,
-    inner_batch_size=None, video_writer=None
-    inner_batch_size=None):
+    inner_batch_size=None, video_writer=None):
   """Factory function for Agents."""
   if batch_size is None:
     batch_size = env.batch_size

@@ -29,9 +29,9 @@ from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl.dopamine_connector import DQNLearner
-from tensor2tensor.rl.envs.simulated_batch_gym_env import SimulatedBatchGymEnv
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_ImageDraw
+from tensor2tensor.rl.envs.simulated_batch_gym_env import SimulatedBatchGymEnv
 from tensor2tensor.rl.ppo_learner import PPOLearner
 from tensor2tensor.utils import misc_utils
 from tensor2tensor.utils import trainer_lib
@@ -439,17 +439,14 @@ class PlannerAgent(BatchAgent):
       (initial_observations, initial_rewards, _) = self._wrapped_env.step(
           np.array([action] * self._wrapped_env.batch_size)
       )
+      writer = None
+      if planner_index == 0 and batch_index == 0 and action == recorded_action:
+        writer = self._video_writer
       (final_observations, cum_rewards) = run_rollouts(
           self._wrapped_env, self._rollout_agent, initial_observations,
           discount_factor=self._discount_factor,
           step_limit=self._planning_horizon,
-          video_writer=(
-              self._video_writer
-              if planner_index == 0 and batch_index == 0 and
-              action == recorded_action
-              else None
-          )
-      )
+          video_writer=writer)
       values = self._rollout_agent.estimate_value(final_observations)
       total_values = (
           initial_rewards + self._discount_factor * cum_rewards +
@@ -466,7 +463,7 @@ class PlannerAgent(BatchAgent):
     def choose_best_action(observation, planner_index):
       return max(
           range(self.action_space.n),
-          key=(lambda action: run_batches_from(
+          key=(lambda action: run_batches_from(  # pylint: disable=g-long-lambda
               observation, action, planner_index
           ))
       )
