@@ -234,7 +234,7 @@ def universal_transformer_layer(x,
     return x
 
   with tf.variable_scope("universal_transformer_%s" % hparams.recurrence_type):
-    if "before_ut" in hparams.mix_with_transformer:
+    if hparams.mix_with_transformer and "before_ut" in hparams.mix_with_transformer:
       x = add_vanilla_transformer_layer(x, hparams.num_mixedin_layers,
                                         "before_ut_")
 
@@ -256,7 +256,7 @@ def universal_transformer_layer(x,
           hparams.get("use_memory_as_final_state", False)):
         output = extra_output
 
-    if "after_ut" in hparams.mix_with_transformer:
+    if hparams.mix_with_transformer and "after_ut" in hparams.mix_with_transformer:
       output = add_vanilla_transformer_layer(output, hparams.num_mixedin_layers,
                                              "after_ut_")
 
@@ -1037,10 +1037,10 @@ def universal_transformer_act(x, hparams, ffn_unit, attention_unit):
 
   Implementations of all act models are based on craffel@'s cl/160711592.
 
-    basic - Basic AUT based on remainder-distribution ACT (position-wise).
-    global - AUT with global halting probability (not position-wise).
-    random - AUT with random halting probability (not position-wise).
-    accumulated - AUT with final state as accumulation of all states. Similar to the main ACT paper: --> check the issue of differentiability
+    (1) Basic AUT based on remainder-distribution ACT (position-wise).
+    (2) AUT with global halting probability (not position-wise).
+    (3) AUT with random halting probability (not position-wise).
+    (4) AUT with final state as accumulation of all states. Similar to the main ACT paper: --> check the issue of differentiability
     
   Args:
     x: input
