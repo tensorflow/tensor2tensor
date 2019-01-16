@@ -1828,8 +1828,8 @@ def discretized_mix_logistic_loss(pred, labels):
 
   The means tensor is a linear combination of location parameters and previous
   channels. The discretized logistic distribution assigns probability mass to an
-  event P(X=x) via logistic CDFs: P(X <= x + 0.5) - P(X > x - 0.5) for 1 < x <
-  254; P(X <= 0.5) for x = 0; and 1 - P(X > 245.5) for x = 255. Instead of
+  event P(X=x) via logistic CDFs: P(X <= x + 0.5) - P(X < x - 0.5) for 1 < x <
+  254; P(X <= 0.5) for x = 0; and 1 - P(X < 245.5) for x = 255. Instead of
   8-bit inputs, this implementation assumes the events are rescaled to [-1, 1].
 
   Args:
