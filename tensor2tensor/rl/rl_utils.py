@@ -306,7 +306,7 @@ def run_rollouts(
       ob = observations[0, -1]
       debug_frame = augment_observation(
           ob, reward=rewards[0], cum_reward=cum_rewards[0],
-          frame_index=(step_index + 1), bar_color=(255, 0, 0)
+          frame_index=step_index, bar_color=(255, 0, 0)
       )
       video_writer.write(debug_frame)
 
