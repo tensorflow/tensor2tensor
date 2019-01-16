@@ -232,7 +232,7 @@ def _tar_and_copy(src_dir, target_dir):
   tmp_dir = tempfile.gettempdir().rstrip("/")
   src_base = os.path.basename(src_dir)
   shell_run(
-      "tar -zcf {tmp_dir}/{src_base}.tar.gz -C {src_dir} .",
+      "tar --exclude=.git -zcf {tmp_dir}/{src_base}.tar.gz -C {src_dir} .",
       src_dir=src_dir,
       src_base=src_base,
       tmp_dir=tmp_dir)
