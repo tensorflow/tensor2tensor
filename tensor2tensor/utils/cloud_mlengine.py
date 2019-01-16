@@ -17,6 +17,7 @@
 
 import datetime
 import os
+import pprint
 import shutil
 import subprocess as sp
 import sys
@@ -378,7 +379,7 @@ def launch():
   job_spec = configure_job()
   job_name = job_spec["jobId"]
   tf.logging.info("Launching job %s with ML Engine spec:\n%s", job_name,
-                  job_spec)
+                  pprint.pformat(job_spec))
   assert confirm()
   train_dir = FLAGS.output_dir
   t2t_tar = tar_and_copy_t2t(train_dir)
