@@ -786,6 +786,19 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
 
     if self.use_bias:
       if isinstance(self.bias_initializer, TrainableInitializer):
+        if self.unit_forget_bias:
+          def bias_mean_initializer(_, *args, **kwargs):
+            return tf.concat([
+                tf.keras.initializers.truncated_normal(
+                    stddev=1e-5)((self.units,), *args, **kwargs),
+                tf.keras.initializers.truncated_normal(
+                    mean=1., stddev=1e-5)((self.units,), *args, **kwargs),
+                tf.keras.initializers.truncated_normal(
+                    stddev=1e-5)((self.units * 2,), *args, **kwargs),
+            ], axis=0)
+          self.bias_initializer = TrainableNormal(
+              mean_initializer=bias_mean_initializer)
+
         self.bias_initializer.build(
             [self.units * 4], self.dtype, self.add_weight)
         self.bias = self.bias_initializer()
@@ -797,7 +810,6 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
               'bias', self.bias_initializer, self.bias_regularizer))
       else:
         if self.unit_forget_bias:
-
           def bias_initializer(_, *args, **kwargs):
             return tf.keras.backend.concatenate([
                 self.bias_initializer((self.units,), *args, **kwargs),
