@@ -30,6 +30,8 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl.dopamine_connector import DQNLearner
 from tensor2tensor.rl.envs.simulated_batch_gym_env import SimulatedBatchGymEnv
+from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image
+from tensor2tensor.rl.envs.simulated_batch_env import PIL_ImageDraw
 from tensor2tensor.rl.ppo_learner import PPOLearner
 from tensor2tensor.utils import misc_utils
 from tensor2tensor.utils import trainer_lib
@@ -228,9 +230,35 @@ def absolute_hinge_difference(arr1, arr2, min_diff=10, dtype=np.uint8):
   return np.maximum(diff - min_diff, 0).astype(dtype)
 
 
+# TODO(koz4k): Use this function in player and all debug videos.
+def augment_observation(
+    observation, reward, cum_reward, frame_index, bar_color=None,
+    header_height=27
+):
+  """Augments an observation with debug info."""
+  img = PIL_Image().new(
+      "RGB", (observation.shape[1], header_height,)
+  )
+  draw = PIL_ImageDraw().Draw(img)
+  draw.text(
+      (1, 0), "c:{:3}, r:{:3}".format(int(cum_reward), int(reward)),
+      fill=(255, 0, 0)
+  )
+  draw.text(
+      (1, 15), "f:{:3}".format(int(frame_index)),
+      fill=(255, 0, 0)
+  )
+  header = np.asarray(img)
+  del img
+  header.setflags(write=1)
+  if bar_color is not None:
+    header[0, :, :] = bar_color
+  return np.concatenate([header, observation], axis=0)
+
+
 def run_rollouts(
     env, agent, initial_observations, step_limit=None, discount_factor=1.0,
-    log_every_steps=None
+    log_every_steps=None, video_writer=None
 ):
   """Runs a batch of rollouts from given initial observations."""
   num_dones = 0
@@ -238,6 +266,15 @@ def run_rollouts(
   observations = initial_observations
   step_index = 0
   cum_rewards = 0
+
+  if video_writer is not None:
+    obs_stack = initial_observations[0]
+    for (i, ob) in enumerate(obs_stack):
+      debug_frame = augment_observation(
+          ob, reward=0, cum_reward=0, frame_index=(-len(obs_stack) + i + 1),
+          bar_color=(0, 255, 0)
+      )
+      video_writer.write(debug_frame)
 
   def proceed():
     if step_limit is not None:
@@ -264,6 +301,14 @@ def run_rollouts(
     observations = np.array(observations)
     cum_rewards = cum_rewards * discount_factor + rewards
     step_index += 1
+
+    if video_writer is not None:
+      ob = observations[0, -1]
+      debug_frame = augment_observation(
+          ob, reward=rewards[0], cum_reward=cum_rewards[0],
+          frame_index=(step_index + 1), bar_color=(255, 0, 0)
+      )
+      video_writer.write(debug_frame)
 
     # TODO(afrozm): Clean this up with tf.logging.log_every_n
     if log_every_steps is not None and step_index % log_every_steps == 0:
@@ -368,7 +413,7 @@ class PlannerAgent(BatchAgent):
 
   def __init__(
       self, batch_size, rollout_agent, sim_env, wrapper_fn, num_rollouts,
-      planning_horizon, discount_factor=1.0
+      planning_horizon, discount_factor=1.0, video_writer=None
   ):
     super(PlannerAgent, self).__init__(
         batch_size, rollout_agent.observation_space, rollout_agent.action_space
@@ -379,9 +424,13 @@ class PlannerAgent(BatchAgent):
     self._num_batches = num_rollouts // rollout_agent.batch_size
     self._discount_factor = discount_factor
     self._planning_horizon = planning_horizon
+    self._video_writer = video_writer
 
   def act(self, observations):
-    def run_batch_from(observation, action):
+    # Randomly choose an action to be recorded.
+    recorded_action = self.action_space.sample()
+
+    def run_batch_from(observation, action, planner_index, batch_index):
       """Run a batch of actions."""
       self._sim_env.initial_frames = np.array(
           [observation] * self._sim_env.batch_size
@@ -393,7 +442,13 @@ class PlannerAgent(BatchAgent):
       (final_observations, cum_rewards) = run_rollouts(
           self._wrapped_env, self._rollout_agent, initial_observations,
           discount_factor=self._discount_factor,
-          step_limit=self._planning_horizon
+          step_limit=self._planning_horizon,
+          video_writer=(
+              self._video_writer
+              if planner_index == 0 and batch_index == 0 and
+              action == recorded_action
+              else None
+          )
       )
       values = self._rollout_agent.estimate_value(final_observations)
       total_values = (
@@ -402,18 +457,24 @@ class PlannerAgent(BatchAgent):
       )
       return total_values.mean()
 
-    def run_batches_from(observation, action):
+    def run_batches_from(observation, action, planner_index):
       return sum(
-          run_batch_from(observation, action) for _ in range(self._num_batches)
+          run_batch_from(observation, action, planner_index, i)
+          for i in range(self._num_batches)
       ) / self._num_batches
 
-    def choose_best_action(observation):
+    def choose_best_action(observation, planner_index):
       return max(
           range(self.action_space.n),
-          key=(lambda action: run_batches_from(observation, action))
+          key=(lambda action: run_batches_from(
+              observation, action, planner_index
+          ))
       )
 
-    return np.array(list(map(choose_best_action, observations)))
+    return np.array([
+        choose_best_action(observation, i)
+        for (i, observation) in enumerate(observations)
+    ])
 
 
 # TODO(koz4k): Unify interfaces of batch envs.

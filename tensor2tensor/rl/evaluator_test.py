@@ -32,7 +32,8 @@ class EvalTest(tf.test.TestCase):
     temp_dir = tf.test.get_temp_dir()
     evaluator.evaluate(
         loop_hparams, planner_hparams, temp_dir, temp_dir, temp_dir,
-        agent_type="random", eval_with_learner=False, log_every_steps=None
+        agent_type="random", eval_with_learner=False, log_every_steps=None,
+        debug_video_path=""
     )
 
 

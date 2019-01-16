@@ -28,6 +28,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl  # pylint: disable=unused-import
 from tensor2tensor.rl import rl_utils
 from tensor2tensor.rl import trainer_model_based_params  # pylint: disable=unused-import
@@ -63,6 +64,9 @@ flags.DEFINE_string("planner_hparams", "", "Planner hparam overrides.")
 flags.DEFINE_integer(
     "log_every_steps", 0, "Log every how many environment steps."
 )
+flags.DEFINE_string(
+    "debug_video_path", "", "Path to save the planner debug video at."
+)
 
 
 @registry.register_hparams
@@ -89,8 +93,8 @@ def make_agent(
     agent_type, env, policy_hparams, policy_dir, sampling_temp,
     sim_env_kwargs=None, frame_stack_size=None, planning_horizon=None,
     rollout_agent_type=None, batch_size=None, num_rollouts=None,
-    inner_batch_size=None
-):
+    inner_batch_size=None, video_writer=None
+    inner_batch_size=None):
   """Factory function for Agents."""
   if batch_size is None:
     batch_size = env.batch_size
@@ -110,13 +114,14 @@ def make_agent(
               **sim_env_kwargs
           ), lambda env: rl_utils.BatchStackWrapper(env, frame_stack_size),
           num_rollouts, planning_horizon,
-          discount_factor=policy_hparams.gae_gamma
+          discount_factor=policy_hparams.gae_gamma, video_writer=video_writer
       ),
   }[agent_type]()
 
 
 def make_eval_fn_with_agent(
-    agent_type, planner_hparams, model_dir, log_every_steps=None
+    agent_type, planner_hparams, model_dir, log_every_steps=None,
+    video_writer=None
 ):
   """Returns an out-of-graph eval_fn using the Agent API."""
   def eval_fn(env, loop_hparams, policy_hparams, policy_dir, sampling_temp):
@@ -132,7 +137,7 @@ def make_eval_fn_with_agent(
         sim_env_kwargs, loop_hparams.frame_stack_size,
         planner_hparams.planning_horizon, planner_hparams.rollout_agent_type,
         num_rollouts=planner_hparams.num_rollouts,
-        inner_batch_size=planner_hparams.batch_size
+        inner_batch_size=planner_hparams.batch_size, video_writer=video_writer
     )
     rl_utils.run_rollouts(
         env, agent, env.reset(), log_every_steps=log_every_steps
@@ -143,8 +148,8 @@ def make_eval_fn_with_agent(
 
 def evaluate(
     loop_hparams, planner_hparams, policy_dir, model_dir, eval_metrics_dir,
-    agent_type, eval_with_learner, log_every_steps, report_fn=None,
-    report_metric=None
+    agent_type, eval_with_learner, log_every_steps, debug_video_path,
+    report_fn=None, report_metric=None
 ):
   """Evaluate."""
   if eval_with_learner:
@@ -156,13 +161,23 @@ def evaluate(
   eval_metrics_writer = tf.summary.FileWriter(eval_metrics_dir)
   kwargs = {}
   if not eval_with_learner:
+    if debug_video_path:
+      video_writer = common_video.WholeVideoWriter(
+          fps=10, output_path=debug_video_path, file_format="avi"
+      )
+    else:
+      video_writer = None
     kwargs["eval_fn"] = make_eval_fn_with_agent(
-        agent_type, planner_hparams, model_dir, log_every_steps=log_every_steps
+        agent_type, planner_hparams, model_dir, log_every_steps=log_every_steps,
+        video_writer=video_writer
     )
   eval_metrics = rl_utils.evaluate_all_configs(
       loop_hparams, policy_dir, **kwargs
   )
   rl_utils.summarize_metrics(eval_metrics_writer, eval_metrics, 0)
+
+  if video_writer is not None:
+    video_writer.finish_to_disk()
 
   # Report metrics
   if report_fn:
@@ -190,7 +205,8 @@ def main(_):
   evaluate(
       loop_hparams, planner_hparams, FLAGS.policy_dir, FLAGS.model_dir,
       FLAGS.eval_metrics_dir, FLAGS.agent, FLAGS.eval_with_learner,
-      FLAGS.log_every_steps if FLAGS.log_every_steps > 0 else None
+      FLAGS.log_every_steps if FLAGS.log_every_steps > 0 else None,
+      debug_video_path=FLAGS.debug_video_path
   )
 
 
