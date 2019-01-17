@@ -88,7 +88,7 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
         32,
         ishape_static[-1],
         name="target_space_embedding",
-        dtype=hparams.activation_dtype)
+        dtype=hparams.get("activation_dtype", "float32"))
     emb_target_space = tf.reshape(emb_target_space, [1, 1, -1])
     encoder_input += emb_target_space
   if hparams.pos == "timing":
@@ -196,8 +196,8 @@ def transformer_encoder(encoder_input,
               dropout_broadcast_dims=attention_dropout_broadcast_dims,
               max_length=hparams.get("max_length"),
               vars_3d=hparams.get("attention_variables_3d"),
-              activation_dtype=hparams.activation_dtype,
-              weight_dtype=hparams.weight_dtype)
+              activation_dtype=hparams.get("activation_dtype", "float32"),
+              weight_dtype=hparams.get("weight_dtype", "float32"))
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
