@@ -76,6 +76,7 @@ def planner_tiny():
       planning_horizon=2,
       rollout_agent_type="random",
       batch_size=1,
+      env_type="simulated",
   )
 
 
@@ -86,14 +87,28 @@ def planner_small():
       planning_horizon=16,
       rollout_agent_type="policy",
       batch_size=16,
+      env_type="simulated",
   )
+
+
+def make_env(env_type, real_env, sim_env_kwargs):
+  """Factory function for envs."""
+  return {
+      "real": lambda: real_env.new_like(
+          batch_size=sim_env_kwargs["batch_size"],
+          store_rollouts=False,
+      ),
+      "simulated": lambda: rl_utils.SimulatedBatchGymEnvWithFixedInitialFrames(
+          **sim_env_kwargs
+      ),
+  }[env_type]()
 
 
 def make_agent(
     agent_type, env, policy_hparams, policy_dir, sampling_temp,
     sim_env_kwargs=None, frame_stack_size=None, planning_horizon=None,
     rollout_agent_type=None, batch_size=None, num_rollouts=None,
-    inner_batch_size=None, video_writer=None):
+    inner_batch_size=None, video_writer=None, env_type=None):
   """Factory function for Agents."""
   if batch_size is None:
     batch_size = env.batch_size
@@ -109,9 +124,8 @@ def make_agent(
           batch_size, make_agent(
               rollout_agent_type, env, policy_hparams, policy_dir,
               sampling_temp, batch_size=inner_batch_size
-          ), rl_utils.SimulatedBatchGymEnvWithFixedInitialFrames(
-              **sim_env_kwargs
-          ), lambda env: rl_utils.BatchStackWrapper(env, frame_stack_size),
+          ), make_env(env_type, env.env, sim_env_kwargs),
+          lambda env: rl_utils.BatchStackWrapper(env, frame_stack_size),
           num_rollouts, planning_horizon,
           discount_factor=policy_hparams.gae_gamma, video_writer=video_writer
       ),
@@ -136,7 +150,8 @@ def make_eval_fn_with_agent(
         sim_env_kwargs, loop_hparams.frame_stack_size,
         planner_hparams.planning_horizon, planner_hparams.rollout_agent_type,
         num_rollouts=planner_hparams.num_rollouts,
-        inner_batch_size=planner_hparams.batch_size, video_writer=video_writer
+        inner_batch_size=planner_hparams.batch_size, video_writer=video_writer,
+        env_type=planner_hparams.env_type
     )
     rl_utils.run_rollouts(
         env, agent, env.reset(), log_every_steps=log_every_steps

@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from copy import deepcopy
 import random
 
 from gym.spaces import Box
@@ -284,7 +285,10 @@ def run_rollouts(
       return num_dones < env.batch_size
 
   while proceed():
-    actions = agent.act(observations)
+    act_kwargs = {}
+    if agent.needs_env_state:
+      act_kwargs["env_state"] = env.state
+    actions = agent.act(observations, **act_kwargs)
     (observations, rewards, dones) = env.step(actions)
     observations = list(observations)
     now_done_indices = []
@@ -324,12 +328,14 @@ class BatchAgent(object):
   Runs a batch of parallel agents. Operates on Numpy arrays.
   """
 
+  needs_env_state = False
+
   def __init__(self, batch_size, observation_space, action_space):
     self.batch_size = batch_size
     self.observation_space = observation_space
     self.action_space = action_space
 
-  def act(self, observations):
+  def act(self, observations, env_state=None):
     """Picks actions based on observations.
 
     Args:
@@ -357,7 +363,8 @@ class BatchAgent(object):
 class RandomAgent(BatchAgent):
   """Random agent, sampling actions from the uniform distribution."""
 
-  def act(self, observations):
+  def act(self, observations, env_state=None):
+    del env_state
     return np.array([
         self.action_space.sample() for _ in range(observations.shape[0])
     ])
@@ -400,7 +407,8 @@ class PolicyAgent(BatchAgent):
         feed_dict={self._observations_t: observations}
     )
 
-  def act(self, observations):
+  def act(self, observations, env_state=None):
+    del env_state
     (actions, _) = self._run(observations)
     return actions
 
@@ -411,6 +419,8 @@ class PolicyAgent(BatchAgent):
 
 class PlannerAgent(BatchAgent):
   """Agent based on temporal difference planning."""
+
+  needs_env_state = True
 
   def __init__(
       self, batch_size, rollout_agent, sim_env, wrapper_fn, num_rollouts,
@@ -427,14 +437,18 @@ class PlannerAgent(BatchAgent):
     self._planning_horizon = planning_horizon
     self._video_writer = video_writer
 
-  def act(self, observations):
+  def act(self, observations, env_state=None):
     # Randomly choose an action to be recorded.
     recorded_action = self.action_space.sample()
 
     def run_batch_from(observation, action, planner_index, batch_index):
       """Run a batch of actions."""
-      self._sim_env.initial_frames = np.array(
-          [observation] * self._sim_env.batch_size
+      self._wrapped_env.set_initial_state(
+          initial_state=[
+              deepcopy(env_state[planner_index])
+              for _ in range(self._sim_env.batch_size)
+          ],
+          initial_frames=np.array([observation] * self._sim_env.batch_size)
       )
       self._wrapped_env.reset()
       (initial_observations, initial_rewards, _) = self._wrapped_env.step(
@@ -515,6 +529,17 @@ class BatchStackWrapper(BatchWrapper):
         (self.batch_size,) + self.observation_space.shape,
         dtype=inner_space.dtype
     )
+    self._initial_frames = None
+
+  @property
+  def state(self):
+    """Gets the current state."""
+    return self.env.state
+
+  def set_initial_state(self, initial_state, initial_frames):
+    """Sets the state that will be used on next reset."""
+    self.env.set_initial_state(initial_state, initial_frames)
+    self._initial_frames = initial_frames
 
   def reset(self, indices=None):
     if indices is None:
@@ -526,9 +551,16 @@ class BatchStackWrapper(BatchWrapper):
       assert self.env.initial_frames.shape[1] == self.stack_size
       self._history_buffer[...] = self.env.initial_frames
     except AttributeError:
-      # Otherwise, repeat the first observation stack_size times.
-      for (index, observation) in zip(indices, observations):
-        self._history_buffer[index, ...] = [observation] * self.stack_size
+      # Otherwise, check if set_initial_state was called and we can take the
+      # frames from there.
+      if self._initial_frames is not None:
+        for (index, observation) in zip(indices, observations):
+          assert (self._initial_frames[index, -1, ...] == observation).all()
+          self._history_buffer[index, ...] = self._initial_frames[index, ...]
+      else:
+        # Otherwise, repeat the first observation stack_size times.
+        for (index, observation) in zip(indices, observations):
+          self._history_buffer[index, ...] = [observation] * self.stack_size
     return self._history_buffer
 
   def step(self, actions):
@@ -550,3 +582,13 @@ class SimulatedBatchGymEnvWithFixedInitialFrames(BatchWrapper):
         *args, initial_frame_chooser=initial_frame_chooser, **kwargs
     )
     super(SimulatedBatchGymEnvWithFixedInitialFrames, self).__init__(env)
+
+  @property
+  def state(self):
+    """Gets the current state."""
+    return [None] * self.batch_size
+
+  def set_initial_state(self, initial_state, initial_frames):
+    """Sets the state that will be used on next reset."""
+    del initial_state
+    self.initial_frames = initial_frames
