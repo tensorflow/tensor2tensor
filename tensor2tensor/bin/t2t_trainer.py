@@ -27,6 +27,7 @@ from tensor2tensor.data_generators import problem  # pylint: disable=unused-impo
 from tensor2tensor.utils import cloud_mlengine
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
+from tensor2tensor.utils import hparams_lib
 from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
@@ -331,10 +332,9 @@ def save_metadata(hparams):
       f.write(t2t_flags_str)
 
   # Save hparams as hparams.json
-  hp_vals = hparams.values()
+  new_hparams = hparams_lib.copy_hparams(hparams)
   # Modality class is not JSON serializable so remove.
-  del hp_vals["modality"]
-  new_hparams = tf.contrib.training.HParams(**hp_vals)
+  new_hparams.del_hparam("modality")
 
   hparams_fname = os.path.join(output_dir, "hparams.json")
   with tf.gfile.Open(hparams_fname, "w") as f:

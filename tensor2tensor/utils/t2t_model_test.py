@@ -47,12 +47,11 @@ class T2TModelTest(tf.test.TestCase):
         sequence_size = 16
         vocab_size = 3
 
-        model_hparams = tf.contrib.training.HParams()
-        model_hparams.label_smoothing = 0.0
-        model_hparams.shared_embedding_and_softmax_weights = False
+        model_hparams = tf.contrib.training.HParams(
+            label_smoothing=0.0,
+            shared_embedding_and_softmax_weights=False)
 
-        problem_hparams = tf.contrib.training.HParams()
-        problem_hparams.loss_multiplier = 1.0
+        problem_hparams = tf.contrib.training.HParams(loss_multiplier=1.0)
         problem_hparams.modality = {}
 
         model = t2t_model.T2TModel(

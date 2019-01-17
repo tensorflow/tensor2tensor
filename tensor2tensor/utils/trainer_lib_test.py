@@ -157,17 +157,6 @@ class TrainerLibTest(tf.test.TestCase):
     base_hparams = trainer_lib.create_hparams("transformer_big")
     self.assertEqual(len(base_hparams.values()), len(hparams.values()))
 
-  def testCreateHparamsFromJson(self):
-    # Get json_path
-    pkg, _ = os.path.split(__file__)
-    pkg, _ = os.path.split(pkg)
-    json_path = os.path.join(
-        pkg, "test_data", "transformer_test_ckpt", "hparams.json")
-
-    # Create hparams
-    hparams = trainer_lib._create_hparams_from_json(json_path)
-    self.assertEqual(75, len(hparams.values()))
-
 
 if __name__ == "__main__":
   tf.test.main()

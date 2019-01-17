@@ -20,10 +20,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import copy
 import mesh_tensorflow as mtf
 
 import six
+from tensor2tensor.utils import hparams_lib
 from tensor2tensor.utils import learning_rate
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import t2t_model
@@ -46,7 +46,7 @@ class MtfModel(t2t_model.T2TModel):
                          params=None,
                          decode_hparams=None,
                          use_tpu=False):
-    hparams = copy.deepcopy(hparams)
+    hparams = hparams_lib.copy_hparams(hparams)
     hparams.use_tpu = use_tpu
     # merge decode_hparams into hparams if present
     if mode == tf.estimator.ModeKeys.PREDICT and decode_hparams is not None:

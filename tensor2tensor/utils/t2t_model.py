@@ -20,7 +20,6 @@ from __future__ import print_function
 
 import collections
 import contextlib
-import copy
 import functools
 import math
 import os
@@ -34,6 +33,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import expert_utils as eu
+from tensor2tensor.utils import hparams_lib
 from tensor2tensor.utils import learning_rate
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import mlperf_log
@@ -177,7 +177,7 @@ class T2TModel(base.Layer):
     self._problem_hparams = problem_hparams
 
     # Setup hparams
-    hparams = copy.copy(hparams)
+    hparams = hparams_lib.copy_hparams(hparams)
     if self._problem_hparams and hparams.shared_embedding_and_softmax_weights:
       # If vocabularies differ, unset shared_embedding_and_softmax_weights.
       input_modality = self._problem_hparams.modality.get("inputs")
@@ -206,8 +206,8 @@ class T2TModel(base.Layer):
     self._original_hparams = hparams
     self.set_mode(mode)
 
-    self._decode_hparams = copy.copy(decode_hparams or
-                                     decoding.decode_hparams())
+    self._decode_hparams = hparams_lib.copy_hparams(
+        decode_hparams or decoding.decode_hparams())
     self._data_parallelism = data_parallelism or eu.Parallelism([""])
     self._num_datashards = self._data_parallelism.n
     self._ps_devices = self._data_parallelism.ps_devices
@@ -693,7 +693,7 @@ class T2TModel(base.Layer):
   def set_mode(self, mode):
     """Set hparams with the given mode."""
     log_info("Setting T2TModel mode to '%s'", mode)
-    hparams = copy.copy(self._original_hparams)
+    hparams = hparams_lib.copy_hparams(self._original_hparams)
     hparams.add_hparam("mode", mode)
     # When not in training mode, set all forms of dropout to zero.
     if mode != tf.estimator.ModeKeys.TRAIN:
@@ -1396,7 +1396,7 @@ class T2TModel(base.Layer):
     """
     if mode == tf.estimator.ModeKeys.TRAIN:
       create_dummy_vars()
-    hparams = copy.deepcopy(hparams)
+    hparams = hparams_lib.copy_hparams(hparams)
 
     # Instantiate model
     data_parallelism = None
