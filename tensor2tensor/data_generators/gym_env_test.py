@@ -237,6 +237,24 @@ class GymEnvTest(tf.test.TestCase):
       self.assertEqual(height, orig_height // resize_height_factor)
       self.assertEqual(width, orig_width // resize_width_factor)
 
+  def test_no_resize_option(self):
+    env_name = TEST_ENV_NAME
+    orig_env = make_gym_env(env_name)
+    resize_height_factor = 2
+    resize_width_factor = 3
+    orig_height, orig_width = orig_env.observation_space.shape[:2]
+    env, obs, _, _ = self.init_batch_and_play(
+        env_name, steps_per_epoch=1,
+        resize_height_factor=resize_height_factor,
+        resize_width_factor=resize_width_factor,
+        should_derive_observation_space=False)
+    for obs_batch in obs:
+      ob = obs_batch[0]
+      self.assertEqual(ob.shape, env.observation_space.shape)
+      height, width = ob.shape[:2]
+      self.assertEqual(height, orig_height)
+      self.assertEqual(width, orig_width)
+
   def assert_channels(self, env, obs, n_channels):
     self.assertEqual(env.observation_space.shape[2], n_channels)
     self.assertEqual(env.num_channels, n_channels)

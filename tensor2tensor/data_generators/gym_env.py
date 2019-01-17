@@ -582,11 +582,15 @@ class T2TGymEnv(T2TEnv):
   def __init__(self, base_env_name=None, batch_size=1, grayscale=False,
                resize_height_factor=2, resize_width_factor=2,
                rl_env_max_episode_steps=-1, max_num_noops=0,
-               maxskip_envs=False, **kwargs):
+               maxskip_envs=False,
+               should_derive_observation_space=True,
+               **kwargs):
     if base_env_name is None:
       base_env_name = self.base_env_name
     self._base_env_name = base_env_name
     super(T2TGymEnv, self).__init__(batch_size, **kwargs)
+    # TODO(afrozm): Find a proper way of doing this. Refactor or cleanup.
+    self.should_derive_observation_space = should_derive_observation_space
     self.grayscale = grayscale
     self.resize_height_factor = resize_height_factor
     self.resize_width_factor = resize_width_factor
@@ -612,25 +616,38 @@ class T2TGymEnv(T2TEnv):
                for env in self._envs):
       raise ValueError("All environments must use the same observation space.")
 
-    self.observation_space = self._derive_observation_space(orig_observ_space)
+    self.observation_space = orig_observ_space
+    if self.should_derive_observation_space:
+      self.observation_space = self._derive_observation_space(orig_observ_space)
 
     self.action_space = self._envs[0].action_space
     if not all(env.action_space == self.action_space for env in self._envs):
       raise ValueError("All environments must use the same action space.")
 
-    with self._tf_graph.obj.as_default():
-      self._resize = dict()
-      orig_height, orig_width = orig_observ_space.shape[:2]
-      self._img_batch_t = _Noncopyable(tf.placeholder(
-          dtype=tf.uint8, shape=(None, orig_height, orig_width, 3)))
-      height, width = self.observation_space.shape[:2]
-      resized = tf.image.resize_images(self._img_batch_t.obj,
-                                       [height, width],
-                                       tf.image.ResizeMethod.AREA)
-      resized = tf.cast(resized, tf.as_dtype(self.observation_space.dtype))
-      if self.grayscale:
-        resized = tf.image.rgb_to_grayscale(resized)
-      self._resized_img_batch_t = _Noncopyable(resized)
+    if self.should_derive_observation_space:
+      with self._tf_graph.obj.as_default():
+        self._resize = dict()
+        orig_height, orig_width = orig_observ_space.shape[:2]
+        self._img_batch_t = _Noncopyable(tf.placeholder(
+            dtype=tf.uint8, shape=(None, orig_height, orig_width, 3)))
+        height, width = self.observation_space.shape[:2]
+        resized = tf.image.resize_images(self._img_batch_t.obj,
+                                         [height, width],
+                                         tf.image.ResizeMethod.AREA)
+        resized = tf.cast(resized, tf.as_dtype(self.observation_space.dtype))
+        if self.grayscale:
+          resized = tf.image.rgb_to_grayscale(resized)
+        self._resized_img_batch_t = _Noncopyable(resized)
+
+  # TODO(afrozm): Find a place for this. Till then use self._envs[0]'s hparams.
+  def hparams(self, defaults, unused_model_hparams):
+    if hasattr(self._envs[0], "hparams"):
+      tf.logging.info("Retuning the env's hparams from T2TGymEnv.")
+      return self._envs[0].hparams(defaults, unused_model_hparams)
+
+    # Otherwise just call the super-class' hparams.
+    tf.logging.info("Retuning the T2TGymEnv's superclass' hparams.")
+    super(T2TGymEnv, self).hparams(defaults, unused_model_hparams)
 
   @property
   def base_env_name(self):
@@ -640,6 +657,7 @@ class T2TGymEnv(T2TEnv):
   def num_channels(self):
     return self.observation_space.shape[2]
 
+  # TODO(afrozm): Why is this separated out from _preprocess_observations?
   def _derive_observation_space(self, orig_observ_space):
     height, width, channels = orig_observ_space.shape
     if self.grayscale:
@@ -654,9 +672,18 @@ class T2TGymEnv(T2TEnv):
   def __str__(self):
     return "T2TGymEnv(%s)" % ", ".join([str(env) for env in self._envs])
 
-  def _preprocess_observations(self, obs):
-    return self._session.obj.run(self._resized_img_batch_t.obj,
-                                 feed_dict={self._img_batch_t.obj: obs})
+  def _encode_observations(self, observations):
+    if not self.should_derive_observation_space:
+      return observations
+    return super(T2TGymEnv, self)._encode_observations(observations)
+
+  def _preprocess_observations(self, observations):
+    # TODO(afrozm): Clean this up.
+    if not self.should_derive_observation_space:
+      return observations
+    return self._session.obj.run(
+        self._resized_img_batch_t.obj,
+        feed_dict={self._img_batch_t.obj: observations})
 
   def _step(self, actions):
     (obs, rewards, dones, _) = zip(*[
