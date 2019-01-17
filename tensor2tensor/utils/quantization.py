@@ -47,6 +47,39 @@ def bfloat16_activations_var_getter(getter, *args, **kwargs):
     var = tf.cast(var, requested_dtype)
   return var
 
+def float16_activations_var_getter(getter, *args, **kwargs):
+  """A custom getter function for float32 parameters and float16 activations.
+   Args:
+    getter: custom getter
+    *args: arguments
+    **kwargs: keyword arguments
+  Returns:
+    variables with the correct dtype.
+  Raises:
+    KeyError: if "dtype" is not provided as a kwarg.
+  This function ensures the following:
+    1. All variables requested with type fp16 are stored as type fp32
+    2. All variables requested with type fp32 are returned as type fp16
+  See https://docs.nvidia.com/deeplearning/sdk/mixed-precision-training/#training_tensorflow
+  for more information on this strategy
+  """
+  requested_dtype = kwargs["dtype"]
+
+  if requested_dtype == tf.float16:
+    kwargs["dtype"] = tf.float32
+  
+  if requested_dtype == tf.float32:
+    requested_dtype = tf.float16
+  var = getter(*args, **kwargs)
+  # This if statement is needed to guard the cast, because batch norm
+  # assigns directly to the return value of this custom getter. The cast
+  # makes the return value not a variable so it cannot be assigned. Batch
+  # norm variables are always in fp32 so this if statement is never
+  # triggered for them.
+  if var.dtype.base_dtype != requested_dtype:
+    var = tf.cast(var, requested_dtype)
+  # print("Output var is {}".format(var))
+  return var
 
 def simulated_quantize(x, num_bits, noise):
   """Simulate quantization to num_bits bits, with externally-stored scale.

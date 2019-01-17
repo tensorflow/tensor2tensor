@@ -37,6 +37,31 @@ import tensorflow_probability as tfp
 from tensorflow.python.framework import function
 from tensorflow.python.ops import inplace_ops
 
+def large_compatible_negative(tensor):
+  """
+  This function is necessary because the standard value for epsilon
+  in this module (-1e9) cannot be represented using tf.float16
+  """
+
+  if tensor.dtype == tf.float16:
+    return tf.float16.min
+  return -1e9
+
+def mixed_precision_is_enabled(activation_dtype=None, weight_dtype=None, hparams=None):
+  assert not (hparams and (activation_dtype or weight_dtype)), (
+              "Provide only hparams or activation_dtype and weight_dtype")
+
+  if hparams:
+    activation_dtype = hparams.activation_dtype
+    weight_dtype = hparams.weight_dtype
+
+  return activation_dtype == tf.float16 and weight_dtype == tf.float32
+
+def maybe_upcast(logits, activation_dtype=None, weight_dtype=None, hparams=None):
+  if mixed_precision_is_enabled(activation_dtype, weight_dtype, hparams):
+    return tf.cast(logits, tf.float32)
+  return logits
+
 # Struct containing the sequences ids and order on a batch (are send to the
 # expert to allow them to compute the bias mask)
 BatchInfo = collections.namedtuple("BatchInfo", "coordinates, order")
@@ -445,8 +470,7 @@ def add_timing_signal_1d(x,
   channels = common_layers.shape_list(x)[2]
   signal = get_timing_signal_1d(length, channels, min_timescale, max_timescale,
                                 start_index)
-  return x + signal
-
+  return x + common_layers.cast_like(signal, x)
 
 @expert_utils.add_name_scope()
 def get_layer_timing_signal_learned_1d(channels, layer, num_layers):
@@ -881,10 +905,13 @@ def attention_bias_same_segment(query_segment_id, memory_segment_id):
   Returns:
     a `Tensor` with shape [batch, 1, query_length, memory_length].
   """
-  ret = tf.to_float(
+  
+  ret = (tf.to_float(
       tf.not_equal(
           tf.expand_dims(query_segment_id, 2),
-          tf.expand_dims(memory_segment_id, 1))) * -1e9
+          tf.expand_dims(memory_segment_id, 1))) *
+          large_compatible_negative(memory_segment_id))
+
   return tf.expand_dims(ret, axis=1)
 
 
@@ -898,7 +925,9 @@ def attention_bias_ignore_padding(memory_padding):
   Returns:
     a `Tensor` with shape [batch, 1, 1, memory_length].
   """
-  ret = memory_padding * -1e9
+  
+  ret = memory_padding * large_compatible_negative(memory_padding)
+
   return tf.expand_dims(tf.expand_dims(ret, axis=1), axis=1)
 
 
@@ -1435,7 +1464,9 @@ def dot_product_attention(q,
                           name=None,
                           make_image_summary=True,
                           save_weights_to=None,
-                          dropout_broadcast_dims=None):
+                          dropout_broadcast_dims=None,
+                          activation_dtype=None,
+                          weight_dtype=None):
   """Dot-product attention.
 
   Args:
@@ -1455,6 +1486,9 @@ def dot_product_attention(q,
       a string key created from the variable scope (including name).
     dropout_broadcast_dims: an optional list of integers less than rank of q.
       Specifies in which dimensions to broadcast the dropout decisions.
+    activation_dtype: Used to define function activation dtype when using
+      mixed precision.
+    weight_dtype: The dtype weights are stored in when using mixed precision
 
   Returns:
     Tensor with shape [..., length_q, depth_v].
@@ -1465,7 +1499,10 @@ def dot_product_attention(q,
     if bias is not None:
       bias = common_layers.cast_like(bias, logits)
       logits += bias
+    # If logits are fp16, upcast before softmax
+    logits = maybe_upcast(logits, activation_dtype, weight_dtype)
     weights = tf.nn.softmax(logits, name="attention_weights")
+    weights = common_layers.cast_like(weights, q)
     if save_weights_to is not None:
       save_weights_to[scope.name] = weights
       save_weights_to[scope.name + "/logits"] = logits
@@ -3289,7 +3326,6 @@ def compute_qkv(query_antecedent,
       vars_3d_num_heads=vars_3d_num_heads)
   return q, k, v
 
-
 def multihead_attention(query_antecedent,
                         memory_antecedent,
                         bias,
@@ -3464,7 +3500,8 @@ def multihead_attention(query_antecedent,
       x = dot_product_attention(q, k, v, bias, dropout_rate, image_shapes,
                                 save_weights_to=save_weights_to,
                                 make_image_summary=make_image_summary,
-                                dropout_broadcast_dims=dropout_broadcast_dims)
+                                dropout_broadcast_dims=dropout_broadcast_dims,
+                                activation_dtype=kwargs.get('activation_dtype'))
     elif attention_type == "dot_product_relative":
       x = dot_product_attention_relative(
           q,

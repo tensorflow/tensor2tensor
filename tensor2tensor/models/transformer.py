@@ -1313,7 +1313,9 @@ def transformer_decoder(decoder_input,
               dropout_broadcast_dims=attention_dropout_broadcast_dims,
               max_length=hparams.get("max_length"),
               decode_loop_step=decode_loop_step,
-              vars_3d=hparams.get("attention_variables_3d"))
+              vars_3d=hparams.get("attention_variables_3d"),
+              activation_dtype=hparams.activation_dtype,
+              weight_dtype=hparams.weight_dtype)
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
           with tf.variable_scope("encdec_attention"):
@@ -1335,7 +1337,9 @@ def transformer_decoder(decoder_input,
                 make_image_summary=make_image_summary,
                 dropout_broadcast_dims=attention_dropout_broadcast_dims,
                 max_length=hparams.get("max_length"),
-                vars_3d=hparams.get("attention_variables_3d"))
+                vars_3d=hparams.get("attention_variables_3d"),
+                activation_dtype=hparams.activation_dtype,
+                weight_dtype=hparams.weight_dtype)
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -2170,6 +2174,15 @@ def transformer_tpu_bf16_activation():
   hparams.activation_dtype = "bfloat16"
   return hparams
 
+@registry.register_hparams
+def transformer_fairseq_fp16_activation_big():
+  """
+  Hparams intended to mirror those used in https://arxiv.org/pdf/1806.00187.pdf
+  """
+  hparams = transformer_big()
+  hparams.activation_dtype = 'float16'
+  hparams.batch_size = 3584
+  return hparams
 
 @registry.register_hparams
 def transformer_packed_tpu():
