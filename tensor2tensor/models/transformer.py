@@ -1338,8 +1338,8 @@ def transformer_decoder(decoder_input,
                 dropout_broadcast_dims=attention_dropout_broadcast_dims,
                 max_length=hparams.get("max_length"),
                 vars_3d=hparams.get("attention_variables_3d"),
-                activation_dtype=hparams.activation_dtype,
-                weight_dtype=hparams.weight_dtype)
+                activation_dtype=hparams.get("activation_dtype", "float32"),
+                weight_dtype=hparams.get("weight_dtype", "float32"))
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
