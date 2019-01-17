@@ -33,6 +33,7 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 tfl = tf.layers
+_MAX_BATCH = 128
 
 
 @registry.register_model
@@ -74,7 +75,7 @@ class NextFrameBasicStochasticDiscrete(
     if not self.hparams.concat_internal_states:
       return None
     # Hardcoded frame shapes.
-    max_batch_size = max(64, self.hparams.batch_size)
+    max_batch_size = max(_MAX_BATCH, self.hparams.batch_size)
     shape = [max_batch_size] + self.hparams.problem.frame_shape[:-1] + [
         self.hparams.recurrent_state_size]
     with tf.variable_scope("clean_scope_for_internal_state"):
@@ -114,7 +115,7 @@ class NextFrameBasicStochasticDiscrete(
     state_candidate = tf.tanh(state_candidate)
     internal_state = internal_state * state_gate
     internal_state += state_candidate * (1.0 - state_gate)
-    max_batch_size = max(64, self.hparams.batch_size)
+    max_batch_size = max(_MAX_BATCH, self.hparams.batch_size)
     diff_batch_size = max_batch_size - batch_size
     internal_state = tf.pad(
         internal_state, [[0, diff_batch_size], [0, 0], [0, 0], [0, 0]])

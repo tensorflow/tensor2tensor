@@ -37,30 +37,41 @@ import tensorflow_probability as tfp
 from tensorflow.python.framework import function
 from tensorflow.python.ops import inplace_ops
 
-def large_compatible_negative(tensor):
-  """
+
+def large_compatible_negative(tensor_type):
+  """Large negative number as Tensor.
+
   This function is necessary because the standard value for epsilon
   in this module (-1e9) cannot be represented using tf.float16
-  """
 
-  if tensor.dtype == tf.float16:
+  Args:
+    tensor_type: a dtype to determine the type.
+
+  Returns:
+    a large negative number.
+  """
+  if tensor_type == tf.float16:
     return tf.float16.min
   return -1e9
 
-def mixed_precision_is_enabled(activation_dtype=None, weight_dtype=None, hparams=None):
-  assert not (hparams and (activation_dtype or weight_dtype)), (
-              "Provide only hparams or activation_dtype and weight_dtype")
 
-  if hparams:
+def mixed_precision_is_enabled(
+    activation_dtype=None, weight_dtype=None, hparams=None):
+  assert not (hparams and (activation_dtype or weight_dtype)), (
+      "Provide only hparams or activation_dtype and weight_dtype")
+  if (hparams and hasattr(hparams, "activation_dtype") and
+      hasattr(hparams, "weight_dtype")):
     activation_dtype = hparams.activation_dtype
     weight_dtype = hparams.weight_dtype
-
   return activation_dtype == tf.float16 and weight_dtype == tf.float32
 
-def maybe_upcast(logits, activation_dtype=None, weight_dtype=None, hparams=None):
+
+def maybe_upcast(logits,
+                 activation_dtype=None, weight_dtype=None, hparams=None):
   if mixed_precision_is_enabled(activation_dtype, weight_dtype, hparams):
     return tf.cast(logits, tf.float32)
   return logits
+
 
 # Struct containing the sequences ids and order on a batch (are send to the
 # expert to allow them to compute the bias mask)
@@ -471,6 +482,7 @@ def add_timing_signal_1d(x,
   signal = get_timing_signal_1d(length, channels, min_timescale, max_timescale,
                                 start_index)
   return x + common_layers.cast_like(signal, x)
+
 
 @expert_utils.add_name_scope()
 def get_layer_timing_signal_learned_1d(channels, layer, num_layers):
@@ -905,13 +917,11 @@ def attention_bias_same_segment(query_segment_id, memory_segment_id):
   Returns:
     a `Tensor` with shape [batch, 1, query_length, memory_length].
   """
-  
   ret = (tf.to_float(
       tf.not_equal(
           tf.expand_dims(query_segment_id, 2),
           tf.expand_dims(memory_segment_id, 1))) *
-          large_compatible_negative(memory_segment_id))
-
+         large_compatible_negative(memory_segment_id.dtype))
   return tf.expand_dims(ret, axis=1)
 
 
@@ -925,9 +935,7 @@ def attention_bias_ignore_padding(memory_padding):
   Returns:
     a `Tensor` with shape [batch, 1, 1, memory_length].
   """
-  
-  ret = memory_padding * large_compatible_negative(memory_padding)
-
+  ret = memory_padding * large_compatible_negative(memory_padding.dtype)
   return tf.expand_dims(tf.expand_dims(ret, axis=1), axis=1)
 
 
@@ -3326,6 +3334,7 @@ def compute_qkv(query_antecedent,
       vars_3d_num_heads=vars_3d_num_heads)
   return q, k, v
 
+
 def multihead_attention(query_antecedent,
                         memory_antecedent,
                         bias,
@@ -3501,7 +3510,7 @@ def multihead_attention(query_antecedent,
                                 save_weights_to=save_weights_to,
                                 make_image_summary=make_image_summary,
                                 dropout_broadcast_dims=dropout_broadcast_dims,
-                                activation_dtype=kwargs.get('activation_dtype'))
+                                activation_dtype=kwargs.get("activation_dtype"))
     elif attention_type == "dot_product_relative":
       x = dot_product_attention_relative(
           q,

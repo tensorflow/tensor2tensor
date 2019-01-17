@@ -74,7 +74,7 @@ def basic_params1():
       # Generally only necessary with mixed precision training.
       # Mixed precision training only supports exponential scaling currently
       # To disable the scaler, see to 0/False
-      mixed_precision_optimizer_loss_scaler='exponential',
+      mixed_precision_optimizer_loss_scaler="exponential",
       # Whether to zero gradients that were not computed, so that the
       # appropriate slots are created. Useful for sharing checkpoints between
       # models with different sets of heads.

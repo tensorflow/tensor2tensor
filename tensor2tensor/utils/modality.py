@@ -18,9 +18,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import misc_utils
-from tensor2tensor.layers.common_attention import maybe_upcast
 
 import tensorflow as tf
 
@@ -182,7 +182,7 @@ class Modality(object):
     logits = top_out
     if weights_fn is None:
       weights_fn = self.targets_weights_fn
-    logits = maybe_upcast(logits,hparams=self._model_hparams)
+    logits = common_attention.maybe_upcast(logits, hparams=self._model_hparams)
     return common_layers.padded_cross_entropy(
         logits,
         targets,

@@ -101,9 +101,11 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
     encoder_input = common_attention.add_positional_embedding(
         encoder_input, hparams.max_length, "inputs_positional_embedding",
         inputs_position)
-  
-  encoder_self_attention_bias = common_layers.cast_like(encoder_self_attention_bias, encoder_input)
-  encoder_decoder_attention_bias = common_layers.cast_like(encoder_decoder_attention_bias, encoder_input)
+
+  encoder_self_attention_bias = common_layers.cast_like(
+      encoder_self_attention_bias, encoder_input)
+  encoder_decoder_attention_bias = common_layers.cast_like(
+      encoder_decoder_attention_bias, encoder_input)
   return (encoder_input, encoder_self_attention_bias,
           encoder_decoder_attention_bias)
 
@@ -323,10 +325,9 @@ def transformer_ffn_layer(x,
   elif ffn_layer == "sru":
     return common_layers.sru(x)
   elif ffn_layer == "local_moe_tpu":
-    overhead = (
-        hparams.moe_overhead_train
-        if hparams.mode == tf.estimator.ModeKeys.TRAIN else
-        hparams.moe_overhead_eval)
+    overhead = hparams.moe_overhead_eval
+    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      overhead = hparams.moe_overhead_train
     ret, loss = expert_utils.local_moe_tpu(
         x,
         hparams.filter_size // 2,
@@ -335,10 +336,9 @@ def transformer_ffn_layer(x,
         overhead=overhead,
         loss_coef=hparams.moe_loss_coef)
   elif ffn_layer == "local_moe":
-    overhead = (
-        hparams.moe_overhead_train
-        if hparams.mode == tf.estimator.ModeKeys.TRAIN else
-        hparams.moe_overhead_eval)
+    overhead = hparams.moe_overhead_eval
+    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      overhead = hparams.moe_overhead_train
     ret, loss = expert_utils.local_moe(
         x,
         True,
