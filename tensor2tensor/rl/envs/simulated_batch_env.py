@@ -279,8 +279,8 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
           file_format="avi")
     img = PIL_Image().new("RGB", (obs.shape[-2], 11),)
     draw = PIL_ImageDraw().Draw(img)
-    draw.text((0, 0), "r:{:3}".format(int(rews[0])), fill=(255, 0, 0))
-    self._video_writer.write(np.concatenate([np.asarray(img), obs[0]], axis=0))
+    draw.text((0, 0), "r:{:3}".format(int(rews[-1])), fill=(255, 0, 0))
+    self._video_writer.write(np.concatenate([np.asarray(img), obs[-1]], axis=0))
 
   def _video_dump_frames(self, obs):
     if not self._ffmpeg_works:
