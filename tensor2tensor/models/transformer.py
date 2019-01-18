@@ -1314,8 +1314,8 @@ def transformer_decoder(decoder_input,
               max_length=hparams.get("max_length"),
               decode_loop_step=decode_loop_step,
               vars_3d=hparams.get("attention_variables_3d"),
-              activation_dtype=hparams.activation_dtype,
-              weight_dtype=hparams.weight_dtype)
+              activation_dtype=hparams.get("activation_dtype", "float32"),
+              weight_dtype=hparams.get("weight_dtype", "float32"))
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
           with tf.variable_scope("encdec_attention"):
