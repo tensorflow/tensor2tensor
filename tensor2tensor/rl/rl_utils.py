@@ -19,7 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from copy import deepcopy
+import copy
 import random
 
 from gym.spaces import Box
@@ -340,6 +340,7 @@ class BatchAgent(object):
 
     Args:
       observations: A batch of observations.
+      env_state: State.
 
     Returns:
       A batch of actions.
@@ -445,7 +446,7 @@ class PlannerAgent(BatchAgent):
       """Run a batch of actions."""
       self._wrapped_env.set_initial_state(
           initial_state=[
-              deepcopy(env_state[planner_index])
+              copy.deepcopy(env_state[planner_index])
               for _ in range(self._sim_env.batch_size)
           ],
           initial_frames=np.array([observation] * self._sim_env.batch_size)

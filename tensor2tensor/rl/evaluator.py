@@ -94,11 +94,11 @@ def planner_small():
 def make_env(env_type, real_env, sim_env_kwargs):
   """Factory function for envs."""
   return {
-      "real": lambda: real_env.new_like(
+      "real": lambda: real_env.new_like(  # pylint: disable=g-long-lambda
           batch_size=sim_env_kwargs["batch_size"],
           store_rollouts=False,
       ),
-      "simulated": lambda: rl_utils.SimulatedBatchGymEnvWithFixedInitialFrames(
+      "simulated": lambda: rl_utils.SimulatedBatchGymEnvWithFixedInitialFrames(  # pylint: disable=g-long-lambda
           **sim_env_kwargs
       ),
   }[env_type]()
