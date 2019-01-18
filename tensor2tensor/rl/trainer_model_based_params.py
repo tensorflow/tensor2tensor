@@ -340,6 +340,16 @@ def rlmb_long_stochastic_discrete():
 
 
 @registry.register_hparams
+def rlmb_long_stochastic_discrete_simulation_deterministic_starts():
+  """Long setting with stochastic discrete model & deterministic sim starts."""
+  hparams = rlmb_base_stochastic_discrete()
+  hparams.generative_model_params = "next_frame_basic_stochastic_discrete_long"
+  hparams.ppo_epochs_num = 1000
+  hparams.simulation_random_starts = False
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_long_stochastic_discrete_100steps():
   """Long setting with stochastic discrete model, changed ppo steps."""
   hparams = rlmb_long_stochastic_discrete()
