@@ -48,6 +48,18 @@ class TranslateProblem(text_problems.Text2TextProblem):
     """Files to be passed to compile_data."""
     raise NotImplementedError()
 
+  @property
+  def max_subtoken_length(self):
+    """Maximum subtoken length when generating vocab.
+
+    SubwordTextEncoder vocabulary building is quadratic-time wrt this variable,
+    setting it to None uses the length of the longest token in the corpus.
+
+    Returns:
+      an integer or None
+    """
+    return 200
+
   def vocab_data_files(self):
     """Files to be passed to get_or_generate_vocab."""
     return self.source_data_files(problem.DatasetSplit.TRAIN)
