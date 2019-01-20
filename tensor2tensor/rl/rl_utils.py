@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
+import math
 import random
 
 from gym.spaces import Box
@@ -360,6 +361,19 @@ class BatchAgent(object):
     """
     raise NotImplementedError
 
+  def action_distribution(self, observations):
+    """Calculates action distribution based on observations.
+
+    Used for temporal-difference planning.
+
+    Args:
+      observations: A batch of observations.
+
+    Returns:
+      A batch of action probabilities.
+    """
+    raise NotImplementedError
+
 
 class RandomAgent(BatchAgent):
   """Random agent, sampling actions from the uniform distribution."""
@@ -372,6 +386,11 @@ class RandomAgent(BatchAgent):
 
   def estimate_value(self, observations):
     return np.zeros(observations.shape[0])
+
+  def action_distribution(self, observations):
+    return np.full(
+        (observations.shape[0], self.action_space.n), 1.0 / self.action_space.n
+    )
 
 
 class PolicyAgent(BatchAgent):
@@ -394,6 +413,7 @@ class PolicyAgent(BatchAgent):
           self._observations_t, policy_hparams, self.action_space
       )
       actions = common_layers.sample_with_temperature(logits, sampling_temp)
+      self._probs_t = tf.nn.softmax(logits / sampling_temp)
       self._actions_t = tf.cast(actions, tf.int32)
       model_saver = tf.train.Saver(
           tf.global_variables(policy_hparams.policy_network + "/.*")  # pylint: disable=unexpected-keyword-arg
@@ -404,18 +424,22 @@ class PolicyAgent(BatchAgent):
 
   def _run(self, observations):
     return self._sess.run(
-        [self._actions_t, self._values_t],
+        [self._actions_t, self._values_t, self._probs_t],
         feed_dict={self._observations_t: observations}
     )
 
   def act(self, observations, env_state=None):
     del env_state
-    (actions, _) = self._run(observations)
+    (actions, _, _) = self._run(observations)
     return actions
 
   def estimate_value(self, observations):
-    (_, values) = self._run(observations)
+    (_, values, _) = self._run(observations)
     return values
+
+  def action_distribution(self, observations):
+    (_, _, probs) = self._run(observations)
+    return probs
 
 
 class PlannerAgent(BatchAgent):
@@ -425,7 +449,8 @@ class PlannerAgent(BatchAgent):
 
   def __init__(
       self, batch_size, rollout_agent, sim_env, wrapper_fn, num_rollouts,
-      planning_horizon, discount_factor=1.0, video_writer=None
+      planning_horizon, discount_factor=1.0, uct_const=0,
+      uniform_first_action=True, video_writer=None
   ):
     super(PlannerAgent, self).__init__(
         batch_size, rollout_agent.observation_space, rollout_agent.action_space
@@ -433,30 +458,34 @@ class PlannerAgent(BatchAgent):
     self._rollout_agent = rollout_agent
     self._sim_env = sim_env
     self._wrapped_env = wrapper_fn(sim_env)
+    self._num_rollouts = num_rollouts
     self._num_batches = num_rollouts // rollout_agent.batch_size
     self._discount_factor = discount_factor
     self._planning_horizon = planning_horizon
+    self._uct_const = uct_const
+    self._uniform_first_action = uniform_first_action
     self._video_writer = video_writer
 
   def act(self, observations, env_state=None):
-    # Randomly choose an action to be recorded.
-    recorded_action = self.action_space.sample()
-
-    def run_batch_from(observation, action, planner_index, batch_index):
+    def run_batch_from(observation, planner_index, batch_index):
       """Run a batch of actions."""
+      repeated_observation = np.array(
+          [observation] * self._wrapped_env.batch_size
+      )
+      actions = self._get_first_actions(repeated_observation)
       self._wrapped_env.set_initial_state(
           initial_state=[
               copy.deepcopy(env_state[planner_index])
               for _ in range(self._sim_env.batch_size)
           ],
-          initial_frames=np.array([observation] * self._sim_env.batch_size)
+          initial_frames=repeated_observation
       )
       self._wrapped_env.reset()
       (initial_observations, initial_rewards, _) = self._wrapped_env.step(
-          np.array([action] * self._wrapped_env.batch_size)
+          actions
       )
       writer = None
-      if planner_index == 0 and batch_index == 0 and action == recorded_action:
+      if planner_index == 0 and batch_index == 0:
         writer = self._video_writer
       (final_observations, cum_rewards) = run_rollouts(
           self._wrapped_env, self._rollout_agent, initial_observations,
@@ -468,26 +497,56 @@ class PlannerAgent(BatchAgent):
           initial_rewards + self._discount_factor * cum_rewards +
           self._discount_factor ** (self._planning_horizon + 1) * values
       )
-      return total_values.mean()
+      return list(zip(actions, total_values))
 
-    def run_batches_from(observation, action, planner_index):
-      return sum(
-          run_batch_from(observation, action, planner_index, i)
-          for i in range(self._num_batches)
-      ) / self._num_batches
+    def run_batches_from(observation, planner_index):
+      sums = {a: 0 for a in range(self.action_space.n)}
+      counts = copy.copy(sums)
+      for i in range(self._num_batches):
+        for (action, total_value) in run_batch_from(
+            observation, planner_index, i
+        ):
+          sums[action] += total_value
+          counts[action] += 1
+      return {a: (sums[a], counts[a]) for a in sums}
 
     def choose_best_action(observation, planner_index):
-      return max(
-          range(self.action_space.n),
-          key=(lambda action: run_batches_from(  # pylint: disable=g-long-lambda
-              observation, action, planner_index
-          ))
-      )
+      action_probs = self._rollout_agent.action_distribution(
+          np.array([observation] * self._rollout_agent.batch_size)
+      )[0, :]
+      sums_and_counts = run_batches_from(observation, planner_index)
+
+      def uct(action):
+        (value_sum, count) = sums_and_counts[action]
+        if count > 0:
+          mean_value = value_sum / count
+        else:
+          mean_value = 0
+        return mean_value + self._uct_bonus(
+            count, action_probs[action]
+        )
+
+      return max(range(self.action_space.n), key=uct)
 
     return np.array([
         choose_best_action(observation, i)
         for (i, observation) in enumerate(observations)
     ])
+
+  def _uct_bonus(self, count, prob):
+    return self._uct_const * prob * math.sqrt(
+        math.log(self._num_rollouts) / (1 + count)
+    )
+
+  def _get_first_actions(self, observations):
+    if self._uniform_first_action:
+      return np.array([
+          int(x) for x in np.linspace(
+              0, self.action_space.n, self._num_rollouts + 1
+          )
+      ])[:self._num_rollouts]
+    else:
+      return list(sorted(self._rollout_agent.act(observations)))
 
 
 # TODO(koz4k): Unify interfaces of batch envs.
