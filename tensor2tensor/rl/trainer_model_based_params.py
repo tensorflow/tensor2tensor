@@ -137,7 +137,7 @@ def rlmb_ppo_base():
       real_batch_size=1,
       # Number of simulated environments to train on simultaneously.
       simulated_batch_size=16,
-      eval_batch_size=64,
+      eval_batch_size=32,
       wm_policy_param_sharing=False,
 
       # Unused; number of PPO epochs is calculated from the real frame limit.
@@ -386,6 +386,24 @@ def rlmb_long_stochastic_discrete_gamma90():
 
 
 @registry.register_hparams
+def rlmb_long_stochastic_discrete_3epochs():
+  """Long setting with stochastic discrete model, changed epochs."""
+  hparams = rlmb_long_stochastic_discrete()
+  hparams.epochs = 3
+  hparams.ppo_epochs_num = 2000
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_long_stochastic_discrete_1epoch():
+  """Long setting with stochastic discrete model, changed epochs."""
+  hparams = rlmb_long_stochastic_discrete()
+  hparams.epochs = 1
+  hparams.ppo_epochs_num = 3000
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_base_recurrent():
   """Base setting with recurrent model."""
   hparams = rlmb_base()
@@ -441,45 +459,6 @@ def rlmb_base_sv2p_deterministic_softmax():
 
 
 @registry.register_hparams
-def rlmb_base_sv2p_flippy30():
-  """Base setting with sv2p as world model."""
-  hparams = rlmb_base()
-  hparams.epochs = 30
-  hparams.ppo_epochs_num = 1000
-  hparams.model_train_steps = 15000
-  hparams.learning_rate_bump = 1.0
-  hparams.initial_epoch_train_steps_multiplier = 5
-  hparams.generative_model = "next_frame_sv2p"
-  hparams.generative_model_params = "next_frame_sv2p_atari"
-  return hparams
-
-
-@registry.register_hparams
-def rlmb_base_sv2p_softmax_flippy30():
-  """Base setting with sv2p as world model with softmax."""
-  hparams = rlmb_base_sv2p_flippy30()
-  hparams.generative_model_params = "next_frame_sv2p_atari_softmax"
-  return hparams
-
-
-@registry.register_hparams
-def rlmb_base_sv2p_deterministic_flippy30():
-  """Base setting with deterministic sv2p as world model."""
-  hparams = rlmb_base_sv2p_flippy30()
-  hparams.generative_model_params = "next_frame_sv2p_atari_deterministic"
-  return hparams
-
-
-@registry.register_hparams
-def rlmb_base_sv2p_deterministic_softmax_flippy30():
-  """Base setting with deterministic sv2p as world model with softmax."""
-  hparams = rlmb_base_sv2p_softmax_flippy30()
-  hparams.generative_model_params = (
-      "next_frame_sv2p_atari_softmax_deterministic")
-  return hparams
-
-
-@registry.register_hparams
 def rlmb_base_sampling():
   """Base setting with a stochastic next-frame model."""
   hparams = rlmb_base()
@@ -493,60 +472,6 @@ def rlmb_base_sampling_noresize():
   hparams.resize_height_factor = 1
   hparams.resize_width_factor = 1
   return hparams
-
-
-@registry.register_hparams
-def rlmb_flippy60():
-  """Schedule with a lot of epochs (slow)."""
-  hparams = rlmb_base_sampling()
-  hparams.epochs = 60
-  hparams.ppo_epochs_num = 500
-  hparams.model_train_steps = 10000
-  return hparams
-
-
-@registry.register_hparams
-def rlmb_flippy30():
-  """Schedule with a lot of epochs (slow)."""
-  hparams = rlmb_base_sampling()
-  hparams.epochs = 30
-  hparams.ppo_epochs_num = 1000
-  hparams.model_train_steps = 15000
-  return hparams
-
-
-@registry.register_hparams
-def rlmb_medium():
-  """Small set for larger testing."""
-  hparams = rlmb_base()
-  hparams.num_real_env_frames //= 2
-  return hparams
-
-
-@registry.register_hparams
-def rlmb_25k():
-  """Small set for larger testing."""
-  hparams = rlmb_medium()
-  hparams.num_real_env_frames //= 2
-  return hparams
-
-
-@registry.register_hparams
-def rlmb_short():
-  """Small set for larger testing."""
-  hparams = rlmb_base()
-  hparams.num_real_env_frames //= 5
-  hparams.model_train_steps //= 10
-  hparams.ppo_epochs_num //= 10
-  return hparams
-
-
-@registry.register_hparams
-def rlmb_model_only():
-  hp = rlmb_base()
-  hp.epochs = 1
-  hp.ppo_epochs_num = 0
-  return hp
 
 
 def _rlmb_tiny_overrides():
@@ -634,48 +559,6 @@ def rlmb_tiny_sv2p():
   hparams.generative_model = "next_frame_sv2p"
   hparams.generative_model_params = "next_frame_sv2p_tiny"
   hparams.grayscale = False
-  return hparams
-
-
-@registry.register_hparams
-def rlmb_ae_base():
-  """Parameter set for autoencoders."""
-  hparams = rlmb_base()
-  hparams.ppo_params = "ppo_pong_ae_base"
-  hparams.generative_model_params = "next_frame_ae"
-  hparams.autoencoder_hparams_set = "autoencoder_discrete_pong"
-  hparams.autoencoder_train_steps = 5000
-  hparams.resize_height_factor = 1
-  hparams.resize_width_factor = 1
-  hparams.grayscale = False
-  return hparams
-
-
-@registry.register_hparams
-def rlmb_ae_basetest():
-  """Base AE setting but quicker with only 2 epochs."""
-  hparams = rlmb_ae_base()
-  hparams.game = "pong"
-  hparams.epochs = 2
-  hparams.num_real_env_frames = 3200
-  hparams.model_train_steps = 100
-  hparams.autoencoder_train_steps = 10
-  hparams.ppo_epochs_num = 2
-  return hparams
-
-
-@registry.register_hparams
-def rlmb_ae_tiny():
-  """Tiny set for testing autoencoders."""
-  hparams = rlmb_tiny()
-  hparams.ppo_params = "ppo_pong_ae_base"
-  hparams.generative_model_params = "next_frame_ae_tiny"
-  hparams.autoencoder_hparams_set = "autoencoder_discrete_tiny"
-  hparams.resize_height_factor = 1
-  hparams.resize_width_factor = 1
-  hparams.grayscale = False
-  hparams.autoencoder_train_steps = 1
-  hparams.autoencoder_train_steps_initial_multiplier = 0
   return hparams
 
 
