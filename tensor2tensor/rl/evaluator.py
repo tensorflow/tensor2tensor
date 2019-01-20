@@ -28,6 +28,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import datetime
+import os
+
+from tensor2tensor.data_generators import gym_env
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl  # pylint: disable=unused-import
 from tensor2tensor.rl import rl_utils
@@ -42,7 +46,9 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-
+flags.DEFINE_string("output_dir", "", "Main directory for multi-runs.")
+flags.DEFINE_integer("total_num_workers", 1, "How many workers in total.")
+flags.DEFINE_string("worker_to_game_map", "", "How to map workers to games.")
 flags.DEFINE_string("policy_dir", "", "Directory with policy checkpoints.")
 flags.DEFINE_string("model_dir", "", "Directory with model checkpoints.")
 flags.DEFINE_string(
@@ -58,15 +64,22 @@ flags.DEFINE_bool(
     "out-of-graph one. Works only with --agent=policy."
 )
 flags.DEFINE_string(
-    "planner_hparams_set", "planner_tiny", "Planner hparam set."
+    "planner_hparams_set", "planner_small", "Planner hparam set."
 )
 flags.DEFINE_string("planner_hparams", "", "Planner hparam overrides.")
 flags.DEFINE_integer(
-    "log_every_steps", 0, "Log every how many environment steps."
+    "log_every_steps", 20, "Log every how many environment steps."
 )
 flags.DEFINE_string(
     "debug_video_path", "", "Path to save the planner debug video at."
 )
+
+# Unused flags needed to pass for multi-run infrastructure.
+flags.DEFINE_bool("autotune", False, "Unused here.")
+flags.DEFINE_string("objective", "", "Unused here.")
+flags.DEFINE_string("client_handle", "client_0", "Unused.")
+flags.DEFINE_bool("maximize_tuner_objective", True, "Unused.")
+flags.DEFINE_integer("vizier_search_algorithm", 0, "Unused.")
 
 
 @registry.register_hparams
@@ -83,10 +96,10 @@ def planner_tiny():
 @registry.register_hparams
 def planner_small():
   return tf.contrib.training.HParams(
-      num_rollouts=16,
+      num_rollouts=64,
       planning_horizon=16,
       rollout_agent_type="policy",
-      batch_size=16,
+      batch_size=64,
       env_type="simulated",
   )
 
@@ -173,14 +186,12 @@ def evaluate(
     assert report_metric is not None
 
   eval_metrics_writer = tf.summary.FileWriter(eval_metrics_dir)
+  video_writer = None
   kwargs = {}
   if not eval_with_learner:
     if debug_video_path:
       video_writer = common_video.WholeVideoWriter(
-          fps=10, output_path=debug_video_path, file_format="avi"
-      )
-    else:
-      video_writer = None
+          fps=10, output_path=debug_video_path, file_format="avi")
     kwargs["eval_fn"] = make_eval_fn_with_agent(
         agent_type, planner_hparams, model_dir, log_every_steps=log_every_steps,
         video_writer=video_writer
@@ -207,18 +218,53 @@ def evaluate(
   return eval_metrics
 
 
+def get_game_for_worker(map_name, directory_id):
+  """Get game for the given worker (directory) id."""
+  if map_name == "v100unfriendly":
+    games = ["chopper_command", "boxing", "asterix", "seaquest"]
+    worker_per_game = 5
+  elif map_name == "human_nice":
+    games = gym_env.ATARI_GAMES_WITH_HUMAN_SCORE_NICE
+    worker_per_game = 5
+  else:
+    raise ValueError("Unknown worker to game map name: %s" % map_name)
+  games.sort()
+  game_id = (directory_id - 1) // worker_per_game
+  tf.logging.info("Getting game %d from %s." % (game_id, games))
+  return games[game_id]
+
+
 def main(_):
+  now = datetime.datetime.now()
+  now_tag = now.strftime("%Y_%m_%d_%H_%M")
   loop_hparams = trainer_lib.create_hparams(
       FLAGS.loop_hparams_set, FLAGS.loop_hparams
   )
+  if FLAGS.worker_to_game_map and FLAGS.total_num_workers > 1:
+    loop_hparams.game = get_game_for_worker(
+        FLAGS.worker_to_game_map, FLAGS.worker_id + 1)
+    tf.logging.info("Set game to %s." % loop_hparams.game)
   if FLAGS.full_eval:
     loop_hparams.eval_rl_env_max_episode_steps = -1
   planner_hparams = trainer_lib.create_hparams(
       FLAGS.planner_hparams_set, FLAGS.planner_hparams
   )
+  policy_dir = FLAGS.policy_dir
+  model_dir = FLAGS.model_dir
+  eval_metrics_dir = FLAGS.eval_metrics_dir
+  if FLAGS.output_dir:
+    cur_dir = FLAGS.output_dir
+    if FLAGS.total_num_workers > 1:
+      cur_dir = os.path.join(cur_dir, "%d" % (FLAGS.worker_id + 1))
+    policy_dir = os.path.join(cur_dir, "policy")
+    model_dir = os.path.join(cur_dir, "world_model")
+    eval_metrics_dir = os.path.join(cur_dir, "evaluator_" + now_tag)
+    tf.logging.info("Writing metrics to %s." % eval_metrics_dir)
+    if not tf.gfile.Exists(eval_metrics_dir):
+      tf.gfile.MkDir(eval_metrics_dir)
   evaluate(
-      loop_hparams, planner_hparams, FLAGS.policy_dir, FLAGS.model_dir,
-      FLAGS.eval_metrics_dir, FLAGS.agent, FLAGS.eval_with_learner,
+      loop_hparams, planner_hparams, policy_dir, model_dir,
+      eval_metrics_dir, FLAGS.agent, FLAGS.eval_with_learner,
       FLAGS.log_every_steps if FLAGS.log_every_steps > 0 else None,
       debug_video_path=FLAGS.debug_video_path
   )
