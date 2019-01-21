@@ -522,7 +522,7 @@ class PlannerAgent(BatchAgent):
         if count > 0:
           mean_value = value_sum / count
         else:
-          mean_value = 0
+          mean_value = -np.inf
         return mean_value + self._uct_bonus(
             count, action_probs[action]
         )
