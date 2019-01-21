@@ -378,6 +378,20 @@ def rlmf_base():
 
 
 @registry.register_hparams
+def rlmf_final_eval():
+  """Base set of hparams for model-free PPO."""
+  hparams = rlmf_original()
+  hparams.batch_size = 8
+  hparams.eval_sampling_temps=[0.0, 1.0]
+  hparams.eval_rl_env_max_episode_steps = -1
+  hparams.add_hparam("ppo_epoch_length", 128)
+  hparams.add_hparam("ppo_optimization_batch_size", 32)
+  hparams.add_hparam("ppo_epochs_num", 10000)
+  hparams.add_hparam("ppo_eval_every_epochs", 500)
+  return hparams
+
+
+@registry.register_hparams
 def rlmf_tiny():
   hparams = rlmf_base()
   hparams.ppo_epochs_num = 100
