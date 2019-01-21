@@ -21,6 +21,7 @@ from __future__ import print_function
 
 import gym
 import numpy as np
+import tensorflow as tf
 
 
 class MaxAndSkipEnv(gym.Wrapper):
@@ -102,14 +103,17 @@ def make_gym_env(name, rl_env_max_episode_steps=-1, maxskip_env=False):
 
 
 def register_gym_env(class_entry_point, version="v0"):
-  """Registers the class with its snake case name in Gym and returns it."""
+  """Registers the class in Gym and returns the registered name and the env."""
 
   split_on_colon = class_entry_point.split(":")
   assert len(split_on_colon) == 2
 
   class_name = split_on_colon[1]
   # We have to add the version to conform to gym's API.
-  env_name = "{}-{}".format(class_name, version)
+  env_name = "T2TEnv-{}-{}".format(class_name, version)
   gym.envs.register(id=env_name, entry_point=class_entry_point)
 
-  return gym.make(env_name)
+  tf.logging.info("Entry Point [%s] registered with id [%s]",
+                  class_entry_point, env_name)
+
+  return env_name, gym.make(env_name)
