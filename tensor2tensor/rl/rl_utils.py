@@ -511,6 +511,7 @@ class PlannerAgent(BatchAgent):
       return {a: (sums[a], counts[a]) for a in sums}
 
     def choose_best_action(observation, planner_index):
+      """Choose the best action."""
       action_probs = self._rollout_agent.action_distribution(
           np.array([observation] * self._rollout_agent.batch_size)
       )[0, :]
