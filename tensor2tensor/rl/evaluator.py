@@ -90,6 +90,8 @@ def planner_tiny():
       rollout_agent_type="random",
       batch_size=1,
       env_type="simulated",
+      uct_const=0.0,
+      uniform_first_action=True,
   )
 
 
@@ -101,6 +103,8 @@ def planner_small():
       rollout_agent_type="policy",
       batch_size=64,
       env_type="simulated",
+      uct_const=0.0,
+      uniform_first_action=True,
   )
 
 
@@ -121,7 +125,9 @@ def make_agent(
     agent_type, env, policy_hparams, policy_dir, sampling_temp,
     sim_env_kwargs=None, frame_stack_size=None, planning_horizon=None,
     rollout_agent_type=None, batch_size=None, num_rollouts=None,
-    inner_batch_size=None, video_writer=None, env_type=None):
+    inner_batch_size=None, video_writer=None, env_type=None,
+    uct_const=None, uniform_first_action=None
+):
   """Factory function for Agents."""
   if batch_size is None:
     batch_size = env.batch_size
@@ -140,7 +146,9 @@ def make_agent(
           ), make_env(env_type, env.env, sim_env_kwargs),
           lambda env: rl_utils.BatchStackWrapper(env, frame_stack_size),
           num_rollouts, planning_horizon,
-          discount_factor=policy_hparams.gae_gamma, video_writer=video_writer
+          discount_factor=policy_hparams.gae_gamma,
+          uct_const=uct_const, uniform_first_action=uniform_first_action,
+          video_writer=video_writer
       ),
   }[agent_type]()
 
@@ -164,7 +172,8 @@ def make_eval_fn_with_agent(
         planner_hparams.planning_horizon, planner_hparams.rollout_agent_type,
         num_rollouts=planner_hparams.num_rollouts,
         inner_batch_size=planner_hparams.batch_size, video_writer=video_writer,
-        env_type=planner_hparams.env_type
+        env_type=planner_hparams.env_type, uct_const=planner_hparams.uct_const,
+        uniform_first_action=planner_hparams.uniform_first_action
     )
     rl_utils.run_rollouts(
         env, agent, env.reset(), log_every_steps=log_every_steps
