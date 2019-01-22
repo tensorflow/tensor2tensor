@@ -1691,7 +1691,11 @@ class T2TModel(base.Layer):
   def _normalize_body_output(self, body_out):
     if isinstance(body_out, tuple):
       output, losses = body_out
-      if not isinstance(losses, dict):
+      if isinstance(losses, (list, tuple)):
+        losses = {"extra": tf.add_n([tf.reduce_mean(l) for l in losses])}
+      elif isinstance(losses, dict):
+        pass
+      else:
         losses = {"extra": tf.reduce_mean(losses)}
     else:
       output = body_out

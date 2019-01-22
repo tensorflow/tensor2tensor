@@ -542,7 +542,7 @@ class PlannerAgent(BatchAgent):
 
       uct_bonuses = np.array(
           [self._uct_bonus(sums_and_counts[action][1], action_probs[action])
-          for action in range(self.action_space.n)]
+           for action in range(self.action_space.n)]
       )
       values = normalized_mc_values + uct_bonuses
       return np.argmax(values)
