@@ -358,7 +358,8 @@ def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
 
 
 def get_or_generate_vocab(data_dir, tmp_dir, vocab_filename, vocab_size,
-                          sources, file_byte_budget=1e6, max_subtoken_length=None):
+                          sources, file_byte_budget=1e6,
+                          max_subtoken_length=None):
   """Generate a vocabulary from the datasets in sources."""
 
   vocab_generator = generate_lines_for_vocab(tmp_dir, sources, file_byte_budget)

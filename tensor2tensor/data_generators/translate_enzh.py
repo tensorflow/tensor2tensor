@@ -189,18 +189,6 @@ class TranslateEnzhWmt32k(translate.TranslateProblem):
   def target_vocab_name(self):
     return "%s.zh" % self.vocab_filename
 
-  @property
-  def max_subtoken_length(self):
-    """Maximum subtoken length when generating vocab.
-
-    SubwordTextEncoder vocabulary building is quadratic-time wrt this variable,
-    setting it to None uses the length of the longest token in the corpus.
-
-    Returns:
-      an integer or None
-    """
-    return 200
-
   def get_training_dataset(self, tmp_dir):
     """UN Parallel Corpus and CWMT Corpus need to be downloaded manually.
 
