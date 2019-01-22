@@ -340,6 +340,15 @@ def rlmb_long_stochastic_discrete():
 
 
 @registry.register_hparams
+def rlmb_long_stochastic_discrete_planner():
+  hparams = rlmb_long_stochastic_discrete()
+  hparams.eval_batch_size = 1
+  hparams.eval_sampling_temps = [3.0]
+  hparams.eval_max_num_noops = 0
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_long_stochastic_discrete_simulation_deterministic_starts():
   """Long setting with stochastic discrete model & deterministic sim starts."""
   hparams = rlmb_base_stochastic_discrete()
