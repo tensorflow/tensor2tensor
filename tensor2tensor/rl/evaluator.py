@@ -123,8 +123,9 @@ def planner_guess1():
       uct_std_normalization=False,
   )
 
+
 @registry.register_hparams
-def planner_guess3():
+def planner_guess2():
   return tf.contrib.training.HParams(
       num_rollouts=96,
       batch_size=96,
@@ -135,6 +136,7 @@ def planner_guess3():
       uniform_first_action=True,
       uct_std_normalization=True,
   )
+
 
 @registry.register_hparams
 def planner_guess3():
