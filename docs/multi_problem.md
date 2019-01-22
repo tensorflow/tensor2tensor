@@ -13,7 +13,7 @@ Please note the [T2T Walkthrough](https://github.com/tensorflow/tensor2tensor/bl
 In this discussion we'll consider the following (large) multi-problem that includes ten different sub-problems. These include:
 
 1. A [language modeling](https://en.wikipedia.org/wiki/Language_model) [problem](https://github.com/tensorflow/tensor2tensor/blob/0dff89d64c3406d42717280cb9135a5ce7af793c/tensor2tensor/data_generators/wiki_lm.py#L223) operating on a corpus of German, English, French, and Romanian language wikipedia articles.
-2. Multiple compatible pairwise lanugage translation problems (En -> De, En -> Fr, En -> Ro, De -> En, Fr -> En, Ro -> En)
+2. Multiple compatible pairwise language translation problems (En -> De, En -> Fr, En -> Ro, De -> En, Fr -> En, Ro -> En)
 3. A compatible [version](https://github.com/tensorflow/tensor2tensor/blob/ef12bee72270b322165d073c39a650a189de39aa/tensor2tensor/data_generators/cnn_dailymail.py#L267) of the combined CNN/DailyMail news article summarization problem.
 4. A compatible [version](https://github.com/tensorflow/tensor2tensor/blob/ef12bee72270b322165d073c39a650a189de39aa/tensor2tensor/data_generators/multinli.py#L155) of the [MultiNLI](https://www.nyu.edu/projects/bowman/multinli/) textual entailment classification problem.
 5. A compatible [version](https://github.com/tensorflow/tensor2tensor/blob/1de13dbebccb415d89b0658e18a57e9607bafd32/tensor2tensor/data_generators/squad.py#L126) of the [SQuAD](https://rajpurkar.github.io/SQuAD-explorer/) question/answer problem.
@@ -62,7 +62,7 @@ class SummarizeCnnDailymailWikiLMMultiVocab64k(SummarizeCnnDailymail32k):
 
 **Important note:** It's easy to miss the key point that, as implemented currently, the first task in the task list must be a language modelling problem and each included task must be modified to use the resulting vocabulary.
 
-With a propperly defined and registered multi-problem we can now run datagen as follows:
+With a properly defined and registered multi-problem we can now run datagen as follows:
 
 ```bash
 
@@ -80,7 +80,6 @@ Next we're ready to try training a model on this MultiProblem.
 
 t2t-trainer --problem=languagemodel_multi_wiki_translate \
     --model=transformer \
-    --data_dir=/tmp/mydatadir \
     --hparams_set=transformer_tall_pretrain_lm_tpu_adafactor_large \
     --output_dir ~/t2t_train/transformer_multi_2jan19
 
