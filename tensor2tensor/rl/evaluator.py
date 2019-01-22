@@ -54,12 +54,14 @@ flags.DEFINE_string("model_dir", "", "Directory with model checkpoints.")
 flags.DEFINE_string(
     "eval_metrics_dir", "", "Directory to output the eval metrics at."
 )
-flags.DEFINE_bool("full_eval", True, "Whether to ignore the timestep limit.")
+flags.DEFINE_integer("eval_batch_size", 64, "Number of games to evaluate.")
+flags.DEFINE_integer("eval_step_limit", 100000,
+                     "Maximum number of time steps, ignored if -1.")
 flags.DEFINE_enum(
     "agent", "policy", ["random", "policy", "planner"], "Agent type to use."
 )
 flags.DEFINE_bool(
-    "eval_with_learner", True,
+    "eval_with_learner", False,
     "Whether to use the PolicyLearner.evaluate function instead of an "
     "out-of-graph one. Works only with --agent=policy."
 )
@@ -298,8 +300,8 @@ def main(_):
     loop_hparams.game = get_game_for_worker(
         FLAGS.worker_to_game_map, FLAGS.worker_id + 1)
     tf.logging.info("Set game to %s." % loop_hparams.game)
-  if FLAGS.full_eval:
-    loop_hparams.eval_rl_env_max_episode_steps = -1
+  loop_hparams.eval_rl_env_max_episode_steps = FLAGS.eval_step_limit
+  loop_hparams.eval_batch_size = FLAGS.eval_batch_size
   planner_hparams = trainer_lib.create_hparams(
       FLAGS.planner_hparams_set, FLAGS.planner_hparams
   )
@@ -312,7 +314,10 @@ def main(_):
       cur_dir = os.path.join(cur_dir, "%d" % (FLAGS.worker_id + 1))
     policy_dir = os.path.join(cur_dir, "policy")
     model_dir = os.path.join(cur_dir, "world_model")
-    eval_metrics_dir = os.path.join(cur_dir, "evaluator_" + now_tag)
+    eval_dir_basename = "evaluator_"
+    if FLAGS.agent == "planner":
+      eval_dir_basename = "planner_"
+    eval_metrics_dir = os.path.join(cur_dir, eval_dir_basename + now_tag)
     tf.logging.info("Writing metrics to %s." % eval_metrics_dir)
     if not tf.gfile.Exists(eval_metrics_dir):
       tf.gfile.MkDir(eval_metrics_dir)
