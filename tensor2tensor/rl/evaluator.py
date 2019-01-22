@@ -122,6 +122,42 @@ def planner_base():
       uniform_first_action=True,
   )
 
+@registry.register_hparams
+def planner_guess1():
+  return tf.contrib.training.HParams(
+      num_rollouts=96,
+      batch_size=96,
+      planning_horizon=8,
+      rollout_agent_type="policy",
+      env_type="simulated",
+      uct_const=0.,
+      uniform_first_action=True,
+  )
+
+@registry.register_hparams
+def planner_guess3():
+  return tf.contrib.training.HParams(
+      num_rollouts=96,
+      batch_size=96,
+      planning_horizon=8,
+      rollout_agent_type="policy",
+      env_type="simulated",
+      uct_const=0.2,
+      uniform_first_action=True,
+  )
+
+@registry.register_hparams
+def planner_guess3():
+  return tf.contrib.training.HParams(
+      num_rollouts=96,
+      batch_size=96,
+      planning_horizon=8,
+      rollout_agent_type="policy",
+      env_type="simulated",
+      uct_const=0.5,
+      uniform_first_action=False,
+  )
+
 
 def make_env(env_type, real_env, sim_env_kwargs):
   """Factory function for envs."""
