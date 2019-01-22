@@ -154,34 +154,12 @@ class MultiProblem(problem.Problem):
 
 ```
 
-And further by examining the code for [`MultiProblem.get_hparams`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/multi_problem.py#L160), shown below, we can see the vocab size considered above is the base 64k vocab used for the language modelling problem plus the maximum number of classes across any problem included in the multi-problem that is a classification problem (thereby overloading these class label fields across problems):
+We can look up the task_id that is assigned to each task we may want to use for inference by instantiating the MultiProblem subclass and obtaining the value, in this case via the following:
 
 ```python
 
-class MultiProblem(problem.Problem):
-  """MultiProblem base class."""
-
-  ...
-
-  def get_hparams(self, model_hparams=None):
-    if self._hparams is not None:
-      return self._hparams
-    self._hparams = self.task_list[0].get_hparams(model_hparams)
-    # Increase the vocab size to account for task ids and modify the modality.
-    vocab_size_inc = len(self.task_list)
-    vocab_size_inc += self.get_max_num_classes()
-    vocab_size = self._hparams.vocabulary["targets"].vocab_size
-    new_vocab_size = vocab_size + vocab_size_inc
-    if model_hparams.multiproblem_vocab_size > new_vocab_size:
-      new_vocab_size = model_hparams.multiproblem_vocab_size
-    tf.logging.info("Old vocabulary size: %d" % vocab_size)
-    self.update_task_ids(vocab_size)
-    tf.logging.info("New vocabulary size: %d" % new_vocab_size)
-    self._hparams.vocab_size["targets"] = new_vocab_size
-    self._hparams.modality["targets"] = modalities.SymbolModality(
-        model_hparams, self._hparams.vocab_size["targets"])
-    return self._hparams
+task_index = 1 # The second task in the list is En -> De
+LanguagemodelMultiWikiTranslate().task_list[task_index].task_id
 
 ```
 
-**TODO: The math doesn't check out here for me. It looks like the max class size is 3, the base vocab size should be 64k, and we're doing inference with the second problem in the set, so by this math the ID should be 64005. Perhaps the vocab here is ~64k and was optimized to be 64505 - 64510 - 2 (the second problem) - 3 (MultiNLI has three classes)?**
