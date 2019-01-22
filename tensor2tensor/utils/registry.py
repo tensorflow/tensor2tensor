@@ -46,6 +46,7 @@ from __future__ import print_function
 
 from tensor2tensor.utils import misc_utils
 import tensorflow as tf
+import functools
 from tensorflow.python.util import tf_inspect as inspect
 
 _ATTACKS = {}
@@ -117,6 +118,54 @@ def model(name):
 
 def list_models():
   return list(sorted(_MODELS))
+
+
+_OPTIMIZERS = {}
+
+
+def register_optimizer(name=None):
+  """Register an optimizer. name defaults to upper camel case of fn name."""
+
+  def decorator(opt_fn, registration_name=None):
+    """Registers and returns optimizer_fn with registration_name or default."""
+    opt_name = registration_name or misc_utils.snakecase_to_camelcase(
+        default_name(opt_fn)).title()
+    if opt_name in _OPTIMIZERS and not tf.executing_eagerly():
+      raise LookupError("Optimizer %s already registered." % opt_name)
+    if isinstance(opt_fn, functools.partial):
+      partial_args = opt_fn.args
+      partial_kwargs = opt_fn.keywords
+      func = opt_fn.func
+      func_args, varargs, keywords, _ = inspect.getargspec(func)
+      arg_len = len(func_args) - len(partial_args) - len(partial_kwargs)
+    else:
+      args, varargs, keywords, _ = inspect.getargspec(opt_fn)
+      arg_len = len(args)
+
+    if arg_len != 2 or varargs is not None or keywords is not None:
+      raise ValueError("Optimizer registration function must take two "
+                       "arguments: learning_rate (float) and "
+                       "hparams (HParams).")
+    _OPTIMIZERS[opt_name] = opt_fn
+    return opt_fn
+
+  if callable(name):
+    opt_fn = name
+    return decorator(opt_fn, registration_name=default_name(opt_fn))
+
+  return lambda opt_fn: decorator(opt_fn, name)
+
+
+def optimizer(name):
+  if name not in _OPTIMIZERS:
+    raise LookupError("Optimizer %s never registered. "
+                      "Available optimizers:\n %s"
+                      % (name, "\n".join(list_optimizers())))
+  return _OPTIMIZERS[name]
+
+
+def list_optimizers():
+  return list(sorted(_OPTIMIZERS))
 
 
 def register_hparams(name=None):
