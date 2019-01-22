@@ -390,7 +390,3 @@ def launch():
   launch_job(job_spec)
   tf.logging.info("Launched %s. See console to track: %s.", job_name,
                   CONSOLE_URL)
-  tf.logging.info("Interact with the training job from the command line:")
-  tf.logging.info("Abort job: gcloud ml-engine jobs cancel %s", job_name)
-  tf.logging.info("Stream logs: gcloud ml-engine jobs stream-logs %s", job_name)
-  tf.logging.info("Open tensorboard: tensorboard --logdir %s", train_dir)

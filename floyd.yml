@@ -1,2 +1,2 @@
-env: tensorflow-1.12
+env: tensorflow-1.9
 machine: gpu
