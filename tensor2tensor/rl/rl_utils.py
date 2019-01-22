@@ -450,7 +450,7 @@ class PlannerAgent(BatchAgent):
   def __init__(
       self, batch_size, rollout_agent, sim_env, wrapper_fn, num_rollouts,
       planning_horizon, discount_factor=1.0, uct_const=0,
-      uniform_first_action=True, video_writer=None
+      uct_std_normalization=False, uniform_first_action=True, video_writer=None
   ):
     super(PlannerAgent, self).__init__(
         batch_size, rollout_agent.observation_space, rollout_agent.action_space
@@ -463,8 +463,10 @@ class PlannerAgent(BatchAgent):
     self._discount_factor = discount_factor
     self._planning_horizon = planning_horizon
     self._uct_const = uct_const
+    self._uct_std_normalization = uct_std_normalization
     self._uniform_first_action = uniform_first_action
     self._video_writer = video_writer
+    self._best_mc_values = [[] for _ in range(self.batch_size)]
 
   def act(self, observations, env_state=None):
     def run_batch_from(observation, planner_index, batch_index):
@@ -511,23 +513,39 @@ class PlannerAgent(BatchAgent):
       return {a: (sums[a], counts[a]) for a in sums}
 
     def choose_best_action(observation, planner_index):
-      """Choose the best action."""
+      """Choose the best action, update best Monte Carlo values."""
+      best_mc_values = self._best_mc_values[planner_index]
       action_probs = self._rollout_agent.action_distribution(
           np.array([observation] * self._rollout_agent.batch_size)
       )[0, :]
       sums_and_counts = run_batches_from(observation, planner_index)
 
-      def uct(action):
+      def monte_carlo_value(action):
         (value_sum, count) = sums_and_counts[action]
         if count > 0:
           mean_value = value_sum / count
         else:
           mean_value = -np.inf
-        return mean_value + self._uct_bonus(
-            count, action_probs[action]
-        )
+        return mean_value
 
-      return max(range(self.action_space.n), key=uct)
+      mc_values = np.array(
+          [monte_carlo_value(action) for action in range(self.action_space.n)]
+      )
+      best_mc_values.append(mc_values.max())
+
+      if self._uct_std_normalization:
+        agg = np.std
+      else:
+        agg = lambda x: np.mean(np.std(x))
+      normalizer = max(agg(best_mc_values[-30:]), 0.001)
+      normalized_mc_values = mc_values / normalizer
+
+      uct_bonuses = np.array(
+          [self._uct_bonus(sums_and_counts[action][1], action_probs[action])
+           for action in range(self.action_space.n)]
+      )
+      values = normalized_mc_values + uct_bonuses
+      return np.argmax(values)
 
     return np.array([
         choose_best_action(observation, i)
