@@ -132,7 +132,7 @@ def planner_guess2():
       planning_horizon=8,
       rollout_agent_type="policy",
       env_type="simulated",
-      uct_const=0.2,
+      uct_const=3.,
       uniform_first_action=True,
       uct_std_normalization=True,
   )
@@ -146,7 +146,7 @@ def planner_guess3():
       planning_horizon=8,
       rollout_agent_type="policy",
       env_type="simulated",
-      uct_const=0.5,
+      uct_const=2.,
       uniform_first_action=False,
       uct_std_normalization=False,
   )
