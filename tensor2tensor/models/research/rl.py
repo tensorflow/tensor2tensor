@@ -21,6 +21,7 @@ import operator
 import gym
 import six
 
+from tensor2tensor.data_generators import gym_env
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.layers import common_hparams
@@ -388,7 +389,15 @@ def rlmf_final_eval():
   hparams.add_hparam("ppo_optimization_batch_size", 32)
   hparams.add_hparam("ppo_epochs_num", 10000)
   hparams.add_hparam("ppo_eval_every_epochs", 500)
+  hparams.add_hparam("attempt", 0)
   return hparams
+
+
+@registry.register_ranged_hparams
+def rlmf_human_score_games(rhp):
+  rhp.set_categorical("game",
+                      gym_env.ATARI_GAMES_WITH_HUMAN_SCORE_NICE)
+  rhp.set_discrete("attempt", list(range(5)))
 
 
 @registry.register_hparams
