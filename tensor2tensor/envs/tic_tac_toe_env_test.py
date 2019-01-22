@@ -74,8 +74,8 @@ class TicTacToeEnvTest(tf.test.TestCase):
 
     we_won = reward == 1
     env_won = reward == -1
-    no_space = bool(ttt_env.get_open_spaces(ttt.board_state))
-    self.assertTrue(we_won or env_won or no_space)
+    space = bool(ttt_env.get_open_spaces(ttt.board_state))
+    self.assertTrue(we_won or env_won or not space)
 
 
 if __name__ == '__main__':
