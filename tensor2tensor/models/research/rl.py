@@ -388,7 +388,6 @@ def rlmf_eval():
   hparams.add_hparam("ppo_optimization_batch_size", 32)
   hparams.add_hparam("ppo_epochs_num", 10000)
   hparams.add_hparam("ppo_eval_every_epochs", 500)
-  hparams.add_hparam("ppo_eval_every_epochs", 500)
   hparams.add_hparam("attempt", 0)
   hparams.add_hparam("moe_loss_coef", 0)
   return hparams
