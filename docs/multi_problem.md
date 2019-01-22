@@ -66,11 +66,7 @@ With a propperly defined and registered multi-problem we can now run datagen as 
 
 ```bash
 
-t2t_datagen --problem=languagemodel_multi_wiki_translate \
-    --model=transformer \
-    --data_dir=/tmp/mydatadir \
-    --tmp_dir=/tmp/mytmpdir \
-    --output_dir ~/t2t_train/transformer_multi_2jan19
+t2t-datagen --problem=languagemodel_multi_wiki_translate
 
 ```
 
@@ -82,7 +78,7 @@ Next we're ready to try training a model on this MultiProblem.
 
 ```bash
 
-t2t_trainer --problem=languagemodel_multi_wiki_translate \
+t2t-trainer --problem=languagemodel_multi_wiki_translate \
     --model=transformer \
     --data_dir=/tmp/mydatadir \
     --hparams_set=transformer_tall_pretrain_lm_tpu_adafactor_large \
@@ -119,15 +115,18 @@ You can try translating from English to German using a model previously trained 
 
 ```bash
 
-t2t_decoder --problem=languagemodel_multi_wiki_translate \
+t2t-decoder --problem=languagemodel_multi_wiki_translate \
     --model=transformer \
     --hparams_set=transformer_tall_pretrain_lm_tpu_adafactor_large \
     --decode_hparams='batch_size=1,multiproblem_task_id=64510' \
     --hparams="" \
-    --output_dir ~/t2t_train/transformer_multi_2jan19 \
-    --decode_from_file ~/newstest2014.en
+    --output_dir=~/t2t_train/transformer_multi_2jan19 \
+    --decode_from_file ~/newstest2014.en \
+    --data_dir=~/t2t_train/transformer_multi_2jan19
 
 ```
+
+Here we'll point `--data_dir` to the checkpoint directory which includes the vocab file `vocab.languagemodel_de_en_fr_ro_wiki64k.64000.subwords`; typically data_dir would point to the directory containing your TFRecord example dataset(s).
 
 The file passed to `--decode_from_file` is simply a file with one sentence to translate on each line (in its original form, not post-vocabulary-encoded).
 
@@ -163,3 +162,18 @@ LanguagemodelMultiWikiTranslate().task_list[task_index].task_id
 
 ```
 
+For me running the `t2t-decode` command provided above gave the following output:
+
+```bash
+...
+
+INFO:tensorflow:Running local_init_op.
+INFO:tensorflow:Done running local_init_op.
+INFO:tensorflow:Inference results INPUT: hello world was the news of the day
+INFO:tensorflow:Inference results OUTPUT: Hallo Welt war die Nachricht des Tages
+INFO:tensorflow:Elapsed Time: 37.15079
+INFO:tensorflow:Averaged Single Token Generation Time: 3.3009222 (time 36.3101439 count 11)
+
+...
+
+```
