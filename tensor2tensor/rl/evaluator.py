@@ -108,19 +108,6 @@ def planner_small():
   )
 
 
-@registry.register_hparams
-def planner_base():
-  return tf.contrib.training.HParams(
-      num_rollouts=96,
-      batch_size=96,
-      planning_horizon=8,
-      rollout_agent_type="policy",
-      env_type="simulated",
-      uct_const=0.0,
-      uniform_first_action=True,
-  )
-
-
 def make_env(env_type, real_env, sim_env_kwargs):
   """Factory function for envs."""
   return {
