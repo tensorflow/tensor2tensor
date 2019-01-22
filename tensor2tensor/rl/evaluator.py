@@ -111,15 +111,42 @@ def planner_small():
 
 
 @registry.register_hparams
-def planner_base():
+def planner_guess1():
   return tf.contrib.training.HParams(
       num_rollouts=96,
       batch_size=96,
       planning_horizon=8,
       rollout_agent_type="policy",
       env_type="simulated",
-      uct_const=0.0,
+      uct_const=0.,
+      uniform_first_action=False,
+      uct_std_normalization=False,
+  )
+
+@registry.register_hparams
+def planner_guess3():
+  return tf.contrib.training.HParams(
+      num_rollouts=96,
+      batch_size=96,
+      planning_horizon=8,
+      rollout_agent_type="policy",
+      env_type="simulated",
+      uct_const=0.2,
       uniform_first_action=True,
+      uct_std_normalization=True,
+  )
+
+@registry.register_hparams
+def planner_guess3():
+  return tf.contrib.training.HParams(
+      num_rollouts=96,
+      batch_size=96,
+      planning_horizon=8,
+      rollout_agent_type="policy",
+      env_type="simulated",
+      uct_const=0.5,
+      uniform_first_action=False,
+      uct_std_normalization=False,
   )
 
 
