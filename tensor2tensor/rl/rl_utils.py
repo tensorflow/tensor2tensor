@@ -522,7 +522,7 @@ class PlannerAgent(BatchAgent):
         if count > 0:
           mean_value = value_sum / count
         else:
-          mean_value = 0
+          mean_value = -np.inf
         return mean_value + self._uct_bonus(
             count, action_probs[action]
         )
@@ -543,9 +543,9 @@ class PlannerAgent(BatchAgent):
     if self._uniform_first_action:
       return np.array([
           int(x) for x in np.linspace(
-              0, self.action_space.n, self._num_rollouts + 1
+              0, self.action_space.n, self._rollout_agent.batch_size + 1
           )
-      ])[:self._num_rollouts]
+      ])[:self._rollout_agent.batch_size]
     else:
       return list(sorted(self._rollout_agent.act(observations)))
 
