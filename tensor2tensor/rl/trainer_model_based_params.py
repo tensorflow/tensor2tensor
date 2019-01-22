@@ -88,6 +88,11 @@ def _rlmb_base():
       eval_rl_env_max_episode_steps=1000,
 
       game="pong",
+      # If set, use this as the gym env name, instead of changing game mode etc.
+      rl_env_name="",
+      # Controls whether we should derive observation space, do some
+      # pre-processing etc. See T2TGymEnv._derive_observation_space.
+      rl_should_derive_observation_space=True,
       # Whether to evaluate the world model in each iteration of the loop to get
       # the model_reward_accuracy metric.
       eval_world_model=True,

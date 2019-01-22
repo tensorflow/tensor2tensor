@@ -23,6 +23,7 @@ import six
 
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
+from tensor2tensor.envs import tic_tac_toe_env
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
@@ -69,6 +70,8 @@ def ppo_base_v1():
   hparams.add_hparam("logits_clip", 0.0)
   hparams.add_hparam("dropout_ppo", 0.1)
   hparams.add_hparam("effective_num_agents", None)
+  # TODO(afrozm): Clean this up, this is used in PPO learner to get modalities.
+  hparams.add_hparam("policy_problem_name", "dummy_policy_problem")
   return hparams
 
 
@@ -127,6 +130,15 @@ def ppo_original_params():
   # is needed for model based rollouts).
   hparams.epoch_length = 50
   hparams.optimization_batch_size = 20
+  return hparams
+
+
+@registry.register_hparams
+def ppo_ttt_params():
+  """Parameters based on the original PPO paper."""
+  hparams = ppo_original_params()
+  hparams.policy_network = "feed_forward_categorical_policy"
+  hparams.policy_problem_name = "dummy_policy_problem_ttt"
   return hparams
 
 
@@ -271,7 +283,16 @@ def get_policy(observations, hparams, action_space):
 
   obs_shape = common_layers.shape_list(observations)
   (frame_height, frame_width) = obs_shape[2:4]
-  policy_problem = DummyPolicyProblem(action_space, frame_height, frame_width)
+
+  # TODO(afrozm): We have these dummy problems mainly for hparams, so cleanup
+  # when possible and do this properly.
+  if hparams.policy_problem_name == "dummy_policy_problem_ttt":
+    tf.logging.info("Using DummyPolicyProblemTTT for the policy.")
+    policy_problem = tic_tac_toe_env.DummyPolicyProblemTTT()
+  else:
+    tf.logging.info("Using DummyPolicyProblem for the policy.")
+    policy_problem = DummyPolicyProblem(action_space, frame_height, frame_width)
+
   trainer_lib.add_problem_hparams(hparams, policy_problem)
   hparams.force_full_predict = True
   model = registry.model(hparams.policy_network)(
@@ -365,7 +386,33 @@ def rlmf_original():
       resize_width_factor=2,
       grayscale=0,
       rl_env_max_episode_steps=-1,
+      # If set, use this as the gym env name, instead of changing game mode etc.
+      rl_env_name="",
+      # Controls whether we should derive observation space, do some
+      # pre-processing etc. See T2TGymEnv._derive_observation_space.
+      rl_should_derive_observation_space=True,
   )
+
+
+@registry.register_hparams
+def rlmf_tictactoe():
+  """Base set of hparams for model-free PPO."""
+  hparams = rlmf_original()
+  hparams.game = "tictactoe"
+  hparams.rl_env_name = "T2TEnv-TicTacToeEnv-v0"
+  # Since we don't have any no-op actions, otherwise we have to have an
+  # attribute called `get_action_meanings`.
+  hparams.eval_max_num_noops = 0
+  hparams.add_hparam("max_num_noops", 0)
+  hparams.rl_should_derive_observation_space = False
+
+  hparams.policy_network = "feed_forward_categorical_policy"
+  hparams.base_algo_params = "ppo_ttt_params"
+
+  # Number of last observations to feed to the agent
+  hparams.frame_stack_size = 1
+
+  return hparams
 
 
 @registry.register_hparams
@@ -517,6 +564,7 @@ class FeedForwardCategoricalPolicy(PolicyBase):
 
   def body(self, features):
     observations = features["inputs_raw"]
+    observations = tf.cast(observations, tf.float32)
     flat_observations = tf.layers.flatten(observations)
     with tf.variable_scope("policy"):
       x = flat_observations

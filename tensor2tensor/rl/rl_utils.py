@@ -84,8 +84,8 @@ def evaluate_single_config(
   eval_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
   env = setup_env(
       hparams, batch_size=hparams.eval_batch_size, max_num_noops=max_num_noops,
-      rl_env_max_episode_steps=hparams.eval_rl_env_max_episode_steps
-  )
+      rl_env_max_episode_steps=hparams.eval_rl_env_max_episode_steps,
+      env_name=hparams.rl_env_name)
   env.start_new_epoch(0)
   eval_fn(env, hparams, eval_hparams, agent_model_dir, sampling_temp)
   rollouts = env.current_epoch_rollouts()
@@ -148,17 +148,33 @@ def full_game_name(short_name):
   return full_name
 
 
-def setup_env(hparams, batch_size, max_num_noops, rl_env_max_episode_steps=-1):
-  """Setup."""
-  env_name = full_game_name(hparams.game)
+def should_apply_max_and_skip_env(hparams):
+  """MaxAndSkipEnv doesn't make sense for some games, so omit it if needed."""
+  return hparams.game != "tictactoe"
 
-  env = T2TGymEnv(base_env_name=env_name,
-                  batch_size=batch_size,
-                  grayscale=hparams.grayscale,
-                  resize_width_factor=hparams.resize_width_factor,
-                  resize_height_factor=hparams.resize_height_factor,
-                  rl_env_max_episode_steps=rl_env_max_episode_steps,
-                  max_num_noops=max_num_noops, maxskip_envs=True)
+
+def setup_env(hparams,
+              batch_size,
+              max_num_noops,
+              rl_env_max_episode_steps=-1,
+              env_name=None):
+  """Setup."""
+  if not env_name:
+    env_name = full_game_name(hparams.game)
+
+  maxskip_envs = should_apply_max_and_skip_env(hparams)
+
+  env = T2TGymEnv(
+      base_env_name=env_name,
+      batch_size=batch_size,
+      grayscale=hparams.grayscale,
+      should_derive_observation_space=hparams
+      .rl_should_derive_observation_space,
+      resize_width_factor=hparams.resize_width_factor,
+      resize_height_factor=hparams.resize_height_factor,
+      rl_env_max_episode_steps=rl_env_max_episode_steps,
+      max_num_noops=max_num_noops,
+      maxskip_envs=maxskip_envs)
   return env
 
 
