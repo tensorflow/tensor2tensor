@@ -261,7 +261,7 @@ def augment_observation(
 
 def run_rollouts(
     env, agent, initial_observations, step_limit=None, discount_factor=1.0,
-    log_every_steps=None, video_writer=None
+    log_every_steps=None, video_writers=(), color_bar=False
 ):
   """Runs a batch of rollouts from given initial observations."""
   num_dones = 0
@@ -270,12 +270,11 @@ def run_rollouts(
   step_index = 0
   cum_rewards = 0
 
-  if video_writer is not None:
-    obs_stack = initial_observations[0]
+  for (video_writer, obs_stack) in zip(video_writers, initial_observations):
     for (i, ob) in enumerate(obs_stack):
       debug_frame = augment_observation(
           ob, reward=0, cum_reward=0, frame_index=(-len(obs_stack) + i + 1),
-          bar_color=(0, 255, 0)
+          bar_color=((0, 255, 0) if color_bar else None)
       )
       video_writer.write(debug_frame)
 
@@ -308,11 +307,13 @@ def run_rollouts(
     cum_rewards = cum_rewards * discount_factor + rewards
     step_index += 1
 
-    if video_writer is not None:
-      ob = observations[0, -1]
+    for (video_writer, obs_stack, reward, cum_reward) in zip(
+        video_writers, observations, rewards, cum_rewards
+    ):
+      ob = obs_stack[-1]
       debug_frame = augment_observation(
-          ob, reward=rewards[0], cum_reward=cum_rewards[0],
-          frame_index=step_index, bar_color=(255, 0, 0)
+          ob, reward=reward, cum_reward=cum_reward,
+          frame_index=step_index, bar_color=((255, 0, 0) if color_bar else None)
       )
       video_writer.write(debug_frame)
 
@@ -330,6 +331,7 @@ class BatchAgent(object):
   """
 
   needs_env_state = False
+  records_own_videos = False
 
   def __init__(self, batch_size, observation_space, action_space):
     self.batch_size = batch_size
@@ -446,11 +448,12 @@ class PlannerAgent(BatchAgent):
   """Agent based on temporal difference planning."""
 
   needs_env_state = True
+  records_own_videos = True
 
   def __init__(
       self, batch_size, rollout_agent, sim_env, wrapper_fn, num_rollouts,
       planning_horizon, discount_factor=1.0, uct_const=0,
-      uniform_first_action=True, video_writer=None
+      uniform_first_action=True, video_writers=()
   ):
     super(PlannerAgent, self).__init__(
         batch_size, rollout_agent.observation_space, rollout_agent.action_space
@@ -464,7 +467,7 @@ class PlannerAgent(BatchAgent):
     self._planning_horizon = planning_horizon
     self._uct_const = uct_const
     self._uniform_first_action = uniform_first_action
-    self._video_writer = video_writer
+    self._video_writers = video_writers
 
   def act(self, observations, env_state=None):
     def run_batch_from(observation, planner_index, batch_index):
@@ -485,13 +488,13 @@ class PlannerAgent(BatchAgent):
           actions
       )
       writer = None
-      if planner_index == 0 and batch_index == 0:
-        writer = self._video_writer
+      if planner_index < len(self._video_writers) and batch_index == 0:
+        writer = self._video_writers[planner_index]
       (final_observations, cum_rewards) = run_rollouts(
           self._wrapped_env, self._rollout_agent, initial_observations,
           discount_factor=self._discount_factor,
           step_limit=self._planning_horizon,
-          video_writer=writer)
+          video_writers=[writer], color_bar=True)
       values = self._rollout_agent.estimate_value(final_observations)
       total_values = (
           initial_rewards + self._discount_factor * cum_rewards +
