@@ -25,9 +25,9 @@ import os
 import random
 import numpy as np
 
-from tensor2tensor.data_generators.problem import Problem
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import devices
+from tensor2tensor.utils import hparams_lib
 from tensor2tensor.utils import metrics_hook
 from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
@@ -37,6 +37,10 @@ import tensorflow as tf
 
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
+
+
+create_hparams = hparams_lib.create_hparams
+add_problem_hparams = hparams_lib.add_problem_hparams
 
 
 def next_checkpoint(model_dir, timeout_mins=240):
@@ -130,49 +134,6 @@ def create_session_config(log_device_placement=False,
       inter_op_parallelism_threads=inter_op_parallelism_threads,
       intra_op_parallelism_threads=intra_op_parallelism_threads)
   return config
-
-
-def create_hparams(hparams_set,
-                   hparams_overrides_str="",
-                   data_dir=None,
-                   problem_name=None,
-                   hparams_path=None):
-  """Create HParams with data_dir and problem hparams, if kwargs provided."""
-  hparams = registry.hparams(hparams_set)
-  if hparams_path and tf.gfile.Exists(hparams_path):
-    hparams = _create_hparams_from_json(hparams_path, hparams)
-  if data_dir:
-    hparams.add_hparam("data_dir", data_dir)
-  if hparams_overrides_str:
-    tf.logging.info("Overriding hparams in %s with %s", hparams_set,
-                    hparams_overrides_str)
-    hparams = hparams.parse(hparams_overrides_str)
-  if problem_name:
-    add_problem_hparams(hparams, problem_name)
-  return hparams
-
-
-def _create_hparams_from_json(json_path, hparams=None):
-  """Loading hparams from json; can also start from hparams if specified."""
-  tf.logging.info("Loading hparams from existing json %s" % json_path)
-  with tf.gfile.Open(json_path, "r") as f:
-    hparams_values = json.load(f)
-    new_hparams = tf.contrib.training.HParams(**hparams_values)
-    # Some keys are in new_hparams but not hparams, so we need to be more
-    #   careful than simply using parse_json() from HParams
-    if hparams:  # hparams specified, so update values from json
-      for key in sorted(new_hparams.values().keys()):
-        if hasattr(hparams, key):  # Overlapped keys
-          value = getattr(hparams, key)
-          new_value = getattr(new_hparams, key)
-          if value != new_value:  # Different values
-            tf.logging.info("Overwrite key %s: %s -> %s" % (
-                key, value, new_value))
-            setattr(hparams, key, new_value)
-    else:
-      hparams = new_hparams
-
-  return hparams
 
 
 def is_cloud_async_distributed():
@@ -806,17 +767,6 @@ def create_experiment_fn(*args, **kwargs):
     return create_experiment(run_config, hparams, *args, **kwargs)
 
   return experiment_fn
-
-
-def add_problem_hparams(hparams, problem_name_or_instance):
-  """Add problem hparams for the problems."""
-  if isinstance(problem_name_or_instance, Problem):
-    problem = problem_name_or_instance
-  else:
-    problem = registry.problem(problem_name_or_instance)
-  p_hparams = problem.get_hparams(hparams)
-  hparams.problem = problem
-  hparams.problem_hparams = p_hparams
 
 
 def set_random_seed(seed):

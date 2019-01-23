@@ -27,7 +27,16 @@ from tensor2tensor.utils import yellowfin
 
 import tensorflow as tf
 
+
+from tensorflow.contrib.mixed_precision import LossScaleOptimizer
 from tensorflow.python.framework import dtypes
+
+
+def _mixed_precision_is_enabled(hparams):
+  """Should be the same as in common_attention, avoiding import."""
+  activation_dtype = hparams.activation_dtype
+  weight_dtype = hparams.weight_dtype
+  return activation_dtype == tf.float16 and weight_dtype == tf.float32
 
 
 def optimize(loss, learning_rate, hparams, use_tpu=False, variables=None):
@@ -55,7 +64,6 @@ def optimize(loss, learning_rate, hparams, use_tpu=False, variables=None):
   opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams, use_tpu)
   if use_tpu:
     opt = tf.contrib.tpu.CrossShardOptimizer(opt)
-
   opt_summaries = []
   if common_layers.should_generate_summaries():
     tf.summary.scalar("learning_rate", learning_rate)
@@ -152,6 +160,22 @@ class ConditionalOptimizer(tf.train.Optimizer):
       self._opt = adafactor.adafactor_optimizer_from_hparams(hparams, lr)
     else:
       self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
+    if _mixed_precision_is_enabled(hparams):
+      if not hparams.mixed_precision_optimizer_loss_scaler:
+        tf.logging.warning("Using mixed precision without a loss scaler will "
+                           "likely cause numerical errors.")
+      elif hparams.mixed_precision_optimizer_loss_scaler != "exponential":
+        raise ValueError("Mixed precision training only supports the "
+                         "exponential loss scaler")
+      else:
+        tf.logging.info("Using Exponential Update Loss Scaler")
+        manager = tf.contrib.mixed_precision.ExponentialUpdateLossScaleManager(
+            init_loss_scale=2**15,
+            incr_every_n_steps=2000,
+            decr_every_n_nan_or_inf=2,
+            incr_ratio=2,
+            decr_ratio=0.5)
+        self._opt = LossScaleOptimizer(self._opt, manager)
 
     self._zero_grads = hparams.optimizer_zero_grads
 
@@ -304,6 +328,6 @@ def get_variable_initializer(hparams):
     return tf.variance_scaling_initializer(
         hparams.initializer_gain, mode="fan_avg", distribution="uniform")
   elif hparams.initializer == "xavier":
-    return tf.contrib.layers.xavier_initializer()
+    return tf.initializers.glorot_uniform()
   else:
     raise ValueError("Unrecognized initializer: %s" % hparams.initializer)

@@ -35,6 +35,99 @@ class MixingSchedule(object):
   PRETRAIN = "pretrain"
 
 
+def normalize_example_nlp(task, example, is_infer, vocab_type, vocab_offset,
+                          max_input_length, max_target_length,
+                          fixed_train_length):
+  """Normalize the examples from different tasks so they can be merged.
+
+  This function is specific to NLP tasks and normalizes them so that in the
+  end the example only has "targets" and "task_id". For tasks that originally
+  have inputs, this is done by appending task_id to the inputs and prepending
+  targets, so normalized_targets = inputs task_id targets. For classification
+  tasks, targets are constructed by spelling out the class.
+
+  Args:
+    task: the Problem class of the task we are normalizing.
+    example: a dictionary of tensors, the example to normalize.
+    is_infer: bool, whether we are performing inference or not.
+    vocab_type: the type of vocabulary in use.
+    vocab_offset: integer, offset index for subword vocabularies.
+    max_input_length: maximum length to cut inputs to.
+    max_target_length: maximum length to cut targets to.
+    fixed_train_length: set length to this size if > 0.
+
+  Returns:
+    a dictionary of tensors, like example, after normalizing, which in this
+    case means that it only has "targets" and "task_id" as feature.
+  """
+  if task.has_inputs:
+    example["inputs"] = example["inputs"][:-1]  # remove EOS token
+
+  if hasattr(task, "class_labels"):
+    if vocab_type == text_problems.VocabType.CHARACTER:
+      # TODO(urvashik): handle the case where num_labels > 9
+      example["targets"] = tf.cast(discretization.int_to_bit(
+          example["targets"], 1, base=10) + 50, tf.int64)
+      example["targets"] = tf.squeeze(example["targets"], axis=[-1])
+    elif vocab_type == text_problems.VocabType.SUBWORD:
+      example["targets"] = vocab_offset + example["targets"]
+  else:
+    # sequence with inputs and targets eg: summarization
+    if task.has_inputs:
+      if max_input_length > 0:
+        example["inputs"] = example["inputs"][:max_input_length]
+      # Do not truncate targets during inference with beam decoding.
+      if max_target_length > 0 and not is_infer:
+        example["targets"] = example["targets"][:max_target_length]
+
+  def make_constant_shape(x, size):
+    x = x[:size]
+    xlen = tf.shape(x)[0]
+    x = tf.pad(x, [[0, size - xlen]])
+    return tf.reshape(x, [size])
+
+  if task.has_inputs:
+    if is_infer:
+      concat_list = [example["inputs"], [task.task_id]]
+      example["inputs"] = tf.concat(concat_list, axis=0)
+    else:
+      inputs = example.pop("inputs")
+      concat_list = [inputs, [task.task_id], example["targets"]]
+      example["targets"] = tf.concat(concat_list, axis=0)
+      if fixed_train_length > 0:
+        example["targets"] = make_constant_shape(
+            example["targets"], fixed_train_length)
+  else:
+    concat_list = [[task.task_id], example["targets"]]
+    example["targets"] = tf.concat(concat_list, axis=0)
+    if not is_infer and fixed_train_length > 0:
+      example["targets"] = make_constant_shape(
+          example["targets"], fixed_train_length)
+
+  example["task_id"] = tf.constant([task.task_id], dtype=tf.int64)
+  return example
+
+
+def flatten_zip_dataset(*args):
+  """A list of examples to a dataset containing mixed examples.
+
+  Given a list of `n` dataset examples, flatten them by converting
+  each element into a dataset and concatenating them to convert into a
+  single dataset.
+
+  Args:
+    *args: A list containing one example each from `n` different datasets.
+
+  Returns:
+    flattened: A new dataset containing the examples from the list as part
+      of a single dataset.
+  """
+  flattened = tf.data.Dataset.from_tensors(args[0])
+  for ex in args[1:]:
+    flattened = flattened.concatenate(tf.data.Dataset.from_tensors(ex))
+  return flattened
+
+
 class MultiProblem(problem.Problem):
   """MultiProblem base class."""
 
@@ -49,57 +142,16 @@ class MultiProblem(problem.Problem):
     for task in self.task_list:
       task.generate_data(data_dir, tmp_dir, task_id)
 
-  def add_task_id(self, task, example, encoder, hparams, is_infer):
-    """Convert example to code switching mode by adding a task id."""
-    if task.has_inputs:
-      example["inputs"] = example["inputs"][:-1]  # remove EOS token
-
-    if hasattr(task, "class_labels"):
-      if self.vocab_type == text_problems.VocabType.CHARACTER:
-        # TODO(urvashik): handle the case where num_labels > 9
-        example["targets"] = tf.cast(discretization.int_to_bit(
-            example["targets"], 1, base=10) + 50, tf.int64)
-        example["targets"] = tf.squeeze(example["targets"], axis=[-1])
-      elif self.vocab_type == text_problems.VocabType.SUBWORD:
-        offset = encoder.vocab_size + len(self.task_list)
-        example["targets"] = offset + example["targets"]
-    else:
-      # sequence with inputs and targets eg: summarization
-      if task.has_inputs:
-        if hparams.multiproblem_max_input_length > 0:
-          example["inputs"] = example[
-              "inputs"][:hparams.multiproblem_max_input_length]
-        # Do not truncate targets during inference with beam decoding.
-        if hparams.multiproblem_max_target_length > 0 and not is_infer:
-          example["targets"] = example[
-              "targets"][:hparams.multiproblem_max_target_length]
-
-    def make_constant_shape(x, size):
-      x = x[:size]
-      xlen = tf.shape(x)[0]
-      x = tf.pad(x, [[0, size - xlen]])
-      return tf.reshape(x, [size])
-
-    if task.has_inputs:
-      if is_infer:
-        concat_list = [example["inputs"], [task.task_id]]
-        example["inputs"] = tf.concat(concat_list, axis=0)
-      else:
-        inputs = example.pop("inputs")
-        concat_list = [inputs, [task.task_id], example["targets"]]
-        example["targets"] = tf.concat(concat_list, axis=0)
-        if hparams.multiproblem_fixed_train_length > 0:
-          example["targets"] = make_constant_shape(
-              example["targets"], hparams.multiproblem_fixed_train_length)
-    else:
-      concat_list = [[task.task_id], example["targets"]]
-      example["targets"] = tf.concat(concat_list, axis=0)
-      if not is_infer and hparams.multiproblem_fixed_train_length > 0:
-        example["targets"] = make_constant_shape(
-            example["targets"], hparams.multiproblem_fixed_train_length)
-
-    example["task_id"] = tf.constant([task.task_id], dtype=tf.int64)
-    return example
+  def normalize_example(self, task, example, encoder, hparams, is_infer):
+    """Normalize the examples from different tasks so they can be merged."""
+    # Here we use the default function for NLP tasks that makes everything
+    # a part of "targets" feature. Override in your subclasses for other uses.
+    vocab_offset = encoder.vocab_size + len(self.task_list)
+    return normalize_example_nlp(
+        task, example, is_infer, self.vocab_type, vocab_offset,
+        hparams.multiproblem_max_input_length,
+        hparams.multiproblem_max_target_length,
+        hparams.multiproblem_fixed_train_length)
 
   def filepattern(self, data_dir, mode, shard=None):
     tf.logging.info("Generating multi problem filepattern")
@@ -108,7 +160,6 @@ class MultiProblem(problem.Problem):
   def get_hparams(self, model_hparams=None):
     if self._hparams is not None:
       return self._hparams
-
     self._hparams = self.task_list[0].get_hparams(model_hparams)
     # Increase the vocab size to account for task ids and modify the modality.
     vocab_size_inc = len(self.task_list)
@@ -123,29 +174,7 @@ class MultiProblem(problem.Problem):
     self._hparams.vocab_size["targets"] = new_vocab_size
     self._hparams.modality["targets"] = modalities.SymbolModality(
         model_hparams, self._hparams.vocab_size["targets"])
-
     return self._hparams
-
-  def flatten_zip(self, *args):
-    """A list of examples to a dataset containing mixed examples.
-
-    Given a list of `n` dataset examples, flatten them by converting
-    each element into a dataset and concatenating them to convert into a
-    single dataset.
-
-    Args:
-      *args: A list containing one example each from `n` different datasets.
-
-    Returns:
-      flattened: A new dataset containing the examples from the list as part
-        of a single dataset.
-    """
-
-    flattened = tf.data.Dataset.from_tensors(args[0])
-    for ex in args[1:]:
-      flattened = flattened.concatenate(tf.data.Dataset.from_tensors(ex))
-
-    return flattened
 
   def dataset(self,
               mode,
@@ -161,18 +190,12 @@ class MultiProblem(problem.Problem):
               num_partitions=1,
               shuffle_buffer_size=1024,
               max_records=-1):
-
     # A list of datasets corresponding to the tasks in the task_list object
     # that need to be mixed.
     datasets = []
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     is_infer = mode == tf.estimator.ModeKeys.PREDICT
-
-    primary_task = self.task_list[0]
-    if primary_task.has_inputs:
-      raise ValueError("Only support language models as primary problem which "
-                       "supplies the vocabulary and the hparams.")
-    enc = primary_task.feature_encoders(data_dir=data_dir)["targets"]
+    enc = self.task_list[0].feature_encoders(data_dir=data_dir)["targets"]
     self.update_task_ids(enc.vocab_size)
 
     for task in self.task_list:
@@ -195,8 +218,13 @@ class MultiProblem(problem.Problem):
 
       # pylint: disable=cell-var-from-loop
       task_dataset = task_dataset.map(
-          lambda x: self.add_task_id(task, x, enc, hparams, is_infer))
+          lambda x: self.normalize_example(task, x, enc, hparams, is_infer))
+      # pylint: enable=cell-var-from-loop
 
+      # To run evaluation, we want to zip datasets from different tasks,
+      # but zipping will cut off at the shortest dataset in tf.Datasets.
+      # For this reason, we add zero padding to the shorter datasets as
+      # it will be ignored in metrics but it provides space for larger data.
       if not is_training and not is_infer:
         zeros = tf.zeros([self._ADDED_EVAL_COUNT, 1], dtype=tf.int64)
         pad_data = tf.data.Dataset.from_tensor_slices({
@@ -340,7 +368,7 @@ class MultiProblem(problem.Problem):
         single_mtl_dataset = datasets[1]
       else:
         single_mtl_dataset = tf.data.Dataset.zip(tuple(datasets)).flat_map(
-            self.flatten_zip)
+            flatten_zip_dataset)
 
     return single_mtl_dataset
 

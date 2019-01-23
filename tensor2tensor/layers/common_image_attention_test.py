@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 from absl.testing import parameterized
+from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_image_attention
 
 import tensorflow as tf
@@ -104,6 +105,51 @@ class CommonImageAttentionTest(parameterized.TestCase, tf.test.TestCase):
       self.assertEqual(output.shape, (batch, height, width, channels, depth))
     else:
       self.assertEqual(output.shape, (batch, height, width, depth))
+
+  def testTransformerDecoderLayersGlobal(self):
+    one_hot_data = tf.constant([[[0., 1.], [1., 0.]],
+                                [[0., 1.], [1., 0.]],
+                                [[1., 0.], [1., 0.]]])
+
+    hparams = common_hparams.basic_params1()
+    hparams.hidden_size = 4
+    hparams.num_layers = 1
+    hparams.layer_prepostprocess_dropout = 0.
+
+    hparams.add_hparam("attention_key_channels", None)
+    hparams.add_hparam("attention_value_channels", None)
+    hparams.add_hparam("num_heads", 1)
+    hparams.add_hparam("attention_dropout", 0.)
+    hparams.add_hparam("shared_rel", False)
+    hparams.add_hparam("block_width", 1)
+    hparams.add_hparam("block_length", 1)
+    hparams.add_hparam("q_filter_width", 1)
+    hparams.add_hparam("kv_filter_width", 1)
+    hparams.add_hparam("filter_size", 16)
+    hparams.add_hparam("ffn_layer", "conv_hidden_relu")
+    hparams.add_hparam("relu_dropout", 0.)
+
+    conv_1d = tf.keras.layers.Conv1D(filters=hparams.hidden_size,
+                                     kernel_size=1,
+                                     use_bias=False)
+    shifted_data = tf.pad(one_hot_data, [[0, 0], [1, 0], [0, 0]])[..., :-1, :]
+    net = conv_1d(shifted_data)
+    output = common_image_attention.transformer_decoder_layers(
+        inputs=net,
+        encoder_output=None,
+        num_layers=hparams.num_layers,
+        hparams=hparams,
+        self_attention_bias=common_image_attention.get_self_attention_bias(net),
+        attention_type=common_image_attention.AttentionType.GLOBAL)
+    self.evaluate(tf.global_variables_initializer())
+    output_val = self.evaluate(output)
+    # The outputs for the padded dimension should be equal across all data.
+    self.assertAllEqual(output_val[0, 0], output_val[1, 0])
+    self.assertAllEqual(output_val[1, 0], output_val[2, 0])
+    # The first and second elements of the batch are identical, so they should
+    # have the same outputs for the second latent dimension as well.
+    self.assertAllEqual(output_val[0, 1], output_val[1, 1])
+
 
 if __name__ == "__main__":
   tf.test.main()

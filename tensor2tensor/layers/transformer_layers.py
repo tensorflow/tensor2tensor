@@ -88,8 +88,7 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
         32,
         ishape_static[-1],
         name="target_space_embedding",
-        dtype=tf.bfloat16
-        if hparams.activation_dtype == "bfloat16" else tf.float32)
+        dtype=hparams.get("activation_dtype", "float32"))
     emb_target_space = tf.reshape(emb_target_space, [1, 1, -1])
     encoder_input += emb_target_space
   if hparams.pos == "timing":
@@ -102,11 +101,11 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
     encoder_input = common_attention.add_positional_embedding(
         encoder_input, hparams.max_length, "inputs_positional_embedding",
         inputs_position)
-  if hparams.activation_dtype == "bfloat16":
-    encoder_self_attention_bias = tf.cast(encoder_self_attention_bias,
-                                          tf.bfloat16)
-    encoder_decoder_attention_bias = tf.cast(encoder_decoder_attention_bias,
-                                             tf.bfloat16)
+
+  encoder_self_attention_bias = common_layers.cast_like(
+      encoder_self_attention_bias, encoder_input)
+  encoder_decoder_attention_bias = common_layers.cast_like(
+      encoder_decoder_attention_bias, encoder_input)
   return (encoder_input, encoder_self_attention_bias,
           encoder_decoder_attention_bias)
 
@@ -196,7 +195,9 @@ def transformer_encoder(encoder_input,
               make_image_summary=make_image_summary,
               dropout_broadcast_dims=attention_dropout_broadcast_dims,
               max_length=hparams.get("max_length"),
-              vars_3d=hparams.get("attention_variables_3d"))
+              vars_3d=hparams.get("attention_variables_3d"),
+              activation_dtype=hparams.get("activation_dtype", "float32"),
+              weight_dtype=hparams.get("weight_dtype", "float32"))
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -324,10 +325,9 @@ def transformer_ffn_layer(x,
   elif ffn_layer == "sru":
     return common_layers.sru(x)
   elif ffn_layer == "local_moe_tpu":
-    overhead = (
-        hparams.moe_overhead_train
-        if hparams.mode == tf.estimator.ModeKeys.TRAIN else
-        hparams.moe_overhead_eval)
+    overhead = hparams.moe_overhead_eval
+    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      overhead = hparams.moe_overhead_train
     ret, loss = expert_utils.local_moe_tpu(
         x,
         hparams.filter_size // 2,
@@ -336,10 +336,9 @@ def transformer_ffn_layer(x,
         overhead=overhead,
         loss_coef=hparams.moe_loss_coef)
   elif ffn_layer == "local_moe":
-    overhead = (
-        hparams.moe_overhead_train
-        if hparams.mode == tf.estimator.ModeKeys.TRAIN else
-        hparams.moe_overhead_eval)
+    overhead = hparams.moe_overhead_eval
+    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      overhead = hparams.moe_overhead_train
     ret, loss = expert_utils.local_moe(
         x,
         True,

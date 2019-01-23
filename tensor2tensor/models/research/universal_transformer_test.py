@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 """Tests for Transformer."""
 
 from __future__ import absolute_import
@@ -40,6 +41,7 @@ class UniversalTransformerTest(tf.test.TestCase):
     hparams.filter_size = 32
     hparams.num_heads = 1
     hparams.layer_prepostprocess_dropout = 0.0
+    hparams.mix_with_transformer = ""
 
     p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE,
                                                      VOCAB_SIZE,

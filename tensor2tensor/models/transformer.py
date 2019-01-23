@@ -57,7 +57,7 @@ class Transformer(t2t_model.T2TModel):
 
   def __init__(self, *args, **kwargs):
     super(Transformer, self).__init__(*args, **kwargs)
-    self.attention_weights = dict()  # For visualizing attention heads.
+    self.attention_weights = {}  # For visualizing attention heads.
 
   def encode(self, inputs, target_space, hparams, features=None, losses=None):
     """Encode transformer inputs.
@@ -779,10 +779,18 @@ def fast_decode_tpu(encoder_output,
           common_attention.split_heads(
               tf.zeros([batch_size, decode_length, value_channels]),
               hparams.num_heads),
-          "f":
-          tf.zeros([batch_size, decode_length, hparams.hidden_size]),
       } for layer in range(num_layers)
   }
+
+  # If `ffn_layer` is in `["dense_relu_dense" or "conv_hidden_relu"]`, then the
+  # cache key "f" won't be used, which means that the` shape of cache["f"]`
+  # won't be changed to
+  # `[beamsize*batch_size, decode_length, hparams.hidden_size]` and may cause
+  # error when applying `nest.map reshape function` on it.
+  if hparams.ffn_layer not in ["dense_relu_dense", "conv_hidden_relu"]:
+    for layer in range(num_layers):
+      cache["layer_%d" % layer]["f"] = tf.zeros(
+          [batch_size, 0, hparams.hidden_size])
 
   if encoder_output is not None:
     for layer in range(num_layers):
@@ -816,7 +824,7 @@ def fast_decode_tpu(encoder_output,
       hparams=hparams)
   if beam_size > 1:  # Beam Search
     initial_ids = sos_id * tf.ones([batch_size], dtype=tf.int32)
-    decoded_ids, scores = beam_search.beam_search(
+    decoded_ids, scores, _ = beam_search.beam_search(
         symbols_to_logits_fn,
         initial_ids,
         beam_size,
@@ -902,7 +910,8 @@ def fast_decode(encoder_output,
                 eos_id=beam_search.EOS_ID,
                 batch_size=None,
                 force_decode_length=False,
-                scope_prefix="body/"):
+                scope_prefix="body/",
+                cache=None):
   """Given encoder output and a symbols to logits function, does fast decoding.
 
   Implements both greedy and beam search decoding, uses beam search iff
@@ -927,6 +936,7 @@ def fast_decode(encoder_output,
     force_decode_length: bool, whether to force the full decode length, or if
       False, stop when all beams hit eos_id.
     scope_prefix: str, prefix for decoder layer variable scopes.
+    cache: cache dictionary for additional predictions.
 
   Returns:
       A dict of decoding results {
@@ -949,7 +959,9 @@ def fast_decode(encoder_output,
   vars_3d_num_heads = (
       hparams.num_heads if hparams.get("attention_variables_3d") else 0)
 
-  cache = {
+  if cache is None:
+    cache = {}
+  cache.update({
       "layer_%d" % layer: {
           "k":
               common_attention.split_heads(
@@ -957,10 +969,18 @@ def fast_decode(encoder_output,
           "v":
               common_attention.split_heads(
                   tf.zeros([batch_size, 0, value_channels]), hparams.num_heads),
-          "f":
-              tf.zeros([batch_size, 0, hparams.hidden_size]),
       } for layer in range(num_layers)
-  }
+  })
+
+  # If `ffn_layer` is in `["dense_relu_dense" or "conv_hidden_relu"]`, then the
+  # cache key "f" won't be used, which means that the` shape of cache["f"]`
+  # won't be changed to
+  # `[beamsize*batch_size, decode_length, hparams.hidden_size]` and may cause
+  # error when applying `nest.map reshape function` on it.
+  if hparams.ffn_layer not in ["dense_relu_dense", "conv_hidden_relu"]:
+    for layer in range(num_layers):
+      cache["layer_%d" % layer]["f"] = tf.zeros(
+          [batch_size, 0, hparams.hidden_size])
 
   if encoder_output is not None:
     for layer in range(num_layers):
@@ -984,7 +1004,7 @@ def fast_decode(encoder_output,
 
   if beam_size > 1:  # Beam Search
     initial_ids = sos_id * tf.ones([batch_size], dtype=tf.int32)
-    decoded_ids, scores = beam_search.beam_search(
+    decoded_ids, scores, cache = beam_search.beam_search(
         symbols_to_logits_fn,
         initial_ids,
         beam_size,
@@ -1031,7 +1051,7 @@ def fast_decode(encoder_output,
     hit_eos = tf.fill([batch_size], False)
     next_id = sos_id * tf.ones([batch_size, 1], dtype=tf.int64)
     initial_log_prob = tf.zeros([batch_size], dtype=tf.float32)
-    _, _, _, decoded_ids, _, log_prob = tf.while_loop(
+    _, _, _, decoded_ids, cache, log_prob = tf.while_loop(
         is_not_finished,
         inner_loop, [
             tf.constant(0), hit_eos, next_id, decoded_ids, cache,
@@ -1047,7 +1067,7 @@ def fast_decode(encoder_output,
         ])
     scores = log_prob
 
-  return {"outputs": decoded_ids, "scores": scores}
+  return {"outputs": decoded_ids, "scores": scores, "cache": cache}
 
 
 @registry.register_model
@@ -1293,7 +1313,9 @@ def transformer_decoder(decoder_input,
               dropout_broadcast_dims=attention_dropout_broadcast_dims,
               max_length=hparams.get("max_length"),
               decode_loop_step=decode_loop_step,
-              vars_3d=hparams.get("attention_variables_3d"))
+              vars_3d=hparams.get("attention_variables_3d"),
+              activation_dtype=hparams.get("activation_dtype", "float32"),
+              weight_dtype=hparams.get("weight_dtype", "float32"))
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
           with tf.variable_scope("encdec_attention"):
@@ -1315,7 +1337,9 @@ def transformer_decoder(decoder_input,
                 make_image_summary=make_image_summary,
                 dropout_broadcast_dims=attention_dropout_broadcast_dims,
                 max_length=hparams.get("max_length"),
-                vars_3d=hparams.get("attention_variables_3d"))
+                vars_3d=hparams.get("attention_variables_3d"),
+                activation_dtype=hparams.get("activation_dtype", "float32"),
+                weight_dtype=hparams.get("weight_dtype", "float32"))
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -1700,11 +1724,11 @@ def transformer_tall_pretrain_lm_tpu_adafactor_large():
   hparams = transformer_tall_pretrain_lm_tpu_adafactor()
   hparams.hidden_size = 1024
   hparams.num_heads = 16
-  hparams.filter_size = 32768
+  hparams.filter_size = 32768  # max fitting in 16G memory is 49152, batch 2
   hparams.batch_size = 4
   hparams.multiproblem_mixing_schedule = "constant"
-  # Task order: LM, en-de/fr/ro/de-en/fr-en/ro-en/cnndm/mnli/squad.
-  hparams.multiproblem_per_task_threshold = "16,4,8,1,4,8,1,2,1,2"
+  # Task order: lm/en-de/en-fr/en-ro/de-en/fr-en/ro-en/cnndm/mnli/squad.
+  hparams.multiproblem_per_task_threshold = "320,80,160,2,80,160,2,20,5,5"
   return hparams
 
 
@@ -2148,6 +2172,15 @@ def transformer_tpu_bf16_activation():
   """HParams for Transformer model with BF16 activation on TPU."""
   hparams = transformer_tpu()
   hparams.activation_dtype = "bfloat16"
+  return hparams
+
+
+@registry.register_hparams
+def transformer_fairseq_fp16_activation_big():
+  """Hparams intended to mirror those used in arxiv.org/pdf/1806.00187.pdf."""
+  hparams = transformer_big()
+  hparams.activation_dtype = "float16"
+  hparams.batch_size = 3584
   return hparams
 
 

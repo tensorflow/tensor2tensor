@@ -368,6 +368,8 @@ def update_hparams_for_universal_transformer(hparams):
 
   # Number of vanilla transformer layers used to be mixed with u-transofmer.
   hparams.add_hparam("num_mixedin_layers", 2)
+  # Number of transformer layers within the recurrent block (default is 1).
+  hparams.add_hparam("num_inrecurrence_layers", 1)
 
   # Type of recurrency:
   # basic, highway, skip, dwa, act, rnn, gru, lstm.
@@ -518,6 +520,22 @@ def adaptive_universal_transformer_base_tpu():
   hparams = adaptive_universal_transformer_base()
   transformer.update_hparams_for_tpu(hparams)
   hparams.add_step_timing_signal = False
+  return hparams
+
+
+@registry.register_hparams
+def adaptive_universal_transformer_multilayer_tpu():
+  """Multi-layer config for adaptive Transformer on TPU."""
+  hparams = adaptive_universal_transformer_base_tpu()
+  hparams.num_inrecurrence_layers = 2
+  hparams.mix_with_transformer = "before_ut,after_ut"
+  hparams.num_mixedin_layers = 1
+  hparams.transformer_ffn_type = "sepconv"
+  # TODO(lukaszkaiser): the options below don't work on TPU yet, make them work.
+  # hparams.add_step_timing_signal = True
+  # hparams.add_sru = True
+  # hparams.self_attention_type = "dot_product_relative_v2"
+  # hparams.max_relative_position = 256
   return hparams
 
 

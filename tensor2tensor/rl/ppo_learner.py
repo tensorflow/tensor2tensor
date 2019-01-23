@@ -135,6 +135,7 @@ class PPOLearner(PolicyLearner):
         )
         model_saver = tf.train.Saver(
             tf.global_variables(hparams.policy_network + "/.*")
+            # tf.global_variables("clean_scope.*")  # Needed for sharing params.
         )
 
         with tf.Session() as sess:
@@ -198,6 +199,7 @@ def _run_train(ppo_hparams,
   model_saver = tf.train.Saver(
       tf.global_variables(ppo_hparams.policy_network + "/.*") +
       tf.global_variables("training/" + ppo_hparams.policy_network + "/.*") +
+      # tf.global_variables("clean_scope.*") +  # Needed for sharing params.
       tf.global_variables("global_step") +
       tf.global_variables("losses_avg.*") +
       tf.global_variables("train_stats.*")

@@ -29,10 +29,6 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
-tfl = tf.layers
-tfcl = tf.contrib.layers
-
-
 @registry.register_model
 class NextFrameBasicDeterministic(base.NextFrameBase):
   """Basic next-frame model, may take actions and predict rewards too."""

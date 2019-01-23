@@ -44,6 +44,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
+
 from tensor2tensor.utils import misc_utils
 import tensorflow as tf
 from tensorflow.python.util import tf_inspect as inspect
@@ -56,6 +58,68 @@ _PROBLEMS = {}
 _PRUNING_PARAMS = {}
 _PRUNING_STRATEGY = {}
 _RANGED_HPARAMS = {}
+
+# Key: registry name, Value: Registry
+_GENERIC_REGISTRIES = {}
+Registry = collections.namedtuple(
+    "_Registry", ["register", "get", "list", "registry"])
+
+
+def registry(registry_name):
+  """Returns `Registry` created by `create_registry`."""
+  if registry_name not in _GENERIC_REGISTRIES:
+    raise KeyError("No registry named %s. Available:\n%s" % (
+        registry_name, sorted(_GENERIC_REGISTRIES)))
+  return _GENERIC_REGISTRIES[registry_name]
+
+
+def create_registry(registry_name):
+  """Create a generic object registry.
+
+  Args:
+    registry_name: str, name of the object registry.
+
+  Returns:
+    `Registry` that contains functions for register (decorator), get, and list.
+
+  Raises:
+    KeyError: if `registry_name` is a pre-existing registry.
+  """
+  if registry_name in _GENERIC_REGISTRIES:
+    raise KeyError(
+        "Registry %s already exists." % registry_name)
+
+  registry_ = {}
+
+  def register(name):
+    """Returns decorator to register an object."""
+
+    def register_dec(obj):
+      if name in registry_:
+        raise KeyError(
+            "Registry %s already contains key %s." % (registry_name, name))
+      registry_[name] = obj
+      return obj
+
+    return register_dec
+
+  def get(name):
+    if name not in registry_:
+      raise KeyError(
+          "Registry %s contains no object named %s" % (registry_name, name))
+    return registry_[name]
+
+  def list_registry():
+    return sorted(registry_)
+
+  registry_obj = Registry(
+      register=register,
+      get=get,
+      list=list_registry,
+      registry=registry_,
+  )
+  _GENERIC_REGISTRIES[registry_name] = registry_obj
+  return registry_obj
 
 
 def _reset():

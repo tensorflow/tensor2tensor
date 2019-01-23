@@ -214,7 +214,7 @@ def get_sari(source_ids, prediction_ids, target_ids, max_gram_size=4):
     return (np.asarray(sari_scores), np.asarray(keep_scores),
             np.asarray(add_scores), np.asarray(deletion_scores))
 
-  sari, keep, add, deletion = tf.py_function(
+  sari, keep, add, deletion = tf.py_func(
       get_sari_numpy,
       [source_ids, prediction_ids, target_ids],
       [tf.float64, tf.float64, tf.float64, tf.float64])

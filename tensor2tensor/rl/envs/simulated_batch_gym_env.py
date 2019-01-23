@@ -20,6 +20,9 @@ from __future__ import division
 from __future__ import print_function
 
 from gym import Env
+
+import numpy as np
+
 from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
 
 import tensorflow as tf
@@ -53,7 +56,9 @@ class SimulatedBatchGymEnv(Env):
 
       self._actions_t = tf.placeholder(shape=(self.batch_size,), dtype=tf.int32)
       self._rewards_t, self._dones_t = self._batch_env.simulate(self._actions_t)
-      self._obs_t = self._batch_env.observ
+      with tf.control_dependencies([self._rewards_t]):
+        self._obs_t = self._batch_env.observ
+      self._indices_t = tf.placeholder(shape=(self.batch_size,), dtype=tf.int32)
       self._reset_op = self._batch_env.reset(
           tf.range(self.batch_size, dtype=tf.int32)
       )
@@ -78,9 +83,9 @@ class SimulatedBatchGymEnv(Env):
     raise NotImplementedError()
 
   def reset(self, indices=None):
-    if indices:
-      raise NotImplementedError()
-    obs = self._sess.run(self._reset_op)
+    if indices is None:
+      indices = np.array(range(self.batch_size))
+    obs = self._sess.run(self._reset_op, feed_dict={self._indices_t: indices})
     # TODO(pmilos): remove if possible
     # obs[:, 0, 0, 0] = 0
     # obs[:, 0, 0, 1] = 255

@@ -66,8 +66,10 @@ class GymUtilsTest(tf.test.TestCase):
     self.assertTrue(env._max_episode_steps is None)
 
   def test_gym_registration(self):
-    env = gym_utils.register_gym_env(
+    reg_id, env = gym_utils.register_gym_env(
         "tensor2tensor.rl.gym_utils_test:SimpleEnv")
+
+    self.assertEqual("T2TEnv-SimpleEnv-v0", reg_id)
 
     # Most basic check.
     self.assertTrue(isinstance(env, gym.Env))

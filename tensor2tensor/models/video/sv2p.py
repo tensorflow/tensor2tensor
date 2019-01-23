@@ -314,7 +314,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
 
       if self.hparams.model_options == "CDNA":
         # cdna_input = tf.reshape(hidden5, [int(batch_size), -1])
-        cdna_input = tfcl.flatten(hidden5)
+        cdna_input = tfl.flatten(hidden5)
         transformed += common_video.cdna_transformation(
             input_image, cdna_input, num_masks, int(color_channels),
             self.hparams.dna_kernel_size, self.hparams.relu_shift)

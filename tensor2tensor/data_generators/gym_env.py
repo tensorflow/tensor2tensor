@@ -137,17 +137,22 @@ class T2TEnv(EnvSimulationProblem):
 
   Args:
     batch_size: Number of environments in a batch.
+    store_rollouts: Whether to store collected rollouts in memory and later on
+      disk. Defaults to True.
   """
 
   observation_space = None
   name = None
 
   def __init__(self, batch_size, *args, **kwargs):
+    self._store_rollouts = kwargs.pop("store_rollouts", True)
+
     super(T2TEnv, self).__init__(*args, **kwargs)
 
     self.batch_size = batch_size
     self._rollouts_by_epoch_and_split = collections.OrderedDict()
     self.current_epoch = None
+    self._should_preprocess_on_reset = True
     with tf.Graph().as_default() as tf_graph:
       self._tf_graph = _Noncopyable(tf_graph)
       self._decoded_image_p = _Noncopyable(
@@ -270,7 +275,8 @@ class T2TEnv(EnvSimulationProblem):
     Raises:
       ValueError: when the data for current epoch has already been loaded.
     """
-    if self._rollouts_by_epoch_and_split[self.current_epoch]:
+    if self._store_rollouts and \
+        self._rollouts_by_epoch_and_split[self.current_epoch]:
       raise ValueError(
           "Data for current epoch has already been loaded from disk."
       )
@@ -278,18 +284,19 @@ class T2TEnv(EnvSimulationProblem):
     obs = self._preprocess_observations(obs)
     (min_reward, max_reward) = self.reward_range
     rewards = np.around(np.clip(unclipped_rewards, min_reward, max_reward))
-    unclipped_rewards = unclipped_rewards.astype(np.float64)
-    encoded_obs = self._encode_observations(obs)
-    for (rollout, frame, action) in zip(
-        self._current_batch_rollouts, self._current_batch_frames, actions
-    ):
-      rollout.append(frame._replace(action=action))
+    if self._store_rollouts:
+      unclipped_rewards = unclipped_rewards.astype(np.float64)
+      encoded_obs = self._encode_observations(obs)
+      for (rollout, frame, action) in zip(
+          self._current_batch_rollouts, self._current_batch_frames, actions
+      ):
+        rollout.append(frame._replace(action=action))
 
-    # orud = (observation, reward, unclipped_reward, done)
-    self._current_batch_frames = [
-        Frame(*orud, action=None)
-        for orud in zip(encoded_obs, rewards, unclipped_rewards, dones)
-    ]
+      # orud = (observation, reward, unclipped_reward, done)
+      self._current_batch_frames = [
+          Frame(*orud, action=None)
+          for orud in zip(encoded_obs, rewards, unclipped_rewards, dones)
+      ]
     return (obs, rewards, dones)
 
   def _reset(self, indices):
@@ -317,7 +324,7 @@ class T2TEnv(EnvSimulationProblem):
     Raises:
       ValueError: when there's no current epoch.
     """
-    if self.current_epoch is None:
+    if self._store_rollouts and self.current_epoch is None:
       raise ValueError(
           "No current epoch. start_new_epoch() should first be called."
       )
@@ -325,18 +332,21 @@ class T2TEnv(EnvSimulationProblem):
     if indices is None:
       indices = np.arange(self.batch_size)
     new_obs = self._reset(indices)
-    new_obs = self._preprocess_observations(new_obs)
-    encoded_obs = self._encode_observations(new_obs)
-    for (index, ob) in zip(indices, encoded_obs):
-      frame = self._current_batch_frames[index]
-      if frame is not None:
-        rollout = self._current_batch_rollouts[index]
-        rollout.append(frame._replace(action=0))
-        self._current_epoch_rollouts.append(rollout)
-        self._current_batch_rollouts[index] = []
-      self._current_batch_frames[index] = Frame(
-          observation=ob, reward=0, unclipped_reward=0, done=False, action=None
-      )
+    if self._should_preprocess_on_reset:
+      new_obs = self._preprocess_observations(new_obs)
+    if self._store_rollouts:
+      encoded_obs = self._encode_observations(new_obs)
+      for (index, ob) in zip(indices, encoded_obs):
+        frame = self._current_batch_frames[index]
+        if frame is not None:
+          rollout = self._current_batch_rollouts[index]
+          rollout.append(frame._replace(action=0))
+          self._current_epoch_rollouts.append(rollout)
+          self._current_batch_rollouts[index] = []
+        self._current_batch_frames[index] = Frame(
+            observation=ob, reward=0, unclipped_reward=0, done=False,
+            action=None
+        )
     return new_obs
 
   def close(self):
@@ -582,14 +592,22 @@ class T2TGymEnv(T2TEnv):
   def __init__(self, base_env_name=None, batch_size=1, grayscale=False,
                resize_height_factor=2, resize_width_factor=2,
                rl_env_max_episode_steps=-1, max_num_noops=0,
-               maxskip_envs=False, **kwargs):
+               maxskip_envs=False,
+               should_derive_observation_space=True,
+               **kwargs):
     if base_env_name is None:
       base_env_name = self.base_env_name
     self._base_env_name = base_env_name
     super(T2TGymEnv, self).__init__(batch_size, **kwargs)
+    # TODO(afrozm): Find a proper way of doing this. Refactor or cleanup.
+    self.should_derive_observation_space = should_derive_observation_space
     self.grayscale = grayscale
     self.resize_height_factor = resize_height_factor
     self.resize_width_factor = resize_width_factor
+    self.rl_env_max_episode_steps = rl_env_max_episode_steps
+    self.maxskip_envs = maxskip_envs
+    self._initial_state = None
+    self._initial_frames = None
     if not self.name:
       # Set problem name if not registered.
       self.name = "Gym%s" % base_env_name
@@ -612,25 +630,52 @@ class T2TGymEnv(T2TEnv):
                for env in self._envs):
       raise ValueError("All environments must use the same observation space.")
 
-    self.observation_space = self._derive_observation_space(orig_observ_space)
+    self.observation_space = orig_observ_space
+    if self.should_derive_observation_space:
+      self.observation_space = self._derive_observation_space(orig_observ_space)
 
     self.action_space = self._envs[0].action_space
     if not all(env.action_space == self.action_space for env in self._envs):
       raise ValueError("All environments must use the same action space.")
 
-    with self._tf_graph.obj.as_default():
-      self._resize = dict()
-      orig_height, orig_width = orig_observ_space.shape[:2]
-      self._img_batch_t = _Noncopyable(tf.placeholder(
-          dtype=tf.uint8, shape=(None, orig_height, orig_width, 3)))
-      height, width = self.observation_space.shape[:2]
-      resized = tf.image.resize_images(self._img_batch_t.obj,
-                                       [height, width],
-                                       tf.image.ResizeMethod.AREA)
-      resized = tf.cast(resized, tf.as_dtype(self.observation_space.dtype))
-      if self.grayscale:
-        resized = tf.image.rgb_to_grayscale(resized)
-      self._resized_img_batch_t = _Noncopyable(resized)
+    if self.should_derive_observation_space:
+      with self._tf_graph.obj.as_default():
+        self._resize = dict()
+        orig_height, orig_width = orig_observ_space.shape[:2]
+        self._img_batch_t = _Noncopyable(tf.placeholder(
+            dtype=tf.uint8, shape=(None, orig_height, orig_width, 3)))
+        height, width = self.observation_space.shape[:2]
+        resized = tf.image.resize_images(self._img_batch_t.obj,
+                                         [height, width],
+                                         tf.image.ResizeMethod.AREA)
+        resized = tf.cast(resized, tf.as_dtype(self.observation_space.dtype))
+        if self.grayscale:
+          resized = tf.image.rgb_to_grayscale(resized)
+        self._resized_img_batch_t = _Noncopyable(resized)
+
+  # TODO(afrozm): Find a place for this. Till then use self._envs[0]'s hparams.
+  def hparams(self, defaults, unused_model_hparams):
+    if hasattr(self._envs[0], "hparams"):
+      tf.logging.info("Retuning the env's hparams from T2TGymEnv.")
+      return self._envs[0].hparams(defaults, unused_model_hparams)
+
+    # Otherwise just call the super-class' hparams.
+    tf.logging.info("Retuning the T2TGymEnv's superclass' hparams.")
+    super(T2TGymEnv, self).hparams(defaults, unused_model_hparams)
+
+  def new_like(self, **kwargs):
+    env_kwargs = {
+        "base_env_name": self.base_env_name,
+        "batch_size": self.batch_size,
+        "grayscale": self.grayscale,
+        "resize_height_factor": self.resize_height_factor,
+        "resize_width_factor": self.resize_width_factor,
+        "rl_env_max_episode_steps": self.rl_env_max_episode_steps,
+        "max_num_noops": self.max_num_noops,
+        "maxskip_envs": self.maxskip_envs,
+    }
+    env_kwargs.update(kwargs)
+    return T2TGymEnv(**env_kwargs)
 
   @property
   def base_env_name(self):
@@ -640,6 +685,7 @@ class T2TGymEnv(T2TEnv):
   def num_channels(self):
     return self.observation_space.shape[2]
 
+  # TODO(afrozm): Why is this separated out from _preprocess_observations?
   def _derive_observation_space(self, orig_observ_space):
     height, width, channels = orig_observ_space.shape
     if self.grayscale:
@@ -654,9 +700,29 @@ class T2TGymEnv(T2TEnv):
   def __str__(self):
     return "T2TGymEnv(%s)" % ", ".join([str(env) for env in self._envs])
 
-  def _preprocess_observations(self, obs):
-    return self._session.obj.run(self._resized_img_batch_t.obj,
-                                 feed_dict={self._img_batch_t.obj: obs})
+  def _encode_observations(self, observations):
+    if not self.should_derive_observation_space:
+      return observations
+    return super(T2TGymEnv, self)._encode_observations(observations)
+
+  def _preprocess_observations(self, observations):
+    # TODO(afrozm): Clean this up.
+    if not self.should_derive_observation_space:
+      return observations
+    return self._session.obj.run(
+        self._resized_img_batch_t.obj,
+        feed_dict={self._img_batch_t.obj: observations})
+
+  @property
+  def state(self):
+    """Gets the current state."""
+    return [env.unwrapped.clone_full_state() for env in self._envs]
+
+  def set_initial_state(self, initial_state, initial_frames):
+    """Sets the state that will be used on next reset."""
+    self._initial_state = initial_state
+    self._initial_frames = initial_frames[:, -1, ...]
+    self._should_preprocess_on_reset = False
 
   def _step(self, actions):
     (obs, rewards, dones, _) = zip(*[
@@ -665,9 +731,18 @@ class T2TGymEnv(T2TEnv):
     return tuple(map(np.stack, (obs, rewards, dones)))
 
   def _reset(self, indices):
-    def reset_with_noops(env):
-      """Resets environment and applies random number of NOOP actions on it."""
+    def reset_with_initial_state(env, index):
+      """Resets environment taking self._initial_state into account."""
       obs = env.reset()
+      if self._initial_state is None:
+        return obs
+      else:
+        env.unwrapped.restore_full_state(self._initial_state[index])
+        return self._initial_frames[index, ...]
+
+    def reset_with_noops(env, index):
+      """Resets environment and applies random number of NOOP actions on it."""
+      obs = reset_with_initial_state(env, index)
       try:
         num_noops = random.randint(1, self.max_num_noops)
       except ValueError:
@@ -676,11 +751,13 @@ class T2TGymEnv(T2TEnv):
       for _ in range(num_noops):
         (obs, _, done, _) = env.step(self.noop_action)
         if done:
-          obs = env.reset()
+          obs = reset_with_initial_state(env, index)
 
       return obs
 
-    return np.stack([reset_with_noops(self._envs[index]) for index in indices])
+    return np.stack([
+        reset_with_noops(self._envs[index], index) for index in indices
+    ])
 
   def close(self):
     for env in self._envs:
@@ -745,6 +822,14 @@ ATARI_GAMES_WITH_HUMAN_SCORE = [
     "road_runner", "seaquest", "solaris",
     "up_n_down", "video_pinball", "yars_revenge",
 ]
+
+
+# Blacklist a few games where it makes little sense to run on for now.
+ATARI_GAMES_WITH_HUMAN_SCORE_NICE = [
+    g for g in ATARI_GAMES_WITH_HUMAN_SCORE if g not in [
+        "solaris", "pitfall", "montezuma_revenge", "enduro",
+        "video_pinball", "double_dunk"]]
+
 
 ATARI_WHITELIST_GAMES = [
     "amidar",

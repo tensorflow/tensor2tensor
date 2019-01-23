@@ -27,6 +27,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
 import pprint
 
 from tensor2tensor.models.research import rl
@@ -54,7 +55,8 @@ def initialize_env_specs(hparams):
   """Initializes env_specs using T2TGymEnvs."""
   env = rl_utils.setup_env(hparams, hparams.batch_size,
                            hparams.eval_max_num_noops,
-                           hparams.rl_env_max_episode_steps)
+                           hparams.rl_env_max_episode_steps,
+                           env_name=hparams.rl_env_name)
   env.start_new_epoch(0)
 
   # TODO(afrozm): Decouple env_fn from hparams and return both, is there
@@ -108,10 +110,15 @@ def train(hparams, output_dir, report_fn=None):
 
   tf.logging.vlog(1, "metric_name: %s", metric_name)
 
+  eval_metrics_dir = os.path.join(output_dir, "eval_metrics")
+  eval_metrics_dir = os.path.expanduser(eval_metrics_dir)
+  tf.gfile.MakeDirs(eval_metrics_dir)
+  eval_metrics_writer = tf.summary.FileWriter(eval_metrics_dir)
+
   for i, step in enumerate(steps):
     tf.logging.info("Starting training iteration [%d] for [%d] steps.", i, step)
 
-    policy_hparams.epochs_num = step
+    policy_hparams.epochs_num = eval_every_epochs
     learner.train(hparams.env_fn,
                   policy_hparams,
                   simulated=False,
@@ -124,6 +131,8 @@ def train(hparams, output_dir, report_fn=None):
 
     tf.logging.info(
         "Agent eval metrics:\n{}".format(pprint.pformat(eval_metrics)))
+
+    rl_utils.summarize_metrics(eval_metrics_writer, eval_metrics, i)
 
     if report_fn:
       report_fn(eval_metrics[metric_name], step)

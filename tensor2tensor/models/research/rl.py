@@ -23,6 +23,7 @@ import six
 
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
+from tensor2tensor.envs import tic_tac_toe_env
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
@@ -69,6 +70,8 @@ def ppo_base_v1():
   hparams.add_hparam("logits_clip", 0.0)
   hparams.add_hparam("dropout_ppo", 0.1)
   hparams.add_hparam("effective_num_agents", None)
+  # TODO(afrozm): Clean this up, this is used in PPO learner to get modalities.
+  hparams.add_hparam("policy_problem_name", "dummy_policy_problem")
   return hparams
 
 
@@ -127,6 +130,31 @@ def ppo_original_params():
   # is needed for model based rollouts).
   hparams.epoch_length = 50
   hparams.optimization_batch_size = 20
+  return hparams
+
+
+@registry.register_hparams
+def ppo_ttt_params():
+  """Parameters based on the original PPO paper."""
+  hparams = ppo_original_params()
+  hparams.policy_network = "feed_forward_categorical_policy"
+  hparams.policy_problem_name = "dummy_policy_problem_ttt"
+  return hparams
+
+
+@registry.register_hparams
+def ppo_original_params_gamma95():
+  """Parameters based on the original PPO paper, changed gamma."""
+  hparams = ppo_original_params()
+  hparams.gae_gamma = 0.95
+  return hparams
+
+
+@registry.register_hparams
+def ppo_original_params_gamma90():
+  """Parameters based on the original PPO paper, changed gamma."""
+  hparams = ppo_original_params()
+  hparams.gae_gamma = 0.90
   return hparams
 
 
@@ -208,25 +236,34 @@ def make_simulated_env_fn(**env_kwargs):
   return env_fn
 
 
-def make_simulated_env_fn_from_hparams(
-    real_env, hparams, batch_size, initial_frame_chooser, model_dir,
-    sim_video_dir=None):
-  """Creates a simulated env_fn."""
-  model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
+# TODO(koz4k): Move this and the one below to rl_utils.
+def make_simulated_env_kwargs(real_env, hparams, **extra_kwargs):
+  """Extracts simulated env kwargs from real_env and loop hparams."""
+  objs_and_attrs = [
+      (real_env, [
+          "reward_range", "observation_space", "action_space", "frame_height",
+          "frame_width"
+      ]),
+      (hparams, ["frame_stack_size", "intrinsic_reward_scale"])
+  ]
+  kwargs = {
+      attr: getattr(obj, attr)
+      for (obj, attrs) in objs_and_attrs for attr in attrs
+  }
+  kwargs["model_name"] = hparams.generative_model
+  kwargs["model_hparams"] = trainer_lib.create_hparams(
+      hparams.generative_model_params
+  )
   if hparams.wm_policy_param_sharing:
-    model_hparams.optimizer_zero_grads = True
+    kwargs["model_hparams"].optimizer_zero_grads = True
+  kwargs.update(extra_kwargs)
+  return kwargs
+
+
+def make_simulated_env_fn_from_hparams(real_env, hparams, **extra_kwargs):
+  """Creates a simulated env_fn."""
   return make_simulated_env_fn(
-      reward_range=real_env.reward_range,
-      observation_space=real_env.observation_space,
-      action_space=real_env.action_space,
-      frame_stack_size=hparams.frame_stack_size,
-      frame_height=real_env.frame_height, frame_width=real_env.frame_width,
-      initial_frame_chooser=initial_frame_chooser, batch_size=batch_size,
-      model_name=hparams.generative_model,
-      model_hparams=trainer_lib.create_hparams(hparams.generative_model_params),
-      model_dir=model_dir,
-      intrinsic_reward_scale=hparams.intrinsic_reward_scale,
-      sim_video_dir=sim_video_dir,
+      **make_simulated_env_kwargs(real_env, hparams, **extra_kwargs)
   )
 
 
@@ -246,7 +283,16 @@ def get_policy(observations, hparams, action_space):
 
   obs_shape = common_layers.shape_list(observations)
   (frame_height, frame_width) = obs_shape[2:4]
-  policy_problem = DummyPolicyProblem(action_space, frame_height, frame_width)
+
+  # TODO(afrozm): We have these dummy problems mainly for hparams, so cleanup
+  # when possible and do this properly.
+  if hparams.policy_problem_name == "dummy_policy_problem_ttt":
+    tf.logging.info("Using DummyPolicyProblemTTT for the policy.")
+    policy_problem = tic_tac_toe_env.DummyPolicyProblemTTT()
+  else:
+    tf.logging.info("Using DummyPolicyProblem for the policy.")
+    policy_problem = DummyPolicyProblem(action_space, frame_height, frame_width)
+
   trainer_lib.add_problem_hparams(hparams, policy_problem)
   hparams.force_full_predict = True
   model = registry.model(hparams.policy_network)(
@@ -340,7 +386,33 @@ def rlmf_original():
       resize_width_factor=2,
       grayscale=0,
       rl_env_max_episode_steps=-1,
+      # If set, use this as the gym env name, instead of changing game mode etc.
+      rl_env_name="",
+      # Controls whether we should derive observation space, do some
+      # pre-processing etc. See T2TGymEnv._derive_observation_space.
+      rl_should_derive_observation_space=True,
   )
+
+
+@registry.register_hparams
+def rlmf_tictactoe():
+  """Base set of hparams for model-free PPO."""
+  hparams = rlmf_original()
+  hparams.game = "tictactoe"
+  hparams.rl_env_name = "T2TEnv-TicTacToeEnv-v0"
+  # Since we don't have any no-op actions, otherwise we have to have an
+  # attribute called `get_action_meanings`.
+  hparams.eval_max_num_noops = 0
+  hparams.add_hparam("max_num_noops", 0)
+  hparams.rl_should_derive_observation_space = False
+
+  hparams.policy_network = "feed_forward_categorical_policy"
+  hparams.base_algo_params = "ppo_ttt_params"
+
+  # Number of last observations to feed to the agent
+  hparams.frame_stack_size = 1
+
+  return hparams
 
 
 @registry.register_hparams
@@ -349,6 +421,22 @@ def rlmf_base():
   hparams = rlmf_original()
   hparams.add_hparam("ppo_epochs_num", 3000)
   hparams.add_hparam("ppo_eval_every_epochs", 100)
+  return hparams
+
+
+@registry.register_hparams
+def rlmf_eval():
+  """Eval set of hparams for model-free PPO."""
+  hparams = rlmf_original()
+  hparams.batch_size = 8
+  hparams.eval_sampling_temps = [0.0, 0.5, 1.0]
+  hparams.eval_rl_env_max_episode_steps = -1
+  hparams.add_hparam("ppo_epoch_length", 128)
+  hparams.add_hparam("ppo_optimization_batch_size", 32)
+  hparams.add_hparam("ppo_epochs_num", 10000)
+  hparams.add_hparam("ppo_eval_every_epochs", 500)
+  hparams.add_hparam("attempt", 0)
+  hparams.add_hparam("moe_loss_coef", 0)
   return hparams
 
 
@@ -426,8 +514,8 @@ def feed_forward_gaussian_fun(action_space, config, observations):
   if not isinstance(action_space, gym.spaces.box.Box):
     raise ValueError("Expecting continuous action space.")
 
-  mean_weights_initializer = tf.contrib.layers.variance_scaling_initializer(
-      factor=config.init_mean_factor)
+  mean_weights_initializer = tf.initializers.variance_scaling(
+      scale=config.init_mean_factor)
   logstd_initializer = tf.random_normal_initializer(config.init_logstd, 1e-10)
 
   flat_observations = tf.reshape(observations, [
@@ -438,10 +526,10 @@ def feed_forward_gaussian_fun(action_space, config, observations):
     with tf.variable_scope("policy"):
       x = flat_observations
       for size in config.policy_layers:
-        x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-      mean = tf.contrib.layers.fully_connected(
-          x, action_space.shape[0], tf.tanh,
-          weights_initializer=mean_weights_initializer)
+        x = tf.layers.dense(x, size, activation=tf.nn.relu)
+      mean = tf.layers.dense(
+          x, action_space.shape[0], activation=tf.tanh,
+          kernel_initializer=mean_weights_initializer)
       logstd = tf.get_variable(
           "logstd", mean.shape[2:], tf.float32, logstd_initializer)
       logstd = tf.tile(
@@ -450,8 +538,8 @@ def feed_forward_gaussian_fun(action_space, config, observations):
     with tf.variable_scope("value"):
       x = flat_observations
       for size in config.value_layers:
-        x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-      value = tf.contrib.layers.fully_connected(x, 1, None)[..., 0]
+        x = tf.layers.dense(x, size, activation=tf.nn.relu)
+      value = tf.layers.dense(x, 1)[..., 0]
   mean = tf.check_numerics(mean, "mean")
   logstd = tf.check_numerics(logstd, "logstd")
   value = tf.check_numerics(value, "value")
@@ -476,20 +564,19 @@ class FeedForwardCategoricalPolicy(PolicyBase):
 
   def body(self, features):
     observations = features["inputs_raw"]
+    observations = tf.cast(observations, tf.float32)
     flat_observations = tf.layers.flatten(observations)
     with tf.variable_scope("policy"):
       x = flat_observations
       for size in self.hparams.policy_layers:
-        x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-      logits = tf.contrib.layers.fully_connected(
-          x, self.hparams.problem.num_actions, activation_fn=None
-      )
+        x = tf.layers.dense(x, size, activation=tf.nn.relu)
+      logits = tf.layers.dense(x, self.hparams.problem.num_actions)
       logits = tf.expand_dims(logits, axis=1)
     with tf.variable_scope("value"):
       x = flat_observations
       for size in self.hparams.value_layers:
-        x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-      value = tf.contrib.layers.fully_connected(x, 1, None)
+        x = tf.layers.dense(x, size, activation=tf.nn.relu)
+      value = tf.layers.dense(x, 1)
     logits = clip_logits(logits, self.hparams)
     return {"target_policy": logits, "target_value": value}
 
@@ -506,14 +593,14 @@ class FeedForwardCnnSmallCategoricalPolicy(PolicyBase):
     dropout = getattr(self.hparams, "dropout_ppo", 0.0)
     with tf.variable_scope("feed_forward_cnn_small"):
       x = tf.cast(x, tf.float32) / 255.0
-      x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
-                                   activation_fn=tf.nn.relu, padding="SAME")
-      x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
-                                   activation_fn=tf.nn.relu, padding="SAME")
+      x = tf.layers.conv2d(x, 32, (5, 5), strides=(2, 2),
+                           activation=tf.nn.relu, padding="same")
+      x = tf.layers.conv2d(x, 32, (5, 5), strides=(2, 2),
+                           activation=tf.nn.relu, padding="same")
 
       flat_x = tf.layers.flatten(x)
       flat_x = tf.layers.dropout(flat_x, rate=dropout)
-      x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
+      x = tf.layers.dense(flat_x, 128, activation=tf.nn.relu)
 
       logits = tf.layers.dense(
           x, self.hparams.problem.num_actions, name="dense2"
@@ -521,8 +608,7 @@ class FeedForwardCnnSmallCategoricalPolicy(PolicyBase):
       logits = clip_logits(logits, self.hparams)
       logits = tf.expand_dims(logits, axis=1)
 
-      value = tf.contrib.layers.fully_connected(
-          x, 1, activation_fn=None)
+      value = tf.layers.dense(x, 1)
     return {"target_policy": logits, "target_value": value}
 
 
@@ -575,15 +661,12 @@ class DenseBitwiseCategoricalPolicy(PolicyBase):
     with tf.variable_scope("dense_bitwise"):
       flat_x = discretization.int_to_bit_embed(flat_x, 8, 32)
 
-      x = tf.contrib.layers.fully_connected(flat_x, 256, tf.nn.relu)
-      x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
+      x = tf.layers.dense(flat_x, 256, activation=tf.nn.relu)
+      x = tf.layers.dense(flat_x, 128, activation=tf.nn.relu)
 
-      logits = tf.contrib.layers.fully_connected(
-          x, self.hparams.problem.num_actions, activation_fn=None
-      )
+      logits = tf.layers.dense(x, self.hparams.problem.num_actions)
 
-      value = tf.contrib.layers.fully_connected(
-          x, 1, activation_fn=None)[..., 0]
+      value = tf.layers.dense(x, 1)[..., 0]
 
     return {"target_policy": logits, "target_value": value}
 

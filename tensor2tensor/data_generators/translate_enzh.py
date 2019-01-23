@@ -223,14 +223,16 @@ class TranslateEnzhWmt32k(translate.TranslateProblem):
         self.source_vocab_name,
         self.approx_vocab_size,
         source_datasets,
-        file_byte_budget=1e8)
+        file_byte_budget=1e8,
+        max_subtoken_length=self.max_subtoken_length)
     target_vocab = generator_utils.get_or_generate_vocab(
         data_dir,
         tmp_dir,
         self.target_vocab_name,
         self.approx_vocab_size,
         target_datasets,
-        file_byte_budget=1e8)
+        file_byte_budget=1e8,
+        max_subtoken_length=self.max_subtoken_length)
     tag = "train" if train else "dev"
     filename_base = "wmt_enzh_%sk_tok_%s" % (self.approx_vocab_size, tag)
     data_path = translate.compile_data(tmp_dir, datasets, filename_base)

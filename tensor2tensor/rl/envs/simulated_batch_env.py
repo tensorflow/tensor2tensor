@@ -115,6 +115,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     """Batch of environments inside the TensorFlow graph."""
     super(SimulatedBatchEnv, self).__init__(observation_space, action_space)
 
+    self._ffmpeg_works = common_video.ffmpeg_works()
     self.batch_size = batch_size
     self._min_reward = reward_range[0]
     self._num_frames = frame_stack_size
@@ -161,8 +162,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     model_loader = tf.train.Saver(
         var_list=tf.global_variables(scope="next_frame*")  # pylint:disable=unexpected-keyword-arg
     )
-    # TODO(afrozm): use TF methods to be on the safe side here.
-    if os.path.isdir(self._model_dir):
+    if tf.gfile.IsDirectory(self._model_dir):
       trainer_lib.restore_checkpoint(
           self._model_dir, saver=model_loader, sess=sess, must_restore=True
       )
@@ -268,6 +268,8 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     return self.history_buffer.get_all_elements()
 
   def _video_dump_frame(self, obs, rews):
+    if not self._ffmpeg_works:
+      return
     if self._video_writer is None:
       self._video_counter += 1
       self._video_writer = common_video.WholeVideoWriter(
@@ -277,10 +279,12 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
           file_format="avi")
     img = PIL_Image().new("RGB", (obs.shape[-2], 11),)
     draw = PIL_ImageDraw().Draw(img)
-    draw.text((0, 0), "r:{:3}".format(int(rews[0])), fill=(255, 0, 0))
-    self._video_writer.write(np.concatenate([np.asarray(img), obs[0]], axis=0))
+    draw.text((0, 0), "r:{:3}".format(int(rews[-1])), fill=(255, 0, 0))
+    self._video_writer.write(np.concatenate([np.asarray(img), obs[-1]], axis=0))
 
   def _video_dump_frames(self, obs):
+    if not self._ffmpeg_works:
+      return
     zeros = np.zeros(obs.shape[0])
     for i in range(obs.shape[1]):
       self._video_dump_frame(obs[:, i, :], zeros)

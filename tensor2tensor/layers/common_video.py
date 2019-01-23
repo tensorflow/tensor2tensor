@@ -357,8 +357,8 @@ def _encode_gif(images, fps):
   """Encodes numpy images into gif string.
 
   Args:
-    images: A 5-D `uint8` `np.array` (or a list of 4-D images) of shape
-      `[batch_size, time, height, width, channels]` where `channels` is 1 or 3.
+    images: A 4-D `uint8` `np.array` (or a list of 3-D images) of shape
+      `[time, height, width, channels]` where `channels` is 1 or 3.
     fps: frames per second of the animation
 
   Returns:
@@ -370,6 +370,16 @@ def _encode_gif(images, fps):
   writer = WholeVideoWriter(fps)
   writer.write_multi(images)
   return writer.finish()
+
+
+def ffmpeg_works():
+  """Tries to encode images with ffmpeg to check if it works."""
+  images = np.zeros((2, 32, 32, 3), dtype=np.uint8)
+  try:
+    _encode_gif(images, 2)
+    return True
+  except (IOError, OSError):
+    return False
 
 
 def py_gif_summary(tag, images, max_outputs, fps, return_summary_value=False):
@@ -697,7 +707,7 @@ class WholeVideoWriter(VideoWriter):
   def __init_ffmpeg(self, image_shape):
     """Initializes ffmpeg to write frames."""
     import itertools  # pylint: disable=g-import-not-at-top
-    from subprocess import Popen, PIPE  # pylint: disable=g-import-not-at-top,g-multiple-import
+    from subprocess import Popen, PIPE  # pylint: disable=g-import-not-at-top,g-multiple-import,g-importing-member
     ffmpeg = "ffmpeg"
     height, width, channels = image_shape
     self.cmd = [

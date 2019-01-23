@@ -631,8 +631,8 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
             dx, df1, df2, dnorm_scale, dnorm_bias,
             dx_f, df1_f, df2_f, dnorm_scale_f, dnorm_bias_f])
     self.assertAllClose(y, y_forget)
-    self.assertAllClose(df2, df2_f)
-    self.assertAllClose(df1, df1_f)
+    self.assertAllClose(df2, df2_f, rtol=2e-6, atol=2e-6)
+    self.assertAllClose(df1, df1_f, rtol=2e-6, atol=2e-6)
     self.assertAllClose(dnorm_scale, dnorm_scale_f)
     self.assertAllClose(dnorm_bias, dnorm_bias_f)
     self.assertAllClose(dx, dx_f)
@@ -685,8 +685,8 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     num_channels = 3
     output_filters = 10
     stride = [2, 3]  # we want height to be x2 and width to be x3
-    random_input = np.random.rand(batch, height, width, num_channels).astype(
-        np.float32)
+    random_input = tf.convert_to_tensor(
+        np.random.rand(batch, height, width, num_channels), dtype=tf.float32)
 
     # conv2d_transpose is a little tricky.
     # height_new = (height_old - 1) * stride + kernel - 2*padding - correction

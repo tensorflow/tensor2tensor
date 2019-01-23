@@ -33,6 +33,7 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 tfl = tf.layers
+_MAX_BATCH = 128
 
 
 @registry.register_model
@@ -74,8 +75,9 @@ class NextFrameBasicStochasticDiscrete(
     if not self.hparams.concat_internal_states:
       return None
     # Hardcoded frame shapes.
-    max_batch_size = max(64, self.hparams.batch_size)
-    shape = [max_batch_size] + self.hparams.problem.frame_shape[:-1] + [32]
+    max_batch_size = max(_MAX_BATCH, self.hparams.batch_size)
+    shape = [max_batch_size] + self.hparams.problem.frame_shape[:-1] + [
+        self.hparams.recurrent_state_size]
     with tf.variable_scope("clean_scope_for_internal_state"):
       v = tf.get_variable("state", shape, trainable=False,
                           initializer=tf.zeros_initializer())
@@ -106,13 +108,14 @@ class NextFrameBasicStochasticDiscrete(
     internal_state = internal_states[0][0][:batch_size, :, :, :]
     state_activation = tf.concat([internal_state, frames[0]], axis=-1)
     state_gate_candidate = tf.layers.conv2d(
-        state_activation, 64, (3, 3), padding="SAME", name="state_conv")
+        state_activation, 2 * self.hparams.recurrent_state_size,
+        (3, 3), padding="SAME", name="state_conv")
     state_gate, state_candidate = tf.split(state_gate_candidate, 2, axis=-1)
     state_gate = tf.nn.sigmoid(state_gate)
     state_candidate = tf.tanh(state_candidate)
     internal_state = internal_state * state_gate
     internal_state += state_candidate * (1.0 - state_gate)
-    max_batch_size = max(64, self.hparams.batch_size)
+    max_batch_size = max(_MAX_BATCH, self.hparams.batch_size)
     diff_batch_size = max_batch_size - batch_size
     internal_state = tf.pad(
         internal_state, [[0, diff_batch_size], [0, 0], [0, 0], [0, 0]])
@@ -267,11 +270,12 @@ def next_frame_basic_stochastic_discrete():
   hparams.add_hparam("discretize_warmup_steps", 40000)
   hparams.add_hparam("latent_rnn_warmup_steps", 40000)
   hparams.add_hparam("latent_rnn_max_sampling", 0.5)
-  hparams.add_hparam("latent_use_max_probability", 0.7)
+  hparams.add_hparam("latent_use_max_probability", 0.8)
   hparams.add_hparam("full_latent_tower", False)
   hparams.add_hparam("latent_predictor_state_size", 128)
   hparams.add_hparam("latent_predictor_temperature", 1.0)
   hparams.add_hparam("complex_addn", True)
+  hparams.add_hparam("recurrent_state_size", 64)
   return hparams
 
 

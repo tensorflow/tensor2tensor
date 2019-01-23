@@ -17,6 +17,7 @@
 
 import datetime
 import os
+import pprint
 import shutil
 import subprocess as sp
 import sys
@@ -202,8 +203,15 @@ def configure_job():
     )
 
   timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-  job_name = "%s_%s_t2t_%s" % (FLAGS.model, FLAGS.problem, timestamp)
-  job_spec = {"jobId": job_name, "trainingInput": training_input}
+  job_spec = {
+      "jobId": "%s_%s_t2t_%s" % (FLAGS.model, FLAGS.problem, timestamp),
+      "labels": {
+          "model": FLAGS.model,
+          "problem": FLAGS.problem,
+          "hparams": FLAGS.hparams_set
+      },
+      "trainingInput": training_input,
+  }
   return job_spec
 
 
@@ -225,7 +233,7 @@ def _tar_and_copy(src_dir, target_dir):
   tmp_dir = tempfile.gettempdir().rstrip("/")
   src_base = os.path.basename(src_dir)
   shell_run(
-      "tar -zcf {tmp_dir}/{src_base}.tar.gz -C {src_dir} .",
+      "tar --exclude=.git -zcf {tmp_dir}/{src_base}.tar.gz -C {src_dir} .",
       src_dir=src_dir,
       src_base=src_base,
       tmp_dir=tmp_dir)
@@ -371,7 +379,7 @@ def launch():
   job_spec = configure_job()
   job_name = job_spec["jobId"]
   tf.logging.info("Launching job %s with ML Engine spec:\n%s", job_name,
-                  job_spec)
+                  pprint.pformat(job_spec))
   assert confirm()
   train_dir = FLAGS.output_dir
   t2t_tar = tar_and_copy_t2t(train_dir)
@@ -382,3 +390,7 @@ def launch():
   launch_job(job_spec)
   tf.logging.info("Launched %s. See console to track: %s.", job_name,
                   CONSOLE_URL)
+  tf.logging.info("Interact with the training job from the command line:")
+  tf.logging.info("Abort job: gcloud ml-engine jobs cancel %s", job_name)
+  tf.logging.info("Stream logs: gcloud ml-engine jobs stream-logs %s", job_name)
+  tf.logging.info("Open tensorboard: tensorboard --logdir %s", train_dir)
