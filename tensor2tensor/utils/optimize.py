@@ -157,7 +157,7 @@ def adam_w(learning_rate, hparams):
       epsilon=hparams.optimizer_adam_epsilon)
 
 
-@registry.register_optimizer('adafactor')
+@registry.register_optimizer('Adafactor')
 def register_adafactor(learning_rate, hparams):
   return adafactor.adafactor_optimizer_from_hparams(hparams, learning_rate)
 
