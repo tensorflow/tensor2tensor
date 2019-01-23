@@ -18,7 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import numpy as np
-import functools
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import adafactor
@@ -162,13 +161,14 @@ def register_adafactor(learning_rate, hparams):
   return adafactor.adafactor_optimizer_from_hparams(hparams, learning_rate)
 
 
-def _get_opt(learning_rate, hparams, key):
-  return tf.contrib.layers.OPTIMIZER_CLS_NAMES[key](learning_rate)
+def _register_base_optimizer(key, fn):
+  registry.register_optimizer(key)(
+      lambda learning_rate, hparams: fn(learning_rate))
 
 
 for k in tf.contrib.layers.OPTIMIZER_CLS_NAMES:
   if k not in registry._OPTIMIZERS:
-    registry.register_optimizer(k)(functools.partial(_get_opt, key=k))
+    _register_base_optimizer(k, tf.contrib.layers.OPTIMIZER_CLS_NAMES[k])
 
 
 class ConditionalOptimizer(tf.train.Optimizer):

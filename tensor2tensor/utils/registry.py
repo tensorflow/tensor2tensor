@@ -46,7 +46,6 @@ from __future__ import print_function
 
 from tensor2tensor.utils import misc_utils
 import tensorflow as tf
-import functools
 from tensorflow.python.util import tf_inspect as inspect
 
 _ATTACKS = {}
@@ -126,22 +125,19 @@ _OPTIMIZERS = {}
 def register_optimizer(name=None):
   """Register an optimizer. name defaults to upper camel case of fn name."""
 
+  def default_opt_name(opt_fn):
+    return misc_utils.snakecase_to_camelcase(default_name(opt_fn))
+
   def decorator(opt_fn, registration_name):
     """Registers and returns optimizer_fn with registration_name or default."""
+    if registration_name is None:
+      registration_name = default_opt_name(opt_fn)
 
     if registration_name in _OPTIMIZERS and not tf.executing_eagerly():
       raise LookupError("Optimizer %s already registered." % registration_name)
-    if isinstance(opt_fn, functools.partial):
-      partial_args = opt_fn.args
-      partial_kwargs = opt_fn.keywords
-      func = opt_fn.func
-      func_args, varargs, keywords, _ = inspect.getargspec(func)
-      arg_len = len(func_args) - len(partial_args) - len(partial_kwargs)
-    else:
-      args, varargs, keywords, _ = inspect.getargspec(opt_fn)
-      arg_len = len(args)
+    args, varargs, keywords, _ = inspect.getargspec(opt_fn)
 
-    if arg_len != 2 or varargs is not None or keywords is not None:
+    if len(args) != 2 or varargs is not None or keywords is not None:
       raise ValueError("Optimizer registration function must take two "
                        "arguments: learning_rate (float) and "
                        "hparams (HParams).")
@@ -150,8 +146,7 @@ def register_optimizer(name=None):
 
   if callable(name):
     opt_fn = name
-    registration_name = misc_utils.snakecase_to_camelcase(
-        default_name(opt_fn)).title()
+    registration_name = default_opt_name(opt_fn)
     return decorator(opt_fn, registration_name=registration_name)
 
   return lambda opt_fn: decorator(opt_fn, name)
