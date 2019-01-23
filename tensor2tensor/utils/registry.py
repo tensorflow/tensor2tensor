@@ -126,12 +126,11 @@ _OPTIMIZERS = {}
 def register_optimizer(name=None):
   """Register an optimizer. name defaults to upper camel case of fn name."""
 
-  def decorator(opt_fn, registration_name=None):
+  def decorator(opt_fn, registration_name):
     """Registers and returns optimizer_fn with registration_name or default."""
-    opt_name = registration_name or misc_utils.snakecase_to_camelcase(
-        default_name(opt_fn)).title()
-    if opt_name in _OPTIMIZERS and not tf.executing_eagerly():
-      raise LookupError("Optimizer %s already registered." % opt_name)
+
+    if registration_name in _OPTIMIZERS and not tf.executing_eagerly():
+      raise LookupError("Optimizer %s already registered." % registration_name)
     if isinstance(opt_fn, functools.partial):
       partial_args = opt_fn.args
       partial_kwargs = opt_fn.keywords
@@ -146,12 +145,14 @@ def register_optimizer(name=None):
       raise ValueError("Optimizer registration function must take two "
                        "arguments: learning_rate (float) and "
                        "hparams (HParams).")
-    _OPTIMIZERS[opt_name] = opt_fn
+    _OPTIMIZERS[registration_name] = opt_fn
     return opt_fn
 
   if callable(name):
     opt_fn = name
-    return decorator(opt_fn, registration_name=default_name(opt_fn))
+    registration_name = misc_utils.snakecase_to_camelcase(
+        default_name(opt_fn)).title()
+    return decorator(opt_fn, registration_name=registration_name)
 
   return lambda opt_fn: decorator(opt_fn, name)
 
