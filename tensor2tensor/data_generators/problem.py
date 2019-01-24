@@ -877,8 +877,7 @@ class Problem(object):
         dtype=tf.string, shape=[None], name="serialized_example")
     dataset = tf.data.Dataset.from_tensor_slices(serialized_example)
     dataset = dataset.map(self.decode_example)
-    dataset = dataset.map(lambda ex: self.preprocess_example(ex, mode, hparams))
-    dataset = dataset.map(self.maybe_reverse_and_copy)
+    dataset = dataset.map(lambda ex: self.preprocess_example(ex, mode, hparams))   
     dataset = dataset.map(data_reader.cast_ints_to_int32)
     dataset = dataset.padded_batch(
         tf.shape(serialized_example, out_type=tf.int64)[0],
