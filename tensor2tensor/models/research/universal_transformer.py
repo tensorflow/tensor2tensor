@@ -438,14 +438,22 @@ def update_hparams_for_universal_transformer(hparams):
 
 @registry.register_hparams
 def universal_transformer_base():
-  hparams = transformer.transformer_big()
+  """Base parameters for Universal Transformer."""
+  hparams = transformer.transformer_base()
+  # To have a similar capacity to the transformer_base with 6 layers,
+  # we need to increase the size of the UT's layer
+  # since, in fact, UT has a single layer repeating multiple times.
+  hparams.hidden_size = 1024
+  hparams.filter_size = 4096
+  hparams.num_heads = 16
+  hparams.layer_prepostprocess_dropout = 0.3
   hparams = update_hparams_for_universal_transformer(hparams)
   return hparams
 
 
 @registry.register_hparams
 def universal_transformer_base_tpu():
-  hparams = transformer.transformer_big()
+  hparams = universal_transformer_base()
   hparams = update_hparams_for_universal_transformer(hparams)
   transformer.update_hparams_for_tpu(hparams)
   hparams.add_step_timing_signal = False
@@ -454,7 +462,7 @@ def universal_transformer_base_tpu():
 
 @registry.register_hparams
 def universal_transformer_big():
-  hparams = transformer.transformer_big()
+  hparams = universal_transformer_base()
   hparams = update_hparams_for_universal_transformer(hparams)
   hparams.hidden_size = 2048
   hparams.filter_size = 8192
