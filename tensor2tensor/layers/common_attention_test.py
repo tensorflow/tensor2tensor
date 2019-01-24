@@ -537,6 +537,139 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
+  def python_relative_att(self, q, k, v, batch, num_heads, height, width,
+                          depth, height_key_relative_embeddings,
+                          width_key_relative_embeddings,
+                          heads_share_relative_embedding):
+    """Relative attention computation in numpy.
+
+    For query index (i,j) and key index (l, m) the logit is
+    q_i k_j^T + q_i rh_{l-i}^T + q_i rw_{m-j}^T, where rh and ry are the set of
+    relative embeddings in height and width spatial dimensions, respectively.
+
+    Args:
+      q: [batch, heads, height, width, depth] tensor
+      k: [batch, heads, height, width, depth] tensor
+      v: [batch, heads, height, width, depth] tensor
+      batch: int scalar
+      num_heads: int scalar
+      height: int scalar
+      width: int scalar
+      depth: int scalar
+      height_key_relative_embeddings: a tensor of relative embeddings
+      width_key_relative_embeddings: a tensor of relative embeddings
+      heads_share_relative_embedding: a boolean
+
+    Returns:
+      att_output: A tensor
+    """
+
+    logits = np.zeros((batch, num_heads, height*width, height*width))
+    for b in range(batch):
+      for h in range(num_heads):
+        for i in range(height*width):
+          q_col = i%width
+          q_row = int((i-q_col)/width)
+          for j in range(height*width):
+            k_col = j%width
+            k_row = int((j-k_col)/width)
+            logit = np.dot(q[b][h][q_row][q_col], k[b][h][k_row][k_col])
+            width_rel_dist = k_col - q_col
+            width_rel_index = width-1 + width_rel_dist
+            if heads_share_relative_embedding:
+              width_rel_logit = (
+                  np.dot(q[b][h][q_row][q_col],
+                         width_key_relative_embeddings[width_rel_index]))
+            else:
+              width_rel_logit = (
+                  np.dot(q[b][h][q_row][q_col],
+                         width_key_relative_embeddings[h][width_rel_index]))
+            height_rel_dist = k_row - q_row
+            height_rel_index = height-1 + height_rel_dist
+            if heads_share_relative_embedding:
+              height_rel_logit = (
+                  np.dot(q[b][h][q_row][q_col],
+                         height_key_relative_embeddings[height_rel_index]))
+            else:
+              height_rel_logit = (
+                  np.dot(q[b][h][q_row][q_col],
+                         height_key_relative_embeddings[h][height_rel_index]))
+            logits[b, h, i, j] = logit + width_rel_logit + height_rel_logit
+    # now to do a softmax across the logits
+    att = np.exp(logits) / np.sum(np.exp(logits), axis=-1, keepdims=True)
+    # comparing the outputs
+    att_output = np.matmul(att,
+                           np.reshape(v, (
+                               batch, num_heads, height*width, depth)))
+    att_output = np.reshape(att_output,
+                            (batch, num_heads, height, width, depth))
+    return att_output
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testDotProductUnMaskedAttentionRelative2d(self):
+    batch = 1
+    height = 3
+    width = 3
+    num_heads = 2
+    max_relative_position = 6
+    depth = 5
+    heads_share_relative_embedding = False
+    q = np.random.rand(batch, num_heads, height, width, depth)
+    k = np.random.rand(batch, num_heads, height, width, depth)
+    v = np.random.rand(batch, num_heads, height, width, depth)
+    a = common_attention.dot_product_unmasked_self_attention_relative_2d(
+        tf.constant(q, dtype=tf.float32),
+        tf.constant(k, dtype=tf.float32),
+        tf.constant(v, dtype=tf.float32),
+        None,
+        max_relative_position=max_relative_position,
+        heads_share_relative_embedding=heads_share_relative_embedding)
+
+    self.evaluate(tf.global_variables_initializer())
+    res, height_key_relative_embeddings, width_key_relative_embeddings = (
+        self.evaluate(a))
+    att_output = self.python_relative_att(
+        q, k, v, batch, num_heads, height, width, depth,
+        height_key_relative_embeddings, width_key_relative_embeddings,
+        heads_share_relative_embedding)
+    self.assertEqual(res.shape, (batch, num_heads, height, width, depth))
+    self.assertAllClose(res, att_output)
+
+  @parameterized.parameters(
+      (1, 10, 12, 2, 6, 3),
+      (1, 1, 12, 2, 6, 3),
+      (2, 10, 1, 2, 6, 3),
+      (1, 10, 12, 2, 1, 1),
+      (1, 10, 12, 2, 2, 8),
+      (4, 10, 12, 2, 12, 10),
+  )
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testDotProductUnMaskedAttentionRelative2dSharedOneRow(
+      self, batch, height, width, num_heads, max_relative_position, depth):
+    heads_share_relative_embedding = True
+    q = np.random.rand(batch, num_heads, height, width, depth)
+    k = np.random.rand(batch, num_heads, height, width, depth)
+    v = np.random.rand(batch, num_heads, height, width, depth)
+
+    a = common_attention.dot_product_unmasked_self_attention_relative_2d(
+        tf.constant(q, dtype=tf.float32),
+        tf.constant(k, dtype=tf.float32),
+        tf.constant(v, dtype=tf.float32),
+        None,
+        max_relative_position=max_relative_position,
+        heads_share_relative_embedding=heads_share_relative_embedding)
+
+    self.evaluate(tf.global_variables_initializer())
+    (res, height_key_relative_embeddings,
+     width_key_relative_embeddings) = self.evaluate(a)
+    att_output = self.python_relative_att(
+        q, k, v, batch, num_heads, height, width, depth,
+        height_key_relative_embeddings, width_key_relative_embeddings,
+        heads_share_relative_embedding)
+    self.assertEqual(res.shape,
+                     (batch, num_heads, height, width, depth))
+    self.assertAllClose(res, att_output)
+
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testRelativeAttentionV2Unmasked(self):
     # (batch, heads, length, depth)
