@@ -66,22 +66,32 @@ With a properly defined and registered multi-problem we can now run datagen as f
 
 ```bash
 
-t2t-datagen --problem=languagemodel_multi_wiki_translate
+t2t-datagen --problem=languagemodel_multi_wiki_translate 
 
 ```
 
-This will generate examples into the provided `data_dir`.
+This will take approximately the following amount of space (and several hours):
+
+```bash
+(t2t) username@instance-2:~$ du -sh /tmp
+99G     /tmp
+(t2t) username@instance-2:~$ du -sh /tmp/t2t_datagen
+81G     /tmp/t2t_datagen
+```
 
 ### Training
 
-Next we're ready to try training a model on this MultiProblem.
+Next we're ready to try training a model on this MultiProblem. Note that by not specifying `--data_dir` above TFExample's were by default generated into /tmp so that's what we'll explicitly provide here.
 
 ```bash
 
 t2t-trainer --problem=languagemodel_multi_wiki_translate \
     --model=transformer \
     --hparams_set=transformer_tall_pretrain_lm_tpu_adafactor_large \
-    --output_dir ~/t2t_train/transformer_multi_2jan19
+    --output_dir ~/t2t_train/transformer_multi_2jan19 \
+    --data_dir=/tmp \
+    --train_steps=1 \
+    --eval_steps=1
 
 ```
 
@@ -104,9 +114,9 @@ def transformer_tall_pretrain_lm_tpu_adafactor_large():
 
 ```
 
-Here it's worth noting a couple things, one that we have specified a `multi_problem_mixing_schedule` (which is required), consumed by [MultiProblem.mix_data](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/multi_problem.py#L280). More on this below but in short here we're just sampling training examples from each problem with equal probability and without making this a function of the training step.
+Here it's worth noting a couple things, one that we have specified a `multi_problem_mixing_schedule` (which is required), consumed by [MultiProblem.mix_data](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/multi_problem.py#L280). When set to "constant" the strategy for sampling examples is not a function of step and is proportional only to the per-task "thresholds" which are by default equal (sample examples from each problem with equal probability).
 
-Here we have also specified a (non-required) `multiproblem_per_task_threshold` parameter, also consumed by mix_data, and specifically used by [sample_task](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/multi_problem.py#L340) to inform a weighted random sampling - i.e. with weights 1 and 9, sampling uniformly, the first would be sampled 1/10 of the time and the other 9/10.
+But notice we have also specified the (non-required) `multiproblem_per_task_threshold` parameter, also consumed by mix_data, and specifically used by [sample_task](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/multi_problem.py#L340) which defines non-uniform thresholds to inform a weighted random sampling. E.g. for two problems with weights 1 and 9 the first would be sampled 1/10 of the time and the other 9/10.
 
 ### Inference
 
