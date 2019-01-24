@@ -66,7 +66,7 @@ With a properly defined and registered multi-problem we can now run datagen as f
 
 ```bash
 
-t2t-datagen --problem=languagemodel_multi_wiki_translate 
+t2t-datagen --problem=languagemodel_multi_wiki_translate
 
 ```
 
