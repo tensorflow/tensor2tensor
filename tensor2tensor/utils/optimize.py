@@ -23,8 +23,8 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import adafactor
 from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import multistep_optimizer
-from tensor2tensor.utils import yellowfin
 from tensor2tensor.utils import registry
+from tensor2tensor.utils import yellowfin
 
 import tensorflow as tf
 
@@ -94,7 +94,7 @@ def optimize(loss, learning_rate, hparams, use_tpu=False, variables=None):
   return train_op
 
 
-@registry.register_optimizer
+@registry.register_optimizer("adam")
 def adam(learning_rate, hparams):
   # We change the default epsilon for Adam.
   # Using LazyAdam as it's much faster for large vocabulary embeddings.
@@ -105,7 +105,7 @@ def adam(learning_rate, hparams):
       epsilon=hparams.optimizer_adam_epsilon)
 
 
-@registry.register_optimizer
+@registry.register_optimizer("multistep_adam")
 def multistep_adam(learning_rate, hparams):
   return multistep_optimizer.MultistepAdamOptimizer(
       learning_rate,
@@ -115,7 +115,7 @@ def multistep_adam(learning_rate, hparams):
       n=hparams.optimizer_multistep_accumulate_steps)
 
 
-@registry.register_optimizer
+@registry.register_optimizer("momentum")
 def momentum(learning_rate, hparams):
   return tf.train.MomentumOptimizer(
       learning_rate,
@@ -123,14 +123,14 @@ def momentum(learning_rate, hparams):
       use_nesterov=hparams.optimizer_momentum_nesterov)
 
 
-@registry.register_optimizer
+@registry.register_optimizer("yellow_fin")
 def yellow_fin(learning_rate, hparams):
   return yellowfin.YellowFinOptimizer(
       learning_rate=learning_rate,
       momentum=hparams.optimizer_momentum_momentum)
 
 
-@registry.register_optimizer
+@registry.register_optimizer("true_adam")
 def true_adam(learning_rate, hparams):
   return tf.train.AdamOptimizer(
       learning_rate,
@@ -139,7 +139,7 @@ def true_adam(learning_rate, hparams):
       epsilon=hparams.optimizer_adam_epsilon)
 
 
-@registry.register_optimizer
+@registry.register_optimizer("adam_w")
 def adam_w(learning_rate, hparams):
   # Openai gpt used weight decay.
   # Given the internals of AdamW, weight decay dependent on the
@@ -161,13 +161,15 @@ def register_adafactor(learning_rate, hparams):
   return adafactor.adafactor_optimizer_from_hparams(hparams, learning_rate)
 
 
+
+
 def _register_base_optimizer(key, fn):
   registry.register_optimizer(key)(
       lambda learning_rate, hparams: fn(learning_rate))
 
 
 for k in tf.contrib.layers.OPTIMIZER_CLS_NAMES:
-  if k not in registry._OPTIMIZERS:
+  if k not in registry._OPTIMIZERS:  # pylint: disable=protected-access
     _register_base_optimizer(k, tf.contrib.layers.OPTIMIZER_CLS_NAMES[k])
 
 
