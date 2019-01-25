@@ -464,9 +464,19 @@ class PlannerAgent(BatchAgent):
   needs_env_state = True
 
   def __init__(
-      self, batch_size, rollout_agent, sim_env, wrapper_fn, num_rollouts,
-      planning_horizon, discount_factor=1.0, uct_const=0,
-      uct_std_normalization=False, uniform_first_action=True, video_writer=None
+      self,
+      batch_size,
+      rollout_agent,
+      sim_env,
+      wrapper_fn,
+      num_rollouts,
+      planning_horizon,
+      discount_factor=1.0,
+      uct_const=0,
+      uniform_first_action=True,
+      normalizer_window_size=30,
+      normalizer_epsilon=0.001,
+      video_writer=None,
   ):
     super(PlannerAgent, self).__init__(
         batch_size, rollout_agent.observation_space, rollout_agent.action_space
@@ -479,8 +489,9 @@ class PlannerAgent(BatchAgent):
     self._discount_factor = discount_factor
     self._planning_horizon = planning_horizon
     self._uct_const = uct_const
-    self._uct_std_normalization = uct_std_normalization
     self._uniform_first_action = uniform_first_action
+    self._normalizer_window_size = normalizer_window_size
+    self._normalizer_epsilon = normalizer_epsilon
     self._video_writer = video_writer
     self._best_mc_values = [[] for _ in range(self.batch_size)]
 
@@ -549,11 +560,10 @@ class PlannerAgent(BatchAgent):
       )
       best_mc_values.append(mc_values.max())
 
-      if self._uct_std_normalization:
-        agg = np.std
-      else:
-        agg = lambda x: np.mean(np.std(x))
-      normalizer = max(agg(best_mc_values[-30:]), 0.001)
+      normalizer = max(
+          np.std(best_mc_values[-self._normalizer_window_size:]),
+          self._normalizer_epsilon
+      )
       normalized_mc_values = mc_values / normalizer
 
       uct_bonuses = np.array(
