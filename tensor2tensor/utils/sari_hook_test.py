@@ -128,7 +128,7 @@ class SariHookTest(tf.test.TestCase):
 
   def testSariScoreE2E(self):
     """Tests the SARI metrics end-to-end."""
-    predictions = np.random.randint(4, size=(12, 12, 1, 12))
+    predictions = np.random.randint(4, size=(12, 12, 1, 1, 12))
     targets = np.random.randint(4, size=(12, 12, 1, 1))
     inputs = np.random.randint(4, size=(12, 12, 1, 1))
     with self.test_session() as session:
