@@ -465,9 +465,14 @@ def universal_transformer_big():
   hparams.filter_size = 8192
   return hparams
 
-@registry.register_hparams
-def universal_transformer_fp16_4k():
+def universal_transformer_base_small_batch():
   hparams = universal_transformer_base()
+  hparams.batch_size = 1024
+  return hparams
+
+@registry.register_hparams
+def universal_transformer_fp16_small_batch():
+  hparams = universal_transformer_base_small_batch()
   hparams.activation_dtype = 'float16'
   return hparams
 
