@@ -466,14 +466,14 @@ def universal_transformer_big():
   return hparams
 
 @registry.register_hparams
-def universal_transformer_base_small_batch():
-  hparams = universal_transformer_base()
-  hparams.batch_size = 1024
+def universal_transformer_base_old():
+  hparams = transformer.transformer_base()
+  hparams = update_hparams_for_universal_transformer(hparams)
   return hparams
 
 @registry.register_hparams
 def universal_transformer_fp16_small_batch():
-  hparams = universal_transformer_base_small_batch()
+  hparams = universal_transformer_base_old()
   hparams.activation_dtype = 'float16'
   return hparams
 
