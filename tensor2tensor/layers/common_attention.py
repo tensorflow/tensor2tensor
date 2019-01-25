@@ -2034,6 +2034,157 @@ def dot_product_unmasked_self_attention_relative_v2(
     return ret
 
 
+def _matmul_with_relative_keys_2d(x, y, heads_share_relative_embedding):
+  """Helper function for dot_product_unmasked_self_attention_relative_2d."""
+  if heads_share_relative_embedding:
+    ret = tf.einsum("bhxyd,md->bhxym", x, y)
+  else:
+    ret = tf.einsum("bhxyd,hmd->bhxym", x, y)
+  return ret
+
+
+def dot_product_unmasked_self_attention_relative_2d(
+    q, k, v, bias, max_relative_position=None, dropout_rate=0.0,
+    image_shapes=None, name=None, make_image_summary=True,
+    dropout_broadcast_dims=None, heads_share_relative_embedding=False,
+    add_relative_to_values=False):
+  """Calculate relative position unmasked dot-product self-attention 2d.
+
+
+  The attention calculation is augmented with learned representations for the
+  relative position between each element in q and each element in k and v in
+  height and width dimensions. for query index (i,j) and key index (l, m),
+  the logit is q_i k_j^T + q_i rh_{l-i}^T + q_i rw_{m-j}^T, where rh and ry are
+  the set of relative embeddings in height and width spatial dimensions,
+  respectively.
+
+  Args:
+    q: a Tensor with shape [batch, heads, height, width, depth].
+    k: a Tensor with shape [batch, heads, height, width, depth].
+    v: a Tensor with shape [batch, heads, height, width, depth].
+    bias: bias Tensor.
+    max_relative_position: an integer the max relative embedding considered.
+      Changing this invalidates checkpoints.
+    dropout_rate: a floating point number.
+    image_shapes: optional tuple of integer scalars.
+    name: an optional string.
+    make_image_summary: Whether to make an attention image summary.
+    dropout_broadcast_dims:  an optional list of integers less than 4
+      specifying in which dimensions to broadcast the dropout decisions.
+      saves memory.
+    heads_share_relative_embedding: a boolean indicating wheather to share
+      relative embeddings between attention heads.
+    add_relative_to_values: a boolean for adding relative embeddings to values.
+
+  Returns:
+    [batch, heads, height, width, depth] tensor, the output of attention.
+    height_key_relative_embeddings: a 3d or 2d tensor, depending on head sharing
+      settings, which are the relative embeddings for height.
+    width_key_relative_embeddings: a 3d or 2d tensor, depending on head sharing
+      settings, which are the relative embeddings for width.
+
+  Raises:
+    ValueError: if max_relative_position is not > 0.
+  """
+  if not max_relative_position:
+    raise ValueError("Max relative position (%s) should be > 0 when using "
+                     "relative self attention." % (max_relative_position))
+
+  if add_relative_to_values:
+    raise ValueError("Adding relative embeddings to values is not implemented")
+
+  with tf.variable_scope(
+      name,
+      default_name="dot_product_self_attention_relative_v2",
+      values=[q, k, v]):
+
+    # This calculation only works for self attention.
+    # q, k and v must therefore have the same shape.
+    q.get_shape().assert_is_compatible_with(k.get_shape())
+    q.get_shape().assert_is_compatible_with(v.get_shape())
+
+    (height, width) = (common_layers.shape_list(q)[2],
+                       common_layers.shape_list(q)[3])
+    k_shape = common_layers.shape_list(k)
+    num_heads = k_shape[1]
+    depth_k = k_shape[-1]
+    depth_v = common_layers.shape_list(v)[-1]
+    # flatten height width
+    flatten_hw = lambda x, d: tf.reshape(x, [-1, num_heads, height*width, d])
+    # [batch, num_heads, query_length, memory_length]
+    logits = tf.matmul(flatten_hw(q, depth_k), flatten_hw(k, depth_k),
+                       transpose_b=True)
+
+    def _compute_2d_relative_logits(
+        query, key_relative_embeddings, height, width,
+        heads_share_relative_embedding, transpose_mask):
+      """compute relative logits."""
+      unmasked_rel_logits = _matmul_with_relative_keys_2d(
+          query, key_relative_embeddings, heads_share_relative_embedding)
+      # collapse height and heads
+      unmasked_rel_logits = tf.reshape(unmasked_rel_logits,
+                                       [-1, num_heads*height, width,
+                                        2*width-1])
+      unmasked_rel_logits = (
+          _relative_position_to_absolute_position_unmasked(
+              unmasked_rel_logits))
+      # shape it back for tiling
+      unmasked_rel_logits = tf.reshape(
+          unmasked_rel_logits, [-1, num_heads, height, width, width])
+      # tiling it height times
+      unmasked_rel_logits = tf.expand_dims(
+          unmasked_rel_logits, axis=3)
+      unmasked_rel_logits = tf.tile(unmasked_rel_logits,
+                                    [1, 1, 1, height, 1, 1])
+      # bringing it to the right shape for adding to the logits.
+      unmasked_rel_logits = tf.transpose(unmasked_rel_logits, transpose_mask)
+      unmasked_rel_logits = tf.reshape(unmasked_rel_logits,
+                                       [-1, num_heads, height*width,
+                                        height*width])
+      return unmasked_rel_logits
+
+    # Relative logits in width dimension first.
+    width_key_relative_embeddings = get_relative_embeddings_left_right(
+        max_relative_position, width, depth_k, num_heads,
+        heads_share_relative_embedding,
+        "width_key_relative_embeddings")
+    # [batch, heads, height, 2*width-1, 2*width-1]
+    width_unmasked_rel_logits = _compute_2d_relative_logits(
+        q, width_key_relative_embeddings, height, width,
+        heads_share_relative_embedding, [0, 1, 2, 4, 3, 5])
+    logits += width_unmasked_rel_logits
+    # Relative logits in height dimension next. For ease, we transpose
+    # height and width and repeat the above steps, and transpose to eventually
+    # put the logits in their right positions.
+    # [batch, heads, height, 2*height-1, 2*width-1]
+    height_key_relative_embeddings = get_relative_embeddings_left_right(
+        max_relative_position, height, depth_k, num_heads,
+        heads_share_relative_embedding,
+        "height_key_relative_embeddings")
+
+    height_unmasked_rel_logits = _compute_2d_relative_logits(
+        tf.transpose(q, [0, 1, 3, 2, 4]),
+        height_key_relative_embeddings,
+        width,
+        height,
+        heads_share_relative_embedding, [0, 1, 4, 2, 5, 3])
+    logits += height_unmasked_rel_logits
+    if bias is not None:
+      logits += bias
+    weights = tf.nn.softmax(logits, name="attention_weights")
+    # dropping out the attention links for each of the heads
+    weights = common_layers.dropout_with_broadcast_dims(
+        weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
+    if common_layers.should_generate_summaries() and make_image_summary:
+      attention_image_summary(weights, image_shapes)
+    ret = tf.matmul(weights, flatten_hw(v, depth_v))
+    # reshape back the same spatial dimensions as q
+    return (
+        tf.reshape(ret, [-1, num_heads, height, width, depth_v]),
+        height_key_relative_embeddings,
+        width_key_relative_embeddings)
+
+
 def masked_within_block_local_attention_1d(q, k, v, block_length=64, name=None):
   """Attention to the source and a neighborhood to the left within a block.
 

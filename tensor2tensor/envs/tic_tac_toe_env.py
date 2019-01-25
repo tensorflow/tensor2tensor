@@ -32,8 +32,6 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.layers import modalities
 from tensor2tensor.rl import gym_utils
 
-import tensorflow as tf
-
 
 def encode_pos(i, j):
   """Encodes a pair (i, j) as a scalar position on the board."""
@@ -188,7 +186,6 @@ class TicTacToeEnv(gym.Env):
     return self.board_state, reward, self.done, {}
 
   def hparams(self, defaults, unused_model_hparams):
-    tf.logging.error("@@@ new tictactoe hparams are being called!")
     p = defaults
     p.modality = {
         "inputs": modalities.IdentitySymbolModality,
@@ -200,9 +197,6 @@ class TicTacToeEnv(gym.Env):
     }
     p.input_space_id = 0  # problem.SpaceID.GENERIC
     p.target_space_id = 0  # problem.SpaceID.GENERIC
-
-    # TODO(afrozm): This doesn't work without returning the hparams object.
-    return p
 
 
 # TODO(afrozm): Figure out how to get rid of this.
