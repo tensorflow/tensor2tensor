@@ -89,7 +89,7 @@ class Registry(object):
   """Dict-like class for managing registrations."""
   def __init__(
       self, register_name, default_key_fn=default_name, validator=None,
-      on_set_callback=None, value_transformer=_default_value_transformer):
+      on_set=None, value_transformer=_default_value_transformer):
     """
     Args:
       register_name: str identifier for the given register. Used in error msgs.
@@ -99,7 +99,7 @@ class Registry(object):
         (key, value) pair. Accepts (key, value) and should raise if there is a
         problem. Overwriting existing keys is not allowed and is checked
         separately.
-      on_set_callback (optional): callback function accepting (key, value) pair
+      on_set (optional): callback function accepting (key, value) pair
         which is run after an item is successfully set.
       value_transformer (optional): if run, `__getitem__` will return
         value_transformer(key, registered_value).
@@ -108,7 +108,7 @@ class Registry(object):
     self._name = register_name
     self._default_key_fn = default_key_fn
     self._validator = validator
-    self._on_set_callback = on_set_callback
+    self._on_set = on_set
     self._value_transformer = value_transformer
 
   def default_key(self, key):
@@ -128,7 +128,7 @@ class Registry(object):
                      % (key, self._name))
     self.validate(key, value)
     self._register[key] = value
-    callback = self._on_set_callback
+    callback = self._on_set
     if callback is not None:
       callback(key, value)
 
@@ -253,6 +253,10 @@ def _problem_name_validator(k, v):
         "Invalid problem name: cannot end in %s or %s" % ("_rev", "_copy"))
 
 
+def _on_problem_set(k, v):
+  v.name = k
+
+
 def _call_value(k, v):
   return v()
 
@@ -265,7 +269,7 @@ def _hparams_value_transformer(key, value):
   return out
 
 
-model_registry = Registry("models", on_set_callback=_on_model_set)
+model_registry = Registry("models", on_set=_on_model_set)
 optimizer_registry = Registry(
     "optimizers",
     default_key_fn=lambda fn: misc_utils.snakecase_to_camelcase(fn.__name__),
@@ -280,7 +284,8 @@ ranged_hparams_registry = Registry(
         1,
         "RangedHParams set function must take a single argument, "
         "the RangedHParams object."))
-base_problem_registry = Registry("problems", validator=_problem_name_validator)
+base_problem_registry = Registry(
+    "problems", validator=_problem_name_validator, on_set=_on_problem_set)
 attack_registry = Registry(
     "attacks", value_transformer=_call_value)
 attack_params_registry = Registry(
