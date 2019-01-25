@@ -75,6 +75,9 @@ flags.DEFINE_integer(
 flags.DEFINE_string(
     "debug_video_path", "", "Path to save the planner debug video at."
 )
+flags.DEFINE_integer(
+    "num_debug_videos", 1, "Number of debug videos to generate."
+)
 
 # Unused flags needed to pass for multi-run infrastructure.
 flags.DEFINE_bool("autotune", False, "Unused here.")
@@ -94,7 +97,6 @@ def planner_tiny():
       env_type="simulated",
       uct_const=0.0,
       uniform_first_action=True,
-      uct_std_normalization=False,
   )
 
 
@@ -108,12 +110,11 @@ def planner_small():
       env_type="simulated",
       uct_const=0.0,
       uniform_first_action=True,
-      uct_std_normalization=False,
   )
 
 
 @registry.register_hparams
-def planner_guess1():
+def planner_base():
   return tf.contrib.training.HParams(
       num_rollouts=96,
       batch_size=96,
@@ -121,37 +122,93 @@ def planner_guess1():
       rollout_agent_type="policy",
       env_type="simulated",
       uct_const=0.,
-      uniform_first_action=False,
-      uct_std_normalization=False,
+      uniform_first_action=True,
   )
+
+
+# Tuning of uniform_first_action and uct_const. Default params repeated for
+# clarity.
+
+
+@registry.register_hparams
+def planner_guess1():
+  hparams = planner_base()
+  hparams.uniform_first_action = False
+  hparams.uct_const = 0.
+  return hparams
 
 
 @registry.register_hparams
 def planner_guess2():
-  return tf.contrib.training.HParams(
-      num_rollouts=96,
-      batch_size=96,
-      planning_horizon=8,
-      rollout_agent_type="policy",
-      env_type="simulated",
-      uct_const=3.,
-      uniform_first_action=True,
-      uct_std_normalization=True,
-  )
+  hparams = planner_base()
+  hparams.uniform_first_action = True
+  hparams.uct_const = 3.
+  return hparams
 
 
 @registry.register_hparams
 def planner_guess3():
-  return tf.contrib.training.HParams(
-      num_rollouts=96,
-      batch_size=96,
-      planning_horizon=8,
-      rollout_agent_type="policy",
-      env_type="simulated",
-      uct_const=2.,
-      uniform_first_action=False,
-      uct_std_normalization=False,
-  )
+  hparams = planner_base()
+  hparams.uniform_first_action = False
+  hparams.uct_const = 2.
+  return hparams
+
+
+# Tuning of uct_const, num_collouts and normalizer_window_size.
+
+
+@registry.register_hparams
+def planner_guess4():
+  hparams = planner_base()
+  hparams.uct_const = 2
+  hparams.num_rollouts = 96
+  hparams.normalizer_window_size = 30
+  return hparams
+
+
+@registry.register_hparams
+def planner_guess5():
+  hparams = planner_base()
+  hparams.uct_const = 2
+  hparams.num_rollouts = 3 * 96
+  hparams.normalizer_window_size = 30
+  return hparams
+
+
+@registry.register_hparams
+def planner_guess6():
+  hparams = planner_base()
+  hparams.uct_const = 4
+  hparams.num_rollouts = 96
+  hparams.normalizer_window_size = 30
+  return hparams
+
+
+@registry.register_hparams
+def planner_guess7():
+  hparams = planner_base()
+  hparams.uct_const = 4
+  hparams.num_rollouts = 3 * 96
+  hparams.normalizer_window_size = 30
+  return hparams
+
+
+@registry.register_hparams
+def planner_guess8():
+  hparams = planner_base()
+  hparams.uct_const = 2
+  hparams.num_rollouts = 3 * 96
+  hparams.normalizer_window_size = 300
+  return hparams
+
+
+@registry.register_hparams
+def planner_guess9():
+  hparams = planner_base()
+  hparams.uct_const = 4
+  hparams.num_rollouts = 3 * 96
+  hparams.normalizer_window_size = 300
+  return hparams
 
 
 def make_env(env_type, real_env, sim_env_kwargs):
@@ -169,10 +226,8 @@ def make_env(env_type, real_env, sim_env_kwargs):
 
 def make_agent(
     agent_type, env, policy_hparams, policy_dir, sampling_temp,
-    sim_env_kwargs=None, frame_stack_size=None, planning_horizon=None,
-    rollout_agent_type=None, batch_size=None, num_rollouts=None,
-    inner_batch_size=None, video_writer=None, env_type=None,
-    uct_const=None, uct_std_normalization=None, uniform_first_action=None
+    sim_env_kwargs=None, frame_stack_size=None, rollout_agent_type=None,
+    batch_size=None, inner_batch_size=None, env_type=None, **planner_kwargs
 ):
   """Factory function for Agents."""
   if batch_size is None:
@@ -191,17 +246,14 @@ def make_agent(
               sampling_temp, batch_size=inner_batch_size
           ), make_env(env_type, env.env, sim_env_kwargs),
           lambda env: rl_utils.BatchStackWrapper(env, frame_stack_size),
-          num_rollouts, planning_horizon,
-          discount_factor=policy_hparams.gae_gamma,
-          uct_const=uct_const, uct_std_normalization=uct_std_normalization,
-          uniform_first_action=uniform_first_action, video_writer=video_writer
+          discount_factor=policy_hparams.gae_gamma, **planner_kwargs
       ),
   }[agent_type]()
 
 
 def make_eval_fn_with_agent(
     agent_type, planner_hparams, model_dir, log_every_steps=None,
-    video_writer=None
+    video_writers=()
 ):
   """Returns an out-of-graph eval_fn using the Agent API."""
   def eval_fn(env, loop_hparams, policy_hparams, policy_dir, sampling_temp):
@@ -212,18 +264,23 @@ def make_eval_fn_with_agent(
         base_env, loop_hparams, batch_size=planner_hparams.batch_size,
         model_dir=model_dir
     )
+    planner_kwargs = planner_hparams.values()
+    planner_kwargs.pop("batch_size")
+    planner_kwargs.pop("rollout_agent_type")
+    planner_kwargs.pop("env_type")
     agent = make_agent(
         agent_type, env, policy_hparams, policy_dir, sampling_temp,
         sim_env_kwargs, loop_hparams.frame_stack_size,
-        planner_hparams.planning_horizon, planner_hparams.rollout_agent_type,
-        num_rollouts=planner_hparams.num_rollouts,
-        inner_batch_size=planner_hparams.batch_size, video_writer=video_writer,
-        env_type=planner_hparams.env_type, uct_const=planner_hparams.uct_const,
-        uct_std_normalization=planner_hparams.uct_std_normalization,
-        uniform_first_action=planner_hparams.uniform_first_action
+        planner_hparams.rollout_agent_type,
+        inner_batch_size=planner_hparams.batch_size,
+        env_type=planner_hparams.env_type,
+        video_writers=video_writers, **planner_kwargs
     )
+    kwargs = {}
+    if not agent.records_own_videos:
+      kwargs["video_writers"] = video_writers
     rl_utils.run_rollouts(
-        env, agent, env.reset(), log_every_steps=log_every_steps
+        env, agent, env.reset(), log_every_steps=log_every_steps, **kwargs
     )
     assert len(base_env.current_epoch_rollouts()) == env.batch_size
   return eval_fn
@@ -232,7 +289,7 @@ def make_eval_fn_with_agent(
 def evaluate(
     loop_hparams, planner_hparams, policy_dir, model_dir, eval_metrics_dir,
     agent_type, eval_with_learner, log_every_steps, debug_video_path,
-    report_fn=None, report_metric=None
+    num_debug_videos=1, report_fn=None, report_metric=None
 ):
   """Evaluate."""
   if eval_with_learner:
@@ -242,22 +299,29 @@ def evaluate(
     assert report_metric is not None
 
   eval_metrics_writer = tf.summary.FileWriter(eval_metrics_dir)
-  video_writer = None
+  video_writers = ()
   kwargs = {}
   if not eval_with_learner:
     if debug_video_path:
-      video_writer = common_video.WholeVideoWriter(
-          fps=10, output_path=debug_video_path, file_format="avi")
+      tf.gfile.MakeDirs(debug_video_path)
+      video_writers = [
+          common_video.WholeVideoWriter(
+              fps=10,
+              output_path=os.path.join(debug_video_path, "{}.avi".format(i)),
+              file_format="avi",
+          )
+          for i in range(num_debug_videos)
+      ]
     kwargs["eval_fn"] = make_eval_fn_with_agent(
         agent_type, planner_hparams, model_dir, log_every_steps=log_every_steps,
-        video_writer=video_writer
+        video_writers=video_writers
     )
   eval_metrics = rl_utils.evaluate_all_configs(
       loop_hparams, policy_dir, **kwargs
   )
   rl_utils.summarize_metrics(eval_metrics_writer, eval_metrics, 0)
 
-  if video_writer is not None:
+  for video_writer in video_writers:
     video_writer.finish_to_disk()
 
   # Report metrics
@@ -325,7 +389,8 @@ def main(_):
       loop_hparams, planner_hparams, policy_dir, model_dir,
       eval_metrics_dir, FLAGS.agent, FLAGS.eval_with_learner,
       FLAGS.log_every_steps if FLAGS.log_every_steps > 0 else None,
-      debug_video_path=FLAGS.debug_video_path
+      debug_video_path=FLAGS.debug_video_path,
+      num_debug_videos=FLAGS.num_debug_videos
   )
 
 
