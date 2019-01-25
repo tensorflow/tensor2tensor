@@ -462,7 +462,6 @@ def universal_transformer_base_tpu():
 @registry.register_hparams
 def universal_transformer_big():
   hparams = universal_transformer_base()
-  hparams = update_hparams_for_universal_transformer(hparams)
   hparams.hidden_size = 2048
   hparams.filter_size = 8192
   return hparams
