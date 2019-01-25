@@ -472,7 +472,7 @@ def universal_transformer_base_old():
   return hparams
 
 @registry.register_hparams
-def universal_transformer_fp16_small_batch():
+def universal_transformer_base_old_fp16():
   hparams = universal_transformer_base_old()
   hparams.activation_dtype = 'float16'
   return hparams
