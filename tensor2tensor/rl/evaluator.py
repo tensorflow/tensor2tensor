@@ -305,7 +305,7 @@ def evaluate(
     if debug_video_path:
       tf.gfile.MakeDirs(debug_video_path)
       video_writers = [
-          common_video.WholeVideoWriter(
+          common_video.WholeVideoWriter(  # pylint: disable=g-complex-comprehension
               fps=10,
               output_path=os.path.join(debug_video_path, "{}.avi".format(i)),
               file_format="avi",

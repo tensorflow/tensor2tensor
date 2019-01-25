@@ -227,7 +227,7 @@ def make_initial_frame_chooser(real_env, frame_stack_size,
         initial_frames[0] = deterministic_initial_frames
 
     return np.stack([
-        [frame.observation.decode() for frame in initial_frame_stack]
+        [frame.observation.decode() for frame in initial_frame_stack]  # pylint: disable=g-complex-comprehension
         for initial_frame_stack in initial_frames
     ])
   return initial_frame_chooser
