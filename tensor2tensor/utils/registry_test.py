@@ -31,64 +31,57 @@ class RegistryClassTest(tf.test.TestCase):
 
   def testGetterSetter(self):
     r = registry.Registry("test_registry")
-    r["hello"] = "world"
-    r["a"] = "b"
-    self.assertEqual(r["hello"], "world")
-    self.assertEqual(r["a"], "b")
+    r["hello"] = lambda: "world"
+    r["a"] = lambda: "b"
+    self.assertEqual(r["hello"](), "world")
+    self.assertEqual(r["a"](), "b")
 
   def testDefaultKeyFn(self):
-    r = registry.Registry("test", default_key_fn=lambda x: x.upper())
-    r.register()("hello")
-    self.assertEqual(r["HELLO"], "hello")
+    r = registry.Registry("test", default_key_fn=lambda x: x().upper())
+    r.register()(lambda: "hello")
+    self.assertEqual(r["HELLO"](), "hello")
+
+  def testNoKeyProvided(self):
+    r = registry.Registry("test")
+    def f():
+      return 3
+    r.register(f)
+    self.assertEqual(r['f'](), 3)
 
   def testMembership(self):
     r = registry.Registry("test_registry")
-    r["a"] = None
-    r["b"] = 4
+    r["a"] = lambda: None
+    r["b"] = lambda: 4
     self.assertTrue("a" in r)
     self.assertTrue("b" in r)
 
   def testIteration(self):
     r = registry.Registry("test_registry")
-    r["a"] = None
-    r["b"] = 4
+    r["a"] = lambda: None
+    r["b"] = lambda: 4
     self.assertEqual(sorted(r), ["a", "b"])
 
   def testLen(self):
     r = registry.Registry("test_registry")
-    r["a"] = None
-    r["b"] = 4
+    self.assertEqual(len(r), 0)
+    r["a"] = lambda: None
+    self.assertEqual(len(r), 1)
+    r["b"] = lambda: 4
     self.assertEqual(len(r), 2)
 
   def testTransformer(self):
     r = registry.Registry(
-        "test_registry", value_transformer=lambda x, y: x + y)
-    r.register(3)(5)
-    r.register(10)(12)
+        "test_registry", value_transformer=lambda x, y: x + y())
+    r.register(3)(lambda: 5)
+    r.register(10)(lambda: 12)
     self.assertEqual(r[3], 8)
     self.assertEqual(r[10], 22)
     self.assertEqual(set(r.values()), set((8, 22)))
     self.assertEqual(set(r.items()), set(((3, 8), (10, 22))))
-    self.assertEqual(r.pop(10), 22)
-    self.assertEqual(r.pop(3), 8)
-
-  def testDelete(self):
-    r = registry.Registry("test_registry")
-    r["a"] = "hello"
-    self.assertTrue("a" in r)
-    del r["a"]
-    self.assertFalse("a" in r)
-
-  def testPop(self):
-    r = registry.Registry("test_registry")
-    r["a"] = "hello"
-    self.assertTrue("a" in r)
-    self.assertEqual(r.pop("a"), "hello")
-    self.assertFalse("a" in r)
 
   def testGet(self):
-    r = registry.Registry('test_registry')
-    r["a"] = "xyz"
+    r = registry.Registry('test_registry', value_transformer=lambda k, v: v())
+    r["a"] = lambda: "xyz"
     self.assertEqual(r.get("a"), "xyz")
     self.assertEqual(r.get("a", 3), "xyz")
     self.assertIsNone(r.get("b"))
@@ -98,7 +91,7 @@ class RegistryClassTest(tf.test.TestCase):
 class ModelRegistryTest(tf.test.TestCase):
 
   def setUp(self):
-    registry.model_registry.clear()
+    registry.Registries.models._clear()
 
   def testT2TModelRegistration(self):
 
@@ -158,78 +151,80 @@ class ModelRegistryTest(tf.test.TestCase):
 
 class OptimizerRegistryTest(tf.test.TestCase):
   def setUp(self):
-    registry.optimizer_registry.clear()
+    registry.Registries.optimizers._clear()
 
   def testRegistration(self):
     @registry.register_optimizer
     def my_optimizer(learning_rate, hparams):
       return 3
 
-    @registry.register_optimizer('MyOtherOptimizer')
+    @registry.register_optimizer('my_other_optimizer')
     def another_optimizer(learning_rate, hparams):
       return 5
 
-    self.assertEqual(registry.optimizer("MyOptimizer"), my_optimizer)
-    self.assertEqual(registry.optimizer("MyOtherOptimizer"), another_optimizer)
+    self.assertEqual(registry.optimizer("my_optimizer"), my_optimizer)
+    self.assertEqual(
+        registry.optimizer("my_other_optimizer"), another_optimizer)
 
   def testMembership(self):
     @registry.register_optimizer
     def my_optimizer(learning_rate, hparams):
       return 3
 
-    @registry.register_optimizer('MyOtherOptimizer')
+    @registry.register_optimizer("my_other_optimizer")
     def another_optimizer(learning_rate, hparams):
       return 5
 
-    self.assertTrue("MyOptimizer" in registry.optimizer_registry)
-    self.assertTrue("MyOtherOptimizer" in registry.optimizer_registry)
-    self.assertFalse("AnotherOptimizer" in registry.optimizer_registry)
-    self.assertEqual(len(registry.optimizer_registry), 2)
+    self.assertTrue("my_optimizer" in registry.Registries.optimizers)
+    self.assertTrue("my_other_optimizer" in registry.Registries.optimizers)
+    self.assertFalse("another_optimizer" in registry.Registries.optimizers)
+    self.assertEqual(len(registry.Registries.optimizers), 2)
 
   def testArgErrorCheck(self):
     with self.assertRaisesRegexp(ValueError, "must take .* arguments"):
-      registry.optimizer_registry.register('OneArgs')(lambda x: 4)
+      registry.Registries.optimizers.register('OneArgs')(lambda x: 4)
     with self.assertRaisesRegexp(ValueError, "must take .* arguments"):
-      registry.optimizer_registry.register('ThreeArgs')(
+      registry.Registries.optimizers.register('ThreeArgs')(
           lambda x, y, z: 4)
     with self.assertRaisesRegexp(ValueError, "must take .* arguments"):
-      registry.optimizer_registry.register('NArgs')(lambda *args: 4)
+      registry.Registries.optimizers.register('NArgs')(lambda *args: 4)
     with self.assertRaisesRegexp(ValueError, "must take .* arguments"):
-      registry.optimizer_registry.register("Kwargs")(lambda **kargs: 4)
+      registry.Registries.optimizers.register("Kwargs")(lambda **kargs: 4)
     with self.assertRaisesRegexp(ValueError, "must take .* arguments"):
-      registry.optimizer_registry.register("TwoAndKwargs")(
+      registry.Registries.optimizers.register("TwoAndKwargs")(
           lambda a, b, **kargs: 4)
 
   def testMultipleRegistration(self):
-    with self.assertRaisesRegexp(KeyError, "already registered"):
-      @registry.register_optimizer
-      def my_optimizer(learning_rate, hparams):
-        return 3
+    @registry.register_optimizer
+    def my_optimizer(learning_rate, hparams):
+      return 3
 
-      @registry.register_optimizer("MyOptimizer")
+    with self.assertRaisesRegexp(KeyError, "already registered"):
+
+      @registry.register_optimizer("my_optimizer")
       def another_fn(learning_rate, hparams):
         return 5
 
   def testUnknownOptimizer(self):
     with self.assertRaisesRegexp(KeyError, "never registered"):
-      registry.optimizer("NotRegisteredOptimizer")
+      registry.optimizer("not_registered_optimizer")
 
   def testGetterSetterInterface(self):
     def f(x, y):
       return 3
 
-    k = 'Blah'
-    registry.optimizer_registry[k] = f
+    k = 'blah'
+    registry.Registries.optimizers[k] = f
     self.assertEqual(registry.optimizer(k), f)
-    self.assertEqual(registry.optimizer_registry[k], f)
-    self.assertEqual(registry.optimizer_registry[k], registry.optimizer(k))
+    self.assertEqual(registry.Registries.optimizers[k], f)
+    self.assertEqual(registry.Registries.optimizers[k], registry.optimizer(k))
 
 
 class HParamRegistryTest(tf.test.TestCase):
 
   def setUp(self):
-    registry.hparams_registry.clear()
-    registry.ranged_hparams_registry.clear()
+    registry.Registries.hparams._clear()
+    registry.Registries.ranged_hparams._clear()
 
   def testHParamSet(self):
 

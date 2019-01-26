@@ -13,37 +13,76 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Registry for models, hyperparameter settings, problem types, and datasets.
+"""Registry for
+* models
+* hyperparameter settings
+* ranged hyperparameter settings
+* problem types
+* attacks
+* attack parameters
+* pruning parameters
+* pruning strategies
+* optimizers
 
+`Registries` contains the `Registry` objects used throughout tensor2tensor.
+
+New functions and classes can be registered using `.register`. The can be
+accessed/queried similar to dictionaries, keyed by default by `snake_case`
+equivalents.
+```
+@Registries.models.register
+class MyModel(T2TModel):
+  ...
+
+'my_model' in Registries.models  # True
+for k in Registries.models:
+  print(k)  # prints 'my_model'
+model = Registries.models['my_model'](constructor_arg)
+```
+
+`Registry`s for functions which take no arguments will return the
+result of evaluating those functions (though this is not the default behaviour
+of the `Registry` class in general).
+```
+@Registries.attacks.register
+def my_attack():
+  ...
+
+my_attack_obj = Registries.attacks['my_attack']
+my_attack_obj()  # TypeError: 'Attack' object is not callable
+```
+
+#### Legacy Support
 Define a new model by subclassing T2TModel and register it:
 
 ```
-@registry.register_model
+@register_model
 class MyModel(T2TModel):
   ...
 ```
 
-Access by snake-cased name: `registry.model("my_model")`. If you're using
+Access by snake-cased name: `model("my_model")`. If you're using
 `t2t_trainer.py`, you can pass on the command-line: `--model=my_model`.
 
-See all the models registered: `registry.list_models()`.
+See all the models registered: `list_models()`.
 
 For hyperparameter sets:
-  * Register: `registry.register_hparams`
-  * List: `registry.list_hparams`
-  * Retrieve by name: `registry.hparams`
+  * Register: `register_hparams`
+  * List: `list_hparams`
+  * Retrieve by name: `hparams`
   * Command-line flag in `t2t_trainer.py`: `--hparams_set=name`
 
 For hyperparameter ranges:
-  * Register: `registry.register_ranged_hparams`
-  * List: `registry.list_ranged_hparams`
-  * Retrieve by name: `registry.ranged_hparams`
+  * Register: `register_ranged_hparams`
+  * List: `list_ranged_hparams`
+  * Retrieve by name: `ranged_hparams`
   * Command-line flag in `t2t_trainer.py`: `--hparams_range=name`
 """
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from tensorflow import logging
 import tensorflow.contrib.framework as framework
 from tensorflow.python.util import tf_inspect as inspect
 import collections
@@ -52,9 +91,9 @@ from tensor2tensor.utils import misc_utils
 
 
 def default_name(class_or_fn):
-  """Default name for a class or fn.
+  """Default name for a class or function.
 
-  This is the naming function by default for registers expecting classes or
+  This is the naming function by default for registries expecting classes or
   functions.
 
   Args:
@@ -66,104 +105,172 @@ def default_name(class_or_fn):
   return misc_utils.camelcase_to_snakecase(class_or_fn.__name__)
 
 
-def default_object_name(obj):
-  """Default name for an object.
-
-  This is the naming function by default for registers expectings objects for
-  values.
-
-  Args:
-    obj: an object instance
-
-  Returns:
-    The registry's default name for the class of the object.
-  """
-  return default_name(obj.__class__)
-
-
-def _default_value_transformer(k, v):
-  return v
-
-
 class Registry(object):
-  """Dict-like class for managing registrations."""
+  """Dict-like class for managing function registrations.
+
+  ```python
+  my_registry = Registry("custom_name")
+
+  @my_registry.register
+  def my_func():
+    pass
+
+  @my_registry.register()
+  def another_func():
+    pass
+
+  @my_registry.register("non_default_name")
+  def third_func(x, y, z):
+    pass
+
+  def foo():
+    pass
+
+  my_registry.register()(foo)
+  my_registry.register("baz")(lambda (x, y): x + y)
+  my_register.register("bar")
+
+  print(list(my_registry))
+  # ["my_func", "another_func", "non_default_name", "foo", "baz"]
+  # (order may vary)
+  print(my_registry["non_default_name"] is third_func)  # True
+  print("third_func" in my_registry)                    # False
+  print("bar" in my_registry)                           # False
+  my_registry["non-existent_key"]                       # raises KeyError
+  ```
+
+  Optional validation, on_set callback and value transform also supported.
+  See `__init__` doc.
+  """
+
   def __init__(
-      self, register_name, default_key_fn=default_name, validator=None,
-      on_set=None, value_transformer=_default_value_transformer):
-    """
+      self, registry_name, default_key_fn=default_name, validator=None,
+      on_set=None, value_transformer=(lambda k, v: v)):
+    """Construct a new registry.
+
     Args:
-      register_name: str identifier for the given register. Used in error msgs.
+      registry_name: str identifier for the given registry. Used in error msgs.
       default_key_fn (optional): function mapping value -> key for registration
-        when a key are not provided
+        when a key is not provided
       validator (optional): if given, this is run before setting a given
         (key, value) pair. Accepts (key, value) and should raise if there is a
         problem. Overwriting existing keys is not allowed and is checked
-        separately.
+        separately. Values are also checked to be callable separately.
       on_set (optional): callback function accepting (key, value) pair
         which is run after an item is successfully set.
       value_transformer (optional): if run, `__getitem__` will return
         value_transformer(key, registered_value).
     """
-    self._register = {}
-    self._name = register_name
+    self._registry = {}
+    self._name = registry_name
     self._default_key_fn = default_key_fn
     self._validator = validator
     self._on_set = on_set
     self._value_transformer = value_transformer
 
-  def default_key(self, key):
-    return self._default_key_fn(key)
+  def default_key(self, value):
+    """Default key used when key not provided. Uses function from __init__."""
+    return self._default_key_fn(value)
 
   @property
   def name(self):
     return self._name
 
   def validate(self, key, value):
+    """Validation function run before setting. Uses function from __init__."""
     if self._validator is not None:
       self._validator(key, value)
 
+  def on_set(self, key, value):
+    """Callback called on successful set. Uses function from __init__."""
+    if self._on_set is not None:
+      self._on_set(key, value)
+
   def __setitem__(self, key, value):
+    """
+    Validate, set, and (if successfull) call `on_set` for the given item.
+
+    Args:
+      key: key to store value under. If `None`, `self.default_key(value)` is
+        used.
+      value: callable stored under the given key.
+
+    Returns:
+      `None`
+    """
+    if key is None:
+      key = self.default_key(value)
     if key in self:
       raise KeyError("key %s already registered in registry %s"
                      % (key, self._name))
+    if not callable(value):
+      raise ValueError("value must be callable")
     self.validate(key, value)
-    self._register[key] = value
-    callback = self._on_set
-    if callback is not None:
-      callback(key, value)
+    self._registry[key] = value
+    self.on_set(key, value)
 
-  def register(self, key=None):
-    def decorator(value, key=None):
-      if key is None:
-        key = self.default_key(value)
+  def register(self, key_or_value=None):
+    """Decorator to register a function, or registration itself.
+
+    This is primarily intended for use as a decorator, either with or without
+    a key/parentheses.
+    ```python
+    @my_registry.register('key1')
+    def value_fn(x, y, z):
+      pass
+
+    @my_registry.register()
+    def another_fn(x, y):
+      pass
+
+    @my_registry.register
+    def third_func():
+      pass
+    ```
+
+    Note if key_or_value is provided as a non-callable, registration only
+    occurs once the returned callback is called with a callable as its only
+    argument.
+    ```python
+    callback = my_registry.register('different_key')
+    'different_key' in my_registry  # False
+    callback(lambda (x, y): x + y)
+    'different_key' in my_registry  # True
+    ```
+
+    Args:
+      key_or_value (optional): key to access the registered value with, or the
+        function itself. If `None` (default), `self.default_key` will be called
+        on `value` once the returned callback is called with `value` as the
+        only arg. If `key_or_value` is itself callable, it is assumed to be the
+        value and the key is given by `self.default_key(key)`.
+
+    Returns:
+      decorated callback, or callback generated a decorated function.
+    """
+    def decorator(value, key):
       self[key] = value
       return value
 
     # Handle if decorator was used without parens
-    if callable(key):
-      return decorator(value=key, key=self.default_key(key))
+    if callable(key_or_value):
+      return decorator(value=key_or_value, key=None)
     else:
-      return lambda value: decorator(value, key=key)
-
-  def _get(self, key):
-    # convenience function for maintaining old API.
-    # e.g. model = model_registry._get
-    # not to be confused with self.get, which has a default value
-    return self[key]
+      return lambda value: decorator(value, key=key_or_value)
 
   def __getitem__(self, key):
     if key not in self:
-      raise KeyError("%s never registered with register %s. Available:\n %s" %
+      raise KeyError("%s never registered with registry %s. Available:\n %s" %
                      (key, self.name,
                       display_list_by_prefix(sorted(self), 4)))
-    value = self._register[key]
+    value = self._registry[key]
     return self._value_transformer(key, value)
 
   def __contains__(self, key):
-    return key in self._register
+    return key in self._registry
 
-  def __keys__(self):
-    return self._register.keys()
+  def keys(self):
+    return self._registry.keys()
 
   def values(self):
     return (self[k] for k in self)       # complicated because of transformer
@@ -172,24 +279,16 @@ class Registry(object):
     return ((k, self[k]) for k in self)  # complicated because of transformer
 
   def __iter__(self):
-    return iter(self._register)
+    return iter(self._registry)
 
   def __len__(self):
-    return len(self._register)
+    return len(self._registry)
 
-  def clear(self):
-    """Clear the internal register of previously registered values."""
-    self._register.clear()
-
-  def __delitem__(self, k):
-    del self._register[k]
-
-  def pop(self, k):
-    return self._value_transformer(k, self._register.pop(k))
+  def _clear(self):
+    self._registry.clear()
 
   def get(self, key, d=None):
     return self[key] if key in self else d
-
 
 
 def _on_model_set(k, v):
@@ -198,8 +297,10 @@ def _on_model_set(k, v):
 
 def _nargs_validator(nargs, message):
   def f(key, value):
-    args, varargs, keywords, _ = inspect.getargspec(value)
-    if len(args) != nargs or varargs is not None or keywords is not None:
+    spec = inspect.getfullargspec(value)
+    if (len(spec.args) != nargs or
+        spec.varargs is not None or
+        spec.varkw is not None):
       raise ValueError(message)
 
   return f
@@ -216,9 +317,11 @@ def parse_problem_name(name):
     name: str, problem name, possibly with suffixes.
 
   Returns:
-    base_name: A string with the base problem name.
-    was_reversed: A boolean.
-    was_copy: A boolean.
+    ProblemSpec: namedtuple with ["base_name", "was_reversed", "was_copy"]
+
+  Raises:
+    ValueError if name contains multiple suffixes of the same type
+      ('_rev' or '_copy'). One of each is ok.
   """
   # Recursively strip tags until we reach a base name.
   if name.endswith("_rev"):
@@ -239,6 +342,24 @@ def parse_problem_name(name):
 
 
 def get_problem_name(base_name, was_reversed=False, was_copy=False):
+  """
+  Construct a problem name from base and reversed/copy options.
+
+  Inverse of `parse_problem_name`.
+
+  Args:
+    base_name: base problem name. Should not end in "_rev" or "_copy"
+    was_reversed: if the problem is to be reversed
+    was_copy: if the problem is to be copied
+
+  Returns:
+    string name consistent with use with `parse_problem_name`.
+
+  Raises:
+    ValueError if `base_name` ends with "_rev" or "_copy"
+  """
+  if any(base_name.endswith(suffix) for suffix in ("_rev", "_copy")):
+    raise ValueError("`base_name` cannot end in '_rev' or '_copy'")
   name = base_name
   if was_copy:
     name = "%s_copy" % name
@@ -269,51 +390,91 @@ def _hparams_value_transformer(key, value):
   return out
 
 
-model_registry = Registry("models", on_set=_on_model_set)
-optimizer_registry = Registry(
-    "optimizers",
-    default_key_fn=lambda fn: misc_utils.snakecase_to_camelcase(fn.__name__),
-    validator=_nargs_validator(
-        2,
-        "Optimizer registration function must take exactly two arguments: "
-        "learning_rate (float) and hparams (HParams)."))
-hparams_registry = Registry(
-    "hparams", value_transformer=_hparams_value_transformer)
-ranged_hparams_registry = Registry(
-    "ranged_hparams", validator=_nargs_validator(
-        1,
-        "RangedHParams set function must take a single argument, "
-        "the RangedHParams object."))
-base_problem_registry = Registry(
-    "problems", validator=_problem_name_validator, on_set=_on_problem_set)
-attack_registry = Registry(
-    "attacks", value_transformer=_call_value)
-attack_params_registry = Registry(
-    "attack_params", value_transformer=_call_value)
-pruning_params_registry = Registry(
-    "pruning_params", value_transformer=_call_value)
-pruning_strategy_registry = Registry("pruning_strategies")
+class Registries(object):
+  """Object holding `Registry` objects."""
+  def __init__(self):
+    raise RuntimeError("Registries is not intended to be instantiated")
+
+
+  models = Registry("models", on_set=_on_model_set)
+
+  optimizers = Registry(
+      "optimizers",
+      validator=_nargs_validator(
+          2,
+          "Optimizer registration function must take exactly two arguments: "
+          "learning_rate (float) and hparams (HParams)."))
+
+  hparams = Registry(
+      "hparams", value_transformer=_hparams_value_transformer)
+
+  ranged_hparams = Registry(
+      "ranged_hparams", validator=_nargs_validator(
+          1,
+          "RangedHParams set function must take a single argument, "
+          "the RangedHParams object."))
+
+  problems = Registry(
+      "problems", validator=_problem_name_validator, on_set=_on_problem_set)
+
+  attacks = Registry(
+      "attacks", value_transformer=_call_value)
+
+  attack_params = Registry(
+      "attack_params", value_transformer=_call_value)
+
+  pruning_params = Registry(
+      "pruning_params", value_transformer=_call_value)
+
+  pruning_strategies = Registry("pruning_strategies")
 
 # consistent version of old API
-model = model_registry._get
-list_models = lambda: sorted(model_registry)
-register_model = model_registry.register
+model = Registries.models.__getitem__
+list_models = lambda: sorted(Registries.models)
+register_model = Registries.models.register
 
-optimizer = optimizer_registry._get
-list_optimizers = lambda: sorted(optimizer_registry)
-register_optimizer = optimizer_registry.register
+# optimizer = optimizer_registry.__getitem__
+def optimizer(name):
+  """
+  Get pre-registered optimizer keyed by name.
 
-hparams = hparams_registry._get
-list_hparams = lambda: sorted(hparams_registry)
-register_hparams = hparams_registry.register
+  `name` should be snake case, though SGD -> sgd, RMSProp -> rms_prop and
+  UpperCamelCase -> snake_case conversions included for legacy support.
 
-ranged_hparams = ranged_hparams_registry._get
-list_ranged_hparams = lambda: sorted(ranged_hparams_registry)
-register_ranged_hparams = ranged_hparams_registry.register
+  Args:
+    name: name of optimizer used in registration. This should be a snake case
+      identifier, though others supported for legacy reasons.
+  """
+  rest = ("Please update `registry.optimizer` callsite "
+          "(likely due to a `HParams.optimizer` value)")
+  if name == "SGD":
+    name = "sgd"
+    logging.warning("'SGD' optimizer now keyed by 'sgd'. %s" % rest)
+  elif name == 'rms_prop':
+    name = 'rms_prop'
+    logging.warning("'RMSProp' optimizer now keyed by 'rms_prop'. %s" % rest)
+  else:
+    snake_name = misc_utils.camelcase_to_snakecase(name)
+    if name != snake_name:
+      logging.warning(
+          "optimizer names now keyed by snake_case names. %s" % rest)
+      name = snake_name
+  return Registries.optimizers[name]
 
-base_problem = base_problem_registry._get
-list_base_problems = lambda: sorted(base_problem_registry)
-register_base_problem = base_problem_registry.register
+list_optimizers = lambda: sorted(Registries.optimizers)
+register_optimizer = Registries.optimizers.register
+
+hparams = Registries.hparams.__getitem__
+list_hparams = lambda: sorted(Registries.hparams)
+register_hparams = Registries.hparams.register
+
+ranged_hparams = Registries.ranged_hparams.__getitem__
+list_ranged_hparams = lambda: sorted(Registries.ranged_hparams)
+register_ranged_hparams = Registries.ranged_hparams.register
+
+base_problem = Registries.problems.__getitem__
+list_base_problems = lambda: sorted(Registries.problems)
+register_base_problem = Registries.problems.register
 
 # list_problems won't list all rev/copy combinations,
 # so the name is slightly confusing. Similarly, register_problem will raise an
@@ -323,7 +484,7 @@ list_problems = list_base_problems
 register_problem = register_base_problem
 
 
-def problem(problem_name, base_registry=base_problem_registry):
+def problem(problem_name):
   """Get possibly copied/reversed problem registered in `base_registry`.
 
   Args:
@@ -334,25 +495,25 @@ def problem(problem_name, base_registry=base_problem_registry):
     registry.
   """
   spec = parse_problem_name(problem_name)
-  return base_registry[spec.base_name](
+  return Registries.problems[spec.base_name](
       was_copy=spec.was_copy, was_reversed=spec.was_reversed)
 
 
-attack = attack_registry._get
-list_attacks = lambda: sorted(attack_registry)
-register_attack = attack_registry.register
+attack = Registries.attacks.__getitem__
+list_attacks = lambda: sorted(Registries.attacks)
+register_attack = Registries.attacks.register
 
-attack_params = attack_params_registry._get
-list_attack_params = lambda: sorted(attack_params_registry)
-register_attack_params = attack_params_registry.register
+attack_params = Registries.attack_params.__getitem__
+list_attack_params = lambda: sorted(Registries.attack_params)
+register_attack_params = Registries.attack_params.register
 
-pruning_params = pruning_params_registry._get
-list_pruning_params = lambda: sorted(pruning_params_registry)
-register_pruning_params = pruning_params_registry.register
+pruning_params = Registries.pruning_params.__getitem__
+list_pruning_params = lambda: sorted(Registries.pruning_params)
+register_pruning_params = Registries.pruning_params.register
 
-pruning_strategy = pruning_strategy_registry._get
-list_pruning_strategies = lambda: sorted(pruning_strategy_registry)
-register_pruning_strategy = pruning_strategy_registry.register
+pruning_strategy = Registries.pruning_strategies.__getitem__
+list_pruning_strategies = lambda: sorted(Registries.pruning_strategies)
+register_pruning_strategy = Registries.pruning_strategies.register
 
 
 # deprecated functions - plurals inconsistent with rest
@@ -414,7 +575,7 @@ Registry contents:
           list_models(),
           list_hparams(),
           list_ranged_hparams(),
-          list_problems(),
+          list_base_problems(),
           list_optimizers(),
           list_attacks(),
           list_attack_params(),

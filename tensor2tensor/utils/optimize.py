@@ -156,7 +156,7 @@ def adam_w(learning_rate, hparams):
       epsilon=hparams.optimizer_adam_epsilon)
 
 
-@registry.register_optimizer("Adafactor")
+@registry.register_optimizer("adafactor")
 def register_adafactor(learning_rate, hparams):
   return adafactor.adafactor_optimizer_from_hparams(hparams, learning_rate)
 
@@ -169,8 +169,11 @@ def _register_base_optimizer(key, fn):
 
 
 for k in tf.contrib.layers.OPTIMIZER_CLS_NAMES:
-  if k not in registry.optimizer_registry:
+  if k not in registry.Registries.optimizers and k not in ('SGD', 'RMSProp'):
     _register_base_optimizer(k, tf.contrib.layers.OPTIMIZER_CLS_NAMES[k])
+_register_base_optimizer('sgd', tf.contrib.layers.OPTIMIZER_CLS_NAMES['SGD'])
+_register_base_optimizer(
+    'rms_prop', tf.contrib.layers.OPTIMIZER_CLS_NAMES['RMSProp'])
 
 
 class ConditionalOptimizer(tf.train.Optimizer):
