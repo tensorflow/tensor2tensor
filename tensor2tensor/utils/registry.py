@@ -296,6 +296,8 @@ def _on_model_set(k, v):
 
 
 def _nargs_validator(nargs, message):
+  if message is None:
+    message = "Registered function must take exactly %d arguments" % nargs
   def f(key, value):
     spec = inspect.getfullargspec(value)
     if (len(spec.args) != nargs or
@@ -402,7 +404,7 @@ class Registries(object):
       "optimizers",
       validator=_nargs_validator(
           2,
-          "Optimizer registration function must take exactly two arguments: "
+          "Registered optimizer functions must take exactly two arguments: "
           "learning_rate (float) and hparams (HParams)."))
 
   hparams = Registry(
@@ -411,7 +413,7 @@ class Registries(object):
   ranged_hparams = Registry(
       "ranged_hparams", validator=_nargs_validator(
           1,
-          "RangedHParams set function must take a single argument, "
+          "Registered ranged_hparams functions must take a single argument, "
           "the RangedHParams object."))
 
   problems = Registry(
@@ -427,6 +429,12 @@ class Registries(object):
       "pruning_params", value_transformer=_call_value)
 
   pruning_strategies = Registry("pruning_strategies")
+
+  layers = Registry("layers", validator=_nargs_validator(
+      2,
+      "Registered layer functions must take exaction two arguments: "
+      "hparams (HParams) and prefix (str)."
+  ))
 
 # consistent version of old API
 model = Registries.models.__getitem__
