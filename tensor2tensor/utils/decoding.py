@@ -385,7 +385,7 @@ def decode_from_file(estimator,
   num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
 
   if estimator.config.use_tpu:
-    length = getattr(hparams, "length", hparams.max_length)
+    length = getattr(hparams, "length", 0) or hparams.max_length
     batch_ids = []
     for line in sorted_inputs:
       if has_input:

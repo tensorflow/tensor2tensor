@@ -242,7 +242,7 @@ def sari_score(predictions, labels, features, **unused_kwargs):
   # Convert the inputs and outputs to a [batch_size, sequence_length] tensor.
   inputs = tf.squeeze(features["inputs"], axis=[-1, -2])
   outputs = tf.to_int32(tf.argmax(predictions, axis=-1))
-  outputs = tf.squeeze(outputs, axis=-1)
+  outputs = tf.squeeze(outputs, axis=[-1, -2])
 
   # Convert the labels to a [batch_size, 1, sequence_length] tensor.
   labels = tf.squeeze(labels, axis=[-1, -2])
