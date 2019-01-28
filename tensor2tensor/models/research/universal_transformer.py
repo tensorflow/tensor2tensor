@@ -453,36 +453,24 @@ def universal_transformer_base():
 @registry.register_hparams
 def universal_transformer_base_tpu():
   hparams = universal_transformer_base()
+  hparams = update_hparams_for_universal_transformer(hparams)
   transformer.update_hparams_for_tpu(hparams)
   hparams.add_step_timing_signal = False
   return hparams
 
-
 @registry.register_hparams
 def universal_transformer_big():
   hparams = universal_transformer_base()
+  hparams = update_hparams_for_universal_transformer(hparams)
   hparams.hidden_size = 2048
   hparams.filter_size = 8192
   return hparams
 
 @registry.register_hparams
-def universal_transformer_base_old():
+def universal_transformer_base_fp16():
   hparams = transformer.transformer_base()
-  print("Batch size is: ", hparams.batch_size)
   hparams = update_hparams_for_universal_transformer(hparams)
-  return hparams
-
-@registry.register_hparams
-def universal_transformer_base_old_fp16():
-  hparams = universal_transformer_base_old()
-  print("fp16 Batch size is: ", hparams.batch_size)
   hparams.activation_dtype = 'float16'
-  return hparams
-
-@registry.register_hparams
-def universal_transformer_base_old_fp16_loss_scale_1():
-  hparams = universal_transformer_base_old_fp16()
-  hparams.mixed_precision_optimizer_init_loss_scale = 1
   return hparams
 
 @registry.register_hparams
