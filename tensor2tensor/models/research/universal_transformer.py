@@ -480,6 +480,12 @@ def universal_transformer_base_old_fp16():
   return hparams
 
 @registry.register_hparams
+def universal_transformer_base_old_fp16_loss_scale_1():
+  hparams = universal_transformer_base_old_fp16()
+  hparams.mixed_precision_optimizer_init_loss_scale = 1
+  return hparams
+
+@registry.register_hparams
 def universal_transformer_small():
   hparams = transformer.transformer_base()
   hparams = update_hparams_for_universal_transformer(hparams)
