@@ -468,12 +468,14 @@ def universal_transformer_big():
 @registry.register_hparams
 def universal_transformer_base_old():
   hparams = transformer.transformer_base()
+  print("Batch size is: ", hparams.batch_size)
   hparams = update_hparams_for_universal_transformer(hparams)
   return hparams
 
 @registry.register_hparams
 def universal_transformer_base_old_fp16():
   hparams = universal_transformer_base_old()
+  print("fp16 Batch size is: ", hparams.batch_size)
   hparams.activation_dtype = 'float16'
   return hparams
 
