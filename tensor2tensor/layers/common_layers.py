@@ -1222,6 +1222,8 @@ def dense_relu_dense(inputs,
                      dropout_broadcast_dims=None,
                      name=None):
   """Hidden layer with RELU activation followed by linear projection."""
+  # layer_name is appended with "conv1" or "conv2" in this method only for
+  # historical reasons. These are in fact dense layers.
   layer_name = "%s_{}" % name if name else "{}"
   h = dense(
       inputs,
