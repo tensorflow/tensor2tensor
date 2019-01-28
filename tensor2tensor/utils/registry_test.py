@@ -26,72 +26,11 @@ import tensorflow as tf
 
 # pylint: disable=unused-variable
 
-class RegistryClassTest(tf.test.TestCase):
-  """Test of base registry.Registry class."""
-
-  def testGetterSetter(self):
-    r = registry.Registry("test_registry")
-    r["hello"] = lambda: "world"
-    r["a"] = lambda: "b"
-    self.assertEqual(r["hello"](), "world")
-    self.assertEqual(r["a"](), "b")
-
-  def testDefaultKeyFn(self):
-    r = registry.Registry("test", default_key_fn=lambda x: x().upper())
-    r.register()(lambda: "hello")
-    self.assertEqual(r["HELLO"](), "hello")
-
-  def testNoKeyProvided(self):
-    r = registry.Registry("test")
-    def f():
-      return 3
-    r.register(f)
-    self.assertEqual(r['f'](), 3)
-
-  def testMembership(self):
-    r = registry.Registry("test_registry")
-    r["a"] = lambda: None
-    r["b"] = lambda: 4
-    self.assertTrue("a" in r)
-    self.assertTrue("b" in r)
-
-  def testIteration(self):
-    r = registry.Registry("test_registry")
-    r["a"] = lambda: None
-    r["b"] = lambda: 4
-    self.assertEqual(sorted(r), ["a", "b"])
-
-  def testLen(self):
-    r = registry.Registry("test_registry")
-    self.assertEqual(len(r), 0)
-    r["a"] = lambda: None
-    self.assertEqual(len(r), 1)
-    r["b"] = lambda: 4
-    self.assertEqual(len(r), 2)
-
-  def testTransformer(self):
-    r = registry.Registry(
-        "test_registry", value_transformer=lambda x, y: x + y())
-    r.register(3)(lambda: 5)
-    r.register(10)(lambda: 12)
-    self.assertEqual(r[3], 8)
-    self.assertEqual(r[10], 22)
-    self.assertEqual(set(r.values()), set((8, 22)))
-    self.assertEqual(set(r.items()), set(((3, 8), (10, 22))))
-
-  def testGet(self):
-    r = registry.Registry('test_registry', value_transformer=lambda k, v: v())
-    r["a"] = lambda: "xyz"
-    self.assertEqual(r.get("a"), "xyz")
-    self.assertEqual(r.get("a", 3), "xyz")
-    self.assertIsNone(r.get("b"))
-    self.assertEqual(r.get("b", 3), 3)
-
 
 class ModelRegistryTest(tf.test.TestCase):
 
   def setUp(self):
-    registry.Registries.models._clear()
+    registry._reset()
 
   def testT2TModelRegistration(self):
 
@@ -121,7 +60,7 @@ class ModelRegistryTest(tf.test.TestCase):
     self.assertTrue(model is model_fn)
 
   def testUnknownModel(self):
-    with self.assertRaisesRegexp(KeyError, "never registered"):
+    with self.assertRaisesRegexp(LookupError, "never registered"):
       registry.model("not_registered")
 
   def testDuplicateRegistration(self):
@@ -130,7 +69,7 @@ class ModelRegistryTest(tf.test.TestCase):
     def m1():
       pass
 
-    with self.assertRaisesRegexp(KeyError, "already registered"):
+    with self.assertRaisesRegexp(LookupError, "already registered"):
 
       @registry.register_model("m1")
       def m2():
@@ -149,82 +88,10 @@ class ModelRegistryTest(tf.test.TestCase):
     self.assertSetEqual(set(["m1", "m2"]), set(registry.list_models()))
 
 
-class OptimizerRegistryTest(tf.test.TestCase):
-  def setUp(self):
-    registry.Registries.optimizers._clear()
-
-  def testRegistration(self):
-    @registry.register_optimizer
-    def my_optimizer(learning_rate, hparams):
-      return 3
-
-    @registry.register_optimizer('my_other_optimizer')
-    def another_optimizer(learning_rate, hparams):
-      return 5
-
-    self.assertEqual(registry.optimizer("my_optimizer"), my_optimizer)
-    self.assertEqual(
-        registry.optimizer("my_other_optimizer"), another_optimizer)
-
-  def testMembership(self):
-    @registry.register_optimizer
-    def my_optimizer(learning_rate, hparams):
-      return 3
-
-    @registry.register_optimizer("my_other_optimizer")
-    def another_optimizer(learning_rate, hparams):
-      return 5
-
-    self.assertTrue("my_optimizer" in registry.Registries.optimizers)
-    self.assertTrue("my_other_optimizer" in registry.Registries.optimizers)
-    self.assertFalse("another_optimizer" in registry.Registries.optimizers)
-    self.assertEqual(len(registry.Registries.optimizers), 2)
-
-  def testArgErrorCheck(self):
-    with self.assertRaisesRegexp(ValueError, "must take .* arguments"):
-      registry.Registries.optimizers.register('OneArgs')(lambda x: 4)
-    with self.assertRaisesRegexp(ValueError, "must take .* arguments"):
-      registry.Registries.optimizers.register('ThreeArgs')(
-          lambda x, y, z: 4)
-    with self.assertRaisesRegexp(ValueError, "must take .* arguments"):
-      registry.Registries.optimizers.register('NArgs')(lambda *args: 4)
-    with self.assertRaisesRegexp(ValueError, "must take .* arguments"):
-      registry.Registries.optimizers.register("Kwargs")(lambda **kargs: 4)
-    with self.assertRaisesRegexp(ValueError, "must take .* arguments"):
-      registry.Registries.optimizers.register("TwoAndKwargs")(
-          lambda a, b, **kargs: 4)
-
-  def testMultipleRegistration(self):
-    @registry.register_optimizer
-    def my_optimizer(learning_rate, hparams):
-      return 3
-
-    with self.assertRaisesRegexp(KeyError, "already registered"):
-
-      @registry.register_optimizer("my_optimizer")
-      def another_fn(learning_rate, hparams):
-        return 5
-
-  def testUnknownOptimizer(self):
-    with self.assertRaisesRegexp(KeyError, "never registered"):
-      registry.optimizer("not_registered_optimizer")
-
-  def testGetterSetterInterface(self):
-    def f(x, y):
-      return 3
-
-    k = 'blah'
-    registry.Registries.optimizers[k] = f
-    self.assertEqual(registry.optimizer(k), f)
-    self.assertEqual(registry.Registries.optimizers[k], f)
-    self.assertEqual(registry.Registries.optimizers[k], registry.optimizer(k))
-
-
 class HParamRegistryTest(tf.test.TestCase):
 
   def setUp(self):
-    registry.Registries.hparams._clear()
-    registry.Registries.ranged_hparams._clear()
+    registry._reset()
 
   def testHParamSet(self):
 
@@ -254,9 +121,9 @@ class HParamRegistryTest(tf.test.TestCase):
     self.assertTrue(registry.ranged_hparams("a") is my_hparams_range)
 
   def testUnknownHparams(self):
-    with self.assertRaisesRegexp(KeyError, "never registered"):
+    with self.assertRaisesRegexp(LookupError, "never registered"):
       registry.hparams("not_registered")
-    with self.assertRaisesRegexp(KeyError, "never registered"):
+    with self.assertRaisesRegexp(LookupError, "never registered"):
       registry.ranged_hparams("not_registered")
 
   def testNoneHparams(self):
@@ -327,7 +194,34 @@ class HParamRegistryTest(tf.test.TestCase):
         pass
 
 
-class RegistryHelpTest(tf.test.TestCase):
+class CreateRegistry(tf.test.TestCase):
+  """Test class for `create_registry`."""
+
+  def testCreateRegistry(self):
+    my_registry = registry.create_registry("test_reg1")
+    self.assertIs(my_registry, registry.registry("test_reg1"))
+
+    # Use as decorator on a fn
+    @my_registry.register("foo")
+    def some_fn(num):
+      return num + 2
+
+    # Register a regular object
+    pod_obj = 4
+    my_registry.register("bar")(pod_obj)
+
+    # Register a class
+    @my_registry.register("foobar")
+    class A(object):
+      pass
+
+    self.assertEqual(9, my_registry.get("foo")(7))
+    self.assertEqual(["bar", "foo", "foobar"], my_registry.list())
+    foobar = my_registry.get("foobar")
+    self.assertTrue(isinstance(foobar(), A))
+
+
+class RegistryTest(tf.test.TestCase):
   """Test class for common functions."""
 
   def testRegistryHelp(self):

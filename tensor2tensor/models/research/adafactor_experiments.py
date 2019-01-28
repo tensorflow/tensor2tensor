@@ -30,16 +30,16 @@ def mimic_adam_with_adafactor(hparams):
   Some minor things may be different, like epsilon and beta1 correction.
 
   Args:
-    hparams: model hyperparameters where "adam" in hparams.optimizer
+    hparams: model hyperparameters where "Adam" in hparams.optimizer
   """
-  assert "adam" in hparams.optimizer
-  hparams.optimizer = "adafactor"
+  assert "Adam" in hparams.optimizer
+  hparams.optimizer = "Adafactor"
   hparams.optimizer_adafactor_beta1 = hparams.optimizer_adam_beta1
   hparams.optimizer_adafactor_beta2 = hparams.optimizer_adam_beta2
   hparams.optimizer_adafactor_multiply_by_parameter_scale = False
   hparams.optimizer_adafactor_factored = False
   hparams.optimizer_adafactor_clipping_threshold = None
-  hparams.optimizer_adafactor_decay_type = "adam"
+  hparams.optimizer_adafactor_decay_type = "Adam"
 
 
 @registry.register_hparams
@@ -50,7 +50,7 @@ def afx_adam():
   hparams.optimizer_adam_beta2 = 0.999
   hparams.symbol_modality_num_shards = 1
   hparams.batch_size = 2048
-  hparams.optimizer = "adam"
+  hparams.optimizer = "Adam"
   hparams.learning_rate_schedule = (
       "constant*rsqrt_decay*linear_warmup*rsqrt_hidden_size")
   hparams.learning_rate_constant = 2.0

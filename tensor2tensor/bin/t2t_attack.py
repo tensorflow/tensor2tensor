@@ -73,7 +73,7 @@ def create_attack_params():
 
 
 def create_attack(attack):
-  return registry.attack(attack)
+  return registry.attacks(attack)
 
 
 def create_surrogate_hparams():

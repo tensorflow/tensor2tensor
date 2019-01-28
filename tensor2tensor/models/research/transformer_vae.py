@@ -767,7 +767,7 @@ def transformer_ae_small():
   hparams.filter_size = 2048
   hparams.add_hparam("compress_filter_size", 2048 * 2)
   hparams.label_smoothing = 0.0
-  hparams.optimizer = "adam"  # Can be unstable, maybe try Adam.
+  hparams.optimizer = "Adam"  # Can be unstable, maybe try Adam.
   hparams.optimizer_adam_epsilon = 1e-9
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.997  # Needs tuning, try 0.98 to 0.999.
@@ -941,7 +941,7 @@ def transformer_ae_a3():
 def transformer_ae_a6():
   """Best hparams for transformer with semhash."""
   hparams = transformer_ae_a3()
-  hparams.optimizer = "adam"
+  hparams.optimizer = "Adam"
   hparams.noise_dev = 0.5
   return hparams
 

@@ -54,7 +54,7 @@ def create_pruning_params():
 
 
 def create_pruning_strategy(name):
-  return registry.pruning_strategy(name)
+  return registry.pruning_strategies(name)
 
 
 def main(argv):

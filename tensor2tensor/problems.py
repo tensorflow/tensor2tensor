@@ -27,7 +27,7 @@ def problem(name):
 
 
 def available():
-  return registry.list_base_problems()
+  return sorted(registry.list_problems())
 
 
 all_problems.import_modules(all_problems.ALL_MODULES)

@@ -392,7 +392,7 @@ def transformer_nat_small():
   hparams.filter_size = 2048
   hparams.label_smoothing = 0.0
   hparams.force_full_predict = True
-  hparams.optimizer = "adam"
+  hparams.optimizer = "Adam"
   hparams.optimizer_adam_epsilon = 1e-9
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.997

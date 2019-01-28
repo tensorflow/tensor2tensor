@@ -147,7 +147,7 @@ def main(_):
 
   # Calculate the list of problems to generate.
   problems = sorted(
-      list(_SUPPORTED_PROBLEM_GENERATORS) + registry.list_base_problems())
+      list(_SUPPORTED_PROBLEM_GENERATORS) + registry.list_problems())
   for exclude in FLAGS.exclude_problems.split(","):
     if exclude:
       problems = [p for p in problems if exclude not in p]
@@ -169,8 +169,7 @@ def main(_):
 
   if not problems:
     problems_str = "\n  * ".join(
-        sorted(list(_SUPPORTED_PROBLEM_GENERATORS) +
-               registry.list_base_problems()))
+        sorted(list(_SUPPORTED_PROBLEM_GENERATORS) + registry.list_problems()))
     error_msg = ("You must specify one of the supported problems to "
                  "generate data for:\n  * " + problems_str + "\n")
     error_msg += ("TIMIT and parsing need data_sets specified with "

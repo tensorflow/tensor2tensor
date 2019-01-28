@@ -1020,7 +1020,7 @@ class AutoencoderStacked(AutoencoderResidualDiscrete):
 def autoencoder_basic():
   """Basic autoencoder model."""
   hparams = common_hparams.basic_params1()
-  hparams.optimizer = "adam"
+  hparams.optimizer = "Adam"
   hparams.learning_rate_constant = 0.0002
   hparams.learning_rate_warmup_steps = 500
   hparams.learning_rate_schedule = "constant * linear_warmup"

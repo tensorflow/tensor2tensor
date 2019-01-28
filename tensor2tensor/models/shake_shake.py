@@ -189,7 +189,7 @@ def shakeshake_small():
 @registry.register_hparams
 def shake_shake_quick():
   hparams = shakeshake_small()
-  hparams.optimizer = "adam"
+  hparams.optimizer = "Adam"
   hparams.learning_rate_cosine_cycle_steps = 1000
   hparams.learning_rate = 0.5
   hparams.batch_size = 100

@@ -335,7 +335,7 @@ def vqa_attention_base():
   hparams = common_hparams.basic_params1()
   hparams.batch_size = 128
   hparams.use_fixed_batch_size = True,
-  hparams.optimizer = "adam"
+  hparams.optimizer = "Adam"
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.999
   hparams.optimizer_adam_epsilon = 1e-8

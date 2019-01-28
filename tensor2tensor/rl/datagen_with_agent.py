@@ -45,7 +45,7 @@ def main(_):
 
   # Create problem if not already defined
   problem_name = "gym_discrete_problem_with_agent_on_%s" % FLAGS.game
-  if problem_name not in registry.Registries.problems:
+  if problem_name not in registry.list_problems():
     gym_env.register_game(FLAGS.game)
 
   # Generate
