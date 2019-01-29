@@ -212,7 +212,7 @@ class NextFrameGlow(glow.Glow):
     if self.hparams.gen_mode == "unconditional":
       predicted_video = tf.tile(
           predicted_video, [1, self.hparams.video_num_target_frames, 1, 1, 1])
-    predicted_video = self.scale(predicted_video)
+    predicted_video = glow_ops.postprocess(predicted_video)
 
     # Output of a single decode / sample.
     output_features = {}

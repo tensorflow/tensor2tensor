@@ -98,15 +98,6 @@ class Glow(t2t_model.T2TModel):
       return self.hparams.temperature
     return 1.0
 
-  def scale(self, x):
-    """Scale x from -0.5 - 0.5 to 0 - 255."""
-    x = tf.where(tf.is_nan(x), tf.ones_like(x), x)
-    x = tf.where(tf.is_inf(x), tf.ones_like(x), x)
-    x = tf.clip_by_value(x, -0.5, 0.5)
-    x += 0.5
-    x = x * 2**self.hparams.n_bits_x
-    return tf.cast(tf.clip_by_value(x, 0, 255), dtype=tf.uint8)
-
   @property
   def is_training(self):
     return self.hparams.mode == tf.estimator.ModeKeys.TRAIN
@@ -126,7 +117,7 @@ class Glow(t2t_model.T2TModel):
           "codec", self.z_sample, self.hparams, eps=None, reverse=True,
           temperature=self.temperature)
 
-    return self.scale(predictions)
+    return glow_ops.postprocess(predictions, self.hparams.n_bits_x)
 
   def create_init_batch(self, features):
     """Returns a batch of size "hparams.init_batch_size" for initialization.

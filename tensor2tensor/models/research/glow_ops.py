@@ -31,6 +31,40 @@ arg_scope = tf.contrib.framework.arg_scope
 add_arg_scope = tf.contrib.framework.add_arg_scope
 
 
+def linear_interpolate(tensor1, tensor2, coeffs):
+  """Linearly interpolate between two tensors at coeff.
+
+  Args:
+    tensor1: 3-D Tensor, NHWC
+    tensor2: 3-D Tensor, NHWC
+    coeffs: list of floats.
+  Returns:
+    interp_latents: list of interpolated 4-D Tensors, shape=(1HWC)
+  """
+  interp_tensors = []
+  for coeff in coeffs:
+    interp_tensor = tensor1 + coeff * (tensor2 - tensor1)
+    interp_tensors.append(interp_tensor)
+  return tf.concat(interp_tensors, axis=0)
+
+
+def postprocess(x, n_bits_x=8):
+  """Converts x from [-0.5, 0.5], to [0, 255].
+
+  Args:
+    x: 3-D or 4-D Tensor normalized between [-0.5, 0.5]
+    n_bits_x: Number of bits representing each pixel of the output.
+              Defaults to 8, to default to 256 possible values.
+  Returns:
+    x: 3-D or 4-D Tensor representing images or videos.
+  """
+  x = tf.where(tf.is_finite(x), x, tf.ones_like(x))
+  x = tf.clip_by_value(x, -0.5, 0.5)
+  x += 0.5
+  x = x * 2**n_bits_x
+  return tf.cast(tf.clip_by_value(x, 0, 255), dtype=tf.uint8)
+
+
 class TemperedNormal(tfp.distributions.Normal):
   """Normal distribution with temperature T."""
 
