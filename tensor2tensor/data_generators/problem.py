@@ -435,6 +435,16 @@ class Problem(object):
     return generator_utils.test_data_filenames(file_basename, data_dir,
                                                num_shards)
 
+  def data_filepaths(self, split, output_dir, num_shards, shuffled):
+    if split == DatasetSplit.TRAIN:
+      return self.training_filepaths(output_dir, num_shards, shuffled)
+    elif split == DatasetSplit.EVAL:
+      return self.dev_filepaths(output_dir, num_shards, shuffled)
+    elif split == DatasetSplit.TEST:
+      return self.test_filepaths(output_dir, num_shards, shuffled)
+    else:
+      raise ValueError("Unknown value for split: %s" % split)
+
   def filepattern(self, data_dir, mode, shard=None):
     """Get filepattern for data files for mode.
 

@@ -138,5 +138,31 @@ class ProblemTest(parameterized.TestCase, tf.test.TestCase):
                           modalities.SymbolModality)
     self.assertLen(p_hparams.modality, 1)
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testDataFilenames(self):
+    problem = algorithmic.TinyAlgo()
+
+    num_shards = 10
+    shuffled = False
+    data_dir = "/tmp"
+
+    # Test training_filepaths and data_filepaths give the same list on
+    # appropriate arguments.
+    self.assertAllEqual(
+        problem.training_filepaths(data_dir, num_shards, shuffled),
+        problem.data_filepaths(problem_module.DatasetSplit.TRAIN, data_dir,
+                               num_shards, shuffled))
+
+    self.assertAllEqual(
+        problem.dev_filepaths(data_dir, num_shards, shuffled),
+        problem.data_filepaths(problem_module.DatasetSplit.EVAL, data_dir,
+                               num_shards, shuffled))
+
+    self.assertAllEqual(
+        problem.test_filepaths(data_dir, num_shards, shuffled),
+        problem.data_filepaths(problem_module.DatasetSplit.TEST, data_dir,
+                               num_shards, shuffled))
+
+
 if __name__ == "__main__":
   tf.test.main()
