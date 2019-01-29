@@ -60,14 +60,18 @@ flags.DEFINE_integer("eval_step_limit", 100000,
 flags.DEFINE_enum(
     "agent", "policy", ["random", "policy", "planner"], "Agent type to use."
 )
-# Evaluator doesn't report metrics on the simulated env because we don't collect
-# rollouts there. It's just for generating videos.
+# Evaluator doesn't report metrics for agent on the simulated env because we
+# don't collect rollouts there. It's just for generating videos.
 # TODO(koz4k): Enable reporting metrics from simulated env by refactoring
 # T2TEnv to a wrapper storing rollouts and providing Problem interface for any
 # batch env.
 flags.DEFINE_enum(
-    "env", "real", ["real", "simulated"], "Environment type to evaluate on."
+    "mode", "agent_real", ["agent_real", "agent_simulated", "model"],
+    "Evaluation mode; report agent's score on real or simulated env, or model's"
+    " reward accuracy."
 )
+# TODO(koz4k): Switch to out-of-graph evaluation everywhere and remove this
+# flag.
 flags.DEFINE_bool(
     "eval_with_learner", False,
     "Whether to use the PolicyLearner.evaluate function instead of an "
@@ -263,8 +267,50 @@ def make_agent(
   }[agent_type]()
 
 
+def collect_frames_for_random_starts(
+    storage_env, stacked_env, agent, frame_stack_size, random_starts_step_limit,
+    log_every_steps=None
+):
+  """Collects frames from real env for random starts of simulated env."""
+  storage_env.start_new_epoch(0)
+  tf.logging.info(
+      "Collecting %d frames for random starts.", random_starts_step_limit
+  )
+  rl_utils.run_rollouts(
+      stacked_env, agent, stacked_env.reset(),
+      step_limit=random_starts_step_limit,
+      many_rollouts_from_each_env=True,
+      log_every_steps=log_every_steps,
+  )
+  # Save unfinished rollouts to history.
+  stacked_env.reset()
+
+
+def make_agent_from_hparams(
+    agent_type, base_env, stacked_env, loop_hparams, policy_hparams,
+    planner_hparams, model_dir, policy_dir, sampling_temp, video_writers=()
+):
+  """Creates an Agent from hparams."""
+  sim_env_kwargs = rl.make_simulated_env_kwargs(
+      base_env, loop_hparams, batch_size=planner_hparams.batch_size,
+      model_dir=model_dir
+  )
+  planner_kwargs = planner_hparams.values()
+  planner_kwargs.pop("batch_size")
+  planner_kwargs.pop("rollout_agent_type")
+  planner_kwargs.pop("env_type")
+  return make_agent(
+      agent_type, stacked_env, policy_hparams, policy_dir, sampling_temp,
+      sim_env_kwargs, loop_hparams.frame_stack_size,
+      planner_hparams.rollout_agent_type,
+      inner_batch_size=planner_hparams.batch_size,
+      env_type=planner_hparams.env_type,
+      video_writers=video_writers, **planner_kwargs
+  )
+
+
 def make_eval_fn_with_agent(
-    agent_type, env_type, planner_hparams, model_dir, log_every_steps=None,
+    agent_type, eval_mode, planner_hparams, model_dir, log_every_steps=None,
     video_writers=(), random_starts_step_limit=None
 ):
   """Returns an out-of-graph eval_fn using the Agent API."""
@@ -272,38 +318,20 @@ def make_eval_fn_with_agent(
     """Eval function."""
     base_env = env
     env = rl_utils.BatchStackWrapper(env, loop_hparams.frame_stack_size)
-    sim_env_kwargs = rl.make_simulated_env_kwargs(
-        base_env, loop_hparams, batch_size=planner_hparams.batch_size,
-        model_dir=model_dir
-    )
-    planner_kwargs = planner_hparams.values()
-    planner_kwargs.pop("batch_size")
-    planner_kwargs.pop("rollout_agent_type")
-    planner_kwargs.pop("env_type")
-    agent = make_agent(
-        agent_type, env, policy_hparams, policy_dir, sampling_temp,
-        sim_env_kwargs, loop_hparams.frame_stack_size,
-        planner_hparams.rollout_agent_type,
-        inner_batch_size=planner_hparams.batch_size,
-        env_type=planner_hparams.env_type,
-        video_writers=video_writers, **planner_kwargs
+    agent = make_agent_from_hparams(
+        agent_type, base_env, env, loop_hparams, policy_hparams,
+        planner_hparams, model_dir, policy_dir, sampling_temp, video_writers
     )
 
-    if env_type == "simulated":
+    if eval_mode == "agent_simulated":
       real_env = base_env.new_like(batch_size=1)
-      real_env.start_new_epoch(0)
-      tf.logging.info(
-          "Collecting %d frames for random starts.", random_starts_step_limit
+      stacked_env = rl_utils.BatchStackWrapper(
+          real_env, loop_hparams.frame_stack_size
       )
-      env = rl_utils.BatchStackWrapper(real_env, loop_hparams.frame_stack_size)
-      rl_utils.run_rollouts(
-          env, agent, env.reset(),
-          step_limit=random_starts_step_limit,
-          many_rollouts_from_each_env=True,
-          log_every_steps=log_every_steps,
+      collect_frames_for_random_starts(
+          real_env, stacked_env, agent, loop_hparams.frame_stack_size,
+          random_starts_step_limit, log_every_steps
       )
-      # Save unfinished rollouts to history.
-      env.reset()
       initial_frame_chooser = rl_utils.make_initial_frame_chooser(
           real_env, loop_hparams.frame_stack_size,
           simulation_random_starts=True,
@@ -320,21 +348,49 @@ def make_eval_fn_with_agent(
     kwargs = {}
     if not agent.records_own_videos:
       kwargs["video_writers"] = video_writers
-    step_limit = real_env.rl_env_max_episode_steps
+    step_limit = base_env.rl_env_max_episode_steps
     if step_limit == -1:
       step_limit = None
     rl_utils.run_rollouts(
         env, agent, env.reset(), log_every_steps=log_every_steps,
         step_limit=step_limit, **kwargs
     )
-    if env_type == "real":
+    if eval_mode == "agent_real":
       assert len(base_env.current_epoch_rollouts()) == env.batch_size
   return eval_fn
 
 
+def evaluate_world_model(
+    agent_type, loop_hparams, planner_hparams, model_dir, policy_dir,
+    random_starts_step_limit, debug_video_path, log_every_steps
+):
+  """Evaluates the world model."""
+  if debug_video_path:
+    debug_video_path = os.path.join(debug_video_path, "0.avi")
+
+  storage_env = rl_utils.setup_env(loop_hparams, batch_size=1, max_num_noops=0)
+  stacked_env = rl_utils.BatchStackWrapper(
+      storage_env, loop_hparams.frame_stack_size
+  )
+  policy_hparams = trainer_lib.create_hparams(loop_hparams.base_algo_params)
+  agent = make_agent_from_hparams(
+      agent_type, storage_env, stacked_env, loop_hparams, policy_hparams,
+      planner_hparams, model_dir, policy_dir,
+      # TODO(koz4k): Loop over eval_sampling_temps?
+      sampling_temp=loop_hparams.eval_sampling_temps[0],
+  )
+  collect_frames_for_random_starts(
+      storage_env, stacked_env, agent, loop_hparams.frame_stack_size,
+      random_starts_step_limit, log_every_steps
+  )
+  return rl_utils.evaluate_world_model(
+      storage_env, loop_hparams, model_dir, debug_video_path, split=None
+  )
+
+
 def evaluate(
     loop_hparams, planner_hparams, policy_dir, model_dir, eval_metrics_dir,
-    agent_type, env_type, eval_with_learner, log_every_steps, debug_video_path,
+    agent_type, eval_mode, eval_with_learner, log_every_steps, debug_video_path,
     num_debug_videos=1, random_starts_step_limit=None,
     report_fn=None, report_metric=None
 ):
@@ -348,26 +404,32 @@ def evaluate(
   eval_metrics_writer = tf.summary.FileWriter(eval_metrics_dir)
   video_writers = ()
   kwargs = {}
-  if not eval_with_learner:
-    if debug_video_path:
-      tf.gfile.MakeDirs(debug_video_path)
-      video_writers = [
-          common_video.WholeVideoWriter(  # pylint: disable=g-complex-comprehension
-              fps=10,
-              output_path=os.path.join(debug_video_path, "{}.avi".format(i)),
-              file_format="avi",
-          )
-          for i in range(num_debug_videos)
-      ]
-    kwargs["eval_fn"] = make_eval_fn_with_agent(
-        agent_type, env_type, planner_hparams, model_dir,
-        log_every_steps=log_every_steps,
-        video_writers=video_writers,
-        random_starts_step_limit=random_starts_step_limit
+  if eval_mode in ["agent_real", "agent_simulated"]:
+    if not eval_with_learner:
+      if debug_video_path:
+        tf.gfile.MakeDirs(debug_video_path)
+        video_writers = [
+            common_video.WholeVideoWriter(  # pylint: disable=g-complex-comprehension
+                fps=10,
+                output_path=os.path.join(debug_video_path, "{}.avi".format(i)),
+                file_format="avi",
+            )
+            for i in range(num_debug_videos)
+        ]
+      kwargs["eval_fn"] = make_eval_fn_with_agent(
+          agent_type, eval_mode, planner_hparams, model_dir,
+          log_every_steps=log_every_steps,
+          video_writers=video_writers,
+          random_starts_step_limit=random_starts_step_limit
+      )
+    eval_metrics = rl_utils.evaluate_all_configs(
+        loop_hparams, policy_dir, **kwargs
     )
-  eval_metrics = rl_utils.evaluate_all_configs(
-      loop_hparams, policy_dir, **kwargs
-  )
+  else:
+    eval_metrics = evaluate_world_model(
+        agent_type, loop_hparams, planner_hparams, model_dir, policy_dir,
+        random_starts_step_limit, debug_video_path, log_every_steps
+    )
   rl_utils.summarize_metrics(eval_metrics_writer, eval_metrics, 0)
 
   for video_writer in video_writers:
@@ -436,7 +498,7 @@ def main(_):
       tf.gfile.MkDir(eval_metrics_dir)
   evaluate(
       loop_hparams, planner_hparams, policy_dir, model_dir,
-      eval_metrics_dir, FLAGS.agent, FLAGS.env, FLAGS.eval_with_learner,
+      eval_metrics_dir, FLAGS.agent, FLAGS.mode, FLAGS.eval_with_learner,
       FLAGS.log_every_steps if FLAGS.log_every_steps > 0 else None,
       debug_video_path=FLAGS.debug_video_path,
       num_debug_videos=FLAGS.num_debug_videos,
