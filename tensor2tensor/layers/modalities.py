@@ -736,7 +736,8 @@ class VideoModalityL2(VideoModalityL1):
   """Modality for videos with L2 loss."""
 
   def internal_loss(self, logits, targets):
-    return tf.nn.relu((logits - targets)**2 - self.cutoff * self.cutoff)
+    return tf.nn.relu(
+        tf.squared_difference(logits, targets) - self.cutoff * self.cutoff)
 
 
 class VideoModalityL2Raw(VideoModalityL2):
