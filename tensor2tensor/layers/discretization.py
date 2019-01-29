@@ -217,8 +217,8 @@ def embedding_lookup(x,
 
   # Currently, we use the mean scaling for the commitment loss, as opposed to
   # summing across all non-batch dimensions.
-  q_loss = tf.reduce_mean(tf.square((tf.stop_gradient(x) - x_means)))
-  e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
+  q_loss = tf.reduce_mean(tf.squared_difference(tf.stop_gradient(x), x_means))
+  e_loss = tf.reduce_mean(tf.squared_difference(x, tf.stop_gradient(x_means)))
   return x_means_hot, x_means, q_loss, e_loss, neg_q_entropy
 
 
@@ -469,7 +469,8 @@ def gumbel_softmax(x,
     # Add losses that prevent too few being used.
     distrib = tf.reshape(logsm, [-1, 2**z_size]) * maxvhot
     d_mean = tf.reduce_mean(distrib, axis=[0], keep_dims=True)
-    d_variance = tf.reduce_mean(tf.square(distrib - d_mean), axis=[0])
+    d_variance = tf.reduce_mean(
+        tf.squared_difference(distrib, d_mean), axis=[0])
     d_dev = -tf.reduce_mean(d_variance)
     ret = s
 
@@ -924,7 +925,7 @@ def vq_nearest_neighbor(x, means,
     x_means_hot = tf.one_hot(x_means_idx, bottleneck_size)
   x_means_hot_flat = tf.reshape(x_means_hot, [-1, bottleneck_size])
   x_means = tf.matmul(x_means_hot_flat, means)
-  e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
+  e_loss = tf.reduce_mean(tf.squared_difference(x, tf.stop_gradient(x_means)))
   return x_means_hot, e_loss, dist
 
 
@@ -1333,7 +1334,8 @@ def gumbel_softmax_discrete_bottleneck(x,
   x_means_assignments_flat = tf.reshape(x_means_assignments,
                                         [-1, bottleneck_size])
   x_means = tf.matmul(x_means_assignments_flat, means)
-  commitment_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
+  commitment_loss = tf.reduce_mean(
+      tf.squared_difference(x, tf.stop_gradient(x_means)))
 
   # Update the ema variables.
   updated_ema_count = moving_averages.assign_moving_average(

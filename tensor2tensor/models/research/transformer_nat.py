@@ -65,7 +65,7 @@ def vq_nearest_neighbor(x, hparams):
     x_means_idx = tf.argmax(-dist, axis=-1)
     x_means_hot = tf.one_hot(x_means_idx, depth=bottleneck_size)
   x_means = tf.matmul(x_means_hot, means)
-  e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
+  e_loss = tf.reduce_mean(tf.squared_difference(x, tf.stop_gradient(x_means)))
   return x_means_hot, e_loss
 
 

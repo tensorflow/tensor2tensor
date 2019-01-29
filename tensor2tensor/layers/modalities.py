@@ -916,7 +916,7 @@ class GenericL2LossModality(IdentityModality):
     return tf.to_float(x)
 
   def loss(self, body_output, targets):
-    loss = tf.square(body_output - tf.to_float(targets))
+    loss = tf.squared_difference(body_output, tf.to_float(targets))
     return tf.reduce_mean(loss), tf.constant(1.0)
 
 

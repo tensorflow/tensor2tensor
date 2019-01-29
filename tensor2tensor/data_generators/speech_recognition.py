@@ -122,7 +122,7 @@ class SpeechRecognitionProblem(problem.Problem):
       # This replaces CMVN estimation on data
       var_epsilon = 1e-09
       mean = tf.reduce_mean(mel_fbanks, keepdims=True, axis=1)
-      variance = tf.reduce_mean(tf.square(mel_fbanks - mean),
+      variance = tf.reduce_mean(tf.squared_difference(mel_fbanks, mean),
                                 keepdims=True, axis=1)
       mel_fbanks = (mel_fbanks - mean) * tf.rsqrt(variance + var_epsilon)
 
