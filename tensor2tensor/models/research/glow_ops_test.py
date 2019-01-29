@@ -206,27 +206,31 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
     with tf.Graph().as_default():
       hparams = glow.glow_hparams()
       hparams.n_levels = 3
-      hparams.depth = 2
-
-      x = tf.random_uniform(shape=(16, 64, 64, 4), seed=0)
-      x_inv, _, eps, z_levels, _ = glow_ops.encoder_decoder(
-          "encoder_decoder", x, hparams, reverse=False)
+      hparams.depth = 6
+      rng = np.random.RandomState(0)
+      x_np = rng.rand(1, 64, 64, 4)
+      x_t = tf.convert_to_tensor(x_np, dtype=tf.float32)
+      init_ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
+      with arg_scope(init_ops, init=True):
+        x_inv, _, eps, z_levels, _ = glow_ops.encoder_decoder(
+            "encoder_decoder", x_t, hparams, reverse=False)
       x_inv_inv, _, z_inv_levels, _ = glow_ops.encoder_decoder(
           "encoder_decoder", x_inv, hparams, eps=eps, reverse=True)
 
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
-        diff, x_inv_np, z_levels_np, z_inv_levels_np = session.run(
-            [x - x_inv_inv, x_inv, z_levels, z_inv_levels])
-
+        x_inv_np = session.run(x_inv)
+        z_levels_np, z_inv_levels_np, x_inv_inv_np = session.run(
+            [z_levels, z_inv_levels, x_inv_inv])
+        diff = x_inv_inv_np - x_np
         self.assertLen(z_levels_np, 2)
         self.assertLen(z_inv_levels_np, 2)
         # (h_i, w_i, c_i) = (h_{i-1}/f, w_{i-1}/f, c_{i-1}*(2f)/2) where (f=2)
-        self.assertEqual(z_levels_np[0].shape, (16, 32, 32, 8))
-        self.assertEqual(z_levels_np[1].shape, (16, 16, 16, 16))
-        self.assertEqual(z_inv_levels_np[0].shape, (16, 32, 32, 8))
-        self.assertEqual(z_inv_levels_np[1].shape, (16, 16, 16, 16))
-        self.assertTrue(x_inv_np.shape, (16, 8, 8, 64))
+        self.assertEqual(z_levels_np[0].shape, (1, 32, 32, 8))
+        self.assertEqual(z_levels_np[1].shape, (1, 16, 16, 16))
+        self.assertEqual(z_inv_levels_np[0].shape, (1, 32, 32, 8))
+        self.assertEqual(z_inv_levels_np[1].shape, (1, 16, 16, 16))
+        self.assertTrue(x_inv_np.shape, (1, 8, 8, 64))
         self.assertTrue(np.allclose(diff, 0.0, atol=1e-2))
 
   def test_encoder_decoder_practical_usage(self):
