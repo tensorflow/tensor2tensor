@@ -358,8 +358,8 @@ class LambadaRc(text_problems.Text2ClassProblem):
     """
 
     p = defaults
-    p.modality = {"inputs": modalities.SymbolModality,
-                  "targets": modalities.ClassLabelModality}
+    p.modality = {"inputs": modalities.ModalityType.SYMBOL,
+                  "targets": modalities.ModalityType.CLASS_LABEL}
     p.vocab_size = {"inputs": self._encoders["inputs"].vocab_size,
                     "targets": self._encoders["targets"].vocab_size}
 

@@ -151,8 +151,8 @@ class TimeseriesProblem(problem.Problem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.modality = {"inputs": modalities.RealL2LossModality,
-                  "targets": modalities.RealL2LossModality}
+    p.modality = {"inputs": modalities.ModalityType.REAL_L2_LOSS,
+                  "targets": modalities.ModalityType.REAL_L2_LOSS}
     p.vocab_size = {"inputs": self.num_series,
                     "targets": self.num_series}
     p.input_space_id = problem.SpaceID.REAL

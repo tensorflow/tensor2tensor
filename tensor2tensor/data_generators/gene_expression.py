@@ -142,8 +142,8 @@ class GeneExpressionProblem(problem.Problem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.modality = {"inputs": modalities.SymbolModality,
-                  "targets": modalities.RealLogPoissonLossModality}
+    p.modality = {"inputs": modalities.ModalityType.SYMBOL,
+                  "targets": modalities.ModalityType.REAL_LOG_POISSON_LOSS}
     p.vocab_size = {"inputs": self._encoders["inputs"].vocab_size,
                     "targets": self.num_output_predictions}
     p.input_space_id = problem.SpaceID.DNA

@@ -56,8 +56,8 @@ class ImageCeleba(image_utils.ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.modality = {"inputs": modalities.IdentityModality,
-                  "targets": modalities.IdentityModality}
+    p.modality = {"inputs": modalities.ModalityType.IDENTITY,
+                  "targets": modalities.ModalityType.IDENTITY}
     p.vocab_size = {"inputs": 256,
                     "targets": 256}
     p.batch_size_multiplier = 256

@@ -131,9 +131,9 @@ class ImageQuestion2MultilabelProblem(image_utils.ImageProblem):
     targets_encoder = self._encoders["targets"]
 
     p.modality = {
-        "inputs": modalities.IdentityModality,
-        "question": modalities.SymbolModality,
-        "targets": modalities.MultiLabelModality,
+        "inputs": modalities.ModalityType.IDENTITY,
+        "question": modalities.ModalityType.SYMBOL,
+        "targets": modalities.ModalityType.MULTI_LABEL,
     }
     p.vocab_size = {
         "inputs": None,

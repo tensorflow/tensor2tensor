@@ -1091,3 +1091,79 @@ class SoftmaxLastTimestepClassLabelModality(OneHotClassLabelModality):
       x = body_output
       x = tf.expand_dims(x[:, -1], 1)  # Pick the last timestep
       return tf.layers.dense(x, self._vocab_size)
+
+
+class ModalityType(object):
+  """Types of modalities."""
+
+  SYMBOL = "SymbolModality"
+  SYMBOL_WEIGHTS_ALL = "SymbolModalityWeightsAll"
+  SYMBOL_ONE_HOT = "SymbolModalityOneHot"
+  CTC_SYMBOL = "CTCSymbolModality"
+  IMAGE = "ImageModality"
+  IMAGE_CHANNEL_COMPRESS = "ImageChannelCompressModality"
+  IMAGE_CHANNEL_BOTTOM_IDENTITY = "ImageChannelBottomIdentityModality"
+  IMAGE_CHANNEL_EMBEDDINGS_BOTTOM = "ImageChannelEmbeddingsBottom"
+  AUDIO = "AudioModality"
+  AUDIO_SPECTRAL = "AudioSpectralModality"
+  SPEECH_RECOGNITION = "SpeechRecognitionModality"
+  VIDEO = "VideoModality"
+  VIDEO_BITWISE = "VideoModalityBitwise"
+  VIDEO_PIXEL_NOISE = "VideoModalityPixelNoise"
+  VIDEO_L1 = "VideoModalityL1"
+  VIDEO_L2 = "VideoModalityL2"
+  VIDEO_L2_RAW = "VideoModalityL2Raw"
+  VIDEO_L1_RAW = "VideoModalityL1Raw"
+  CLASS_LABEL = "ClassLabelModality"
+  VIDEO_IDENTITY = "VideoModalityIdentity"
+  MULTI_LABEL = "MultiLabelModality"
+  ONE_HOT_CLASS_LABEL = "OneHotClassLabelModality"
+  IDENTITY = "IdentityModality"
+  GENERIC_L2_LOSS = "GenericL2LossModality"
+  REAL = "RealModality"
+  REAL_L2_LOSS = "RealL2LossModality"
+  REAL_LOG_POISSON_LOSS = "RealLogPoissonLossModality"
+  IDENTITY_SYMBOL = "IdentitySymbolModality"
+  SIGMOID_CLASS_LABEL = "SigmoidClassLabelModality"
+  SIGMOID_MAX_POOLING_CLASS_LABEL = "SigmoidMaxPoolingClassLabelModality"
+  SOFTMAX_MAX_POOLING_CLASS_LABEL = "SoftmaxMaxPoolingClassLabelModality"
+  SOFTMAX_AVERAGE_POOLING_CLASS_LABEL = "SoftmaxAveragePoolingClassLabelModality"
+  SOFTMAX_LAST_TIMESTEP_CLASS_LABEL = "SoftmaxLastTimestepClassLabelModality"
+
+  @staticmethod
+  def get_choices():
+    return [
+        ModalityType.SYMBOL,
+        ModalityType.SYMBOL_WEIGHTS_ALL,
+        ModalityType.SYMBOL_ONE_HOT,
+        ModalityType.CTC_SYMBOL,
+        ModalityType.IMAGE,
+        ModalityType.IMAGE_CHANNEL_COMPRESS,
+        ModalityType.IMAGE_CHANNEL_BOTTOM_IDENTITY,
+        ModalityType.IMAGE_CHANNEL_EMBEDDINGS_BOTTOM,
+        ModalityType.AUDIO,
+        ModalityType.AUDIO_SPECTRAL,
+        ModalityType.SPEECH_RECOGNITION,
+        ModalityType.VIDEO,
+        ModalityType.VIDEO_BITWISE,
+        ModalityType.VIDEO_PIXEL_NOISE,
+        ModalityType.VIDEO_L1,
+        ModalityType.VIDEO_L2,
+        ModalityType.VIDEO_L2_RAW,
+        ModalityType.VIDEO_L1_RAW,
+        ModalityType.CLASS_LABEL,
+        ModalityType.VIDEO_IDENTITY,
+        ModalityType.MULTI_LABEL,
+        ModalityType.ONE_HOT_CLASS_LABEL,
+        ModalityType.IDENTITY,
+        ModalityType.GENERIC_L2_LOSS,
+        ModalityType.REAL,
+        ModalityType.REAL_L2_LOSS,
+        ModalityType.REAL_LOG_POISSON_LOSS,
+        ModalityType.IDENTITY_SYMBOL,
+        ModalityType.SIGMOID_CLASS_LABEL,
+        ModalityType.SIGMOID_MAX_POOLING_CLASS_LABEL,
+        ModalityType.SOFTMAX_MAX_POOLING_CLASS_LABEL,
+        ModalityType.SOFTMAX_AVERAGE_POOLING_CLASS_LABEL,
+        ModalityType.SOFTMAX_LAST_TIMESTEP_CLASS_LABEL,
+    ]

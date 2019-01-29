@@ -355,8 +355,8 @@ class Image2TextProblem(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.modality = {"inputs": modalities.ImageModality,
-                  "targets": modalities.SymbolModality}
+    p.modality = {"inputs": modalities.ModalityType.IMAGE,
+                  "targets": modalities.ModalityType.SYMBOL}
     p.vocab_size = {"inputs": 256,
                     "targets": self._encoders["targets"].vocab_size}
     p.batch_size_multiplier = 256

@@ -84,8 +84,8 @@ class AlgorithmicProblem(problem.Problem):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     vocab_size = self.num_symbols + text_encoder.NUM_RESERVED_TOKENS
-    p.modality = {"inputs": modalities.SymbolModality,
-                  "targets": modalities.SymbolModality}
+    p.modality = {"inputs": modalities.ModalityType.SYMBOL,
+                  "targets": modalities.ModalityType.SYMBOL}
     p.vocab_size = {"inputs": vocab_size,
                     "targets": vocab_size}
     p.input_space_id = problem.SpaceID.DIGIT_0

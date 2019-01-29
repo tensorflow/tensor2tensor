@@ -180,7 +180,7 @@ def basic_params1():
       symbol_modality_skip_top=False,
       # Modalities used to map from features to a space compatible with
       # chosen model architecture. It comprises key-value pairs of a feature
-      # name (str) and its modality class.
+      # name (str) and its modality type.
       modality={},
       # The maximum length of "input" sequence.
       # Sequences longer than this value will be truncated. 0 or negative values

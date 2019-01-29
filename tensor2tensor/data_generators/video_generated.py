@@ -93,8 +93,8 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.modality = {
-        "inputs": modalities.VideoModality,
-        "targets": modalities.VideoModality,
+        "inputs": modalities.ModalityType.VIDEO,
+        "targets": modalities.ModalityType.VIDEO,
     }
     p.vocab_size = {
         "inputs": 256,
