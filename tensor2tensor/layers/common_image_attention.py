@@ -610,11 +610,13 @@ def prepare_image(inputs, hparams, name=None):
   channels = hparams.num_channels
 
   hidden_size = hparams.hidden_size
-  # TODO(trandustin): Check via modalities.IdentityModality and not its name.
+  # TODO(trandustin): Check via modalities.ModalityType.IDENTITY and not str.
   # The current implementation is to avoid circular imports, modalities ->
   # discretization -> common_image_attention -> modalities.
   if "targets" in hparams.modality:
-    target_modality_name = hparams.modality["targets"].__name__
+    target_modality_name = hparams.modality["targets"]
+    if not isinstance(target_modality_name, str):
+      target_modality_name = target_modality_name.__name__
   else:
     target_modality_name = None
   if target_modality_name == "IdentityModality":

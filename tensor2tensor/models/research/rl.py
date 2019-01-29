@@ -481,14 +481,14 @@ class DummyPolicyProblem(video_utils.VideoProblem):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.modality = {
-        "inputs": modalities.VideoModality,
-        "input_action": modalities.SymbolModalityWeightsAll,
-        "input_reward": modalities.SymbolModalityWeightsAll,
-        "targets": modalities.VideoModality,
-        "target_action": modalities.SymbolModalityWeightsAll,
-        "target_reward": modalities.SymbolModalityWeightsAll,
-        "target_policy": modalities.IdentityModality,
-        "target_value": modalities.IdentityModality,
+        "inputs": modalities.ModalityType.VIDEO,
+        "input_action": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "input_reward": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "targets": modalities.ModalityType.VIDEO,
+        "target_action": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "target_reward": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "target_policy": modalities.ModalityType.IDENTITY,
+        "target_value": modalities.ModalityType.IDENTITY,
     }
     p.vocab_size = {
         "inputs": 256,

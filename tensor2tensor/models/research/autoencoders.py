@@ -1106,8 +1106,8 @@ def autoencoder_residual_text():
   hparams.max_hidden_size = 512
   hparams.bottleneck_noise = 0.0
   hparams.modality = {
-      "inputs": modalities.IdentitySymbolModality,
-      "targets": modalities.IdentitySymbolModality,
+      "inputs": modalities.ModalityType.IDENTITY_SYMBOL,
+      "targets": modalities.ModalityType.IDENTITY_SYMBOL,
   }
   hparams.autoregressive_mode = "none"
   hparams.sample_width = 1

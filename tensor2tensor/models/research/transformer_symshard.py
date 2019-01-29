@@ -368,8 +368,8 @@ def transformer_symshard_base():
   hparams.no_data_parallelism = True
   # bypass the symbol modality so that we can use model parallelism.
   hparams.modality = {
-      "inputs": modalities.IdentitySymbolModality,
-      "targets": modalities.IdentitySymbolModality,
+      "inputs": modalities.ModalityType.IDENTITY_SYMBOL,
+      "targets": modalities.ModalityType.IDENTITY_SYMBOL,
   }
   hparams.add_hparam("filter_size", 1280)
   hparams.add_hparam("mix_fraction", 0.5)
