@@ -127,7 +127,7 @@ def evaluate_world_model(
   def initial_frame_chooser(batch_size):
     assert batch_size == len(rollout_subsequences)
     return np.stack([
-        [frame.observation.decode() for frame in subsequence[:frame_stack_size]]
+        [frame.observation.decode() for frame in subsequence[:frame_stack_size]]    # pylint: disable=g-complex-comprehension
         for subsequence in rollout_subsequences
     ])
 

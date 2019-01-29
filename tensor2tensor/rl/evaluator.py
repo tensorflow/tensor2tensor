@@ -272,6 +272,7 @@ def collect_frames_for_random_starts(
     log_every_steps=None
 ):
   """Collects frames from real env for random starts of simulated env."""
+  del frame_stack_size
   storage_env.start_new_epoch(0)
   tf.logging.info(
       "Collecting %d frames for random starts.", random_starts_step_limit
