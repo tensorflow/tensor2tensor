@@ -201,13 +201,27 @@ def random_rollout_subsequences(rollouts, num_subsequences, subsequence_length):
   return [choose_subsequence() for _ in range(num_subsequences)]
 
 
-def make_initial_frame_chooser(real_env, frame_stack_size,
-                               simulation_random_starts,
-                               simulation_flip_first_random_for_beginning):
-  """Make frame chooser."""
+def make_initial_frame_chooser(
+    real_env, frame_stack_size, simulation_random_starts,
+    simulation_flip_first_random_for_beginning,
+    split=tf.estimator.ModeKeys.TRAIN,
+):
+  """Make frame chooser.
+
+  Args:
+    real_env: T2TEnv to take initial frames from.
+    frame_stack_size (int): Number of consecutive frames to extract.
+    simulation_random_starts (bool): Whether to choose frames at random.
+    simulation_flip_first_random_for_beginning (bool): Whether to flip the first
+      frame stack in every batch for the frames at the beginning.
+    split (tf.estimator.ModeKeys or None): Data split to take the frames from,
+      None means use all frames.
+
+  Returns:
+    Function batch_size -> initial_frames.
+  """
   initial_frame_rollouts = real_env.current_epoch_rollouts(
-      split=tf.estimator.ModeKeys.TRAIN,
-      minimal_rollout_frames=frame_stack_size,
+      split=split, minimal_rollout_frames=frame_stack_size,
   )
   def initial_frame_chooser(batch_size):
     """Frame chooser."""
@@ -277,9 +291,15 @@ def augment_observation(
 
 def run_rollouts(
     env, agent, initial_observations, step_limit=None, discount_factor=1.0,
-    log_every_steps=None, video_writers=(), color_bar=False
+    log_every_steps=None, video_writers=(), color_bar=False,
+    many_rollouts_from_each_env=False
 ):
   """Runs a batch of rollouts from given initial observations."""
+  assert step_limit is not None or not many_rollouts_from_each_env, (
+      "When collecting many rollouts from each environment, time limit must "
+      "be set."
+  )
+
   num_dones = 0
   first_dones = [False] * env.batch_size
   observations = initial_observations
@@ -309,13 +329,14 @@ def run_rollouts(
     observations = list(observations)
     now_done_indices = []
     for (i, done) in enumerate(dones):
-      if done and not first_dones[i]:
+      if done and (not first_dones[i] or many_rollouts_from_each_env):
         now_done_indices.append(i)
         first_dones[i] = True
         num_dones += 1
     if now_done_indices:
-      # Reset only envs done the first time in this timestep to ensure that
-      # we collect exactly 1 rollout from each env.
+      # Unless many_rollouts_from_each_env, reset only envs done the first time
+      # in this timestep to ensure that we collect exactly 1 rollout from each
+      # env.
       reset_observations = env.reset(now_done_indices)
       for (i, observation) in zip(now_done_indices, reset_observations):
         observations[i] = observation
