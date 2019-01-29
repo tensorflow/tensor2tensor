@@ -25,7 +25,7 @@ from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 import tensorflow as tf
-from tensorflow.python.training import moving_averages
+from tensorflow.python.training import moving_averages  # pylint: disable=g-direct-tensorflow-import
 
 
 def init_vq_bottleneck(bottleneck_size, hidden_size):
@@ -392,7 +392,7 @@ def transformer_nat_small():
   hparams.filter_size = 2048
   hparams.label_smoothing = 0.0
   hparams.force_full_predict = True
-  hparams.optimizer = "Adam"
+  hparams.optimizer = "adam"
   hparams.optimizer_adam_epsilon = 1e-9
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.997

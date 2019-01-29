@@ -269,7 +269,7 @@ class MtfBitransformer(MtfUnitransformer):
     return self.combine_batch_dims(ret)
 
 
-layers_registry = registry.create_registry("layers")
+layers_registry = registry.Registries.mtf_layers
 
 
 # The following functions construct layers based on hyperparmeters

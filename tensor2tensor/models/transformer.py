@@ -41,8 +41,10 @@ from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
+# pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.ops import inplace_ops
 from tensorflow.python.util import nest
+# pylint: enable=g-direct-tensorflow-import
 
 
 # Alias some commonly reused layers, here and elsewhere.
@@ -770,7 +772,7 @@ def fast_decode_tpu(encoder_output,
       hparams.num_heads if hparams.get("attention_variables_3d") else 0)
 
   cache = {
-      "layer_%d" % layer: {
+      "layer_%d" % layer: {  # pylint: disable=g-complex-comprehension
           "k":
           common_attention.split_heads(
               tf.zeros([batch_size, decode_length, key_channels]),
@@ -962,7 +964,7 @@ def fast_decode(encoder_output,
   if cache is None:
     cache = {}
   cache.update({
-      "layer_%d" % layer: {
+      "layer_%d" % layer: {  # pylint: disable=g-complex-comprehension
           "k":
               common_attention.split_heads(
                   tf.zeros([batch_size, 0, key_channels]), hparams.num_heads),
@@ -1694,7 +1696,7 @@ def transformer_tall_pretrain_lm():
   hparams.learning_rate_constant = 2e-4
   hparams.learning_rate_schedule = (
       "linear_warmup*constant*cosdecay")
-  hparams.optimizer = "AdamW"
+  hparams.optimizer = "adam_w"
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.999
   hparams.optimizer_adam_epsilon = 1e-8
@@ -1739,7 +1741,7 @@ def transformer_tall_pretrain_lm_tpu():
   # Optimizer gets reset in update_hparams_for_tpu so we set it again here.
   hparams.learning_rate_constant = 2e-4
   hparams.learning_rate_schedule = ("linear_warmup * constant * cosdecay")
-  hparams.optimizer = "AdamW"
+  hparams.optimizer = "adam_w"
   return hparams
 
 

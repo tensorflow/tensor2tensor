@@ -55,7 +55,7 @@ def basic_params1():
       initializer="orthogonal",
       initializer_gain=1.5,
       label_smoothing=0.1,
-      optimizer="Adam",
+      optimizer="adam",
       optimizer_adam_epsilon=1e-6,
       optimizer_adam_beta1=0.85,
       optimizer_adam_beta2=0.997,
@@ -466,7 +466,7 @@ def basic_range1(ranged_hparams):
   rhp.set_float("optimizer_adam_beta2", 0.995, 0.999)
   rhp.set_categorical(
       "optimizer",
-      ["Adam", "Adagrad", "Momentum", "RMSProp", "SGD", "YellowFin"])
+      ["adam", "adagrad", "momentum", "rms_prop", "sgd", "yellow_fin"])
 
 
 @registry.register_ranged_hparams

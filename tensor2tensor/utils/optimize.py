@@ -20,7 +20,7 @@ from __future__ import print_function
 import numpy as np
 
 from tensor2tensor.layers import common_layers
-from tensor2tensor.utils import adafactor
+from tensor2tensor.utils import adafactor as adafactor_lib
 from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import multistep_optimizer
 from tensor2tensor.utils import registry
@@ -29,8 +29,7 @@ from tensor2tensor.utils import yellowfin
 import tensorflow as tf
 
 
-from tensorflow.contrib.mixed_precision import LossScaleOptimizer
-from tensorflow.python.framework import dtypes
+from tensorflow.python.framework import dtypes  # pylint: disable=g-direct-tensorflow-import
 
 
 def _mixed_precision_is_enabled(hparams):
@@ -94,7 +93,7 @@ def optimize(loss, learning_rate, hparams, use_tpu=False, variables=None):
   return train_op
 
 
-@registry.register_optimizer("Adam")
+@registry.register_optimizer
 def adam(learning_rate, hparams):
   # We change the default epsilon for Adam.
   # Using LazyAdam as it's much faster for large vocabulary embeddings.
@@ -105,7 +104,7 @@ def adam(learning_rate, hparams):
       epsilon=hparams.optimizer_adam_epsilon)
 
 
-@registry.register_optimizer("MultistepAdam")
+@registry.register_optimizer
 def multistep_adam(learning_rate, hparams):
   return multistep_optimizer.MultistepAdamOptimizer(
       learning_rate,
@@ -115,7 +114,7 @@ def multistep_adam(learning_rate, hparams):
       n=hparams.optimizer_multistep_accumulate_steps)
 
 
-@registry.register_optimizer("Momentum")
+@registry.register_optimizer
 def momentum(learning_rate, hparams):
   return tf.train.MomentumOptimizer(
       learning_rate,
@@ -123,14 +122,14 @@ def momentum(learning_rate, hparams):
       use_nesterov=hparams.optimizer_momentum_nesterov)
 
 
-@registry.register_optimizer("YellowFin")
+@registry.register_optimizer
 def yellow_fin(learning_rate, hparams):
   return yellowfin.YellowFinOptimizer(
       learning_rate=learning_rate,
       momentum=hparams.optimizer_momentum_momentum)
 
 
-@registry.register_optimizer("TrueAdam")
+@registry.register_optimizer
 def true_adam(learning_rate, hparams):
   return tf.train.AdamOptimizer(
       learning_rate,
@@ -139,7 +138,7 @@ def true_adam(learning_rate, hparams):
       epsilon=hparams.optimizer_adam_epsilon)
 
 
-@registry.register_optimizer("AdamW")
+@registry.register_optimizer
 def adam_w(learning_rate, hparams):
   # Openai gpt used weight decay.
   # Given the internals of AdamW, weight decay dependent on the
@@ -156,9 +155,9 @@ def adam_w(learning_rate, hparams):
       epsilon=hparams.optimizer_adam_epsilon)
 
 
-@registry.register_optimizer("Adafactor")
-def register_adafactor(learning_rate, hparams):
-  return adafactor.adafactor_optimizer_from_hparams(hparams, learning_rate)
+@registry.register_optimizer
+def adafactor(learning_rate, hparams):
+  return adafactor_lib.adafactor_optimizer_from_hparams(hparams, learning_rate)
 
 
 
@@ -169,8 +168,11 @@ def _register_base_optimizer(key, fn):
 
 
 for k in tf.contrib.layers.OPTIMIZER_CLS_NAMES:
-  if k not in registry._OPTIMIZERS:  # pylint: disable=protected-access
+  if k not in registry.Registries.optimizers and k not in ("SGD", "RMSProp"):
     _register_base_optimizer(k, tf.contrib.layers.OPTIMIZER_CLS_NAMES[k])
+_register_base_optimizer("sgd", tf.contrib.layers.OPTIMIZER_CLS_NAMES["SGD"])
+_register_base_optimizer(
+    "rms_prop", tf.contrib.layers.OPTIMIZER_CLS_NAMES["RMSProp"])
 
 
 class ConditionalOptimizer(tf.train.Optimizer):
@@ -209,7 +211,8 @@ class ConditionalOptimizer(tf.train.Optimizer):
             decr_every_n_nan_or_inf=2,
             incr_ratio=2,
             decr_ratio=0.5)
-        self._opt = LossScaleOptimizer(self._opt, manager)
+        self._opt = tf.contrib.mixed_precision.LossScaleOptimizer(
+            self._opt, manager)
 
     self._zero_grads = hparams.optimizer_zero_grads
 
