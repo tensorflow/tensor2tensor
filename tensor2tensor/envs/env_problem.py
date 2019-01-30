@@ -427,16 +427,18 @@ class EnvProblem(Env, problem.Problem):
   def seed(self, seed=None):
     if not self._envs:
       tf.logging.info("`seed` called on non-existent envs, doing nothing.")
-      return
+      return None
 
     if not isinstance(self._envs, list):
       tf.logging.warning("`seed` called on non-list envs, doing nothing.")
-      return
+      return None
 
     tf.logging.warning(
         "Called `seed` on EnvProblem, calling seed on the underlying envs.")
     for env in self._envs:
       env.seed(seed)
+
+    return [seed]
 
   def close(self):
     if not self._envs:
