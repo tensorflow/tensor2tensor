@@ -204,9 +204,11 @@ class ConditionalOptimizer(tf.train.Optimizer):
         raise ValueError("Mixed precision training only supports the "
                          "exponential loss scaler")
       else:
-        tf.logging.info("Using Exponential Update Loss Scaler")
+        tf.logging.info(("Using Exponential Update Loss Scaler with",
+                         "init loss scale of {}".format(
+                           hparams.mixed_precision_optimizer_init_loss_scale)))
         manager = tf.contrib.mixed_precision.ExponentialUpdateLossScaleManager(
-            init_loss_scale=2**15,
+            init_loss_scale=hparams.mixed_precision_optimizer_init_loss_scale,
             incr_every_n_steps=2000,
             decr_every_n_nan_or_inf=2,
             incr_ratio=2,
