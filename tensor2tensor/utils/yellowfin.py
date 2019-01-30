@@ -392,7 +392,7 @@ class YellowFinOptimizer(object):
     Returns:
       The lr_t.
     """
-    lr = (1.0 - tf.sqrt(self._mu))**2 / self._h_min
+    lr = tf.squared_difference(1.0, tf.sqrt(self._mu)) / self._h_min
     return lr
 
   def _get_mu_tensor(self):

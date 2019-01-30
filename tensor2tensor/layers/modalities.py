@@ -736,7 +736,8 @@ class VideoModalityL2(VideoModalityL1):
   """Modality for videos with L2 loss."""
 
   def internal_loss(self, logits, targets):
-    return tf.nn.relu((logits - targets)**2 - self.cutoff * self.cutoff)
+    return tf.nn.relu(
+        tf.squared_difference(logits, targets) - self.cutoff * self.cutoff)
 
 
 class VideoModalityL2Raw(VideoModalityL2):
@@ -916,7 +917,7 @@ class GenericL2LossModality(IdentityModality):
     return tf.to_float(x)
 
   def loss(self, body_output, targets):
-    loss = tf.square(body_output - tf.to_float(targets))
+    loss = tf.squared_difference(body_output, tf.to_float(targets))
     return tf.reduce_mean(loss), tf.constant(1.0)
 
 
