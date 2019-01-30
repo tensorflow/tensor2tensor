@@ -470,6 +470,14 @@ def universal_transformer_big():
 
 
 @registry.register_hparams
+def universal_transformer_base_fp16():
+  hparams = transformer.transformer_base()
+  hparams = update_hparams_for_universal_transformer(hparams)
+  hparams.activation_dtype = "float16"
+  return hparams
+
+
+@registry.register_hparams
 def universal_transformer_small():
   hparams = transformer.transformer_base()
   hparams = update_hparams_for_universal_transformer(hparams)
