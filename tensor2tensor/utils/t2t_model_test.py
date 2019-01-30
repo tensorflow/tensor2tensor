@@ -35,7 +35,7 @@ class T2TModelTest(tf.test.TestCase):
                 "extra": tf.random_normal([])}
       outputs = model._summarize_losses(losses)
       self.assertIsNone(outputs, None)
-      self.assertEquals(
+      self.assertEqual(
           len(tf.get_collection(tf.GraphKeys.SUMMARIES, scope="losses")),
           len(losses))
 
