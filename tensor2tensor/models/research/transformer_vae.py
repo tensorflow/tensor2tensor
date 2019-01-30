@@ -436,8 +436,7 @@ def ae_transformer_internal(inputs,
         losses["neg_q_entropy"] = neg_q_entropy * hparams.entropy_scale
       else:
         inputs_c = decode_transformer(inputs, ed, targets_c, hparams, "dec_c")
-        losses["latent_pred"] = tf.reduce_mean(
-            tf.squared_difference(inputs_c, targets_c)) * 20
+        losses["latent_pred"] = tf.reduce_mean((inputs_c - targets_c)**2) * 20
         def bn_inputs():
           with tf.variable_scope(tf.get_variable_scope(), reuse=True):
             bn, _, _, _, _ = hparams.bottleneck(

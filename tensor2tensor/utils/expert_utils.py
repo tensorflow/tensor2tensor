@@ -364,7 +364,7 @@ def cv_squared(x):
   epsilon = 1e-10
   float_size = tf.to_float(tf.size(x)) + epsilon
   mean = tf.reduce_sum(x) / float_size
-  variance = tf.reduce_sum(tf.squared_difference(x, mean)) / float_size
+  variance = tf.reduce_sum(tf.square(x - mean)) / float_size
   return variance / (tf.square(mean) + epsilon)
 
 

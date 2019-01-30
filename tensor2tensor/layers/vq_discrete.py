@@ -138,10 +138,8 @@ class DiscreteBottleneck(object):
         x_means_hot, [-1, self.hparams.num_blocks, self.hparams.block_v_size])
     x_means = tf.matmul(tf.transpose(x_means_hot_flat, perm=[1, 0, 2]), means)
     x_means = tf.transpose(x_means, [1, 0, 2])
-    q_loss = tf.reduce_mean(
-        tf.squared_difference(tf.stop_gradient(x), x_means))
-    e_loss = tf.reduce_mean(
-        tf.squared_difference(x, tf.stop_gradient(x_means)))
+    q_loss = tf.reduce_mean(tf.square((tf.stop_gradient(x) - x_means)))
+    e_loss = tf.reduce_mean((x - tf.stop_gradient(x_means))**2)
     return x_means_hot, x_means, q_loss, e_loss
 
   def bit_to_int(self, x_bit, num_bits, base=2):

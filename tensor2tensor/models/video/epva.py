@@ -590,8 +590,7 @@ def mean_squared_error(true, pred):
   Returns:
     mean squared error between ground truth and predicted image.
   """
-  result = tf.reduce_sum(
-      tf.squared_difference(true, pred)) / tf.to_float(tf.size(pred))
+  result = tf.reduce_sum(tf.square(true - pred)) / tf.to_float(tf.size(pred))
   return result
 
 

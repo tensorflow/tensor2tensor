@@ -256,7 +256,7 @@ def standardize_images(x):
     x = tf.to_float(tf.reshape(x, [-1] + x_shape[-3:]))
     x_mean = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
     x_variance = tf.reduce_mean(
-        tf.squared_difference(x, x_mean), axis=[1, 2], keepdims=True)
+        tf.square(x - x_mean), axis=[1, 2], keepdims=True)
     num_pixels = tf.to_float(x_shape[-2] * x_shape[-3])
     x = (x - x_mean) / tf.maximum(tf.sqrt(x_variance), tf.rsqrt(num_pixels))
     return tf.reshape(x, x_shape)
@@ -634,8 +634,7 @@ def layer_norm_compute(x, epsilon, scale, bias):
   """Layer norm raw computation."""
   epsilon, scale, bias = [cast_like(t, x) for t in [epsilon, scale, bias]]
   mean = tf.reduce_mean(x, axis=[-1], keepdims=True)
-  variance = tf.reduce_mean(
-      tf.squared_difference(x, mean), axis=[-1], keepdims=True)
+  variance = tf.reduce_mean(tf.square(x - mean), axis=[-1], keepdims=True)
   norm_x = (x - mean) * tf.rsqrt(variance + epsilon)
   return norm_x * scale + bias
 
@@ -691,8 +690,7 @@ def l2_norm(x, filters=None, epsilon=1e-6, name=None, reuse=None):
         "l2_norm_bias", [filters], initializer=tf.zeros_initializer())
     epsilon, scale, bias = [cast_like(t, x) for t in [epsilon, scale, bias]]
     mean = tf.reduce_mean(x, axis=[-1], keepdims=True)
-    l2norm = tf.reduce_sum(
-        tf.squared_difference(x, mean), axis=[-1], keepdims=True)
+    l2norm = tf.reduce_sum(tf.square(x - mean), axis=[-1], keepdims=True)
     norm_x = (x - mean) * tf.rsqrt(l2norm + epsilon)
     return norm_x * scale + bias
 
@@ -3348,7 +3346,7 @@ def sliced_gan_loss(input1,
 
     proj1 = get_sorted_projections(logits1)
     proj2 = get_sorted_projections(logits2)
-    dist = tf.reduce_mean(tf.squared_difference(proj1, proj2))
+    dist = tf.reduce_mean(tf.square(proj1 - proj2))
     if return_logits:
       return dist, logits1, logits2
     return dist

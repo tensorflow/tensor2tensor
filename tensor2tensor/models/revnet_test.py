@@ -24,15 +24,13 @@ class RevnetTest(tf.test.TestCase):
   def testH(self):
     rev_block_input = tf.random_uniform([1, 299, 299, 3])
     rev_block_output = revnet.downsample_bottleneck(rev_block_input, 256)
-    self.assertEqual(rev_block_output.get_shape().as_list(),
-                      [1, 299, 299, 256])
+    self.assertEqual(rev_block_output.get_shape().as_list(), [1, 299, 299, 256])
 
   def testHStride(self):
     rev_block_input = tf.random_uniform([2, 299, 299, 256])
     rev_block_output = revnet.downsample_bottleneck(
         rev_block_input, 512, stride=2, scope='HStride')
-    self.assertEqual(rev_block_output.get_shape().as_list(),
-                      [2, 150, 150, 512])
+    self.assertEqual(rev_block_output.get_shape().as_list(), [2, 150, 150, 512])
 
   def testInit(self):
     images = tf.random_uniform([1, 299, 299, 3])
