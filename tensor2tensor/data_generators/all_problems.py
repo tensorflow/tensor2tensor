@@ -72,6 +72,7 @@ MODULES = [
     "tensor2tensor.data_generators.sst_binary",
     "tensor2tensor.data_generators.subject_verb_agreement",
     "tensor2tensor.data_generators.timeseries",
+    "tensor2tensor.data_generators.transduction_problems",
     "tensor2tensor.data_generators.translate_encs",
     "tensor2tensor.data_generators.translate_ende",
     "tensor2tensor.data_generators.translate_enet",
