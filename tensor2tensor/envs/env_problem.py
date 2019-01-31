@@ -615,12 +615,12 @@ class EnvProblem(Env, problem.Problem):
     p.modality.update({
         "inputs": self.input_modality,
         "targets": self.target_modality,
-        "input_reward": modalities.SymbolModalityWeightsAll,
-        "target_reward": modalities.SymbolModalityWeightsAll,
-        "input_action": modalities.SymbolModalityWeightsAll,
-        "target_action": modalities.SymbolModalityWeightsAll,
-        "target_policy": modalities.IdentityModality,
-        "target_value": modalities.IdentityModality,
+        "input_reward": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "target_reward": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "input_action": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "target_action": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "target_policy": modalities.ModalityType.IDENTITY,
+        "target_value": modalities.ModalityType.IDENTITY,
     })
 
     p.vocab_size.update({
