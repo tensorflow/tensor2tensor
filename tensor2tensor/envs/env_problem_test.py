@@ -26,6 +26,7 @@ import numpy as np
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.envs import env_problem
+from tensor2tensor.layers import modalities
 import tensorflow as tf
 
 
@@ -100,7 +101,6 @@ class EnvProblemTest(tf.test.TestCase):
         base_env_name="KellyCoinflip-v0",
         batch_size=batch_size,
         reward_range=reward_range)
-    ep.agent_id = "test"
 
     # Resets all environments.
     ep.reset()
@@ -173,38 +173,65 @@ class EnvProblemTest(tf.test.TestCase):
 
     return num_trajectories, num_time_steps
 
-  def test_generate_data(self):
-    batch_size = 5
-    reward_range = (-1, 1)
-    ep = env_problem.EnvProblem(
-        base_env_name="CartPole-v0",
-        batch_size=batch_size,
-        reward_range=reward_range)
-    ep.agent_id = "test"
+  def play_env(self,
+               env=None,
+               nsteps=100,
+               base_env_name=None,
+               batch_size=5,
+               reward_range=None):
+    """Creates `EnvProblem` with the given arguments and plays it randomly.
 
-    # Set this in the test to test things, but usually registered subclasses
-    # will set this.
-    ep.name = "CartPoleProblem"
+    Args:
+      env: optional env.
+      nsteps: plays the env randomly for nsteps.
+      base_env_name: passed to EnvProblem's init.
+      batch_size: passed to EnvProblem's init.
+      reward_range: passed to EnvProblem's init.
+
+    Returns:
+      tuple of env_problem, number of trajectories done, number of trajectories
+      done in the last step.
+    """
+
+    if env is None:
+      env = env_problem.EnvProblem(
+          base_env_name=base_env_name,
+          batch_size=batch_size,
+          reward_range=reward_range)
+      # Usually done by a registered subclass, we do this manually in the test.
+      env.name = base_env_name
 
     # Reset all environments.
-    ep.reset()
+    env.reset()
 
     # Play for some steps to generate data.
-    nsteps = 100
     num_dones = 0
     num_dones_in_last_step = 0
     for _ in range(nsteps):
       # Sample actions.
-      actions = np.stack([ep.action_space.sample() for _ in range(batch_size)])
+      actions = np.stack([env.action_space.sample() for _ in range(batch_size)])
       # Step through it.
-      _, _, dones, _ = ep.step(actions)
+      _, _, dones, _ = env.step(actions)
       # Get the indices where we are done ...
       done_indices = env_problem.EnvProblem.done_indices(dones)
       # ... and reset those.
-      ep.reset(indices=done_indices)
+      env.reset(indices=done_indices)
       # count the number of dones we got, in this step and overall.
       num_dones_in_last_step = sum(dones)
       num_dones += num_dones_in_last_step
+
+    return env, num_dones, num_dones_in_last_step
+
+  def test_generate_data(self):
+    base_env_name = "CartPole-v0"
+    batch_size = 5
+    reward_range = (-1, 1)
+    nsteps = 100
+    ep, num_dones, num_dones_in_last_step = self.play_env(
+        base_env_name=base_env_name,
+        batch_size=batch_size,
+        reward_range=reward_range,
+        nsteps=nsteps)
 
     # This is because every num_dones starts a new trajectory, and a further
     # batch_size are active at the last step when we call generate_data, but
@@ -213,9 +240,6 @@ class EnvProblemTest(tf.test.TestCase):
     expected_num_trajectories = num_dones + batch_size - num_dones_in_last_step
 
     # Similar logic as above, nsteps * batch_size overall `step` calls are made.
-    # However, if a `step` call completes a trajectory, one more time-step is
-    # added, but we have to discount the trajectories that got done in the very
-    # last step.
     expected_num_time_steps = (
         nsteps * batch_size) + num_dones + batch_size - num_dones_in_last_step
 
@@ -238,6 +262,79 @@ class EnvProblemTest(tf.test.TestCase):
                      training_timesteps + dev_timesteps)
     self.assertEqual(expected_num_trajectories,
                      training_trajectories + dev_trajectories)
+
+  def test_problem_dataset_works(self):
+
+    # We need to derive this class to set the required methods.
+    class TestEnv(env_problem.EnvProblem):
+      name = "TestEnv"
+
+      @property
+      def input_modality(self):
+        return modalities.ModalityType.REAL_L2_LOSS
+
+      @property
+      def input_vocab_size(self):
+        return None
+
+      @property
+      def target_modality(self):
+        return modalities.ModalityType.SYMBOL_WEIGHTS_ALL
+
+      @property
+      def target_vocab_size(self):
+        return 2
+
+    base_env_name = "CartPole-v0"
+    batch_size = 5
+    reward_range = (-1, 1)
+
+    env = TestEnv(
+        base_env_name=base_env_name,
+        batch_size=batch_size,
+        reward_range=reward_range)
+
+    nsteps = 100
+    ep, _, _ = self.play_env(env=env, nsteps=nsteps)
+
+    # Dump the completed data to disk.
+    ep.generate_data(self.tmp_dir, self.tmp_dir)
+
+    # Read the actual files and count the trajectories and time-steps.
+    dev_filenames = ep.dev_filepaths(
+        self.tmp_dir, ep.num_shards[problem.DatasetSplit.EVAL], True)
+    dev_trajectories, dev_timesteps = self.read_tfrecord_dataset(
+        dev_filenames, ep)
+
+    # Count them using a tf.data.Dataset.
+    dev_dataset = ep.dataset(tf.estimator.ModeKeys.EVAL, data_dir=self.tmp_dir)
+
+    last_timestep = -1
+    dev_timesteps_ds = 0
+    dev_trajectories_ds = 0
+    iterator = dev_dataset.make_one_shot_iterator()
+    next_element = iterator.get_next()
+    with tf.Session() as session:
+      while True:
+        try:
+          tf_example_dict = session.run(next_element)
+
+          # We have a time-step.
+          dev_timesteps_ds += 1
+
+          this_timestep = tf_example_dict[env_problem.TIMESTEP_FIELD][
+              0]  # [0] since every value in tf_example_dict is an array/list.
+          if 1 + last_timestep != this_timestep:
+            dev_trajectories_ds += 1
+            self.assertEqual(0, this_timestep)
+          last_timestep = this_timestep
+        except tf.errors.OutOfRangeError:
+          dev_trajectories_ds += 1
+          break
+
+    # Make sure that they agree.
+    self.assertEqual(dev_trajectories, dev_trajectories_ds)
+    self.assertEqual(dev_timesteps, dev_timesteps_ds)
 
 
 if __name__ == "__main__":
