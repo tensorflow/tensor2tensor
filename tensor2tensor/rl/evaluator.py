@@ -55,7 +55,7 @@ flags.DEFINE_string(
     "eval_metrics_dir", "", "Directory to output the eval metrics at."
 )
 flags.DEFINE_integer("eval_batch_size", 64, "Number of games to evaluate.")
-flags.DEFINE_integer("eval_step_limit", 100000,
+flags.DEFINE_integer("eval_step_limit", 50000,
                      "Maximum number of time steps, ignored if -1.")
 flags.DEFINE_enum(
     "agent", "policy", ["random", "policy", "planner"], "Agent type to use."
@@ -82,7 +82,7 @@ flags.DEFINE_string(
 )
 flags.DEFINE_string("planner_hparams", "", "Planner hparam overrides.")
 flags.DEFINE_integer(
-    "log_every_steps", 20, "Log every how many environment steps."
+    "log_every_steps", 5, "Log every how many environment steps."
 )
 flags.DEFINE_string(
     "debug_video_path", "", "Path to save the debug video at."
@@ -224,6 +224,15 @@ def planner_guess9():
   hparams.uct_const = 4
   hparams.num_rollouts = 3 * 96
   hparams.normalizer_window_size = 300
+  return hparams
+
+
+@registry.register_hparams
+def planner_guess0():
+  hparams = planner_base()
+  hparams.uct_const = 6
+  hparams.num_rollouts = 4 * 96
+  hparams.normalizer_window_size = 30
   return hparams
 
 
@@ -484,6 +493,7 @@ def main(_):
   policy_dir = FLAGS.policy_dir
   model_dir = FLAGS.model_dir
   eval_metrics_dir = FLAGS.eval_metrics_dir
+  debug_video_path = FLAGS.debug_video_path
   if FLAGS.output_dir:
     cur_dir = FLAGS.output_dir
     if FLAGS.total_num_workers > 1:
@@ -492,8 +502,9 @@ def main(_):
     model_dir = os.path.join(cur_dir, "world_model")
     eval_dir_basename = "evaluator_"
     if FLAGS.agent == "planner":
-      eval_dir_basename = "planner_"
+      eval_dir_basename = FLAGS.planner_hparams_set + "_"
     eval_metrics_dir = os.path.join(cur_dir, eval_dir_basename + now_tag)
+    debug_video_path = eval_metrics_dir
     tf.logging.info("Writing metrics to %s." % eval_metrics_dir)
     if not tf.gfile.Exists(eval_metrics_dir):
       tf.gfile.MkDir(eval_metrics_dir)
@@ -501,7 +512,7 @@ def main(_):
       loop_hparams, planner_hparams, policy_dir, model_dir,
       eval_metrics_dir, FLAGS.agent, FLAGS.mode, FLAGS.eval_with_learner,
       FLAGS.log_every_steps if FLAGS.log_every_steps > 0 else None,
-      debug_video_path=FLAGS.debug_video_path,
+      debug_video_path=debug_video_path,
       num_debug_videos=FLAGS.num_debug_videos,
       random_starts_step_limit=FLAGS.random_starts_step_limit,
   )
