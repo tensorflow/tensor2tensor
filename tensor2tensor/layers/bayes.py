@@ -117,7 +117,7 @@ class LinearKernel(object):
     encoded_x1 = self.encoder(x1)
     encoded_x2 = self.encoder(x2)
     dot_product = tf.matmul(encoded_x1, encoded_x2, transpose_b=True)
-    return tf.sqrt(self.variance) * dot_product + self.bias
+    return self.variance * dot_product + self.bias
 
   def get_config(self):
     return {
