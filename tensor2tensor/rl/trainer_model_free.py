@@ -57,17 +57,15 @@ def initialize_env_specs(hparams):
                            hparams.eval_max_num_noops,
                            hparams.rl_env_max_episode_steps,
                            env_name=hparams.rl_env_name)
+
   env.start_new_epoch(0)
 
-  # TODO(afrozm): Decouple env_fn from hparams and return both, is there
-  # even a need to return hparams? Just return the env_fn?
-  hparams.add_hparam("env_fn", rl.make_real_env_fn(env))
-  return hparams
+  return rl.make_real_env_fn(env)
 
 
 def train(hparams, output_dir, report_fn=None):
   """Train."""
-  hparams = initialize_env_specs(hparams)
+  env_fn = initialize_env_specs(hparams)
 
   tf.logging.vlog(1, "HParams in trainer_model_free.train : %s",
                   misc_utils.pprint_hparams(hparams))
@@ -119,7 +117,7 @@ def train(hparams, output_dir, report_fn=None):
     tf.logging.info("Starting training iteration [%d] for [%d] steps.", i, step)
 
     policy_hparams.epochs_num = eval_every_epochs
-    learner.train(hparams.env_fn,
+    learner.train(env_fn,
                   policy_hparams,
                   simulated=False,
                   save_continuously=True,
