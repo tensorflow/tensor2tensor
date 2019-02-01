@@ -144,7 +144,33 @@ def compile_data(tmp_dir, datasets, filename):
         if url.startswith("http"):
           generator_utils.maybe_download(tmp_dir, compressed_filename, url)
 
-        if dataset[1][0] == "tsv":
+        if dataset[1][0] == "tmx":
+          tmx_filename = os.path.join(tmp_dir, dataset[1][1])
+          if tmx_filename.endswith(".gz"):
+            new_filename = tmx_filename.strip(".gz")
+            if not tf.gfile.Exists(new_filename):
+              generator_utils.gunzip_file(tmx_filename, new_filename)
+            tmx_filename = new_filename
+          source, target = None, None
+          with tf.gfile.Open(tmx_filename) as tmx_file:
+            for line in tmx_file:
+              text = line.strip()
+              if text.startswith("<seg>"):
+                if text.endswith("</seg>"):
+                  sentence = text[5:-6]  # Strip <seg> and </seg>.
+                  if source is None:
+                    source = sentence
+                  else:
+                    target = sentence
+              if source is not None and target is not None:
+                if source and target:  # Prevent empty string examples.
+                  lang1_resfile.write(source)
+                  lang1_resfile.write("\n")
+                  lang2_resfile.write(target)
+                  lang2_resfile.write("\n")
+                source, target = None, None
+
+        elif dataset[1][0] == "tsv":
           _, src_column, trg_column, glob_pattern = dataset[1]
           filenames = tf.gfile.Glob(os.path.join(tmp_dir, glob_pattern))
           if not filenames:
@@ -169,6 +195,7 @@ def compile_data(tmp_dir, datasets, filename):
                     lang1_resfile.write("\n")
                     lang2_resfile.write(target)
                     lang2_resfile.write("\n")
+
         else:
           lang1_filename, lang2_filename = dataset[1]
           lang1_filepath = os.path.join(tmp_dir, lang1_filename)
