@@ -90,6 +90,36 @@ class RegistryClassTest(tf.test.TestCase):
     self.assertEqual(r.get("b", 3), 3)
 
 
+class EnvProblemRegistryTest(tf.test.TestCase):
+
+  def setUp(self):
+    registry.Registries.env_problems._clear()
+
+  def testEnvProblem(self):
+    # Register this class and expect to get it back.
+
+    @registry.register_env_problem
+    class EnvProb(object):
+
+      batch_size = None
+
+      def initialize(self, batch_size):
+        self.batch_size = batch_size
+
+    # Get it with given batch_size.
+    batch_size = 100
+    ep = registry.env_problem("env_prob", batch_size)
+
+    # name property is set.
+    self.assertEqual("env_prob", ep.name)
+
+    # initialize was called and therefore batch_size was set.
+    self.assertEqual(batch_size, ep.batch_size)
+
+    # assert on the type.
+    self.assertTrue(isinstance(ep, EnvProb))
+
+
 class ModelRegistryTest(tf.test.TestCase):
 
   def setUp(self):

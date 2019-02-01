@@ -423,6 +423,8 @@ class Registries(object):
           2, "Registered layer functions must take exaction two arguments: "
           "hparams (HParams) and prefix (str)."))
 
+  env_problems = Registry("env_problems", on_set=_on_problem_set)
+
 
 # consistent version of old API
 model = Registries.models.__getitem__
@@ -467,6 +469,9 @@ register_optimizer = Registries.optimizers.register
 hparams = Registries.hparams.__getitem__
 register_hparams = Registries.hparams.register
 
+list_env_problems = lambda: sorted(Registries.env_problems)
+register_env_problem = Registries.env_problems.register
+
 
 def list_hparams(prefix=None):
   hp_names = sorted(Registries.hparams)
@@ -501,6 +506,23 @@ def problem(problem_name):
   spec = parse_problem_name(problem_name)
   return Registries.problems[spec.base_name](
       was_copy=spec.was_copy, was_reversed=spec.was_reversed)
+
+
+def env_problem(env_problem_name, batch_size):
+  """Get and initialize the `EnvProblem` with the given name and batch size.
+
+  Args:
+    env_problem_name: string name of the registered env problem.
+    batch_size: batch_size to initialize the env problem with.
+
+  Returns:
+    an initialized EnvProblem with the given batch size.
+  """
+
+  ep_cls = Registries.env_problems[env_problem_name]
+  ep = ep_cls()
+  ep.initialize(batch_size=batch_size)
+  return ep
 
 
 attack = Registries.attacks.__getitem__
@@ -573,6 +595,9 @@ Registry contents:
 
   Pruning Strategies:
 %s
+
+  Env Problems:
+%s
 """
   lists = tuple(
       display_list_by_prefix(entries, starting_spaces=4) for entries in [  # pylint: disable=g-complex-comprehension
@@ -585,5 +610,6 @@ Registry contents:
           list_attack_params(),
           list_pruning_params(),
           list_pruning_strategies(),
+          list_env_problems(),
       ])
   return help_str % lists
