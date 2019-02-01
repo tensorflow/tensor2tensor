@@ -192,8 +192,9 @@ class TicTacToeEnv(gym.Env):
         "targets": modalities.ModalityType.IDENTITY_SYMBOL,
     }
     p.vocab_size = {
-        "inputs": 3,
-        "targets": 3,
+        "inputs": 3,  # since at each box, the input is either x, o or -.
+        # nevermind that we have a 3x3 box.
+        "targets": 3,  # -1, 0, 1
     }
     p.input_space_id = 0  # problem.SpaceID.GENERIC
     p.target_space_id = 0  # problem.SpaceID.GENERIC

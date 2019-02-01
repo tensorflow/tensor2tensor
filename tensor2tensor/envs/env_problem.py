@@ -126,10 +126,8 @@ class EnvProblem(Env, problem.Problem):
   def __init__(self,
                base_env_name=None,
                base_env_kwargs=None,
-               batch_size=1,
-               reward_range=(-np.inf, np.inf),
-               was_reversed=False,
-               was_copy=False):
+               batch_size=None,
+               reward_range=(-np.inf, np.inf)):
     """Initializes this class by creating the envs and managing trajectories.
 
     Args:
@@ -137,20 +135,15 @@ class EnvProblem(Env, problem.Problem):
         underlying environment.
       base_env_kwargs: (dict) passed to `gym_utils.make_gym_env` to make the
         underlying environment.
-      batch_size: (int): How many envs to make in the non natively batched mode.
+      batch_size: (int or None): How many envs to make in the non natively
+        batched mode.
       reward_range: (tuple(number, number)) the first element is the minimum
         reward and the second is the maximum reward, used to clip and process
         the raw reward in `process_rewards`.
-      was_reversed: (bool) should be false, passed to underlying init of
-        Problem.
-      was_copy: (bool) should be false, passed to underlying init of Problem.
     """
 
-    # Assert on these since they don't make sense.
-    assert not was_reversed and not was_copy
-
     # Call the super's ctor.
-    problem.Problem.__init__(self, was_reversed=was_reversed, was_copy=was_copy)
+    problem.Problem.__init__(self, was_reversed=False, was_copy=False)
 
     # Name for the base environment, will be used in `gym_utils.make_gym_env` in
     # the default implementation of `initialize_environments`.
@@ -188,15 +181,8 @@ class EnvProblem(Env, problem.Problem):
     # and also the ones that are completed, i.e. done.
     self._trajectories = None
 
-    self.initialize_environments(batch_size=batch_size)
-
-    # Assert that *all* the above are now set, we should do this since
-    # subclasses can override `initialize_environments`.
-    assert self._envs is not None
-    assert self._observation_space is not None
-    assert self._action_space is not None
-    assert self._reward_range is not None
-    assert self._trajectories is not None
+    if batch_size is not None:
+      self.initialize(batch_size=batch_size)
 
   @property
   def base_env_name(self):
@@ -243,6 +229,17 @@ class EnvProblem(Env, problem.Problem):
       for i, env in enumerate(self._envs):
         tf.logging.error("Env[%d] has action space [%s]", i, env.action_space)
       raise ValueError(err_str)
+
+  def initialize(self, batch_size=1):
+    self.initialize_environments(batch_size=batch_size)
+
+    # Assert that *all* the above are now set, we should do this since
+    # subclasses can override `initialize_environments`.
+    assert self._envs is not None
+    assert self._observation_space is not None
+    assert self._action_space is not None
+    assert self._reward_range is not None
+    assert self._trajectories is not None
 
   def initialize_environments(self, batch_size=1):
     """Initializes the environments and trajectories.
@@ -357,6 +354,8 @@ class EnvProblem(Env, problem.Problem):
 
   def process_rewards(self, rewards):
     """Clips, rounds, adds the min_reward and changes to integer type.
+
+    The result of the above is that the new minimum is 0.
 
     Args:
       rewards: numpy array of raw (float) rewards.
@@ -758,3 +757,12 @@ class EnvProblem(Env, problem.Problem):
       # `cycle_every_n` isn't needed since file list given to it is a singleton.
       generator_utils.generate_files(
           self._generate_time_steps(trajectories_to_write), [f])
+
+  def print_state(self):
+    for t in self.trajectories.trajectories:
+      print("---------")
+      if not t.is_active():
+        print("trajectory isn't active.")
+        continue
+      last_obs = t.last_time_step().observation
+      print(str(last_obs))
