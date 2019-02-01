@@ -181,8 +181,16 @@ class EnvProblem(Env, problem.Problem):
     # and also the ones that are completed, i.e. done.
     self._trajectories = None
 
+    self._batch_size = None
+
     if batch_size is not None:
       self.initialize(batch_size=batch_size)
+
+  @property
+  def batch_size(self):
+    # TODO(afrozm): I've added this here since it is being used in a lot of
+    # places in ppo_learner.py -- re-evaluate if needed.
+    return self._batch_size
 
   @property
   def base_env_name(self):
@@ -253,6 +261,7 @@ class EnvProblem(Env, problem.Problem):
     """
 
     assert batch_size >= 1
+    self._batch_size = batch_size
 
     max_steps = self._base_env_kwargs.get("rl_env_max_episode_steps", -1)
     maxskip_env = self._base_env_kwargs.get("maxskip_env", False)
