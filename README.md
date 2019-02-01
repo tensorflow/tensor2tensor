@@ -484,5 +484,6 @@ T2T](https://research.googleblog.com/2017/06/accelerating-deep-learning-research
 * [Adafactor: Adaptive Learning Rates with Sublinear Memory Cost](https://arxiv.org/abs/1804.04235)
 * [Universal Transformers](https://arxiv.org/abs/1807.03819)
 * [Attending to Mathematical Language with Transformers](https://arxiv.org/abs/1812.02825)
+* [The Evolved Transformer](https://arxiv.org/abs/1901.11117)
 
 *Note: This is not an official Google product.*
