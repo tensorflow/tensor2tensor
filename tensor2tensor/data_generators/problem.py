@@ -778,7 +778,7 @@ class Problem(object):
 
     return estimator_input_fn
 
-  def _dataset_partition(self, mode, config):
+  def _dataset_partition(self, mode, config, params):
     """Which part of the training data to read.
 
     If there are multiple parallel calls to input_fn (multiple TPU hosts),
@@ -788,6 +788,7 @@ class Problem(object):
     Args:
       mode: tf.estimator.ModeKeys
       config: RunConfig
+      params: A dict that contains parameters.
     Returns:
       partition_id: an integer
       num_partitions: an integer
@@ -802,7 +803,7 @@ class Problem(object):
         phift == tpu_config.InputPipelineConfig.BROADCAST):
       return 0, 1
     if phift:
-      num_partitions = max(config.tpu_config.num_shards // 8, 1)
+      num_partitions = max(params["context"].num_hosts, 1)
     else:
       num_partitions = config.tpu_config.num_shards
     partition_id = getattr(self, "_next_partition_id", 0)
@@ -839,7 +840,7 @@ class Problem(object):
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
-    partition_id, num_partitions = self._dataset_partition(mode, config)
+    partition_id, num_partitions = self._dataset_partition(mode, config, params)
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     if config and config.use_tpu:
       num_threads = 64
