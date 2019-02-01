@@ -155,9 +155,9 @@ class T2TModel(base.Layer):
     """Creates a T2TModel.
 
     Args:
-      hparams: tf.contrib.training.HParams, model hyperparameters.
+      hparams: HParams, model hyperparameters.
       mode: tf.estimator.ModeKeys, the execution mode.
-      problem_hparams: tf.contrib.training.HParams, hyperparameters for the
+      problem_hparams: HParams, hyperparameters for the
         Problem. If provided here or in hparams.problem_hparams, the model will
         automatically determine bottom, top, and loss methods. If not provided,
         calling the model will only invoke body.

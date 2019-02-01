@@ -477,7 +477,7 @@ def postprocess_image(x, rows, cols, hparams):
       number of elements in x is batch * rows * cols * hparams.hidden_size.
     rows: Integer representing number of rows in a 2-D data point.
     cols: Integer representing number of columns in a 2-D data point.
-    hparams: tf.contrib.training.HParams set.
+    hparams: HParams set.
 
   Returns:
     Tensor of shape [batch, rows, cols, depth], where depth is
@@ -639,7 +639,7 @@ def create_output(decoder_output, rows, cols, targets, hparams):
     cols: Integer representing number of columns in a 2-D data point.
     targets: Tensor of shape [batch, hparams.img_len, hparams.img_len,
       hparams.num_channels].
-    hparams: tf.contrib.training.HParams set.
+    hparams: HParams set.
 
   Returns:
     Tensor of shape [batch, hparams.img_len, hparams.img_len,

@@ -41,7 +41,7 @@ def lstm(inputs, sequence_length, hparams, train, name, initial_state=None):
     inputs: The input `Tensor`, shaped `[batch_size, time_steps, hidden_size]`.
     sequence_length: Lengths of the actual input sequence, excluding padding; a
         `Tensor` shaped `[batch_size]`.
-    hparams: tf.contrib.training.HParams; hyperparameters.
+    hparams: HParams; hyperparameters.
     train: bool; `True` when constructing training graph to enable dropout.
     name: string; Create variable names under this scope.
     initial_state: tuple of `LSTMStateTuple`s; the initial state of each layer.
@@ -74,7 +74,7 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
   Args:
     inputs: The decoder input `Tensor`, shaped `[batch_size, decoder_steps,
         hidden_size]`.
-    hparams: tf.contrib.training.HParams; hyperparameters.
+    hparams: HParams; hyperparameters.
     train: bool; `True` when constructing training graph to enable dropout.
     name: string; Create variable names under this scope.
     initial_state: Tuple of `LSTMStateTuple`s; the initial state of each layer.

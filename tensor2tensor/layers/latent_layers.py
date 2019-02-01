@@ -106,7 +106,7 @@ def ae_latent_softmax(latents_pred, latents_discrete_hot, vocab_size, hparams):
     latents_pred: Tensor of shape [..., depth].
     latents_discrete_hot: Tensor of shape [..., vocab_size].
     vocab_size: an int representing the vocab size.
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
 
   Returns:
     sample: Tensor of shape [...], a sample from a multinomial distribution.
@@ -143,7 +143,7 @@ def ae_latent_sample_beam(latents_dense_in, inputs, ed, embed, hparams):
       length_kv]. Encoder-decoder attention bias.
     embed: Callable which embeds discrete latent hot-vectors and a hidden size
       and returns dense vectors.
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
 
   Returns:
     Tensor of shape [batch, length].
@@ -192,7 +192,7 @@ def residual_block_layer(inputs, hparams):
 
   Args:
     inputs: Tensor of shape [batch, height, width, hparams.hidden_size].
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
 
   Returns:
     Tensor of shape [batch, height, width, hparams.hidden_size].
@@ -228,7 +228,7 @@ def compress_encoder(inputs,
 
   Args:
     inputs: Tensor of shape [batch, height, width, channels].
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     strides: Tuple, strides for conv block.
     kernel_size: Tuple, kernel window size for conv block.
     name: string, variable scope.
@@ -275,7 +275,7 @@ def compress_encoder_2d(x, hparams, name=None):
 
   Args:
     x: Tensor of shape [batch, height, width, channels].
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     name: string, variable scope.
 
   Returns:
@@ -296,7 +296,7 @@ def compress_encoder_1d(x, hparams, name=None):
 
   Args:
     x: Tensor of shape [batch, length, channels].
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     name: string, variable scope.
 
   Returns:
@@ -321,7 +321,7 @@ def decompress_decoder(inputs,
 
   Args:
     inputs: Tensor of shape [batch, compress_height, compress_width, channels].
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     strides: Tuple, strides for conv block.
     kernel: Tuple, kernel window size for conv block.
     name: string, variable scope.
@@ -357,7 +357,7 @@ def decompress_decoder_2d(x, hparams, name=None):
 
   Args:
     x: Tensor of shape [batch, compress_height, compress_width, channels].
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     name: string, variable scope.
 
   Returns:
@@ -374,7 +374,7 @@ def decompress_decoder_1d(x, hparams, name=None):
 
   Args:
     x: Tensor of shape [batch, compress_length, channels].
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     name: string, variable scope.
 
   Returns:
@@ -397,7 +397,7 @@ def transformer_text_encoder(inputs,
   Args:
     inputs: Tensor of shape [batch, length, 1, hparams.hidden_size].
     target_space: int. Used for encoding inputs under a target space id.
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     name: string, variable scope.
 
   Returns:
@@ -432,7 +432,7 @@ def transformer_image_decoder(targets,
     encoder_output: Tensor of shape [batch, length_kv, hparams.hidden_size].
     ed_attention_bias: Tensor which broadcasts with shape [batch,
       hparams.num_heads, length_q, length_kv]. Encoder-decoder attention bias.
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     name: string, variable scope.
 
   Returns:
@@ -476,7 +476,7 @@ def transformer_latent_decoder(x,
     encoder_output: Tensor of shape [batch, length_kv, hparams.hidden_size].
     ed_attention_bias: Tensor which broadcasts with shape [batch,
       hparams.num_heads, length_q, length_kv]. Encoder-decoder attention bias.
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     name: string, variable scope.
 
   Returns:
@@ -547,7 +547,7 @@ def latent_prediction_model(inputs,
     latents_dense: Tensor of shape [batch, length_q, hparams.hidden_size].
       length_q is the latent length, which is
       height * width * hparams.num_latents / (2**hparams.num_compress_steps).
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     vocab_size: int or None. If None, it is 2**hparams.bottleneck_bits.
     name: string, variable scope.
 
@@ -586,7 +586,7 @@ def transformer_autoencoder(inputs,
     targets: Tensor of shape [batch, ..., channels]. Ellipses may be 1 or 2
       dimensions denoting sequence length.
     target_space: int. Used for encoding inputs under a target space id.
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     cache: Tensor of shape [batch, length] or None.
     predict_mask: Tensor masking whether to use gold targets or predictions.
 

@@ -25,6 +25,7 @@ from absl.testing import parameterized
 import numpy as np
 from tensor2tensor.models.research import glow
 from tensor2tensor.models.research import glow_ops
+from tensor2tensor.utils.hparam import HParams
 import tensorflow as tf
 
 arg_scope = tf.contrib.framework.arg_scope
@@ -156,7 +157,7 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
   def check_latent_to_dist(self, architecture):
     with tf.Graph().as_default():
       x = tf.random_uniform(shape=(16, 5, 5, 32))
-      hparams = tf.contrib.training.HParams(architecture=architecture)
+      hparams = HParams(architecture=architecture)
       x_prior = glow_ops.latent_to_dist("split_prior", x, hparams=hparams,
                                         output_channels=64)
       mean_t, scale_t = x_prior.loc, x_prior.scale

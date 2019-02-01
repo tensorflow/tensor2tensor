@@ -21,6 +21,7 @@ from __future__ import print_function
 
 from tensor2tensor.utils import modality
 from tensor2tensor.utils import t2t_model
+from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 
@@ -30,7 +31,7 @@ class T2TModelTest(tf.test.TestCase):
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
   def testSummarizeLosses(self):
     with tf.Graph().as_default():
-      model = t2t_model.T2TModel(tf.contrib.training.HParams())
+      model = t2t_model.T2TModel(HParams())
       losses = {"training": tf.random_normal([]),
                 "extra": tf.random_normal([])}
       outputs = model._summarize_losses(losses)
@@ -47,11 +48,11 @@ class T2TModelTest(tf.test.TestCase):
         sequence_size = 16
         vocab_size = 3
 
-        model_hparams = tf.contrib.training.HParams(
+        model_hparams = HParams(
             label_smoothing=0.0,
             shared_embedding_and_softmax_weights=False)
 
-        problem_hparams = tf.contrib.training.HParams(loss_multiplier=1.0)
+        problem_hparams = HParams(loss_multiplier=1.0)
         problem_hparams.modality = {}
 
         model = t2t_model.T2TModel(

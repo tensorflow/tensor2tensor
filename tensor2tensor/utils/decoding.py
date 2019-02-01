@@ -35,6 +35,7 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
+from tensor2tensor.utils.hparam import HParams
 import tensorflow as tf
 
 FLAGS = tf.flags.FLAGS
@@ -45,7 +46,7 @@ IMAGE_DECODE_LENGTH = 100
 
 def decode_hparams(overrides=""):
   """Hyperparameters for decoding."""
-  hp = tf.contrib.training.HParams(
+  hp = HParams(
       save_images=False,
       log_results=True,
       extra_length=100,

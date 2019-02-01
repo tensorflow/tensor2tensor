@@ -36,6 +36,7 @@ from tensor2tensor.rl.envs.simulated_batch_gym_env import SimulatedBatchGymEnv
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 from tensor2tensor.utils import trainer_lib
+from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -78,7 +79,7 @@ def ppo_base_v1():
 @registry.register_hparams
 def basic_policy_parameters():
   wrappers = None
-  return tf.contrib.training.HParams(wrappers=wrappers)
+  return HParams(wrappers=wrappers)
 
 
 @registry.register_hparams
@@ -335,7 +336,7 @@ def ppo_pong_ae_base():
 def dqn_atari_base():
   # These params are based on agents/dqn/configs/dqn.gin
   # with some modifications taking into account our code
-  return tf.contrib.training.HParams(
+  return HParams(
       agent_gamma=0.99,
       agent_update_horizon=1,
       agent_min_replay_history=20000,  # agent steps
@@ -372,7 +373,7 @@ def dqn_original_params():
 
 @registry.register_hparams
 def rlmf_original():
-  return tf.contrib.training.HParams(
+  return HParams(
       game="pong",
       base_algo="ppo",
       base_algo_params="ppo_original_params",

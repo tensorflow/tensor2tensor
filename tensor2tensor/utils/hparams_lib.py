@@ -23,13 +23,14 @@ import json
 
 from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.utils import registry
+from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 
 
 def copy_hparams(hparams):
   hp_vals = hparams.values()
-  new_hparams = tf.contrib.training.HParams(**hp_vals)
+  new_hparams = HParams(**hp_vals)
   other_attrs = ["problem", "problem_hparams"]
   for attr in other_attrs:
     attr_val = getattr(hparams, attr, None)
@@ -63,7 +64,7 @@ def create_hparams_from_json(json_path, hparams=None):
   tf.logging.info("Loading hparams from existing json %s" % json_path)
   with tf.gfile.Open(json_path, "r") as f:
     hparams_values = json.load(f)
-    new_hparams = tf.contrib.training.HParams(**hparams_values)
+    new_hparams = HParams(**hparams_values)
     # Some keys are in new_hparams but not hparams, so we need to be more
     #   careful than simply using parse_json() from HParams
     if hparams:  # hparams specified, so update values from json

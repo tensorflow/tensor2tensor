@@ -29,6 +29,7 @@ from tensor2tensor.layers import modalities
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import mlperf_log
+from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
@@ -130,7 +131,7 @@ class TaskID(object):
 
 
 def default_model_hparams():
-  return tf.contrib.training.HParams(
+  return HParams(
       max_input_seq_length=0,
       max_target_seq_length=0,
       prepend_mode="none",
@@ -596,7 +597,7 @@ class Problem(object):
       output_buffer_size: int, how many elements to prefetch at end of pipeline.
       shuffle_files: whether to shuffle input files. Default behavior (i.e. when
         shuffle_files=None) is to shuffle if mode == TRAIN.
-      hparams: tf.contrib.training.HParams; hparams to be passed to
+      hparams: HParams; hparams to be passed to
         Problem.preprocess_example and Problem.hparams. If None, will use a
         default set that is a no-op.
       preprocess: bool, whether to map the Dataset through
@@ -992,9 +993,9 @@ def _create_modalities(problem_hparams, model_hparams):
   """Creates modalities and overrides any according to model hparams.
 
   Args:
-    problem_hparams: tf.contrib.training.HParams for the Problem. It must have
+    problem_hparams: HParams for the Problem. It must have
       modality which is a dict of strings to ModalityTypes or Modality classes.
-    model_hparams: tf.contrib.training.HParams for the model. It may have
+    model_hparams: HParams for the model. It may have
       input_modalities and target_modality, which will override
       problem_hparams' modality input and target keys.
 
@@ -1024,7 +1025,7 @@ def _create_modalities(problem_hparams, model_hparams):
 
 def _default_hparams():
   """A set of basic model hyperparameters."""
-  return tf.contrib.training.HParams(
+  return HParams(
       # Use this parameter to get comparable perplexity numbers with different
       # tokenizations.  This value should be set to the ratio of the number of
       # tokens in the test set according to the tokenization used to the number

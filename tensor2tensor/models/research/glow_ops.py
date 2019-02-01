@@ -742,7 +742,7 @@ def get_dilation_rates(hparams, width):
   """Get a list of valid dilation rates.
 
   Args:
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     width: spatial dimension. Ensures that the effective filter size is
            not larger than the spatial dimension.
   Returns:
@@ -832,7 +832,7 @@ def latent_to_dist(name, x, hparams, output_channels=None):
   Args:
     name: variable scope.
     x: 4-D Tensor of shape (NHWC)
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
       latent_architecture - can be "single_conv", "glow_nn" or "glow_resnet",
                             default = single_conv
       latent_encoder_depth - int, depth of architecture, valid if
@@ -893,7 +893,7 @@ def noise_op(latents, hparams):
 
   Args:
     latents: 4-D or 5-D tensor, shape=(NTHWC) or (NHWC).
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
   Returns:
     latents: latents with isotropic gaussian noise appended.
   """
