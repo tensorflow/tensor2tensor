@@ -18,12 +18,12 @@ env:
     - BOTO_CONFIG=/dev/null
   matrix:
     # We test against the latest stable TensorFlow and tf-nightly.
-    # If updating, also update TF_LATEST above
+    # If updating, also update TF_LATEST above and allow_failures
     - TF_VERSION="1.12.*"
     - TF_VERSION="tf-nightly"
 matrix:
   allow_failures:
-    - env: TF_VERSION=$TF_LATEST
+    - env: TF_VERSION="1.12.*"
 install:
   - ./oss_scripts/oss_pip_install.sh
 script:
