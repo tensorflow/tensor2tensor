@@ -22,11 +22,8 @@ env:
     - TF_VERSION="1.12.*"
     - TF_VERSION="tf-nightly"
 matrix:
-  exclude:
-    # We test against all versions in Python 2 but only the latest stable
-    # version in Python 3
-    - python: "3.6"
-      env: TF_VERSION="tf-nightly"
+  allow_failures:
+    - env: TF_VERSION=$TF_LATEST
 before_install:
   - sudo apt-get update -qq
   - sudo apt-get install -qq libhdf5-dev
