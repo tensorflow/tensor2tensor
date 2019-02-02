@@ -1,7 +1,7 @@
 sudo: required
 language: python
 git:
-  depth: 10
+  depth: 1
   quiet: true
 services:
   - docker
@@ -24,9 +24,6 @@ env:
 matrix:
   allow_failures:
     - env: TF_VERSION=$TF_LATEST
-before_install:
-  - sudo apt-get update -qq
-  - sudo apt-get install -qq libhdf5-dev
 install:
   - ./oss_scripts/oss_pip_install.sh
 script:
