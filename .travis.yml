@@ -1,5 +1,6 @@
 sudo: required
 language: python
+cache: pip
 git:
   depth: 1
   quiet: true
