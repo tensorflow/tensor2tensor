@@ -425,7 +425,7 @@ class BabiQa(text_problems.QuestionAndContext2TextProblem):
     (super(BabiQa, self).hparams(defaults, unused_model_hparams))
     p = defaults
     num_classes = self._encoders["targets"].vocab_size
-    p.modality = {"targets": modalities.ClassLabelModality}
+    p.modality = {"targets": modalities.ModalityType.CLASS_LABEL}
     p.vocab_size = {"targets": num_classes}
 
   def example_reading_spec(self):

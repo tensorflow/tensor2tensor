@@ -79,7 +79,7 @@ class ImageCelebahq128(image_utils.ImageProblem):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.batch_size_multiplier = 1
-    p.modality = {"inputs": modalities.IdentityModality}
+    p.modality = {"inputs": modalities.ModalityType.IDENTITY}
     p.vocab_size = {"inputs": 256}
     p.input_space_id = 1
 

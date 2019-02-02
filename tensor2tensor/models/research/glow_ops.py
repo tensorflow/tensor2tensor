@@ -31,6 +31,40 @@ arg_scope = tf.contrib.framework.arg_scope
 add_arg_scope = tf.contrib.framework.add_arg_scope
 
 
+def linear_interpolate(tensor1, tensor2, coeffs):
+  """Linearly interpolate between two tensors at coeff.
+
+  Args:
+    tensor1: 3-D Tensor, NHWC
+    tensor2: 3-D Tensor, NHWC
+    coeffs: list of floats.
+  Returns:
+    interp_latents: list of interpolated 4-D Tensors, shape=(1HWC)
+  """
+  interp_tensors = []
+  for coeff in coeffs:
+    interp_tensor = tensor1 + coeff * (tensor2 - tensor1)
+    interp_tensors.append(interp_tensor)
+  return tf.concat(interp_tensors, axis=0)
+
+
+def postprocess(x, n_bits_x=8):
+  """Converts x from [-0.5, 0.5], to [0, 255].
+
+  Args:
+    x: 3-D or 4-D Tensor normalized between [-0.5, 0.5]
+    n_bits_x: Number of bits representing each pixel of the output.
+              Defaults to 8, to default to 256 possible values.
+  Returns:
+    x: 3-D or 4-D Tensor representing images or videos.
+  """
+  x = tf.where(tf.is_finite(x), x, tf.ones_like(x))
+  x = tf.clip_by_value(x, -0.5, 0.5)
+  x += 0.5
+  x = x * 2**n_bits_x
+  return tf.cast(tf.clip_by_value(x, 0, 255), dtype=tf.uint8)
+
+
 class TemperedNormal(tfp.distributions.Normal):
   """Normal distribution with temperature T."""
 
@@ -708,7 +742,7 @@ def get_dilation_rates(hparams, width):
   """Get a list of valid dilation rates.
 
   Args:
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     width: spatial dimension. Ensures that the effective filter size is
            not larger than the spatial dimension.
   Returns:
@@ -798,7 +832,7 @@ def latent_to_dist(name, x, hparams, output_channels=None):
   Args:
     name: variable scope.
     x: 4-D Tensor of shape (NHWC)
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
       latent_architecture - can be "single_conv", "glow_nn" or "glow_resnet",
                             default = single_conv
       latent_encoder_depth - int, depth of architecture, valid if
@@ -859,7 +893,7 @@ def noise_op(latents, hparams):
 
   Args:
     latents: 4-D or 5-D tensor, shape=(NTHWC) or (NHWC).
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
   Returns:
     latents: latents with isotropic gaussian noise appended.
   """

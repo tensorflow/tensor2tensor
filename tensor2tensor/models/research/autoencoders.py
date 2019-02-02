@@ -219,7 +219,8 @@ class AutoencoderBasic(t2t_model.T2TModel):
         # minimized by just setting x=0 and b=0 -- so we don't want too much
         # of the influence of this, and we stop-gradient to not zero-out x.
         x_stop = tf.stop_gradient(x)
-        xb_loss = tf.reduce_mean(tf.reduce_sum(tf.square(x_stop - b), axis=-1))
+        xb_loss = tf.reduce_mean(tf.reduce_sum(
+            tf.squared_difference(x_stop, b), axis=-1))
         # To prevent this loss from exploding we clip at 1, but anneal clipping.
         clip_max = 1.0 / common_layers.inverse_exp_decay(
             warm_step, min_value=0.001)
@@ -1020,7 +1021,7 @@ class AutoencoderStacked(AutoencoderResidualDiscrete):
 def autoencoder_basic():
   """Basic autoencoder model."""
   hparams = common_hparams.basic_params1()
-  hparams.optimizer = "Adam"
+  hparams.optimizer = "adam"
   hparams.learning_rate_constant = 0.0002
   hparams.learning_rate_warmup_steps = 500
   hparams.learning_rate_schedule = "constant * linear_warmup"
@@ -1106,8 +1107,8 @@ def autoencoder_residual_text():
   hparams.max_hidden_size = 512
   hparams.bottleneck_noise = 0.0
   hparams.modality = {
-      "inputs": modalities.IdentitySymbolModality,
-      "targets": modalities.IdentitySymbolModality,
+      "inputs": modalities.ModalityType.IDENTITY_SYMBOL,
+      "targets": modalities.ModalityType.IDENTITY_SYMBOL,
   }
   hparams.autoregressive_mode = "none"
   hparams.sample_width = 1

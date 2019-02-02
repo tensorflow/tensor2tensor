@@ -21,6 +21,7 @@ from __future__ import print_function
 
 from absl.testing import parameterized
 from tensor2tensor.data_generators import mscoco
+from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 
@@ -34,7 +35,7 @@ class MscocoTest(parameterized.TestCase, tf.test.TestCase):
   def testMsCocoMultiResolutionPreprocessExample(self, resize_method):
     example = {"inputs": tf.random_uniform([400, 400, 3], minval=-1.)}
     mode = tf.estimator.ModeKeys.TRAIN
-    hparams = tf.contrib.training.HParams(resolutions=[8, 16, 32])
+    hparams = HParams(resolutions=[8, 16, 32])
     if resize_method is not None:
       hparams.resize_method = resize_method
 

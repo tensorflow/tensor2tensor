@@ -105,12 +105,12 @@ class EnvSimulationProblem(video_utils.VideoProblem):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.modality = {
-        "inputs": modalities.VideoModality,
-        "input_reward": modalities.SymbolModalityWeightsAll,
-        "input_action": modalities.SymbolModalityWeightsAll,
-        "targets": modalities.VideoModality,
-        "target_reward": modalities.SymbolModalityWeightsAll,
-        "target_action": modalities.SymbolModalityWeightsAll,
+        "inputs": modalities.ModalityType.VIDEO,
+        "input_reward": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "input_action": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "targets": modalities.ModalityType.VIDEO,
+        "target_reward": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "target_action": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
     }
     p.vocab_size = {
         "inputs": 256,

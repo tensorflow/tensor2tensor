@@ -60,8 +60,8 @@ class SpeechRecognitionProblem(problem.Problem):
     p.add_hparam("num_zeropad_frames", 250)
 
     p = defaults
-    p.modality = {"inputs": modalities.SpeechRecognitionModality,
-                  "targets": modalities.SymbolModality}
+    p.modality = {"inputs": modalities.ModalityType.SPEECH_RECOGNITION,
+                  "targets": modalities.ModalityType.SYMBOL}
     p.vocab_size = {"inputs": None,
                     "targets": 256}
 
@@ -122,7 +122,7 @@ class SpeechRecognitionProblem(problem.Problem):
       # This replaces CMVN estimation on data
       var_epsilon = 1e-09
       mean = tf.reduce_mean(mel_fbanks, keepdims=True, axis=1)
-      variance = tf.reduce_mean(tf.square(mel_fbanks - mean),
+      variance = tf.reduce_mean(tf.squared_difference(mel_fbanks, mean),
                                 keepdims=True, axis=1)
       mel_fbanks = (mel_fbanks - mean) * tf.rsqrt(variance + var_epsilon)
 

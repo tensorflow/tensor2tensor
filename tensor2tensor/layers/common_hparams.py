@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.utils import registry
+from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 
@@ -27,7 +28,7 @@ import tensorflow as tf
 @registry.register_hparams("basic_1")
 def basic_params1():
   """A set of basic hyperparameters."""
-  return tf.contrib.training.HParams(
+  return HParams(
       # If the problem consists of variable-length sequences
       # (see problem.batch_size_means_tokens()), then this is the number
       # of tokens per batch per GPU or per TPU core.  Otherwise, this is
@@ -55,7 +56,7 @@ def basic_params1():
       initializer="orthogonal",
       initializer_gain=1.5,
       label_smoothing=0.1,
-      optimizer="Adam",
+      optimizer="adam",
       optimizer_adam_epsilon=1e-6,
       optimizer_adam_beta1=0.85,
       optimizer_adam_beta2=0.997,
@@ -75,6 +76,8 @@ def basic_params1():
       # Mixed precision training only supports exponential scaling currently
       # To disable the scaler, see to 0/False
       mixed_precision_optimizer_loss_scaler="exponential",
+      # Determines the initial loss scaling value for mixed precision
+      mixed_precision_optimizer_init_loss_scale=2**15,
       # Whether to zero gradients that were not computed, so that the
       # appropriate slots are created. Useful for sharing checkpoints between
       # models with different sets of heads.
@@ -180,7 +183,7 @@ def basic_params1():
       symbol_modality_skip_top=False,
       # Modalities used to map from features to a space compatible with
       # chosen model architecture. It comprises key-value pairs of a feature
-      # name (str) and its modality class.
+      # name (str) and its modality type.
       modality={},
       # The maximum length of "input" sequence.
       # Sequences longer than this value will be truncated. 0 or negative values
@@ -466,7 +469,7 @@ def basic_range1(ranged_hparams):
   rhp.set_float("optimizer_adam_beta2", 0.995, 0.999)
   rhp.set_categorical(
       "optimizer",
-      ["Adam", "Adagrad", "Momentum", "RMSProp", "SGD", "YellowFin"])
+      ["adam", "adagrad", "momentum", "rms_prop", "sgd", "yellow_fin"])
 
 
 @registry.register_ranged_hparams

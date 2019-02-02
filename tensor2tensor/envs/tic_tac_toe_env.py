@@ -188,12 +188,13 @@ class TicTacToeEnv(gym.Env):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.modality = {
-        "inputs": modalities.IdentitySymbolModality,
-        "targets": modalities.IdentitySymbolModality,
+        "inputs": modalities.ModalityType.IDENTITY_SYMBOL,
+        "targets": modalities.ModalityType.IDENTITY_SYMBOL,
     }
     p.vocab_size = {
-        "inputs": 3,
-        "targets": 3,
+        "inputs": 3,  # since at each box, the input is either x, o or -.
+        # nevermind that we have a 3x3 box.
+        "targets": 3,  # -1, 0, 1
     }
     p.input_space_id = 0  # problem.SpaceID.GENERIC
     p.target_space_id = 0  # problem.SpaceID.GENERIC
@@ -212,12 +213,12 @@ class DummyPolicyProblemTTT(problem.Problem):
     self._ttt_env.hparams(defaults, model_hparams)
     # Do these belong here?
     defaults.modality.update({
-        "input_action": modalities.SymbolModalityWeightsAll,
-        "input_reward": modalities.SymbolModalityWeightsAll,
-        "target_action": modalities.SymbolModalityWeightsAll,
-        "target_reward": modalities.SymbolModalityWeightsAll,
-        "target_policy": modalities.IdentityModality,
-        "target_value": modalities.IdentityModality,
+        "input_action": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "input_reward": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "target_action": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "target_reward": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "target_policy": modalities.ModalityType.IDENTITY,
+        "target_value": modalities.ModalityType.IDENTITY,
     })
     defaults.vocab_size.update({
         "input_action": self.num_actions,

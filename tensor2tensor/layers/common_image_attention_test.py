@@ -22,6 +22,7 @@ from __future__ import print_function
 from absl.testing import parameterized
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_image_attention
+from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 
@@ -36,7 +37,7 @@ class CommonImageAttentionTest(parameterized.TestCase, tf.test.TestCase):
     batch = 1
     rows = 8
     cols = 24
-    hparams = tf.contrib.training.HParams(
+    hparams = HParams(
         hidden_size=2,
         likelihood=likelihood,
         mode=tf.estimator.ModeKeys.TRAIN,
@@ -58,7 +59,7 @@ class CommonImageAttentionTest(parameterized.TestCase, tf.test.TestCase):
     cols = 24
     block_length = 4
     block_width = 2
-    hparams = tf.contrib.training.HParams(
+    hparams = HParams(
         block_raster_scan=True,
         hidden_size=2,
         likelihood=likelihood,
@@ -90,7 +91,7 @@ class CommonImageAttentionTest(parameterized.TestCase, tf.test.TestCase):
       cols = channels * width
     else:
       cols = width
-    hparams = tf.contrib.training.HParams(
+    hparams = HParams(
         hidden_size=2,
         likelihood=likelihood,
         mode=tf.estimator.ModeKeys.TRAIN,

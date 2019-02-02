@@ -383,7 +383,7 @@ and are registered with
 **Hyperparameter sets** are defined and registered in code with
 [`@registry.register_hparams`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/registry.py)
 and are encoded in
-[`tf.contrib.training.HParams`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/contrib/training/python/training/hparam.py)
+[`HParams`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/hparam.py)
 objects. The `HParams` are available to both the problem specification and the
 model. A basic set of hyperparameters are defined in
 [`common_hparams.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/layers/common_hparams.py)

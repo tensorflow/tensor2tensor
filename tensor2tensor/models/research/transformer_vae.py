@@ -436,7 +436,8 @@ def ae_transformer_internal(inputs,
         losses["neg_q_entropy"] = neg_q_entropy * hparams.entropy_scale
       else:
         inputs_c = decode_transformer(inputs, ed, targets_c, hparams, "dec_c")
-        losses["latent_pred"] = tf.reduce_mean((inputs_c - targets_c)**2) * 20
+        losses["latent_pred"] = tf.reduce_mean(
+            tf.squared_difference(inputs_c, targets_c)) * 20
         def bn_inputs():
           with tf.variable_scope(tf.get_variable_scope(), reuse=True):
             bn, _, _, _, _ = hparams.bottleneck(
@@ -767,7 +768,7 @@ def transformer_ae_small():
   hparams.filter_size = 2048
   hparams.add_hparam("compress_filter_size", 2048 * 2)
   hparams.label_smoothing = 0.0
-  hparams.optimizer = "Adam"  # Can be unstable, maybe try Adam.
+  hparams.optimizer = "adam"  # Can be unstable, maybe try Adam.
   hparams.optimizer_adam_epsilon = 1e-9
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.997  # Needs tuning, try 0.98 to 0.999.
@@ -941,7 +942,7 @@ def transformer_ae_a3():
 def transformer_ae_a6():
   """Best hparams for transformer with semhash."""
   hparams = transformer_ae_a3()
-  hparams.optimizer = "Adam"
+  hparams.optimizer = "adam"
   hparams.noise_dev = 0.5
   return hparams
 

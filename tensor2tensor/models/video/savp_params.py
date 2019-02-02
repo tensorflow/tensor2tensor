@@ -37,8 +37,8 @@ def next_frame_savp():
   hparams.add_hparam("gan_vae_loss_multiplier", 0.01)
   hparams.add_hparam("gan_optimization", "joint")
   hparams.modality = {
-      "inputs": modalities.VideoModalityL1Raw,
-      "targets": modalities.VideoModalityL1Raw,
+      "inputs": modalities.ModalityType.VIDEO_L1_RAW,
+      "targets": modalities.ModalityType.VIDEO_L1_RAW,
   }
   hparams.latent_loss_multiplier_schedule = "linear"
   hparams.upsample_method = "bilinear_upsample_conv"
@@ -55,8 +55,8 @@ def next_frame_savp_l2():
   """SAVP with L2 reconstruction loss."""
   hparams = next_frame_savp()
   hparams.modality = {
-      "inputs": modalities.VideoModalityL2Raw,
-      "targets": modalities.VideoModalityL2Raw,
+      "inputs": modalities.ModalityType.VIDEO_L2_RAW,
+      "targets": modalities.ModalityType.VIDEO_L2_RAW,
   }
   return hparams
 

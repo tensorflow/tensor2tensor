@@ -51,8 +51,8 @@ class TestProblem(problem_mod.Problem):
 
   def hparams(self, defaults, model_hparams):
     hp = defaults
-    hp.modality = {"inputs": modalities.SymbolModality,
-                   "targets": modalities.SymbolModality}
+    hp.modality = {"inputs": modalities.ModalityType.SYMBOL,
+                   "targets": modalities.ModalityType.SYMBOL}
     hp.vocab_size = {"inputs": 30,
                      "targets": 30}
 

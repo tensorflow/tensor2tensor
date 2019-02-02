@@ -56,7 +56,7 @@ class GymUtilsTest(tf.test.TestCase):
     env = gym_utils.make_gym_env("CartPole-v0", rl_env_max_episode_steps=1000)
     self.assertTrue(isinstance(env, gym.Env))
     self.assertTrue(isinstance(env, gym.wrappers.TimeLimit))
-    self.assertEquals(1000, env._max_episode_steps)
+    self.assertEqual(1000, env._max_episode_steps)
 
   # Make a time-wrapped environment with unlimited limit.
   def test_unlimited_env(self):

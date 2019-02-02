@@ -477,7 +477,7 @@ def postprocess_image(x, rows, cols, hparams):
       number of elements in x is batch * rows * cols * hparams.hidden_size.
     rows: Integer representing number of rows in a 2-D data point.
     cols: Integer representing number of columns in a 2-D data point.
-    hparams: tf.contrib.training.HParams set.
+    hparams: HParams set.
 
   Returns:
     Tensor of shape [batch, rows, cols, depth], where depth is
@@ -610,11 +610,13 @@ def prepare_image(inputs, hparams, name=None):
   channels = hparams.num_channels
 
   hidden_size = hparams.hidden_size
-  # TODO(trandustin): Check via modalities.IdentityModality and not its name.
+  # TODO(trandustin): Check via modalities.ModalityType.IDENTITY and not str.
   # The current implementation is to avoid circular imports, modalities ->
   # discretization -> common_image_attention -> modalities.
   if "targets" in hparams.modality:
-    target_modality_name = hparams.modality["targets"].__name__
+    target_modality_name = hparams.modality["targets"]
+    if not isinstance(target_modality_name, str):
+      target_modality_name = target_modality_name.__name__
   else:
     target_modality_name = None
   if target_modality_name == "IdentityModality":
@@ -637,7 +639,7 @@ def create_output(decoder_output, rows, cols, targets, hparams):
     cols: Integer representing number of columns in a 2-D data point.
     targets: Tensor of shape [batch, hparams.img_len, hparams.img_len,
       hparams.num_channels].
-    hparams: tf.contrib.training.HParams set.
+    hparams: HParams set.
 
   Returns:
     Tensor of shape [batch, hparams.img_len, hparams.img_len,

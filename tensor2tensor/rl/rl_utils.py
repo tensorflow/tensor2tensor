@@ -29,6 +29,7 @@ import six
 
 from tensor2tensor.data_generators.gym_env import T2TGymEnv
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl.dopamine_connector import DQNLearner
 from tensor2tensor.rl.envs.simulated_batch_env import PIL_Image
@@ -116,6 +117,138 @@ def evaluate_all_configs(
   return metrics
 
 
+def evaluate_world_model(
+    real_env, hparams, world_model_dir, debug_video_path,
+    split=tf.estimator.ModeKeys.EVAL,
+):
+  """Evaluate the world model (reward accuracy)."""
+  frame_stack_size = hparams.frame_stack_size
+  rollout_subsequences = []
+  def initial_frame_chooser(batch_size):
+    assert batch_size == len(rollout_subsequences)
+    return np.stack([
+        [frame.observation.decode() for frame in subsequence[:frame_stack_size]]    # pylint: disable=g-complex-comprehension
+        for subsequence in rollout_subsequences
+    ])
+
+  env_fn = rl.make_simulated_env_fn_from_hparams(
+      real_env, hparams, batch_size=hparams.wm_eval_batch_size,
+      initial_frame_chooser=initial_frame_chooser, model_dir=world_model_dir
+  )
+  sim_env = env_fn(in_graph=False)
+  subsequence_length = int(
+      max(hparams.wm_eval_rollout_ratios) * hparams.simulated_rollout_length
+  )
+  rollouts = real_env.current_epoch_rollouts(
+      split=split,
+      minimal_rollout_frames=(subsequence_length + frame_stack_size)
+  )
+
+  video_writer = common_video.WholeVideoWriter(
+      fps=10, output_path=debug_video_path, file_format="avi"
+  )
+
+  reward_accuracies_by_length = {
+      int(ratio * hparams.simulated_rollout_length): []
+      for ratio in hparams.wm_eval_rollout_ratios
+  }
+  for _ in range(hparams.wm_eval_num_batches):
+    rollout_subsequences[:] = random_rollout_subsequences(
+        rollouts, hparams.wm_eval_batch_size,
+        subsequence_length + frame_stack_size
+    )
+
+    eval_subsequences = [
+        subsequence[(frame_stack_size - 1):]
+        for subsequence in rollout_subsequences
+    ]
+
+    # Check that the initial observation is the same in the real and simulated
+    # rollout.
+    sim_init_obs = sim_env.reset()
+    def decode_real_obs(index):
+      return np.stack([
+          subsequence[index].observation.decode()
+          for subsequence in eval_subsequences  # pylint: disable=cell-var-from-loop
+      ])
+    real_init_obs = decode_real_obs(0)
+    assert np.all(sim_init_obs == real_init_obs)
+
+    debug_frame_batches = []
+    def append_debug_frame_batch(sim_obs, real_obs, sim_cum_rews,
+                                 real_cum_rews, sim_rews, real_rews):
+      """Add a debug frame."""
+      rews = [[sim_cum_rews, sim_rews], [real_cum_rews, real_rews]]
+      headers = []
+      for j in range(len(sim_obs)):
+        local_nps = []
+        for i in range(2):
+          img = PIL_Image().new("RGB", (sim_obs.shape[-2], 11),)
+          draw = PIL_ImageDraw().Draw(img)
+          draw.text((0, 0), "c:{:3}, r:{:3}".format(int(rews[i][0][j]),
+                                                    int(rews[i][1][j])),
+                    fill=(255, 0, 0))
+          local_nps.append(np.asarray(img))
+        local_nps.append(np.zeros_like(local_nps[0]))
+        headers.append(np.concatenate(local_nps, axis=1))
+      errs = absolute_hinge_difference(sim_obs, real_obs)
+      headers = np.stack(headers)
+      debug_frame_batches.append(  # pylint: disable=cell-var-from-loop
+          np.concatenate([headers,
+                          np.concatenate([sim_obs, real_obs, errs], axis=2)],
+                         axis=1)
+      )
+    append_debug_frame_batch(sim_init_obs, real_init_obs,
+                             np.zeros(hparams.wm_eval_batch_size),
+                             np.zeros(hparams.wm_eval_batch_size),
+                             np.zeros(hparams.wm_eval_batch_size),
+                             np.zeros(hparams.wm_eval_batch_size))
+
+    (sim_cum_rewards, real_cum_rewards) = (
+        np.zeros(hparams.wm_eval_batch_size) for _ in range(2)
+    )
+    for i in range(subsequence_length):
+      actions = [subsequence[i].action for subsequence in eval_subsequences]
+      (sim_obs, sim_rewards, _) = sim_env.step(actions)
+      sim_cum_rewards += sim_rewards
+
+      real_rewards = np.array([
+          subsequence[i + 1].reward for subsequence in eval_subsequences
+      ])
+      real_cum_rewards += real_rewards
+      for (length, reward_accuracies) in six.iteritems(
+          reward_accuracies_by_length
+      ):
+        if i + 1 == length:
+          reward_accuracies.append(
+              np.sum(sim_cum_rewards == real_cum_rewards) /
+              len(real_cum_rewards)
+          )
+
+      real_obs = decode_real_obs(i + 1)
+      append_debug_frame_batch(sim_obs, real_obs, sim_cum_rewards,
+                               real_cum_rewards, sim_rewards, real_rewards)
+
+    for debug_frames in np.stack(debug_frame_batches, axis=1):
+      debug_frame = None
+      for debug_frame in debug_frames:
+        video_writer.write(debug_frame)
+
+      if debug_frame is not None:
+        # Append two black frames for aesthetics.
+        for _ in range(2):
+          video_writer.write(np.zeros_like(debug_frame))
+
+  video_writer.finish_to_disk()
+
+  return {
+      "reward_accuracy/at_{}".format(length): np.mean(reward_accuracies)
+      for (length, reward_accuracies) in six.iteritems(
+          reward_accuracies_by_length
+      )
+  }
+
+
 def summarize_metrics(eval_metrics_writer, metrics, epoch):
   """Write metrics to summary."""
   for (name, value) in six.iteritems(metrics):
@@ -201,13 +334,27 @@ def random_rollout_subsequences(rollouts, num_subsequences, subsequence_length):
   return [choose_subsequence() for _ in range(num_subsequences)]
 
 
-def make_initial_frame_chooser(real_env, frame_stack_size,
-                               simulation_random_starts,
-                               simulation_flip_first_random_for_beginning):
-  """Make frame chooser."""
+def make_initial_frame_chooser(
+    real_env, frame_stack_size, simulation_random_starts,
+    simulation_flip_first_random_for_beginning,
+    split=tf.estimator.ModeKeys.TRAIN,
+):
+  """Make frame chooser.
+
+  Args:
+    real_env: T2TEnv to take initial frames from.
+    frame_stack_size (int): Number of consecutive frames to extract.
+    simulation_random_starts (bool): Whether to choose frames at random.
+    simulation_flip_first_random_for_beginning (bool): Whether to flip the first
+      frame stack in every batch for the frames at the beginning.
+    split (tf.estimator.ModeKeys or None): Data split to take the frames from,
+      None means use all frames.
+
+  Returns:
+    Function batch_size -> initial_frames.
+  """
   initial_frame_rollouts = real_env.current_epoch_rollouts(
-      split=tf.estimator.ModeKeys.TRAIN,
-      minimal_rollout_frames=frame_stack_size,
+      split=split, minimal_rollout_frames=frame_stack_size,
   )
   def initial_frame_chooser(batch_size):
     """Frame chooser."""
@@ -227,7 +374,7 @@ def make_initial_frame_chooser(real_env, frame_stack_size,
         initial_frames[0] = deterministic_initial_frames
 
     return np.stack([
-        [frame.observation.decode() for frame in initial_frame_stack]
+        [frame.observation.decode() for frame in initial_frame_stack]  # pylint: disable=g-complex-comprehension
         for initial_frame_stack in initial_frames
     ])
   return initial_frame_chooser
@@ -277,21 +424,26 @@ def augment_observation(
 
 def run_rollouts(
     env, agent, initial_observations, step_limit=None, discount_factor=1.0,
-    log_every_steps=None, video_writer=None
+    log_every_steps=None, video_writers=(), color_bar=False,
+    many_rollouts_from_each_env=False
 ):
   """Runs a batch of rollouts from given initial observations."""
+  assert step_limit is not None or not many_rollouts_from_each_env, (
+      "When collecting many rollouts from each environment, time limit must "
+      "be set."
+  )
+
   num_dones = 0
   first_dones = [False] * env.batch_size
   observations = initial_observations
   step_index = 0
   cum_rewards = 0
 
-  if video_writer is not None:
-    obs_stack = initial_observations[0]
+  for (video_writer, obs_stack) in zip(video_writers, initial_observations):
     for (i, ob) in enumerate(obs_stack):
       debug_frame = augment_observation(
           ob, reward=0, cum_reward=0, frame_index=(-len(obs_stack) + i + 1),
-          bar_color=(0, 255, 0)
+          bar_color=((0, 255, 0) if color_bar else None)
       )
       video_writer.write(debug_frame)
 
@@ -310,13 +462,14 @@ def run_rollouts(
     observations = list(observations)
     now_done_indices = []
     for (i, done) in enumerate(dones):
-      if done and not first_dones[i]:
+      if done and (not first_dones[i] or many_rollouts_from_each_env):
         now_done_indices.append(i)
         first_dones[i] = True
         num_dones += 1
     if now_done_indices:
-      # Reset only envs done the first time in this timestep to ensure that
-      # we collect exactly 1 rollout from each env.
+      # Unless many_rollouts_from_each_env, reset only envs done the first time
+      # in this timestep to ensure that we collect exactly 1 rollout from each
+      # env.
       reset_observations = env.reset(now_done_indices)
       for (i, observation) in zip(now_done_indices, reset_observations):
         observations[i] = observation
@@ -324,11 +477,13 @@ def run_rollouts(
     cum_rewards = cum_rewards * discount_factor + rewards
     step_index += 1
 
-    if video_writer is not None:
-      ob = observations[0, -1]
+    for (video_writer, obs_stack, reward, cum_reward) in zip(
+        video_writers, observations, rewards, cum_rewards
+    ):
+      ob = obs_stack[-1]
       debug_frame = augment_observation(
-          ob, reward=rewards[0], cum_reward=cum_rewards[0],
-          frame_index=step_index, bar_color=(255, 0, 0)
+          ob, reward=reward, cum_reward=cum_reward,
+          frame_index=step_index, bar_color=((255, 0, 0) if color_bar else None)
       )
       video_writer.write(debug_frame)
 
@@ -346,6 +501,7 @@ class BatchAgent(object):
   """
 
   needs_env_state = False
+  records_own_videos = False
 
   def __init__(self, batch_size, observation_space, action_space):
     self.batch_size = batch_size
@@ -462,11 +618,22 @@ class PlannerAgent(BatchAgent):
   """Agent based on temporal difference planning."""
 
   needs_env_state = True
+  records_own_videos = True
 
   def __init__(
-      self, batch_size, rollout_agent, sim_env, wrapper_fn, num_rollouts,
-      planning_horizon, discount_factor=1.0, uct_const=0,
-      uct_std_normalization=False, uniform_first_action=True, video_writer=None
+      self,
+      batch_size,
+      rollout_agent,
+      sim_env,
+      wrapper_fn,
+      num_rollouts,
+      planning_horizon,
+      discount_factor=1.0,
+      uct_const=0,
+      uniform_first_action=True,
+      normalizer_window_size=30,
+      normalizer_epsilon=0.001,
+      video_writers=(),
   ):
     super(PlannerAgent, self).__init__(
         batch_size, rollout_agent.observation_space, rollout_agent.action_space
@@ -479,9 +646,10 @@ class PlannerAgent(BatchAgent):
     self._discount_factor = discount_factor
     self._planning_horizon = planning_horizon
     self._uct_const = uct_const
-    self._uct_std_normalization = uct_std_normalization
     self._uniform_first_action = uniform_first_action
-    self._video_writer = video_writer
+    self._normalizer_window_size = normalizer_window_size
+    self._normalizer_epsilon = normalizer_epsilon
+    self._video_writers = video_writers
     self._best_mc_values = [[] for _ in range(self.batch_size)]
 
   def act(self, observations, env_state=None):
@@ -502,14 +670,14 @@ class PlannerAgent(BatchAgent):
       (initial_observations, initial_rewards, _) = self._wrapped_env.step(
           actions
       )
-      writer = None
-      if planner_index == 0 and batch_index == 0:
-        writer = self._video_writer
+      video_writers = ()
+      if planner_index < len(self._video_writers) and batch_index == 0:
+        video_writers = (self._video_writers[planner_index],)
       (final_observations, cum_rewards) = run_rollouts(
           self._wrapped_env, self._rollout_agent, initial_observations,
           discount_factor=self._discount_factor,
           step_limit=self._planning_horizon,
-          video_writer=writer)
+          video_writers=video_writers, color_bar=True)
       values = self._rollout_agent.estimate_value(final_observations)
       total_values = (
           initial_rewards + self._discount_factor * cum_rewards +
@@ -549,11 +717,10 @@ class PlannerAgent(BatchAgent):
       )
       best_mc_values.append(mc_values.max())
 
-      if self._uct_std_normalization:
-        agg = np.std
-      else:
-        agg = lambda x: np.mean(np.std(x))
-      normalizer = max(agg(best_mc_values[-30:]), 0.001)
+      normalizer = max(
+          np.std(best_mc_values[-self._normalizer_window_size:]),
+          self._normalizer_epsilon
+      )
       normalized_mc_values = mc_values / normalizer
 
       uct_bonuses = np.array(

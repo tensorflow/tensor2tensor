@@ -340,22 +340,22 @@ class Text2TextProblem(problem.Problem):
     p = defaults
     p.stop_at_eos = int(True)
 
-    p.modality = {"targets": modalities.SymbolModality}
+    p.modality = {"targets": modalities.ModalityType.SYMBOL}
     p.vocab_size = {"targets": self._encoders["targets"].vocab_size}
     if self.has_inputs:
-      p.modality["inputs"] = modalities.SymbolModality
+      p.modality["inputs"] = modalities.ModalityType.SYMBOL
       p.vocab_size["inputs"] = self._encoders["inputs"].vocab_size
     if self.vocab_type == VocabType.CHARACTER:
       p.loss_multiplier = 2.0
 
     if self.packed_length:
       if self.has_inputs:
-        p.modality["inputs_segmentation"] = modalities.IdentityModality
-        p.modality["inputs_position"] = modalities.IdentityModality
+        p.modality["inputs_segmentation"] = modalities.ModalityType.IDENTITY
+        p.modality["inputs_position"] = modalities.ModalityType.IDENTITY
         p.vocab_size["inputs_segmentation"] = None
         p.vocab_size["inputs_position"] = None
-      p.modality["targets_segmentation"] = modalities.IdentityModality
-      p.modality["targets_position"] = modalities.IdentityModality
+      p.modality["targets_segmentation"] = modalities.ModalityType.IDENTITY
+      p.modality["targets_position"] = modalities.ModalityType.IDENTITY
       p.vocab_size["targets_segmentation"] = None
       p.vocab_size["targets_position"] = None
 
@@ -426,7 +426,7 @@ class QuestionAndContext2TextProblem(Text2TextProblem):
     (super(QuestionAndContext2TextProblem, self)
      .hparams(defaults, unused_model_hparams))
     p = defaults
-    p.modality["context"] = modalities.SymbolModality
+    p.modality["context"] = modalities.ModalityType.SYMBOL
     p.vocab_size["context"] = self._encoders["context"].vocab_size
     if self.packed_length:
       raise NotImplementedError("QuestionAndContext2Text does not "
@@ -530,8 +530,8 @@ class Text2ClassProblem(Text2TextProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.modality = {"inputs": modalities.SymbolModality,
-                  "targets": modalities.ClassLabelModality}
+    p.modality = {"inputs": modalities.ModalityType.SYMBOL,
+                  "targets": modalities.ModalityType.CLASS_LABEL}
     p.vocab_size = {"inputs": self._encoders["inputs"].vocab_size,
                     "targets": self.num_classes}
 

@@ -70,8 +70,8 @@ def next_frame_glow_hparams():
   # By default, don't pretrain and learn end-to-end
   hparams.add_hparam("pretrain_steps", -1)
   hparams.modality = {
-      "inputs": modalities.VideoModalityL1Raw,
-      "targets": modalities.VideoModalityL1Raw,
+      "inputs": modalities.ModalityType.VIDEO_L1_RAW,
+      "targets": modalities.ModalityType.VIDEO_L1_RAW,
   }
   hparams.init_batch_size = 256
   hparams.batch_size = 32
@@ -212,7 +212,7 @@ class NextFrameGlow(glow.Glow):
     if self.hparams.gen_mode == "unconditional":
       predicted_video = tf.tile(
           predicted_video, [1, self.hparams.video_num_target_frames, 1, 1, 1])
-    predicted_video = self.scale(predicted_video)
+    predicted_video = glow_ops.postprocess(predicted_video)
 
     # Output of a single decode / sample.
     output_features = {}

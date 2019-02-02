@@ -38,6 +38,7 @@ from tensor2tensor.models import resnet
 from tensor2tensor.models import revnet
 from tensor2tensor.models import shake_shake
 from tensor2tensor.models import slicenet
+from tensor2tensor.models import text_cnn
 from tensor2tensor.models import transformer
 from tensor2tensor.models import vanilla_gan
 from tensor2tensor.models import xception
@@ -52,6 +53,7 @@ from tensor2tensor.models.research import gene_expression
 from tensor2tensor.models.research import glow
 from tensor2tensor.models.research import lm_experiments
 from tensor2tensor.models.research import moe_experiments
+from tensor2tensor.models.research import multiquery_paper
 from tensor2tensor.models.research import rl
 from tensor2tensor.models.research import similarity_transformer
 from tensor2tensor.models.research import super_lm

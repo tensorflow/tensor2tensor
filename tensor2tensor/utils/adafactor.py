@@ -326,7 +326,7 @@ def adafactor_optimizer_from_hparams(hparams, lr):
   Raises:
     ValueError: on illegal values
   """
-  if hparams.optimizer_adafactor_decay_type == "Adam":
+  if hparams.optimizer_adafactor_decay_type == "adam":
     decay_rate = adafactor_decay_rate_adam(
         hparams.optimizer_adafactor_beta2)
   elif hparams.optimizer_adafactor_decay_type == "pow":

@@ -91,7 +91,14 @@ class PyFuncBatchEnv(InGraphBatchEnv):
       if action.dtype in (tf.float16, tf.float32, tf.float64):
         action = tf.check_numerics(action, "action")
       def step(action):
-        (observ, reward, done) = self._batch_env.step(action)
+        step_response = self._batch_env.step(action)
+        # Current env doesn't return `info`, but EnvProblem does.
+        # TODO(afrozm): The proper way to do this is to make T2TGymEnv return
+        # an empty info return value.
+        if len(step_response) == 3:
+          (observ, reward, done) = step_response
+        else:
+          (observ, reward, done, _) = step_response
         return (observ, reward.astype(np.float32), done)
       observ, reward, done = tf.py_func(
           step, [action],

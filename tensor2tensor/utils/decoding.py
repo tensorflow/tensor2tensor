@@ -35,6 +35,7 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
+from tensor2tensor.utils.hparam import HParams
 import tensorflow as tf
 
 FLAGS = tf.flags.FLAGS
@@ -45,7 +46,7 @@ IMAGE_DECODE_LENGTH = 100
 
 def decode_hparams(overrides=""):
   """Hyperparameters for decoding."""
-  hp = tf.contrib.training.HParams(
+  hp = HParams(
       save_images=False,
       log_results=True,
       extra_length=100,
@@ -385,7 +386,7 @@ def decode_from_file(estimator,
   num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
 
   if estimator.config.use_tpu:
-    length = getattr(hparams, "length", hparams.max_length)
+    length = getattr(hparams, "length", 0) or hparams.max_length
     batch_ids = []
     for line in sorted_inputs:
       if has_input:

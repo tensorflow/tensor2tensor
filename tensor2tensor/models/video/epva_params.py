@@ -30,8 +30,8 @@ def next_frame_epva():
   hparams.video_num_input_frames = 4
   hparams.video_num_target_frames = 4
   hparams.modality = {
-      "inputs": modalities.VideoModalityL2Raw,
-      "targets": modalities.VideoModalityL2Raw,
+      "inputs": modalities.ModalityType.VIDEO_L2_RAW,
+      "targets": modalities.ModalityType.VIDEO_L2_RAW,
   }
   hparams.learning_rate_schedule = "constant"
   hparams.learning_rate_constant = 1e-05

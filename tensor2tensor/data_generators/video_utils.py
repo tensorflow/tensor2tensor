@@ -115,7 +115,7 @@ def convert_videos_to_summaries(input_videos, output_videos, target_videos,
     output_videos: 5-D NumPy array, (NTHWC) model predictions.
     target_videos: 5-D NumPy array, (NTHWC) target frames.
     tag: tf summary tag.
-    decode_hparams: tf.contrib.training.HParams.
+    decode_hparams: HParams.
     display_ground_truth: Whether or not to display ground truth videos.
   Returns:
     summaries: a list of tf frame-by-frame and video summaries.
@@ -274,7 +274,7 @@ class VideoProblem(problem.Problem):
     hparams.video_num_target_frames.
 
     Args:
-      hparams: tf.contrib.training.HParams.
+      hparams: HParams.
     Returns:
       num_frames: int.
     """
@@ -773,8 +773,8 @@ class Video2ClassProblem(VideoProblemOld):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.modality = {"inputs": modalities.ImageModality,
-                  "targets": modalities.ClassLabelModality}
+    p.modality = {"inputs": modalities.ModalityType.IMAGE,
+                  "targets": modalities.ModalityType.CLASS_LABEL}
     p.vocab_size = {"inputs": 256,
                     "targets": self.num_classes}
     p.input_space_id = problem.SpaceID.IMAGE

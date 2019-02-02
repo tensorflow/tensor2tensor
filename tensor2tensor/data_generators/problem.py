@@ -25,9 +25,11 @@ import six
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import mlperf_log
+from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
@@ -129,7 +131,7 @@ class TaskID(object):
 
 
 def default_model_hparams():
-  return tf.contrib.training.HParams(
+  return HParams(
       max_input_seq_length=0,
       max_target_seq_length=0,
       prepend_mode="none",
@@ -434,6 +436,16 @@ class Problem(object):
     return generator_utils.test_data_filenames(file_basename, data_dir,
                                                num_shards)
 
+  def data_filepaths(self, split, output_dir, num_shards, shuffled):
+    if split == DatasetSplit.TRAIN:
+      return self.training_filepaths(output_dir, num_shards, shuffled)
+    elif split == DatasetSplit.EVAL:
+      return self.dev_filepaths(output_dir, num_shards, shuffled)
+    elif split == DatasetSplit.TEST:
+      return self.test_filepaths(output_dir, num_shards, shuffled)
+    else:
+      raise ValueError("Unknown value for split: %s" % split)
+
   def filepattern(self, data_dir, mode, shard=None):
     """Get filepattern for data files for mode.
 
@@ -585,7 +597,7 @@ class Problem(object):
       output_buffer_size: int, how many elements to prefetch at end of pipeline.
       shuffle_files: whether to shuffle input files. Default behavior (i.e. when
         shuffle_files=None) is to shuffle if mode == TRAIN.
-      hparams: tf.contrib.training.HParams; hparams to be passed to
+      hparams: HParams; hparams to be passed to
         Problem.preprocess_example and Problem.hparams. If None, will use a
         default set that is a no-op.
       preprocess: bool, whether to map the Dataset through
@@ -767,7 +779,7 @@ class Problem(object):
 
     return estimator_input_fn
 
-  def _dataset_partition(self, mode, config):
+  def _dataset_partition(self, mode, config, params):
     """Which part of the training data to read.
 
     If there are multiple parallel calls to input_fn (multiple TPU hosts),
@@ -777,6 +789,7 @@ class Problem(object):
     Args:
       mode: tf.estimator.ModeKeys
       config: RunConfig
+      params: A dict that contains parameters.
     Returns:
       partition_id: an integer
       num_partitions: an integer
@@ -791,7 +804,7 @@ class Problem(object):
         phift == tpu_config.InputPipelineConfig.BROADCAST):
       return 0, 1
     if phift:
-      num_partitions = max(config.tpu_config.num_shards // 8, 1)
+      num_partitions = max(params["context"].num_hosts, 1)
     else:
       num_partitions = config.tpu_config.num_shards
     partition_id = getattr(self, "_next_partition_id", 0)
@@ -828,7 +841,7 @@ class Problem(object):
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
-    partition_id, num_partitions = self._dataset_partition(mode, config)
+    partition_id, num_partitions = self._dataset_partition(mode, config, params)
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     if config and config.use_tpu:
       num_threads = 64
@@ -980,9 +993,9 @@ def _create_modalities(problem_hparams, model_hparams):
   """Creates modalities and overrides any according to model hparams.
 
   Args:
-    problem_hparams: tf.contrib.training.HParams for the Problem. It must have
-      modality which is a dict of strings to Modality classes.
-    model_hparams: tf.contrib.training.HParams for the model. It may have
+    problem_hparams: HParams for the Problem. It must have
+      modality which is a dict of strings to ModalityTypes or Modality classes.
+    model_hparams: HParams for the model. It may have
       input_modalities and target_modality, which will override
       problem_hparams' modality input and target keys.
 
@@ -991,21 +1004,28 @@ def _create_modalities(problem_hparams, model_hparams):
   """
   modality_overrides = getattr(model_hparams, "modality", {})
   modality = {}
-  for feature_name, modality_cls in six.iteritems(problem_hparams.modality):
+  for feature_name, modality_type in six.iteritems(problem_hparams.modality):
     vocab_size = problem_hparams.vocab_size[feature_name]
     # If needed for using a pre-trained model's vocabulary where extra indices
     # were allocated for adding new tasks with unique task ids.
     if (hasattr(model_hparams, "multiproblem_vocab_size") and
         model_hparams.multiproblem_vocab_size > 0):
       vocab_size = model_hparams.multiproblem_vocab_size
-    modality_cls = modality_overrides.get(feature_name, modality_cls)
+    # Override modality using to the associated value in modality_overrides.
+    modality_type = modality_overrides.get(feature_name, modality_type)
+    # Each modality is a ModalityType or class. If ModalityType, get the
+    # corresponding class.
+    if modality_type in modalities.ModalityType.get_choices():
+      modality_cls = getattr(modalities, modality_type)
+    else:
+      modality_cls = modality_type
     modality[feature_name] = modality_cls(model_hparams, vocab_size)
   problem_hparams.modality = modality
 
 
 def _default_hparams():
   """A set of basic model hyperparameters."""
-  return tf.contrib.training.HParams(
+  return HParams(
       # Use this parameter to get comparable perplexity numbers with different
       # tokenizations.  This value should be set to the ratio of the number of
       # tokens in the test set according to the tokenization used to the number
@@ -1027,7 +1047,7 @@ def _default_hparams():
 
       # Modalities used to map from features to a space compatible with
       # chosen model architecture. It comprises key-value pairs of a feature
-      # name (str) and its modality class.
+      # name (str) and its modality type.
       modality={},
 
       # Identifiers used to tell the model which input/target space will be

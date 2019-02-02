@@ -90,7 +90,7 @@ def legacy_learning_rate_schedule(hparams):
     warmup = _learning_rate_warmup(warmup_steps, hparams=hparams)
     decay = _learning_rate_decay(hparams, warmup_steps)
     ret = tf.where(step_num < warmup_steps, warmup, decay)
-  optimizer_correction = 0.002 if "Adam" in hparams.optimizer else 1.0
+  optimizer_correction = 0.002 if "adam" in hparams.optimizer else 1.0
   tf.logging.info("Base learning rate: %f", hparams.learning_rate)
   return ret * optimizer_correction * hparams.learning_rate
 
