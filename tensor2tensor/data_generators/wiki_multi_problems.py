@@ -251,3 +251,18 @@ class LanguagemodelEnWikiLMSummarizeFrac50CnndmSubwords64k(
   @property
   def vocab_type(self):
     return text_problems.VocabType.SUBWORD
+
+
+@registry.register_problem
+class LanguagemodelEnWikiLMSquadConcatSubwords(multi_problem.MultiProblem):
+  """Wiki LM and MNLI mixed problem class."""
+
+  def __init__(self, was_reversed=False, was_copy=False):
+    super(LanguagemodelEnWikiLMSquadConcatSubwords, self).__init__(
+        was_reversed, was_copy)
+    self.task_list.append(wiki_lm.LanguagemodelEnWiki32k())
+    self.task_list.append(multinli.SquadConcatSharedVocab())
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.SUBWORD

@@ -153,6 +153,18 @@ class SquadConcatMulti64k(SquadConcat):
 
 
 @registry.register_problem
+class SquadConcatSharedVocab(SquadConcatMulti64k):
+  """Squad with question and context concatenated, multi-lingual vocabulary."""
+
+  def dataset_filename(self):
+    return "squad"
+
+  @property
+  def vocab_filename(self):
+    return wiki_lm.LanguagemodelEnWiki32k().vocab_filename
+
+
+@registry.register_problem
 class SquadConcatPositioned(SquadConcat):
   """SquadConcat with targets in format of answer position + answer length."""
 
