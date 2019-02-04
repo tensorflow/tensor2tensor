@@ -21,6 +21,7 @@ import numpy as np
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import adafactor as adafactor_lib
+from tensor2tensor.utils import misc_utils
 from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import multistep_optimizer
 from tensor2tensor.utils import registry
@@ -162,17 +163,16 @@ def adafactor(learning_rate, hparams):
 
 
 
-def _register_base_optimizer(key, fn):
+def _register_base_optimizer(name, opt):
+  key = misc_utils.camelcase_to_snakecase(name)
+  if key in registry.Registries.optimizers:
+    return
   registry.register_optimizer(key)(
-      lambda learning_rate, hparams: fn(learning_rate))
+      lambda learning_rate, hparams: opt(learning_rate))
 
 
-for k in tf.contrib.layers.OPTIMIZER_CLS_NAMES:
-  if k not in registry.Registries.optimizers and k not in ("SGD", "RMSProp"):
-    _register_base_optimizer(k, tf.contrib.layers.OPTIMIZER_CLS_NAMES[k])
-_register_base_optimizer("sgd", tf.contrib.layers.OPTIMIZER_CLS_NAMES["SGD"])
-_register_base_optimizer(
-    "rms_prop", tf.contrib.layers.OPTIMIZER_CLS_NAMES["RMSProp"])
+for _name, _opt in tf.contrib.layers.OPTIMIZER_CLS_NAMES.items():
+  _register_base_optimizer(_name, _opt)
 
 
 class ConditionalOptimizer(tf.train.Optimizer):
