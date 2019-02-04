@@ -21,14 +21,16 @@ from __future__ import print_function
 
 from tensor2tensor.utils import modality
 from tensor2tensor.utils import t2t_model
+from tensor2tensor.utils import test_utils
 from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
+tf.compat.v1.enable_eager_execution()
 
 
 class T2TModelTest(tf.test.TestCase):
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testSummarizeLosses(self):
     with tf.Graph().as_default():
       model = t2t_model.T2TModel(HParams())
