@@ -484,6 +484,28 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
         self.assertTrue(np.allclose(loc_exp, loc_act, atol=1e-2))
         self.assertTrue(np.allclose(scale_exp, scale_act, atol=1e-2))
 
+  def linear_interpolate_rank(self):
+    with tf.Graph().as_default():
+      # Since rank is 1, the first channel should remain 1.0.
+      # and the second channel should be interpolated between 1.0 and 6.0
+      z1 = np.ones(shape=(4, 4, 2))
+      z2 = np.copy(z1)
+      z2[:, :, 0] += 0.01
+      z2[:, :, 1] += 5.0
+      coeffs = np.linspace(0.0, 1.0, 11)
+      z1 = np.expand_dims(z1, axis=0)
+      z2 = np.expand_dims(z2, axis=0)
+      tensor1 = tf.convert_to_tensor(z1, dtype=tf.float32)
+      tensor2 = tf.convert_to_tensor(z2, dtype=tf.float32)
+      lin_interp_max = glow_ops.linear_interpolate_rank(
+          tensor1, tensor2, coeffs)
+      with tf.Session() as sess:
+        lin_interp_np_max = sess.run(lin_interp_max)
+        for lin_interp_np, coeff in zip(lin_interp_np_max, coeffs):
+          exp_val = 1.0 + coeff * (6.0 - 1.0)
+          self.assertTrue(np.allclose(lin_interp_np[:, :, 0], 1.0))
+          self.assertTrue(np.allclose(lin_interp_np[:, :, 1], exp_val))
+
 
 if __name__ == "__main__":
   tf.test.main()

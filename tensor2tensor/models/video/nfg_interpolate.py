@@ -42,14 +42,29 @@ flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 flags.DEFINE_string("score_file", "", "File to score. Each line in the file "
                     "must be in the format input \t target.")
 flags.DEFINE_bool("decode_in_memory", False, "Decode in memory.")
-# Interpolate between z1 and z2 for alpha = np.linspace(0.0, 1.0, num_interp)
-flags.DEFINE_integer("num_interp", 11, "Number of interpolations")
 
 flags = tf.flags
 FLAGS = flags.FLAGS
 
 
 arg_scope = tf.contrib.framework.arg_scope
+
+
+def decode_hparams(overrides=""):
+  """Hparams for decoding."""
+  hparams = decoding.decode_hparams()
+  # Number of interpolations between [0.0, 1.0].
+  hparams.add_hparam("num_interp", 11)
+  # Which level(s) to interpolate.
+  hparams.add_hparam("level_interp", [0, 1, 2])
+  # "all" or "ranked", interpolate all channels or a "ranked".
+  hparams.add_hparam("channel_interp", "all")
+  # interpolate channels ranked according to squared L2 norm.
+  hparams.add_hparam("rank_interp", 1)
+  # Whether on not to save frames as summaries
+  hparams.add_hparam("save_frames", True)
+  hparams.parse(overrides)
+  return hparams
 
 
 def preprocess_frame(frame):
@@ -91,39 +106,66 @@ def latents_to_frames(z_top_interp, level_eps_interp, hparams):
   return images
 
 
-def interpolate(features, hparams, num_interp):
+def interpolate(features, hparams, decode_hp):
   """Interpolate between the first input frame and last target frame.
 
   Args:
     features: dict of tensors
-    hparams: HParams.
-    num_interp: integer.
+    hparams: tf.contrib.training.HParams, training hparams.
+    decode_hp: tf.contrib.training.HParams, decode hparams.
   Returns:
-    images: 4-D Tensor, shape=(num_interp, H, W, C)
+    images: interpolated images, 4-D Tensor, shape=(num_interp, H, W, C)
+    first_frame: image, 3-D Tensor, shape=(1, H, W, C)
+    last_frame: image, 3-D Tensor, shape=(1, H, W, C)
   """
   inputs, targets = features["inputs"], features["targets"]
   inputs = tf.unstack(inputs, axis=1)
   targets = tf.unstack(targets, axis=1)
-  coeffs = np.linspace(0.0, 1.0, num_interp)
+  coeffs = np.linspace(0.0, 1.0, decode_hp.num_interp)
 
   # (X_1, X_t) -> (z_1, z_t)
   first_frame, last_frame = inputs[0], targets[-1]
   first_top_z, first_level_eps = frame_to_latents(first_frame, hparams)
   last_top_z, last_level_eps = frame_to_latents(last_frame, hparams)
 
-  # Interpolate top
-  z_top_interp = glow_ops.linear_interpolate(first_top_z, last_top_z, coeffs)
+  # Interpolate latents at all levels.
+  first_lats = first_level_eps + [first_top_z]
+  last_lats = last_level_eps + [last_top_z]
+  interp_lats = []
+  lat_iterator = enumerate(zip(first_lats, last_lats))
+  for level_ind, (first_lat, last_lat) in lat_iterator:
+    if level_ind in decode_hp.level_interp:
+      if decode_hp.channel_interp == "all":
+        interp_lat = glow_ops.linear_interpolate(first_lat, last_lat, coeffs)
+      else:
+        interp_lat = glow_ops.linear_interpolate_rank(
+            first_lat, last_lat, coeffs, decode_hp.rank_interp)
+    else:
+      interp_lat = tf.tile(first_lat, [decode_hp.num_interp, 1, 1, 1])
+    interp_lats.append(interp_lat)
 
-  # Interpolate level.
-  level_eps_interp = []
-  for level in range(hparams.n_levels - 1):
-    level_eps_interp.append(glow_ops.linear_interpolate(
-        first_level_eps[level], last_level_eps[level], coeffs))
-  return latents_to_frames(z_top_interp, level_eps_interp, hparams)
+  level_eps_interp = interp_lats[:hparams.n_levels-1]
+  z_top_interp = interp_lats[-1]
+  images = latents_to_frames(z_top_interp, level_eps_interp, hparams)
+  return images, first_frame, last_frame
 
 
-def interpolations_to_summary(sample_ind, interpolations, hparams,
-                              decode_hparams):
+def get_summaries_log_dir(decode_hp, output_dir, dataset_split):
+  """Get nested summaries_log_dir based on decode_hp."""
+  child_dir = decode_hp.summaries_log_dir
+  level_dir = "".join([str(level) for level in decode_hp.level_interp])
+  if decode_hp.channel_interp == "all":
+    rank_dir = "all"
+  else:
+    rank_dir = "rank_%d" % decode_hp.rank_interp
+  child_dir = "%s/%s_%s" % (child_dir, level_dir, rank_dir)
+  if dataset_split is not None:
+    child_dir += "_{}".format(dataset_split)
+  return os.path.join(output_dir, child_dir)
+
+
+def interpolations_to_summary(sample_ind, interpolations, first_frame,
+                              last_frame, hparams, decode_hp):
   """Converts interpolated frames into tf summaries.
 
   The summaries consists of:
@@ -133,33 +175,38 @@ def interpolations_to_summary(sample_ind, interpolations, hparams,
 
   Args:
     sample_ind: int
-    interpolations: Numpy array, shape=(num_interp, 64, 64, 3)
-    hparams: HParams, train hparams
-    decode_hparams: HParams, decode hparams
+    interpolations: Numpy array, shape=(num_interp, H, W, 3)
+    first_frame: Numpy array, shape=(HWC)
+    last_frame: Numpy array, shape=(HWC)
+    hparams: tf.contrib.training.HParams, train hparams
+    decode_hp: tf.contrib.training.HParams, decode hparams
   Returns:
     summaries: list of tf Summary Values.
   """
   parent_tag = "sample_%d" % sample_ind
   frame_shape = hparams.problem.frame_shape
-  interp_shape = [hparams.batch_size, FLAGS.num_interp] + frame_shape
+  interp_shape = [hparams.batch_size, decode_hp.num_interp] + frame_shape
   interpolations = np.reshape(interpolations, interp_shape)
+  interp_tag = "%s/interp/%s" % (parent_tag, decode_hp.channel_interp)
+  if decode_hp.channel_interp == "ranked":
+    interp_tag = "%s/rank_%d" % (interp_tag, decode_hp.rank_interp)
   summaries, _ = common_video.py_gif_summary(
-      parent_tag, interpolations, return_summary_value=True,
-      max_outputs=decode_hparams.max_display_outputs,
-      fps=decode_hparams.frames_per_second)
+      interp_tag, interpolations, return_summary_value=True,
+      max_outputs=decode_hp.max_display_outputs,
+      fps=decode_hp.frames_per_second)
 
-  first_frame, last_frame = interpolations[0, 0], interpolations[0, -1]
-  first_frame_summ = image_utils.image_to_tf_summary_value(
-      first_frame, "%s/first" % parent_tag)
-  last_frame_summ = image_utils.image_to_tf_summary_value(
-      last_frame, "%s/last" % parent_tag)
-  summaries.append(first_frame_summ)
-  summaries.append(last_frame_summ)
+  if decode_hp.save_frames:
+    first_frame_summ = image_utils.image_to_tf_summary_value(
+        first_frame, "%s/first" % parent_tag)
+    last_frame_summ = image_utils.image_to_tf_summary_value(
+        last_frame, "%s/last" % parent_tag)
+    summaries.append(first_frame_summ)
+    summaries.append(last_frame_summ)
   return summaries
 
 
 def main(_):
-  decode_hparams = decoding.decode_hparams(FLAGS.decode_hparams)
+  decode_hp = decode_hparams(FLAGS.decode_hparams)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   if FLAGS.output_dir is None:
     raise ValueError("Expected output_dir to be set to a valid path.")
@@ -182,35 +229,34 @@ def main(_):
   ops = [glow_ops.get_variable_ddi, glow_ops.actnorm, glow_ops.get_dropout]
   var_scope = tf.variable_scope("next_frame_glow/body", reuse=tf.AUTO_REUSE)
   with arg_scope(ops, init=False), var_scope:
-    interpolations = interpolate(dataset, hparams, FLAGS.num_interp)
+    interpolations, first_frame, last_frame = interpolate(
+        dataset, hparams, decode_hp)
 
   var_list = tf.global_variables()
   saver = tf.train.Saver(var_list)
 
   # Get latest checkpoints from model_dir.
   ckpt_path = tf.train.latest_checkpoint(FLAGS.output_dir)
-  child_dir = decode_hparams.summaries_log_dir
-  if dataset_split is not None:
-    child_dir += "_{}".format(dataset_split)
-  final_dir = os.path.join(FLAGS.output_dir, child_dir)
+  final_dir = get_summaries_log_dir(decode_hp, FLAGS.output_dir, dataset_split)
   summary_writer = tf.summary.FileWriter(final_dir)
   global_step = decoding.latest_checkpoint_step(FLAGS.output_dir)
 
   sample_ind = 0
-
-  num_samples = decode_hparams.num_samples
+  num_samples = decode_hp.num_samples
   all_summaries = []
 
   with tf.train.MonitoredTrainingSession() as sess:
     saver.restore(sess, ckpt_path)
 
     while not sess.should_stop() and sample_ind < num_samples:
-      interp_np = sess.run(interpolations)
+      interp_np, first_frame_np, last_frame_np = sess.run(
+          [interpolations, first_frame, last_frame])
 
-      interp_summ = interpolations_to_summary(sample_ind, interp_np, hparams,
-                                              decode_hparams)
+      interp_summ = interpolations_to_summary(sample_ind, interp_np,
+                                              first_frame_np[0],
+                                              last_frame_np[0],
+                                              hparams, decode_hp)
       all_summaries.extend(interp_summ)
-
       sample_ind += 1
     all_summaries = tf.Summary(value=list(all_summaries))
     summary_writer.add_summary(all_summaries, global_step)
