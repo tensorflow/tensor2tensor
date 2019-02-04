@@ -23,7 +23,10 @@ from absl.testing import parameterized
 import numpy as np
 
 from tensor2tensor.layers import common_video
+from tensor2tensor.utils import test_utils
+
 import tensorflow as tf
+tf.compat.v1.enable_eager_execution()
 
 
 class CommonVideoTest(parameterized.TestCase, tf.test.TestCase):
@@ -37,45 +40,45 @@ class CommonVideoTest(parameterized.TestCase, tf.test.TestCase):
     output = self.evaluate([ground_truth_x, generated_x, ss_out])
     return output
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testScheduledSampleProbStart(self):
     ground_truth_x, _, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_prob, 1.0, 10)
     self.assertAllEqual(ground_truth_x, ss_out)
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testScheduledSampleProbMid(self):
     _, _, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_prob, 0.5, 1000)
     positive_count = np.sum(ss_out > 0)
     self.assertAlmostEqual(positive_count / 1000.0, 0.5, places=1)
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testScheduledSampleProbEnd(self):
     _, generated_x, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_prob, 0.0, 10)
     self.assertAllEqual(generated_x, ss_out)
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testScheduledSampleCountStart(self):
     ground_truth_x, _, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_count, 10, 10)
     self.assertAllEqual(ground_truth_x, ss_out)
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testScheduledSampleCountMid(self):
     _, _, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_count, 5, 10)
     positive_count = np.sum(ss_out > 0)
     self.assertEqual(positive_count, 5)
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testScheduledSampleCountEnd(self):
     _, generated_x, ss_out = self._run_scheduled_sample_func(
         common_video.scheduled_sample_count, 0, 10)
     self.assertAllEqual(generated_x, ss_out)
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testDynamicTileAndConcat(self):
     # image = (1 X 4 X 4 X 1)
     image = [[1, 2, 3, 4],
@@ -103,6 +106,7 @@ class CommonVideoTest(parameterized.TestCase, tf.test.TestCase):
          [90, 90, 90, 90],
          [100, 100, 100, 100]])
 
+  @test_utils.run_in_graph_mode_only()
   def testGifSummary(self):
     for c in (1, 3):
       images_shape = (1, 12, 48, 64, c)  # batch, time, height, width, channels

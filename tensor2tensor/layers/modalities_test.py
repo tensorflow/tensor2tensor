@@ -23,13 +23,15 @@ import numpy as np
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import expert_utils
+from tensor2tensor.utils import test_utils
 
 import tensorflow as tf
+tf.compat.v1.enable_eager_execution()
 
 
 class ModalityTest(tf.test.TestCase):
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testSymbolModalityInputs(self):
     batch_size = 10
     num_datashards = 5
@@ -51,7 +53,7 @@ class ModalityTest(tf.test.TestCase):
     res = self.evaluate(output)
     self.assertEqual(res.shape, (batch_size, length, 1, hidden_size))
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testSymbolModalityTargets(self):
     batch_size = 10
     num_datashards = 5
@@ -81,6 +83,7 @@ class ModalityTest(tf.test.TestCase):
     self.assertEqual(res1.shape, (batch_size, length, height, 1, vocab_size))
     self.assertEqual(res2.shape, ())
 
+  @test_utils.run_in_graph_mode_only()
   def testSymbolModalityTargetsFactored(self):
     batch_size = 10
     num_datashards = 5
