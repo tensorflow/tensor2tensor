@@ -21,6 +21,7 @@ from __future__ import print_function
 
 from tensor2tensor.data_generators import cnn_dailymail
 from tensor2tensor.data_generators import multi_problem
+from tensor2tensor.data_generators import multi_problem_v2
 from tensor2tensor.data_generators import multinli
 from tensor2tensor.data_generators import squad
 from tensor2tensor.data_generators import text_problems
@@ -40,6 +41,33 @@ class LanguagemodelEnWikiLMMultiNLISubwords(multi_problem.MultiProblem):
         was_reversed, was_copy)
     self.task_list.append(wiki_lm.LanguagemodelEnWiki32k())
     self.task_list.append(multinli.MultiNLIWikiLMSharedVocab())
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.SUBWORD
+
+
+@registry.register_problem
+class LanguagemodelEnWikiLMMultiNLISubwordsV2(
+    multi_problem_v2.MultiText2TextProblem):
+  """Wiki LM and MNLI mixed problem class."""
+
+  def __init__(self, was_reversed=False, was_copy=False):
+    problems = [
+        wiki_lm.LanguagemodelEnWiki32k(),
+        multinli.MultiNLIWikiLMSharedVocab(),
+    ]
+    schedule = multi_problem_v2.constant_schedule([0.5, 0.5])
+    super(LanguagemodelEnWikiLMMultiNLISubwordsV2, self).__init__(
+        problems, schedule, was_reversed=was_reversed, was_copy=was_copy)
+
+  @property
+  def has_inputs(self):
+    return False
+
+  @property
+  def vocab_filename(self):
+    return wiki_lm.LanguagemodelEnWiki32k().vocab_filename
 
   @property
   def vocab_type(self):
