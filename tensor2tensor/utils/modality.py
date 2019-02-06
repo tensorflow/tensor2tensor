@@ -112,19 +112,6 @@ class Modality(object):
     """
     raise NotImplementedError("Abstract Method")
 
-  def bottom_sharded(self, xs, data_parallelism):
-    """Transform the inputs.
-
-    Args:
-      xs: A list of num_datashards Tensors (one per shard)
-        each with shape [batch, p0, p1, depth]
-      data_parallelism: a expert_utils.Parallelism object
-    Returns:
-      shaded_body_input: A list of num_datashards Tensors, each with shape
-        [batch, p0, p1, body_input_depth].
-    """
-    return data_parallelism(self.bottom, xs)
-
   def targets_bottom(self, x):
     """Transform one shard of targets.
 
@@ -135,19 +122,6 @@ class Modality(object):
     """
     with tf.variable_scope("targets_bottom"):
       return self.bottom(x)
-
-  def targets_bottom_sharded(self, xs, data_parallelism):
-    """Transform the targets.
-
-    Args:
-      xs: A list of num_datashards Tensors (one per shard)
-        each with shape [batch, p0, p1, target_channels]
-      data_parallelism: a expert_utils.Parallelism object
-    Returns:
-      shaded_body_input: A list of num_datashards Tensors, each with shape
-        [batch, p0, p1, body_input_depth].
-    """
-    return data_parallelism(self.targets_bottom, xs)
 
   def top(self, body_output, targets):
     """Generate predictions/logits for one shard of output.
@@ -163,20 +137,6 @@ class Modality(object):
     """
     raise NotImplementedError("Abstract Method")
 
-  def top_sharded(self, sharded_body_output, sharded_targets, data_parallelism):
-    """Generate predictions/logits for all shards.
-
-    Classes with cross-shard interaction will override this function.
-
-    Args:
-      sharded_body_output: A list of Tensors.
-      sharded_targets: A list of Tensors.
-      data_parallelism: a expert_utils.Parallelism object.
-    Returns:
-      sharded_logits: A list of Tensors.
-    """
-    return data_parallelism(self.top, sharded_body_output, sharded_targets)
-
   def loss(self, top_out, targets, weights_fn=None):
     """Compute loss numerator and denominator for one shard of output."""
     logits = top_out
@@ -188,14 +148,6 @@ class Modality(object):
         targets,
         self._model_hparams.label_smoothing,
         weights_fn=weights_fn)
-
-  def loss_sharded(self, sharded_top_out, sharded_targets, data_parallelism):
-    """Compute loss for all shards."""
-    sharded_loss_num, sharded_loss_den = data_parallelism(
-        self.loss, sharded_top_out, sharded_targets)
-    loss = tf.add_n(sharded_loss_num) / tf.maximum(1.0,
-                                                   tf.add_n(sharded_loss_den))
-    return loss
 
   @property
   def is_class_modality(self):

@@ -47,7 +47,7 @@ class ModalityTest(tf.test.TestCase):
     data_parallelism = expert_utils.Parallelism(
         ["/device:CPU:0"] * num_datashards)
     xs = tf.split(x, num_datashards)
-    sharded_output = m.bottom_sharded(xs, data_parallelism)
+    sharded_output = data_parallelism(m.bottom, xs)
     output = tf.concat(sharded_output, 0)
     self.evaluate(tf.global_variables_initializer())
     res = self.evaluate(output)
@@ -73,10 +73,14 @@ class ModalityTest(tf.test.TestCase):
         ["/device:CPU:0"] * num_datashards)
     sharded_body_output = tf.split(tf.to_float(body_output), num_datashards)
     sharded_targets = tf.split(targets, num_datashards)
-    sharded_logits = m.top_sharded(sharded_body_output, sharded_targets,
-                                   data_parallelism)
-    train_loss = m.loss_sharded(sharded_logits, sharded_targets,
-                                data_parallelism)
+    sharded_logits = data_parallelism(m.top,
+                                      sharded_body_output,
+                                      sharded_targets)
+    sharded_loss_num, sharded_loss_den = data_parallelism(m.loss,
+                                                          sharded_logits,
+                                                          sharded_targets)
+    train_loss = (tf.add_n(sharded_loss_num) /
+                  tf.maximum(1.0, tf.add_n(sharded_loss_den)))
     logits = tf.concat(sharded_logits, 0)
     self.evaluate(tf.global_variables_initializer())
     res1, res2 = self.evaluate((logits, train_loss))
@@ -105,10 +109,14 @@ class ModalityTest(tf.test.TestCase):
     with self.test_session() as session:
       sharded_body_output = tf.split(tf.to_float(body_output), num_datashards)
       sharded_targets = tf.split(targets, num_datashards)
-      sharded_logits = m.top_sharded(sharded_body_output, sharded_targets,
-                                     data_parallelism)
-      train_loss = m.loss_sharded(sharded_logits, sharded_targets,
-                                  data_parallelism)
+      sharded_logits = data_parallelism(m.top,
+                                        sharded_body_output,
+                                        sharded_targets)
+      sharded_loss_num, sharded_loss_den = data_parallelism(m.loss,
+                                                            sharded_logits,
+                                                            sharded_targets)
+      train_loss = (tf.add_n(sharded_loss_num) /
+                    tf.maximum(1.0, tf.add_n(sharded_loss_den)))
       logits = tf.concat(sharded_logits, 0)
       session.run(tf.global_variables_initializer())
       res1, res2 = session.run((logits, train_loss))

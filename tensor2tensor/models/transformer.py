@@ -360,7 +360,7 @@ class Transformer(t2t_model.T2TModel):
       inputs = self._shard_features({"inputs": inputs})["inputs"]
       input_modality = self._problem_hparams.modality["inputs"]
       with tf.variable_scope(input_modality.name):
-        inputs = input_modality.bottom_sharded(inputs, dp)
+        inputs = dp(input_modality.bottom, inputs)
       with tf.variable_scope("body"):
         encoder_output, encoder_decoder_attention_bias = dp(
             self.encode,
@@ -419,7 +419,7 @@ class Transformer(t2t_model.T2TModel):
       # _shard_features called to ensure that the variable names match
       targets = self._shard_features({"targets": targets})["targets"]
       with tf.variable_scope(target_modality.name):
-        targets = target_modality.targets_bottom_sharded(targets, dp)[0]
+        targets = dp(target_modality.targets_bottom, targets)[0]
       targets = common_layers.flatten4d3d(targets)
 
       # TODO(llion): Explain! Is this even needed?
@@ -475,7 +475,7 @@ class Transformer(t2t_model.T2TModel):
             nonpadding=features_to_nonpadding(features, "targets"))
 
       with tf.variable_scope(target_modality.name):
-        logits = target_modality.top_sharded(body_outputs, None, dp)[0]
+        logits = dp(target_modality.top, body_outputs, None)[0]
 
       ret = tf.squeeze(logits, axis=[1, 2, 3])
       if partial_targets is not None:
@@ -577,7 +577,7 @@ class Transformer(t2t_model.T2TModel):
       inputs = self._shard_features({"inputs": inputs})["inputs"]
       input_modality = self._problem_hparams.modality["inputs"]
       with tf.variable_scope(input_modality.name):
-        inputs = input_modality.bottom_sharded(inputs, dp)
+        inputs = dp(input_modality.bottom, inputs)
       with tf.variable_scope("body"):
         encoder_output, encoder_decoder_attention_bias = dp(
             self.encode,
@@ -636,7 +636,7 @@ class Transformer(t2t_model.T2TModel):
       # _shard_features called to ensure that the variable names match
       targets = self._shard_features({"targets": targets})["targets"]
       with tf.variable_scope(target_modality.name):
-        targets = target_modality.targets_bottom_sharded(targets, dp)[0]
+        targets = dp(target_modality.targets_bottom, targets)[0]
       targets = common_layers.flatten4d3d(targets)
 
       # TODO(llion): Explain! Is this even needed?
@@ -673,7 +673,7 @@ class Transformer(t2t_model.T2TModel):
             nonpadding=features_to_nonpadding(features, "targets"))
 
       with tf.variable_scope(target_modality.name):
-        logits = target_modality.top_sharded(body_outputs, None, dp)[0]
+        logits = dp(target_modality.top, body_outputs, None)[0]
 
       ret = tf.squeeze(logits, axis=[1, 2, 3])
       if partial_targets is not None:

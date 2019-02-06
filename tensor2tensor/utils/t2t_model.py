@@ -1955,18 +1955,22 @@ def scheduled_sampling(hparams, problem_hparams, dp, sharded_logits, losses,
     new_features = transformed_features
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       with tf.variable_scope(target_modality.name):
-        new_features["targets"] = target_modality.targets_bottom_sharded(
-            new_targets, dp)
+        new_features["targets"] = dp(target_modality.targets_bottom,
+                                     new_targets)
       with tf.variable_scope("body"):
         body_outputs, losses = model.model_fn_sharded(new_features)
         if not isinstance(losses, dict):  # If it's a single extra loss.
           losses = {"extra": losses}
       with tf.variable_scope(target_modality.name):
-        new_sharded_logits = target_modality.top_sharded(
-            body_outputs, sharded_features["targets"], dp)
+        new_sharded_logits = dp(target_modality.top,
+                                body_outputs,
+                                sharded_features["targets"])
         if "training" not in losses:
-          training_loss = target_modality.loss_sharded(
-              sharded_logits, sharded_features["targets"], dp)
+          sharded_loss_num, sharded_loss_den = dp(target_modality.loss,
+                                                  sharded_logits,
+                                                  sharded_features["targets"])
+          training_loss = (tf.add_n(sharded_loss_num) /
+                           tf.maximum(1.0, tf.add_n(sharded_loss_den)))
           training_loss *= problem_hparams.loss_multiplier
           losses["training"] = training_loss
     return new_sharded_logits, losses
