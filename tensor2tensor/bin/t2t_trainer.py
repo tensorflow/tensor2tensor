@@ -32,6 +32,7 @@ from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
+from tensor2tensor.v2 import t2t as t2t_v2
 import tensorflow as tf
 
 from tensorflow.contrib.tpu.python.tpu import tpu_config
@@ -69,6 +70,7 @@ flags.DEFINE_integer("inter_op_parallelism_threads", 0,
 flags.DEFINE_integer("intra_op_parallelism_threads", 0,
                      "Number of intra_op_parallelism_threads to use for CPU. "
                      "See TensorFlow config.proto for details.")
+flags.DEFINE_bool("v2", False, "Whether to use T2T v2.")
 # TODO(lukaszkaiser): resolve memory and variable assign issues and set to True.
 flags.DEFINE_bool(
     "optionally_use_dist_strat", False,
@@ -356,6 +358,26 @@ def run_std_server():
 
 def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
+
+  if FLAGS.v2:
+    tf.enable_v2_behavior()
+    # Hacking main v1 flags to work with v2.
+    config_strs = []
+    config_strs.append(
+        "train_fn.train_steps=" + str(FLAGS.train_steps))
+    config_strs.append(
+        "train_fn.eval_steps=" + str(FLAGS.eval_steps))
+    config_strs.append(
+        "train_fn.eval_frequency=" + str(FLAGS.local_eval_frequency))
+    if FLAGS.hparams:
+      config_strs.extend(str(FLAGS.hparams).split(","))
+    config_str = "\n".join(config_strs)
+    data_dir = os.path.expanduser(FLAGS.data_dir)
+    output_dir = os.path.expanduser(FLAGS.output_dir)
+    t2t_v2.t2t_train(FLAGS.model, FLAGS.problem,
+                     data_dir=data_dir, output_dir=output_dir,
+                     config_file=FLAGS.hparams_set, config=config_str)
+    return
 
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
