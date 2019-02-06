@@ -26,6 +26,7 @@ from tensor2tensor.layers import modalities  # pylint: disable=g-import-not-at-t
 from tensor2tensor.models import basic
 from tensor2tensor.models import bytenet
 from tensor2tensor.models import distillation
+from tensor2tensor.models import evolved_transformer
 from tensor2tensor.models import image_transformer
 from tensor2tensor.models import image_transformer_2d
 from tensor2tensor.models import lstm

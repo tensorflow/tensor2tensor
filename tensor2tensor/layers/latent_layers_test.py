@@ -26,8 +26,10 @@ from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import discretization
 from tensor2tensor.layers import latent_layers
 from tensor2tensor.models import transformer
+from tensor2tensor.utils import test_utils
 
 import tensorflow as tf
+tf.compat.v1.enable_eager_execution()
 
 
 def imagetransformer_latent_tiny():
@@ -90,7 +92,7 @@ def imagetransformer_latent_tiny():
 
 class LatentLayersTest(tf.test.TestCase):
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testTransformerAutoencoder(self):
     hparams = imagetransformer_latent_tiny()
     hparams.mode = tf.estimator.ModeKeys.TRAIN

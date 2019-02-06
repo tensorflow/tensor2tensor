@@ -24,12 +24,16 @@ import numpy as np
 
 from tensor2tensor.layers import reversible_layers as reversible
 
+from tensor2tensor.utils import test_utils
+
 import tensorflow as tf
+tf.compat.v1.enable_eager_execution()
+
 
 
 class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testActNorm(self):
     np.random.seed(83243)
     batch_size = 25
@@ -54,7 +58,7 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(mean_val, np.zeros(channels), atol=0.25)
     self.assertAllClose(variance_val, np.ones(channels), atol=0.25)
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testMADELeftToRight(self):
     np.random.seed(83243)
     batch_size = 2
@@ -76,7 +80,7 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllEqual(outputs_val[:, 0, :], np.zeros((batch_size, units)))
     self.assertEqual(outputs_val.shape, (batch_size, length, units))
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testMADERightToLeft(self):
     np.random.seed(1328)
     batch_size = 2
@@ -101,7 +105,7 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllEqual(outputs_val[:, -1, :], np.zeros((batch_size, units)))
     self.assertEqual(outputs_val.shape, (batch_size, length, units))
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testMADENoHidden(self):
     np.random.seed(532)
     batch_size = 2

@@ -804,7 +804,9 @@ class Problem(object):
         phift == tpu_config.InputPipelineConfig.BROADCAST):
       return 0, 1
     if phift:
-      num_partitions = max(params["context"].num_hosts, 1)
+      num_hosts = (params["context"].num_hosts if "context" in params
+                   else config.tpu_config.num_shards // 8)
+      num_partitions = max(num_hosts, 1)
     else:
       num_partitions = config.tpu_config.num_shards
     partition_id = getattr(self, "_next_partition_id", 0)

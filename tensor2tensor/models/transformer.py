@@ -59,6 +59,8 @@ class Transformer(t2t_model.T2TModel):
   def __init__(self, *args, **kwargs):
     super(Transformer, self).__init__(*args, **kwargs)
     self.attention_weights = {}  # For visualizing attention heads.
+    self._encoder_function = transformer_encoder
+    self._decoder_function = transformer_decoder
 
   def encode(self, inputs, target_space, hparams, features=None, losses=None):
     """Encode transformer inputs.
@@ -98,7 +100,7 @@ class Transformer(t2t_model.T2TModel):
     if hparams.unidirectional_encoder:
       attn_bias_for_padding = encoder_decoder_attention_bias
 
-    encoder_output = transformer_encoder(
+    encoder_output = self._encoder_function(
         encoder_input,
         self_attention_bias,
         hparams,
@@ -149,7 +151,7 @@ class Transformer(t2t_model.T2TModel):
     decoder_input = tf.nn.dropout(decoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
 
-    decoder_output = transformer_decoder(
+    decoder_output = self._decoder_function(
         decoder_input,
         encoder_output,
         decoder_self_attention_bias,
