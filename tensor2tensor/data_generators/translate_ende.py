@@ -81,8 +81,8 @@ class TranslateEndeWmtParacrawlBicleaner32k(TranslateEndeWmt32k):
   """WMT en-de corpus with extra data from Paracrawl, cleaned with Bicleaner."""
 
   @property
-  def vocab_filename(self):
-    return TranslateEndeWmt32k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return TranslateEndeWmt32k()
 
   @property
   def additional_training_datasets(self):
@@ -99,8 +99,8 @@ class TranslateEndeWmt32kPacked(TranslateEndeWmt32k):
     return 256
 
   @property
-  def vocab_filename(self):
-    return TranslateEndeWmt32k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return TranslateEndeWmt32k()
 
 
 @registry.register_problem
@@ -111,8 +111,8 @@ class TranslateEndeWmt8kPacked(TranslateEndeWmt8k):
     return 256
 
   @property
-  def vocab_filename(self):
-    return TranslateEndeWmt8k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return TranslateEndeWmt8k()
 
 
 @registry.register_problem
@@ -129,5 +129,14 @@ class TranslateEndeWmtMulti64k(TranslateEndeWmt8k):
   """Translation with muli-lingual vocabulary."""
 
   @property
-  def vocab_filename(self):
-    return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k()
+
+
+@registry.register_problem
+class TranslateEndeWmtMulti64kPacked1k(TranslateEndeWmtMulti64k):
+  """Translation with muli-lingual vocabulary."""
+
+  @property
+  def packed_length(self):
+    return 1024

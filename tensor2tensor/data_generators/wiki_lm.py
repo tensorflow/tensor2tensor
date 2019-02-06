@@ -162,8 +162,8 @@ class LanguagemodelEnWiki64kShorter(LanguagemodelEnWiki64k):
     return 384*8
 
   @property
-  def vocab_filename(self):
-    return LanguagemodelEnWiki64k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return LanguagemodelEnWiki64k()
 
 
 @registry.register_problem

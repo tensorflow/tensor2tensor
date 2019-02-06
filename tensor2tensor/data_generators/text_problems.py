@@ -212,12 +212,27 @@ class Text2TextProblem(problem.Problem):
 
   @property
   def vocab_filename(self):
+    other_problem = self.use_vocab_from_other_problem
+    if other_problem:
+      return other_problem.vocab_filename
     if self.vocab_type == VocabType.SUBWORD:
       return "vocab.%s.%d.%s" % (self.dataset_filename(),
                                  self.approx_vocab_size,
                                  VocabType.SUBWORD)
     else:
       return "vocab.%s.%s" % (self.dataset_filename(), VocabType.TOKEN)
+
+  @property
+  def use_vocab_from_other_problem(self):
+    """Optional - use the vocabulary from a different problem.
+
+    TODO(noam): problems should override this method instead of overriding
+    vocab_filename(), so as to generate the correct vocabulary. Fix everywhere.
+
+    Returns:
+       a Text2TextProblem instance or None
+    """
+    return None
 
   def get_or_create_vocab(self, data_dir, tmp_dir, force_get=False):
     if self.vocab_type == VocabType.CHARACTER:
@@ -227,6 +242,9 @@ class Text2TextProblem(problem.Problem):
         vocab_filepath = os.path.join(data_dir, self.vocab_filename)
         encoder = text_encoder.SubwordTextEncoder(vocab_filepath)
       else:
+        other_problem = self.use_vocab_from_other_problem
+        if other_problem:
+          return other_problem.get_or_create_vocab(data_dir, tmp_dir, force_get)
         encoder = generator_utils.get_or_generate_vocab_inner(
             data_dir, self.vocab_filename, self.approx_vocab_size,
             self.generate_text_for_vocab(data_dir, tmp_dir),

@@ -78,8 +78,8 @@ class TranslateEnroWmtMulti64k(TranslateEnroWmt8k):
   """Translation with muli-lingual vocabulary."""
 
   @property
-  def vocab_filename(self):
-    return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k()
 
 
 @registry.register_problem
@@ -98,8 +98,8 @@ class TranslateEnroWmtMultiSmall64k(TranslateEnroWmt8k):
     }]
 
   @property
-  def vocab_filename(self):
-    return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k()
 
   @property
   def how_many_examples_to_sample(self):
@@ -146,3 +146,12 @@ class TranslateEnroWmtMultiTiny64k(TranslateEnroWmtMultiSmall64k):
   @property
   def how_many_examples_to_sample(self):
     return 600
+
+
+@registry.register_problem
+class TranslateEnroWmtMultiTiny64kPacked1k(TranslateEnroWmtMultiTiny64k):
+  """Translation with muli-lingual vocabulary."""
+
+  @property
+  def packed_length(self):
+    return 1024

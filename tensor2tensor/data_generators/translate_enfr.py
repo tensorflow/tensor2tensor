@@ -138,8 +138,8 @@ class TranslateEnfrWmt32kPacked(TranslateEnfrWmt32k):
     return 256
 
   @property
-  def vocab_filename(self):
-    return TranslateEnfrWmt32k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return TranslateEnfrWmt32k()
 
 
 @registry.register_problem
@@ -147,8 +147,8 @@ class TranslateEnfrWmt32kWithBacktranslateFr(TranslateEnfrWmt32k):
   """En-Fr translation with added French data, back-translated."""
 
   @property
-  def vocab_filename(self):
-    return TranslateEnfrWmt32k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return TranslateEnfrWmt32k()
 
   @property
   def already_shuffled(self):
@@ -248,5 +248,14 @@ class TranslateEnfrWmtMulti64k(TranslateEnfrWmtSmall32k):
     return False
 
   @property
-  def vocab_filename(self):
-    return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k()
+
+
+@registry.register_problem
+class TranslateEnfrWmtMulti64kPacked1k(TranslateEnfrWmtMulti64k):
+  """Translation with muli-lingual vocabulary."""
+
+  @property
+  def packed_length(self):
+    return 1024
