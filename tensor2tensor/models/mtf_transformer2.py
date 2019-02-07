@@ -135,13 +135,17 @@ class MtfUnitransformer(mtf_model.MtfModel):
     def import_feature(key):
       return self._import_feature(features, mesh, key)
     targets = import_feature("targets")
+    sequence_id = import_feature("targets_segmentation")
+    position = import_feature("targets_position")
     if self.autoregressive:
       inputs = mtf.shift(
           targets, offset=1, dim=self.length_dim, wrap=False)
+      if position is not None:
+        # first input in later sequences should be 0
+        inputs *= mtf.to_int32(mtf.not_equal(position, 0))
     else:
       inputs = import_feature("inputs")
       # TODO(noam): options for bert-style masking here?
-    sequence_id = import_feature("targets_segmentation")
     model = self.model()
     logits, loss = model.call_simple(
         inputs=inputs,
@@ -149,7 +153,8 @@ class MtfUnitransformer(mtf_model.MtfModel):
         compute_loss=True,
         mode=hparams.mode,
         variable_dtype=self.variable_dtype,
-        sequence_id=sequence_id)
+        sequence_id=sequence_id,
+        position=position)
     return logits, loss
 
   def mtf_model_fn(self, features, mesh):
@@ -243,6 +248,8 @@ class MtfBitransformer(MtfUnitransformer):
     decoder_sequence_id = import_feature("targets_segmentation")
     if decoder_sequence_id is None:
       decoder_sequence_id = mtf.to_int32(mtf.not_equal(targets, 0))
+    encoder_position = import_feature("inputs_position")
+    decoder_position = import_feature("targets_position")
     model = self.model()
     logits, loss = model.call_simple(
         inputs=inputs,
@@ -251,7 +258,9 @@ class MtfBitransformer(MtfUnitransformer):
         mode=hparams.mode,
         variable_dtype=self.variable_dtype,
         encoder_sequence_id=encoder_sequence_id,
-        decoder_sequence_id=decoder_sequence_id)
+        decoder_sequence_id=decoder_sequence_id,
+        encoder_position=encoder_position,
+        decoder_position=decoder_position)
     return logits, loss
 
   def sample(self, features, mesh):
@@ -461,6 +470,8 @@ def mtf_bitransformer_base():
   #        decode_length_multiplier * input_length + decode_length_constant)
   hparams.add_hparam("decode_length_multiplier", 1.5)
   hparams.add_hparam("decode_length_constant", 10.0)
+  # used during decoding
+  hparams.add_hparam("alpha", 0.6)
   hparams.sampling_temp = 0.0
   return hparams
 
@@ -825,4 +836,13 @@ def mtr_tr_ende_deep():
   hparams.d_ff = 2048
   hparams.encoder_num_layers = 12
   hparams.decoder_num_layers = 12
+  return hparams
+
+
+@registry.register_hparams
+def ogm_dense_0():
+  hparams = mtr_tr_dense(0)
+  hparams.max_length = 1024
+  hparams.batch_size = 128
+  hparams.shared_embedding_and_softmax_weights = True
   return hparams

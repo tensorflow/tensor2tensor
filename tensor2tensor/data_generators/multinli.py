@@ -32,16 +32,56 @@ import tensorflow as tf
 
 EOS = text_encoder.EOS
 
+# Link to data from GLUE: https://gluebenchmark.com/tasks
+_MNLI_URL = ("https://firebasestorage.googleapis.com/v0/b/"
+             "mtl-sentence-representations.appspot.com/o/"
+             "data%2FMNLI.zip?alt=media&token=50329ea1-e339-"
+             "40e2-809c-10c40afff3ce")
+
+
+def _maybe_download_corpora(tmp_dir):
+  """Download corpora for multinli.
+
+  Args:
+    tmp_dir: a string
+  Returns:
+    a string
+  """
+  mnli_filename = "MNLI.zip"
+  mnli_finalpath = os.path.join(tmp_dir, "MNLI")
+  if not tf.gfile.Exists(mnli_finalpath):
+    zip_filepath = generator_utils.maybe_download(
+        tmp_dir, mnli_filename, _MNLI_URL)
+    zip_ref = zipfile.ZipFile(zip_filepath, "r")
+    zip_ref.extractall(tmp_dir)
+    zip_ref.close()
+
+  return mnli_finalpath
+
+
+def _example_generator(filename):
+  """Generate mnli examples.
+
+  Args:
+    filename: a string
+  Yields:
+    dictionaries containing "premise", "hypothesis" and "label" strings
+  """
+  for idx, line in enumerate(tf.gfile.Open(filename, "rb")):
+    if idx == 0: continue  # skip header
+    line = text_encoder.to_unicode_utf8(line.strip())
+    split_line = line.split("\t")
+    # Works for both splits even though dev has some extra human labels.
+    yield {
+        "premise": split_line[8],
+        "hypothesis": split_line[9],
+        "label": split_line[-1]
+    }
+
 
 @registry.register_problem
 class MultiNLI(text_problems.TextConcat2ClassProblem):
   """MultiNLI classification problems."""
-
-  # Link to data from GLUE: https://gluebenchmark.com/tasks
-  _MNLI_URL = ("https://firebasestorage.googleapis.com/v0/b/"
-               "mtl-sentence-representations.appspot.com/o/"
-               "data%2FMNLI.zip?alt=media&token=50329ea1-e339-"
-               "40e2-809c-10c40afff3ce")
 
   @property
   def is_generate_per_split(self):
@@ -70,46 +110,69 @@ class MultiNLI(text_problems.TextConcat2ClassProblem):
     # Note this binary classification is different from usual MNLI.
     return ["contradiction", "entailment", "neutral"]
 
-  def _maybe_download_corpora(self, tmp_dir):
-    mnli_filename = "MNLI.zip"
-    mnli_finalpath = os.path.join(tmp_dir, "MNLI")
-    if not tf.gfile.Exists(mnli_finalpath):
-      zip_filepath = generator_utils.maybe_download(
-          tmp_dir, mnli_filename, self._MNLI_URL)
-      zip_ref = zipfile.ZipFile(zip_filepath, "r")
-      zip_ref.extractall(tmp_dir)
-      zip_ref.close()
-
-    return mnli_finalpath
-
-  def example_generator(self, filename):
-    label_list = self.class_labels(data_dir=None)
-    for idx, line in enumerate(tf.gfile.Open(filename, "rb")):
-      if idx == 0: continue  # skip header
-      line = text_encoder.to_unicode_utf8(line.strip())
-      split_line = line.split("\t")
-      # Works for both splits even though dev has some extra human labels.
-      s1, s2 = split_line[8:10]
-      l = label_list.index(split_line[-1])
-      inputs = [s1, s2]
-      yield {
-          "inputs": inputs,
-          "label": l
-      }
-
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
-    mnli_dir = self._maybe_download_corpora(tmp_dir)
+    mnli_dir = _maybe_download_corpora(tmp_dir)
     if dataset_split == problem.DatasetSplit.TRAIN:
       filesplit = ["train.tsv"]
     else:
       # Using dev matched as the default for eval. Can also switch this to
       # dev_mismatched.tsv
       filesplit = ["dev_matched.tsv"]
-
+    label_list = self.class_labels(data_dir=None)
     for fs in filesplit:
       filename = os.path.join(mnli_dir, fs)
-      for example in self.example_generator(filename):
-        yield example
+      for example in _example_generator(filename):
+        yield {
+            "inputs": [example["premise"], example["hypothesis"]],
+            "label": label_list.index(example["label"])
+        }
+
+
+@registry.register_problem
+class MultiNLIText2text(text_problems.Text2TextProblem):
+  """MultiNLI classification problems."""
+
+  @property
+  def is_generate_per_split(self):
+    return True
+
+  @property
+  def approx_vocab_size(self):
+    return 2**15
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    mnli_dir = _maybe_download_corpora(tmp_dir)
+    if dataset_split == problem.DatasetSplit.TRAIN:
+      filesplit = ["train.tsv"]
+    else:
+      # Using dev matched as the default for eval. Can also switch this to
+      # dev_mismatched.tsv
+      filesplit = ["dev_matched.tsv"]
+    for fs in filesplit:
+      filename = os.path.join(mnli_dir, fs)
+      for example in _example_generator(filename):
+        yield {
+            "inputs": "multinli premise: %s hypothesis: %s" % (
+                example["premise"], example["hypothesis"]),
+            "targets": example["label"]
+        }
+
+
+@registry.register_problem
+class MultiNLIText2textMulti64kPacked1k(MultiNLIText2text):
+  """MultiNLI classification problems with the multi-lingual vocabulary."""
+
+  @property
+  def packed_length(self):
+    return 1024
+
+  @property
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k()
+
+  @property
+  def num_training_examples(self):
+    return 18300
 
 
 @registry.register_problem
@@ -129,8 +192,8 @@ class MultiNLISharedVocab(MultiNLI):
   """MultiNLI classification problems with the LM1b vocabulary."""
 
   @property
-  def vocab_filename(self):
-    return lm1b.LanguagemodelLm1b32k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return lm1b.LanguagemodelLm1b32k()
 
 
 @registry.register_problem
@@ -138,8 +201,8 @@ class MultiNLIWikiLMSharedVocab(MultiNLI):
   """MultiNLI classification problems with the Wiki vocabulary."""
 
   @property
-  def vocab_filename(self):
-    return wiki_lm.LanguagemodelEnWiki32k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelEnWiki32k()
 
 
 @registry.register_problem
@@ -147,8 +210,8 @@ class MultiNLIWikiLMSharedVocab64k(MultiNLIWikiLMSharedVocab):
   """MultiNLI classification problems with the Wiki vocabulary."""
 
   @property
-  def vocab_filename(self):
-    return wiki_lm.LanguagemodelEnWiki64k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelEnWiki64k()
 
 
 @registry.register_problem
@@ -156,5 +219,5 @@ class MultiNLIWikiLMMultiVocab64k(MultiNLIWikiLMSharedVocab):
   """MultiNLI classification problems with the multi-lingual vocabulary."""
 
   @property
-  def vocab_filename(self):
-    return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k()

@@ -35,7 +35,7 @@ def concat_generator(filename, up_threshold, low_threshold=10):
   txt = ""
   for line in tf.gfile.Open(filename):
     line = line.strip()
-    if len(txt) + len(line) > up_threshold:
+    if len(txt) + len(line) + 1 >= up_threshold:
       ret = txt
       txt = ""
       # We don't yield very short long parts to prevent noisy examples.
@@ -238,3 +238,40 @@ class LanguagemodelDeEnFrRoWiki64k(LanguagemodelEnWiki32k):
   @property
   def max_samples_for_vocab(self):
     return 256000  # Samples are intertwined, take more to cover 4 languages.
+
+
+@registry.register_problem
+class LanguagemodelDeEnFrRoWiki64kFitbPacked1k(
+    LanguagemodelDeEnFrRoWiki64k):
+  """4 languages fill-in-the-blanks text-to-text problem."""
+
+  @property
+  def use_vocab_from_other_problem(self):
+    return LanguagemodelDeEnFrRoWiki64k()
+
+  @property
+  def has_inputs(self):
+    return True
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    for example in super(
+        LanguagemodelDeEnFrRoWiki64kFitbPacked1k, self).generate_samples(
+            data_dir, tmp_dir, dataset_split):
+      a, b = generator_utils.random_deinterleave(example["targets"])
+      yield {"inputs": a, "targets": b}
+
+  @property
+  def num_training_examples(self):
+    return 3597800
+
+  @property
+  def packed_length(self):
+    return 1024
+
+  @property
+  def inputs_prefix(self):
+    return "wiki fill "
+
+  @property
+  def targets_prefix(self):
+    return "wiki fill "

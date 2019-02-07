@@ -306,7 +306,9 @@ class Text2TextProblem(problem.Problem):
     generator = self.generate_samples(data_dir, tmp_dir, dataset_split)
     encoder = self.get_or_create_vocab(data_dir, tmp_dir)
     return text2text_generate_encoded(generator, encoder,
-                                      has_inputs=self.has_inputs)
+                                      has_inputs=self.has_inputs,
+                                      inputs_prefix=self.inputs_prefix,
+                                      targets_prefix=self.targets_prefix)
 
   @property
   def max_subtoken_length(self):
@@ -327,6 +329,16 @@ class Text2TextProblem(problem.Problem):
   @property
   def already_shuffled(self):
     return False
+
+  @property
+  def inputs_prefix(self):
+    """String to prepend to inputs before tokenization."""
+    return ""
+
+  @property
+  def targets_prefix(self):
+    """String to prepend to targets before tokenization."""
+    return ""
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
 
@@ -665,14 +677,16 @@ def text2text_txt_tab_iterator(txt_path):
 def text2text_generate_encoded(sample_generator,
                                vocab,
                                targets_vocab=None,
-                               has_inputs=True):
+                               has_inputs=True,
+                               inputs_prefix="",
+                               targets_prefix=""):
   """Encode Text2Text samples from the generator with the vocab."""
   targets_vocab = targets_vocab or vocab
   for sample in sample_generator:
     if has_inputs:
-      sample["inputs"] = vocab.encode(sample["inputs"])
+      sample["inputs"] = vocab.encode(inputs_prefix + sample["inputs"])
       sample["inputs"].append(text_encoder.EOS_ID)
-    sample["targets"] = targets_vocab.encode(sample["targets"])
+    sample["targets"] = targets_vocab.encode(targets_prefix + sample["targets"])
     sample["targets"].append(text_encoder.EOS_ID)
     yield sample
 
@@ -1195,7 +1209,9 @@ class DistributedText2TextProblem(Text2TextProblem):
     generator = self.generate_samples(data_dir, tmp_dir, dataset_split,
                                       input_files)
     return text2text_generate_encoded(
-        generator, encoder, has_inputs=self.has_inputs)
+        generator, encoder, has_inputs=self.has_inputs,
+        inputs_prefix=self.inputs_prefix,
+        targets_prefix=self.targets_prefix)
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     # task_id should be in [0, self.num_output_shards)

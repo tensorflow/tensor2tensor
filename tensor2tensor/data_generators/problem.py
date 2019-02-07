@@ -234,6 +234,11 @@ class Problem(object):
     """Needed if multiprocess_generate is True."""
     raise NotImplementedError()
 
+  @property
+  def num_training_examples(self):
+    """Used when mixing problems - how many examples are in the dataset."""
+    raise NotImplementedError()
+
   def prepare_to_generate(self, data_dir, tmp_dir):
     """Prepare to generate data in parallel on different processes.
 

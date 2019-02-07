@@ -141,7 +141,7 @@ class TranslateEnroWmtMultiSmall64k(TranslateEnroWmt8k):
 
 @registry.register_problem
 class TranslateEnroWmtMultiTiny64k(TranslateEnroWmtMultiSmall64k):
-  """Translation with muli-lingual vocabulary, tiny (6K) training data."""
+  """Translation with muli-lingual vocabulary, tiny (600) training data."""
 
   @property
   def how_many_examples_to_sample(self):
@@ -155,3 +155,15 @@ class TranslateEnroWmtMultiTiny64kPacked1k(TranslateEnroWmtMultiTiny64k):
   @property
   def packed_length(self):
     return 1024
+
+  @property
+  def num_training_examples(self):
+    return 32
+
+  @property
+  def inputs_prefix(self):
+    return "translate English Romanian "
+
+  @property
+  def targets_prefix(self):
+    return "translate Romanian English "

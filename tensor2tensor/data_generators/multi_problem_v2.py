@@ -139,21 +139,45 @@ class MultiText2TextProblem(MultiProblemV2, text_problems.Text2TextProblem):
   def normalize_example(self, example, hparams):
     """Assumes that example contains both inputs and targets."""
 
+    length = self.max_length(hparams)
     def _to_constant_shape(tensor):
-      max_length = self.max_length(hparams)
-      tensor = tensor[:max_length]
-      tensor = tf.pad(tensor, [(0, max_length - tf.shape(tensor)[0])])
-      return tf.reshape(tensor, [max_length])
+      tensor = tensor[:length]
+      tensor = tf.pad(tensor, [(0, length - tf.shape(tensor)[0])])
+      return tf.reshape(tensor, [length])
 
     if self.has_inputs:
       example['inputs'] = _to_constant_shape(example['inputs'])
       example['targets'] = _to_constant_shape(example['targets'])
     elif 'inputs' in example:
+      if self.packed_length:
+        raise ValueError('cannot concatenate packed examples on the fly.')
       inputs = example.pop('inputs')[:-1]  # Remove EOS token.
       targets = tf.concat([inputs, example['targets']], 0)
       example['targets'] = _to_constant_shape(targets)
     else:
       example['targets'] = _to_constant_shape(example['targets'])
+    if self.packed_length:
+      if self.has_inputs:
+        if 'inputs_segmentation' in example:
+          example['inputs_segmentation'] = _to_constant_shape(
+              example['inputs_segmentation'])
+          example['inputs_position'] = _to_constant_shape(
+              example['inputs_position'])
+        else:
+          example['inputs_segmentation'] = tf.to_int64(
+              tf.not_equal(example['inputs'], 0))
+          example['inputs_position'] = (
+              example['inputs_segmentation'] * tf.range(length, dtype=tf.int64))
+      if 'targets_segmentation' in example:
+        example['targets_segmentation'] = _to_constant_shape(
+            example['targets_segmentation'])
+        example['targets_position'] = _to_constant_shape(
+            example['targets_position'])
+      else:
+        example['targets_segmentation'] = tf.to_int64(
+            tf.not_equal(example['targets'], 0))
+        example['targets_position'] = (
+            example['targets_segmentation'] * tf.range(length, dtype=tf.int64))
     return example
 
   def generate_data_with_shared_vocab(self, data_dir, tmp_dir, task_id=-1):
@@ -171,6 +195,11 @@ class MultiText2TextProblem(MultiProblemV2, text_problems.Text2TextProblem):
       if not tf.gfile.Exists(local_vocab_filename):
         tf.gfile.Copy(global_vocab_filename, local_vocab_filename)
       p.generate_data(data_dir, tmp_dir, task_id)
+
+  @property
+  def packed_length(self):
+    """Set this to a positive integer if some of the problems are packed."""
+    return None
 
 
 def get_multi_dataset(datasets, pmf=None):
@@ -205,6 +234,11 @@ def get_schedule_distribution(schedule, global_step=None):
     A 1-D tensor of probs, the sampling distribution of the global_step.
   """
   interpolation, steps, pmfs = schedule
+  if len(pmfs) == 1:
+    # py_func doesn't seem to work on TPU - at least get the constant case to
+    # run.
+    # TODO(noam): get the general case working.
+    return pmfs[0]
   if global_step is None:
     global_step = tf.train.get_or_create_global_step()
   if interpolation == 'step':
@@ -302,6 +336,44 @@ def constant_schedule(pmf):
     A schedule tuple, see encode_schedule for details.
   """
   return ('step', (0,), (tuplize(pmf),))
+
+
+def example_rates_to_pmf(example_rates):
+  """Creates a probability-mass-function based on relative example rates.
+
+  Args:
+    example_rates: a list or tuple
+  Returns:
+    a list of floats
+  """
+  total = sum(example_rates)
+  return [r / total for r in example_rates]
+
+
+def epoch_rates_to_pmf(problems, epoch_rates=None):
+  """Create a probability-mass-function based on relative epoch rates.
+
+  if epoch_rates=None, then we use uniform epoch rates [1.0] * len(problems)
+  i.e. it takes each problem the same time to go through one epoch.
+
+  If epoch_rates is given, then these are the relative numbers of epochs
+  of each problem to go through in a given amount of time.
+
+  Each must have problem.num_training_examples implemented.
+
+  Args:
+    problems: a list of Problem instances.
+    epoch_rates: an optional list of float
+
+  Returns:
+    a list of floating point values.
+  """
+  if epoch_rates is None:
+    epoch_rates = [1.0] * len(problems)
+  example_rates = []
+  for p, epoch_rate in zip(problems, epoch_rates):
+    example_rates.append(epoch_rate * p.num_training_examples)
+  return example_rates_to_pmf(example_rates)
 
 
 def encode_schedule(schedule):

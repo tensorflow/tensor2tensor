@@ -140,3 +140,17 @@ class TranslateEndeWmtMulti64kPacked1k(TranslateEndeWmtMulti64k):
   @property
   def packed_length(self):
     return 1024
+
+  @property
+  def num_training_examples(self):
+    return 173800
+
+  @property
+  def inputs_prefix(self):
+    return "translate English German "
+
+  @property
+  def targets_prefix(self):
+    return "translate German English "
+
+

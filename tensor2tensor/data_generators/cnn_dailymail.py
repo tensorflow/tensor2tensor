@@ -250,8 +250,8 @@ class SummarizeCnnDailymailWikiLMSharedVocab(SummarizeCnnDailymail32k):
   """Summarize CNN and Daily Mail articles using the Wiki 32k vocab."""
 
   @property
-  def vocab_filename(self):
-    return wiki_lm.LanguagemodelEnWiki32k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelEnWiki32k()
 
 
 @registry.register_problem
@@ -259,8 +259,8 @@ class SummarizeCnnDailymailWikiLMSharedVocab64k(SummarizeCnnDailymail32k):
   """Summarize CNN and Daily Mail articles using the Wiki 64k vocab."""
 
   @property
-  def vocab_filename(self):
-    return wiki_lm.LanguagemodelEnWiki64k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelEnWiki64k()
 
 
 @registry.register_problem
@@ -268,8 +268,33 @@ class SummarizeCnnDailymailWikiLMMultiVocab64k(SummarizeCnnDailymail32k):
   """Summarize CNN and Daily Mail articles using multi-lingual 64k vocab."""
 
   @property
-  def vocab_filename(self):
-    return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k()
+
+
+@registry.register_problem
+class SummarizeCnnDailymailMulti64kPacked1k(SummarizeCnnDailymail32k):
+  """Summarize CNN and Daily Mail articles using multi-lingual 64k vocab."""
+
+  @property
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k()
+
+  @property
+  def packed_length(self):
+    return 1024
+
+  @property
+  def num_training_examples(self):
+    return 252600
+
+  @property
+  def inputs_prefix(self):
+    return "CNN Daily Mail article to summary "
+
+  @property
+  def targets_prefix(self):
+    return "CNN Daily Mail summary to article "
 
 
 @registry.register_problem
@@ -277,8 +302,8 @@ class SummarizeFracCnnDailymailWikiLMSharedVocab64k(SummarizeCnnDailymail32k):
   """Summarize a fraction of CNN/DM articles using the Wiki 64k vocab."""
 
   @property
-  def vocab_filename(self):
-    return wiki_lm.LanguagemodelEnWiki64k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelEnWiki64k()
 
   def fraction_of_data(self):
     return 1.

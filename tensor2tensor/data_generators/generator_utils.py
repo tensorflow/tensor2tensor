@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import gzip
+import math
 import os
 import random
 import stat
@@ -720,3 +721,41 @@ def tfrecord_iterator(filenames, gzipped=False, example_spec=None):
           yield ex
         except tf.errors.OutOfRangeError:
           break
+
+
+def random_deinterleave(text, separator_symbol="X"):
+  """Create a fill-in-the-blanks training example from text.
+
+  Split on spaces, then cut into segments at random points.  Alternate segments
+  are assigned to the two output strings. separator_symbol separates segments
+  within each of the outputs.
+
+  example:
+    text="The quick brown fox jumps over the lazy dog."
+    returns: ("X quick brown X the lazy X", "The X fox jumps over X dog.")
+
+  The two outputs can also be reversed to yield an instance of the same problem.
+
+  Args:
+    text: a string
+    separator_symbol: a string
+  Returns:
+    a pair of strings
+  """
+  words = text.strip().split(" ")
+  n = len(words)
+  if n <= 1:
+    return text, ""
+  cut = [False] * n
+  cut[0] = True
+  num_cuts = int(math.exp(random.uniform(0, math.log(n))))
+  for _ in xrange(num_cuts):
+    cut[random.randint(1, n -1)] = True
+  out = [[], []]
+  part = random.randint(0, 1)
+  for i in xrange(n):
+    if cut[i]:
+      out[part].append(separator_symbol)
+      part = 1 - part
+    out[part].append(words[i])
+  return " ".join(out[0]), " ".join(out[1])
