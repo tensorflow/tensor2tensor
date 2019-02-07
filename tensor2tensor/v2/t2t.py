@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -55,7 +55,8 @@ def train_and_eval_dataset(dataset_name, data_dir):
      * the eval tf.Daataset
      * information about features: a python dictionary with feature names
          as keys and an object as value that provides .shape and .num_classes.
-     * supervised_keys: information what's the input and what's the target.
+     * supervised_keys: information what's the input and what's the target,
+         ie., a pair of lists with input and target feature names.
   """
   if dataset_name.startswith("v1_"):
     return _train_and_eval_dataset_v1(dataset_name[3:], data_dir)
@@ -71,7 +72,10 @@ def train_and_eval_dataset(dataset_name, data_dir):
     eval_split = tfds.Split.TEST
   train, valid = tfds.load(
       name=dataset_name, split=[tfds.Split.TRAIN, eval_split])
-  return train, valid, info.features, info.supervised_keys
+  keys = None
+  if info.supervised_keys:
+    keys = ([info.supervised_keys[0]], [info.supervised_keys[1]])
+  return train, valid, info.features, keys
 
 
 def _make_info(shape_list, num_classes):
@@ -94,7 +98,7 @@ def _train_and_eval_dataset_v1(problem_name, data_dir):
   problem = problems.problem(problem_name)
   train_dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, data_dir)
   eval_dataset = problem.dataset(tf.estimator.ModeKeys.EVAL, data_dir)
-  supervised_keys = ("inputs", "targets")
+  supervised_keys = (["inputs"], ["targets"])
   hparams = problem.get_hparams()
   # We take a few training examples to guess the shapes.
   input_shapes, target_shapes = [], []
@@ -109,10 +113,21 @@ def _train_and_eval_dataset_v1(problem_name, data_dir):
   return train_dataset, eval_dataset, info, supervised_keys
 
 
-def shuffle_and_batch_data(dataset, batch_size, target_key):
+def shuffle_and_batch_data(dataset, batch_size, target_names, repeat=False):
   """Shuffle and batch the given dataset."""
+  def append_targets(example):
+    """Append targets to the example dictionary. Needed for Keras."""
+    if len(target_names) == 1:
+      return (example, example[target_names[0]])
+    targets = {}
+    for name in target_names:
+      targets[name] = example[name]
+    return (example, targets)
+  dataset = dataset.map(append_targets)
+  if repeat:
+    dataset = dataset.repeat()
   shuffled = dataset.shuffle(128).batch(batch_size).prefetch(8)
-  return shuffled.map(lambda ex: (ex, ex[target_key]))
+  return shuffled
 
 
 @gin.configurable(blacklist=["model"])
@@ -132,6 +147,7 @@ def model_compile(model,
 @gin.configurable(blacklist=["data_dir", "output_dir"])
 def train_fn(data_dir=None, output_dir=None,
              model_class=gin.REQUIRED, dataset=gin.REQUIRED,
+             input_names=None, target_names=None,
              batch_size=32, train_steps=1000, eval_steps=1, eval_frequency=100):
   """Train the given model on the given dataset.
 
@@ -140,6 +156,8 @@ def train_fn(data_dir=None, output_dir=None,
     output_dir: Directory where to put the logs and checkpoints.
     model_class: The model class to train.
     dataset: The name of the dataset to train on.
+    input_names: List of strings with the names of the features on input.
+    target_names: List of strings with the names of the target features.
     batch_size: integer, how many examples per batch.
     train_steps: for how many steps to train.
     eval_steps: for how many steps to do evaluation.
@@ -147,10 +165,22 @@ def train_fn(data_dir=None, output_dir=None,
   """
   train_data, eval_data, features_info, keys = train_and_eval_dataset(
       dataset, data_dir)
-  model = model_class(features_info=features_info, supervised_keys=keys)
+  if input_names is None:
+    input_names = keys[0]
+  if target_names is None:
+    target_names = keys[1]
+  # TODO(lukaszkaiser): The use of distribution strategy below fails like this:
+  #   .../keras/models.py", line 93, in _clone_functional_model
+  #      for layer in model._input_layers:
+  #   AttributeError: 'BasicFcRelu' object has no attribute '_input_layers'
+  # strategy = tf.distribute.MirroredStrategy()
+  # with strategy.scope():
+  model = model_class(features_info=features_info,
+                      input_names=input_names, target_names=target_names)
   model_compile(model)
-  train_batches = shuffle_and_batch_data(train_data, batch_size, keys[1])
-  eval_batches = shuffle_and_batch_data(eval_data, batch_size, keys[1])
+  train_batches = shuffle_and_batch_data(
+      train_data, batch_size, target_names, repeat=True)
+  eval_batches = shuffle_and_batch_data(eval_data, batch_size, target_names)
 
   # Training loop.
   callbacks = []
@@ -158,10 +188,9 @@ def train_fn(data_dir=None, output_dir=None,
   callbacks.append(tf.keras.callbacks.BaseLogger())
   if output_dir is not None:
     callbacks.append(tf.keras.callbacks.TensorBoard(log_dir=output_dir))
-    # TODO(lukaszkaiser): the one below doesn't seem to work, why?
-    # callbacks.append(tf.keras.callbacks.ModelCheckpoint(
-    #     filepath=output_dir))
-  model.fit(train_batches.repeat(),
+    callbacks.append(tf.keras.callbacks.ModelCheckpoint(
+        filepath=output_dir, save_weights_only=True))
+  model.fit(train_batches,
             epochs=train_steps // eval_frequency,
             steps_per_epoch=eval_frequency,
             validation_data=eval_batches,

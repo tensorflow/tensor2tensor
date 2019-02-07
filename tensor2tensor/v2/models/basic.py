@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,15 +27,12 @@ import gin.tf
 class BasicFcRelu(tf.keras.Model):
   """Basic fully-connected + ReLU model."""
 
-  def __init__(self, features_info=None, supervised_keys=None,
+  def __init__(self, features_info=None, input_names=None, target_names=None,
                num_hidden_layers=2, hidden_size=64, dropout=0.1):
     super(BasicFcRelu, self).__init__()
-    assert features_info is not None
-    assert supervised_keys is not None
-    self._input_key = supervised_keys[0]
-    label_key = supervised_keys[1]
-    input_shape = features_info[self._input_key].shape
-    num_output_classes = features_info[label_key].num_classes
+    self._input_name = input_names[0]
+    input_shape = features_info[self._input_name].shape
+    num_output_classes = features_info[target_names[0]].num_classes
     self._num_hidden_layers = num_hidden_layers
     self._dense_layers = []
     self._dropout_layers = []
@@ -51,7 +48,7 @@ class BasicFcRelu(tf.keras.Model):
         num_output_classes, activation="softmax")
 
   def call(self, inputs, training=False):
-    x = tf.cast(inputs[self._input_key], tf.float32) / 255.0
+    x = tf.cast(inputs[self._input_name], tf.float32) / 255.0
     x = self._flatten_layer(x)
     for i in range(self._num_hidden_layers):
       x = self._dense_layers[i](x)
@@ -73,20 +70,18 @@ def basic_fc_large():
 class BasicFcReluV2(tf.keras.Model):
   """Basic fully-connected + ReLU model, nicer code version."""
 
-  def __init__(self, features_info=None, supervised_keys=None,
+  def __init__(self, features_info=None, input_names=None, target_names=None,
                num_hidden_layers=2, hidden_size=64, dropout=0.1):
     super(BasicFcReluV2, self).__init__()
-    assert features_info is not None
-    assert supervised_keys is not None
-    self._input_key = supervised_keys[0]
-    self._input_shape = features_info[self._input_key].shape
-    self._num_output_classes = features_info[supervised_keys[1]].num_classes
+    self._input_name = input_names[0]
+    self._input_shape = features_info[self._input_name].shape
+    self._num_output_classes = features_info[target_names[0]].num_classes
     self._num_hidden_layers = num_hidden_layers
     self._dropout = dropout
     self._hidden_size = hidden_size
 
   def call(self, inputs, training=False):
-    x = tf.cast(inputs[self._input_key], tf.float32) / 255.0
+    x = tf.cast(inputs[self._input_name], tf.float32) / 255.0
     x = tf.keras.layers.Flatten(
         input_shape=self._input_shape)(x)
     for i in range(self._num_hidden_layers):

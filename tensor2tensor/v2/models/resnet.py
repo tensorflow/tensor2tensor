@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,19 +29,16 @@ import gin.tf
 class Resnet(tf.keras.Model):
   """Resnet."""
 
-  def __init__(self, features_info=None, supervised_keys=None,
+  def __init__(self, features_info=None, input_names=None, target_names=None,
                layer_sizes=None, filter_sizes=None):
+    super(Resnet, self).__init__()
     # Base config for resnet-50.
     if layer_sizes is None:
       layer_sizes = [3, 4, 6, 3]
     if filter_sizes is None:
       filter_sizes = [64, 64, 128, 256, 512]
-    assert features_info is not None
-    assert supervised_keys is not None
-    super(Resnet, self).__init__()
-    self._input_key = supervised_keys[0]
-    label_key = supervised_keys[1]
-    num_output_classes = features_info[label_key].num_classes
+    self._input_name = input_names[0]
+    num_output_classes = features_info[target_names[0]].num_classes
 
     # Now the model.
     def resnet_model(inputs, training):
@@ -58,7 +55,7 @@ class Resnet(tf.keras.Model):
         num_output_classes, activation="softmax")
 
   def call(self, inputs, training=False):
-    x = tf.cast(inputs[self._input_key], tf.float32) / 255.0
+    x = tf.cast(inputs[self._input_name], tf.float32) / 255.0
     x = self._resnet(x, training)
     x = tf.reduce_mean(x, axis=[1, 2])
     return self._logits(x)
