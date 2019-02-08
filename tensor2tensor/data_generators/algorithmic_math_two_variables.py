@@ -53,12 +53,39 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
+_URL = ("https://art.wangperawong.com/mathematical_language_understanding"
+         "_train.tar.gz")
+
+def _download_mlu_data(tmp_dir, data_dir):
+  """Downloads and extracts the dataset.
+
+  Args:
+    tmp_dir: temp directory to download and extract the dataset
+    data_dir: The base directory where data and vocab files are stored.
+
+  Returns:
+    tmp_dir: temp directory containing the raw data.
+  """
+  if not tf.gfile.Exists(data_dir):
+    tf.gfile.MakeDirs(data_dir)
+
+  filename = os.path.basename(_URL)
+  file_path = os.path.join(tmp_dir, filename)
+  headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_1) "
+                           "AppleWebKit/537.36 (KHTML, like Gecko) "
+                           "Chrome/63.0.3239.132 Safari/537.36"}
+  resp = requests.get(_URL, headers=headers)
+  with open(file_path, "wb") as f:
+    f.write(resp.content)
+
+  with tarfile.open(file_path, "r:gz") as tar:
+    tar.extractall(tmp_dir)
+
+  return tmp_dir
+
 @registry.register_problem
 class AlgorithmicMathTwoVariables(text_problems.Text2TextProblem):
   """Mathematical language understanding, see arxiv.org/abs/1812.02825."""
-
-  URL = ("https://art.wangperawong.com/mathematical_language_understanding"
-         "_train.tar.gz")
 
   @property
   def vocab_type(self):
@@ -96,12 +123,8 @@ class AlgorithmicMathTwoVariables(text_problems.Text2TextProblem):
       tf.gfile.MakeDirs(data_dir)
 
     # Download and extract.
-    compressed_filename = os.path.basename(self.URL)
-    download_path = generator_utils.maybe_download(
-        tmp_dir, compressed_filename, self.URL)
-    with tarfile.open(download_path, "r:gz") as tar:
-      tar.extractall(tmp_dir)
-    filepath = os.path.join(tmp_dir, "symbolic_math_train.txt")
+    download_path = download_mlu_data(tmp_dir, data_dir)
+    filepath = os.path.join(download_path, "symbolic_math_train.txt")
     with open(filepath, "r") as fp:
       for l in fp:
         prob, ans = l.strip().split(":")
