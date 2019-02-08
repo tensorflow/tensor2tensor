@@ -27,7 +27,7 @@ from tensor2tensor.utils import registry
 def next_frame_sv2p():
   """SV2P model hparams."""
   hparams = basic_stochastic.next_frame_basic_stochastic()
-  hparams.optimizer = "TrueAdam"
+  hparams.optimizer = "true_adam"
   hparams.learning_rate_schedule = "constant"
   hparams.learning_rate_constant = 1e-3
   hparams.video_num_input_frames = 1

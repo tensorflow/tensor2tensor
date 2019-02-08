@@ -783,7 +783,7 @@ def imagetransformer2d_tiny():
 
 def update_hparams_for_tpu(hparams):
   hparams.use_pad_remover = False  # where op not supported
-  hparams.optimizer = "TrueAdam"
+  hparams.optimizer = "true_adam"
   hparams.batch_size = 4
 
 

@@ -1876,7 +1876,7 @@ def transformer_tall_finetune_tied():
   hparams.multiproblem_target_eval_only = True
   hparams.multiproblem_reweight_label_loss = True
   hparams.multiproblem_label_weight = 1.0
-  hparams.optimizer = "TrueAdam"
+  hparams.optimizer = "true_adam"
   return hparams
 
 
@@ -1895,7 +1895,7 @@ def transformer_tall_train_tied():
   hparams.multiproblem_target_eval_only = True
   hparams.multiproblem_reweight_label_loss = True
   hparams.multiproblem_label_weight = 1.0
-  hparams.optimizer = "TrueAdam"
+  hparams.optimizer = "true_adam"
   return hparams
 
 
@@ -1905,7 +1905,7 @@ def transformer_tall_finetune_uniencdec():
   hparams = transformer_tall()
   hparams.max_input_seq_length = 750
   hparams.max_target_seq_length = 100
-  hparams.optimizer = "TrueAdam"
+  hparams.optimizer = "true_adam"
   hparams.learning_rate_schedule = ("linear_warmup*constant*cosdecay")
   hparams.learning_rate_decay_steps = 80000
   hparams.learning_rate_constant = 5e-5
@@ -1920,7 +1920,7 @@ def transformer_tall_train_uniencdec():
   hparams = transformer_tall()
   hparams.max_input_seq_length = 750
   hparams.max_target_seq_length = 100
-  hparams.optimizer = "TrueAdam"
+  hparams.optimizer = "true_adam"
   hparams.learning_rate_schedule = ("linear_warmup*constant*cosdecay")
   hparams.learning_rate_decay_steps = 150000
   hparams.learning_rate_constant = 2e-4
