@@ -351,7 +351,7 @@ def _define_collect(batch_env, ppo_hparams, scope, frame_stack_size, eval_phase,
         batch_env.initialize(sess)
 
     memory = [
-        tf.get_variable(
+        tf.get_variable(  # pylint: disable=g-complex-comprehension
             "collect_memory_%d_%s" % (epoch_length, name),
             shape=[epoch_length] + shape,
             dtype=dtype,

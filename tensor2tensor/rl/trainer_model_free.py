@@ -62,7 +62,9 @@ def initialize_env_specs(hparams):
 
   return rl.make_real_env_fn(env)
 
+
 step = 0
+
 
 def train(hparams, output_dir, report_fn=None):
   """Train."""
@@ -126,6 +128,7 @@ def train(hparams, output_dir, report_fn=None):
                 save_continuously=True,
                 epoch=0,
                 model_save_fn=evaluate_on_new_model)
+
 
 def main(_):
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
