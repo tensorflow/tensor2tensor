@@ -950,7 +950,7 @@ def _reverse_problem_hparams(p_hparams):
   # 'target', and each intended feature to swap has feature name 'input'.
   # In the future, remove need for this behavior.
   reversed_modality = {}
-  for feature_name in p.modality:
+  for feature_name in six.iterkeys(p.modality):
     reversed_feature_name = feature_name.replace("target", "input")
     if "target" in feature_name and reversed_feature_name in p.modality:
       reversed_modality[feature_name] = p.modality[reversed_feature_name]
@@ -962,7 +962,7 @@ def _reverse_problem_hparams(p_hparams):
 
   # Swap vocab sizes.
   reversed_vocab_size = {}
-  for feature_name in p.vocab_size:
+  for feature_name in six.iterkeys(p.vocab_size):
     reversed_feature_name = feature_name.replace("target", "input")
     if "target" in feature_name and reversed_feature_name in p.vocab_size:
       reversed_vocab_size[feature_name] = p.vocab_size[reversed_feature_name]

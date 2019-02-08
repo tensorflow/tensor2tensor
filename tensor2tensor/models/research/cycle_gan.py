@@ -57,7 +57,7 @@ def lossfn(real_input, fake_input, compress, hparams, lsgan, name):
       loss = (dloss + gloss)/2
     else:  # cross_entropy
       dloss = -tf.reduce_mean(
-          tf.log(d1 + eps)) - tf.reduce_mean(tf.log1p(eps - d2))
+          tf.log(d1 + eps)) - tf.reduce_mean(tf.log(1 - d2 + eps))
       gloss = -tf.reduce_mean(tf.log(d2 + eps))
       loss = (dloss + gloss)/2
     return loss

@@ -1939,7 +1939,7 @@ def sample_from_discretized_mix_logistic(pred, seed=None):
   # nearest 8-bit value when sampling.
   uniform_noise = tf.random_uniform(
       tf.shape(locs), minval=1e-5, maxval=1. - 1e-5, seed=seed)
-  logistic_noise = tf.log(uniform_noise) - tf.log1p(-uniform_noise)
+  logistic_noise = tf.log(uniform_noise) - tf.log(1. - uniform_noise)
   x = locs + tf.exp(log_scales) * logistic_noise
   x0 = x[..., 0]
   x1 = x[..., 1] + coeffs[..., 0] * x0

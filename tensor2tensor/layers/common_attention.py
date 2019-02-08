@@ -1002,7 +1002,7 @@ def attention_bias_proximal(length):
   """
   r = tf.to_float(tf.range(length))
   diff = tf.expand_dims(r, 0) - tf.expand_dims(r, 1)
-  return tf.expand_dims(tf.expand_dims(-tf.log1p(tf.abs(diff)), 0), 0)
+  return tf.expand_dims(tf.expand_dims(-tf.log(1 + tf.abs(diff)), 0), 0)
 
 
 @expert_utils.add_name_scope()
