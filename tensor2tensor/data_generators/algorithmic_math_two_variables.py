@@ -44,8 +44,8 @@ from __future__ import print_function
 
 import os
 import tarfile
+import requests
 
-from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
@@ -54,7 +54,8 @@ import tensorflow as tf
 
 
 _URL = ("https://art.wangperawong.com/mathematical_language_understanding"
-         "_train.tar.gz")
+        "_train.tar.gz")
+
 
 def _download_mlu_data(tmp_dir, data_dir):
   """Downloads and extracts the dataset.
@@ -82,6 +83,7 @@ def _download_mlu_data(tmp_dir, data_dir):
     tar.extractall(tmp_dir)
 
   return tmp_dir
+
 
 @registry.register_problem
 class AlgorithmicMathTwoVariables(text_problems.Text2TextProblem):
@@ -123,7 +125,7 @@ class AlgorithmicMathTwoVariables(text_problems.Text2TextProblem):
       tf.gfile.MakeDirs(data_dir)
 
     # Download and extract.
-    download_path = download_mlu_data(tmp_dir, data_dir)
+    download_path = _download_mlu_data(tmp_dir, data_dir)
     filepath = os.path.join(download_path, "symbolic_math_train.txt")
     with open(filepath, "r") as fp:
       for l in fp:

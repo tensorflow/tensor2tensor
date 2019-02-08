@@ -24,6 +24,7 @@ import re
 MODULES = [
     "tensor2tensor.data_generators.algorithmic",
     "tensor2tensor.data_generators.algorithmic_math",
+    "tensor2tensor.data_generators.algorithmic_math_two_variables",
     "tensor2tensor.data_generators.allen_brain",
     "tensor2tensor.data_generators.audio",
     "tensor2tensor.data_generators.babi_qa",
@@ -50,7 +51,6 @@ MODULES = [
     "tensor2tensor.data_generators.lm1b",
     "tensor2tensor.data_generators.lm1b_imdb",
     "tensor2tensor.data_generators.lm1b_mnli",
-    "tensor2tensor.data_generators.algorithmic_math_two_variables",
     "tensor2tensor.data_generators.mnist",
     "tensor2tensor.data_generators.mrpc",
     "tensor2tensor.data_generators.mscoco",
