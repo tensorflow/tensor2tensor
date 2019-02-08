@@ -76,15 +76,17 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     layer.get_config()
 
   @test_utils.run_in_graph_and_eager_modes()
-  def testDenseReparameterizationKL(self):
-    inputs = tf.to_float(np.random.rand(5, 12))
+  def testDenseReparameterizationLoss(self):
+    features = tf.to_float(np.random.rand(5, 12))
+    labels = tf.to_float(np.random.rand(5, 10))
     layer = bayes.DenseReparameterization(10)
 
     # Imagine this is the 1st epoch.
-    with tf.GradientTape() as tape:
-      layer(inputs)  # first call forces a build, here inside this tape
-      layer(inputs)  # ensure robustness after multiple calls
-      loss = sum(layer.losses)
+    with tf.GradientTape(persistent=True) as tape:
+      predictions = layer(features)  # first call forces build
+      layer(features)  # ensure robustness after multiple calls
+      nll = tf.losses.mean_squared_error(labels, predictions)
+      kl = sum(layer.losses)
 
     variables = [layer.kernel_initializer.mean, layer.kernel_initializer.stddev]
     for v in variables:
@@ -92,14 +94,18 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
 
     # This will be fine, since the layer was built inside this tape, and thus
     # the distribution init ops were inside this tape.
-    grads = tape.gradient(loss, variables)
+    grads = tape.gradient(nll, variables)
+    for grad in grads:
+      self.assertIsNotNone(grad)
+    grads = tape.gradient(kl, variables)
     for grad in grads:
       self.assertIsNotNone(grad)
 
     # Imagine this is the 2nd epoch.
-    with tf.GradientTape() as tape:
-      layer(inputs)  # build won't be called again
-      loss = sum(layer.losses)
+    with tf.GradientTape(persistent=True) as tape:
+      predictions = layer(features)  # build is not called
+      nll = tf.losses.mean_squared_error(labels, predictions)
+      kl = sum(layer.losses)
 
     variables = [layer.kernel_initializer.mean, layer.kernel_initializer.stddev]
     for v in variables:
@@ -108,7 +114,10 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     # This would fail, since the layer was built inside the tape from the 1st
     # epoch, and thus the distribution init ops were inside that tape instead of
     # this tape. By using a callable for the variable, this will no longer fail.
-    grads = tape.gradient(loss, variables)
+    grads = tape.gradient(nll, variables)
+    for grad in grads:
+      self.assertIsNotNone(grad)
+    grads = tape.gradient(kl, variables)
     for grad in grads:
       self.assertIsNotNone(grad)
 
@@ -273,18 +282,20 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     cell.get_config()
 
   @test_utils.run_in_graph_and_eager_modes()
-  def testLSTMCellReparameterizationKL(self):
-    inputs = tf.to_float(np.random.rand(5, 1, 12))
+  def testLSTMCellReparameterizationLoss(self):
+    features = tf.to_float(np.random.rand(5, 1, 12))
+    labels = tf.to_float(np.random.rand(5, 10))
     cell = bayes.LSTMCellReparameterization(10)
     state = (tf.zeros([1, 10]), tf.zeros([1, 10]))
 
     # Imagine this is the 1st epoch.
-    with tf.GradientTape() as tape:
-      cell(inputs[:, 0, :], state)  # first call forces a build, inside the tape
-      cell(inputs[:, 0, :], state)  # ensure robustness after multiple calls
-      cell.get_initial_state(inputs[:, 0, :])
-      cell(inputs[:, 0, :], state)  # ensure robustness after multiple calls
-      loss = sum(cell.losses)
+    with tf.GradientTape(persistent=True) as tape:
+      predictions, _ = cell(features[:, 0, :], state)  # first call forces build
+      cell(features[:, 0, :], state)  # ensure robustness after multiple calls
+      cell.get_initial_state(features[:, 0, :])
+      cell(features[:, 0, :], state)  # ensure robustness after multiple calls
+      nll = tf.losses.mean_squared_error(labels, predictions)
+      kl = sum(cell.losses)
 
     variables = [
         cell.kernel_initializer.mean, cell.kernel_initializer.stddev,
@@ -295,14 +306,19 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
 
     # This will be fine, since the layer was built inside this tape, and thus
     # the distribution init ops were inside this tape.
-    grads = tape.gradient(loss, variables)
+    grads = tape.gradient(nll, variables)
+    for grad in grads:
+      self.assertIsNotNone(grad)
+    grads = tape.gradient(kl, variables)
     for grad in grads:
       self.assertIsNotNone(grad)
 
     # Imagine this is the 2nd epoch.
-    with tf.GradientTape() as tape:
-      cell(inputs[:, 0, :], state)  # build won't be called again
-      loss = sum(cell.losses)
+    with tf.GradientTape(persistent=True) as tape:
+      cell.get_initial_state(features[:, 0, :])
+      predictions, _ = cell(features[:, 0, :], state)  # build is not called
+      nll = tf.losses.mean_squared_error(labels, predictions)
+      kl = sum(cell.losses)
 
     variables = [
         cell.kernel_initializer.mean, cell.kernel_initializer.stddev,
@@ -314,7 +330,10 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     # This would fail, since the layer was built inside the tape from the 1st
     # epoch, and thus the distribution init ops were inside that tape instead of
     # this tape. By using a callable for the variable, this will no longer fail.
-    grads = tape.gradient(loss, variables)
+    grads = tape.gradient(nll, variables)
+    for grad in grads:
+      self.assertIsNotNone(grad)
+    grads = tape.gradient(kl, variables)
     for grad in grads:
       self.assertIsNotNone(grad)
 

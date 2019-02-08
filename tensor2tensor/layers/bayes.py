@@ -26,8 +26,6 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 
 from tensorflow_probability import edward2 as ed
-from tensorflow.python.keras.utils import conv_utils  # pylint: disable=g-direct-tensorflow-import
-from tensorflow.python.ops import nn_ops  # pylint: disable=g-direct-tensorflow-import
 
 
 class Positive(tf.keras.constraints.Constraint):
@@ -151,6 +149,10 @@ def _compute_fans(shape):
       receptive_field_size *= dim
     fan_in = shape[-2] * receptive_field_size
     fan_out = shape[-1] * receptive_field_size
+  if isinstance(fan_in, tf.Dimension):
+    fan_in = fan_in.value
+  if isinstance(fan_out, tf.Dimension):
+    fan_out = fan_out.value
   return fan_in, fan_out
 
 
@@ -219,24 +221,7 @@ class ScaledNormalStdDev(tf.keras.initializers.VarianceScaling):
                                       dtype=dtype)
 
 
-# TODO(dusenberrymw): Restructure the implementation of a trainable initializer
-# such that callers do not need to have type-conditional logic.
-class TrainableInitializer(tf.keras.initializers.Initializer):
-  """An initializer with trainable variables.
-
-  In this implementation, a layer must call `build` before usage in order to
-  capture the variables.
-  """
-
-  def __init__(self):
-    self.built = False
-
-  def build(self, shape, dtype=None, add_variable_fn=None):
-    """Builds the initializer, with the variables captured by the caller."""
-    raise NotImplementedError
-
-
-class TrainableNormal(TrainableInitializer):
+class TrainableNormal(tf.keras.layers.Layer):
   """Random normal op as an initializer with trainable mean and stddev."""
 
   def __init__(self,
@@ -248,9 +233,10 @@ class TrainableNormal(TrainableInitializer):
                mean_constraint=None,
                stddev_constraint='positive',
                seed=None,
-               dtype=tf.float32):
+               dtype=tf.float32,
+               **kwargs):
     """Constructs the initializer."""
-    super(TrainableNormal, self).__init__()
+    super(TrainableNormal, self).__init__(dtype=dtype, **kwargs)
     self.mean_initializer = get(mean_initializer)
     self.stddev_initializer = get(stddev_initializer)
     self.mean_regularizer = get(mean_regularizer)
@@ -258,16 +244,12 @@ class TrainableNormal(TrainableInitializer):
     self.mean_constraint = get(mean_constraint)
     self.stddev_constraint = get(stddev_constraint)
     self.seed = seed
-    self.dtype = tf.as_dtype(dtype)
 
-  def build(self, shape, dtype=None, add_variable_fn=None):
-    """Builds the initializer, with the variables captured by the caller."""
+  def build(self, shape, dtype=None):
     if dtype is None:
       dtype = self.dtype
-    self.shape = shape
-    self.dtype = tf.as_dtype(dtype)
 
-    self.mean = add_variable_fn(
+    self.mean = self.add_weight(
         'mean',
         shape=shape,
         initializer=self.mean_initializer,
@@ -275,7 +257,7 @@ class TrainableNormal(TrainableInitializer):
         constraint=self.mean_constraint,
         dtype=dtype,
         trainable=True)
-    self.stddev = add_variable_fn(
+    self.stddev = self.add_weight(
         'stddev',
         shape=shape,
         initializer=self.stddev_initializer,
@@ -285,16 +267,13 @@ class TrainableNormal(TrainableInitializer):
         trainable=True)
     self.built = True
 
-  def __call__(self, shape=None, dtype=None, partition_info=None):
-    del shape, dtype, partition_info  # Unused in TrainableInitializers.
-    # TODO(dusenberrymw): Restructure so that we can build as needed.
+  def __call__(self, shape, dtype=None, partition_info=None):
+    del partition_info  # unused arg
     if not self.built:
-      raise ValueError('A TrainableInitializer must be built by a layer before '
-                       'usage, and is currently only compatible with Bayesian '
-                       'layers.')
+      self.build(shape, dtype)
     return ed.Independent(
         ed.Normal(loc=self.mean, scale=self.stddev).distribution,
-        reinterpreted_batch_ndims=len(self.shape))
+        reinterpreted_batch_ndims=len(shape))
 
   def get_config(self):
     return {
@@ -311,7 +290,7 @@ class TrainableNormal(TrainableInitializer):
         'stddev_constraint':
             tf.keras.constraints.serialize(self.stddev_constraint),
         'seed': self.seed,
-        'dtype': self.dtype.name,
+        'dtype': self.dtype,
     }
 
 
@@ -436,67 +415,42 @@ class DenseReparameterization(tf.keras.layers.Dense):
         activity_regularizer=get(activity_regularizer),
         **kwargs)
 
-  @property
-  def kernel(self):
-    if isinstance(self.kernel_initializer, TrainableInitializer):
-      return self.kernel_initializer()
-    else:
-      return self._kernel
+  # TODO(trandustin): This name is not accurate. Rename or move functionality
+  # into random variables to resample/recreate their init ops.
+  def sample_weights(self):
+    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
+      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
+    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
+      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
 
-  @property
-  def bias(self):
-    if isinstance(self.bias_initializer, TrainableInitializer):
-      return self.bias_initializer()
-    else:
-      return self._bias
+  def call(self, *args, **kwargs):
+    self.sample_weights()
+    return super(DenseReparameterization, self).call(*args, **kwargs)
 
-  def build(self, input_shape):
-    input_shape = tf.TensorShape(input_shape)
-    last_dim = input_shape[-1]
-    if isinstance(last_dim, tf.Dimension):
-      last_dim = last_dim.value
-    if last_dim is None:
-      raise ValueError('The last dimension of the inputs to `Dense` '
-                       'should be defined. Found `None`.')
-    self.input_spec = tf.layers.InputSpec(min_ndim=2, axes={-1: last_dim})
-
-    if isinstance(self.kernel_initializer, TrainableInitializer):
-      self.kernel_initializer.build([last_dim, self.units],
-                                    self.dtype,
-                                    self.add_weight)
-      if self.kernel_regularizer is not None:
-        self.add_loss(create_regularization_loss_fn(
-            'kernel', lambda: self.kernel, self.kernel_regularizer))
-
-    else:
-      self._kernel = self.add_weight(
-          'kernel',
-          shape=[last_dim, self.units],
-          initializer=self.kernel_initializer,
-          regularizer=self.kernel_regularizer,
-          constraint=self.kernel_constraint,
-          dtype=self.dtype,
-          trainable=True)
-
-    if self.use_bias:
-      if isinstance(self.bias_initializer, TrainableInitializer):
-        self.bias_initializer.build([self.units], self.dtype, self.add_weight)
-        if self.bias_regularizer is not None:
-          self.add_loss(create_regularization_loss_fn(
-              'bias', lambda: self.bias, self.bias_regularizer))
-      else:
-        self._bias = self.add_weight(
-            'bias',
-            shape=[self.units],
-            initializer=self.bias_initializer,
-            regularizer=self.bias_regularizer,
-            constraint=self.bias_constraint,
-            dtype=self.dtype,
-            trainable=True)
-
-    else:
-      self._bias = None
-    self.built = True
+  def add_weight(self,
+                 name=None,
+                 shape=None,
+                 dtype=None,
+                 initializer=None,
+                 regularizer=None,
+                 **kwargs):
+    if isinstance(initializer, tf.keras.layers.Layer):
+      weight = initializer(shape, dtype)
+      self._trainable_weights.extend(initializer.trainable_weights)
+      self._non_trainable_weights.extend(initializer.non_trainable_weights)
+      if regularizer is not None:
+        self.add_loss(
+            create_regularization_loss_fn(name,
+                                          lambda: initializer(shape, dtype),
+                                          regularizer))
+      return weight
+    return super(DenseReparameterization, self).add_weight(
+        name=name,
+        shape=shape,
+        dtype=dtype,
+        initializer=initializer,
+        regularizer=regularizer,
+        **kwargs)
 
 
 class Conv2DReparameterization(tf.keras.layers.Conv2D):
@@ -553,87 +507,40 @@ class Conv2DReparameterization(tf.keras.layers.Conv2D):
         bias_constraint=get(bias_constraint),
         **kwargs)
 
-  @property
-  def kernel(self):
-    if isinstance(self.kernel_initializer, TrainableInitializer):
-      return self.kernel_initializer()
-    else:
-      return self._kernel
+  def sample_weights(self):
+    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
+      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
+    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
+      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
 
-  @property
-  def bias(self):
-    if isinstance(self.bias_initializer, TrainableInitializer):
-      return self.bias_initializer()
-    else:
-      return self._bias
+  def call(self, *args, **kwargs):
+    self.sample_weights()
+    return super(Conv2DReparameterization, self).call(*args, **kwargs)
 
-  def build(self, input_shape):
-    input_shape = tf.TensorShape(input_shape)
-    if self.data_format == 'channels_first':
-      channel_axis = 1
-    else:
-      channel_axis = -1
-    if input_shape.dims[channel_axis].value is None:
-      raise ValueError('The channel dimension of the inputs '
-                       'should be defined. Found `None`.')
-    input_dim = int(input_shape[channel_axis])
-    kernel_shape = self.kernel_size + (input_dim, self.filters)
-
-    if isinstance(self.kernel_initializer, TrainableInitializer):
-      self.kernel_initializer.build(kernel_shape,
-                                    self.dtype,
-                                    self.add_weight)
-      if self.kernel_regularizer is not None:
-        self.add_loss(create_regularization_loss_fn(
-            'kernel', lambda: self.kernel, self.kernel_regularizer))
-
-    else:
-      self._kernel = self.add_weight(
-          name='kernel',
-          shape=kernel_shape,
-          initializer=self.kernel_initializer,
-          regularizer=self.kernel_regularizer,
-          constraint=self.kernel_constraint,
-          trainable=True,
-          dtype=self.dtype)
-
-    if self.use_bias:
-      if isinstance(self.bias_initializer, TrainableInitializer):
-        self.bias_initializer.build((self.filters,),
-                                    self.dtype,
-                                    self.add_weight)
-        if self.bias_regularizer is not None:
-          self.add_loss(create_regularization_loss_fn(
-              'bias', lambda: self.bias, self.bias_regularizer))
-      else:
-        self._bias = self.add_weight(
-            name='bias',
-            shape=(self.filters,),
-            initializer=self.bias_initializer,
-            regularizer=self.bias_regularizer,
-            constraint=self.bias_constraint,
-            trainable=True,
-            dtype=self.dtype)
-    else:
-      self._bias = None
-
-    self.input_spec = tf.layers.InputSpec(ndim=self.rank + 2,
-                                          axes={channel_axis: input_dim})
-    if self.padding == 'causal':
-      op_padding = 'valid'
-    else:
-      op_padding = self.padding
-    if not isinstance(op_padding, (list, tuple)):
-      op_padding = op_padding.upper()
-    self._convolution_op = nn_ops.Convolution(
-        input_shape,
-        filter_shape=self.kernel.get_shape(),
-        dilation_rate=self.dilation_rate,
-        strides=self.strides,
-        padding=op_padding,
-        data_format=conv_utils.convert_data_format(self.data_format,
-                                                   self.rank + 2))
-    self.built = True
+  def add_weight(self,
+                 name=None,
+                 shape=None,
+                 dtype=None,
+                 initializer=None,
+                 regularizer=None,
+                 **kwargs):
+    if isinstance(initializer, tf.keras.layers.Layer):
+      weight = initializer(shape, dtype)
+      self._trainable_weights.extend(initializer.trainable_weights)
+      self._non_trainable_weights.extend(initializer.non_trainable_weights)
+      if regularizer is not None:
+        self.add_loss(
+            create_regularization_loss_fn(name,
+                                          lambda: initializer(shape, dtype),
+                                          regularizer))
+      return weight
+    return super(Conv2DReparameterization, self).add_weight(
+        name=name,
+        shape=shape,
+        dtype=dtype,
+        initializer=initializer,
+        regularizer=regularizer,
+        **kwargs)
 
 
 class GaussianProcess(tf.keras.layers.Layer):
@@ -854,49 +761,22 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
     input_dim = input_shape[-1]
     if isinstance(input_dim, tf.Dimension):
       input_dim = input_dim.value
-
-    if isinstance(self.kernel_initializer, TrainableInitializer):
-      self.kernel_initializer.build(
-          [input_dim, self.units * 4], self.dtype, self.add_weight)
-      self.kernel = self.kernel_initializer()
-      if self.kernel_regularizer is not None:
-        self.add_loss(create_regularization_loss_fn(
-            # Can't use the kernel directly because we actually need to create a
-            # new Edward RV.  The Dense layer already does this.
-            # Also note that the initializer is a callable.
-            'kernel', self.kernel_initializer, self.kernel_regularizer))
-
-    else:
-      self.kernel = self.add_weight(
-          shape=(input_dim, self.units * 4),
-          name='kernel',
-          initializer=self.kernel_initializer,
-          regularizer=self.kernel_regularizer,
-          constraint=self.kernel_constraint)
-
-    if isinstance(self.recurrent_initializer, TrainableInitializer):
-      self.recurrent_initializer.build(
-          [self.units, self.units * 4], self.dtype, self.add_weight)
-      self.recurrent_kernel = self.recurrent_initializer()
-      if self.recurrent_regularizer is not None:
-        self.add_loss(create_regularization_loss_fn(
-            # Can't use the kernel directly because we actually need to create a
-            # new Edward RV.  The Dense layer already does this.
-            # Also note that the initializer is a callable.
-            'recurrent_kernel', self.recurrent_initializer,
-            self.recurrent_regularizer))
-
-    else:
-      self.recurrent_kernel = self.add_weight(
-          shape=(self.units, self.units * 4),
-          name='recurrent_kernel',
-          initializer=self.recurrent_initializer,
-          regularizer=self.recurrent_regularizer,
-          constraint=self.recurrent_constraint)
+    self.kernel = self.add_weight(
+        shape=(input_dim, self.units * 4),
+        name='kernel',
+        initializer=self.kernel_initializer,
+        regularizer=self.kernel_regularizer,
+        constraint=self.kernel_constraint)
+    self.recurrent_kernel = self.add_weight(
+        shape=(self.units, self.units * 4),
+        name='recurrent_kernel',
+        initializer=self.recurrent_initializer,
+        regularizer=self.recurrent_regularizer,
+        constraint=self.recurrent_constraint)
 
     if self.use_bias:
-      if isinstance(self.bias_initializer, TrainableInitializer):
-        if self.unit_forget_bias:
+      if self.unit_forget_bias:
+        if isinstance(self.bias_initializer, tf.keras.layers.Layer):
           def bias_mean_initializer(_, *args, **kwargs):
             return tf.concat([
                 tf.keras.initializers.truncated_normal(
@@ -906,45 +786,35 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
                 tf.keras.initializers.truncated_normal(
                     stddev=1e-5)((self.units * 2,), *args, **kwargs),
             ], axis=0)
-          self.bias_initializer = TrainableNormal(
+          bias_initializer = TrainableNormal(
               mean_initializer=bias_mean_initializer)
-
-        self.bias_initializer.build(
-            [self.units * 4], self.dtype, self.add_weight)
-        self.bias = self.bias_initializer()
-        if self.bias_regularizer is not None:
-          self.add_loss(create_regularization_loss_fn(
-              # Can't use the bias directly because we actually need to create a
-              # new Edward RV.  The Dense layer already does this.
-              # Also note that the initializer is a callable.
-              'bias', self.bias_initializer, self.bias_regularizer))
-      else:
-        if self.unit_forget_bias:
+        else:
           def bias_initializer(_, *args, **kwargs):
             return tf.keras.backend.concatenate([
                 self.bias_initializer((self.units,), *args, **kwargs),
                 tf.keras.initializers.Ones()((self.units,), *args, **kwargs),
                 self.bias_initializer((self.units * 2,), *args, **kwargs),
             ])
-        else:
-          bias_initializer = self.bias_initializer
-        self.bias = self.add_weight(
-            shape=(self.units * 4,),
-            name='bias',
-            initializer=bias_initializer,
-            regularizer=self.bias_regularizer,
-            constraint=self.bias_constraint)
+      else:
+        bias_initializer = self.bias_initializer
+      self.bias = self.add_weight(
+          shape=(self.units * 4,),
+          name='bias',
+          initializer=bias_initializer,
+          regularizer=self.bias_regularizer,
+          constraint=self.bias_constraint)
     else:
       self.bias = None
     self.built = True
 
   def sample_weights(self):
-    if isinstance(self.kernel_initializer, TrainableInitializer):
-      self.kernel = self.kernel_initializer()
-    if isinstance(self.recurrent_initializer, TrainableInitializer):
-      self.recurrent_kernel = self.recurrent_initializer()
-    if isinstance(self.bias_initializer, TrainableInitializer):
-      self.bias = self.bias_initializer()
+    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
+      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
+    if isinstance(self.recurrent_initializer, tf.keras.layers.Layer):
+      self.recurrent_kernel = self.recurrent_initializer(
+          self.recurrent_kernel.shape, self.dtype)
+    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
+      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
 
   # NOTE: This will not be called in TF < 1.11.
   def get_initial_state(self, inputs=None, batch_size=None, dtype=None):
@@ -954,7 +824,35 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
     return super(LSTMCellReparameterization, self).get_initial_state(
         inputs=inputs, batch_size=batch_size, dtype=dtype)
 
+  def add_weight(self,
+                 name=None,
+                 shape=None,
+                 dtype=None,
+                 initializer=None,
+                 regularizer=None,
+                 **kwargs):
+    if isinstance(initializer, tf.keras.layers.Layer):
+      weight = initializer(shape, dtype)
+      self._trainable_weights.extend(initializer.trainable_weights)
+      self._non_trainable_weights.extend(initializer.non_trainable_weights)
+      if regularizer is not None:
+        self.add_loss(
+            create_regularization_loss_fn(name,
+                                          lambda: initializer(shape, dtype),
+                                          regularizer))
+      return weight
+    return super(LSTMCellReparameterization, self).add_weight(
+        name=name,
+        shape=shape,
+        dtype=dtype,
+        initializer=initializer,
+        regularizer=regularizer,
+        **kwargs)
 
+
+# TODO(trandustin): Replace need for this function with
+# Layer._handle_weight_regularization. For Eager compatibility, random variable
+# __init__s cannot apply TF ops (cl/220898007).
 def create_regularization_loss_fn(name, variable_fn, regularizer_fn):
   """Create a regularization loss function.
 
