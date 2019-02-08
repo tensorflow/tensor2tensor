@@ -26,6 +26,8 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 
 from tensorflow_probability import edward2 as ed
+from tensorflow.python.keras.utils import conv_utils  # pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.ops import nn_ops  # pylint: disable=g-direct-tensorflow-import
 
 
 class Positive(tf.keras.constraints.Constraint):
@@ -494,6 +496,143 @@ class DenseReparameterization(tf.keras.layers.Dense):
 
     else:
       self._bias = None
+    self.built = True
+
+
+class Conv2DReparameterization(tf.keras.layers.Conv2D):
+  """2D convolution layer (e.g. spatial convolution over images).
+
+  The layer computes a variational Bayesian approximation to the distribution
+  over convolutional layers,
+
+  ```
+  p(outputs | inputs) = int conv2d(inputs; weights, bias) p(weights, bias)
+    dweights dbias.
+  ```
+
+  It does this with a stochastic forward pass, sampling from learnable
+  distributions on the kernel and bias. Gradients with respect to the
+  distributions' learnable parameters backpropagate via reparameterization.
+  Minimizing cross-entropy plus the layer's losses performs variational
+  minimum description length, i.e., it minimizes an upper bound to the negative
+  marginal likelihood.
+  """
+
+  def __init__(self,
+               filters,
+               kernel_size,
+               strides=(1, 1),
+               padding='valid',
+               data_format=None,
+               dilation_rate=(1, 1),
+               activation=None,
+               use_bias=True,
+               kernel_initializer='trainable_normal',
+               bias_initializer='zeros',
+               kernel_regularizer='normal_kl_divergence',
+               bias_regularizer=None,
+               activity_regularizer=None,
+               kernel_constraint=None,
+               bias_constraint=None,
+               **kwargs):
+    super(Conv2DReparameterization, self).__init__(
+        filters=filters,
+        kernel_size=kernel_size,
+        strides=strides,
+        padding=padding,
+        data_format=data_format,
+        dilation_rate=dilation_rate,
+        activation=get(activation),
+        use_bias=use_bias,
+        kernel_initializer=get(kernel_initializer),
+        bias_initializer=get(bias_initializer),
+        kernel_regularizer=get(kernel_regularizer),
+        bias_regularizer=get(bias_regularizer),
+        activity_regularizer=get(activity_regularizer),
+        kernel_constraint=get(kernel_constraint),
+        bias_constraint=get(bias_constraint),
+        **kwargs)
+
+  @property
+  def kernel(self):
+    if isinstance(self.kernel_initializer, TrainableInitializer):
+      return self.kernel_initializer()
+    else:
+      return self._kernel
+
+  @property
+  def bias(self):
+    if isinstance(self.bias_initializer, TrainableInitializer):
+      return self.bias_initializer()
+    else:
+      return self._bias
+
+  def build(self, input_shape):
+    input_shape = tf.TensorShape(input_shape)
+    if self.data_format == 'channels_first':
+      channel_axis = 1
+    else:
+      channel_axis = -1
+    if input_shape.dims[channel_axis].value is None:
+      raise ValueError('The channel dimension of the inputs '
+                       'should be defined. Found `None`.')
+    input_dim = int(input_shape[channel_axis])
+    kernel_shape = self.kernel_size + (input_dim, self.filters)
+
+    if isinstance(self.kernel_initializer, TrainableInitializer):
+      self.kernel_initializer.build(kernel_shape,
+                                    self.dtype,
+                                    self.add_weight)
+      if self.kernel_regularizer is not None:
+        self.add_loss(create_regularization_loss_fn(
+            'kernel', lambda: self.kernel, self.kernel_regularizer))
+
+    else:
+      self._kernel = self.add_weight(
+          name='kernel',
+          shape=kernel_shape,
+          initializer=self.kernel_initializer,
+          regularizer=self.kernel_regularizer,
+          constraint=self.kernel_constraint,
+          trainable=True,
+          dtype=self.dtype)
+
+    if self.use_bias:
+      if isinstance(self.bias_initializer, TrainableInitializer):
+        self.bias_initializer.build((self.filters,),
+                                    self.dtype,
+                                    self.add_weight)
+        if self.bias_regularizer is not None:
+          self.add_loss(create_regularization_loss_fn(
+              'bias', lambda: self.bias, self.bias_regularizer))
+      else:
+        self._bias = self.add_weight(
+            name='bias',
+            shape=(self.filters,),
+            initializer=self.bias_initializer,
+            regularizer=self.bias_regularizer,
+            constraint=self.bias_constraint,
+            trainable=True,
+            dtype=self.dtype)
+    else:
+      self._bias = None
+
+    self.input_spec = tf.layers.InputSpec(ndim=self.rank + 2,
+                                          axes={channel_axis: input_dim})
+    if self.padding == 'causal':
+      op_padding = 'valid'
+    else:
+      op_padding = self.padding
+    if not isinstance(op_padding, (list, tuple)):
+      op_padding = op_padding.upper()
+    self._convolution_op = nn_ops.Convolution(
+        input_shape,
+        filter_shape=self.kernel.get_shape(),
+        dilation_rate=self.dilation_rate,
+        strides=self.strides,
+        padding=op_padding,
+        data_format=conv_utils.convert_data_format(self.data_format,
+                                                   self.rank + 2))
     self.built = True
 
 
