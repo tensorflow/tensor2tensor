@@ -42,7 +42,8 @@ class SymbolModality(modality.Modality):
 
   @property
   def name(self):
-    return "symbol_modality_%d_%d" % (self._vocab_size, self._body_input_depth)
+    return "symbol_modality_%d_%d" % (self._vocab_size,
+                                      self._model_hparams.hidden_size)
 
   @property
   def top_is_pointwise(self):
@@ -71,13 +72,13 @@ class SymbolModality(modality.Modality):
     """Create or get concatenated embedding or softmax variable.
 
     Args:
-      hidden_dim: dim of the variable. Defaults to self._body_input_depth
+      hidden_dim: dim of the variable. Defaults to _model_hparams' hidden_size
 
     Returns:
        a list of self._num_shards Tensors.
     """
     if hidden_dim is None:
-      hidden_dim = self._body_input_depth
+      hidden_dim = self._model_hparams.hidden_size
     num_shards = self._model_hparams.symbol_modality_num_shards
     shards = []
     for i in range(num_shards):
@@ -110,7 +111,7 @@ class SymbolModality(modality.Modality):
           x, 1.0 - self._model_hparams.symbol_dropout)
       ret = common_layers.gather(var, x)
       if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
-        ret *= self._body_input_depth**0.5
+        ret *= self._model_hparams.hidden_size**0.5
       ret *= tf.expand_dims(
           common_layers.cast_like(tf.not_equal(x, 0), ret), -1)
       return ret
@@ -136,7 +137,9 @@ class SymbolModality(modality.Modality):
     """Generate logits.
 
     Args:
-      body_output: A Tensor with shape [batch, p0, p1, body_input_depth]
+      body_output: A Tensor with shape
+        [batch, p0, p1, self._model_hparams.hidden_size].
+
     Returns:
       logits: A Tensor with shape  [batch, p0, p1, ?, vocab_size].
     """
@@ -255,7 +258,7 @@ class ImageModality(modality.Modality):
       embedded = tf.reshape(embedded, inputs_shape[:3] + [merged_size])
       merged = tf.layers.dense(
           embedded,
-          self._body_input_depth,
+          self._model_hparams.hidden_size,
           name="merge_pixel_embedded_channels")
       return merged
 
@@ -308,7 +311,8 @@ class ImageChannelCompressModality(modality.Modality):
       name: string, scope.
 
     Returns:
-      body_input: Tensor of shape [batch, img_len, img_len, body_input_depth].
+      body_input: Tensor of shape
+        [batch, img_len, img_len, self._model_hparams.hidden_size].
     """
     with tf.variable_scope(name):
       inputs = tf.to_float(inputs)
@@ -328,7 +332,7 @@ class ImageChannelCompressModality(modality.Modality):
       # Compress RGB intensities for each pixel using a convolution.
       outputs = tf.layers.conv2d(
           inputs,
-          self._body_input_depth,
+          self._model_hparams.hidden_size,
           kernel_size=(1, self.num_channels),
           padding="VALID",
           strides=(1, self.num_channels),
@@ -435,8 +439,10 @@ class AudioModality(modality.Modality):
 
     Args:
       x: A Tensor with shape [batch, ...]
+
     Returns:
-      body_input: A Tensor with shape [batch, ?, ?, body_input_depth].
+      body_input: A Tensor with shape [batch, ?, ?,
+        self._model_hparams.hidden_size].
     """
     inputs = x
     with tf.variable_scope(self.name):
@@ -467,7 +473,9 @@ class AudioModality(modality.Modality):
       x.set_shape([None, None, None, 1])
       for i in range(self._model_hparams.audio_compression):
         x = xnet_resblock(x, 2**(i + 1), True, "compress_block_%d" % i)
-      return xnet_resblock(x, self._body_input_depth, False,
+      return xnet_resblock(x,
+                           self._model_hparams.hidden_size,
+                           False,
                            "compress_block_final")
 
 
@@ -479,8 +487,10 @@ class AudioSpectralModality(modality.Modality):
 
     Args:
       x: A Tensor with shape [batch, ...]
+
     Returns:
-      body_input: A Tensor with shape [batch, ?, ?, body_input_depth].
+      body_input: A Tensor with shape [batch, ?, ?,
+        self._model_hparams.hidden_size].
     """
     inputs = x
     with tf.variable_scope(self.name):
@@ -512,7 +522,9 @@ class AudioSpectralModality(modality.Modality):
       x.set_shape([None, None, None, 1])
       for i in range(self._model_hparams.audio_compression):
         x = xnet_resblock(x, 2**(i + 1), True, "compress_block_%d" % i)
-      return xnet_resblock(x, self._body_input_depth, False,
+      return xnet_resblock(x,
+                           self._model_hparams.hidden_size,
+                           False,
                            "compress_block_final")
 
 
@@ -651,7 +663,7 @@ class VideoModalityBitwise(VideoModality):
       # Project.
       return tf.layers.dense(
           embedded,
-          self._body_input_depth,
+          self._model_hparams.hidden_size,
           name="merge_pixel_embedded_frames")
 
   def targets_bottom(self, x):  # pylint: disable=arguments-differ
@@ -666,7 +678,7 @@ class VideoModalityBitwise(VideoModality):
       transposed = common_layers.time_to_channels(embedded)
       return tf.layers.dense(
           transposed,
-          self._body_input_depth,
+          self._model_hparams.hidden_size,
           name="merge_pixel_embedded_frames")
 
 
@@ -787,20 +799,24 @@ class ClassLabelModality(modality.Modality):
   @property
   def name(self):
     return "class_label_modality_%d_%d" % (self._vocab_size,
-                                           self._body_input_depth)
+                                           self._model_hparams.hidden_size)
 
   def bottom(self, x):
     with tf.variable_scope(self.name):
       multiplier = 1.0
       if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
-        multiplier = self._body_input_depth**0.5
-      return common_layers.embedding(
-          x, self._vocab_size, self._body_input_depth, multiplier=multiplier)
+        multiplier = self._model_hparams.hidden_size**0.5
+      return common_layers.embedding(x,
+                                     self._vocab_size,
+                                     self._model_hparams.hidden_size,
+                                     multiplier=multiplier)
 
   def targets_bottom(self, x):
     with tf.variable_scope(self.name):
-      return tf.zeros(
-          [common_layers.shape_list(x)[0], 1, 1, self._body_input_depth])
+      return tf.zeros([common_layers.shape_list(x)[0],
+                       1,
+                       1,
+                       self._model_hparams.hidden_size])
 
   def top(self, body_output, _):
     """Transform inputs from model space to target space.
@@ -935,7 +951,7 @@ class RealModality(modality.Modality):
   def bottom(self, x):
     with tf.variable_scope("real"):
       return tf.layers.dense(
-          tf.to_float(x), self._body_input_depth, name="bottom")
+          tf.to_float(x), self._model_hparams.hidden_size, name="bottom")
 
   def top(self, body_output, _):
     with tf.variable_scope("real"):
@@ -1000,8 +1016,8 @@ class SigmoidClassLabelModality(ClassLabelModality):
 
   @property
   def name(self):
-    return "sigmoid_class_symbol_modality_%d_%d" % (self._vocab_size,
-                                                    self._body_input_depth)
+    return "sigmoid_class_symbol_modality_%d_%d" % (
+        self._vocab_size, self._model_hparams.hidden_size)
 
   def loss(self, top_out, targets):
     # Expect inputs of size [batch-size, timesteps, 1, num-classes], where the
@@ -1020,7 +1036,7 @@ class SigmoidMaxPoolingClassLabelModality(ClassLabelModality):
   @property
   def name(self):
     return "sigmoid_max_pooling_class_symbol_modality_%d_%d" % (
-        self._vocab_size, self._body_input_depth)
+        self._vocab_size, self._model_hparams.hidden_size)
 
   def top(self, body_output, _):
     """Transform inputs from model space to target space.
@@ -1055,7 +1071,7 @@ class SoftmaxMaxPoolingClassLabelModality(OneHotClassLabelModality):
   @property
   def name(self):
     return "softmax_max_pooling_onehot_class_label_modality_%d_%d" % (
-        self._vocab_size, self._body_input_depth)
+        self._vocab_size, self._model_hparams.hidden_size)
 
   def top(self, body_output, _):
     with tf.variable_scope(self.name):
@@ -1070,7 +1086,7 @@ class SoftmaxAveragePoolingClassLabelModality(OneHotClassLabelModality):
   @property
   def name(self):
     return "softmax_average_pooling_onehot_class_label_modality_%d_%d" % (
-        self._vocab_size, self._body_input_depth)
+        self._vocab_size, self._model_hparams.hidden_size)
 
   def top(self, body_output, _):
     with tf.variable_scope(self.name):
@@ -1085,7 +1101,7 @@ class SoftmaxLastTimestepClassLabelModality(OneHotClassLabelModality):
   @property
   def name(self):
     return "softmax_last_timestep_onehot_class_label_modality_%d_%d" % (
-        self._vocab_size, self._body_input_depth)
+        self._vocab_size, self._model_hparams.hidden_size)
 
   def top(self, body_output, _):
     with tf.variable_scope(self.name):

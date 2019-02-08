@@ -46,9 +46,6 @@ class Modality(object):
     same as the `bottom` function, and that is the default we use. But, e.g.,
     for images, a different function might be needed to regress properly.
   * `loss` would compare the generated image to the target image and score it.
-
-  All the functions have simple and sharded versions. A sub-class only needs to
-  implement the simple version, the default sharding will be used then.
   """
 
   def __init__(self, model_hparams, vocab_size=None):
@@ -65,10 +62,6 @@ class Modality(object):
   def top_dimensionality(self):
     """Integer, the last dimension of the predictions (vocab size)."""
     return self._vocab_size
-
-  @property
-  def _body_input_depth(self):
-    return self._model_hparams.hidden_size
 
   @property
   def top_is_pointwise(self):
