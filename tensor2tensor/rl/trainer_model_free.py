@@ -62,6 +62,7 @@ def initialize_env_specs(hparams):
 
   return rl.make_real_env_fn(env)
 
+step = 0
 
 def train(hparams, output_dir, report_fn=None):
   """Train."""
@@ -94,12 +95,6 @@ def train(hparams, output_dir, report_fn=None):
     eval_every_epochs = total_steps
   policy_hparams.eval_every_epochs = 0
 
-  steps = list(range(eval_every_epochs, total_steps+1, eval_every_epochs))
-  if not steps or steps[-1] < eval_every_epochs:
-    steps.append(eval_every_epochs)
-
-  tf.logging.vlog(1, "steps: [%s]", ",".join([str(s) for s in steps]))
-
   metric_name = rl_utils.get_metric_name(
       sampling_temp=hparams.eval_sampling_temps[0],
       max_num_noops=hparams.eval_max_num_noops,
@@ -113,28 +108,24 @@ def train(hparams, output_dir, report_fn=None):
   tf.gfile.MakeDirs(eval_metrics_dir)
   eval_metrics_writer = tf.summary.FileWriter(eval_metrics_dir)
 
-  for i, step in enumerate(steps):
-    tf.logging.info("Starting training iteration [%d] for [%d] steps.", i, step)
-
-    policy_hparams.epochs_num = eval_every_epochs
-    learner.train(env_fn,
-                  policy_hparams,
-                  simulated=False,
-                  save_continuously=True,
-                  epoch=0)
-
-    tf.logging.info("Ended training iteration [%d] for [%d] steps.", i, step)
-
-    eval_metrics = rl_utils.evaluate_all_configs(hparams, output_dir)
-
+  def evaluate_on_new_model(model_dir_path):
+    global step
+    eval_metrics = rl_utils.evaluate_all_configs(hparams, model_dir_path)
     tf.logging.info(
         "Agent eval metrics:\n{}".format(pprint.pformat(eval_metrics)))
-
-    rl_utils.summarize_metrics(eval_metrics_writer, eval_metrics, i)
-
+    rl_utils.summarize_metrics(eval_metrics_writer, eval_metrics, step)
     if report_fn:
       report_fn(eval_metrics[metric_name], step)
+    step += 1
 
+  policy_hparams.epochs_num = total_steps
+  policy_hparams.save_models_every_epochs = eval_every_epochs
+  learner.train(env_fn,
+                policy_hparams,
+                simulated=False,
+                save_continuously=True,
+                epoch=0,
+                model_save_fn=evaluate_on_new_model)
 
 def main(_):
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)

@@ -53,7 +53,8 @@ class PPOLearner(PolicyLearner):
             num_env_steps=None,
             env_step_multiplier=1,
             eval_env_fn=None,
-            report_fn=None):
+            report_fn=None,
+            model_save_fn=None):
     assert sampling_temp == 1.0 or hparams.learning_rate == 0.0, \
         "Sampling with non-1 temperature does not make sense during training."
 
@@ -118,7 +119,8 @@ class PPOLearner(PolicyLearner):
             train_summary_op,
             eval_summary_op,
             initializers,
-            report_fn=report_fn)
+            report_fn=report_fn,
+            model_save_fn=model_save_fn)
 
   def evaluate(self, env_fn, hparams, sampling_temp):
     with tf.Graph().as_default():
@@ -191,7 +193,8 @@ def _run_train(ppo_hparams,
                train_summary_op,
                eval_summary_op,
                initializers,
-               report_fn=None):
+               report_fn=None,
+               model_save_fn=None):
   """Train."""
   summary_writer = tf.summary.FileWriter(
       event_dir, graph=tf.get_default_graph(), flush_secs=60)
@@ -244,6 +247,8 @@ def _run_train(ppo_hparams,
               "model.ckpt-{}".format(tf.train.global_step(sess, global_step))
           )
           model_saver.save(sess, ckpt_path)
+          if model_save_fn:
+            model_save_fn(model_dir)
 
 
 def _rollout_metadata(batch_env):
