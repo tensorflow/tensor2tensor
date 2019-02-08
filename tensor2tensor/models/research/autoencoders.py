@@ -719,7 +719,7 @@ class AutoencoderResidualVAE(AutoencoderResidual):
       epsilon = tf.random_normal(x_shape[:-1] + [z_size])
       z = mu + tf.exp(log_sigma / 2) * epsilon
       kl = 0.5 * tf.reduce_mean(
-          tf.exp(log_sigma) + tf.square(mu) - 1. - log_sigma, axis=-1)
+          tf.expm1(log_sigma) + tf.square(mu) - log_sigma, axis=-1)
       free_bits = z_size // 4
       kl_loss = tf.reduce_mean(tf.maximum(kl - free_bits, 0.0))
     return z, kl_loss * hparams.kl_beta
@@ -825,7 +825,7 @@ class AutoencoderOrderedDiscrete(AutoencoderResidualDiscrete):
     if hparams.mode == tf.estimator.ModeKeys.TRAIN:
       # We want a number p such that p^bottleneck_bits = 1 - noise.
       # So log(p) * bottleneck_bits = log(noise)
-      log_p = tf.log(1 - float(noise) / 2) / float(hparams.bottleneck_bits)
+      log_p = tf.log1p(-float(noise) / 2) / float(hparams.bottleneck_bits)
       # Probabilities of flipping are p, p^2, p^3, ..., p^bottleneck_bits.
       noise_mask = 1.0 - tf.exp(tf.cumsum(tf.zeros_like(x) + log_p, axis=-1))
       # Having the no-noise mask, we can make noise just uniformly at random.
