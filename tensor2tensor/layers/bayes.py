@@ -21,6 +21,7 @@ from __future__ import print_function
 
 import math
 
+import six
 import tensorflow as tf
 import tensorflow_probability as tfp
 
@@ -38,10 +39,6 @@ class Positive(tf.keras.constraints.Constraint):
 
   def get_config(self):
     return {'epsilon': self.epsilon}
-
-
-def positive():  # alias, following tf.keras.constraints
-  return Positive()
 
 
 class Zeros(object):
@@ -243,21 +240,21 @@ class TrainableNormal(TrainableInitializer):
   def __init__(self,
                mean_initializer=tf.keras.initializers.truncated_normal(
                    stddev=1e-5),
-               stddev_initializer=ScaledNormalStdDev(),
+               stddev_initializer='scaled_normal_std_dev',
                mean_regularizer=None,
                stddev_regularizer=None,
                mean_constraint=None,
-               stddev_constraint=positive(),
+               stddev_constraint='positive',
                seed=None,
                dtype=tf.float32):
     """Constructs the initializer."""
     super(TrainableNormal, self).__init__()
-    self.mean_initializer = mean_initializer
-    self.stddev_initializer = stddev_initializer
-    self.mean_regularizer = mean_regularizer
-    self.stddev_regularizer = stddev_regularizer
-    self.mean_constraint = mean_constraint
-    self.stddev_constraint = stddev_constraint
+    self.mean_initializer = get(mean_initializer)
+    self.stddev_initializer = get(stddev_initializer)
+    self.mean_regularizer = get(mean_regularizer)
+    self.stddev_regularizer = get(stddev_regularizer)
+    self.mean_constraint = get(mean_constraint)
+    self.stddev_constraint = get(stddev_constraint)
     self.seed = seed
     self.dtype = tf.as_dtype(dtype)
 
@@ -370,18 +367,6 @@ class TrainableGlorotNormal(TrainableNormal):
     }
 
 
-def trainable_normal():  # alias, following tf.keras.initializers
-  return TrainableNormal()
-
-
-def trainable_he_normal():  # alias, following tf.keras.initializers
-  return TrainableHeNormal()
-
-
-def trainable_glorot_normal():  # alias, following tf.keras.initializers
-  return TrainableGlorotNormal()
-
-
 class NormalKLDivergence(tf.keras.regularizers.Regularizer):
   """KL divergence regularizer from one normal distribution to another."""
 
@@ -409,10 +394,6 @@ class NormalKLDivergence(tf.keras.regularizers.Regularizer):
     }
 
 
-def normal_kl_divergence():  # alias, following tf.keras.regularizers
-  return NormalKLDivergence()
-
-
 class DenseReparameterization(tf.keras.layers.Dense):
   """Bayesian densely-connected layer estimated via reparameterization.
 
@@ -436,25 +417,21 @@ class DenseReparameterization(tf.keras.layers.Dense):
                units,
                activation=None,
                use_bias=True,
-               kernel_initializer=None,
+               kernel_initializer='trainable_normal',
                bias_initializer='zero',
-               kernel_regularizer=normal_kl_divergence(),
+               kernel_regularizer='normal_kl_divergence',
                bias_regularizer=None,
                activity_regularizer=None,
                **kwargs):
-    if not kernel_initializer:
-      kernel_initializer = trainable_normal()
-    if not bias_initializer:
-      bias_initializer = trainable_normal()
     super(DenseReparameterization, self).__init__(
         units=units,
-        activation=activation,
+        activation=get(activation),
         use_bias=use_bias,
-        kernel_initializer=kernel_initializer,
-        bias_initializer=bias_initializer,
-        kernel_regularizer=kernel_regularizer,
-        bias_regularizer=bias_regularizer,
-        activity_regularizer=activity_regularizer,
+        kernel_initializer=get(kernel_initializer),
+        bias_initializer=get(bias_initializer),
+        kernel_regularizer=get(kernel_regularizer),
+        bias_regularizer=get(bias_regularizer),
+        activity_regularizer=get(activity_regularizer),
         **kwargs)
 
   @property
@@ -699,12 +676,12 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
                activation='tanh',
                recurrent_activation='hard_sigmoid',
                use_bias=True,
-               kernel_initializer=None,
-               recurrent_initializer=None,
+               kernel_initializer='trainable_normal',
+               recurrent_initializer='trainable_normal',
                bias_initializer='zeros',
                unit_forget_bias=True,
-               kernel_regularizer=normal_kl_divergence(),
-               recurrent_regularizer=normal_kl_divergence(),
+               kernel_regularizer='normal_kl_divergence',
+               recurrent_regularizer='normal_kl_divergence',
                bias_regularizer=None,
                kernel_constraint=None,
                recurrent_constraint=None,
@@ -713,27 +690,21 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
                recurrent_dropout=0.,
                implementation=1,
                **kwargs):
-    if not kernel_initializer:
-      kernel_initializer = trainable_normal()
-    if not recurrent_initializer:
-      recurrent_initializer = trainable_normal()
-    if not bias_initializer:
-      bias_initializer = trainable_normal()
     super(LSTMCellReparameterization, self).__init__(
         units=units,
-        activation=activation,
-        recurrent_activation=recurrent_activation,
+        activation=get(activation),
+        recurrent_activation=get(recurrent_activation),
         use_bias=use_bias,
-        kernel_initializer=kernel_initializer,
-        recurrent_initializer=recurrent_initializer,
-        bias_initializer=bias_initializer,
+        kernel_initializer=get(kernel_initializer),
+        recurrent_initializer=get(recurrent_initializer),
+        bias_initializer=get(bias_initializer),
         unit_forget_bias=unit_forget_bias,
-        kernel_regularizer=kernel_regularizer,
-        recurrent_regularizer=recurrent_regularizer,
-        bias_regularizer=bias_regularizer,
-        kernel_constraint=kernel_constraint,
-        recurrent_constraint=recurrent_constraint,
-        bias_constraint=bias_constraint,
+        kernel_regularizer=get(kernel_regularizer),
+        recurrent_regularizer=get(recurrent_regularizer),
+        bias_regularizer=get(bias_regularizer),
+        kernel_constraint=get(kernel_constraint),
+        recurrent_constraint=get(recurrent_constraint),
+        bias_constraint=get(bias_constraint),
         dropout=dropout,
         recurrent_dropout=recurrent_dropout,
         implementation=implementation,
@@ -954,3 +925,47 @@ class MixtureLogistic(tf.keras.layers.Layer):
     config = {'num_components': self.num_components}
     base_config = super(MixtureLogistic, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
+
+
+# Compatibility aliases, following tf.keras
+
+# pylint: disable=invalid-name
+positive = Positive
+scaled_normal_std_dev = ScaledNormalStdDev
+trainable_normal = TrainableNormal
+trainable_he_normal = TrainableHeNormal
+trainable_glorot_normal = TrainableGlorotNormal
+normal_kl_divergence = NormalKLDivergence
+# pylint: enable=invalid-name
+
+# Utility functions, following tf.keras
+
+
+def deserialize(config, custom_objects=None):
+  return tf.keras.utils.deserialize_keras_object(
+      config,
+      module_objects=globals(),
+      custom_objects=custom_objects,
+      printable_module_name='bayes')
+
+
+def get(identifier, value=None):
+  """Getter for loading from strings; returns value if can't load."""
+  if value is None:
+    value = identifier
+  if identifier is None:
+    return None
+  elif isinstance(identifier, dict):
+    try:
+      return deserialize(identifier)
+    except ValueError:
+      return value
+  elif isinstance(identifier, six.string_types):
+    config = {'class_name': str(identifier), 'config': {}}
+    try:
+      return deserialize(config)
+    except ValueError:
+      return value
+  elif callable(identifier):
+    return identifier
+  return value

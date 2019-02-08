@@ -43,12 +43,18 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllGreater(res, 0.)
 
   @parameterized.named_parameters(
-      {"testcase_name": "_no_uncertainty", "kernel_initializer": "zeros",
-       "bias_initializer": "zeros", "all_close": True},
-      {"testcase_name": "_kernel_uncertainty", "kernel_initializer": None,
-       "bias_initializer": "zeros", "all_close": False},
-      {"testcase_name": "_bias_uncertainty", "kernel_initializer": "zeros",
-       "bias_initializer": None, "all_close": False},
+      {"testcase_name": "_no_uncertainty",
+       "kernel_initializer": "zeros",
+       "bias_initializer": "zeros",
+       "all_close": True},
+      {"testcase_name": "_kernel_uncertainty",
+       "kernel_initializer": "trainable_normal",
+       "bias_initializer": "zeros",
+       "all_close": False},
+      {"testcase_name": "_bias_uncertainty",
+       "kernel_initializer": "zeros",
+       "bias_initializer": "trainable_normal",
+       "all_close": False},
   )
   @test_utils.run_in_graph_and_eager_modes
   def testDenseReparameterizationKernel(
@@ -164,17 +170,25 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     self.assertEqual(outputs_val.shape, (batch_size, output_dim))
 
   @parameterized.named_parameters(
-      {"testcase_name": "_no_uncertainty", "kernel_initializer": "zeros",
-       "recurrent_initializer": "orthogonal", "bias_initializer": "zeros",
+      {"testcase_name": "_no_uncertainty",
+       "kernel_initializer": "zeros",
+       "recurrent_initializer": "orthogonal",
+       "bias_initializer": "zeros",
        "all_close": True},
-      {"testcase_name": "_kernel_uncertainty", "kernel_initializer": None,
-       "recurrent_initializer": "orthogonal", "bias_initializer": "zeros",
+      {"testcase_name": "_kernel_uncertainty",
+       "kernel_initializer": "trainable_normal",
+       "recurrent_initializer": "orthogonal",
+       "bias_initializer": "zeros",
        "all_close": False},
-      {"testcase_name": "_recurrent_uncertainty", "kernel_initializer": "zeros",
-       "recurrent_initializer": None, "bias_initializer": "zeros",
+      {"testcase_name": "_recurrent_uncertainty",
+       "kernel_initializer": "zeros",
+       "recurrent_initializer": "trainable_normal",
+       "bias_initializer": "zeros",
        "all_close": False},
-      {"testcase_name": "_bias_uncertainty", "kernel_initializer": "zeros",
-       "recurrent_initializer": "orthogonal", "bias_initializer": None,
+      {"testcase_name": "_bias_uncertainty",
+       "kernel_initializer": "zeros",
+       "recurrent_initializer": "orthogonal",
+       "bias_initializer": "trainable_normal",
        "all_close": False},
   )
   @test_utils.run_in_graph_and_eager_modes
