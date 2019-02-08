@@ -56,7 +56,7 @@ import tensorflow as tf
 _URL = ("https://art.wangperawong.com/mathematical_language_understanding"
          "_train.tar.gz")
 
-def _download_mlu_data(tmp_dir, data_dir, compressed):
+def _download_mlu_data(tmp_dir, data_dir):
   """Downloads and extracts the dataset.
 
   Args:
@@ -69,7 +69,8 @@ def _download_mlu_data(tmp_dir, data_dir, compressed):
   if not tf.gfile.Exists(data_dir):
     tf.gfile.MakeDirs(data_dir)
 
-  file_path = os.path.join(tmp_dir, _TAR)
+  filename = os.path.basename(_URL)
+  file_path = os.path.join(tmp_dir, filename)
   headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_1) "
                            "AppleWebKit/537.36 (KHTML, like Gecko) "
                            "Chrome/63.0.3239.132 Safari/537.36"}
