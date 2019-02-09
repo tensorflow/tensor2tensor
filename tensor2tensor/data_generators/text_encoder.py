@@ -393,8 +393,8 @@ class TokenTextEncoder(TextEncoder):
       filename: Full path of the file to store the vocab to.
     """
     with tf.gfile.Open(filename, "w") as f:
-      for i in range(len(self._id_to_token)):
-        f.write(self._id_to_token[i] + "\n")
+      for token in self._id_to_token:
+        f.write(token + "\n")
 
 
 def _escape_token(token, alphabet):
