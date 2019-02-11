@@ -21,6 +21,16 @@ python -m tensor2tensor.rl.trainer_model_free \
     --output_dir=$HOME/t2t/rl_v1 \
     --hparams_set=pong_model_free \
     --hparams='batch_size=15'
+
+Example invocation with EnvProblem interface:
+
+python -m tensor2tensor.rl.trainer_model_free \
+  --env_problem_name=tic_tac_toe_env_problem \
+  --hparams_set=rlmf_tictactoe \
+  --output_dir=${OUTPUTDIR} \
+  --log_dir=${LOGDIR} \
+  --alsologtostderr \
+  --vmodule=*/tensor2tensor/*=2 \
 """
 
 from __future__ import absolute_import
@@ -34,6 +44,7 @@ from tensor2tensor.models.research import rl
 from tensor2tensor.rl import rl_utils
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import misc_utils
+from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -43,6 +54,9 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 
+flags.DEFINE_string("env_problem_name", "",
+                    "Which registered env_problem do we want?")
+
 # To maintain compatibility with some internal libs, we guard against these flag
 # definitions possibly erring. Apologies for the ugliness.
 try:
@@ -51,14 +65,16 @@ except:  # pylint: disable=bare-except
   pass
 
 
-def initialize_env_specs(hparams):
-  """Initializes env_specs using T2TGymEnvs."""
-  env = rl_utils.setup_env(hparams, hparams.batch_size,
-                           hparams.eval_max_num_noops,
-                           hparams.rl_env_max_episode_steps,
-                           env_name=hparams.rl_env_name)
-
-  env.start_new_epoch(0)
+def initialize_env_specs(hparams, env_problem_name):
+  """Initializes env_specs using the appropriate env."""
+  if env_problem_name:
+    env = registry.env_problem(env_problem_name, hparams.batch_size)
+  else:
+    env = rl_utils.setup_env(hparams, hparams.batch_size,
+                             hparams.eval_max_num_noops,
+                             hparams.rl_env_max_episode_steps,
+                             env_name=hparams.rl_env_name)
+    env.start_new_epoch(0)
 
   return rl.make_real_env_fn(env)
 
@@ -66,9 +82,9 @@ def initialize_env_specs(hparams):
 step = 0
 
 
-def train(hparams, output_dir, report_fn=None):
+def train(hparams, output_dir, env_problem_name, report_fn=None):
   """Train."""
-  env_fn = initialize_env_specs(hparams)
+  env_fn = initialize_env_specs(hparams, env_problem_name)
 
   tf.logging.vlog(1, "HParams in trainer_model_free.train : %s",
                   misc_utils.pprint_hparams(hparams))
@@ -134,7 +150,7 @@ def main(_):
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
 
   tf.logging.info("Starting model free training.")
-  train(hparams, FLAGS.output_dir)
+  train(hparams, FLAGS.output_dir, FLAGS.env_problem_name)
   tf.logging.info("Ended model free training.")
 
 

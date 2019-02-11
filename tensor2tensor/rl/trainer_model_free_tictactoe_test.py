@@ -40,7 +40,8 @@ class TrainerModelFreeTicTacToeTest(tf.test.TestCase):
     hparams.eval_every_epochs = 25
 
     FLAGS.output_dir = tf.test.get_temp_dir()
-    trainer_model_free.train(hparams, FLAGS.output_dir)
+    FLAGS.env_problem_name = "tic_tac_toe_env_problem"
+    trainer_model_free.train(hparams, FLAGS.output_dir, FLAGS.env_problem_name)
 
 
 if __name__ == "__main__":
