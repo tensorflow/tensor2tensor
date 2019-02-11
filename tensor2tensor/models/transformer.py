@@ -497,13 +497,17 @@ class Transformer(t2t_model.T2TModel):
             tf.less(i, partial_targets_length), forced_logits, lambda: ret)
       return ret, cache
 
+    vocab_size = self._problem_hparams.vocab_size["targets"]
+    if hasattr(self._hparams, "vocab_divisor"):
+      vocab_size += (-vocab_size) % self._hparams.vocab_divisor
+
     ret = fast_decode_tpu(
         encoder_output=encoder_output,
         encoder_decoder_attention_bias=encoder_decoder_attention_bias,
         symbols_to_logits_fn=symbols_to_logits_tpu_fn,
         hparams=hparams,
         decode_length=decode_length,
-        vocab_size=target_modality.top_dimensionality,
+        vocab_size=vocab_size,
         beam_size=beam_size,
         top_beams=top_beams,
         alpha=alpha,
@@ -693,13 +697,17 @@ class Transformer(t2t_model.T2TModel):
             tf.less(i, partial_targets_length), forced_logits, lambda: ret)
       return ret, cache
 
+    vocab_size = self._problem_hparams.vocab_size["targets"]
+    if hasattr(self._hparams, "vocab_divisor"):
+      vocab_size += (-vocab_size) % self._hparams.vocab_divisor
+
     ret = fast_decode(
         encoder_output=encoder_output,
         encoder_decoder_attention_bias=encoder_decoder_attention_bias,
         symbols_to_logits_fn=symbols_to_logits_fn,
         hparams=hparams,
         decode_length=decode_length,
-        vocab_size=target_modality.top_dimensionality,
+        vocab_size=vocab_size,
         beam_size=beam_size,
         top_beams=top_beams,
         alpha=alpha,

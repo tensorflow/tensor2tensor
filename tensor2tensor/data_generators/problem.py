@@ -749,7 +749,7 @@ class Problem(object):
     for feature_name, modality_cls in six.iteritems(hp.modality):
       finfo = features[feature_name]
       finfo.modality = modality_cls
-      finfo.vocab_size = modality_cls.top_dimensionality
+      finfo.vocab_size = hp.vocab_size[feature_name]
 
     vocabs = hp.vocabulary
     for name, encoder in six.iteritems(vocabs):

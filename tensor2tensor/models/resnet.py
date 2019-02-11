@@ -569,7 +569,9 @@ class Resnet(t2t_model.T2TModel):
       return out
 
     out = tf.reduce_mean(out, [1, 2])
-    num_classes = self._problem_hparams.modality["targets"].top_dimensionality
+    num_classes = self._problem_hparams.vocab_size["targets"]
+    if hasattr(self._hparams, "vocab_divisor"):
+      num_classes += (-num_classes) % self._hparams.vocab_divisor
     logits = tf.layers.dense(out, num_classes, name="logits")
 
     losses = {"training": 0.0}

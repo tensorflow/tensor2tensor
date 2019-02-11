@@ -105,10 +105,10 @@ def _train_and_eval_dataset_v1(problem_name, data_dir):
   for example in train_dataset.take(3):
     input_shapes.append(example["inputs"].shape.as_list())
     target_shapes.append(example["targets"].shape.as_list())
-  input_info = _make_info(
-      input_shapes, hparams.modality["inputs"].top_dimensionality)
-  target_info = _make_info(
-      target_shapes, hparams.modality["targets"].top_dimensionality)
+  input_vocab_size = hparams.vocab_size["inputs"]
+  target_vocab_size = hparams.vocab_size["targets"]
+  input_info = _make_info(input_shapes, input_vocab_size)
+  target_info = _make_info(target_shapes, target_vocab_size)
   info = {"inputs": input_info, "targets": target_info}
   return train_dataset, eval_dataset, info, supervised_keys
 

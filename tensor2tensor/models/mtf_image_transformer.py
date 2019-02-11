@@ -46,8 +46,10 @@ class MtfImageTransformer(mtf_model.MtfModel):
 
   @property
   def targets_vocab_dim(self):
-    return mtf.Dimension(
-        "vocab", self._problem_hparams.modality["targets"].top_dimensionality)
+    vocab_size = self._problem_hparams.vocab_size["targets"]
+    if hasattr(self._hparams, "vocab_divisor"):
+      vocab_size += (-vocab_size) % self._hparams.vocab_divisor
+    return mtf.Dimension("vocab", vocab_size)
 
   @property
   def outputs_vocab_dim(self):

@@ -59,11 +59,6 @@ class Modality(object):
     return misc_utils.camelcase_to_snakecase(type(self).__name__)
 
   @property
-  def top_dimensionality(self):
-    """Integer, the last dimension of the predictions (vocab size)."""
-    return self._vocab_size
-
-  @property
   def top_is_pointwise(self):
     """Whether the top mapping of the modality is pointwise.
 

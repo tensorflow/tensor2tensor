@@ -246,12 +246,12 @@ class ImageModality(modality.Modality):
       if len(inputs_shape) != 4:
         raise ValueError("Assuming images given as int tensors in the format "
                          "[batch, height, width, channels] (256 values).")
-      # We embed each of 256=self.top_dimensionality possible pixel values.
+      # We embed each of 256=self._vocab_size possible pixel values.
       embedding_var = tf.get_variable(
           "pixel_embedding",
-          [self.top_dimensionality, self.PIXEL_EMBEDDING_SIZE])
-      hot_inputs = tf.one_hot(tf.to_int32(inputs), self.top_dimensionality)
-      hot_inputs = tf.reshape(hot_inputs, [-1, self.top_dimensionality])
+          [self._vocab_size, self.PIXEL_EMBEDDING_SIZE])
+      hot_inputs = tf.one_hot(tf.to_int32(inputs), self._vocab_size)
+      hot_inputs = tf.reshape(hot_inputs, [-1, self._vocab_size])
       embedded = tf.matmul(hot_inputs, embedding_var)
       # Let's now merge all channels that were embedded into a single vector.
       merged_size = self.PIXEL_EMBEDDING_SIZE * inputs_shape[3]
@@ -268,8 +268,8 @@ class ImageModality(modality.Modality):
     with tf.variable_scope("rgb_softmax"):
       body_output_shape = common_layers.shape_list(body_output)
       reshape_shape = body_output_shape[:3]
-      reshape_shape.extend([num_channels, self.top_dimensionality])
-      res = tf.layers.dense(body_output, self.top_dimensionality * num_channels)
+      reshape_shape.extend([num_channels, self._vocab_size])
+      res = tf.layers.dense(body_output, self._vocab_size * num_channels)
       res = tf.reshape(res, reshape_shape)
       if not tf.get_variable_scope().reuse:
         res_argmax = tf.argmax(res, axis=-1)
@@ -353,7 +353,7 @@ class ImageChannelCompressModality(modality.Modality):
       body_output: Tensor of shape [batch, img_len, img_len, depth].
 
     Returns:
-      Tensor of shape [batch, img_len, img_len, channels, top_dimensionality].
+      Tensor of shape [batch, img_len, img_len, channels, vocab_size].
     """
     with tf.variable_scope(self.name):
       hidden_size = self._model_hparams.hidden_size
@@ -371,12 +371,12 @@ class ImageChannelCompressModality(modality.Modality):
       x = tf.reshape(x, [batch, img_len, img_len * channels, hidden_size])
       x = common_layers.layer_preprocess(x, self._model_hparams)
       x = tf.layers.dense(x,
-                          self.top_dimensionality,
+                          self._vocab_size,
                           use_bias=True,
                           activation=None,
                           name="output_conv")
       x = tf.reshape(
-          x, [batch, img_len, img_len, channels, self.top_dimensionality])
+          x, [batch, img_len, img_len, channels, self._vocab_size])
       return x
 
 
@@ -427,7 +427,7 @@ class ImageChannelEmbeddingsBottom(modality.Modality):
       x = tf.layers.dense(
           body_output, 256, use_bias=True, activation=None, name="output_conv")
       x = tf.reshape(x,
-                     [-1, img_len, img_len, channels, self.top_dimensionality])
+                     [-1, img_len, img_len, channels, self._vocab_size])
       return x
 
 
@@ -626,10 +626,10 @@ class VideoModality(modality.Modality):
   def top(self, body_output, targets):
     num_channels = self._model_hparams.problem.num_channels
     shape = common_layers.shape_list(body_output)
-    reshape_shape = shape[:-1] + [num_channels, self.top_dimensionality]
+    reshape_shape = shape[:-1] + [num_channels, self._vocab_size]
     res = tf.reshape(body_output, reshape_shape)
     # Calculate argmax so as to have a summary with the produced images.
-    x = tf.argmax(tf.reshape(res, [-1, self.top_dimensionality]), axis=-1)
+    x = tf.argmax(tf.reshape(res, [-1, self._vocab_size]), axis=-1)
     x = tf.reshape(x, shape[:-1] + [num_channels])
     common_video.gif_summary("results", x, max_outputs=1)
     return res
@@ -657,7 +657,7 @@ class VideoModalityBitwise(VideoModality):
     with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
       common_layers.summarize_video(inputs, "bottom")
       # Embed bitwise.
-      assert self.top_dimensionality == 256
+      assert self._vocab_size == 256
       embedded = discretization.int_to_bit_embed(inputs, 8,
                                                  self.PIXEL_EMBEDDING_SIZE)
       # Project.
@@ -671,7 +671,7 @@ class VideoModalityBitwise(VideoModality):
     with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
       common_layers.summarize_video(inputs, "targets_bottom")
       # Embed bitwise.
-      assert self.top_dimensionality == 256
+      assert self._vocab_size == 256
       embedded = discretization.int_to_bit_embed(inputs, 8,
                                                  self.PIXEL_EMBEDDING_SIZE)
       # Transpose and project.
