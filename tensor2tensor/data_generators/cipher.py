@@ -213,9 +213,9 @@ def encipher_vigenere(plaintext, plain_vocab, key):
   """
   ciphertext = []
   # generate Vigenere table
-  layers = []
-  for i in range(len(plain_vocab)):
-    layers.append(ShiftEncryptionLayer(plain_vocab, i))
+  layers = [
+      ShiftEncryptionLayer(plain_vocab, i) for i in range(len(plain_vocab))
+  ]
 
   for i, sentence in enumerate(plaintext):
     cipher_sentence = []
