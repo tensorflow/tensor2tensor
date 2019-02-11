@@ -375,6 +375,36 @@ class NormalKLDivergence(tf.keras.regularizers.Regularizer):
     }
 
 
+def _add_weight(layer,
+                name=None,
+                shape=None,
+                dtype=None,
+                initializer=None,
+                regularizer=None,
+                **kwargs):
+  """Adds weight."""
+  if isinstance(initializer, tf.keras.layers.Layer):
+    weight = initializer(shape, dtype)
+    layer._trainable_weights.extend(initializer.trainable_weights)  # pylint: disable=protected-access
+    layer._non_trainable_weights.extend(initializer.non_trainable_weights)  # pylint: disable=protected-access
+    if regularizer is not None:
+      # TODO(trandustin): Replace need for this with
+      # Layer._handle_weight_regularization. For Eager compatibility, random
+      # variable __init__s cannot apply TF ops (cl/220898007).
+      def loss_fn():
+        """Creates a regularization loss `Tensor`."""
+        with tf.name_scope(name + '/Regularizer'):
+          return regularizer(initializer(shape, dtype))
+      layer.add_loss(loss_fn)
+    return weight
+  return super(layer.__class__, layer).add_weight(name=name,
+                                                  shape=shape,
+                                                  dtype=dtype,
+                                                  initializer=initializer,
+                                                  regularizer=regularizer,
+                                                  **kwargs)
+
+
 class DenseReparameterization(tf.keras.layers.Dense):
   """Bayesian densely-connected layer estimated via reparameterization.
 
@@ -415,6 +445,8 @@ class DenseReparameterization(tf.keras.layers.Dense):
         activity_regularizer=get(activity_regularizer),
         **kwargs)
 
+  add_weight = _add_weight
+
   # TODO(trandustin): This name is not accurate. Rename or move functionality
   # into random variables to resample/recreate their init ops.
   def sample_weights(self):
@@ -426,31 +458,6 @@ class DenseReparameterization(tf.keras.layers.Dense):
   def call(self, *args, **kwargs):
     self.sample_weights()
     return super(DenseReparameterization, self).call(*args, **kwargs)
-
-  def add_weight(self,
-                 name=None,
-                 shape=None,
-                 dtype=None,
-                 initializer=None,
-                 regularizer=None,
-                 **kwargs):
-    if isinstance(initializer, tf.keras.layers.Layer):
-      weight = initializer(shape, dtype)
-      self._trainable_weights.extend(initializer.trainable_weights)
-      self._non_trainable_weights.extend(initializer.non_trainable_weights)
-      if regularizer is not None:
-        self.add_loss(
-            create_regularization_loss_fn(name,
-                                          lambda: initializer(shape, dtype),
-                                          regularizer))
-      return weight
-    return super(DenseReparameterization, self).add_weight(
-        name=name,
-        shape=shape,
-        dtype=dtype,
-        initializer=initializer,
-        regularizer=regularizer,
-        **kwargs)
 
 
 class Conv2DReparameterization(tf.keras.layers.Conv2D):
@@ -507,6 +514,8 @@ class Conv2DReparameterization(tf.keras.layers.Conv2D):
         bias_constraint=get(bias_constraint),
         **kwargs)
 
+  add_weight = _add_weight
+
   def sample_weights(self):
     if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
       self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
@@ -516,31 +525,6 @@ class Conv2DReparameterization(tf.keras.layers.Conv2D):
   def call(self, *args, **kwargs):
     self.sample_weights()
     return super(Conv2DReparameterization, self).call(*args, **kwargs)
-
-  def add_weight(self,
-                 name=None,
-                 shape=None,
-                 dtype=None,
-                 initializer=None,
-                 regularizer=None,
-                 **kwargs):
-    if isinstance(initializer, tf.keras.layers.Layer):
-      weight = initializer(shape, dtype)
-      self._trainable_weights.extend(initializer.trainable_weights)
-      self._non_trainable_weights.extend(initializer.non_trainable_weights)
-      if regularizer is not None:
-        self.add_loss(
-            create_regularization_loss_fn(name,
-                                          lambda: initializer(shape, dtype),
-                                          regularizer))
-      return weight
-    return super(Conv2DReparameterization, self).add_weight(
-        name=name,
-        shape=shape,
-        dtype=dtype,
-        initializer=initializer,
-        regularizer=regularizer,
-        **kwargs)
 
 
 class GaussianProcess(tf.keras.layers.Layer):
@@ -756,6 +740,8 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
         implementation=implementation,
         **kwargs)
 
+  add_weight = _add_weight
+
   def build(self, input_shape):
     input_shape = tf.TensorShape(input_shape)
     input_dim = input_shape[-1]
@@ -823,57 +809,6 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
       self.sample_weights()
     return super(LSTMCellReparameterization, self).get_initial_state(
         inputs=inputs, batch_size=batch_size, dtype=dtype)
-
-  def add_weight(self,
-                 name=None,
-                 shape=None,
-                 dtype=None,
-                 initializer=None,
-                 regularizer=None,
-                 **kwargs):
-    if isinstance(initializer, tf.keras.layers.Layer):
-      weight = initializer(shape, dtype)
-      self._trainable_weights.extend(initializer.trainable_weights)
-      self._non_trainable_weights.extend(initializer.non_trainable_weights)
-      if regularizer is not None:
-        self.add_loss(
-            create_regularization_loss_fn(name,
-                                          lambda: initializer(shape, dtype),
-                                          regularizer))
-      return weight
-    return super(LSTMCellReparameterization, self).add_weight(
-        name=name,
-        shape=shape,
-        dtype=dtype,
-        initializer=initializer,
-        regularizer=regularizer,
-        **kwargs)
-
-
-# TODO(trandustin): Replace need for this function with
-# Layer._handle_weight_regularization. For Eager compatibility, random variable
-# __init__s cannot apply TF ops (cl/220898007).
-def create_regularization_loss_fn(name, variable_fn, regularizer_fn):
-  """Create a regularization loss function.
-
-  The callable representing the variable allows for use with Bayesian Layers.
-
-  Args:
-    name: String name scope prefix.
-    variable_fn: Callable that returns a TF Variable or ed.RandomVariable.
-    regularizer_fn: Callable that returns a loss tensor when called with a TF
-      Variable or ed.RandomVariable.
-
-  Returns:
-    A callable that returns a regularization loss tensor when called.
-  """
-  def loss_fn():
-    """Creates a regularization loss `Tensor`."""
-    with tf.name_scope(name + '/Regularizer'):
-      regularization = regularizer_fn(variable_fn())
-    return regularization
-
-  return loss_fn
 
 
 class BayesianLinearModel(tf.keras.Model):
