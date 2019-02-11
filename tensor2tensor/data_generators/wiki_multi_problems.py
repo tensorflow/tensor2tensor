@@ -80,25 +80,29 @@ class LanguagemodelMultiWikiTranslatePacked1k(
   """Wiki-LM, Translation, MNLI, SQUAD mixed problem class."""
 
   def __init__(self, was_reversed=False, was_copy=False):
-    problems = [
-        # TODO(noam): uncommonet once data is generated
-        wiki_lm.LanguagemodelDeEnFrRoWiki64kFitbPacked1k(),
-        wiki_lm.LanguagemodelDeEnFrRoWiki64kFitbPacked1k(was_reversed=True),
-        translate_ende.TranslateEndeWmtMulti64kPacked1k(),
-        translate_ende.TranslateEndeWmtMulti64kPacked1k(was_reversed=True),
-        translate_enfr.TranslateEnfrWmtMulti64kPacked1k(),
-        translate_enfr.TranslateEnfrWmtMulti64kPacked1k(was_reversed=True),
-        translate_enro.TranslateEnroWmtMultiTiny64kPacked1k(),
-        translate_enro.TranslateEnroWmtMultiTiny64kPacked1k(was_reversed=True),
-        cnn_dailymail.SummarizeCnnDailymailMulti64kPacked1k(),
-        cnn_dailymail.SummarizeCnnDailymailMulti64kPacked1k(was_reversed=True),
-        multinli.MultiNLIText2textMulti64kPacked1k(),
-        squad.SquadText2textMulti64kPacked1k(),
-    ]
-    schedule = multi_problem_v2.constant_schedule(
-        multi_problem_v2.epoch_rates_to_pmf(problems))
+    problems = []
+    rates = []
+    for rate, also_reverse, cls in self.problems_and_rates:
+      for r in [False, True] if also_reverse else [False]:
+        problems.append(cls(was_reversed=r))
+        rates.append(rate)
+    pmf = multi_problem_v2.epoch_rates_to_pmf(problems, epoch_rates=rates)
+    schedule = multi_problem_v2.constant_schedule(pmf)
     super(LanguagemodelMultiWikiTranslatePacked1k, self).__init__(
         problems, schedule, was_reversed=was_reversed, was_copy=was_copy)
+
+  @property
+  def problems_and_rates(self):
+    """Returns a list of (weight, also_reverse, problem_class) triples."""
+    return [
+        (1.0, True, wiki_lm.LanguagemodelDeEnFrRoWiki64kFitbPacked1k),
+        (1.0, True, translate_ende.TranslateEndeWmtMulti64kPacked1k),
+        (1.0, True, translate_enfr.TranslateEnfrWmtMulti64kPacked1k),
+        (1.0, True, translate_enro.TranslateEnroWmtMultiTiny64kPacked1k),
+        (1.0, True, cnn_dailymail.SummarizeCnnDailymailMulti64kPacked1k),
+        (1.0, False, multinli.MultiNLIText2textMulti64kPacked1k),
+        (1.0, False, squad.SquadText2textMulti64kPacked1k),
+    ]
 
   @property
   def has_inputs(self):
@@ -115,6 +119,25 @@ class LanguagemodelMultiWikiTranslatePacked1k(
   @property
   def packed_length(self):
     return 1024
+
+
+@registry.register_problem
+class LanguagemodelMultiWikiTranslatePacked1kV2(
+    LanguagemodelMultiWikiTranslatePacked1k):
+  """Higher rates for rarer problems."""
+
+  @property
+  def problems_and_rates(self):
+    """Returns a list of (weight, also_reverse, problem_class) triples."""
+    return [
+        (1.0, True, wiki_lm.LanguagemodelDeEnFrRoWiki64kFitbPacked1k),
+        (3.0, True, translate_ende.TranslateEndeWmtMulti64kPacked1k),
+        (1.0, True, translate_enfr.TranslateEnfrWmtMulti64kPacked1k),
+        (100.0, True, translate_enro.TranslateEnroWmtMultiTiny64kPacked1k),
+        (1.0, True, cnn_dailymail.SummarizeCnnDailymailMulti64kPacked1k),
+        (10.0, False, multinli.MultiNLIText2textMulti64kPacked1k),
+        (10.0, False, squad.SquadText2textMulti64kPacked1k),
+    ]
 
 
 @registry.register_problem

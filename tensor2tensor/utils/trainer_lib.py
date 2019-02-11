@@ -132,7 +132,8 @@ def create_session_config(log_device_placement=False,
       gpu_options=gpu_options,
       log_device_placement=log_device_placement,
       inter_op_parallelism_threads=inter_op_parallelism_threads,
-      intra_op_parallelism_threads=intra_op_parallelism_threads)
+      intra_op_parallelism_threads=intra_op_parallelism_threads,
+      isolate_session_state=True)
   return config
 
 

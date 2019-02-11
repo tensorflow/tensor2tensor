@@ -136,13 +136,16 @@ class MtfUnitransformer(mtf_model.MtfModel):
       return self._import_feature(features, mesh, key)
     targets = import_feature("targets")
     sequence_id = import_feature("targets_segmentation")
-    position = import_feature("targets_position")
+    if hparams.use_global_position_in_packed_sequence:
+      position = None
+    else:
+      position = import_feature("targets_position")
     if self.autoregressive:
       inputs = mtf.shift(
           targets, offset=1, dim=self.length_dim, wrap=False)
-      if position is not None:
-        # first input in later sequences should be 0
-        inputs *= mtf.to_int32(mtf.not_equal(position, 0))
+      # We should have a 0 at the beginning of each sequence rather than the
+      # shifted EOS (1) from the previous sequence.
+      inputs -= mtf.to_int32(mtf.equal(inputs, 1))
     else:
       inputs = import_feature("inputs")
       # TODO(noam): options for bert-style masking here?
@@ -248,8 +251,12 @@ class MtfBitransformer(MtfUnitransformer):
     decoder_sequence_id = import_feature("targets_segmentation")
     if decoder_sequence_id is None:
       decoder_sequence_id = mtf.to_int32(mtf.not_equal(targets, 0))
-    encoder_position = import_feature("inputs_position")
-    decoder_position = import_feature("targets_position")
+    if hparams.use_global_position_in_packed_sequence:
+      encoder_position = None
+      decoder_position = None
+    else:
+      encoder_position = import_feature("inputs_position")
+      decoder_position = import_feature("targets_position")
     model = self.model()
     logits, loss = model.call_simple(
         inputs=inputs,
@@ -349,7 +356,7 @@ def layer_stack_from_hparams(hparams, prefix):
   """Create a layer stack based on the hyperparameter values."""
   layers = hparams.get(prefix + "layers")
   return transformer.LayerStack(
-      [layers_registry.get(l)(hparams, prefix) for l in layers],
+      [layers_registry[l](hparams, prefix) for l in layers],
       dropout_rate=hparams.layer_prepostprocess_dropout,
       norm_epsilon=hparams.norm_epsilon)
 
@@ -418,6 +425,14 @@ def mtf_transformer2_base():
       "targets": modalities.ModalityType.IDENTITY_SYMBOL,
   }
   hparams.add_hparam("beam_size", 1)
+
+  # If this is True, then in a packed dataset (where exaples are concatenated
+  # to form longer examples) we use the global position (within the concatenated
+  # sequence) to compute the positional embedding, instead of the position
+  # within the individual sequence.  This is counterintuitive, but for some
+  # reason, it keeps the model from diverging.
+  hparams.add_hparam("use_global_position_in_packed_sequence", True)
+
   return hparams
 
 
@@ -836,13 +851,4 @@ def mtr_tr_ende_deep():
   hparams.d_ff = 2048
   hparams.encoder_num_layers = 12
   hparams.decoder_num_layers = 12
-  return hparams
-
-
-@registry.register_hparams
-def ogm_dense_0():
-  hparams = mtr_tr_dense(0)
-  hparams.max_length = 1024
-  hparams.batch_size = 128
-  hparams.shared_embedding_and_softmax_weights = True
   return hparams
