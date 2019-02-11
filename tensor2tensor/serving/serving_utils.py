@@ -115,9 +115,9 @@ def make_grpc_request_fn(servable_name, server, timeout_secs):
     scores = tf.make_ndarray(response.outputs["scores"])
     assert len(outputs) == len(scores)
     return [{
-        "outputs": output,
-        "scores": score
-    } for output, score in zip(outputs, scores)]
+        "outputs": outputs[i],
+        "scores": scores[i]
+    } for i in range(len(outputs))]
 
   return _make_grpc_request
 

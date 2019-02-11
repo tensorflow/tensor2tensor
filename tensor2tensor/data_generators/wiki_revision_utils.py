@@ -491,8 +491,10 @@ def edit_distance_filter(source_target_input, max_equal_to_diff_ratio=0):
   if not max_equal_to_diff_ratio:
     return source_target_input, thrown_out_count
 
-  for src_tgt in source_target_input:
-    opcodes = fast_match_sequences(*src_tgt)
+  for i in range(len(source_target_input)):
+    src = source_target_input[i][0]
+    tgt = source_target_input[i][1]
+    opcodes = fast_match_sequences(src, tgt)
     diff_char_count = 0
     equal_char_count = 0
     for tag, i1, i2, j1, j2 in opcodes:
@@ -502,7 +504,7 @@ def edit_distance_filter(source_target_input, max_equal_to_diff_ratio=0):
       else:
         equal_char_count += i2 - i1
     if diff_char_count <= max_equal_to_diff_ratio * equal_char_count:
-      source_target_output.append(src_tgt)
+      source_target_output.append(source_target_input[i])
     else:
       thrown_out_count += 1
   return source_target_output, thrown_out_count

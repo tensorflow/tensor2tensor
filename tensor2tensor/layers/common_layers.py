@@ -2334,10 +2334,10 @@ def ravanbakhsh_set_layer(layer_size,
 
 def fn_device_dependency_dict():
   """State container for fn_device_dependency."""
-  default_graph = tf.get_default_graph()
-  if not hasattr(default_graph, "dependency_dict"):
-    default_graph.dependency_dict = collections.defaultdict(list)
-  return default_graph.dependency_dict
+  if not hasattr(tf.get_default_graph(), "dependency_dict"):
+    setattr(tf.get_default_graph(), "dependency_dict",
+            collections.defaultdict(list))
+  return tf.get_default_graph().dependency_dict
 
 
 @contextlib.contextmanager
@@ -2791,7 +2791,8 @@ def shape_list(x):
   shape = tf.shape(x)
 
   ret = []
-  for i, dim in enumerate(static):
+  for i in range(len(static)):
+    dim = static[i]
     if dim is None:
       dim = shape[i]
     ret.append(dim)

@@ -126,7 +126,7 @@ def train_supervised(problem, model_name, hparams, data_dir, output_dir,
                      schedule="continuous_train_and_eval"):
   """Train supervised."""
   if local_eval_frequency is None:
-    local_eval_frequency = FLAGS.local_eval_frequency
+    local_eval_frequency = getattr(FLAGS, "local_eval_frequency")
 
   exp_fn = trainer_lib.create_experiment_fn(
       model_name, problem, data_dir, train_steps, eval_steps,
