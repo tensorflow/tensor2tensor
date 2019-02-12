@@ -21,6 +21,7 @@ from __future__ import print_function
 
 import os
 import tarfile
+from tensor2tensor.data_generators import cleaner_en_xx
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -153,22 +154,11 @@ def compile_data(tmp_dir, datasets, filename):
             tmx_filename = new_filename
           source, target = None, None
           with tf.gfile.Open(tmx_filename) as tmx_file:
-            for line in tmx_file:
-              text = line.strip()
-              if text.startswith("<seg>"):
-                if text.endswith("</seg>"):
-                  sentence = text[5:-6]  # Strip <seg> and </seg>.
-                  if source is None:
-                    source = sentence
-                  else:
-                    target = sentence
-              if source is not None and target is not None:
-                if source and target:  # Prevent empty string examples.
-                  lang1_resfile.write(source)
-                  lang1_resfile.write("\n")
-                  lang2_resfile.write(target)
-                  lang2_resfile.write("\n")
-                source, target = None, None
+            for source, target in cleaner_en_xx.paracrawl_v3_pairs(tmx_file):
+              lang1_resfile.write(source)
+              lang1_resfile.write("\n")
+              lang2_resfile.write(target)
+              lang2_resfile.write("\n")
 
         elif dataset[1][0] == "tsv":
           _, src_column, trg_column, glob_pattern = dataset[1]
