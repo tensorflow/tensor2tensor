@@ -52,6 +52,124 @@ transformer_encoder = transformer_layers.transformer_encoder
 transformer_ffn_layer = transformer_layers.transformer_ffn_layer
 
 
+def transformer_encode(encoder_function, inputs, target_space, hparams,
+                       attention_weights=None, features=None, losses=None):
+  """Encode transformer inputs.
+
+  Args:
+    encoder_function: the encoder function
+    inputs: Transformer inputs [batch_size, input_length, 1, hidden_dim] which
+      will be flattened along the two spatial dimensions.
+    target_space: scalar, target space ID.
+    hparams: hyperparameters for model.
+    attention_weights: weight to store attention to.
+    features: optionally pass the entire features dictionary as well. This is
+      needed now for "packed" datasets.
+    losses: optional list onto which to append extra training losses
+
+  Returns:
+    Tuple of:
+        encoder_output: Encoder representation.
+            [batch_size, input_length, hidden_dim]
+        encoder_decoder_attention_bias: Bias and mask weights for
+            encoder-decoder attention. [batch_size, input_length]
+  """
+  inputs = common_layers.flatten4d3d(inputs)
+
+  encoder_input, self_attention_bias, encoder_decoder_attention_bias = (
+      transformer_prepare_encoder(
+          inputs, target_space, hparams, features=features))
+
+  mlperf_log.transformer_print(
+      key=mlperf_log.MODEL_HP_LAYER_POSTPROCESS_DROPOUT,
+      value=hparams.layer_prepostprocess_dropout,
+      hparams=hparams)
+
+  encoder_input = tf.nn.dropout(encoder_input,
+                                1.0 - hparams.layer_prepostprocess_dropout)
+
+  attn_bias_for_padding = None
+  # Otherwise the encoder will just use encoder_self_attention_bias.
+  if hparams.unidirectional_encoder:
+    attn_bias_for_padding = encoder_decoder_attention_bias
+
+  encoder_output = encoder_function(
+      encoder_input,
+      self_attention_bias,
+      hparams,
+      nonpadding=features_to_nonpadding(features, "inputs"),
+      save_weights_to=attention_weights,
+      make_image_summary=not common_layers.is_xla_compiled(),
+      losses=losses,
+      attn_bias_for_padding=attn_bias_for_padding)
+
+  return encoder_output, encoder_decoder_attention_bias
+
+
+def transformer_decode(decoder_function,
+                       decoder_input,
+                       encoder_output,
+                       encoder_decoder_attention_bias,
+                       decoder_self_attention_bias,
+                       hparams,
+                       attention_weights=None,
+                       cache=None,
+                       decode_loop_step=None,
+                       nonpadding=None,
+                       losses=None):
+  """Decode Transformer outputs from encoder representation.
+
+  Args:
+    decoder_function: the decoder function
+    decoder_input: inputs to bottom of the model. [batch_size, decoder_length,
+      hidden_dim]
+    encoder_output: Encoder representation. [batch_size, input_length,
+      hidden_dim]
+    encoder_decoder_attention_bias: Bias and mask weights for encoder-decoder
+      attention. [batch_size, input_length]
+    decoder_self_attention_bias: Bias and mask weights for decoder
+      self-attention. [batch_size, decoder_length]
+    hparams: hyperparameters for model.
+    attention_weights: weight to store attention to.
+    cache: dict, containing tensors which are the results of previous
+      attentions, used for fast decoding.
+    decode_loop_step: An integer, step number of the decoding loop. Only used
+      for inference on TPU.
+    nonpadding: optional Tensor with shape [batch_size, decoder_length]
+    losses: optional list onto which to append extra training losses
+
+  Returns:
+    Final decoder representation. [batch_size, decoder_length, hidden_dim]
+  """
+  mlperf_log.transformer_print(
+      key=mlperf_log.MODEL_HP_LAYER_POSTPROCESS_DROPOUT,
+      value=hparams.layer_prepostprocess_dropout,
+      hparams=hparams)
+  decoder_input = tf.nn.dropout(decoder_input,
+                                1.0 - hparams.layer_prepostprocess_dropout)
+
+  decoder_output = decoder_function(
+      decoder_input,
+      encoder_output,
+      decoder_self_attention_bias,
+      encoder_decoder_attention_bias,
+      hparams,
+      cache=cache,
+      decode_loop_step=decode_loop_step,
+      nonpadding=nonpadding,
+      save_weights_to=attention_weights,
+      losses=losses)
+
+  if (common_layers.is_xla_compiled() and
+      hparams.mode == tf.estimator.ModeKeys.TRAIN):
+    # TPU does not react kindly to extra dimensions.
+    # TODO(noam): remove this once TPU is more forgiving of extra dims.
+    return decoder_output
+  else:
+    # Expand since t2t expects 4d tensors.
+    return tf.expand_dims(decoder_output, axis=2)
+
+
 @registry.register_model
 class Transformer(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
@@ -63,54 +181,11 @@ class Transformer(t2t_model.T2TModel):
     self._decoder_function = transformer_decoder
 
   def encode(self, inputs, target_space, hparams, features=None, losses=None):
-    """Encode transformer inputs.
-
-    Args:
-      inputs: Transformer inputs [batch_size, input_length, 1, hidden_dim] which
-        will be flattened along the two spatial dimensions.
-      target_space: scalar, target space ID.
-      hparams: hyperparameters for model.
-      features: optionally pass the entire features dictionary as well. This is
-        needed now for "packed" datasets.
-      losses: optional list onto which to append extra training losses
-
-    Returns:
-      Tuple of:
-          encoder_output: Encoder representation.
-              [batch_size, input_length, hidden_dim]
-          encoder_decoder_attention_bias: Bias and mask weights for
-              encoder-decoder attention. [batch_size, input_length]
-    """
-    inputs = common_layers.flatten4d3d(inputs)
-
-    encoder_input, self_attention_bias, encoder_decoder_attention_bias = (
-        transformer_prepare_encoder(
-            inputs, target_space, hparams, features=features))
-
-    mlperf_log.transformer_print(
-        key=mlperf_log.MODEL_HP_LAYER_POSTPROCESS_DROPOUT,
-        value=hparams.layer_prepostprocess_dropout,
-        hparams=hparams)
-
-    encoder_input = tf.nn.dropout(encoder_input,
-                                  1.0 - hparams.layer_prepostprocess_dropout)
-
-    attn_bias_for_padding = None
-    # Otherwise the encoder will just use encoder_self_attention_bias.
-    if hparams.unidirectional_encoder:
-      attn_bias_for_padding = encoder_decoder_attention_bias
-
-    encoder_output = self._encoder_function(
-        encoder_input,
-        self_attention_bias,
-        hparams,
-        nonpadding=features_to_nonpadding(features, "inputs"),
-        save_weights_to=self.attention_weights,
-        make_image_summary=not common_layers.is_xla_compiled(),
-        losses=losses,
-        attn_bias_for_padding=attn_bias_for_padding)
-
-    return encoder_output, encoder_decoder_attention_bias
+    """Encode transformer inputs, see transformer_encode."""
+    return transformer_encode(
+        self._encoder_function, inputs, target_space, hparams,
+        attention_weights=self.attention_weights,
+        features=features, losses=losses)
 
   def decode(self,
              decoder_input,
@@ -122,55 +197,12 @@ class Transformer(t2t_model.T2TModel):
              decode_loop_step=None,
              nonpadding=None,
              losses=None):
-    """Decode Transformer outputs from encoder representation.
-
-    Args:
-      decoder_input: inputs to bottom of the model. [batch_size, decoder_length,
-        hidden_dim]
-      encoder_output: Encoder representation. [batch_size, input_length,
-        hidden_dim]
-      encoder_decoder_attention_bias: Bias and mask weights for encoder-decoder
-        attention. [batch_size, input_length]
-      decoder_self_attention_bias: Bias and mask weights for decoder
-        self-attention. [batch_size, decoder_length]
-      hparams: hyperparameters for model.
-      cache: dict, containing tensors which are the results of previous
-        attentions, used for fast decoding.
-      decode_loop_step: An integer, step number of the decoding loop. Only used
-        for inference on TPU.
-      nonpadding: optional Tensor with shape [batch_size, decoder_length]
-      losses: optional list onto which to append extra training losses
-
-    Returns:
-      Final decoder representation. [batch_size, decoder_length, hidden_dim]
-    """
-    mlperf_log.transformer_print(
-        key=mlperf_log.MODEL_HP_LAYER_POSTPROCESS_DROPOUT,
-        value=hparams.layer_prepostprocess_dropout,
-        hparams=hparams)
-    decoder_input = tf.nn.dropout(decoder_input,
-                                  1.0 - hparams.layer_prepostprocess_dropout)
-
-    decoder_output = self._decoder_function(
-        decoder_input,
-        encoder_output,
-        decoder_self_attention_bias,
-        encoder_decoder_attention_bias,
-        hparams,
-        cache=cache,
-        decode_loop_step=decode_loop_step,
-        nonpadding=nonpadding,
-        save_weights_to=self.attention_weights,
-        losses=losses)
-
-    if (common_layers.is_xla_compiled() and
-        hparams.mode == tf.estimator.ModeKeys.TRAIN):
-      # TPU does not react kindly to extra dimensions.
-      # TODO(noam): remove this once TPU is more forgiving of extra dims.
-      return decoder_output
-    else:
-      # Expand since t2t expects 4d tensors.
-      return tf.expand_dims(decoder_output, axis=2)
+    """Decode Transformer outputs, see transformer_decode."""
+    return transformer_decode(
+        self._decoder_function, decoder_input, encoder_output,
+        encoder_decoder_attention_bias, decoder_self_attention_bias,
+        hparams, attention_weights=self.attention_weights, cache=cache,
+        decode_loop_step=decode_loop_step, nonpadding=nonpadding, losses=losses)
 
   def body(self, features):
     """Transformer main model_fn.
@@ -2028,7 +2060,9 @@ def transformer_big_single_gpu():
 def transformer_base_single_gpu():
   """HParams for transformer base model for single GPU."""
   hparams = transformer_base()
-  hparams.batch_size = 2048
+  hparams.batch_size = 1024
+  hparams.learning_rate_schedule = "constant*linear_warmup*rsqrt_decay"
+  hparams.learning_rate_constant = 0.1
   hparams.learning_rate_warmup_steps = 16000
   return hparams
 

@@ -139,7 +139,7 @@ class DataReaderTest(tf.test.TestCase):
     self.assertAllEqual(list(range(1, max_len + 1)), sorted(ex_lens))
 
   def testBatchingSchemeMaxLength(self):
-    scheme = data_reader._batching_scheme(
+    scheme = data_reader.batching_scheme(
         batch_size=20,
         max_length=None,
         min_length_bucket=8,
@@ -147,7 +147,7 @@ class DataReaderTest(tf.test.TestCase):
         drop_long_sequences=False)
     self.assertGreater(scheme["max_length"], 10000)
 
-    scheme = data_reader._batching_scheme(
+    scheme = data_reader.batching_scheme(
         batch_size=20,
         max_length=None,
         min_length_bucket=8,
@@ -155,7 +155,7 @@ class DataReaderTest(tf.test.TestCase):
         drop_long_sequences=True)
     self.assertEqual(scheme["max_length"], 20)
 
-    scheme = data_reader._batching_scheme(
+    scheme = data_reader.batching_scheme(
         batch_size=20,
         max_length=15,
         min_length_bucket=8,
@@ -163,7 +163,7 @@ class DataReaderTest(tf.test.TestCase):
         drop_long_sequences=True)
     self.assertEqual(scheme["max_length"], 15)
 
-    scheme = data_reader._batching_scheme(
+    scheme = data_reader.batching_scheme(
         batch_size=20,
         max_length=15,
         min_length_bucket=8,
@@ -172,7 +172,7 @@ class DataReaderTest(tf.test.TestCase):
     self.assertGreater(scheme["max_length"], 10000)
 
   def testBatchingSchemeBuckets(self):
-    scheme = data_reader._batching_scheme(
+    scheme = data_reader.batching_scheme(
         batch_size=128,
         max_length=0,
         min_length_bucket=8,
@@ -190,7 +190,7 @@ class DataReaderTest(tf.test.TestCase):
     ]
     self.assertEqual(expected_batch_sizes, batch_sizes)
 
-    scheme = data_reader._batching_scheme(
+    scheme = data_reader.batching_scheme(
         batch_size=128,
         max_length=0,
         min_length_bucket=8,
@@ -200,7 +200,7 @@ class DataReaderTest(tf.test.TestCase):
     self.assertAllEqual([bs * 2 for bs in expected_batch_sizes], batch_sizes)
     self.assertEqual(expected_boundaries, boundaries)
 
-    scheme = data_reader._batching_scheme(
+    scheme = data_reader.batching_scheme(
         batch_size=128,
         max_length=0,
         min_length_bucket=8,

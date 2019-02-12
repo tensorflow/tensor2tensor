@@ -52,7 +52,7 @@ class Resnet(tf.keras.Model):
 
     self._resnet = keras_utils.FunctionLayer(resnet_model)
     self._logits = tf.keras.layers.Dense(
-        num_output_classes, activation="softmax")
+        num_output_classes, activation=None)
 
   def call(self, inputs, training=False):
     x = tf.cast(inputs[self._input_name], tf.float32) / 255.0

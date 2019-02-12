@@ -45,7 +45,7 @@ class BasicFcRelu(tf.keras.Model):
       self._dropout_layers.append(tf.keras.layers.Dropout(
           rate=dropout))
     self._logits = tf.keras.layers.Dense(
-        num_output_classes, activation="softmax")
+        num_output_classes, activation=None)
 
   def call(self, inputs, training=False):
     x = tf.cast(inputs[self._input_name], tf.float32) / 255.0
@@ -89,4 +89,4 @@ class BasicFcReluV2(tf.keras.Model):
           self._hidden_size, activation="relu", name="layer_%d" % i)(x)
       x = tf.keras.layers.Dropout(rate=self._dropout)(x, training=training)
     return tf.keras.layers.Dense(
-        self._num_output_classes, activation="softmax")(x)
+        self._num_output_classes, activation=None)(x)

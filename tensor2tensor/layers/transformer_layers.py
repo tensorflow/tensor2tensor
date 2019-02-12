@@ -81,7 +81,8 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
   if hparams.proximity_bias:
     encoder_self_attention_bias += common_attention.attention_bias_proximal(
         common_layers.shape_list(inputs)[1])
-  if hparams.get("use_target_space_embedding", True):
+  if target_space is not None and hparams.get("use_target_space_embedding",
+                                              True):
     # Append target_space_id embedding to inputs.
     emb_target_space = common_layers.embedding(
         target_space,

@@ -30,10 +30,21 @@ class FunctionLayer(tf.compat.v2.keras.layers.Layer):
       name = function.__name__
     super(FunctionLayer, self).__init__(name=name)
     self._template = tf.compat.v1.make_template(name, function)
+    self._was_called = False
 
   @property
   def losses(self):
     return []
 
-  def call(self, *args, **kwargs):
+  def compute_mask(self, inputs, previous_mask):
+    return previous_mask
+
+  @tf.function
+  def _template_call(self, *args, **kwargs):
+    """Call to template but made in graph mode for better speed."""
     return self._template(*args, **kwargs)
+
+  def call(self, *args, **kwargs):
+    if not self._was_called:  # Create variables at first call.
+      return self._template(*args, **kwargs)
+    return self._template_call(*args, **kwargs)

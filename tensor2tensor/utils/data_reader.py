@@ -77,14 +77,14 @@ def _bucket_boundaries(max_length, min_length=8, length_bucket_step=1.1):
   return boundaries
 
 
-def _batching_scheme(batch_size,
-                     max_length,
-                     min_length_bucket,
-                     length_bucket_step,
-                     drop_long_sequences=False,
-                     shard_multiplier=1,
-                     length_multiplier=1,
-                     min_length=0):
+def batching_scheme(batch_size,
+                    max_length,
+                    min_length_bucket,
+                    length_bucket_step,
+                    drop_long_sequences=False,
+                    shard_multiplier=1,
+                    length_multiplier=1,
+                    min_length=0):
   """A batching scheme based on model hyperparameters.
 
   Every batch contains a number of sequences divisible by `shard_multiplier`.
@@ -169,7 +169,7 @@ def hparams_to_batching_scheme(hparams,
                                shard_multiplier=1,
                                length_multiplier=1):
   """Wrapper around _batching_scheme with hparams."""
-  return _batching_scheme(
+  return batching_scheme(
       batch_size=hparams.batch_size,
       min_length=hparams.min_length,
       max_length=hparams.max_length,
@@ -437,18 +437,18 @@ def input_fn(dataset,
     else:
       # On GPU, bucket by length
       dataset = dataset.filter(gpu_valid_size)
-      batching_scheme = hparams_to_batching_scheme(
+      cur_batching_scheme = hparams_to_batching_scheme(
           hparams,
           shard_multiplier=num_shards,
           length_multiplier=batch_size_multiplier)
       if hparams.use_fixed_batch_size:
         # Here  batch_size really means examples per datashard.
-        batching_scheme["batch_sizes"] = [hparams.batch_size]
-        batching_scheme["boundaries"] = []
+        cur_batching_scheme["batch_sizes"] = [hparams.batch_size]
+        cur_batching_scheme["boundaries"] = []
       dataset = dataset.apply(
           tf.data.experimental.bucket_by_sequence_length(
-              example_length, batching_scheme["boundaries"],
-              batching_scheme["batch_sizes"]))
+              example_length, cur_batching_scheme["boundaries"],
+              cur_batching_scheme["batch_sizes"]))
 
       if not is_training:
         batch_multiple = num_shards
