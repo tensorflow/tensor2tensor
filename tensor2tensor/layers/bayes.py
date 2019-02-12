@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import math
 
 import six
@@ -375,36 +376,42 @@ class NormalKLDivergence(tf.keras.regularizers.Regularizer):
     }
 
 
-def _add_weight(layer,
-                name=None,
-                shape=None,
-                dtype=None,
-                initializer=None,
-                regularizer=None,
-                **kwargs):
-  """Adds weight."""
-  if isinstance(initializer, tf.keras.layers.Layer):
-    weight = initializer(shape, dtype)
-    layer._trainable_weights.extend(initializer.trainable_weights)  # pylint: disable=protected-access
-    layer._non_trainable_weights.extend(initializer.non_trainable_weights)  # pylint: disable=protected-access
-    if regularizer is not None:
-      # TODO(trandustin): Replace need for this with
-      # Layer._handle_weight_regularization. For Eager compatibility, random
-      # variable __init__s cannot apply TF ops (cl/220898007).
-      def loss_fn():
-        """Creates a regularization loss `Tensor`."""
-        with tf.name_scope(name + '/Regularizer'):
-          return regularizer(initializer(shape, dtype))
-      layer.add_loss(loss_fn)
-    return weight
-  return super(layer.__class__, layer).add_weight(name=name,
-                                                  shape=shape,
-                                                  dtype=dtype,
-                                                  initializer=initializer,
-                                                  regularizer=regularizer,
-                                                  **kwargs)
+def add_weight(cls):
+  """Decorator for Layers, overriding add_weight for trainable initializers."""
+  @functools.wraps(cls.add_weight)
+  def _add_weight(self,
+                  name=None,
+                  shape=None,
+                  dtype=None,
+                  initializer=None,
+                  regularizer=None,
+                  **kwargs):
+    """Adds weight."""
+    if isinstance(initializer, tf.keras.layers.Layer):
+      weight = initializer(shape, dtype)
+      self._trainable_weights.extend(initializer.trainable_weights)  # pylint: disable=protected-access
+      self._non_trainable_weights.extend(initializer.non_trainable_weights)  # pylint: disable=protected-access
+      if regularizer is not None:
+        # TODO(trandustin): Replace need for this with
+        # Layer._handle_weight_regularization. For Eager compatibility, random
+        # variable __init__s cannot apply TF ops (cl/220898007).
+        def loss_fn():
+          """Creates a regularization loss `Tensor`."""
+          with tf.name_scope(name + '/Regularizer'):
+            return regularizer(initializer(shape, dtype))
+        self.add_loss(loss_fn)
+      return weight
+    return super(cls, self).add_weight(name=name,
+                                       shape=shape,
+                                       dtype=dtype,
+                                       initializer=initializer,
+                                       regularizer=regularizer,
+                                       **kwargs)
+  cls.add_weight = _add_weight
+  return cls
 
 
+@add_weight
 class DenseReparameterization(tf.keras.layers.Dense):
   """Bayesian densely-connected layer estimated via reparameterization.
 
@@ -445,8 +452,6 @@ class DenseReparameterization(tf.keras.layers.Dense):
         activity_regularizer=get(activity_regularizer),
         **kwargs)
 
-  add_weight = _add_weight
-
   # TODO(trandustin): This name is not accurate. Rename or move functionality
   # into random variables to resample/recreate their init ops.
   def sample_weights(self):
@@ -460,6 +465,7 @@ class DenseReparameterization(tf.keras.layers.Dense):
     return super(DenseReparameterization, self).call(*args, **kwargs)
 
 
+@add_weight
 class Conv2DReparameterization(tf.keras.layers.Conv2D):
   """2D convolution layer (e.g. spatial convolution over images).
 
@@ -513,8 +519,6 @@ class Conv2DReparameterization(tf.keras.layers.Conv2D):
         kernel_constraint=get(kernel_constraint),
         bias_constraint=get(bias_constraint),
         **kwargs)
-
-  add_weight = _add_weight
 
   def sample_weights(self):
     if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
@@ -680,6 +684,7 @@ class GaussianProcess(tf.keras.layers.Layer):
     return dict(list(base_config.items()) + list(config.items()))
 
 
+@add_weight
 class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
   """Bayesian LSTM cell class estimated via reparameterization.
 
@@ -739,8 +744,6 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
         recurrent_dropout=recurrent_dropout,
         implementation=implementation,
         **kwargs)
-
-  add_weight = _add_weight
 
   def build(self, input_shape):
     input_shape = tf.TensorShape(input_shape)

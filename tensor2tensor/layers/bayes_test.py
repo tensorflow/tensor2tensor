@@ -138,6 +138,26 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     self.assertEqual(res.shape, (3, 2))
     self.assertLen(model.losses, 1)
 
+  @test_utils.run_in_graph_and_eager_modes()
+  def testDenseReparameterizationSubclass(self):
+    class DenseReparameterizationSubclass(bayes.DenseReparameterization):
+      pass
+
+    inputs = tf.to_float(np.random.rand(3, 4, 4, 1))
+    model = tf.keras.Sequential([
+        tf.keras.layers.Conv2D(3,
+                               kernel_size=2,
+                               padding="SAME",
+                               activation=tf.nn.relu),
+        tf.keras.layers.Flatten(),
+        DenseReparameterizationSubclass(2, activation=None),
+    ])
+    outputs = model(inputs)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(outputs)
+    self.assertEqual(res.shape, (3, 2))
+    self.assertLen(model.losses, 1)
+
   @parameterized.named_parameters(
       {"testcase_name": "_no_uncertainty",
        "kernel_initializer": "zeros",
