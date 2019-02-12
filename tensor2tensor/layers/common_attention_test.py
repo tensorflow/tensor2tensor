@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 from absl.testing import parameterized
+import kfac
 import numpy as np
 
 from tensor2tensor.layers import common_attention
@@ -841,6 +842,15 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     bias = common_attention.attention_bias_future(q, k)
     self.assertAllClose(self.evaluate(bias), ground_truth)
 
+  @test_utils.run_in_graph_mode_only()
+  def testMultiheadAttentionWithLayerCollection(self):
+    """Testing multihead attention with layer collection for kfac."""
+    x = tf.zeros([3, 4, 5], tf.float32)
+    layer_collection = kfac.LayerCollection()
+    common_attention.multihead_attention(
+        x, None, None, 10, 10, 10, 2, 0.2,
+        layer_collection=layer_collection)
+    self.assertLen(layer_collection.get_blocks(), 4)
 
 if __name__ == "__main__":
   tf.test.main()

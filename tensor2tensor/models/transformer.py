@@ -1286,7 +1286,8 @@ def transformer_decoder(decoder_input,
                         nonpadding=None,
                         save_weights_to=None,
                         make_image_summary=True,
-                        losses=None):
+                        losses=None,
+                        layer_collection=None):
   """A stack of transformer layers.
 
   Args:
@@ -1312,6 +1313,8 @@ def transformer_decoder(decoder_input,
       key created from the variable scope (including name).
     make_image_summary: Whether to make an attention image summary.
     losses: optional list onto which to append extra training losses
+    layer_collection: A tensorflow_kfac.LayerCollection. Only used by the
+      KFAC optimizer. Default is None.
 
   Returns:
     y: a Tensors
@@ -1345,7 +1348,8 @@ def transformer_decoder(decoder_input,
       with tf.variable_scope(layer_name):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
-              common_layers.layer_preprocess(x, hparams),
+              common_layers.layer_preprocess(
+                  x, hparams, layer_collection=layer_collection),
               None,
               decoder_self_attention_bias,
               hparams.attention_key_channels or hparams.hidden_size,
@@ -1366,12 +1370,14 @@ def transformer_decoder(decoder_input,
               decode_loop_step=decode_loop_step,
               vars_3d=hparams.get("attention_variables_3d"),
               activation_dtype=hparams.get("activation_dtype", "float32"),
-              weight_dtype=hparams.get("weight_dtype", "float32"))
+              weight_dtype=hparams.get("weight_dtype", "float32"),
+              layer_collection=layer_collection)
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
           with tf.variable_scope("encdec_attention"):
             y = common_attention.multihead_attention(
-                common_layers.layer_preprocess(x, hparams),
+                common_layers.layer_preprocess(
+                    x, hparams, layer_collection=layer_collection),
                 encoder_output,
                 encoder_decoder_attention_bias,
                 hparams.attention_key_channels or hparams.hidden_size,
@@ -1390,26 +1396,29 @@ def transformer_decoder(decoder_input,
                 max_length=hparams.get("max_length"),
                 vars_3d=hparams.get("attention_variables_3d"),
                 activation_dtype=hparams.get("activation_dtype", "float32"),
-                weight_dtype=hparams.get("weight_dtype", "float32"))
+                weight_dtype=hparams.get("weight_dtype", "float32"),
+                layer_collection=layer_collection)
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
-              common_layers.layer_preprocess(x, hparams),
+              common_layers.layer_preprocess(
+                  x, hparams, layer_collection=layer_collection),
               hparams,
               conv_padding="LEFT",
               nonpadding_mask=nonpadding,
               losses=losses,
               cache=layer_cache,
-              decode_loop_step=decode_loop_step)
+              decode_loop_step=decode_loop_step,
+              layer_collection=layer_collection)
           x = common_layers.layer_postprocess(x, y, hparams)
     # if normalization is done in layer_preprocess, then it should also be done
     # on the output, since the output can grow very large, being the sum of
     # a whole stack of unnormalized layer outputs.
     mlperf_log.transformer_print(
         key=mlperf_log.MODEL_HP_NORM,
-        value={"hidden_size": hparams.hidden_size},
-        hparams=hparams)
-    return common_layers.layer_preprocess(x, hparams)
+        value={"hidden_size": hparams.hidden_size})
+    return common_layers.layer_preprocess(
+        x, hparams, layer_collection=layer_collection)
 
 
 def evolved_transformer_decoder(decoder_input,

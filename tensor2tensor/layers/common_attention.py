@@ -3396,7 +3396,8 @@ def compute_attention_component(antecedent,
                                 filter_width=1,
                                 padding="VALID",
                                 name="c",
-                                vars_3d_num_heads=0):
+                                vars_3d_num_heads=0,
+                                layer_collection=None):
   """Computes attention compoenent (query, key or value).
 
   Args:
@@ -3407,10 +3408,18 @@ def compute_attention_component(antecedent,
     padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
     name: a string specifying scope name.
     vars_3d_num_heads: an optional integer (if we want to use 3d variables)
+    layer_collection: A tensorflow_kfac.LayerCollection. Only used by the
+      KFAC optimizer. Default is None.
 
   Returns:
     c : [batch, length, depth] tensor
   """
+  if layer_collection is not None:
+    if filter_width != 1 or vars_3d_num_heads != 0:
+      raise ValueError(
+          "KFAC implementation only supports filter_width=1 (actual: {}) and "
+          "vars_3d_num_heads=0 (actual: {}).".format(
+              filter_width, vars_3d_num_heads))
   if vars_3d_num_heads > 0:
     assert filter_width == 1
     input_depth = antecedent.get_shape().as_list()[-1]
@@ -3428,7 +3437,8 @@ def compute_attention_component(antecedent,
     return tf.tensordot(antecedent, var, axes=1)
   if filter_width == 1:
     return common_layers.dense(
-        antecedent, total_depth, use_bias=False, name=name)
+        antecedent, total_depth, use_bias=False, name=name,
+        layer_collection=layer_collection)
   else:
     return common_layers.conv1d(
         antecedent, total_depth, filter_width, padding=padding, name=name)
@@ -3442,7 +3452,8 @@ def compute_qkv(query_antecedent,
                 kv_filter_width=1,
                 q_padding="VALID",
                 kv_padding="VALID",
-                vars_3d_num_heads=0):
+                vars_3d_num_heads=0,
+                layer_collection=None):
   """Computes query, key and value.
 
   Args:
@@ -3456,6 +3467,8 @@ def compute_qkv(query_antecedent,
     q_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
     kv_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
     vars_3d_num_heads: an optional (if we want to use 3d variables)
+    layer_collection: A tensorflow_kfac.LayerCollection. Only used by the
+      KFAC optimizer. Default is None.
 
   Returns:
     q, k, v : [batch, length, depth] tensors
@@ -3468,21 +3481,24 @@ def compute_qkv(query_antecedent,
       q_filter_width,
       q_padding,
       "q",
-      vars_3d_num_heads=vars_3d_num_heads)
+      vars_3d_num_heads=vars_3d_num_heads,
+      layer_collection=layer_collection)
   k = compute_attention_component(
       memory_antecedent,
       total_key_depth,
       kv_filter_width,
       kv_padding,
       "k",
-      vars_3d_num_heads=vars_3d_num_heads)
+      vars_3d_num_heads=vars_3d_num_heads,
+      layer_collection=layer_collection)
   v = compute_attention_component(
       memory_antecedent,
       total_value_depth,
       kv_filter_width,
       kv_padding,
       "v",
-      vars_3d_num_heads=vars_3d_num_heads)
+      vars_3d_num_heads=vars_3d_num_heads,
+      layer_collection=layer_collection)
   return q, k, v
 
 
@@ -3513,6 +3529,7 @@ def multihead_attention(query_antecedent,
                         make_image_summary=True,
                         dropout_broadcast_dims=None,
                         vars_3d=False,
+                        layer_collection=None,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -3564,6 +3581,8 @@ def multihead_attention(query_antecedent,
       specifying in which dimensions to broadcast the dropout decisions.
       saves memory.
     vars_3d: use 3-dimensional variables for input/output transformations
+    layer_collection: A tensorflow_kfac.LayerCollection. Only used by the
+      KFAC optimizer. Default is None.
     **kwargs (dict): Parameters for the attention function
 
   Caching:
@@ -3594,6 +3613,13 @@ def multihead_attention(query_antecedent,
     raise ValueError("Value depth (%d) must be divisible by the number of "
                      "attention heads (%d)." % (total_value_depth, num_heads))
   vars_3d_num_heads = num_heads if vars_3d else 0
+
+  if layer_collection is not None:
+    if cache is not None:
+      raise ValueError("KFAC implementation only supports cache is None.")
+    if vars_3d:
+      raise ValueError("KFAC implementation does not support 3d vars.")
+
   with tf.variable_scope(name, default_name="multihead_attention",
                          values=[query_antecedent, memory_antecedent]):
 
@@ -3601,7 +3627,8 @@ def multihead_attention(query_antecedent,
       q, k, v = compute_qkv(query_antecedent, memory_antecedent,
                             total_key_depth, total_value_depth, q_filter_width,
                             kv_filter_width, q_padding, kv_padding,
-                            vars_3d_num_heads=vars_3d_num_heads)
+                            vars_3d_num_heads=vars_3d_num_heads,
+                            layer_collection=layer_collection)
     if cache is not None:
       if attention_type not in ["dot_product", "dot_product_relative"]:
         # TODO(petershaw): Support caching when using relative position
@@ -3744,7 +3771,8 @@ def multihead_attention(query_antecedent,
       x = tf.tensordot(x, o_var, axes=1)
     else:
       x = common_layers.dense(
-          x, output_depth, use_bias=False, name="output_transform")
+          x, output_depth, use_bias=False, name="output_transform",
+          layer_collection=layer_collection)
     if additional_returned_value is not None:
       return x, additional_returned_value
     return x

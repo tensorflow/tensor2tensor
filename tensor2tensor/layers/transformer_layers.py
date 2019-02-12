@@ -390,7 +390,8 @@ def transformer_ffn_layer(x,
                           losses=None,
                           cache=None,
                           decode_loop_step=None,
-                          readout_filter_size=0):
+                          readout_filter_size=0,
+                          layer_collection=None):
   """Feed-forward layer in the transformer.
 
   Args:
@@ -411,6 +412,8 @@ def transformer_ffn_layer(x,
         Only used for inference on TPU.
     readout_filter_size: if it's greater than 0, then it will be used instead of
       filter_size
+    layer_collection: A tensorflow_kfac.LayerCollection. Only used by the
+      KFAC optimizer. Default is None.
 
 
   Returns:
@@ -453,7 +456,8 @@ def transformer_ffn_layer(x,
         hparams.filter_size,
         hparams.hidden_size,
         dropout=hparams.relu_dropout,
-        dropout_broadcast_dims=relu_dropout_broadcast_dims)
+        dropout_broadcast_dims=relu_dropout_broadcast_dims,
+        layer_collection=layer_collection)
     if pad_remover:
       # Restore `conv_output` to the original shape of `x`, including padding.
       conv_output = tf.reshape(

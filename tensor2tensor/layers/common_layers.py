@@ -640,13 +640,22 @@ def layer_norm_compute(x, epsilon, scale, bias):
   return norm_x * scale + bias
 
 
-def layer_norm(x, filters=None, epsilon=1e-6, name=None, reuse=None):
+def layer_norm(x,
+               filters=None,
+               epsilon=1e-6,
+               name=None,
+               reuse=None,
+               layer_collection=None):
   """Layer normalize the tensor x, averaging over the last dimension."""
   if filters is None:
     filters = shape_list(x)[-1]
   with tf.variable_scope(
       name, default_name="layer_norm", values=[x], reuse=reuse):
     scale, bias = layer_norm_vars(filters)
+    if layer_collection:
+      tf.logging.info("Registering layer norm to collection with (scale, bias):"
+                      " ({}, {})".format(scale, bias))
+      layer_collection.register_generic((scale, bias), shape_list(x)[0])
     return layer_norm_compute(x, epsilon, scale, bias)
 
 
@@ -737,10 +746,13 @@ def apply_spectral_norm(x):
   return tf.divide(x, spectral_norm), assign_op
 
 
-def apply_norm(x, norm_type, depth, epsilon):
+def apply_norm(x, norm_type, depth, epsilon, layer_collection=None):
   """Apply Normalization."""
+  if layer_collection is not None:
+    assert norm_type == "layer"
   if norm_type == "layer":
-    return layer_norm(x, filters=depth, epsilon=epsilon)
+    return layer_norm(
+        x, filters=depth, epsilon=epsilon, layer_collection=layer_collection)
   if norm_type == "group":
     return group_norm(x, filters=depth, epsilon=epsilon)
   if norm_type == "batch":
@@ -786,7 +798,8 @@ def layer_prepostprocess(previous_value,
                          epsilon,
                          default_name,
                          name=None,
-                         dropout_broadcast_dims=None):
+                         dropout_broadcast_dims=None,
+                         layer_collection=None):
   """Apply a sequence of functions to the input or output of a layer.
 
   The sequence is specified as a string which may contain the following
@@ -812,6 +825,8 @@ def layer_prepostprocess(previous_value,
     dropout_broadcast_dims:  an optional list of integers less than 3
       specifying in which dimensions to broadcast the dropout decisions.
       saves memory.
+    layer_collection: A tensorflow_kfac.LayerCollection. Only used by the
+      KFAC optimizer. Default is None.
 
   Returns:
     a Tensor
@@ -825,7 +840,8 @@ def layer_prepostprocess(previous_value,
       elif c == "z":
         x = zero_add(previous_value, x)
       elif c == "n":
-        x = apply_norm(x, norm_type, depth, epsilon)
+        x = apply_norm(
+            x, norm_type, depth, epsilon, layer_collection=layer_collection)
       else:
         assert c == "d", ("Unknown sequence step %s" % c)
         x = dropout_with_broadcast_dims(
@@ -833,7 +849,7 @@ def layer_prepostprocess(previous_value,
     return x
 
 
-def layer_preprocess(layer_input, hparams):
+def layer_preprocess(layer_input, hparams, layer_collection=None):
   """Apply layer preprocessing.
 
   See layer_prepostprocess() for details.
@@ -850,6 +866,8 @@ def layer_preprocess(layer_input, hparams):
   Args:
     layer_input: a Tensor
     hparams: a hyperparameters object.
+    layer_collection: A tensorflow_kfac.LayerCollection. Only used by the
+      KFAC optimizer. Default is None.
 
   Returns:
     a Tensor
@@ -868,7 +886,8 @@ def layer_preprocess(layer_input, hparams):
       epsilon=hparams.norm_epsilon,
       dropout_broadcast_dims=comma_separated_string_to_integer_list(
           getattr(hparams, "layer_prepostprocess_dropout_broadcast_dims", "")),
-      default_name="layer_prepostprocess")
+      default_name="layer_prepostprocess",
+      layer_collection=layer_collection)
 
 
 def layer_postprocess(layer_input, layer_output, hparams):
@@ -1222,6 +1241,7 @@ def dense_relu_dense(inputs,
                      output_activation=None,
                      dropout=0.0,
                      dropout_broadcast_dims=None,
+                     layer_collection=None,
                      name=None):
   """Hidden layer with RELU activation followed by linear projection."""
   # layer_name is appended with "conv1" or "conv2" in this method only for
@@ -1232,6 +1252,7 @@ def dense_relu_dense(inputs,
       filter_size,
       use_bias=True,
       activation=tf.nn.relu,
+      layer_collection=layer_collection,
       name=layer_name.format("conv1"))
 
   if dropout != 0.0:
@@ -1242,6 +1263,7 @@ def dense_relu_dense(inputs,
       output_size,
       activation=output_activation,
       use_bias=True,
+      layer_collection=layer_collection,
       name=layer_name.format("conv2"))
   return o
 
@@ -2935,7 +2957,43 @@ def _recompute_grad(fn, args):
 
 def dense(x, units, **kwargs):
   """Identical to tf.layers.dense."""
-  return tf.layers.dense(x, units, **kwargs)
+  layer_collection = kwargs.pop("layer_collection", None)
+  activations = tf.layers.dense(x, units, **kwargs)
+  if layer_collection:
+    # We need to find the layer parameters using scope name for the layer, so
+    # check that the layer is named. Otherwise parameters for different layers
+    # may get mixed up.
+    layer_name = tf.get_variable_scope().name
+    if (not layer_name) or ("name" not in kwargs):
+      raise ValueError(
+          "Variable scope and layer name cannot be empty. Actual: "
+          "variable_scope={}, layer name={}".format(
+              layer_name, kwargs.get("name", None)))
+
+    layer_name += "/" + kwargs["name"]
+    layer_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
+                                     scope=layer_name)
+    assert layer_params
+    if len(layer_params) == 1:
+      layer_params = layer_params[0]
+
+    tf.logging.info(
+        "Registering dense layer to collection for tensor: {}".format(
+            layer_params))
+
+    x_shape = x.shape.as_list()
+    if len(x_shape) == 3:
+      # Handle [batch, time, depth] inputs by folding batch and time into
+      # one dimension: reshaping inputs to [batchxtime, depth].
+      x_2d = tf.reshape(x, [-1, x_shape[2]])
+      activations_shape = activations.shape.as_list()
+      activations_2d = tf.reshape(activations, [-1, activations_shape[2]])
+      layer_collection.register_fully_connected_multi(
+          layer_params, x_2d, activations_2d, num_uses=x_shape[1])
+      activations = tf.reshape(activations_2d, activations_shape)
+    else:
+      layer_collection.register_fully_connected(layer_params, x, activations)
+  return activations
 
 
 def batch_dense(inputs,

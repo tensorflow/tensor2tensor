@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 from absl.testing import parameterized
+import kfac
 import numpy as np
 
 from tensor2tensor.layers import common_layers
@@ -213,6 +214,11 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 7, 11))
 
+    # Testing layer collection.
+    layer_collection = kfac.LayerCollection()
+    common_layers.layer_norm(x, layer_collection=layer_collection)
+    self.assertLen(layer_collection.get_blocks(), 1)
+
   @test_utils.run_in_graph_and_eager_modes()
   def testGroupNorm(self):
     x = np.random.rand(5, 7, 3, 16)
@@ -310,6 +316,29 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     actual = self.evaluate(x2)
     self.assertEqual(actual.shape, (5, 2, 1, 11))
     self.assertAllClose(actual, x1, atol=1e-03)
+
+  @test_utils.run_in_graph_mode_only()
+  def testApplyNormWithLayerCollection(self):
+    x = np.random.rand(5, 2, 1, 11)
+    layer_collection = kfac.LayerCollection()
+    common_layers.apply_norm(x, "layer", depth=11, epsilon=1e-6,
+                             layer_collection=layer_collection)
+    self.assertLen(layer_collection.get_blocks(), 1)
+
+  @test_utils.run_in_graph_mode_only()
+  def testDenseWithLayerCollection(self):
+    with tf.variable_scope("test_layer_collection"):
+      x1 = tf.zeros([3, 4], tf.float32)
+      layer_collection = kfac.LayerCollection()
+      common_layers.dense(
+          x1, units=10, layer_collection=layer_collection, name="y1")
+      self.assertLen(layer_collection.get_blocks(), 1)
+
+      # 3D inputs.
+      x2 = tf.zeros([3, 4, 5], tf.float32)
+      common_layers.dense(
+          x2, units=10, layer_collection=layer_collection, name="y2")
+      self.assertLen(layer_collection.get_blocks(), 2)
 
   def testGlobalPool1d(self):
     x1 = np.random.rand(5, 4, 11)
