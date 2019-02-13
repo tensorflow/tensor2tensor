@@ -640,7 +640,7 @@ class T2TGymEnv(T2TEnv):
 
     if self.should_derive_observation_space:
       with self._tf_graph.obj.as_default():
-        self._resize = dict()
+        self._resize = {}
         orig_height, orig_width = orig_observ_space.shape[:2]
         self._img_batch_t = _Noncopyable(tf.placeholder(
             dtype=tf.uint8, shape=(None, orig_height, orig_width, 3)))
