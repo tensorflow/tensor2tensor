@@ -84,8 +84,8 @@ class GymEnvTest(tf.test.TestCase):
   def init_batch_and_play(self, env_name, steps_per_epoch=1, epochs=(0,),
                           generate_data=False, batch_size=2, **kwargs):
     env = gym_env.T2TGymEnv(env_name, batch_size=batch_size, **kwargs)
-    obs = list()
-    rewards = list()
+    obs = []
+    rewards = []
     num_dones = 0
     for epoch in epochs:
       env.start_new_epoch(epoch, self.out_dir)
@@ -100,8 +100,8 @@ class GymEnvTest(tf.test.TestCase):
     return env, obs, rewards, num_dones
 
   def play(self, env, n_steps):
-    obs = list()
-    rewards = list()
+    obs = []
+    rewards = []
     obs.append(env.reset())
     num_dones = 0
     for _ in range(n_steps):
