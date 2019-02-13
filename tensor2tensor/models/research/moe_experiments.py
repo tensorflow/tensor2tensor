@@ -21,8 +21,83 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.models import mtf_transformer
+from tensor2tensor.models import mtf_transformer2
 from tensor2tensor.models.research import moe
 from tensor2tensor.utils import registry
+
+
+@registry.register_hparams
+def xmoe_tr_dense_2k():
+  """Series of architectural experiments on Translation.
+
+  # run on 8-core setup
+
+  119M params, einsum=0.95e13
+
+  Returns:
+    a hparams
+  """
+  hparams = mtf_transformer2.mtf_bitransformer_base()
+  hparams.encoder_layers = ["self_att", "drd"] * 4
+  hparams.decoder_layers = ["self_att", "enc_att", "drd"] * 4
+  hparams.batch_size = 64
+  hparams.shared_embedding_and_softmax_weights = True
+  hparams.mesh_shape = "batch:8"
+  return hparams
+
+
+@registry.register_hparams
+def xmoe_tr_dense_32k():
+  """Bigger d_ff.
+
+  623M params, einsum=3.42e13
+
+  Returns:
+    a hparams
+  """
+  hparams = xmoe_tr_dense_2k()
+  hparams.d_ff = 32768
+  return hparams
+
+
+@registry.register_hparams
+def xmoe_tr_1d():
+  """Mixture of experts (16 experts).
+
+
+  623M Params, einsum=1.09e13
+
+  Returns:
+    a hparams
+  """
+  hparams = xmoe_tr_dense_2k()
+  hparams.encoder_layers = ["self_att", "moe_1d"] * 4
+  hparams.decoder_layers = ["self_att", "enc_att", "moe_1d"] * 4
+  hparams.layout = "batch:batch;experts:batch"
+  hparams.moe_hidden_size = 2048
+  hparams.moe_num_experts = 16
+  return hparams
+
+
+@registry.register_hparams
+def xmoe_tr_2d():
+  """Mixture of experts (16 experts).
+
+  623M Params, einsum=1.09e13
+
+  Returns:
+    a hparams
+  """
+  hparams = xmoe_tr_dense_2k()
+  hparams.mesh_shape = "b0:2;b1:4"
+  hparams.outer_batch_size = 4
+  hparams.layout = "outer_batch:b0;inner_batch:b1,expert_x:b1,expert_y:b0"
+  hparams.encoder_layers = ["self_att", "moe_2d"] * 4
+  hparams.decoder_layers = ["self_att", "enc_att", "moe_2d"] * 4
+  hparams.moe_hidden_size = 2048
+  hparams.moe_experts_x = 4
+  hparams.moe_experts_y = 4
+  return hparams
 
 
 @registry.register_hparams
