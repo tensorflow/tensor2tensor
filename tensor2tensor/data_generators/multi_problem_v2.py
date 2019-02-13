@@ -370,9 +370,8 @@ def epoch_rates_to_pmf(problems, epoch_rates=None):
   """
   if epoch_rates is None:
     epoch_rates = [1.0] * len(problems)
-  example_rates = []
-  for p, epoch_rate in zip(problems, epoch_rates):
-    example_rates.append(epoch_rate * p.num_training_examples)
+  example_rates = [epoch_rate * p.num_training_examples
+                   for p, epoch_rate in zip(problems, epoch_rates)]
   return example_rates_to_pmf(example_rates)
 
 

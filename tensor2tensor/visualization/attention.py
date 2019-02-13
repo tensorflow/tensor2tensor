@@ -135,11 +135,7 @@ def _get_attention(inp_text, out_text, enc_atts, dec_atts, encdec_atts):
 
   def get_attentions(get_attention_fn):
     num_layers = len(enc_atts)
-    attentions = []
-    for i in range(num_layers):
-      attentions.append(get_attention_fn(i))
-
-    return attentions
+    return [get_attention_fn(i) for i in range(num_layers)]
 
   attentions = {
       'all': {
