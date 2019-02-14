@@ -103,7 +103,7 @@ def make_gym_env(name, rl_env_max_episode_steps=-1, maxskip_env=False):
   return gym.wrappers.TimeLimit(env, max_episode_steps=rl_env_max_episode_steps)
 
 
-def register_gym_env(class_entry_point, version="v0"):
+def register_gym_env(class_entry_point, version="v0", kwargs=None):
   """Registers the class in Gym and returns the registered name and the env."""
 
   split_on_colon = class_entry_point.split(":")
@@ -112,7 +112,7 @@ def register_gym_env(class_entry_point, version="v0"):
   class_name = split_on_colon[1]
   # We have to add the version to conform to gym's API.
   env_name = "T2TEnv-{}-{}".format(class_name, version)
-  gym.envs.register(id=env_name, entry_point=class_entry_point)
+  gym.envs.register(id=env_name, entry_point=class_entry_point, kwargs=kwargs)
 
   tf.logging.info("Entry Point [%s] registered with id [%s]",
                   class_entry_point, env_name)

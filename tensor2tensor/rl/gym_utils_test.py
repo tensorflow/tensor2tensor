@@ -44,6 +44,20 @@ class SimpleEnv(gym.Env):
       return self.observation_space.high, +1.0, True, {}
 
 
+class EnvWithOptions(SimpleEnv):
+  """A simple env that takes arguments on init."""
+
+  def __init__(self, done_action=0):
+    super(EnvWithOptions, self).__init__()
+    self.action_space = spaces.Discrete(3)
+    self._done_action = done_action
+
+  def step(self, action):
+    if action == self._done_action:
+      return self.observation_space.high, +1.0, True, {}
+    return self.reset(), -1.0, False, {}
+
+
 class GymUtilsTest(tf.test.TestCase):
 
   # Just make an environment and expect to get one.
@@ -77,6 +91,49 @@ class GymUtilsTest(tf.test.TestCase):
     # Just make sure we got the same environment.
     self.assertTrue(np.allclose(env.reset(),
                                 np.zeros(shape=(3, 3), dtype=np.uint8)))
+
+    _, _, done, _ = env.step(1)
+    self.assertTrue(done)
+
+  def test_gym_registration_with_kwargs(self):
+    reg_id, env = gym_utils.register_gym_env(
+        "tensor2tensor.rl.gym_utils_test:EnvWithOptions",
+        kwargs={"done_action": 2}
+    )
+
+    self.assertEqual("T2TEnv-EnvWithOptions-v0", reg_id)
+
+    # Obligatory reset.
+    env.reset()
+
+    # Make sure that on action = 0, 1 we are not done, but on 2 we are.
+    _, _, done, _ = env.step(0)
+    self.assertFalse(done)
+
+    _, _, done, _ = env.step(1)
+    self.assertFalse(done)
+
+    _, _, done, _ = env.step(2)
+    self.assertTrue(done)
+
+    # Now lets try to change the env -- note we have to change the version.
+    reg_id, env = gym_utils.register_gym_env(
+        "tensor2tensor.rl.gym_utils_test:EnvWithOptions",
+        version="v1",
+        kwargs={"done_action": 1}
+    )
+
+    self.assertEqual("T2TEnv-EnvWithOptions-v1", reg_id)
+
+    # Obligatory reset.
+    env.reset()
+
+    # Make sure that on action = 0, 2 we are not done, but on 1 we are.
+    _, _, done, _ = env.step(0)
+    self.assertFalse(done)
+
+    _, _, done, _ = env.step(2)
+    self.assertFalse(done)
 
     _, _, done, _ = env.step(1)
     self.assertTrue(done)
