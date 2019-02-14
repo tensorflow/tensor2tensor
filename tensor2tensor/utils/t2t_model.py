@@ -872,18 +872,29 @@ class T2TModel(base.Layer):
       logits = logits[:, current_output_position, :, :]
       return tf.squeeze(logits, axis=[1, 2])
 
+    def _clone_examples_for_beam(old_feature, n):
+      """Clone each example n times."""
+      old_shape = common_layers.shape_list(old_feature)
+      assert len(old_shape) >= 1
+
+      # Expand the inputs in to the beam size.
+      feature = tf.expand_dims(old_feature, 1)
+      feature = tf.tile(feature, [1, n] + [1] * (len(old_shape) - 1))
+      new_shape = common_layers.shape_list(feature)
+      feature = tf.reshape(feature,
+                           [new_shape[0] * new_shape[1]] + new_shape[2:])
+      return feature
+
     initial_ids = tf.zeros([batch_size], dtype=tf.int32)
 
-    if self.has_input:
-      inputs_old = features["inputs"]
-      features["inputs"] = tf.expand_dims(features["inputs"], 1)
-      if len(features["inputs"].shape) < 5:
-        features["inputs"] = tf.expand_dims(features["inputs"], 4)
-      # Expand the inputs in to the beam size.
-      features["inputs"] = tf.tile(features["inputs"], [1, beam_size, 1, 1, 1])
-      s = common_layers.shape_list(features["inputs"])
-      features["inputs"] = tf.reshape(features["inputs"],
-                                      [s[0] * s[1], s[2], s[3], s[4]])
+    # Clone select features multiple times to account for beam size.
+    old_features = {}
+    for feature_name in ["inputs", "knowledge"]:
+      if feature_name not in features:
+        continue
+      old_features[feature_name] = features[feature_name]
+      features[feature_name] = _clone_examples_for_beam(
+          features[feature_name], beam_size)
 
     vocab_size = self._problem_hparams.vocab_size["targets"]
     if vocab_size is not None and hasattr(self._hparams, "vocab_divisor"):
@@ -904,9 +915,9 @@ class T2TModel(base.Layer):
         stop_early=(top_beams == 1),
         use_tpu=use_tpu)
 
-    # Set inputs back to the unexpanded inputs to not to confuse the Estimator!
-    if self.has_input:
-      features["inputs"] = inputs_old
+    # Set features back to the unexpanded form to not to confuse the
+    # Estimator!
+    features.update(old_features)
 
     # Return `top_beams` decodings (also remove initial id from the beam search)
     # TODO(lukaszkaiser): make it work multi-problem.
