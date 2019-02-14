@@ -20,7 +20,6 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.models import resnet
-from tensor2tensor.v2 import keras_utils
 import tensorflow as tf
 import gin.tf
 
@@ -41,7 +40,7 @@ class Resnet(tf.keras.Model):
     num_output_classes = features_info[target_names[0]].num_classes
 
     # Now the model.
-    def resnet_model(inputs, training):
+    def resnet_model(inputs, training=None):
       return resnet.resnet_v2(
           inputs,
           resnet.bottleneck_block,
@@ -50,7 +49,9 @@ class Resnet(tf.keras.Model):
           is_training=training,
           is_cifar=True)
 
-    self._resnet = keras_utils.FunctionLayer(resnet_model)
+    inputs = tf.keras.Input(shape=(32, 32, 3))
+    outputs = resnet_model(inputs)
+    self._resnet = tf.keras.Model(inputs=inputs, outputs=outputs)
     self._logits = tf.keras.layers.Dense(
         num_output_classes, activation=None)
 

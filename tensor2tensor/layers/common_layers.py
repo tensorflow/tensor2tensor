@@ -35,6 +35,26 @@ from tensorflow.python.ops import control_flow_util
 from tensorflow.python.ops import inplace_ops
 
 
+_cached_layers = None
+
+
+def layers():
+  """Get the layers module good for TF 1 and TF 2 work for now."""
+  global _cached_layers
+  if _cached_layers is not None:
+    return _cached_layers
+  layers_module = tf.layers
+  try:
+    from tensorflow.python import tf2  # pylint: disable=g-direct-tensorflow-import,g-import-not-at-top
+    if tf2.enabled():
+      tf.logging.info("Running in V2 mode, using Keras layers.")
+      layers_module = tf.keras.layers
+  except ImportError:
+    pass
+  _cached_layers = layers_module
+  return layers_module
+
+
 @function.Defun(
     python_grad_func=lambda x, dy: tf.convert_to_tensor(dy),
     shape_func=lambda op: [op.inputs[0].get_shape()])

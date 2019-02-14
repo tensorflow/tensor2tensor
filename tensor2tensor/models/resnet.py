@@ -28,8 +28,14 @@ from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 
+
 BATCH_NORM_DECAY = 0.9
 BATCH_NORM_EPSILON = 1e-5
+
+
+# TODO(lukaszkaiser): remove or simplify after V2 work is done.
+def layers():
+  return common_layers.layers()
 
 
 def batch_norm_relu(inputs,
@@ -61,16 +67,14 @@ def batch_norm_relu(inputs,
   else:
     axis = 3
 
-  inputs = tf.layers.batch_normalization(
-      inputs=inputs,
+  inputs = layers().BatchNormalization(
       axis=axis,
       momentum=BATCH_NORM_DECAY,
       epsilon=BATCH_NORM_EPSILON,
       center=True,
       scale=True,
-      training=is_training,
       fused=True,
-      gamma_initializer=gamma_initializer)
+      gamma_initializer=gamma_initializer)(inputs, training=is_training)
 
   if relu:
     inputs = tf.nn.relu(inputs)
@@ -172,15 +176,14 @@ def conv2d_fixed_padding(inputs,
         use_bias=False,
         kernel_initializer=tf.variance_scaling_initializer())
   else:
-    y = tf.layers.conv2d(
-        inputs=inputs,
+    y = layers().Conv2D(
         filters=filters,
         kernel_size=kernel_size,
         strides=strides,
         padding=("SAME" if strides == 1 else "VALID"),
         use_bias=False,
         kernel_initializer=tf.variance_scaling_initializer(),
-        data_format=data_format)
+        data_format=data_format)(inputs)
 
   return y
 
@@ -423,7 +426,7 @@ def block_layer(inputs,
 
 def resnet_v2(inputs,
               block_fn,
-              layers,
+              layer_blocks,
               filters,
               data_format="channels_first",
               is_training=False,
@@ -437,9 +440,9 @@ def resnet_v2(inputs,
     inputs: `Tensor` images.
     block_fn: `function` for the block to use within the model. Either
         `residual_block` or `bottleneck_block`.
-    layers: list of 3 or 4 `int`s denoting the number of blocks to include in
-      each of the 3 or 4 block groups. Each group consists of blocks that take
-      inputs of the same resolution.
+    layer_blocks: list of 3 or 4 `int`s denoting the number of blocks to include
+      in each of the 3 or 4 block groups. Each group consists of blocks that
+      take inputs of the same resolution.
     filters: list of 4 or 5 `int`s denoting the number of filter to include in
       block.
     data_format: `str`, "channels_first" `[batch, channels, height,
@@ -459,7 +462,7 @@ def resnet_v2(inputs,
       inputs=inputs,
       filters=filters[1],
       block_fn=block_fn,
-      blocks=layers[0],
+      blocks=layer_blocks[0],
       strides=1,
       is_training=is_training,
       name="block_layer1",
@@ -471,7 +474,7 @@ def resnet_v2(inputs,
       inputs=inputs,
       filters=filters[2],
       block_fn=block_fn,
-      blocks=layers[1],
+      blocks=layer_blocks[1],
       strides=2,
       is_training=is_training,
       name="block_layer2",
@@ -483,7 +486,7 @@ def resnet_v2(inputs,
       inputs=inputs,
       filters=filters[3],
       block_fn=block_fn,
-      blocks=layers[2],
+      blocks=layer_blocks[2],
       strides=2,
       is_training=is_training,
       name="block_layer3",
@@ -496,7 +499,7 @@ def resnet_v2(inputs,
         inputs=inputs,
         filters=filters[4],
         block_fn=block_fn,
-        blocks=layers[3],
+        blocks=layer_blocks[3],
         strides=2,
         is_training=is_training,
         name="block_layer4",
@@ -542,12 +545,11 @@ class Resnet(t2t_model.T2TModel):
     inputs = batch_norm_relu(inputs, is_training, data_format=data_format)
 
     if not hp.is_cifar:
-      inputs = tf.layers.max_pooling2d(
-          inputs=inputs,
+      inputs = layers().MaxPooling2D(
           pool_size=3,
           strides=2,
           padding="SAME",
-          data_format=data_format)
+          data_format=data_format)(inputs)
       inputs = tf.identity(inputs, "initial_max_pool")
 
     out = resnet_v2(
@@ -572,7 +574,7 @@ class Resnet(t2t_model.T2TModel):
     num_classes = self._problem_hparams.vocab_size["targets"]
     if hasattr(self._hparams, "vocab_divisor"):
       num_classes += (-num_classes) % self._hparams.vocab_divisor
-    logits = tf.layers.dense(out, num_classes, name="logits")
+    logits = layers().Dense(num_classes, name="logits")(out)
 
     losses = {"training": 0.0}
     if is_training:
