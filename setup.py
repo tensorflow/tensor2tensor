@@ -53,7 +53,7 @@ setup(
         'sympy',
         'tensorflow-probability',
         'tf-agents',
-        'tfds-nightly',
+        'tensorflow-datasets',
         'tqdm',
     ],
     extras_require={
