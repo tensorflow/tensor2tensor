@@ -50,6 +50,7 @@ def decode_hparams(overrides=""):
       save_images=False,
       log_results=True,
       extra_length=100,
+      min_length_ratio=0.0,
       batch_size=0,
       beam_size=4,
       alpha=0.6,
