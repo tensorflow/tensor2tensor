@@ -38,6 +38,7 @@ from tensorflow.python.ops import inplace_ops
 _cached_layers = None
 
 
+# TODO(lukaszkaiser): remove this function when not needed any more.
 def layers():
   """Get the layers module good for TF 1 and TF 2 work for now."""
   global _cached_layers
@@ -546,8 +547,10 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
 
 
 def conv(inputs, filters, kernel_size, dilation_rate=(1, 1), **kwargs):
+  def _conv2d(x, *args, **kwargs):
+    return layers().Conv2D(*args, **kwargs)(x)
   return conv_internal(
-      tf.layers.conv2d,
+      _conv2d,
       inputs,
       filters,
       kernel_size,
@@ -557,16 +560,15 @@ def conv(inputs, filters, kernel_size, dilation_rate=(1, 1), **kwargs):
 
 def conv1d(inputs, filters, kernel_size, dilation_rate=1, **kwargs):
   return tf.squeeze(
-      conv(
-          tf.expand_dims(inputs, 2),
-          filters, (kernel_size, 1),
-          dilation_rate=(dilation_rate, 1),
-          **kwargs), 2)
+      conv(tf.expand_dims(inputs, 2), filters, (kernel_size, 1),
+           dilation_rate=(dilation_rate, 1), **kwargs),
+      2)
 
 
 def separable_conv(inputs, filters, kernel_size, **kwargs):
-  return conv_internal(tf.layers.separable_conv2d, inputs, filters, kernel_size,
-                       **kwargs)
+  def _sep_conv2d(x, *args, **kwargs):
+    return layers().SeparableConv2D(*args, **kwargs)(x)
+  return conv_internal(_sep_conv2d, inputs, filters, kernel_size, **kwargs)
 
 
 def subseparable_conv(inputs, filters, kernel_size, **kwargs):
@@ -584,22 +586,22 @@ def subseparable_conv(inputs, filters, kernel_size, **kwargs):
         with tf.variable_scope("part_%d" % split_idx):
           if separability > 0:
             parts.append(
-                tf.layers.conv2d(split, filters // separability, kernel_size,
-                                 **kwargs))
+                layers().Conv2D(filters // separability, kernel_size,
+                                **kwargs)(split))
           else:
             parts.append(
-                tf.layers.separable_conv2d(split, filters // abs_sep,
-                                           kernel_size, **kwargs))
+                layers().SeparableConv2D(filters // abs_sep,
+                                         kernel_size, **kwargs)(split))
       if separability > 1:
-        result = tf.layers.conv2d(tf.concat(parts, axis=3), filters, (1, 1))
+        result = layers().Conv2D(filters, (1, 1))(tf.concat(parts, axis=3))
       elif abs_sep == 1:  # If we have just one block, return it.
         assert len(parts) == 1
         result = parts[0]
       else:
         result = tf.concat(parts, axis=3)
     else:
-      result = tf.layers.separable_conv2d(inputs, filters, kernel_size,
-                                          **kwargs)
+      result = layers().SeparableConv2D(filters, kernel_size,
+                                        **kwargs)(inputs)
     if separability is not None:
       kwargs["separability"] = separability
     return result
@@ -776,7 +778,7 @@ def apply_norm(x, norm_type, depth, epsilon, layer_collection=None):
   if norm_type == "group":
     return group_norm(x, filters=depth, epsilon=epsilon)
   if norm_type == "batch":
-    return tf.layers.batch_normalization(x, epsilon=epsilon)
+    return layers().BatchNormalization(epsilon=epsilon)(x)
   if norm_type == "noam":
     return noam_norm(x, epsilon)
   if norm_type == "l2":
@@ -2121,7 +2123,7 @@ def gated_linear_unit_layer(x, name=None):
   """
   with tf.variable_scope(name, default_name="glu_layer", values=[x]):
     depth = shape_list(x)[-1]
-    x = tf.layers.dense(x, depth * 2, activation=None)
+    x = layers().Dense(depth * 2, activation=None)(x)
     x, gating_x = tf.split(x, 2, axis=-1)
     return x * tf.nn.sigmoid(gating_x)
 
@@ -2170,7 +2172,7 @@ def sru_with_scan(x,
       # The parallel part of the SRU.
       x_orig = x
       x, f, r = tf.split(
-          tf.layers.dense(x, 3 * x_shape[-1], name="kernel_%d" % i), 3, axis=-1)
+          layers().Dense(3 * x_shape[-1], name="kernel_%d" % i)(x), 3, axis=-1)
       f, r = tf.sigmoid(f), tf.sigmoid(r)
       x_times_one_minus_f = x * (1.0 - f)  # Compute in parallel for speed.
       # Calculate states.
@@ -2262,7 +2264,7 @@ def sru(x,
       # The parallel part of the SRU.
       x_orig = x
       x, f, r = tf.split(
-          tf.layers.dense(x, 3 * x_shape[-1], name="kernel_%d" % i), 3, axis=-1)
+          layers().Dense(3 * x_shape[-1], name="kernel_%d" % i)(x), 3, axis=-1)
       f, r = tf.sigmoid(f), tf.sigmoid(r)
       x_times_one_minus_f = x * (1.0 - f)  # Compute in parallel for speed.
       # Calculate states.
@@ -2976,9 +2978,9 @@ def _recompute_grad(fn, args):
 
 
 def dense(x, units, **kwargs):
-  """Identical to tf.layers.dense."""
+  """Identical to layers.dense."""
   layer_collection = kwargs.pop("layer_collection", None)
-  activations = tf.layers.dense(x, units, **kwargs)
+  activations = layers().Dense(units, **kwargs)(x)
   if layer_collection:
     # We need to find the layer parameters using scope name for the layer, so
     # check that the layer is named. Otherwise parameters for different layers
@@ -3327,7 +3329,12 @@ def cast_like(x, y):
 
   cast_x = tf.cast(x, y.dtype)
   if cast_x.device != x.device:
-    tf.logging.warning("Cast for %s may induce copy from '%s' to '%s'", x.name,
+    x_name = "(eager Tensor)"
+    try:
+      x_name = x.name
+    except AttributeError:
+      pass
+    tf.logging.warning("Cast for %s may induce copy from '%s' to '%s'", x_name,
                        x.device, cast_x.device)
   return cast_x
 
@@ -3446,20 +3453,19 @@ def deep_discriminator(x,
   with tf.variable_scope(
       "discriminator", initializer=tf.random_normal_initializer(stddev=0.02)):
     batch_size, height, width = shape_list(x)[:3]  # pylint: disable=unbalanced-tuple-unpacking
-    net = tf.layers.conv2d(
-        x, filters, filter_size, strides=stride, padding="SAME", name="conv1")
+    net = layers().Conv2D(
+        filters, filter_size, strides=stride, padding="SAME", name="conv1")(x)
     net = lrelu(net)
-    net = tf.layers.conv2d(
-        net,
+    net = layers().Conv2D(
         2 * filters,
         filter_size,
         strides=stride,
         padding="SAME",
-        name="conv2")
+        name="conv2")(net)
     # [bs, h/4, w/4, 128]
     if batch_norm:
-      net = tf.layers.batch_normalization(
-          net, training=is_training, momentum=0.999, name="d_bn2")
+      net = layers().BatchNormalization(
+          training=is_training, momentum=0.999, name="d_bn2")(net)
     net = lrelu(net)
     size = height * width
     x_shape = x.get_shape().as_list()
@@ -3467,10 +3473,10 @@ def deep_discriminator(x,
       net = tf.reduce_mean(net, axis=[1, 2])
     else:
       net = tf.reshape(net, [batch_size, size * 8])
-    net = tf.layers.dense(net, output_size, name="d_fc3")
+    net = layers().Dense(output_size, name="d_fc3")(net)
     if batch_norm:
-      net = tf.layers.batch_normalization(
-          net, training=is_training, momentum=0.999, name="d_bn3")
+      net = layers().BatchNormalization(
+          training=is_training, momentum=0.999, name="d_bn3")(net)
     net = lrelu(net)
     return net
 
@@ -3502,17 +3508,16 @@ def general_conv(x,
                  relufactor=0):
   """Generalized convolution layer."""
   with tf.variable_scope(name):
-    x = tf.layers.conv2d(
-        x,
+    x = layers().Conv2D(
         num_filters,
         filter_size,
         stride,
         padding,
         activation=None,
         kernel_initializer=tf.truncated_normal_initializer(stddev=stddev),
-        bias_initializer=tf.constant_initializer(0.0))
+        bias_initializer=tf.constant_initializer(0.0))(x)
     if do_norm == "layer":
-      x = tf.contrib.layers.layer_norm(x)
+      x = layer_norm(x)
     elif do_norm == "instance":
       x = instance_norm(x)
 
@@ -3553,22 +3558,22 @@ def mean_with_attention(x, name, num_heads=4):
   with tf.variable_scope(name):
     shape = shape_list(x)
     m = tf.reduce_mean(x, [1, 2])
-    a = tf.layers.dense(x, num_heads, name="mean_attn")
+    a = layers().Dense(num_heads, name="mean_attn")(x)
     s = tf.reshape(a, [shape[0], -1, num_heads])
     s = tf.nn.softmax(s, axis=1)
     s = tf.reshape(s, shape[:-1] + [1, num_heads])
     am = tf.reduce_mean(tf.expand_dims(x, axis=-1) * s, [1, 2])
     l = tf.concat([am, tf.expand_dims(m, axis=-1)], axis=-1)
-    return tf.layers.dense(tf.reshape(l, [shape[0], (num_heads+1) * shape[-1]]),
-                           2 * shape[-1], name="mean_attn_final")
+    return layers().Dense(2 * shape[-1], name="mean_attn_final")(
+        tf.reshape(l, [shape[0], (num_heads+1) * shape[-1]]))
 
 
 def single_discriminator(x, filters=128, kernel_size=8,
                          strides=4, pure_mean=False):
   """A simple single-layer convolutional discriminator."""
   with tf.variable_scope("discriminator"):
-    net = tf.layers.conv2d(
-        x, filters, kernel_size, strides=strides, padding="SAME", name="conv1")
+    net = layers().Conv2D(
+        filters, kernel_size, strides=strides, padding="SAME", name="conv1")(x)
     if pure_mean:
       net = tf.reduce_mean(net, [1, 2])
     else:
@@ -3583,16 +3588,16 @@ def double_discriminator(x, filters1=128, filters2=None,
     filters2 = 4 * filters1
   with tf.variable_scope("discriminator"):
     batch_size = shape_list(x)[0]
-    net = tf.layers.conv2d(
-        x, filters1, kernel_size, strides=strides, padding="SAME", name="conv1")
+    net = layers().Conv2D(
+        filters1, kernel_size, strides=strides, padding="SAME", name="conv1")(x)
     if pure_mean:
       net1 = tf.reduce_mean(net, [1, 2])
     else:
       net1 = mean_with_attention(net, "mean_with_attention1")
       tf.reshape(net, [batch_size, -1])
     net = tf.nn.relu(net)
-    net = tf.layers.conv2d(
-        x, filters2, kernel_size, strides=strides, padding="SAME", name="conv2")
+    net = layers().Conv2D(
+        filters2, kernel_size, strides=strides, padding="SAME", name="conv2")(x)
     if pure_mean:
       net2 = tf.reduce_mean(net, [1, 2])
     else:
@@ -3658,21 +3663,21 @@ def cyclegan_upsample(net, num_outputs, stride, method="conv2d_transpose"):
       net = tf.image.resize_nearest_neighbor(
           net, [stride[0] * height, stride[1] * width])
       net = tf.pad(net, spatial_pad_1, "REFLECT")
-      net = tf.layers.conv2d(
-          net, num_outputs, (3, 3), activation=tf.nn.relu)
+      net = layers().Conv2D(
+          num_outputs, (3, 3), activation=tf.nn.relu)(net)
     elif method == "bilinear_upsample_conv":
       net = tf.image.resize_bilinear(net,
                                      [stride[0] * height, stride[1] * width])
       net = tf.pad(net, spatial_pad_1, "REFLECT")
-      net = tf.layers.conv2d(
-          net, num_outputs, (3, 3), activation=tf.nn.relu)
+      net = layers().Conv2D(
+          num_outputs, (3, 3), activation=tf.nn.relu)(net)
     elif method == "conv2d_transpose":
       # This corrects 1 pixel offset for images with even width and height.
       # conv2d is left aligned and conv2d_transpose is right aligned for even
       # sized images (while doing "SAME" padding).
       # Note: This doesn"t reflect actual model in paper.
-      net = tf.layers.conv2d_transpose(
-          net, num_outputs, (3, 3), strides=stride, activation=tf.nn.relu)
+      net = layers().Conv2DTranspose(
+          num_outputs, (3, 3), strides=stride, activation=tf.nn.relu)(net)
       net = net[:, 1:, 1:, :]
     else:
       raise ValueError("Unknown method: [%s]" % method)
@@ -3957,7 +3962,7 @@ class WeightNorm(tf.keras.layers.Wrapper):
   def build(self, input_shape=None):
     """Build `Layer`."""
     input_shape = tf.TensorShape(input_shape).as_list()
-    self.input_spec = tf.layers.InputSpec(shape=input_shape)
+    self.input_spec = layers().InputSpec(shape=input_shape)
 
     if not self.layer.built:
       self.layer.build(input_shape)

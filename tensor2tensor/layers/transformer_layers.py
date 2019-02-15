@@ -27,6 +27,11 @@ from tensor2tensor.utils import mlperf_log
 import tensorflow as tf
 
 
+# TODO(lukaszkaiser): remove this function when not needed any more.
+def layers():
+  return common_layers.layers()
+
+
 def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
   """Prepare one shard of the model for the encoder.
 
@@ -278,9 +283,9 @@ def evolved_transformer_encoder(encoder_input,
           residual_state = hidden_state
           hidden_state = common_layers.layer_preprocess(hidden_state, hparams)
 
-          values = tf.layers.dense(hidden_state, hparams.hidden_size)
-          gates = tf.layers.dense(
-              hidden_state, hparams.hidden_size, activation=tf.nn.sigmoid)
+          values = layers().Dense(hparams.hidden_size)(hidden_state)
+          gates = layers().Dense(
+              hparams.hidden_size, activation=tf.nn.sigmoid)(hidden_state)
           hidden_state = values * gates
 
           hidden_state = common_layers.layer_postprocess(
@@ -296,19 +301,18 @@ def evolved_transformer_encoder(encoder_input,
           hidden_state *= mask
 
           left_output_dim = int(hparams.hidden_size * 4)
-          left_state = tf.layers.dense(
-              hidden_state, left_output_dim, activation=tf.nn.relu)
+          left_state = layers().Dense(
+              left_output_dim, activation=tf.nn.relu)(hidden_state)
           left_state = tf.nn.dropout(left_state,
                                      1 - hparams.layer_prepostprocess_dropout)
 
           right_output_dim = int(hparams.hidden_size / 2)
-          right_state = tf.layers.conv1d(
-              hidden_state,
+          right_state = layers().Conv1D(
               right_output_dim,
               3,
               padding="SAME",
               name="standard_conv_3x1",
-              activation=tf.nn.relu)
+              activation=tf.nn.relu)(hidden_state)
           right_state = tf.nn.dropout(right_state,
                                       1 - hparams.layer_prepostprocess_dropout)
 
@@ -323,9 +327,9 @@ def evolved_transformer_encoder(encoder_input,
           mask = tf.tile(tf.expand_dims(nonpadding, 2), [1, 1, left_output_dim])
           hidden_state *= mask
 
-          separable_conv_9x1 = tf.layers.SeparableConv1D(
+          separable_conv_9x1 = layers().SeparableConv1D(
               right_output_dim, 9, padding="SAME", name="separable_conv_9x1")
-          hidden_state = separable_conv_9x1.apply(hidden_state)
+          hidden_state = separable_conv_9x1(hidden_state)
           hidden_state = tf.pad(
               hidden_state,
               [[0, 0], [0, 0], [0, hparams.hidden_size - right_output_dim]],
@@ -367,12 +371,12 @@ def evolved_transformer_encoder(encoder_input,
           residual_state = hidden_state
           hidden_state = common_layers.layer_preprocess(hidden_state, hparams)
 
-          hidden_state = tf.layers.dense(
-              hidden_state, int(hparams.hidden_size * 4), activation=tf.nn.relu)
+          hidden_state = layers().Dense(
+              int(hparams.hidden_size * 4), activation=tf.nn.relu)(hidden_state)
           hidden_state = tf.nn.dropout(hidden_state,
                                        1 - hparams.layer_prepostprocess_dropout)
 
-          hidden_state = tf.layers.dense(hidden_state, hparams.hidden_size)
+          hidden_state = layers().Dense(hparams.hidden_size)(hidden_state)
           hidden_state = common_layers.layer_postprocess(
               residual_state, hidden_state, hparams)
 

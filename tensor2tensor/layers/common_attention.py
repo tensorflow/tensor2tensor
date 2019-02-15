@@ -38,6 +38,11 @@ from tensorflow.python.framework import function
 from tensorflow.python.ops import inplace_ops
 
 
+# TODO(lukaszkaiser): remove this function when not needed any more.
+def layers():
+  return common_layers.layers()
+
+
 def large_compatible_negative(tensor_type):
   """Large negative number as Tensor.
 
@@ -275,7 +280,7 @@ def get_standardized_layers(hparams, dp=None):
 
   # Define all available layers
 
-  layers = dict(
+  cur_layers = dict(
       # Attention layers:
       a=multihead_attention_fn,  # Multihead full attention
       loc=local_attention_fn,  # Local attention
@@ -288,7 +293,7 @@ def get_standardized_layers(hparams, dp=None):
       sep=sep_conv_relu,  # Separable convolution (unmasked)
       sepm=sep_conv_relu_masked,  # Separable convolution (masked)
   )
-  return layers
+  return cur_layers
 
 
 def add_standard_attention_hparams(hparams):
@@ -4604,14 +4609,13 @@ def deconv_elems_1d(x, factor, out_depth=None):
   """
   out_depth = out_depth or x.get_shape().as_list()[-1]
   x = tf.expand_dims(x, 1)  # [batch_size, 1, length, depth]
-  x = tf.layers.conv2d_transpose(
-      inputs=x,
+  x = layers().Conv2DTranspose(
       filters=out_depth,
       kernel_size=(1, factor),
       strides=(1, factor),
       padding="valid",
       data_format="channels_last",
-  )  # [batch_size, 1, length*factor, out_depth]
+  )(x)  # [batch_size, 1, length*factor, out_depth]
   x = tf.squeeze(x, 1)  # [batch_size, length*factor, depth]
   return x
 
@@ -4637,14 +4641,13 @@ def conv_elems_1d(x, factor, out_depth=None):
   # with tf.control_dependencies(  # Dynamic assertion
   #     [tf.assert_equal(tf.shape(x)[1] % factor, 0)]):
   x = tf.expand_dims(x, 1)  # [batch_size, 1, length, depth]
-  x = tf.layers.conv2d(
-      inputs=x,
+  x = layers().Conv2D(
       filters=out_depth,
       kernel_size=(1, factor),
       strides=(1, factor),
       padding="valid",
       data_format="channels_last",
-  )  # [batch_size, 1, length//factor, out_depth]
+  )(x)  # [batch_size, 1, length//factor, out_depth]
   x = tf.squeeze(x, 1)  # [batch_size, length//factor, depth]
   return x
 
