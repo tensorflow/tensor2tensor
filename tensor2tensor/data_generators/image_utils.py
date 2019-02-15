@@ -241,8 +241,8 @@ class Image2ClassProblem(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.modality = {"inputs": modalities.ImageModality,
-                  "targets": modalities.ClassLabelModality}
+    p.modality = {"inputs": modalities.ModalityType.IMAGE,
+                  "targets": modalities.ModalityType.CLASS_LABEL}
     p.vocab_size = {"inputs": 256,
                     "targets": self.num_classes}
     p.batch_size_multiplier = 4 if self.is_small else 256

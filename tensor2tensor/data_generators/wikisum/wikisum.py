@@ -90,8 +90,8 @@ class WikisumBase(problem.Problem):
         "targets": self._encoders["targets"].vocab_size,
     }
     p.modality = {
-        "inputs": modalities.SymbolModality,
-        "targets": modalities.SymbolModality,
+        "inputs": modalities.ModalityType.SYMBOL,
+        "targets": modalities.ModalityType.SYMBOL,
     }
 
   def eval_metrics(self):

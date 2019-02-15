@@ -265,7 +265,7 @@ def super_lm_base():
   # we only want one data shard.
   hparams.no_data_parallelism = True
   # bypass the symbol modality so that we can use model parallelism.
-  hparams.modality["targets"] = modalities.IdentitySymbolModality
+  hparams.modality["targets"] = modalities.ModalityType.IDENTITY_SYMBOL
   hparams.add_hparam("filter_size", 512)
   hparams.add_hparam("mix_fraction", 0.5)
   # attention-related flags

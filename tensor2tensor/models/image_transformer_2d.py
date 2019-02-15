@@ -382,7 +382,7 @@ def image_transformer2d_base():
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.98
   hparams.label_smoothing = 0.0
-  hparams.modality["targets"] = modalities.IdentityModality
+  hparams.modality["targets"] = modalities.ModalityType.IDENTITY
   hparams.norm_type = "layer"
   hparams.layer_prepostprocess_dropout = 0.0
   hparams.add_hparam("filter_size", 512)  # Add new ones like this.

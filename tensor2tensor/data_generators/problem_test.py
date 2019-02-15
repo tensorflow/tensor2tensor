@@ -100,8 +100,8 @@ class ProblemTest(parameterized.TestCase, tf.test.TestCase):
 
       def hparams(self, defaults, model_hparams):
         hp = defaults
-        hp.modality = {"inputs": modalities.SymbolModality,
-                       "targets": modalities.SymbolModality}
+        hp.modality = {"inputs": modalities.ModalityType.SYMBOL,
+                       "targets": modalities.ModalityType.SYMBOL}
         hp.vocab_size = {"inputs": 2,
                          "targets": 3}
 
@@ -118,7 +118,7 @@ class ProblemTest(parameterized.TestCase, tf.test.TestCase):
 
       def hparams(self, defaults, model_hparams):
         hp = defaults
-        hp.modality = {"inputs": modalities.SymbolModality}
+        hp.modality = {"inputs": modalities.ModalityType.SYMBOL}
         hp.vocab_size = {"inputs": 2}
 
     problem = InputOnlyProblem(False, False)
@@ -133,7 +133,7 @@ class ProblemTest(parameterized.TestCase, tf.test.TestCase):
 
       def hparams(self, defaults, model_hparams):
         hp = defaults
-        hp.modality = {"targets": modalities.SymbolModality}
+        hp.modality = {"targets": modalities.ModalityType.SYMBOL}
         hp.vocab_size = {"targets": 3}
 
     problem = TargetOnlyProblem(False, False)

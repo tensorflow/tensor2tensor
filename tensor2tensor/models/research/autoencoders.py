@@ -1220,8 +1220,8 @@ def autoencoder_ordered_text():
   hparams.autoregressive_mode = "conv5"
   hparams.max_hidden_size = 1024
   hparams.modality = {
-      "inputs": modalities.IdentitySymbolModality,
-      "targets": modalities.IdentitySymbolModality,
+      "inputs": modalities.ModalityType.IDENTITY_SYMBOL,
+      "targets": modalities.ModalityType.IDENTITY_SYMBOL,
   }
   hparams.sample_height = 128
   hparams.sample_width = 1
