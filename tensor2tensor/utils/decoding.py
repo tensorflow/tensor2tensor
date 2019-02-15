@@ -58,6 +58,7 @@ def decode_hparams(overrides=""):
       block_size=0,
       guess_and_check_top_k=0,
       guess_and_check_epsilon=-1,
+      insertion_parallel=False,
       return_beams=False,
       write_beam_scores=False,
       max_input_size=-1,
