@@ -3928,7 +3928,7 @@ class WeightNorm(tf.keras.layers.Wrapper):
           "`Layer` instance. You passed: {input}".format(input=layer))
 
     super(WeightNorm, self).__init__(layer, **kwargs)
-    self._track_checkpointable(layer, name="layer")
+    self._track_trackable(layer, name="layer")
 
   def _compute_weights(self):
     """Generate weights with normalization."""
