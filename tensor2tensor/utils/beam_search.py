@@ -295,9 +295,16 @@ def top_k_with_unique(inputs, k):
   return top_values, indices
 
 
-def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
-                                beam_size, batch_size, prefix="default",
-                                states_to_gather=None, use_tpu=False):
+def compute_topk_scores_and_seq(sequences,
+                                scores,
+                                scores_to_gather,
+                                flags,
+                                beam_size,
+                                batch_size,
+                                prefix="default",
+                                states_to_gather=None,
+                                use_tpu=False,
+                                use_top_k_with_unique=True):
   """Given sequences and scores, will gather the top k=beam size sequences.
 
   This function is used to grow alive, and finished. It takes sequences,
@@ -327,6 +334,8 @@ def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
     prefix: string that will prefix unique names for the ops run.
     states_to_gather: dict (possibly nested) of decoding states.
     use_tpu: A bool, whether to compute topk scores and sequences on TPU.
+    use_top_k_with_unique: bool, whether to use a fast (but decreased precision)
+      top_k during TPU beam search.
 
   Returns:
     Tuple of
@@ -362,7 +371,10 @@ def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
     else:
       topk_gathered_states = states_to_gather
   else:
-    _, topk_indexes = top_k_with_unique(scores, k=beam_size)
+    if use_top_k_with_unique:
+      _, topk_indexes = top_k_with_unique(scores, k=beam_size)
+    else:
+      _, topk_indexes = tf.nn.top_k(scores, k=beam_size)
     # Gather up the highest scoring sequences.  For each operation added, give
     # it a concrete name to simplify observing these operations with tfdbg.
     # Clients can capture these tensors by watching these node names.
@@ -390,7 +402,8 @@ def beam_search(symbols_to_logits_fn,
                 states=None,
                 eos_id=EOS_ID,
                 stop_early=True,
-                use_tpu=False):
+                use_tpu=False,
+                use_top_k_with_unique=True):
   """Beam search with length penalties.
 
   Requires a function that can take the currently decoded symbols and return
@@ -432,6 +445,8 @@ def beam_search(symbols_to_logits_fn,
     eos_id: ID for end of sentence.
     stop_early: a boolean - stop once best sequence is provably determined.
     use_tpu: A bool, whether to do beam search on TPU.
+    use_top_k_with_unique: bool, whether to use a fast (but decreased precision)
+      top_k during TPU beam search.
 
   Returns:
     Tuple of
@@ -501,9 +516,15 @@ def beam_search(symbols_to_logits_fn,
     curr_finished_scores = tf.concat([finished_scores, curr_scores], axis=1)
     curr_finished_flags = tf.concat([finished_flags, curr_finished], axis=1)
     return compute_topk_scores_and_seq(
-        curr_finished_seq, curr_finished_scores, curr_finished_scores,
-        curr_finished_flags, beam_size, batch_size, "grow_finished",
-        use_tpu=use_tpu)
+        curr_finished_seq,
+        curr_finished_scores,
+        curr_finished_scores,
+        curr_finished_flags,
+        beam_size,
+        batch_size,
+        "grow_finished",
+        use_tpu=use_tpu,
+        use_top_k_with_unique=use_top_k_with_unique)
 
   def grow_alive(curr_seq, curr_scores, curr_log_probs, curr_finished, states):
     """Given sequences and scores, will gather the top k=beam size sequences.
@@ -590,7 +611,7 @@ def beam_search(symbols_to_logits_fn,
     # Flatten out (beam_size, vocab_size) probs in to a list of possibilities
     flat_curr_scores = tf.reshape(curr_scores, [-1, beam_size * vocab_size])
 
-    if use_tpu:
+    if use_tpu and use_top_k_with_unique:
       topk_scores, topk_ids = top_k_with_unique(
           flat_curr_scores, k=beam_size * 2)
     else:

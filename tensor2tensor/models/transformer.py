@@ -766,7 +766,8 @@ def fast_decode_tpu(encoder_output,
                     eos_id=beam_search.EOS_ID,
                     batch_size=None,
                     force_decode_length=False,
-                    scope_prefix="body/"):
+                    scope_prefix="body/",
+                    use_top_k_with_unique=True):
   """Given encoder output and a symbols to logits function, does fast decoding.
 
   Implements both greedy and beam search decoding for TPU, uses beam search iff
@@ -791,6 +792,8 @@ def fast_decode_tpu(encoder_output,
     force_decode_length: A bool, whether to force the full decode length, or if
       False, stop when all beams hit eos_id.
     scope_prefix: str, prefix for decoder layer variable scopes.
+    use_top_k_with_unique: bool, whether to use a fast (but decreased precision)
+      top_k during beam search.
 
   Returns:
     A dict of decoding results {
@@ -881,7 +884,8 @@ def fast_decode_tpu(encoder_output,
         states=cache,
         eos_id=eos_id,
         stop_early=(top_beams == 1),
-        use_tpu=True)
+        use_tpu=True,
+        use_top_k_with_unique=use_top_k_with_unique)
 
     if top_beams == 1:
       decoded_ids = decoded_ids[:, 0, 1:]
