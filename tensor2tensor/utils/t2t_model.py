@@ -180,13 +180,14 @@ class T2TModel(base.Layer):
     hparams = hparams_lib.copy_hparams(hparams)
     if self._problem_hparams and hparams.shared_embedding_and_softmax_weights:
       # If vocabularies differ, unset shared_embedding_and_softmax_weights.
-      input_vocab_size = self._problem_hparams.vocab_size["inputs"]
-      target_vocab_size = self._problem_hparams.vocab_size["targets"]
+      input_vocab_size = self._problem_hparams.vocab_size.get("inputs")
+      target_vocab_size = self._problem_hparams.vocab_size.get("targets")
       if input_vocab_size is not None and hasattr(hparams, "vocab_divisor"):
         input_vocab_size += (-input_vocab_size) % hparams.vocab_divisor
       if target_vocab_size is not None and hasattr(hparams, "vocab_divisor"):
         target_vocab_size += (-target_vocab_size) % hparams.vocab_divisor
-      if input_vocab_size != target_vocab_size:
+      if (input_vocab_size is not None and target_vocab_size is not None and
+          input_vocab_size != target_vocab_size):
         log_info("Unsetting shared_embedding_and_softmax_weights.")
         hparams.shared_embedding_and_softmax_weights = 0
 
