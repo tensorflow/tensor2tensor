@@ -151,6 +151,10 @@ def basic_params1():
       # than max_length.
       # If max_length==0, we use hparams.batch_size instead.
       max_length=0,
+      # Pack examples on the fly.
+      pack_dataset=False,
+      # Use custom ops not included in standard tensorflow.
+      use_custom_ops=True,
       # Split targets on the first axis into chunks of this length.
       split_targets_chunk_length=0,
       split_targets_max_chunks=100,

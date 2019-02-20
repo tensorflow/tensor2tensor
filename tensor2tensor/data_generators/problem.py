@@ -686,6 +686,10 @@ class Problem(object):
     ## Shuffle records only for training examples.
     if shuffle_files and is_training:
       dataset = dataset.shuffle(shuffle_buffer_size)
+    if hparams.get("pack_dataset", False):
+      dataset = generator_utils.pack_dataset(
+          dataset, hparams.max_length, keys=["inputs", "targets"],
+          use_custom_ops=hparams.get("use_custom_ops", False))
     if output_buffer_size:
       dataset = dataset.prefetch(output_buffer_size)
 
