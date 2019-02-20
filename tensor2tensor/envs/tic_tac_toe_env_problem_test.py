@@ -51,16 +51,14 @@ class TicTacToeEnvProblemTest(tf.test.TestCase):
       for r, d in zip(rewards, dones):
         if not d:
           continue
-        # NOTE: r is 0, 1, 2 because the default EnvProblem.process_rewards
-        # shifts the rewards so that min is 0.
-        if r == 0:
+        if r == -1:
           num_lost += 1
-        elif r == 1:
+        elif r == 0:
           num_draw += 1
-        elif r == 2:
+        elif r == 1:
           num_won += 1
         else:
-          raise ValueError("reward should be 0, 1, 2 but is {}".format(r))
+          raise ValueError("reward should be -1, 0, 1 but is {}".format(r))
 
     # Assert that something got done atleast, without that the next assert is
     # meaningless.

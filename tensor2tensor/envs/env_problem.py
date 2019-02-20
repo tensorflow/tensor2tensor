@@ -362,9 +362,7 @@ class EnvProblem(Env, problem.Problem):
     return (min_reward != -np.inf) and (max_reward != np.inf)
 
   def process_rewards(self, rewards):
-    """Clips, rounds, adds the min_reward and changes to integer type.
-
-    The result of the above is that the new minimum is 0.
+    """Clips, rounds, and changes to integer type.
 
     Args:
       rewards: numpy array of raw (float) rewards.
@@ -375,8 +373,8 @@ class EnvProblem(Env, problem.Problem):
 
     min_reward, max_reward = self.reward_range
 
-    # Clips at min and max reward and shift by min (so new min is 0)
-    rewards = np.clip(rewards, min_reward, max_reward) - min_reward
+    # Clips at min and max reward.
+    rewards = np.clip(rewards, min_reward, max_reward)
     # Round to (nearest) int and convert to integral type.
     rewards = np.around(rewards, decimals=0).astype(np.int64)
     return rewards
@@ -714,12 +712,12 @@ class EnvProblem(Env, problem.Problem):
 
         yield {
             TIMESTEP_FIELD: [index],
-            ACTION_FIELD:
-                action,
-            RAW_REWARD_FIELD:
-                [float(raw_reward)],  # to_example errors on np.float32
+            ACTION_FIELD: action,
+            # to_example errors on np.float32
+            RAW_REWARD_FIELD: [float(raw_reward)],
             PROCESSED_REWARD_FIELD: [processed_reward],
-            DONE_FIELD: [int(time_step.done)],  # to_example doesn't know bools
+            # to_example doesn't know bools
+            DONE_FIELD: [int(time_step.done)],
             OBSERVATION_FIELD:
                 gym_spaces_utils.gym_space_encode(self.observation_space,
                                                   time_step.observation),
