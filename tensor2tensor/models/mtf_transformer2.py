@@ -97,7 +97,7 @@ class MtfUnitransformer(mtf_model.MtfModel):
     x = tf.to_int32(features[key])
     x = common_layers.expand_squeeze_to_nd(x, 2)
     batch_size = mtf.Shape(self.batch_dims).size
-    x = x[:][:self.length_dim.size]
+    x = x[:, :self.length_dim.size]
     extra_length = self.length_dim.size - tf.shape(x)[1]
     extra_batch = batch_size - tf.shape(x)[0]
     x = tf.pad(x, [[0, extra_batch], [0, extra_length]])
