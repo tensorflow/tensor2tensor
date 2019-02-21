@@ -33,7 +33,6 @@ from six.moves import range  # pylint: disable=redefined-builtin
 import six.moves.urllib_request as urllib
 
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators.ops import pack_sequences_ops
 from tensor2tensor.utils import mlperf_log
 
 import tensorflow as tf
@@ -709,34 +708,83 @@ def pack_dataset(dataset, length, keys=None, use_custom_ops=False):
   Returns:
     a tf.data.Dataset
   """
+  shapes = dataset.output_shapes
   if keys is None:
-    keys = dataset.output_shapes.keys
+    keys = shapes.keys()
+  for k in keys:
+    if k not in shapes:
+      raise ValueError("Key %s not found in dataset.  Available keys are %s"
+                       % (k, shapes.keys()))
+    if not shapes[k].is_compatible_with(tf.TensorShape([None])):
+      raise ValueError("Tensors to be packed must be one-dimensional.")
+
   # trim to length
   dataset = dataset.map(lambda x: {k: x[k][:length] for k in keys})
-
+  # Setting batch_size=length ensures that the concatenated sequences (if they
+  # have length >=1) are sufficient to fill at least one packed example.
   batch_size = length
   dataset = dataset.padded_batch(
       batch_size, padded_shapes={k: [-1] for k in keys})
   if use_custom_ops and len(keys) == 2:
-    # faster and better packing but requires custom-built binary.
-    k1, k2 = keys
-    def map_fn_custom(x):
-      """Map-function."""
-      (k1_packed, k1_segmengation, k1_position,
-       k2_packed, k2_segmentation, k2_position) = (
-           pack_sequences_ops.pack_sequences2(x[k1], x[k2], length))
-      packed = {
-          k1: k1_packed,
-          k1 + "_inputs": k1_segmengation,
-          k1 + "_position": k1_position,
-          k2: k2_packed,
-          k2 + "_inputs": k2_segmentation,
-          k2 + "_position": k2_position,
-      }
-      return tf.data.Dataset.from_tensor_slices(packed)
-    dataset = dataset.flat_map(map_fn_custom)
-    return dataset
+    # custom op only handles 2 keys.
+    # TODO(noam): support other numbers of keys.
+    return _pack_with_custom_ops(dataset, keys, length)
+  else:
+    return _pack_with_tf_ops(dataset, keys, length)
 
+
+def _pack_with_custom_ops(dataset, keys, length):
+  """Helper-function for packing a dataset which has already been batched.
+
+  See pack_dataset()
+
+  Relies on custom ops which require a custom compiled binary.
+  Faster than _pack_with_tf_ops(), and denser packing.
+
+  Args:
+    dataset: a dataset containing padded batches of examples.
+    keys: a list of strings (must have length 2)
+    length: an integer
+
+  Returns:
+    a dataset.
+  """
+  from tensor2tensor.data_generators.ops import pack_sequences_ops  # pylint: disable=g-import-not-at-top
+  # faster and better packing but requires custom-built binary.
+  k1, k2 = keys
+  def map_fn_custom(x):
+    """Map-function."""
+    (k1_packed, k1_segmengation, k1_position,
+     k2_packed, k2_segmentation, k2_position) = (
+         pack_sequences_ops.pack_sequences2(x[k1], x[k2], length))
+    packed = {
+        k1: k1_packed,
+        k1 + "_segmentation": k1_segmengation,
+        k1 + "_position": k1_position,
+        k2: k2_packed,
+        k2 + "_segmentation": k2_segmentation,
+        k2 + "_position": k2_position,
+    }
+    return tf.data.Dataset.from_tensor_slices(packed)
+  dataset = dataset.flat_map(map_fn_custom)
+  return dataset
+
+
+def _pack_with_tf_ops(dataset, keys, length):
+  """Helper-function for packing a dataset which has already been batched.
+
+  See pack_dataset()
+
+  Uses tf.while_loop.  Slow.
+
+  Args:
+    dataset: a dataset containing padded batches of examples.
+    keys: a list of strings
+    length: an integer
+
+  Returns:
+    a dataset.
+  """
   empty_example = {}
   for k in keys:
     empty_example[k] = tf.zeros([0], dtype=tf.int64)
