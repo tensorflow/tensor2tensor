@@ -246,6 +246,10 @@ class T2TModel(base.Layer):
     return self._hparams
 
   @property
+  def problem_hparams(self):
+    return self._problem_hparams
+
+  @property
   def is_training(self):
     return self._hparams.mode == tf.estimator.ModeKeys.TRAIN
 

@@ -154,7 +154,7 @@ class TransformerBlockParallel(transformer.Transformer):
       """Inference step."""
 
       def print_info(result, length, new_length):
-        vocab = self._hparams.problem_hparams.vocabulary["targets"]
+        vocab = self.problem_hparams.vocabulary["targets"]
         tf.logging.info(
             "length=%s new_length=%s length_diff=%s new_suffix=%s",
             length,

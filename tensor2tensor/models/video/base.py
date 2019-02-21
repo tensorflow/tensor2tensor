@@ -26,6 +26,7 @@ from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 from tensor2tensor.layers import discretization
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -194,13 +195,16 @@ class NextFrameBase(t2t_model.T2TModel):
 
   @property
   def _target_modality(self):
-    # TODO(mbz): get rid of this somehow.
-    modality = self.hparams.problem_hparams.modality["targets"]
-    return modality.__class__.__name__
+    target_modality = self.hparams.modality.get(
+        "targets",
+        self.problem_hparams.modality["targets"])
+    if target_modality not in modalities.ModalityType.get_choices():
+      target_modality = target_modality.__class__.__name__
+    return target_modality
 
   @property
   def is_per_pixel_softmax(self):
-    return self._target_modality == "VideoModality"
+    return self._target_modality == modalities.ModalityType.VIDEO
 
   def get_iteration_num(self):
     step_num = tf.train.get_global_step()
@@ -336,9 +340,9 @@ class NextFrameBase(t2t_model.T2TModel):
     Raises:
       ValueError: in case of unknown modality.
     """
-    if self._target_modality == "VideoModalityL2Raw":
+    if self._target_modality == modalities.ModalityType.VIDEO_L2_RAW:
       recon_loss = tf.losses.mean_squared_error(extra_gts, extra_pds)
-    elif self._target_modality == "VideoModality":
+    elif self._target_modality == modalities.ModalityType.VIDEO:
       shape = common_layers.shape_list(extra_pds)
       updated_shape = shape[:-1] + [3, 256]
       extra_pds = tf.reshape(extra_pds, updated_shape)
@@ -347,7 +351,8 @@ class NextFrameBase(t2t_model.T2TModel):
       targets = extra_raw_gts
       targets_shape = common_layers.shape_list(targets)
       targets = tf.reshape(targets, [-1] + targets_shape[2:])
-      mod = self.hparams.problem_hparams.modality["targets"]
+      mod = self.hparams.modality.get("targets",
+                                      self.problem_hparams.modality["targets"])
       numerator, denominator = common_layers.padded_cross_entropy(
           logits,
           targets,
@@ -467,8 +472,8 @@ class NextFrameBase(t2t_model.T2TModel):
                        hparams.video_num_target_frames, 1, 1, num_channels]
 
     features["targets"] = tf.zeros(targets_shape, dtype=tf.int32)
-    reward_in_mod = "target_reward" in hparams.problem_hparams.modality
-    action_in_mod = "target_action" in hparams.problem_hparams.modality
+    reward_in_mod = "target_reward" in self.problem_hparams.modality
+    action_in_mod = "target_action" in self.problem_hparams.modality
     if reward_in_mod:
       # TODO(lukaszkaiser): this is a hack. get the actual reward history.
       if "input_reward" not in features:

@@ -1060,6 +1060,7 @@ def _default_hparams():
       # chosen model architecture. It comprises key-value pairs of a feature
       # name (str) and its modality type.
       modality={},
+      vocab_size={},
 
       # Identifiers used to tell the model which input/target space will be
       # expected. For example, it can tell that we expect French as characters
