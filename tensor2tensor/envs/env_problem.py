@@ -649,6 +649,8 @@ class EnvProblem(Env, problem.Problem):
 
   @agent_id.setter
   def agent_id(self, agent_id):
+    # Lets us call agent_id with integers that we increment.
+    agent_id = str(agent_id)
     # We use `-` in self.dataset_filename, disallow it here for convenience.
     if "-" in agent_id:
       raise ValueError("agent_id shouldn't have - in it.")
