@@ -749,7 +749,8 @@ class VideoModalityPixelNoise(VideoModality):
       input_mask = tf.reshape(tf.cast(input_mask, tf.int32),
                               input_shape[:-1]+[1])
       inputs = inputs * input_mask + background * (1 - input_mask)
-    return cls.bottom(inputs, model_hparams, vocab_size)
+    return super(VideoModalityPixelNoise, cls).bottom(
+        inputs, model_hparams, vocab_size)
 
 
 class VideoModalityL1(VideoModality):
