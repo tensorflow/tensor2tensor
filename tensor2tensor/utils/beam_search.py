@@ -153,11 +153,11 @@ def fast_tpu_gather(params, indices, name=None):
         gather_result = tf.cast(gather_result, dtype)
       return gather_result
 
-    # If the dtype is int32, use the gather instead of one_hot matmul to avoid
+    # If the dtype is int, use the gather instead of one_hot matmul to avoid
     # precision loss. The max int value can be represented by bfloat16 in MXU is
     # 256, which is smaller than the possible id values. Encoding/decoding can
     # potentially used to make it work, but the benenfit is small right now.
-    if dtype == tf.int32:
+    if dtype.is_integer:
       gather_result = tf.batch_gather(params, indices)
     else:
       gather_result = _gather(params, indices)
