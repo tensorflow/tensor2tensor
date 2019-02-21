@@ -219,8 +219,6 @@ class T2TModel(base.Layer):
       hparams.add_hparam("targets_weights_fn", {})
     if not hasattr(hparams, "top"):
       hparams.add_hparam("top", {})
-    if not hasattr(hparams, "top_is_pointwise"):
-      hparams.add_hparam("top_is_pointwise", {})
     target_modalities = _create_target_modality(hparams.modality)
     for feature_name, modality in six.iteritems(hparams.modality):
       if modality in modalities.ModalityType.get_choices():
@@ -233,7 +231,6 @@ class T2TModel(base.Layer):
       hparams.name[feature_name] = modality.name
       hparams.targets_weights_fn[feature_name] = modality.targets_weights_fn
       hparams.top[feature_name] = modality.top
-      hparams.top_is_pointwise[feature_name] = modality.top_is_pointwise
 
     self._original_hparams = hparams
     self.set_mode(mode)
@@ -559,14 +556,12 @@ class T2TModel(base.Layer):
     with tf.variable_scope(name) as tm_vs:
       self._add_variable_scope(tm_vs.name, tm_vs)
       log_info("Transforming body output with %s.top", name)
-      top_is_pointwise = self._hparams.top_is_pointwise.get(
-          feature_name,
-          modalities.get_top_is_pointwise(modality))()
+      top = self._hparams.top.get(feature_name, modalities.get_top(modality))
+      top_is_pointwise = getattr(top, "pointwise", False)
       last_only = (top_is_pointwise and
                    self.hparams.mode == tf.estimator.ModeKeys.PREDICT and
                    not self.hparams.force_full_predict)
       if not last_only:
-        top = self._hparams.top.get(feature_name, modalities.get_top(modality))
         logits = top(body_output, features.get("targets"),
                      self._hparams, vocab_size)
       else:
@@ -587,7 +582,6 @@ class T2TModel(base.Layer):
           last_position_targets = tf.slice(
               features["targets"], [0, features["decode_loop_step"][0], 0, 0],
               [target_shape[0], 1, target_shape[2], target_shape[3]])
-        top = self._hparams.top.get(feature_name, modalities.get_top(modality))
         logits = top(last_position_body_output, last_position_targets,
                      self._hparams, vocab_size)
     return logits
@@ -897,11 +891,9 @@ class T2TModel(base.Layer):
       # it has shape [batch_size] and contains floats between 0 and
       # source_length.
       if self._problem_hparams:
-        target_modality = self._problem_hparams.modality["targets"]
-        top_is_pointwise = self._hparams.top_is_pointwise.get(
-            "targets",
-            modalities.get_top_is_pointwise(target_modality))()
-        if top_is_pointwise:
+        modality = self._problem_hparams.modality["targets"]
+        top = self._hparams.top.get("targets", modalities.get_top(modality))
+        if getattr(top, "pointwise", False):
           return tf.squeeze(logits, axis=[1, 2, 3])
       # -1 due to the pad above.
       current_output_position = common_layers.shape_list(ids)[1] - 1
@@ -1039,11 +1031,10 @@ class T2TModel(base.Layer):
       features["decode_loop_step"] = i
       samples, logits, losses = self.sample(features)
       # Concatenate the already-generated recent_output with last timestep
-      # of the newly-generated samples.
-      top_is_pointwise = self._hparams.top_is_pointwise.get(
-          "targets",
-          modalities.get_top_is_pointwise(target_modality))()
-      if top_is_pointwise:
+      # of the newly-generated samples.z
+      top = self._hparams.top.get("targets",
+                                  modalities.get_top(target_modality))
+      if getattr(top, "pointwise", False):
         cur_sample = samples[:, -1, :, :]
       else:
         cur_sample = samples[:, i, :, :]
@@ -1214,10 +1205,9 @@ class T2TModel(base.Layer):
       samples, logits, losses = self.sample(features)
       # Concatenate the already-generated recent_output with last timestep
       # of the newly-generated samples.
-      top_is_pointwise = self._hparams.top_is_pointwise.get(
-          "targets",
-          modalities.get_top_is_pointwise(target_modality))()
-      if top_is_pointwise:
+      top = self._hparams.top.get("targets",
+                                  modalities.get_top(target_modality))
+      if getattr(top, "pointwise", False):
         cur_sample = samples[:, -1, :, :]
       else:
         cur_sample = samples[:,

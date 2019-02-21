@@ -32,6 +32,26 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 
 
+def is_pointwise(func):
+  """Decorator for whether the function is pointwise.
+
+  An example of a pointwise function is a linear layer followed by
+  a softmax. Given a tensor [batch, length, height, depth] it operates
+  only on the last axis, on every point in [batch, length, height] fully
+  independently. In contrast, a classifier that first averages over length
+  and height is not pointwise, as it depends on the whole field. It is useful
+  to know if top functions are pointwise to speed up decoding in certain models.
+
+  Args:
+    func: Function to decorate.
+
+  Returns:
+    Original function with an attribute pointwise set to True.
+  """
+  func.pointwise = True
+  return func
+
+
 class SymbolModality(modality.Modality):
   """Modality for sets of discrete symbols.
 
@@ -45,10 +65,6 @@ class SymbolModality(modality.Modality):
   @staticmethod
   def name(model_hparams, vocab_size):
     return "symbol_modality_%d_%d" % (vocab_size, model_hparams.hidden_size)
-
-  @staticmethod
-  def top_is_pointwise():
-    return True
 
   @staticmethod
   def targets_weights_fn(model_hparams):
@@ -146,6 +162,7 @@ class SymbolModality(modality.Modality):
           x, model_hparams, vocab_size, "target_emb", reuse=None)
 
   @classmethod
+  @is_pointwise
   def top(cls, body_output, targets, model_hparams, vocab_size):
     """Generate logits.
 
@@ -204,6 +221,7 @@ class SymbolModalityOneHot(SymbolModality):
     return tf.one_hot(x, vocab_size)
 
   @staticmethod
+  @is_pointwise
   def top(body_output, _, model_hparams, vocab_size):
     return body_output
 
@@ -1022,16 +1040,13 @@ class RealModality(modality.Modality):
   """
 
   @staticmethod
-  def top_is_pointwise():
-    return True
-
-  @staticmethod
   def bottom(x, model_hparams, vocab_size):
     with tf.variable_scope("real"):
       return tf.layers.dense(
           tf.to_float(x), model_hparams.hidden_size, name="bottom")
 
   @staticmethod
+  @is_pointwise
   def top(body_output, _, model_hparams, vocab_size):
     with tf.variable_scope("real"):
       return tf.layers.dense(body_output, vocab_size, name="top")
@@ -1091,11 +1106,6 @@ class IdentitySymbolModality(SymbolModality):
   def targets_bottom(cls, x, model_hparams, vocab_size):
     """SymbolModality overrides targets_bottom, so need to override here too."""
     return cls.bottom(x, model_hparams, vocab_size)
-
-  @staticmethod
-  def top_is_pointwise():
-    # pointwise mode manipulates body output, not logits, so it fails here.
-    return False
 
 
 class SigmoidClassLabelModality(ClassLabelModality):
@@ -1331,12 +1341,4 @@ def get_top(modality_type, value=None):
   if modality_type in ModalityType.get_choices():
     modality_cls = getattr(current_module, modality_type)
     return modality_cls.top
-  return value
-
-
-def get_top_is_pointwise(modality_type, value=None):
-  """Gets whether default top is pointwise; if none available, return value."""
-  if modality_type in ModalityType.get_choices():
-    modality_cls = getattr(current_module, modality_type)
-    return modality_cls(None, None).top_is_pointwise
   return value
