@@ -41,11 +41,18 @@ def fill_hparams(hparams, in_frames, out_frames):
 
 
 def action_modalities(hparams):
+  """Modalities with actions."""
   hparams.problem_hparams.modality = {
-      "inputs": modalities.VideoModalityL2Raw(hparams, 256),
-      "input_action": modalities.SymbolModality(hparams, 5),
-      "targets": modalities.VideoModalityL2Raw(hparams, 256),
-      "target_action": modalities.SymbolModality(hparams, 5),
+      "inputs": modalities.ModalityType.VIDEO_L2_RAW,
+      "input_action": modalities.ModalityType.SYMBOL,
+      "targets": modalities.ModalityType.VIDEO_L2_RAW,
+      "target_action": modalities.ModalityType.SYMBOL,
+  }
+  hparams.problem_hparams.vocab_size = {
+      "inputs": 256,
+      "input_action": 5,
+      "targets": 256,
+      "target_action": 5,
   }
   return hparams
 
@@ -53,12 +60,20 @@ def action_modalities(hparams):
 def full_modalities(hparams):
   """Full modalities with actions and rewards."""
   hparams.problem_hparams.modality = {
-      "inputs": modalities.VideoModalityL2Raw(hparams, 256),
-      "input_reward": modalities.SymbolModality(hparams, 3),
-      "input_action": modalities.SymbolModality(hparams, 5),
-      "targets": modalities.VideoModalityL2Raw(hparams, 256),
-      "target_reward": modalities.SymbolModality(hparams, 3),
-      "target_action": modalities.SymbolModality(hparams, 5),
+      "inputs": modalities.ModalityType.VIDEO_L2_RAW,
+      "input_action": modalities.ModalityType.SYMBOL,
+      "input_reward": modalities.ModalityType.SYMBOL,
+      "targets": modalities.ModalityType.VIDEO_L2_RAW,
+      "target_action": modalities.ModalityType.SYMBOL,
+      "target_reward": modalities.ModalityType.SYMBOL,
+  }
+  hparams.problem_hparams.vocab_size = {
+      "inputs": 256,
+      "input_action": 5,
+      "input_reward": 3,
+      "targets": 256,
+      "target_action": 5,
+      "target_reward": 3,
   }
   hparams.force_full_predict = True
   return hparams

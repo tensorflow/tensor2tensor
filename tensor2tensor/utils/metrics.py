@@ -22,6 +22,7 @@ import numpy as np
 import six
 
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import bleu_hook
 from tensor2tensor.utils import rouge
 from tensor2tensor.utils import sari_hook
@@ -613,7 +614,9 @@ def create_evaluation_metrics(problems, model_hparams):
       tm = {"targets": tm}
 
     for target_name, modality in six.iteritems(tm):
-      weights_fn = modality.targets_weights_fn
+      weights_fn = model_hparams.targets_weights_fn.get(
+          "targets",
+          modalities.get_targets_weights_fn(modality))(model_hparams)
       if hasattr(model_hparams.problem, "task_list"):
         ptid = problem_instance.task_id  # pylint: disable=cell-var-from-loop
         weights_fn = weights_fn_for_mp(ptid)
@@ -638,9 +641,12 @@ def create_evaluation_metrics(problems, model_hparams):
 def create_eager_metrics_for_problem(problem, model_hparams):
   """See create_eager_metrics."""
   metric_fns = problem.eval_metric_fns(model_hparams)
-  tm = problem.get_hparams(model_hparams).modality["targets"]
-  return create_eager_metrics_internal(
-      metric_fns, weights_fn=tm.targets_weights_fn)
+  problem_hparams = problem.get_hparams(model_hparams)
+  target_modality = problem_hparams.modality["targets"]
+  weights_fn = model_hparams.targets_weights_fn.get(
+      "targets",
+      modalities.get_targets_weights_fn(target_modality))(model_hparams)
+  return create_eager_metrics_internal(metric_fns, weights_fn=weights_fn)
 
 
 def create_eager_metrics(metric_names, weights_fn=common_layers.weights_all):

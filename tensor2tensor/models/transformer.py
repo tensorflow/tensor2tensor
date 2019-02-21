@@ -32,6 +32,7 @@ from tensor2tensor.data_generators import librispeech
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.layers import transformer_layers
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import expert_utils
@@ -371,10 +372,13 @@ class Transformer(t2t_model.T2TModel):
     dp = self._data_parallelism
     hparams = self._hparams
     target_modality = self._problem_hparams.modality["targets"]
+    target_vocab_size = self._problem_hparams.vocab_size["targets"]
+    if target_vocab_size is not None and hasattr(hparams, "vocab_divisor"):
+      target_vocab_size += (-target_vocab_size) % hparams.vocab_divisor
 
     if self.has_input:
       inputs = features["inputs"]
-      if target_modality.is_class_modality:
+      if target_modality == modalities.ModalityType.CLASS_LABEL:
         decode_length = 1
       else:
         decode_length = (
@@ -391,8 +395,16 @@ class Transformer(t2t_model.T2TModel):
       # _shard_features called to ensure that the variable names match
       inputs = self._shard_features({"inputs": inputs})["inputs"]
       input_modality = self._problem_hparams.modality["inputs"]
-      with tf.variable_scope(input_modality.name):
-        inputs = dp(input_modality.bottom, inputs)
+      input_vocab_size = self._problem_hparams.vocab_size["inputs"]
+      if input_vocab_size is not None and hasattr(hparams, "vocab_divisor"):
+        input_vocab_size += (-input_vocab_size) % hparams.vocab_divisor
+      modality_name = hparams.name.get(
+          "inputs",
+          modalities.get_name(input_modality))(hparams, input_vocab_size)
+      with tf.variable_scope(modality_name):
+        bottom = hparams.bottom.get("inputs",
+                                    modalities.get_bottom(input_modality))
+        inputs = dp(bottom, inputs, hparams, input_vocab_size)
       with tf.variable_scope("body"):
         encoder_output, encoder_decoder_attention_bias = dp(
             self.encode,
@@ -450,8 +462,13 @@ class Transformer(t2t_model.T2TModel):
       """
       # _shard_features called to ensure that the variable names match
       targets = self._shard_features({"targets": targets})["targets"]
-      with tf.variable_scope(target_modality.name):
-        targets = dp(target_modality.targets_bottom, targets)[0]
+      modality_name = hparams.name.get(
+          "targets",
+          modalities.get_name(target_modality))(hparams, target_vocab_size)
+      with tf.variable_scope(modality_name):
+        bottom = hparams.bottom.get(
+            "targets", modalities.get_targets_bottom(target_modality))
+        targets = dp(bottom, targets, hparams, target_vocab_size)[0]
       targets = common_layers.flatten4d3d(targets)
 
       # TODO(llion): Explain! Is this even needed?
@@ -505,9 +522,13 @@ class Transformer(t2t_model.T2TModel):
             cache,
             i,
             nonpadding=features_to_nonpadding(features, "targets"))
-
-      with tf.variable_scope(target_modality.name):
-        logits = dp(target_modality.top, body_outputs, None)[0]
+      modality_name = hparams.name.get(
+          "targets",
+          modalities.get_name(target_modality))(hparams, target_vocab_size)
+      with tf.variable_scope(modality_name):
+        top = hparams.top.get("targets",
+                              modalities.get_top(target_modality))
+        logits = dp(top, body_outputs, None, hparams, target_vocab_size)[0]
 
       ret = tf.squeeze(logits, axis=[1, 2, 3])
       if partial_targets is not None:
@@ -529,17 +550,13 @@ class Transformer(t2t_model.T2TModel):
             tf.less(i, partial_targets_length), forced_logits, lambda: ret)
       return ret, cache
 
-    vocab_size = self._problem_hparams.vocab_size["targets"]
-    if hasattr(self._hparams, "vocab_divisor"):
-      vocab_size += (-vocab_size) % self._hparams.vocab_divisor
-
     ret = fast_decode_tpu(
         encoder_output=encoder_output,
         encoder_decoder_attention_bias=encoder_decoder_attention_bias,
         symbols_to_logits_fn=symbols_to_logits_tpu_fn,
         hparams=hparams,
         decode_length=decode_length,
-        vocab_size=vocab_size,
+        vocab_size=target_vocab_size,
         beam_size=beam_size,
         top_beams=top_beams,
         alpha=alpha,
@@ -588,6 +605,9 @@ class Transformer(t2t_model.T2TModel):
     dp = self._data_parallelism
     hparams = self._hparams
     target_modality = self._problem_hparams.modality["targets"]
+    target_vocab_size = self._problem_hparams.vocab_size["targets"]
+    if target_vocab_size is not None and hasattr(hparams, "vocab_divisor"):
+      target_vocab_size += (-target_vocab_size) % hparams.vocab_divisor
     if "targets_segmentation" in features:
       raise NotImplementedError(
           "Decoding not supported on packed datasets "
@@ -595,7 +615,7 @@ class Transformer(t2t_model.T2TModel):
           " of the dataset when decoding.")
     if self.has_input:
       inputs = features["inputs"]
-      if target_modality.is_class_modality:
+      if target_modality == modalities.ModalityType.CLASS_LABEL:
         decode_length = 1
       else:
         decode_length = (
@@ -612,8 +632,16 @@ class Transformer(t2t_model.T2TModel):
       # _shard_features called to ensure that the variable names match
       inputs = self._shard_features({"inputs": inputs})["inputs"]
       input_modality = self._problem_hparams.modality["inputs"]
-      with tf.variable_scope(input_modality.name):
-        inputs = dp(input_modality.bottom, inputs)
+      input_vocab_size = self._problem_hparams.vocab_size["inputs"]
+      if input_vocab_size is not None and hasattr(hparams, "vocab_divisor"):
+        input_vocab_size += (-input_vocab_size) % hparams.vocab_divisor
+      modality_name = hparams.name.get(
+          "inputs",
+          modalities.get_name(input_modality))(hparams, input_vocab_size)
+      with tf.variable_scope(modality_name):
+        bottom = hparams.bottom.get("inputs",
+                                    modalities.get_bottom(input_modality))
+        inputs = dp(bottom, inputs, hparams, input_vocab_size)
       with tf.variable_scope("body"):
         encoder_output, encoder_decoder_attention_bias = dp(
             self.encode,
@@ -671,8 +699,13 @@ class Transformer(t2t_model.T2TModel):
       """
       # _shard_features called to ensure that the variable names match
       targets = self._shard_features({"targets": targets})["targets"]
-      with tf.variable_scope(target_modality.name):
-        targets = dp(target_modality.targets_bottom, targets)[0]
+      modality_name = hparams.name.get(
+          "targets",
+          modalities.get_name(target_modality))(hparams, target_vocab_size)
+      with tf.variable_scope(modality_name):
+        bottom = hparams.bottom.get(
+            "targets", modalities.get_targets_bottom(target_modality))
+        targets = dp(bottom, targets, hparams, target_vocab_size)[0]
       targets = common_layers.flatten4d3d(targets)
 
       # TODO(llion): Explain! Is this even needed?
@@ -708,8 +741,12 @@ class Transformer(t2t_model.T2TModel):
             cache,
             nonpadding=features_to_nonpadding(features, "targets"))
 
-      with tf.variable_scope(target_modality.name):
-        logits = dp(target_modality.top, body_outputs, None)[0]
+      modality_name = hparams.name.get(
+          "targets",
+          modalities.get_name(target_modality))(hparams, target_vocab_size)
+      with tf.variable_scope(modality_name):
+        top = hparams.top.get("targets", modalities.get_top(target_modality))
+        logits = dp(top, body_outputs, None, hparams, target_vocab_size)[0]
 
       ret = tf.squeeze(logits, axis=[1, 2, 3])
       if partial_targets is not None:
@@ -729,17 +766,13 @@ class Transformer(t2t_model.T2TModel):
             tf.less(i, partial_targets_length), forced_logits, lambda: ret)
       return ret, cache
 
-    vocab_size = self._problem_hparams.vocab_size["targets"]
-    if hasattr(self._hparams, "vocab_divisor"):
-      vocab_size += (-vocab_size) % self._hparams.vocab_divisor
-
     ret = fast_decode(
         encoder_output=encoder_output,
         encoder_decoder_attention_bias=encoder_decoder_attention_bias,
         symbols_to_logits_fn=symbols_to_logits_fn,
         hparams=hparams,
         decode_length=decode_length,
-        vocab_size=vocab_size,
+        vocab_size=target_vocab_size,
         beam_size=beam_size,
         top_beams=top_beams,
         alpha=alpha,

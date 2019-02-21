@@ -49,17 +49,18 @@ class Modality(object):
   """
 
   def __init__(self, model_hparams, vocab_size=None):
-    self._model_hparams = model_hparams
-    if vocab_size is not None and hasattr(model_hparams, "vocab_divisor"):
-      vocab_size += (0 - vocab_size) % model_hparams.vocab_divisor
-    self._vocab_size = vocab_size
+    # __init__ args are unused in any methods. They're maintained for
+    # backwards compatibility for now. In the future, Modality classes will be
+    # removed altogether.
+    del model_hparams, vocab_size
 
-  @property
-  def name(self):
-    return misc_utils.camelcase_to_snakecase(type(self).__name__)
+  @classmethod
+  def name(cls, model_hparams, vocab_size=None):
+    del model_hparams, vocab_size  # unused arg
+    return misc_utils.camelcase_to_snakecase(type(cls).__name__)
 
-  @property
-  def top_is_pointwise(self):
+  @staticmethod
+  def top_is_pointwise():
     """Whether the top mapping of the modality is pointwise.
 
     An example of a pointwise top mapping is a linear layer followed by
@@ -74,8 +75,8 @@ class Modality(object):
     """
     return False
 
-  @property
-  def targets_weights_fn(self):
+  @staticmethod
+  def targets_weights_fn(model_hparams):
     """The weights function to use for loss and eval metrics.
 
     A weights function takes labels and returns a Tensor that assigns weights
@@ -85,33 +86,46 @@ class Modality(object):
       * weights_all: 1. for all labels
       * weights_nonzero: 1. for all non-zero labels (e.g. to deal with padding)
 
+    Args:
+      model_hparams: tf.HParams, model hyperparmeters.
+
     Returns:
       Callable: (targets) -> weights Tensor
     """
+    del model_hparams  # unused arg
     return common_layers.weights_all
 
-  def bottom(self, x):
+  @staticmethod
+  def bottom(x, model_hparams, vocab_size=None):
     """Transform one shard of input.
 
     Args:
       x: An int32 Tensor with shape [batch, p0, p1, input_channels]
+      model_hparams: tf.HParams, model hyperparmeters.
+      vocab_size: int, vocabulary size.
+
     Returns:
       A float32 Tensor with shape [batch, p0, p1, body_input_depth]
     """
     raise NotImplementedError("Abstract Method")
 
-  def targets_bottom(self, x):
+  @classmethod
+  def targets_bottom(cls, x, model_hparams, vocab_size=None):
     """Transform one shard of targets.
 
     Args:
       x: An int32 Tensor with shape [batch, p0, p1, target_channels]
+      model_hparams: tf.HParams, model hyperparmeters.
+      vocab_size: int, vocabulary size.
+
     Returns:
       A float32 Tensor with shape [batch, p0, p1, body_input_depth]
     """
     with tf.variable_scope("targets_bottom"):
-      return self.bottom(x)
+      return cls.bottom(x, model_hparams, vocab_size)
 
-  def top(self, body_output, targets):
+  @staticmethod
+  def top(body_output, targets, model_hparams, vocab_size=None):
     """Generate predictions/logits for one shard of output.
 
     Most classes will override this function.
@@ -120,23 +134,29 @@ class Modality(object):
       body_output: A Tensor with shape [batch, p0, p1, body_output_depth]
       targets: A Tensor with shape [batch, p0, p1, targets_channels,
         top_dimensionality]
+      model_hparams: tf.HParams, model hyperparmeters.
+      vocab_size: int, vocabulary size.
+
     Returns:
       A Tensor of class logits.
     """
     raise NotImplementedError("Abstract Method")
 
-  def loss(self, top_out, targets, weights_fn=None):
+  @classmethod
+  def loss(cls,
+           top_out,
+           targets,
+           model_hparams,
+           vocab_size=None,
+           weights_fn=None):
     """Compute loss numerator and denominator for one shard of output."""
-    logits = top_out
+    del vocab_size  # unused arg
     if weights_fn is None:
-      weights_fn = self.targets_weights_fn
-    logits = common_attention.maybe_upcast(logits, hparams=self._model_hparams)
+      weights_fn = cls.targets_weights_fn(model_hparams)
+    logits = top_out
+    logits = common_attention.maybe_upcast(logits, hparams=model_hparams)
     return common_layers.padded_cross_entropy(
         logits,
         targets,
-        self._model_hparams.label_smoothing,
+        model_hparams.label_smoothing,
         weights_fn=weights_fn)
-
-  @property
-  def is_class_modality(self):
-    return self.name.startswith("class_label")

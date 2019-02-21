@@ -17,6 +17,8 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import sys
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
@@ -40,20 +42,19 @@ class SymbolModality(modality.Modality):
     Linear transformation + softmax.
   """
 
-  @property
-  def name(self):
-    return "symbol_modality_%d_%d" % (self._vocab_size,
-                                      self._model_hparams.hidden_size)
+  @staticmethod
+  def name(model_hparams, vocab_size):
+    return "symbol_modality_%d_%d" % (vocab_size, model_hparams.hidden_size)
 
-  @property
-  def top_is_pointwise(self):
+  @staticmethod
+  def top_is_pointwise():
     return True
 
-  @property
-  def targets_weights_fn(self):
+  @staticmethod
+  def targets_weights_fn(model_hparams):
     weights_fn = common_layers.weights_nonzero
 
-    hp = self._model_hparams
+    hp = model_hparams
     if hp and hp.prepend_mode != "none":
       assert (hp.prepend_mode == "prepend_inputs_masked_attention" or
               hp.prepend_mode == "prepend_inputs_full_attention")
@@ -68,22 +69,25 @@ class SymbolModality(modality.Modality):
 
     return weights_fn
 
-  def _get_weights(self, hidden_dim=None):
+  @staticmethod
+  def _get_weights(model_hparams, vocab_size, hidden_dim=None):
     """Create or get concatenated embedding or softmax variable.
 
     Args:
+      model_hparams: tf.HParams, model hyperparmeters.
+      vocab_size: int, vocabulary size.
       hidden_dim: dim of the variable. Defaults to _model_hparams' hidden_size
 
     Returns:
-       a list of self._num_shards Tensors.
+       a list of num_shards Tensors.
     """
     if hidden_dim is None:
-      hidden_dim = self._model_hparams.hidden_size
-    num_shards = self._model_hparams.symbol_modality_num_shards
+      hidden_dim = model_hparams.hidden_size
+    num_shards = model_hparams.symbol_modality_num_shards
     shards = []
     for i in range(num_shards):
-      shard_size = (self._vocab_size // num_shards) + (
-          1 if i < self._vocab_size % num_shards else 0)
+      shard_size = (vocab_size // num_shards) + (
+          1 if i < vocab_size % num_shards else 0)
       var_name = "weights_%d" % i
       shards.append(
           tf.get_variable(
@@ -98,7 +102,8 @@ class SymbolModality(modality.Modality):
       ret = common_layers.convert_gradient_to_tensor(ret)
     return ret
 
-  def bottom_simple(self, x, name, reuse):
+  @classmethod
+  def bottom_simple(cls, x, model_hparams, vocab_size, name, reuse):
     with tf.variable_scope(name, reuse=reuse):
       # Ensure the inputs are 3-D
       if len(x.get_shape()) == 4:
@@ -106,47 +111,59 @@ class SymbolModality(modality.Modality):
       while len(x.get_shape()) < 3:
         x = tf.expand_dims(x, axis=-1)
 
-      var = self._get_weights()
+      var = cls._get_weights(model_hparams, vocab_size)
       x = common_layers.dropout_no_scaling(
-          x, 1.0 - self._model_hparams.symbol_dropout)
+          x, 1.0 - model_hparams.symbol_dropout)
       ret = common_layers.gather(var, x)
-      if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
-        ret *= self._model_hparams.hidden_size**0.5
+      if model_hparams.multiply_embedding_mode == "sqrt_depth":
+        ret *= model_hparams.hidden_size**0.5
       ret *= tf.expand_dims(
           common_layers.cast_like(tf.not_equal(x, 0), ret), -1)
       return ret
 
-  def bottom(self, x):
-    if (self._model_hparams.shared_embedding_and_softmax_weights or
-        self._model_hparams.get("shared_embedding")):
-      return self.bottom_simple(x, "shared", reuse=None)
-    return self.bottom_simple(x, "input_emb", reuse=None)
+  @classmethod
+  def bottom(cls, x, model_hparams, vocab_size):
+    if (model_hparams.shared_embedding_and_softmax_weights or
+        model_hparams.get("shared_embedding")):
+      return cls.bottom_simple(
+          x, model_hparams, vocab_size, "shared", reuse=None)
+    return cls.bottom_simple(
+        x, model_hparams, vocab_size, "input_emb", reuse=None)
 
-  def targets_bottom(self, x):
-    if (self._model_hparams.shared_embedding_and_softmax_weights or
-        self._model_hparams.get("shared_embedding")):
+  @classmethod
+  def targets_bottom(cls, x, model_hparams, vocab_size):
+    if (model_hparams.shared_embedding_and_softmax_weights or
+        model_hparams.get("shared_embedding")):
       try:
-        return self.bottom_simple(x, "shared", reuse=True)
+        return cls.bottom_simple(
+            x, model_hparams, vocab_size, "shared", reuse=True)
       except ValueError:
         # perhaps there were no inputs, and this is a new variable.
-        return self.bottom_simple(x, "shared", reuse=None)
+        return cls.bottom_simple(
+            x, model_hparams, vocab_size, "shared", reuse=None)
     else:
-      return self.bottom_simple(x, "target_emb", reuse=None)
+      return cls.bottom_simple(
+          x, model_hparams, vocab_size, "target_emb", reuse=None)
 
-  def top(self, body_output, _):
+  @classmethod
+  def top(cls, body_output, targets, model_hparams, vocab_size):
     """Generate logits.
 
     Args:
       body_output: A Tensor with shape
-        [batch, p0, p1, self._model_hparams.hidden_size].
+        [batch, p0, p1, model_hparams.hidden_size].
+      targets: Unused.
+      model_hparams: tf.HParams, model hyperparmeters.
+      vocab_size: int, vocabulary size.
 
     Returns:
       logits: A Tensor with shape  [batch, p0, p1, ?, vocab_size].
     """
-    if self._model_hparams.symbol_modality_skip_top:
+    del targets  # unused arg
+    if model_hparams.symbol_modality_skip_top:
       return tf.expand_dims(body_output, 3)
 
-    if self._model_hparams.shared_embedding_and_softmax_weights:
+    if model_hparams.shared_embedding_and_softmax_weights:
       scope_name = "shared"
       reuse = tf.AUTO_REUSE
     else:
@@ -154,9 +171,9 @@ class SymbolModality(modality.Modality):
       reuse = False
     with tf.variable_scope(scope_name, reuse=reuse):
       body_output_shape = common_layers.shape_list(body_output)
-      var = self._get_weights(body_output_shape[-1])
-      if (self._model_hparams.factored_logits and
-          self._model_hparams.mode == tf.estimator.ModeKeys.TRAIN):
+      var = cls._get_weights(model_hparams, vocab_size, body_output_shape[-1])
+      if (model_hparams.factored_logits and
+          model_hparams.mode == tf.estimator.ModeKeys.TRAIN):
         # insert channels dimension
         body_output = tf.expand_dims(body_output, 3)
         return common_layers.FactoredTensor(body_output, var)
@@ -164,31 +181,35 @@ class SymbolModality(modality.Modality):
         body_output = tf.reshape(body_output, [-1, body_output_shape[-1]])
         logits = tf.matmul(body_output, var, transpose_b=True)
         return tf.reshape(logits,
-                          body_output_shape[:-1] + [1, self._vocab_size])
+                          body_output_shape[:-1] + [1, vocab_size])
 
 
 class SymbolModalityWeightsAll(SymbolModality):
   """SymbolModality for features that do not have 0-padding."""
 
-  @property
-  def targets_weights_fn(self):
+  @staticmethod
+  def targets_weights_fn(model_hparams):
     return common_layers.weights_all
 
 
 class SymbolModalityOneHot(SymbolModality):
   """Simple SymbolModality with one hot as embeddings."""
 
-  def bottom(self, x):
-    return tf.one_hot(x, self._vocab_size)
+  @staticmethod
+  def bottom(x, model_hparams, vocab_size):
+    return tf.one_hot(x, vocab_size)
 
-  def targets_bottom(self, x):
-    return tf.one_hot(x, self._vocab_size)
+  @staticmethod
+  def targets_bottom(x, model_hparams, vocab_size):
+    return tf.one_hot(x, vocab_size)
 
-  def top(self, body_output, _):
+  @staticmethod
+  def top(body_output, _, model_hparams, vocab_size):
     return body_output
 
-  def loss(self, top_out, targets):
-    labels = tf.one_hot(targets, self._vocab_size)
+  @staticmethod
+  def loss(top_out, targets, model_hparams, vocab_size):
+    labels = tf.one_hot(targets, vocab_size)
     loss = tf.nn.softmax_cross_entropy_with_logits(
         logits=top_out, labels=labels)
     return tf.reduce_mean(loss), tf.constant(1.0)
@@ -197,7 +218,8 @@ class SymbolModalityOneHot(SymbolModality):
 class CTCSymbolModality(SymbolModality):
   """SymbolModality that uses CTC loss."""
 
-  def loss(self, top_out, targets):
+  @classmethod
+  def loss(cls, top_out, targets, model_hparams, vocab_size):
     """Compute the CTC loss."""
     logits = top_out
     with tf.name_scope("ctc_loss", values=[logits, targets]):
@@ -219,24 +241,26 @@ class CTCSymbolModality(SymbolModality):
           time_major=False,
           preprocess_collapse_repeated=False,
           ctc_merge_repeated=False)
-      weights = self.targets_weights_fn(targets)  # pylint: disable=not-callable
+      weights = cls.targets_weights_fn(targets)  # pylint: disable=not-callable
       return tf.reduce_sum(xent), tf.reduce_sum(weights)
 
 
 class ImageModality(modality.Modality):
   """Modality for images."""
-  PIXEL_EMBEDDING_SIZE = 64
 
-  def bottom(self, x):
-    with tf.variable_scope(self.name):
+  @classmethod
+  def bottom(cls, x, model_hparams, vocab_size):
+    with tf.variable_scope(cls.name(model_hparams, vocab_size)):
       if not tf.executing_eagerly():
         tf.summary.image(
             "inputs", common_layers.tpu_safe_image_summary(x), max_outputs=2)
       return tf.to_float(x)
 
-  def targets_bottom(self, x):
+  @classmethod
+  def targets_bottom(cls, x, model_hparams, vocab_size):
+    pixel_embedding_size = 64
     inputs = x
-    with tf.variable_scope(self.name):
+    with tf.variable_scope(cls.name(model_hparams, vocab_size)):
       if not tf.executing_eagerly():
         tf.summary.image(
             "targets_bottom",
@@ -246,30 +270,31 @@ class ImageModality(modality.Modality):
       if len(inputs_shape) != 4:
         raise ValueError("Assuming images given as int tensors in the format "
                          "[batch, height, width, channels] (256 values).")
-      # We embed each of 256=self._vocab_size possible pixel values.
+      # We embed each of 256=vocab_size possible pixel values.
       embedding_var = tf.get_variable(
           "pixel_embedding",
-          [self._vocab_size, self.PIXEL_EMBEDDING_SIZE])
-      hot_inputs = tf.one_hot(tf.to_int32(inputs), self._vocab_size)
-      hot_inputs = tf.reshape(hot_inputs, [-1, self._vocab_size])
+          [vocab_size, pixel_embedding_size])
+      hot_inputs = tf.one_hot(tf.to_int32(inputs), vocab_size)
+      hot_inputs = tf.reshape(hot_inputs, [-1, vocab_size])
       embedded = tf.matmul(hot_inputs, embedding_var)
       # Let's now merge all channels that were embedded into a single vector.
-      merged_size = self.PIXEL_EMBEDDING_SIZE * inputs_shape[3]
+      merged_size = pixel_embedding_size * inputs_shape[3]
       embedded = tf.reshape(embedded, inputs_shape[:3] + [merged_size])
       merged = tf.layers.dense(
           embedded,
-          self._model_hparams.hidden_size,
+          model_hparams.hidden_size,
           name="merge_pixel_embedded_channels")
       return merged
 
-  def top(self, body_output, _):
+  @staticmethod
+  def top(body_output, _, model_hparams, vocab_size):
     # TODO(lukaszkaiser): is this a universal enough way to get channels?
-    num_channels = self._model_hparams.problem.num_channels
+    num_channels = model_hparams.problem.num_channels
     with tf.variable_scope("rgb_softmax"):
       body_output_shape = common_layers.shape_list(body_output)
       reshape_shape = body_output_shape[:3]
-      reshape_shape.extend([num_channels, self._vocab_size])
-      res = tf.layers.dense(body_output, self._vocab_size * num_channels)
+      reshape_shape.extend([num_channels, vocab_size])
+      res = tf.layers.dense(body_output, vocab_size * num_channels)
       res = tf.reshape(res, reshape_shape)
       if not tf.get_variable_scope().reuse:
         res_argmax = tf.argmax(res, axis=-1)
@@ -279,26 +304,24 @@ class ImageModality(modality.Modality):
             max_outputs=1)
       return res
 
-  def loss(self, top_out, targets):
+  @classmethod
+  def loss(cls, top_out, targets, model_hparams, vocab_size):
     """Compute loss numerator and denominator for one shard of output."""
     logits = top_out
-    cutoff = getattr(self._model_hparams, "video_modality_loss_cutoff", 0.0)
+    cutoff = getattr(model_hparams, "video_modality_loss_cutoff", 0.0)
     return common_layers.padded_cross_entropy(
         logits,
         targets,
-        self._model_hparams.label_smoothing,
+        model_hparams.label_smoothing,
         cutoff=cutoff,
-        weights_fn=self.targets_weights_fn)
+        weights_fn=cls.targets_weights_fn(model_hparams))
 
 
 class ImageChannelCompressModality(modality.Modality):
   """Modality for images using channel compression for generation."""
 
-  @property
-  def num_channels(self):
-    return 3
-
-  def bottom_compress(self, inputs, name="bottom"):
+  @staticmethod
+  def bottom_compress(inputs, model_hparams, name="bottom"):
     """Compresses channel-wise input pixels into whole pixel representions.
 
     Perform conversion of RGB pixel values to a real number in the range -1 to
@@ -308,15 +331,17 @@ class ImageChannelCompressModality(modality.Modality):
     Args:
       inputs: Tensor representing RGB pixel intensities as integers, of shape
         [batch, img_len, img_len, channels].
+      model_hparams: tf.HParams, model hyperparmeters.
       name: string, scope.
 
     Returns:
       body_input: Tensor of shape
-        [batch, img_len, img_len, self._model_hparams.hidden_size].
+        [batch, img_len, img_len, model_hparams.hidden_size].
     """
+    num_channels = 3
     with tf.variable_scope(name):
       inputs = tf.to_float(inputs)
-      hp = self._model_hparams
+      hp = model_hparams
       if hp.mode != tf.estimator.ModeKeys.PREDICT:
         tf.summary.image(
             "inputs",
@@ -332,33 +357,38 @@ class ImageChannelCompressModality(modality.Modality):
       # Compress RGB intensities for each pixel using a convolution.
       outputs = tf.layers.conv2d(
           inputs,
-          self._model_hparams.hidden_size,
-          kernel_size=(1, self.num_channels),
+          model_hparams.hidden_size,
+          kernel_size=(1, num_channels),
           padding="VALID",
-          strides=(1, self.num_channels),
+          strides=(1, num_channels),
           activation=tf.nn.relu,
           name="conv_input")
       return outputs
 
-  def bottom(self, x):
-    return self.bottom_compress(x, "input_bottom")
+  @classmethod
+  def bottom(cls, x, model_hparams, vocab_size):
+    return cls.bottom_compress(x, model_hparams, "input_bottom")
 
-  def targets_bottom(self, x):
-    return self.bottom_compress(x, "output_bottom")
+  @classmethod
+  def targets_bottom(cls, x, model_hparams, vocab_size):
+    return cls.bottom_compress(x, model_hparams, "output_bottom")
 
-  def top(self, body_output, _):
+  @classmethod
+  def top(cls, body_output, _, model_hparams, vocab_size):
     """Transforms body output to return logits.
 
     Args:
       body_output: Tensor of shape [batch, img_len, img_len, depth].
+      model_hparams: tf.HParams, model hyperparmeters.
+      vocab_size: int, vocabulary size.
 
     Returns:
       Tensor of shape [batch, img_len, img_len, channels, vocab_size].
     """
-    with tf.variable_scope(self.name):
-      hidden_size = self._model_hparams.hidden_size
-      img_len = self._model_hparams.img_len
-      channels = self.num_channels  # RGB
+    with tf.variable_scope(cls.name(model_hparams, vocab_size)):
+      hidden_size = model_hparams.hidden_size
+      img_len = model_hparams.img_len
+      channels = 3  # RGB
       batch = common_layers.shape_list(body_output)[0]
       x = tf.layers.conv2d(
           body_output,
@@ -369,28 +399,29 @@ class ImageChannelCompressModality(modality.Modality):
           activation=tf.nn.relu,
           name="decompress_conv")
       x = tf.reshape(x, [batch, img_len, img_len * channels, hidden_size])
-      x = common_layers.layer_preprocess(x, self._model_hparams)
+      x = common_layers.layer_preprocess(x, model_hparams)
       x = tf.layers.dense(x,
-                          self._vocab_size,
+                          vocab_size,
                           use_bias=True,
                           activation=None,
                           name="output_conv")
       x = tf.reshape(
-          x, [batch, img_len, img_len, channels, self._vocab_size])
+          x, [batch, img_len, img_len, channels, vocab_size])
       return x
 
 
 class ImageChannelBottomIdentityModality(ImageChannelCompressModality):
 
-  def top(self, body_output, _):
+  @staticmethod
+  def top(body_output, _, model_hparams, vocab_size):
     return body_output
 
 
 class ImageChannelEmbeddingsBottom(modality.Modality):
   """Modality for images using channel compression for generation."""
 
-  def get_channel_embeddings(self,
-                             io_depth,
+  @staticmethod
+  def get_channel_embeddings(io_depth,
                              targets,
                              hidden_size,
                              name="channel"):
@@ -410,42 +441,47 @@ class ImageChannelEmbeddingsBottom(modality.Modality):
 
     return tf.concat(channel_target_embs, axis=-1)
 
-  def targets_bottom(self, x):
+  @staticmethod
+  def targets_bottom(x, model_hparams, vocab_size):
     inputs = x
-    io_depth = self._model_hparams.num_channels
+    io_depth = model_hparams.num_channels
     tshape = common_layers.shape_list(inputs)
-    hidden_size = self._model_hparams.hidden_size
-    target_embeddings = self.get_channel_embeddings(io_depth, inputs,
-                                                    hidden_size, "input_bottom")
+    hidden_size = model_hparams.hidden_size
+    target_embeddings = ImageChannelEmbeddingsBottom.get_channel_embeddings(
+        io_depth, inputs, hidden_size, "input_bottom")
     return tf.reshape(target_embeddings,
                       [tshape[0], tshape[1], tshape[2] * io_depth, hidden_size])
 
-  def top(self, body_output, _):
-    with tf.variable_scope(self.name):
-      img_len = self._model_hparams.img_len
-      channels = self._model_hparams.num_channels
+  @classmethod
+  def top(cls, body_output, _, model_hparams, vocab_size):
+    with tf.variable_scope(cls.name(model_hparams, vocab_size)):
+      img_len = model_hparams.img_len
+      channels = model_hparams.num_channels
       x = tf.layers.dense(
           body_output, 256, use_bias=True, activation=None, name="output_conv")
       x = tf.reshape(x,
-                     [-1, img_len, img_len, channels, self._vocab_size])
+                     [-1, img_len, img_len, channels, vocab_size])
       return x
 
 
 class AudioModality(modality.Modality):
   """Performs strided conv compressions for audio data."""
 
-  def bottom(self, x):
+  @classmethod
+  def bottom(cls, x, model_hparams, vocab_size):
     """Transform input from data space to model space.
 
     Args:
       x: A Tensor with shape [batch, ...]
+      model_hparams: tf.HParams, model hyperparmeters.
+      vocab_size: int, vocabulary size.
 
     Returns:
       body_input: A Tensor with shape [batch, ?, ?,
-        self._model_hparams.hidden_size].
+        model_hparams.hidden_size].
     """
     inputs = x
-    with tf.variable_scope(self.name):
+    with tf.variable_scope(cls.name(model_hparams, vocab_size)):
       # TODO(aidangomez): Will need to sort out a better audio pipeline
       def xnet_resblock(x, filters, res_relu, name):
         """Xception block."""
@@ -471,10 +507,10 @@ class AudioModality(modality.Modality):
 
       x = tf.to_float(inputs) / 255.
       x.set_shape([None, None, None, 1])
-      for i in range(self._model_hparams.audio_compression):
+      for i in range(model_hparams.audio_compression):
         x = xnet_resblock(x, 2**(i + 1), True, "compress_block_%d" % i)
       return xnet_resblock(x,
-                           self._model_hparams.hidden_size,
+                           model_hparams.hidden_size,
                            False,
                            "compress_block_final")
 
@@ -482,18 +518,21 @@ class AudioModality(modality.Modality):
 class AudioSpectralModality(modality.Modality):
   """Performs strided conv compressions for audio spectral data."""
 
-  def bottom(self, x):
+  @classmethod
+  def bottom(cls, x, model_hparams, vocab_size):
     """Transform input from data space to model space.
 
     Args:
       x: A Tensor with shape [batch, ...]
+      model_hparams: tf.HParams, model hyperparmeters.
+      vocab_size: int, vocabulary size.
 
     Returns:
       body_input: A Tensor with shape [batch, ?, ?,
-        self._model_hparams.hidden_size].
+        model_hparams.hidden_size].
     """
     inputs = x
-    with tf.variable_scope(self.name):
+    with tf.variable_scope(cls.name(model_hparams, vocab_size)):
       # TODO(aidangomez): Will need to sort out a better audio pipeline
       def xnet_resblock(x, filters, res_relu, name):
         """Xception-like block."""
@@ -520,10 +559,10 @@ class AudioSpectralModality(modality.Modality):
       # Bitcast back from int32
       x = tf.bitcast(inputs, tf.float32)
       x.set_shape([None, None, None, 1])
-      for i in range(self._model_hparams.audio_compression):
+      for i in range(model_hparams.audio_compression):
         x = xnet_resblock(x, 2**(i + 1), True, "compress_block_%d" % i)
       return xnet_resblock(x,
-                           self._model_hparams.hidden_size,
+                           model_hparams.hidden_size,
                            False,
                            "compress_block_final")
 
@@ -531,22 +570,25 @@ class AudioSpectralModality(modality.Modality):
 class SpeechRecognitionModality(modality.Modality):
   """Common ASR filterbank processing."""
 
-  def bottom(self, x):
+  @classmethod
+  def bottom(cls, x, model_hparams, vocab_size):
     """Use batchnorm instead of CMVN and shorten the stft with strided convs.
 
     Args:
       x: float32 tensor with shape [batch_size, len, 1, freqs * channels]
+      model_hparams: tf.HParams, model hyperparmeters.
+      vocab_size: int, vocabulary size.
 
     Returns:
       float32 tensor with shape [batch_size, shorter_len, 1, hidden_size]
     """
     inputs = x
-    p = self._model_hparams
+    p = model_hparams
 
     num_mel_bins = p.audio_num_mel_bins
     num_channels = 3 if p.audio_add_delta_deltas else 1
 
-    with tf.variable_scope(self.name):
+    with tf.variable_scope(cls.name(model_hparams, vocab_size)):
       if p.audio_preproc_in_bottom:
         # Compute filterbanks
         with tf.variable_scope("fbanks"):
@@ -613,102 +655,110 @@ class SpeechRecognitionModality(modality.Modality):
 class VideoModality(modality.Modality):
   """Modality for videos, i.e., time-sequences of frames."""
 
-  def bottom(self, x):
+  @staticmethod
+  def bottom(x, model_hparams, vocab_size):
     common_video.gif_summary("inputs", x, max_outputs=1)
     x = common_layers.standardize_images(x)
     return x
 
-  def targets_bottom(self, x):
+  @staticmethod
+  def targets_bottom(x, model_hparams, vocab_size):
     common_video.gif_summary("targets", x, max_outputs=1)
     x = common_layers.standardize_images(x)
     return x
 
-  def top(self, body_output, targets):
-    num_channels = self._model_hparams.problem.num_channels
+  @staticmethod
+  def top(body_output, targets, model_hparams, vocab_size):
+    num_channels = model_hparams.problem.num_channels
     shape = common_layers.shape_list(body_output)
-    reshape_shape = shape[:-1] + [num_channels, self._vocab_size]
+    reshape_shape = shape[:-1] + [num_channels, vocab_size]
     res = tf.reshape(body_output, reshape_shape)
     # Calculate argmax so as to have a summary with the produced images.
-    x = tf.argmax(tf.reshape(res, [-1, self._vocab_size]), axis=-1)
+    x = tf.argmax(tf.reshape(res, [-1, vocab_size]), axis=-1)
     x = tf.reshape(x, shape[:-1] + [num_channels])
     common_video.gif_summary("results", x, max_outputs=1)
     return res
 
-  def loss(self, top_out, targets):
+  @classmethod
+  def loss(cls, top_out, targets, model_hparams, vocab_size):
     """Compute loss numerator and denominator for one shard of output."""
     logits = top_out
     logits = tf.reshape(logits, [-1] + common_layers.shape_list(logits)[2:])
     targets = tf.reshape(targets, [-1] + common_layers.shape_list(targets)[2:])
-    cutoff = getattr(self._model_hparams, "video_modality_loss_cutoff", 0.01)
+    cutoff = getattr(model_hparams, "video_modality_loss_cutoff", 0.01)
     return common_layers.padded_cross_entropy(
         logits,
         targets,
-        self._model_hparams.label_smoothing,
+        model_hparams.label_smoothing,
         cutoff=cutoff,
-        weights_fn=self.targets_weights_fn)
+        weights_fn=cls.targets_weights_fn(model_hparams))
 
 
 class VideoModalityBitwise(VideoModality):
   """Video Modality where bottom embeds pixels bitwise."""
-  PIXEL_EMBEDDING_SIZE = 64
 
-  def bottom(self, x):
+  @classmethod
+  def bottom(cls, x, model_hparams, vocab_size):
+    pixel_embedding_size = 64
     inputs = x
-    with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
+    with tf.variable_scope(cls.name(model_hparams, vocab_size),
+                           reuse=tf.AUTO_REUSE):
       common_layers.summarize_video(inputs, "bottom")
       # Embed bitwise.
-      assert self._vocab_size == 256
+      assert vocab_size == 256
       embedded = discretization.int_to_bit_embed(inputs, 8,
-                                                 self.PIXEL_EMBEDDING_SIZE)
+                                                 pixel_embedding_size)
       # Project.
       return tf.layers.dense(
           embedded,
-          self._model_hparams.hidden_size,
+          model_hparams.hidden_size,
           name="merge_pixel_embedded_frames")
 
-  def targets_bottom(self, x):  # pylint: disable=arguments-differ
+  @classmethod
+  def targets_bottom(cls, x, model_hparams, vocab_size):  # pylint: disable=arguments-differ
+    pixel_embedding_size = 64
     inputs = x
-    with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
+    with tf.variable_scope(cls.name(model_hparams, vocab_size),
+                           reuse=tf.AUTO_REUSE):
       common_layers.summarize_video(inputs, "targets_bottom")
       # Embed bitwise.
-      assert self._vocab_size == 256
+      assert vocab_size == 256
       embedded = discretization.int_to_bit_embed(inputs, 8,
-                                                 self.PIXEL_EMBEDDING_SIZE)
+                                                 pixel_embedding_size)
       # Transpose and project.
       transposed = common_layers.time_to_channels(embedded)
       return tf.layers.dense(
           transposed,
-          self._model_hparams.hidden_size,
+          model_hparams.hidden_size,
           name="merge_pixel_embedded_frames")
 
 
 class VideoModalityPixelNoise(VideoModality):
   """Video modality that introduces pixel noise on input during training."""
 
-  def bottom(self, x):
+  @classmethod
+  def bottom(cls, x, model_hparams, vocab_size):
+    input_noise = getattr(model_hparams, "video_modality_input_noise", 0.25)
     inputs = x
-    if self._model_hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if model_hparams.mode == tf.estimator.ModeKeys.TRAIN:
       background = tfp.distributions.percentile(inputs, 50., axis=[0, 1, 2, 3])
       input_shape = common_layers.shape_list(inputs)
       input_size = tf.reduce_prod(input_shape[:-1])
       input_mask = tf.multinomial(
-          tf.log([[self.input_noise, 1.-self.input_noise]]), input_size)
+          tf.log([[input_noise, 1.-input_noise]]), input_size)
       input_mask = tf.reshape(tf.cast(input_mask, tf.int32),
                               input_shape[:-1]+[1])
       inputs = inputs * input_mask + background * (1 - input_mask)
-    return super(VideoModalityPixelNoise, self).bottom(inputs)
-
-  @property
-  def input_noise(self):
-    return getattr(self._model_hparams, "video_modality_input_noise", 0.25)
+    return cls.bottom(inputs, model_hparams, vocab_size)
 
 
 class VideoModalityL1(VideoModality):
   """Video modality that predicts a scalar per channel with an L1 loss."""
 
-  def top(self, body_output, _):
-    num_channels = self._model_hparams.problem.num_channels
-    num_frames = self._model_hparams.video_num_target_frames
+  @staticmethod
+  def top(body_output, _, model_hparams, vocab_size):
+    num_channels = model_hparams.problem.num_channels
+    num_frames = model_hparams.video_num_target_frames
     with tf.variable_scope("rgb"):
       body_output_shape = common_layers.shape_list(body_output)
       res = tf.layers.dense(body_output, num_channels * num_frames, name="cast")
@@ -722,55 +772,61 @@ class VideoModalityL1(VideoModality):
             max_outputs=1)
       return tf.expand_dims(res, axis=-1)  # Add an axis like in perplexity.
 
-  @property
-  def cutoff(self):
-    return getattr(self._model_hparams, "video_modality_loss_cutoff", 0.2)
+  @staticmethod
+  def internal_loss(logits, targets, model_hparams):
+    cutoff = getattr(model_hparams, "video_modality_loss_cutoff", 0.2)
+    return tf.nn.relu(tf.abs(logits - targets) - cutoff)
 
-  def internal_loss(self, logits, targets):
-    return tf.nn.relu(tf.abs(logits - targets) - self.cutoff)
-
-  def loss(self, top_out, targets):
+  @staticmethod
+  def loss(top_out, targets, model_hparams, vocab_size):
     """Compute loss numerator and denominator for one shard of output."""
     logits = top_out
     logits = tf.reshape(logits, [-1] + common_layers.shape_list(logits)[2:-1])
     targets = tf.reshape(targets, [-1] + common_layers.shape_list(targets)[2:])
-    weights = self.targets_weights_fn(targets)
+    targets_weights_fn = VideoModalityL1.targets_weights_fn(model_hparams)
+    weights = targets_weights_fn(targets)
     # Shift targets by 0.5 so later just casting to int gives the prediction.
     # So for int targets, say 0 and 7, we actually train to predict 0.5 and 7.5.
     # Later (in merics or infer) this is cast to int anyway. Also, we have no
-    # loss beyond self.cutoff = 0.2 as these are already correct predictions.
+    # loss beyond cutoff = 0.2 as these are already correct predictions.
     targets = tf.to_float(targets) + 0.5
-    loss = self.internal_loss(logits, targets)
+    loss = VideoModalityL1.internal_loss(logits, targets, model_hparams)
     return tf.reduce_sum(loss * weights), tf.reduce_sum(weights)
 
 
 class VideoModalityL2(VideoModalityL1):
   """Modality for videos with L2 loss."""
 
-  def internal_loss(self, logits, targets):
+  @staticmethod
+  def internal_loss(logits, targets, model_hparams):
+    cutoff = getattr(model_hparams, "video_modality_loss_cutoff", 0.2)
     return tf.nn.relu(
-        tf.squared_difference(logits, targets) - self.cutoff * self.cutoff)
+        tf.squared_difference(logits, targets) - cutoff * cutoff)
 
 
 class VideoModalityL2Raw(VideoModalityL2):
   """Modality with L2 loss and raw input (sequences of frames)."""
 
-  def convert_rgb_to_real(self, prediction, targets):
+  @staticmethod
+  def convert_rgb_to_real(prediction, targets):
     """Convert prediction and target from rgb to real."""
     prediction = tf.squeeze(prediction, axis=-1)
     prediction = common_layers.convert_rgb_to_real(prediction)
     targets = common_layers.convert_rgb_to_real(targets)
     return prediction, targets
 
-  def bottom(self, x):
+  @staticmethod
+  def bottom(x, model_hparams, vocab_size):
     common_video.gif_summary("inputs", x)
     return common_layers.convert_rgb_to_real(x)
 
-  def targets_bottom(self, x):  # pylint: disable=arguments-differ
+  @staticmethod
+  def targets_bottom(x, model_hparams, vocab_size):  # pylint: disable=arguments-differ
     common_video.gif_summary("targets_bottom", x)
     return common_layers.convert_rgb_to_real(x)
 
-  def top(self, body_output, _):
+  @staticmethod
+  def top(body_output, _, model_hparams, vocab_size):
     frames = body_output
     if isinstance(body_output, list):
       frames = tf.stack(body_output, axis=1)
@@ -778,8 +834,9 @@ class VideoModalityL2Raw(VideoModalityL2):
     common_video.gif_summary("body_output", rgb_frames)
     return tf.expand_dims(rgb_frames, axis=-1)
 
-  def loss(self, top_out, targets):
-    prediction, groundtruth = self.convert_rgb_to_real(top_out, targets)
+  @classmethod
+  def loss(cls, top_out, targets, model_hparams, vocab_size):
+    prediction, groundtruth = cls.convert_rgb_to_real(top_out, targets)
     loss = tf.losses.mean_squared_error(prediction, groundtruth)
     return loss, tf.constant(1.0)
 
@@ -787,8 +844,9 @@ class VideoModalityL2Raw(VideoModalityL2):
 class VideoModalityL1Raw(VideoModalityL2Raw):
   """Modality with L1 loss and raw input (sequences of frames)."""
 
-  def loss(self, top_out, targets):
-    prediction, groundtruth = self.convert_rgb_to_real(top_out, targets)
+  @classmethod
+  def loss(cls, top_out, targets, model_hparams, vocab_size):
+    prediction, groundtruth = cls.convert_rgb_to_real(top_out, targets)
     loss = tf.losses.absolute_difference(prediction, groundtruth)
     return loss, tf.constant(1.0)
 
@@ -796,84 +854,94 @@ class VideoModalityL1Raw(VideoModalityL2Raw):
 class ClassLabelModality(modality.Modality):
   """Used for label data."""
 
-  @property
-  def name(self):
-    return "class_label_modality_%d_%d" % (self._vocab_size,
-                                           self._model_hparams.hidden_size)
+  @staticmethod
+  def name(model_hparams, vocab_size):
+    return "class_label_modality_%d_%d" % (vocab_size,
+                                           model_hparams.hidden_size)
 
-  def bottom(self, x):
-    with tf.variable_scope(self.name):
+  @classmethod
+  def bottom(cls, x, model_hparams, vocab_size):
+    with tf.variable_scope(cls.name(model_hparams, vocab_size)):
       multiplier = 1.0
-      if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
-        multiplier = self._model_hparams.hidden_size**0.5
+      if model_hparams.multiply_embedding_mode == "sqrt_depth":
+        multiplier = model_hparams.hidden_size**0.5
       return common_layers.embedding(x,
-                                     self._vocab_size,
-                                     self._model_hparams.hidden_size,
+                                     vocab_size,
+                                     model_hparams.hidden_size,
                                      multiplier=multiplier)
 
-  def targets_bottom(self, x):
-    with tf.variable_scope(self.name):
+  @classmethod
+  def targets_bottom(cls, x, model_hparams, vocab_size):
+    with tf.variable_scope(cls.name(model_hparams, vocab_size)):
       return tf.zeros([common_layers.shape_list(x)[0],
                        1,
                        1,
-                       self._model_hparams.hidden_size])
+                       model_hparams.hidden_size])
 
-  def top(self, body_output, _):
+  @classmethod
+  def top(cls, body_output, _, model_hparams, vocab_size):
     """Transform inputs from model space to target space.
 
     Average over inner dims and a linear layer to logits.
 
     Args:
       body_output: A Tensor with shape [batch, ?, ?, body_output_size].
+      model_hparams: tf.HParams, model hyperparmeters.
+      vocab_size: int, vocabulary size.
 
     Returns:
       a Tensors, each with shape [batch_size, 1, 1, 1, vocab_size]
     """
-    with tf.variable_scope(self.name):
+    with tf.variable_scope(cls.name(model_hparams, vocab_size)):
       x = body_output
       x = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
-      res = tf.layers.dense(x, self._vocab_size)
+      res = tf.layers.dense(x, vocab_size)
       return tf.expand_dims(res, 3)
 
 
 class VideoModalityIdentity(VideoModality):
   """Video Modality where top and bottom is an identity function."""
 
-  def bottom(self, x):
+  @staticmethod
+  def bottom(x, model_hparams, vocab_size):
     common_video.gif_summary("inputs", x, max_outputs=1)
     return x
 
-  def targets_bottom(self, x):
+  @staticmethod
+  def targets_bottom(x, model_hparams, vocab_size):
     common_video.gif_summary("targets", x, max_outputs=1)
     return x
 
-  def top(self, body_output, targets):
+  @staticmethod
+  def top(body_output, targets, model_hparams, vocab_size):
     return body_output
 
-  def loss(self, top_out, targets):
+  @staticmethod
+  def loss(top_out, targets, model_hparams, vocab_size):
     """Compute loss numerator and denominator for one shard of output."""
     # TODO(nikip): Try L2 loss
     logits = top_out
     logits = tf.reshape(logits, [-1] + common_layers.shape_list(logits)[2:])
     targets = tf.reshape(targets, [-1] + common_layers.shape_list(targets)[2:])
-    cutoff = getattr(self._model_hparams, "video_modality_loss_cutoff", 0.01)
+    cutoff = getattr(model_hparams, "video_modality_loss_cutoff", 0.01)
     return common_layers.padded_cross_entropy(
         logits,
         targets,
-        self._model_hparams.label_smoothing,
+        model_hparams.label_smoothing,
         cutoff=cutoff,
-        weights_fn=self.targets_weights_fn)
+        weights_fn=VideoModalityIdentity.targets_weights_fn(model_hparams))
 
 
 class MultiLabelModality(ClassLabelModality):
   """Used for multi label task."""
 
-  @property
-  def targets_weights_fn(self):
+  @staticmethod
+  def targets_weights_fn(model_hparams):
     """Target weight function for multi label, defaults to nonzero labels."""
     return common_layers.weights_nonzero
 
-  def loss(self, top_out, targets):
+  @classmethod
+  def loss(cls, top_out, targets, model_hparams, vocab_size):
     """Average loss over the labels."""
     logits = top_out
     num_labels = tf.shape(targets)[1]
@@ -882,8 +950,8 @@ class MultiLabelModality(ClassLabelModality):
     xent, weights = common_layers.padded_cross_entropy(
         logits,
         targets,
-        self._model_hparams.label_smoothing,
-        weights_fn=self.targets_weights_fn,
+        model_hparams.label_smoothing,
+        weights_fn=cls.targets_weights_fn(model_hparams),
         reduce_sum=False,
     )
     xent = tf.squeeze(xent, [2, 3])
@@ -900,18 +968,23 @@ class MultiLabelModality(ClassLabelModality):
 class OneHotClassLabelModality(ClassLabelModality):
   """Used for one-hot encoded class labels."""
 
-  def loss(self, top_out, targets):
+  @classmethod
+  def loss(cls, top_out, targets, model_hparams, vocab_size):
     """Apply softmax cross-entropy between outputs and targets.
 
     Args:
       top_out: logits Tensor with shape [batch, ?, ?, num_classes]
       targets: one-hot encoding Tensor with shape [batch, ?, ?, num_classes]
+      model_hparams: tf.HParams, model hyperparmeters.
+      vocab_size: int, vocabulary size.
+
     Returns:
       loss_scale (cross-entropy), loss_denom
     """
     loss_scale = tf.losses.softmax_cross_entropy(
         onehot_labels=targets, logits=top_out)
-    weights = self.targets_weights_fn(targets)
+    targets_weights_fn = cls.targets_weights_fn(model_hparams)
+    weights = targets_weights_fn(targets)
     loss_denom = tf.reduce_sum(weights)
     return loss_scale, loss_denom
 
@@ -919,20 +992,24 @@ class OneHotClassLabelModality(ClassLabelModality):
 class IdentityModality(modality.Modality):
   """Does nothing."""
 
-  def bottom(self, x):
+  @staticmethod
+  def bottom(x, model_hparams, vocab_size):
     return tf.to_float(x)
 
-  def top(self, body_output, _):
+  @staticmethod
+  def top(body_output, _, model_hparams, vocab_size):
     return body_output
 
 
 class GenericL2LossModality(IdentityModality):
   """Generic modality with L2 as Loss."""
 
-  def targets_bottom(self, x):
+  @staticmethod
+  def targets_bottom(x, model_hparams, vocab_size):
     return tf.to_float(x)
 
-  def loss(self, body_output, targets):
+  @staticmethod
+  def loss(body_output, targets, model_hparams, vocab_size):
     loss = tf.squared_difference(body_output, tf.to_float(targets))
     return tf.reduce_mean(loss), tf.constant(1.0)
 
@@ -944,33 +1021,38 @@ class RealModality(modality.Modality):
   * Top is a linear projection layer to vocab_size.
   """
 
-  @property
-  def top_is_pointwise(self):
+  @staticmethod
+  def top_is_pointwise():
     return True
 
-  def bottom(self, x):
+  @staticmethod
+  def bottom(x, model_hparams, vocab_size):
     with tf.variable_scope("real"):
       return tf.layers.dense(
-          tf.to_float(x), self._model_hparams.hidden_size, name="bottom")
+          tf.to_float(x), model_hparams.hidden_size, name="bottom")
 
-  def top(self, body_output, _):
+  @staticmethod
+  def top(body_output, _, model_hparams, vocab_size):
     with tf.variable_scope("real"):
-      return tf.layers.dense(body_output, self._vocab_size, name="top")
+      return tf.layers.dense(body_output, vocab_size, name="top")
 
-  def loss(self, top_out, targets):
+  @staticmethod
+  def loss(top_out, targets, model_hparams, vocab_size):
     raise NotImplementedError()
 
 
 class RealL2LossModality(RealModality):
   """Modality for real (i.e. float) vectors with L2 (Gaussian) loss."""
 
-  def loss(self, top_out, targets):
+  @classmethod
+  def loss(cls, top_out, targets, model_hparams, vocab_size):
     predictions = top_out
     if (len(common_layers.shape_list(top_out)) != len(
         common_layers.shape_list(targets))):
       predictions = tf.squeeze(top_out, axis=[-1])
     with tf.name_scope("l2"):
-      weights = self.targets_weights_fn(targets)
+      targets_weights_fn = cls.targets_weights_fn(model_hparams)
+      weights = targets_weights_fn(targets)
       l2 = tf.pow(predictions - targets, 2)
       return tf.reduce_sum(l2 * weights), tf.reduce_sum(weights)
 
@@ -978,13 +1060,15 @@ class RealL2LossModality(RealModality):
 class RealLogPoissonLossModality(RealModality):
   """Modality for real (i.e. float) vectors with log Poisson regression loss."""
 
-  def loss(self, top_out, targets):
+  @classmethod
+  def loss(cls, top_out, targets, model_hparams, vocab_size):
     predictions = top_out
     if (len(common_layers.shape_list(top_out)) != len(
         common_layers.shape_list(targets))):
       predictions = tf.squeeze(top_out, axis=[-1])
     with tf.name_scope("log_possion"):
-      weights = self.targets_weights_fn(targets)
+      targets_weights_fn = cls.targets_weights_fn(model_hparams)
+      weights = targets_weights_fn(targets)
       lp_loss = tf.nn.log_poisson_loss(targets, predictions)
       return tf.reduce_sum(lp_loss * weights), tf.reduce_sum(weights)
 
@@ -995,18 +1079,21 @@ class IdentitySymbolModality(SymbolModality):
   Uses the weights_fn from SymbolModality so that loss/metrics ignore padding.
   """
 
-  def bottom(self, x):
+  @staticmethod
+  def bottom(x, model_hparams, vocab_size):
     return tf.to_float(x)
 
-  def top(self, body_output, _):
+  @staticmethod
+  def top(body_output, _, model_hparams, vocab_size):
     return body_output
 
-  def targets_bottom(self, x):
+  @classmethod
+  def targets_bottom(cls, x, model_hparams, vocab_size):
     """SymbolModality overrides targets_bottom, so need to override here too."""
-    return self.bottom(x)
+    return cls.bottom(x, model_hparams, vocab_size)
 
-  @property
-  def top_is_pointwise(self):
+  @staticmethod
+  def top_is_pointwise():
     # pointwise mode manipulates body output, not logits, so it fails here.
     return False
 
@@ -1014,18 +1101,20 @@ class IdentitySymbolModality(SymbolModality):
 class SigmoidClassLabelModality(ClassLabelModality):
   """Sigmoid cross-entropy for independent class labels."""
 
-  @property
-  def name(self):
-    return "sigmoid_class_symbol_modality_%d_%d" % (
-        self._vocab_size, self._model_hparams.hidden_size)
+  @staticmethod
+  def name(model_hparams, vocab_size):
+    return "sigmoid_class_symbol_modality_%d_%d" % (vocab_size,
+                                                    model_hparams.hidden_size)
 
-  def loss(self, top_out, targets):
+  @classmethod
+  def loss(cls, top_out, targets, model_hparams, vocab_size):
     # Expect inputs of size [batch-size, timesteps, 1, num-classes], where the
     # last dimension of num-classes represents logits for binary labels
     loss_scale = tf.losses.sigmoid_cross_entropy(
         multi_class_labels=targets, logits=top_out)
     # Weigh all classes equally
-    weights = self.targets_weights_fn(targets)
+    targets_weights_fn = cls.targets_weights_fn(model_hparams)
+    weights = targets_weights_fn(targets)
     loss_denom = tf.reduce_sum(weights)
     return loss_scale, loss_denom
 
@@ -1033,34 +1122,38 @@ class SigmoidClassLabelModality(ClassLabelModality):
 class SigmoidMaxPoolingClassLabelModality(ClassLabelModality):
   """Sigmoid cross-entropy applied on max-pooling over timesteps."""
 
-  @property
-  def name(self):
+  @staticmethod
+  def name(model_hparams, vocab_size):
     return "sigmoid_max_pooling_class_symbol_modality_%d_%d" % (
-        self._vocab_size, self._model_hparams.hidden_size)
+        vocab_size, model_hparams.hidden_size)
 
-  def top(self, body_output, _):
+  @classmethod
+  def top(cls, body_output, _, model_hparams, vocab_size):
     """Transform inputs from model space to target space.
 
     Average over inner dims and a linear layer to logits.
 
     Args:
       body_output: A Tensor with shape [batch, timesteps, 1, body_output_size].
+      model_hparams: tf.HParams, model hyperparmeters.
+      vocab_size: int, vocabulary size.
 
     Returns:
       a Tensors, each with shape [batch_size, 1, 1, vocab_size]
     """
-    with tf.variable_scope(self.name):
+    with tf.variable_scope(cls.name(model_hparams, vocab_size)):
       x = body_output
       x = tf.reduce_max(x, axis=1, keepdims=True)
-      return tf.layers.dense(x, self._vocab_size)
+      return tf.layers.dense(x, vocab_size)
 
-  def loss(self, top_out, targets):
+  @classmethod
+  def loss(cls, top_out, targets, model_hparams, vocab_size):
     # Expect inputs of size [batch-size, 1, 1, num-classes], where the
     # last dimension of num-classes represents logits for binary labels
     loss_scale = tf.losses.sigmoid_cross_entropy(
         multi_class_labels=targets, logits=top_out)
     # Weigh all classes equally
-    weights = self.targets_weights_fn(targets)
+    weights = cls.targets_weights_fn(model_hparams)(targets)
     loss_denom = tf.reduce_sum(weights)
     return loss_scale, loss_denom
 
@@ -1068,46 +1161,49 @@ class SigmoidMaxPoolingClassLabelModality(ClassLabelModality):
 class SoftmaxMaxPoolingClassLabelModality(OneHotClassLabelModality):
   """Softmax cross-entropy applied on max-pooling over timesteps."""
 
-  @property
-  def name(self):
+  @staticmethod
+  def name(model_hparams, vocab_size):
     return "softmax_max_pooling_onehot_class_label_modality_%d_%d" % (
-        self._vocab_size, self._model_hparams.hidden_size)
+        vocab_size, model_hparams.hidden_size)
 
-  def top(self, body_output, _):
-    with tf.variable_scope(self.name):
+  @classmethod
+  def top(cls, body_output, _, model_hparams, vocab_size):
+    with tf.variable_scope(cls.name(model_hparams, vocab_size)):
       x = body_output
       x = tf.reduce_max(x, axis=1, keepdims=True)
-      return tf.layers.dense(x, self._vocab_size)
+      return tf.layers.dense(x, vocab_size)
 
 
 class SoftmaxAveragePoolingClassLabelModality(OneHotClassLabelModality):
   """Softmax cross-entropy applied on average-pooling over timesteps."""
 
-  @property
-  def name(self):
+  @staticmethod
+  def name(model_hparams, vocab_size):
     return "softmax_average_pooling_onehot_class_label_modality_%d_%d" % (
-        self._vocab_size, self._model_hparams.hidden_size)
+        vocab_size, model_hparams.hidden_size)
 
-  def top(self, body_output, _):
-    with tf.variable_scope(self.name):
+  @classmethod
+  def top(cls, body_output, _, model_hparams, vocab_size):
+    with tf.variable_scope(cls.name(model_hparams, vocab_size)):
       x = body_output
       x = tf.reduce_mean(x, axis=1, keepdims=True)
-      return tf.layers.dense(x, self._vocab_size)
+      return tf.layers.dense(x, vocab_size)
 
 
 class SoftmaxLastTimestepClassLabelModality(OneHotClassLabelModality):
   """Softmax cross-entropy applied on last-timestep encoding."""
 
-  @property
-  def name(self):
+  @staticmethod
+  def name(model_hparams, vocab_size):
     return "softmax_last_timestep_onehot_class_label_modality_%d_%d" % (
-        self._vocab_size, self._model_hparams.hidden_size)
+        vocab_size, model_hparams.hidden_size)
 
-  def top(self, body_output, _):
-    with tf.variable_scope(self.name):
+  @classmethod
+  def top(cls, body_output, _, model_hparams, vocab_size):
+    with tf.variable_scope(cls.name(model_hparams, vocab_size)):
       x = body_output
       x = tf.expand_dims(x[:, -1], 1)  # Pick the last timestep
-      return tf.layers.dense(x, self._vocab_size)
+      return tf.layers.dense(x, vocab_size)
 
 
 class ModalityType(object):
@@ -1184,3 +1280,63 @@ class ModalityType(object):
         ModalityType.SOFTMAX_AVERAGE_POOLING_CLASS_LABEL,
         ModalityType.SOFTMAX_LAST_TIMESTEP_CLASS_LABEL,
     ]
+
+
+# Utility functions, similar to tf.keras
+current_module = sys.modules[__name__]
+
+
+def get_bottom(modality_type, value=None):
+  """Gets default bottom transformation; if none available, return value."""
+  if modality_type in ModalityType.get_choices():
+    modality_cls = getattr(current_module, modality_type)
+    return modality_cls.bottom
+  return value
+
+
+def get_loss(modality_type, value=None):
+  """Gets default loss transformation; if none available, return value."""
+  if modality_type in ModalityType.get_choices():
+    modality_cls = getattr(current_module, modality_type)
+    return modality_cls.loss
+  return value
+
+
+def get_name(modality_type, value=None):
+  """Gets default name for transformations; if none available, return value."""
+  if modality_type in ModalityType.get_choices():
+    modality_cls = getattr(current_module, modality_type)
+    return modality_cls.name
+  return value
+
+
+def get_targets_bottom(modality_type, value=None):
+  """Gets default bottom transformation for targets; if none, return value."""
+  if modality_type in ModalityType.get_choices():
+    modality_cls = getattr(current_module, modality_type)
+    return modality_cls.targets_bottom
+  return value
+
+
+def get_targets_weights_fn(modality_type, value=None):
+  """Gets default weights function; if none available, return value."""
+  if modality_type in ModalityType.get_choices():
+    modality_cls = getattr(current_module, modality_type)
+    return modality_cls.targets_weights_fn
+  return value
+
+
+def get_top(modality_type, value=None):
+  """Gets default top transformation; if none available, return value."""
+  if modality_type in ModalityType.get_choices():
+    modality_cls = getattr(current_module, modality_type)
+    return modality_cls.top
+  return value
+
+
+def get_top_is_pointwise(modality_type, value=None):
+  """Gets whether default top is pointwise; if none available, return value."""
+  if modality_type in ModalityType.get_choices():
+    modality_cls = getattr(current_module, modality_type)
+    return modality_cls(None, None).top_is_pointwise
+  return value

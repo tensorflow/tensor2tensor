@@ -23,6 +23,7 @@ from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -264,9 +265,9 @@ def slicenet_internal(inputs, targets, target_space, hparams, run_decoder=True):
 class SliceNet(t2t_model.T2TModel):
 
   def body(self, features):
-    target_modality_name = self._problem_hparams.modality["targets"].name
+    target_modality = self._problem_hparams.modality["targets"]
     # If we're just predicting a class, there is no use for a decoder.
-    run_decoder = "class_label_modality" not in target_modality_name
+    run_decoder = target_modality != modalities.ModalityType.CLASS_LABEL
     return slicenet_internal(
         features["inputs"],
         features["targets"],

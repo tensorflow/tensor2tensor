@@ -351,14 +351,16 @@ class NextFrameBase(t2t_model.T2TModel):
       targets = extra_raw_gts
       targets_shape = common_layers.shape_list(targets)
       targets = tf.reshape(targets, [-1] + targets_shape[2:])
-      mod = self.hparams.modality.get("targets",
-                                      self.problem_hparams.modality["targets"])
+      modality = self.hparams.problem_hparams.modality["targets"]
+      targets_weights_fn = self.hparams.targets_weights_fn.get(
+          "targets",
+          modalities.get_targets_weights_fn(modality))(self.hparams)
       numerator, denominator = common_layers.padded_cross_entropy(
           logits,
           targets,
           self.hparams.label_smoothing,
           cutoff=getattr(self.hparams, "video_modality_loss_cutoff", 0.01),
-          weights_fn=mod.targets_weights_fn)
+          weights_fn=targets_weights_fn)
       recon_loss = numerator / denominator
     else:
       raise ValueError("internal loss only supports specific modalities.")

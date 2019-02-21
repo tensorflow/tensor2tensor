@@ -111,6 +111,11 @@ class TrainerLibTest(tf.test.TestCase):
         "targets_A": hparams.problem_hparams.modality["targets"],
         "targets_B": hparams.problem_hparams.modality["targets"],
     }
+    hparams.problem_hparams.vocab_size = {
+        "targets": hparams.problem_hparams.vocab_size["targets"],
+        "targets_A": hparams.problem_hparams.vocab_size["targets"],
+        "targets_B": hparams.problem_hparams.vocab_size["targets"],
+    }
     hparams.problem._hparams = hparams.problem_hparams
 
     # Dataset
