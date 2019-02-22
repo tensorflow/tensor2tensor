@@ -93,6 +93,9 @@ def create_border(video, color="blue", border_percent=2):
   Returns:
     video: 5-D NumPy array.
   """
+  # Do not create border if the video is not in RGB format
+  if video.shape[-1] != 3:
+    return video
   color_to_axis = {"blue": 2, "red": 0, "green": 1}
   axis = color_to_axis[color]
   _, _, height, width, _ = video.shape
