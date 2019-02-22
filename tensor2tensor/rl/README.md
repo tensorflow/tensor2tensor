@@ -23,7 +23,7 @@ generate videos for a pretrained policy on Pong:
 ```
 OUTPUT_DIR=~/t2t_train/pong_pretrained
 python -m tensor2tensor.rl.evaluator \
-  --loop_hparams_set=rlmb_long_stochastic_discrete
+  --loop_hparams_set=rlmb_long_stochastic_discrete \
   --loop_hparams=game=pong \
   --policy_dir=gs://tensor2tensor-checkpoints/modelrl_experiments/train_sd/142/policy \
   --eval_metrics_dir=$OUTPUT_DIR \
@@ -167,6 +167,15 @@ python -m tensor2tensor.rl.player \
   --zoom=3 \
   --fps=5
 ```
+
+The screen is split into 3 columns: frame from the world model, corresponding
+frame from the real environment and the difference between the two. Use WSAD
+and space to control the agent. The model will likely diverge quickly, press X
+to reset it using the current state of the real environment. Note that frames
+fed to the model were likely never seen by it during training, so the model's
+performance will be worse than during the policy training.
+
+For more details on controls and flags see `tensor2tensor/rl/player.py`.
 
 ## Model-free training
 
