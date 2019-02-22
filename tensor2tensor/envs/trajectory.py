@@ -74,6 +74,23 @@ class Trajectory(object):
   def time_steps(self):
     return self._time_steps
 
+  @property
+  def done(self):
+    return self.is_active() and self.last_time_step().done
+
+  # TODO(afrozm): Add discounting and rewards-to-go when it makes sense.
+  @property
+  def reward(self):
+    """Returns a tuple of sum of raw and processed rewards."""
+    raw_rewards, processed_rewards = 0, 0
+    for ts in self.time_steps:
+      # NOTE: raw_reward and processed_reward are None for the first time-step.
+      if ts.raw_reward is not None:
+        raw_rewards += ts.raw_reward
+      if ts.processed_reward is not None:
+        processed_rewards += ts.processed_reward
+    return raw_rewards, processed_rewards
+
 
 class BatchTrajectory(object):
   """Basically a batch of active trajectories and a list of completed ones."""
