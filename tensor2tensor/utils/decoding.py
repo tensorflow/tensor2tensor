@@ -517,7 +517,7 @@ def decode_from_file(estimator,
                   "(time %5.7f count %d)" %
                   (total_time_per_step / total_cnt,
                    total_time_per_step, total_cnt))
-  if decode_hp.batch_size is 1:
+  if decode_hp.batch_size == 1:
     tf.logging.info("Inference time %.4f seconds "
                     "(Latency = %.4f ms/setences)" %
                     (duration, 1000.0*duration/num_sentences))
