@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""T2T models, configs and main training functions."""
+"""J2J input pipeline."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -32,7 +32,7 @@ def train_and_eval_dataset(dataset_name, data_dir):
   """Return train and evaluation datasets, feature info and supervised keys.
 
   Args:
-    dataset_name: a string, the name of the dataset; if it starts with "v1_"
+    dataset_name: a string, the name of the dataset; if it starts with "t2t_"
       then we'll search T2T Problem registry for it, otherwise we assume it
       is a dataset from TFDS and load it from there.
     data_dir: directory where the data is located.
@@ -46,8 +46,8 @@ def train_and_eval_dataset(dataset_name, data_dir):
      * supervised_keys: information what's the input and what's the target,
          ie., a pair of lists with input and target feature names.
   """
-  if dataset_name.startswith("v1_"):
-    return _train_and_eval_dataset_v1(dataset_name[3:], data_dir)
+  if dataset_name.startswith("t2t_"):
+    return _train_and_eval_dataset_v1(dataset_name[4:], data_dir)
   dataset_builder = tfds.builder(dataset_name, data_dir=data_dir)
   info = dataset_builder.info
   splits = dataset_builder.info.splits
@@ -98,9 +98,14 @@ def _train_and_eval_dataset_v1(problem_name, data_dir):
   hparams = problem.get_hparams()
   # We take a few training examples to guess the shapes.
   input_shapes, target_shapes = [], []
-  for example in train_dataset.take(3):
-    input_shapes.append(example["inputs"].shape.as_list())
-    target_shapes.append(example["targets"].shape.as_list())
+  example_tensor = train_dataset.make_one_shot_iterator().get_next()
+  sess = tf.Session()
+  example1 = sess.run(example_tensor)
+  example2 = sess.run(example_tensor)
+  example3 = sess.run(example_tensor)
+  for example in [example1, example2, example3]:
+    input_shapes.append(list(example["inputs"].shape))
+    target_shapes.append(list(example["targets"].shape))
   input_vocab_size = hparams.vocab_size["inputs"]
   target_vocab_size = hparams.vocab_size["targets"]
   input_info = _make_info(input_shapes, input_vocab_size)
@@ -109,13 +114,12 @@ def _train_and_eval_dataset_v1(problem_name, data_dir):
   return train_dataset, eval_dataset, info, supervised_keys
 
 
-@gin.configurable(whitelist=["max_target_length"])
+@gin.configurable(blacklist=["dataset", "training"])
 def preprocess_fn(dataset, training, max_target_length=-1):
   def target_right_length(_, target):
-    if max_target_length < 1 or not training:
-      return tf.constant(True)
     return tf.less(tf.shape(target)[0], max_target_length + 1)
-  dataset = dataset.filter(target_right_length)
+  if max_target_length > 0 and training:
+    dataset = dataset.filter(target_right_length)
   return dataset
 
 

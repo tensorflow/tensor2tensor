@@ -25,7 +25,7 @@ import gin
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.data_generators import problem  # pylint: disable=unused-import
-from tensor2tensor.jax import j2j
+
 from tensor2tensor.utils import cloud_mlengine
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
@@ -34,10 +34,15 @@ from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
-from tensor2tensor.v2 import t2t as t2t_v2
 import tensorflow as tf
 
 from tensorflow.contrib.tpu.python.tpu import tpu_config
+
+try:
+  from tensor2tensor.jax import j2j  # pylint: disable=g-import-not-at-top
+except TypeError:
+  pass
+
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -72,7 +77,6 @@ flags.DEFINE_integer("inter_op_parallelism_threads", 0,
 flags.DEFINE_integer("intra_op_parallelism_threads", 0,
                      "Number of intra_op_parallelism_threads to use for CPU. "
                      "See TensorFlow config.proto for details.")
-flags.DEFINE_bool("v2", False, "Whether to use T2T v2.")
 flags.DEFINE_bool("jax", False, "Whether to use J2J.")
 # TODO(lukaszkaiser): resolve memory and variable assign issues and set to True.
 flags.DEFINE_bool(
@@ -362,35 +366,25 @@ def run_std_server():
 def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
 
-  if FLAGS.v2 or FLAGS.jax:
-    tf.enable_v2_behavior()
-    # Hacking main v1 flags to work with v2 and jax.
-    prefix = "t2t." if FLAGS.v2 else "j2j."
+  if FLAGS.jax:
+    # Hacking main v1 flags to work with jax.
     config_strs = []
     config_strs.append(
-        prefix + "train_fn.train_steps=" + str(FLAGS.train_steps))
+        "train_fn.train_steps=" + str(FLAGS.train_steps))
     config_strs.append(
-        prefix + "train_fn.eval_steps=" + str(FLAGS.eval_steps))
+        "train_fn.eval_steps=" + str(FLAGS.eval_steps))
     config_strs.append(
-        prefix + "train_fn.eval_frequency=" + str(FLAGS.local_eval_frequency))
+        "train_fn.eval_frequency=" + str(FLAGS.local_eval_frequency))
     if FLAGS.hparams:
       config_strs.extend(str(FLAGS.hparams).split(","))
-    config_str = "\n".join(config_strs)
     data_dir = os.path.expanduser(FLAGS.data_dir)
     output_dir = os.path.expanduser(FLAGS.output_dir)
 
-    if FLAGS.v2:
-      t2t_v2.t2t_train(FLAGS.model, FLAGS.problem,
-                       data_dir=data_dir, output_dir=output_dir,
-                       config_file=FLAGS.hparams_set, config=config_str)
-      return
-
-    if FLAGS.jax:
-      gin.bind_parameter("j2j.train_fn.dataset", FLAGS.problem)
-      config_strs += ["j2j.train_fn.model=@models." + FLAGS.model]
-      gin.parse_config_files_and_bindings(FLAGS.hparams_set, config_strs)
-      j2j.train_fn(data_dir, output_dir=output_dir)
-      return
+    gin.bind_parameter("train_fn.dataset", FLAGS.problem)
+    config_strs += ["train_fn.model=@models." + FLAGS.model]
+    gin.parse_config_files_and_bindings(FLAGS.hparams_set, config_strs)
+    j2j.train_fn(data_dir, output_dir=output_dir)
+    return
 
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 

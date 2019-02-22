@@ -48,9 +48,6 @@ flags.DEFINE_multi_string("config_file", None,
 flags.DEFINE_multi_string("config", None,
                           "Configuration parameters (gin string).")
 
-# For iterators over datasets so we can do "for example in dataset".
-tf.enable_v2_behavior()
-
 
 def j2j_train(model_name, dataset_name,
               data_dir=None, output_dir=None, config_file=None, config=None):
