@@ -59,25 +59,7 @@ class Modality(object):
     del model_hparams, vocab_size  # unused arg
     return misc_utils.camelcase_to_snakecase(type(cls).__name__)
 
-  @staticmethod
-  def targets_weights_fn(model_hparams):
-    """The weights function to use for loss and eval metrics.
-
-    A weights function takes labels and returns a Tensor that assigns weights
-    (usually either 1. or 0.) to each one.
-
-    Common weights functions are:
-      * weights_all: 1. for all labels
-      * weights_nonzero: 1. for all non-zero labels (e.g. to deal with padding)
-
-    Args:
-      model_hparams: tf.HParams, model hyperparmeters.
-
-    Returns:
-      Callable: (targets) -> weights Tensor
-    """
-    del model_hparams  # unused arg
-    return common_layers.weights_all
+  targets_weights_fn = staticmethod(common_layers.weights_all)
 
   @staticmethod
   def bottom(x, model_hparams, vocab_size=None):
@@ -126,17 +108,10 @@ class Modality(object):
     """
     raise NotImplementedError("Abstract Method")
 
-  @classmethod
-  def loss(cls,
-           top_out,
-           targets,
-           model_hparams,
-           vocab_size=None,
-           weights_fn=None):
+  @staticmethod
+  def loss(top_out, targets, model_hparams, vocab_size, weights_fn):
     """Compute loss numerator and denominator for one shard of output."""
     del vocab_size  # unused arg
-    if weights_fn is None:
-      weights_fn = cls.targets_weights_fn(model_hparams)
     logits = top_out
     logits = common_attention.maybe_upcast(logits, hparams=model_hparams)
     return common_layers.padded_cross_entropy(

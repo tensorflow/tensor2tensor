@@ -86,7 +86,8 @@ class ModalityTest(tf.test.TestCase):
         sharded_logits,
         sharded_targets,
         model_hparams,
-        vocab_size)
+        vocab_size,
+        modalities.get_targets_weights_fn(modalities.ModalityType.SYMBOL))
     train_loss = (tf.add_n(sharded_loss_num) /
                   tf.maximum(1.0, tf.add_n(sharded_loss_den)))
     logits = tf.concat(sharded_logits, 0)
@@ -127,7 +128,8 @@ class ModalityTest(tf.test.TestCase):
           sharded_logits,
           sharded_targets,
           model_hparams,
-          vocab_size)
+          vocab_size,
+          modalities.get_targets_weights_fn(modalities.ModalityType.SYMBOL))
       train_loss = (tf.add_n(sharded_loss_num) /
                     tf.maximum(1.0, tf.add_n(sharded_loss_den)))
       logits = tf.concat(sharded_logits, 0)

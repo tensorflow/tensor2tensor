@@ -438,11 +438,13 @@ def aggregate_task_losses(hparams,
     vocab_size += (-vocab_size) % hparams.vocab_divisor
   modality = problem_hparams.modality[feature_name]
   loss = hparams.loss.get(feature_name, modalities.get_loss(modality))
+  weights_fn = hparams.targets_weights_fn.get(
+      feature_name, modalities.get_targets_weights_fn(modality))
   # Primary task loss
   loss_num, loss_den = loss(
       logits, feature,
       lambda x: common_layers.weights_multi_problem_all(x, main_task_id),
-      hparams, vocab_size)
+      hparams, vocab_size, weights_fn)
 
   loss_val = loss_num / tf.maximum(1.0, loss_den)
   summaries.append([hparams.problem.task_list[0].name+"_loss", loss_val])
@@ -532,13 +534,15 @@ def aggregate_task_lm_losses(hparams,
     vocab_size += (-vocab_size) % hparams.vocab_divisor
   modality = problem_hparams.modality[feature_name]
   loss = hparams.loss.get(feature_name, modalities.get_loss(modality))
+  weights_fn = hparams.targets_weights_fn.get(
+      feature_name, modalities.get_targets_weights_fn(modality))
   loss_num = 0.
   loss_den = 0.
   for task in hparams.problem.task_list:
     loss_num_, loss_den_ = loss(
         logits, feature,
         lambda x: common_layers.weights_multi_problem_all(x, task.task_id),  # pylint: disable=cell-var-from-loop
-        hparams, vocab_size)
+        hparams, vocab_size, weights_fn)
 
     loss_num += loss_num_
     loss_den += loss_den_

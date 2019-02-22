@@ -616,7 +616,7 @@ def create_evaluation_metrics(problems, model_hparams):
     for target_name, modality in six.iteritems(tm):
       weights_fn = model_hparams.targets_weights_fn.get(
           "targets",
-          modalities.get_targets_weights_fn(modality))(model_hparams)
+          modalities.get_targets_weights_fn(modality))
       if hasattr(model_hparams.problem, "task_list"):
         ptid = problem_instance.task_id  # pylint: disable=cell-var-from-loop
         weights_fn = weights_fn_for_mp(ptid)
@@ -645,7 +645,7 @@ def create_eager_metrics_for_problem(problem, model_hparams):
   target_modality = problem_hparams.modality["targets"]
   weights_fn = model_hparams.targets_weights_fn.get(
       "targets",
-      modalities.get_targets_weights_fn(target_modality))(model_hparams)
+      modalities.get_targets_weights_fn(target_modality))
   return create_eager_metrics_internal(metric_fns, weights_fn=weights_fn)
 
 

@@ -354,7 +354,7 @@ class NextFrameBase(t2t_model.T2TModel):
       modality = self.hparams.problem_hparams.modality["targets"]
       targets_weights_fn = self.hparams.targets_weights_fn.get(
           "targets",
-          modalities.get_targets_weights_fn(modality))(self.hparams)
+          modalities.get_targets_weights_fn(modality))
       numerator, denominator = common_layers.padded_cross_entropy(
           logits,
           targets,

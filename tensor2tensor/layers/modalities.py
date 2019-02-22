@@ -66,24 +66,7 @@ class SymbolModality(modality.Modality):
   def name(model_hparams, vocab_size):
     return "symbol_modality_%d_%d" % (vocab_size, model_hparams.hidden_size)
 
-  @staticmethod
-  def targets_weights_fn(model_hparams):
-    weights_fn = common_layers.weights_nonzero
-
-    hp = model_hparams
-    if hp and hp.prepend_mode != "none":
-      assert (hp.prepend_mode == "prepend_inputs_masked_attention" or
-              hp.prepend_mode == "prepend_inputs_full_attention")
-
-      if (
-          # In masked attention mode, during training, the network try to
-          # autoregressively predicting the inputs portion, while the
-          # evaluation is only done on the output
-          hp.prepend_mode != "prepend_inputs_masked_attention" or
-          hp.mode != tf.estimator.ModeKeys.TRAIN):
-        weights_fn = common_layers.weights_prepend_inputs_to_targets
-
-    return weights_fn
+  targets_weights_fn = staticmethod(common_layers.weights_nonzero)
 
   @staticmethod
   def _get_weights(model_hparams, vocab_size, hidden_dim=None):
@@ -204,9 +187,7 @@ class SymbolModality(modality.Modality):
 class SymbolModalityWeightsAll(SymbolModality):
   """SymbolModality for features that do not have 0-padding."""
 
-  @staticmethod
-  def targets_weights_fn(model_hparams):
-    return common_layers.weights_all
+  targets_weights_fn = staticmethod(common_layers.weights_all)
 
 
 class SymbolModalityOneHot(SymbolModality):
@@ -226,7 +207,8 @@ class SymbolModalityOneHot(SymbolModality):
     return body_output
 
   @staticmethod
-  def loss(top_out, targets, model_hparams, vocab_size):
+  def loss(top_out, targets, model_hparams, vocab_size, weights_fn):
+    del weights_fn  # unused arg
     labels = tf.one_hot(targets, vocab_size)
     loss = tf.nn.softmax_cross_entropy_with_logits(
         logits=top_out, labels=labels)
@@ -237,7 +219,7 @@ class CTCSymbolModality(SymbolModality):
   """SymbolModality that uses CTC loss."""
 
   @classmethod
-  def loss(cls, top_out, targets, model_hparams, vocab_size):
+  def loss(cls, top_out, targets, model_hparams, vocab_size, weights_fn):
     """Compute the CTC loss."""
     logits = top_out
     with tf.name_scope("ctc_loss", values=[logits, targets]):
@@ -259,7 +241,7 @@ class CTCSymbolModality(SymbolModality):
           time_major=False,
           preprocess_collapse_repeated=False,
           ctc_merge_repeated=False)
-      weights = cls.targets_weights_fn(targets)  # pylint: disable=not-callable
+      weights = weights_fn(targets)
       return tf.reduce_sum(xent), tf.reduce_sum(weights)
 
 
@@ -323,7 +305,7 @@ class ImageModality(modality.Modality):
       return res
 
   @classmethod
-  def loss(cls, top_out, targets, model_hparams, vocab_size):
+  def loss(cls, top_out, targets, model_hparams, vocab_size, weights_fn):
     """Compute loss numerator and denominator for one shard of output."""
     logits = top_out
     cutoff = getattr(model_hparams, "video_modality_loss_cutoff", 0.0)
@@ -332,7 +314,7 @@ class ImageModality(modality.Modality):
         targets,
         model_hparams.label_smoothing,
         cutoff=cutoff,
-        weights_fn=cls.targets_weights_fn(model_hparams))
+        weights_fn=weights_fn)
 
 
 class ImageChannelCompressModality(modality.Modality):
@@ -697,8 +679,8 @@ class VideoModality(modality.Modality):
     common_video.gif_summary("results", x, max_outputs=1)
     return res
 
-  @classmethod
-  def loss(cls, top_out, targets, model_hparams, vocab_size):
+  @staticmethod
+  def loss(top_out, targets, model_hparams, vocab_size, weights_fn):
     """Compute loss numerator and denominator for one shard of output."""
     logits = top_out
     logits = tf.reshape(logits, [-1] + common_layers.shape_list(logits)[2:])
@@ -709,7 +691,7 @@ class VideoModality(modality.Modality):
         targets,
         model_hparams.label_smoothing,
         cutoff=cutoff,
-        weights_fn=cls.targets_weights_fn(model_hparams))
+        weights_fn=weights_fn)
 
 
 class VideoModalityBitwise(VideoModality):
@@ -796,13 +778,12 @@ class VideoModalityL1(VideoModality):
     return tf.nn.relu(tf.abs(logits - targets) - cutoff)
 
   @staticmethod
-  def loss(top_out, targets, model_hparams, vocab_size):
+  def loss(top_out, targets, model_hparams, vocab_size, weights_fn):
     """Compute loss numerator and denominator for one shard of output."""
     logits = top_out
     logits = tf.reshape(logits, [-1] + common_layers.shape_list(logits)[2:-1])
     targets = tf.reshape(targets, [-1] + common_layers.shape_list(targets)[2:])
-    targets_weights_fn = VideoModalityL1.targets_weights_fn(model_hparams)
-    weights = targets_weights_fn(targets)
+    weights = weights_fn(targets)
     # Shift targets by 0.5 so later just casting to int gives the prediction.
     # So for int targets, say 0 and 7, we actually train to predict 0.5 and 7.5.
     # Later (in merics or infer) this is cast to int anyway. Also, we have no
@@ -853,7 +834,8 @@ class VideoModalityL2Raw(VideoModalityL2):
     return tf.expand_dims(rgb_frames, axis=-1)
 
   @classmethod
-  def loss(cls, top_out, targets, model_hparams, vocab_size):
+  def loss(cls, top_out, targets, model_hparams, vocab_size, weights_fn):
+    del weights_fn  # unused arg
     prediction, groundtruth = cls.convert_rgb_to_real(top_out, targets)
     loss = tf.losses.mean_squared_error(prediction, groundtruth)
     return loss, tf.constant(1.0)
@@ -863,7 +845,7 @@ class VideoModalityL1Raw(VideoModalityL2Raw):
   """Modality with L1 loss and raw input (sequences of frames)."""
 
   @classmethod
-  def loss(cls, top_out, targets, model_hparams, vocab_size):
+  def loss(cls, top_out, targets, model_hparams, vocab_size, weights_fn):
     prediction, groundtruth = cls.convert_rgb_to_real(top_out, targets)
     loss = tf.losses.absolute_difference(prediction, groundtruth)
     return loss, tf.constant(1.0)
@@ -935,7 +917,7 @@ class VideoModalityIdentity(VideoModality):
     return body_output
 
   @staticmethod
-  def loss(top_out, targets, model_hparams, vocab_size):
+  def loss(top_out, targets, model_hparams, vocab_size, weights_fn):
     """Compute loss numerator and denominator for one shard of output."""
     # TODO(nikip): Try L2 loss
     logits = top_out
@@ -947,19 +929,16 @@ class VideoModalityIdentity(VideoModality):
         targets,
         model_hparams.label_smoothing,
         cutoff=cutoff,
-        weights_fn=VideoModalityIdentity.targets_weights_fn(model_hparams))
+        weights_fn=weights_fn)
 
 
 class MultiLabelModality(ClassLabelModality):
   """Used for multi label task."""
 
-  @staticmethod
-  def targets_weights_fn(model_hparams):
-    """Target weight function for multi label, defaults to nonzero labels."""
-    return common_layers.weights_nonzero
+  targets_weights_fn = staticmethod(common_layers.weights_nonzero)
 
-  @classmethod
-  def loss(cls, top_out, targets, model_hparams, vocab_size):
+  @staticmethod
+  def loss(top_out, targets, model_hparams, vocab_size, weights_fn):
     """Average loss over the labels."""
     logits = top_out
     num_labels = tf.shape(targets)[1]
@@ -969,7 +948,7 @@ class MultiLabelModality(ClassLabelModality):
         logits,
         targets,
         model_hparams.label_smoothing,
-        weights_fn=cls.targets_weights_fn(model_hparams),
+        weights_fn=weights_fn,
         reduce_sum=False,
     )
     xent = tf.squeeze(xent, [2, 3])
@@ -986,8 +965,8 @@ class MultiLabelModality(ClassLabelModality):
 class OneHotClassLabelModality(ClassLabelModality):
   """Used for one-hot encoded class labels."""
 
-  @classmethod
-  def loss(cls, top_out, targets, model_hparams, vocab_size):
+  @staticmethod
+  def loss(top_out, targets, model_hparams, vocab_size, weights_fn):
     """Apply softmax cross-entropy between outputs and targets.
 
     Args:
@@ -995,14 +974,14 @@ class OneHotClassLabelModality(ClassLabelModality):
       targets: one-hot encoding Tensor with shape [batch, ?, ?, num_classes]
       model_hparams: tf.HParams, model hyperparmeters.
       vocab_size: int, vocabulary size.
+      weights_fn: Function mapping targets to weights.
 
     Returns:
       loss_scale (cross-entropy), loss_denom
     """
     loss_scale = tf.losses.softmax_cross_entropy(
         onehot_labels=targets, logits=top_out)
-    targets_weights_fn = cls.targets_weights_fn(model_hparams)
-    weights = targets_weights_fn(targets)
+    weights = weights_fn(targets)
     loss_denom = tf.reduce_sum(weights)
     return loss_scale, loss_denom
 
@@ -1027,7 +1006,8 @@ class GenericL2LossModality(IdentityModality):
     return tf.to_float(x)
 
   @staticmethod
-  def loss(body_output, targets, model_hparams, vocab_size):
+  def loss(body_output, targets, model_hparams, vocab_size, weights_fn):
+    del weights_fn  # unused
     loss = tf.squared_difference(body_output, tf.to_float(targets))
     return tf.reduce_mean(loss), tf.constant(1.0)
 
@@ -1052,22 +1032,21 @@ class RealModality(modality.Modality):
       return tf.layers.dense(body_output, vocab_size, name="top")
 
   @staticmethod
-  def loss(top_out, targets, model_hparams, vocab_size):
+  def loss(top_out, targets, model_hparams, vocab_size, weights_fn):
     raise NotImplementedError()
 
 
 class RealL2LossModality(RealModality):
   """Modality for real (i.e. float) vectors with L2 (Gaussian) loss."""
 
-  @classmethod
-  def loss(cls, top_out, targets, model_hparams, vocab_size):
+  @staticmethod
+  def loss(top_out, targets, model_hparams, vocab_size, weights_fn):
     predictions = top_out
     if (len(common_layers.shape_list(top_out)) != len(
         common_layers.shape_list(targets))):
       predictions = tf.squeeze(top_out, axis=[-1])
     with tf.name_scope("l2"):
-      targets_weights_fn = cls.targets_weights_fn(model_hparams)
-      weights = targets_weights_fn(targets)
+      weights = weights_fn(targets)
       l2 = tf.pow(predictions - targets, 2)
       return tf.reduce_sum(l2 * weights), tf.reduce_sum(weights)
 
@@ -1075,15 +1054,14 @@ class RealL2LossModality(RealModality):
 class RealLogPoissonLossModality(RealModality):
   """Modality for real (i.e. float) vectors with log Poisson regression loss."""
 
-  @classmethod
-  def loss(cls, top_out, targets, model_hparams, vocab_size):
+  @staticmethod
+  def loss(top_out, targets, model_hparams, vocab_size, weights_fn):
     predictions = top_out
     if (len(common_layers.shape_list(top_out)) != len(
         common_layers.shape_list(targets))):
       predictions = tf.squeeze(top_out, axis=[-1])
     with tf.name_scope("log_possion"):
-      targets_weights_fn = cls.targets_weights_fn(model_hparams)
-      weights = targets_weights_fn(targets)
+      weights = weights_fn(targets)
       lp_loss = tf.nn.log_poisson_loss(targets, predictions)
       return tf.reduce_sum(lp_loss * weights), tf.reduce_sum(weights)
 
@@ -1116,15 +1094,13 @@ class SigmoidClassLabelModality(ClassLabelModality):
     return "sigmoid_class_symbol_modality_%d_%d" % (vocab_size,
                                                     model_hparams.hidden_size)
 
-  @classmethod
-  def loss(cls, top_out, targets, model_hparams, vocab_size):
+  @staticmethod
+  def loss(top_out, targets, model_hparams, vocab_size, weights_fn):
     # Expect inputs of size [batch-size, timesteps, 1, num-classes], where the
     # last dimension of num-classes represents logits for binary labels
     loss_scale = tf.losses.sigmoid_cross_entropy(
         multi_class_labels=targets, logits=top_out)
-    # Weigh all classes equally
-    targets_weights_fn = cls.targets_weights_fn(model_hparams)
-    weights = targets_weights_fn(targets)
+    weights = weights_fn(targets)
     loss_denom = tf.reduce_sum(weights)
     return loss_scale, loss_denom
 
@@ -1156,14 +1132,13 @@ class SigmoidMaxPoolingClassLabelModality(ClassLabelModality):
       x = tf.reduce_max(x, axis=1, keepdims=True)
       return tf.layers.dense(x, vocab_size)
 
-  @classmethod
-  def loss(cls, top_out, targets, model_hparams, vocab_size):
+  @staticmethod
+  def loss(top_out, targets, model_hparams, vocab_size, weights_fn):
     # Expect inputs of size [batch-size, 1, 1, num-classes], where the
     # last dimension of num-classes represents logits for binary labels
     loss_scale = tf.losses.sigmoid_cross_entropy(
         multi_class_labels=targets, logits=top_out)
-    # Weigh all classes equally
-    weights = cls.targets_weights_fn(model_hparams)(targets)
+    weights = weights_fn(targets)
     loss_denom = tf.reduce_sum(weights)
     return loss_scale, loss_denom
 

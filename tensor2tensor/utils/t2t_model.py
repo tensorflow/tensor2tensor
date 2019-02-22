@@ -232,6 +232,20 @@ class T2TModel(base.Layer):
       hparams.targets_weights_fn[feature_name] = modality.targets_weights_fn
       hparams.top[feature_name] = modality.top
 
+    if self._problem_hparams:
+      for feature_name, modality in six.iteritems(
+          self._problem_hparams.modality):
+        # If prepend mode, set targets_weights_fn to appropriately handle it.
+        if (modality in (modalities.ModalityType.SYMBOL,
+                         modalities.ModalityType.SYMBOL_ONE_HOT,
+                         modalities.ModalityType.CTC_SYMBOL,
+                         modalities.ModalityType.IDENTITY_SYMBOL)):
+          if (hparams.prepend_mode == "prepend_inputs_full_attention" or
+              (hparams.prepend_mode == "prepend_inputs_masked_attention" and
+               mode != tf.estimator.ModeKeys.TRAIN)):
+            weights_fn = common_layers.weights_prepend_inputs_to_targets
+            hparams.targets_weights_fn[feature_name] = weights_fn
+
     self._original_hparams = hparams
     self.set_mode(mode)
 
@@ -632,17 +646,17 @@ class T2TModel(base.Layer):
     if vocab_size is not None and hasattr(self._hparams, "vocab_divisor"):
       vocab_size += (-vocab_size) % self._hparams.vocab_divisor
     loss = self._hparams.loss.get(feature_name, modalities.get_loss(modality))
+    targets_weights_fn = self._hparams.targets_weights_fn.get(
+        "targets", modalities.get_targets_weights_fn(modality))
     if weights is None:
-      loss_num, loss_den = loss(logits, feature, self._hparams, vocab_size)
+      loss_num, loss_den = loss(logits, feature, self._hparams, vocab_size,
+                                weights_fn=targets_weights_fn)
     else:
 
       def weights_fn(labels):
         """Per-token weights for loss."""
         # Use target_weights_fn() given by modality as well as explicitly given
         # weights.
-        targets_weights_fn = self._hparams.targets_weights_fn.get(
-            feature_name,
-            modalities.get_targets_weights_fn(modality))(self._hparams)
         modality_weights = targets_weights_fn(labels)
 
         # Broadcast 'weights' along minor dimensions (TF's default is major).
@@ -1803,7 +1817,7 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
   tm = _create_target_modality(problem.get_hparams(model_hparams).modality)
   if isinstance(tm, dict):
     for k, v in six.iteritems(tm):
-      weights_fn = v.targets_weights_fn(model_hparams)
+      weights_fn = v.targets_weights_fn
 
       def make_metric_fn(metric_fn):
         def wrapped_metric_fn(logits, labels, features, weights_fn=weights_fn):
@@ -1823,7 +1837,7 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
         name = "%s/metrics-%s/%s" % (k, problem.name, metric)
         metric_fns.append((name, make_metric_fn(metric_fn)))
   else:
-    weights_fn = tm.targets_weights_fn(model_hparams)
+    weights_fn = tm.targets_weights_fn
 
     def make_metric_fn(metric_fn):
       def wrapped_metric_fn(logits, labels, features):
@@ -2024,11 +2038,14 @@ def scheduled_sampling(hparams, problem_hparams, dp, sharded_logits, losses,
                                 vocab_size)
         if "training" not in losses:
           loss = hparams.loss.get("targets", modalities.get_loss(modality))
+          weights_fn = hparams.targets_weights_fn.get(
+              "targets", modalities.get_targets_weights_fn(modality))
           sharded_loss_num, sharded_loss_den = dp(loss,
                                                   sharded_logits,
                                                   sharded_features["targets"],
                                                   hparams,
-                                                  vocab_size)
+                                                  vocab_size,
+                                                  weights_fn=weights_fn)
           training_loss = (tf.add_n(sharded_loss_num) /
                            tf.maximum(1.0, tf.add_n(sharded_loss_den)))
           training_loss *= problem_hparams.loss_multiplier
