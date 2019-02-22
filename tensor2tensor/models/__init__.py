@@ -78,7 +78,6 @@ from tensor2tensor.models.video import epva
 from tensor2tensor.models.video import next_frame_glow
 from tensor2tensor.models.video import savp
 from tensor2tensor.models.video import sv2p
-from tensor2tensor.models.video import svg_lp
 
 from tensor2tensor.utils import registry
 

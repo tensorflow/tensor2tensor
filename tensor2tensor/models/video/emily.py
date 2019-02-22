@@ -205,7 +205,8 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
         net, output_size, activation=tf.nn.tanh, name="af2")
     return net, states
 
-  def lstm_gaussian(self, inputs, states, hidden_size, output_size, nlayers):
+  def lstm_gaussian(self, inputs, states, hidden_size, output_size, nlayers,
+                    name):
     """Stacked LSTM layers with FC layer as input and gaussian as output.
 
     Args:
@@ -214,18 +215,19 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
       hidden_size: number of lstm units
       output_size: size of the output
       nlayers: number of lstm layers
+      name: the lstm name for scope definition
     Returns:
       mu: mean of the predicted gaussian
       logvar: log(var) of the predicted gaussian
       skips: a list of updated lstm states for each layer
     """
     net = inputs
-    net = tfl.dense(net, hidden_size, activation=None, name="bf1")
+    net = tfl.dense(net, hidden_size, activation=None, name="%sf1"%name)
     for i in range(nlayers):
       net, states[i] = common_video.basic_lstm(
-          net, states[i], hidden_size, name="blstm%d"%i)
-    mu = tfl.dense(net, output_size, activation=None, name="bf2mu")
-    logvar = tfl.dense(net, output_size, activation=None, name="bf2log")
+          net, states[i], hidden_size, name="%slstm%d"%(name, i))
+    mu = tfl.dense(net, output_size, activation=None, name="%sf2mu"%name)
+    logvar = tfl.dense(net, output_size, activation=None, name="%sf2log"%name)
     return mu, logvar, states
 
   def construct_model(self, images, actions, rewards):
@@ -258,6 +260,7 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
     z_dim = self.hparams.z_dim
     g_dim = self.hparams.g_dim
     rnn_size = self.hparams.rnn_size
+    prior_rnn_layers = self.hparams.prior_rnn_layers
     posterior_rnn_layers = self.hparams.posterior_rnn_layers
     predictor_rnn_layers = self.hparams.predictor_rnn_layers
     context_frames = self.hparams.video_num_input_frames
@@ -266,8 +269,9 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
     seq_len, batch_size, _, _, color_channels = common_layers.shape_list(images)
 
     # LSTM initial sizesstates.
-    predictor_states = [None] * predictor_rnn_layers
+    prior_states = [None] * prior_rnn_layers
     posterior_states = [None] * posterior_rnn_layers
+    predictor_states = [None] * predictor_rnn_layers
 
     tf.logging.info(">>>> Encoding")
     # Encoding:
@@ -275,58 +279,168 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
     images = tf.unstack(images, axis=0)
     for i, image in enumerate(images):
       with tf.variable_scope("encoder", reuse=tf.AUTO_REUSE):
-        enc, skips = self.encoder(image, rnn_size, has_batchnorm=has_batchnorm)
+        enc, skips = self.encoder(image, g_dim, has_batchnorm=has_batchnorm)
         enc = tfl.flatten(enc)
         enc_images.append(enc)
         enc_skips.append(skips)
 
     tf.logging.info(">>>> Prediction")
     # Prediction
-    pred_enc, pred_mu, pred_logvar = [], [], []
+    pred_mu_pos = []
+    pred_logvar_pos = []
+    pred_mu_prior = []
+    pred_logvar_prior = []
+    gen_images = []
     for i in range(1, seq_len):
-      with tf.variable_scope("prediction", reuse=tf.AUTO_REUSE):
+      with tf.variable_scope("encoder", reuse=tf.AUTO_REUSE):
         # current encoding
-        h_current = enc_images[i-1]
+        if self.is_training or len(gen_images) < context_frames:
+          h_current = enc_images[i - 1]
+        else:
+          h_current, _ = self.encoder(gen_images[-1], g_dim)
+          h_current = tfl.flatten(h_current)
+
         # target encoding
         h_target = enc_images[i]
 
-        z = tf.random_normal([batch_size, z_dim], 0, 1, dtype=tf.float32)
-        mu, logvar = tf.zeros_like(z), tf.zeros_like(z)
+      with tf.variable_scope("prediction", reuse=tf.AUTO_REUSE):
+        # Prior parameters
+        if self.hparams.learned_prior:
+          mu_prior, logvar_prior, prior_states = self.lstm_gaussian(
+              h_current, prior_states, rnn_size, z_dim, prior_rnn_layers,
+              "prior")
+        else:
+          mu_prior = tf.zeros((batch_size, z_dim))
+          logvar_prior = tf.zeros((batch_size, z_dim))
 
         # Only use Posterior if it's training time
-        if self.hparams.mode == tf.estimator.ModeKeys.TRAIN:
-          mu, logvar, posterior_states = self.lstm_gaussian(
-              h_target, posterior_states, rnn_size, z_dim, posterior_rnn_layers)
-
+        if self.is_training or len(gen_images) < context_frames:
+          mu_pos, logvar_pos, posterior_states = self.lstm_gaussian(
+              h_target, posterior_states, rnn_size, z_dim, posterior_rnn_layers,
+              "posterior")
           # Sample z from posterior distribution
-          z = z * tf.exp(tf.multiply(0.5, logvar)) + mu
+          z = common_video.get_gaussian_tensor(mu_pos, logvar_pos)
+        else:
+          mu_pos = tf.zeros_like(mu_prior)
+          logvar_pos = tf.zeros_like(logvar_prior)
+          z = common_video.get_gaussian_tensor(mu_prior, logvar_prior)
 
         # Predict output encoding
         h_pred, predictor_states = self.stacked_lstm(
             tf.concat([h_current, z], axis=1),
             predictor_states, rnn_size, g_dim, predictor_rnn_layers)
 
-        pred_enc.append(h_pred)
-        pred_mu.append(mu)
-        pred_logvar.append(logvar)
+        pred_mu_pos.append(tf.identity(mu_pos, "mu_pos"))
+        pred_logvar_pos.append(tf.identity(logvar_pos, "logvar_pos"))
+        pred_mu_prior.append(tf.identity(mu_prior, "mu_prior"))
+        pred_logvar_prior.append(tf.identity(logvar_prior, "logvar_prior"))
 
-    tf.logging.info(">>>> Decoding")
-    # Decoding
-    gen_images = []
-    for i in range(seq_len-1):
       with tf.variable_scope("decoding", reuse=tf.AUTO_REUSE):
-        # use skip values of last available frame
-        skip_index = min(context_frames-1, i)
-
-        h_pred = tf.reshape(pred_enc[i], [batch_size, 1, 1, g_dim])
-        x_pred = self.decoder(
-            h_pred, color_channels, enc_skips[skip_index],
-            has_batchnorm=has_batchnorm)
+        skip_index = min(context_frames-1, i-1)
+        h_pred = tf.reshape(h_pred, [batch_size, 1, 1, g_dim])
+        if self.hparams.has_skips:
+          x_pred = self.decoder(
+              h_pred, color_channels,
+              skips=enc_skips[skip_index], has_batchnorm=has_batchnorm)
+        else:
+          x_pred = self.decoder(
+              h_pred, color_channels, has_batchnorm=has_batchnorm)
         gen_images.append(x_pred)
 
     tf.logging.info(">>>> Done")
     gen_images = tf.stack(gen_images, axis=0)
-    return gen_images, fake_reward_prediction, pred_mu, pred_logvar
+    return {"gen_images": gen_images,
+            "fake_reward_prediction": fake_reward_prediction,
+            "pred_mu_pos": pred_mu_pos,
+            "pred_logvar_pos": pred_logvar_pos,
+            "pred_mu_prior": pred_mu_prior,
+            "pred_logvar_prior": pred_logvar_prior}
+
+  def get_extra_loss(self,
+                     latent_means_pos, latent_logvars_pos,
+                     latent_means_prior, latent_logvars_prior):
+    """Losses in addition to the default modality losses."""
+    return self.get_kl_loss(
+        latent_means_pos, latent_logvars_pos,
+        latent_means_prior, latent_logvars_prior)
+
+  def body(self, features):
+    hparams = self.hparams
+    batch_size = common_layers.shape_list(features["inputs"])[0]
+
+    # Swap time and batch axes.
+    input_frames = common_video.swap_time_and_batch_axes(features["inputs"])
+    target_frames = common_video.swap_time_and_batch_axes(features["targets"])
+
+    # Get actions if exist otherwise use zeros
+    input_actions = self.get_input_if_exists(
+        features, "input_action", batch_size, hparams.video_num_input_frames)
+    target_actions = self.get_input_if_exists(
+        features, "target_action", batch_size, hparams.video_num_target_frames)
+
+    # Get rewards if exist otherwise use zeros
+    input_rewards = self.get_input_if_exists(
+        features, "input_reward", batch_size, hparams.video_num_input_frames)
+    target_rewards = self.get_input_if_exists(
+        features, "target_reward", batch_size, hparams.video_num_target_frames)
+
+    all_actions = tf.concat([input_actions, target_actions], axis=0)
+    all_rewards = tf.concat([input_rewards, target_rewards], axis=0)
+    all_frames = tf.concat([input_frames, target_frames], axis=0)
+
+    # Each image is being used twice, in latent tower and main tower.
+    # This is to make sure we are using the *same* image for both, ...
+    # ... given how TF queues work.
+    # NOT sure if this is required at all. Doesn"t hurt though! :)
+    all_frames = tf.identity(all_frames)
+
+    retvals = self.construct_model(
+        images=all_frames, actions=all_actions, rewards=all_rewards)
+
+    # retrieve tensors returned by the model contructor
+    gen_images = retvals["gen_images"]
+    gen_rewards = retvals["fake_reward_prediction"]
+    latent_means_pos = retvals["pred_mu_pos"]
+    latent_logvars_pos = retvals["pred_logvar_pos"]
+    latent_means_prior = retvals["pred_mu_prior"]
+    latent_logvars_prior = retvals["pred_logvar_prior"]
+
+    extra_loss = self.get_extra_loss(
+        latent_means_pos=latent_means_pos,
+        latent_logvars_pos=latent_logvars_pos,
+        latent_means_prior=latent_means_prior,
+        latent_logvars_prior=latent_logvars_prior)
+
+    # Visualize predictions in Tensorboard
+    if self.is_training:
+      self.visualize_predictions(all_frames[1:], gen_images)
+
+    # Ignore the predictions from the input frames.
+    # This is NOT the same as original paper/implementation.
+    predictions = gen_images[hparams.video_num_input_frames-1:]
+    reward_pred = gen_rewards[hparams.video_num_input_frames-1:]
+    reward_pred = tf.squeeze(reward_pred, axis=2)  # Remove extra dimension.
+
+    # Swap back time and batch axes.
+    predictions = common_video.swap_time_and_batch_axes(predictions)
+    reward_pred = common_video.swap_time_and_batch_axes(reward_pred)
+
+    if self.is_training and hparams.internal_loss:
+      # add the loss for input frames as well.
+      extra_gts = all_frames[1:hparams.video_num_input_frames]
+      extra_gts = common_video.swap_time_and_batch_axes(extra_gts)
+      extra_pds = gen_images[:hparams.video_num_input_frames-1]
+      extra_pds = common_video.swap_time_and_batch_axes(extra_pds)
+      extra_raw_gts = features["inputs_raw"][:, 1:]
+      recon_loss = self.get_extra_internal_loss(
+          extra_raw_gts, extra_gts, extra_pds)
+      extra_loss += recon_loss
+
+    return_targets = predictions
+    if hparams.reward_prediction:
+      return_targets = {"targets": predictions, "target_reward": reward_pred}
+
+    return return_targets, extra_loss
 
 
 @registry.register_hparams
@@ -349,9 +463,11 @@ def next_frame_emily():
   hparams.optimizer_adam_epsilon = 1e-08
   hparams.anneal_end = -1
   hparams.clip_grad_norm = 5.0
-  hparams.add_hparam("z_dim", 10)
+  hparams.add_hparam("learned_prior", True)
+  hparams.add_hparam("z_dim", 64)
   hparams.add_hparam("g_dim", 128)
   hparams.add_hparam("rnn_size", 256)
+  hparams.add_hparam("prior_rnn_layers", 1)
   hparams.add_hparam("posterior_rnn_layers", 1)
   hparams.add_hparam("predictor_rnn_layers", 2)
   hparams.add_hparam("has_skips", True)
