@@ -40,7 +40,7 @@ from tensorflow.contrib.tpu.python.tpu import tpu_config
 
 try:
   from tensor2tensor.jax import j2j  # pylint: disable=g-import-not-at-top
-except TypeError:
+except (TypeError, ImportError):
   pass
 
 
