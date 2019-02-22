@@ -417,7 +417,8 @@ def decode_from_file(estimator,
     sorted_inputs = _get_language_modeling_inputs(
         filename, decode_hp.delimiter, repeat=decode_hp.num_decodes)
     sorted_keys = range(len(sorted_inputs))
-  num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
+  num_sentences = len(sorted_inputs)
+  num_decode_batches = (num_sentences - 1) // decode_hp.batch_size + 1
 
   if estimator.config.use_tpu:
     length = getattr(hparams, "length", 0) or hparams.max_length
@@ -510,11 +511,20 @@ def decode_from_file(estimator,
       decodes.append(decoded_outputs)
     total_time_per_step += elapsed_time
     total_cnt += result["outputs"].shape[-1]
-  tf.logging.info("Elapsed Time: %5.5f" % (time.time() - start_time))
+  duration = time.time() - start_time
+  tf.logging.info("Elapsed Time: %5.5f" % duration)
   tf.logging.info("Averaged Single Token Generation Time: %5.7f "
                   "(time %5.7f count %d)" %
                   (total_time_per_step / total_cnt,
                    total_time_per_step, total_cnt))
+  if decode_hp.batch_size is 1:
+    tf.logging.info("Inference time %.4f seconds "
+                    "(Latency = %.4f ms/setences)" %
+                    (duration, 1000.0*duration/num_sentences))
+  else:
+    tf.logging.info("Inference time %.4f seconds "
+                    "(Throughput = %.4f sentences/second)" %
+                    (duration, num_sentences/duration))
 
   # If decode_to_file was provided use it as the output filename without change
   # (except for adding shard_id if using more shards for decoding).
