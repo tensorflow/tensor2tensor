@@ -22,6 +22,8 @@ from __future__ import print_function
 import collections
 import os
 
+import gin
+
 from tensor2tensor import problems
 from tensor2tensor.utils import data_reader
 from tensor2tensor.v2.models import basic
@@ -30,8 +32,6 @@ from tensor2tensor.v2.models import transformer
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
-
-import gin.tf
 
 
 # Since there are few models and configs for now, we use this simple registry.
