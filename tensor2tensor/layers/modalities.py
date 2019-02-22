@@ -160,9 +160,6 @@ class SymbolModality(modality.Modality):
       logits: A Tensor with shape  [batch, p0, p1, ?, vocab_size].
     """
     del targets  # unused arg
-    if model_hparams.symbol_modality_skip_top:
-      return tf.expand_dims(body_output, 3)
-
     if model_hparams.shared_embedding_and_softmax_weights:
       scope_name = "shared"
       reuse = tf.AUTO_REUSE

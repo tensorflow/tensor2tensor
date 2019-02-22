@@ -186,8 +186,6 @@ def basic_params1():
       # by using a problem_hparams that uses the same modality object for
       # the input modality and target modality.
       shared_embedding=False,
-      # In SymbolModality, skip the top layer, assume we're providing logits.
-      symbol_modality_skip_top=False,
       # Modalities used to map from features to a space compatible with
       # chosen model architecture. It comprises key-value pairs of a feature
       # name (str) and its modality type.
