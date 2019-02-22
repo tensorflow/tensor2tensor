@@ -108,7 +108,7 @@ class EnvProblemRegistryTest(tf.test.TestCase):
 
     # Get it with given batch_size.
     batch_size = 100
-    ep = registry.env_problem("env_prob", batch_size)
+    ep = registry.env_problem("env_prob", batch_size=batch_size)
 
     # name property is set.
     self.assertEqual("env_prob", ep.name)

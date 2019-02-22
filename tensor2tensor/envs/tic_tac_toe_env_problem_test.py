@@ -31,7 +31,7 @@ class TicTacToeEnvProblemTest(tf.test.TestCase):
   def test_registration_and_interaction_with_env_problem(self):
     batch_size = 5
     # This ensures that registration has occurred.
-    ep = registry.env_problem("tic_tac_toe_env_problem", batch_size)
+    ep = registry.env_problem("tic_tac_toe_env_problem", batch_size=batch_size)
     ep.reset()
     num_done, num_lost, num_won, num_draw = 0, 0, 0, 0
     nsteps = 100

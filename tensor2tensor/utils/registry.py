@@ -508,12 +508,12 @@ def problem(problem_name):
       was_copy=spec.was_copy, was_reversed=spec.was_reversed)
 
 
-def env_problem(env_problem_name, batch_size):
+def env_problem(env_problem_name, **kwargs):
   """Get and initialize the `EnvProblem` with the given name and batch size.
 
   Args:
     env_problem_name: string name of the registered env problem.
-    batch_size: batch_size to initialize the env problem with.
+    **kwargs: forwarded to env problem's initialize method.
 
   Returns:
     an initialized EnvProblem with the given batch size.
@@ -521,7 +521,7 @@ def env_problem(env_problem_name, batch_size):
 
   ep_cls = Registries.env_problems[env_problem_name]
   ep = ep_cls()
-  ep.initialize(batch_size=batch_size)
+  ep.initialize(**kwargs)
   return ep
 
 

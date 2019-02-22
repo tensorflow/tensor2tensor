@@ -68,7 +68,7 @@ except:  # pylint: disable=bare-except
 def initialize_env_specs(hparams, env_problem_name):
   """Initializes env_specs using the appropriate env."""
   if env_problem_name:
-    env = registry.env_problem(env_problem_name, hparams.batch_size)
+    env = registry.env_problem(env_problem_name, batch_size=hparams.batch_size)
   else:
     env = rl_utils.setup_env(hparams, hparams.batch_size,
                              hparams.eval_max_num_noops,
