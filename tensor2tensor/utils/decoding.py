@@ -63,9 +63,9 @@ def decode_hparams(overrides=""):
       write_beam_scores=False,
       max_input_size=-1,
       identity_output=False,
-      num_samples=-1,
+      num_samples=-1,  # Number of examples to decode.
       delimiter="\n",
-      decode_to_file=None,
+      decode_to_file=None,  # str. Prefix for filename to write decodings to.
       decode_in_memory=False,
       # How much decode should wait for the next checkpoint
       decode_timeout_mins=240,
@@ -74,7 +74,7 @@ def decode_hparams(overrides=""):
       shard_id=0,  # Which shard are we decoding if more than 1 above.
       shards_start_offset=0,  # Number of the first shard to decode.
       shard_google_format=False,  # If True use Google shard naming format.
-      num_decodes=1,
+      num_decodes=1,  # Number of times to go over the dataset.
       force_decode_length=False,
       display_decoded_images=False,
       # Multi-problem decoding task id.
@@ -181,7 +181,7 @@ def decode_from_dataset(estimator,
   # We assume that worker_id corresponds to shard number.
   shard = decode_hp.shard_id if decode_hp.shards > 1 else None
 
-  # Setup decode output directory for any artifacts that may be written out
+  # Setup output directory for any artifacts that may be written out.
   output_dir = os.path.join(estimator.model_dir, "decode")
   tf.gfile.MakeDirs(output_dir)
 
@@ -218,7 +218,7 @@ def decode_from_dataset(estimator,
                          decode_hp,
                          decode_to_file,
                          output_dir,
-                         log_results=not decode_hp.decode_in_memory,
+                         log_results=True,
                          checkpoint_path=checkpoint_path)
 
     if decode_hp.decode_in_memory:
@@ -249,7 +249,30 @@ def decode_once(estimator,
                 output_dir,
                 log_results=True,
                 checkpoint_path=None):
-  """Decodes once."""
+  """Decodes once.
+
+  Args:
+    estimator: tf.estimator.Estimator instance. Used to generate encoded
+      predictions.
+    problem_name: str. Name of problem.
+    hparams: tf.HParams instance. HParams for model training.
+    infer_input_fn: zero-arg function. Input function for estimator.
+    decode_hp: tf.HParams instance. See decode_hparams() above.
+    decode_to_file: str. Prefix for filenames. Used to generated filenames to
+      which decoded predictions are written.
+    output_dir: str. Output directory. Only used for writing images.
+    log_results: bool. If False, return encoded predictions without any
+      further processing.
+    checkpoint_path: str. Path to load model checkpoint from. If unspecified,
+      Estimator's default is used.
+
+  Returns:
+    If decode_hp.decode_in_memory is True:
+      List of dicts, one per example. Values are either numpy arrays or decoded
+      strings.
+    If decode_hp.decode_in_memory is False:
+      An empty list.
+  """
 
   # Get the predictions as an iterable
   predictions = estimator.predict(infer_input_fn,
@@ -281,6 +304,10 @@ def decode_once(estimator,
   targets_vocab = problem_hparams.vocabulary["targets"]
 
   num_eval_samples = 0
+
+  # all_outputs[i][j] = (input: str, output: str, target: str). Input,
+  # decoded output, and target strings for example i, beam rank j.
+  all_outputs = []
   for num_predictions, prediction in enumerate(predictions):
     num_eval_samples += 1
     num_predictions += 1
@@ -289,8 +316,11 @@ def decode_once(estimator,
     outputs = prediction.get("outputs")
 
     # Log predictions
-    decoded_outputs = []
+    decoded_outputs = []  # [(str, str, str)]. See all_outputs above.
+    if decode_hp.decode_in_memory:
+      all_outputs.append(decoded_outputs)
     decoded_scores = []
+
     if decode_hp.return_beams:
       output_beams = np.split(outputs, decode_hp.beam_size, axis=0)
       scores = None
@@ -354,6 +384,8 @@ def decode_once(estimator,
     output_file.close()
     target_file.close()
     input_file.close()
+
+  return all_outputs
 
 
 def decode_from_file(estimator,
