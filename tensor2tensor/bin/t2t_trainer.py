@@ -381,8 +381,11 @@ def main(argv):
     output_dir = os.path.expanduser(FLAGS.output_dir)
 
     gin.bind_parameter("train_fn.dataset", FLAGS.problem)
-    config_strs += ["train_fn.model=@models." + FLAGS.model]
-    gin.parse_config_files_and_bindings(FLAGS.hparams_set, config_strs)
+    config_strs += ["train_fn.model=@" + FLAGS.model]
+    config_files = []
+    if FLAGS.hparams_set:
+      config_files = [os.path.expanduser(FLAGS.hparams_set)]
+    gin.parse_config_files_and_bindings(config_files, config_strs)
     j2j.train_fn(data_dir, output_dir=output_dir)
     return
 

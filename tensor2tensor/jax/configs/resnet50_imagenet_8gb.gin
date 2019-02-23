@@ -1,0 +1,39 @@
+# Parameters for batch_fn:
+# ==============================================================================
+batch_fn.batch_size = 16
+batch_fn.bucket_length = 32
+batch_fn.buckets = None
+batch_fn.eval_batch_size = 16
+
+# Parameters for learning_rate:
+# ==============================================================================
+learning_rate.constant = 0.1
+learning_rate.schedule = 'constant * linear_warmup * rsqrt_decay'
+learning_rate.warmup_steps = 10000
+
+# Parameters for optimizer:
+# ==============================================================================
+optimizer.adam_b1 = 0.9
+optimizer.adam_b2 = 0.997
+optimizer.adam_eps = 1e-08
+optimizer.momentum_mass = 0.9
+optimizer.name = 'momentum'
+optimizer.rmsprop_eps = 1e-08
+optimizer.rmsprop_gamma = 0.9
+
+# Parameters for preprocess_fn:
+# ==============================================================================
+preprocess_fn.max_target_length = -1
+
+# Parameters for Resnet50:
+# ==============================================================================
+Resnet50.hidden_size = 64
+Resnet50.num_output_classes = 1001
+
+# Parameters for train_fn:
+# ==============================================================================
+train_fn.dataset = 't2t_image_imagenet'
+train_fn.eval_frequency = 100
+train_fn.eval_steps = 2
+train_fn.model = @Resnet50
+train_fn.train_steps = 100000

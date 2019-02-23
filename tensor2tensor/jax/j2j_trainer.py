@@ -34,8 +34,6 @@ from absl import logging
 import gin
 from tensor2tensor.jax import j2j
 
-import tensorflow as tf
-
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("dataset", None, "Which dataset to use.")
@@ -49,43 +47,27 @@ flags.DEFINE_multi_string("config", None,
                           "Configuration parameters (gin string).")
 
 
-def j2j_train(model_name, dataset_name,
-              data_dir=None, output_dir=None, config_file=None, config=None):
-  """Main function to train the given model on the given dataset.
-
-  Args:
-    model_name: The name of the model to train.
-    dataset_name: The name of the dataset to train on.
-    data_dir: Directory where the data is located.
-    output_dir: Directory where to put the logs and checkpoints.
-    config_file: the gin configuration file to use.
-    config: string (in gin format) to override gin parameters.
-  """
-  gin.bind_parameter("train_fn.dataset", dataset_name)
+def _setup_gin():
+  configs = FLAGS.config or []
+  # Override with --dataset and --model
+  if FLAGS.dataset:
+    configs.append("train_fn.dataset='%s'" % FLAGS.dataset)
   if FLAGS.model:
-    config = []  if config is None else config
-    config += ["train_fn.model=@models." + model_name]
-  gin.parse_config_files_and_bindings(config_file, config)
-  if output_dir:
-    if not tf.gfile.Exists(output_dir):
-      tf.gfile.MkDir(output_dir)
-    config_path = os.path.join(output_dir, "gin.config")
-    # TODO(lukaszkaiser): why is the file empty if there's no provided config?
-    with tf.gfile.Open(config_path, "w") as f:
-      f.write(gin.operative_config_str())
-  j2j.train_fn(data_dir, output_dir=output_dir)
+    configs.append("train_fn.model=@" + FLAGS.model)
+  gin.parse_config_files_and_bindings(FLAGS.config_file, configs)
 
 
-def main(argv):
-  del argv
-  logging.set_verbosity(logging.INFO)
+def main(_):
+  _setup_gin()
+
+  # Setup directories
   data_dir, output_dir = FLAGS.data_dir, FLAGS.output_dir
   data_dir = data_dir and os.path.expanduser(data_dir)
   output_dir = output_dir and os.path.expanduser(output_dir)
-  j2j_train(FLAGS.model, FLAGS.dataset,
-            data_dir=data_dir, output_dir=output_dir,
-            config_file=FLAGS.config_file, config=FLAGS.config)
+
+  j2j.train_fn(data_dir, output_dir=output_dir)
 
 
 if __name__ == "__main__":
+  logging.set_verbosity(logging.INFO)
   app.run(main)
