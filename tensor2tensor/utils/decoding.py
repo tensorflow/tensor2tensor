@@ -218,7 +218,7 @@ def decode_from_dataset(estimator,
                          decode_hp,
                          decode_to_file,
                          output_dir,
-                         log_results=True,
+                         log_results=decode_hp.log_results,
                          checkpoint_path=checkpoint_path)
 
     if decode_hp.decode_in_memory:
@@ -340,7 +340,7 @@ def decode_once(estimator,
             output_dir=output_dir,
             identity_output=decode_hp.identity_output,
             targets=targets,
-            log_results=decode_hp.log_results)
+            log_results=log_results)
         decoded_outputs.append(decoded)
         if decode_hp.write_beam_scores:
           decoded_scores.append(score)
@@ -356,7 +356,7 @@ def decode_once(estimator,
           output_dir=output_dir,
           identity_output=decode_hp.identity_output,
           targets=targets,
-          log_results=decode_hp.log_results)
+          log_results=log_results)
       decoded_outputs.append(decoded)
 
     # Write out predictions if decode_to_file passed
