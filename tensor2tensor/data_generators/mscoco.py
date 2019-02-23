@@ -125,7 +125,7 @@ def mscoco_generator(data_dir,
   for image_info, labels in data:
     image_filename = image_info[0]
     image_filepath = os.path.join(tmp_dir, prefix, image_filename)
-    with tf.gfile.Open(image_filepath, "r") as f:
+    with tf.gfile.Open(image_filepath, "rb") as f:
       encoded_image_data = f.read()
       height, width = image_info[1], image_info[2]
       for label in labels:
