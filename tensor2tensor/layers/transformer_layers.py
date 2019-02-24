@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,6 +25,11 @@ from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import mlperf_log
 
 import tensorflow as tf
+
+
+# TODO(lukaszkaiser): remove this function when not needed any more.
+def layers():
+  return common_layers.layers()
 
 
 def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
@@ -81,7 +86,8 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
   if hparams.proximity_bias:
     encoder_self_attention_bias += common_attention.attention_bias_proximal(
         common_layers.shape_list(inputs)[1])
-  if hparams.get("use_target_space_embedding", True):
+  if target_space is not None and hparams.get("use_target_space_embedding",
+                                              True):
     # Append target_space_id embedding to inputs.
     emb_target_space = common_layers.embedding(
         target_space,
@@ -277,9 +283,9 @@ def evolved_transformer_encoder(encoder_input,
           residual_state = hidden_state
           hidden_state = common_layers.layer_preprocess(hidden_state, hparams)
 
-          values = tf.layers.dense(hidden_state, hparams.hidden_size)
-          gates = tf.layers.dense(
-              hidden_state, hparams.hidden_size, activation=tf.nn.sigmoid)
+          values = layers().Dense(hparams.hidden_size)(hidden_state)
+          gates = layers().Dense(
+              hparams.hidden_size, activation=tf.nn.sigmoid)(hidden_state)
           hidden_state = values * gates
 
           hidden_state = common_layers.layer_postprocess(
@@ -295,19 +301,18 @@ def evolved_transformer_encoder(encoder_input,
           hidden_state *= mask
 
           left_output_dim = int(hparams.hidden_size * 4)
-          left_state = tf.layers.dense(
-              hidden_state, left_output_dim, activation=tf.nn.relu)
+          left_state = layers().Dense(
+              left_output_dim, activation=tf.nn.relu)(hidden_state)
           left_state = tf.nn.dropout(left_state,
                                      1 - hparams.layer_prepostprocess_dropout)
 
           right_output_dim = int(hparams.hidden_size / 2)
-          right_state = tf.layers.conv1d(
-              hidden_state,
+          right_state = layers().Conv1D(
               right_output_dim,
               3,
               padding="SAME",
               name="standard_conv_3x1",
-              activation=tf.nn.relu)
+              activation=tf.nn.relu)(hidden_state)
           right_state = tf.nn.dropout(right_state,
                                       1 - hparams.layer_prepostprocess_dropout)
 
@@ -322,9 +327,9 @@ def evolved_transformer_encoder(encoder_input,
           mask = tf.tile(tf.expand_dims(nonpadding, 2), [1, 1, left_output_dim])
           hidden_state *= mask
 
-          separable_conv_9x1 = tf.layers.SeparableConv1D(
+          separable_conv_9x1 = layers().SeparableConv1D(
               right_output_dim, 9, padding="SAME", name="separable_conv_9x1")
-          hidden_state = separable_conv_9x1.apply(hidden_state)
+          hidden_state = separable_conv_9x1(hidden_state)
           hidden_state = tf.pad(
               hidden_state,
               [[0, 0], [0, 0], [0, hparams.hidden_size - right_output_dim]],
@@ -366,12 +371,12 @@ def evolved_transformer_encoder(encoder_input,
           residual_state = hidden_state
           hidden_state = common_layers.layer_preprocess(hidden_state, hparams)
 
-          hidden_state = tf.layers.dense(
-              hidden_state, int(hparams.hidden_size * 4), activation=tf.nn.relu)
+          hidden_state = layers().Dense(
+              int(hparams.hidden_size * 4), activation=tf.nn.relu)(hidden_state)
           hidden_state = tf.nn.dropout(hidden_state,
                                        1 - hparams.layer_prepostprocess_dropout)
 
-          hidden_state = tf.layers.dense(hidden_state, hparams.hidden_size)
+          hidden_state = layers().Dense(hparams.hidden_size)(hidden_state)
           hidden_state = common_layers.layer_postprocess(
               residual_state, hidden_state, hparams)
 
@@ -389,7 +394,8 @@ def transformer_ffn_layer(x,
                           losses=None,
                           cache=None,
                           decode_loop_step=None,
-                          readout_filter_size=0):
+                          readout_filter_size=0,
+                          layer_collection=None):
   """Feed-forward layer in the transformer.
 
   Args:
@@ -410,6 +416,8 @@ def transformer_ffn_layer(x,
         Only used for inference on TPU.
     readout_filter_size: if it's greater than 0, then it will be used instead of
       filter_size
+    layer_collection: A tensorflow_kfac.LayerCollection. Only used by the
+      KFAC optimizer. Default is None.
 
 
   Returns:
@@ -452,7 +460,8 @@ def transformer_ffn_layer(x,
         hparams.filter_size,
         hparams.hidden_size,
         dropout=hparams.relu_dropout,
-        dropout_broadcast_dims=relu_dropout_broadcast_dims)
+        dropout_broadcast_dims=relu_dropout_broadcast_dims,
+        layer_collection=layer_collection)
     if pad_remover:
       # Restore `conv_output` to the original shape of `x`, including padding.
       conv_output = tf.reshape(

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -36,6 +36,11 @@ import tensorflow_probability as tfp
 
 from tensorflow.python.framework import function
 from tensorflow.python.ops import inplace_ops
+
+
+# TODO(lukaszkaiser): remove this function when not needed any more.
+def layers():
+  return common_layers.layers()
 
 
 def large_compatible_negative(tensor_type):
@@ -275,7 +280,7 @@ def get_standardized_layers(hparams, dp=None):
 
   # Define all available layers
 
-  layers = dict(
+  cur_layers = dict(
       # Attention layers:
       a=multihead_attention_fn,  # Multihead full attention
       loc=local_attention_fn,  # Local attention
@@ -288,7 +293,7 @@ def get_standardized_layers(hparams, dp=None):
       sep=sep_conv_relu,  # Separable convolution (unmasked)
       sepm=sep_conv_relu_masked,  # Separable convolution (masked)
   )
-  return layers
+  return cur_layers
 
 
 def add_standard_attention_hparams(hparams):
@@ -1002,7 +1007,7 @@ def attention_bias_proximal(length):
   """
   r = tf.to_float(tf.range(length))
   diff = tf.expand_dims(r, 0) - tf.expand_dims(r, 1)
-  return tf.expand_dims(tf.expand_dims(-tf.log(1 + tf.abs(diff)), 0), 0)
+  return tf.expand_dims(tf.expand_dims(-tf.log1p(tf.abs(diff)), 0), 0)
 
 
 @expert_utils.add_name_scope()
@@ -2624,14 +2629,15 @@ def local_attention_1d(q, k, v, block_length=128, filter_width=100, name=None):
 
   The sequence is divided into blocks of length block_length. Attention for a
   given query position can see all memory positions in the corresponding block
-  and filter_width many positions to the left of the block.
+  and filter_width many positions to the left and right of the block.
 
   Args:
     q: a Tensor with shape [batch, heads, length, depth_k]
     k: a Tensor with shape [batch, heads, length, depth_k]
     v: a Tensor with shape [batch, heads, length, depth_v]
     block_length: an integer
-    filter_width: an integer indicating how much to look left.
+    filter_width: an integer indicating how much to look left and right of the
+      block.
     name: an optional string
 
   Returns:
@@ -2639,8 +2645,11 @@ def local_attention_1d(q, k, v, block_length=128, filter_width=100, name=None):
   """
   with tf.variable_scope(
       name, default_name="local_self_attention_1d", values=[q, k, v]):
+    # Check that q, k, v have the same shape except in their depth dimension.
+    q.get_shape()[:-1].assert_is_compatible_with(k.get_shape()[:-1])
+    q.get_shape()[:-1].assert_is_compatible_with(v.get_shape()[:-1])
+
     batch_size, num_heads, original_length, _ = common_layers.shape_list(q)
-    depth_v = common_layers.shape_list(v)[-1]
 
     # Pad query, key, value to ensure multiple of corresponding lengths.
     def pad_to_multiple(x, pad_length):
@@ -2650,48 +2659,63 @@ def local_attention_1d(q, k, v, block_length=128, filter_width=100, name=None):
     def pad_l_and_r(x, pad_length):
       return tf.pad(x, [[0, 0], [0, 0], [pad_length, pad_length], [0, 0]])
 
-    q = pad_to_multiple(q, block_length)
-    k = pad_to_multiple(k, block_length)
-    v = pad_to_multiple(v, block_length)
-
     # Set up query blocks.
-    new_q_shape = common_layers.shape_list(q)
-    q = reshape_by_blocks(q, new_q_shape, block_length)
+    # [batch, heads, blocks_q, block_length, depth_k]
+    q = pad_to_multiple(q, block_length)
+    q = reshape_by_blocks(q, common_layers.shape_list(q), block_length)
+    total_query_blocks = common_layers.shape_list(q)[2]
 
     # Set up key and value blocks.
-    # Get gather indices.
-    k = pad_l_and_r(k, filter_width)
-    v = pad_l_and_r(v, filter_width)
-    length = common_layers.shape_list(k)[2]
-    full_filter_width = block_length + 2 * filter_width
-    indices = tf.range(0, length, delta=1, name="index_range")
-    indices = tf.reshape(indices, [1, -1, 1])  # [1, length, 1] for convs
-    kernel = tf.expand_dims(tf.eye(full_filter_width), axis=1)
-    gather_indices = tf.nn.conv1d(
-        tf.cast(indices, tf.float32),
-        kernel,
-        block_length,
-        padding="VALID",
-        name="gather_conv")
+    # [batch, heads, blocks_k, block_length, depth_k]
+    blocks_per_filter_width = filter_width // block_length
+    remaining_items = filter_width % block_length
+    k = pad_to_multiple(k, block_length)
+    v = pad_to_multiple(v, block_length)
+    k = pad_l_and_r(k, filter_width + block_length - remaining_items)
+    v = pad_l_and_r(v, filter_width + block_length - remaining_items)
+    k = reshape_by_blocks(k, common_layers.shape_list(k), block_length)
+    v = reshape_by_blocks(v, common_layers.shape_list(v), block_length)
 
-    gather_indices = tf.squeeze(tf.cast(gather_indices, tf.int32), axis=0)
+    total_kv_blocks = common_layers.shape_list(k)[2]
 
-    # Reshape keys and values to [length, batch, heads, dim] for gather. Then
-    # reshape to [batch, heads, blocks, block_length + filter_width, dim].
-    k_t = tf.transpose(k, [2, 0, 1, 3])
-    k_new = tf.gather(k_t, gather_indices)
-    k_new = tf.transpose(k_new, [2, 3, 0, 1, 4])
+    slices = []
+    # prepare the left-most and right-most partial blocks if needed
+    if remaining_items:
+      first_partial_block_k = tf.slice(
+          k, [0, 0, 0, block_length - remaining_items, 0],
+          [-1, -1, total_query_blocks, -1, -1])
+      first_partial_block_v = tf.slice(
+          v, [0, 0, 0, block_length - remaining_items, 0],
+          [-1, -1, total_query_blocks, -1, -1])
+      last_partial_block_k = tf.slice(
+          k, [0, 0, total_kv_blocks - total_query_blocks, 0, 0],
+          [-1, -1, -1, remaining_items, -1])
+      last_partial_block_v = tf.slice(
+          v, [0, 0, total_kv_blocks - total_query_blocks, 0, 0],
+          [-1, -1, -1, remaining_items, -1])
+      slices.append((first_partial_block_k, first_partial_block_v))
+      slices.append((last_partial_block_k, last_partial_block_v))
 
-    attention_bias = tf.expand_dims(embedding_to_padding(k_new) * -1e9, axis=-2)
+    # Prepare the rest of the blocks
+    first_block_index = 1 if remaining_items else 0
+    attention_blocks = 2 * blocks_per_filter_width + 1
+    for i in range(first_block_index, attention_blocks + first_block_index):
+      block_k = tf.slice(k, [0, 0, i, 0, 0],
+                         [-1, -1, total_query_blocks, -1, -1])
+      block_v = tf.slice(v, [0, 0, i, 0, 0],
+                         [-1, -1, total_query_blocks, -1, -1])
+      slices.append((block_k, block_v))
+    # [batch, heads, blocks_q, block_length + 2 * filter_width, depth_k]
+    k = tf.concat([s[0] for s in slices], axis=3)
+    v = tf.concat([s[1] for s in slices], axis=3)
 
-    v_t = tf.transpose(v, [2, 0, 1, 3])
-    v_new = tf.gather(v_t, gather_indices)
-    v_new = tf.transpose(v_new, [2, 3, 0, 1, 4])
+    attention_bias = tf.expand_dims(embedding_to_padding(k) * -1e9, axis=-2)
+    depth_v = common_layers.shape_list(v)[-1]
 
     output = dot_product_attention(
         q,
-        k_new,
-        v_new,
+        k,
+        v,
         attention_bias,
         dropout_rate=0.,
         name="local_1d",
@@ -3396,7 +3420,8 @@ def compute_attention_component(antecedent,
                                 filter_width=1,
                                 padding="VALID",
                                 name="c",
-                                vars_3d_num_heads=0):
+                                vars_3d_num_heads=0,
+                                layer_collection=None):
   """Computes attention compoenent (query, key or value).
 
   Args:
@@ -3407,10 +3432,18 @@ def compute_attention_component(antecedent,
     padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
     name: a string specifying scope name.
     vars_3d_num_heads: an optional integer (if we want to use 3d variables)
+    layer_collection: A tensorflow_kfac.LayerCollection. Only used by the
+      KFAC optimizer. Default is None.
 
   Returns:
     c : [batch, length, depth] tensor
   """
+  if layer_collection is not None:
+    if filter_width != 1 or vars_3d_num_heads != 0:
+      raise ValueError(
+          "KFAC implementation only supports filter_width=1 (actual: {}) and "
+          "vars_3d_num_heads=0 (actual: {}).".format(
+              filter_width, vars_3d_num_heads))
   if vars_3d_num_heads > 0:
     assert filter_width == 1
     input_depth = antecedent.get_shape().as_list()[-1]
@@ -3428,7 +3461,8 @@ def compute_attention_component(antecedent,
     return tf.tensordot(antecedent, var, axes=1)
   if filter_width == 1:
     return common_layers.dense(
-        antecedent, total_depth, use_bias=False, name=name)
+        antecedent, total_depth, use_bias=False, name=name,
+        layer_collection=layer_collection)
   else:
     return common_layers.conv1d(
         antecedent, total_depth, filter_width, padding=padding, name=name)
@@ -3442,7 +3476,8 @@ def compute_qkv(query_antecedent,
                 kv_filter_width=1,
                 q_padding="VALID",
                 kv_padding="VALID",
-                vars_3d_num_heads=0):
+                vars_3d_num_heads=0,
+                layer_collection=None):
   """Computes query, key and value.
 
   Args:
@@ -3456,6 +3491,8 @@ def compute_qkv(query_antecedent,
     q_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
     kv_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
     vars_3d_num_heads: an optional (if we want to use 3d variables)
+    layer_collection: A tensorflow_kfac.LayerCollection. Only used by the
+      KFAC optimizer. Default is None.
 
   Returns:
     q, k, v : [batch, length, depth] tensors
@@ -3468,21 +3505,24 @@ def compute_qkv(query_antecedent,
       q_filter_width,
       q_padding,
       "q",
-      vars_3d_num_heads=vars_3d_num_heads)
+      vars_3d_num_heads=vars_3d_num_heads,
+      layer_collection=layer_collection)
   k = compute_attention_component(
       memory_antecedent,
       total_key_depth,
       kv_filter_width,
       kv_padding,
       "k",
-      vars_3d_num_heads=vars_3d_num_heads)
+      vars_3d_num_heads=vars_3d_num_heads,
+      layer_collection=layer_collection)
   v = compute_attention_component(
       memory_antecedent,
       total_value_depth,
       kv_filter_width,
       kv_padding,
       "v",
-      vars_3d_num_heads=vars_3d_num_heads)
+      vars_3d_num_heads=vars_3d_num_heads,
+      layer_collection=layer_collection)
   return q, k, v
 
 
@@ -3513,6 +3553,7 @@ def multihead_attention(query_antecedent,
                         make_image_summary=True,
                         dropout_broadcast_dims=None,
                         vars_3d=False,
+                        layer_collection=None,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -3564,6 +3605,8 @@ def multihead_attention(query_antecedent,
       specifying in which dimensions to broadcast the dropout decisions.
       saves memory.
     vars_3d: use 3-dimensional variables for input/output transformations
+    layer_collection: A tensorflow_kfac.LayerCollection. Only used by the
+      KFAC optimizer. Default is None.
     **kwargs (dict): Parameters for the attention function
 
   Caching:
@@ -3594,6 +3637,13 @@ def multihead_attention(query_antecedent,
     raise ValueError("Value depth (%d) must be divisible by the number of "
                      "attention heads (%d)." % (total_value_depth, num_heads))
   vars_3d_num_heads = num_heads if vars_3d else 0
+
+  if layer_collection is not None:
+    if cache is not None:
+      raise ValueError("KFAC implementation only supports cache is None.")
+    if vars_3d:
+      raise ValueError("KFAC implementation does not support 3d vars.")
+
   with tf.variable_scope(name, default_name="multihead_attention",
                          values=[query_antecedent, memory_antecedent]):
 
@@ -3601,7 +3651,8 @@ def multihead_attention(query_antecedent,
       q, k, v = compute_qkv(query_antecedent, memory_antecedent,
                             total_key_depth, total_value_depth, q_filter_width,
                             kv_filter_width, q_padding, kv_padding,
-                            vars_3d_num_heads=vars_3d_num_heads)
+                            vars_3d_num_heads=vars_3d_num_heads,
+                            layer_collection=layer_collection)
     if cache is not None:
       if attention_type not in ["dot_product", "dot_product_relative"]:
         # TODO(petershaw): Support caching when using relative position
@@ -3744,7 +3795,8 @@ def multihead_attention(query_antecedent,
       x = tf.tensordot(x, o_var, axes=1)
     else:
       x = common_layers.dense(
-          x, output_depth, use_bias=False, name="output_transform")
+          x, output_depth, use_bias=False, name="output_transform",
+          layer_collection=layer_collection)
     if additional_returned_value is not None:
       return x, additional_returned_value
     return x
@@ -4576,14 +4628,13 @@ def deconv_elems_1d(x, factor, out_depth=None):
   """
   out_depth = out_depth or x.get_shape().as_list()[-1]
   x = tf.expand_dims(x, 1)  # [batch_size, 1, length, depth]
-  x = tf.layers.conv2d_transpose(
-      inputs=x,
+  x = layers().Conv2DTranspose(
       filters=out_depth,
       kernel_size=(1, factor),
       strides=(1, factor),
       padding="valid",
       data_format="channels_last",
-  )  # [batch_size, 1, length*factor, out_depth]
+  )(x)  # [batch_size, 1, length*factor, out_depth]
   x = tf.squeeze(x, 1)  # [batch_size, length*factor, depth]
   return x
 
@@ -4609,14 +4660,13 @@ def conv_elems_1d(x, factor, out_depth=None):
   # with tf.control_dependencies(  # Dynamic assertion
   #     [tf.assert_equal(tf.shape(x)[1] % factor, 0)]):
   x = tf.expand_dims(x, 1)  # [batch_size, 1, length, depth]
-  x = tf.layers.conv2d(
-      inputs=x,
+  x = layers().Conv2D(
       filters=out_depth,
       kernel_size=(1, factor),
       strides=(1, factor),
       padding="valid",
       data_format="channels_last",
-  )  # [batch_size, 1, length//factor, out_depth]
+  )(x)  # [batch_size, 1, length//factor, out_depth]
   x = tf.squeeze(x, 1)  # [batch_size, length//factor, depth]
   return x
 

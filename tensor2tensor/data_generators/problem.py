@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,6 @@ import six
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.layers import modalities
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import mlperf_log
@@ -232,6 +231,11 @@ class Problem(object):
   @property
   def num_generate_tasks(self):
     """Needed if multiprocess_generate is True."""
+    raise NotImplementedError()
+
+  @property
+  def num_training_examples(self):
+    """Used when mixing problems - how many examples are in the dataset."""
     raise NotImplementedError()
 
   def prepare_to_generate(self, data_dir, tmp_dir):
@@ -529,8 +533,6 @@ class Problem(object):
     if self._was_copy:
       _copy_problem_hparams(hp)
 
-    _create_modalities(hp, model_hparams)
-
     self._hparams = hp
     return self._hparams
 
@@ -681,6 +683,10 @@ class Problem(object):
     ## Shuffle records only for training examples.
     if shuffle_files and is_training:
       dataset = dataset.shuffle(shuffle_buffer_size)
+    if hparams.get("pack_dataset", False):
+      dataset = generator_utils.pack_dataset(
+          dataset, hparams.max_length, keys=["inputs", "targets"],
+          use_custom_ops=hparams.get("use_custom_ops", False))
     if output_buffer_size:
       dataset = dataset.prefetch(output_buffer_size)
 
@@ -744,7 +750,7 @@ class Problem(object):
     for feature_name, modality_cls in six.iteritems(hp.modality):
       finfo = features[feature_name]
       finfo.modality = modality_cls
-      finfo.vocab_size = modality_cls.top_dimensionality
+      finfo.vocab_size = hp.vocab_size[feature_name]
 
     vocabs = hp.vocabulary
     for name, encoder in six.iteritems(vocabs):
@@ -945,7 +951,7 @@ def _reverse_problem_hparams(p_hparams):
   # 'target', and each intended feature to swap has feature name 'input'.
   # In the future, remove need for this behavior.
   reversed_modality = {}
-  for feature_name in six.iterkeys(p.modality):
+  for feature_name in p.modality:
     reversed_feature_name = feature_name.replace("target", "input")
     if "target" in feature_name and reversed_feature_name in p.modality:
       reversed_modality[feature_name] = p.modality[reversed_feature_name]
@@ -957,7 +963,7 @@ def _reverse_problem_hparams(p_hparams):
 
   # Swap vocab sizes.
   reversed_vocab_size = {}
-  for feature_name in six.iterkeys(p.vocab_size):
+  for feature_name in p.vocab_size:
     reversed_feature_name = feature_name.replace("target", "input")
     if "target" in feature_name and reversed_feature_name in p.vocab_size:
       reversed_vocab_size[feature_name] = p.vocab_size[reversed_feature_name]
@@ -991,40 +997,6 @@ def _reverse_problem_hparams(p_hparams):
   p.was_reversed = True
 
 
-def _create_modalities(problem_hparams, model_hparams):
-  """Creates modalities and overrides any according to model hparams.
-
-  Args:
-    problem_hparams: HParams for the Problem. It must have
-      modality which is a dict of strings to ModalityTypes or Modality classes.
-    model_hparams: HParams for the model. It may have
-      input_modalities and target_modality, which will override
-      problem_hparams' modality input and target keys.
-
-  Returns:
-    None
-  """
-  modality_overrides = getattr(model_hparams, "modality", {})
-  modality = {}
-  for feature_name, modality_type in six.iteritems(problem_hparams.modality):
-    vocab_size = problem_hparams.vocab_size[feature_name]
-    # If needed for using a pre-trained model's vocabulary where extra indices
-    # were allocated for adding new tasks with unique task ids.
-    if (hasattr(model_hparams, "multiproblem_vocab_size") and
-        model_hparams.multiproblem_vocab_size > 0):
-      vocab_size = model_hparams.multiproblem_vocab_size
-    # Override modality using to the associated value in modality_overrides.
-    modality_type = modality_overrides.get(feature_name, modality_type)
-    # Each modality is a ModalityType or class. If ModalityType, get the
-    # corresponding class.
-    if modality_type in modalities.ModalityType.get_choices():
-      modality_cls = getattr(modalities, modality_type)
-    else:
-      modality_cls = modality_type
-    modality[feature_name] = modality_cls(model_hparams, vocab_size)
-  problem_hparams.modality = modality
-
-
 def _default_hparams():
   """A set of basic model hyperparameters."""
   return HParams(
@@ -1051,6 +1023,7 @@ def _default_hparams():
       # chosen model architecture. It comprises key-value pairs of a feature
       # name (str) and its modality type.
       modality={},
+      vocab_size={},
 
       # Identifiers used to tell the model which input/target space will be
       # expected. For example, it can tell that we expect French as characters

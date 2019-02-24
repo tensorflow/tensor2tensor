@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -138,8 +138,8 @@ class TranslateEnfrWmt32kPacked(TranslateEnfrWmt32k):
     return 256
 
   @property
-  def vocab_filename(self):
-    return TranslateEnfrWmt32k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return TranslateEnfrWmt32k()
 
 
 @registry.register_problem
@@ -147,8 +147,8 @@ class TranslateEnfrWmt32kWithBacktranslateFr(TranslateEnfrWmt32k):
   """En-Fr translation with added French data, back-translated."""
 
   @property
-  def vocab_filename(self):
-    return TranslateEnfrWmt32k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return TranslateEnfrWmt32k()
 
   @property
   def already_shuffled(self):
@@ -248,5 +248,26 @@ class TranslateEnfrWmtMulti64k(TranslateEnfrWmtSmall32k):
     return False
 
   @property
-  def vocab_filename(self):
-    return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k()
+
+
+@registry.register_problem
+class TranslateEnfrWmtMulti64kPacked1k(TranslateEnfrWmtMulti64k):
+  """Translation with muli-lingual vocabulary."""
+
+  @property
+  def packed_length(self):
+    return 1024
+
+  @property
+  def num_training_examples(self):
+    return 1760600
+
+  @property
+  def inputs_prefix(self):
+    return "translate English French "
+
+  @property
+  def targets_prefix(self):
+    return "translate French English "

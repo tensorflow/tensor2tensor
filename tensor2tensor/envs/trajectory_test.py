@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,6 +30,7 @@ class TrajectoryTest(tf.test.TestCase):
     t = trajectory.Trajectory()
     self.assertFalse(t.is_active())
     self.assertEqual(0, t.num_time_steps())
+    self.assertFalse(t.done)
 
   def test_add_time_step(self):
     t = trajectory.Trajectory()
@@ -73,6 +74,21 @@ class TrajectoryTest(tf.test.TestCase):
 
     # Assert on the number of steps remaining the same as before.
     self.assertEqual(num_ts_old, t.num_time_steps())
+
+  def test_reward(self):
+    t = trajectory.Trajectory()
+    # first time-step doesn't have rewards, since they are on entering a state.
+    t.add_time_step(
+        observation=1, raw_reward=None, processed_reward=None, done=False)
+    t.add_time_step(
+        observation=2, raw_reward=2, processed_reward=200, done=False)
+    t.add_time_step(
+        observation=3, raw_reward=3, processed_reward=300, done=True)
+
+    raw_reward, processed_reward = t.reward
+
+    self.assertEqual(5, raw_reward)
+    self.assertEqual(500, processed_reward)
 
 
 class BatchTrajectoryTest(tf.test.TestCase):

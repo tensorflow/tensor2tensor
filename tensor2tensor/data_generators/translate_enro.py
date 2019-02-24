@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -78,8 +78,8 @@ class TranslateEnroWmtMulti64k(TranslateEnroWmt8k):
   """Translation with muli-lingual vocabulary."""
 
   @property
-  def vocab_filename(self):
-    return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k()
 
 
 @registry.register_problem
@@ -98,8 +98,8 @@ class TranslateEnroWmtMultiSmall64k(TranslateEnroWmt8k):
     }]
 
   @property
-  def vocab_filename(self):
-    return wiki_lm.LanguagemodelDeEnFrRoWiki64k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k()
 
   @property
   def how_many_examples_to_sample(self):
@@ -141,8 +141,29 @@ class TranslateEnroWmtMultiSmall64k(TranslateEnroWmt8k):
 
 @registry.register_problem
 class TranslateEnroWmtMultiTiny64k(TranslateEnroWmtMultiSmall64k):
-  """Translation with muli-lingual vocabulary, tiny (6K) training data."""
+  """Translation with muli-lingual vocabulary, tiny (600) training data."""
 
   @property
   def how_many_examples_to_sample(self):
     return 600
+
+
+@registry.register_problem
+class TranslateEnroWmtMultiTiny64kPacked1k(TranslateEnroWmtMultiTiny64k):
+  """Translation with muli-lingual vocabulary."""
+
+  @property
+  def packed_length(self):
+    return 1024
+
+  @property
+  def num_training_examples(self):
+    return 32
+
+  @property
+  def inputs_prefix(self):
+    return "translate English Romanian "
+
+  @property
+  def targets_prefix(self):
+    return "translate Romanian English "

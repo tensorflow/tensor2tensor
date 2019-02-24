@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -379,7 +379,7 @@ def vae(x, z_size, name=None):
     epsilon = tf.random_normal([shape[0], shape[1], 1, z_size])
     z = mu + tf.exp(log_sigma / 2) * epsilon
     kl = 0.5 * tf.reduce_mean(
-        tf.exp(log_sigma) + tf.square(mu) - 1. - log_sigma, axis=-1)
+        tf.expm1(log_sigma) + tf.square(mu) - log_sigma, axis=-1)
     free_bits = z_size // 4
     kl_loss = tf.reduce_mean(tf.maximum(kl - free_bits, 0.0))
     return z, kl_loss, mu, log_sigma

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -154,7 +154,7 @@ class TransformerBlockParallel(transformer.Transformer):
       """Inference step."""
 
       def print_info(result, length, new_length):
-        vocab = self._hparams.problem_hparams.vocabulary["targets"]
+        vocab = self.problem_hparams.vocabulary["targets"]
         tf.logging.info(
             "length=%s new_length=%s length_diff=%s new_suffix=%s",
             length,

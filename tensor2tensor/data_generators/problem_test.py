@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -89,28 +89,10 @@ class ProblemTest(parameterized.TestCase, tf.test.TestCase):
     problem = problem_hparams.TestProblem(input_vocab_size=2,
                                           target_vocab_size=3)
     p_hparams = problem.get_hparams()
-    self.assertIsInstance(p_hparams.modality["inputs"],
-                          modalities.SymbolModality)
-    self.assertIsInstance(p_hparams.modality["targets"],
-                          modalities.SymbolModality)
-
-  @test_utils.run_in_graph_and_eager_modes()
-  def testProblemHparamsModalityObj(self):
-    class ModalityObjProblem(problem_module.Problem):
-
-      def hparams(self, defaults, model_hparams):
-        hp = defaults
-        hp.modality = {"inputs": modalities.SymbolModality,
-                       "targets": modalities.SymbolModality}
-        hp.vocab_size = {"inputs": 2,
-                         "targets": 3}
-
-    problem = ModalityObjProblem(False, False)
-    p_hparams = problem.get_hparams()
-    self.assertIsInstance(p_hparams.modality["inputs"],
-                          modalities.SymbolModality)
-    self.assertIsInstance(p_hparams.modality["targets"],
-                          modalities.SymbolModality)
+    self.assertEqual(p_hparams.modality["inputs"],
+                     modalities.ModalityType.SYMBOL)
+    self.assertEqual(p_hparams.modality["targets"],
+                     modalities.ModalityType.SYMBOL)
 
   @test_utils.run_in_graph_and_eager_modes()
   def testProblemHparamsInputOnlyModality(self):
@@ -118,13 +100,13 @@ class ProblemTest(parameterized.TestCase, tf.test.TestCase):
 
       def hparams(self, defaults, model_hparams):
         hp = defaults
-        hp.modality = {"inputs": modalities.SymbolModality}
+        hp.modality = {"inputs": modalities.ModalityType.SYMBOL}
         hp.vocab_size = {"inputs": 2}
 
     problem = InputOnlyProblem(False, False)
     p_hparams = problem.get_hparams()
-    self.assertIsInstance(p_hparams.modality["inputs"],
-                          modalities.SymbolModality)
+    self.assertEqual(p_hparams.modality["inputs"],
+                     modalities.ModalityType.SYMBOL)
     self.assertLen(p_hparams.modality, 1)
 
   @test_utils.run_in_graph_and_eager_modes()
@@ -133,13 +115,13 @@ class ProblemTest(parameterized.TestCase, tf.test.TestCase):
 
       def hparams(self, defaults, model_hparams):
         hp = defaults
-        hp.modality = {"targets": modalities.SymbolModality}
+        hp.modality = {"targets": modalities.ModalityType.SYMBOL}
         hp.vocab_size = {"targets": 3}
 
     problem = TargetOnlyProblem(False, False)
     p_hparams = problem.get_hparams()
-    self.assertIsInstance(p_hparams.modality["targets"],
-                          modalities.SymbolModality)
+    self.assertEqual(p_hparams.modality["targets"],
+                     modalities.ModalityType.SYMBOL)
     self.assertLen(p_hparams.modality, 1)
 
   @test_utils.run_in_graph_and_eager_modes()

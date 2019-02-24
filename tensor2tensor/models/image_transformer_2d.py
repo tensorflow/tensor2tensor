@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -382,7 +382,7 @@ def image_transformer2d_base():
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.98
   hparams.label_smoothing = 0.0
-  hparams.modality["targets"] = modalities.IdentityModality
+  hparams.modality["targets"] = modalities.ModalityType.IDENTITY
   hparams.norm_type = "layer"
   hparams.layer_prepostprocess_dropout = 0.0
   hparams.add_hparam("filter_size", 512)  # Add new ones like this.
@@ -783,7 +783,7 @@ def imagetransformer2d_tiny():
 
 def update_hparams_for_tpu(hparams):
   hparams.use_pad_remover = False  # where op not supported
-  hparams.optimizer = "TrueAdam"
+  hparams.optimizer = "true_adam"
   hparams.batch_size = 4
 
 

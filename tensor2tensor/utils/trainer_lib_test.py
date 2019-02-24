@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -110,6 +110,11 @@ class TrainerLibTest(tf.test.TestCase):
         "targets": hparams.problem_hparams.modality["targets"],
         "targets_A": hparams.problem_hparams.modality["targets"],
         "targets_B": hparams.problem_hparams.modality["targets"],
+    }
+    hparams.problem_hparams.vocab_size = {
+        "targets": hparams.problem_hparams.vocab_size["targets"],
+        "targets_A": hparams.problem_hparams.vocab_size["targets"],
+        "targets_B": hparams.problem_hparams.vocab_size["targets"],
     }
     hparams.problem._hparams = hparams.problem_hparams
 

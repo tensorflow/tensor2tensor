@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -97,7 +97,7 @@ class MtfUnitransformer(mtf_model.MtfModel):
     x = tf.to_int32(features[key])
     x = common_layers.expand_squeeze_to_nd(x, 2)
     batch_size = mtf.Shape(self.batch_dims).size
-    # pad to length
+    x = x[:, :self.length_dim.size]
     extra_length = self.length_dim.size - tf.shape(x)[1]
     extra_batch = batch_size - tf.shape(x)[0]
     x = tf.pad(x, [[0, extra_batch], [0, extra_length]])
@@ -135,13 +135,20 @@ class MtfUnitransformer(mtf_model.MtfModel):
     def import_feature(key):
       return self._import_feature(features, mesh, key)
     targets = import_feature("targets")
+    sequence_id = import_feature("targets_segmentation")
+    if hparams.use_global_position_in_packed_sequence:
+      position = None
+    else:
+      position = import_feature("targets_position")
     if self.autoregressive:
       inputs = mtf.shift(
           targets, offset=1, dim=self.length_dim, wrap=False)
+      # We should have a 0 at the beginning of each sequence rather than the
+      # shifted EOS (1) from the previous sequence.
+      inputs -= mtf.to_int32(mtf.equal(inputs, 1))
     else:
       inputs = import_feature("inputs")
       # TODO(noam): options for bert-style masking here?
-    sequence_id = import_feature("targets_segmentation")
     model = self.model()
     logits, loss = model.call_simple(
         inputs=inputs,
@@ -149,7 +156,8 @@ class MtfUnitransformer(mtf_model.MtfModel):
         compute_loss=True,
         mode=hparams.mode,
         variable_dtype=self.variable_dtype,
-        sequence_id=sequence_id)
+        sequence_id=sequence_id,
+        position=position)
     return logits, loss
 
   def mtf_model_fn(self, features, mesh):
@@ -160,15 +168,13 @@ class MtfUnitransformer(mtf_model.MtfModel):
 
   @property
   def _targets_vocab_size(self):
-    targets_vocab_size = self._problem_hparams.modality[
-        "targets"].top_dimensionality
+    targets_vocab_size = self._problem_hparams.vocab_size["targets"]
     targets_vocab_size += (-targets_vocab_size) % self._hparams.vocab_divisor
     return targets_vocab_size
 
   @property
   def _inputs_vocab_size(self):
-    inputs_vocab_size = self._problem_hparams.modality[
-        "inputs"].top_dimensionality
+    inputs_vocab_size = self._problem_hparams.vocab_size["inputs"]
     inputs_vocab_size += (-inputs_vocab_size) % self._hparams.vocab_divisor
     return inputs_vocab_size
 
@@ -243,6 +249,12 @@ class MtfBitransformer(MtfUnitransformer):
     decoder_sequence_id = import_feature("targets_segmentation")
     if decoder_sequence_id is None:
       decoder_sequence_id = mtf.to_int32(mtf.not_equal(targets, 0))
+    if hparams.use_global_position_in_packed_sequence:
+      encoder_position = None
+      decoder_position = None
+    else:
+      encoder_position = import_feature("inputs_position")
+      decoder_position = import_feature("targets_position")
     model = self.model()
     logits, loss = model.call_simple(
         inputs=inputs,
@@ -251,7 +263,9 @@ class MtfBitransformer(MtfUnitransformer):
         mode=hparams.mode,
         variable_dtype=self.variable_dtype,
         encoder_sequence_id=encoder_sequence_id,
-        decoder_sequence_id=decoder_sequence_id)
+        decoder_sequence_id=decoder_sequence_id,
+        encoder_position=encoder_position,
+        decoder_position=decoder_position)
     return logits, loss
 
   def sample(self, features, mesh):
@@ -340,7 +354,7 @@ def layer_stack_from_hparams(hparams, prefix):
   """Create a layer stack based on the hyperparameter values."""
   layers = hparams.get(prefix + "layers")
   return transformer.LayerStack(
-      [layers_registry.get(l)(hparams, prefix) for l in layers],
+      [layers_registry[l](hparams, prefix) for l in layers],
       dropout_rate=hparams.layer_prepostprocess_dropout,
       norm_epsilon=hparams.norm_epsilon)
 
@@ -409,6 +423,14 @@ def mtf_transformer2_base():
       "targets": modalities.ModalityType.IDENTITY_SYMBOL,
   }
   hparams.add_hparam("beam_size", 1)
+
+  # If this is True, then in a packed dataset (where exaples are concatenated
+  # to form longer examples) we use the global position (within the concatenated
+  # sequence) to compute the positional embedding, instead of the position
+  # within the individual sequence.  This is counterintuitive, but for some
+  # reason, it keeps the model from diverging.
+  hparams.add_hparam("use_global_position_in_packed_sequence", True)
+
   return hparams
 
 
@@ -461,6 +483,8 @@ def mtf_bitransformer_base():
   #        decode_length_multiplier * input_length + decode_length_constant)
   hparams.add_hparam("decode_length_multiplier", 1.5)
   hparams.add_hparam("decode_length_constant", 10.0)
+  # used during decoding
+  hparams.add_hparam("alpha", 0.6)
   hparams.sampling_temp = 0.0
   return hparams
 

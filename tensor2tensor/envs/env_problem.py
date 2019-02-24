@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -125,15 +125,12 @@ class EnvProblem(Env, problem.Problem):
 
   def __init__(self,
                base_env_name=None,
-               base_env_kwargs=None,
                batch_size=None,
                reward_range=(-np.inf, np.inf)):
     """Initializes this class by creating the envs and managing trajectories.
 
     Args:
       base_env_name: (string) passed to `gym_utils.make_gym_env` to make the
-        underlying environment.
-      base_env_kwargs: (dict) passed to `gym_utils.make_gym_env` to make the
         underlying environment.
       batch_size: (int or None): How many envs to make in the non natively
         batched mode.
@@ -148,13 +145,6 @@ class EnvProblem(Env, problem.Problem):
     # Name for the base environment, will be used in `gym_utils.make_gym_env` in
     # the default implementation of `initialize_environments`.
     self._base_env_name = base_env_name
-
-    # Other arguments for initializing environments, will be used in
-    # `gym_utils.make_gym_env` in the default implementation of
-    # `initialize_environments`.
-    self._base_env_kwargs = base_env_kwargs
-    if not self._base_env_kwargs:
-      self._base_env_kwargs = {}
 
     # An env generates data when it is given actions by an agent which is either
     # a policy or a human -- this is supposed to be the `id` of the agent.
@@ -238,8 +228,8 @@ class EnvProblem(Env, problem.Problem):
         tf.logging.error("Env[%d] has action space [%s]", i, env.action_space)
       raise ValueError(err_str)
 
-  def initialize(self, batch_size=1):
-    self.initialize_environments(batch_size=batch_size)
+  def initialize(self, **kwargs):
+    self.initialize_environments(**kwargs)
 
     # Assert that *all* the above are now set, we should do this since
     # subclasses can override `initialize_environments`.
@@ -249,7 +239,8 @@ class EnvProblem(Env, problem.Problem):
     assert self._reward_range is not None
     assert self._trajectories is not None
 
-  def initialize_environments(self, batch_size=1):
+  def initialize_environments(self, batch_size=1, max_episode_steps=-1,
+                              max_and_skip_env=False):
     """Initializes the environments and trajectories.
 
     Subclasses can override this if they don't want a default implementation
@@ -258,21 +249,20 @@ class EnvProblem(Env, problem.Problem):
 
     Args:
       batch_size: (int) Number of `self.base_env_name` envs to initialize.
+      max_episode_steps: (int) Passed on to `gym_utils.make_gym_env`.
+      max_and_skip_env: (boolean) Passed on to `gym_utils.make_gym_env`.
     """
 
     assert batch_size >= 1
     self._batch_size = batch_size
-
-    max_steps = self._base_env_kwargs.get("rl_env_max_episode_steps", -1)
-    maxskip_env = self._base_env_kwargs.get("maxskip_env", False)
 
     self._envs = []
     for _ in range(batch_size):
       self._envs.append(
           gym_utils.make_gym_env(
               self.base_env_name,
-              rl_env_max_episode_steps=max_steps,
-              maxskip_env=maxskip_env))
+              rl_env_max_episode_steps=max_episode_steps,
+              maxskip_env=max_and_skip_env))
 
     # If self.observation_space and self.action_space aren't None, then it means
     # that this is a re-initialization of this class, in that case make sure
@@ -362,9 +352,7 @@ class EnvProblem(Env, problem.Problem):
     return (min_reward != -np.inf) and (max_reward != np.inf)
 
   def process_rewards(self, rewards):
-    """Clips, rounds, adds the min_reward and changes to integer type.
-
-    The result of the above is that the new minimum is 0.
+    """Clips, rounds, and changes to integer type.
 
     Args:
       rewards: numpy array of raw (float) rewards.
@@ -375,8 +363,8 @@ class EnvProblem(Env, problem.Problem):
 
     min_reward, max_reward = self.reward_range
 
-    # Clips at min and max reward and shift by min (so new min is 0)
-    rewards = np.clip(rewards, min_reward, max_reward) - min_reward
+    # Clips at min and max reward.
+    rewards = np.clip(rewards, min_reward, max_reward)
     # Round to (nearest) int and convert to integral type.
     rewards = np.around(rewards, decimals=0).astype(np.int64)
     return rewards
@@ -651,6 +639,8 @@ class EnvProblem(Env, problem.Problem):
 
   @agent_id.setter
   def agent_id(self, agent_id):
+    # Lets us call agent_id with integers that we increment.
+    agent_id = str(agent_id)
     # We use `-` in self.dataset_filename, disallow it here for convenience.
     if "-" in agent_id:
       raise ValueError("agent_id shouldn't have - in it.")
@@ -714,12 +704,12 @@ class EnvProblem(Env, problem.Problem):
 
         yield {
             TIMESTEP_FIELD: [index],
-            ACTION_FIELD:
-                action,
-            RAW_REWARD_FIELD:
-                [float(raw_reward)],  # to_example errors on np.float32
+            ACTION_FIELD: action,
+            # to_example errors on np.float32
+            RAW_REWARD_FIELD: [float(raw_reward)],
             PROCESSED_REWARD_FIELD: [processed_reward],
-            DONE_FIELD: [int(time_step.done)],  # to_example doesn't know bools
+            # to_example doesn't know bools
+            DONE_FIELD: [int(time_step.done)],
             OBSERVATION_FIELD:
                 gym_spaces_utils.gym_space_encode(self.observation_space,
                                                   time_step.observation),

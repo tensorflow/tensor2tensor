@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -77,14 +77,14 @@ def _bucket_boundaries(max_length, min_length=8, length_bucket_step=1.1):
   return boundaries
 
 
-def _batching_scheme(batch_size,
-                     max_length,
-                     min_length_bucket,
-                     length_bucket_step,
-                     drop_long_sequences=False,
-                     shard_multiplier=1,
-                     length_multiplier=1,
-                     min_length=0):
+def batching_scheme(batch_size,
+                    max_length,
+                    min_length_bucket,
+                    length_bucket_step,
+                    drop_long_sequences=False,
+                    shard_multiplier=1,
+                    length_multiplier=1,
+                    min_length=0):
   """A batching scheme based on model hyperparameters.
 
   Every batch contains a number of sequences divisible by `shard_multiplier`.
@@ -169,7 +169,7 @@ def hparams_to_batching_scheme(hparams,
                                shard_multiplier=1,
                                length_multiplier=1):
   """Wrapper around _batching_scheme with hparams."""
-  return _batching_scheme(
+  return batching_scheme(
       batch_size=hparams.batch_size,
       min_length=hparams.min_length,
       max_length=hparams.max_length,
@@ -437,18 +437,18 @@ def input_fn(dataset,
     else:
       # On GPU, bucket by length
       dataset = dataset.filter(gpu_valid_size)
-      batching_scheme = hparams_to_batching_scheme(
+      cur_batching_scheme = hparams_to_batching_scheme(
           hparams,
           shard_multiplier=num_shards,
           length_multiplier=batch_size_multiplier)
       if hparams.use_fixed_batch_size:
         # Here  batch_size really means examples per datashard.
-        batching_scheme["batch_sizes"] = [hparams.batch_size]
-        batching_scheme["boundaries"] = []
+        cur_batching_scheme["batch_sizes"] = [hparams.batch_size]
+        cur_batching_scheme["boundaries"] = []
       dataset = dataset.apply(
           tf.data.experimental.bucket_by_sequence_length(
-              example_length, batching_scheme["boundaries"],
-              batching_scheme["batch_sizes"]))
+              example_length, cur_batching_scheme["boundaries"],
+              cur_batching_scheme["batch_sizes"]))
 
       if not is_training:
         batch_multiple = num_shards
@@ -476,6 +476,40 @@ def input_fn(dataset,
   if (is_training and hasattr(hparams, "batch_shuffle_size") and
       hparams.batch_shuffle_size):
     dataset = dataset.shuffle(hparams.batch_shuffle_size)
+
+  # Split batches into chunks if targets are too long.
+  # The new "chunk_number" feature is 0 for the first chunk and goes up then.
+  # Chunks are reversed so the 0th chunk comes first, then the 1st and so on,
+  # so models can attend to them in the order they arrive. The last chunk is
+  # usually the one containing the end of the target sentence (EOS).
+  chunk_length = hparams.get("split_targets_chunk_length", 0)
+  max_chunks = hparams.get("split_targets_max_chunks", 100)
+  if chunk_length > 0:
+    def is_nonzero_chunk(example):
+      """A chunk is zero if all targets are 0s."""
+      return tf.less(0, tf.reduce_sum(tf.abs(example["targets"])))
+
+    def split_on_length(example):
+      """Split a batch of ditcs on length."""
+      x = example["targets"]
+      length_diff = chunk_length * max_chunks - tf.shape(x)[1]
+      padded_x = tf.pad(x, [(0, 0), (0, length_diff), (0, 0), (0, 0)])
+      chunks = [padded_x[:, i*chunk_length:(i+1)*chunk_length, :, :]
+                for i in range(max_chunks - 1)]
+      chunks.append(padded_x[:, (max_chunks - 1)*chunk_length:, :, :])
+      new_example = {}
+      new_example["chunk_number"] = tf.range(max_chunks)
+      new_example["targets"] = tf.concat(
+          [tf.expand_dims(c, axis=0) for c in chunks], axis=0)
+      for k in example:
+        if k != "targets":
+          new_example[k] = tf.concat(
+              [tf.expand_dims(example[k], axis=0) for _ in range(max_chunks)],
+              axis=0)
+      return tf.data.Dataset.from_tensor_slices(new_example)
+
+    dataset = dataset.flat_map(split_on_length)
+    dataset = dataset.filter(is_nonzero_chunk)
 
   def prepare_for_output(example):
     if not config or not config.use_tpu:

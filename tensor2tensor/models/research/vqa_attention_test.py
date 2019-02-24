@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -45,13 +45,12 @@ class VqaAttentionBaselineTest(tf.test.TestCase):
         num_classes + 1, size=(batch_size, answer_length, 1, 1))
     hparams = vqa_attention.vqa_attention_base()
     p_hparams = problem_hparams.test_problem_hparams(vocab_size,
-                                                     vocab_size,
+                                                     num_classes + 1,
                                                      hparams)
-    p_hparams.modality["inputs"] = modalities.ImageModality(hparams)
-    p_hparams.modality["question"] = modalities.SymbolModality(
-        hparams, vocab_size)
-    p_hparams.modality["targets"] = modalities.MultiLabelModality(
-        hparams, num_classes + 1)
+    p_hparams.modality["inputs"] = modalities.ModalityType.IMAGE
+    p_hparams.modality["targets"] = modalities.ModalityType.MULTI_LABEL
+    p_hparams.modality["question"] = modalities.ModalityType.SYMBOL
+    p_hparams.vocab_size["question"] = vocab_size
     with self.test_session() as session:
       features = {
           "inputs": tf.constant(x, dtype=tf.float32),

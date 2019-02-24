@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -46,110 +46,52 @@ class Modality(object):
     same as the `bottom` function, and that is the default we use. But, e.g.,
     for images, a different function might be needed to regress properly.
   * `loss` would compare the generated image to the target image and score it.
-
-  All the functions have simple and sharded versions. A sub-class only needs to
-  implement the simple version, the default sharding will be used then.
   """
 
   def __init__(self, model_hparams, vocab_size=None):
-    self._model_hparams = model_hparams
-    if vocab_size is not None and hasattr(model_hparams, "vocab_divisor"):
-      vocab_size += (0 - vocab_size) % model_hparams.vocab_divisor
-    self._vocab_size = vocab_size
+    # __init__ args are unused in any methods. They're maintained for
+    # backwards compatibility for now. In the future, Modality classes will be
+    # removed altogether.
+    del model_hparams, vocab_size
 
-  @property
-  def name(self):
-    return misc_utils.camelcase_to_snakecase(type(self).__name__)
+  @classmethod
+  def name(cls, model_hparams, vocab_size=None):
+    del model_hparams, vocab_size  # unused arg
+    return misc_utils.camelcase_to_snakecase(type(cls).__name__)
 
-  @property
-  def top_dimensionality(self):
-    """Integer, the last dimension of the predictions (vocab size)."""
-    return self._vocab_size
+  targets_weights_fn = staticmethod(common_layers.weights_all)
 
-  @property
-  def _body_input_depth(self):
-    return self._model_hparams.hidden_size
-
-  @property
-  def top_is_pointwise(self):
-    """Whether the top mapping of the modality is pointwise.
-
-    An example of a pointwise top mapping is a linear layer followed by
-    a softmax. Given a tensor [batch, length, height, depth] it operates
-    only on the last axis, on every point in [batch, length, height] fully
-    independently. In contrast, a classifier that first averages over length
-    and height is not pointwise, as it depends on the whole field. It is useful
-    to know if a top is pointwise to speed up decoding in certain models.
-
-    Returns:
-      A Boolean, True if the modality is pointwise, False otherwise (default).
-    """
-    return False
-
-  @property
-  def targets_weights_fn(self):
-    """The weights function to use for loss and eval metrics.
-
-    A weights function takes labels and returns a Tensor that assigns weights
-    (usually either 1. or 0.) to each one.
-
-    Common weights functions are:
-      * weights_all: 1. for all labels
-      * weights_nonzero: 1. for all non-zero labels (e.g. to deal with padding)
-
-    Returns:
-      Callable: (targets) -> weights Tensor
-    """
-    return common_layers.weights_all
-
-  def bottom(self, x):
+  @staticmethod
+  def bottom(x, model_hparams, vocab_size=None):
     """Transform one shard of input.
 
     Args:
       x: An int32 Tensor with shape [batch, p0, p1, input_channels]
+      model_hparams: tf.HParams, model hyperparmeters.
+      vocab_size: int, vocabulary size.
+
     Returns:
       A float32 Tensor with shape [batch, p0, p1, body_input_depth]
     """
     raise NotImplementedError("Abstract Method")
 
-  def bottom_sharded(self, xs, data_parallelism):
-    """Transform the inputs.
-
-    Args:
-      xs: A list of num_datashards Tensors (one per shard)
-        each with shape [batch, p0, p1, depth]
-      data_parallelism: a expert_utils.Parallelism object
-    Returns:
-      shaded_body_input: A list of num_datashards Tensors, each with shape
-        [batch, p0, p1, body_input_depth].
-    """
-    return data_parallelism(self.bottom, xs)
-
-  def targets_bottom(self, x):
+  @classmethod
+  def targets_bottom(cls, x, model_hparams, vocab_size=None):
     """Transform one shard of targets.
 
     Args:
       x: An int32 Tensor with shape [batch, p0, p1, target_channels]
+      model_hparams: tf.HParams, model hyperparmeters.
+      vocab_size: int, vocabulary size.
+
     Returns:
       A float32 Tensor with shape [batch, p0, p1, body_input_depth]
     """
     with tf.variable_scope("targets_bottom"):
-      return self.bottom(x)
+      return cls.bottom(x, model_hparams, vocab_size)
 
-  def targets_bottom_sharded(self, xs, data_parallelism):
-    """Transform the targets.
-
-    Args:
-      xs: A list of num_datashards Tensors (one per shard)
-        each with shape [batch, p0, p1, target_channels]
-      data_parallelism: a expert_utils.Parallelism object
-    Returns:
-      shaded_body_input: A list of num_datashards Tensors, each with shape
-        [batch, p0, p1, body_input_depth].
-    """
-    return data_parallelism(self.targets_bottom, xs)
-
-  def top(self, body_output, targets):
+  @staticmethod
+  def top(body_output, targets, model_hparams, vocab_size=None):
     """Generate predictions/logits for one shard of output.
 
     Most classes will override this function.
@@ -158,45 +100,22 @@ class Modality(object):
       body_output: A Tensor with shape [batch, p0, p1, body_output_depth]
       targets: A Tensor with shape [batch, p0, p1, targets_channels,
         top_dimensionality]
+      model_hparams: tf.HParams, model hyperparmeters.
+      vocab_size: int, vocabulary size.
+
     Returns:
       A Tensor of class logits.
     """
     raise NotImplementedError("Abstract Method")
 
-  def top_sharded(self, sharded_body_output, sharded_targets, data_parallelism):
-    """Generate predictions/logits for all shards.
-
-    Classes with cross-shard interaction will override this function.
-
-    Args:
-      sharded_body_output: A list of Tensors.
-      sharded_targets: A list of Tensors.
-      data_parallelism: a expert_utils.Parallelism object.
-    Returns:
-      sharded_logits: A list of Tensors.
-    """
-    return data_parallelism(self.top, sharded_body_output, sharded_targets)
-
-  def loss(self, top_out, targets, weights_fn=None):
+  @staticmethod
+  def loss(top_out, targets, model_hparams, vocab_size, weights_fn):
     """Compute loss numerator and denominator for one shard of output."""
+    del vocab_size  # unused arg
     logits = top_out
-    if weights_fn is None:
-      weights_fn = self.targets_weights_fn
-    logits = common_attention.maybe_upcast(logits, hparams=self._model_hparams)
+    logits = common_attention.maybe_upcast(logits, hparams=model_hparams)
     return common_layers.padded_cross_entropy(
         logits,
         targets,
-        self._model_hparams.label_smoothing,
+        model_hparams.label_smoothing,
         weights_fn=weights_fn)
-
-  def loss_sharded(self, sharded_top_out, sharded_targets, data_parallelism):
-    """Compute loss for all shards."""
-    sharded_loss_num, sharded_loss_den = data_parallelism(
-        self.loss, sharded_top_out, sharded_targets)
-    loss = tf.add_n(sharded_loss_num) / tf.maximum(1.0,
-                                                   tf.add_n(sharded_loss_den))
-    return loss
-
-  @property
-  def is_class_modality(self):
-    return self.name.startswith("class_label")

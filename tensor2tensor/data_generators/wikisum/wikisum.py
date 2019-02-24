@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -90,8 +90,8 @@ class WikisumBase(problem.Problem):
         "targets": self._encoders["targets"].vocab_size,
     }
     p.modality = {
-        "inputs": modalities.SymbolModality,
-        "targets": modalities.SymbolModality,
+        "inputs": modalities.ModalityType.SYMBOL,
+        "targets": modalities.ModalityType.SYMBOL,
     }
 
   def eval_metrics(self):

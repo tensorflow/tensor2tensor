@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,9 +21,11 @@ from __future__ import print_function
 import contextlib
 import os
 import sys
+import gin
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.data_generators import problem  # pylint: disable=unused-import
+
 from tensor2tensor.utils import cloud_mlengine
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
@@ -35,6 +37,12 @@ from tensor2tensor.utils import usr_dir
 import tensorflow as tf
 
 from tensorflow.contrib.tpu.python.tpu import tpu_config
+
+try:
+  from tensor2tensor.jax import j2j  # pylint: disable=g-import-not-at-top
+except (TypeError, ImportError):
+  pass
+
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -69,6 +77,7 @@ flags.DEFINE_integer("inter_op_parallelism_threads", 0,
 flags.DEFINE_integer("intra_op_parallelism_threads", 0,
                      "Number of intra_op_parallelism_threads to use for CPU. "
                      "See TensorFlow config.proto for details.")
+flags.DEFINE_bool("jax", False, "Whether to use J2J.")
 # TODO(lukaszkaiser): resolve memory and variable assign issues and set to True.
 flags.DEFINE_bool(
     "optionally_use_dist_strat", False,
@@ -356,6 +365,29 @@ def run_std_server():
 
 def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
+
+  if FLAGS.jax:
+    # Hacking main v1 flags to work with jax.
+    config_strs = []
+    config_strs.append(
+        "train_fn.train_steps=" + str(FLAGS.train_steps))
+    config_strs.append(
+        "train_fn.eval_steps=" + str(FLAGS.eval_steps))
+    config_strs.append(
+        "train_fn.eval_frequency=" + str(FLAGS.local_eval_frequency))
+    if FLAGS.hparams:
+      config_strs.extend(str(FLAGS.hparams).split(","))
+    data_dir = os.path.expanduser(FLAGS.data_dir)
+    output_dir = os.path.expanduser(FLAGS.output_dir)
+
+    gin.bind_parameter("train_fn.dataset", FLAGS.problem)
+    config_strs += ["train_fn.model=@" + FLAGS.model]
+    config_files = []
+    if FLAGS.hparams_set:
+      config_files = [os.path.expanduser(FLAGS.hparams_set)]
+    gin.parse_config_files_and_bindings(config_files, config_strs)
+    j2j.train_fn(data_dir, output_dir=output_dir)
+    return
 
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 

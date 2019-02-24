@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -50,6 +50,7 @@ def decode_hparams(overrides=""):
       save_images=False,
       log_results=True,
       extra_length=100,
+      min_length_ratio=0.0,
       batch_size=0,
       beam_size=4,
       alpha=0.6,
@@ -57,13 +58,14 @@ def decode_hparams(overrides=""):
       block_size=0,
       guess_and_check_top_k=0,
       guess_and_check_epsilon=-1,
+      insertion_parallel=False,
       return_beams=False,
       write_beam_scores=False,
       max_input_size=-1,
       identity_output=False,
-      num_samples=-1,
+      num_samples=-1,  # Number of examples to decode.
       delimiter="\n",
-      decode_to_file=None,
+      decode_to_file=None,  # str. Prefix for filename to write decodings to.
       decode_in_memory=False,
       # How much decode should wait for the next checkpoint
       decode_timeout_mins=240,
@@ -72,7 +74,7 @@ def decode_hparams(overrides=""):
       shard_id=0,  # Which shard are we decoding if more than 1 above.
       shards_start_offset=0,  # Number of the first shard to decode.
       shard_google_format=False,  # If True use Google shard naming format.
-      num_decodes=1,
+      num_decodes=1,  # Number of times to go over the dataset.
       force_decode_length=False,
       display_decoded_images=False,
       # Multi-problem decoding task id.
@@ -179,7 +181,7 @@ def decode_from_dataset(estimator,
   # We assume that worker_id corresponds to shard number.
   shard = decode_hp.shard_id if decode_hp.shards > 1 else None
 
-  # Setup decode output directory for any artifacts that may be written out
+  # Setup output directory for any artifacts that may be written out.
   output_dir = os.path.join(estimator.model_dir, "decode")
   tf.gfile.MakeDirs(output_dir)
 
@@ -216,7 +218,7 @@ def decode_from_dataset(estimator,
                          decode_hp,
                          decode_to_file,
                          output_dir,
-                         log_results=not decode_hp.decode_in_memory,
+                         log_results=decode_hp.log_results,
                          checkpoint_path=checkpoint_path)
 
     if decode_hp.decode_in_memory:
@@ -247,7 +249,30 @@ def decode_once(estimator,
                 output_dir,
                 log_results=True,
                 checkpoint_path=None):
-  """Decodes once."""
+  """Decodes once.
+
+  Args:
+    estimator: tf.estimator.Estimator instance. Used to generate encoded
+      predictions.
+    problem_name: str. Name of problem.
+    hparams: tf.HParams instance. HParams for model training.
+    infer_input_fn: zero-arg function. Input function for estimator.
+    decode_hp: tf.HParams instance. See decode_hparams() above.
+    decode_to_file: str. Prefix for filenames. Used to generated filenames to
+      which decoded predictions are written.
+    output_dir: str. Output directory. Only used for writing images.
+    log_results: bool. If False, return encoded predictions without any
+      further processing.
+    checkpoint_path: str. Path to load model checkpoint from. If unspecified,
+      Estimator's default is used.
+
+  Returns:
+    If decode_hp.decode_in_memory is True:
+      List of dicts, one per example. Values are either numpy arrays or decoded
+      strings.
+    If decode_hp.decode_in_memory is False:
+      An empty list.
+  """
 
   # Get the predictions as an iterable
   predictions = estimator.predict(infer_input_fn,
@@ -279,6 +304,10 @@ def decode_once(estimator,
   targets_vocab = problem_hparams.vocabulary["targets"]
 
   num_eval_samples = 0
+
+  # all_outputs[i][j] = (input: str, output: str, target: str). Input,
+  # decoded output, and target strings for example i, beam rank j.
+  all_outputs = []
   for num_predictions, prediction in enumerate(predictions):
     num_eval_samples += 1
     num_predictions += 1
@@ -287,8 +316,11 @@ def decode_once(estimator,
     outputs = prediction.get("outputs")
 
     # Log predictions
-    decoded_outputs = []
+    decoded_outputs = []  # [(str, str, str)]. See all_outputs above.
+    if decode_hp.decode_in_memory:
+      all_outputs.append(decoded_outputs)
     decoded_scores = []
+
     if decode_hp.return_beams:
       output_beams = np.split(outputs, decode_hp.beam_size, axis=0)
       scores = None
@@ -308,7 +340,7 @@ def decode_once(estimator,
             output_dir=output_dir,
             identity_output=decode_hp.identity_output,
             targets=targets,
-            log_results=decode_hp.log_results)
+            log_results=log_results)
         decoded_outputs.append(decoded)
         if decode_hp.write_beam_scores:
           decoded_scores.append(score)
@@ -324,7 +356,7 @@ def decode_once(estimator,
           output_dir=output_dir,
           identity_output=decode_hp.identity_output,
           targets=targets,
-          log_results=decode_hp.log_results)
+          log_results=log_results)
       decoded_outputs.append(decoded)
 
     # Write out predictions if decode_to_file passed
@@ -352,6 +384,8 @@ def decode_once(estimator,
     output_file.close()
     target_file.close()
     input_file.close()
+
+  return all_outputs
 
 
 def decode_from_file(estimator,
@@ -383,7 +417,8 @@ def decode_from_file(estimator,
     sorted_inputs = _get_language_modeling_inputs(
         filename, decode_hp.delimiter, repeat=decode_hp.num_decodes)
     sorted_keys = range(len(sorted_inputs))
-  num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
+  num_sentences = len(sorted_inputs)
+  num_decode_batches = (num_sentences - 1) // decode_hp.batch_size + 1
 
   if estimator.config.use_tpu:
     length = getattr(hparams, "length", 0) or hparams.max_length
@@ -476,11 +511,20 @@ def decode_from_file(estimator,
       decodes.append(decoded_outputs)
     total_time_per_step += elapsed_time
     total_cnt += result["outputs"].shape[-1]
-  tf.logging.info("Elapsed Time: %5.5f" % (time.time() - start_time))
+  duration = time.time() - start_time
+  tf.logging.info("Elapsed Time: %5.5f" % duration)
   tf.logging.info("Averaged Single Token Generation Time: %5.7f "
                   "(time %5.7f count %d)" %
                   (total_time_per_step / total_cnt,
                    total_time_per_step, total_cnt))
+  if decode_hp.batch_size == 1:
+    tf.logging.info("Inference time %.4f seconds "
+                    "(Latency = %.4f ms/setences)" %
+                    (duration, 1000.0*duration/num_sentences))
+  else:
+    tf.logging.info("Inference time %.4f seconds "
+                    "(Throughput = %.4f sentences/second)" %
+                    (duration, num_sentences/duration))
 
   # If decode_to_file was provided use it as the output filename without change
   # (except for adding shard_id if using more shards for decoding).

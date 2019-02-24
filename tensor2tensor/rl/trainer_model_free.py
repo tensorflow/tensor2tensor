@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,6 +21,16 @@ python -m tensor2tensor.rl.trainer_model_free \
     --output_dir=$HOME/t2t/rl_v1 \
     --hparams_set=pong_model_free \
     --hparams='batch_size=15'
+
+Example invocation with EnvProblem interface:
+
+python -m tensor2tensor.rl.trainer_model_free \
+  --env_problem_name=tic_tac_toe_env_problem \
+  --hparams_set=rlmf_tictactoe \
+  --output_dir=${OUTPUTDIR} \
+  --log_dir=${LOGDIR} \
+  --alsologtostderr \
+  --vmodule=*/tensor2tensor/*=2 \
 """
 
 from __future__ import absolute_import
@@ -34,6 +44,7 @@ from tensor2tensor.models.research import rl
 from tensor2tensor.rl import rl_utils
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import misc_utils
+from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -43,6 +54,9 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 
+flags.DEFINE_string("env_problem_name", "",
+                    "Which registered env_problem do we want?")
+
 # To maintain compatibility with some internal libs, we guard against these flag
 # definitions possibly erring. Apologies for the ugliness.
 try:
@@ -51,21 +65,26 @@ except:  # pylint: disable=bare-except
   pass
 
 
-def initialize_env_specs(hparams):
-  """Initializes env_specs using T2TGymEnvs."""
-  env = rl_utils.setup_env(hparams, hparams.batch_size,
-                           hparams.eval_max_num_noops,
-                           hparams.rl_env_max_episode_steps,
-                           env_name=hparams.rl_env_name)
-
-  env.start_new_epoch(0)
+def initialize_env_specs(hparams, env_problem_name):
+  """Initializes env_specs using the appropriate env."""
+  if env_problem_name:
+    env = registry.env_problem(env_problem_name, batch_size=hparams.batch_size)
+  else:
+    env = rl_utils.setup_env(hparams, hparams.batch_size,
+                             hparams.eval_max_num_noops,
+                             hparams.rl_env_max_episode_steps,
+                             env_name=hparams.rl_env_name)
+    env.start_new_epoch(0)
 
   return rl.make_real_env_fn(env)
 
 
-def train(hparams, output_dir, report_fn=None):
+step = 0
+
+
+def train(hparams, output_dir, env_problem_name, report_fn=None):
   """Train."""
-  env_fn = initialize_env_specs(hparams)
+  env_fn = initialize_env_specs(hparams, env_problem_name)
 
   tf.logging.vlog(1, "HParams in trainer_model_free.train : %s",
                   misc_utils.pprint_hparams(hparams))
@@ -94,12 +113,6 @@ def train(hparams, output_dir, report_fn=None):
     eval_every_epochs = total_steps
   policy_hparams.eval_every_epochs = 0
 
-  steps = list(range(eval_every_epochs, total_steps+1, eval_every_epochs))
-  if not steps or steps[-1] < eval_every_epochs:
-    steps.append(eval_every_epochs)
-
-  tf.logging.vlog(1, "steps: [%s]", ",".join([str(s) for s in steps]))
-
   metric_name = rl_utils.get_metric_name(
       sampling_temp=hparams.eval_sampling_temps[0],
       max_num_noops=hparams.eval_max_num_noops,
@@ -113,34 +126,31 @@ def train(hparams, output_dir, report_fn=None):
   tf.gfile.MakeDirs(eval_metrics_dir)
   eval_metrics_writer = tf.summary.FileWriter(eval_metrics_dir)
 
-  for i, step in enumerate(steps):
-    tf.logging.info("Starting training iteration [%d] for [%d] steps.", i, step)
-
-    policy_hparams.epochs_num = eval_every_epochs
-    learner.train(env_fn,
-                  policy_hparams,
-                  simulated=False,
-                  save_continuously=True,
-                  epoch=0)
-
-    tf.logging.info("Ended training iteration [%d] for [%d] steps.", i, step)
-
-    eval_metrics = rl_utils.evaluate_all_configs(hparams, output_dir)
-
+  def evaluate_on_new_model(model_dir_path):
+    global step
+    eval_metrics = rl_utils.evaluate_all_configs(hparams, model_dir_path)
     tf.logging.info(
         "Agent eval metrics:\n{}".format(pprint.pformat(eval_metrics)))
-
-    rl_utils.summarize_metrics(eval_metrics_writer, eval_metrics, i)
-
+    rl_utils.summarize_metrics(eval_metrics_writer, eval_metrics, step)
     if report_fn:
       report_fn(eval_metrics[metric_name], step)
+    step += 1
+
+  policy_hparams.epochs_num = total_steps
+  policy_hparams.save_models_every_epochs = eval_every_epochs
+  learner.train(env_fn,
+                policy_hparams,
+                simulated=False,
+                save_continuously=True,
+                epoch=0,
+                model_save_fn=evaluate_on_new_model)
 
 
 def main(_):
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
 
   tf.logging.info("Starting model free training.")
-  train(hparams, FLAGS.output_dir)
+  train(hparams, FLAGS.output_dir, FLAGS.env_problem_name)
   tf.logging.info("Ended model free training.")
 
 

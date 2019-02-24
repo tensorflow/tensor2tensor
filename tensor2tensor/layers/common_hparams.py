@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -151,6 +151,13 @@ def basic_params1():
       # than max_length.
       # If max_length==0, we use hparams.batch_size instead.
       max_length=0,
+      # Pack examples on the fly.
+      pack_dataset=False,
+      # Use custom ops not included in standard tensorflow.
+      use_custom_ops=True,
+      # Split targets on the first axis into chunks of this length.
+      split_targets_chunk_length=0,
+      split_targets_max_chunks=100,
       # Maximum length in the smallest length bucket.  Setting this
       # flag too high will result in wasteful padding of short
       # sequences.  Due to some (hopefully) temporary hacks in the
@@ -179,8 +186,6 @@ def basic_params1():
       # by using a problem_hparams that uses the same modality object for
       # the input modality and target modality.
       shared_embedding=False,
-      # In SymbolModality, skip the top layer, assume we're providing logits.
-      symbol_modality_skip_top=False,
       # Modalities used to map from features to a space compatible with
       # chosen model architecture. It comprises key-value pairs of a feature
       # name (str) and its modality type.

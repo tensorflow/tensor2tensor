@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -105,3 +105,23 @@ def evolved_transformer_base():
 def evolved_transformer_big():
   """Big parameters for Evolved Transformer model on WMT."""
   return add_evolved_transformer_hparams(transformer.transformer_big())
+
+
+@registry.register_hparams
+def evolved_transformer_base_tpu():
+  """Base parameters for Evolved Transformer model on TPU."""
+  hparams = add_evolved_transformer_hparams(transformer.transformer_tpu())
+  hparams.learning_rate_constant = 1 / hparams.learning_rate_warmup_steps ** 0.5
+  hparams.learning_rate_schedule = (
+      "constant*single_cycle_cos_decay")
+  return hparams
+
+
+@registry.register_hparams
+def evolved_transformer_big_tpu():
+  """Big parameters for Evolved Transformer model on TPU."""
+  hparams = add_evolved_transformer_hparams(transformer.transformer_big_tpu())
+  hparams.learning_rate_constant = 1 / hparams.learning_rate_warmup_steps ** 0.5
+  hparams.learning_rate_schedule = (
+      "constant*single_cycle_cos_decay")
+  return hparams

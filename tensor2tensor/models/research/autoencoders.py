@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -159,7 +159,9 @@ class AutoencoderBasic(t2t_model.T2TModel):
   def gumbel_sample(self, reconstr_gan):
     hparams = self.hparams
     is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
-    vocab_size = self._problem_hparams.modality["targets"].top_dimensionality
+    vocab_size = self._problem_hparams.vocab_size["targets"]
+    if hasattr(self._hparams, "vocab_divisor"):
+      vocab_size += (-vocab_size) % self._hparams.vocab_divisor
     reconstr_gan = tf.nn.log_softmax(reconstr_gan)
     if is_training and hparams.gumbel_temperature > 0.0:
       gumbel_samples = discretization.gumbel_sample(
@@ -180,7 +182,9 @@ class AutoencoderBasic(t2t_model.T2TModel):
   def body(self, features):
     hparams = self.hparams
     is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
-    vocab_size = self._problem_hparams.modality["targets"].top_dimensionality
+    vocab_size = self._problem_hparams.vocab_size["targets"]
+    if hasattr(self._hparams, "vocab_divisor"):
+      vocab_size += (-vocab_size) % self._hparams.vocab_divisor
     encoder_layers = None
     self.is1d = hparams.sample_width == 1
     if (hparams.mode != tf.estimator.ModeKeys.PREDICT
@@ -460,7 +464,9 @@ class AutoencoderAutoregressive(AutoencoderBasic):
       plain_training_loss = losses.pop("training")
       losses["plain"] = plain_training_loss
     res_shape = common_layers.shape_list(basic_result)
-    vocab_size = self._problem_hparams.modality["targets"].top_dimensionality
+    vocab_size = self._problem_hparams.vocab_size["targets"]
+    if hasattr(self._hparams, "vocab_divisor"):
+      vocab_size += (-vocab_size) % self._hparams.vocab_divisor
     targets = tf.one_hot(features["targets_raw"], vocab_size)
     # Prepare inputs for autoregressive modes.
     if common_layers.shape_list(features["targets"])[1] == 1:
@@ -719,7 +725,7 @@ class AutoencoderResidualVAE(AutoencoderResidual):
       epsilon = tf.random_normal(x_shape[:-1] + [z_size])
       z = mu + tf.exp(log_sigma / 2) * epsilon
       kl = 0.5 * tf.reduce_mean(
-          tf.exp(log_sigma) + tf.square(mu) - 1. - log_sigma, axis=-1)
+          tf.expm1(log_sigma) + tf.square(mu) - log_sigma, axis=-1)
       free_bits = z_size // 4
       kl_loss = tf.reduce_mean(tf.maximum(kl - free_bits, 0.0))
     return z, kl_loss * hparams.kl_beta
@@ -825,7 +831,7 @@ class AutoencoderOrderedDiscrete(AutoencoderResidualDiscrete):
     if hparams.mode == tf.estimator.ModeKeys.TRAIN:
       # We want a number p such that p^bottleneck_bits = 1 - noise.
       # So log(p) * bottleneck_bits = log(noise)
-      log_p = tf.log(1 - float(noise) / 2) / float(hparams.bottleneck_bits)
+      log_p = tf.log1p(-float(noise) / 2) / float(hparams.bottleneck_bits)
       # Probabilities of flipping are p, p^2, p^3, ..., p^bottleneck_bits.
       noise_mask = 1.0 - tf.exp(tf.cumsum(tf.zeros_like(x) + log_p, axis=-1))
       # Having the no-noise mask, we can make noise just uniformly at random.
@@ -1214,8 +1220,8 @@ def autoencoder_ordered_text():
   hparams.autoregressive_mode = "conv5"
   hparams.max_hidden_size = 1024
   hparams.modality = {
-      "inputs": modalities.IdentitySymbolModality,
-      "targets": modalities.IdentitySymbolModality,
+      "inputs": modalities.ModalityType.IDENTITY_SYMBOL,
+      "targets": modalities.ModalityType.IDENTITY_SYMBOL,
   }
   hparams.sample_height = 128
   hparams.sample_width = 1
