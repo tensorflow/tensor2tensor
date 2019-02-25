@@ -21,7 +21,10 @@ from __future__ import print_function
 
 import numpy as np
 
-from tensor2tensor.envs import env_problem as env_problem_lib
+
+def done_indices(dones):
+  """Calculates the indices where dones has True."""
+  return np.argwhere(dones).squeeze(axis=1)
 
 
 def play_env_problem_randomly(env_problem,
@@ -40,5 +43,4 @@ def play_env_problem_randomly(env_problem,
     _, _, dones, _ = env_problem.step(actions)
 
     # Get the indices where we are done and reset those.
-    done_indices = env_problem_lib.EnvProblem.done_indices(dones)
-    env_problem.reset(indices=done_indices)
+    env_problem.reset(indices=done_indices(dones))

@@ -81,7 +81,7 @@ class EnvProblem(Env, problem.Problem):
   obs, rewards, dones, infos = ep.step(actions)
 
   # 4. Figure out which envs got done and reset only those.
-  ep.reset(indices=done_indices(dones))
+  ep.reset(indices=env_problem_utils.done_indices(dones))
 
   # 5. Go back to Step #3 to further interact with the env or just dump the
   # generated data to disk by calling:
@@ -562,11 +562,6 @@ class EnvProblem(Env, problem.Problem):
                            processed_rewards, dones, actions)
 
     return processed_observations, processed_rewards, dones, infos
-
-  @staticmethod
-  def done_indices(dones):
-    """Calculates the indices where dones has True."""
-    return np.argwhere(dones).squeeze(axis=1)
 
   def example_reading_spec(self):
     """Data fields to store on disk and their decoders."""
