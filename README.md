@@ -354,24 +354,20 @@ and many common sequence datasets are already available for generation and use.
 
 ### Problems and Modalities
 
-**Problems** define training-time hyperparameters for the dataset and task,
-mainly by setting input and output **modalities** (e.g. symbol, image, audio,
-label) and vocabularies, if applicable. All problems are defined either in
-[`problem_hparams.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/problem_hparams.py)
+**Problems** consist of features such as inputs and targets, and metadata such
+as each feature's modality (e.g. symbol, image, audio) and vocabularies. All
+problems are imported in
+[`all_problems.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/all_problems.py)
 or are registered with `@registry.register_problem` (run `t2t-datagen` to see
 the list of all available problems).
-**Modalities**, defined in
-[`modality.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/modality.py),
-abstract away the input and output data types so that **models** may deal with
-modality-independent tensors.
 
 ### Models
 
-**`T2TModel`s** define the core tensor-to-tensor transformation, independent of
-input/output modality or task. Models take dense tensors in and produce dense
-tensors that may then be transformed in a final step by a **modality** depending
-on the task (e.g. fed through a final linear transform to produce logits for a
-softmax over classes). All models are imported in the
+**`T2TModel`s** define the core tensor-to-tensor computation. They apply a
+default transformation to each input and output so that models may deal with
+modality-independent tensors (e.g. embeddings at the input; and a linear
+transform at the output to produce logits for a softmax over classes). All
+models are imported in the
 [`models` subpackage](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/models/__init__.py),
 inherit from `T2TModel` - defined in
 [`t2t_model.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/t2t_model.py) -
