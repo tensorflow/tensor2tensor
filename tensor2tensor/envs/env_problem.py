@@ -664,7 +664,7 @@ class EnvProblem(Env, problem.Problem):
       # Skip writing trajectories that have only a single time-step -- this
       # could just be a repeated reset.
 
-      if single_trajectory.num_time_steps() <= 1:
+      if single_trajectory.num_time_steps <= 1:
         continue
 
       for index, time_step in enumerate(single_trajectory.time_steps):
@@ -760,8 +760,8 @@ class EnvProblem(Env, problem.Problem):
   def print_state(self):
     for t in self.trajectories.trajectories:
       print("---------")
-      if not t.is_active():
+      if not t.is_active:
         print("trajectory isn't active.")
         continue
-      last_obs = t.last_time_step().observation
+      last_obs = t.last_time_step.observation
       print(str(last_obs))

@@ -146,7 +146,7 @@ class EnvProblemTest(tf.test.TestCase):
 
       # This should also match the number of time-steps completed given by ep.
       num_timesteps_completed_ep = sum(
-          ct.num_time_steps() for ct in ep.trajectories.completed_trajectories)
+          ct.num_time_steps for ct in ep.trajectories.completed_trajectories)
       self.assertEqual(num_timesteps_completed, num_timesteps_completed_ep)
 
     # Reset the trajectories.

@@ -44,7 +44,7 @@ class Trajectory(object):
 
     Args:
       **create_time_step_kwargs: Forwarded to
-                                 time_step.TimeStep.create_time_step.
+        time_step.TimeStep.create_time_step.
     """
     ts = time_step.TimeStep.create_time_step(**create_time_step_kwargs)
     assert isinstance(ts, time_step.TimeStep)
@@ -58,17 +58,19 @@ class Trajectory(object):
     self._time_steps[-1] = self._time_steps[-1].replace(
         **replace_time_step_kwargs)
 
+  @property
   def last_time_step(self):
     # Pre-conditions: self._time_steps shouldn't be empty.
     assert self._time_steps
     return self._time_steps[-1]
 
-  # We could have overridden __nonzero__ or __bool__ as well.
+  @property
   def num_time_steps(self):
     return len(self._time_steps)
 
+  @property
   def is_active(self):
-    return bool(self.num_time_steps())
+    return bool(self.num_time_steps)
 
   @property
   def time_steps(self):
@@ -76,7 +78,7 @@ class Trajectory(object):
 
   @property
   def done(self):
-    return self.is_active() and self.last_time_step().done
+    return self.is_active and self.last_time_step.done
 
   # TODO(afrozm): Add discounting and rewards-to-go when it makes sense.
   @property
@@ -130,7 +132,7 @@ class BatchTrajectory(object):
     assert isinstance(trajectory, Trajectory)
 
     # This *should* be the case.
-    assert trajectory.last_time_step().action is None
+    assert trajectory.last_time_step.action is None
 
     # Add to completed trajectories.
     self._completed_trajectories.append(trajectory)
@@ -164,7 +166,7 @@ class BatchTrajectory(object):
       trajectory = self._trajectories[index]
 
       # Are we starting a new trajectory at the given index?
-      if not trajectory.is_active():
+      if not trajectory.is_active:
         # Then create a new time-step here with the given observation.
         trajectory.add_time_step(observation=observation)
         # That's all we need to do here.
@@ -189,7 +191,7 @@ class BatchTrajectory(object):
     """Essentially same as reset, but we don't have observations."""
     for index in range(self.batch_size):
       trajectory = self._trajectories[index]
-      assert trajectory.is_active()
+      assert trajectory.is_active
       self._complete_trajectory(trajectory, index)
 
   def step(self, observations, raw_rewards, processed_rewards, dones, actions):
@@ -238,7 +240,7 @@ class BatchTrajectory(object):
       # a prior observation from which we are stepping away from.
 
       # TODO(afrozm): Let's re-visit this if it becomes too restrictive.
-      assert trajectory.is_active()
+      assert trajectory.is_active
 
       # To this trajectory's last time-step, set actions.
       trajectory.change_last_time_step(action=actions[index])
@@ -257,4 +259,17 @@ class BatchTrajectory(object):
 
         # NOTE: The new trajectory at `index` is going to be in-active and
         # `reset` should be called on it.
-        assert not self._trajectories[index].is_active()
+        assert not self._trajectories[index].is_active
+
+  @property
+  def num_completed_time_steps(self):
+    """Returns the number of time-steps in completed trajectories."""
+
+    return sum(t.num_time_steps for t in self.completed_trajectories)
+
+  @property
+  def num_time_steps(self):
+    """Returns the number of time-steps in completed and incomplete trajectories."""
+
+    num_time_steps = sum(t.num_time_steps for t in self.trajectories)
+    return num_time_steps + self.num_completed_time_steps
