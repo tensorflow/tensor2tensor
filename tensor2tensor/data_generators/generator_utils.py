@@ -969,11 +969,11 @@ def random_deinterleave(text, separator_symbol="X"):
   cut = [False] * n
   cut[0] = True
   num_cuts = int(math.exp(random.uniform(0, math.log(n))))
-  for _ in xrange(num_cuts):
+  for _ in range(num_cuts):
     cut[random.randint(1, n -1)] = True
   out = [[], []]
   part = random.randint(0, 1)
-  for i in xrange(n):
+  for i in range(n):
     if cut[i]:
       out[part].append(separator_symbol)
       part = 1 - part

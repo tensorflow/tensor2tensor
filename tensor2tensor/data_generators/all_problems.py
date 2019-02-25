@@ -19,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 import importlib
+from six.moves import range  # pylint: disable=redefined-builtin
 
 MODULES = [
     "tensor2tensor.data_generators.algorithmic",
@@ -97,7 +98,7 @@ ALL_MODULES = list(MODULES)
 
 def _is_import_err_msg(err_str, module):
   parts = module.split(".")
-  suffixes = [".".join(parts[i:]) for i in xrange(len(parts))]
+  suffixes = [".".join(parts[i:]) for i in range(len(parts))]
   return err_str in (
       ["No module named %s" % suffix for suffix in suffixes] +
       ["No module named '%s'" % suffix for suffix in suffixes])
