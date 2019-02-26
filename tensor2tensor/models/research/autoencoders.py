@@ -1112,12 +1112,9 @@ def autoencoder_residual_text():
   hparams.hidden_size = 64
   hparams.max_hidden_size = 512
   hparams.bottleneck_noise = 0.0
-  hparams.bottom = {
-      "inputs": modalities.identity_bottom,
-      "targets": modalities.identity_bottom,
-  }
-  hparams.top = {
-      "targets": modalities.identity_top,
+  hparams.modality = {
+      "inputs": modalities.ModalityType.IDENTITY_SYMBOL,
+      "targets": modalities.ModalityType.IDENTITY_SYMBOL,
   }
   hparams.autoregressive_mode = "none"
   hparams.sample_width = 1
@@ -1222,12 +1219,9 @@ def autoencoder_ordered_text():
   hparams.batch_size = 1024
   hparams.autoregressive_mode = "conv5"
   hparams.max_hidden_size = 1024
-  hparams.bottom = {
-      "inputs": modalities.identity_bottom,
-      "targets": modalities.identity_bottom,
-  }
-  hparams.top = {
-      "targets": modalities.identity_top,
+  hparams.modality = {
+      "inputs": modalities.ModalityType.IDENTITY_SYMBOL,
+      "targets": modalities.ModalityType.IDENTITY_SYMBOL,
   }
   hparams.sample_height = 128
   hparams.sample_width = 1

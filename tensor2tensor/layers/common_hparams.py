@@ -141,6 +141,7 @@ def basic_params1():
       norm_type="layer",  # "batch", layer", "noam", "none".
       # epsilon parameter to normalization function
       norm_epsilon=1e-6,
+      symbol_modality_num_shards=1,
       # pad vocabularies so that this value divides the vocabulary size.
       vocab_divisor=1,
       # During training, we drop sequences whose inputs and targets are shorter
@@ -175,26 +176,20 @@ def basic_params1():
       # If True, run the model autoregressively instead of teacher-forcing
       # during eval
       eval_run_autoregressive=False,
-      # (For features with symbol modality) If True, share all of the
-      # input embeddings, target embeddings, and softmax weights.
+      # TODO(lukaszkaiser): these parameters should probably be set elsewhere.
+      # (SymbolModality) - If this flag is on, we try to share all of the input
+      # embeddings, the target embeddings and the softmax weights.
       shared_embedding_and_softmax_weights=False,
-      # (For features with symbol modality) If True, share the input embeddings
-      # and target embeddings.
+      # (SymbolModality) - If this flag is on, we try to share the input
+      # embeddings and the target embeddings.
+      # You can also share the input embeddings with the target embeddings
+      # by using a problem_hparams that uses the same modality object for
+      # the input modality and target modality.
       shared_embedding=False,
-      # (For features with symbol modality) Number to shard embeddings by.
-      symbol_modality_num_shards=1,
-      # Feature transformations are optional dictionaries comprising key-value
-      # pairs of a feature name (str) and its transformation (function). If not
-      # specified, T2TModel applies a default transformation according to the
-      # feature's modality. Bottom is applicable to all features; loss, top, and
-      # weights_fn are only applicable to target features.
-      # TODO(trandustin): `name` is an optional hparam for legacy reasons,
-      # defining variable scope names. Remove this hparam in the future.
-      bottom={},
-      loss={},
-      name={},
-      top={},
-      weights_fn={},
+      # Modalities used to map from features to a space compatible with
+      # chosen model architecture. It comprises key-value pairs of a feature
+      # name (str) and its modality type.
+      modality={},
       # The maximum length of "input" sequence.
       # Sequences longer than this value will be truncated. 0 or negative values
       # mean there is no maximum or truncation.

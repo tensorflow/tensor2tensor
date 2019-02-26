@@ -438,8 +438,8 @@ def aggregate_task_losses(hparams,
     vocab_size += (-vocab_size) % hparams.vocab_divisor
   modality = problem_hparams.modality[feature_name]
   loss = hparams.loss.get(feature_name, modalities.get_loss(modality))
-  weights_fn = hparams.weights_fn.get(
-      feature_name, modalities.get_weights_fn(modality))
+  weights_fn = hparams.targets_weights_fn.get(
+      feature_name, modalities.get_targets_weights_fn(modality))
   # Primary task loss
   loss_num, loss_den = loss(
       logits, feature,
@@ -534,8 +534,8 @@ def aggregate_task_lm_losses(hparams,
     vocab_size += (-vocab_size) % hparams.vocab_divisor
   modality = problem_hparams.modality[feature_name]
   loss = hparams.loss.get(feature_name, modalities.get_loss(modality))
-  weights_fn = hparams.weights_fn.get(
-      feature_name, modalities.get_weights_fn(modality))
+  weights_fn = hparams.targets_weights_fn.get(
+      feature_name, modalities.get_targets_weights_fn(modality))
   loss_num = 0.
   loss_den = 0.
   for task in hparams.problem.task_list:

@@ -69,15 +69,9 @@ def next_frame_glow_hparams():
   # Pretrains the glow encoder for "pretrain_steps" number of steps.
   # By default, don't pretrain and learn end-to-end
   hparams.add_hparam("pretrain_steps", -1)
-  hparams.bottom = {
-      "inputs": modalities.video_raw_bottom,
-      "targets": modalities.video_raw_targets_bottom,
-  }
-  hparams.loss = {
-      "targets": modalities.video_l1_raw_loss,
-  }
-  hparams.top = {
-      "targets": modalities.video_raw_top,
+  hparams.modality = {
+      "inputs": modalities.ModalityType.VIDEO_L1_RAW,
+      "targets": modalities.ModalityType.VIDEO_L1_RAW,
   }
   hparams.init_batch_size = 256
   hparams.batch_size = 32

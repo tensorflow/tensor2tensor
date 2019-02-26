@@ -33,15 +33,9 @@ def next_frame_sv2p():
   hparams.video_num_input_frames = 1
   hparams.video_num_target_frames = 3
   hparams.batch_size = 16
-  hparams.bottom = {
-      "inputs": modalities.video_raw_bottom,
-      "targets": modalities.video_raw_targets_bottom,
-  }
-  hparams.loss = {
-      "targets": modalities.video_l2_raw_loss,
-  }
-  hparams.top = {
-      "targets": modalities.video_raw_top,
+  hparams.modality = {
+      "inputs": modalities.ModalityType.VIDEO_L2_RAW,
+      "targets": modalities.ModalityType.VIDEO_L2_RAW,
   }
   hparams.video_modality_loss_cutoff = 0.0
   hparams.scheduled_sampling_mode = "count"
@@ -97,9 +91,10 @@ def next_frame_sv2p_atari():
 def next_frame_sv2p_atari_softmax():
   """SV2P model for atari with softmax."""
   hparams = next_frame_sv2p_atari()
-  hparams.bottom = {}
-  hparams.loss = {}
-  hparams.top = {}
+  hparams.modality = {
+      "inputs": modalities.ModalityType.VIDEO,
+      "targets": modalities.ModalityType.VIDEO,
+  }
   hparams.internal_loss = True
   return hparams
 

@@ -94,7 +94,6 @@ class CommonImageAttentionTest(parameterized.TestCase, tf.test.TestCase):
     hparams = HParams(
         hidden_size=2,
         likelihood=likelihood,
-        num_channels=channels,
         mode=tf.estimator.ModeKeys.TRAIN,
         num_mixtures=num_mixtures,
     )

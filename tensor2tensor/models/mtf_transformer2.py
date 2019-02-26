@@ -418,12 +418,9 @@ def mtf_transformer2_base():
   hparams.use_fixed_batch_size = True
   hparams.add_hparam("mtf_mode", True)
   hparams.clip_grad_norm = 0.  # i.e. no gradient clipping
-  hparams.bottom = {
-      "inputs": modalities.identity_bottom,
-      "targets": modalities.identity_bottom,
-  }
-  hparams.top = {
-      "targets": modalities.identity_top,
+  hparams.modality = {
+      "inputs": modalities.ModalityType.IDENTITY_SYMBOL,
+      "targets": modalities.ModalityType.IDENTITY_SYMBOL,
   }
   hparams.add_hparam("beam_size", 1)
 

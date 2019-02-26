@@ -52,8 +52,6 @@ class T2TModelTest(tf.test.TestCase):
 
         model_hparams = HParams(
             prepend_mode="none",
-            loss={},
-            weights_fn={},
             label_smoothing=0.0,
             shared_embedding_and_softmax_weights=False)
 
