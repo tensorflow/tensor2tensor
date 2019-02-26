@@ -17,9 +17,13 @@ r"""J2J trainer.
 
 Examples:
 
-- train a basic model on mnist:
-    jax/j2j_trainer.py --dataset=mnist --model=mlp
-      --config="train_fn.train_steps=4000" --output_dir ~/j2j/test1
+
+MLP on mnist:
+  python -m tensor2tensor.jax.j2j_trainer \
+    --dataset=mnist \
+    --model=MLP \
+    --config="train_fn.train_steps=4000" \
+    --output_dir=~/j2j/test1
 """
 from __future__ import absolute_import
 from __future__ import division

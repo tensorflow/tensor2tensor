@@ -13,10 +13,3 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Models defined in J2J."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-from tensor2tensor.jax.models import mlp
-from tensor2tensor.jax.models import resnet

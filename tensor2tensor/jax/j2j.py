@@ -19,6 +19,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
+import functools
 import os
 import pickle
 import time
@@ -30,14 +32,12 @@ import jax
 from jax.experimental import optimizers
 import jax.numpy as np
 
-from tensor2tensor.jax import input_pipeline
+from tensor2tensor.jax import inputs as inputs_lib
 from tensor2tensor.jax import jaxboard
 # Import for gin configurable models
 from tensor2tensor.jax import models  # pylint: disable=unused-import
 
 from tensorflow.io import gfile
-
-import tensorflow_datasets as tfds
 
 
 @gin.configurable(blacklist=["step"])
@@ -102,60 +102,54 @@ def loss(params, batch, model_predict):
   return - np.mean(preds * one_hot(targets, preds.shape[-1]))
 
 
-def dataset_to_stream(batches, input_name):
-  """Takes a tf.Dataset and creates a numpy stream of ready batches."""
-  for example in tfds.as_numpy(batches):
-    inp, out = example[0][input_name], example[1]
-    if len(out.shape) > 1 and out.shape[-1] == 1:
-      out = np.squeeze(out, axis=-1)
-    yield inp, out
-
-
 def log(s, stdout=True):
   logging.info(s)
   if stdout:
     print(s)
 
 
-def _make_directory(path):
-  """Helper function: create directory if it doesn't exist yet."""
-  if not gfile.exists(path):
-    log("Creating directory %s" % path)
-    gfile.mkdir(path)
+def step_log(step, s):
+  log("Step % 6d: %s" % (step, s))
 
 
-def save_params_and_step(params, step, output_dir):
-  """Save params and step in output dir."""
-  if output_dir is not None:
-    _make_directory(output_dir)
-    params_file = os.path.join(output_dir, "model.pkl")
-    with gfile.GFile(params_file, "wb") as f:
-      pickle.dump((params, step), f)
-    log("Model saved to %s" % params_file, stdout=False)
+State = collections.namedtuple("_State", ["step", "params"])
 
 
-def load_params_and_step(output_dir):
-  """Save params and step in output dir."""
-  if output_dir is None:
-    return None, None
-  if not gfile.exists(output_dir):
-    return None, None
+def restore_state(output_dir):
+  """Restore State."""
+  empty_state = State(step=None, params=None)
+  if output_dir is None or not gfile.exists(output_dir):
+    return empty_state
   params_file = os.path.join(output_dir, "model.pkl")
   if not gfile.exists(params_file):
-    return None, None
-  with gfile.GFile(params_file, "r") as f:
+    return empty_state
+
+  with gfile.GFile(params_file, "rb") as f:
     (params, step) = pickle.load(f)
   log("Model loaded from %s" % params_file)
-  return params, step
+  return State(step=step, params=params)
 
 
-def _make_summary_writer(output_path):
-  _make_directory(output_path)
-  return jaxboard.SummaryWriter(output_path)
+def save_state(state, output_dir, save_gin=True):
+  """Save State and optionally gin config."""
+  if not output_dir:
+    return
+
+  gfile.makedirs(output_dir)
+  params_file = os.path.join(output_dir, "model.pkl")
+  with gfile.GFile(params_file, "wb") as f:
+    pickle.dump((state.params, state.step), f)
+  log("Model saved to %s" % params_file, stdout=False)
+
+  # Gin file only includes used parameters, so we save it at this point.
+  if save_gin:
+    config_path = os.path.join(output_dir, "config.gin")
+    with gfile.GFile(config_path, "w") as f:
+      f.write(gin.operative_config_str())
 
 
 # Metrics to calculate and report.
-_metrics = {
+_METRICS = {
     "accuracy": accuracy,
     "neg_log_perplexity": neg_log_perplexity,
     "loss": lambda x, y: - neg_log_perplexity(x, y),
@@ -163,12 +157,16 @@ _metrics = {
 
 
 # We include in gin config everything that could be useful to share between
-# users, so when it gets saved in a .gin file it can be re-ran with few flags.
+# users, so when it gets saved in a .gin file it can be re-run with minimal
+# flags.
 @gin.configurable(blacklist=["data_dir", "output_dir"])
-def train_fn(data_dir=None, output_dir=None,
+def train_fn(data_dir=None,
+             output_dir=None,
              model=gin.REQUIRED,
              dataset=gin.REQUIRED,
-             train_steps=1000, eval_steps=10, eval_frequency=100):
+             train_steps=1000,
+             eval_steps=10,
+             eval_frequency=100):
   """Train the given model on the given dataset.
 
   Args:
@@ -180,101 +178,112 @@ def train_fn(data_dir=None, output_dir=None,
     eval_steps: for how many steps to do evaluation.
     eval_frequency: how often (every this many steps) to run evaluation.
   """
-  (train_batches, eval_batches,
-   input_name, input_shape) = input_pipeline.train_and_eval_batches(
-       dataset, data_dir)
-  train_stream = dataset_to_stream(train_batches, input_name)
+  # Make Inputs
+  inputs = inputs_lib.make_inputs(dataset, data_dir)
 
-  # Training loop.
+  # Setup optimizer and model
   opt_init, opt_update = optimizer()
   model_init, model_predict = model()
+  jit_predict = jax.jit(model_predict)
 
+  # Setup state
+  state = restore_state(output_dir)
+  step = state.step or 0
+  _, init_params = model_init([-1] + inputs.input_shape)
+  opt_state = opt_init(state.params or init_params)
+
+  # Create summary writers.
+  train_sw, eval_sw = None, None
+  if output_dir:
+    gfile.makedirs(output_dir)
+    train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
+    eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
+
+  # Make fast update function
   @jax.jit
   def update(i, opt_state, batch):
     params = optimizers.get_params(opt_state)
     return opt_update(i, jax.grad(loss)(
         params, batch, model_predict), opt_state)
 
-  _, init_params = model_init([-1] + input_shape)
-  step, train_sw, eval_sw = 0, None, None
-  if output_dir is not None:
-    _make_directory(output_dir)
-    # Load parameters.
-    loaded_params, loaded_step = load_params_and_step(output_dir)
-    if loaded_params is not None:
-      init_params = loaded_params
-    if loaded_step is not None:
-      step = loaded_step
-
-    # Create summary writers.
-    eval_sw = _make_summary_writer(os.path.join(output_dir, "eval"))
-    train_sw = _make_summary_writer(os.path.join(output_dir, "train"))
-
-  log("Starting training.")
-  opt_state = opt_init(init_params)
-  gin_config_saved = False
-  cur_eval_frequency = 1  # First evaluation after the first training step.
+  step_log(step, "starting training")
+  train_gen = inputs.train_fn()
+  is_first_step = True
+  epoch_steps = 1  # First evaluation after the first training step.
   while step < train_steps:
-    # Training.
+    # Train
     start_time = time.time()
-    for _ in range(cur_eval_frequency):
-      opt_state = update(step, opt_state, next(train_stream))
+    for _ in range(epoch_steps):
+      opt_state = update(step, opt_state, next(train_gen))
       if train_sw and step % 10 == 0:  # Log learning rate curve each 10 steps.
         train_sw.scalar("training/learning rate",
                         learning_rate(step), step=step)
       step += 1
     epoch_time = time.time() - start_time
-    log("Step {}, last {} steps in {:0.2f} sec".format(
-        step, cur_eval_frequency, epoch_time))
+    print()
+    step_log(step, "%d train steps in %0.2f secs" % (epoch_steps, epoch_time))
 
-    # Save the model.
+    # Save state
     params = optimizers.get_params(opt_state)
-    save_params_and_step(params, step, output_dir)
+    save_state(State(params=params, step=step), output_dir,
+               save_gin=is_first_step)
 
-    # Save the config if not saved yet.
-    # Gin file only includes used parameters, so we save it at this point.
-    if output_dir and not gin_config_saved:
-      gin_config_saved = True
-      config_path = os.path.join(output_dir, "config.gin")
-      with gfile.GFile(config_path, "w") as f:
-        f.write(gin.operative_config_str())
+    # Evaluate
+    print()
+    step_log(step, "starting evaluation")
+    train_metrics, eval_metrics = evaluate(
+        inputs, functools.partial(jit_predict, params), eval_steps)
 
-    # Evaluation.
-    eval_stream = dataset_to_stream(eval_batches, input_name)
-    eval_train_stream = dataset_to_stream(train_batches, input_name)
-    train_metrics = {key: 0.0 for key in _metrics}
-    eval_metrics = {key: 0.0 for key in _metrics}
-    for _ in range(eval_steps):
-      train_batch = next(eval_train_stream)
-      train_predictions = model_predict(params, train_batch[0])
-      eval_batch = next(eval_stream)
-      eval_predictions = model_predict(params, eval_batch[0])
-      for m in _metrics:
-        train_metrics[m] += _metrics[m](
-            train_batch, train_predictions) / float(eval_steps)
-        eval_metrics[m] += _metrics[m](
-            eval_batch, eval_predictions) / float(eval_steps)
-
-    for m in _metrics:
-      log("Step %d train %s %.8f" % (step, m, train_metrics[m]))
+    for m in _METRICS:
+      step_log(step, "train %s %.8f" % (m, train_metrics[m]))
       prefix = "metrics/"
       if train_sw:
         train_sw.scalar(prefix + m, train_metrics[m], step=step)
-      log("Step %d eval  %s %.8f" % (step, m, eval_metrics[m]))
+      step_log(step, "eval  %s %.8f" % (m, eval_metrics[m]))
       if eval_sw:
         eval_sw.scalar(prefix + m, eval_metrics[m], step=step)
 
     # Log non-metric reports and flush.
-    if train_sw:
-      if step > 1:  # Don't log performance of the first step.
-        train_sw.scalar("training/steps per second",
-                        cur_eval_frequency / epoch_time, step=step)
+    if train_sw and not is_first_step:
+      train_sw.scalar("training/steps per second",
+                      epoch_steps / epoch_time, step=step)
       train_sw.writer.flush()
     if eval_sw:
       eval_sw.writer.flush()
 
-    # After the first step, Evaluate every eval_frequency steps.
-    if cur_eval_frequency == 1 and eval_frequency != 1:
-      cur_eval_frequency = eval_frequency - 1
-    else:
-      cur_eval_frequency = eval_frequency
+    # After the first step, train for eval_frequency steps before evaluating
+    epoch_steps = (eval_frequency - 1) if is_first_step else eval_frequency
+    is_first_step = False
+
+  step_log(step, "finished training.")
+
+
+def evaluate(inputs, predict_fn, eval_steps):
+  """Evaluate.
+
+  Args:
+    inputs: Inputs namedtuple.
+    predict_fn: function from inputs to predictions. params should already be
+      partially applied.
+    eval_steps: int, number of evaluation steps.
+
+  Returns:
+    train_metrics: dict
+    eval_metrics: dict
+  """
+  eval_stream = inputs.eval_fn()
+  eval_train_stream = inputs.train_fn()
+  train_metrics = {key: 0.0 for key in _METRICS}
+  eval_metrics = {key: 0.0 for key in _METRICS}
+  for _ in range(eval_steps):
+    train_batch = next(eval_train_stream)
+    train_predictions = predict_fn(train_batch[0])
+    eval_batch = next(eval_stream)
+    eval_predictions = predict_fn(eval_batch[0])
+    for m in _METRICS:
+      train_metrics[m] += _METRICS[m](
+          train_batch, train_predictions) / float(eval_steps)
+      eval_metrics[m] += _METRICS[m](
+          eval_batch, eval_predictions) / float(eval_steps)
+
+  return train_metrics, eval_metrics
