@@ -896,7 +896,8 @@ def imagetransformer_ae_cifar():
 
   hparams.add_hparam("unconditional", False)  # unconditional generation
 
-  hparams.modality["targets"] = modalities.ImageChannelEmbeddingsBottom
+  hparams.bottom["targets"] = modalities.image_channel_embeddings_bottom
+  hparams.top["targets"] = modalities.image_channel_embeddings_top
   hparams.drop_inputs = True
   hparams.do_attend_compress = False
   hparams.do_attend_decompress = False

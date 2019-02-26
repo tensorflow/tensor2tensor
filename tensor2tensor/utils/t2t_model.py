@@ -204,47 +204,19 @@ class T2TModel(base.Layer):
           },
           hparams=hparams)
 
-    # TODO(trandustin): For now, we get custom feature transformations via
-    # hparams.modality. Once modality classes are removed, let users
-    # individually specify custom transformations for bottom, loss, etc.
-    if not hasattr(hparams, "modality"):
-      hparams.add_hparam("modality", {})
-    if not hasattr(hparams, "bottom"):
-      hparams.add_hparam("bottom", {})
-    if not hasattr(hparams, "loss"):
-      hparams.add_hparam("loss", {})
-    if not hasattr(hparams, "name"):
-      hparams.add_hparam("name", {})
-    if not hasattr(hparams, "targets_weights_fn"):
-      hparams.add_hparam("targets_weights_fn", {})
-    if not hasattr(hparams, "top"):
-      hparams.add_hparam("top", {})
-    target_modalities = _create_target_modality(hparams.modality)
-    for feature_name, modality in six.iteritems(hparams.modality):
-      if modality in modalities.ModalityType.get_choices():
-        modality = getattr(modalities, modality)
-      if feature_name in target_modalities:
-        hparams.bottom[feature_name] = modality.targets_bottom
-      else:
-        hparams.bottom[feature_name] = modality.bottom
-      hparams.loss[feature_name] = modality.loss
-      hparams.name[feature_name] = modality.name
-      hparams.targets_weights_fn[feature_name] = modality.targets_weights_fn
-      hparams.top[feature_name] = modality.top
-
     if self._problem_hparams:
       for feature_name, modality in six.iteritems(
           self._problem_hparams.modality):
-        # If prepend mode, set targets_weights_fn to appropriately handle it.
-        if (modality in (modalities.ModalityType.SYMBOL,
-                         modalities.ModalityType.SYMBOL_ONE_HOT,
-                         modalities.ModalityType.CTC_SYMBOL,
-                         modalities.ModalityType.IDENTITY_SYMBOL)):
+        # If prepend mode, set weights_fn to appropriately handle it.
+        if (modality in (modalities.ModalityType.CTC_SYMBOL,
+                         modalities.ModalityType.IDENTITY_SYMBOL,
+                         modalities.ModalityType.SYMBOL,
+                         modalities.ModalityType.SYMBOL_ONE_HOT)):
           if (hparams.prepend_mode == "prepend_inputs_full_attention" or
               (hparams.prepend_mode == "prepend_inputs_masked_attention" and
                mode != tf.estimator.ModeKeys.TRAIN)):
             weights_fn = common_layers.weights_prepend_inputs_to_targets
-            hparams.targets_weights_fn[feature_name] = weights_fn
+            hparams.weights_fn[feature_name] = weights_fn
 
     self._original_hparams = hparams
     self.set_mode(mode)
@@ -646,8 +618,8 @@ class T2TModel(base.Layer):
     if vocab_size is not None and hasattr(self._hparams, "vocab_divisor"):
       vocab_size += (-vocab_size) % self._hparams.vocab_divisor
     loss = self._hparams.loss.get(feature_name, modalities.get_loss(modality))
-    targets_weights_fn = self._hparams.targets_weights_fn.get(
-        "targets", modalities.get_targets_weights_fn(modality))
+    targets_weights_fn = self._hparams.weights_fn.get(
+        "targets", modalities.get_weights_fn(modality))
     if weights is None:
       loss_num, loss_den = loss(logits, feature, self._hparams, vocab_size,
                                 weights_fn=targets_weights_fn)
@@ -1817,7 +1789,7 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
   tm = _create_target_modality(problem.get_hparams(model_hparams).modality)
   if isinstance(tm, dict):
     for k, v in six.iteritems(tm):
-      weights_fn = v.targets_weights_fn
+      weights_fn = v.weights_fn
 
       def make_metric_fn(metric_fn):
         def wrapped_metric_fn(logits, labels, features, weights_fn=weights_fn):
@@ -1837,7 +1809,7 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
         name = "%s/metrics-%s/%s" % (k, problem.name, metric)
         metric_fns.append((name, make_metric_fn(metric_fn)))
   else:
-    weights_fn = tm.targets_weights_fn
+    weights_fn = tm.weights_fn
 
     def make_metric_fn(metric_fn):
       def wrapped_metric_fn(logits, labels, features):
@@ -2038,8 +2010,8 @@ def scheduled_sampling(hparams, problem_hparams, dp, sharded_logits, losses,
                                 vocab_size)
         if "training" not in losses:
           loss = hparams.loss.get("targets", modalities.get_loss(modality))
-          weights_fn = hparams.targets_weights_fn.get(
-              "targets", modalities.get_targets_weights_fn(modality))
+          weights_fn = hparams.weights_fn.get(
+              "targets", modalities.get_weights_fn(modality))
           sharded_loss_num, sharded_loss_den = dp(loss,
                                                   sharded_logits,
                                                   sharded_features["targets"],
