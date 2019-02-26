@@ -573,6 +573,7 @@ def preprocess_for_train(image, image_size=224, normalize=True):
   Returns:
     A preprocessed image `Tensor`.
   """
+  if normalize: image = tf.to_float(image) / 255.0
   image = _random_crop(image, image_size)
   if normalize: image = _normalize(image)
   image = _flip(image)
@@ -591,6 +592,7 @@ def preprocess_for_eval(image, image_size=224, normalize=True):
   Returns:
     A preprocessed image `Tensor`.
   """
+  if normalize: image = tf.to_float(image) / 255.0
   image = _do_scale(image, image_size + 32)
   if normalize: image = _normalize(image)
   image = _center_crop(image, image_size)

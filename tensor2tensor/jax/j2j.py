@@ -81,24 +81,33 @@ def one_hot(x, k, dtype=np.float32):
   return np.array(x[:, None] == np.arange(k), dtype)
 
 
-def accuracy(params, batch, model_predict):
+def accuracy(batch, model_predictions):
   """Calculate accuracy."""
-  inputs, targets = batch
-  predicted_class = np.argmax(model_predict(params, inputs), axis=1)
+  _, targets = batch
+  predicted_class = np.argmax(model_predictions, axis=-1)
   return np.mean(predicted_class == targets)
+
+
+def neg_log_perplexity(batch, model_predictions):
+  """Calculate negative log perplexity."""
+  _, targets = batch
+  hot_targets = one_hot(targets, model_predictions.shape[-1])
+  return np.mean(np.sum(model_predictions * hot_targets, axis=-1))
 
 
 def loss(params, batch, model_predict):
   """Calculate loss."""
   inputs, targets = batch
   preds = model_predict(params, inputs)
-  return -np.mean(preds * one_hot(targets, preds.shape[-1]))
+  return - np.mean(preds * one_hot(targets, preds.shape[-1]))
 
 
 def dataset_to_stream(batches, input_name):
   """Takes a tf.Dataset and creates a numpy stream of ready batches."""
   for example in tfds.as_numpy(batches):
     inp, out = example[0][input_name], example[1]
+    if len(out.shape) > 1 and out.shape[-1] == 1:
+      out = np.squeeze(out, axis=-1)
     yield inp, out
 
 
@@ -143,6 +152,14 @@ def load_params_and_step(output_dir):
 def _make_summary_writer(output_path):
   _make_directory(output_path)
   return jaxboard.SummaryWriter(output_path)
+
+
+# Metrics to calculate and report.
+_metrics = {
+    "accuracy": accuracy,
+    "neg_log_perplexity": neg_log_perplexity,
+    "loss": lambda x, y: - neg_log_perplexity(x, y),
+}
 
 
 # We include in gin config everything that could be useful to share between
@@ -190,21 +207,25 @@ def train_fn(data_dir=None, output_dir=None,
       step = loaded_step
 
     # Create summary writers.
-    eval_sw = _make_summary_writer(os.path.join(output_dir, "eval_log"))
-    train_sw = _make_summary_writer(os.path.join(output_dir, "train_log"))
+    eval_sw = _make_summary_writer(os.path.join(output_dir, "eval"))
+    train_sw = _make_summary_writer(os.path.join(output_dir, "train"))
 
   log("Starting training.")
   opt_state = opt_init(init_params)
   gin_config_saved = False
+  cur_eval_frequency = 1  # First evaluation after the first training step.
   while step < train_steps:
     # Training.
     start_time = time.time()
-    for _ in range(eval_frequency):
+    for _ in range(cur_eval_frequency):
       opt_state = update(step, opt_state, next(train_stream))
+      if train_sw and step % 10 == 0:  # Log learning rate curve each 10 steps.
+        train_sw.scalar("training/learning rate",
+                        learning_rate(step), step=step)
       step += 1
     epoch_time = time.time() - start_time
     log("Step {}, last {} steps in {:0.2f} sec".format(
-        step, eval_frequency, epoch_time))
+        step, cur_eval_frequency, epoch_time))
 
     # Save the model.
     params = optimizers.get_params(opt_state)
@@ -221,22 +242,39 @@ def train_fn(data_dir=None, output_dir=None,
     # Evaluation.
     eval_stream = dataset_to_stream(eval_batches, input_name)
     eval_train_stream = dataset_to_stream(train_batches, input_name)
-    train_acc, eval_acc, train_loss, eval_loss = 0.0, 0.0, 0.0, 0.0
+    train_metrics = {key: 0.0 for key in _metrics}
+    eval_metrics = {key: 0.0 for key in _metrics}
     for _ in range(eval_steps):
-      train_acc += accuracy(params, next(eval_train_stream), model_predict)
-      eval_acc += accuracy(params, next(eval_stream), model_predict)
-      train_loss += loss(params, next(eval_train_stream), model_predict)
-      eval_loss += loss(params, next(eval_stream), model_predict)
-    train_acc /= eval_steps
-    eval_acc /= eval_steps
-    train_loss /= eval_steps
-    eval_loss /= eval_steps
-    log("Train accuracy {:0.4f} loss {:0.8f}".format(train_acc, train_loss))
+      train_batch = next(eval_train_stream)
+      train_predictions = model_predict(params, train_batch[0])
+      eval_batch = next(eval_stream)
+      eval_predictions = model_predict(params, eval_batch[0])
+      for m in _metrics:
+        train_metrics[m] += _metrics[m](
+            train_batch, train_predictions) / float(eval_steps)
+        eval_metrics[m] += _metrics[m](
+            eval_batch, eval_predictions) / float(eval_steps)
+
+    for m in _metrics:
+      log("Step %d train %s %.8f" % (step, m, train_metrics[m]))
+      prefix = "metrics/"
+      if train_sw:
+        train_sw.scalar(prefix + m, train_metrics[m], step=step)
+      log("Step %d eval  %s %.8f" % (step, m, eval_metrics[m]))
+      if eval_sw:
+        eval_sw.scalar(prefix + m, eval_metrics[m], step=step)
+
+    # Log non-metric reports and flush.
     if train_sw:
-      train_sw.scalar("steps/s", epoch_time / eval_frequency, step=step)
-      train_sw.scalar("accuracy", train_acc, step=step)
-      train_sw.scalar("loss", train_loss, step=step)
-    log("Eval  accuracy {:0.4f} loss {:0.8f}".format(eval_acc, eval_loss))
+      if step > 1:  # Don't log performance of the first step.
+        train_sw.scalar("training/steps per second",
+                        cur_eval_frequency / epoch_time, step=step)
+      train_sw.writer.flush()
     if eval_sw:
-      eval_sw.scalar("accuracy", eval_acc, step=step)
-      train_sw.scalar("loss", eval_loss, step=step)
+      eval_sw.writer.flush()
+
+    # After the first step, Evaluate every eval_frequency steps.
+    if cur_eval_frequency == 1 and eval_frequency != 1:
+      cur_eval_frequency = eval_frequency - 1
+    else:
+      cur_eval_frequency = eval_frequency

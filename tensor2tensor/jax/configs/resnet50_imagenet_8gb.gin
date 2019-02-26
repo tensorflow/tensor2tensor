@@ -1,15 +1,15 @@
 # Parameters for batch_fn:
 # ==============================================================================
-batch_fn.batch_size = 16
+batch_fn.batch_size = 32
 batch_fn.bucket_length = 32
 batch_fn.buckets = None
 batch_fn.eval_batch_size = 16
 
 # Parameters for learning_rate:
 # ==============================================================================
-learning_rate.constant = 0.1
+learning_rate.constant = 10.0
 learning_rate.schedule = 'constant * linear_warmup * rsqrt_decay'
-learning_rate.warmup_steps = 10000
+learning_rate.warmup_steps = 400
 
 # Parameters for optimizer:
 # ==============================================================================
@@ -32,7 +32,7 @@ Resnet50.num_output_classes = 1001
 
 # Parameters for train_fn:
 # ==============================================================================
-train_fn.dataset = 't2t_image_imagenet'
+train_fn.dataset = 't2t_image_imagenet224'
 train_fn.eval_frequency = 100
 train_fn.eval_steps = 2
 train_fn.model = @Resnet50
