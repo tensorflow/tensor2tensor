@@ -32,6 +32,8 @@ import jax
 from jax.experimental import optimizers
 import jax.numpy as np
 
+import six
+
 from tensor2tensor.jax import inputs as inputs_lib
 from tensor2tensor.jax import jaxboard
 # Import for gin configurable models
@@ -117,12 +119,9 @@ State = collections.namedtuple("_State", ["step", "params"])
 
 def restore_state(output_dir):
   """Restore State."""
-  empty_state = State(step=None, params=None)
-  if output_dir is None or not gfile.exists(output_dir):
-    return empty_state
   params_file = os.path.join(output_dir, "model.pkl")
   if not gfile.exists(params_file):
-    return empty_state
+    return State(step=None, params=None)
 
   with gfile.GFile(params_file, "rb") as f:
     (params, step) = pickle.load(f)
@@ -132,10 +131,6 @@ def restore_state(output_dir):
 
 def save_state(state, output_dir, save_gin=True):
   """Save State and optionally gin config."""
-  if not output_dir:
-    return
-
-  gfile.makedirs(output_dir)
   params_file = os.path.join(output_dir, "model.pkl")
   with gfile.GFile(params_file, "wb") as f:
     pickle.dump((state.params, state.step), f)
@@ -160,8 +155,8 @@ _METRICS = {
 # users, so when it gets saved in a .gin file it can be re-run with minimal
 # flags.
 @gin.configurable(blacklist=["data_dir", "output_dir"])
-def train_fn(data_dir=None,
-             output_dir=None,
+def train_fn(output_dir,
+             data_dir,
              model=gin.REQUIRED,
              dataset=gin.REQUIRED,
              train_steps=1000,
@@ -170,58 +165,64 @@ def train_fn(data_dir=None,
   """Train the given model on the given dataset.
 
   Args:
-    data_dir: Directory where the data is located.
     output_dir: Directory where to put the logs and checkpoints.
-    model: The model to train (a function).
-    dataset: The name of the dataset to train on.
-    train_steps: for how many steps to train.
-    eval_steps: for how many steps to do evaluation.
-    eval_frequency: how often (every this many steps) to run evaluation.
+    data_dir: Directory where the data is located.
+    model: The model to train as a callable returning 2 callables, an init_fun
+      and apply_fun.
+    dataset: The name of the TFDS dataset to train on. To train on a T2T
+      dataset, prefix the name with "t2t_".
+    train_steps: int, total number of training steps.
+    eval_steps: int, num of steps per evaluation.
+    eval_frequency: int, how often to run evaluation (every eval_frequency
+      steps).
   """
+  gfile.makedirs(output_dir)
+
   # Make Inputs
   inputs = inputs_lib.make_inputs(dataset, data_dir)
 
   # Setup optimizer and model
   opt_init, opt_update = optimizer()
   model_init, model_predict = model()
-  jit_predict = jax.jit(model_predict)
 
   # Setup state
   state = restore_state(output_dir)
   step = state.step or 0
-  _, init_params = model_init([-1] + inputs.input_shape)
-  opt_state = opt_init(state.params or init_params)
+  params_initializer = lambda: model_init([-1] + inputs.input_shape)[1]
+  opt_state = opt_init(state.params or params_initializer())
 
   # Create summary writers.
-  train_sw, eval_sw = None, None
-  if output_dir:
-    gfile.makedirs(output_dir)
-    train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
-    eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
+  train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
+  eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
 
-  # Make fast update function
+  # jit model_predict and update so they're fast
+  jit_predict = jax.jit(model_predict)  # for evaluation
+
   @jax.jit
   def update(i, opt_state, batch):
     params = optimizers.get_params(opt_state)
     return opt_update(i, jax.grad(loss)(
         params, batch, model_predict), opt_state)
 
+  print()
   step_log(step, "starting training")
   train_gen = inputs.train_fn()
   is_first_step = True
   epoch_steps = 1  # First evaluation after the first training step.
   while step < train_steps:
+    print()
+
     # Train
     start_time = time.time()
     for _ in range(epoch_steps):
       opt_state = update(step, opt_state, next(train_gen))
-      if train_sw and step % 10 == 0:  # Log learning rate curve each 10 steps.
+      if step % 10 == 0:  # Log learning rate curve each 10 steps.
         train_sw.scalar("training/learning rate",
                         learning_rate(step), step=step)
       step += 1
     epoch_time = time.time() - start_time
-    print()
-    step_log(step, "%d train steps in %0.2f secs" % (epoch_steps, epoch_time))
+    step_log(step, "ran %d train steps in %0.2f secs" %
+             (epoch_steps, epoch_time))
 
     # Save state
     params = optimizers.get_params(opt_state)
@@ -229,33 +230,25 @@ def train_fn(data_dir=None,
                save_gin=is_first_step)
 
     # Evaluate
-    print()
     step_log(step, "starting evaluation")
     train_metrics, eval_metrics = evaluate(
         inputs, functools.partial(jit_predict, params), eval_steps)
-
-    for m in _METRICS:
-      step_log(step, "train %s %.8f" % (m, train_metrics[m]))
-      prefix = "metrics/"
-      if train_sw:
-        train_sw.scalar(prefix + m, train_metrics[m], step=step)
-      step_log(step, "eval  %s %.8f" % (m, eval_metrics[m]))
-      if eval_sw:
-        eval_sw.scalar(prefix + m, eval_metrics[m], step=step)
+    log_metrics(train_metrics, train_sw, "train", step)
+    log_metrics(eval_metrics, eval_sw, "eval ", step)
 
     # Log non-metric reports and flush.
-    if train_sw and not is_first_step:
+    if not is_first_step:
       train_sw.scalar("training/steps per second",
                       epoch_steps / epoch_time, step=step)
-      train_sw.writer.flush()
-    if eval_sw:
-      eval_sw.writer.flush()
+    train_sw.writer.flush()
+    eval_sw.writer.flush()
 
     # After the first step, train for eval_frequency steps before evaluating
     epoch_steps = (eval_frequency - 1) if is_first_step else eval_frequency
     is_first_step = False
 
-  step_log(step, "finished training.")
+  print()
+  step_log(step, "finished training")
 
 
 def evaluate(inputs, predict_fn, eval_steps):
@@ -287,3 +280,11 @@ def evaluate(inputs, predict_fn, eval_steps):
           eval_batch, eval_predictions) / float(eval_steps)
 
   return train_metrics, eval_metrics
+
+
+def log_metrics(metrics, summ_writer, log_prefix, step):
+  rjust_len = max([len(name) for name in metrics])
+  for name, value in six.iteritems(metrics):
+    step_log(step, "%s %s | % .8f" % (log_prefix, name.rjust(rjust_len), value))
+    if summ_writer:
+      summ_writer.scalar("metrics/" + name, value, step)

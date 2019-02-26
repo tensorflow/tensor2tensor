@@ -386,7 +386,7 @@ def main(argv):
     if FLAGS.hparams_set:
       config_files = [os.path.expanduser(FLAGS.hparams_set)]
     gin.parse_config_files_and_bindings(config_files, config_strs)
-    j2j.train_fn(data_dir, output_dir=output_dir)
+    j2j.train_fn(data_dir=data_dir, output_dir=output_dir)
     return
 
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)

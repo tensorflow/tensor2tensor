@@ -29,6 +29,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import datetime
 import os
 
 from absl import app
@@ -61,15 +62,33 @@ def _setup_gin():
   gin.parse_config_files_and_bindings(FLAGS.config_file, configs)
 
 
+def _default_output_dir():
+  """Default output directory."""
+  dir_name = "{model_name}_{dataset_name}_{timestamp}".format(
+      model_name=gin.query_parameter("train_fn.model").configurable.name,
+      dataset_name=gin.query_parameter("train_fn.dataset"),
+      timestamp=datetime.datetime.now().strftime("%Y%m%d_%H%M"),
+  )
+  dir_path = os.path.join("~", "j2j", dir_name)
+  print()
+  j2j.log("No output_dir specified")
+  return dir_path
+
+
 def main(_):
   _setup_gin()
 
   # Setup directories
-  data_dir, output_dir = FLAGS.data_dir, FLAGS.output_dir
-  data_dir = data_dir and os.path.expanduser(data_dir)
-  output_dir = output_dir and os.path.expanduser(output_dir)
+  data_dir = FLAGS.data_dir
+  output_dir = FLAGS.output_dir or _default_output_dir()
+  assert data_dir, "Must specify a data directory"
+  assert output_dir, "Must specify an output directory"
+  j2j.log("Using output_dir %s" % output_dir)
 
-  j2j.train_fn(data_dir, output_dir=output_dir)
+  data_dir = os.path.expanduser(data_dir)
+  output_dir = os.path.expanduser(output_dir)
+
+  j2j.train_fn(data_dir=data_dir, output_dir=output_dir)
 
 
 if __name__ == "__main__":
