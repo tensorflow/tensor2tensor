@@ -318,7 +318,7 @@ class TrainableHeNormal(TrainableNormal):
   def get_config(self):
     return {
         'seed': self.seed,
-        'dtype': self.dtype.name
+        'dtype': self.dtype,
     }
 
 
@@ -345,7 +345,7 @@ class TrainableGlorotNormal(TrainableNormal):
   def get_config(self):
     return {
         'seed': self.seed,
-        'dtype': self.dtype.name
+        'dtype': self.dtype
     }
 
 
