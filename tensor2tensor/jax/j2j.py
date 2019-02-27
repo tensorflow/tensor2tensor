@@ -101,7 +101,7 @@ def loss(params, batch, model_predict):
   """Calculate loss."""
   inputs, targets = batch
   preds = model_predict(params, inputs)
-  return - np.mean(preds * one_hot(targets, preds.shape[-1]))
+  return - np.mean(np.sum(preds * one_hot(targets, preds.shape[-1]), axis=-1))
 
 
 def log(s, stdout=True):
