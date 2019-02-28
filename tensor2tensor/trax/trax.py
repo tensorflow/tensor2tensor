@@ -119,18 +119,22 @@ def restore_state(output_dir):
   return State(step=step, params=params)
 
 
-def save_state(state, output_dir, save_gin=True):
+def save_gin(output_dir, sw=None):
+  config_path = os.path.join(output_dir, "config.gin")
+  config_str = gin.operative_config_str()
+  with gfile.GFile(config_path, "w") as f:
+    f.write(config_str)
+  if sw:
+    sw.text("gin_config",
+            jaxboard.markdownify_operative_config_str(config_str))
+
+
+def save_state(state, output_dir):
   """Save State and optionally gin config."""
   params_file = os.path.join(output_dir, "model.pkl")
   with gfile.GFile(params_file, "wb") as f:
     pickle.dump((state.params, state.step), f)
   log("Model saved to %s" % params_file, stdout=False)
-
-  # Gin file only includes used parameters, so we save it at this point.
-  if save_gin:
-    config_path = os.path.join(output_dir, "config.gin")
-    with gfile.GFile(config_path, "w") as f:
-      f.write(gin.operative_config_str())
 
 
 # Metrics to calculate and report.
@@ -186,6 +190,7 @@ def log_metrics(metrics, summ_writer, log_prefix, step):
 #   * metrics
 #   * learning rate
 # * Save/restore: pickle unsafe. Use np.array.savez + MessagePack?
+# * Move metrics to metrics.py
 
 
 @gin.configurable(blacklist=["output_dir"])
@@ -209,6 +214,9 @@ def train(output_dir,
     eval_steps: int, num of steps per evaluation. If None or 0, eval disabled.
     eval_frequency: int, how often to run evaluation (every eval_frequency
       steps). If None or 0, eval disabled.
+
+  Returns:
+    trax.State
   """
   gfile.makedirs(output_dir)
 
@@ -262,8 +270,7 @@ def train(output_dir,
 
     # Save state
     params = jax_opt.get_params(opt_state)
-    save_state(State(params=params, step=step), output_dir,
-               save_gin=is_first_step)
+    save_state(State(params=params, step=step), output_dir)
 
     # Evaluate
     if eval_enabled:
@@ -274,7 +281,11 @@ def train(output_dir,
       log_metrics(eval_metrics, eval_sw, "eval ", step)
       eval_sw.writer.flush()
 
-    # Log non-metric reports and flush.
+    # Gin only tracks the used parameters, so we save it after the first step.
+    if is_first_step:
+      save_gin(output_dir, train_sw)
+
+    # Log non-metric reports.
     if not is_first_step:
       train_sw.scalar("training/steps per second",
                       epoch_steps / epoch_time, step=step)
@@ -287,3 +298,4 @@ def train(output_dir,
 
   print()
   step_log(step, "finished training")
+  return State(params=params, step=step)
