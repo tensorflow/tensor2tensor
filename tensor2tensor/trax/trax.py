@@ -26,18 +26,21 @@ import pickle
 import time
 
 from absl import logging
+
 import gin
 
 import jax
-from jax.experimental import optimizers
+from jax.experimental import optimizers as jax_opt
 import jax.numpy as np
 
 import six
 
-from tensor2tensor.jax import inputs as inputs_lib
-from tensor2tensor.jax import jaxboard
-# Import for gin configurable models
-from tensor2tensor.jax import models  # pylint: disable=unused-import
+from tensor2tensor.trax import inputs as inputs_lib
+from tensor2tensor.trax import jaxboard
+
+# Imports for gin configurables
+from tensor2tensor.trax import models as _trax_models  # pylint: disable=unused-import
+from tensor2tensor.trax import optimizers as trax_opt
 
 from tensorflow.io import gfile
 
@@ -59,23 +62,6 @@ def learning_rate(step,
     else:
       raise ValueError("Unknown factor %s." % name)
   return ret
-
-
-@gin.configurable()
-def optimizer(name="adam",
-              momentum_mass=0.9, rmsprop_gamma=0.9, rmsprop_eps=1e-8,
-              adam_b1=0.9, adam_b2=0.997, adam_eps=1e-8):
-  """Return the optimizer, by name."""
-  if name == "sgd":
-    return optimizers.sgd(learning_rate)
-  if name == "momentum":
-    return optimizers.momentum(learning_rate, mass=momentum_mass)
-  if name == "rmsprop":
-    return optimizers.rmsprop(
-        learning_rate, gamma=rmsprop_gamma, eps=rmsprop_eps)
-  if name == "adam":
-    return optimizers.adam(learning_rate, b1=adam_b1, b2=adam_b2, eps=adam_eps)
-  raise ValueError("Unknown optimizer %s" % str(name))
 
 
 def one_hot(x, k, dtype=np.float32):
@@ -150,18 +136,26 @@ _METRICS = {
     "loss": lambda x, y: - neg_log_perplexity(x, y),
 }
 
+# TODO(trax):
+# * Make Inputs an argument to train
+# * If eval_steps=None/0 or eval_frequency=None/0, disable evaluation
+# * Make learning rate configurable; possibly combine with optimizer
+# * Make loss configurable
+# * Make eval metrics configurable
+
 
 # We include in gin config everything that could be useful to share between
 # users, so when it gets saved in a .gin file it can be re-run with minimal
 # flags.
 @gin.configurable(blacklist=["data_dir", "output_dir"])
-def train_fn(output_dir,
-             data_dir,
-             model=gin.REQUIRED,
-             dataset=gin.REQUIRED,
-             train_steps=1000,
-             eval_steps=10,
-             eval_frequency=100):
+def train(output_dir,
+          data_dir,
+          model=gin.REQUIRED,
+          dataset=gin.REQUIRED,
+          optimizer=trax_opt.adam,
+          train_steps=1000,
+          eval_steps=10,
+          eval_frequency=100):
   """Train the given model on the given dataset.
 
   Args:
@@ -171,6 +165,8 @@ def train_fn(output_dir,
       and apply_fun.
     dataset: The name of the TFDS dataset to train on. To train on a T2T
       dataset, prefix the name with "t2t_".
+    optimizer: The optimizer as a callable taking a learning_rate callable and
+      returning 2 callables, opt_init and opt_update.
     train_steps: int, total number of training steps.
     eval_steps: int, num of steps per evaluation.
     eval_frequency: int, how often to run evaluation (every eval_frequency
@@ -182,7 +178,7 @@ def train_fn(output_dir,
   inputs = inputs_lib.make_inputs(dataset, data_dir)
 
   # Setup optimizer and model
-  opt_init, opt_update = optimizer()
+  opt_init, opt_update = optimizer(learning_rate)
   model_init, model_predict = model()
 
   # Setup state
@@ -200,13 +196,13 @@ def train_fn(output_dir,
 
   @jax.jit
   def update(i, opt_state, batch):
-    params = optimizers.get_params(opt_state)
+    params = jax_opt.get_params(opt_state)
     return opt_update(i, jax.grad(loss)(
         params, batch, model_predict), opt_state)
 
   print()
   step_log(step, "starting training")
-  train_gen = inputs.train_fn()
+  inputs_stream = inputs.train_fn()
   is_first_step = True
   epoch_steps = 1  # First evaluation after the first training step.
   while step < train_steps:
@@ -215,7 +211,7 @@ def train_fn(output_dir,
     # Train
     start_time = time.time()
     for _ in range(epoch_steps):
-      opt_state = update(step, opt_state, next(train_gen))
+      opt_state = update(step, opt_state, next(inputs_stream))
       if step % 10 == 0:  # Log learning rate curve each 10 steps.
         train_sw.scalar("training/learning rate",
                         learning_rate(step), step=step)
@@ -225,7 +221,7 @@ def train_fn(output_dir,
              (epoch_steps, epoch_time))
 
     # Save state
-    params = optimizers.get_params(opt_state)
+    params = jax_opt.get_params(opt_state)
     save_state(State(params=params, step=step), output_dir,
                save_gin=is_first_step)
 

@@ -13,13 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""J2J models."""
+"""ResNet."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-import gin
 
 from jax.experimental import stax
 
@@ -62,7 +60,6 @@ def IdentityBlock(kernel_size, filters):
       stax.FanInSum, stax.Relu)
 
 
-@gin.configurable()
 def Resnet50(hidden_size=64, num_output_classes=1001):
   """ResNet.
 

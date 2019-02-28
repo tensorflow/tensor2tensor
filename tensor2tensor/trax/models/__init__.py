@@ -13,23 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""J2J models."""
-
+"""Models defined in trax."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 import gin
 
-from jax.experimental import stax
+from tensor2tensor.trax.models import mlp
+from tensor2tensor.trax.models import resnet
 
-
-@gin.configurable()
-def MLP(num_hidden_layers=2,
-        hidden_size=512,
-        activation_fn=stax.Relu,
-        num_output_classes=10):
-  layers = [stax.Flatten]
-  layers += [stax.Dense(hidden_size), activation_fn] * num_hidden_layers
-  layers += [stax.Dense(num_output_classes), stax.LogSoftmax]
-  return stax.serial(*layers)
+# Ginify
+gin.external_configurable(mlp.MLP, module="models")
+gin.external_configurable(resnet.Resnet50, module="models")

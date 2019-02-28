@@ -13,18 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""J2J trainer.
+"""trax trainer."""
 
-Examples:
-
-
-MLP on mnist:
-  python -m tensor2tensor.jax.j2j_trainer \
-    --dataset=mnist \
-    --model=MLP \
-    --config="train_fn.train_steps=4000" \
-    --output_dir=~/j2j/test1
-"""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -37,7 +27,7 @@ from absl import flags
 from absl import logging
 
 import gin
-from tensor2tensor.jax import j2j
+from tensor2tensor.trax import trax
 
 FLAGS = flags.FLAGS
 
@@ -56,22 +46,22 @@ def _setup_gin():
   configs = FLAGS.config or []
   # Override with --dataset and --model
   if FLAGS.dataset:
-    configs.append("train_fn.dataset='%s'" % FLAGS.dataset)
+    configs.append("train.dataset='%s'" % FLAGS.dataset)
   if FLAGS.model:
-    configs.append("train_fn.model=@" + FLAGS.model)
+    configs.append("train.model=@" + FLAGS.model)
   gin.parse_config_files_and_bindings(FLAGS.config_file, configs)
 
 
 def _default_output_dir():
   """Default output directory."""
   dir_name = "{model_name}_{dataset_name}_{timestamp}".format(
-      model_name=gin.query_parameter("train_fn.model").configurable.name,
-      dataset_name=gin.query_parameter("train_fn.dataset"),
+      model_name=gin.query_parameter("train.model").configurable.name,
+      dataset_name=gin.query_parameter("train.dataset"),
       timestamp=datetime.datetime.now().strftime("%Y%m%d_%H%M"),
   )
-  dir_path = os.path.join("~", "j2j", dir_name)
+  dir_path = os.path.join("~", "trax", dir_name)
   print()
-  j2j.log("No output_dir specified")
+  trax.log("No --output_dir specified")
   return dir_path
 
 
@@ -83,12 +73,12 @@ def main(_):
   output_dir = FLAGS.output_dir or _default_output_dir()
   assert data_dir, "Must specify a data directory"
   assert output_dir, "Must specify an output directory"
-  j2j.log("Using output_dir %s" % output_dir)
+  trax.log("Using --output_dir %s" % output_dir)
 
   data_dir = os.path.expanduser(data_dir)
   output_dir = os.path.expanduser(output_dir)
 
-  j2j.train_fn(data_dir=data_dir, output_dir=output_dir)
+  trax.train(data_dir=data_dir, output_dir=output_dir)
 
 
 if __name__ == "__main__":
