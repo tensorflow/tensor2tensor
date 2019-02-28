@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""J2J main training functions."""
+"""trax main training functions."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -35,14 +35,18 @@ import jax.numpy as np
 
 import six
 
-from tensor2tensor.trax import inputs as inputs_lib
 from tensor2tensor.trax import jaxboard
-
-# Imports for gin configurables
-from tensor2tensor.trax import models as _trax_models  # pylint: disable=unused-import
 from tensor2tensor.trax import optimizers as trax_opt
 
 from tensorflow.io import gfile
+
+# Imports for gin configurables
+# TODO(trax): Move to trainer.py. Only here because of t2t_trainer usage.
+# pylint: disable=unused-import,g-bad-import-order,reimported
+from tensor2tensor.trax import inputs as _trax_inputs
+from tensor2tensor.trax import models as _trax_models
+from tensor2tensor.trax import optimizers as _trax_opt
+# pylint: disable=unused-import,g-bad-import-order,reimported
 
 
 @gin.configurable(blacklist=["step"])
@@ -136,46 +140,79 @@ _METRICS = {
     "loss": lambda x, y: - neg_log_perplexity(x, y),
 }
 
+
+def evaluate(inputs, predict_fn, eval_steps):
+  """Evaluate.
+
+  Args:
+    inputs: Inputs namedtuple.
+    predict_fn: function from inputs to predictions. params should already be
+      partially applied.
+    eval_steps: int, number of evaluation steps.
+
+  Returns:
+    train_metrics: dict
+    eval_metrics: dict
+  """
+  eval_stream = inputs.eval_fn()
+  eval_train_stream = inputs.train_fn()
+  train_metrics = {key: 0.0 for key in _METRICS}
+  eval_metrics = {key: 0.0 for key in _METRICS}
+  for _ in range(eval_steps):
+    train_batch = next(eval_train_stream)
+    train_predictions = predict_fn(train_batch[0])
+    eval_batch = next(eval_stream)
+    eval_predictions = predict_fn(eval_batch[0])
+    for m in _METRICS:
+      train_metrics[m] += (_METRICS[m](train_batch, train_predictions)
+                           / float(eval_steps))
+      eval_metrics[m] += (_METRICS[m](eval_batch, eval_predictions)
+                          / float(eval_steps))
+
+  return train_metrics, eval_metrics
+
+
+def log_metrics(metrics, summ_writer, log_prefix, step):
+  rjust_len = max([len(name) for name in metrics])
+  for name, value in six.iteritems(metrics):
+    step_log(step, "%s %s | % .8f" % (log_prefix, name.rjust(rjust_len), value))
+    if summ_writer:
+      summ_writer.scalar("metrics/" + name, value, step)
+
+
 # TODO(trax):
-# * Make Inputs an argument to train
-# * If eval_steps=None/0 or eval_frequency=None/0, disable evaluation
-# * Make learning rate configurable; possibly combine with optimizer
-# * Make loss configurable
-# * Make eval metrics configurable
+# * Make configurable:
+#   * loss
+#   * metrics
+#   * learning rate
+# * Save/restore: pickle unsafe. Use np.array.savez + MessagePack?
 
 
-# We include in gin config everything that could be useful to share between
-# users, so when it gets saved in a .gin file it can be re-run with minimal
-# flags.
-@gin.configurable(blacklist=["data_dir", "output_dir"])
+@gin.configurable(blacklist=["output_dir"])
 def train(output_dir,
-          data_dir,
           model=gin.REQUIRED,
-          dataset=gin.REQUIRED,
+          inputs=gin.REQUIRED,
           optimizer=trax_opt.adam,
           train_steps=1000,
           eval_steps=10,
           eval_frequency=100):
-  """Train the given model on the given dataset.
+  """Train the model on the inputs.
 
   Args:
     output_dir: Directory where to put the logs and checkpoints.
-    data_dir: Directory where the data is located.
     model: The model to train as a callable returning 2 callables, an init_fun
       and apply_fun.
-    dataset: The name of the TFDS dataset to train on. To train on a T2T
-      dataset, prefix the name with "t2t_".
+    inputs: callable returning trax.inputs.Inputs.
     optimizer: The optimizer as a callable taking a learning_rate callable and
       returning 2 callables, opt_init and opt_update.
     train_steps: int, total number of training steps.
-    eval_steps: int, num of steps per evaluation.
+    eval_steps: int, num of steps per evaluation. If None or 0, eval disabled.
     eval_frequency: int, how often to run evaluation (every eval_frequency
-      steps).
+      steps). If None or 0, eval disabled.
   """
   gfile.makedirs(output_dir)
 
-  # Make Inputs
-  inputs = inputs_lib.make_inputs(dataset, data_dir)
+  inputs = inputs()
 
   # Setup optimizer and model
   opt_init, opt_update = optimizer(learning_rate)
@@ -203,10 +240,13 @@ def train(output_dir,
   print()
   step_log(step, "starting training")
   inputs_stream = inputs.train_fn()
+  eval_enabled = eval_steps and eval_frequency
   is_first_step = True
-  epoch_steps = 1  # First evaluation after the first training step.
+  # Evaluate after the first training step, then reset to normal_epoch_steps
+  normal_epoch_steps = (eval_enabled and eval_frequency) or train_steps
+  epoch_steps = 1
   while step < train_steps:
-    print()
+    print()  # separate logging for each loop iteration
 
     # Train
     start_time = time.time()
@@ -226,61 +266,24 @@ def train(output_dir,
                save_gin=is_first_step)
 
     # Evaluate
-    step_log(step, "starting evaluation")
-    train_metrics, eval_metrics = evaluate(
-        inputs, functools.partial(jit_predict, params), eval_steps)
-    log_metrics(train_metrics, train_sw, "train", step)
-    log_metrics(eval_metrics, eval_sw, "eval ", step)
+    if eval_enabled:
+      step_log(step, "starting evaluation")
+      train_metrics, eval_metrics = evaluate(
+          inputs, functools.partial(jit_predict, params), eval_steps)
+      log_metrics(train_metrics, train_sw, "train", step)
+      log_metrics(eval_metrics, eval_sw, "eval ", step)
+      eval_sw.writer.flush()
 
     # Log non-metric reports and flush.
     if not is_first_step:
       train_sw.scalar("training/steps per second",
                       epoch_steps / epoch_time, step=step)
     train_sw.writer.flush()
-    eval_sw.writer.flush()
 
-    # After the first step, train for eval_frequency steps before evaluating
-    epoch_steps = (eval_frequency - 1) if is_first_step else eval_frequency
+    # After the first step, train for normal_epoch_steps steps before evaluating
+    epoch_steps = (
+        (normal_epoch_steps - 1) if is_first_step else normal_epoch_steps)
     is_first_step = False
 
   print()
   step_log(step, "finished training")
-
-
-def evaluate(inputs, predict_fn, eval_steps):
-  """Evaluate.
-
-  Args:
-    inputs: Inputs namedtuple.
-    predict_fn: function from inputs to predictions. params should already be
-      partially applied.
-    eval_steps: int, number of evaluation steps.
-
-  Returns:
-    train_metrics: dict
-    eval_metrics: dict
-  """
-  eval_stream = inputs.eval_fn()
-  eval_train_stream = inputs.train_fn()
-  train_metrics = {key: 0.0 for key in _METRICS}
-  eval_metrics = {key: 0.0 for key in _METRICS}
-  for _ in range(eval_steps):
-    train_batch = next(eval_train_stream)
-    train_predictions = predict_fn(train_batch[0])
-    eval_batch = next(eval_stream)
-    eval_predictions = predict_fn(eval_batch[0])
-    for m in _METRICS:
-      train_metrics[m] += _METRICS[m](
-          train_batch, train_predictions) / float(eval_steps)
-      eval_metrics[m] += _METRICS[m](
-          eval_batch, eval_predictions) / float(eval_steps)
-
-  return train_metrics, eval_metrics
-
-
-def log_metrics(metrics, summ_writer, log_prefix, step):
-  rjust_len = max([len(name) for name in metrics])
-  for name, value in six.iteritems(metrics):
-    step_log(step, "%s %s | % .8f" % (log_prefix, name.rjust(rjust_len), value))
-    if summ_writer:
-      summ_writer.scalar("metrics/" + name, value, step)

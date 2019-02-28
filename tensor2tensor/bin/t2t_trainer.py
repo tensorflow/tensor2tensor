@@ -367,27 +367,33 @@ def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
 
   if FLAGS.jax:
-    # Hacking main v1 flags to work with jax.
-    config_strs = []
-    config_strs.append(
-        "train.train_steps=" + str(FLAGS.train_steps))
-    config_strs.append(
-        "train.eval_steps=" + str(FLAGS.eval_steps))
-    config_strs.append(
-        "train.eval_frequency=" + str(FLAGS.local_eval_frequency))
-    if FLAGS.hparams:
-      config_strs.extend(str(FLAGS.hparams).split(","))
-    data_dir = os.path.expanduser(FLAGS.data_dir)
-    output_dir = os.path.expanduser(FLAGS.output_dir)
+    # Setup trax FLAGS
+    dataset = FLAGS.problem
+    model = FLAGS.model
+    data_dir = FLAGS.data_dir
+    output_dir = FLAGS.output_dir
+    config_file = [FLAGS.hparams_set]
+    config = [
+        "train.train_steps=%d" % FLAGS.train_steps,
+        "train.eval_steps=%d" % FLAGS.eval_steps,
+        "train.eval_frequency=%d" % FLAGS.local_eval_frequency,
+    ] + str(FLAGS.hparams).split(",")
 
-    gin.bind_parameter("train.dataset", FLAGS.problem)
-    config_strs += ["train.model=@" + FLAGS.model]
-    config_files = []
-    if FLAGS.hparams_set:
-      config_files = [os.path.expanduser(FLAGS.hparams_set)]
-    gin.parse_config_files_and_bindings(config_files, config_strs)
-    trax.train(data_dir=data_dir, output_dir=output_dir)
-    return
+    # Copied _setup_gin exactly from trax/trainer.py and removed "FLAGS."
+
+    def _setup_gin():
+      configs = config or []
+      # Override with --dataset and --model
+      if dataset:
+        configs.append("inputs.dataset_name='%s'" % dataset)
+        configs.append("inputs.data_dir='%s'" % data_dir)
+        configs.append("train.inputs=@trax.inputs.inputs")
+      if model:
+        configs.append("train.model=@trax.models.%s" % model)
+      gin.parse_config_files_and_bindings(config_file, configs)
+
+    _setup_gin()
+    trax.train(output_dir=output_dir)
 
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 

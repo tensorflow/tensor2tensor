@@ -108,7 +108,7 @@ def _handle_errors(errors):
   if not errors:
     return
   log_all = True  # pylint: disable=unused-variable
-  err_msg = "Skipped importing {num_missing} data_generators modules."
+  err_msg = "T2T: skipped importing {num_missing} data_generators modules."
   print(err_msg.format(num_missing=len(errors)))
   for module, err in errors:
     err_str = str(err)

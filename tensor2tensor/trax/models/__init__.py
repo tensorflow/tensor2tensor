@@ -23,6 +23,12 @@ import gin
 from tensor2tensor.trax.models import mlp
 from tensor2tensor.trax.models import resnet
 
+
 # Ginify
-gin.external_configurable(mlp.MLP, module="models")
-gin.external_configurable(resnet.Resnet50, module="models")
+def model_configure(*args, **kwargs):
+  kwargs["module"] = "trax.models"
+  return gin.external_configurable(*args, **kwargs)
+
+
+model_configure(mlp.MLP)
+model_configure(resnet.Resnet50)

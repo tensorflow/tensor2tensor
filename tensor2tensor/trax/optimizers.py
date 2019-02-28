@@ -25,7 +25,7 @@ from jax.experimental import optimizers as opt
 
 
 def opt_configure(*args, **kwargs):
-  kwargs["module"] = "optimizers"
+  kwargs["module"] = "trax.optimizers"
   return gin.external_configurable(*args, **kwargs)
 
 # Optimizers

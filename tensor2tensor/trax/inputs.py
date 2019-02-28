@@ -20,6 +20,8 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import os
+
 import gin
 
 import jax.numpy as np
@@ -34,8 +36,21 @@ Inputs = collections.namedtuple(
     "_Inputs", ["train_fn", "eval_fn", "input_shape"])
 
 
-def make_inputs(dataset_name, data_dir):
-  """Make Inputs."""
+@gin.configurable()
+def inputs(dataset_name, data_dir):
+  """Make Inputs for built-in datasets.
+
+  Args:
+    dataset_name: a TFDS or T2T dataset name. If it's a T2T dataset name, prefix
+      with "t2t_".
+    data_dir: data directory.
+
+  Returns:
+    trax.inputs.Inputs
+  """
+  assert data_dir, "Must provide a data directory"
+  data_dir = os.path.expanduser(data_dir)
+
   (train_batches, eval_batches,
    input_name, input_shape) = train_and_eval_batches(
        dataset_name, data_dir)

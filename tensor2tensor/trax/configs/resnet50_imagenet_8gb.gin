@@ -5,6 +5,11 @@ batch_fn.bucket_length = 32
 batch_fn.buckets = None
 batch_fn.eval_batch_size = 32
 
+# Parameters for inputs:
+# ==============================================================================
+inputs.data_dir = None
+inputs.dataset_name = 't2t_image_imagenet224'
+
 # Parameters for learning_rate:
 # ==============================================================================
 learning_rate.constant = 5.0
@@ -26,9 +31,9 @@ Resnet50.num_output_classes = 1001
 
 # Parameters for train:
 # ==============================================================================
-train.dataset = 't2t_image_imagenet224'
 train.eval_frequency = 100
 train.eval_steps = 3
-train.model = @models.Resnet50
-train.optimizer = @optimizers.momentum
+train.inputs = @trax.inputs.inputs
+train.model = @trax.models.Resnet50
+train.optimizer = @trax.optimizers.momentum
 train.train_steps = 200000
