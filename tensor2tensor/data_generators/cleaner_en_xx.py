@@ -34,6 +34,8 @@ from __future__ import unicode_literals
 import itertools
 import re
 
+from tensor2tensor.data_generators import text_encoder
+
 import tensorflow as tf
 
 
@@ -130,7 +132,7 @@ def clean_en_xx_pairs(en_xx_pairs):
       continue
     s1_list, s2_list = _split_sentences(s1, s2)
     if len(s1_list) != len(s2_list):
-      pass  # discard this pair
+      continue  # discard this pair
     elif len(s1_list) == 1:
       yield s1, s2
     else:
@@ -165,6 +167,8 @@ def _is_match(sentence, regex):
 
 
 def _split_sentences(s1, s2):
+  s1 = text_encoder.native_to_unicode(s1)
+  s2 = text_encoder.native_to_unicode(s2)
   s1 = re.sub(r'(\w[A-Z]|[0-9a-z])([.!?]) ([A-Z])', r'\1\2__|__\3', s1)
   s2 = re.sub(r'([^0-9][.!?]) ([A-Z])', r'\1__|__\2', s2)
   s1_subsentences = s1.split('__|__')

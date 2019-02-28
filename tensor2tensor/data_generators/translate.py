@@ -45,6 +45,10 @@ class TranslateProblem(text_problems.Text2TextProblem):
   def approx_vocab_size(self):
     return 2**15
 
+  @property
+  def datatypes_to_clean(self):
+    return None
+
   def source_data_files(self, dataset_split):
     """Files to be passed to compile_data."""
     raise NotImplementedError()
@@ -55,9 +59,14 @@ class TranslateProblem(text_problems.Text2TextProblem):
 
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
     datasets = self.source_data_files(dataset_split)
-    tag = "train" if dataset_split == problem.DatasetSplit.TRAIN else "dev"
-    data_path = compile_data(tmp_dir, datasets, "%s-compiled-%s" % (self.name,
-                                                                    tag))
+    tag = "dev"
+    datatypes_to_clean = None
+    if dataset_split == problem.DatasetSplit.TRAIN:
+      tag = "train"
+      datatypes_to_clean = self.datatypes_to_clean
+    data_path = compile_data(
+        tmp_dir, datasets, "%s-compiled-%s" % (self.name, tag),
+        datatypes_to_clean=datatypes_to_clean)
     return text_problems.text2text_txt_iterator(data_path + ".lang1",
                                                 data_path + ".lang2")
 
@@ -127,8 +136,16 @@ def _preprocess_sgm(line, is_sgm):
     return line[i + 1:-6]  # Strip first <seg ...> and last </seg>.
 
 
-def compile_data(tmp_dir, datasets, filename):
-  """Concatenate all `datasets` and save to `filename`."""
+def _clean_sentences(sentence_pairs):
+  res_pairs = []
+  for cleaned in cleaner_en_xx.clean_en_xx_pairs(sentence_pairs):
+    res_pairs.append(cleaned)
+  return res_pairs
+
+
+def compile_data(tmp_dir, datasets, filename, datatypes_to_clean=None):
+  """Concatenates all `datasets` and saves to `filename`."""
+  datatypes_to_clean = datatypes_to_clean or []
   filename = os.path.join(tmp_dir, filename)
   lang1_fname = filename + ".lang1"
   lang2_fname = filename + ".lang2"
@@ -154,7 +171,10 @@ def compile_data(tmp_dir, datasets, filename):
             tmx_filename = new_filename
           source, target = None, None
           with tf.gfile.Open(tmx_filename) as tmx_file:
-            for source, target in cleaner_en_xx.paracrawl_v3_pairs(tmx_file):
+            stream = cleaner_en_xx.paracrawl_v3_pairs(tmx_file)
+            if "tmx" in datatypes_to_clean:
+              stream = cleaner_en_xx.clean_en_xx_pairs(stream)
+            for source, target in stream:
               lang1_resfile.write(source)
               lang1_resfile.write("\n")
               lang2_resfile.write(target)
@@ -180,11 +200,15 @@ def compile_data(tmp_dir, datasets, filename):
                   parts = line.split("\t")
                   source, target = parts[src_column], parts[trg_column]
                   source, target = source.strip(), target.strip()
-                  if source and target:
-                    lang1_resfile.write(source)
-                    lang1_resfile.write("\n")
-                    lang2_resfile.write(target)
-                    lang2_resfile.write("\n")
+                  clean_pairs = [(source, target)]
+                  if "tsv" in datatypes_to_clean:
+                    clean_pairs = cleaner_en_xx.clean_en_xx_pairs(clean_pairs)
+                  for source, target in clean_pairs:
+                    if source and target:
+                      lang1_resfile.write(source)
+                      lang1_resfile.write("\n")
+                      lang2_resfile.write(target)
+                      lang2_resfile.write("\n")
 
         else:
           lang1_filename, lang2_filename = dataset[1]
@@ -212,11 +236,15 @@ def compile_data(tmp_dir, datasets, filename):
               lang1_filepath, lang2_filepath):
             line1res = _preprocess_sgm(example["inputs"], is_sgm)
             line2res = _preprocess_sgm(example["targets"], is_sgm)
-            if line1res and line2res:
-              lang1_resfile.write(line1res)
-              lang1_resfile.write("\n")
-              lang2_resfile.write(line2res)
-              lang2_resfile.write("\n")
+            clean_pairs = [(line1res, line2res)]
+            if "txt" in datatypes_to_clean:
+              clean_pairs = cleaner_en_xx.clean_en_xx_pairs(clean_pairs)
+            for line1res, line2res in clean_pairs:
+              if line1res and line2res:
+                lang1_resfile.write(line1res)
+                lang1_resfile.write("\n")
+                lang2_resfile.write(line2res)
+                lang2_resfile.write("\n")
 
   return filename
 

@@ -77,6 +77,18 @@ class TranslateEndeWmt32k(TranslateEndeWmt8k):
 
 
 @registry.register_problem
+class TranslateEndeWmtClean32k(TranslateEndeWmt32k):
+
+  @property
+  def use_vocab_from_other_problem(self):
+    return TranslateEndeWmt32k()
+
+  @property
+  def datatypes_to_clean(self):
+    return ["txt"]
+
+
+@registry.register_problem
 class TranslateEndeWmtParacrawlBicleaner32k(TranslateEndeWmt32k):
   """WMT en-de corpus with extra data from Paracrawl, cleaned with Bicleaner."""
 
@@ -89,6 +101,22 @@ class TranslateEndeWmtParacrawlBicleaner32k(TranslateEndeWmt32k):
     paracrawl = "https://s3.amazonaws.com/web-language-models/paracrawl/"
     return [(paracrawl + "release3/en-de.bicleaner07.tmx.gz",
              ("tmx", "en-de.bicleaner07.tmx.gz"))]
+
+
+@registry.register_problem
+class TranslateEndeWmtParacrawlClean32k(TranslateEndeWmtParacrawlBicleaner32k):
+
+  @property
+  def datatypes_to_clean(self):
+    return ["tmx"]
+
+
+@registry.register_problem
+class TranslateEndeWmtParacrawlAllClean32k(TranslateEndeWmtParacrawlClean32k):
+
+  @property
+  def datatypes_to_clean(self):
+    return ["tmx", "txt"]
 
 
 @registry.register_problem
@@ -152,5 +180,3 @@ class TranslateEndeWmtMulti64kPacked1k(TranslateEndeWmtMulti64k):
   @property
   def targets_prefix(self):
     return "translate German English "
-
-
