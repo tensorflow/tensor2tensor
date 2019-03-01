@@ -256,13 +256,11 @@ class EnvProblem(Env, problem.Problem):
     assert batch_size >= 1
     self._batch_size = batch_size
 
-    self._envs = []
-    for _ in range(batch_size):
-      self._envs.append(
-          gym_utils.make_gym_env(
-              self.base_env_name,
-              rl_env_max_episode_steps=max_episode_steps,
-              maxskip_env=max_and_skip_env))
+    self._envs = [
+        gym_utils.make_gym_env(
+            self.base_env_name,
+            rl_env_max_episode_steps=max_episode_steps,
+            maxskip_env=max_and_skip_env) for _ in range(batch_size)]
 
     # If self.observation_space and self.action_space aren't None, then it means
     # that this is a re-initialization of this class, in that case make sure

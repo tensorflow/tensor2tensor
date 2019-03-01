@@ -145,13 +145,11 @@ def main(_):
     Returns:
       JSON for the supported models.
     """
-    configuration_list = []
-    for source_code, target_code, label in processors:
-      configuration_list.append({
-          "id": label,
-          "source_language": languages[source_code],
-          "target_language": languages[target_code],
-      })
+    configuration_list = [{
+        "id": label,
+        "source_language": languages[source_code],
+        "target_language": languages[target_code],
+        } for source_code, target_code, label in processors]
     return jsonify({
         "configuration": configuration_list
     })
