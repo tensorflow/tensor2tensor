@@ -303,9 +303,10 @@ class NextFrameBase(t2t_model.T2TModel):
     def sample():
       """Calculate the scheduled sampling params based on iteration number."""
       with tf.variable_scope("scheduled_sampling", reuse=tf.AUTO_REUSE):
-        return [
-            scheduled_sampling_func(item_gt, item_gen)
-            for item_gt, item_gen in zip(groundtruth_items, generated_items)]
+        output_items = []
+        for item_gt, item_gen in zip(groundtruth_items, generated_items):
+          output_items.append(scheduled_sampling_func(item_gt, item_gen))
+        return output_items
 
     cases = [
         (tf.logical_not(done_warm_start), lambda: groundtruth_items),

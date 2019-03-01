@@ -118,7 +118,9 @@ def example_splits(url_file, all_files):
 
   all_files_map = {f.split("/")[-1]: f for f in all_files}
 
-  urls = [line.strip().encode("utf-8") for line in tf.gfile.Open(url_file)]
+  urls = []
+  for line in tf.gfile.Open(url_file):
+    urls.append(line.strip().encode("utf-8"))
 
   filelist = []
   for url in urls:

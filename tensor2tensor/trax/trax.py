@@ -216,7 +216,8 @@ def train(output_dir,
   # Setup state
   step = state.step or 0
   params_initializer = lambda: model_init([-1] + inputs.input_shape)[1]
-  opt_state = opt_init(state.params or params_initializer())
+  params = state.params or params_initializer()
+  opt_state = opt_init(params)
 
   # jit model_predict and update so they're fast
   jit_predict = jax.jit(model_predict)  # for evaluation

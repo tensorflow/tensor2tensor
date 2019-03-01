@@ -45,8 +45,13 @@ flags.DEFINE_bool(
 
 
 def resize_video_frames(images, size):
-  return [tf.to_int64(tf.image.resize_images(
-      image, [size, size], tf.image.ResizeMethod.BILINEAR)) for image in images]
+  resized_images = []
+  for image in images:
+    resized_images.append(
+        tf.to_int64(
+            tf.image.resize_images(image, [size, size],
+                                   tf.image.ResizeMethod.BILINEAR)))
+  return resized_images
 
 
 def video_augmentation(features, hue=False, saturate=False, contrast=False):

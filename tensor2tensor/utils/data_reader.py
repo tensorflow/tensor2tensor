@@ -300,7 +300,9 @@ def _pad_batch(features, batch_multiple):
   padded_features = {}
   for k, feature in features.items():
     rank = len(feature.shape)
-    paddings = [[0, 0] for _ in range(rank)]
+    paddings = []
+    for _ in range(rank):
+      paddings.append([0, 0])
     paddings[0][1] = batch_padding
     padded_feature = tf.pad(feature, paddings)
     padded_features[k] = padded_feature

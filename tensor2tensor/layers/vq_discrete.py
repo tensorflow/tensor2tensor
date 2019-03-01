@@ -158,8 +158,9 @@ class DiscreteBottleneck(object):
         Integer representation of this number.
     """
     x_l = tf.stop_gradient(tf.to_int32(tf.reshape(x_bit, [-1, num_bits])))
-    x_labels = [
-        x_l[:, i] * tf.to_int32(base)**tf.to_int32(i) for i in range(num_bits)]
+    x_labels = []
+    for i in range(num_bits):
+      x_labels.append(x_l[:, i] * tf.to_int32(base)**tf.to_int32(i))
     res = sum(x_labels)
     return tf.to_int32(tf.reshape(res, common_layers.shape_list(x_bit)[:-1]))
 
@@ -176,11 +177,12 @@ class DiscreteBottleneck(object):
         Corresponding number expressed in base.
     """
     x_l = tf.to_int32(tf.expand_dims(x_int, axis=-1))
-    x_labels = [
-        tf.floormod(
-            tf.floordiv(tf.to_int32(x_l),
-                        tf.to_int32(base)**i), tf.to_int32(base))
-        for i in range(num_bits)]
+    x_labels = []
+    for i in range(num_bits):
+      x_labels.append(
+          tf.floormod(
+              tf.floordiv(tf.to_int32(x_l),
+                          tf.to_int32(base)**i), tf.to_int32(base)))
     res = tf.concat(x_labels, axis=-1)
     return tf.to_float(res)
 

@@ -177,9 +177,12 @@ class PlayerEnv(gym.Env):
     keys_to_action = {}
 
     for action_id, action_meaning in enumerate(self.action_meanings):
-      keys_tuple = tuple(sorted([
-          key for keyword, key in keyword_to_key.items()
-          if keyword in action_meaning]))
+      keys = []
+      for keyword, key in keyword_to_key.items():
+        if keyword in action_meaning:
+          keys.append(key)
+      keys_tuple = tuple(sorted(keys))
+      del keys
       assert keys_tuple not in keys_to_action
       keys_to_action[keys_tuple] = action_id
 
