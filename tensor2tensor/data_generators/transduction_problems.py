@@ -33,7 +33,7 @@ from __future__ import print_function
 import os
 import random
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -123,7 +123,7 @@ class TransductionProblem(text_problems.Text2TextProblem):
                           self.max_sequence_length(dataset_split))
 
   def build_vocab(self):
-    return ["sym_%d" % i for i in xrange(1, self.num_symbols + 1)]
+    return ["sym_%d" % i for i in range(1, self.num_symbols + 1)]
 
   def get_or_create_vocab(self, data_dir, tmp_dir, force_get=False):
     vocab_filename = os.path.join(data_dir, self.vocab_filename)
@@ -144,7 +144,7 @@ class TransductionProblem(text_problems.Text2TextProblem):
     raise NotImplementedError()
 
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
-    for _ in xrange(self.num_samples(dataset_split)):
+    for _ in range(self.num_samples(dataset_split)):
       source = self.generate_random_sequence(dataset_split)
       target = self.transpose_sequence(source)
       yield {
