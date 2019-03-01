@@ -600,7 +600,7 @@ def create_evaluation_metrics(problems, model_hparams):
   def weights_fn_for_mp(problem_task_id):
     return lambda x: common_layers.weights_multi_problem(x, problem_task_id)
 
-  eval_metrics = dict()
+  eval_metrics = {}
   for problem_instance in problems:
     problem_name = problem_instance.name
     if problem_instance.was_reversed:
@@ -681,7 +681,7 @@ def create_eager_metrics_internal(metric_fns,
     (accum_fn(predictions, targets) => None,
      result_fn() => dict<str metric_name, float avg_val>
   """
-  tfe_metrics = dict()
+  tfe_metrics = {}
 
   for name in metric_fns:
     tfe_metrics[name] = tfe.metrics.Mean(name=name)

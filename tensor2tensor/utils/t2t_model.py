@@ -1375,7 +1375,7 @@ class T2TModel(base.Layer):
     return samples, logits, losses
 
   def _shard_features(self, features):  # pylint: disable=missing-docstring
-    sharded_features = dict()
+    sharded_features = {}
     for k, v in sorted(six.iteritems(features)):
       v = tf.convert_to_tensor(v)
       v_shape = common_layers.shape_list(v)

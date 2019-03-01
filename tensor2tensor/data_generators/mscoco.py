@@ -107,7 +107,7 @@ def mscoco_generator(data_dir,
   caption_file = io.open(caption_filepath)
   caption_json = json.load(caption_file)
   # Dictionary from image_id to ((filename, height, width), captions).
-  image_dict = dict()
+  image_dict = {}
   for image in caption_json["images"]:
     image_dict[image["id"]] = [(image["file_name"], image["height"],
                                 image["width"]), []]
