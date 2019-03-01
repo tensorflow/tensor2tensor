@@ -35,7 +35,9 @@ import jax.numpy as np
 
 import six
 
+from tensor2tensor.trax import history as trax_history
 from tensor2tensor.trax import jaxboard
+from tensor2tensor.trax import learning_rate as lr
 from tensor2tensor.trax import optimizers as trax_opt
 
 from tensorflow.io import gfile
@@ -47,25 +49,6 @@ from tensor2tensor.trax import inputs as _trax_inputs
 from tensor2tensor.trax import models as _trax_models
 from tensor2tensor.trax import optimizers as _trax_opt
 # pylint: disable=unused-import,g-bad-import-order,reimported
-
-
-@gin.configurable(blacklist=["step"])
-def learning_rate(step,
-                  schedule="constant * linear_warmup * rsqrt_decay",
-                  constant=0.001,
-                  warmup_steps=100):
-  """Learning rate."""
-  ret = 1.0
-  for name in [n.strip() for n in schedule.split("*")]:
-    if name == "constant":
-      ret *= constant
-    elif name == "linear_warmup":
-      ret *= np.minimum(1.0, step / warmup_steps)
-    elif name == "rsqrt_decay":
-      ret /= np.sqrt(np.maximum(step, warmup_steps))
-    else:
-      raise ValueError("Unknown factor %s." % name)
-  return ret
 
 
 def one_hot(x, k, dtype=np.float32):
@@ -104,19 +87,19 @@ def step_log(step, s):
   log("Step % 6d: %s" % (step, s))
 
 
-State = collections.namedtuple("_State", ["step", "params"])
+State = collections.namedtuple("_State", ["step", "params", "history"])
 
 
 def restore_state(output_dir):
   """Restore State."""
   params_file = os.path.join(output_dir, "model.pkl")
   if not gfile.exists(params_file):
-    return State(step=None, params=None)
+    return State(step=None, params=None, history=trax_history.History())
 
   with gfile.GFile(params_file, "rb") as f:
-    (params, step) = pickle.load(f)
+    (params, step, history) = pickle.load(f)
   log("Model loaded from %s" % params_file)
-  return State(step=step, params=params)
+  return State(step=step, params=params, history=history)
 
 
 def save_gin(output_dir, sw=None):
@@ -133,7 +116,7 @@ def save_state(state, output_dir):
   """Save State and optionally gin config."""
   params_file = os.path.join(output_dir, "model.pkl")
   with gfile.GFile(params_file, "wb") as f:
-    pickle.dump((state.params, state.step), f)
+    pickle.dump((state.params, state.step, state.history), f)
   log("Model saved to %s" % params_file, stdout=False)
 
 
@@ -176,19 +159,22 @@ def evaluate(inputs, predict_fn, eval_steps):
   return train_metrics, eval_metrics
 
 
-def log_metrics(metrics, summ_writer, log_prefix, step):
+def log_metrics(metrics, summ_writer, log_prefix, step, history=None):
+  """Log metrics to summary writer and history."""
   rjust_len = max([len(name) for name in metrics])
   for name, value in six.iteritems(metrics):
     step_log(step, "%s %s | % .8f" % (log_prefix, name.rjust(rjust_len), value))
+    full_name = "metrics/" + name
+    if history:
+      history.append(full_name, value, step, log_prefix)
     if summ_writer:
-      summ_writer.scalar("metrics/" + name, value, step)
+      summ_writer.scalar(full_name, value, step)
 
 
 # TODO(trax):
 # * Make configurable:
 #   * loss
 #   * metrics
-#   * learning rate
 # * Save/restore: pickle unsafe. Use np.array.savez + MessagePack?
 # * Move metrics to metrics.py
 
@@ -198,6 +184,7 @@ def train(output_dir,
           model=gin.REQUIRED,
           inputs=gin.REQUIRED,
           optimizer=trax_opt.adam,
+          learning_rate_fn=lr.make_default_schedule,
           train_steps=1000,
           eval_steps=10,
           eval_frequency=100):
@@ -210,6 +197,8 @@ def train(output_dir,
     inputs: callable returning trax.inputs.Inputs.
     optimizer: The optimizer as a callable taking a learning_rate callable and
       returning 2 callables, opt_init and opt_update.
+    learning_rate_fn: The learning rate callable that takes history and returns
+      a function from step to learning rate (a float).
     train_steps: int, total number of training steps.
     eval_steps: int, num of steps per evaluation. If None or 0, eval disabled.
     eval_frequency: int, how often to run evaluation (every eval_frequency
@@ -219,22 +208,23 @@ def train(output_dir,
     trax.State
   """
   gfile.makedirs(output_dir)
+  # Create summary writers and history.
+  train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
+  eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
 
   inputs = inputs()
 
   # Setup optimizer and model
+  state = restore_state(output_dir)
+  history = state.history
+  learning_rate = learning_rate_fn(history)
   opt_init, opt_update = optimizer(learning_rate)
   model_init, model_predict = model()
 
   # Setup state
-  state = restore_state(output_dir)
   step = state.step or 0
   params_initializer = lambda: model_init([-1] + inputs.input_shape)[1]
   opt_state = opt_init(state.params or params_initializer())
-
-  # Create summary writers.
-  train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
-  eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
 
   # jit model_predict and update so they're fast
   jit_predict = jax.jit(model_predict)  # for evaluation
@@ -268,18 +258,18 @@ def train(output_dir,
     step_log(step, "ran %d train steps in %0.2f secs" %
              (epoch_steps, epoch_time))
 
-    # Save state
-    params = jax_opt.get_params(opt_state)
-    save_state(State(params=params, step=step), output_dir)
-
     # Evaluate
+    params = jax_opt.get_params(opt_state)
     if eval_enabled:
       step_log(step, "starting evaluation")
       train_metrics, eval_metrics = evaluate(
           inputs, functools.partial(jit_predict, params), eval_steps)
-      log_metrics(train_metrics, train_sw, "train", step)
-      log_metrics(eval_metrics, eval_sw, "eval ", step)
+      log_metrics(train_metrics, train_sw, "train", step, history=history)
+      log_metrics(eval_metrics, eval_sw, "eval ", step, history=history)
       eval_sw.writer.flush()
+
+    # Save state
+    save_state(State(params=params, step=step, history=history), output_dir)
 
     # Gin only tracks the used parameters, so we save it after the first step.
     if is_first_step:
@@ -291,6 +281,9 @@ def train(output_dir,
                       epoch_steps / epoch_time, step=step)
     train_sw.writer.flush()
 
+    # Update learning rate with new history.
+    learning_rate = learning_rate_fn(history)
+
     # After the first step, train for normal_epoch_steps steps before evaluating
     epoch_steps = (
         (normal_epoch_steps - 1) if is_first_step else normal_epoch_steps)
@@ -298,4 +291,4 @@ def train(output_dir,
 
   print()
   step_log(step, "finished training")
-  return State(params=params, step=step)
+  return State(params=params, step=step, history=history)
