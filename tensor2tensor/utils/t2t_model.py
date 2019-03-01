@@ -1817,7 +1817,7 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
   tm = _create_target_modality(problem.get_hparams(model_hparams).modality)
   if isinstance(tm, dict):
     for k, v in six.iteritems(tm):
-      weights_fn = v.targets_weights_fn
+      weights_fn = modalities.get_targets_weights_fn(v)
 
       def make_metric_fn(metric_fn):
         def wrapped_metric_fn(logits, labels, features, weights_fn=weights_fn):
@@ -1837,7 +1837,7 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
         name = "%s/metrics-%s/%s" % (k, problem.name, metric)
         metric_fns.append((name, make_metric_fn(metric_fn)))
   else:
-    weights_fn = tm.targets_weights_fn
+    weights_fn = modalities.get_targets_weights_fn(tm)
 
     def make_metric_fn(metric_fn):
       def wrapped_metric_fn(logits, labels, features):
