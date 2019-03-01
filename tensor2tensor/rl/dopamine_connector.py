@@ -42,7 +42,7 @@ try:
 except ImportError:
   cv2 = None
 try:
-  from dopamine.discrete_domains import run_experiment
+  from dopamine.atari import run_experiment
 except ImportError:
   run_experiment = None
 # pylint: enable=g-import-not-at-top
@@ -140,9 +140,9 @@ class BatchDQNAgent(_DQNAgent):
   def __init__(self, env_batch_size, *args, **kwargs):
     super(BatchDQNAgent, self).__init__(*args, **kwargs)
     self.env_batch_size = env_batch_size
-    obs_size = NATURE_DQN_OBSERVATION_SHAPE
+    obs_size = dqn_agent.NATURE_DQN_OBSERVATION_SHAPE
     state_shape = [self.env_batch_size, obs_size, obs_size,
-                   NATURE_DQN_STACK_SIZE]
+                   dqn_agent.NATURE_DQN_STACK_SIZE]
     self.state_batch = np.zeros(state_shape)
     self.state = None  # assure it will be not used
     self._observation = None  # assure it will be not used
@@ -442,7 +442,7 @@ class DopamineBatchEnv(object):
 def get_create_batch_env_fun(batch_env_fn, time_limit):
   """TODO(konradczechowski): Add doc-string."""
 
-  def create_env_fun(game_name, sticky_actions=True):
+  def create_env_fun(game_name=None, sticky_actions=None):
     del game_name, sticky_actions
     batch_env = batch_env_fn(in_graph=False)
     batch_env = ResizeBatchObservation(batch_env)  # pylint: disable=redefined-variable-type
@@ -477,9 +477,8 @@ def _get_optimizer(params):
 class DQNLearner(PolicyLearner):
   """Interface for learning dqn implemented in dopamine."""
 
-  def __init__(self, frame_stack_size, base_event_dir, agent_model_dir):
-    super(DQNLearner, self).__init__(frame_stack_size, base_event_dir,
-                                     agent_model_dir)
+  def __init__(self, *args, **kwargs):
+    super(DQNLearner, self).__init__(*args, **kwargs)
     self.completed_iterations = 0
 
   def _target_iteractions_and_steps(self, num_env_steps, save_continuously,
@@ -510,9 +509,9 @@ class DQNLearner(PolicyLearner):
     runner = BatchRunner(
         base_dir=self.agent_model_dir,
         create_agent_fn=create_agent_fn,
+        game_name='unused',
+        sticky_actions='unused',
         batch_size=batch_size,
-        game_name="unused_arg",
-        sticky_actions="unused_arg",
         create_environment_fn=get_create_batch_env_fun(
             env_fn, time_limit=hparams.time_limit),
         evaluation_steps=0,
