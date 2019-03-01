@@ -128,18 +128,21 @@ def define_ppo_epoch(memory, hparams, action_space, batch_size):
   ppo_summaries = [tf.reduce_mean(ret) / number_of_batches
                    for ret in ppo_step_rets]
   ppo_summaries.append(lr)
-  summaries_names = [
-      "policy_loss", "value_loss", "entropy_loss", "learning_rate"
-  ]
+  return ppo_summaries
 
-  summaries = [tf.summary.scalar(summary_name, summary)
-               for summary_name, summary in zip(summaries_names, ppo_summaries)]
-  losses_summary = tf.summary.merge(summaries)
+  # TPU doesn't directly support summaries.
+  #summaries_names = [
+  #    "policy_loss", "value_loss", "entropy_loss", "learning_rate"
+  #]
 
-  for summary_name, summary in zip(summaries_names, ppo_summaries):
-    losses_summary = tf.Print(losses_summary, [summary], summary_name + ": ")
+  #summaries = [tf.summary.scalar(summary_name, summary)
+  #             for summary_name, summary in zip(summaries_names, ppo_summaries)]
+  #losses_summary = tf.summary.merge(summaries)
 
-  return losses_summary
+  #for summary_name, summary in zip(summaries_names, ppo_summaries):
+  #  losses_summary = tf.Print(losses_summary, [summary], summary_name + ": ")
+
+  #return losses_summary
 
 
 def calculate_generalized_advantage_estimator(

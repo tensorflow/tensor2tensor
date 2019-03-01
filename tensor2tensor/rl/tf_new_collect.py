@@ -18,10 +18,21 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import copy
+
+from tensor2tensor.data_generators.gym_env import DummyWorldModelProblem
+from tensor2tensor.layers import common_layers
+from tensor2tensor.models.research.rl import get_policy
+from tensor2tensor.utils import registry
+from tensor2tensor.utils import trainer_lib
+
 import tensorflow as tf
+import tensorflow_probability as tfp
+
+from gym.spaces import Discrete
 
 
-class NewInGraphBatchEnv():
+class NewInGraphBatchEnv(object):
 
   def __init__(self, batch_size):
     self.batch_size = batch_size
@@ -40,21 +51,52 @@ class NewInGraphBatchEnv():
 
 class NewSimulatedBatchEnv(NewInGraphBatchEnv):
 
+  def __init__(self, batch_size, model_name, model_hparams):
+    super(NewSimulatedBatchEnv, self).__init__(batch_size)
+    model_hparams = copy.copy(model_hparams)
+    problem = DummyWorldModelProblem(
+        action_space=Discrete(2), reward_range=(-1, 1),
+        frame_height=210, frame_width=160
+    )
+    trainer_lib.add_problem_hparams(model_hparams, problem)
+    model_hparams.force_full_predict = True
+    self._model = registry.model(model_name)(
+        model_hparams, tf.estimator.ModeKeys.PREDICT
+    )
+
   @property
   def meta_data(self):
     return (
-        [([self.batch_size, 2, 1], tf.int32, "hidden_state")],
-        ([self.batch_size, 2, 1], tf.int32, "observation"),
+        [([self.batch_size, 4, 210, 160, 3], tf.int32, "hidden_state")],
+        ([self.batch_size, 210, 160, 3], tf.int32, "observation"),
         ([self.batch_size], tf.int32, "action"),
     )
 
   def step(self, hidden_state, action):
-    hidden_state_unpacked = hidden_state[0]
-    ob = hidden_state_unpacked[..., -1:] + 1
-    new_hidden_state = tf.concat([hidden_state_unpacked[..., 1:], ob], axis=2)
-    done = tf.constant([False, False, False])
-    reward = tf.constant([0.1, 0.1, 0.1])
-    return (new_hidden_state,), ob, reward, done
+    (history,) = hidden_state
+
+    action = tf.stack([action] * 4, axis=1)
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      # We only need 1 target frame here, set it.
+      hparams_target_frames = self._model.hparams.video_num_target_frames
+      self._model.hparams.video_num_target_frames = 1
+      model_output = self._model.infer({
+          "inputs": history,
+          "input_action": action,
+          "reset_internal_states": 0.0  # TODO: How?
+      })
+      self._model.hparams.video_num_target_frames = hparams_target_frames
+
+    ob_unsqueezed = tf.cast(model_output["targets"], tf.int32)
+    new_history = tf.concat([history[:, 1:, ...], ob_unsqueezed], axis=1)
+    ob = tf.squeeze(ob_unsqueezed, axis=1)
+    reward = tf.reshape(
+        tf.cast(model_output["target_reward"], tf.float32),
+        shape=(self.batch_size,)
+    ) - 1
+    done = tf.constant([False] * self.batch_size)
+
+    return (new_history,), ob, reward, done
 
   def reset(self, hidden_state, observation, done):
     hidden_state_unpacked = hidden_state[0]
@@ -74,8 +116,8 @@ class NewSimulatedBatchEnv(NewInGraphBatchEnv):
     hidden_state_single_env = tf.zeros(
         self.meta_data[0][0][0][1:],
         self.meta_data[0][0][1]
-    ) + 10
-    return hidden_state_single_env, hidden_state_single_env[..., -1:]
+    )
+    return hidden_state_single_env, hidden_state_single_env[-1, ...]
 
 
 class NewStackWrapper(NewInGraphBatchEnv):
@@ -117,8 +159,8 @@ class NewStackWrapper(NewInGraphBatchEnv):
     )
 
     def extend(ob):
-      _, ob_metadata, _ = self._env.meta_data
-      multiples = (self.history,) + (1,) * (len(ob_metadata) - 1)
+      _, (ob_shape, _, _), _ = self._env.meta_data
+      multiples = (self.history,) + (1,) * (len(ob_shape) - 1)
       return tf.tile(tf.expand_dims(ob, axis=0), multiples)
 
     new_stack_hidden_state, _, _ = tf.scan(
@@ -136,7 +178,9 @@ class NewStackWrapper(NewInGraphBatchEnv):
     )
 
 
-def new_define_collect(batch_env, hparams, policy, force_beginning_resets):
+def new_define_collect(
+    batch_env, hparams, action_space, force_beginning_resets
+):
   batch_size = batch_env.batch_size
   hidden_state_types, observation_type, action_type = batch_env.meta_data
   done_type = ([batch_size], tf.bool, "done")
@@ -178,7 +222,11 @@ def new_define_collect(batch_env, hparams, policy, force_beginning_resets):
 
   def execution_wrapper(hidden_state, observation, done):
     hidden_state, observation = batch_env.reset(hidden_state, observation, done)
-    action, pdf, value_function = policy(observation, batch_size)
+    (logits, value_function) = get_policy(observation, hparams, action_space)
+    action = common_layers.sample_with_temperature(logits, 1)
+    action = tf.cast(action, tf.int32)
+    pdf = tfp.distributions.Categorical(logits=logits).prob(action)
+
     hidden_state, new_observation, reward, done = batch_env.step(
         hidden_state, action
     )
