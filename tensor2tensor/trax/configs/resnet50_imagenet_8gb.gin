@@ -1,3 +1,8 @@
+import tensor2tensor.trax.inputs
+import tensor2tensor.trax.models
+import tensor2tensor.trax.optimizers
+import tensor2tensor.trax.trax
+
 # Parameters for batch_fn:
 # ==============================================================================
 batch_fn.batch_size = 32

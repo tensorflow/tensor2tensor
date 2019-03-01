@@ -382,6 +382,14 @@ def main(argv):
     # Copied _setup_gin exactly from trax/trainer.py and removed "FLAGS."
 
     def _setup_gin():
+      """Setup gin configuration."""
+      # Imports for configurables
+      # pylint: disable=g-import-not-at-top,unused-import,g-bad-import-order,reimported,unused-variable
+      from tensor2tensor.trax import inputs as _trax_inputs
+      from tensor2tensor.trax import models as _trax_models
+      from tensor2tensor.trax import optimizers as _trax_opt
+      # pylint: disable=g-import-not-at-top,unused-import,g-bad-import-order,reimported,unused-variable
+
       configs = config or []
       # Override with --dataset and --model
       if dataset:

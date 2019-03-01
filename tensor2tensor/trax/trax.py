@@ -42,14 +42,6 @@ from tensor2tensor.trax import optimizers as trax_opt
 
 from tensorflow.io import gfile
 
-# Imports for gin configurables
-# TODO(trax): Move to trainer.py. Only here because of t2t_trainer usage.
-# pylint: disable=unused-import,g-bad-import-order,reimported
-from tensor2tensor.trax import inputs as _trax_inputs
-from tensor2tensor.trax import models as _trax_models
-from tensor2tensor.trax import optimizers as _trax_opt
-# pylint: disable=unused-import,g-bad-import-order,reimported
-
 
 def one_hot(x, k, dtype=np.float32):
   """Create a one-hot encoding of x of size k."""
