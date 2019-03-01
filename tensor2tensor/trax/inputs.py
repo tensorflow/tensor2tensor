@@ -13,19 +13,65 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""J2J input pipeline."""
+"""trax input pipeline."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 import collections
+import os
+
 import gin
+
+import jax.numpy as np
 
 from tensor2tensor import problems
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
+
+
+Inputs = collections.namedtuple(
+    "_Inputs", ["train_fn", "eval_fn", "input_shape"])
+
+
+@gin.configurable()
+def inputs(dataset_name, data_dir):
+  """Make Inputs for built-in datasets.
+
+  Args:
+    dataset_name: a TFDS or T2T dataset name. If it's a T2T dataset name, prefix
+      with "t2t_".
+    data_dir: data directory.
+
+  Returns:
+    trax.inputs.Inputs
+  """
+  assert data_dir, "Must provide a data directory"
+  data_dir = os.path.expanduser(data_dir)
+
+  (train_batches, eval_batches,
+   input_name, input_shape) = train_and_eval_batches(
+       dataset_name, data_dir)
+
+  def train_input_fn():
+    return dataset_to_stream(train_batches, input_name)
+
+  def eval_input_fn():
+    return dataset_to_stream(eval_batches, input_name)
+
+  return Inputs(train_fn=train_input_fn, eval_fn=eval_input_fn,
+                input_shape=input_shape)
+
+
+def dataset_to_stream(dataset, input_name):
+  """Takes a tf.Dataset and creates a numpy stream of ready batches."""
+  for example in tfds.as_numpy(dataset):
+    inp, out = example[0][input_name], example[1]
+    if len(out.shape) > 1 and out.shape[-1] == 1:
+      out = np.squeeze(out, axis=-1)
+    yield inp, out
 
 
 def train_and_eval_dataset(dataset_name, data_dir):

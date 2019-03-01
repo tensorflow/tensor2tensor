@@ -307,3 +307,31 @@ class SummaryWriter(object):
     summary = Summary(
         value=[Summary.Value(tag=tag, metadata=smd, tensor=tensor)])
     self.writer.add_summary(summary, step)
+
+
+# Copied from gin/tf/utils.py:GinConfigSaverHook
+def markdownify_operative_config_str(string):
+  """Convert an operative config string to markdown format."""
+
+  # TODO(b/37527917): Total hack below. Implement more principled formatting.
+  def process(line):
+    """Convert a single line to markdown format."""
+    if not line.startswith('#'):
+      return '    ' + line
+
+    line = line[2:]
+    if line.startswith('===='):
+      return ''
+    if line.startswith('None'):
+      return '    # None.'
+    if line.endswith(':'):
+      return '#### ' + line
+    return line
+
+  output_lines = []
+  for line in string.splitlines():
+    procd_line = process(line)
+    if procd_line is not None:
+      output_lines.append(procd_line)
+
+  return '\n'.join(output_lines)

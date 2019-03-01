@@ -13,18 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""J2J models."""
+"""MLP."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import gin
-
 from jax.experimental import stax
 
 
-@gin.configurable()
 def MLP(num_hidden_layers=2,
         hidden_size=512,
         activation_fn=stax.Relu,

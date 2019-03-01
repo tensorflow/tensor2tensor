@@ -333,8 +333,8 @@ python -c "from tensor2tensor.models.transformer import Transformer"
   request for public datasets!).
 * Models can be used with any dataset and input mode (or even multiple); all
   modality-specific processing (e.g. embedding lookups for text tokens) is done
-  with `Modality` objects, which are specified per-feature in the dataset/task
-  specification.
+  with `bottom` and `top` transformations, which are specified per-feature in the
+  model.
 * Support for multi-GPU machines and synchronous (1 master, many workers) and
   asynchronous (independent workers synchronizing through a parameter server)
   [distributed training](https://tensorflow.github.io/tensor2tensor/distributed_training.html).
@@ -344,54 +344,44 @@ python -c "from tensor2tensor.models.transformer import Transformer"
 
 ## T2T overview
 
-### Datasets
+### Problems
 
-**Datasets** are all standardized on `TFRecord` files with `tensorflow.Example`
-protocol buffers. All datasets are registered and generated with the
-[data
-generator](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/bin/t2t-datagen)
-and many common sequence datasets are already available for generation and use.
-
-### Problems and Modalities
-
-**Problems** define training-time hyperparameters for the dataset and task,
-mainly by setting input and output **modalities** (e.g. symbol, image, audio,
-label) and vocabularies, if applicable. All problems are defined either in
-[`problem_hparams.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/problem_hparams.py)
-or are registered with `@registry.register_problem` (run `t2t-datagen` to see
-the list of all available problems).
-**Modalities**, defined in
-[`modality.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/modality.py),
-abstract away the input and output data types so that **models** may deal with
-modality-independent tensors.
+**Problems** consist of features such as inputs and targets, and metadata such
+as each feature's modality (e.g. symbol, image, audio) and vocabularies. Problem
+features are given by a dataset, which is stored as a `TFRecord` file with
+`tensorflow.Example` protocol buffers. All
+problems are imported in
+[`all_problems.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/all_problems.py)
+or are registered with `@registry.register_problem`. Run
+[`t2t-datagen`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/bin/t2t-datagen)
+to see the list of available problems and download them.
 
 ### Models
 
-**`T2TModel`s** define the core tensor-to-tensor transformation, independent of
-input/output modality or task. Models take dense tensors in and produce dense
-tensors that may then be transformed in a final step by a **modality** depending
-on the task (e.g. fed through a final linear transform to produce logits for a
-softmax over classes). All models are imported in the
+**`T2TModel`s** define the core tensor-to-tensor computation. They apply a
+default transformation to each input and output so that models may deal with
+modality-independent tensors (e.g. embeddings at the input; and a linear
+transform at the output to produce logits for a softmax over classes). All
+models are imported in the
 [`models` subpackage](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/models/__init__.py),
-inherit from `T2TModel` - defined in
-[`t2t_model.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/t2t_model.py) -
+inherit from [`T2TModel`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/t2t_model.py),
 and are registered with
 [`@registry.register_model`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/registry.py).
 
 ### Hyperparameter Sets
 
-**Hyperparameter sets** are defined and registered in code with
-[`@registry.register_hparams`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/registry.py)
-and are encoded in
+**Hyperparameter sets** are encoded in
 [`HParams`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/hparam.py)
-objects. The `HParams` are available to both the problem specification and the
-model. A basic set of hyperparameters are defined in
+objects, and are registered with
+[`@registry.register_hparams`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/registry.py).
+Every model and problem has a `HParams`. A basic set of hyperparameters are
+defined in
 [`common_hparams.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/layers/common_hparams.py)
 and hyperparameter set functions can compose other hyperparameter set functions.
 
 ### Trainer
 
-The **trainer** binary is the main entrypoint for training, evaluation, and
+The **trainer** binary is the entrypoint for training, evaluation, and
 inference. Users can easily switch between problems, models, and hyperparameter
 sets by using the `--model`, `--problem`, and `--hparams_set` flags. Specific
 hyperparameters can be overridden with the `--hparams` flag. `--schedule` and
@@ -417,9 +407,7 @@ To add a new dataset, subclass
 [`Problem`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/problem.py)
 and register it with `@registry.register_problem`. See
 [`TranslateEndeWmt8k`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/translate_ende.py)
-for an example.
-
-Also see the [data generators
+for an example. Also see the [data generators
 README](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/README.md).
 
 ## Run on FloydHub

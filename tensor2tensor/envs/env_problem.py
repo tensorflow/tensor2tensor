@@ -81,7 +81,7 @@ class EnvProblem(Env, problem.Problem):
   obs, rewards, dones, infos = ep.step(actions)
 
   # 4. Figure out which envs got done and reset only those.
-  ep.reset(indices=done_indices(dones))
+  ep.reset(indices=env_problem_utils.done_indices(dones))
 
   # 5. Go back to Step #3 to further interact with the env or just dump the
   # generated data to disk by calling:
@@ -563,11 +563,6 @@ class EnvProblem(Env, problem.Problem):
 
     return processed_observations, processed_rewards, dones, infos
 
-  @staticmethod
-  def done_indices(dones):
-    """Calculates the indices where dones has True."""
-    return np.argwhere(dones).squeeze(axis=1)
-
   def example_reading_spec(self):
     """Data fields to store on disk and their decoders."""
 
@@ -664,7 +659,7 @@ class EnvProblem(Env, problem.Problem):
       # Skip writing trajectories that have only a single time-step -- this
       # could just be a repeated reset.
 
-      if single_trajectory.num_time_steps() <= 1:
+      if single_trajectory.num_time_steps <= 1:
         continue
 
       for index, time_step in enumerate(single_trajectory.time_steps):
@@ -760,8 +755,8 @@ class EnvProblem(Env, problem.Problem):
   def print_state(self):
     for t in self.trajectories.trajectories:
       print("---------")
-      if not t.is_active():
+      if not t.is_active:
         print("trajectory isn't active.")
         continue
-      last_obs = t.last_time_step().observation
+      last_obs = t.last_time_step.observation
       print(str(last_obs))

@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import numpy as np
+from tensor2tensor.envs import env_problem_utils
 from tensor2tensor.envs import tic_tac_toe_env  # pylint: disable=unused-import
 from tensor2tensor.envs import tic_tac_toe_env_problem  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
@@ -45,7 +46,7 @@ class TicTacToeEnvProblemTest(tf.test.TestCase):
       self.assertEqual(batch_size, len(dones))
       self.assertEqual(batch_size, len(infos))
 
-      done_indices = ep.done_indices(dones)
+      done_indices = env_problem_utils.done_indices(dones)
       ep.reset(done_indices)
       num_done += sum(dones)
       for r, d in zip(rewards, dones):

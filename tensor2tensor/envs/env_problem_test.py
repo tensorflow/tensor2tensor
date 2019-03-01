@@ -26,6 +26,7 @@ import numpy as np
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.envs import env_problem
+from tensor2tensor.envs import env_problem_utils
 from tensor2tensor.layers import modalities
 import tensorflow as tf
 
@@ -129,7 +130,7 @@ class EnvProblemTest(tf.test.TestCase):
                        len(ep.trajectories.completed_trajectories))
 
       # Get the indices where we are done ...
-      done_indices = env_problem.EnvProblem.done_indices(dones)
+      done_indices = env_problem_utils.done_indices(dones)
 
       # ... and reset those.
       ep.reset(indices=done_indices)
@@ -146,7 +147,7 @@ class EnvProblemTest(tf.test.TestCase):
 
       # This should also match the number of time-steps completed given by ep.
       num_timesteps_completed_ep = sum(
-          ct.num_time_steps() for ct in ep.trajectories.completed_trajectories)
+          ct.num_time_steps for ct in ep.trajectories.completed_trajectories)
       self.assertEqual(num_timesteps_completed, num_timesteps_completed_ep)
 
     # Reset the trajectories.
@@ -213,7 +214,7 @@ class EnvProblemTest(tf.test.TestCase):
       # Step through it.
       _, _, dones, _ = env.step(actions)
       # Get the indices where we are done ...
-      done_indices = env_problem.EnvProblem.done_indices(dones)
+      done_indices = env_problem_utils.done_indices(dones)
       # ... and reset those.
       env.reset(indices=done_indices)
       # count the number of dones we got, in this step and overall.

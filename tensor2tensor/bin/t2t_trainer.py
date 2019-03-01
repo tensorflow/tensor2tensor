@@ -39,7 +39,7 @@ import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
 try:
-  from tensor2tensor.jax import j2j  # pylint: disable=g-import-not-at-top
+  from tensor2tensor.trax import trax  # pylint: disable=g-import-not-at-top
 except (TypeError, ImportError):
   pass
 
@@ -77,7 +77,7 @@ flags.DEFINE_integer("inter_op_parallelism_threads", 0,
 flags.DEFINE_integer("intra_op_parallelism_threads", 0,
                      "Number of intra_op_parallelism_threads to use for CPU. "
                      "See TensorFlow config.proto for details.")
-flags.DEFINE_bool("jax", False, "Whether to use J2J.")
+flags.DEFINE_bool("jax", False, "Whether to use trax.")
 # TODO(lukaszkaiser): resolve memory and variable assign issues and set to True.
 flags.DEFINE_bool(
     "optionally_use_dist_strat", False,
@@ -367,27 +367,33 @@ def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
 
   if FLAGS.jax:
-    # Hacking main v1 flags to work with jax.
-    config_strs = []
-    config_strs.append(
-        "train_fn.train_steps=" + str(FLAGS.train_steps))
-    config_strs.append(
-        "train_fn.eval_steps=" + str(FLAGS.eval_steps))
-    config_strs.append(
-        "train_fn.eval_frequency=" + str(FLAGS.local_eval_frequency))
-    if FLAGS.hparams:
-      config_strs.extend(str(FLAGS.hparams).split(","))
-    data_dir = os.path.expanduser(FLAGS.data_dir)
-    output_dir = os.path.expanduser(FLAGS.output_dir)
+    # Setup trax FLAGS
+    dataset = FLAGS.problem
+    model = FLAGS.model
+    data_dir = FLAGS.data_dir
+    output_dir = FLAGS.output_dir
+    config_file = [FLAGS.hparams_set]
+    config = [
+        "train.train_steps=%d" % FLAGS.train_steps,
+        "train.eval_steps=%d" % FLAGS.eval_steps,
+        "train.eval_frequency=%d" % FLAGS.local_eval_frequency,
+    ] + str(FLAGS.hparams).split(",")
 
-    gin.bind_parameter("train_fn.dataset", FLAGS.problem)
-    config_strs += ["train_fn.model=@" + FLAGS.model]
-    config_files = []
-    if FLAGS.hparams_set:
-      config_files = [os.path.expanduser(FLAGS.hparams_set)]
-    gin.parse_config_files_and_bindings(config_files, config_strs)
-    j2j.train_fn(data_dir, output_dir=output_dir)
-    return
+    # Copied _setup_gin exactly from trax/trainer.py and removed "FLAGS."
+
+    def _setup_gin():
+      configs = config or []
+      # Override with --dataset and --model
+      if dataset:
+        configs.append("inputs.dataset_name='%s'" % dataset)
+        configs.append("inputs.data_dir='%s'" % data_dir)
+        configs.append("train.inputs=@trax.inputs.inputs")
+      if model:
+        configs.append("train.model=@trax.models.%s" % model)
+      gin.parse_config_files_and_bindings(config_file, configs)
+
+    _setup_gin()
+    trax.train(output_dir=output_dir)
 
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 

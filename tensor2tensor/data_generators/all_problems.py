@@ -19,7 +19,6 @@ from __future__ import division
 from __future__ import print_function
 
 import importlib
-import re
 
 MODULES = [
     "tensor2tensor.data_generators.algorithmic",
@@ -97,8 +96,11 @@ ALL_MODULES = list(MODULES)
 
 
 def _is_import_err_msg(err_str, module):
-  module_pattern = "(.)?".join(["(%s)?" % m for m in module.split(".")])
-  return re.match("^No module named (')?%s(')?$" % module_pattern, err_str)
+  parts = module.split(".")
+  suffixes = [".".join(parts[i:]) for i in xrange(len(parts))]
+  return err_str in (
+      ["No module named %s" % suffix for suffix in suffixes] +
+      ["No module named '%s'" % suffix for suffix in suffixes])
 
 
 def _handle_errors(errors):
@@ -106,7 +108,7 @@ def _handle_errors(errors):
   if not errors:
     return
   log_all = True  # pylint: disable=unused-variable
-  err_msg = "Skipped importing {num_missing} data_generators modules."
+  err_msg = "T2T: skipped importing {num_missing} data_generators modules."
   print(err_msg.format(num_missing=len(errors)))
   for module, err in errors:
     err_str = str(err)

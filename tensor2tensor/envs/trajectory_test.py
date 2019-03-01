@@ -28,8 +28,8 @@ class TrajectoryTest(tf.test.TestCase):
 
   def test_empty_trajectory(self):
     t = trajectory.Trajectory()
-    self.assertFalse(t.is_active())
-    self.assertEqual(0, t.num_time_steps())
+    self.assertFalse(t.is_active)
+    self.assertEqual(0, t.num_time_steps)
     self.assertFalse(t.done)
 
   def test_add_time_step(self):
@@ -37,28 +37,28 @@ class TrajectoryTest(tf.test.TestCase):
     t.add_time_step(observation=1, done=True)
 
     # Test that the trajectory is now active.
-    self.assertTrue(t.is_active())
+    self.assertTrue(t.is_active)
 
-    added_t = t.last_time_step()
+    added_t = t.last_time_step
     self.assertEqual(1, added_t.observation)
     self.assertTrue(added_t.done)
     self.assertIsNone(None, added_t.raw_reward)
     self.assertIsNone(None, added_t.processed_reward)
     self.assertIsNone(None, added_t.action)
 
-    self.assertEqual(1, t.num_time_steps())
+    self.assertEqual(1, t.num_time_steps)
 
   def test_change_last_time_step(self):
     t = trajectory.Trajectory()
     t.add_time_step(observation=1, done=False)
     t.add_time_step(observation=1, done=True)
-    self.assertTrue(t.is_active())
+    self.assertTrue(t.is_active)
 
-    num_ts_old = t.num_time_steps()
+    num_ts_old = t.num_time_steps
     self.assertEqual(2, num_ts_old)
 
     # Assert on what the last time-step is currently.
-    ts = t.last_time_step()
+    ts = t.last_time_step
     self.assertEqual(1, ts.observation)
     self.assertTrue(ts.done)
     self.assertEqual(None, ts.action)
@@ -67,13 +67,13 @@ class TrajectoryTest(tf.test.TestCase):
     t.change_last_time_step(done=False, action=5)
 
     # Assert that it changed.
-    ts = t.last_time_step()
+    ts = t.last_time_step
     self.assertEqual(1, ts.observation)  # unchanged, since we didn't change it.
     self.assertFalse(ts.done)  # was True earlier
     self.assertEqual(5, ts.action)  # was None earlier
 
     # Assert on the number of steps remaining the same as before.
-    self.assertEqual(num_ts_old, t.num_time_steps())
+    self.assertEqual(num_ts_old, t.num_time_steps)
 
   def test_reward(self):
     t = trajectory.Trajectory()
@@ -96,6 +96,17 @@ class BatchTrajectoryTest(tf.test.TestCase):
   BATCH_SIZE = 10
   OBSERVATION_SHAPE = (3, 4)
 
+  def get_random_observations_rewards_actions_dones(self, batch_size=None):
+    batch_size = batch_size or self.BATCH_SIZE
+    # Random observations, rewards, actions, done of the expected shape.
+    observations = np.random.rand(*((batch_size,) + self.OBSERVATION_SHAPE))
+    raw_rewards = np.random.randn(batch_size)
+    actions = np.random.randn(batch_size)
+    # 40% change of being done.
+    dones = np.random.random((batch_size,)) > 0.6
+
+    return observations, raw_rewards, actions, dones
+
   def test_creation(self):
     bt = trajectory.BatchTrajectory(batch_size=self.BATCH_SIZE)
 
@@ -106,32 +117,37 @@ class BatchTrajectoryTest(tf.test.TestCase):
     bt = trajectory.BatchTrajectory(batch_size=self.BATCH_SIZE)
 
     indices = np.arange(self.BATCH_SIZE)
-    observations = np.random.rand(*(
-        (self.BATCH_SIZE,) + self.OBSERVATION_SHAPE))
+    observations, _, _, _ = self.get_random_observations_rewards_actions_dones()
 
     # Call reset.
     bt.reset(indices, observations)
 
     # Assert that all trajectories are active and not done (reset never marks
     # anything as done).
-    self.assertTrue(all(t.is_active() for t in bt.trajectories))
+    self.assertTrue(all(t.is_active for t in bt.trajectories))
     self.assertEqual(0, len(bt.completed_trajectories))
+
+  def test_num_time_steps(self):
+    bt = trajectory.BatchTrajectory(batch_size=self.BATCH_SIZE)
+
+    self.assertEqual(0, bt.num_completed_time_steps)
+    self.assertEqual(0, bt.num_time_steps)
 
   def test_reset_some(self):
     bt = trajectory.BatchTrajectory(batch_size=self.BATCH_SIZE)
 
     indices = np.arange(self.BATCH_SIZE // 2)
-    observations = np.random.rand(*(
-        (self.BATCH_SIZE // 2,) + self.OBSERVATION_SHAPE))
+    observations, _, _, _ = self.get_random_observations_rewards_actions_dones(
+        batch_size=self.BATCH_SIZE // 2)
 
     # Just reset the first half.
     bt.reset(indices, observations)
 
     # So first half are active, rest aren't.
     self.assertTrue(
-        all(t.is_active() for t in bt.trajectories[:self.BATCH_SIZE // 2]))
+        all(t.is_active for t in bt.trajectories[:self.BATCH_SIZE // 2]))
     self.assertTrue(
-        all(not t.is_active() for t in bt.trajectories[self.BATCH_SIZE // 2:]))
+        all(not t.is_active for t in bt.trajectories[self.BATCH_SIZE // 2:]))
 
     # Nothing is done anyways.
     self.assertEqual(0, len(bt.completed_trajectories))
@@ -140,18 +156,15 @@ class BatchTrajectoryTest(tf.test.TestCase):
     bt = trajectory.BatchTrajectory(batch_size=self.BATCH_SIZE)
 
     indices = np.arange(self.BATCH_SIZE)
-    observations = np.random.rand(*(
-        (self.BATCH_SIZE,) + self.OBSERVATION_SHAPE))
+    observations, _, _, _ = self.get_random_observations_rewards_actions_dones()
 
     # Have to call reset first.
     bt.reset(indices, observations)
 
     # Create some fake data for calling step.
-    new_observations = np.random.rand(*(
-        (self.BATCH_SIZE,) + self.OBSERVATION_SHAPE))
-    raw_rewards = processed_rewards = actions = np.random.randn(self.BATCH_SIZE)
-    processed_rewards = np.int64(processed_rewards)
-    dones = raw_rewards > 0.5
+    new_observations, raw_rewards, actions, dones = (
+        self.get_random_observations_rewards_actions_dones())
+    processed_rewards = raw_rewards.astype(np.int64)
 
     # Force mark the first one as done anyways, so that there is something to
     # test.
@@ -169,7 +182,7 @@ class BatchTrajectoryTest(tf.test.TestCase):
     self.assertEqual(num_done, len(bt.completed_trajectories))
 
     # Expect to see that the rest are marked as active.
-    num_active = sum(t.is_active() for t in bt.trajectories)
+    num_active = sum(t.is_active for t in bt.trajectories)
     self.assertEqual(num_not_done, num_active)
 
   def test_desired_placement_of_rewards_and_actions(self):
@@ -177,15 +190,17 @@ class BatchTrajectoryTest(tf.test.TestCase):
     bt = trajectory.BatchTrajectory(batch_size=batch_size)
 
     indices = np.arange(batch_size)
-    observations = np.random.rand(*((batch_size,) + self.OBSERVATION_SHAPE))
+    observations, _, _, _ = self.get_random_observations_rewards_actions_dones(
+        batch_size=batch_size)
 
     # Have to call reset first.
     bt.reset(indices, observations)
 
     # Create some fake data for calling step.
-    new_observations = np.random.rand(*((batch_size,) + self.OBSERVATION_SHAPE))
-    raw_rewards = processed_rewards = actions = np.random.randn(batch_size)
-    processed_rewards = processed_rewards.astype(np.int64)
+    new_observations, raw_rewards, actions, _ = (
+        self.get_random_observations_rewards_actions_dones(
+            batch_size=batch_size))
+    processed_rewards = raw_rewards.astype(np.int64)
     dones = np.full(batch_size, False)
 
     # Call step.
@@ -197,8 +212,8 @@ class BatchTrajectoryTest(tf.test.TestCase):
     # The only trajectory is active.
     self.assertEqual(batch_size, len(bt.trajectories))
     t = bt.trajectories[0]
-    self.assertTrue(t.is_active())
-    self.assertEqual(2, t.num_time_steps())
+    self.assertTrue(t.is_active)
+    self.assertEqual(2, t.num_time_steps)
 
     ts = t.time_steps
 

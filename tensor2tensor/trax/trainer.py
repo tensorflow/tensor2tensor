@@ -13,18 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""J2J trainer.
+"""trax trainer."""
 
-Examples:
-
-- train a basic model on mnist:
-    jax/j2j_trainer.py --dataset=mnist --model=mlp
-      --config="train_fn.train_steps=4000" --output_dir ~/j2j/test1
-"""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import datetime
 import os
 
 from absl import app
@@ -32,7 +27,8 @@ from absl import flags
 from absl import logging
 
 import gin
-from tensor2tensor.jax import j2j
+
+from tensor2tensor.trax import trax
 
 FLAGS = flags.FLAGS
 
@@ -47,25 +43,40 @@ flags.DEFINE_multi_string("config", None,
                           "Configuration parameters (gin string).")
 
 
+def _default_output_dir():
+  """Default output directory."""
+  dir_name = "{model_name}_{dataset_name}_{timestamp}".format(
+      model_name=gin.query_parameter("train.model").configurable.name,
+      dataset_name=gin.query_parameter("inputs.dataset_name"),
+      timestamp=datetime.datetime.now().strftime("%Y%m%d_%H%M"),
+  )
+  dir_path = os.path.join("~", "trax", dir_name)
+  print()
+  trax.log("No --output_dir specified")
+  return dir_path
+
+
 def _setup_gin():
   configs = FLAGS.config or []
   # Override with --dataset and --model
   if FLAGS.dataset:
-    configs.append("train_fn.dataset='%s'" % FLAGS.dataset)
+    configs.append("inputs.dataset_name='%s'" % FLAGS.dataset)
+    configs.append("inputs.data_dir='%s'" % FLAGS.data_dir)
+    configs.append("train.inputs=@trax.inputs.inputs")
   if FLAGS.model:
-    configs.append("train_fn.model=@" + FLAGS.model)
+    configs.append("train.model=@trax.models.%s" % FLAGS.model)
   gin.parse_config_files_and_bindings(FLAGS.config_file, configs)
 
 
 def main(_):
   _setup_gin()
 
-  # Setup directories
-  data_dir, output_dir = FLAGS.data_dir, FLAGS.output_dir
-  data_dir = data_dir and os.path.expanduser(data_dir)
-  output_dir = output_dir and os.path.expanduser(output_dir)
+  # Setup output directory
+  output_dir = FLAGS.output_dir or _default_output_dir()
+  trax.log("Using --output_dir %s" % output_dir)
+  output_dir = os.path.expanduser(output_dir)
 
-  j2j.train_fn(data_dir, output_dir=output_dir)
+  trax.train(output_dir=output_dir)
 
 
 if __name__ == "__main__":
