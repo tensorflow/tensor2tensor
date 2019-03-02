@@ -854,9 +854,12 @@ def mtf_transformer_base():
   # These parameters make Transformer model compatible with MtfTransformer
   # Do not override these, as mtf_transformer does not support other options.
   hparams.clip_grad_norm = 0.  # i.e. no gradient clipping
-  hparams.modality = {
-      "inputs": modalities.ModalityType.IDENTITY_SYMBOL,
-      "targets": modalities.ModalityType.IDENTITY_SYMBOL,
+  hparams.bottom = {
+      "inputs": modalities.identity_bottom,
+      "targets": modalities.identity_bottom,
+  }
+  hparams.top = {
+      "targets": modalities.identity_top,
   }
 
   # Parameters for computing the maximum decode length in beam search.

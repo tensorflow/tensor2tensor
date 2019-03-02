@@ -55,7 +55,8 @@ def next_frame_pixel_noise():
   """Basic 2-frame conv model with pixel noise."""
   hparams = next_frame_basic_deterministic()
   hparams.add_hparam("video_modality_input_noise", 0.05)
-  hparams.modality["inputs"] = modalities.ModalityType.VIDEO_PIXEL_NOISE
+  hparams.bottom["inputs"] = modalities.video_pixel_noise_bottom
+  hparams.top["inputs"] = modalities.video_top
   return hparams
 
 
@@ -89,7 +90,8 @@ def next_frame_tpu():
 def next_frame_ae():
   """Conv autoencoder."""
   hparams = next_frame_basic_deterministic()
-  hparams.modality["inputs"] = modalities.ModalityType.VIDEO_BITWISE
+  hparams.bottom["inputs"] = modalities.video_bitwise_bottom
+  hparams.top["inputs"] = modalities.video_top
   hparams.hidden_size = 256
   hparams.batch_size = 8
   hparams.num_hidden_layers = 4
@@ -102,7 +104,8 @@ def next_frame_ae():
 def next_frame_ae_tiny():
   """Conv autoencoder, tiny set for testing."""
   hparams = next_frame_tiny()
-  hparams.modality["inputs"] = modalities.ModalityType.VIDEO_BITWISE
+  hparams.bottom["inputs"] = modalities.video_bitwise_bottom
+  hparams.top["inputs"] = modalities.video_top
   hparams.batch_size = 8
   hparams.dropout = 0.4
   return hparams
@@ -131,7 +134,8 @@ def next_frame_tiny():
 def next_frame_l1():
   """Basic conv model with L1 modality."""
   hparams = next_frame_basic_deterministic()
-  hparams.modality["targets"] = modalities.ModalityType.VIDEO_L1
+  hparams.loss["targets"] = modalities.video_l1_loss
+  hparams.top["targets"] = modalities.video_l1_top
   hparams.video_modality_loss_cutoff = 2.4
   return hparams
 
@@ -140,7 +144,8 @@ def next_frame_l1():
 def next_frame_l2():
   """Basic conv model with L2 modality."""
   hparams = next_frame_basic_deterministic()
-  hparams.modality["targets"] = modalities.ModalityType.VIDEO_L2
+  hparams.loss["targets"] = modalities.video_l2_loss
+  hparams.top["targets"] = modalities.video_l1_top
   hparams.video_modality_loss_cutoff = 2.4
   return hparams
 

@@ -603,30 +603,9 @@ def prepare_decoder(targets, hparams):
 
 def prepare_image(inputs, hparams, name=None):
   """Prepare image."""
-  inputs_shape = common_layers.shape_list(inputs)
-  batch = inputs_shape[0]
-  orig_rows = inputs_shape[1]
-  orig_cols = inputs_shape[2]
-  channels = hparams.num_channels
-
-  hidden_size = hparams.hidden_size
-  # TODO(trandustin): Check via modalities.ModalityType.IDENTITY and not str.
-  # The current implementation is to avoid circular imports, modalities ->
-  # discretization -> common_image_attention -> modalities.
-  if "targets" in hparams.modality:
-    target_modality_name = hparams.modality["targets"]
-    if not isinstance(target_modality_name, str):
-      target_modality_name = target_modality_name.__name__
-  else:
-    target_modality_name = None
-  if target_modality_name == "IdentityModality":
-    inputs = tf.to_int32(inputs)
-    x = get_channel_embeddings(channels, inputs, hidden_size, name=name)
-  else:
-    x = inputs
-  x = tf.reshape(x, [batch, orig_rows, orig_cols * channels, hidden_size])
-
-  return x
+  # TODO(trandustin): This is a legacy function. Remove its usage.
+  del hparams, name  # unused arg
+  return inputs
 
 
 def create_output(decoder_output, rows, cols, targets, hparams):
@@ -647,17 +626,19 @@ def create_output(decoder_output, rows, cols, targets, hparams):
     [batch, hparams.img_len, hparams.img_len, hparams.num_channels, 256].
     In the special case of predict mode, it is a Tensor of rank 5.
   """
+  del targets  # unused arg
   decoded_image = postprocess_image(decoder_output, rows, cols, hparams)
+  batch = common_layers.shape_list(decoded_image)[0]
   depth = common_layers.shape_list(decoded_image)[-1]
-  batch, height, width, channels = common_layers.shape_list(targets)
   likelihood = getattr(hparams, "likelihood", DistributionType.CAT)
   if hparams.mode == tf.estimator.ModeKeys.PREDICT:
     y = tf.reshape(decoded_image, [batch, -1, 1, 1, depth])
-    output = y[:, :height, :, :, :]
+    output = y[:, :rows, :, :, :]
   elif likelihood == DistributionType.CAT:
     # Unpack the cols dimension of the Categorical.
+    channels = hparams.num_channels
     output = tf.reshape(decoded_image,
-                        [batch, height, width, channels, depth])
+                        [batch, rows, cols // channels, channels, depth])
   else:
     output = decoded_image
   return output

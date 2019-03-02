@@ -127,9 +127,12 @@ def cycle_gan_small():
   """Set of hyperparameters."""
   hparams = transformer_vae.transformer_ae_small()
   hparams.batch_size = 2048
-  hparams.modality = {
-      "inputs": modalities.ModalityType.IDENTITY_SYMBOL,
-      "targets": modalities.ModalityType.IDENTITY_SYMBOL,
+  hparams.bottom = {
+      "inputs": modalities.identity_bottom,
+      "targets": modalities.identity_bottom,
+  }
+  hparams.top = {
+      "targets": modalities.identity_top,
   }
   hparams.weight_decay = 3.0
   hparams.learning_rate = 0.05

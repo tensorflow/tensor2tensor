@@ -542,7 +542,8 @@ class HParams(object):
       A JSON string.
     """
     return json.dumps(
-        self.values(),
+        {k: v.__name__ if callable(v) else v
+         for k, v in six.iteritems(self.values())},
         indent=indent,
         separators=separators,
         sort_keys=sort_keys)

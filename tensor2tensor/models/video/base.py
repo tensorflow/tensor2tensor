@@ -195,16 +195,12 @@ class NextFrameBase(t2t_model.T2TModel):
 
   @property
   def _target_modality(self):
-    target_modality = self.hparams.modality.get(
-        "targets",
-        self.problem_hparams.modality["targets"])
-    if target_modality not in modalities.ModalityType.get_choices():
-      target_modality = target_modality.__class__.__name__
-    return target_modality
+    return self.problem_hparams.modality["targets"]
 
   @property
   def is_per_pixel_softmax(self):
-    return self._target_modality == modalities.ModalityType.VIDEO
+    # TODO(trandustin): This is a hack.
+    return "targets" not in self.hparams.get("loss")
 
   def get_iteration_num(self):
     step_num = tf.train.get_global_step()
@@ -337,11 +333,12 @@ class NextFrameBase(t2t_model.T2TModel):
       Additional reconstruction loss.
 
     Raises:
-      ValueError: in case of unknown modality.
+      ValueError: in case of unknown loss transformation.
     """
-    if self._target_modality == modalities.ModalityType.VIDEO_L2_RAW:
+    # TODO(trandustin): This logic should be moved elsewhere.
+    if self.hparams.loss.get("targets") == modalities.video_l2_raw_loss:
       recon_loss = tf.losses.mean_squared_error(extra_gts, extra_pds)
-    elif self._target_modality == modalities.ModalityType.VIDEO:
+    elif "targets" not in self.hparams.loss:
       shape = common_layers.shape_list(extra_pds)
       updated_shape = shape[:-1] + [3, 256]
       extra_pds = tf.reshape(extra_pds, updated_shape)
@@ -350,10 +347,9 @@ class NextFrameBase(t2t_model.T2TModel):
       targets = extra_raw_gts
       targets_shape = common_layers.shape_list(targets)
       targets = tf.reshape(targets, [-1] + targets_shape[2:])
-      modality = self.hparams.problem_hparams.modality["targets"]
-      targets_weights_fn = self.hparams.targets_weights_fn.get(
+      targets_weights_fn = self.hparams.weights_fn.get(
           "targets",
-          modalities.get_targets_weights_fn(modality))
+          modalities.get_weights_fn(self._target_modality))
       numerator, denominator = common_layers.padded_cross_entropy(
           logits,
           targets,
@@ -362,7 +358,7 @@ class NextFrameBase(t2t_model.T2TModel):
           weights_fn=targets_weights_fn)
       recon_loss = numerator / denominator
     else:
-      raise ValueError("internal loss only supports specific modalities.")
+      raise ValueError("internal loss only supports specific hparams.loss.")
     tf.summary.scalar("recon_extra", recon_loss)
     return recon_loss
 
