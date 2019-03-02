@@ -26,8 +26,6 @@ import gin
 
 import jax.numpy as np
 
-from tensor2tensor import problems
-
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
@@ -135,6 +133,7 @@ def _select_features(example, feature_list=None):
 
 def _train_and_eval_dataset_v1(problem_name, data_dir):
   """Return train and evaluation datasets, feature info and supervised keys."""
+  from tensor2tensor import problems  # pylint: disable=g-import-not-at-top
   problem = problems.problem(problem_name)
   train_dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, data_dir)
   train_dataset = train_dataset.map(_select_features)
