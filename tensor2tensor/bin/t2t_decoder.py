@@ -100,7 +100,8 @@ def decode(estimator, hparams, decode_hp):
         hparams,
         decode_hp,
         decode_to_file=FLAGS.decode_to_file,
-        dataset_split="test" if FLAGS.eval_use_test_set else None)
+        dataset_split="test" if FLAGS.eval_use_test_set else None,
+        checkpoint_path=FLAGS.checkpoint_path)
 
 
 def score_file(filename):
