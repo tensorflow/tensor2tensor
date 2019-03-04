@@ -135,7 +135,7 @@ def evaluate_train_and_eval(step, inputs, predict_fun, eval_steps,
   if train_sw:
     log_metrics(train_metrics, train_sw, "train", step, history=history)
   if eval_sw:
-    log_metrics(eval_metrics, eval_sw, "eval ", step, history=history)
+    log_metrics(eval_metrics, eval_sw, "eval", step, history=history)
   return train_metrics, eval_metrics
 
 
@@ -167,10 +167,11 @@ def log_metrics(metrics, summ_writer, log_prefix, step, history=None):
   """Log metrics to summary writer and history."""
   rjust_len = max([len(name) for name in metrics])
   for name, value in six.iteritems(metrics):
-    step_log(step, "%s %s | % .8f" % (log_prefix, name.rjust(rjust_len), value))
+    step_log(step, "%s %s | % .8f" % (
+        log_prefix.ljust(5), name.rjust(rjust_len), value))
     full_name = "metrics/" + name
     if history:
-      history.append(full_name, value, step, log_prefix)
+      history.append(log_prefix, full_name, step, value)
     if summ_writer:
       summ_writer.scalar(full_name, value, step)
 
@@ -217,7 +218,7 @@ def train(output_dir,
           model=gin.REQUIRED,
           inputs=gin.REQUIRED,
           optimizer=trax_opt.adam,
-          lr_schedule=lr.DefaultSchedule,
+          lr_schedule=lr.MultifactorSchedule,
           train_steps=1000,
           eval_steps=10,
           eval_frequency=100):
@@ -256,7 +257,7 @@ def train(output_dir,
 
   # Setup state
   step = state.step or 0
-  params_initializer = lambda: model_init([-1] + inputs.input_shape)[1]
+  params_initializer = lambda: model_init([-1] + list(inputs.input_shape))[1]
   params = state.params or params_initializer()
   opt_state = opt_init(params)
 
@@ -319,9 +320,6 @@ def train(output_dir,
     # Gin only tracks the used parameters, so we save it after the first epoch.
     if epoch == 1:
       save_gin(output_dir, train_sw)
-
-    # Update learning rate with new history
-    lr_fun = lr_schedule(history)
 
     # Flush summary writers
     train_sw.writer.flush()

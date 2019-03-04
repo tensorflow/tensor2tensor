@@ -15,11 +15,11 @@ batch_fun.eval_batch_size = 32
 inputs.data_dir = None
 inputs.dataset_name = 't2t_image_imagenet224'
 
-# Parameters for DefaultSchedule:
+# Parameters for MultifactorSchedule:
 # ==============================================================================
-DefaultSchedule.constant = 5.0
-DefaultSchedule.schedule = 'constant * linear_warmup * rsqrt_decay'
-DefaultSchedule.warmup_steps = 400
+MultifactorSchedule.constant = 5.0
+MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
+MultifactorSchedule.warmup_steps = 400
 
 # Parameters for momentum:
 # ==============================================================================

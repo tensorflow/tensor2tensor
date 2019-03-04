@@ -30,5 +30,6 @@ def model_configure(*args, **kwargs):
   return gin.external_configurable(*args, **kwargs)
 
 
-model_configure(mlp.MLP)
-model_configure(resnet.Resnet50)
+# pylint: disable=invalid-name
+MLP = model_configure(mlp.MLP)
+Resnet50 = model_configure(resnet.Resnet50)
