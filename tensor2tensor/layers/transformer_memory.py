@@ -66,6 +66,33 @@ class TransformerMemory(object):
   def get(self):
     return self.mem_vals, self.mem_times, self.seq_length_so_far
 
+  def incremental_update(self, event):
+    """Add a new event to the memory and also advance the time.
+
+    Args:
+      event: a tensor in the shape of [batch_size, depth].
+    Returns:
+      the update op.
+    """
+    event = tf.expand_dims(event, 1)
+    similarity_logits = tf.matmul(event, tf.transpose(
+        self.mem_vals, [0, 2, 1]))
+    similarity_logits = tf.squeeze(similarity_logits, [1])
+    max_logits = tf.reduce_max(similarity_logits, -1, keep_dims=True)
+    similarity_logits = tf.where(
+        tf.less(self.mem_times, 0.5),
+        tf.tile(max_logits, [1, self.memory_size]) + 1.0,
+        similarity_logits)
+    _, indices = tf.nn.top_k(similarity_logits)
+    update_mask = tf.cast(tf.one_hot(indices, self.memory_size), tf.float32)
+    update_times = self.mem_times.assign_add(update_mask)
+    with tf.control_dependencies([update_times]):
+      add_to_vals = tf.where(
+          tf.cast(update_mask, tf.bool),
+          tf.zeros_like(self.mem_vals),
+          tf.div(event - self.mem_vals, tf.expand_dims(self.mem_times, 2)))
+      return self.mem_vals.assign_add(add_to_vals)
+
   def update(self, segment):
     """Update the memory given the segment of events.
 
