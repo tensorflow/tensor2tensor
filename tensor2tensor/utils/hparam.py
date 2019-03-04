@@ -541,9 +541,16 @@ class HParams(object):
     Returns:
       A JSON string.
     """
+    def remove_callables(x):
+      if callable(x):
+        return x.__name__
+      if isinstance(x, dict):
+        return {k: remove_callables(v) for k, v in six.iteritems(x)}
+      if isinstance(x, list):
+        return [remove_callables(i) for i in x]
+      return x
     return json.dumps(
-        {k: v.__name__ if callable(v) else v
-         for k, v in six.iteritems(self.values())},
+        {k: remove_callables(v) for k, v in six.iteritems(self.values())},
         indent=indent,
         separators=separators,
         sort_keys=sort_keys)
