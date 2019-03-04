@@ -24,10 +24,10 @@ import jax.numpy as np
 
 
 @gin.configurable(blacklist=["history"])
-def make_default_schedule(history=None,
-                          schedule="constant * linear_warmup * rsqrt_decay",
-                          constant=0.001,
-                          warmup_steps=100):
+def DefaultSchedule(history=None,
+                    schedule="constant * linear_warmup * rsqrt_decay",
+                    constant=0.001,
+                    warmup_steps=100):
   """Default learning rate  schedule.
 
   Note: the learning rate schedule takes arguments and return a function,
@@ -53,7 +53,7 @@ def make_default_schedule(history=None,
   del history
   factors = [n.strip() for n in schedule.split("*")]
 
-  def learning_rate(step):
+  def learning_rate(step):  # pylint: disable=invalid-name
     """Step to learning rate function."""
     ret = 1.0
     for name in factors:
@@ -71,12 +71,12 @@ def make_default_schedule(history=None,
 
 
 @gin.configurable(blacklist=["history"])
-def make_eval_adjusting_schedule(history,
-                                 constant=0.001,
-                                 steps_to_decrease=10,
-                                 improvement_margin=0.01,
-                                 decrease_rate=2.0,
-                                 metric="metrics/accuracy"):
+def EvalAdjustingSchedule(history,
+                          constant=0.001,
+                          steps_to_decrease=10,
+                          improvement_margin=0.01,
+                          decrease_rate=2.0,
+                          metric="metrics/accuracy"):
   """Learning rate that decreases when eval metric stalls.
 
   If the chosen metric does not improve by improvement_margin for as many as
@@ -107,4 +107,4 @@ def make_eval_adjusting_schedule(history,
     if steps_without_improvement >= steps_to_decrease:
       adjusted /= decrease_rate
       steps_without_improvement = 0
-  return make_default_schedule(history, constant=adjusted)
+  return DefaultSchedule(history, constant=adjusted)

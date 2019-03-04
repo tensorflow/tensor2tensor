@@ -3,31 +3,31 @@ import tensor2tensor.trax.models
 import tensor2tensor.trax.optimizers
 import tensor2tensor.trax.trax
 
-# Parameters for batch_fn:
+# Parameters for batch_fun:
 # ==============================================================================
-batch_fn.batch_size = 32
-batch_fn.bucket_length = 32
-batch_fn.buckets = None
-batch_fn.eval_batch_size = 32
+batch_fun.batch_size = 32
+batch_fun.bucket_length = 32
+batch_fun.buckets = None
+batch_fun.eval_batch_size = 32
 
 # Parameters for inputs:
 # ==============================================================================
 inputs.data_dir = None
 inputs.dataset_name = 't2t_image_imagenet224'
 
-# Parameters for learning_rate:
+# Parameters for DefaultSchedule:
 # ==============================================================================
-learning_rate.constant = 5.0
-learning_rate.schedule = 'constant * linear_warmup * rsqrt_decay'
-learning_rate.warmup_steps = 400
+DefaultSchedule.constant = 5.0
+DefaultSchedule.schedule = 'constant * linear_warmup * rsqrt_decay'
+DefaultSchedule.warmup_steps = 400
 
 # Parameters for momentum:
 # ==============================================================================
 momentum.mass = 0.9
 
-# Parameters for preprocess_fn:
+# Parameters for preprocess_fun:
 # ==============================================================================
-preprocess_fn.max_target_length = -1
+preprocess_fun.max_target_length = -1
 
 # Parameters for Resnet50:
 # ==============================================================================

@@ -31,7 +31,7 @@ import tensorflow_datasets as tfds
 
 
 Inputs = collections.namedtuple(
-    "_Inputs", ["train_fn", "eval_fn", "input_shape"])
+    "_Inputs", ["train_stream", "eval_stream", "input_shape"])
 
 
 @gin.configurable()
@@ -53,13 +53,14 @@ def inputs(dataset_name, data_dir):
    input_name, input_shape) = train_and_eval_batches(
        dataset_name, data_dir)
 
-  def train_input_fn():
+  def train_input_fun():
     return dataset_to_stream(train_batches, input_name)
 
-  def eval_input_fn():
+  def eval_input_fun():
     return dataset_to_stream(eval_batches, input_name)
 
-  return Inputs(train_fn=train_input_fn, eval_fn=eval_input_fn,
+  return Inputs(train_stream=train_input_fun,
+                eval_stream=eval_input_fun,
                 input_shape=input_shape)
 
 
@@ -160,7 +161,7 @@ def _train_and_eval_dataset_v1(problem_name, data_dir):
 
 
 @gin.configurable(blacklist=["dataset", "training"])
-def preprocess_fn(dataset, training, max_target_length=-1):
+def preprocess_fun(dataset, training, max_target_length=-1):
   def target_right_length(_, target):
     return tf.less(tf.shape(target)[0], max_target_length + 1)
   if max_target_length > 0 and training:
@@ -169,8 +170,9 @@ def preprocess_fn(dataset, training, max_target_length=-1):
 
 
 @gin.configurable(blacklist=["dataset", "training", "shapes", "target_names"])
-def batch_fn(dataset, training, shapes, target_names,
-             batch_size=32, eval_batch_size=32, bucket_length=32, buckets=None):
+def batch_fun(dataset, training, shapes, target_names,
+              batch_size=32, eval_batch_size=32,
+              bucket_length=32, buckets=None):
   """Batching function."""
   del target_names
   # If bucketing is not specified, check if target shapes are variable.
@@ -220,8 +222,8 @@ def shuffle_and_batch_data(dataset, target_names, features_info, training):
   shapes = {k: features_info[k].shape for k in features_info}
   shapes = (shapes, shapes[target_names[0]])
   dataset = dataset.shuffle(1024)
-  dataset = preprocess_fn(dataset, training)
-  dataset = batch_fn(dataset, training, shapes, target_names)
+  dataset = preprocess_fun(dataset, training)
+  dataset = batch_fun(dataset, training, shapes, target_names)
   return dataset.prefetch(32)
 
 

@@ -21,6 +21,7 @@ from __future__ import print_function
 
 import collections
 import functools
+import itertools
 import os
 import pickle
 import time
@@ -120,35 +121,46 @@ _METRICS = {
 }
 
 
-def evaluate(inputs, predict_fn, eval_steps):
+def evaluate_train_and_eval(step, inputs, predict_fun, eval_steps,
+                            train_sw=None, eval_sw=None, history=None):
+  """Evalaute on train and eval data, and log metrics."""
+  step_log(step, "Evaluation")
+  train_metrics, eval_metrics = [
+      evaluate(  # pylint: disable=g-complex-comprehension
+          itertools.islice(input_stream(), eval_steps),
+          predict_fun,
+          _METRICS)
+      for input_stream in
+      [inputs.train_stream, inputs.eval_stream]]
+  if train_sw:
+    log_metrics(train_metrics, train_sw, "train", step, history=history)
+  if eval_sw:
+    log_metrics(eval_metrics, eval_sw, "eval ", step, history=history)
+  return train_metrics, eval_metrics
+
+
+def evaluate(inputs_stream, predict_fun, metric_funs):
   """Evaluate.
 
   Args:
-    inputs: Inputs namedtuple.
-    predict_fn: function from inputs to predictions. params should already be
+    inputs_stream: iterable of inputs to evaluate on.
+    predict_fun: function from inputs to predictions. params should already be
       partially applied.
-    eval_steps: int, number of evaluation steps.
+    metric_funs: dict from metric name to metric function, which takes inputs
+      and predictions and returns a scalar metric value.
 
   Returns:
-    train_metrics: dict
-    eval_metrics: dict
+    metrics: dict from metric name to metric value averaged over the number of
+      inputs.
   """
-  eval_stream = inputs.eval_fn()
-  eval_train_stream = inputs.train_fn()
-  train_metrics = {key: 0.0 for key in _METRICS}
-  eval_metrics = {key: 0.0 for key in _METRICS}
-  for _ in range(eval_steps):
-    train_batch = next(eval_train_stream)
-    train_predictions = predict_fn(train_batch[0])
-    eval_batch = next(eval_stream)
-    eval_predictions = predict_fn(eval_batch[0])
-    for m in _METRICS:
-      train_metrics[m] += (_METRICS[m](train_batch, train_predictions)
-                           / float(eval_steps))
-      eval_metrics[m] += (_METRICS[m](eval_batch, eval_predictions)
-                          / float(eval_steps))
-
-  return train_metrics, eval_metrics
+  metrics = collections.defaultdict(float)
+  count = 0
+  for inp in inputs_stream:
+    count += 1
+    preds = predict_fun(inp[0])
+    for m, f in six.iteritems(metric_funs):
+      metrics[m] += f(inp, preds)
+  return {m: v / count for (m, v) in six.iteritems(metrics)}
 
 
 def log_metrics(metrics, summ_writer, log_prefix, step, history=None):
@@ -167,8 +179,37 @@ def log_metrics(metrics, summ_writer, log_prefix, step, history=None):
 # * Make configurable:
 #   * loss
 #   * metrics
+# * Training loop callbacks/hooks/...
 # * Save/restore: pickle unsafe. Use np.array.savez + MessagePack?
 # * Move metrics to metrics.py
+# * Setup namedtuples for interfaces (e.g. lr fun constructors can take a
+#   LearningRateInit, metric funs, etc.).
+# * Allow disabling eval
+
+
+def epochs(steps=None, epoch_steps=1):
+  """Iterator over epochs until steps is reached. 1-indexed.
+
+  Args:
+    steps: int, total number of steps. Infinite if None.
+    epoch_steps: int, number of steps per epoch. Can also be an iterable<int> to
+      enable variable length epochs.
+
+  Yields:
+    (epoch: int, epoch id, epoch_steps: int, number of steps in this epoch)
+  """
+  try:
+    iter(epoch_steps)
+  except TypeError:
+    epoch_steps = itertools.repeat(epoch_steps)
+
+  step = 0
+  for epoch, epoch_steps in enumerate(epoch_steps):
+    epoch_steps = min(epoch_steps, steps - step)
+    yield (epoch + 1, epoch_steps)
+    step += epoch_steps
+    if steps and step >= steps:
+      break
 
 
 @gin.configurable(blacklist=["output_dir"])
@@ -176,7 +217,7 @@ def train(output_dir,
           model=gin.REQUIRED,
           inputs=gin.REQUIRED,
           optimizer=trax_opt.adam,
-          learning_rate_fn=lr.make_default_schedule,
+          lr_schedule=lr.DefaultSchedule,
           train_steps=1000,
           eval_steps=10,
           eval_frequency=100):
@@ -189,8 +230,8 @@ def train(output_dir,
     inputs: callable returning trax.inputs.Inputs.
     optimizer: The optimizer as a callable taking a learning_rate callable and
       returning 2 callables, opt_init and opt_update.
-    learning_rate_fn: The learning rate callable that takes history and returns
-      a function from step to learning rate (a float).
+    lr_schedule: A learning rate schedule as a function that takes history and
+      returns a function from step to learning rate (a float).
     train_steps: int, total number of training steps.
     eval_steps: int, num of steps per evaluation. If None or 0, eval disabled.
     eval_frequency: int, how often to run evaluation (every eval_frequency
@@ -209,8 +250,8 @@ def train(output_dir,
   # Setup optimizer and model
   state = restore_state(output_dir)
   history = state.history
-  learning_rate = learning_rate_fn(history)
-  opt_init, opt_update = optimizer(learning_rate)
+  lr_fun = lr_schedule(history)
+  opt_init, opt_update = optimizer(lr_fun)
   model_init, model_predict = model()
 
   # Setup state
@@ -229,59 +270,62 @@ def train(output_dir,
         params, batch, model_predict), opt_state)
 
   print()
-  step_log(step, "starting training")
-  inputs_stream = inputs.train_fn()
-  eval_enabled = eval_steps and eval_frequency
-  is_first_step = True
-  # Evaluate after the first training step, then reset to normal_epoch_steps
-  normal_epoch_steps = (eval_enabled and eval_frequency) or train_steps
-  epoch_steps = 1
-  while step < train_steps:
-    print()  # separate logging for each loop iteration
+  train_stream = inputs.train_stream()
+  epoch_steps = itertools.chain([1,  # first epoch only 1 step
+                                 eval_frequency - 1],
+                                itertools.repeat(eval_frequency))
+  step_log(step, "Starting training")
 
-    # Train
+  for epoch, epoch_steps in epochs(train_steps, epoch_steps):
+    # Log separator
+    print()
+
+    # Timer
     start_time = time.time()
+
     for _ in range(epoch_steps):
-      opt_state = update(step, opt_state, next(inputs_stream))
-      if step % 10 == 0:  # Log learning rate curve each 10 steps.
-        train_sw.scalar("training/learning rate",
-                        learning_rate(step), step=step)
+      # Train
+      opt_state = update(step, opt_state, next(train_stream))
       step += 1
+
+      # LR log
+      if step == 1 or step % 10 == 0:
+        train_sw.scalar("training/learning rate",
+                        lr_fun(step), step=step)
+
+    # Timer
     epoch_time = time.time() - start_time
-    step_log(step, "ran %d train steps in %0.2f secs" %
+    step_log(step, "Ran %d train steps in %0.2f secs" %
              (epoch_steps, epoch_time))
+    if epoch_steps > 1:
+      train_sw.scalar("training/steps per second",
+                      epoch_steps / epoch_time, step=step)
 
     # Evaluate
     params = jax_opt.get_params(opt_state)
-    if eval_enabled:
-      step_log(step, "starting evaluation")
-      train_metrics, eval_metrics = evaluate(
-          inputs, functools.partial(jit_predict, params), eval_steps)
-      log_metrics(train_metrics, train_sw, "train", step, history=history)
-      log_metrics(eval_metrics, eval_sw, "eval ", step, history=history)
-      eval_sw.writer.flush()
+    evaluate_train_and_eval(
+        step=step,
+        inputs=inputs,
+        predict_fun=functools.partial(jit_predict, params),
+        eval_steps=eval_steps,
+        train_sw=train_sw,
+        eval_sw=eval_sw,
+        history=history)
 
     # Save state
     save_state(State(params=params, step=step, history=history), output_dir)
 
-    # Gin only tracks the used parameters, so we save it after the first step.
-    if is_first_step:
+    # Save Gin config
+    # Gin only tracks the used parameters, so we save it after the first epoch.
+    if epoch == 1:
       save_gin(output_dir, train_sw)
 
-    # Log non-metric reports.
-    if not is_first_step:
-      train_sw.scalar("training/steps per second",
-                      epoch_steps / epoch_time, step=step)
+    # Update learning rate with new history
+    lr_fun = lr_schedule(history)
+
+    # Flush summary writers
     train_sw.writer.flush()
+    eval_sw.writer.flush()
 
-    # Update learning rate with new history.
-    learning_rate = learning_rate_fn(history)
-
-    # After the first step, train for normal_epoch_steps steps before evaluating
-    epoch_steps = (
-        (normal_epoch_steps - 1) if is_first_step else normal_epoch_steps)
-    is_first_step = False
-
-  print()
-  step_log(step, "finished training")
+  step_log(step, "Training done")
   return State(params=params, step=step, history=history)
