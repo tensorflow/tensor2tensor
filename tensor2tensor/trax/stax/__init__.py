@@ -13,25 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Models defined in trax."""
+"""Layers defined in trax."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import gin
-
-from tensor2tensor.trax.models import mlp
-from tensor2tensor.trax.models import resnet
-from tensor2tensor.trax.models import transformer
-
-
-# Ginify
-def model_configure(*args, **kwargs):
-  kwargs["module"] = "trax.models"
-  return gin.external_configurable(*args, **kwargs)
-
-
-# pylint: disable=invalid-name
-MLP = model_configure(mlp.MLP)
-Resnet50 = model_configure(resnet.Resnet50)
-Transformer = model_configure(transformer.Transformer)
+# We create a flat stax.* namespace for uniform calling conventions as we
+# upstream changes.
+# pylint: disable=wildcard-import
+from jax.experimental.stax import *
+from tensor2tensor.trax.stax.attention import *
+from tensor2tensor.trax.stax.losses import *
+from tensor2tensor.trax.stax.slax import *
