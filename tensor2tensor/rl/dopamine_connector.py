@@ -248,7 +248,7 @@ class BatchRunner(run_experiment.Runner):
 
     while step_count < min_steps:
       num_steps, episode_returns = self._run_one_episode()
-      for  episode_return in episode_returns:
+      for episode_return in episode_returns:
         statistics.append({
             '{}_episode_lengths'.format(run_mode_str):
                 num_steps / self.batch_size,
@@ -259,10 +259,13 @@ class BatchRunner(run_experiment.Runner):
       num_episodes += self.batch_size
       # We use sys.stdout.write instead of tf.logging so as to flush frequently
       # without generating a line break.
-      sys.stdout.write('Steps executed: {} '.format(step_count) +
-                       'Batch episodes steps: {} '.format(num_steps) +
-                       'Returns: {}\r'.format(episode_returns))
-      sys.stdout.flush()
+      print('Steps executed: {} '.format(step_count) +
+            'Batch episodes steps: {} '.format(num_steps) +
+            'Returns: {}\r'.format(episode_returns))
+      # sys.stdout.write('Steps executed: {} '.format(step_count) +
+      #                  'Batch episodes steps: {} '.format(num_steps) +
+      #                  'Returns: {}\r'.format(episode_returns))
+      # sys.stdout.flush()
     return step_count, sum_returns, num_episodes
 
 
@@ -376,8 +379,8 @@ class ResizeBatchObservation(object):
     obs = self.observation(obs)
     return obs, rewards, dones
 
-  def reset(self):
-    return self.observation(self.batch_env.reset())
+  def reset(self, *args, **kwargs):
+    return self.observation(self.batch_env.reset(*args, **kwargs))
 
   @property
   def action_space(self):
@@ -442,6 +445,40 @@ class DopamineBatchEnv(object):
     return self._batch_env.batch_size
 
 
+class PaddedTrajectoriesEnv(DopamineBatchEnv):
+
+  def reset(self):
+    self.done_envs = [False] * self.batch_size
+    self.game_over = False
+    self._elapsed_steps = 0
+    return np.array(self._batch_env.reset())
+
+  def step(self, actions):
+    if any(self.done_envs):
+      print("Warning, some environments already ended, using mocked data.")
+
+    self._elapsed_steps += 1
+    obs, rewards, dones = \
+        [np.array(r) for r in self._batch_env.step(actions)]
+    for i, ignore in enumerate(self.done_envs):
+      if ignore:
+        obs[i] = np.zeros(obs[i].shape, dtype=obs.dtype)
+        rewards[i] = 0
+      if dones[i]:
+        self._batch_env.reset([i])
+        self.done_envs[i] = True
+
+    all_done = all(self.done_envs)
+
+    if self._elapsed_steps > self._max_episode_steps:
+      all_done = True
+      if self._elapsed_steps > self._max_episode_steps + 1:
+        rewards.fill(0)
+
+    self.game_over = all_done
+    return obs, rewards, all_done, {}
+
+
 def get_create_batch_env_fun(batch_env_fn, time_limit):
   """TODO(konradczechowski): Add doc-string."""
 
@@ -449,7 +486,7 @@ def get_create_batch_env_fun(batch_env_fn, time_limit):
     del game_name, sticky_actions
     batch_env = batch_env_fn(in_graph=False)
     batch_env = ResizeBatchObservation(batch_env)  # pylint: disable=redefined-variable-type
-    batch_env = DopamineBatchEnv(batch_env, max_episode_steps=time_limit)
+    batch_env = PaddedTrajectoriesEnv(batch_env, max_episode_steps=time_limit)
     return batch_env
 
   return create_env_fun
