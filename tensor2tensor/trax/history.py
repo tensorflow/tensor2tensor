@@ -73,3 +73,6 @@ class History(object):
       logging.info("Mode %s not found", mode)
       return []
     return sorted(list(self._values[mode].keys()))
+
+  def __str__(self):
+    return str(self._values)

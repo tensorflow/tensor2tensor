@@ -91,7 +91,8 @@ def restore_state(output_dir):
 
   with gfile.GFile(params_file, "rb") as f:
     (params, step, history) = pickle.load(f)
-  log("Model loaded from %s" % params_file)
+  log("Model loaded from %s at step %d" % (params_file, step))
+  logging.debug("From loaded model : history = %s", history)
   return State(step=step, params=params, history=history)
 
 

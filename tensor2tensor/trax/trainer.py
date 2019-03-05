@@ -41,6 +41,7 @@ flags.DEFINE_multi_string("config_file", None,
                           "Configuration file with parameters (.gin).")
 flags.DEFINE_multi_string("config", None,
                           "Configuration parameters (gin string).")
+flags.DEFINE_integer("log_level", logging.INFO, "Log level.")
 
 
 def _default_output_dir():
@@ -77,6 +78,8 @@ def _setup_gin():
 
 
 def main(_):
+  logging.set_verbosity(FLAGS.log_level)
+
   _setup_gin()
 
   # Setup output directory
@@ -88,5 +91,4 @@ def main(_):
 
 
 if __name__ == "__main__":
-  logging.set_verbosity(logging.INFO)
   app.run(main)
