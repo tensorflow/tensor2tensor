@@ -213,6 +213,17 @@ def epochs(steps=None, epoch_steps=1):
       break
 
 
+def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun):
+  """Get jit-ed update function for loss, optimizer, learning rate function."""
+  @jax.jit
+  def update(i, opt_state, batch):
+    _, opt_update = optimizer(lr_fun)
+    params = jax_opt.get_params(opt_state)
+    return opt_update(i, jax.grad(loss_fun)(
+        params, batch, predict_fun), opt_state)
+  return update
+
+
 @gin.configurable(blacklist=["output_dir"])
 def train(output_dir,
           model=gin.REQUIRED,
@@ -252,7 +263,7 @@ def train(output_dir,
   state = restore_state(output_dir)
   history = state.history
   lr_fun = lr_schedule(history)
-  opt_init, opt_update = optimizer(lr_fun)
+  opt_init, _ = optimizer(lr_fun)
   model_init, model_predict = model()
 
   # Setup state
@@ -263,12 +274,7 @@ def train(output_dir,
 
   # jit model_predict and update so they're fast
   jit_predict = jax.jit(model_predict)  # for evaluation
-
-  @jax.jit
-  def update(i, opt_state, batch):
-    params = jax_opt.get_params(opt_state)
-    return opt_update(i, jax.grad(loss)(
-        params, batch, model_predict), opt_state)
+  update_fun = _jit_update_fun(model_predict, loss, optimizer, lr_fun)
 
   print()
   train_stream = inputs.train_stream()
@@ -286,7 +292,7 @@ def train(output_dir,
 
     for _ in range(epoch_steps):
       # Train
-      opt_state = update(step, opt_state, next(train_stream))
+      opt_state = update_fun(step, opt_state, next(train_stream))
       step += 1
 
       # LR log
@@ -320,6 +326,12 @@ def train(output_dir,
     # Gin only tracks the used parameters, so we save it after the first epoch.
     if epoch == 1:
       save_gin(output_dir, train_sw)
+
+    # Update learning rate with new history
+    old_lr_fun = lr_fun
+    lr_fun = lr_schedule(history)
+    if lr_fun != old_lr_fun:  # For performance, only jit if there is a change.
+      update_fun = _jit_update_fun(model_predict, loss, optimizer, lr_fun)
 
     # Flush summary writers
     train_sw.writer.flush()
