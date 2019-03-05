@@ -146,6 +146,9 @@ class BatchDQNAgent(_DQNAgent):
     self.state_batch = np.zeros(state_shape)
     self.state = None  # assure it will be not used
     self._observation = None  # assure it will be not used
+    self.reset_current_rollouts()
+
+  def reset_current_rollouts(self):
     self._current_rollouts = [[] for _ in range(self.env_batch_size)]
 
   def _record_observation(self, observation_batch):
@@ -180,7 +183,7 @@ class BatchDQNAgent(_DQNAgent):
     for rollout in self._current_rollouts:
       for transition in rollout:
         self._store_transition(*transition)
-    self._current_rollouts = [] * self.env_batch_size
+    self.reset_current_rollouts()
 
   def step(self, reward, observation):
     self._last_observation = self._observation_batch
