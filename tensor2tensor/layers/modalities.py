@@ -685,7 +685,7 @@ def video_pixel_noise_bottom(x, model_hparams, vocab_size):
   input_noise = getattr(model_hparams, "video_modality_input_noise", 0.25)
   inputs = x
   if model_hparams.mode == tf.estimator.ModeKeys.TRAIN:
-    background = tfp.distributions.percentile(inputs, 50., axis=[0, 1, 2, 3])
+    background = tfp.stats.percentile(inputs, 50., axis=[0, 1, 2, 3])
     input_shape = common_layers.shape_list(inputs)
     input_size = tf.reduce_prod(input_shape[:-1])
     input_mask = tf.multinomial(
