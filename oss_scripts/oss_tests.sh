@@ -40,6 +40,7 @@ set_status
 # algorithmic_math_test: flaky
 # test_utils.py is not a test, but pytest thinks it is.
 # subword_text_encoder_ops_test, pack_sequences_ops_test: interface with C++ ops
+# trax tests need C++
 # others (see below) enable eager, so can't be tested along with the others in
 # pytest
 pytest \
@@ -64,16 +65,23 @@ pytest \
   --ignore=tensor2tensor/models/video/nfg_conv_test.py \
   --ignore=tensor2tensor/models/video/nfg_uncond_test.py \
   --ignore=tensor2tensor/rl \
+  --ignore=tensor2tensor/trax \
   --ignore=tensor2tensor/utils/t2t_model_test.py \
   --ignore=tensor2tensor/utils/test_utils.py \
   --ignore=tensor2tensor/utils/test_utils_test.py \
+  --ignore=tensor2tensor/utils/registry_test.py \
+  --ignore=tensor2tensor/utils/trainer_lib_test.py \
   --ignore=tensor2tensor/visualization/visualization_test.py \
-  --deselect=tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary \
   --deselect=tensor2tensor/utils/beam_search_test.py::BeamSearchTest::testTPUBeam
 set_status
 
+# TODO(afrozm): Enable trax tests they currently need GLIBCXX_3.4.21
+# Travis Error:
+# ImportError: /usr/lib/x86_64-linux-gnu/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by /home/travis/virtualenv/python3.6.3/lib/python3.6/site-packages/jaxlib/_pywrap_xla.so)
+
 # These tests enable eager, so are tested separately.
-pytest tensor2tensor/layers/bayes_test.py \
+pytest \
+  tensor2tensor/layers/bayes_test.py \
   tensor2tensor/layers/common_layers_test.py \
   tensor2tensor/layers/common_attention_test.py \
   tensor2tensor/layers/reversible_layers_test.py \
@@ -84,7 +92,8 @@ pytest tensor2tensor/layers/bayes_test.py \
   tensor2tensor/layers/latent_layers_test.py \
   tensor2tensor/layers/ngram_test.py \
   tensor2tensor/layers/modalities_test.py \
-  tensor2tensor/utils/test_utils_test.py
+  tensor2tensor/utils/test_utils_test.py \
+  --deselect=tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary
 
 pytest tensor2tensor/utils/registry_test.py
 set_status
