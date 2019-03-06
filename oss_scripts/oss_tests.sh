@@ -38,6 +38,7 @@ set_status
 #   * allen_brain_test
 #   * models/research
 # algorithmic_math_test: flaky
+# test_utils.py is not a test, but pytest thinks it is.
 # subword_text_encoder_ops_test, pack_sequences_ops_test: interface with C++ ops
 # others (see below) enable eager, so can't be tested along with the others in
 # pytest
@@ -64,6 +65,7 @@ pytest \
   --ignore=tensor2tensor/models/video/nfg_uncond_test.py \
   --ignore=tensor2tensor/rl \
   --ignore=tensor2tensor/utils/t2t_model_test.py \
+  --ignore=tensor2tensor/utils/test_utils.py \
   --ignore=tensor2tensor/utils/test_utils_test.py \
   --ignore=tensor2tensor/visualization/visualization_test.py \
   --deselect=tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary \
