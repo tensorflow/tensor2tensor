@@ -87,7 +87,12 @@ class EnvProblemTest(tf.test.TestCase):
     # Assert that it is as expected of the underlying environment.
     reward_range = ep.reward_range
     self.assertEqual(0, reward_range[0])
-    self.assertEqual(ep._envs[0].maxWealth, reward_range[1])
+
+    # Google's version of Gym has maxWealth, vs max_wealth externally.
+    max_wealth = getattr(ep._envs[0], "maxWealth",
+                         getattr(ep._envs[0], "max_wealth", None))
+    self.assertIsNotNone(max_wealth)
+    self.assertEqual(max_wealth, reward_range[1])
 
     # Check that the processed rewards are discrete.
     self.assertTrue(ep.is_processed_rewards_discrete)
