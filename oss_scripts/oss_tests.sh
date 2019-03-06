@@ -81,17 +81,17 @@ set_status
 
 # These tests enable eager, so are tested separately.
 pytest \
-  tensor2tensor/layers/bayes_test.py \
-  tensor2tensor/layers/common_layers_test.py \
-  tensor2tensor/layers/common_attention_test.py \
-  tensor2tensor/layers/reversible_layers_test.py \
   tensor2tensor/data_generators/problem_test.py \
-  tensor2tensor/layers/discretization_test.py \
+  tensor2tensor/layers/bayes_test.py \
+  tensor2tensor/layers/common_attention_test.py \
+  tensor2tensor/layers/common_layers_test.py \
   tensor2tensor/layers/common_video_test.py \
-  tensor2tensor/utils/t2t_model_test.py \
+  tensor2tensor/layers/discretization_test.py \
   tensor2tensor/layers/latent_layers_test.py \
-  tensor2tensor/layers/ngram_test.py \
   tensor2tensor/layers/modalities_test.py \
+  tensor2tensor/layers/ngram_test.py \
+  tensor2tensor/layers/reversible_layers_test.py \
+  tensor2tensor/utils/t2t_model_test.py \
   tensor2tensor/utils/test_utils_test.py \
   --deselect=tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary
 
