@@ -274,8 +274,8 @@ def train(output_dir,
   opt_state = opt_init(params)
 
   # jit model_predict and update so they're fast
-  jit_predict = jax.jit(model_predict)  # for evaluation
-  update_fun = _jit_update_fun(model_predict, loss, optimizer, lr_fun)
+  jit_model_predict = jax.jit(model_predict)  # for evaluation
+  jit_update_fun = _jit_update_fun(model_predict, loss, optimizer, lr_fun)
 
   print()
   train_stream = inputs.train_stream()
@@ -293,7 +293,7 @@ def train(output_dir,
 
     for _ in range(epoch_steps):
       # Train
-      opt_state = update_fun(step, opt_state, next(train_stream))
+      opt_state = jit_update_fun(step, opt_state, next(train_stream))
       step += 1
 
       # LR log
@@ -314,7 +314,7 @@ def train(output_dir,
     evaluate_train_and_eval(
         step=step,
         inputs=inputs,
-        predict_fun=functools.partial(jit_predict, params),
+        predict_fun=functools.partial(jit_model_predict, params),
         eval_steps=eval_steps,
         train_sw=train_sw,
         eval_sw=eval_sw,
@@ -332,7 +332,7 @@ def train(output_dir,
     old_lr_fun = lr_fun
     lr_fun = lr_schedule(history)
     if lr_fun != old_lr_fun:  # For performance, only jit if there is a change.
-      update_fun = _jit_update_fun(model_predict, loss, optimizer, lr_fun)
+      jit_update_fun = _jit_update_fun(model_predict, loss, optimizer, lr_fun)
 
     # Flush summary writers
     train_sw.writer.flush()
