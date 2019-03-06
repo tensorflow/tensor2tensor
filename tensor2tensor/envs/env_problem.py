@@ -23,6 +23,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import gym
 from gym.core import Env
 import numpy as np
 import six
@@ -31,7 +32,6 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.envs import gym_spaces_utils
 from tensor2tensor.envs import trajectory
 from tensor2tensor.layers import modalities
-from tensor2tensor.rl import gym_utils
 import tensorflow as tf
 
 # Names for data fields in stored tf.Examples.
@@ -56,9 +56,10 @@ class EnvProblem(Env, problem.Problem):
   Subclasses *should* override the following functions, since they are used in
   the `hparams` function to return modalities and vocab_sizes.
   - input_modality
-  - input_input_vocab_size
+  - input_vocab_size
   - target_modality
   - target_vocab_size
+  - action_modality
 
   NON NATIVELY BATCHED ENVS:
 
@@ -119,21 +120,23 @@ class EnvProblem(Env, problem.Problem):
 
   - observation_space and action_space should be subclasses of gym.spaces
   - not all subclasses of gym.spaces are supported
-  - no support for continuous action spaces
 
   """
 
   def __init__(self,
                base_env_name=None,
                batch_size=None,
+               env_wrapper_fn=None,
                reward_range=(-np.inf, np.inf)):
     """Initializes this class by creating the envs and managing trajectories.
 
     Args:
-      base_env_name: (string) passed to `gym_utils.make_gym_env` to make the
-        underlying environment.
-      batch_size: (int or None): How many envs to make in the non natively
+      base_env_name: (string) passed to `gym.make` to make the underlying
+        environment.
+      batch_size: (int or None) How many envs to make in the non natively
         batched mode.
+      env_wrapper_fn: (callable(env): env) Applies gym wrappers to the base
+        environment.
       reward_range: (tuple(number, number)) the first element is the minimum
         reward and the second is the maximum reward, used to clip and process
         the raw reward in `process_rewards`.
@@ -142,7 +145,7 @@ class EnvProblem(Env, problem.Problem):
     # Call the super's ctor.
     problem.Problem.__init__(self, was_reversed=False, was_copy=False)
 
-    # Name for the base environment, will be used in `gym_utils.make_gym_env` in
+    # Name for the base environment, will be used in `gym.make` in
     # the default implementation of `initialize_environments`.
     self._base_env_name = base_env_name
 
@@ -172,6 +175,8 @@ class EnvProblem(Env, problem.Problem):
     self._trajectories = None
 
     self._batch_size = None
+
+    self._env_wrapper_fn = env_wrapper_fn
 
     if batch_size is not None:
       self.initialize(batch_size=batch_size)
@@ -239,8 +244,7 @@ class EnvProblem(Env, problem.Problem):
     assert self._reward_range is not None
     assert self._trajectories is not None
 
-  def initialize_environments(self, batch_size=1, max_episode_steps=-1,
-                              max_and_skip_env=False):
+  def initialize_environments(self, batch_size=1):
     """Initializes the environments and trajectories.
 
     Subclasses can override this if they don't want a default implementation
@@ -249,19 +253,13 @@ class EnvProblem(Env, problem.Problem):
 
     Args:
       batch_size: (int) Number of `self.base_env_name` envs to initialize.
-      max_episode_steps: (int) Passed on to `gym_utils.make_gym_env`.
-      max_and_skip_env: (boolean) Passed on to `gym_utils.make_gym_env`.
     """
-
     assert batch_size >= 1
     self._batch_size = batch_size
 
-    # pylint: disable=g-complex-comprehension
-    self._envs = [
-        gym_utils.make_gym_env(
-            self.base_env_name,
-            rl_env_max_episode_steps=max_episode_steps,
-            maxskip_env=max_and_skip_env) for _ in range(batch_size)]
+    self._envs = [gym.make(self.base_env_name) for _ in range(batch_size)]
+    if self._env_wrapper_fn is not None:
+      self._envs = list(map(self._env_wrapper_fn, self._envs))
 
     # If self.observation_space and self.action_space aren't None, then it means
     # that this is a re-initialization of this class, in that case make sure
@@ -607,8 +605,8 @@ class EnvProblem(Env, problem.Problem):
         "targets": self.target_modality,
         "input_reward": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
         "target_reward": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
-        "input_action": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
-        "target_action": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "input_action": self.action_modality,
+        "target_action": self.action_modality,
         "target_policy": modalities.ModalityType.IDENTITY,
         "target_value": modalities.ModalityType.IDENTITY,
     })

@@ -32,8 +32,8 @@ class MaxAndSkipEnv(gym.Wrapper):
     gym.Wrapper.__init__(self, env)
     observation_space = env.observation_space
     # Most recent raw observations (for max pooling across time steps).
-    self._obs_buffer = np.zeros((2,) + observation_space.shape,
-                                dtype=observation_space.dtype)
+    self._obs_buffer = np.zeros(
+        (2,) + observation_space.shape, dtype=observation_space.dtype)
     self._skip = skip
 
   def __str__(self):
@@ -45,8 +45,10 @@ class MaxAndSkipEnv(gym.Wrapper):
     done = None
     for i in range(self._skip):
       obs, reward, done, info = self.env.step(action)
-      if i == self._skip - 2: self._obs_buffer[0] = obs
-      if i == self._skip - 1: self._obs_buffer[1] = obs
+      if i == self._skip - 2:
+        self._obs_buffer[0] = obs
+      if i == self._skip - 1:
+        self._obs_buffer[1] = obs
       total_reward += reward
       if done:
         break
@@ -58,28 +60,33 @@ class MaxAndSkipEnv(gym.Wrapper):
     return self.env.reset(**kwargs)
 
 
-def make_gym_env(name, rl_env_max_episode_steps=-1, maxskip_env=False):
-  """Create a gym env optionally with a time limit and maxskip wrapper.
+class RenderedEnv(gym.Wrapper):
+  """Simple Env wrapper to override observations with rendered rgb values."""
 
-  NOTE: The returned env may already be wrapped with TimeLimit!
+  def __init__(self, env, mode="rgb_array", low=0, high=255):
+    gym.Wrapper.__init__(self, env)
+    # Get a sample frame to correctly set observation space
+    self.mode = mode
+    sample_frame = self.render(mode=self.mode)
+    assert sample_frame is not None
+    self.observation_space = gym.spaces.Box(
+        low=low, high=high, shape=sample_frame.shape, dtype=sample_frame.dtype)
 
-  Args:
-    name: `str` - base name of the gym env to make.
-    rl_env_max_episode_steps: `int` or None - Using any value < 0 returns the
-      env as-in, otherwise we impose the requested timelimit. Setting this to
-      None returns a wrapped env that doesn't have a step limit.
-    maxskip_env: whether to also use MaxAndSkip wrapper before time limit.
+  def step(self, action):
+    _, reward, done, info = self.env.step(action)
+    obs = self.env.render(mode=self.mode)
+    return obs, reward, done, info
 
-  Returns:
-    An instance of `gym.Env` or `gym.wrappers.TimeLimit` with the requested
-    step limit.
-  """
+  def reset(self, **kwargs):
+    self.env.reset(**kwargs)
+    return self.env.render(mode=self.mode)
 
+
+def gym_env_wrapper(env, rl_env_max_episode_steps, maxskip_env, rendered_env):
+  """Wraps a gym environment. see make_gym_environment for details."""
   # rl_env_max_episode_steps is None or int.
   assert ((not rl_env_max_episode_steps) or
           isinstance(rl_env_max_episode_steps, int))
-
-  env = gym.make(name)
 
   # If nothing to do, then return the env.
   if rl_env_max_episode_steps and rl_env_max_episode_steps < 0:
@@ -88,8 +95,11 @@ def make_gym_env(name, rl_env_max_episode_steps=-1, maxskip_env=False):
         # Unwrap time limit and put it above MaxAndSkip for consistency.
         max_episode_steps = env._max_episode_steps  # pylint: disable=protected-access
         env = MaxAndSkipEnv(env.env)
-        return gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
-      return MaxAndSkipEnv(env)
+        env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
+      else:
+        env = MaxAndSkipEnv(env)
+    if rendered_env:
+      env = RenderedEnv(env)
     return env
 
   # Sometimes (mostly?) the env is already wrapped in a TimeLimit wrapper, in
@@ -100,7 +110,36 @@ def make_gym_env(name, rl_env_max_episode_steps=-1, maxskip_env=False):
   if maxskip_env:
     env = MaxAndSkipEnv(env)
 
+  if rendered_env:
+    env = RenderedEnv(env)
+
   return gym.wrappers.TimeLimit(env, max_episode_steps=rl_env_max_episode_steps)
+
+
+def make_gym_env(name,
+                 rl_env_max_episode_steps=-1,
+                 maxskip_env=False,
+                 rendered_env=False):
+  """Create a gym env optionally with a time limit and maxskip wrapper.
+
+  NOTE: The returned env may already be wrapped with TimeLimit!
+
+  Args:
+    name: `str` - base name of the gym env to make.
+    rl_env_max_episode_steps: `int` or None - Using any value < 0 returns the
+      env as-in, otherwise we impose the requested timelimit. Setting this to
+      None returns a wrapped env that doesn't have a step limit.
+    maxskip_env: whether to also use MaxAndSkip wrapper before time limit.
+    rendered_env: whether to force render for observations. Use this for
+      environments that are not natively rendering the scene for observations.
+
+  Returns:
+    An instance of `gym.Env` or `gym.wrappers.TimeLimit` with the requested
+    step limit.
+  """
+  env = gym.make(name)
+  return gym_env_wrapper(env, rl_env_max_episode_steps, maxskip_env,
+                         rendered_env)
 
 
 def register_gym_env(class_entry_point, version="v0", kwargs=None):
@@ -114,7 +153,7 @@ def register_gym_env(class_entry_point, version="v0", kwargs=None):
   env_name = "T2TEnv-{}-{}".format(class_name, version)
   gym.envs.register(id=env_name, entry_point=class_entry_point, kwargs=kwargs)
 
-  tf.logging.info("Entry Point [%s] registered with id [%s]",
-                  class_entry_point, env_name)
+  tf.logging.info("Entry Point [%s] registered with id [%s]", class_entry_point,
+                  env_name)
 
   return env_name, gym.make(env_name)
