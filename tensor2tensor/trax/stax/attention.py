@@ -30,6 +30,39 @@ def causal_mask(size, dtype=np.uint8):
   return onp.tril(onp.ones((1, size, size), dtype=dtype), k=0)
 
 
+def make_target_mask(target, pad=0):
+  """Create an attention mask to hide padding and future words."""
+  target_mask = (target != pad)[ :, np.newaxis, :]
+  target_dtype = target_mask.dtype
+  target_mask = (
+      (target_mask & stax.causal_mask(target.shape[-1])).astype(target_dtype))
+  return np.expand_dims(target_mask, axis=1)
+
+
+def prepare_paired_sequence_batch(source, target_in, pad=0):
+  """Build masks for this batch.
+
+  Args:
+    source: (batch, source_len) array of integer-coded symbols for inputs
+    target_in: (batch, batch_len) array of integer-coded symbols for targets
+    pad: int: the padding symbol used to pad the above
+
+  Returns:
+    Prepared batch of tuple of arrays: source, input-target, shifted-target,
+    source mask, target mask, source-target "memory" mask, minibatch token count
+  """
+  target = target_in[:, :-1]
+  target_y = target_in[:, 1:]
+  source_mask = np.reshape(source != pad,
+                           (source.shape[0], 1, 1, source.shape[-1]))
+  target_mask = make_target_mask(target, pad)
+  memory_mask = (
+      np.reshape(np.arange(target.shape[-1]) < source.shape[-1], [-1, 1]))
+  ntokens = np.sum(target_y != pad)
+  return (source, target, target_y,
+          source_mask, target_mask, memory_mask, ntokens)
+
+
 def xavier_uniform(out_dim=0, in_dim=1, rng=npr):
   """An initializer function for random uniform xavier-scaled coefficients."""
   def init(shape):
