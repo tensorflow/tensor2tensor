@@ -50,7 +50,3 @@ class TicTacToeEnvProblem(env_problem.EnvProblem):
   def target_vocab_size(self):
     # Since reward is either -1 or 0 or +1.
     return 3
-
-  @property
-  def action_modality(self):
-    return modalities.ModalityType.SYMBOL_WEIGHTS_ALL
