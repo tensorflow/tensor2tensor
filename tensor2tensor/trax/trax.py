@@ -33,6 +33,7 @@ import gin
 import jax
 from jax.experimental import optimizers as jax_opt
 import jax.numpy as np
+import jax.random as random
 
 import six
 
@@ -40,13 +41,9 @@ from tensor2tensor.trax import history as trax_history
 from tensor2tensor.trax import jaxboard
 from tensor2tensor.trax import learning_rate as lr
 from tensor2tensor.trax import optimizers as trax_opt
+import tensor2tensor.trax.stax as stax
 
 from tensorflow.io import gfile
-
-
-def one_hot(x, k, dtype=np.float32):
-  """Create a one-hot encoding of x of size k."""
-  return np.array(x[:, None] == np.arange(k), dtype)
 
 
 def accuracy(batch, model_predictions):
@@ -59,7 +56,7 @@ def accuracy(batch, model_predictions):
 def neg_log_perplexity(batch, model_predictions):
   """Calculate negative log perplexity."""
   _, targets = batch
-  hot_targets = one_hot(targets, model_predictions.shape[-1])
+  hot_targets = stax.one_hot(targets, model_predictions.shape[-1])
   return np.mean(np.sum(model_predictions * hot_targets, axis=-1))
 
 
@@ -67,7 +64,8 @@ def loss(params, batch, model_predict):
   """Calculate loss."""
   inputs, targets = batch
   preds = model_predict(params, inputs)
-  return - np.mean(np.sum(preds * one_hot(targets, preds.shape[-1]), axis=-1))
+  return - np.mean(np.sum(preds * stax.one_hot(targets, preds.shape[-1]),
+                          axis=-1))
 
 
 def log(s, stdout=True):
@@ -233,7 +231,8 @@ def train(output_dir,
           lr_schedule=lr.MultifactorSchedule,
           train_steps=1000,
           eval_steps=10,
-          eval_frequency=100):
+          eval_frequency=100,
+          run_debug_step=False):
   """Train the model on the inputs.
 
   Args:
@@ -249,10 +248,13 @@ def train(output_dir,
     eval_steps: int, num of steps per evaluation. If None or 0, eval disabled.
     eval_frequency: int, how often to run evaluation (every eval_frequency
       steps). If None or 0, eval disabled.
+    run_debug_step: bool, if True, will run the model and loss without @jit for
+      one step.
 
   Returns:
     trax.State
   """
+  rng = random.PRNGKey(0)
   gfile.makedirs(output_dir)
   # Create summary writers and history.
   train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
@@ -265,7 +267,13 @@ def train(output_dir,
   history = state.history
   lr_fun = lr_schedule(history)
   opt_init, _ = optimizer(lr_fun)
-  model_init, model_predict = model()
+  model_init, model_predict_original = model()
+  # We need a model_predict that fills in the random generator if needed.
+  def model_predict(x, y, **kwargs):
+    """Same as model_predict_original but fill in rng if it isn't passed."""
+    if "rng" in kwargs:
+      return model_predict_original(x, y, **kwargs)
+    return model_predict_original(x, y, rng=rng, **kwargs)
 
   # Setup state
   step = state.step or 0
@@ -283,6 +291,11 @@ def train(output_dir,
                                  eval_frequency - 1],
                                 itertools.repeat(eval_frequency))
   step_log(step, "Starting training")
+
+  # Non-compiled debug step helps find problems in models easier.
+  if run_debug_step:
+    debug_loss = loss(params, next(train_stream), model_predict)
+    step_log(step, "Debug step loss %.8f" % debug_loss)
 
   for epoch, epoch_steps in epochs(train_steps, epoch_steps):
     # Log separator

@@ -44,7 +44,6 @@ def TransformerEncoder(mode='train',  # pylint: disable=invalid-name
     A staxlayer for implementing a raw Transformer encoder stack.  No embedding
     or positional signals are added by this layer.
   """
-
   # Multi-headed Attention and Feed-forward layers
   multi_attention = stax.MultiHeadedAttention(
       feature_depth, num_heads=num_heads, dropout=dropout, mode=mode)
@@ -88,6 +87,68 @@ def TransformerEncoder(mode='train',  # pylint: disable=invalid-name
     )
 
   return encoder
+
+
+def TransformerLM(vocab_size,  # pylint: disable=invalid-name
+                  mode='train',
+                  num_layers=6,
+                  feature_depth=512,
+                  feedforward_depth=2048,
+                  num_heads=8,
+                  dropout=0.9,
+                  max_len=256):
+  """Transformer language model (only uses the decoder part of Transformer).
+
+  Args:
+    vocab_size: int: vocab size
+    mode: str: 'train' or 'eval'
+    num_layers: int: number of encoder/decoder layers
+    feature_depth: int:  depth of embedding
+    feedforward_depth: int: depth of feed-forward layer
+    num_heads: int: number of attention heads
+    dropout: float: dropout rate - Stax follows TF's KEEP probability convention
+    max_len: int: maximum symbol length for positional encoding
+
+  Returns:
+    init and apply.
+  """
+  # Multi-headed Attention and Feed-forward layers
+  multi_attention = stax.MultiHeadedAttention(
+      feature_depth, num_heads=num_heads, dropout=dropout, mode=mode)
+
+  feed_forward = stax.serial(
+      stax.Dense(feedforward_depth, W_init=stax.xavier_uniform()),
+      stax.Relu,
+      stax.Dropout(dropout, mode=mode),
+      stax.Dense(feature_depth, W_init=stax.xavier_uniform())
+  )
+
+  # Single decoder layer
+  decoder_layer = stax.serial(
+      # target attends to self
+      stax.residual(stax.LayerNorm(feature_depth),
+                    stax.multiplex(stax.Identity,  # query
+                                   stax.Identity,  # key
+                                   stax.Identity,  # value
+                                   stax.CausalMask(axis=-2)),  # attention mask
+                    multi_attention,
+                    stax.Dropout(dropout, mode=mode)),
+      # feed-forward
+      stax.residual(stax.LayerNorm(feature_depth),
+                    feed_forward,
+                    stax.Dropout(dropout, mode=mode))
+  )
+
+  return stax.serial(
+      stax.ShiftRight(),
+      stax.Embedding(feature_depth, vocab_size),
+      stax.PositionalEncoding(feature_depth, max_len=max_len),
+      stax.Dropout(dropout, mode=mode),
+      stax.repeat(decoder_layer, num_layers),
+      stax.LayerNorm(feature_depth),
+      stax.Dense(vocab_size, W_init=stax.xavier_uniform()),
+      stax.LogSoftmax
+  )
 
 
 def Transformer(source_vocab_size,  # pylint: disable=invalid-name

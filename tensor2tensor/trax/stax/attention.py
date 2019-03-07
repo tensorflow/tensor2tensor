@@ -30,6 +30,15 @@ def causal_mask(size, dtype=np.uint8):
   return onp.tril(onp.ones((1, size, size), dtype=dtype), k=0)
 
 
+def CausalMask(axis=-1):  # pylint: disable=invalid-name
+  """Layer to create a causal mask for its inputs."""
+  init_fun = lambda input_shape: (input_shape, ())
+  def apply_fun(params, inputs, **kwargs):
+    del params, kwargs
+    return causal_mask(inputs.shape[axis], dtype=inputs.dtype)
+  return init_fun, apply_fun
+
+
 def make_target_mask(target, pad=0):
   """Create an attention mask to hide padding and future words."""
   target_mask = (target != pad)[ :, np.newaxis, :]
@@ -93,7 +102,7 @@ def LayerNorm(features, epsilon=1e-5):  # pylint: disable=invalid-name
 def Embedding(feature_depth, vocab_size):  # pylint: disable=invalid-name
   """Layer constructor function for a dense embedding layer."""
   def init_fun(input_shape):
-    output_shape = input_shape + (feature_depth,)
+    output_shape = tuple(input_shape) + (feature_depth,)
     dense_embedding = xavier_uniform()((vocab_size, feature_depth))
     return output_shape, dense_embedding
   def apply_fun(params, inputs, **kwargs):

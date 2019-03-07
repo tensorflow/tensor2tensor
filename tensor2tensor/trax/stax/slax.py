@@ -32,6 +32,18 @@ def one_hot(x, size, dtype=np.float32):
   return np.array(x[..., np.newaxis] == np.arange(size), dtype)
 
 
+def ShiftRight():  # pylint: disable=invalid-name
+  """Layer to shift the tensor to the right by padding on axis 1."""
+  init_fun = lambda input_shape: (input_shape, ())
+  def apply_fun(params, inputs, **kwargs):
+    del params, kwargs
+    pad_widths = [(0, 0), (1, 0)]
+    pad_widths += [(0, 0) for _ in range(len(inputs.shape) - 2)]
+    padded = np.pad(inputs, pad_widths, mode='constant')
+    return padded[:, :-1, ...]
+  return init_fun, apply_fun
+
+
 # Utility Combinators
 # ------------------------------------------------------------------------------
 def repeat(layer, num_repeats):

@@ -34,4 +34,4 @@ def model_configure(*args, **kwargs):
 # pylint: disable=invalid-name
 MLP = model_configure(mlp.MLP)
 Resnet50 = model_configure(resnet.Resnet50)
-Transformer = model_configure(transformer.Transformer)
+TransformerLM = model_configure(transformer.TransformerLM)

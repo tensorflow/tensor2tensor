@@ -70,7 +70,10 @@ def _setup_gin():
   # Override with --dataset and --model
   if FLAGS.dataset:
     configs.append("inputs.dataset_name='%s'" % FLAGS.dataset)
-    configs.append("inputs.data_dir='%s'" % FLAGS.data_dir)
+    if FLAGS.data_dir:
+      configs.append("inputs.data_dir='%s'" % FLAGS.data_dir)
+    else:
+      configs.append("inputs.data_dir=None")
     configs.append("train.inputs=@trax.inputs.inputs")
   if FLAGS.model:
     configs.append("train.model=@trax.models.%s" % FLAGS.model)

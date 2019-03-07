@@ -129,7 +129,7 @@ def _make_info(shape_list, num_classes):
 def _select_features(example, feature_list=None):
   """Select a subset of features from the example dict."""
   feature_list = feature_list or ["inputs", "targets"]
-  return {f: example[f] for f in feature_list}
+  return {f: example[f] for f in feature_list if f in example}
 
 
 def _train_and_eval_dataset_v1(problem_name, data_dir):
@@ -140,7 +140,6 @@ def _train_and_eval_dataset_v1(problem_name, data_dir):
   train_dataset = train_dataset.map(_select_features)
   eval_dataset = problem.dataset(tf.estimator.ModeKeys.EVAL, data_dir)
   eval_dataset = eval_dataset.map(_select_features)
-  supervised_keys = (["inputs"], ["targets"])
   hparams = problem.get_hparams()
   # We take a few training examples to guess the shapes.
   input_shapes, target_shapes = [], []
@@ -149,14 +148,18 @@ def _train_and_eval_dataset_v1(problem_name, data_dir):
   example1 = sess.run(example_tensor)
   example2 = sess.run(example_tensor)
   example3 = sess.run(example_tensor)
+  # We use "inputs" as input except for purely auto-regressive tasks like
+  # language models where "targets" are used as input_key.
+  input_key = "inputs" if "inputs" in example1 else "targets"
+  supervised_keys = ([input_key], ["targets"])
   for example in [example1, example2, example3]:
-    input_shapes.append(list(example["inputs"].shape))
+    input_shapes.append(list(example[input_key].shape))
     target_shapes.append(list(example["targets"].shape))
-  input_vocab_size = hparams.vocab_size["inputs"]
+  input_vocab_size = hparams.vocab_size[input_key]
   target_vocab_size = hparams.vocab_size["targets"]
   input_info = _make_info(input_shapes, input_vocab_size)
   target_info = _make_info(target_shapes, target_vocab_size)
-  info = {"inputs": input_info, "targets": target_info}
+  info = {input_key: input_info, "targets": target_info}
   return train_dataset, eval_dataset, info, supervised_keys
 
 
@@ -191,7 +194,7 @@ def batch_fun(dataset, training, shapes, target_names,
                            bucket_length * 4, bucket_length * 8]
       bucket_batch_sizes = [cur_batch_size * 4, cur_batch_size * 2,
                             cur_batch_size, cur_batch_size // 2,
-                            cur_batch_size // 4, cur_batch_size // 8]
+                            cur_batch_size // 4, cur_batch_size // 8, 1]
       buckets = (bucket_boundaries, bucket_batch_sizes)
 
   if buckets:
@@ -200,7 +203,8 @@ def batch_fun(dataset, training, shapes, target_names,
       return tf.shape(target)[0]
     boundaries, batch_sizes = buckets
     dataset = dataset.apply(tf.data.experimental.bucket_by_sequence_length(
-        example_length, boundaries, batch_sizes, pad_to_bucket_boundary=True))
+        example_length, boundaries, batch_sizes,
+        pad_to_bucket_boundary=training))
   else:
     dataset = dataset.padded_batch(cur_batch_size, shapes)
   return dataset
@@ -227,7 +231,8 @@ def shuffle_and_batch_data(dataset, target_names, features_info, training):
   return dataset.prefetch(32)
 
 
-def train_and_eval_batches(dataset, data_dir):
+@gin.configurable(whitelist=["input_name"])
+def train_and_eval_batches(dataset, data_dir, input_name=None):
   """Return train and eval batches with input name and shape."""
   (train_data, eval_data, features_info, keys) = train_and_eval_dataset(
       dataset, data_dir)
@@ -236,5 +241,6 @@ def train_and_eval_batches(dataset, data_dir):
       train_data, target_names, features_info, training=True)
   eval_batches = shuffle_and_batch_data(
       eval_data, target_names, features_info, training=False)
-  input_shape = features_info[input_names[0]].shape
-  return train_batches, eval_batches, input_names[0], list(input_shape)
+  input_name = input_name or input_names[0]
+  input_shape = features_info[input_name].shape
+  return train_batches, eval_batches, input_name, list(input_shape)
