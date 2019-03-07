@@ -611,6 +611,7 @@ class DQNLearner(PolicyLearner):
     with tf.Graph().as_default():
       runner = self.create_runner(env_fn, hparams, target_iterations,
                                   training_steps_per_iteration)
+      assert runner.batch_size == 1
       agent = runner._agent  # pylint: disable=protected-access
       del runner
       agent.eval = True
