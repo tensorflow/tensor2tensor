@@ -490,17 +490,27 @@ def input_fn(dataset,
     def split_on_length(example):
       """Split a batch of ditcs on length."""
       x = example["targets"]
+      # TODO(kitaev): This code breaks if chunk_length * max_chunks < batch_size
       length_diff = chunk_length * max_chunks - tf.shape(x)[1]
       padded_x = tf.pad(x, [(0, 0), (0, length_diff), (0, 0), (0, 0)])
       chunks = [padded_x[:, i*chunk_length:(i+1)*chunk_length, :, :]
                 for i in range(max_chunks - 1)]
       chunks.append(padded_x[:, (max_chunks - 1)*chunk_length:, :, :])
       new_example = {}
-      new_example["chunk_number"] = tf.range(max_chunks)
+      # Setting chunk_number to be tf.range(max_chunks) is incompatible with TPU
+      new_example["chunk_number"] = tf.concat([
+          tf.expand_dims(tf.ones_like(c) * n, axis=0)
+          for n, c in enumerate(chunks)
+      ],
+                                              axis=0)
       new_example["targets"] = tf.concat(
           [tf.expand_dims(c, axis=0) for c in chunks], axis=0)
       for k in example:
         if k != "targets":
+          assert k != "chunk_number", (
+              "Chunking code expects the chunk_number feature name to be "
+              "available"
+          )
           new_example[k] = tf.concat(
               [tf.expand_dims(example[k], axis=0) for _ in range(max_chunks)],
               axis=0)
