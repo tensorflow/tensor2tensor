@@ -24,6 +24,24 @@ import numpy as np
 import tensorflow as tf
 
 
+class StickyActionEnv(gym.Wrapper):
+  """Based on openai/atari-reset implementation."""
+  def __init__(self, env, p=0.25):
+    gym.Wrapper.__init__(self, env)
+    self.p = p
+    self.last_action = 0
+
+  def step(self, action):
+    if np.random.uniform() < self.p:
+      action = self.last_action
+    self.last_action = action
+    obs, reward, done, info = self.env.step(action)
+    return obs, reward, done, info
+
+  def reset(self, **kwargs):
+    return self.env.reset(**kwargs)
+
+
 class MaxAndSkipEnv(gym.Wrapper):
   """Same wrapper as in OpenAI baselines for comparability of results."""
 
@@ -82,44 +100,55 @@ class RenderedEnv(gym.Wrapper):
     return self.env.render(mode=self.mode)
 
 
-def gym_env_wrapper(env, rl_env_max_episode_steps, maxskip_env, rendered_env):
-  """Wraps a gym environment. see make_gym_environment for details."""
+def remove_time_limit_wrapper(env):
+  """Removes top level TimeLimit Wrapper.
+
+  Removes TimeLimit Wrapper from top level if exists, throws error if any other
+  TimeLimit Wrapper is present in stack.
+  """
+  if isinstance(env, gym.wrappers.TimeLimit):
+    env = env.env
+  env_ = env
+  while isinstance(env_, gym.Wrapper):
+    if isinstance(env_, gym.wrappers.TimeLimit):
+      raise ValueError("Can remove only top-level TimeLimit gym.Wrapper.")
+    env_ = env_.env
+  return env
+
+
+def gym_env_wrapper(env, rl_env_max_episode_steps, maxskip_env, rendered_env,
+                    sticky_actions):
+  """Wraps a gym environment. see make_gym_env for details."""
   # rl_env_max_episode_steps is None or int.
   assert ((not rl_env_max_episode_steps) or
           isinstance(rl_env_max_episode_steps, int))
 
-  # If nothing to do, then return the env.
-  if rl_env_max_episode_steps and rl_env_max_episode_steps < 0:
-    if maxskip_env:
-      if isinstance(env, gym.wrappers.TimeLimit):
-        # Unwrap time limit and put it above MaxAndSkip for consistency.
-        max_episode_steps = env._max_episode_steps  # pylint: disable=protected-access
-        env = MaxAndSkipEnv(env.env)
-        env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
-      else:
-        env = MaxAndSkipEnv(env)
-    if rendered_env:
-      env = RenderedEnv(env)
-    return env
+  wrap_with_time_limit = ((not rl_env_max_episode_steps) or
+                          rl_env_max_episode_steps >= 0)
 
-  # Sometimes (mostly?) the env is already wrapped in a TimeLimit wrapper, in
-  # which case unwrap it and wrap with the proper time limit requested.
-  if isinstance(env, gym.wrappers.TimeLimit):
-    env = env.env
+  if wrap_with_time_limit:
+    env = remove_time_limit_wrapper(env)
+
+  if sticky_actions:
+    env = StickyActionEnv(env)
 
   if maxskip_env:
-    env = MaxAndSkipEnv(env)
+    env = MaxAndSkipEnv(env)  # pylint: disable=redefined-variable-type
 
   if rendered_env:
     env = RenderedEnv(env)
 
-  return gym.wrappers.TimeLimit(env, max_episode_steps=rl_env_max_episode_steps)
+  if wrap_with_time_limit:
+    env = gym.wrappers.TimeLimit(env,
+                                 max_episode_steps=rl_env_max_episode_steps)
+  return env
 
 
 def make_gym_env(name,
                  rl_env_max_episode_steps=-1,
                  maxskip_env=False,
-                 rendered_env=False):
+                 rendered_env=False,
+                 sticky_actions=False):
   """Create a gym env optionally with a time limit and maxskip wrapper.
 
   NOTE: The returned env may already be wrapped with TimeLimit!
@@ -132,14 +161,14 @@ def make_gym_env(name,
     maxskip_env: whether to also use MaxAndSkip wrapper before time limit.
     rendered_env: whether to force render for observations. Use this for
       environments that are not natively rendering the scene for observations.
+    sticky_actions: whether to use sticky_actions before MaxAndSkip wrapper.
 
   Returns:
-    An instance of `gym.Env` or `gym.wrappers.TimeLimit` with the requested
-    step limit.
+    An instance of `gym.Env` or `gym.Wrapper`.
   """
   env = gym.make(name)
   return gym_env_wrapper(env, rl_env_max_episode_steps, maxskip_env,
-                         rendered_env)
+                         rendered_env, sticky_actions)
 
 
 def register_gym_env(class_entry_point, version="v0", kwargs=None):
