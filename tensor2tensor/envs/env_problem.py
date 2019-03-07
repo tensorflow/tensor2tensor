@@ -671,14 +671,13 @@ class EnvProblem(Env, problem.Problem):
         if not processed_reward:
           processed_reward = 0
 
-        if time_step.action:
-          action = gym_spaces_utils.gym_space_encode(self.action_space,
-                                                     time_step.action)
-        else:
+        action = time_step.action
+        if action is None:
           # The last time-step doesn't have action, and this action shouldn't be
           # used, gym's spaces have a `sample` function, so let's just sample an
           # action and use that.
-          action = [self.action_space.sample()]
+          action = self.action_space.sample()
+        action = gym_spaces_utils.gym_space_encode(self.action_space, action)
 
         if six.PY3:
           # py3 complains that, to_example cannot handle np.int64 !
