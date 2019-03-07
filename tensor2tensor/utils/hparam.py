@@ -542,15 +542,15 @@ class HParams(object):
       A JSON string.
     """
     def remove_callables(x):
-      if callable(x):
-        return x.__name__
+      """Omit callable elements from input with arbitrary nesting."""
       if isinstance(x, dict):
-        return {k: remove_callables(v) for k, v in six.iteritems(x)}
-      if isinstance(x, list):
-        return [remove_callables(i) for i in x]
+        return {k: remove_callables(v) for k, v in six.iteritems(x)
+                if not callable(v)}
+      elif isinstance(x, list):
+        return [remove_callables(i) for i in x if not callable(i)]
       return x
     return json.dumps(
-        {k: remove_callables(v) for k, v in six.iteritems(self.values())},
+        remove_callables(self.values()),
         indent=indent,
         separators=separators,
         sort_keys=sort_keys)
