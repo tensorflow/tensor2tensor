@@ -307,7 +307,9 @@ def setup_env(hparams,
       resize_height_factor=hparams.resize_height_factor,
       rl_env_max_episode_steps=rl_env_max_episode_steps,
       max_num_noops=max_num_noops,
-      maxskip_envs=maxskip_envs)
+      maxskip_envs=maxskip_envs,
+      sticky_actions=hparams.sticky_actions
+  )
   return env
 
 

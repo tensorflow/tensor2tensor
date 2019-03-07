@@ -375,6 +375,7 @@ def dqn_original_params():
 def rlmf_original():
   return HParams(
       game="pong",
+      sticky_actions=False,
       base_algo="ppo",
       base_algo_params="ppo_original_params",
       batch_size=16,
