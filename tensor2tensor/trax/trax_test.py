@@ -25,7 +25,7 @@ import tempfile
 
 import numpy as np
 
-from tensor2tensor.trax import inputs
+from tensor2tensor.trax import inputs as inputs_lib
 from tensor2tensor.trax import models
 from tensor2tensor.trax import trax
 
@@ -43,7 +43,7 @@ def test_inputs(num_classes):
       yield (np.random.rand(*([batch_size] + list(input_shape))),
              np.random.randint(num_classes, size=batch_size))
 
-  return inputs.Inputs(
+  return inputs_lib.Inputs(
       train_stream=input_stream,
       eval_stream=input_stream,
       input_shape=input_shape)
@@ -57,32 +57,37 @@ class TraxTest(test.TestCase):
     yield tmp
     gfile.rmtree(tmp)
 
-  @property
-  def train_args(self):
-    num_classes = 4
-    return dict(
-        model=functools.partial(models.MLP,
-                                hidden_size=16,
-                                num_output_classes=num_classes),
-        inputs=lambda: test_inputs(num_classes),
-        train_steps=3,
-        eval_steps=2)
-
-  def _test_train(self, train_args):
+  def test_train_eval_predict(self):
     with self.tmp_dir() as output_dir:
-      state = trax.train(output_dir, **train_args)
+      # Prepare model and inputs
+      num_classes = 4
+      train_steps = 2
+      eval_steps = 2
+      model = functools.partial(models.MLP,
+                                hidden_size=16,
+                                num_output_classes=num_classes)
+      inputs = lambda: test_inputs(num_classes)
+
+      # Train and evaluate
+      state = trax.train(output_dir,
+                         model=model,
+                         inputs=inputs,
+                         train_steps=train_steps,
+                         eval_steps=eval_steps)
 
       # Assert total train steps
-      self.assertEqual(train_args["train_steps"], state.step)
+      self.assertEqual(train_steps, state.step)
 
-      # Assert 2 epochs ran
+      # Assert 2 evaluations ran
       train_acc = state.history.get("train", "metrics/accuracy")
       eval_acc = state.history.get("eval", "metrics/accuracy")
       self.assertEqual(len(train_acc), len(eval_acc))
       self.assertEqual(2, len(eval_acc))
 
-  def test_train(self):
-    self._test_train(self.train_args)
+      # Predict with final params
+      _, predict_fun = model()
+      inputs = inputs().train_stream()
+      predict_fun(state.params, next(inputs)[0])
 
 
 if __name__ == "__main__":
