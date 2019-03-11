@@ -39,13 +39,11 @@ from time import time
 FLAGS = tf.flags.FLAGS
 
 tf.flags.DEFINE_string("tpu", "", "Which TPU to use.")
+tf.flags.DEFINE_string(
+    "output_dir", "gs://tpu_atari_training_data/test", "Output dir."
+)
 
-BATCH_SIZES = [16, 32, 64, 128]
-EPOCH_LENGTHS = [50, 100, 200]
-if FLAGS.tpu:
-  NUMS_TPUS = [8, 4, 2, 1]
-else:
-  NUMS_TPUS = [0]
+
 HISTORY = 4
 
 
@@ -69,6 +67,7 @@ def make_model_fn(batch_size, epoch_length, num_tpus):
       memory = tf_new_collect.new_define_collect(
           batch_env, ppo_hparams, action_space, force_beginning_resets=True
       )
+    # Summaries don't work when training on TPU; remove them.
     tf.get_default_graph().get_collection_ref(tf.GraphKeys.SUMMARIES)[:] = []
     return tf.contrib.tpu.TPUEstimatorSpec(
         mode=tf.estimator.ModeKeys.PREDICT,
@@ -81,10 +80,7 @@ def input_fn(params):
   return tf.data.Dataset.from_tensors(tf.zeros([16]))
 
 
-def run_single(sess, run_config, num_tpus, batch_size, epoch_length):
-  #if FLAGS.tpu:
-  #  batch_size //= num_tpus
-
+def run(sess, run_config, num_tpus, batch_size, epoch_length):
   model_fn = make_model_fn(batch_size, epoch_length, num_tpus)
   estimator = tf.contrib.tpu.TPUEstimator(
       model_fn=model_fn,
@@ -96,38 +92,6 @@ def run_single(sess, run_config, num_tpus, batch_size, epoch_length):
       config=run_config,
   )
   return list(estimator.predict(input_fn=input_fn))
-
-  #if FLAGS.tpu:
-  #  memory = tpu.rewrite(lambda: memory)
-    #memory = tpu.replicate(
-    #    lambda: memory,
-    #    inputs=([()] * num_tpus),
-    #    device_assignment=tf.contrib.tpu.device_assignment(
-    #        topology, num_replicas=num_tpus
-    #    )
-    #)
-  #sess.run(tf.global_variables_initializer())
-  # First trial is for warmup.
-  #sess.run(memory)
-  #t = time()
-  #sess.run(memory)
-  #return time() - t
-
-
-def run_all(run_fn, **ranges):
-  results = {}
-  for (name, range) in ranges.items():
-    print("looping over", name)
-    results[name] = {}
-    for value in range:
-      kwargs = {
-          arg_name: value if arg_name == name else ranges[arg_name][0]
-          for arg_name in ranges
-      }
-      t = run_fn(**kwargs)
-      print("{}: {}".format(kwargs, t))
-      results[name][value] = t
-  return results
 
 
 def main(_):
@@ -144,21 +108,17 @@ def main(_):
 
     run_config = tf.contrib.tpu.RunConfig(
         cluster=resolver,
-        model_dir="gs://tpu_atari_training_data/test",
+        model_dir=FLAGS.output_dir,
         session_config=tf.ConfigProto(
             allow_soft_placement=True, log_device_placement=True
         ),
-        tpu_config=tf.contrib.tpu.TPUConfig(1),  # (iterations, shards)
+        tpu_config=tf.contrib.tpu.TPUConfig(
+            iterations_per_loop=1,
+            num_shards=8,
+        ),
     )
 
-    results = run_all(
-        functools.partial(run_single, sess, run_config),
-        batch_size=BATCH_SIZES,
-        epoch_length=EPOCH_LENGTHS,
-        num_tpus=NUMS_TPUS,
-    )
-    with open("results.pkl", "wb") as f:
-      f.write(results)
+    run(sess, run_config, num_tpus=8, batch_size=16, epoch_length=50)
 
     if FLAGS.tpu:
       sess.run(tpu.shutdown_system())
