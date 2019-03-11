@@ -935,7 +935,10 @@ def fast_decode_tpu(encoder_output,
       temperature = getattr(hparams, "sampling_temp", 0.0)
       if hparams.sampling_method == "argmax":
         temperature = 0.0
-      next_id = common_layers.sample_with_temperature(logits, temperature)
+      keep_top = hparams.sampling_keep_top_k
+      next_id = common_layers.sample_with_temperature(
+          logits, temperature, keep_top)
+
       hit_eos |= tf.equal(next_id, eos_id)
 
       log_prob_indices = tf.stack([tf.range(tf.to_int64(batch_size)), next_id],
@@ -1116,9 +1119,12 @@ def fast_decode(encoder_output,
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       log_probs = common_layers.log_prob_from_logits(logits)
       temperature = getattr(hparams, "sampling_temp", 0.0)
+
       if hparams.sampling_method == "argmax":
         temperature = 0.0
-      next_id = common_layers.sample_with_temperature(logits, temperature)
+      keep_top = hparams.sampling_keep_top_k
+      next_id = common_layers.sample_with_temperature(
+          logits, temperature, keep_top)
       hit_eos |= tf.equal(next_id, eos_id)
 
       log_prob_indices = tf.stack([tf.range(tf.to_int64(batch_size)), next_id],
