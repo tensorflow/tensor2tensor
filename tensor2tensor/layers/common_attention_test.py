@@ -541,6 +541,260 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testExtractblocks(self):
+
+    batch_size = 1
+    num_heads = 3
+    height = 6
+    width = 10
+    depth = 15
+    block_h = 3
+    block_w = 2
+    t = np.random.rand(batch_size, num_heads, height, width, depth)
+    a = common_attention._extract_blocks(t, block_h, block_w)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(a)
+    self.assertEqual(res.shape, (batch_size, num_heads, height//block_h,
+                                 width//block_w, block_h, block_w, depth))
+    # also check if the content is right
+    out = np.zeros((batch_size, num_heads, height//block_h,
+                    width//block_w, block_h, block_w, depth))
+    for b in range(batch_size):
+      for h in range(num_heads):
+        for x in range(height//block_h):
+          for y in range(width//block_w):
+            for v in range(block_h):
+              for w in range(block_w):
+                out[b, h, x, y, v, w] = t[b, h, block_h*x+v, block_w*y+w]
+    self.assertAllClose(res, out)
+
+  def python_get_2d_local_memory(self, t, batch_size, num_heads, height, width,
+                                 num_h_blocks, num_w_blocks, query_shape,
+                                 memory_flange, depth):
+    # also check if the content is right
+    out = np.zeros((batch_size, num_heads, height//query_shape[0],
+                    width//query_shape[1], query_shape[0]+2*memory_flange[0],
+                    query_shape[1]+2*memory_flange[1], depth))
+    memory_height = query_shape[0]+2*memory_flange[0]
+    memory_width = query_shape[1]+2*memory_flange[1]
+    t_padded = np.pad(t, ((0, 0), (0, 0), (memory_flange[0], memory_flange[0]),
+                          (memory_flange[1], memory_flange[1]), (0, 0)),
+                      "constant",
+                      constant_values=((0, 0), (0, 0), (0, 0), (0, 0), (0, 0)))
+    for b in range(batch_size):
+      for h in range(num_heads):
+        for x in range(num_h_blocks):
+          for y in range(num_w_blocks):
+            for v in range(memory_height):
+              for w in range(memory_width):
+                memory_h_start = x*query_shape[0]
+                memory_w_start = y*query_shape[1]
+                memory_h_index = memory_h_start + v
+                memory_w_index = memory_w_start + w
+                out[b, h, x, y, v, w] = t_padded[b, h, memory_h_index,
+                                                 memory_w_index]
+    return out
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testGet2dLocalMemory(self):
+    batch_size = 3
+    num_heads = 3
+    height = 12
+    width = 6
+    depth = 15
+    num_h_blocks = 3
+    num_w_blocks = 3
+    memory_flange = [2, 1]
+    query_shape = [4, 2]
+    t = np.random.rand(batch_size, num_heads, height, width, depth)
+    a = common_attention.get_2d_local_memory(
+        t, query_shape, memory_flange)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(a)
+    self.assertEqual(res.shape, (batch_size, num_heads,
+                                 num_h_blocks,
+                                 num_w_blocks,
+                                 query_shape[0]+2*memory_flange[0],
+                                 query_shape[1]+2*memory_flange[1], depth))
+    out = self.python_get_2d_local_memory(t, batch_size, num_heads,
+                                          height, width, num_h_blocks,
+                                          num_w_blocks, query_shape,
+                                          memory_flange, depth)
+
+    self.assertAllClose(res, out)
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testSplitAlongWidth(self):
+    batch_size = 1
+    num_heads = 3
+    num_outer_h_blocks = 4
+    num_outer_w_blocks = 8
+    memory_flange = [2, 2]
+    num_w_blocks = 3
+    depth = 15
+    t = np.random.rand(batch_size, num_heads, num_outer_h_blocks,
+                       num_outer_w_blocks, memory_flange[0], memory_flange[1],
+                       depth)
+    a = common_attention._split_along_width(t)
+    # self.evaluate(tf.global_variables_initializer())
+    res_l, res_r = self.evaluate(a)
+    # res = self.evaluate(a)
+    self.assertEqual(res_l.shape, (batch_size, num_heads, num_outer_h_blocks,
+                                   num_w_blocks, memory_flange[0],
+                                   memory_flange[1], depth))
+    self.assertEqual(res_r.shape, (batch_size, num_heads, num_outer_h_blocks,
+                                   num_w_blocks, memory_flange[0],
+                                   memory_flange[1], depth))
+    # also check if the content is right
+    out_l = np.zeros((batch_size, num_heads, num_outer_h_blocks, num_w_blocks,
+                      memory_flange[0], memory_flange[1], depth))
+    out_r = np.zeros((batch_size, num_heads, num_outer_h_blocks, num_w_blocks,
+                      memory_flange[0], memory_flange[1], depth))
+    block_h = memory_flange[0]
+    block_w = memory_flange[1]
+    for b in range(batch_size):
+      for h in range(num_heads):
+        for x in range(num_outer_h_blocks):
+          for y in range(num_w_blocks):
+            for v in range(block_h):
+              for w in range(block_w):
+                # we should compute the index of the position in the
+                out_l[b, h, x, y, v, w] = (
+                    t[b, h, x, 2*y, v, w]
+                    )
+                out_r[b, h, x, y, v, w] = (
+                    t[b, h, x, 2*y+3, v, w]
+                    )
+    self.assertAllClose(res_l, out_l)
+    self.assertAllClose(res_r, out_r)
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testGetLeftRightBlocks(self):
+    batch_size = 1
+    num_heads = 3
+    num_outer_h_blocks = 6
+    num_outer_w_blocks = 6
+    memory_flange = [2, 2]
+    num_h_blocks = 2
+    num_w_blocks = 2
+    depth = 15
+    t = np.random.rand(batch_size, num_heads, num_outer_h_blocks,
+                       num_outer_w_blocks, memory_flange[0], memory_flange[1],
+                       depth)
+    a = common_attention._get_left_right_blocks(t)
+    self.evaluate(tf.global_variables_initializer())
+    res_l, res_r = self.evaluate(a)
+    self.assertEqual(res_l.shape, (batch_size, num_heads, num_h_blocks,
+                                   num_w_blocks, memory_flange[0]*2,
+                                   memory_flange[1], depth))
+    self.assertEqual(res_r.shape, (batch_size, num_heads, num_h_blocks,
+                                   num_w_blocks, memory_flange[0]*2,
+                                   memory_flange[1], depth))
+    # also check if the content is right
+    block_h = memory_flange[0]*2
+    block_w = memory_flange[1]
+    out_l = np.zeros((batch_size, num_heads, num_h_blocks,
+                      num_w_blocks, memory_flange[0]*2, memory_flange[1],
+                      depth))
+    out_r = np.zeros((batch_size, num_heads, num_h_blocks,
+                      num_w_blocks, memory_flange[0]*2, memory_flange[1],
+                      depth))
+    block_h = memory_flange[0]*2
+    block_w = memory_flange[1]
+    for b in range(batch_size):
+      for h in range(num_heads):
+        for x in range(num_h_blocks):
+          for y in range(num_w_blocks):
+            for v in range(block_h):
+              for w in range(block_w):
+                # we should compute the index of the position in the
+                outer_block_h_index = (
+                    1 + block_h//memory_flange[0]*x + v//2)
+                h_index = v%memory_flange[0]
+                left_outer_w_index = 2*y
+                right_outer_w_index = 2*y + 3
+                out_l[b, h, x, y, v, w] = (
+                    t[b, h, outer_block_h_index, left_outer_w_index, h_index,
+                      w]
+                    )
+                out_r[b, h, x, y, v, w] = (
+                    t[b, h, outer_block_h_index, right_outer_w_index, h_index,
+                      w]
+                    )
+    self.assertAllClose(res_l, out_l)
+    self.assertAllClose(res_r, out_r)
+
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testDotProductUnmaskedAttentionLocal2dTpu(self):
+    batch_size = 1
+    num_heads = 3
+    height = 4
+    width = 12
+    depth = 15
+    num_h_blocks = 2
+    num_w_blocks = 2
+    memory_flange = [1, 3]
+    query_shape = [2, 6]
+    memory_h = query_shape[0] + 2*memory_flange[0]
+    memory_w = query_shape[1] + 2*memory_flange[1]
+
+    q = np.random.rand(batch_size, num_heads, height, width, depth)
+    k = np.random.rand(batch_size, num_heads, height, width, depth)
+    v = np.random.rand(batch_size, num_heads, height, width, depth)
+    a = common_attention.dot_product_unmasked_attention_local_2d_tpu(
+        tf.constant(q, dtype=tf.float32),
+        tf.constant(k, dtype=tf.float32),
+        tf.constant(v, dtype=tf.float32), None, max_relative_position=None,
+        query_shape=query_shape, dropout_rate=0.0, image_shapes=None,
+        name=None, make_image_summary=False, dropout_broadcast_dims=None)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(a)
+    self.assertEqual(res.shape, (batch_size, num_heads,
+                                 height, width, depth))
+    # now to check the content too
+    queries = self.python_get_2d_local_memory(q, batch_size, num_heads,
+                                              height, width, num_h_blocks,
+                                              num_w_blocks, query_shape, [0, 0],
+                                              depth)
+    keys = self.python_get_2d_local_memory(k, batch_size, num_heads,
+                                           height, width, num_h_blocks,
+                                           num_w_blocks, query_shape,
+                                           memory_flange, depth)
+    values = self.python_get_2d_local_memory(v, batch_size, num_heads,
+                                             height, width, num_h_blocks,
+                                             num_w_blocks, query_shape,
+                                             memory_flange, depth)
+    logits = np.matmul(
+        np.reshape(queries, (batch_size, num_heads,
+                             num_h_blocks, num_w_blocks,
+                             query_shape[0]*query_shape[1], depth)),
+        np.transpose(
+            np.reshape(keys, (batch_size, num_heads, num_h_blocks, num_w_blocks,
+                              memory_h*memory_w, depth)), (0, 1, 2, 3, 5, 4)))
+    # now to do a softmax across the logits
+    att = np.exp(logits) / np.sum(np.exp(logits), axis=-1, keepdims=True)
+    att_output = np.matmul(att, np.reshape(
+        values, (batch_size, num_heads, num_h_blocks, num_w_blocks,
+                 memory_h*memory_w, depth)))
+    att_output = np.reshape(att_output,
+                            (batch_size, num_heads, num_h_blocks, num_w_blocks,
+                             query_shape[0], query_shape[1], depth))
+    # putting the attention results back into the right place
+    out = np.zeros((batch_size, num_heads, height, width, depth))
+    for b in range(batch_size):
+      for h in range(num_heads):
+        for x in range(height):
+          for y in range(width):
+            h_block_index = x//query_shape[0]
+            w_block_index = y//query_shape[1]
+            inside_h_index = x%query_shape[0]
+            inside_w_index = y%query_shape[1]
+            out[b, h, x, y] = (
+                att_output[b, h, h_block_index, w_block_index, inside_h_index,
+                           inside_w_index])
+    self.assertAllClose(res, out)
+
   def python_relative_att(self, q, k, v, batch, num_heads, height, width,
                           depth, height_key_relative_embeddings,
                           width_key_relative_embeddings,

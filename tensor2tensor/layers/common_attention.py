@@ -2190,6 +2190,279 @@ def dot_product_unmasked_self_attention_relative_2d(
         width_key_relative_embeddings)
 
 
+def _split_along_width(x_left_right_blocks):
+  """Helper function for local 2d attention.
+
+  Takes a tensor of [batch, heads, num_h_blocks, num_w_blocks,
+  height, width, depth] and returns two tensors which contain every alternate
+  position along the width
+
+
+  Args:
+    x_left_right_blocks: A [batch, heads, num_h_blocks, num_w_blocks,
+                            height, width, depth] tensor
+
+  Returns:
+    x_left_blocks, x_right_blocks: two [batch, heads, num_h_blocks,
+                                        (num_w_blocks-2)/2, height, width,
+                                        depth] tensors
+
+  """
+  (_, num_heads, x_num_h_blocks, x_num_outer_w_blocks, x_memory_flange_h,
+   x_memory_flange_w, depth) = common_layers.shape_list(x_left_right_blocks)
+  x_num_w_blocks = (x_num_outer_w_blocks-1)//2
+  # get it ready for splitting the left and right memory blocks
+  x_left_right_blocks = tf.reshape(x_left_right_blocks,
+                                   [-1, num_heads,
+                                    x_num_h_blocks,
+                                    x_num_outer_w_blocks//2, 2,
+                                    x_memory_flange_h,
+                                    x_memory_flange_w, depth])
+
+  x_left_blocks, x_right_blocks = tf.split(x_left_right_blocks,
+                                           num_or_size_splits=2, axis=4)
+  x_left_blocks = tf.squeeze(x_left_blocks, axis=4)
+  x_right_blocks = tf.squeeze(x_right_blocks, axis=4)
+  x_left_blocks = tf.slice(x_left_blocks, [0, 0, 0, 0, 0, 0, 0],
+                           [-1, -1, -1, x_num_w_blocks, -1, -1, -1])
+  x_right_blocks = tf.slice(x_right_blocks, [0, 0, 0, 1, 0, 0, 0],
+                            [-1, -1, -1, x_num_w_blocks, -1, -1, -1])
+  return x_left_blocks, x_right_blocks
+
+
+def _get_left_right_blocks(x):
+  """Helper function. Assumes that memory_flange is half of query sizes.
+
+  This function splits the tensor of width 'n' into two halves, where the
+  first half gets the width indices 0, 2, 4.. and the second half gets the
+  width indices 3, 5, ... We also fuse two blocks along the h dimension.
+
+  Args:
+    x: a 7-d tensor.
+
+  Returns:
+    x_left_blocks, x_right_blocks: Two 7-d tensors
+  """
+  (_, num_heads, x_num_outer_h_blocks, x_num_outer_w_blocks, x_memory_flange_h,
+   x_memory_flange_w, depth) = common_layers.shape_list(x)
+  x_left_right_blocks = tf.slice(x,
+                                 [0, 0, 1, 0, 0, 0, 0],
+                                 [-1, -1, x_num_outer_h_blocks-2, -1, -1,
+                                  -1, -1])
+  num_blocks_h = (x_num_outer_h_blocks-2)//2
+  x_left_right_blocks = tf.reshape(x_left_right_blocks,
+                                   [-1, num_heads,
+                                    num_blocks_h,
+                                    2, x_num_outer_w_blocks,
+                                    x_memory_flange_h,
+                                    x_memory_flange_w, depth])
+  x_left_right_blocks = tf.transpose(x_left_right_blocks,
+                                     [0, 1, 2, 4, 3, 5, 6, 7])
+  x_left_right_blocks = tf.reshape(x_left_right_blocks,
+                                   [-1, num_heads, num_blocks_h,
+                                    x_num_outer_w_blocks, 2*x_memory_flange_h,
+                                    x_memory_flange_w, depth])
+  # get it ready for splitting the left and right memory blocks
+  x_left_blocks, x_right_blocks = _split_along_width(x_left_right_blocks)
+
+  return x_left_blocks, x_right_blocks
+  # return x_left_right_blocks
+
+
+def _extract_blocks(x, block_h, block_w):
+  """Helper function for local 2d attention.
+
+  Args:
+    x: a [batch, num_heads, height, width, depth] tensor
+    block_h: An integer. block height
+    block_w: An inteter. block width
+
+  returns:
+    a [batch, num_heads, height/block_h, width/block_w, depth] tensor
+  """
+  (_, num_heads, height, width, depth) = common_layers.shape_list(x)
+  assert height % block_h == 0
+  assert width % block_w == 0
+  x = tf.reshape(x, [-1, num_heads, height//block_h, block_h,
+                     width//block_w, block_w, depth])
+  return tf.transpose(x, [0, 1, 2, 4, 3, 5, 6])
+
+
+def get_2d_local_memory(x, query_shape, memory_flange):
+  """Stitches together the local 2d memory blocks.
+
+  Args:
+    x: a [batch, heads, height, width, depth tensor]
+    query_shape: 2-d integer list of query shape
+    memory_flange: 2-d integer list of memory flanges
+
+  Returns:
+    x: A [batch, heads, num_h_blocks, num_w_blocks,
+          query_shape[0]+2*memory_flange[0],query_shape[1]+2*memory_flange[1]]
+          tensor.
+  """
+  (_, num_heads, height, width, depth_x) = common_layers.shape_list(x)
+  x_center_blocks = _extract_blocks(x, query_shape[0], query_shape[1])
+  # add extra padding to x so that we can extract the memory region
+  # around the center
+  paddings = [[0, 0], [0, 0], [memory_flange[0], memory_flange[0]],
+              [memory_flange[1], memory_flange[1]], [0, 0]]
+  padded_x = tf.pad(x, paddings)
+  padded_x.set_shape([None, num_heads, height+2*memory_flange[0],
+                      width+2*memory_flange[1], depth_x])
+  x_outer_memory_blocks = _extract_blocks(padded_x,
+                                          memory_flange[0], memory_flange[1])
+  # We'll extract left and right memory blocks, top and bottom memory blocks,
+  # and then the corner memory blocks
+
+  # Each of these after  will have shape
+  # [batch, num_heads, num_h_blocks, num_w_blocks, query_shape[0],
+  # memory_flange[1], depth]
+  x_left_blocks, x_right_blocks = _get_left_right_blocks(
+      x_outer_memory_blocks)
+  t_hw_block = lambda x: tf.transpose(x, [0, 1, 3, 2, 5, 4, 6])
+  # now to get top and bottom blocks, we should just transpose the outer
+  # blocks, call the same function and transpose back to get shape
+  # [batch, num_heads, num_h_blocks, num_w_blocks, memory_flange[0],
+  # query_shape[1], depth]
+  x_top_center_blocks, x_bottom_center_blocks = (
+      map(t_hw_block, _get_left_right_blocks(
+          t_hw_block(x_outer_memory_blocks))))
+
+  # now to get the corner blocks
+  x_left_corner_blocks, x_right_corner_blocks = _split_along_width(
+      x_outer_memory_blocks)
+  # now to extract top and bottom for both k and v
+  # we need to transpose because _split_along_width separates along
+  # the width
+  # each of these should have shape [batch, num_heads, num_h_blocks,
+  # num_w_blocks, memory_flange[0], memory_flange[1], depth]
+
+  t_hw = lambda x: tf.transpose(x, [0, 1, 3, 2, 4, 5, 6])
+  x_top_left_corner_blocks, x_bottom_left_corner_blocks = (
+      map(t_hw, _split_along_width(t_hw(x_left_corner_blocks))))
+  x_top_right_corner_blocks, x_bottom_right_corner_blocks = (
+      map(t_hw, _split_along_width(t_hw(x_right_corner_blocks))))
+
+  # The memory is top_left     top_center    top_right
+  #               left_center  middle        right_center
+  #               bottom_left  bottom_center bottom_right
+  # Assembling the above row by row
+  # first [x_top_left, x_top, x_top_right]
+  # to get [batch, num_heads, num_h_blocks, num_w_blocks, memory_flange[0],
+  # query_shape[1]+2*memory_flange[1], depth]
+  # then [x_left, x_center, x_right]
+  # then [x_bottom_left, x_bottom, x_bottom_right]
+  x_top_memory = tf.concat(
+      [x_top_left_corner_blocks,
+       x_top_center_blocks,
+       x_top_right_corner_blocks], axis=5)
+  x_middle_memory = tf.concat(
+      [x_left_blocks, x_center_blocks, x_right_blocks], axis=5)
+  x_bottom_memory = tf.concat(
+      [x_bottom_left_corner_blocks,
+       x_bottom_center_blocks,
+       x_bottom_right_corner_blocks], axis=5)
+
+  # concat along height
+  x = tf.concat([x_top_memory, x_middle_memory, x_bottom_memory], axis=4)
+  return x
+
+
+def dot_product_unmasked_attention_local_2d_tpu(
+    q, k, v, bias, max_relative_position=None, query_shape=(8, 8),
+    dropout_rate=0.0, image_shapes=None, name=None, make_image_summary=False,
+    dropout_broadcast_dims=None):
+  """Calculate unmasked dot-product local self-attention 2d on tpu.
+
+  Args:
+    q: a Tensor with shape [batch, heads, height, width, depth].
+    k: a Tensor with shape [batch, heads, height, width, depth].
+    v: a Tensor with shape [batch, heads, height, width, depth].
+    bias: bias Tensor.
+    max_relative_position: an integer the max relative embedding considered.
+      Changing this invalidates checkpoints.
+    query_shape: a two tuple indicating query shape
+    dropout_rate: a floating point number.
+    image_shapes: optional tuple of integer scalars.
+    name: an optional string.
+    make_image_summary: Whether to make an attention image summary.
+    dropout_broadcast_dims:  an optional list of integers less than 4
+      specifying in which dimensions to broadcast the dropout decisions.
+      saves memory.
+
+  Returns:
+    [batch, heads, height, width, depth] tensor, the output of attention.
+    height_key_relative_embeddings: a 3d or 2d tensor, depending on head sharing
+      settings, which are the relative embeddings for height.
+    width_key_relative_embeddings: a 3d or 2d tensor, depending on head sharing
+      settings, which are the relative embeddings for width.
+
+  """
+  if max_relative_position:
+    raise ValueError("Relative local 2d attention not implemented")
+
+  with tf.variable_scope(
+      name,
+      default_name="dot_product_self_attention_relative_v2",
+      values=[q, k, v]):
+
+    # This calculation only works for self attention.
+    # q, k and v must therefore have the same shape.
+    q.get_shape().assert_is_compatible_with(k.get_shape())
+    q.get_shape().assert_is_compatible_with(v.get_shape())
+    q_shape = common_layers.shape_list(q)
+    (height, width) = (q_shape[2],
+                       q_shape[3])
+    _, num_heads, height, width, depth_k = common_layers.shape_list(k)
+    depth_v = common_layers.shape_list(v)[-1]
+    num_h_blocks = height//query_shape[0]
+    num_w_blocks = width//query_shape[1]
+    # Pad query, key, value to ensure multiple of corresponding lengths.
+    memory_flange = [int(query_shape[0]//2), int(query_shape[1]//2)]
+    q = pad_to_multiple_2d(q, query_shape)
+    k = pad_to_multiple_2d(k, query_shape)
+    v = pad_to_multiple_2d(v, query_shape)
+
+    # Extract center queries, keys, and values
+
+    queries = _extract_blocks(
+        q, query_shape[0], query_shape[1])
+    keys = get_2d_local_memory(
+        k, query_shape, memory_flange)
+    values = get_2d_local_memory(
+        v, query_shape, memory_flange)
+    memory_h = query_shape[0] + 2*memory_flange[0]
+    memory_w = query_shape[1] + 2*memory_flange[1]
+    queries = tf.reshape(queries, [-1, num_heads, num_h_blocks, num_w_blocks,
+                                   query_shape[0]*query_shape[1], depth_k])
+    keys = tf.reshape(keys, [-1, num_heads, num_h_blocks, num_w_blocks,
+                             memory_h*memory_w, depth_k])
+    values = tf.reshape(values, [-1, num_heads, num_h_blocks, num_w_blocks,
+                                 memory_h*memory_w, depth_v])
+    logits = tf.matmul(queries, keys, transpose_b=True)
+    if bias is not None:
+      logits += bias
+
+    weights = tf.nn.softmax(logits, name="attention_weights")
+    # Dropping out the attention links for each of the heads
+    weights = common_layers.dropout_with_broadcast_dims(
+        weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
+    if common_layers.should_generate_summaries() and make_image_summary:
+      attention_image_summary(weights, image_shapes)
+    ret = tf.matmul(weights, values)
+    # we need to get it back to shape [batch, heads, height, width]
+    ret = tf.reshape(ret, [-1, num_heads, num_h_blocks, num_w_blocks,
+                           query_shape[0], query_shape[1], depth_v])
+    ret = tf.transpose(ret, [0, 1, 2, 4, 3, 5, 6])
+    ret = tf.reshape(ret, [-1, num_heads, num_h_blocks*query_shape[0],
+                           num_w_blocks*query_shape[1], depth_v])
+    # slice if padding was introduced
+    ret = tf.slice(ret, [0, 0, 0, 0, 0], [-1, -1, q_shape[2], q_shape[3],
+                                          -1])
+    return ret
+
+
 def masked_within_block_local_attention_1d(q, k, v, block_length=64, name=None):
   """Attention to the source and a neighborhood to the left within a block.
 
@@ -3189,12 +3462,10 @@ def make_2d_block_raster_mask(query_shape, memory_flange):
   split_query_masks = tf.split(query_triangle, query_shape[0], axis=1)
   # adding mask for left and right
   mask_pieces = [
-      tf.concat(
-          [
-              tf.ones([np.prod(query_shape), memory_flange[1]]),
-              split_query_masks[i],
-              tf.zeros([np.prod(query_shape), memory_flange[1]])
-          ],
+      tf.concat(  # pylint: disable=g-complex-comprehension
+          [tf.ones([np.prod(query_shape), memory_flange[1]]),
+           split_query_masks[i],
+           tf.zeros([np.prod(query_shape), memory_flange[1]])],
           axis=1) for i in range(query_shape[0])
   ]
   # adding mask for top
@@ -3854,10 +4125,14 @@ def multihead_attention_2d(query_antecedent,
     if attention_type == "local_attention_2d":
       x = local_attention_2d(
           q, k, v, query_shape=query_shape, memory_flange=memory_flange)
-    else:
+    elif attention_type == "masked_local_attention_2d":
       assert attention_type == "masked_local_attention_2d"
       x = masked_local_attention_2d(
           q, k, v, query_shape=query_shape, memory_flange=memory_flange)
+    else:
+      assert attention_type == "unmasked_local_attention_2d_tpu"
+      x = dot_product_unmasked_attention_local_2d_tpu(
+          q, k, v, None, max_relative_position=None, query_shape=query_shape)
     x = combine_heads_2d(x)
     x = common_layers.dense(
         x, output_depth, use_bias=False, name="output_transform")
