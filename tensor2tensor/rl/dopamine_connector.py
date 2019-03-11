@@ -48,52 +48,6 @@ except ImportError:
 # pylint: enable=g-import-not-at-top
 
 
-class ResizeObservation(gym.ObservationWrapper):
-  """TODO(konradczechowski): Add doc-string."""
-
-  def __init__(self, env, size=84):
-    """Based on WarpFrame from openai baselines atari_wrappers.py.
-
-    Dopamine also uses cv2.resize(..., interpolation=cv2.INTER_AREA).
-
-    Args:
-      env: TODO(konradczechowski): Add doc-string.
-      size: TODO(konradczechowski): Add doc-string.
-    """
-    gym.ObservationWrapper.__init__(self, env)
-    self.width = size
-    self.height = size
-    assert env.observation_space.dtype == np.uint8
-    self.observation_space = spaces.Box(
-        low=0,
-        high=255,
-        shape=(self.height, self.width, env.observation_space.shape[2]),
-        dtype=np.uint8)
-
-  def observation(self, frame):
-    if not cv2:
-      return frame
-    return cv2.resize(
-        frame, (self.width, self.height), interpolation=cv2.INTER_AREA)
-
-
-class GameOverOnDone(Wrapper):
-  """TODO(konradczechowski): Add doc-string."""
-
-  def __init__(self, env):
-    Wrapper.__init__(self, env)
-    self.game_over = False
-
-  def reset(self, **kwargs):
-    self.game_over = False
-    return self.env.reset(**kwargs)
-
-  def step(self, action):
-    ob, reward, done, info = self.env.step(action)
-    self.game_over = done
-    return ob, reward, done, info
-
-
 class _DQNAgent(dqn_agent.DQNAgent):
   """Modify dopamine DQNAgent to match our needs.
 
@@ -318,7 +272,14 @@ class _OutOfGraphReplayBuffer(OutOfGraphReplayBuffer):
 
 
 def get_create_agent(agent_kwargs):
-  """TODO(): Document."""
+  """Factory for dopamine agent initialization.
+
+  Args:
+    agent_kwargs: dict of BatchDQNAgent parameters
+
+  Returns:
+    Function(sess, environment, summary_writer) -> BatchDQNAgent instance.
+  """
 
   def create_agent(sess, environment, summary_writer=None):
     """Creates a DQN agent.
@@ -345,27 +306,18 @@ def get_create_agent(agent_kwargs):
 
 
 class ResizeBatchObservation(object):
-  """ TODO(konradczechowski): Add doc-string."""
+  """Wrapper resizing observations for batched environment.
+
+  Dopamine also uses cv2.resize(..., interpolation=cv2.INTER_AREA).
+
+  Attributes:
+    batch_env: batched environment
+    size: size of width and height for returned observations
+  """
 
   def __init__(self, batch_env, size=84):
-    """Based on WarpFrame from openai baselines atari_wrappers.py.
-
-    Dopamine also uses cv2.resize(..., interpolation=cv2.INTER_AREA).
-
-    Args:
-      env: TODO(konradczechowski): Add doc-string.
-      size: TODO(konradczechowski): Add doc-string.
-    """
     self.size = size
     self.batch_env = batch_env
-    # self.width = size
-    # self.height = size
-    # assert env.observation_space.dtype == np.uint8
-    # self.observation_space = spaces.Box(
-    #     low=0,
-    #     high=255,
-    #     shape=(self.height, self.width, env.observation_space.shape[2]),
-    #     dtype=np.uint8)
 
   def observation(self, frames):
     if not cv2:
@@ -411,8 +363,6 @@ class DopamineBatchEnv(object):
     return np.array(self._batch_env.reset())
 
   def step(self, actions):
-    # ret = [env.step(action) for env, action in zip(self.env_batch, actions)]
-    # obs, rewards, dones, infos = [np.array(r) for r in zip(*ret)]
     self._elapsed_steps += 1
     obs, rewards, dones = \
         [np.array(r) for r in self._batch_env.step(actions)]
@@ -480,7 +430,15 @@ class PaddedTrajectoriesEnv(DopamineBatchEnv):
 
 
 def get_create_batch_env_fun(batch_env_fn, time_limit):
-  """TODO(konradczechowski): Add doc-string."""
+  """Factory for dopamine environment initialization function.
+
+  Args:
+    batch_env_fn: function(in_graph: bool) -> batch environment.
+    time_limit: time steps limit for environment.
+
+  Returns:
+    function (with optional, unused parameters) initializing environment.
+  """
 
   def create_env_fun(game_name=None, sticky_actions=None):
     del game_name, sticky_actions
@@ -493,7 +451,11 @@ def get_create_batch_env_fun(batch_env_fn, time_limit):
 
 
 def _parse_hparams(hparams):
-  """TODO(konradczechowski): Add doc-string."""
+  """Split hparams, based on key prefixes.
+
+  Returns:
+    Tuple of hparams for respectably: agent, optimizer, runner, replay_buffer.
+  """
   prefixes = ["agent_", "optimizer_", "runner_", "replay_buffer_"]
   ret = []
 
