@@ -42,7 +42,7 @@ try:
 except ImportError:
   cv2 = None
 try:
-  from dopamine.atari import run_experiment
+  from dopamine.discrete_domains import run_experiment
 except ImportError:
   run_experiment = None
 # pylint: enable=g-import-not-at-top
@@ -141,7 +141,7 @@ class BatchDQNAgent(_DQNAgent):
     super(BatchDQNAgent, self).__init__(*args, **kwargs)
     self.env_batch_size = env_batch_size
     obs_size = dqn_agent.NATURE_DQN_OBSERVATION_SHAPE
-    state_shape = [self.env_batch_size, obs_size, obs_size,
+    state_shape = [self.env_batch_size, obs_size[0], obs_size[1],
                    dqn_agent.NATURE_DQN_STACK_SIZE]
     self.state_batch = np.zeros(state_shape)
     self.state = None  # assure it will be not used
