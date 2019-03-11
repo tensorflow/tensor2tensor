@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.12.0',
+    version='1.13.0',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -60,8 +60,8 @@ setup(
         'tqdm',
     ],
     extras_require={
-        'tensorflow': ['tensorflow>=1.12.0'],
-        'tensorflow_gpu': ['tensorflow-gpu>=1.12.0'],
+        'tensorflow': ['tensorflow>=1.13.1'],
+        'tensorflow_gpu': ['tensorflow-gpu>=1.13.1'],
         'tensorflow-hub': ['tensorflow-hub>=0.1.1'],
         'tests': [
             'absl-py',

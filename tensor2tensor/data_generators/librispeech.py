@@ -67,7 +67,7 @@ def _collect_data(directory, input_ext, transcription_ext):
   #   if the datafile was "/path/to/datafile.wav" then the key would be
   #   "/path/to/datafile"
   # value: a pair of strings (media_filepath, label)
-  data_files = dict()
+  data_files = {}
   for root, _, filenames in os.walk(directory):
     transcripts = [filename for filename in filenames
                    if transcription_ext in filename]

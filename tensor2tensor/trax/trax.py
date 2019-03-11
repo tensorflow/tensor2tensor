@@ -21,6 +21,7 @@ from __future__ import print_function
 
 import collections
 import functools
+import itertools
 import os
 import pickle
 import time
@@ -32,45 +33,17 @@ import gin
 import jax
 from jax.experimental import optimizers as jax_opt
 import jax.numpy as np
+import jax.random as random
 
 import six
 
+from tensor2tensor.trax import history as trax_history
 from tensor2tensor.trax import jaxboard
+from tensor2tensor.trax import learning_rate as lr
 from tensor2tensor.trax import optimizers as trax_opt
+import tensor2tensor.trax.stax as stax
 
 from tensorflow.io import gfile
-
-# Imports for gin configurables
-# TODO(trax): Move to trainer.py. Only here because of t2t_trainer usage.
-# pylint: disable=unused-import,g-bad-import-order,reimported
-from tensor2tensor.trax import inputs as _trax_inputs
-from tensor2tensor.trax import models as _trax_models
-from tensor2tensor.trax import optimizers as _trax_opt
-# pylint: disable=unused-import,g-bad-import-order,reimported
-
-
-@gin.configurable(blacklist=["step"])
-def learning_rate(step,
-                  schedule="constant * linear_warmup * rsqrt_decay",
-                  constant=0.001,
-                  warmup_steps=100):
-  """Learning rate."""
-  ret = 1.0
-  for name in [n.strip() for n in schedule.split("*")]:
-    if name == "constant":
-      ret *= constant
-    elif name == "linear_warmup":
-      ret *= np.minimum(1.0, step / warmup_steps)
-    elif name == "rsqrt_decay":
-      ret /= np.sqrt(np.maximum(step, warmup_steps))
-    else:
-      raise ValueError("Unknown factor %s." % name)
-  return ret
-
-
-def one_hot(x, k, dtype=np.float32):
-  """Create a one-hot encoding of x of size k."""
-  return np.array(x[:, None] == np.arange(k), dtype)
 
 
 def accuracy(batch, model_predictions):
@@ -83,7 +56,7 @@ def accuracy(batch, model_predictions):
 def neg_log_perplexity(batch, model_predictions):
   """Calculate negative log perplexity."""
   _, targets = batch
-  hot_targets = one_hot(targets, model_predictions.shape[-1])
+  hot_targets = stax.one_hot(targets, model_predictions.shape[-1])
   return np.mean(np.sum(model_predictions * hot_targets, axis=-1))
 
 
@@ -91,7 +64,8 @@ def loss(params, batch, model_predict):
   """Calculate loss."""
   inputs, targets = batch
   preds = model_predict(params, inputs)
-  return - np.mean(np.sum(preds * one_hot(targets, preds.shape[-1]), axis=-1))
+  return - np.mean(np.sum(preds * stax.one_hot(targets, preds.shape[-1]),
+                          axis=-1))
 
 
 def log(s, stdout=True):
@@ -104,19 +78,20 @@ def step_log(step, s):
   log("Step % 6d: %s" % (step, s))
 
 
-State = collections.namedtuple("_State", ["step", "params"])
+State = collections.namedtuple("_State", ["step", "params", "history"])
 
 
 def restore_state(output_dir):
   """Restore State."""
   params_file = os.path.join(output_dir, "model.pkl")
   if not gfile.exists(params_file):
-    return State(step=None, params=None)
+    return State(step=None, params=None, history=trax_history.History())
 
   with gfile.GFile(params_file, "rb") as f:
-    (params, step) = pickle.load(f)
-  log("Model loaded from %s" % params_file)
-  return State(step=step, params=params)
+    (params, step, history) = pickle.load(f)
+  log("Model loaded from %s at step %d" % (params_file, step))
+  logging.debug("From loaded model : history = %s", history)
+  return State(step=step, params=params, history=history)
 
 
 def save_gin(output_dir, sw=None):
@@ -133,7 +108,7 @@ def save_state(state, output_dir):
   """Save State and optionally gin config."""
   params_file = os.path.join(output_dir, "model.pkl")
   with gfile.GFile(params_file, "wb") as f:
-    pickle.dump((state.params, state.step), f)
+    pickle.dump((state.params, state.step, state.history), f)
   log("Model saved to %s" % params_file, stdout=False)
 
 
@@ -145,52 +120,107 @@ _METRICS = {
 }
 
 
-def evaluate(inputs, predict_fn, eval_steps):
-  """Evaluate.
-
-  Args:
-    inputs: Inputs namedtuple.
-    predict_fn: function from inputs to predictions. params should already be
-      partially applied.
-    eval_steps: int, number of evaluation steps.
-
-  Returns:
-    train_metrics: dict
-    eval_metrics: dict
-  """
-  eval_stream = inputs.eval_fn()
-  eval_train_stream = inputs.train_fn()
-  train_metrics = {key: 0.0 for key in _METRICS}
-  eval_metrics = {key: 0.0 for key in _METRICS}
-  for _ in range(eval_steps):
-    train_batch = next(eval_train_stream)
-    train_predictions = predict_fn(train_batch[0])
-    eval_batch = next(eval_stream)
-    eval_predictions = predict_fn(eval_batch[0])
-    for m in _METRICS:
-      train_metrics[m] += (_METRICS[m](train_batch, train_predictions)
-                           / float(eval_steps))
-      eval_metrics[m] += (_METRICS[m](eval_batch, eval_predictions)
-                          / float(eval_steps))
-
+def evaluate_train_and_eval(step, inputs, predict_fun, eval_steps,
+                            train_sw=None, eval_sw=None, history=None):
+  """Evalaute on train and eval data, and log metrics."""
+  step_log(step, "Evaluation")
+  train_metrics, eval_metrics = [
+      evaluate(  # pylint: disable=g-complex-comprehension
+          itertools.islice(input_stream(), eval_steps),
+          predict_fun,
+          _METRICS)
+      for input_stream in
+      [inputs.train_stream, inputs.eval_stream]]
+  if train_sw:
+    log_metrics(train_metrics, train_sw, "train", step, history=history)
+  if eval_sw:
+    log_metrics(eval_metrics, eval_sw, "eval", step, history=history)
   return train_metrics, eval_metrics
 
 
-def log_metrics(metrics, summ_writer, log_prefix, step):
+def evaluate(inputs_stream, predict_fun, metric_funs):
+  """Evaluate.
+
+  Args:
+    inputs_stream: iterable of inputs to evaluate on.
+    predict_fun: function from inputs to predictions. params should already be
+      partially applied.
+    metric_funs: dict from metric name to metric function, which takes inputs
+      and predictions and returns a scalar metric value.
+
+  Returns:
+    metrics: dict from metric name to metric value averaged over the number of
+      inputs.
+  """
+  metrics = collections.defaultdict(float)
+  count = 0
+  for inp in inputs_stream:
+    count += 1
+    preds = predict_fun(inp[0])
+    for m, f in six.iteritems(metric_funs):
+      metrics[m] += f(inp, preds)
+  return {m: v / count for (m, v) in six.iteritems(metrics)}
+
+
+def log_metrics(metrics, summ_writer, log_prefix, step, history=None):
+  """Log metrics to summary writer and history."""
   rjust_len = max([len(name) for name in metrics])
   for name, value in six.iteritems(metrics):
-    step_log(step, "%s %s | % .8f" % (log_prefix, name.rjust(rjust_len), value))
+    step_log(step, "%s %s | % .8f" % (
+        log_prefix.ljust(5), name.rjust(rjust_len), value))
+    full_name = "metrics/" + name
+    if history:
+      history.append(log_prefix, full_name, step, value)
     if summ_writer:
-      summ_writer.scalar("metrics/" + name, value, step)
+      summ_writer.scalar(full_name, value, step)
 
 
 # TODO(trax):
 # * Make configurable:
 #   * loss
 #   * metrics
-#   * learning rate
+# * Training loop callbacks/hooks/...
 # * Save/restore: pickle unsafe. Use np.array.savez + MessagePack?
 # * Move metrics to metrics.py
+# * Setup namedtuples for interfaces (e.g. lr fun constructors can take a
+#   LearningRateInit, metric funs, etc.).
+# * Allow disabling eval
+
+
+def epochs(steps=None, epoch_steps=1):
+  """Iterator over epochs until steps is reached. 1-indexed.
+
+  Args:
+    steps: int, total number of steps. Infinite if None.
+    epoch_steps: int, number of steps per epoch. Can also be an iterable<int> to
+      enable variable length epochs.
+
+  Yields:
+    (epoch: int, epoch id, epoch_steps: int, number of steps in this epoch)
+  """
+  try:
+    iter(epoch_steps)
+  except TypeError:
+    epoch_steps = itertools.repeat(epoch_steps)
+
+  step = 0
+  for epoch, epoch_steps in enumerate(epoch_steps):
+    epoch_steps = min(epoch_steps, steps - step)
+    yield (epoch + 1, epoch_steps)
+    step += epoch_steps
+    if steps and step >= steps:
+      break
+
+
+def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun):
+  """Get jit-ed update function for loss, optimizer, learning rate function."""
+  @jax.jit
+  def update(i, opt_state, batch):
+    _, opt_update = optimizer(lr_fun)
+    params = jax_opt.get_params(opt_state)
+    return opt_update(i, jax.grad(loss_fun)(
+        params, batch, predict_fun), opt_state)
+  return update
 
 
 @gin.configurable(blacklist=["output_dir"])
@@ -198,9 +228,11 @@ def train(output_dir,
           model=gin.REQUIRED,
           inputs=gin.REQUIRED,
           optimizer=trax_opt.adam,
+          lr_schedule=lr.MultifactorSchedule,
           train_steps=1000,
           eval_steps=10,
-          eval_frequency=100):
+          eval_frequency=100,
+          run_debug_step=False):
   """Train the model on the inputs.
 
   Args:
@@ -210,92 +242,114 @@ def train(output_dir,
     inputs: callable returning trax.inputs.Inputs.
     optimizer: The optimizer as a callable taking a learning_rate callable and
       returning 2 callables, opt_init and opt_update.
+    lr_schedule: A learning rate schedule as a function that takes history and
+      returns a function from step to learning rate (a float).
     train_steps: int, total number of training steps.
     eval_steps: int, num of steps per evaluation. If None or 0, eval disabled.
     eval_frequency: int, how often to run evaluation (every eval_frequency
       steps). If None or 0, eval disabled.
+    run_debug_step: bool, if True, will run the model and loss without @jit for
+      one step.
 
   Returns:
     trax.State
   """
+  rng = random.PRNGKey(0)
   gfile.makedirs(output_dir)
+  # Create summary writers and history.
+  train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
+  eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
 
   inputs = inputs()
 
   # Setup optimizer and model
-  opt_init, opt_update = optimizer(learning_rate)
-  model_init, model_predict = model()
+  state = restore_state(output_dir)
+  history = state.history
+  lr_fun = lr_schedule(history)
+  opt_init, _ = optimizer(lr_fun)
+  model_init, model_predict_original = model()
+  # We need a model_predict that fills in the random generator if needed.
+  def model_predict(x, y, **kwargs):
+    """Same as model_predict_original but fill in rng if it isn't passed."""
+    if "rng" in kwargs:
+      return model_predict_original(x, y, **kwargs)
+    return model_predict_original(x, y, rng=rng, **kwargs)
 
   # Setup state
-  state = restore_state(output_dir)
   step = state.step or 0
-  params_initializer = lambda: model_init([-1] + inputs.input_shape)[1]
-  opt_state = opt_init(state.params or params_initializer())
-
-  # Create summary writers.
-  train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
-  eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
+  params_initializer = lambda: model_init([-1] + list(inputs.input_shape))[1]
+  params = state.params or params_initializer()
+  opt_state = opt_init(params)
 
   # jit model_predict and update so they're fast
-  jit_predict = jax.jit(model_predict)  # for evaluation
-
-  @jax.jit
-  def update(i, opt_state, batch):
-    params = jax_opt.get_params(opt_state)
-    return opt_update(i, jax.grad(loss)(
-        params, batch, model_predict), opt_state)
+  jit_model_predict = jax.jit(model_predict)  # for evaluation
+  jit_update_fun = _jit_update_fun(model_predict, loss, optimizer, lr_fun)
 
   print()
-  step_log(step, "starting training")
-  inputs_stream = inputs.train_fn()
-  eval_enabled = eval_steps and eval_frequency
-  is_first_step = True
-  # Evaluate after the first training step, then reset to normal_epoch_steps
-  normal_epoch_steps = (eval_enabled and eval_frequency) or train_steps
-  epoch_steps = 1
-  while step < train_steps:
-    print()  # separate logging for each loop iteration
+  train_stream = inputs.train_stream()
+  epoch_steps = itertools.chain([1,  # first epoch only 1 step
+                                 eval_frequency - 1],
+                                itertools.repeat(eval_frequency))
+  step_log(step, "Starting training")
 
-    # Train
+  # Non-compiled debug step helps find problems in models easier.
+  if run_debug_step:
+    debug_loss = loss(params, next(train_stream), model_predict)
+    step_log(step, "Debug step loss %.8f" % debug_loss)
+
+  for epoch, epoch_steps in epochs(train_steps, epoch_steps):
+    # Log separator
+    print()
+
+    # Timer
     start_time = time.time()
+
     for _ in range(epoch_steps):
-      opt_state = update(step, opt_state, next(inputs_stream))
-      if step % 10 == 0:  # Log learning rate curve each 10 steps.
-        train_sw.scalar("training/learning rate",
-                        learning_rate(step), step=step)
+      # Train
+      opt_state = jit_update_fun(step, opt_state, next(train_stream))
       step += 1
+
+      # LR log
+      if step == 1 or step % 10 == 0:
+        train_sw.scalar("training/learning rate",
+                        lr_fun(step), step=step)
+
+    # Timer
     epoch_time = time.time() - start_time
-    step_log(step, "ran %d train steps in %0.2f secs" %
+    step_log(step, "Ran %d train steps in %0.2f secs" %
              (epoch_steps, epoch_time))
-
-    # Save state
-    params = jax_opt.get_params(opt_state)
-    save_state(State(params=params, step=step), output_dir)
-
-    # Evaluate
-    if eval_enabled:
-      step_log(step, "starting evaluation")
-      train_metrics, eval_metrics = evaluate(
-          inputs, functools.partial(jit_predict, params), eval_steps)
-      log_metrics(train_metrics, train_sw, "train", step)
-      log_metrics(eval_metrics, eval_sw, "eval ", step)
-      eval_sw.writer.flush()
-
-    # Gin only tracks the used parameters, so we save it after the first step.
-    if is_first_step:
-      save_gin(output_dir, train_sw)
-
-    # Log non-metric reports.
-    if not is_first_step:
+    if epoch_steps > 1:
       train_sw.scalar("training/steps per second",
                       epoch_steps / epoch_time, step=step)
+
+    # Evaluate
+    params = jax_opt.get_params(opt_state)
+    evaluate_train_and_eval(
+        step=step,
+        inputs=inputs,
+        predict_fun=functools.partial(jit_model_predict, params),
+        eval_steps=eval_steps,
+        train_sw=train_sw,
+        eval_sw=eval_sw,
+        history=history)
+
+    # Save state
+    save_state(State(params=params, step=step, history=history), output_dir)
+
+    # Save Gin config
+    # Gin only tracks the used parameters, so we save it after the first epoch.
+    if epoch == 1:
+      save_gin(output_dir, train_sw)
+
+    # Update learning rate with new history
+    old_lr_fun = lr_fun
+    lr_fun = lr_schedule(history)
+    if lr_fun != old_lr_fun:  # For performance, only jit if there is a change.
+      jit_update_fun = _jit_update_fun(model_predict, loss, optimizer, lr_fun)
+
+    # Flush summary writers
     train_sw.writer.flush()
+    eval_sw.writer.flush()
 
-    # After the first step, train for normal_epoch_steps steps before evaluating
-    epoch_steps = (
-        (normal_epoch_steps - 1) if is_first_step else normal_epoch_steps)
-    is_first_step = False
-
-  print()
-  step_log(step, "finished training")
-  return State(params=params, step=step)
+  step_log(step, "Training done")
+  return State(params=params, step=step, history=history)

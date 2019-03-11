@@ -136,6 +136,15 @@ class HParamsTest(tf.test.TestCase):
     self.assertDictEqual({'d': [0.1, 0.2, 0.3], 'x': 1, 'b': 2.0},
                          hparams.values())
 
+  def testFunction(self):
+    def f(x):
+      return x
+    hparams = hparam.HParams(function=f)
+    self.assertEqual(hparams.function, f)
+
+    json_str = hparams.to_json()
+    self.assertEqual(json_str, '{}')
+
   def testBoolParsing(self):
     for value in 'true', 'false', 'True', 'False', '1', '0':
       for initial in False, True:

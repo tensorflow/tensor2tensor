@@ -15,7 +15,7 @@ To use this package, you need to install the Atari dependencies for OpenAI Gym:
 pip install gym[atari]
 ```
 
-## Evaluating a pretrained policy
+## Play using a pre-trained policy
 
 We provide a set of pretrained policies and models you can use. To evaluate and
 generate videos for a pretrained policy on Pong:
@@ -47,7 +47,97 @@ tensorboard --logdir=~/t2t_train/pong_pretrained
 
 Description of player controls and flags can be found in `tensor2tensor/rl/player.py`.
 
-## Model-based training with pretrained world models
+
+## Train your policy (model-free training)
+
+Training model-free on Pong:
+
+```
+python -m tensor2tensor.rl.trainer_model_free \
+  --hparams_set=rlmf_base \
+  --hparams=game=pong \
+  --output_dir=~/t2t_train/mf_pong
+```
+
+Hyperparameter sets are defined in `tensor2tensor/models/research/rl.py`. You
+can override them using the `hparams` flag, e.g.
+
+```
+  --hparams=game=kung_fu_master,frame_stack_size=5
+```
+
+As in model-based training, the periodic evaluation runs with timestep limit
+of 1000. To do full evaluation after training, run:
+
+```
+OUTPUT_DIR=~/t2t_train/mf_pong
+python -m tensor2tensor.rl.evaluator \
+  --loop_hparams_set=rlmf_base \
+  --hparams=game=pong \
+  --policy_dir=$OUTPUT_DIR \
+  --eval_metrics_dir=$OUTPUT_DIR/full_eval_metrics
+```
+
+## World Model training (with random trajectories)
+
+The simplest way to train your own world model is to use random trajectories.
+Then you can train a policy on it as described next.
+
+To train a deterministic model:
+
+```
+python -m tensor2tensor.rl.trainer_model_based \
+  --loop_hparams_set=rlmb_base \
+  --loop_hparams=game=pong,epochs=1,ppo_epochs_num=0 \
+  --output_dir=~/t2t_train/mb_det_pong_random
+```
+
+To train a stochastic discrete model (it will require more time and memory):
+
+```
+python -m tensor2tensor.rl.trainer_model_based \
+  --loop_hparams_set=rlmb_long_stochastic_discrete \
+  --loop_hparams=game=pong,epochs=1,ppo_epochs_num=0 \
+  --output_dir=~/t2t_train/mb_sd_pong_random
+```
+
+## Playing in the world model
+
+To assess world model quality you can play in it, as in an Atari emulator
+(you need a machine with GPU for this). First install `pygame`:
+
+```
+pip install pygame
+```
+
+Then you can run the player, specifying a path to world model checkpoints:
+
+```
+OUTPUT_DIR=~/t2t_train/mb_sd_pong_pretrained
+mkdir -p $OUTPUT_DIR
+gsutil -m cp -r \
+  gs://tensor2tensor-checkpoints/modelrl_experiments/train_sd/142/world_model \
+  $OUTPUT_DIR/
+python -m tensor2tensor.rl.player \
+  --wm_dir=$OUTPUT_DIR/world_model \
+  --loop_hparams_set=rlmb_long_stochastic_discrete \
+  --loop_hparams=game=pong \
+  --game_from_filenames=False \
+  --zoom=3 \
+  --fps=5
+```
+
+The screen is split into 3 columns: frame from the world model, corresponding
+frame from the real environment and the difference between the two. Use WSAD
+and space to control the agent. The model will likely diverge quickly, press X
+to reset it using the current state of the real environment. Note that frames
+fed to the model were likely never seen by it during training, so the model's
+performance will be worse than during the policy training.
+
+For more details on controls and flags see `tensor2tensor/rl/player.py`.
+
+
+## Model-based training with pre-trained world models
 
 To train a policy with a pretrained world model (requires Google Cloud SDK):
 
@@ -83,28 +173,6 @@ python -m tensor2tensor.rl.evaluator \
   --eval_metrics_dir=$OUTPUT_DIR/full_eval_metrics
 ```
 
-## Model training with random trajectories
-
-The simplest way to train your own model is to use random trajectories. Then you
-can train a policy on it as described in the previous section.
-
-To train a deterministic model:
-
-```
-python -m tensor2tensor.rl.trainer_model_based \
-  --loop_hparams_set=rlmb_base \
-  --loop_hparams=game=pong,epochs=1,ppo_epochs_num=0 \
-  --output_dir=~/t2t_train/mb_det_pong_random
-```
-
-To train a stochastic discrete model (it will require more time and memory):
-
-```
-python -m tensor2tensor.rl.trainer_model_based \
-  --loop_hparams_set=rlmb_long_stochastic_discrete \
-  --loop_hparams=game=pong,epochs=1,ppo_epochs_num=0 \
-  --output_dir=~/t2t_train/mb_sd_pong_random
-```
 
 ## Full model-based training
 
@@ -142,70 +210,6 @@ them with:
 
 Game names should be provided in `snake_case`.
 
-## Playing in the model
-
-To assess world model quality you can play in it, as in an Atari emulator
-(you need a machine with GPU for this). First install `pygame`:
-
-```
-pip install pygame
-```
-
-Then you can run the player, specifying a path to world model checkpoints:
-
-```
-OUTPUT_DIR=~/t2t_train/mb_sd_pong_pretrained
-mkdir -p $OUTPUT_DIR
-gsutil -m cp -r \
-  gs://tensor2tensor-checkpoints/modelrl_experiments/train_sd/142/world_model \
-  $OUTPUT_DIR/
-python -m tensor2tensor.rl.player \
-  --wm_dir=$OUTPUT_DIR/world_model \
-  --loop_hparams_set=rlmb_long_stochastic_discrete \
-  --loop_hparams=game=pong \
-  --game_from_filenames=False \
-  --zoom=3 \
-  --fps=5
-```
-
-The screen is split into 3 columns: frame from the world model, corresponding
-frame from the real environment and the difference between the two. Use WSAD
-and space to control the agent. The model will likely diverge quickly, press X
-to reset it using the current state of the real environment. Note that frames
-fed to the model were likely never seen by it during training, so the model's
-performance will be worse than during the policy training.
-
-For more details on controls and flags see `tensor2tensor/rl/player.py`.
-
-## Model-free training
-
-Training model-free on Pong:
-
-```
-python -m tensor2tensor.rl.trainer_model_free \
-  --hparams_set=rlmf_base \
-  --hparams=game=pong \
-  --output_dir=~/t2t_train/mf_pong
-```
-
-Hyperparameter sets are defined in `tensor2tensor/models/research/rl.py`. You
-can override them using the `hparams` flag, e.g.
-
-```
-  --hparams=game=kung_fu_master,frame_stack_size=5
-```
-
-As in model-based training, the periodic evaluation runs with timestep limit
-of 1000. To do full evaluation after training, run:
-
-```
-OUTPUT_DIR=~/t2t_train/mf_pong
-python -m tensor2tensor.rl.evaluator \
-  --loop_hparams_set=rlmf_base \
-  --hparams=game=pong \
-  --policy_dir=$OUTPUT_DIR \
-  --eval_metrics_dir=$OUTPUT_DIR/full_eval_metrics
-```
 
 ## Using checkpoints for other games
 

@@ -382,7 +382,9 @@ def image_transformer2d_base():
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.98
   hparams.label_smoothing = 0.0
-  hparams.modality["targets"] = modalities.ModalityType.IDENTITY
+  hparams.bottom["targets"] = modalities.make_targets_bottom(
+      modalities.image_channel_embeddings_bottom)
+  hparams.top["targets"] = modalities.identity_top
   hparams.norm_type = "layer"
   hparams.layer_prepostprocess_dropout = 0.0
   hparams.add_hparam("filter_size", 512)  # Add new ones like this.
@@ -593,6 +595,7 @@ def img2img_transformer2d_base():
   hparams.filter_size = 2048
   hparams.num_encoder_layers = 4
   hparams.num_decoder_layers = 8
+  hparams.bottom["inputs"] = modalities.image_channel_embeddings_bottom
   hparams.dec_attention_type = cia.AttentionType.LOCAL_2D
   hparams.block_raster_scan = True
   return hparams

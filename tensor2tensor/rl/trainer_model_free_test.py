@@ -35,7 +35,8 @@ class TrainTest(tf.test.TestCase):
     hparams.add_hparam("ppo_epochs_num", 2)
     hparams.add_hparam("ppo_epoch_length", 3)
     FLAGS.output_dir = tf.test.get_temp_dir()
-    trainer_model_free.train(hparams, FLAGS.output_dir)
+    trainer_model_free.train(hparams, FLAGS.output_dir,
+                             env_problem_name=None)
 
 
 if __name__ == "__main__":

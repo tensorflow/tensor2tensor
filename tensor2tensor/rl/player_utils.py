@@ -389,7 +389,7 @@ def infer_paths(output_dir, **subdirs):
   Returns:
     a dictionary with the directories.
   """
-  directories = dict()
+  directories = {}
   for name, path in six.iteritems(subdirs):
     directories[name] = path if path else os.path.join(output_dir, name)
   directories["output_dir"] = output_dir

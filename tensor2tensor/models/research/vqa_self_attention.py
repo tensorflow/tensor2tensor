@@ -19,7 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from six.moves import xrange
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
@@ -657,7 +657,7 @@ def iterative_encoder_decoder(encoder_input,
                               query,
                               hparams):
   """Iterative encoder decoder."""
-  for _ in xrange(hparams.num_rec_steps):
+  for _ in range(hparams.num_rec_steps):
     with tf.variable_scope("step", reuse=tf.AUTO_REUSE):
       encoder_output = image_question_encoder(
           encoder_input,

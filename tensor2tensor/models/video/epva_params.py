@@ -29,9 +29,15 @@ def next_frame_epva():
   hparams = basic_deterministic_params.next_frame_basic_deterministic()
   hparams.video_num_input_frames = 4
   hparams.video_num_target_frames = 4
-  hparams.modality = {
-      "inputs": modalities.ModalityType.VIDEO_L2_RAW,
-      "targets": modalities.ModalityType.VIDEO_L2_RAW,
+  hparams.bottom = {
+      "inputs": modalities.video_raw_bottom,
+      "targets": modalities.video_raw_targets_bottom,
+  }
+  hparams.loss = {
+      "targets": modalities.video_l2_raw_loss,
+  }
+  hparams.top = {
+      "targets": modalities.video_raw_top,
   }
   hparams.learning_rate_schedule = "constant"
   hparams.learning_rate_constant = 1e-05

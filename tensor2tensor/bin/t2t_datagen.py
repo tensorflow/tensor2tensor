@@ -38,6 +38,7 @@ import numpy as np
 
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.envs import env_problem_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir
 
@@ -54,7 +55,6 @@ except ImportError:
 # Improrting here to prevent pylint from ungrouped-imports warning.
 import tensorflow as tf  # pylint: disable=g-import-not-at-top
 
-
 flags = tf.flags
 FLAGS = flags.FLAGS
 
@@ -65,10 +65,18 @@ flags.DEFINE_string("problem", "",
                     "The name of the problem to generate data for.")
 flags.DEFINE_string("exclude_problems", "",
                     "Comma-separates list of problems to exclude.")
-flags.DEFINE_integer("num_shards", 0, "How many shards to use. Ignored for "
-                     "registered Problems.")
+flags.DEFINE_integer(
+    "num_shards", 0, "How many shards to use. Ignored for "
+    "registered Problems.")
 flags.DEFINE_integer("max_cases", 0,
                      "Maximum number of cases to generate (unbounded if 0).")
+flags.DEFINE_integer(
+    "env_problem_max_env_steps", 0,
+    "Maximum number of steps to take for environment-based problems. "
+    "Actions are chosen randomly")
+flags.DEFINE_integer(
+    "env_problem_batch_size", 0,
+    "Number of environments to simulate for environment-based problems.")
 flags.DEFINE_bool("only_list", False,
                   "If true, we only list the problems that will be generated.")
 flags.DEFINE_integer("random_seed", 429459, "Random seed to use.")
@@ -78,58 +86,66 @@ flags.DEFINE_integer("task_id_end", -1, "For distributed data generation.")
 flags.DEFINE_integer(
     "num_concurrent_processes", None,
     "Applies only to problems for which multiprocess_generate=True.")
-flags.DEFINE_string("t2t_usr_dir", "",
-                    "Path to a Python module that will be imported. The "
-                    "__init__.py file should include the necessary imports. "
-                    "The imported files should contain registrations, "
-                    "e.g. @registry.register_problem calls, that will then be "
-                    "available to t2t-datagen.")
+flags.DEFINE_string(
+    "t2t_usr_dir", "", "Path to a Python module that will be imported. The "
+    "__init__.py file should include the necessary imports. "
+    "The imported files should contain registrations, "
+    "e.g. @registry.register_problem calls, that will then be "
+    "available to t2t-datagen.")
 
 # Mapping from problems that we can generate data for to their generators.
 # pylint: disable=g-long-lambda
 _SUPPORTED_PROBLEM_GENERATORS = {
-    "algorithmic_algebra_inverse": (
-        lambda: algorithmic_math.algebra_inverse(26, 0, 2, 100000),
-        lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000),
-        lambda: None),  # test set
-    "parsing_english_ptb8k": (
-        lambda: wsj_parsing.parsing_token_generator(
+    "algorithmic_algebra_inverse":
+        (lambda: algorithmic_math.algebra_inverse(26, 0, 2, 100000),
+         lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000),
+         lambda: None),  # test set
+    "parsing_english_ptb8k":
+        (lambda: wsj_parsing.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 2**13, 2**9),
-        lambda: wsj_parsing.parsing_token_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**13, 2**9),
-        lambda: None),  # test set
-    "parsing_english_ptb16k": (
-        lambda: wsj_parsing.parsing_token_generator(
+         lambda: wsj_parsing.parsing_token_generator(
+             FLAGS.data_dir, FLAGS.tmp_dir, False, 2**13, 2**9),
+         lambda: None),  # test set
+    "parsing_english_ptb16k":
+        (lambda: wsj_parsing.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 2**14, 2**9),
-        lambda: wsj_parsing.parsing_token_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**14, 2**9),
-        lambda: None),  # test set
-    "inference_snli32k": (
-        lambda: snli.snli_token_generator(FLAGS.tmp_dir, True, 2**15),
-        lambda: snli.snli_token_generator(FLAGS.tmp_dir, False, 2**15),
-        lambda: None),  # test set
-    "audio_timit_characters_test": (
-        lambda: audio.timit_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, True, 1718),
-        lambda: audio.timit_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 626),
-        lambda: None),  # test set
-    "audio_timit_tokens_8k_test": (
-        lambda: audio.timit_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, True, 1718,
-            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13),
-        lambda: audio.timit_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
-            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13),
-        lambda: None),  # test set
-    "audio_timit_tokens_32k_test": (
-        lambda: audio.timit_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, True, 1718,
-            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15),
-        lambda: audio.timit_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
-            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15),
-        lambda: None),  # test set
+         lambda: wsj_parsing.parsing_token_generator(
+             FLAGS.data_dir, FLAGS.tmp_dir, False, 2**14, 2**9),
+         lambda: None),  # test set
+    "inference_snli32k":
+        (lambda: snli.snli_token_generator(FLAGS.tmp_dir, True, 2**15),
+         lambda: snli.snli_token_generator(FLAGS.tmp_dir, False, 2**15),
+         lambda: None),  # test set
+    "audio_timit_characters_test": (lambda: audio.timit_generator(
+        FLAGS.data_dir, FLAGS.tmp_dir, True, 1718
+    ), lambda: audio.timit_generator(FLAGS.data_dir, FLAGS.tmp_dir, False, 626),
+                                    lambda: None),  # test set
+    "audio_timit_tokens_8k_test": (lambda: audio.timit_generator(
+        FLAGS.data_dir,
+        FLAGS.tmp_dir,
+        True,
+        1718,
+        vocab_filename="vocab.endefr.%d" % 2**13,
+        vocab_size=2**13), lambda: audio.timit_generator(
+            FLAGS.data_dir,
+            FLAGS.tmp_dir,
+            False,
+            626,
+            vocab_filename="vocab.endefr.%d" % 2**13,
+            vocab_size=2**13), lambda: None),  # test set
+    "audio_timit_tokens_32k_test": (lambda: audio.timit_generator(
+        FLAGS.data_dir,
+        FLAGS.tmp_dir,
+        True,
+        1718,
+        vocab_filename="vocab.endefr.%d" % 2**15,
+        vocab_size=2**15), lambda: audio.timit_generator(
+            FLAGS.data_dir,
+            FLAGS.tmp_dir,
+            False,
+            626,
+            vocab_filename="vocab.endefr.%d" % 2**15,
+            vocab_size=2**15), lambda: None),  # test set
 }
 
 # pylint: enable=g-long-lambda
@@ -147,7 +163,8 @@ def main(_):
 
   # Calculate the list of problems to generate.
   problems = sorted(
-      list(_SUPPORTED_PROBLEM_GENERATORS) + registry.list_base_problems())
+      list(_SUPPORTED_PROBLEM_GENERATORS) + registry.list_base_problems() +
+      registry.list_env_problems())
   for exclude in FLAGS.exclude_problems.split(","):
     if exclude:
       problems = [p for p in problems if exclude not in p]
@@ -169,8 +186,9 @@ def main(_):
 
   if not problems:
     problems_str = "\n  * ".join(
-        sorted(list(_SUPPORTED_PROBLEM_GENERATORS) +
-               registry.list_base_problems()))
+        sorted(
+            list(_SUPPORTED_PROBLEM_GENERATORS) +
+            registry.list_base_problems() + registry.list_env_problems()))
     error_msg = ("You must specify one of the supported problems to "
                  "generate data for:\n  * " + problems_str + "\n")
     error_msg += ("TIMIT and parsing need data_sets specified with "
@@ -179,15 +197,14 @@ def main(_):
 
   if not FLAGS.data_dir:
     FLAGS.data_dir = tempfile.gettempdir()
-    tf.logging.warning("It is strongly recommended to specify --data_dir. "
-                       "Data will be written to default data_dir=%s.",
-                       FLAGS.data_dir)
+    tf.logging.warning(
+        "It is strongly recommended to specify --data_dir. "
+        "Data will be written to default data_dir=%s.", FLAGS.data_dir)
   FLAGS.data_dir = os.path.expanduser(FLAGS.data_dir)
   tf.gfile.MakeDirs(FLAGS.data_dir)
 
-  tf.logging.info("Generating problems:\n%s"
-                  % registry.display_list_by_prefix(problems,
-                                                    starting_spaces=4))
+  tf.logging.info("Generating problems:\n%s" %
+                  registry.display_list_by_prefix(problems, starting_spaces=4))
   if FLAGS.only_list:
     return
   for problem in problems:
@@ -195,8 +212,13 @@ def main(_):
 
     if problem in _SUPPORTED_PROBLEM_GENERATORS:
       generate_data_for_problem(problem)
-    else:
+    elif problem in registry.list_base_problems():
       generate_data_for_registered_problem(problem)
+    elif problem in registry.list_env_problems():
+      generate_data_for_env_problem(problem)
+    else:
+      tf.logging.error("Problem %s is not a supported problem for datagen.",
+                       problem)
 
 
 def generate_data_for_problem(problem):
@@ -235,6 +257,24 @@ def generate_data_in_process(arg):
   problem.generate_data(data_dir, tmp_dir, task_id)
 
 
+def generate_data_for_env_problem(problem_name):
+  """Generate data for `EnvProblem`s."""
+  assert FLAGS.env_problem_max_env_steps > 0, ("--env_problem_max_env_steps "
+                                               "should be greater than zero")
+  assert FLAGS.env_problem_batch_size > 0, ("--env_problem_batch_size should be"
+                                            " greather than zero")
+  problem = registry.env_problem(problem_name)
+  task_id = None if FLAGS.task_id < 0 else FLAGS.task_id
+  data_dir = os.path.expanduser(FLAGS.data_dir)
+  tmp_dir = os.path.expanduser(FLAGS.tmp_dir)
+  # TODO(msaffar): Handle large values for env_problem_batch_size where we
+  #  cannot create that many environments within the same process.
+  problem.initialize(batch_size=FLAGS.env_problem_batch_size)
+  env_problem_utils.play_env_problem_randomly(
+      problem, num_steps=FLAGS.env_problem_max_env_steps)
+  problem.generate_data(data_dir=data_dir, tmp_dir=tmp_dir, task_id=task_id)
+
+
 def generate_data_for_registered_problem(problem_name):
   """Generate data for a registered problem."""
   tf.logging.info("Generating data for %s.", problem_name)
@@ -259,6 +299,7 @@ def generate_data_for_registered_problem(problem_name):
     pool.map(generate_data_in_process, args)
   else:
     problem.generate_data(data_dir, tmp_dir, task_id)
+
 
 if __name__ == "__main__":
   tf.logging.set_verbosity(tf.logging.INFO)

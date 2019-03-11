@@ -34,10 +34,10 @@ with warnings.catch_warnings():
 import matplotlib.pyplot as plt
 import numpy as onp
 import tensorflow as tf
-from tensorflow import gfile
 from tensorflow import HistogramProto
 from tensorflow import Summary
 from tensorflow import SummaryMetadata
+from tensorflow.io import gfile
 
 
 def _pack_images(images, rows, cols):
@@ -75,8 +75,8 @@ class SummaryWriter(object):
       log_dir: path to record tfevents files in.
     """
     # If needed, create log_dir directory as well as missing parent directories.
-    if not gfile.IsDirectory(log_dir):
-      gfile.MakeDirs(log_dir)
+    if not gfile.isdir(log_dir):
+      gfile.makedirs(log_dir)
 
     self.writer = tf.summary.FileWriter(log_dir, graph=None)
     self.end_summaries = []

@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import gzip
 import os
 import tarfile
 from tensor2tensor.data_generators import cleaner_en_xx
@@ -143,6 +144,18 @@ def _clean_sentences(sentence_pairs):
   return res_pairs
 
 
+def _tmx_to_source_target(tmx_file, source_resfile, target_resfile,
+                          do_cleaning=False):
+  source_target_pairs = cleaner_en_xx.paracrawl_v3_pairs(tmx_file)
+  if do_cleaning:
+    source_target_pairs = cleaner_en_xx.clean_en_xx_pairs(source_target_pairs)
+  for source, target in source_target_pairs:
+    source_resfile.write(source)
+    source_resfile.write("\n")
+    target_resfile.write(target)
+    target_resfile.write("\n")
+
+
 def compile_data(tmp_dir, datasets, filename, datatypes_to_clean=None):
   """Concatenates all `datasets` and saves to `filename`."""
   datatypes_to_clean = datatypes_to_clean or []
@@ -163,22 +176,16 @@ def compile_data(tmp_dir, datasets, filename, datatypes_to_clean=None):
           generator_utils.maybe_download(tmp_dir, compressed_filename, url)
 
         if dataset[1][0] == "tmx":
+          cleaning_requested = "tmx" in datatypes_to_clean
           tmx_filename = os.path.join(tmp_dir, dataset[1][1])
           if tmx_filename.endswith(".gz"):
-            new_filename = tmx_filename.strip(".gz")
-            if not tf.gfile.Exists(new_filename):
-              generator_utils.gunzip_file(tmx_filename, new_filename)
-            tmx_filename = new_filename
-          source, target = None, None
-          with tf.gfile.Open(tmx_filename) as tmx_file:
-            stream = cleaner_en_xx.paracrawl_v3_pairs(tmx_file)
-            if "tmx" in datatypes_to_clean:
-              stream = cleaner_en_xx.clean_en_xx_pairs(stream)
-            for source, target in stream:
-              lang1_resfile.write(source)
-              lang1_resfile.write("\n")
-              lang2_resfile.write(target)
-              lang2_resfile.write("\n")
+            with gzip.open(tmx_filename, "rb") as tmx_file:
+              _tmx_to_source_target(tmx_file, lang1_resfile, lang2_resfile,
+                                    do_cleaning=cleaning_requested)
+          else:
+            with tf.gfile.Open(tmx_filename) as tmx_file:
+              _tmx_to_source_target(tmx_file, lang1_resfile, lang2_resfile,
+                                    do_cleaning=cleaning_requested)
 
         elif dataset[1][0] == "tsv":
           _, src_column, trg_column, glob_pattern = dataset[1]

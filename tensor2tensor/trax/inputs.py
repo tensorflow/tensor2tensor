@@ -26,14 +26,12 @@ import gin
 
 import jax.numpy as np
 
-from tensor2tensor import problems
-
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
 
 Inputs = collections.namedtuple(
-    "_Inputs", ["train_fn", "eval_fn", "input_shape"])
+    "_Inputs", ["train_stream", "eval_stream", "input_shape"])
 
 
 @gin.configurable()
@@ -55,13 +53,14 @@ def inputs(dataset_name, data_dir):
    input_name, input_shape) = train_and_eval_batches(
        dataset_name, data_dir)
 
-  def train_input_fn():
+  def train_input_fun():
     return dataset_to_stream(train_batches, input_name)
 
-  def eval_input_fn():
+  def eval_input_fun():
     return dataset_to_stream(eval_batches, input_name)
 
-  return Inputs(train_fn=train_input_fn, eval_fn=eval_input_fn,
+  return Inputs(train_stream=train_input_fun,
+                eval_stream=eval_input_fun,
                 input_shape=input_shape)
 
 
@@ -130,17 +129,17 @@ def _make_info(shape_list, num_classes):
 def _select_features(example, feature_list=None):
   """Select a subset of features from the example dict."""
   feature_list = feature_list or ["inputs", "targets"]
-  return {f: example[f] for f in feature_list}
+  return {f: example[f] for f in feature_list if f in example}
 
 
 def _train_and_eval_dataset_v1(problem_name, data_dir):
   """Return train and evaluation datasets, feature info and supervised keys."""
+  from tensor2tensor import problems  # pylint: disable=g-import-not-at-top
   problem = problems.problem(problem_name)
   train_dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, data_dir)
   train_dataset = train_dataset.map(_select_features)
   eval_dataset = problem.dataset(tf.estimator.ModeKeys.EVAL, data_dir)
   eval_dataset = eval_dataset.map(_select_features)
-  supervised_keys = (["inputs"], ["targets"])
   hparams = problem.get_hparams()
   # We take a few training examples to guess the shapes.
   input_shapes, target_shapes = [], []
@@ -149,19 +148,23 @@ def _train_and_eval_dataset_v1(problem_name, data_dir):
   example1 = sess.run(example_tensor)
   example2 = sess.run(example_tensor)
   example3 = sess.run(example_tensor)
+  # We use "inputs" as input except for purely auto-regressive tasks like
+  # language models where "targets" are used as input_key.
+  input_key = "inputs" if "inputs" in example1 else "targets"
+  supervised_keys = ([input_key], ["targets"])
   for example in [example1, example2, example3]:
-    input_shapes.append(list(example["inputs"].shape))
+    input_shapes.append(list(example[input_key].shape))
     target_shapes.append(list(example["targets"].shape))
-  input_vocab_size = hparams.vocab_size["inputs"]
+  input_vocab_size = hparams.vocab_size[input_key]
   target_vocab_size = hparams.vocab_size["targets"]
   input_info = _make_info(input_shapes, input_vocab_size)
   target_info = _make_info(target_shapes, target_vocab_size)
-  info = {"inputs": input_info, "targets": target_info}
+  info = {input_key: input_info, "targets": target_info}
   return train_dataset, eval_dataset, info, supervised_keys
 
 
 @gin.configurable(blacklist=["dataset", "training"])
-def preprocess_fn(dataset, training, max_target_length=-1):
+def preprocess_fun(dataset, training, max_target_length=-1):
   def target_right_length(_, target):
     return tf.less(tf.shape(target)[0], max_target_length + 1)
   if max_target_length > 0 and training:
@@ -170,8 +173,9 @@ def preprocess_fn(dataset, training, max_target_length=-1):
 
 
 @gin.configurable(blacklist=["dataset", "training", "shapes", "target_names"])
-def batch_fn(dataset, training, shapes, target_names,
-             batch_size=32, eval_batch_size=32, bucket_length=32, buckets=None):
+def batch_fun(dataset, training, shapes, target_names,
+              batch_size=32, eval_batch_size=32,
+              bucket_length=32, buckets=None):
   """Batching function."""
   del target_names
   # If bucketing is not specified, check if target shapes are variable.
@@ -190,7 +194,7 @@ def batch_fn(dataset, training, shapes, target_names,
                            bucket_length * 4, bucket_length * 8]
       bucket_batch_sizes = [cur_batch_size * 4, cur_batch_size * 2,
                             cur_batch_size, cur_batch_size // 2,
-                            cur_batch_size // 4, cur_batch_size // 8]
+                            cur_batch_size // 4, cur_batch_size // 8, 1]
       buckets = (bucket_boundaries, bucket_batch_sizes)
 
   if buckets:
@@ -199,7 +203,8 @@ def batch_fn(dataset, training, shapes, target_names,
       return tf.shape(target)[0]
     boundaries, batch_sizes = buckets
     dataset = dataset.apply(tf.data.experimental.bucket_by_sequence_length(
-        example_length, boundaries, batch_sizes, pad_to_bucket_boundary=True))
+        example_length, boundaries, batch_sizes,
+        pad_to_bucket_boundary=training))
   else:
     dataset = dataset.padded_batch(cur_batch_size, shapes)
   return dataset
@@ -221,12 +226,13 @@ def shuffle_and_batch_data(dataset, target_names, features_info, training):
   shapes = {k: features_info[k].shape for k in features_info}
   shapes = (shapes, shapes[target_names[0]])
   dataset = dataset.shuffle(1024)
-  dataset = preprocess_fn(dataset, training)
-  dataset = batch_fn(dataset, training, shapes, target_names)
+  dataset = preprocess_fun(dataset, training)
+  dataset = batch_fun(dataset, training, shapes, target_names)
   return dataset.prefetch(32)
 
 
-def train_and_eval_batches(dataset, data_dir):
+@gin.configurable(whitelist=["input_name"])
+def train_and_eval_batches(dataset, data_dir, input_name=None):
   """Return train and eval batches with input name and shape."""
   (train_data, eval_data, features_info, keys) = train_and_eval_dataset(
       dataset, data_dir)
@@ -235,5 +241,6 @@ def train_and_eval_batches(dataset, data_dir):
       train_data, target_names, features_info, training=True)
   eval_batches = shuffle_and_batch_data(
       eval_data, target_names, features_info, training=False)
-  input_shape = features_info[input_names[0]].shape
-  return train_batches, eval_batches, input_names[0], list(input_shape)
+  input_name = input_name or input_names[0]
+  input_shape = features_info[input_name].shape
+  return train_batches, eval_batches, input_name, list(input_shape)

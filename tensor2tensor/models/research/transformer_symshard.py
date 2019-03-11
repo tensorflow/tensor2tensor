@@ -367,9 +367,12 @@ def transformer_symshard_base():
   # we only want one data shard.
   hparams.no_data_parallelism = True
   # bypass the symbol modality so that we can use model parallelism.
-  hparams.modality = {
-      "inputs": modalities.ModalityType.IDENTITY_SYMBOL,
-      "targets": modalities.ModalityType.IDENTITY_SYMBOL,
+  hparams.bottom = {
+      "inputs": modalities.identity_bottom,
+      "targets": modalities.identity_bottom,
+  }
+  hparams.top = {
+      "targets": modalities.identity_top,
   }
   hparams.add_hparam("filter_size", 1280)
   hparams.add_hparam("mix_fraction", 0.5)

@@ -75,7 +75,7 @@ def gym_space_encode(gym_space, observation):
     return [observation]
 
   if isinstance(gym_space, Box):
-    return list(observation.reshape(-1))
+    return observation.reshape(-1).tolist()
 
   raise NotImplementedError
 

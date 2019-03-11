@@ -41,6 +41,7 @@ flags.DEFINE_multi_string("config_file", None,
                           "Configuration file with parameters (.gin).")
 flags.DEFINE_multi_string("config", None,
                           "Configuration parameters (gin string).")
+flags.DEFINE_integer("log_level", logging.INFO, "Log level.")
 
 
 def _default_output_dir():
@@ -57,11 +58,22 @@ def _default_output_dir():
 
 
 def _setup_gin():
+  """Setup gin configuration."""
+  # Imports for configurables
+  # pylint: disable=g-import-not-at-top,unused-import,g-bad-import-order,reimported,unused-variable
+  from tensor2tensor.trax import inputs as _trax_inputs
+  from tensor2tensor.trax import models as _trax_models
+  from tensor2tensor.trax import optimizers as _trax_opt
+  # pylint: disable=g-import-not-at-top,unused-import,g-bad-import-order,reimported,unused-variable
+
   configs = FLAGS.config or []
   # Override with --dataset and --model
   if FLAGS.dataset:
     configs.append("inputs.dataset_name='%s'" % FLAGS.dataset)
-    configs.append("inputs.data_dir='%s'" % FLAGS.data_dir)
+    if FLAGS.data_dir:
+      configs.append("inputs.data_dir='%s'" % FLAGS.data_dir)
+    else:
+      configs.append("inputs.data_dir=None")
     configs.append("train.inputs=@trax.inputs.inputs")
   if FLAGS.model:
     configs.append("train.model=@trax.models.%s" % FLAGS.model)
@@ -69,6 +81,8 @@ def _setup_gin():
 
 
 def main(_):
+  logging.set_verbosity(FLAGS.log_level)
+
   _setup_gin()
 
   # Setup output directory
@@ -80,5 +94,4 @@ def main(_):
 
 
 if __name__ == "__main__":
-  logging.set_verbosity(logging.INFO)
   app.run(main)

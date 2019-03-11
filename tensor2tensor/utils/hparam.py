@@ -495,7 +495,7 @@ class HParams(object):
       ValueError: If `values` cannot be parsed or a hyperparameter in `values`
       doesn't exist.
     """
-    type_map = dict()
+    type_map = {}
     for name, t in self._hparam_types.items():
       param_type, _ = t
       type_map[name] = param_type
@@ -541,8 +541,16 @@ class HParams(object):
     Returns:
       A JSON string.
     """
+    def remove_callables(x):
+      """Omit callable elements from input with arbitrary nesting."""
+      if isinstance(x, dict):
+        return {k: remove_callables(v) for k, v in six.iteritems(x)
+                if not callable(v)}
+      elif isinstance(x, list):
+        return [remove_callables(i) for i in x if not callable(i)]
+      return x
     return json.dumps(
-        self.values(),
+        remove_callables(self.values()),
         indent=indent,
         separators=separators,
         sort_keys=sort_keys)

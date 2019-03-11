@@ -308,7 +308,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 x,
                 hparams.filter_size)
           else:
-            additional_conv_params = dict()
+            additional_conv_params = {}
             if hparams.use_sepconv:
               additional_conv_params = dict(
                   padding="LEFT",
