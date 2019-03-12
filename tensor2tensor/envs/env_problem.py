@@ -60,6 +60,7 @@ class EnvProblem(Env, problem.Problem):
   - target_modality
   - target_vocab_size
   - action_modality
+  - reward_modality
 
   NON NATIVELY BATCHED ENVS:
 
@@ -402,6 +403,10 @@ class EnvProblem(Env, problem.Problem):
     raise NotImplementedError
 
   @property
+  def reward_modality(self):
+    raise NotImplementedError
+
+  @property
   def input_vocab_size(self):
     raise NotImplementedError
 
@@ -581,10 +586,10 @@ class EnvProblem(Env, problem.Problem):
         ACTION_FIELD: self.action_spec,
     }
 
-    # `data_items_to_decoders` can be None, it will be set to the appropriate
-    # decoder dict in `Problem.decode_example`
-    # TODO(afrozm): Verify that we don't need any special decoder or anything.
-    data_items_to_decoders = None
+    data_items_to_decoders = {
+        field: tf.contrib.slim.tfexample_decoder.Tensor(field)
+        for field in data_fields
+    }
 
     return data_fields, data_items_to_decoders
 
@@ -603,8 +608,8 @@ class EnvProblem(Env, problem.Problem):
     p.modality.update({
         "inputs": self.input_modality,
         "targets": self.target_modality,
-        "input_reward": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
-        "target_reward": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "input_reward": self.reward_modality,
+        "target_reward": self.reward_modality,
         "input_action": self.action_modality,
         "target_action": self.action_modality,
         "target_policy": modalities.ModalityType.IDENTITY,
@@ -695,7 +700,8 @@ class EnvProblem(Env, problem.Problem):
 
         yield {
             TIMESTEP_FIELD: [index],
-            ACTION_FIELD: action,
+            ACTION_FIELD:
+                action,
             # to_example errors on np.float32
             RAW_REWARD_FIELD: [float(raw_reward)],
             PROCESSED_REWARD_FIELD: [processed_reward],
