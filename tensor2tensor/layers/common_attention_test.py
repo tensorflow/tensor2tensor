@@ -551,22 +551,21 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     depth = 15
     block_h = 3
     block_w = 2
-    t = np.random.rand(batch_size, num_heads, height, width, depth)
+    t = np.random.rand(batch_size * num_heads, height, width, depth)
     a = common_attention._extract_blocks(t, block_h, block_w)
     self.evaluate(tf.global_variables_initializer())
     res = self.evaluate(a)
-    self.assertEqual(res.shape, (batch_size, num_heads, height//block_h,
+    self.assertEqual(res.shape, (batch_size * num_heads, height//block_h,
                                  width//block_w, block_h, block_w, depth))
     # also check if the content is right
-    out = np.zeros((batch_size, num_heads, height//block_h,
+    out = np.zeros((batch_size*num_heads, height//block_h,
                     width//block_w, block_h, block_w, depth))
-    for b in range(batch_size):
-      for h in range(num_heads):
-        for x in range(height//block_h):
-          for y in range(width//block_w):
-            for v in range(block_h):
-              for w in range(block_w):
-                out[b, h, x, y, v, w] = t[b, h, block_h*x+v, block_w*y+w]
+    for b in range(batch_size*num_heads):
+      for x in range(height//block_h):
+        for y in range(width//block_w):
+          for v in range(block_h):
+            for w in range(block_w):
+              out[b, x, y, v, w] = t[b, block_h*x+v, block_w*y+w]
     self.assertAllClose(res, out)
 
   def python_get_2d_local_memory(self, t, batch_size, num_heads, height, width,
@@ -609,10 +608,11 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     query_shape = [4, 2]
     t = np.random.rand(batch_size, num_heads, height, width, depth)
     a = common_attention.get_2d_local_memory(
-        t, query_shape, memory_flange)
+        np.reshape(t, (batch_size*num_heads, height, width, depth)),
+        query_shape, memory_flange)
     self.evaluate(tf.global_variables_initializer())
     res = self.evaluate(a)
-    self.assertEqual(res.shape, (batch_size, num_heads,
+    self.assertEqual(res.shape, (batch_size*num_heads,
                                  num_h_blocks,
                                  num_w_blocks,
                                  query_shape[0]+2*memory_flange[0],
@@ -621,6 +621,11 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
                                           height, width, num_h_blocks,
                                           num_w_blocks, query_shape,
                                           memory_flange, depth)
+    out = np.reshape(out, (batch_size*num_heads,
+                           num_h_blocks,
+                           num_w_blocks,
+                           query_shape[0]+2*memory_flange[0],
+                           query_shape[1]+2*memory_flange[1], depth))
 
     self.assertAllClose(res, out)
 
@@ -633,39 +638,38 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     memory_flange = [2, 2]
     num_w_blocks = 3
     depth = 15
-    t = np.random.rand(batch_size, num_heads, num_outer_h_blocks,
+    t = np.random.rand(batch_size*num_heads, num_outer_h_blocks,
                        num_outer_w_blocks, memory_flange[0], memory_flange[1],
                        depth)
     a = common_attention._split_along_width(t)
     # self.evaluate(tf.global_variables_initializer())
     res_l, res_r = self.evaluate(a)
     # res = self.evaluate(a)
-    self.assertEqual(res_l.shape, (batch_size, num_heads, num_outer_h_blocks,
+    self.assertEqual(res_l.shape, (batch_size*num_heads, num_outer_h_blocks,
                                    num_w_blocks, memory_flange[0],
                                    memory_flange[1], depth))
-    self.assertEqual(res_r.shape, (batch_size, num_heads, num_outer_h_blocks,
+    self.assertEqual(res_r.shape, (batch_size*num_heads, num_outer_h_blocks,
                                    num_w_blocks, memory_flange[0],
                                    memory_flange[1], depth))
     # also check if the content is right
-    out_l = np.zeros((batch_size, num_heads, num_outer_h_blocks, num_w_blocks,
+    out_l = np.zeros((batch_size*num_heads, num_outer_h_blocks, num_w_blocks,
                       memory_flange[0], memory_flange[1], depth))
-    out_r = np.zeros((batch_size, num_heads, num_outer_h_blocks, num_w_blocks,
+    out_r = np.zeros((batch_size*num_heads, num_outer_h_blocks, num_w_blocks,
                       memory_flange[0], memory_flange[1], depth))
     block_h = memory_flange[0]
     block_w = memory_flange[1]
-    for b in range(batch_size):
-      for h in range(num_heads):
-        for x in range(num_outer_h_blocks):
-          for y in range(num_w_blocks):
-            for v in range(block_h):
-              for w in range(block_w):
-                # we should compute the index of the position in the
-                out_l[b, h, x, y, v, w] = (
-                    t[b, h, x, 2*y, v, w]
-                    )
-                out_r[b, h, x, y, v, w] = (
-                    t[b, h, x, 2*y+3, v, w]
-                    )
+    for b in range(batch_size*num_heads):
+      for x in range(num_outer_h_blocks):
+        for y in range(num_w_blocks):
+          for v in range(block_h):
+            for w in range(block_w):
+              # we should compute the index of the position in the
+              out_l[b, x, y, v, w] = (
+                  t[b, x, 2*y, v, w]
+                  )
+              out_r[b, x, y, v, w] = (
+                  t[b, x, 2*y+3, v, w]
+                  )
     self.assertAllClose(res_l, out_l)
     self.assertAllClose(res_r, out_r)
 
@@ -679,49 +683,48 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     num_h_blocks = 2
     num_w_blocks = 2
     depth = 15
-    t = np.random.rand(batch_size, num_heads, num_outer_h_blocks,
+    t = np.random.rand(batch_size*num_heads, num_outer_h_blocks,
                        num_outer_w_blocks, memory_flange[0], memory_flange[1],
                        depth)
     a = common_attention._get_left_right_blocks(t)
     self.evaluate(tf.global_variables_initializer())
     res_l, res_r = self.evaluate(a)
-    self.assertEqual(res_l.shape, (batch_size, num_heads, num_h_blocks,
+    self.assertEqual(res_l.shape, (batch_size*num_heads, num_h_blocks,
                                    num_w_blocks, memory_flange[0]*2,
                                    memory_flange[1], depth))
-    self.assertEqual(res_r.shape, (batch_size, num_heads, num_h_blocks,
+    self.assertEqual(res_r.shape, (batch_size*num_heads, num_h_blocks,
                                    num_w_blocks, memory_flange[0]*2,
                                    memory_flange[1], depth))
     # also check if the content is right
     block_h = memory_flange[0]*2
     block_w = memory_flange[1]
-    out_l = np.zeros((batch_size, num_heads, num_h_blocks,
+    out_l = np.zeros((batch_size*num_heads, num_h_blocks,
                       num_w_blocks, memory_flange[0]*2, memory_flange[1],
                       depth))
-    out_r = np.zeros((batch_size, num_heads, num_h_blocks,
+    out_r = np.zeros((batch_size*num_heads, num_h_blocks,
                       num_w_blocks, memory_flange[0]*2, memory_flange[1],
                       depth))
     block_h = memory_flange[0]*2
     block_w = memory_flange[1]
-    for b in range(batch_size):
-      for h in range(num_heads):
-        for x in range(num_h_blocks):
-          for y in range(num_w_blocks):
-            for v in range(block_h):
-              for w in range(block_w):
-                # we should compute the index of the position in the
-                outer_block_h_index = (
-                    1 + block_h//memory_flange[0]*x + v//2)
-                h_index = v%memory_flange[0]
-                left_outer_w_index = 2*y
-                right_outer_w_index = 2*y + 3
-                out_l[b, h, x, y, v, w] = (
-                    t[b, h, outer_block_h_index, left_outer_w_index, h_index,
-                      w]
-                    )
-                out_r[b, h, x, y, v, w] = (
-                    t[b, h, outer_block_h_index, right_outer_w_index, h_index,
-                      w]
-                    )
+    for b in range(batch_size*num_heads):
+      for x in range(num_h_blocks):
+        for y in range(num_w_blocks):
+          for v in range(block_h):
+            for w in range(block_w):
+              # we should compute the index of the position in the
+              outer_block_h_index = (
+                  1 + block_h//memory_flange[0]*x + v//2)
+              h_index = v%memory_flange[0]
+              left_outer_w_index = 2*y
+              right_outer_w_index = 2*y + 3
+              out_l[b, x, y, v, w] = (
+                  t[b, outer_block_h_index, left_outer_w_index, h_index,
+                    w]
+                  )
+              out_r[b, x, y, v, w] = (
+                  t[b, outer_block_h_index, right_outer_w_index, h_index,
+                    w]
+                  )
     self.assertAllClose(res_l, out_l)
     self.assertAllClose(res_r, out_r)
 
