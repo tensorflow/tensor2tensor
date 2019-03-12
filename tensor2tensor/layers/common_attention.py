@@ -2411,6 +2411,12 @@ def dot_product_unmasked_attention_local_2d_tpu(
     # q, k and v must therefore have the same shape.
     q.get_shape().assert_is_compatible_with(k.get_shape())
     q.get_shape().assert_is_compatible_with(v.get_shape())
+    orig_q_shape = common_layers.shape_list(q)
+    # Pad query, key, value to ensure multiple of corresponding lengths.
+    memory_flange = [int(query_shape[0]//2), int(query_shape[1]//2)]
+    q = pad_to_multiple_2d(q, query_shape)
+    k = pad_to_multiple_2d(k, query_shape)
+    v = pad_to_multiple_2d(v, query_shape)
     q_shape = common_layers.shape_list(q)
     (height, width) = (q_shape[2],
                        q_shape[3])
@@ -2418,12 +2424,6 @@ def dot_product_unmasked_attention_local_2d_tpu(
     depth_v = common_layers.shape_list(v)[-1]
     num_h_blocks = height//query_shape[0]
     num_w_blocks = width//query_shape[1]
-    # Pad query, key, value to ensure multiple of corresponding lengths.
-    memory_flange = [int(query_shape[0]//2), int(query_shape[1]//2)]
-    q = pad_to_multiple_2d(q, query_shape)
-    k = pad_to_multiple_2d(k, query_shape)
-    v = pad_to_multiple_2d(v, query_shape)
-
     # Extract center queries, keys, and values
 
     queries = _extract_blocks(
@@ -2458,8 +2458,8 @@ def dot_product_unmasked_attention_local_2d_tpu(
     ret = tf.reshape(ret, [-1, num_heads, num_h_blocks*query_shape[0],
                            num_w_blocks*query_shape[1], depth_v])
     # slice if padding was introduced
-    ret = tf.slice(ret, [0, 0, 0, 0, 0], [-1, -1, q_shape[2], q_shape[3],
-                                          -1])
+    ret = tf.slice(ret, [0, 0, 0, 0, 0], [-1, -1, orig_q_shape[2],
+                                          orig_q_shape[3], -1])
     return ret
 
 

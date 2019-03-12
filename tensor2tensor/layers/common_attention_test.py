@@ -729,13 +729,13 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
   def testDotProductUnmaskedAttentionLocal2dTpu(self):
     batch_size = 1
     num_heads = 3
-    height = 4
+    height = 7
     width = 12
     depth = 15
-    num_h_blocks = 2
-    num_w_blocks = 2
-    memory_flange = [1, 3]
-    query_shape = [2, 6]
+    num_h_blocks = 4
+    num_w_blocks = 6
+    memory_flange = [1, 1]
+    query_shape = [2, 2]
     memory_h = query_shape[0] + 2*memory_flange[0]
     memory_w = query_shape[1] + 2*memory_flange[1]
 
@@ -753,17 +753,33 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     self.assertEqual(res.shape, (batch_size, num_heads,
                                  height, width, depth))
     # now to check the content too
+    # first pad q, k, ad v
+    height_padding = -height % query_shape[0]
+    width_padding = -width % query_shape[1]
+    new_height = height + -height % query_shape[0]
+    new_width = width + -width % query_shape[1]
+    q = np.pad(q, ((0, 0), (0, 0), (0, height_padding),
+                   (0, width_padding), (0, 0)), "constant",
+               constant_values=((0, 0), (0, 0), (0, 0), (0, 0), (0, 0)))
+    k = np.pad(k, ((0, 0), (0, 0), (0, height_padding),
+                   (0, width_padding), (0, 0)), "constant",
+               constant_values=((0, 0), (0, 0), (0, 0), (0, 0), (0, 0)))
+    v = np.pad(v, ((0, 0), (0, 0), (0, height_padding),
+                   (0, width_padding), (0, 0)), "constant",
+               constant_values=((0, 0), (0, 0), (0, 0), (0, 0), (0, 0)))
     queries = self.python_get_2d_local_memory(q, batch_size, num_heads,
-                                              height, width, num_h_blocks,
-                                              num_w_blocks, query_shape, [0, 0],
+                                              new_height, new_width,
+                                              num_h_blocks, num_w_blocks,
+                                              query_shape, [0, 0],
                                               depth)
     keys = self.python_get_2d_local_memory(k, batch_size, num_heads,
-                                           height, width, num_h_blocks,
+                                           new_height, new_width, num_h_blocks,
                                            num_w_blocks, query_shape,
                                            memory_flange, depth)
     values = self.python_get_2d_local_memory(v, batch_size, num_heads,
-                                             height, width, num_h_blocks,
-                                             num_w_blocks, query_shape,
+                                             new_height, new_width,
+                                             num_h_blocks, num_w_blocks,
+                                             query_shape,
                                              memory_flange, depth)
     logits = np.matmul(
         np.reshape(queries, (batch_size, num_heads,
@@ -781,11 +797,11 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
                             (batch_size, num_heads, num_h_blocks, num_w_blocks,
                              query_shape[0], query_shape[1], depth))
     # putting the attention results back into the right place
-    out = np.zeros((batch_size, num_heads, height, width, depth))
+    out = np.zeros((batch_size, num_heads, new_height, new_width, depth))
     for b in range(batch_size):
       for h in range(num_heads):
-        for x in range(height):
-          for y in range(width):
+        for x in range(new_height):
+          for y in range(new_width):
             h_block_index = x//query_shape[0]
             w_block_index = y//query_shape[1]
             inside_h_index = x%query_shape[0]
@@ -793,6 +809,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
             out[b, h, x, y] = (
                 att_output[b, h, h_block_index, w_block_index, inside_h_index,
                            inside_w_index])
+    out = out[:, :, :height, :width, :]
     self.assertAllClose(res, out)
 
   def python_relative_att(self, q, k, v, batch, num_heads, height, width,
