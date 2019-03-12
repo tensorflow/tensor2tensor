@@ -191,7 +191,7 @@ class DummyQueueRunner(object):
     return []
 
 
-def _pad_for_tpu(shapes_dict, hparams, max_length):
+def pad_for_tpu(shapes_dict, hparams, max_length):
   """Pads unknown features' dimensions for TPU."""
   padded_shapes = {}
 
@@ -289,7 +289,7 @@ def skip_random_fraction(dataset, data_file):
   return dataset.skip(num_skip)
 
 
-def _pad_batch(features, batch_multiple):
+def pad_batch(features, batch_multiple):
   """Pad batch dim of features to nearest multiple of batch_multiple."""
   feature = list(features.items())[0][1]
   batch_size = tf.shape(feature)[0]
@@ -414,7 +414,7 @@ def input_fn(dataset,
     # batch_size means tokens per datashard
     if config and config.use_tpu:
       dataset = dataset.filter(tpu_valid_size)
-      padded_shapes = _pad_for_tpu(dataset.output_shapes, hparams, max_length)
+      padded_shapes = pad_for_tpu(dataset.output_shapes, hparams, max_length)
       # on TPU, we use params["batch_size"], which specifies the number of
       # examples across all datashards
       batch_size = params["batch_size"]
@@ -427,7 +427,7 @@ def input_fn(dataset,
         dataset = dataset.padded_batch(
             batch_size, padded_shapes, drop_remainder=False)
         dataset = dataset.map(
-            functools.partial(_pad_batch, batch_multiple=batch_size),
+            functools.partial(pad_batch, batch_multiple=batch_size),
             num_parallel_calls=num_threads)
       else:
         dataset = dataset.padded_batch(
@@ -460,7 +460,7 @@ def input_fn(dataset,
               "lead to incorrect metrics for non-zero-padded features, e.g. "
               "images. Use a single datashard (i.e. 1 GPU) in that case.")
           dataset = dataset.map(
-              functools.partial(_pad_batch, batch_multiple=batch_multiple),
+              functools.partial(pad_batch, batch_multiple=batch_multiple),
               num_parallel_calls=num_threads)
 
   dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)

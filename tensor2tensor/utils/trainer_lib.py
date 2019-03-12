@@ -686,9 +686,12 @@ def create_experiment(
       metric = eval_early_stopping_metric or "loss"
       return current_eval_result[metric] < best_eval_result[metric]
 
+    def serving_input_receiver_fn(hparams, decode_hparams, use_tpu):
+      return problem.serving_input_fn(hparams, decode_hparams, use_tpu)
+
     exporter = tf.estimator.BestExporter(
         name="best",
-        serving_input_receiver_fn=lambda: problem.serving_input_fn(hparams),
+        serving_input_receiver_fn=serving_input_receiver_fn,
         compare_fn=compare_fn,
         assets_extra=problem.export_assets)
 

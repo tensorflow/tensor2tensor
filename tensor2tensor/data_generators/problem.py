@@ -19,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import functools
 import os
 import random
 import six
@@ -891,7 +892,7 @@ class Problem(object):
 
     return None
 
-  def serving_input_fn(self, hparams):
+  def serving_input_fn(self, hparams, decode_hparams=None, use_tpu=False):
     """Input fn for serving export, starting from serialized example."""
     mode = tf.estimator.ModeKeys.PREDICT
     serialized_example = tf.placeholder(
@@ -900,9 +901,21 @@ class Problem(object):
     dataset = dataset.map(self.decode_example)
     dataset = dataset.map(lambda ex: self.preprocess_example(ex, mode, hparams))
     dataset = dataset.map(data_reader.cast_ints_to_int32)
-    dataset = dataset.padded_batch(
-        tf.shape(serialized_example, out_type=tf.int64)[0],
-        dataset.output_shapes)
+
+    if use_tpu:
+      padded_shapes = data_reader.pad_for_tpu(dataset.output_shapes, hparams,
+                                              hparams.max_length)
+      batch_size = 1 if not decode_hparams else getattr(decode_hparams,
+                                                        "batch_size", 1)
+      dataset = dataset.padded_batch(
+          batch_size, padded_shapes, drop_remainder=False)
+      dataset = dataset.map(
+          functools.partial(data_reader.pad_batch, batch_multiple=batch_size))
+    else:
+      dataset = dataset.padded_batch(
+          tf.shape(serialized_example, out_type=tf.int64)[0],
+          dataset.output_shapes)
+
     dataset = dataset.map(data_reader.standardize_shapes)
     features = tf.data.experimental.get_single_element(dataset)
 

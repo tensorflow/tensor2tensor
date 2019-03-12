@@ -26,6 +26,7 @@ from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import problem as problem_module
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.layers import modalities
+from tensor2tensor.utils import hparam
 from tensor2tensor.utils import test_utils
 
 import tensorflow as tf
@@ -148,6 +149,45 @@ class ProblemTest(parameterized.TestCase, tf.test.TestCase):
         problem.test_filepaths(data_dir, num_shards, shuffled),
         problem.data_filepaths(problem_module.DatasetSplit.TEST, data_dir,
                                num_shards, shuffled))
+
+  @test_utils.run_in_graph_mode_only()
+  def testServingInputFnUseTpu(self):
+    problem = problem_module.Problem()
+    max_length = 128
+    batch_size = 10
+    hparams = hparam.HParams(
+        max_length=max_length,
+        max_input_seq_length=max_length,
+        max_target_seq_length=max_length,
+        prepend_mode="none",
+        split_to_length=0)
+    decode_hparams = hparam.HParams(batch_size=batch_size)
+    serving_input_receiver = problem.serving_input_fn(
+        hparams=hparams, decode_hparams=decode_hparams, use_tpu=True)
+    serving_input_fn_input = getattr(serving_input_receiver,
+                                     "receiver_tensors")["input"]
+    serving_input_fn_output = getattr(serving_input_receiver,
+                                      "features")["inputs"]
+    example_1 = tf.train.Example(
+        features=tf.train.Features(feature={
+            "inputs": tf.train.Feature(
+                int64_list=tf.train.Int64List(value=[0]))
+        }))
+    example_2 = tf.train.Example(
+        features=tf.train.Features(feature={
+            "inputs": tf.train.Feature(
+                int64_list=tf.train.Int64List(value=[1]))
+        }))
+    serialized_examples = [
+        example_1.SerializeToString(),
+        example_2.SerializeToString()
+    ]
+    with self.test_session() as sess:
+      output_shape = sess.run(
+          tf.shape(serving_input_fn_output),
+          feed_dict={serving_input_fn_input: serialized_examples})
+      self.assertEqual(output_shape[0], batch_size)
+      self.assertEqual(output_shape[1], max_length)
 
 
 if __name__ == "__main__":
