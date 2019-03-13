@@ -2369,6 +2369,48 @@ def get_2d_local_memory(x, query_shape, memory_flange):
   return x
 
 
+def get_2d_local_memory_v2(x, query_shape, memory_flange):
+  """Transposeless local 2d memory block construction.
+
+    Only works if memory flanges are half of query sizes.
+
+  Args:
+    x: a [batch, height, width, depth tensor]
+    query_shape: 2-d integer list of query shape
+    memory_flange: 2-d integer list of memory flanges
+
+  Returns:
+    x: A [batch, num_h_blocks, num_w_blocks,
+          query_shape[0]+2*memory_flange[0],query_shape[1]+2*memory_flange[1]]
+          tensor.
+  """
+  (_, height, width, depth_x) = common_layers.shape_list(x)
+  # add extra padding to x so that we can extract the memory region
+  # around the center
+  paddings = [[0, 0], [memory_flange[0], memory_flange[0]],
+              [memory_flange[1], memory_flange[1]], [0, 0]]
+  padded_x = tf.pad(x, paddings)
+  padded_x.set_shape([None, height+2*memory_flange[0],
+                      width+2*memory_flange[1], depth_x])
+  num_h_memory_blocks = height//query_shape[0] + 1
+  num_w_memory_blocks = width//query_shape[1] + 1
+  x_memory_blocks = _extract_blocks(padded_x,
+                                    query_shape[0], query_shape[1])
+  x_left_width = tf.slice(x_memory_blocks, [0, 0, 0, 0, 0, 0],
+                          [-1, -1, num_w_memory_blocks - 1, -1, -1, -1])
+  x_right_width = tf.slice(x_memory_blocks, [0, 0, 1, 0, 0, 0],
+                           [-1, -1, -1, - 1, -1, -1])
+  x_memory_blocks = tf.concat([x_left_width, x_right_width], axis=4)
+
+  x_top_height = tf.slice(x_memory_blocks, [0, 0, 0, 0, 0, 0],
+                          [-1, num_h_memory_blocks-1, -1, - 1, -1, -1])
+  x_bottom_height = tf.slice(x_memory_blocks, [0, 1, 0, 0, 0, 0],
+                             [-1, -1, -1, - 1, -1, -1])
+  x = tf.concat([x_top_height, x_bottom_height], axis=3)
+
+  return x
+
+
 def dot_product_unmasked_attention_local_2d_tpu(
     q, k, v, bias, max_relative_position=None, query_shape=(8, 8),
     dropout_rate=0.0, image_shapes=None, name=None, make_image_summary=False,
@@ -2429,10 +2471,10 @@ def dot_product_unmasked_attention_local_2d_tpu(
     queries = _extract_blocks(
         q, query_shape[0], query_shape[1])
     k = tf.reshape(k, [-1, height, width, depth_k])
-    keys = get_2d_local_memory(
+    keys = get_2d_local_memory_v2(
         k, query_shape, memory_flange)
     v = tf.reshape(v, [-1, height, width, depth_v])
-    values = get_2d_local_memory(
+    values = get_2d_local_memory_v2(
         v, query_shape, memory_flange)
     memory_h = query_shape[0] + 2*memory_flange[0]
     memory_w = query_shape[1] + 2*memory_flange[1]

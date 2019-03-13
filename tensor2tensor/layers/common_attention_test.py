@@ -599,15 +599,15 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
   def testGet2dLocalMemory(self):
     batch_size = 3
     num_heads = 3
-    height = 12
+    height = 6
     width = 6
     depth = 15
     num_h_blocks = 3
     num_w_blocks = 3
-    memory_flange = [2, 1]
-    query_shape = [4, 2]
+    memory_flange = [1, 1]
+    query_shape = [2, 2]
     t = np.random.rand(batch_size, num_heads, height, width, depth)
-    a = common_attention.get_2d_local_memory(
+    a = common_attention.get_2d_local_memory_v2(
         np.reshape(t, (batch_size*num_heads, height, width, depth)),
         query_shape, memory_flange)
     self.evaluate(tf.global_variables_initializer())
