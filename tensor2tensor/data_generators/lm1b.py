@@ -108,7 +108,7 @@ class LanguagemodelLm1b32k(text_problems.Text2SelfProblem):
   """A language model on the 1B words corpus.
 
   Ratio of dev tokens (including eos) to dev words (including eos)
-  176884 / 159658 = 1.107893; multiply log_ppl by this to compare results.
+  176923 / 159658 = 1.108137; multiply log_ppl by this to compare results.
   """
 
   @property
