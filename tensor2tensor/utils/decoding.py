@@ -956,7 +956,7 @@ def _decode_input_tensor_to_features_dict(feature_map, hparams):
 
 
 def get_step_from_ckpt_path(path):
-  return int(os.path.basename(path).split("-")[1])
+  return int(os.path.basename(path).split("-")[-1])
 
 
 def latest_checkpoint_step(ckpt_dir):
