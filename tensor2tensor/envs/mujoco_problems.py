@@ -20,7 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import functools
-from tensor2tensor.envs import env_problem
+from tensor2tensor.envs import rendered_env_problem
 from tensor2tensor.layers import modalities
 from tensor2tensor.rl import gym_utils
 from tensor2tensor.utils import registry
@@ -28,7 +28,7 @@ from tensor2tensor.utils import registry
 
 
 @registry.register_env_problem
-class ReacherEnvProblem(env_problem.EnvProblem):
+class ReacherEnvProblem(rendered_env_problem.RenderedEnvProblem):
   """Mujoco's reacher environment."""
 
   def __init__(self):
@@ -52,6 +52,10 @@ class ReacherEnvProblem(env_problem.EnvProblem):
 
   @property
   def action_modality(self):
+    return modalities.ModalityType.IDENTITY
+
+  @property
+  def reward_modality(self):
     return modalities.ModalityType.IDENTITY
 
   @property

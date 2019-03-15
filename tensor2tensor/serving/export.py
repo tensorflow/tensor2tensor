@@ -128,7 +128,8 @@ def export_as_tfhub_module(model_name,
         hparams,
         decode_hparams=decode_hparams,
         use_tpu=FLAGS.use_tpu)
-    features = problem.serving_input_fn(hparams).features
+    features = problem.serving_input_fn(
+        hparams, decode_hparams, use_tpu=FLAGS.use_tpu).features
 
     # we must do a copy of the features, as the model_fn can add additional
     # entries there (like hyperparameter settings etc).
@@ -168,12 +169,12 @@ def main(_):
   hparams = create_hparams()
   hparams.no_data_parallelism = True  # To clear the devices
   problem = hparams.problem
+  decode_hparams = decoding.decode_hparams(FLAGS.decode_hparams)
 
   export_dir = FLAGS.export_dir or os.path.join(ckpt_dir, "export")
 
   if FLAGS.export_as_tfhub:
     checkpoint_path = tf.train.latest_checkpoint(ckpt_dir)
-    decode_hparams = decoding.decode_hparams(FLAGS.decode_hparams)
     export_as_tfhub_module(FLAGS.model, hparams, decode_hparams, problem,
                            checkpoint_path, export_dir)
     return
@@ -183,7 +184,9 @@ def main(_):
   estimator = create_estimator(run_config, hparams)
 
   exporter = tf.estimator.FinalExporter(
-      "exporter", lambda: problem.serving_input_fn(hparams), as_text=True)
+      "exporter",
+      lambda: problem.serving_input_fn(hparams, decode_hparams, FLAGS.use_tpu),
+      as_text=True)
 
   exporter.export(
       estimator,

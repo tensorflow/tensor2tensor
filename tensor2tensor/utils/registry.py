@@ -493,19 +493,24 @@ list_problems = list_base_problems
 register_problem = register_base_problem
 
 
-def problem(problem_name):
-  """Get possibly copied/reversed problem registered in `base_registry`.
+def problem(problem_name, **kwargs):
+  """Get possibly copied/reversed problem in `base_registry` or `env_registry`.
 
   Args:
     problem_name: string problem name. See `parse_problem_name`.
+    **kwargs: forwarded to env problem's initialize method.
 
   Returns:
     possibly reversed/copied version of base problem registered in the given
     registry.
   """
   spec = parse_problem_name(problem_name)
-  return Registries.problems[spec.base_name](
-      was_copy=spec.was_copy, was_reversed=spec.was_reversed)
+  try:
+    return Registries.problems[spec.base_name](
+        was_copy=spec.was_copy, was_reversed=spec.was_reversed)
+  except KeyError:
+    # If name is not found in base problems then try creating an env problem
+    return env_problem(problem_name, **kwargs)
 
 
 def env_problem(env_problem_name, **kwargs):

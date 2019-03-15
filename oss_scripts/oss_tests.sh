@@ -51,6 +51,7 @@ pytest --disable-warnings \
   --ignore=tensor2tensor/data_generators/ops/subword_text_encoder_ops_test.py \
   --ignore=tensor2tensor/data_generators/problem_test.py \
   --ignore=tensor2tensor/envs/mujoco_problems_test.py \
+  --ignore=tensor2tensor/envs/rendered_env_problem_test.py \
   --ignore=tensor2tensor/layers/bayes_test.py \
   --ignore=tensor2tensor/layers/common_attention_test.py \
   --ignore=tensor2tensor/layers/common_layers_test.py \

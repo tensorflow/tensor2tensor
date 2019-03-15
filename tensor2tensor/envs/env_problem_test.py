@@ -295,6 +295,10 @@ class EnvProblemTest(tf.test.TestCase):
       def action_modality(self):
         return modalities.ModalityType.SYMBOL_WEIGHTS_ALL
 
+      @property
+      def reward_modality(self):
+        return modalities.ModalityType.SYMBOL_WEIGHTS_ALL
+
     base_env_name = "CartPole-v0"
     batch_size = 5
     reward_range = (-1, 1)
