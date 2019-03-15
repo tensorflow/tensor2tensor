@@ -55,6 +55,7 @@ t2t-query-server \
   --servable_name=my_model \
   --problem=translate_ende_wmt8k \
   --data_dir=~/t2t/data
+  --port=5000
 ```
 
 

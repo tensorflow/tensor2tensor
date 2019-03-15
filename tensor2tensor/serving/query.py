@@ -30,6 +30,10 @@ from tensor2tensor.utils import usr_dir
 from tensor2tensor.utils.hparam import HParams
 import tensorflow as tf
 
+from flask import Flask
+from flask import request
+from flask import jsonify
+
 flags = tf.flags
 FLAGS = flags.FLAGS
 
@@ -38,8 +42,8 @@ flags.DEFINE_string("servable_name", None, "Name of served model.")
 flags.DEFINE_string("problem", None, "Problem name.")
 flags.DEFINE_string("data_dir", None, "Data directory, for vocab files.")
 flags.DEFINE_string("t2t_usr_dir", None, "Usr dir for registrations.")
-flags.DEFINE_string("inputs_once", None, "Query once with this input.")
 flags.DEFINE_integer("timeout_secs", 10, "Timeout for query.")
+flags.DEFINE_integer("port", 5000, "Port number used by this query server.")
 
 # For Cloud ML Engine predictions.
 flags.DEFINE_string("cloud_mlengine_model_name", None,
@@ -85,21 +89,22 @@ def main(_):
       data_dir=os.path.expanduser(FLAGS.data_dir))
   problem.get_hparams(hparams)
   request_fn = make_request_fn()
-  while True:
-    inputs = FLAGS.inputs_once if FLAGS.inputs_once else input(">> ")
-    outputs = serving_utils.predict([inputs], problem, request_fn)
-    outputs, = outputs
-    output, score = outputs
-    print_str = """
-Input:
-{inputs}
 
-Output (Score {score:.3f}):
-{output}
-    """
-    print(print_str.format(inputs=inputs, output=output, score=score))
-    if FLAGS.inputs_once:
-      break
+  app = Flask(__name__.split(".")[0])
+
+  @app.route("/", methods=["GET"])
+  def postHoge():
+    params = request.args
+    if "input" in params:
+      inputs = params.get("input")
+      outputs = serving_utils.predict([inputs], problem, request_fn)
+      tf.logging.debug("outputs: {}".format(outputs))
+      outputs = [{"val": o[0], "score": str(o[1])} for o in outputs]
+      return jsonify({"outputs": outputs})
+    else:
+      return jsonify({})
+
+  app.run(host="0.0.0.0", port=FLAGS.port)
 
 
 if __name__ == "__main__":
