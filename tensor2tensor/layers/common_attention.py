@@ -2370,7 +2370,7 @@ def get_2d_local_memory(x, query_shape, memory_flange):
 
 
 def get_2d_local_memory_v2(x, query_shape, memory_flange):
-  """Transposeless local 2d memory block construction.
+  """Gathering memory blocks around query blocks. flange is half of query .
 
     Only works if memory flanges are half of query sizes.
 
@@ -2396,16 +2396,15 @@ def get_2d_local_memory_v2(x, query_shape, memory_flange):
   num_w_memory_blocks = width//query_shape[1] + 1
   x_memory_blocks = _extract_blocks(padded_x,
                                     query_shape[0], query_shape[1])
-  x_left_width = tf.slice(x_memory_blocks, [0, 0, 0, 0, 0, 0],
-                          [-1, -1, num_w_memory_blocks - 1, -1, -1, -1])
-  x_right_width = tf.slice(x_memory_blocks, [0, 0, 1, 0, 0, 0],
-                           [-1, -1, -1, - 1, -1, -1])
+  x_width_blocks = tf.split(x_memory_blocks, num_w_memory_blocks,
+                            2)
+  x_left_width = tf.concat(x_width_blocks[:num_w_memory_blocks - 1], axis=2)
+  x_right_width = tf.concat(x_width_blocks[1:], axis=2)
   x_memory_blocks = tf.concat([x_left_width, x_right_width], axis=4)
 
-  x_top_height = tf.slice(x_memory_blocks, [0, 0, 0, 0, 0, 0],
-                          [-1, num_h_memory_blocks-1, -1, - 1, -1, -1])
-  x_bottom_height = tf.slice(x_memory_blocks, [0, 1, 0, 0, 0, 0],
-                             [-1, -1, -1, - 1, -1, -1])
+  x_height_blocks = tf.split(x_memory_blocks, num_h_memory_blocks, 1)
+  x_top_height = tf.concat(x_height_blocks[:num_h_memory_blocks - 1], axis=1)
+  x_bottom_height = tf.concat(x_height_blocks[1:], axis=1)
   x = tf.concat([x_top_height, x_bottom_height], axis=3)
 
   return x
