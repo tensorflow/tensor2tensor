@@ -146,7 +146,7 @@ def create_instance(instance_name, cpu=1, mem=4):
 
 
 def list_vm_names_and_ips():
-  list_out = cloud.shell_output(cloud.Gcloud.LIST_VM)
+  list_out = cloud.shell_output(cloud.LIST_VM)
   lines = [l.split() for l in list_out.split("\n")[1:-1]]
   names_and_ips = [(l[0].strip(), l[-2].strip()) for l in lines]
   return names_and_ips
