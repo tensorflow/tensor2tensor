@@ -2501,3 +2501,37 @@ def transformer_tpu_1b():
   # maximize number of parameters relative to computation by not sharing.
   hparams.shared_embedding_and_softmax_weights = False
   return hparams
+
+
+@registry.register_hparams
+def transformer_wikitext103_l4k_v0():
+  """HParams for training languagemodel_wikitext103_l4k."""
+  hparams = transformer_big()
+
+  # Adafactor uses less memory than Adam.
+  # switch to Adafactor with its recommended learning rate scheme.
+  hparams.optimizer = "Adafactor"
+  hparams.learning_rate_schedule = "rsqrt_decay"
+  hparams.learning_rate_warmup_steps = 10000
+
+  hparams.num_heads = 4
+  hparams.max_length = 4096
+  hparams.batch_size = 4096
+  hparams.shared_embedding_and_softmax_weights = False
+
+  hparams.num_hidden_layers = 8
+  hparams.attention_dropout = 0.1
+  hparams.layer_prepostprocess_dropout = 0.2
+  hparams.relu_dropout = 0.1
+  hparams.label_smoothing = 0.0
+
+  # Using noise broadcast in the dropout layers saves memory during training.
+  hparams.attention_dropout_broadcast_dims = "0,1"  # batch, heads
+  hparams.relu_dropout_broadcast_dims = "1"  # length
+  hparams.layer_prepostprocess_dropout_broadcast_dims = "1"  # length
+
+  # Avoid an expensive concat on TPU.
+  # >1 shards helps with faster parameter distribution on multi-GPU machines
+  hparams.symbol_modality_num_shards = 1
+
+  return hparams
