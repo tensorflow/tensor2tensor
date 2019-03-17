@@ -90,14 +90,26 @@ def main(_):
     outputs = serving_utils.predict([inputs], problem, request_fn)
     outputs, = outputs
     output, score = outputs
-    print_str = """
+    if len(score.shape) > 0:
+      print_str = """
+Input:
+{inputs}
+
+Output (Scores [{score}]):
+{output}
+        """
+      score_text = ",".join(["{:.3f}".format(s) for s in score])
+      print(print_str.format(inputs=inputs, output=output, score=score_text))
+    else:
+      print_str = """
 Input:
 {inputs}
 
 Output (Score {score:.3f}):
 {output}
-    """
-    print(print_str.format(inputs=inputs, output=output, score=score))
+        """
+      print(print_str.format(inputs=inputs, output=output, score=score))
+
     if FLAGS.inputs_once:
       break
 
