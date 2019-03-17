@@ -93,13 +93,13 @@ def main(_):
   app = Flask(__name__.split(".")[0])
 
   @app.route("/", methods=["GET"])
-  def postHoge():
+  def endpoint():
     params = request.args
     if "input" in params:
       inputs = params.get("input")
       outputs = serving_utils.predict([inputs], problem, request_fn)
       tf.logging.debug("outputs: {}".format(outputs))
-      outputs = [{"val": o[0], "score": str(o[1])} for o in outputs]
+      outputs = [{"val": o[0], "score": o[1].tolist()} for o in outputs]
       return jsonify({"outputs": outputs})
     else:
       return jsonify({})
