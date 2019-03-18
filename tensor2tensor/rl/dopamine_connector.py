@@ -222,6 +222,8 @@ class BatchRunner(run_experiment.Runner):
       # sys.stdout.flush()
     return step_count, sum_returns, num_episodes
 
+  def close(self):
+    self._environment.close()
 
 class _OutOfGraphReplayBuffer(OutOfGraphReplayBuffer):
   """Replay not sampling artificial_terminal transition.
@@ -342,6 +344,9 @@ class ResizeBatchObservation(object):
   def batch_size(self):
     return self.batch_env.batch_size
 
+  def close(self):
+    self.batch_env.close()
+
 
 class DopamineBatchEnv(object):
   """Batch of environments.
@@ -384,7 +389,7 @@ class DopamineBatchEnv(object):
     pass
 
   def close(self):
-    pass
+    self._batch_env.close()
 
   @property
   def action_space(self):
@@ -507,12 +512,12 @@ class DQNLearner(PolicyLearner):
     create_agent_fn = get_create_agent(agent_params)
     create_environment_fn = get_create_batch_env_fun(
       env_fn, time_limit=hparams.time_limit)
-    batch_size = create_environment_fn(None).batch_size
+    tmp_env = create_environment_fn(None)
+    batch_size = tmp_env.batch_size
+    tmp_env.close()
     runner = BatchRunner(
         base_dir=self.agent_model_dir,
         create_agent_fn=create_agent_fn,
-        game_name='unused',
-        sticky_actions='unused',
         batch_size=batch_size,
         create_environment_fn=get_create_batch_env_fun(
             env_fn, time_limit=hparams.time_limit),
@@ -532,9 +537,10 @@ class DQNLearner(PolicyLearner):
             num_env_steps=None,
             env_step_multiplier=1,
             eval_env_fn=None,
-            report_fn=None):
+            report_fn=None,
+            model_save_fn=None):
     # TODO(konradczechowski): evaluation during training (with eval_env_fun)
-    del epoch, eval_env_fn, simulated, report_fn
+    del epoch, eval_env_fn, simulated, report_fn, model_save_fn
     if num_env_steps is None:
       num_env_steps = hparams.num_frames
 
@@ -547,13 +553,13 @@ class DQNLearner(PolicyLearner):
       self._target_iteractions_and_steps(
           num_env_steps=num_env_steps * env_step_multiplier,
           save_continuously=save_continuously,
-          save_every_steps=hparams.save_every_steps,)
+          save_every_steps=hparams.save_every_steps)
 
     with tf.Graph().as_default():
       runner = self.create_runner(env_fn, hparams, target_iterations,
                                   training_steps_per_iteration)
       runner.run_experiment()
-
+      runner.close()
     self.completed_iterations = target_iterations
 
   def evaluate(self, env_fn, hparams, sampling_temp):
