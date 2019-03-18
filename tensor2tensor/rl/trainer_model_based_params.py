@@ -200,6 +200,7 @@ def rlmb_dqn_base():
       simulated_rollout_length=simulated_rollout_length,
       dqn_time_limit=simulated_rollout_length,
       simulation_flip_first_random_for_beginning=False,
+      dqn_eval_episodes_num=3,
 
       # TODO(kc): only for model-free compatibility, remove this
       epochs_num=-1,

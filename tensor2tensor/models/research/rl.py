@@ -362,6 +362,10 @@ def dqn_atari_base():
       time_limit=27000,
       save_every_steps=50000,
       num_frames=int(20 * 1e6),
+
+      # TODO(konradczechowski) this is not used in trainer_model_free, clean
+      # this up after evaluation refactor
+      eval_episodes_num=3,
   )
 
 

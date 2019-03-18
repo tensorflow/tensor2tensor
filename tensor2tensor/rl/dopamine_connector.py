@@ -573,12 +573,11 @@ class DQNLearner(PolicyLearner):
                                   training_steps_per_iteration)
       assert runner.batch_size == 1
       agent = runner._agent  # pylint: disable=protected-access
+      runner.close()
       del runner
       agent.eval = True
 
-      # TODO(konradczechowski): correct number of episodes, when this will
-      # be hparam
-      for _ in range(30):
+      for _ in range(hparams.eval_episodes_num):
         # Run single episode
         ob = env.reset()
         action = agent.begin_episode(ob)
