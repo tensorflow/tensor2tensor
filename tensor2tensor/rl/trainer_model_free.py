@@ -146,7 +146,7 @@ def train(hparams, output_dir, env_problem_name, report_fn=None):
     def evaluate_on_new_model(model_dir_path):
       del model_dir_path
       raise NotImplementedError(
-        "This function is currently implemented only for ppo")
+          "This function is currently implemented only for ppo")
 
   learner.train(env_fn,
                 policy_hparams,
