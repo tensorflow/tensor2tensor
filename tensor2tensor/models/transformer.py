@@ -471,7 +471,10 @@ class Transformer(t2t_model.T2TModel):
         targets = dp(bottom, targets, hparams, target_vocab_size)[0]
       targets = common_layers.flatten4d3d(targets)
 
-      # TODO(llion): Explain! Is this even needed?
+      # GO embeddings are all zero, this is because transformer_prepare_decoder
+      # Shifts the targets along by one for the input which pads with zeros.
+      # If the modality already maps GO to the zero embeddings this is not
+      # needed.
       targets = tf.cond(
           tf.equal(i, 0), lambda: tf.zeros_like(targets), lambda: targets)
 
@@ -708,7 +711,10 @@ class Transformer(t2t_model.T2TModel):
         targets = dp(bottom, targets, hparams, target_vocab_size)[0]
       targets = common_layers.flatten4d3d(targets)
 
-      # TODO(llion): Explain! Is this even needed?
+      # GO embeddings are all zero, this is because transformer_prepare_decoder
+      # Shifts the targets along by one for the input which pads with zeros.
+      # If the modality already maps GO to the zero embeddings this is not
+      # needed.
       targets = tf.cond(
           tf.equal(i, 0), lambda: tf.zeros_like(targets), lambda: targets)
 
