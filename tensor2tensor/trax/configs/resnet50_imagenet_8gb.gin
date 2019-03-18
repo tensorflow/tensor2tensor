@@ -1,4 +1,5 @@
 import tensor2tensor.trax.inputs
+import tensor2tensor.trax.learning_rate
 import tensor2tensor.trax.models
 import tensor2tensor.trax.optimizers
 import tensor2tensor.trax.trax
@@ -17,8 +18,8 @@ inputs.dataset_name = 't2t_image_imagenet224'
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================
-MultifactorSchedule.constant = 5.0
-MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
+EvalAdjustingSchedule.constant = 1.0
+MultifactorSchedule.factors = 'constant * linear_warmup'
 MultifactorSchedule.warmup_steps = 400
 
 # Parameters for momentum:
@@ -36,9 +37,10 @@ Resnet50.num_output_classes = 1001
 
 # Parameters for train:
 # ==============================================================================
-train.eval_frequency = 100
-train.eval_steps = 3
+train.eval_frequency = 2000
+train.eval_steps = 20
 train.inputs = @trax.inputs.inputs
 train.model = @trax.models.Resnet50
 train.optimizer = @trax.optimizers.momentum
-train.train_steps = 200000
+train.train_steps = 500000
+train.lr_schedule = @learning_rate.EvalAdjustingSchedule

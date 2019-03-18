@@ -42,7 +42,7 @@ _memoized_multifactor_schedules = {}
 @gin.configurable(blacklist=["history"])
 def MultifactorSchedule(history=None,
                         factors="constant * linear_warmup * rsqrt_decay",
-                        constant=0.001,
+                        constant=0.1,
                         warmup_steps=100):
   """Factor-based learning rate schedule.
 
@@ -88,10 +88,10 @@ def MultifactorSchedule(history=None,
 
 @gin.configurable(blacklist=["history"])
 def EvalAdjustingSchedule(history,
-                          constant=0.001,
-                          steps_to_decrease=10,
-                          improvement_margin=0.01,
-                          decrease_rate=2.0,
+                          constant=0.1,
+                          steps_to_decrease=20,
+                          improvement_margin=0.001,
+                          decrease_rate=1.5,
                           history_mode="eval",
                           metric="metrics/accuracy"):
   """Learning rate that decreases when eval metric stalls.
@@ -116,15 +116,22 @@ def EvalAdjustingSchedule(history,
   """
   metrics = history.get(history_mode, metric)
   adjusted = constant
+  if len(metrics) < 2:
+    return MultifactorSchedule(history, constant=adjusted)
+
   steps_without_improvement = 0
+  cur = metrics.pop()[1]  # The most-recent value of the metric.
   while len(metrics) > 1:
-    last = metrics.pop()
-    if last[1] < metrics[-1][1] * (1 + improvement_margin):
+    # The one-before value of metrics as .pop() removes one element each time.
+    prev = metrics.pop()[1]
+    if cur < prev * (1 + improvement_margin):
       steps_without_improvement += 1
     else:
+      cur = prev
       steps_without_improvement = 0
     if steps_without_improvement >= steps_to_decrease:
       adjusted /= decrease_rate
+      cur = prev
       steps_without_improvement = 0
 
   return MultifactorSchedule(history, constant=adjusted)
