@@ -184,9 +184,9 @@ class BatchRunner(run_experiment.Runner):
 
   Assumes that all environments would end at the same moment.
   """
-  def __init__(self, base_dir, create_agent_fn, batch_size, **kwargs):
+  def __init__(self, base_dir, create_agent_fn, **kwargs):
     super(BatchRunner, self).__init__(base_dir, create_agent_fn, **kwargs)
-    self.batch_size = batch_size
+    self.batch_size = self._environment.batch_size
 
   def _run_one_episode(self):
     # This assumes that everything inside _run_one_episode works on batches,
@@ -213,17 +213,15 @@ class BatchRunner(run_experiment.Runner):
       num_episodes += self.batch_size
       # We use sys.stdout.write instead of tf.logging so as to flush frequently
       # without generating a line break.
-      print('Steps executed: {} '.format(step_count) +
-            'Batch episodes steps: {} '.format(num_steps) +
-            'Returns: {}\r'.format(episode_returns))
-      # sys.stdout.write('Steps executed: {} '.format(step_count) +
-      #                  'Batch episodes steps: {} '.format(num_steps) +
-      #                  'Returns: {}\r'.format(episode_returns))
-      # sys.stdout.flush()
+      sys.stdout.write('Steps executed: {} '.format(step_count) +
+                       'Batch episodes steps: {} '.format(num_steps) +
+                       'Returns: {}\r'.format(episode_returns))
+      sys.stdout.flush()
     return step_count, sum_returns, num_episodes
 
   def close(self):
     self._environment.close()
+
 
 class _OutOfGraphReplayBuffer(OutOfGraphReplayBuffer):
   """Replay not sampling artificial_terminal transition.
@@ -510,15 +508,9 @@ class DQNLearner(PolicyLearner):
     agent_params["optimizer"] = optimizer
     agent_params.update(replay_buffer_params)
     create_agent_fn = get_create_agent(agent_params)
-    create_environment_fn = get_create_batch_env_fun(
-      env_fn, time_limit=hparams.time_limit)
-    tmp_env = create_environment_fn(None)
-    batch_size = tmp_env.batch_size
-    tmp_env.close()
     runner = BatchRunner(
         base_dir=self.agent_model_dir,
         create_agent_fn=create_agent_fn,
-        batch_size=batch_size,
         create_environment_fn=get_create_batch_env_fun(
             env_fn, time_limit=hparams.time_limit),
         evaluation_steps=0,
