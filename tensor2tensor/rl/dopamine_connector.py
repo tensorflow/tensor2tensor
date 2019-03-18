@@ -355,7 +355,7 @@ class DopamineBatchEnv(object):
   as single boolean.
   """
   def __init__(self, batch_env, max_episode_steps):
-    self._batch_env = batch_env
+    self.batch_env = batch_env
     self._max_episode_steps = max_episode_steps
     self.game_over = None
     self._elapsed_steps = 0
@@ -363,12 +363,12 @@ class DopamineBatchEnv(object):
   def reset(self):
     self.game_over = False
     self._elapsed_steps = 0
-    return np.array(self._batch_env.reset())
+    return np.array(self.batch_env.reset())
 
   def step(self, actions):
     self._elapsed_steps += 1
     obs, rewards, dones = \
-        [np.array(r) for r in self._batch_env.step(actions)]
+        [np.array(r) for r in self.batch_env.step(actions)]
     if self._elapsed_steps > self._max_episode_steps:
       done = True
       if self._elapsed_steps > self._max_episode_steps + 1:
@@ -387,15 +387,15 @@ class DopamineBatchEnv(object):
     pass
 
   def close(self):
-    self._batch_env.close()
+    self.batch_env.close()
 
   @property
   def action_space(self):
-    return self._batch_env.action_space
+    return self.batch_env.action_space
 
   @property
   def batch_size(self):
-    return self._batch_env.batch_size
+    return self.batch_env.batch_size
 
 
 class PaddedTrajectoriesEnv(DopamineBatchEnv):
@@ -404,7 +404,7 @@ class PaddedTrajectoriesEnv(DopamineBatchEnv):
     self.done_envs = [False] * self.batch_size
     self.game_over = False
     self._elapsed_steps = 0
-    return np.array(self._batch_env.reset())
+    return np.array(self.batch_env.reset())
 
   def step(self, actions):
     if any(self.done_envs):
@@ -412,13 +412,13 @@ class PaddedTrajectoriesEnv(DopamineBatchEnv):
 
     self._elapsed_steps += 1
     obs, rewards, dones = \
-        [np.array(r) for r in self._batch_env.step(actions)]
+        [np.array(r) for r in self.batch_env.step(actions)]
     for i, ignore in enumerate(self.done_envs):
       if ignore:
         obs[i] = np.zeros(obs[i].shape, dtype=obs.dtype)
         rewards[i] = 0
       if dones[i]:
-        self._batch_env.reset([i])
+        self.batch_env.reset([i])
         self.done_envs[i] = True
 
     all_done = all(self.done_envs)
