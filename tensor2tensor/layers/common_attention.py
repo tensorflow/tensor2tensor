@@ -3868,6 +3868,8 @@ def multihead_attention(query_antecedent,
                         dropout_broadcast_dims=None,
                         vars_3d=False,
                         layer_collection=None,
+                        recurrent_memory=None,
+                        chunk_number=None,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -3921,6 +3923,10 @@ def multihead_attention(query_antecedent,
     vars_3d: use 3-dimensional variables for input/output transformations
     layer_collection: A tensorflow_kfac.LayerCollection. Only used by the
       KFAC optimizer. Default is None.
+    recurrent_memory: An optional transformer_memory.RecurrentMemory, which
+      retains state across chunks. Default is None.
+    chunk_number: an optional integer Tensor with shape [batch] used to operate
+      the recurrent_memory.
     **kwargs (dict): Parameters for the attention function
 
   Caching:
@@ -3958,8 +3964,29 @@ def multihead_attention(query_antecedent,
     if vars_3d:
       raise ValueError("KFAC implementation does not support 3d vars.")
 
+  if recurrent_memory is not None:
+    if memory_antecedent is not None:
+      raise ValueError("Recurrent memory requires memory_antecedent is None.")
+    if cache is not None:
+      raise ValueError("Cache is not supported when using recurrent memory.")
+    if vars_3d:
+      raise ValueError("3d vars are not supported when using recurrent memory.")
+    if layer_collection is not None:
+      raise ValueError("KFAC is not supported when using recurrent memory.")
+    if chunk_number is None:
+      raise ValueError("chunk_number is required when using recurrent memory.")
+
   with tf.variable_scope(name, default_name="multihead_attention",
                          values=[query_antecedent, memory_antecedent]):
+
+    if recurrent_memory is not None:
+      (
+          recurrent_memory_transaction,
+          query_antecedent, memory_antecedent, bias,
+      ) = recurrent_memory.pre_attention(
+          chunk_number,
+          query_antecedent, memory_antecedent, bias,
+      )
 
     if cache is None or memory_antecedent is None:
       q, k, v = compute_qkv(query_antecedent, memory_antecedent,
@@ -4111,6 +4138,9 @@ def multihead_attention(query_antecedent,
       x = common_layers.dense(
           x, output_depth, use_bias=False, name="output_transform",
           layer_collection=layer_collection)
+
+    if recurrent_memory is not None:
+      x = recurrent_memory.post_attention(recurrent_memory_transaction, x)
     if additional_returned_value is not None:
       return x, additional_returned_value
     return x
