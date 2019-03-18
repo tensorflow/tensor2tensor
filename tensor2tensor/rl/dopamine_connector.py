@@ -351,7 +351,7 @@ class DopamineBatchEnv(object):
 
   Assumes that all given environments finishes at the same time.
 
-  Observations and rewards are returned as batches (arrays). Done are returned
+  Observations and rewards are returned as batches (arrays). Done is returned
   as single boolean.
   """
   def __init__(self, batch_env, max_episode_steps):
@@ -399,6 +399,17 @@ class DopamineBatchEnv(object):
 
 
 class PaddedTrajectoriesEnv(DopamineBatchEnv):
+  """ Padd finished episodes with zeros.
+
+  Allow episodes in batch to end on different timesteps, return zero
+  observations and rewards for finished ones. Return done=True when all
+  episodes are finished.
+
+  Note that output of this class might be misleading - the agent/evaluator
+  which uses this environment gets false information about when episodes have
+  ended. This class is used for informal check of Batched dopamine
+  implementation in model-free pipeline.
+  """
 
   def reset(self):
     self.done_envs = [False] * self.batch_size
@@ -447,7 +458,7 @@ def get_create_batch_env_fun(batch_env_fn, time_limit):
     del game_name, sticky_actions
     batch_env = batch_env_fn(in_graph=False)
     batch_env = ResizeBatchObservation(batch_env)  # pylint: disable=redefined-variable-type
-    batch_env = PaddedTrajectoriesEnv(batch_env, max_episode_steps=time_limit)
+    batch_env = DopamineBatchEnv(batch_env, max_episode_steps=time_limit)
     return batch_env
 
   return create_env_fun
