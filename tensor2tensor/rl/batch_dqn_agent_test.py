@@ -19,16 +19,14 @@ from __future__ import print_function
 import os
 import shutil
 
-
-
 from absl import flags
 from dopamine.agents.dqn import dqn_agent
-from dopamine.utils import test_utils
-import mock
 import numpy as np
+
+from tensor2tensor.rl import dopamine_connector
+
 import tensorflow as tf
 
-import dopamine_connector
 
 slim = tf.contrib.slim
 
@@ -54,8 +52,8 @@ class BatchDQNAgentTest(tf.test.TestCase):
     self.env_batch_size = 4
 
     self.zero_state = np.zeros(
-        [self.env_batch_size, self.observation_shape, self.observation_shape,
-         self.stack_size])
+        [self.env_batch_size, self.observation_shape[0],
+         self.observation_shape[1], self.stack_size])
 
 
   def _create_test_agent(self, sess):
@@ -119,15 +117,15 @@ class BatchDQNAgentTest(tf.test.TestCase):
       # should be reset to all 0s.
       agent.state_batch.fill(9)
       first_observation = np.ones(
-          [self.env_batch_size, self.observation_shape, self.observation_shape,
-           1])
+          [self.env_batch_size, self.observation_shape[0],
+           self.observation_shape[1], 1])
       self.assertTrue((agent.begin_episode(first_observation) == 0).all())
       # When the all-1s observation is received, it will be placed at the end of
       # the state.
       expected_state = self.zero_state
       expected_state[:, :, :, -1] = np.ones(
-          [self.env_batch_size, self.observation_shape,
-           self.observation_shape])
+          [self.env_batch_size, self.observation_shape[0],
+           self.observation_shape[1]])
       self.assertAllEqual(agent.state_batch, expected_state)
       self.assertAllEqual(agent._observation_batch, first_observation[..., 0])
       # No training happens in eval mode.
@@ -139,75 +137,20 @@ class BatchDQNAgentTest(tf.test.TestCase):
       # train/prefetch/sync ops from being called.
       agent._replay.memory.add_count = 0
       second_observation = np.ones(
-          [self.env_batch_size, self.observation_shape, self.observation_shape,
-           1]) * 2
+          [self.env_batch_size, self.observation_shape[0],
+           self.observation_shape[1], 1]) * 2
       agent.begin_episode(second_observation)
       # The agent's state will be reset, so we will only be left with the all-2s
       # observation.
       expected_state[:, :, :, -1] = np.full(
-          (self.env_batch_size, self.observation_shape, self.observation_shape),
-        2)
+          (self.env_batch_size, self.observation_shape[0],
+           self.observation_shape[1]), 2
+      )
       self.assertAllEqual(agent.state_batch, expected_state)
       self.assertAllEqual(agent._observation_batch,
                           second_observation[:, :, :, 0])
       # training_steps is incremented since we set eval_mode to False.
       self.assertEqual(agent.training_steps, 1)
-
-  def testStepTrain(self):
-    """Test the functionality of agent.step() in train mode.
-
-    Specifically, the action returned, and confirm training is happening.
-    """
-    # TODO: rewrite it for batched case (I've already changed base_observation)
-    with tf.Session() as sess:
-      agent = self._create_test_agent(sess)
-      agent.eval_mode = False
-      base_observation = np.ones(
-          [self.env_batch_size, self.observation_shape, self.observation_shape,
-           1])
-      # We mock the replay buffer to verify how the agent interacts with it.
-      agent._replay = test_utils.MockReplayBuffer()
-      self.evaluate(tf.global_variables_initializer())
-      # This will reset state and choose a first action.
-      agent.begin_episode(base_observation)
-      observation = base_observation
-
-      expected_state = self.zero_state
-      num_steps = 10
-      for step in range(1, num_steps + 1):
-        # We make observation a multiple of step for testing purposes (to
-        # uniquely identify each observation).
-        last_observation = observation
-        observation = base_observation * step
-        self.assertEqual(agent.step(reward=[1] * self.env_batch_size,
-                                    observation=observation), 0)
-        stack_pos = step - num_steps - 1
-        if stack_pos >= -self.stack_size:
-          expected_state[:, :, :, stack_pos] = np.full(
-              (1, self.observation_shape, self.observation_shape), step)
-        self.assertEqual(agent._replay.add.call_count, step)
-        mock_args, _ = agent._replay.add.call_args
-        self.assertAllEqual(last_observation[:, :, 0], mock_args[0])
-        self.assertAllEqual(0, mock_args[1])  # Action selected.
-        self.assertAllEqual(1, mock_args[2])  # Reward received.
-        self.assertFalse(mock_args[3])  # is_terminal
-      self.assertAllEqual(agent.state, expected_state)
-      self.assertAllEqual(
-          agent._last_observation,
-          np.full((self.observation_shape, self.observation_shape),
-                  num_steps - 1))
-      self.assertAllEqual(agent._observation, observation[:, :, 0])
-      # We expect one more than num_steps because of the call to begin_episode.
-      self.assertEqual(agent.training_steps, num_steps + 1)
-      self.assertEqual(agent._replay.add.call_count, num_steps)
-
-      agent.end_episode(reward=1)
-      self.assertEqual(agent._replay.add.call_count, num_steps + 1)
-      mock_args, _ = agent._replay.add.call_args
-      self.assertAllEqual(observation[:, :, 0], mock_args[0])
-      self.assertAllEqual(0, mock_args[1])  # Action selected.
-      self.assertAllEqual(1, mock_args[2])  # Reward received.
-      self.assertTrue(mock_args[3])  # is_terminal
 
 
 if __name__ == '__main__':

@@ -20,19 +20,17 @@ from __future__ import print_function
 import os
 import shutil
 
-
-
 from absl import flags
-from dopamine.atari import run_experiment
-from dopamine.common import checkpointer
-from dopamine.common import logger
+from dopamine.discrete_domains import run_experiment
+from dopamine.discrete_domains import logger
+import gin.tf
 import numpy as np
 import mock
-import tensorflow as tf
-
-import gin.tf
 
 from tensor2tensor.rl import dopamine_connector
+
+import tensorflow as tf
+
 
 FLAGS = flags.FLAGS
 
@@ -181,9 +179,8 @@ class BatchedRunnerTest(tf.test.TestCase):
     envs = [MockEnvironment(reward_multiplier=rm) for rm in reward_multipliers]
     environment = BatchEnv(envs)
     runner = dopamine_connector.BatchRunner(
-        self._test_subdir, self._create_agent_fn, batch_size=batch_size,
-        game_name='Test',
-        create_environment_fn=lambda x, y: environment,
+        self._test_subdir, self._create_agent_fn,
+        create_environment_fn=lambda: environment,
         max_steps_per_episode=max_steps_per_episode)
     step_number, total_rewards = runner._run_one_episode()
 
@@ -201,9 +198,8 @@ class BatchedRunnerTest(tf.test.TestCase):
     envs = [MockEnvironment(reward_multiplier=rm) for rm in reward_multipliers]
     environment = BatchEnv(envs)
     runner = dopamine_connector.BatchRunner(
-        self._test_subdir, self._create_agent_fn, batch_size=batch_size,
-        game_name='Test',
-        create_environment_fn=lambda x, y: environment,
+        self._test_subdir, self._create_agent_fn,
+        create_environment_fn=lambda: environment,
         max_steps_per_episode=max_steps_per_episode)
     step_number, total_rewards = runner._run_one_episode()
 
@@ -222,9 +218,8 @@ class BatchedRunnerTest(tf.test.TestCase):
 
     environment = BatchEnv(envs)
     runner = dopamine_connector.BatchRunner(
-      self._test_subdir, self._create_agent_fn, batch_size=batch_size,
-      game_name="Test",
-      create_environment_fn=lambda x, y: environment)
+        self._test_subdir, self._create_agent_fn,
+        create_environment_fn=lambda: environment)
 
     statistics = []
 
@@ -243,8 +238,8 @@ class BatchedRunnerTest(tf.test.TestCase):
           "test_episode_returns": -1
       })
     self.assertEqual(len(expected_statistics), len(statistics))
-    for i in range(len(statistics)):
-      self.assertDictEqual(expected_statistics[i], statistics[i])
+    for expected_stats, stats in zip(expected_statistics, statistics):
+      self.assertDictEqual(expected_stats, stats)
 
   def testRunOneIteration(self):
     environment_steps = 2
@@ -258,10 +253,9 @@ class BatchedRunnerTest(tf.test.TestCase):
     evaluation_steps = 10 * batch_size
 
     runner = dopamine_connector.BatchRunner(
-      self._test_subdir, self._create_agent_fn, batch_size=batch_size,
-      game_name="Test",
-      create_environment_fn=lambda x, y: environment,
-      training_steps=training_steps, evaluation_steps=evaluation_steps
+        self._test_subdir, self._create_agent_fn,
+        create_environment_fn=lambda: environment,
+        training_steps=training_steps, evaluation_steps=evaluation_steps
     )
 
     dictionary = runner._run_one_iteration(1)
@@ -287,9 +281,8 @@ class BatchedRunnerTest(tf.test.TestCase):
     experiment_logger = MockLogger(test_cls=self)
     mock_logger_constructor.return_value = experiment_logger
     runner = dopamine_connector.BatchRunner(
-        self._test_subdir, self._create_agent_fn, batch_size=self.batch_size,
-        game_name="Test",
-        create_environment_fn=lambda x, y: mock.Mock(),
+        self._test_subdir, self._create_agent_fn,
+        create_environment_fn=mock.Mock,
         logging_file_prefix=logging_file_prefix,
         log_every_n=log_every_n)
     num_iterations = 10
