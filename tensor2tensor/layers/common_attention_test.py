@@ -1126,6 +1126,57 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
         layer_collection=layer_collection)
     self.assertLen(layer_collection.get_blocks(), 4)
 
+  @parameterized.named_parameters(
+      ("", 1, 1, 8, 4, 3),
+      ("dynamic_batch", None, 1, 8, 4, 2),
+      ("batches", 4, 3, 8, 4, 2),
+      ("block_length", 1, 1, 8, 4, 4),
+  )
+  def testDilatedAttention(self, batch, heads, length, depth_v, block_length):
+    if batch is None:
+      batch = tf.random_uniform([], minval=0, maxval=5, dtype=tf.int32)
+    q = tf.random_normal([batch, heads, length, depth_v])
+    k = tf.random_normal([batch, heads, length, depth_v])
+    v = tf.random_normal([batch, heads, length, depth_v])
+    output = common_attention.dilated_self_attention_1d(
+        q, k, v,
+        query_block_size=block_length,
+        memory_block_size=block_length,
+        gap_size=2,
+        num_memory_blocks=2)
+    if isinstance(batch, tf.Tensor):
+      batch, res = self.evaluate([batch, output])
+    else:
+      res = self.evaluate(output)
+
+    self.assertEqual(res.shape, (batch, heads, length, depth_v))
+
+  @parameterized.named_parameters(
+      ("", 1, 1, 8, 4, 3),
+      ("dynamic_batch", None, 1, 8, 4, 2),
+      ("batches", 4, 3, 8, 4, 2),
+      ("block_length", 1, 1, 8, 4, 4),
+  )
+  def testMaskedDilatedAttention(self, batch, heads, length, depth_v,
+                                 block_length):
+    if batch is None:
+      batch = tf.random_uniform([], minval=0, maxval=5, dtype=tf.int32)
+    q = tf.random_normal([batch, heads, length, depth_v])
+    k = tf.random_normal([batch, heads, length, depth_v])
+    v = tf.random_normal([batch, heads, length, depth_v])
+    output = common_attention.masked_dilated_self_attention_1d(
+        q, k, v,
+        query_block_size=block_length,
+        memory_block_size=block_length,
+        gap_size=2,
+        num_memory_blocks=2)
+    if isinstance(batch, tf.Tensor):
+      batch, res = self.evaluate([batch, output])
+    else:
+      res = self.evaluate(output)
+
+    self.assertEqual(res.shape, (batch, heads, length, depth_v))
+
 if __name__ == "__main__":
   tf.test.main()
 

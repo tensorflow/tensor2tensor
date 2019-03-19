@@ -3075,9 +3075,9 @@ def dilated_self_attention_1d(q,
   """Dilated self-attention.
 
   Args:
-    q: a Tensor with shape [batch, heads, length, depth_k]
-    k: a Tensor with shape [batch, heads, length, depth_k]
-    v: a Tensor with shape [batch, heads, length, depth_v]
+    q: a Tensor with shape [batch, heads, length, depth]
+    k: a Tensor with shape [batch, heads, length, depth]
+    v: a Tensor with shape [batch, heads, length, depth]
     query_block_size: an integer indicating size of query block
     memory_block_size: an integer indicating the size of a memory block.
     gap_size: an integer indicating the gap size
@@ -3086,11 +3086,12 @@ def dilated_self_attention_1d(q,
     name: an optional string
 
   Returns:
-    a Tensor of shape [batch, heads, length, depth_v]
+    a Tensor of shape [batch, heads, length, depth]
   """
   with tf.variable_scope(
       name, default_name="dilated_self_attention_1d", values=[q, k, v]):
     v_list_shape = v.get_shape().as_list()
+    assert v_list_shape == k.shape.as_list(), "K and V depths must be equal"
     v_shape = common_layers.shape_list(v)
     depth_v = v_shape[3]
     batch_size = v_shape[0]
@@ -3108,9 +3109,6 @@ def dilated_self_attention_1d(q,
     q = pad_to_multiple(q, query_block_size)
     v = pad_to_multiple(v, query_block_size)
     k = pad_to_multiple(k, query_block_size)
-    q.set_shape(v_list_shape)
-    v.set_shape(v_list_shape)
-    k.set_shape(v_list_shape)
 
     # Set up query blocks.
     new_q_shape = common_layers.shape_list(q)
@@ -3212,21 +3210,23 @@ def gather_dilated_memory_blocks(x,
   # gathering memory blocks
   for block_id in range(num_memory_blocks):
     block_end_index = -(query_block_size + gap_size *
-                        (block_id + 1) + memory_block_size * block_id) - 1
+                        (block_id + 1) + memory_block_size * block_id)
     block_start_index = (
         (memory_block_size + gap_size) * (num_memory_blocks - (block_id + 1)))
     if direction != "left":
       [block_end_index,
-       block_start_index] = [-block_start_index - 1, -block_end_index + 1]
+       block_start_index] = [-block_start_index, -block_end_index]
+    if block_end_index == 0:
+      x_block = x[block_start_index:]
+    else:
+      x_block = x[block_start_index:block_end_index]
 
     def gather_dilated_1d_blocks(x, gather_indices):
       x_new = tf.gather(x, gather_indices)
       # [batch, heads, blocks, block_length, dim]
       return tf.transpose(x_new, [2, 3, 0, 1, 4])
 
-    gathered_blocks.append(
-        gather_dilated_1d_blocks(x[block_start_index:block_end_index],
-                                 gather_indices))
+    gathered_blocks.append(gather_dilated_1d_blocks(x_block, gather_indices))
   return tf.concat(gathered_blocks, 3)
 
 
@@ -3241,9 +3241,9 @@ def masked_dilated_self_attention_1d(q,
   """Dilated self-attention. TODO(avaswani): Try it and write a paper on it.
 
   Args:
-    q: a Tensor with shape [batch, heads, length, depth_k]
-    k: a Tensor with shape [batch, heads, length, depth_k]
-    v: a Tensor with shape [batch, heads, length, depth_v]
+    q: a Tensor with shape [batch, heads, length, depth]
+    k: a Tensor with shape [batch, heads, length, depth]
+    v: a Tensor with shape [batch, heads, length, depth]
     query_block_size: an integer
     memory_block_size: an integer indicating how much to look left.
     gap_size: an integer indicating the gap size
@@ -3252,11 +3252,12 @@ def masked_dilated_self_attention_1d(q,
     name: an optional string
 
   Returns:
-    a Tensor of shape [batch, heads, length, depth_v]
+    a Tensor of shape [batch, heads, length, depth]
   """
   with tf.variable_scope(
       name, default_name="masked_dilated_self_attention_1d", values=[q, k, v]):
     v_list_shape = v.get_shape().as_list()
+    assert v_list_shape == k.shape.as_list(), "K and V depths must be equal"
     v_shape = common_layers.shape_list(v)
     depth_v = v_shape[3]
     batch_size = v_shape[0]
@@ -3274,9 +3275,6 @@ def masked_dilated_self_attention_1d(q,
     q = pad_to_multiple(q, query_block_size)
     v = pad_to_multiple(v, query_block_size)
     k = pad_to_multiple(k, query_block_size)
-    q.set_shape(v_list_shape)
-    v.set_shape(v_list_shape)
-    k.set_shape(v_list_shape)
 
     # Set up query blocks.
     new_q_shape = common_layers.shape_list(q)
