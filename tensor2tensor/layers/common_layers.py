@@ -2849,13 +2849,13 @@ def list_product(els):
   return prod
 
 
-def sample_with_temperature(logits, temperature):
+def sample_with_temperature(logits, temperature, sampling_keep_top_k=-1):
   """Either argmax or random sampling.
 
   Args:
     logits: a Tensor.
     temperature: a float  0.0=argmax 1.0=random
-
+    sampling_keep_top_k: If not -1, only sample from the top k logits.
   Returns:
     a Tensor with one fewer dimension than logits.
   """
@@ -2866,6 +2866,22 @@ def sample_with_temperature(logits, temperature):
     return tf.reshape(argmax, logits_shape[:-1])
   else:
     assert temperature > 0.0
+
+    if sampling_keep_top_k != -1:
+      if sampling_keep_top_k <= 0:
+        raise ValueError("sampling_keep_top_k must either be -1 or positive.")
+
+      vocab_size = shape_list(logits)[1]
+
+      k_largest = tf.contrib.nn.nth_element(
+          logits, n=sampling_keep_top_k, reverse=True)
+      k_largest = tf.tile(tf.reshape(k_largest, [-1, 1]), [1, vocab_size])
+
+      # Force every position that is not in the top k to have probability near
+      # 0 by setting the logit to be very negative.
+      logits = tf.where(tf.less_equal(logits, k_largest),
+                        tf.ones_like(logits)*-1e6, logits)
+
     reshaped_logits = (
         tf.reshape(logits, [-1, shape_list(logits)[-1]]) / temperature)
     choices = tf.multinomial(reshaped_logits, 1)
