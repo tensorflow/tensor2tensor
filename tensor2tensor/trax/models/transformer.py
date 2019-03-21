@@ -29,7 +29,7 @@ def TransformerEncoder(mode='train',  # pylint: disable=invalid-name
                        feature_depth=512,
                        feedforward_depth=2048,
                        num_heads=8,
-                       dropout=0.9):
+                       dropout=0.1):
   """Transformer Encoder Stack.
 
   Args:
@@ -38,20 +38,22 @@ def TransformerEncoder(mode='train',  # pylint: disable=invalid-name
     feature_depth: int:  depth of embedding
     feedforward_depth: int: depth of feed-forward layer
     num_heads: int: number of attention heads
-    dropout: float: dropout rate - Stax follows TF's KEEP probability convention
+    dropout: float: dropout rate (how much to drop out; note that stax follows
+      Tensorflow's keep_rate convention, so we use 1 - dropout in calls below)
 
   Returns:
     A staxlayer for implementing a raw Transformer encoder stack.  No embedding
     or positional signals are added by this layer.
   """
+  keep_rate = 1.0 - dropout
   # Multi-headed Attention and Feed-forward layers
   multi_attention = stax.MultiHeadedAttention(
-      feature_depth, num_heads=num_heads, dropout=dropout, mode=mode)
+      feature_depth, num_heads=num_heads, dropout=keep_rate, mode=mode)
 
   feed_forward = stax.serial(
       stax.Dense(feedforward_depth, W_init=stax.xavier_uniform()),
       stax.Relu,
-      stax.Dropout(dropout, mode=mode),
+      stax.Dropout(keep_rate, mode=mode),
       stax.Dense(feature_depth, W_init=stax.xavier_uniform())
   )
 
@@ -74,11 +76,11 @@ def TransformerEncoder(mode='train',  # pylint: disable=invalid-name
                                      stax.Identity,  # value
                                      source_mask),  # attention mask
                       multi_attention,
-                      stax.Dropout(dropout, mode=mode)),
+                      stax.Dropout(keep_rate, mode=mode)),
         # feed-forward
         stax.residual(stax.LayerNorm(feature_depth),
                       feed_forward,
-                      stax.Dropout(dropout, mode=mode))
+                      stax.Dropout(keep_rate, mode=mode))
     )
     return stax.serial(
         embedded_source,
@@ -95,8 +97,8 @@ def TransformerLM(vocab_size,  # pylint: disable=invalid-name
                   feature_depth=512,
                   feedforward_depth=2048,
                   num_heads=8,
-                  dropout=0.9,
-                  max_len=256):
+                  dropout=0.1,
+                  max_len=512):
   """Transformer language model (only uses the decoder part of Transformer).
 
   Args:
@@ -106,20 +108,21 @@ def TransformerLM(vocab_size,  # pylint: disable=invalid-name
     feature_depth: int:  depth of embedding
     feedforward_depth: int: depth of feed-forward layer
     num_heads: int: number of attention heads
-    dropout: float: dropout rate - Stax follows TF's KEEP probability convention
+    dropout: float: dropout rate (how much to drop out)
     max_len: int: maximum symbol length for positional encoding
 
   Returns:
     init and apply.
   """
+  keep_rate = 1.0 - dropout
   # Multi-headed Attention and Feed-forward layers
   multi_attention = stax.MultiHeadedAttention(
-      feature_depth, num_heads=num_heads, dropout=dropout, mode=mode)
+      feature_depth, num_heads=num_heads, dropout=keep_rate, mode=mode)
 
   feed_forward = stax.serial(
       stax.Dense(feedforward_depth, W_init=stax.xavier_uniform()),
       stax.Relu,
-      stax.Dropout(dropout, mode=mode),
+      stax.Dropout(keep_rate, mode=mode),
       stax.Dense(feature_depth, W_init=stax.xavier_uniform())
   )
 
@@ -132,18 +135,18 @@ def TransformerLM(vocab_size,  # pylint: disable=invalid-name
                                    stax.Identity,  # value
                                    stax.CausalMask(axis=-2)),  # attention mask
                     multi_attention,
-                    stax.Dropout(dropout, mode=mode)),
+                    stax.Dropout(keep_rate, mode=mode)),
       # feed-forward
       stax.residual(stax.LayerNorm(feature_depth),
                     feed_forward,
-                    stax.Dropout(dropout, mode=mode))
+                    stax.Dropout(keep_rate, mode=mode))
   )
 
   return stax.serial(
       stax.ShiftRight(),
       stax.Embedding(feature_depth, vocab_size),
       stax.PositionalEncoding(feature_depth, max_len=max_len),
-      stax.Dropout(dropout, mode=mode),
+      stax.Dropout(keep_rate, mode=mode),
       stax.repeat(decoder_layer, num_layers),
       stax.LayerNorm(feature_depth),
       stax.Dense(vocab_size, W_init=stax.xavier_uniform()),
@@ -158,7 +161,7 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
                 feature_depth=512,
                 feedforward_depth=2048,
                 num_heads=8,
-                dropout=0.9,
+                dropout=0.1,
                 shared_embedding=True,
                 max_len=200,
                 return_evals=False):
@@ -172,7 +175,7 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
     feature_depth: int:  depth of embedding
     feedforward_depth: int: depth of feed-forward layer
     num_heads: int: number of attention heads
-    dropout: float: dropout rate - Stax follows TF's KEEP probability convention
+    dropout: float: dropout rate (how much to drop out)
     shared_embedding: bool: specify whether source/target embeddings are tied.
     max_len: int: maximum symbol length for positional encoding
     return_evals: bool: whether to generate decode-time evaluation functions
@@ -182,11 +185,11 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
   the 'evals' functions that itself returns a namedtuple containing evaluation
   functions for the trained encoder, decoder, and generator substax.
   """
-
+  keep_rate = 1.0 - dropout
   # Input embedding and positional encoding
   inject_position = stax.serial(
       stax.PositionalEncoding(feature_depth, max_len=max_len),
-      stax.Dropout(dropout, mode=mode)
+      stax.Dropout(keep_rate, mode=mode)
   )
   if shared_embedding:
     assert source_vocab_size == target_vocab_size
@@ -202,12 +205,12 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
 
   # Multi-headed Attention and Feed-forward layers
   multi_attention = stax.MultiHeadedAttention(
-      feature_depth, num_heads=num_heads, dropout=dropout, mode=mode)
+      feature_depth, num_heads=num_heads, dropout=keep_rate, mode=mode)
 
   feed_forward = stax.serial(
       stax.Dense(feedforward_depth, W_init=stax.xavier_uniform()),
       stax.Relu,
-      stax.Dropout(dropout, mode=mode),
+      stax.Dropout(keep_rate, mode=mode),
       stax.Dense(feature_depth, W_init=stax.xavier_uniform())
   )
 
@@ -231,11 +234,11 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
                                      stax.Identity,  # value
                                      source_mask),  # attention mask
                       multi_attention,
-                      stax.Dropout(dropout, mode=mode)),
+                      stax.Dropout(keep_rate, mode=mode)),
         # feed-forward
         stax.residual(stax.LayerNorm(feature_depth),
                       feed_forward,
-                      stax.Dropout(dropout, mode=mode))
+                      stax.Dropout(keep_rate, mode=mode))
     )
     return stax.serial(
         source,
@@ -266,7 +269,7 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
                                      stax.Identity,  # value
                                      target_mask),  # attention mask
                       multi_attention,
-                      stax.Dropout(dropout, mode=mode)),
+                      stax.Dropout(keep_rate, mode=mode)),
         # target attends to encoded source
         stax.residual(stax.LayerNorm(feature_depth),
                       stax.multiplex(stax.Identity,  # query
@@ -274,11 +277,11 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
                                      memory,  # value
                                      memory_mask),  # attention mask
                       multi_attention,
-                      stax.Dropout(dropout, mode=mode)),
+                      stax.Dropout(keep_rate, mode=mode)),
         # feed-forward
         stax.residual(stax.LayerNorm(feature_depth),
                       feed_forward,
-                      stax.Dropout(dropout, mode=mode))
+                      stax.Dropout(keep_rate, mode=mode))
     )
     return stax.serial(
         target,

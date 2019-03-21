@@ -46,26 +46,38 @@ import tensor2tensor.trax.stax as stax
 from tensorflow.io import gfile
 
 
+@gin.configurable(blacklist=["inputs", "targets"])
+def masked_mean(inputs, targets, mask_id=None):
+  """Mean of the inputs but counting only those where targets != mask_id."""
+  x = inputs.astype(np.float32)
+  if mask_id is None:
+    return np.mean(x)
+  unmask = 1.0 - np.equal(targets, mask_id).astype(np.float32)
+  return np.sum(x * unmask) / np.sum(unmask)
+
+
 def accuracy(batch, model_predictions):
   """Calculate accuracy."""
   _, targets = batch
   predicted_class = np.argmax(model_predictions, axis=-1)
-  return np.mean(predicted_class == targets)
+  correct = np.equal(predicted_class, targets)
+  return masked_mean(correct, targets)
 
 
 def neg_log_perplexity(batch, model_predictions):
   """Calculate negative log perplexity."""
   _, targets = batch
   hot_targets = stax.one_hot(targets, model_predictions.shape[-1])
-  return np.mean(np.sum(model_predictions * hot_targets, axis=-1))
+  xent = np.sum(model_predictions * hot_targets, axis=-1)
+  return masked_mean(xent, targets)
 
 
 def loss(params, batch, model_predict):
   """Calculate loss."""
   inputs, targets = batch
   preds = model_predict(params, inputs)
-  return - np.mean(np.sum(preds * stax.one_hot(targets, preds.shape[-1]),
-                          axis=-1))
+  xent = np.sum(preds * stax.one_hot(targets, preds.shape[-1]), axis=-1)
+  return - masked_mean(xent, targets)
 
 
 def log(s, stdout=True):

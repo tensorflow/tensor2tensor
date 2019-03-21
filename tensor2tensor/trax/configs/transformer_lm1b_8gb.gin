@@ -5,28 +5,32 @@ import tensor2tensor.trax.trax
 
 # Parameters for batch_fun:
 # ==============================================================================
-batch_fun.batch_size = 32
-batch_fun.eval_batch_size = 32
+batch_fun.batch_size = 128
+batch_fun.eval_batch_size = 128
 
 # Parameters for inputs:
 # ==============================================================================
 inputs.data_dir = None
 inputs.dataset_name = 't2t_languagemodel_lm1b32k'
 
+# Parameters for mask:
+# ==============================================================================
+mask.mask_id = 0
+
 # Parameters for MultifactorSchedule:
 # ==============================================================================
-MultifactorSchedule.constant = 0.05
+MultifactorSchedule.constant = 0.1
 MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
 MultifactorSchedule.warmup_steps = 8000
 
 # Parameters for preprocess_fun:
 # ==============================================================================
-preprocess_fun.max_target_length = 256
+preprocess_fun.max_target_length = 512
 
 # Parameters for train:
 # ==============================================================================
 train.eval_frequency = 1000
-train.eval_steps = 1
+train.eval_steps = 5
 train.inputs = @trax.inputs.inputs
 train.model = @trax.models.TransformerLM
 train.run_debug_step = False
@@ -38,10 +42,10 @@ train_and_eval_batches.input_name = 'targets'
 
 # Parameters for TransformerLM:
 # ==============================================================================
-TransformerLM.dropout = 0.1
+TransformerLM.dropout = 0.2
 TransformerLM.feature_depth = 512
 TransformerLM.feedforward_depth = 2048
-TransformerLM.max_len = 256
+TransformerLM.max_len = 512
 TransformerLM.mode = 'train'
 TransformerLM.num_heads = 8
 TransformerLM.num_layers = 6

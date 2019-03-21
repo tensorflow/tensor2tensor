@@ -42,5 +42,5 @@ train.eval_steps = 20
 train.inputs = @trax.inputs.inputs
 train.model = @trax.models.Resnet50
 train.optimizer = @trax.optimizers.momentum
-train.train_steps = 500000
+train.train_steps = 1000000
 train.lr_schedule = @learning_rate.EvalAdjustingSchedule
