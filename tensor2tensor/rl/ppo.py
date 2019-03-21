@@ -95,32 +95,36 @@ def define_ppo_epoch(memory, hparams, action_space, batch_size):
   add_lists_elementwise = lambda l1, l2: [x + y for x, y in zip(l1, l2)]
 
   number_of_batches = ((hparams.epoch_length-1) * hparams.optimization_epochs
-                       / hparams.optimization_batch_size)
+                       // hparams.optimization_batch_size)
 
+  epoch_length = hparams.epoch_length
   if hparams.effective_num_agents is not None:
     number_of_batches *= batch_size
-    number_of_batches /= hparams.effective_num_agents
+    number_of_batches //= hparams.effective_num_agents
+    epoch_length //= hparams.effective_num_agents
 
-  dataset = tf.data.Dataset.from_tensor_slices(
-      (observation[:-1], action[:-1], discounted_reward, advantage_normalized,
-       old_pdf[:-1]))
-  dataset = dataset.shuffle(buffer_size=hparams.epoch_length-1,
-                            reshuffle_each_iteration=True)
-  dataset = dataset.repeat(-1)
-  dataset = dataset.batch(hparams.optimization_batch_size, drop_remainder=True)
-  iterator = dataset.make_initializable_iterator()
-
+  assert number_of_batches > 0, "Set the paremeters so that number_of_batches>0"
   lr = learning_rate.learning_rate_schedule(hparams)
 
-  with tf.control_dependencies([iterator.initializer]):
-    ppo_step_rets = tf.scan(
-        lambda a, i: add_lists_elementwise(  # pylint: disable=g-long-lambda
-            a, define_ppo_step(
-                iterator.get_next(), hparams, action_space, lr
-            )),
-        tf.range(number_of_batches),
-        [0., 0., 0.],
-        parallel_iterations=1)
+  shuffled_indices = [tf.random.shuffle(tf.range(epoch_length - 1))
+                      for _ in range(hparams.optimization_epochs)]
+  shuffled_indices = tf.concat(shuffled_indices, axis=0)
+  shuffled_indices = shuffled_indices[:number_of_batches *
+                                      hparams.optimization_batch_size]
+  indices_of_batches = tf.reshape(shuffled_indices,
+                                  shape=(-1, hparams.optimization_batch_size))
+  input_tensors = [observation, action, discounted_reward,
+                   advantage_normalized, old_pdf]
+
+  ppo_step_rets = tf.scan(
+      lambda a, i: add_lists_elementwise(  # pylint: disable=g-long-lambda
+          a, define_ppo_step([tf.gather(t, indices_of_batches[i, :])
+                              for t in input_tensors],
+                             hparams, action_space, lr
+                            )),
+      tf.range(number_of_batches),
+      [0., 0., 0.],
+      parallel_iterations=1)
 
   ppo_summaries = [tf.reduce_mean(ret) / number_of_batches
                    for ret in ppo_step_rets]
