@@ -117,7 +117,7 @@ def make_grpc_request_fn(servable_name, server, timeout_secs):
     outputs = tf.make_ndarray(response.outputs["outputs"])
     scores = tf.make_ndarray(response.outputs["scores"])
     assert len(outputs) == len(scores)
-    return [{
+    return [{  # pylint: disable=g-complex-comprehension
         "outputs": output,
         "scores": score
     } for output, score in zip(outputs, scores)]
@@ -134,7 +134,7 @@ def make_cloud_mlengine_request_fn(credentials, model_name, version):
     parent = "projects/%s/models/%s/versions/%s" % (cloud.default_project(),
                                                     model_name, version)
     input_data = {
-        "instances": [{
+        "instances": [{  # pylint: disable=g-complex-comprehension
             "input": {
                 "b64": base64.b64encode(ex.SerializeToString())
             }

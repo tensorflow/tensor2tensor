@@ -90,7 +90,7 @@ def main(_):
     outputs = serving_utils.predict([inputs], problem, request_fn)
     outputs, = outputs
     output, score = outputs
-    if len(score.shape) > 0:
+    if len(score.shape) > 0:  # pylint: disable=g-explicit-length-test
       print_str = """
 Input:
 {inputs}
