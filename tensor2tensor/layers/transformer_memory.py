@@ -90,17 +90,21 @@ class RecurrentMemory(object):
         [tf.stop_gradient(previous_vals), query_antecedent], 1)
     new_bias = tf.concat([previous_bias, bias], -1)
 
-    cancel_update = tf.equal(self.previous_segment, segment[0])
     remember_segment = segment[0]
-    remember_vals = tf.cond(
-        cancel_update,
-        lambda: self.previous_vals,
-        lambda: tf.pad(query_antecedent, [[0, amount_to_pad], [0, 0], [0, 0]]))
-    remember_bias = tf.cond(
-        cancel_update,
-        lambda: self.previous_bias,
-        lambda: tf.zeros_like(bias) + tf.reduce_max(bias, -1, keep_dims=True))
-
+    # TODO(kitaev): The code assumes that we always either increment the chunk
+    # number or reset it to zero, which is checked by the assertion. This
+    # assumption will not hold if we re-run the model for each token, e.g. for
+    # autoregressive greedy/beam/sampling decode.
+    with tf.control_dependencies(
+        [tf.Assert(tf.math.logical_or(
+            tf.equal(remember_segment, 0),
+            tf.equal(remember_segment, self.previous_segment + 1)),
+                   [self.previous_segment, remember_segment])]):
+      remember_segment = tf.identity(remember_segment)
+    remember_vals = tf.pad(query_antecedent,
+                           [[0, amount_to_pad], [0, 0], [0, 0]])
+    remember_bias = tf.zeros_like(bias) + tf.reduce_max(
+        bias, -1, keep_dims=True)
     token = (remember_segment, remember_vals, remember_bias)
 
     return token, query_antecedent, new_memory_antecedent, new_bias

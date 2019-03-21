@@ -1667,6 +1667,20 @@ def dot_product_attention_relative(q,
     return _relative_attention_inner(weights, v, relations_values, False)
 
 
+def dot_product_attention_relative_memory(q, k, v, bias, *args, **kwargs):
+  """Wrapper of dot_product_attention_relative to use with recurrent memory."""
+
+  q_len = tf.shape(q)[2]
+  k_len = tf.shape(k)[2]
+  num_memory_items = k_len - q_len
+
+  q = tf.pad(q, [[0, 0], [0, 0], [num_memory_items, 0], [0, 0]])
+  bias = tf.pad(bias, [[0, 0], [0, 0], [num_memory_items, 0], [0, 0]])
+  output = dot_product_attention_relative(q, k, v, bias, *args, **kwargs)
+
+  return output[:, :, num_memory_items:, :]
+
+
 def _relative_position_to_absolute_position_masked(x):
   """Helper to dot_product_self_attention_relative_v2.
 
@@ -4142,6 +4156,18 @@ def multihead_attention(query_antecedent,
                                 activation_dtype=kwargs.get("activation_dtype"))
     elif attention_type == "dot_product_relative":
       x = dot_product_attention_relative(
+          q,
+          k,
+          v,
+          bias,
+          max_relative_position,
+          dropout_rate,
+          image_shapes,
+          save_weights_to=save_weights_to,
+          make_image_summary=make_image_summary,
+          cache=cache is not None)
+    elif attention_type == "dot_product_relative_memory":
+      x = dot_product_attention_relative_memory(
           q,
           k,
           v,
