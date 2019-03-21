@@ -303,10 +303,10 @@ def make_agent_from_hparams(
 ):
   """Creates an Agent from hparams."""
   def sim_env_kwargs_fn():
-      return rl.make_simulated_env_kwargs(
-          base_env, loop_hparams, batch_size=planner_hparams.batch_size,
-          model_dir=model_dir
-      )
+    return rl.make_simulated_env_kwargs(
+        base_env, loop_hparams, batch_size=planner_hparams.batch_size,
+        model_dir=model_dir
+    )
   planner_kwargs = planner_hparams.values()
   planner_kwargs.pop("batch_size")
   planner_kwargs.pop("rollout_agent_type")
