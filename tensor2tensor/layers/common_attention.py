@@ -2434,10 +2434,6 @@ def dot_product_unmasked_attention_local_2d_tpu(
 
   Returns:
     [batch, heads, height, width, depth] tensor, the output of attention.
-    height_key_relative_embeddings: a 3d or 2d tensor, depending on head sharing
-      settings, which are the relative embeddings for height.
-    width_key_relative_embeddings: a 3d or 2d tensor, depending on head sharing
-      settings, which are the relative embeddings for width.
 
   """
   if max_relative_position:
@@ -2504,6 +2500,84 @@ def dot_product_unmasked_attention_local_2d_tpu(
     ret = tf.slice(ret, [0, 0, 0, 0, 0], [-1, -1, orig_q_shape[2],
                                           orig_q_shape[3], -1])
     return ret
+
+
+def dot_product_unmasked_attention_local_2d_tpu_simple(
+    x, bias, total_key_depth, total_value_depth, num_heads,
+    query_shape=(8, 8),
+    dropout_rate=0.0, image_shapes=None, make_image_summary=False,
+    dropout_broadcast_dims=None):
+
+  """Calculate simple unmasked dot-product local self-attention 2d on tpu.
+
+  The query, key, and value blocks are the same. We do not do a second linear
+  transformation after computing the values
+
+  Args:
+    x: a Tensor with shape [batch, height, width, depth].
+    bias: bias Tensor.
+    total_key_depth: the dimensions of the keys
+    total_value_depth: the dimensions of the values
+    num_heads: number of heads
+    query_shape: a two tuple indicating query shape
+    dropout_rate: a floating point number.
+    image_shapes: optional tuple of integer scalars.
+    make_image_summary: Whether to make an attention image summary.
+    dropout_broadcast_dims:  an optional list of integers less than 4
+      specifying in which dimensions to broadcast the dropout decisions.
+      saves memory.
+
+  Returns:
+    ret: [batch, height, width, total_value_depth] tensor,
+      the output of attention.
+    q: [batch, height, width, total_key_depth] query tensor
+    k: [batch, height, width, total_key_depth] key tensor
+    v: [batch, height, width, total_value_depth] value tensor
+
+  """
+  # This calculation only works for self attention.
+  # q, k and v must therefore have the same shape.
+  orig_x_shape = common_layers.shape_list(x)
+  # Pad query, key, value to ensure multiple of corresponding lengths if
+  # necessary
+  is_padded = False
+  if (orig_x_shape[1]%query_shape[0]) != 0 or (
+      orig_x_shape[2]%query_shape[1]) != 0:
+    x = pad_to_multiple_2d(x, query_shape)
+    is_padded = True
+  _, height, width, depth = common_layers.shape_list(x)
+  assert depth%num_heads == 0
+  num_h_blocks = height//query_shape[0]
+  num_w_blocks = width//query_shape[1]
+  # Extract center queries, keys, and values
+  x_blocks = _extract_blocks(x, query_shape[0], query_shape[1])
+  x_blocks = tf.reshape(x_blocks, [-1, query_shape[0]*query_shape[1], depth])
+  q, k, v = compute_qkv(x_blocks, None, total_key_depth, total_value_depth)
+  hsplit = lambda x: split_heads(x, num_heads)
+  q, k, v = map(hsplit, [q, k, v])
+  logits = tf.matmul(q, k, transpose_b=True)
+  if bias is not None:
+    logits += bias
+  weights = tf.nn.softmax(logits, name="attention_weights")
+  # Dropping out the attention links for each of the heads
+  weights = common_layers.dropout_with_broadcast_dims(
+      weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
+  if common_layers.should_generate_summaries() and make_image_summary:
+    attention_image_summary(weights, image_shapes)
+  output = tf.matmul(weights, v)
+  output = combine_heads(output)
+  # we need to get it back to shape [batch, height, width]
+  ret = tf.reshape(output, [-1, num_h_blocks, num_w_blocks,
+                            query_shape[0], query_shape[1], total_value_depth])
+
+  ret = tf.transpose(ret, [0, 1, 3, 2, 4, 5])
+  ret = tf.reshape(ret, [-1, num_h_blocks*query_shape[0],
+                         num_w_blocks*query_shape[1], total_value_depth])
+  # slice if padding was introduced
+  if is_padded:
+    ret = tf.slice(ret, [0, 0, 0, 0], [-1, orig_x_shape[1],
+                                       orig_x_shape[2], -1])
+  return ret, q, k, v
 
 
 def masked_within_block_local_attention_1d(q, k, v, block_length=64, name=None):
@@ -3415,12 +3489,26 @@ def local_attention_2d(q,
 
 
 def pad_to_multiple_2d(x, block_shape):
-  """Making sure x is a multiple of shape. x is [batch, heads, h, w, depth]."""
+  """Making sure x is a multiple of shape.
+
+  Args:
+    x: a [batch, heads, h, w, depth] or [batch, h, w, depth] tensor
+    block_shape: a 2-d list of integer shapes
+
+  Returns:
+    padded_x: a [batch, heads, h, w, depth] or [batch, h, w, depth] tensor
+  """
   old_shape = x.get_shape().dims
   last = old_shape[-1]
-  height_padding = -common_layers.shape_list(x)[2] % block_shape[0]
-  width_padding = -common_layers.shape_list(x)[3] % block_shape[1]
-  paddings = [[0, 0], [0, 0], [0, height_padding], [0, width_padding], [0, 0]]
+  if len(old_shape) == 4:
+    height_padding = -common_layers.shape_list(x)[1] % block_shape[0]
+    width_padding = -common_layers.shape_list(x)[2] % block_shape[1]
+    paddings = [[0, 0], [0, height_padding], [0, width_padding], [0, 0]]
+  elif len(old_shape) == 5:
+    height_padding = -common_layers.shape_list(x)[2] % block_shape[0]
+    width_padding = -common_layers.shape_list(x)[3] % block_shape[1]
+    paddings = [[0, 0], [0, 0], [0, height_padding], [0, width_padding], [0, 0]]
+
   padded_x = tf.pad(x, paddings)
   padded_shape = padded_x.get_shape().as_list()
   padded_shape = padded_shape[:-1] + [last]

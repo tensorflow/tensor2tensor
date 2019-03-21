@@ -815,6 +815,74 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     out = out[:, :, :height, :width, :]
     self.assertAllClose(res, out)
 
+  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  def testDotProductUnmaskedAttentionLocal2dTpuSimple(self):
+    batch_size = 1
+    num_heads = 3
+    height = 8
+    width = 12
+    total_depth = 15
+    num_h_blocks = 4
+    num_w_blocks = 6
+    depth = 5
+    query_shape = [2, 2]
+
+    x = np.random.rand(batch_size, height, width, total_depth)
+    a = (
+        common_attention.dot_product_unmasked_attention_local_2d_tpu_simple(
+            tf.constant(x, dtype=tf.float32),
+            None, total_depth, total_depth, num_heads,
+            query_shape=query_shape))
+    self.evaluate(tf.global_variables_initializer())
+    res, q, k, v = self.evaluate(a)
+    self.assertEqual(res.shape, (batch_size, height, width, total_depth))
+    # reshape q, k, v from batch, heads, height*width to batch, heads,
+    # num_h_blocks, num_w_blocks, query_shape[0], query_shape[1], depth
+    resh_shape = (batch_size, num_h_blocks, num_w_blocks,
+                  num_heads, query_shape[0], query_shape[1],
+                  depth)
+    resh = lambda l: np.reshape(l, resh_shape)
+    q, k, v = map(resh, [q, k, v])
+    trans = lambda l: np.transpose(l, (0, 3, 1, 2, 4, 5, 6))
+    q, k, v = map(trans, [q, k, v])
+    new_height = height + -height % query_shape[0]
+    new_width = width + -width % query_shape[1]
+    (queries, keys, values) = (q, k, v)
+    logits = np.matmul(
+        np.reshape(queries, (batch_size, num_heads,
+                             num_h_blocks, num_w_blocks,
+                             query_shape[0]*query_shape[1], depth)),
+        np.transpose(
+            np.reshape(keys, (batch_size, num_heads, num_h_blocks, num_w_blocks,
+                              query_shape[0]*query_shape[1], depth)),
+            (0, 1, 2, 3, 5, 4)))
+    # now to do a softmax across the logits
+    att = np.exp(logits) / np.sum(np.exp(logits), axis=-1, keepdims=True)
+    att_output = np.matmul(att, np.reshape(
+        values, (batch_size, num_heads, num_h_blocks, num_w_blocks,
+                 query_shape[0]*query_shape[1], depth)))
+    att_output = np.reshape(att_output,
+                            (batch_size, num_heads, num_h_blocks, num_w_blocks,
+                             query_shape[0], query_shape[1], depth))
+    # putting the attention results back into the right place
+    out = np.zeros((batch_size, num_heads, new_height, new_width, depth))
+    for b in range(batch_size):
+      for h in range(num_heads):
+        for x in range(new_height):
+          for y in range(new_width):
+            h_block_index = x//query_shape[0]
+            w_block_index = y//query_shape[1]
+            inside_h_index = x%query_shape[0]
+            inside_w_index = y%query_shape[1]
+            out[b, h, x, y] = (
+                att_output[b, h, h_block_index, w_block_index, inside_h_index,
+                           inside_w_index])
+    out = np.transpose(out, (0, 2, 3, 1, 4))
+    out = np.reshape(out, (batch_size, new_height, new_width, total_depth))
+    out = out[:, :height, :width, :]
+
+    self.assertAllClose(res, out)
+
   def python_relative_att(self, q, k, v, batch, num_heads, height, width,
                           depth, height_key_relative_embeddings,
                           width_key_relative_embeddings,
