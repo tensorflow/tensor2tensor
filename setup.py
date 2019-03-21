@@ -57,7 +57,6 @@ setup(
         'sympy',
         'tensorflow-datasets',
         'tensorflow-probability',
-        'tf-agents',
         'tqdm',
     ],
     extras_require={
