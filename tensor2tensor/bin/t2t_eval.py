@@ -22,6 +22,7 @@ from __future__ import print_function
 from tensor2tensor.bin import t2t_trainer          # pylint: disable=unused-import
 from tensor2tensor.data_generators import problem  # pylint: disable=unused-import
 from tensor2tensor.utils import trainer_lib
+from tensor2tensor.utils import usr_dir
 import tensorflow as tf
 
 flags = tf.flags
@@ -31,6 +32,7 @@ FLAGS = flags.FLAGS
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
+  usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
   hparams = trainer_lib.create_hparams(
       FLAGS.hparams_set, FLAGS.hparams, data_dir=FLAGS.data_dir,
