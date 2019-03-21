@@ -2,7 +2,7 @@ sudo: required
 language: python
 cache: pip
 git:
-  depth: 1
+  depth: 3
   quiet: true
 services:
   - docker
