@@ -24,8 +24,15 @@ import numpy as np
 from tensor2tensor.layers import common_layers
 import tensorflow as tf
 
-from tensorflow.python.distribute import summary_op_util as distribute_summary_op_util  # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.ops import summary_op_util  # pylint: disable=g-direct-tensorflow-import
+
+# After tf-nightly 1.14.1.dev20190314 summary_op_util.skip_summary was extracted
+# out to the distribute module.
+try:
+  from tensorflow.python.distribute import summary_op_util as distribute_summary_op_util  # pylint: disable=g-direct-tensorflow-import,g-import-not-at-top
+except ImportError:
+  distribute_summary_op_util = summary_op_util
+
 
 tfl = tf.layers
 tfcl = tf.contrib.layers
