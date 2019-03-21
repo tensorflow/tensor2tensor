@@ -94,7 +94,10 @@ def _encode(inputs, encoder, add_eos=True):
 
 
 def _decode(output_ids, output_decoder):
-  return output_decoder.decode(output_ids, strip_extraneous=True)
+  if len(output_ids.shape) > 1:
+    return [output_decoder.decode(o, strip_extraneous=True) for o in output_ids]
+  else:
+    return output_decoder.decode(output_ids, strip_extraneous=True)
 
 
 
