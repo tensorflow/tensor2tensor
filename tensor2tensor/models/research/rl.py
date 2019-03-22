@@ -248,7 +248,7 @@ def make_simulated_env_kwargs(real_env, hparams, **extra_kwargs):
       (hparams, ["frame_stack_size", "intrinsic_reward_scale"])
   ]
   kwargs = {
-      attr: getattr(obj, attr)
+      attr: getattr(obj, attr)  # pylint: disable=g-complex-comprehension
       for (obj, attrs) in objs_and_attrs for attr in attrs
   }
   kwargs["model_name"] = hparams.generative_model

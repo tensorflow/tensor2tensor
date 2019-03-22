@@ -44,6 +44,7 @@ Frame = collections.namedtuple(
 )
 
 
+# pylint: disable=g-complex-comprehension
 class Observation(object):
   """Encoded observations.
 

@@ -26,6 +26,7 @@ import tensorflow as tf
 
 class StickyActionEnv(gym.Wrapper):
   """Based on openai/atari-reset implementation."""
+
   def __init__(self, env, p=0.25):
     gym.Wrapper.__init__(self, env)
     self.p = p
@@ -105,6 +106,12 @@ def remove_time_limit_wrapper(env):
 
   Removes TimeLimit Wrapper from top level if exists, throws error if any other
   TimeLimit Wrapper is present in stack.
+
+  Args:
+    env: environment
+
+  Returns:
+    the env with removed time limit wrapper.
   """
   if isinstance(env, gym.wrappers.TimeLimit):
     env = env.env
