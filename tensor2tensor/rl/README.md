@@ -9,11 +9,15 @@ Proximal Policy Optimization (PPO). See `trainer_model_based.py`.
 As a baseline, you can also run PPO without the model using
 `trainer_model_free.py`.
 
-To use this package, you need to install the Atari dependencies for OpenAI Gym:
+To use this package, we recommend Tensorflow 1.13.1 and T2T version 1.13.1.
+You also need to install the Atari dependencies for OpenAI Gym:
 
 ```
 pip install gym[atari]
 ```
+
+[This iPython notebook](https://colab.research.google.com/github/tensorflow/tensor2tensor/blob/master/tensor2tensor/notebooks/hello_t2t-rl.ipynb) provides a quick start if you want to check out the videos.
+
 
 ## Play using a pre-trained policy
 
@@ -96,7 +100,7 @@ To train a stochastic discrete model (it will require more time and memory):
 
 ```
 python -m tensor2tensor.rl.trainer_model_based \
-  --loop_hparams_set=rlmb_long_stochastic_discrete \
+  --loop_hparams_set=rlmb_base_stochastic_discrete \
   --loop_hparams=game=pong,epochs=1,ppo_epochs_num=0 \
   --output_dir=~/t2t_train/mb_sd_pong_random
 ```
@@ -120,7 +124,7 @@ gsutil -m cp -r \
   $OUTPUT_DIR/
 python -m tensor2tensor.rl.player \
   --wm_dir=$OUTPUT_DIR/world_model \
-  --loop_hparams_set=rlmb_long_stochastic_discrete \
+  --loop_hparams_set=rlmb_base_stochastic_discrete \
   --loop_hparams=game=pong \
   --game_from_filenames=False \
   --zoom=3 \
@@ -148,7 +152,7 @@ gsutil -m cp -r \
   gs://tensor2tensor-checkpoints/modelrl_experiments/train_sd/142/world_model \
   $OUTPUT_DIR/
 python -m tensor2tensor.rl.trainer_model_based \
-  --loop_hparams_set=rlmb_long_stochastic_discrete \
+  --loop_hparams_set=rlmb_base_stochastic_discrete \
   --loop_hparams=game=pong,epochs=1,model_train_steps=0 \
   --eval_world_model=False \
   --output_dir=$OUTPUT_DIR
@@ -167,7 +171,7 @@ make it faster. To do full evaluation after training, run:
 
 ```
 python -m tensor2tensor.rl.evaluator \
-  --loop_hparams_set=rlmb_long_stochastic_discrete \
+  --loop_hparams_set=rlmb_base_stochastic_discrete \
   --hparams=game=pong \
   --policy_dir=$OUTPUT_DIR \
   --eval_metrics_dir=$OUTPUT_DIR/full_eval_metrics
@@ -194,7 +198,7 @@ To train a stochastic discrete model:
 
 ```
 python -m tensor2tensor.rl.trainer_model_based \
-  --loop_hparams_set=rlmb_long_stochastic_discrete \
+  --loop_hparams_set=rlmb_base_stochastic_discrete \
   --loop_hparams=game=pong \
   --output_dir ~/t2t_train/mb_sd_pong
 ```
