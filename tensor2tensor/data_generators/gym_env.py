@@ -592,7 +592,7 @@ class T2TGymEnv(T2TEnv):
   def __init__(self, base_env_name=None, batch_size=1, grayscale=False,
                resize_height_factor=2, resize_width_factor=2,
                rl_env_max_episode_steps=-1, max_num_noops=0,
-               maxskip_envs=False,
+               maxskip_envs=False, sticky_actions=False,
                should_derive_observation_space=True,
                **kwargs):
     if base_env_name is None:
@@ -606,6 +606,7 @@ class T2TGymEnv(T2TEnv):
     self.resize_width_factor = resize_width_factor
     self.rl_env_max_episode_steps = rl_env_max_episode_steps
     self.maxskip_envs = maxskip_envs
+    self.sticky_actions = sticky_actions
     self._initial_state = None
     self._initial_frames = None
     if not self.name:
@@ -615,7 +616,7 @@ class T2TGymEnv(T2TEnv):
     self._envs = [
         gym_utils.make_gym_env(
             base_env_name, rl_env_max_episode_steps=rl_env_max_episode_steps,
-            maxskip_env=maxskip_envs)
+            maxskip_env=maxskip_envs, sticky_actions=sticky_actions)
         for _ in range(self.batch_size)]
 
     # max_num_noops works only with atari envs.
