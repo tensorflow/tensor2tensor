@@ -95,6 +95,12 @@ flags.DEFINE_integer(
     "random_starts_step_limit", 10000,
     "Number of frames to choose from for random starts of the simulated env."
 )
+flags.DEFINE_bool(
+    "quick", False,
+    "Whether to skip the grid of evaluation configs and just pick the first "
+    "one. Otherwise the evaluator runs on many different configs and that "
+    "takes time."
+)
 
 # Unused flags needed to pass for multi-run infrastructure.
 flags.DEFINE_bool("autotune", False, "Unused here.")
@@ -404,7 +410,7 @@ def evaluate(
     loop_hparams, planner_hparams, policy_dir, model_dir, eval_metrics_dir,
     agent_type, eval_mode, eval_with_learner, log_every_steps, debug_video_path,
     num_debug_videos=1, random_starts_step_limit=None,
-    report_fn=None, report_metric=None
+    report_fn=None, report_metric=None, quick=False
 ):
   """Evaluate."""
   if eval_with_learner:
@@ -435,7 +441,7 @@ def evaluate(
           random_starts_step_limit=random_starts_step_limit
       )
     eval_metrics = rl_utils.evaluate_all_configs(
-        loop_hparams, policy_dir, **kwargs
+        loop_hparams, policy_dir, quick=quick, **kwargs
     )
   else:
     eval_metrics = evaluate_world_model(
@@ -517,6 +523,7 @@ def main(_):
       debug_video_path=debug_video_path,
       num_debug_videos=FLAGS.num_debug_videos,
       random_starts_step_limit=FLAGS.random_starts_step_limit,
+      quick=FLAGS.quick,
   )
 
 

@@ -28,12 +28,14 @@ python -m tensor2tensor.rl.evaluator \
   --policy_dir=gs://tensor2tensor-checkpoints/modelrl_experiments/train_sd/142/policy \
   --eval_metrics_dir=$OUTPUT_DIR \
   --debug_video_path=$OUTPUT_DIR \
-  --num_debug_videos=4
+  --num_debug_videos=4 \
+  --quick
 ```
 
-By default, it will run a grid of different evaluation settings (sampling
-temperatures and whether to do initial rollouts). You can override those
-settings:
+The above command will run a single evaluation setting to get the results fast.
+We usually run a grid of different settings (sampling temperatures and whether
+to do initial no-ops). To do that, remove the `--quick` flag. You can override
+the evaluation settings:
 
 ```
   --loop_hparams=game=pong,eval_max_num_noops=0,eval_sampling_temps=[0.0]
@@ -45,12 +47,10 @@ TensorBoard metrics are exported to the `eval_metrics_dir`. To view them, run:
 tensorboard --logdir=~/t2t_train/pong_pretrained
 ```
 
-Description of player controls and flags can be found in `tensor2tensor/rl/player.py`.
-
 
 ## Train your policy (model-free training)
 
-Training model-free on Pong:
+Training model-free on Pong (it takes a few hours):
 
 ```
 python -m tensor2tensor.rl.trainer_model_free \

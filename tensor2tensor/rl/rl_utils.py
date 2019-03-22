@@ -98,7 +98,8 @@ def evaluate_single_config(
 
 
 def evaluate_all_configs(
-    hparams, agent_model_dir, eval_fn=_eval_fn_with_learner
+    hparams, agent_model_dir, eval_fn=_eval_fn_with_learner,
+    quick=False
 ):
   """Evaluate the agent with multiple eval configurations."""
   metrics = {}
@@ -113,6 +114,10 @@ def evaluate_all_configs(
       for (score, clipped) in zip(scores, (True, False)):
         metric_name = get_metric_name(sampling_temp, max_num_noops, clipped)
         metrics[metric_name] = score
+      if quick:
+          break
+    if quick:
+        break
 
   return metrics
 
