@@ -18,7 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from functools import partial
+from functools import partial  # pylint: disable=g-importing-member
 
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_image_attention as cia
@@ -27,7 +27,7 @@ from tensor2tensor.layers import common_layers
 import tensorflow as tf
 import tensorflow_probability as tfp
 
-from tensorflow.python.training import moving_averages
+from tensorflow.python.training import moving_averages  # pylint: disable=g-direct-tensorflow-import
 
 
 def project_hidden(x, projection_tensors, hidden_size, num_blocks):
@@ -789,8 +789,8 @@ def discrete_bottleneck(inputs,
 
 
 def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
-                           target_bits=None, bits_at_once=8, temperature=1.0,
-                           dropout=0.1):
+                           target_bits=None, extra_inputs=None,
+                           bits_at_once=8, temperature=1.0, dropout=0.1):
   """Predict a sequence of bits (a latent) with LSTM, both training and infer.
 
   Given a tensor on which the predictions are based (prediction_source), we use
@@ -807,6 +807,8 @@ def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
     total_num_bits: python integer, how many bits in total to predict.
     target_bits: a tensor of shape [batch_size, total_num_bits] used during
       training as the target to predict; each element should be -1 or 1.
+    extra_inputs: a Tensor [batch_size, total_num_bits // bits_at_once, d]
+      of additional inputs, passed as additional LSTM inputs.
     bits_at_once: pytho integer, how many bits to predict at once.
     temperature: python float, temperature used for sampling during inference.
     dropout: float, the amount of dropout to aply during training (0.1 default).
@@ -824,7 +826,7 @@ def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
     discrete_embed = tf.layers.Dense(state_size, name="discrete_embed")
     batch_size = common_layers.shape_list(prediction_source)[0]
     layer_pred = tf.layers.flatten(prediction_source)
-    prediction = tf.layers.dense(layer_pred, state_size, name="istate")
+    first_lstm_input = tf.layers.dense(layer_pred, state_size, name="istate")
     c_state = tf.layers.dense(layer_pred, state_size, name="cstate")
     m_state = tf.layers.dense(layer_pred, state_size, name="mstate")
     state = (c_state, m_state)
@@ -832,13 +834,16 @@ def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
     # Prediction mode if no targets are given.
     if target_bits is None:
       outputs = []
+      lstm_input = first_lstm_input
       for i in range(total_num_bits // bits_at_once):
-        output, state = lstm_cell(prediction, state)
+        if extra_inputs is not None:
+          lstm_input = tf.concat([lstm_input, extra_inputs[:, i, :]], axis=1)
+        output, state = lstm_cell(lstm_input, state)
         discrete_logits = discrete_predict(output)
         discrete_samples = common_layers.sample_with_temperature(
             discrete_logits, temperature)
         outputs.append(tf.expand_dims(discrete_samples, axis=1))
-        prediction = discrete_embed(tf.one_hot(discrete_samples, 256))
+        lstm_input = discrete_embed(tf.one_hot(discrete_samples, 256))
       outputs = tf.concat(outputs, axis=1)
       outputs = int_to_bit(outputs, bits_at_once)
       outputs = tf.reshape(outputs, [batch_size, total_num_bits])
@@ -846,25 +851,29 @@ def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
 
     # Training mode, calculating loss.
     assert total_num_bits % bits_at_once == 0
-    d_pred = tf.reshape(tf.maximum(tf.stop_gradient(target_bits), 0), [
+    target_bits = tf.reshape(tf.maximum(tf.stop_gradient(target_bits), 0), [
         batch_size, total_num_bits // bits_at_once, bits_at_once])
-    d_int = bit_to_int(d_pred, bits_at_once)
-    tf.summary.histogram("target_integers", tf.reshape(d_int, [-1]))
-    d_hot = tf.one_hot(d_int, 2**bits_at_once, axis=-1)
-    d_pred = discrete_embed(d_hot)
-    d_pred = tf.nn.dropout(d_pred, 1.0 - dropout)
-    pred = tf.concat([tf.expand_dims(prediction, axis=1), d_pred], axis=1)
+    target_ints = bit_to_int(target_bits, bits_at_once)
+    tf.summary.histogram("target_integers", tf.reshape(target_ints, [-1]))
+    target_hot = tf.one_hot(target_ints, 2**bits_at_once, axis=-1)
+    target_embedded = discrete_embed(target_hot)
+    target_embedded = tf.nn.dropout(target_embedded, 1.0 - dropout)
+    teacher_input = tf.concat(
+        [tf.expand_dims(first_lstm_input, axis=1), target_embedded], axis=1)
     outputs = []
     for i in range(total_num_bits // bits_at_once):
-      output, state = lstm_cell(pred[:, i, :], state)
+      lstm_input = teacher_input[:, i, :]
+      if extra_inputs is not None:
+        lstm_input = tf.concat([lstm_input, extra_inputs[:, i, :]], axis=1)
+      output, state = lstm_cell(lstm_input, state)
       outputs.append(tf.expand_dims(output, axis=1))
     outputs = tf.concat(outputs, axis=1)
     outputs = tf.nn.dropout(outputs, 1.0 - dropout)
     d_int_pred = discrete_predict(outputs)
     pred_loss = tf.losses.sparse_softmax_cross_entropy(
-        logits=d_int_pred, labels=d_int)
+        logits=d_int_pred, labels=target_ints)
     pred_loss = tf.reduce_mean(pred_loss)
-    return target_bits, pred_loss
+    return d_int_pred, pred_loss
 
 
 # New API for discretization bottlenecks:
@@ -986,7 +995,7 @@ def vq_body(x,
         return beta * e_loss
 
   # Loss, also do update if requested.
-  if do_update is True:
+  if do_update:
     loss = loss_with_update()
   else:
     loss = tf.cond(do_update, loss_with_update, lambda: beta * e_loss)
