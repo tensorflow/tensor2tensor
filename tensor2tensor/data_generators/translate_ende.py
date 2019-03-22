@@ -49,7 +49,7 @@ _ENDE_EVAL_DATASETS = [
 ]
 _ENDE_PARACRAWL_DATASETS = [
     [
-        "https://s3.amazonaws.com/web-language-models/paracrawl/release3/en-de.bicleaner07.tmx.gz",  # pylint: disable=line-too-long
+        "https://s3.amazonaws.com/web-language-models/paracrawl/release4/en-de.bicleaner07.tmx.gz",  # pylint: disable=line-too-long
         ("tmx", "en-de.bicleaner07.tmx.gz")
     ]
 ]
@@ -76,6 +76,7 @@ class TranslateEndeWmt8k(translate.TranslateProblem):
 
 @registry.register_problem
 class TranslateEndeWmt32k(TranslateEndeWmt8k):
+  """En-de translation trained on WMT corpus."""
 
   @property
   def approx_vocab_size(self):
@@ -84,6 +85,7 @@ class TranslateEndeWmt32k(TranslateEndeWmt8k):
 
 @registry.register_problem
 class TranslateEndeWmtClean32k(TranslateEndeWmt32k):
+  """En-de translation trained on WMT with further cleaning."""
 
   @property
   def use_vocab_from_other_problem(self):
@@ -95,8 +97,8 @@ class TranslateEndeWmtClean32k(TranslateEndeWmt32k):
 
 
 @registry.register_problem
-class TranslateEndeParacrawl32k(translate.TranslateProblem):
-  """Problem spec for Paracrawl en-de translation."""
+class TranslateEndePc32k(translate.TranslateProblem):
+  """En-de translation trained on Paracrawl (bicleaner corpus)."""
 
   @property
   def use_vocab_from_other_problem(self):
@@ -115,8 +117,8 @@ class TranslateEndeParacrawl32k(translate.TranslateProblem):
 
 
 @registry.register_problem
-class TranslateEndeParacrawlClean32k(TranslateEndeParacrawl32k):
-  """Paracrawl en-de Bicleaner corpus, with additional cleaning."""
+class TranslateEndePcClean32k(TranslateEndePc32k):
+  """En-de translation trained on Paracrawl with further cleaning."""
 
   @property
   def datatypes_to_clean(self):
@@ -124,8 +126,8 @@ class TranslateEndeParacrawlClean32k(TranslateEndeParacrawl32k):
 
 
 @registry.register_problem
-class TranslateEndeWmtParacrawlBicleaner32k(TranslateEndeWmt32k):
-  """WMT en-de corpus with extra data from Paracrawl, cleaned with Bicleaner."""
+class TranslateEndeWmtPc32k(TranslateEndeWmt32k):
+  """En-de translation trained on WMT plus Paracrawl."""
 
   @property
   def use_vocab_from_other_problem(self):
@@ -137,7 +139,8 @@ class TranslateEndeWmtParacrawlBicleaner32k(TranslateEndeWmt32k):
 
 
 @registry.register_problem
-class TranslateEndeWmtCleanParacrawl32k(TranslateEndeWmtParacrawlBicleaner32k):
+class TranslateEndeWmtCleanPc32k(TranslateEndeWmtPc32k):
+  """En-de translation trained on cleaned WMT plus Paracrawl."""
 
   @property
   def datatypes_to_clean(self):
@@ -145,7 +148,8 @@ class TranslateEndeWmtCleanParacrawl32k(TranslateEndeWmtParacrawlBicleaner32k):
 
 
 @registry.register_problem
-class TranslateEndeWmtParacrawlClean32k(TranslateEndeWmtParacrawlBicleaner32k):
+class TranslateEndeWmtPcClean32k(TranslateEndeWmtPc32k):
+  """En-de translation trained on WMT plus cleaned Paracrawl."""
 
   @property
   def datatypes_to_clean(self):
@@ -153,7 +157,8 @@ class TranslateEndeWmtParacrawlClean32k(TranslateEndeWmtParacrawlBicleaner32k):
 
 
 @registry.register_problem
-class TranslateEndeWmtParacrawlAllClean32k(TranslateEndeWmtParacrawlClean32k):
+class TranslateEndeWmtCleanPcClean32k(TranslateEndeWmtPcClean32k):
+  """En-de translation trained on cleaned WMT plus cleaned Paracrawl."""
 
   @property
   def datatypes_to_clean(self):
