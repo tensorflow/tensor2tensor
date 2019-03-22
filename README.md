@@ -473,5 +473,6 @@ T2T](https://research.googleblog.com/2017/06/accelerating-deep-learning-research
 * [Universal Transformers](https://arxiv.org/abs/1807.03819)
 * [Attending to Mathematical Language with Transformers](https://arxiv.org/abs/1812.02825)
 * [The Evolved Transformer](https://arxiv.org/abs/1901.11117)
+* [Model-Based Reinforcement Learning for Atari](https://arxiv.org/abs/1903.00374)
 
 *Note: This is not an official Google product.*

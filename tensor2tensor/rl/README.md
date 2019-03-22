@@ -1,13 +1,9 @@
 # Tensor2Tensor Model-Based Reinforcement Learning.
 
-The `rl` package provides the ability to run model-based reinforcement learning
-algorithms using models trained with Tensor2Tensor.
+The `rl` package allows to run reinforcement learning algorithms,
+both model-free (e.g., [Proximal Policy Optimization](https://arxiv.org/abs/1707.06347), train with `trainer_model_free.py`) and model-based ones ([SimPLe](https://arxiv.org/abs/1903.00374), train with `trainer_model_based.py`).
 
-Currently this entails alternating model training and agent training using
-Proximal Policy Optimization (PPO). See `trainer_model_based.py`.
-
-As a baseline, you can also run PPO without the model using
-`trainer_model_free.py`.
+You should be able to reproduce the [Model-Based Reinforcement Learning for Atari](https://arxiv.org/abs/1903.00374) results. [These videos](https://sites.google.com/corp/view/modelbasedrlatari/home) show what to expect from the final models.
 
 To use this package, we recommend Tensorflow 1.13.1 and T2T version 1.13.1.
 You also need to install the Atari dependencies for OpenAI Gym:
