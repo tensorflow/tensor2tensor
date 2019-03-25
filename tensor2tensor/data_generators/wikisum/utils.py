@@ -120,7 +120,7 @@ def wet_records(wet_filepath):
   if wet_filepath.endswith('.gz'):
     fopen = gzip.open
   else:
-    fopen = tf.gfile.FastGFile
+    fopen = tf.gfile.GFile
 
   with fopen(wet_filepath) as f:
     for record in wet_records_from_file_obj(f):
