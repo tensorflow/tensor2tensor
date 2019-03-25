@@ -2120,7 +2120,7 @@ def dot_product_unmasked_self_attention_relative_2d(
     # This calculation only works for self attention.
     # q, k and v must therefore have the same shape.
     q.get_shape().assert_is_compatible_with(k.get_shape())
-    q.get_shape().assert_is_compatible_with(v.get_shape())
+    q.get_shape()[:-1].assert_is_compatible_with(v.get_shape()[:-1])
 
     (height, width) = (common_layers.shape_list(q)[2],
                        common_layers.shape_list(q)[3])
