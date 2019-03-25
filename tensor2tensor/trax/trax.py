@@ -226,13 +226,34 @@ def epochs(steps=None, epoch_steps=1):
 
 def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun):
   """Get jit-ed update function for loss, optimizer, learning rate function."""
-  @jax.jit
-  def update(i, opt_state, batch):
+  @functools.partial(jax.pmap, axis_name="batch")
+  def mapped_update(i, opt_state, batch):
     _, opt_update = optimizer(lr_fun)
     params = jax_opt.get_params(opt_state)
-    return opt_update(i, jax.grad(loss_fun)(
-        params, batch, predict_fun), opt_state)
+    grads = jax.grad(loss_fun)(params, batch, predict_fun)
+    grads = jax.tree_util.tree_map(lambda g: jax.lax.psum(g, "batch"), grads)
+    return opt_update(i, grads, opt_state)
+
+  def update(i, opt_state, batch):
+    return mapped_update(jax.replicate(i), opt_state, batch)
+
   return update
+
+
+def reshape_by_device(train_data, num_devices):
+  """Reshape the train_data into a shape [num_devices, ...]."""
+  x, y = train_data
+  x_shape, y_shape = list(x.shape), list(y.shape)
+  assert x_shape[0] == y_shape[0]  # Same batch size.
+  batch_size = x_shape[0]
+  batch_size_per_device = batch_size // num_devices
+  # We require that num_devices divides batch_size evenly.
+  assert batch_size_per_device * num_devices == batch_size
+  # New shapes.
+  new_shape_prefix = [num_devices, batch_size_per_device]
+  x = np.reshape(x, new_shape_prefix + x_shape[1:])
+  y = np.reshape(y, new_shape_prefix + y_shape[1:])
+  return x, y
 
 
 @gin.configurable(blacklist=["output_dir"])
@@ -244,6 +265,7 @@ def train(output_dir,
           train_steps=1000,
           eval_steps=10,
           eval_frequency=100,
+          num_devices=None,
           run_debug_step=False):
   """Train the model on the inputs.
 
@@ -260,12 +282,14 @@ def train(output_dir,
     eval_steps: int, num of steps per evaluation. If None or 0, eval disabled.
     eval_frequency: int, how often to run evaluation (every eval_frequency
       steps). If None or 0, eval disabled.
+    num_devices: how many devices to use (if None, default, use all available)
     run_debug_step: bool, if True, will run the model and loss without @jit for
       one step.
 
   Returns:
     trax.State
   """
+  num_devices = num_devices or jax.lib.xla_bridge.device_count()
   rng = random.PRNGKey(0)
   gfile.makedirs(output_dir)
   # Create summary writers and history.
@@ -291,7 +315,7 @@ def train(output_dir,
   step = state.step or 0
   params_initializer = lambda: model_init([-1] + list(inputs.input_shape))[1]
   params = state.params or params_initializer()
-  opt_state = opt_init(params)
+  opt_state = jax.replicate(opt_init(params))
 
   # jit model_predict and update so they're fast
   jit_model_predict = jax.jit(model_predict)  # for evaluation
@@ -302,7 +326,7 @@ def train(output_dir,
   epoch_steps = itertools.chain([1,  # first epoch only 1 step
                                  eval_frequency - 1],
                                 itertools.repeat(eval_frequency))
-  step_log(step, "Starting training")
+  step_log(step, "Starting training using %d devices" % num_devices)
 
   # Non-compiled debug step helps find problems in models easier.
   if run_debug_step:
@@ -318,7 +342,8 @@ def train(output_dir,
 
     for _ in range(epoch_steps):
       # Train
-      opt_state = jit_update_fun(step, opt_state, next(train_stream))
+      next_train_batch = reshape_by_device(next(train_stream), num_devices)
+      opt_state = jit_update_fun(step, opt_state, next_train_batch)
       step += 1
 
       # LR log
@@ -335,7 +360,7 @@ def train(output_dir,
                       epoch_steps / epoch_time, step=step)
 
     # Evaluate
-    params = jax_opt.get_params(opt_state)
+    params = jax_opt.get_params(jax.unreplicate(opt_state))
     evaluate_train_and_eval(
         step=step,
         inputs=inputs,

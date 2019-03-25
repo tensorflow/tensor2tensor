@@ -15,7 +15,7 @@ inputs.dataset_name = 't2t_languagemodel_lm1b32k'
 
 # Parameters for mask:
 # ==============================================================================
-mask.mask_id = 0
+masked_mean.mask_id = 0
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================
