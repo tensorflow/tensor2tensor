@@ -111,6 +111,7 @@ def _rlmb_base():
       # This is only used for world-model evaluation currently, PolicyLearner
       # uses algorithm specific hparams to set this during training.
       simulated_rollout_length=50,
+      wm_policy_param_sharing=False,
 
       # To be overridden.
       base_algo="",
@@ -145,7 +146,6 @@ def rlmb_ppo_base():
       # Number of simulated environments to train on simultaneously.
       simulated_batch_size=16,
       eval_batch_size=32,
-      wm_policy_param_sharing=False,
 
       # Unused; number of PPO epochs is calculated from the real frame limit.
       real_ppo_epochs_num=0,
@@ -194,13 +194,17 @@ def rlmb_dqn_base():
       base_algo="dqn",
       base_algo_params="dqn_original_params",
       real_batch_size=1,
-      simulated_batch_size=1,
+      simulated_batch_size=16,
       dqn_agent_generates_trainable_dones=False,
       eval_batch_size=1,
       # Must be equal to dqn_time_limit for now
       simulated_rollout_length=simulated_rollout_length,
       dqn_time_limit=simulated_rollout_length,
       simulation_flip_first_random_for_beginning=False,
+      dqn_eval_episodes_num=3,
+
+      # TODO(kc): only for model-free compatibility, remove this
+      epochs_num=-1,
   )
   update_hparams(hparams, dqn_params)
   return hparams

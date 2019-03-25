@@ -28,15 +28,17 @@ FLAGS = tf.flags.FLAGS
 
 class TrainTest(tf.test.TestCase):
 
-  def test_train_pong(self):
-    hparams = registry.hparams("rlmf_original")
-    hparams.batch_size = 2
-    hparams.eval_sampling_temps = [0.0, 1.0]
-    hparams.add_hparam("ppo_epochs_num", 2)
-    hparams.add_hparam("ppo_epoch_length", 3)
+  def _test_hparams_set(self, hparams_set):
+    hparams = registry.hparams(hparams_set)
     FLAGS.output_dir = tf.test.get_temp_dir()
     trainer_model_free.train(hparams, FLAGS.output_dir,
                              env_problem_name=None)
+
+  def test_train_pong(self):
+    self._test_hparams_set("rlmf_tiny")
+
+  def test_train_pong_dqn(self):
+    self._test_hparams_set("rlmf_dqn_tiny")
 
 
 if __name__ == "__main__":
