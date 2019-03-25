@@ -475,4 +475,4 @@ T2T](https://research.googleblog.com/2017/06/accelerating-deep-learning-research
 * [The Evolved Transformer](https://arxiv.org/abs/1901.11117)
 * [Model-Based Reinforcement Learning for Atari](https://arxiv.org/abs/1903.00374)
 
-*Note: This is not an official Google product.*
+*NOTE: This is not an official Google product.*
