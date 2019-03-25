@@ -2642,3 +2642,24 @@ def transformer_wikitext103_l4k_memory_v0():
   hparams.max_relative_position = 2 * hparams.split_targets_chunk_length
 
   return hparams
+
+
+@registry.register_hparams
+def transformer_wikitext103_l16k_memory_v0():
+  """HParams for training languagemodel_wikitext103_l16k with memory."""
+  hparams = transformer_wikitext103_l4k_memory_v0()
+
+  hparams.max_length = 16384
+  hparams.split_targets_chunk_length = 64
+  hparams.split_targets_max_chunks = int(
+      hparams.max_length / hparams.split_targets_chunk_length)
+
+  # The hparams specify batch size *before* chunking, but we want to have a
+  # consistent 4K batch size *after* chunking to fully utilize the hardware.
+  target_tokens_per_batch = 4096
+  hparams.batch_size = int(target_tokens_per_batch * (
+      hparams.max_length / hparams.split_targets_chunk_length))
+
+  hparams.max_relative_position = 2 * hparams.split_targets_chunk_length
+
+  return hparams

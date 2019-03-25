@@ -191,3 +191,13 @@ class LanguagemodelWikitext103L4k(LanguagemodelWikitext103):
   def sequence_length(self):
     """Length of each example (in tokens)."""
     return 4096
+
+
+@registry.register_problem
+class LanguagemodelWikitext103L16k(LanguagemodelWikitext103L4k):
+  """Wikitext-103, token-level, with examples up to 16,384 tokens long."""
+
+  @property
+  def sequence_length(self):
+    """Length of each example (in tokens)."""
+    return 16384
