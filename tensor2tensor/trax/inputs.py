@@ -191,10 +191,12 @@ def batch_fun(dataset, training, shapes, target_names,
     if variable_target_shapes:
       bucket_boundaries = [bucket_length // 4, bucket_length // 2,
                            bucket_length, bucket_length * 2,
-                           bucket_length * 4, bucket_length * 8]
+                           bucket_length * 4, bucket_length * 8,
+                           bucket_length * 16]
       bucket_batch_sizes = [cur_batch_size * 4, cur_batch_size * 2,
                             cur_batch_size, cur_batch_size // 2,
-                            cur_batch_size // 4, cur_batch_size // 8, 1]
+                            cur_batch_size // 4, cur_batch_size // 8,
+                            max(1, cur_batch_size // 16), 1]
       buckets = (bucket_boundaries, bucket_batch_sizes)
 
   if buckets:

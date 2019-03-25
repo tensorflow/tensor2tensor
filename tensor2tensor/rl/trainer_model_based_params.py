@@ -89,6 +89,7 @@ def _rlmb_base():
       eval_rl_env_max_episode_steps=1000,
 
       game="pong",
+      sticky_actions=False,
       # If set, use this as the gym env name, instead of changing game mode etc.
       rl_env_name="",
       # Controls whether we should derive observation space, do some

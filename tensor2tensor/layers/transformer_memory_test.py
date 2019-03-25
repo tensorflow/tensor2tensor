@@ -26,86 +26,77 @@ import tensorflow as tf
 
 class TransformerMemoryTest(parameterized.TestCase, tf.test.TestCase):
 
-  def testInitialize(self):
+  def testRead(self):
     batch_size = 2
-    feature_dim = 3
+    key_depth = 3
+    val_depth = 5
     memory_size = 4
+    window_size = 6
+    x_depth = 10
     memory = transformer_memory.TransformerMemory(
-        batch_size, feature_dim, memory_size)
-    segment = tf.constant([[[1., 2., 3.], [1., 1., 1.],
-                            [3., 2., 1.], [2., 2., 2.]],
-                           [[3., 3., 3.], [1., 2., 3.],
-                            [3., 2., 1.], [2., 2., 2.]]])
-    update_op = memory.update(segment)
-    mem_vals, mem_times, mem_len_so_far = memory.get()
+        batch_size, key_depth, val_depth, memory_size)
+    x = tf.random_uniform([batch_size, window_size, x_depth], minval=1.0)
+    vals = tf.random_uniform([batch_size, memory_size, val_depth], minval=1.0)
+    logits = tf.random_uniform([batch_size, memory_size], minval=1.0)
+    update_op = memory.set(vals, logits)
+    with tf.control_dependencies([update_op]):
+      logits, retrieved_values = memory.read(x)
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())
-      session.run(update_op)
-      vals, times, length_so_far = session.run([
-          mem_vals, mem_times, mem_len_so_far])
-    self.assertAllEqual([[[1., 2., 3.], [1., 1., 1.],
-                          [3., 2., 1.], [2., 2., 2.]],
-                         [[3., 3., 3.], [1., 2., 3.],
-                          [3., 2., 1.], [2., 2., 2.]]], vals)
-    self.assertAllEqual([[1., 1., 1., 1.], [1., 1., 1., 1.]], times)
-    self.assertAllEqual([4, 4], length_so_far)
+      logits_values, values = session.run([logits, retrieved_values])
+    self.assertAllEqual([batch_size, window_size, memory_size],
+                        logits_values.shape)
+    self.assertAllEqual([batch_size, window_size, val_depth], values.shape)
 
-  def testUpdate(self):
+  def testWrite(self):
     batch_size = 2
-    feature_dim = 3
+    key_depth = 3
+    val_depth = 5
     memory_size = 4
+    window_size = 6
+    x_depth = 10
     memory = transformer_memory.TransformerMemory(
-        batch_size, feature_dim, memory_size)
-    segment = tf.constant([[[1., 2., 3.], [2., 2., 2.],
-                            [3., 2., 1.], [2., 2., 2.]],
-                           [[2., 2., 2.], [1., 2., 3.],
-                            [3., 2., 1.], [2., 2., 2.]]])
-    init_op = memory.set(segment, [[1., 2., 3., 4.], [2., 1., 5., 1.]],
-                         [10, 9])
-    new_segment = tf.constant(
-        [[[1., 2., 3.], [3., 2., 1.],
-          [2., 2., 2.], [2., 2., 2.]],
-         [[2., 2., 2.], [1., 2., 3.],
-          [3., 2., 1.], [2., 2., 2.]]])
-    update_op = memory.update(new_segment)
-    mem_vals, mem_times, mem_len_so_far = memory.get()
+        batch_size, key_depth, val_depth, memory_size)
+    x = tf.random_uniform([batch_size, window_size, x_depth], minval=1.0)
+    vals = tf.random_uniform([batch_size, memory_size, val_depth], minval=1.0)
+    logits = tf.random_uniform([batch_size, memory_size], minval=1.0)
+    update_op = memory.set(vals, logits)
+    with tf.control_dependencies([update_op]):
+      logits, _ = memory.read(x)
+      write_op = memory.write(x, logits)
+    mem_vals, mem_logits = memory.get()
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())
-      session.run(init_op)
-      session.run(update_op)
-      vals, times, length_so_far = session.run([
-          mem_vals, mem_times, mem_len_so_far])
-      print(vals, times, length_so_far)
-    self.assertAllEqual([2, 4, 3], vals.shape)
-    self.assertAllEqual([2, 4], times.shape)
-    self.assertAllEqual([14, 13], length_so_far)
+      session.run(write_op)
+      updated_vals, updated_logits = session.run([mem_vals, mem_logits])
+    self.assertAllEqual([batch_size, memory_size, val_depth],
+                        updated_vals.shape)
+    self.assertAllEqual([batch_size, memory_size], updated_logits.shape)
 
   def testReset(self):
     batch_size = 2
-    feature_dim = 3
+    key_depth = 3
+    val_depth = 5
     memory_size = 4
     memory = transformer_memory.TransformerMemory(
-        batch_size, feature_dim, memory_size)
-    segment = tf.constant([[[1., 2., 3.], [1., 1., 1.],
-                            [3., 2., 1.], [2., 2., 2.]],
-                           [[3., 3., 3.], [1., 2., 3.],
-                            [3., 2., 1.], [2., 2., 2.]]])
-    update_op = memory.set(segment, [[1., 2., 3., 4.], [2., 1., 5., 1.]],
-                           [10, 9])
+        batch_size, key_depth, val_depth, memory_size)
+    vals = tf.random_uniform([batch_size, memory_size, val_depth], minval=1.0)
+    logits = tf.random_uniform([batch_size, memory_size], minval=1.0)
+    update_op = memory.set(vals, logits)
     reset_op = memory.reset([1])
-    mem_vals, mem_times, mem_len_so_far = memory.get()
+    mem_vals, mem_logits = memory.get()
+    assert_op1 = tf.assert_equal(mem_vals[0], vals[0])
+    assert_op2 = tf.assert_equal(mem_logits[0], logits[0])
+    with tf.control_dependencies([assert_op1, assert_op2]):
+      all_zero1 = tf.reduce_sum(tf.abs(mem_vals[1]))
+      all_zero2 = tf.reduce_sum(tf.abs(mem_logits[1]))
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())
       session.run(update_op)
       session.run(reset_op)
-      vals, times, length_so_far = session.run([
-          mem_vals, mem_times, mem_len_so_far])
-    self.assertAllEqual([[[1., 2., 3.], [1., 1., 1.],
-                          [3., 2., 1.], [2., 2., 2.]],
-                         [[0., 0., 0.], [0., 0., 0.],
-                          [0., 0., 0.], [0., 0., 0.]]], vals)
-    self.assertAllEqual([[1., 2., 3., 4.], [0., 0., 0., 0.]], times)
-    self.assertAllEqual([10, 0], length_so_far)
+      zero1, zero2 = session.run([all_zero1, all_zero2])
+    self.assertAllEqual(0, zero1)
+    self.assertAllEqual(0, zero2)
 
 if __name__ == "__main__":
   tf.test.main()

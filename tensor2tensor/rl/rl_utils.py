@@ -307,7 +307,9 @@ def setup_env(hparams,
       resize_height_factor=hparams.resize_height_factor,
       rl_env_max_episode_steps=rl_env_max_episode_steps,
       max_num_noops=max_num_noops,
-      maxskip_envs=maxskip_envs)
+      maxskip_envs=maxskip_envs,
+      sticky_actions=hparams.sticky_actions
+  )
   return env
 
 
@@ -414,9 +416,8 @@ def augment_observation(
       (1, 15), "f:{:3}".format(int(frame_index)),
       fill=(255, 0, 0)
   )
-  header = np.asarray(img)
+  header = np.copy(np.asarray(img))
   del img
-  header.setflags(write=1)
   if bar_color is not None:
     header[0, :, :] = bar_color
   return np.concatenate([header, observation], axis=0)

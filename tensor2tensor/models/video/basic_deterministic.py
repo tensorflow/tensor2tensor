@@ -22,6 +22,7 @@ from __future__ import print_function
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
+from tensor2tensor.layers import discretization
 from tensor2tensor.models.video import base
 from tensor2tensor.models.video import basic_deterministic_params  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
@@ -43,13 +44,16 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
 
   def middle_network(self, layer, internal_states):
     # Run a stack of convolutions.
+    activation_fn = common_layers.belu
+    if self.hparams.activation_fn == "relu":
+      activation_fn = tf.nn.relu
     x = layer
     kernel1 = (3, 3)
     filters = common_layers.shape_list(x)[-1]
     for i in range(self.hparams.num_hidden_layers):
       with tf.variable_scope("layer%d" % i):
         y = tf.nn.dropout(x, 1.0 - self.hparams.residual_dropout)
-        y = tf.layers.conv2d(y, filters, kernel1, activation=common_layers.belu,
+        y = tf.layers.conv2d(y, filters, kernel1, activation=activation_fn,
                              strides=(1, 1), padding="SAME")
         if i == 0:
           x = y
@@ -70,6 +74,12 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     filters = hparams.hidden_size
     kernel2 = (4, 4)
     action = actions[-1]
+    activation_fn = common_layers.belu
+    if self.hparams.activation_fn == "relu":
+      activation_fn = tf.nn.relu
+
+    # Normalize frames.
+    frames = [common_layers.standardize_images(f) for f in frames]
 
     # Stack the inputs.
     if internal_states is not None and hparams.concat_internal_states:
@@ -102,7 +112,7 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
         if i < hparams.filter_double_steps:
           filters *= 2
         x = common_attention.add_timing_signal_nd(x)
-        x = tf.layers.conv2d(x, filters, kernel2, activation=common_layers.belu,
+        x = tf.layers.conv2d(x, filters, kernel2, activation=activation_fn,
                              strides=(2, 2), padding="SAME")
         x = common_layers.layer_norm(x)
 
@@ -121,7 +131,8 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
           x, action, "action_enc", hparams.action_injection)
 
     # Inject latent if present. Only for stochastic models.
-    x, extra_loss = self.inject_latent(x, frames, target_frame, action)
+    norm_target_frame = common_layers.standardize_images(target_frame)
+    x, extra_loss = self.inject_latent(x, frames, norm_target_frame, action)
 
     x_mid = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
     x, internal_states = self.middle_network(x, internal_states)
@@ -137,7 +148,7 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
         if i >= hparams.num_compress_steps - hparams.filter_double_steps:
           filters //= 2
         x = tf.layers.conv2d_transpose(
-            x, filters, kernel2, activation=common_layers.belu,
+            x, filters, kernel2, activation=activation_fn,
             strides=(2, 2), padding="SAME")
         y = layer_inputs[i]
         shape = common_layers.shape_list(y)
@@ -148,7 +159,64 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     # Cut down to original size.
     x = x[:, :inputs_shape[1], :inputs_shape[2], :]
     x_fin = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
-    if self.is_per_pixel_softmax:
+    if hparams.do_autoregressive_rnn:
+      # If enabled, we predict the target frame autoregregressively using rnns.
+      # To this end, the current prediciton is flattened into one long sequence
+      # of sub-pixels, and so is the target frame. Each sub-pixel (RGB value,
+      # from 0 to 255) is predicted with an RNN. To avoid doing as many steps
+      # as width * height * channels, we only use a number of pixels back,
+      # as many as hparams.autoregressive_rnn_lookback.
+      with tf.variable_scope("autoregressive_rnn"):
+        batch_size = common_layers.shape_list(frames[0])[0]
+        # Height, width, channels and lookback are the constants we need.
+        h, w = inputs_shape[1], inputs_shape[2]  # 105, 80 on Atari games
+        c = hparams.problem.num_channels
+        lookback = hparams.autoregressive_rnn_lookback
+        assert (h * w) % lookback == 0, "Number of pixels must divide lookback."
+        m = (h * w) // lookback  # Batch size multiplier for the RNN.
+        # These are logits that will be used as inputs to the RNN.
+        rnn_inputs = tf.layers.dense(x, c * 64, name="rnn_inputs")
+        # They are of shape [batch_size, h, w, c, 64], reshaping now.
+        rnn_inputs = tf.reshape(rnn_inputs, [batch_size * m, lookback * c, 64])
+        # Same for the target frame.
+        rnn_target = tf.reshape(target_frame, [batch_size * m, lookback * c])
+        # Construct rnn starting state: flatten rnn_inputs, apply a relu layer.
+        rnn_start_state = tf.nn.relu(tf.layers.dense(tf.nn.relu(
+            tf.layers.flatten(rnn_inputs)), 256, name="rnn_start_state"))
+        # Our RNN function API is on bits, each subpixel has 8 bits.
+        total_num_bits = lookback * c * 8
+        # We need to provide RNN targets as bits (due to the API).
+        rnn_target_bits = discretization.int_to_bit(rnn_target, 8)
+        rnn_target_bits = tf.reshape(
+            rnn_target_bits, [batch_size * m, total_num_bits])
+        if self.is_training:
+          # Run the RNN in training mode, add it's loss to the losses.
+          rnn_predict, rnn_loss = discretization.predict_bits_with_lstm(
+              rnn_start_state, 128, total_num_bits, target_bits=rnn_target_bits,
+              extra_inputs=rnn_inputs)
+          extra_loss += rnn_loss
+          # We still use non-RNN predictions too in order to guide the network.
+          x = tf.layers.dense(x, c * 256, name="logits")
+          x = tf.reshape(x, [batch_size, h, w, c, 256])
+          rnn_predict = tf.reshape(rnn_predict, [batch_size, h, w, c, 256])
+          # Mix non-RNN and RNN predictions so that after warmup the RNN is 90%.
+          x = tf.reshape(tf.nn.log_softmax(x), [batch_size, h, w, c * 256])
+          rnn_predict = tf.nn.log_softmax(rnn_predict)
+          rnn_predict = tf.reshape(rnn_predict, [batch_size, h, w, c * 256])
+          alpha = 0.9 * common_layers.inverse_lin_decay(
+              hparams.autoregressive_rnn_warmup_steps)
+          x = alpha * rnn_predict + (1.0 - alpha) * x
+        else:
+          # In prediction mode, run the RNN without any targets.
+          bits, _ = discretization.predict_bits_with_lstm(
+              rnn_start_state, 128, total_num_bits, extra_inputs=rnn_inputs,
+              temperature=0.0)  # No sampling from this RNN, just greedy.
+          # The output is in bits, get back the predicted pixels.
+          bits = tf.reshape(bits, [batch_size * m, lookback * c, 8])
+          ints = discretization.bit_to_int(tf.maximum(bits, 0), 8)
+          ints = tf.reshape(ints, [batch_size, h, w, c])
+          x = tf.reshape(tf.one_hot(ints, 256), [batch_size, h, w, c * 256])
+    elif self.is_per_pixel_softmax:
       x = tf.layers.dense(x, hparams.problem.num_channels * 256, name="logits")
     else:
       x = tf.layers.dense(x, hparams.problem.num_channels, name="logits")

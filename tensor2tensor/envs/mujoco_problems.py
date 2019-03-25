@@ -37,7 +37,8 @@ class ReacherEnvProblem(rendered_env_problem.RenderedEnvProblem):
         gym_utils.gym_env_wrapper, **{
             "rl_env_max_episode_steps": -1,
             "maxskip_env": False,
-            "rendered_env": True
+            "rendered_env": True,
+            "sticky_actions": False
         })
     super(ReacherEnvProblem, self).__init__(
         base_env_name=base_env_name, env_wrapper_fn=wrapper_fn)

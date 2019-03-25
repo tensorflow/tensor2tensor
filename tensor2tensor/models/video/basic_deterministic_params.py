@@ -47,6 +47,12 @@ def next_frame_basic_deterministic():
   hparams.add_hparam("filter_double_steps", 2)
   hparams.add_hparam("pixel_sampling_temperature", 0.0)
   hparams.add_hparam("concat_internal_states", False)
+  hparams.add_hparam("do_autoregressive_rnn", False)
+  hparams.add_hparam("autoregressive_rnn_lookback", 8)
+  hparams.add_hparam("autoregressive_rnn_warmup_steps", 8000)
+  hparams.add_hparam("activation_fn", "belu")
+  hparams.bottom["inputs"] = modalities.video_identity_bottom
+  hparams.bottom["targets"] = modalities.video_identity_bottom
   return hparams
 
 

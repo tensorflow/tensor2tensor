@@ -350,7 +350,7 @@ class UniversalTransformerEncoder(transformer.Transformer):
 
 
 def update_hparams_for_universal_transformer(hparams):
-  """Adds deault hparams for all of the variants of the Universal Transformer.
+  """Adds default hparams for all of the variants of the Universal Transformer.
 
   Args:
     hparams: default hparams (usually one of the standard hparams from

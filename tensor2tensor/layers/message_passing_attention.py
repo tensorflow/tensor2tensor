@@ -508,7 +508,7 @@ def sparse_message_pass(node_states,
       incoming_edges = tf.tile(incoming_edges, [1, hidden_size])
       final_node_states /= incoming_edges + 1e-7
 
-  return final_node_states
+  return tf.reshape(final_node_states, [n, hidden_size])
 
 
 def multihead_mpnn_attention(node_states,

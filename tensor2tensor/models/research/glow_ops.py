@@ -384,11 +384,12 @@ def invertible_1x1_conv(name, x, reverse=False):
       w = tf.reshape(w, [1, 1] + w_shape)
       x = tf.nn.conv2d(x, w, [1, 1, 1, 1], "SAME", data_format="NHWC")
     else:
-      u_inv = tf.matrix_inverse(u)
-      l_inv = tf.matrix_inverse(l)
-      p_inv = tf.matrix_inverse(p)
-      w_inv = tf.matmul(u_inv, tf.matmul(l_inv, p_inv))
-      w_inv = tf.reshape(w_inv, [1, 1]+w_shape)
+      # TODO(b/111271662): Remove when supported.
+      def tpu_inv(m):
+        """tf.linalg.inv workaround until it is supported on TPU."""
+        q, r = tf.linalg.qr(m)
+        return tf.linalg.triangular_solve(r, tf.transpose(q), lower=False)
+      w_inv = tf.reshape(tpu_inv(w), [1, 1]+w_shape)
       x = tf.nn.conv2d(
           x, w_inv, [1, 1, 1, 1], "SAME", data_format="NHWC")
       objective *= -1

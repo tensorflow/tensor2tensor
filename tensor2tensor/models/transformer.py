@@ -34,6 +34,7 @@ from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import modalities
 from tensor2tensor.layers import transformer_layers
+from tensor2tensor.layers import transformer_memory
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import mlperf_log
@@ -54,7 +55,8 @@ transformer_ffn_layer = transformer_layers.transformer_ffn_layer
 
 
 def transformer_encode(encoder_function, inputs, target_space, hparams,
-                       attention_weights=None, features=None, losses=None):
+                       attention_weights=None, features=None, losses=None,
+                       **kwargs):
   """Encode transformer inputs.
 
   Args:
@@ -67,6 +69,7 @@ def transformer_encode(encoder_function, inputs, target_space, hparams,
     features: optionally pass the entire features dictionary as well. This is
       needed now for "packed" datasets.
     losses: optional list onto which to append extra training losses
+    **kwargs: additional arguments to pass to encoder_function
 
   Returns:
     Tuple of:
@@ -102,7 +105,8 @@ def transformer_encode(encoder_function, inputs, target_space, hparams,
       save_weights_to=attention_weights,
       make_image_summary=not common_layers.is_xla_compiled(),
       losses=losses,
-      attn_bias_for_padding=attn_bias_for_padding)
+      attn_bias_for_padding=attn_bias_for_padding,
+      **kwargs)
 
   return encoder_output, encoder_decoder_attention_bias
 
@@ -117,7 +121,8 @@ def transformer_decode(decoder_function,
                        cache=None,
                        decode_loop_step=None,
                        nonpadding=None,
-                       losses=None):
+                       losses=None,
+                       **kwargs):
   """Decode Transformer outputs from encoder representation.
 
   Args:
@@ -138,6 +143,7 @@ def transformer_decode(decoder_function,
       for inference on TPU.
     nonpadding: optional Tensor with shape [batch_size, decoder_length]
     losses: optional list onto which to append extra training losses
+    **kwargs: additional arguments to pass to decoder_function
 
   Returns:
     Final decoder representation. [batch_size, decoder_length, hidden_dim]
@@ -159,7 +165,8 @@ def transformer_decode(decoder_function,
       decode_loop_step=decode_loop_step,
       nonpadding=nonpadding,
       save_weights_to=attention_weights,
-      losses=losses)
+      losses=losses,
+      **kwargs)
 
   if (common_layers.is_xla_compiled() and
       hparams.mode == tf.estimator.ModeKeys.TRAIN):
@@ -178,6 +185,7 @@ class Transformer(t2t_model.T2TModel):
   def __init__(self, *args, **kwargs):
     super(Transformer, self).__init__(*args, **kwargs)
     self.attention_weights = {}  # For visualizing attention heads.
+    self.recurrent_memory_by_layer = None  # Override to enable recurrent memory
     self._encoder_function = transformer_encoder
     self._decoder_function = transformer_decoder
 
@@ -197,13 +205,15 @@ class Transformer(t2t_model.T2TModel):
              cache=None,
              decode_loop_step=None,
              nonpadding=None,
-             losses=None):
+             losses=None,
+             **kwargs):
     """Decode Transformer outputs, see transformer_decode."""
     return transformer_decode(
         self._decoder_function, decoder_input, encoder_output,
         encoder_decoder_attention_bias, decoder_self_attention_bias,
         hparams, attention_weights=self.attention_weights, cache=cache,
-        decode_loop_step=decode_loop_step, nonpadding=nonpadding, losses=losses)
+        decode_loop_step=decode_loop_step, nonpadding=nonpadding, losses=losses,
+        **kwargs)
 
   def body(self, features):
     """Transformer main model_fn.
@@ -236,6 +246,28 @@ class Transformer(t2t_model.T2TModel):
     targets = common_layers.flatten4d3d(targets)
     decoder_input, decoder_self_attention_bias = transformer_prepare_decoder(
         targets, hparams, features=features)
+
+    # Not all subclasses of Transformer support keyword arguments related to
+    # recurrent memory, so only pass these arguments if memory is enabled.
+    decode_kwargs = {}
+    if self.recurrent_memory_by_layer is not None:
+      # TODO(kitaev): The chunk_number feature currently has the same shape as
+      # "targets", but this is only for the purposes of sharing sharding code.
+      # In fact every token within the batch must have the same chunk number.
+      chunk_number_each_token = tf.squeeze(features["chunk_number"], (-1, -2))
+      chunk_number_each_batch = chunk_number_each_token[:, 0]
+      # Uncomment the code below to verify that tokens within a batch share the
+      # same chunk number:
+      # with tf.control_dependencies([
+      #     tf.assert_equal(chunk_number_each_token,
+      #                     chunk_number_each_batch[:, None])
+      # ]):
+      #   chunk_number_each_batch = tf.identity(chunk_number_each_batch)
+      decode_kwargs = dict(
+          recurrent_memory_by_layer=self.recurrent_memory_by_layer,
+          chunk_number=chunk_number_each_batch,
+          )
+
     decoder_output = self.decode(
         decoder_input,
         encoder_output,
@@ -243,7 +275,9 @@ class Transformer(t2t_model.T2TModel):
         decoder_self_attention_bias,
         hparams,
         nonpadding=features_to_nonpadding(features, "targets"),
-        losses=losses)
+        losses=losses,
+        **decode_kwargs
+        )
 
     expected_attentions = features.get("expected_attentions")
     if expected_attentions is not None:
@@ -471,7 +505,10 @@ class Transformer(t2t_model.T2TModel):
         targets = dp(bottom, targets, hparams, target_vocab_size)[0]
       targets = common_layers.flatten4d3d(targets)
 
-      # TODO(llion): Explain! Is this even needed?
+      # GO embeddings are all zero, this is because transformer_prepare_decoder
+      # Shifts the targets along by one for the input which pads with zeros.
+      # If the modality already maps GO to the zero embeddings this is not
+      # needed.
       targets = tf.cond(
           tf.equal(i, 0), lambda: tf.zeros_like(targets), lambda: targets)
 
@@ -708,7 +745,10 @@ class Transformer(t2t_model.T2TModel):
         targets = dp(bottom, targets, hparams, target_vocab_size)[0]
       targets = common_layers.flatten4d3d(targets)
 
-      # TODO(llion): Explain! Is this even needed?
+      # GO embeddings are all zero, this is because transformer_prepare_decoder
+      # Shifts the targets along by one for the input which pads with zeros.
+      # If the modality already maps GO to the zero embeddings this is not
+      # needed.
       targets = tf.cond(
           tf.equal(i, 0), lambda: tf.zeros_like(targets), lambda: targets)
 
@@ -933,9 +973,12 @@ def fast_decode_tpu(encoder_output,
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       log_probs = common_layers.log_prob_from_logits(logits)
       temperature = getattr(hparams, "sampling_temp", 0.0)
+      keep_top = getattr(hparams, "sampling_keep_top_k", -1)
       if hparams.sampling_method == "argmax":
         temperature = 0.0
-      next_id = common_layers.sample_with_temperature(logits, temperature)
+      next_id = common_layers.sample_with_temperature(
+          logits, temperature, keep_top)
+
       hit_eos |= tf.equal(next_id, eos_id)
 
       log_prob_indices = tf.stack([tf.range(tf.to_int64(batch_size)), next_id],
@@ -1116,9 +1159,11 @@ def fast_decode(encoder_output,
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       log_probs = common_layers.log_prob_from_logits(logits)
       temperature = getattr(hparams, "sampling_temp", 0.0)
+      keep_top = getattr(hparams, "sampling_keep_top_k", -1)
       if hparams.sampling_method == "argmax":
         temperature = 0.0
-      next_id = common_layers.sample_with_temperature(logits, temperature)
+      next_id = common_layers.sample_with_temperature(
+          logits, temperature, keep_top)
       hit_eos |= tf.equal(next_id, eos_id)
 
       log_prob_indices = tf.stack([tf.range(tf.to_int64(batch_size)), next_id],
@@ -1324,7 +1369,10 @@ def transformer_decoder(decoder_input,
                         save_weights_to=None,
                         make_image_summary=True,
                         losses=None,
-                        layer_collection=None):
+                        layer_collection=None,
+                        recurrent_memory_by_layer=None,
+                        chunk_number=None,
+                        ):
   """A stack of transformer layers.
 
   Args:
@@ -1352,6 +1400,10 @@ def transformer_decoder(decoder_input,
     losses: optional list onto which to append extra training losses
     layer_collection: A tensorflow_kfac.LayerCollection. Only used by the
       KFAC optimizer. Default is None.
+    recurrent_memory_by_layer: Optional dict, mapping layer names to instances
+      of transformer_memory.RecurrentMemory. Default is None.
+    chunk_number: an optional integer Tensor with shape [batch] used to operate
+      the recurrent_memory.
 
   Returns:
     y: a Tensors
@@ -1382,6 +1434,10 @@ def transformer_decoder(decoder_input,
     for layer in range(hparams.num_decoder_layers or hparams.num_hidden_layers):
       layer_name = "layer_%d" % layer
       layer_cache = cache[layer_name] if cache is not None else None
+      if recurrent_memory_by_layer is not None:
+        recurrent_memory = recurrent_memory_by_layer[layer_name]
+      else:
+        recurrent_memory = None
       with tf.variable_scope(layer_name):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
@@ -1408,7 +1464,10 @@ def transformer_decoder(decoder_input,
               vars_3d=hparams.get("attention_variables_3d"),
               activation_dtype=hparams.get("activation_dtype", "float32"),
               weight_dtype=hparams.get("weight_dtype", "float32"),
-              layer_collection=layer_collection)
+              layer_collection=layer_collection,
+              recurrent_memory=recurrent_memory,
+              chunk_number=chunk_number,
+              )
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
           with tf.variable_scope("encdec_attention"):
@@ -1456,6 +1515,33 @@ def transformer_decoder(decoder_input,
         value={"hidden_size": hparams.hidden_size})
     return common_layers.layer_preprocess(
         x, hparams, layer_collection=layer_collection)
+
+
+@registry.register_model
+class TransformerMemory(Transformer):
+  """Transformer language model with memory across chunks."""
+
+  # TODO(kitaev): consider overriding set_mode to swap out recurrent memory when
+  # switching between training and evaluation.
+
+  def __init__(self, *args, **kwargs):
+    super(TransformerMemory, self).__init__(*args, **kwargs)
+
+    hparams = self._hparams
+    self.recurrent_memory_by_layer = {}
+    for layer in range(hparams.num_decoder_layers or hparams.num_hidden_layers):
+      layer_name = "layer_%d" % layer
+      self.recurrent_memory_by_layer[layer_name] = transformer_memory.RecurrentMemory(
+          layer_name + "/recurrent_memory", hparams)
+
+
+  def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha,
+                   use_tpu=False):
+    """Overriding beam search because for now only the slow version works with
+    memory
+    """
+    return self._beam_decode_slow(features, decode_length, beam_size,
+                                  top_beams, alpha, use_tpu)
 
 
 @registry.register_hparams
@@ -2500,4 +2586,59 @@ def transformer_tpu_1b():
   hparams.weight_dtype = "bfloat16"
   # maximize number of parameters relative to computation by not sharing.
   hparams.shared_embedding_and_softmax_weights = False
+  return hparams
+
+
+@registry.register_hparams
+def transformer_wikitext103_l4k_v0():
+  """HParams for training languagemodel_wikitext103_l4k."""
+  hparams = transformer_big()
+
+  # Adafactor uses less memory than Adam.
+  # switch to Adafactor with its recommended learning rate scheme.
+  hparams.optimizer = "Adafactor"
+  hparams.learning_rate_schedule = "rsqrt_decay"
+  hparams.learning_rate_warmup_steps = 10000
+
+  hparams.num_heads = 4
+  hparams.max_length = 4096
+  hparams.batch_size = 4096
+  hparams.shared_embedding_and_softmax_weights = False
+
+  hparams.num_hidden_layers = 8
+  hparams.attention_dropout = 0.1
+  hparams.layer_prepostprocess_dropout = 0.2
+  hparams.relu_dropout = 0.1
+  hparams.label_smoothing = 0.0
+
+  # Using noise broadcast in the dropout layers saves memory during training.
+  hparams.attention_dropout_broadcast_dims = "0,1"  # batch, heads
+  hparams.relu_dropout_broadcast_dims = "1"  # length
+  hparams.layer_prepostprocess_dropout_broadcast_dims = "1"  # length
+
+  # Avoid an expensive concat on TPU.
+  # >1 shards helps with faster parameter distribution on multi-GPU machines
+  hparams.symbol_modality_num_shards = 1
+
+  return hparams
+
+
+@registry.register_hparams
+def transformer_wikitext103_l4k_memory_v0():
+  """HParams for training languagemodel_wikitext103_l4k with memory."""
+  hparams = transformer_wikitext103_l4k_v0()
+
+  hparams.split_targets_chunk_length = 64
+  hparams.split_targets_max_chunks = 64
+
+  # The hparams specify batch size *before* chunking, but we want to have a
+  # consistent 4K batch size *after* chunking to fully utilize the hardware.
+  target_tokens_per_batch = 4096
+  hparams.batch_size = int(target_tokens_per_batch * (
+      hparams.max_length / hparams.split_targets_chunk_length))  # 262144
+
+  hparams.pos = None
+  hparams.self_attention_type = "dot_product_relative_memory"
+  hparams.max_relative_position = 2 * hparams.split_targets_chunk_length
+
   return hparams

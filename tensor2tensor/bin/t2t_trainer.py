@@ -388,7 +388,7 @@ def main(argv):
       from tensor2tensor.trax import inputs as _trax_inputs
       from tensor2tensor.trax import models as _trax_models
       from tensor2tensor.trax import optimizers as _trax_opt
-      # pylint: disable=g-import-not-at-top,unused-import,g-bad-import-order,reimported,unused-variable
+      # pylint: enable=g-import-not-at-top,unused-import,g-bad-import-order,reimported,unused-variable
 
       configs = config or []
       # Override with --dataset and --model

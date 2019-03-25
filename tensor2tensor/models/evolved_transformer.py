@@ -287,7 +287,7 @@ def evolved_transformer_decoder(decoder_input,
           residual_state = hidden_state
           hidden_state = common_layers.layer_preprocess(hidden_state, hparams)
 
-          # 16 head attention. Hard coding number of heads.
+          # Attention with at least 16 heads.
           left_state = common_attention.multihead_attention(
               hidden_state,
               None,
@@ -295,7 +295,7 @@ def evolved_transformer_decoder(decoder_input,
               hparams.attention_key_channels or hparams.hidden_size,
               hparams.attention_value_channels or hparams.hidden_size,
               hparams.hidden_size,
-              16,  # Heads are hard coded to replicate paper.
+              max(16, hparams.num_heads),
               hparams.attention_dropout,
               attention_type=hparams.self_attention_type,
               max_relative_position=hparams.max_relative_position,
