@@ -790,6 +790,8 @@ class WholeVideoWriter(VideoWriter):
     (out, err) = [
         b"".join(chunks) for chunks in (self._out_chunks, self._err_chunks)
     ]
+    self.proc.stdout.close()
+    self.proc.stderr.close()
     if self.proc.returncode:
       err = "\n".join([" ".join(self.cmd), err.decode("utf8")])
       raise IOError(err)
@@ -820,7 +822,7 @@ class BatchWholeVideoWriter(VideoWriter):
     del batch_encoded_frame
     if self.writers is None:
       self.writers = [
-          WholeVideoWriter(
+          WholeVideoWriter(  # pylint: disable=g-complex-comprehension
               self.fps, self.path_template.format(i), self.file_format
           )
           for i in range(len(batch_frame))
