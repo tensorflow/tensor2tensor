@@ -73,22 +73,6 @@ def residual(*layers, **kwargs):
     raise ValueError('Empty residual combinator.')
 
 
-def multiplex(*args):
-  """Helper to form input argument lists of bound variables.
-
-  Args:
-    *args: list of bound layers or raw stax Identity layers.
-
-  Returns:
-    A layer returning in parallel the bound variables as well as
-  (multiple) copies of this layer's input wherever Identity has been specified.
-  """
-  return stax.serial(
-      stax.FanOut(len(args)),
-      stax.parallel(*args)
-  )
-
-
 # Utility Layers
 # ------------------------------------------------------------------------------
 def Take(*args):  # pylint: disable=invalid-name

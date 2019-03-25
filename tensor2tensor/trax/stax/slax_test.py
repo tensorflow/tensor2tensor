@@ -184,7 +184,8 @@ class SlaxTest(absltest.TestCase):
       def lambda_fun1(x, y, z, w, v):
         input_tree = _build_combinator_tree(tree_spec, (x, y, z))
         return stax.serial(input_tree,
-                           stax.multiplex(stax.Identity, w, v),
+                           stax.FanOut(3),
+                           stax.parallel(stax.Identity, w, v),
                            stax.FanInSum)
       check_staxlayer(self, lambda_fun1, [(1, 5, 7, 11),]*5)
 
@@ -192,7 +193,8 @@ class SlaxTest(absltest.TestCase):
       def lambda_fun2(x, y, z, w, v):
         input_tree = _build_combinator_tree(tree_spec, (x, y, z))
         return stax.serial(input_tree,
-                           stax.multiplex(w, stax.Identity, v),
+                           stax.FanOut(3),
+                           stax.parallel(w, stax.Identity, v),
                            stax.FanInSum)
       check_staxlayer(self, lambda_fun2, [(1, 5, 7, 11),]*5)
 
@@ -200,7 +202,8 @@ class SlaxTest(absltest.TestCase):
       def lambda_fun3(x, y, z, w, v):
         input_tree = _build_combinator_tree(tree_spec, (x, y, z))
         return stax.serial(input_tree,
-                           stax.multiplex(w, v, stax.Identity),
+                           stax.FanOut(3),
+                           stax.parallel(w, v, stax.Identity),
                            stax.FanInSum)
       check_staxlayer(self, lambda_fun3, [(1, 5, 7, 11),]*5)
   # pylint: enable=cell-var-from-loop

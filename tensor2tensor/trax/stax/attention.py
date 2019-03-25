@@ -82,19 +82,21 @@ def xavier_uniform(out_dim=0, in_dim=1, rng=npr):
   return init
 
 
-def LayerNorm(features, epsilon=1e-5):  # pylint: disable=invalid-name
+def LayerNorm(epsilon=1e-6):  # pylint: disable=invalid-name
   """Layer construction function for Layer Normalization layer.."""
   def init_fun(input_shape):
-    a_2 = np.ones(features)
-    b_2 = np.zeros(features)
-    return input_shape, (a_2, b_2)
+    features = input_shape[-1]
+    scale = np.ones(features)
+    bias = np.zeros(features)
+    return input_shape, (scale, bias)
 
   def apply_fun(params, inputs, **kwargs):
     del kwargs
-    (a_2, b_2) = params
+    (scale, bias) = params
     mean = np.mean(inputs, axis=-1, keepdims=True)
-    std = np.std(inputs, axis=-1, keepdims=True)
-    return a_2 * (inputs - mean) / (std + epsilon) + b_2
+    variance = np.mean((inputs - mean)**2, axis=-1, keepdims=True)
+    norm_inputs = (inputs - mean) / np.sqrt(variance + epsilon)
+    return norm_inputs * scale + bias
 
   return init_fun, apply_fun
 
