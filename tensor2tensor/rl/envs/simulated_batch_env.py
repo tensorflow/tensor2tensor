@@ -294,5 +294,6 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
       self._video_writer.finish_to_disk()
     self._video_writer = None
 
-  def close(self):
+  def __del__(self):
     self._video_reset_writer()
+    super(SimulatedBatchEnv, self).__del__()

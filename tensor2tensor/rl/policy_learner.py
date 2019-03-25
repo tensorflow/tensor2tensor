@@ -45,6 +45,8 @@ class PolicyLearner(object):
       report_fn=None
   ):
     """Train."""
+    # TODO(konradczechowski): pass name_scope instead of epoch?
+    # TODO(konradczechowski): move 'simulated' to  batch_env
     raise NotImplementedError()
 
   def evaluate(self, env_fn, hparams, sampling_temp):

@@ -354,18 +354,12 @@ def dqn_atari_base():
       optimizer_epsilon=0.00001,
       optimizer_centered=True,
 
-      # TODO: change names maybe replay_buffer -> agent? Also batch_size is now
-      # buffer_batch_size in _DQNAgent.
       replay_buffer_replay_capacity=1000000,
-      replay_buffer_buffer_batch_size=32,
+      replay_buffer_batch_size=32,
 
       time_limit=27000,
       save_every_steps=50000,
       num_frames=int(20 * 1e6),
-
-      # TODO(konradczechowski) this is not used in trainer_model_free, clean
-      # this up after evaluation refactor
-      eval_episodes_num=3,
   )
 
 
@@ -375,16 +369,6 @@ def dqn_original_params():
   hparams = dqn_atari_base()
   hparams.set_hparam("num_frames", int(1e6))
   return hparams
-
-def rlmf_tiny_overrides():
-  """Parameters to override for tiny setting excluding agent-related hparams."""
-  return dict(
-      max_num_noops=1,
-      eval_max_num_noops=1,
-      rl_env_max_episode_steps=7,
-      eval_rl_env_max_episode_steps=7,
-      eval_sampling_temps=[0.0, 1.0],
-  )
 
 
 @registry.register_hparams
@@ -398,7 +382,6 @@ def rlmf_original():
       eval_batch_size=2,
       frame_stack_size=4,
       eval_sampling_temps=[0.0, 0.2, 0.5, 0.8, 1.0, 2.0],
-      max_num_noops=8,
       eval_max_num_noops=8,
       eval_rl_env_max_episode_steps=1000,
       resize_height_factor=2,
@@ -444,31 +427,6 @@ def rlmf_base():
 
 
 @registry.register_hparams
-def rlmf_tiny():
-  """Tiny set of hparams for model-free PPO."""
-  hparams = rlmf_original()
-  hparams = hparams.override_from_dict(rlmf_tiny_overrides())
-  hparams.batch_size = 2
-  hparams.add_hparam("ppo_epochs_num", 3)
-  hparams.add_hparam("ppo_epoch_length", 2)
-  return hparams
-
-
-@registry.register_hparams
-def rlmf_dqn_tiny():
-  hparams = rlmf_original()
-  hparams = hparams.override_from_dict(rlmf_tiny_overrides())
-  hparams.batch_size = 1
-  hparams.base_algo = "dqn"
-  hparams.base_algo_params = "dqn_original_params"
-  hparams.add_hparam("dqn_num_frames", 128)
-  hparams.add_hparam("dqn_save_every_steps", 128)
-  hparams.add_hparam("dqn_replay_buffer_replay_capacity", 100)
-  hparams.add_hparam("dqn_agent_min_replay_history", 10)
-  return hparams
-
-
-@registry.register_hparams
 def rlmf_eval():
   """Eval set of hparams for model-free PPO."""
   hparams = rlmf_original()
@@ -481,6 +439,14 @@ def rlmf_eval():
   hparams.add_hparam("ppo_eval_every_epochs", 500)
   hparams.add_hparam("attempt", 0)
   hparams.add_hparam("moe_loss_coef", 0)
+  return hparams
+
+
+@registry.register_hparams
+def rlmf_tiny():
+  hparams = rlmf_base()
+  hparams.ppo_epochs_num = 100
+  hparams.ppo_eval_every_epochs = 10
   return hparams
 
 

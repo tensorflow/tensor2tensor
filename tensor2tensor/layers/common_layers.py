@@ -1790,6 +1790,98 @@ def padded_cross_entropy(logits,
     return tf.reduce_sum(xent * weights), tf.reduce_sum(weights)
 
 
+def padded_cross_entropy_mixture(logits,
+                                 labels,
+                                 label_smoothing,
+                                 num_mixtures,
+                                 weights_fn=weights_nonzero,
+                                 reduce_sum=False,
+                                 cutoff=0.0,
+                                 gaussian=False,
+                                 return_best_logits=False):
+  """Compute cross-entropy assuming 0s are padding.
+
+  Computes a loss numerator (the sum of losses), and loss denominator
+  (the number of non-padding tokens).
+
+  Computes cross-entropy for each mixture, and returns the corresponding values
+  for the mixture with the highest probability
+
+  Args:
+    logits: `Tensor` with shape `[batch * num_mixtures, timesteps, vocab_size]`.
+      optionally a FactoredTensor.
+    labels: an integer `Tensor` with shape `[batch, timesteps]`.
+    label_smoothing: a floating point `Scalar`.
+    num_mixtures: an integer.
+    weights_fn: A function from labels to weights.
+    reduce_sum: a Boolean, whether to sum at the end or not.
+    cutoff: a float, at which point to have no loss.
+    gaussian: If true, use a Gaussian distribution for label smoothing
+    return_best_logits: If true, return the logits of the mixture with highest
+    probabilities for an example
+
+  Returns:
+    loss_numerator: a `Scalar`.  Sum of losses.
+    loss_denominator: a `Scalar.  The number of non-padding target tokens.
+
+  Raises:
+    ValueError: in case of unsupported argument types.
+  """
+  logit_shapes = shape_list(
+      logits)  # batch_size * num_mixtures, timesteps, 1, 1, vocab_size
+  batch_size = tf.cast(logit_shapes[0] / num_mixtures, dtype=tf.int32)
+  timesteps = logit_shapes[1]
+  vocab_size = logit_shapes[4]
+
+  new_shape_for_xent = [num_mixtures] + shape_list(labels)
+  labels = tf.tile(labels, [num_mixtures, 1, 1, 1])
+
+  xent, weights = padded_cross_entropy(
+      logits, labels, label_smoothing, weights_fn, reduce_sum, cutoff, gaussian)
+
+  # reshape xent and weights to have the num_mixtures as first dimension
+  xent = tf.reshape(xent, new_shape_for_xent)
+  weights = tf.reshape(weights, new_shape_for_xent[:-1])
+
+  # sum up sentence neg log probs
+  xent = tf.reduce_sum(xent, axis=2)
+
+  # if we need to compute the best logits
+  if return_best_logits:
+    best_mixture_indices = tf.cast(tf.argmin(xent, 0), dtype=tf.int32)
+    individual_element_indices = tf.range(batch_size)
+    stacked_mixture_element_indices = tf.stack(
+        (tf.squeeze(best_mixture_indices), individual_element_indices), -1)
+    best_logits = tf.reshape(logits,
+                             [num_mixtures, -1, timesteps, 1, 1, vocab_size])
+    best_logits = tf.gather_nd(best_logits, stacked_mixture_element_indices)
+    best_logits = tf.reshape(best_logits,
+                             [batch_size, timesteps, 1, 1, vocab_size])
+
+  with tf.control_dependencies([
+      tf.assert_equal(
+          tf.shape(xent)[:3], [num_mixtures, batch_size, 1],
+          message="Each batch element should have a probability value for each mixture element"
+      )
+  ]):
+    xent = tf.reduce_min(xent, axis=0)
+    weights = tf.reduce_mean(weights, axis=0)
+
+  with tf.control_dependencies([
+      tf.assert_equal(
+          tf.shape(xent)[0], [batch_size],
+          message="There should be batch_size elements after selecting best mixture probabilities"
+      )
+  ]):
+    summed_xent = tf.reduce_sum(xent)
+    summed_weights = tf.reduce_sum(weights)
+
+  if return_best_logits:
+    return summed_xent, summed_weights, best_logits
+  else:
+    return summed_xent, summed_weights
+
+
 def _weights_one_third(labels):
   """Returns Tensor of shape [batch, height, width]. Each element is 1/3."""
   return tf.ones(tf.shape(labels)[:-1]) / 3.
