@@ -135,9 +135,18 @@ def ppo_original_params():
 
 
 @registry.register_hparams
+def ppo_original_tiny():
+  """Parameters based on the original PPO paper, tiny version."""
+  hparams = ppo_original_params()
+  hparams.epoch_length = 5
+  hparams.optimization_batch_size = 1
+  return hparams
+
+
+@registry.register_hparams
 def ppo_ttt_params():
   """Parameters based on the original PPO paper."""
-  hparams = ppo_original_params()
+  hparams = ppo_original_tiny()
   hparams.policy_network = "feed_forward_categorical_policy"
   hparams.policy_problem_name = "dummy_policy_problem_ttt"
   return hparams
@@ -431,7 +440,6 @@ def rlmf_tictactoe():
 
   # Number of last observations to feed to the agent
   hparams.frame_stack_size = 1
-
   return hparams
 
 
@@ -450,6 +458,7 @@ def rlmf_tiny():
   hparams = rlmf_original()
   hparams = hparams.override_from_dict(rlmf_tiny_overrides())
   hparams.batch_size = 2
+  hparams.base_algo_params = "ppo_original_tiny"
   hparams.add_hparam("ppo_epochs_num", 3)
   hparams.add_hparam("ppo_epoch_length", 2)
   return hparams

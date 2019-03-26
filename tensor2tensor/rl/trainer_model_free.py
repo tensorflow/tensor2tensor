@@ -88,14 +88,12 @@ def train(hparams, output_dir, env_problem_name, report_fn=None):
 
   tf.logging.vlog(1, "HParams in trainer_model_free.train : %s",
                   misc_utils.pprint_hparams(hparams))
-
   tf.logging.vlog(1, "Using hparams.base_algo: %s", hparams.base_algo)
   learner = rl_utils.LEARNERS[hparams.base_algo](
       hparams.frame_stack_size, output_dir, output_dir, total_num_epochs=1
   )
 
   policy_hparams = trainer_lib.create_hparams(hparams.base_algo_params)
-
   rl_utils.update_hparams_from_hparams(
       policy_hparams, hparams, hparams.base_algo + "_"
   )
@@ -106,7 +104,6 @@ def train(hparams, output_dir, env_problem_name, report_fn=None):
   # TODO(konradczechowski): remove base_algo dependance, when evaluation method
   # will be decided
   if hparams.base_algo == "ppo":
-    print("\n\n\npolicy_hparams {}\n\n\n".format(policy_hparams))
     total_steps = policy_hparams.epochs_num
     tf.logging.vlog(2, "total_steps: %d", total_steps)
 

@@ -96,7 +96,6 @@ def define_ppo_epoch(memory, hparams, action_space, batch_size):
 
   number_of_batches = ((hparams.epoch_length-1) * hparams.optimization_epochs
                        // hparams.optimization_batch_size)
-
   epoch_length = hparams.epoch_length
   if hparams.effective_num_agents is not None:
     number_of_batches *= batch_size
