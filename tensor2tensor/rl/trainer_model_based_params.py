@@ -521,7 +521,7 @@ def rlmb_ppo_tiny():
   hparams = hparams.override_from_dict(_rlmb_tiny_overrides())
   update_hparams(hparams, dict(
       ppo_epochs_num=2,
-      ppo_epoch_length=hparams.simulated_rollout_length,
+      ppo_epoch_length=10,
       real_ppo_epoch_length=36,
       real_ppo_effective_num_agents=2,
       real_batch_size=1,
