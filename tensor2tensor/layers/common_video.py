@@ -483,7 +483,7 @@ def gif_summary(name, tensor, max_outputs=3, fps=10, collections=None,
                      "[batch, time, height, width, channels] but got one "
                      "of shape: %s" % str(tensor.get_shape()))
   tensor = tf.cast(tensor, tf.uint8)
-  if 0: #distribute_summary_op_util.skip_summary():
+  if distribute_summary_op_util.skip_summary():
     return tf.constant("")
   with summary_op_util.summary_scope(
       name, family, values=[tensor]) as (tag, scope):
