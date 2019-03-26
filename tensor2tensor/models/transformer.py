@@ -1531,9 +1531,9 @@ class TransformerMemory(Transformer):
     self.recurrent_memory_by_layer = {}
     for layer in range(hparams.num_decoder_layers or hparams.num_hidden_layers):
       layer_name = "layer_%d" % layer
-      self.recurrent_memory_by_layer[layer_name] = transformer_memory.RecurrentMemory(
-          layer_name + "/recurrent_memory", hparams)
-
+      self.recurrent_memory_by_layer[
+          layer_name] = transformer_memory.RecentTokensMemory(
+              layer_name + "/recurrent_memory", hparams)
 
   def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha,
                    use_tpu=False):
@@ -2640,6 +2640,9 @@ def transformer_wikitext103_l4k_memory_v0():
   hparams.pos = None
   hparams.self_attention_type = "dot_product_relative_memory"
   hparams.max_relative_position = 2 * hparams.split_targets_chunk_length
+
+  # By default, cache one chunk only (like Transformer-XL)
+  hparams.add_hparam("num_memory_items", hparams.split_targets_chunk_length)
 
   return hparams
 

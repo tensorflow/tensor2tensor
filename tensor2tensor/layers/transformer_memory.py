@@ -24,24 +24,64 @@ import tensorflow as tf
 class RecurrentMemory(object):
   """Base class for recurrent memory.
 
-  Currently implements memory in the style of Transformer-XL
+  This class defines the memory interface, but behaves like a no-op.
+  """
+
+  def pre_attention(self, segment, query_antecedent, memory_antecedent, bias):
+    """Called prior to self-attention, to incorporate memory items.
+
+    Args:
+      segment: an integer Tensor with shape [batch]
+      query_antecedent: a Tensor with shape [batch, length_q, channels]
+      memory_antecedent: must be None. Attention normally allows this to be a
+        Tensor with shape [batch, length_m, channels], but we currently only
+        support memory for decoder-side self-attention.
+      bias: bias Tensor (see attention_bias())
+    Returns:
+      (data, new_query_antecedent, new_memory_antecedent, new_bias)
+    """
+    del segment
+    return None, query_antecedent, memory_antecedent, bias
+
+  def post_attention(self, token, x):
+    """Called after self-attention. The memory can be updated here.
+
+    Args:
+      token: Data returned by pre_attention, which can be used to carry over
+        state related to the current memory operation.
+      x: a Tensor of data after self-attention and feed-forward
+    Returns:
+      a (possibly modified) version of the input x
+    """
+    assert token is None
+    return x
+
+
+class RecentTokensMemory(RecurrentMemory):
+  """A memory module that caches features for recent tokens.
+
+  When the number of tokens cached is equal to the chunk size, this is
+  equivalent to the memory used by Transformer-XL
   (https://arxiv.org/abs/1901.02860)
   """
-  # TODO(kitaev): make this a base class and then subclass for different memory
-  # types (e.g. the one defined below in this file).
 
   def __init__(self, name, hparams):
     hidden_size = hparams.hidden_size
-    chunk_length = hparams.split_targets_chunk_length
-    assert chunk_length > 0, "Chunking is required to use RecurrentMemory"
+    self.chunk_length = hparams.split_targets_chunk_length
+    assert self.chunk_length > 0, "Chunking is required to use recurrent memory"
+
+    if hasattr(hparams, "num_memory_items") and hparams.num_memory_items > 0:
+      self.tokens_to_cache = hparams.num_memory_items
+    else:
+      self.tokens_to_cache = self.chunk_length
 
     # TODO(kitaev): The implementation of the chunking code makes it somewhat
     # convoluted to figure out how many actual sequences we can have per batch.
     # The data pipeline should be revisited at some point.
     batch_size_in_sequences = hparams.batch_size / hparams.max_length
 
-    memory_shape = [batch_size_in_sequences, chunk_length, hidden_size]
-    bias_shape = [1, 1, chunk_length, chunk_length]
+    memory_shape = [batch_size_in_sequences, self.tokens_to_cache, hidden_size]
+    bias_shape = [1, 1, self.chunk_length, self.tokens_to_cache]
 
     with tf.variable_scope(name):
       self.previous_segment = tf.get_variable(
@@ -74,21 +114,18 @@ class RecurrentMemory(object):
     """
     assert memory_antecedent is None, "We only support language modeling"
 
-    previous_vals = tf.stop_gradient(self.previous_vals)
+    previous_vals = self.previous_vals
     # If segment id is zero, don't attend back to the memory
-    previous_bias = tf.stop_gradient(self.previous_bias) + tf.cast(
+    previous_bias = self.previous_bias + tf.cast(
         tf.equal(tf.reduce_sum(segment), 0), tf.float32) * -1e9
 
     # In eval mode, batch size may be variable
     amount_to_pad = tf.shape(previous_vals)[0] - tf.shape(query_antecedent)[0]
-    previous_vals = previous_vals[:tf.shape(query_antecedent)[0], :, :]
-    with tf.control_dependencies(
-        [tf.assert_equal(tf.shape(query_antecedent), tf.shape(previous_vals))]):
-      query_antecedent = tf.identity(query_antecedent)
+    sliced_previous_vals = previous_vals[:tf.shape(query_antecedent)[0], :, :]
 
     new_memory_antecedent = tf.concat(
-        [tf.stop_gradient(previous_vals), query_antecedent], 1)
-    new_bias = tf.concat([previous_bias, bias], -1)
+        [tf.stop_gradient(sliced_previous_vals), query_antecedent], 1)
+    new_bias = tf.concat([tf.stop_gradient(previous_bias), bias], -1)
 
     remember_segment = segment[0]
     # TODO(kitaev): The code assumes that we always either increment the chunk
@@ -101,10 +138,18 @@ class RecurrentMemory(object):
             tf.equal(remember_segment, self.previous_segment + 1)),
                    [self.previous_segment, remember_segment])]):
       remember_segment = tf.identity(remember_segment)
+
     remember_vals = tf.pad(query_antecedent,
                            [[0, amount_to_pad], [0, 0], [0, 0]])
     remember_bias = tf.zeros_like(bias) + tf.reduce_max(
         bias, -1, keep_dims=True)
+    # Assume that query_antecedent is always a full chunk (i.e. not truncated)
+    if self.chunk_length < self.tokens_to_cache:
+      remember_vals = tf.concat([previous_vals, remember_vals], 1)
+      remember_bias = tf.concat([previous_bias, remember_bias], -1)
+    if self.chunk_length != self.tokens_to_cache:
+      remember_vals = remember_vals[:, -self.tokens_to_cache:, :]
+      remember_bias = remember_bias[:, :, :, -self.tokens_to_cache:]
     token = (remember_segment, remember_vals, remember_bias)
 
     return token, query_antecedent, new_memory_antecedent, new_bias
