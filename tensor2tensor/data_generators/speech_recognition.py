@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,7 +28,6 @@ from tensor2tensor.layers import common_audio
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
-from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -61,10 +60,10 @@ class SpeechRecognitionProblem(problem.Problem):
     p.add_hparam("num_zeropad_frames", 250)
 
     p = defaults
-    p.input_modality = {
-        "inputs": modalities.SpeechRecognitionModality(model_hparams, None)
-    }
-    p.target_modality = (registry.Modalities.SYMBOL, 256)
+    p.modality = {"inputs": modalities.ModalityType.SPEECH_RECOGNITION,
+                  "targets": modalities.ModalityType.SYMBOL}
+    p.vocab_size = {"inputs": None,
+                    "targets": 256}
 
   @property
   def is_character_level(self):
@@ -123,7 +122,7 @@ class SpeechRecognitionProblem(problem.Problem):
       # This replaces CMVN estimation on data
       var_epsilon = 1e-09
       mean = tf.reduce_mean(mel_fbanks, keepdims=True, axis=1)
-      variance = tf.reduce_mean(tf.square(mel_fbanks - mean),
+      variance = tf.reduce_mean(tf.squared_difference(mel_fbanks, mean),
                                 keepdims=True, axis=1)
       mel_fbanks = (mel_fbanks - mean) * tf.rsqrt(variance + var_epsilon)
 
@@ -140,4 +139,7 @@ class SpeechRecognitionProblem(problem.Problem):
 
   def eval_metrics(self):
     defaults = super(SpeechRecognitionProblem, self).eval_metrics()
-    return defaults + [metrics.Metrics.EDIT_DISTANCE]
+    return defaults + [
+        metrics.Metrics.EDIT_DISTANCE,
+        metrics.Metrics.WORD_ERROR_RATE
+    ]

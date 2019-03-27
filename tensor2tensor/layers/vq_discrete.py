@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -138,8 +138,10 @@ class DiscreteBottleneck(object):
         x_means_hot, [-1, self.hparams.num_blocks, self.hparams.block_v_size])
     x_means = tf.matmul(tf.transpose(x_means_hot_flat, perm=[1, 0, 2]), means)
     x_means = tf.transpose(x_means, [1, 0, 2])
-    q_loss = tf.reduce_mean(tf.square((tf.stop_gradient(x) - x_means)))
-    e_loss = tf.reduce_mean((x - tf.stop_gradient(x_means))**2)
+    q_loss = tf.reduce_mean(
+        tf.squared_difference(tf.stop_gradient(x), x_means))
+    e_loss = tf.reduce_mean(
+        tf.squared_difference(x, tf.stop_gradient(x_means)))
     return x_means_hot, x_means, q_loss, e_loss
 
   def bit_to_int(self, x_bit, num_bits, base=2):
@@ -156,9 +158,9 @@ class DiscreteBottleneck(object):
         Integer representation of this number.
     """
     x_l = tf.stop_gradient(tf.to_int32(tf.reshape(x_bit, [-1, num_bits])))
-    x_labels = []
-    for i in range(num_bits):
-      x_labels.append(x_l[:, i] * tf.to_int32(base)**tf.to_int32(i))
+    # pylint: disable=g-complex-comprehension
+    x_labels = [
+        x_l[:, i] * tf.to_int32(base)**tf.to_int32(i) for i in range(num_bits)]
     res = sum(x_labels)
     return tf.to_int32(tf.reshape(res, common_layers.shape_list(x_bit)[:-1]))
 
@@ -175,12 +177,12 @@ class DiscreteBottleneck(object):
         Corresponding number expressed in base.
     """
     x_l = tf.to_int32(tf.expand_dims(x_int, axis=-1))
-    x_labels = []
-    for i in range(num_bits):
-      x_labels.append(
-          tf.floormod(
-              tf.floordiv(tf.to_int32(x_l),
-                          tf.to_int32(base)**i), tf.to_int32(base)))
+    # pylint: disable=g-complex-comprehension
+    x_labels = [
+        tf.floormod(
+            tf.floordiv(tf.to_int32(x_l),
+                        tf.to_int32(base)**i), tf.to_int32(base))
+        for i in range(num_bits)]
     res = tf.concat(x_labels, axis=-1)
     return tf.to_float(res)
 

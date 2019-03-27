@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -60,7 +60,14 @@ _ESCAPE_CHARS = set(u"\\_u;0123456789")
 
 # Unicode utility functions that work with Python 2 and 3
 def native_to_unicode(s):
-  return s if is_unicode(s) else to_unicode(s)
+  if is_unicode(s):
+    return s
+  try:
+    return to_unicode(s)
+  except UnicodeDecodeError:
+    res = to_unicode(s, ignore_errors=True)
+    tf.logging.info("Ignoring Unicode error, outputting: %s" % res)
+    return res
 
 
 def unicode_to_native(s):
@@ -71,13 +78,7 @@ def unicode_to_native(s):
 
 
 def is_unicode(s):
-  if six.PY2:
-    if isinstance(s, unicode):
-      return True
-  else:
-    if isinstance(s, str):
-      return True
-  return False
+  return isinstance(s, six.text_type)
 
 
 def to_unicode(s, ignore_errors=False):
@@ -89,6 +90,10 @@ def to_unicode(s, ignore_errors=False):
 
 def to_unicode_ignore_errors(s):
   return to_unicode(s, ignore_errors=True)
+
+
+def to_unicode_utf8(s):
+  return unicode(s, "utf-8") if six.PY2 else s.decode("utf-8")
 
 
 def strip_ids(ids, ids_to_strip):
@@ -1057,4 +1062,3 @@ class RealEncoder(object):
     """
     del strip_extraneous
     return " ".join([str(i) for i in ids])
-

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,14 +20,15 @@ from __future__ import division
 from __future__ import print_function
 
 import functools
-import six
 
 from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import discretization
 from tensor2tensor.layers import latent_layers
 from tensor2tensor.models import transformer
+from tensor2tensor.utils import test_utils
 
 import tensorflow as tf
+tf.compat.v1.enable_eager_execution()
 
 
 def imagetransformer_latent_tiny():
@@ -90,7 +91,7 @@ def imagetransformer_latent_tiny():
 
 class LatentLayersTest(tf.test.TestCase):
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testTransformerAutoencoder(self):
     hparams = imagetransformer_latent_tiny()
     hparams.mode = tf.estimator.ModeKeys.TRAIN
@@ -136,8 +137,7 @@ class LatentLayersTest(tf.test.TestCase):
     decoder_output, losses, cache = latent_layers.transformer_autoencoder(
         inputs, targets, target_space_id, hparams)
 
-    self.assertEqual(set(six.iterkeys(losses)),
-                     {"extra", "extra_loss", "latent_pred"})
+    self.assertEqual(set(losses), {"extra", "extra_loss", "latent_pred"})
 
     self.evaluate(tf.global_variables_initializer())
     decoder_output_, extra_loss_, latent_pred_ = self.evaluate(
@@ -151,6 +151,7 @@ class LatentLayersTest(tf.test.TestCase):
     self.assertAllGreaterEqual(extra_loss_, 0.)
     self.assertAllGreaterEqual(latent_pred_, 0.)
     self.assertEqual(cache, None)
+
 
 if __name__ == "__main__":
   tf.test.main()

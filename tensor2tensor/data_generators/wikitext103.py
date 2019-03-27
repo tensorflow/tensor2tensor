@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -161,3 +161,43 @@ class LanguagemodelWikitext103Characters(LanguagemodelWikitext103):
   @property
   def vocab_type(self):
     return text_problems.VocabType.CHARACTER
+
+
+@registry.register_problem
+class LanguagemodelWikitext103L4k(LanguagemodelWikitext103):
+  """Wikitext-103, token-level, with examples up to 4,096 tokens long."""
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    samples_by_line = super(LanguagemodelWikitext103L4k,
+                            self).generate_samples(data_dir, tmp_dir,
+                                                   dataset_split)
+
+    def _generate_samples():
+      tokens = []
+      for sample in samples_by_line:
+        sample_tokens = sample["targets"].split()
+        if len(tokens) + len(sample_tokens) < self.sequence_length:
+          tokens.extend(sample_tokens)
+        else:
+          yield {"targets": " ".join(tokens)}
+          tokens = sample_tokens
+
+    return _generate_samples()
+
+  def max_length(self, model_hparams):
+    return model_hparams.split_to_length or self.sequence_length
+
+  @property
+  def sequence_length(self):
+    """Length of each example (in tokens)."""
+    return 4096
+
+
+@registry.register_problem
+class LanguagemodelWikitext103L16k(LanguagemodelWikitext103L4k):
+  """Wikitext-103, token-level, with examples up to 16,384 tokens long."""
+
+  @property
+  def sequence_length(self):
+    """Length of each example (in tokens)."""
+    return 16384

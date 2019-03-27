@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -65,6 +65,9 @@ flags.DEFINE_integer("eval_early_stopping_steps", None,
 flags.DEFINE_bool("eval_early_stopping_metric_minimize", True,
                   "Whether to check for the early stopping metric going down "
                   "or up.")
+flags.DEFINE_integer("eval_timeout_mins", 240,
+                     "The maximum amount of time to wait to wait between "
+                     "checkpoints. Set -1 to wait indefinitely.")
 flags.DEFINE_bool("eval_run_autoregressive", False,
                   "Run eval autoregressively where we condition on previous"
                   "generated output instead of the actual target.")
@@ -92,9 +95,6 @@ flags.DEFINE_integer("local_eval_frequency", 1000,
 flags.DEFINE_integer("eval_throttle_seconds", 600,
                      "Do not re-evaluate unless the last evaluation was started"
                      " at least this many seconds ago.")
-flags.DEFINE_bool("locally_shard_to_cpu", False,
-                  "Use CPU as a sharding device running locally. This allows "
-                  "to test sharded model construction on a machine with 1 GPU.")
 flags.DEFINE_bool("sync", False, "Sync compute on PS.")
 flags.DEFINE_string("worker_job", "/job:localhost", "name of worker job")
 flags.DEFINE_integer("worker_gpu", 1, "How many GPUs to use.")

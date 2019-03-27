@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,8 +31,8 @@ import tensorflow as tf
 class SliceNetTest(tf.test.TestCase):
 
   def testSliceNet(self):
-    x = np.random.random_integers(0, high=255, size=(3, 5, 5, 3))
-    y = np.random.random_integers(0, high=9, size=(3, 5, 1, 1))
+    x = np.random.randint(256, size=(3, 5, 5, 3))
+    y = np.random.randint(10, size=(3, 5, 1, 1))
     hparams = slicenet.slicenet_params1_tiny()
     hparams.add_hparam("data_dir", "")
     problem = registry.problem("image_cifar10")

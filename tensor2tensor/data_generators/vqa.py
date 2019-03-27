@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,6 +34,7 @@ from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import vqa_utils
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
@@ -129,12 +130,16 @@ class ImageQuestion2MultilabelProblem(image_utils.ImageProblem):
     question_encoder = self._encoders["question"]
     targets_encoder = self._encoders["targets"]
 
-    p.input_modality = {
-        "inputs": (registry.Modalities.IMAGE + ":identity", None),
-        "question": (registry.Modalities.SYMBOL, question_encoder.vocab_size)
+    p.modality = {
+        "inputs": modalities.ModalityType.IDENTITY,
+        "question": modalities.ModalityType.SYMBOL,
+        "targets": modalities.ModalityType.MULTI_LABEL,
     }
-    p.target_modality = (registry.Modalities.CLASS_LABEL + ":multi_label",
-                         targets_encoder.vocab_size)
+    p.vocab_size = {
+        "inputs": None,
+        "question": question_encoder.vocab_size,
+        "targets": targets_encoder.vocab_size,
+    }
     p.input_space_id = problem.SpaceID.IMAGE  # multiple input features?
     p.target_space_id = self.target_space_id
 

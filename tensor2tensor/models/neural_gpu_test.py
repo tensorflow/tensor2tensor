@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -39,9 +39,9 @@ class NeuralGPUTest(tf.test.TestCase):
     p_hparams = problem_hparams.test_problem_hparams(input_vocab_size,
                                                      target_vocab_size,
                                                      hparams)
-    inputs = -1 + np.random.random_integers(
+    inputs = np.random.randint(
         input_vocab_size, size=(batch_size, input_length, 1, 1))
-    targets = -1 + np.random.random_integers(
+    targets = np.random.randint(
         target_vocab_size, size=(batch_size, target_length, 1, 1))
     with self.test_session() as session:
       features = {

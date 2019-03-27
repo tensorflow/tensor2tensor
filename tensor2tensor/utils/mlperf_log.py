@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -43,7 +43,9 @@ import sys
 import time
 import uuid
 
-from tensor2tensor.utils.mlperf_tags import *  # pylint: disable=wildcard-import
+# pylint: disable=wildcard-import,unused-wildcard-import
+from tensor2tensor.utils.mlperf_tags import *
+# pylint: enable=wildcard-import,unused-wildcard-import
 
 
 ROOT_DIR_GNMT = None
@@ -72,6 +74,11 @@ if LOG_FILE:
   LOGGER.addHandler(_FILE_HANDLER)
 else:
   _STREAM_HANDLER.setLevel(logging.DEBUG)
+
+
+def get_mode(hparams):
+  """Returns whether we should do MLPerf logging."""
+  return "mlperf_mode" in hparams and hparams.mlperf_mode
 
 
 def get_caller(stack_index=2, root_dir=None):
@@ -159,7 +166,10 @@ def _mlperf_print(key, value=None, benchmark=None, stack_offset=0,
 TRANSFORMER_TAG_SET = set(TRANSFORMER_TAGS)  # pylint: disable=undefined-variable
 
 
-def transformer_print(key, value=None, stack_offset=2, deferred=False):
+def transformer_print(key, value=None, stack_offset=2, deferred=False,
+                      hparams=None):
+  if not hparams or not get_mode(hparams):
+    return
   return _mlperf_print(
       key=key,
       value=value,

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -364,7 +364,7 @@ def cv_squared(x):
   epsilon = 1e-10
   float_size = tf.to_float(tf.size(x)) + epsilon
   mean = tf.reduce_sum(x) / float_size
-  variance = tf.reduce_sum(tf.square(x - mean)) / float_size
+  variance = tf.reduce_sum(tf.squared_difference(x, mean)) / float_size
   return variance / (tf.square(mean) + epsilon)
 
 
@@ -636,7 +636,7 @@ class PadRemover(object):
           x,
           indices=self.nonpad_ids,
       )
-      if not tf.contrib.eager.in_eager_mode():
+      if not tf.executing_eagerly():
         # This is a hack but for some reason, gather_nd return a tensor of
         # undefined shape, so the shape is set up manually
         x.set_shape([None] + x_shape[1:])
@@ -986,7 +986,7 @@ def ffn_expert_fn(input_size,
 def flatten_all_but_last(a):
   """Flatten all dimensions of a except the last."""
   ret = tf.reshape(a, [-1, tf.shape(a)[-1]])
-  if not tf.contrib.eager.in_eager_mode():
+  if not tf.executing_eagerly():
     ret.set_shape([None] + a.get_shape().as_list()[-1:])
   return ret
 

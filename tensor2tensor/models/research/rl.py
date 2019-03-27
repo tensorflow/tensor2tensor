@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,26 +21,41 @@ import operator
 import gym
 import six
 
-from tensor2tensor.data_generators import gym_env
+from tensor2tensor.data_generators import problem
+from tensor2tensor.data_generators import video_utils
+from tensor2tensor.envs import tic_tac_toe_env
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
-from tensor2tensor.rl.envs import tf_atari_wrappers
+from tensor2tensor.layers import modalities
+from tensor2tensor.models.video import basic_deterministic_params
+from tensor2tensor.models.video import basic_stochastic
+from tensor2tensor.rl.envs.py_func_batch_env import PyFuncBatchEnv
+from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
+from tensor2tensor.rl.envs.simulated_batch_gym_env import SimulatedBatchGymEnv
 from tensor2tensor.utils import registry
+from tensor2tensor.utils import t2t_model
+from tensor2tensor.utils import trainer_lib
+from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 
 @registry.register_hparams
 def ppo_base_v1():
   """Set of hyperparameters."""
   hparams = common_hparams.basic_params1()
-  hparams.learning_rate = 1e-4
+  hparams.learning_rate_schedule = "constant"
+  hparams.learning_rate_constant = 1e-4
+  hparams.clip_grad_norm = 0.5
+  hparams.weight_decay = 0
+  # If set, extends the LR warmup to all epochs except the final one.
+  hparams.add_hparam("lr_decay_in_final_epoch", False)
   hparams.add_hparam("init_mean_factor", 0.1)
   hparams.add_hparam("init_logstd", 0.1)
   hparams.add_hparam("policy_layers", (100, 100))
   hparams.add_hparam("value_layers", (100, 100))
-  hparams.add_hparam("num_agents", 30)
   hparams.add_hparam("clipping_coef", 0.2)
   hparams.add_hparam("gae_gamma", 0.99)
   hparams.add_hparam("gae_lambda", 0.95)
@@ -50,71 +65,42 @@ def ppo_base_v1():
   hparams.add_hparam("epoch_length", 200)
   hparams.add_hparam("epochs_num", 2000)
   hparams.add_hparam("eval_every_epochs", 10)
-  hparams.add_hparam("num_eval_agents", 3)
-  hparams.add_hparam("video_during_eval", False)
   hparams.add_hparam("save_models_every_epochs", 30)
   hparams.add_hparam("optimization_batch_size", 50)
-  hparams.add_hparam("max_gradients_norm", 0.5)
-  hparams.add_hparam("simulation_random_starts", False)
-  hparams.add_hparam("simulation_flip_first_random_for_beginning", False)
   hparams.add_hparam("intrinsic_reward_scale", 0.)
-  hparams.add_hparam("logits_clip", 4.0)
+  hparams.add_hparam("logits_clip", 0.0)
   hparams.add_hparam("dropout_ppo", 0.1)
-  return hparams
-
-
-@registry.register_hparams
-def ppo_continuous_action_base():
-  hparams = ppo_base_v1()
-  hparams.add_hparam("policy_network", feed_forward_gaussian_fun)
-  hparams.add_hparam("policy_network_params", "basic_policy_parameters")
+  hparams.add_hparam("effective_num_agents", None)
+  # TODO(afrozm): Clean this up, this is used in PPO learner to get modalities.
+  hparams.add_hparam("policy_problem_name", "dummy_policy_problem")
   return hparams
 
 
 @registry.register_hparams
 def basic_policy_parameters():
   wrappers = None
-  return tf.contrib.training.HParams(wrappers=wrappers)
+  return HParams(wrappers=wrappers)
 
 
 @registry.register_hparams
 def ppo_discrete_action_base():
   hparams = ppo_base_v1()
-  hparams.add_hparam("policy_network", feed_forward_categorical_fun)
+  hparams.add_hparam("policy_network", "feed_forward_categorical_policy")
   return hparams
 
 
 @registry.register_hparams
 def discrete_random_action_base():
   hparams = common_hparams.basic_params1()
-  hparams.add_hparam("policy_network", random_policy_fun)
+  hparams.add_hparam("policy_network", "random_policy")
   return hparams
 
 
 @registry.register_hparams
 def ppo_atari_base():
-  """Atari base parameters."""
-  hparams = ppo_discrete_action_base()
-  hparams.learning_rate = 4e-4
-  hparams.num_agents = 5
-  hparams.epoch_length = 200
-  hparams.gae_gamma = 0.985
-  hparams.gae_lambda = 0.985
-  hparams.entropy_loss_coef = 0.002
-  hparams.value_loss_coef = 0.025
-  hparams.optimization_epochs = 10
-  hparams.epochs_num = 10000
-  hparams.num_eval_agents = 1
-  hparams.network = feed_forward_cnn_small_categorical_fun
-  return hparams
-
-
-@registry.register_hparams
-def ppo_pong_base():
   """Pong base parameters."""
   hparams = ppo_discrete_action_base()
-  hparams.learning_rate = 1e-4
-  hparams.num_agents = 8
+  hparams.learning_rate_constant = 1e-4
   hparams.epoch_length = 200
   hparams.gae_gamma = 0.985
   hparams.gae_lambda = 0.985
@@ -122,142 +108,452 @@ def ppo_pong_base():
   hparams.value_loss_coef = 1
   hparams.optimization_epochs = 3
   hparams.epochs_num = 1000
-  hparams.num_eval_agents = 1
-  hparams.policy_network = feed_forward_cnn_small_categorical_fun
+  hparams.policy_network = "feed_forward_cnn_small_categorical_policy"
   hparams.clipping_coef = 0.2
   hparams.optimization_batch_size = 20
-  hparams.max_gradients_norm = 0.5
+  hparams.clip_grad_norm = 0.5
   return hparams
 
 
-def simple_gym_spec(env):
-  """Parameters of environment specification."""
-  standard_wrappers = None
-  env_lambda = None
-  if isinstance(env, str):
-    env_lambda = lambda: gym.make(env)
-  if callable(env):
-    env_lambda = env
-  assert env_lambda is not None, "Unknown specification of environment"
+@registry.register_hparams
+def ppo_original_params():
+  """Parameters based on the original PPO paper."""
+  hparams = ppo_atari_base()
+  hparams.learning_rate_constant = 2.5e-4
+  hparams.gae_gamma = 0.99
+  hparams.gae_lambda = 0.95
+  hparams.clipping_coef = 0.1
+  hparams.value_loss_coef = 1
+  hparams.entropy_loss_coef = 0.01
+  hparams.eval_every_epochs = 200
+  hparams.dropout_ppo = 0.1
+  # The parameters below are modified to accommodate short epoch_length (which
+  # is needed for model based rollouts).
+  hparams.epoch_length = 50
+  hparams.optimization_batch_size = 20
+  return hparams
 
-  return tf.contrib.training.HParams(env_lambda=env_lambda,
-                                     wrappers=standard_wrappers,
-                                     simulated_env=False)
+
+@registry.register_hparams
+def ppo_ttt_params():
+  """Parameters based on the original PPO paper."""
+  hparams = ppo_original_params()
+  hparams.policy_network = "feed_forward_categorical_policy"
+  hparams.policy_problem_name = "dummy_policy_problem_ttt"
+  return hparams
 
 
-def standard_atari_env_spec(env=None, simulated=False):
-  """Parameters of environment specification."""
-  standard_wrappers = [
-      (tf_atari_wrappers.StackWrapper, {"history": 4})
+@registry.register_hparams
+def ppo_original_params_gamma95():
+  """Parameters based on the original PPO paper, changed gamma."""
+  hparams = ppo_original_params()
+  hparams.gae_gamma = 0.95
+  return hparams
+
+
+@registry.register_hparams
+def ppo_original_params_gamma90():
+  """Parameters based on the original PPO paper, changed gamma."""
+  hparams = ppo_original_params()
+  hparams.gae_gamma = 0.90
+  return hparams
+
+
+@registry.register_hparams
+def ppo_original_world_model():
+  """Atari parameters with world model as policy."""
+  hparams = ppo_original_params()
+  hparams.policy_network = "next_frame_basic_deterministic"
+  hparams_keys = hparams.values().keys()
+  video_hparams = basic_deterministic_params.next_frame_basic_deterministic()
+  for (name, value) in six.iteritems(video_hparams.values()):
+    if name in hparams_keys:
+      hparams.set_hparam(name, value)
+    else:
+      hparams.add_hparam(name, value)
+  # Mostly to avoid decaying WM params when training the policy.
+  hparams.weight_decay = 0
+  return hparams
+
+
+@registry.register_hparams
+def ppo_tiny_world_model():
+  """Atari parameters with world model as policy."""
+  hparams = ppo_original_params()
+  hparams.policy_network = "next_frame_basic_deterministic"
+  hparams_keys = hparams.values().keys()
+  video_hparams = basic_deterministic_params.next_frame_tiny()
+  for (name, value) in six.iteritems(video_hparams.values()):
+    if name in hparams_keys:
+      hparams.set_hparam(name, value)
+    else:
+      hparams.add_hparam(name, value)
+  hparams.weight_decay = 0
+  return hparams
+
+
+@registry.register_hparams
+def ppo_original_world_model_stochastic_discrete():
+  """Atari parameters with stochastic discrete world model as policy."""
+  hparams = ppo_original_params()
+  hparams.policy_network = "next_frame_basic_stochastic_discrete"
+  hparams_keys = hparams.values().keys()
+  video_hparams = basic_stochastic.next_frame_basic_stochastic_discrete()
+  for (name, value) in six.iteritems(video_hparams.values()):
+    if name in hparams_keys:
+      hparams.set_hparam(name, value)
+    else:
+      hparams.add_hparam(name, value)
+  # To avoid OOM. Probably way to small.
+  hparams.optimization_batch_size = 1
+  hparams.weight_decay = 0
+  return hparams
+
+
+def make_real_env_fn(env):
+  """Creates a function returning a given real env, in or out of graph.
+
+  Args:
+    env: Environment to return from the function.
+
+  Returns:
+    Function in_graph -> env.
+  """
+  return lambda in_graph: PyFuncBatchEnv(env) if in_graph else env
+
+
+def make_simulated_env_fn(**env_kwargs):
+  """Returns a function creating a simulated env, in or out of graph.
+
+  Args:
+    **env_kwargs: kwargs to pass to the simulated env constructor.
+
+  Returns:
+    Function in_graph -> env.
+  """
+  def env_fn(in_graph):
+    class_ = SimulatedBatchEnv if in_graph else SimulatedBatchGymEnv
+    return class_(**env_kwargs)
+  return env_fn
+
+
+# TODO(koz4k): Move this and the one below to rl_utils.
+def make_simulated_env_kwargs(real_env, hparams, **extra_kwargs):
+  """Extracts simulated env kwargs from real_env and loop hparams."""
+  objs_and_attrs = [
+      (real_env, [
+          "reward_range", "observation_space", "action_space", "frame_height",
+          "frame_width"
+      ]),
+      (hparams, ["frame_stack_size", "intrinsic_reward_scale"])
   ]
-  env_spec = tf.contrib.training.HParams(
-      wrappers=standard_wrappers,
-      simulated_env=simulated,
-      reward_range=env.reward_range,
-      observation_space=env.observation_space,
-      action_space=env.action_space,
-      force_beginning_resets=True
+  kwargs = {
+      attr: getattr(obj, attr)  # pylint: disable=g-complex-comprehension
+      for (obj, attrs) in objs_and_attrs for attr in attrs
+  }
+  kwargs["model_name"] = hparams.generative_model
+  kwargs["model_hparams"] = trainer_lib.create_hparams(
+      hparams.generative_model_params
   )
-  if not simulated:
-    env_spec.add_hparam("env", env)
-  return env_spec
+  if hparams.wm_policy_param_sharing:
+    kwargs["model_hparams"].optimizer_zero_grads = True
+  kwargs.update(extra_kwargs)
+  return kwargs
 
 
-def standard_atari_env_simulated_spec(real_env, **kwargs):
-  """Spec."""
-  env_spec = standard_atari_env_spec(real_env, simulated=True)
-  for (name, value) in six.iteritems(kwargs):
-    env_spec.add_hparam(name, value)
-  env_spec.force_beginning_resets = False
-  return env_spec
+def make_simulated_env_fn_from_hparams(real_env, hparams, **extra_kwargs):
+  """Creates a simulated env_fn."""
+  return make_simulated_env_fn(
+      **make_simulated_env_kwargs(real_env, hparams, **extra_kwargs)
+  )
 
 
-def standard_atari_env_eval_spec(*args, **kwargs):
-  """Parameters of environment specification for eval."""
-  return standard_atari_env_spec(*args, **kwargs)
-
-
-def standard_atari_ae_env_spec(env, ae_hparams_set):
-  """Parameters of environment specification."""
-  standard_wrappers = [[tf_atari_wrappers.AutoencoderWrapper,
-                        {"ae_hparams_set": ae_hparams_set}],
-                       [tf_atari_wrappers.StackWrapper, {"history": 4}]]
-  env_lambda = None
-  if isinstance(env, str):
-    env_lambda = lambda: gym.make(env)
-  if callable(env):
-    env_lambda = env
-  assert env is not None, "Unknown specification of environment"
-
-  return tf.contrib.training.HParams(env_lambda=env_lambda,
-                                     wrappers=standard_wrappers,
-                                     simulated_env=False)
-
-
-def get_policy(observations, hparams):
+def get_policy(observations, hparams, action_space):
   """Get a policy network.
 
   Args:
-    observations: Tensor with observations
+    observations: observations
     hparams: parameters
+    action_space: action space
 
   Returns:
-    Tensor with policy and value function output
+    Tuple (action logits, value).
   """
-  policy_network_lambda = hparams.policy_network
-  action_space = hparams.environment_spec.action_space
-  return policy_network_lambda(action_space, hparams, observations)
+  if not isinstance(action_space, gym.spaces.Discrete):
+    raise ValueError("Expecting discrete action space.")
+
+  obs_shape = common_layers.shape_list(observations)
+  (frame_height, frame_width) = obs_shape[2:4]
+
+  # TODO(afrozm): We have these dummy problems mainly for hparams, so cleanup
+  # when possible and do this properly.
+  if hparams.policy_problem_name == "dummy_policy_problem_ttt":
+    tf.logging.info("Using DummyPolicyProblemTTT for the policy.")
+    policy_problem = tic_tac_toe_env.DummyPolicyProblemTTT()
+  else:
+    tf.logging.info("Using DummyPolicyProblem for the policy.")
+    policy_problem = DummyPolicyProblem(action_space, frame_height, frame_width)
+
+  trainer_lib.add_problem_hparams(hparams, policy_problem)
+  hparams.force_full_predict = True
+  model = registry.model(hparams.policy_network)(
+      hparams, tf.estimator.ModeKeys.TRAIN
+  )
+  try:
+    num_target_frames = hparams.video_num_target_frames
+  except AttributeError:
+    num_target_frames = 1
+  features = {
+      "inputs": observations,
+      "input_action": tf.zeros(obs_shape[:2] + [1], dtype=tf.int32),
+      "input_reward": tf.zeros(obs_shape[:2] + [1], dtype=tf.int32),
+      "targets": tf.zeros(obs_shape[:1] + [num_target_frames] + obs_shape[2:]),
+      "target_action": tf.zeros(
+          obs_shape[:1] + [num_target_frames, 1], dtype=tf.int32),
+      "target_reward": tf.zeros(
+          obs_shape[:1] + [num_target_frames, 1], dtype=tf.int32),
+      "target_policy": tf.zeros(
+          obs_shape[:1] + [num_target_frames] + [action_space.n]),
+      "target_value": tf.zeros(
+          obs_shape[:1] + [num_target_frames])
+  }
+  with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+    t2t_model.create_dummy_vars()
+    (targets, _) = model(features)
+  return (targets["target_policy"][:, 0, :], targets["target_value"][:, 0])
 
 
 @registry.register_hparams
 def ppo_pong_ae_base():
   """Pong autoencoder base parameters."""
-  hparams = ppo_pong_base()
-  hparams.learning_rate = 1e-4
-  hparams.network = dense_bitwise_categorical_fun
+  hparams = ppo_original_params()
+  hparams.learning_rate_constant = 1e-4
+  hparams.network = "dense_bitwise_categorical_policy"
   return hparams
 
 
 @registry.register_hparams
-def pong_model_free():
-  """TODO(piotrmilos): Document this."""
-  hparams = tf.contrib.training.HParams(
-      epochs_num=4,
-      eval_every_epochs=2,
-      num_agents=2,
-      optimization_epochs=3,
-      epoch_length=30,
-      entropy_loss_coef=0.003,
-      learning_rate=8e-05,
-      optimizer="Adam",
-      policy_network=feed_forward_cnn_small_categorical_fun,
-      gae_lambda=0.985,
-      num_eval_agents=2,
-      max_gradients_norm=0.5,
-      gae_gamma=0.985,
-      optimization_batch_size=4,
-      clipping_coef=0.2,
-      value_loss_coef=1,
-      save_models_every_epochs=False)
-  env = gym_env.T2TGymEnv("PongNoFrameskip-v4", batch_size=2)
-  env.start_new_epoch(0)
-  hparams.add_hparam("environment_spec", standard_atari_env_spec(env))
-  hparams.add_hparam(
-      "environment_eval_spec", standard_atari_env_eval_spec(env))
+def dqn_atari_base():
+  # These params are based on agents/dqn/configs/dqn.gin
+  # with some modifications taking into account our code
+  return HParams(
+      agent_gamma=0.99,
+      agent_update_horizon=1,
+      agent_min_replay_history=20000,  # agent steps
+      agent_update_period=4,
+      agent_target_update_period=8000,  # agent steps
+      agent_epsilon_train=0.01,
+      agent_epsilon_eval=0.001,
+      agent_epsilon_decay_period=250000,  # agent steps
+      agent_generates_trainable_dones=True,
+
+      optimizer_class="RMSProp",
+      optimizer_learning_rate=0.00025,
+      optimizer_decay=0.95,
+      optimizer_momentum=0.0,
+      optimizer_epsilon=0.00001,
+      optimizer_centered=True,
+
+      # TODO(kozak): change names maybe replay_buffer -> agent?
+      # Also batch_size is now buffer_batch_size in _DQNAgent.
+      replay_buffer_replay_capacity=1000000,
+      replay_buffer_buffer_batch_size=32,
+
+      time_limit=27000,
+      save_every_steps=50000,
+      num_frames=int(20 * 1e6),
+
+      # TODO(konradczechowski) this is not used in trainer_model_free, clean
+      # this up after evaluation refactor
+      eval_episodes_num=3,
+  )
+
+
+@registry.register_hparams
+def dqn_original_params():
+  """dqn_original_params."""
+  hparams = dqn_atari_base()
+  hparams.set_hparam("num_frames", int(1e6))
   return hparams
+
+
+def rlmf_tiny_overrides():
+  """Parameters to override for tiny setting excluding agent-related hparams."""
+  return dict(
+      max_num_noops=1,
+      eval_max_num_noops=1,
+      rl_env_max_episode_steps=7,
+      eval_rl_env_max_episode_steps=7,
+      eval_sampling_temps=[0.0, 1.0],
+  )
+
+
+@registry.register_hparams
+def rlmf_original():
+  return HParams(
+      game="pong",
+      sticky_actions=False,
+      base_algo="ppo",
+      base_algo_params="ppo_original_params",
+      batch_size=16,
+      eval_batch_size=2,
+      frame_stack_size=4,
+      eval_sampling_temps=[0.0, 0.2, 0.5, 0.8, 1.0, 2.0],
+      max_num_noops=8,
+      eval_max_num_noops=8,
+      eval_rl_env_max_episode_steps=1000,
+      resize_height_factor=2,
+      resize_width_factor=2,
+      grayscale=0,
+      rl_env_max_episode_steps=-1,
+      # If set, use this as the gym env name, instead of changing game mode etc.
+      rl_env_name="",
+      # Controls whether we should derive observation space, do some
+      # pre-processing etc. See T2TGymEnv._derive_observation_space.
+      rl_should_derive_observation_space=True,
+  )
+
+
+@registry.register_hparams
+def rlmf_tictactoe():
+  """Base set of hparams for model-free PPO."""
+  hparams = rlmf_original()
+  hparams.game = "tictactoe"
+  hparams.rl_env_name = "T2TEnv-TicTacToeEnv-v0"
+  # Since we don't have any no-op actions, otherwise we have to have an
+  # attribute called `get_action_meanings`.
+  hparams.eval_max_num_noops = 0
+  hparams.max_num_noops = 0
+  hparams.rl_should_derive_observation_space = False
+
+  hparams.policy_network = "feed_forward_categorical_policy"
+  hparams.base_algo_params = "ppo_ttt_params"
+
+  # Number of last observations to feed to the agent
+  hparams.frame_stack_size = 1
+
+  return hparams
+
+
+@registry.register_hparams
+def rlmf_base():
+  """Base set of hparams for model-free PPO."""
+  hparams = rlmf_original()
+  hparams.add_hparam("ppo_epochs_num", 3000)
+  hparams.add_hparam("ppo_eval_every_epochs", 100)
+  return hparams
+
+
+@registry.register_hparams
+def rlmf_tiny():
+  """Tiny set of hparams for model-free PPO."""
+  hparams = rlmf_original()
+  hparams = hparams.override_from_dict(rlmf_tiny_overrides())
+  hparams.batch_size = 2
+  hparams.add_hparam("ppo_epochs_num", 3)
+  hparams.add_hparam("ppo_epoch_length", 2)
+  return hparams
+
+
+@registry.register_hparams
+def rlmf_dqn_tiny():
+  """Tiny DQN params."""
+  hparams = rlmf_original()
+  hparams = hparams.override_from_dict(rlmf_tiny_overrides())
+  hparams.batch_size = 1
+  hparams.base_algo = "dqn"
+  hparams.base_algo_params = "dqn_original_params"
+  hparams.add_hparam("dqn_num_frames", 128)
+  hparams.add_hparam("dqn_save_every_steps", 128)
+  hparams.add_hparam("dqn_replay_buffer_replay_capacity", 100)
+  hparams.add_hparam("dqn_agent_min_replay_history", 10)
+  return hparams
+
+
+@registry.register_hparams
+def rlmf_eval():
+  """Eval set of hparams for model-free PPO."""
+  hparams = rlmf_original()
+  hparams.batch_size = 8
+  hparams.eval_sampling_temps = [0.0, 0.5, 1.0]
+  hparams.eval_rl_env_max_episode_steps = -1
+  hparams.add_hparam("ppo_epoch_length", 128)
+  hparams.add_hparam("ppo_optimization_batch_size", 32)
+  hparams.add_hparam("ppo_epochs_num", 10000)
+  hparams.add_hparam("ppo_eval_every_epochs", 500)
+  hparams.add_hparam("attempt", 0)
+  hparams.add_hparam("moe_loss_coef", 0)
+  return hparams
+
+
+class PolicyBase(t2t_model.T2TModel):
+
+  def loss(self, *args, **kwargs):
+    return 0.0
+
+
+# TODO(lukaszkaiser): move this class or clean up the whole file.
+class DummyPolicyProblem(video_utils.VideoProblem):
+  """Dummy Problem for running the policy."""
+
+  def __init__(self, action_space, frame_height, frame_width):
+    super(DummyPolicyProblem, self).__init__()
+    self.action_space = action_space
+    self._frame_height = frame_height
+    self._frame_width = frame_width
+
+  @property
+  def frame_height(self):
+    """Height of each frame."""
+    return self._frame_height
+
+  @property
+  def frame_width(self):
+    """Width of each frame."""
+    return self._frame_width
+
+  @property
+  def num_actions(self):
+    return self.action_space.n
+
+  def hparams(self, defaults, unused_model_hparams):
+    p = defaults
+    p.modality = {
+        "inputs": modalities.ModalityType.VIDEO,
+        "input_action": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "input_reward": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "targets": modalities.ModalityType.VIDEO,
+        "target_action": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "target_reward": modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        "target_policy": modalities.ModalityType.IDENTITY,
+        "target_value": modalities.ModalityType.IDENTITY,
+    }
+    p.vocab_size = {
+        "inputs": 256,
+        "input_action": self.num_actions,
+        "input_reward": 3,
+        "targets": 256,
+        "target_action": self.num_actions,
+        "target_reward": 3,
+        "target_policy": None,
+        "target_value": None,
+    }
+    p.input_space_id = problem.SpaceID.IMAGE
+    p.target_space_id = problem.SpaceID.IMAGE
 
 
 NetworkOutput = collections.namedtuple(
     "NetworkOutput", "policy, value, action_postprocessing")
 
 
+# TODO(koz4k): Translate it to T2TModel or remove.
 def feed_forward_gaussian_fun(action_space, config, observations):
   """Feed-forward Gaussian."""
   if not isinstance(action_space, gym.spaces.box.Box):
     raise ValueError("Expecting continuous action space.")
 
-  mean_weights_initializer = tf.contrib.layers.variance_scaling_initializer(
-      factor=config.init_mean_factor)
+  mean_weights_initializer = tf.initializers.variance_scaling(
+      scale=config.init_mean_factor)
   logstd_initializer = tf.random_normal_initializer(config.init_logstd, 1e-10)
 
   flat_observations = tf.reshape(observations, [
@@ -268,10 +564,10 @@ def feed_forward_gaussian_fun(action_space, config, observations):
     with tf.variable_scope("policy"):
       x = flat_observations
       for size in config.policy_layers:
-        x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-      mean = tf.contrib.layers.fully_connected(
-          x, action_space.shape[0], tf.tanh,
-          weights_initializer=mean_weights_initializer)
+        x = tf.layers.dense(x, size, activation=tf.nn.relu)
+      mean = tf.layers.dense(
+          x, action_space.shape[0], activation=tf.tanh,
+          kernel_initializer=mean_weights_initializer)
       logstd = tf.get_variable(
           "logstd", mean.shape[2:], tf.float32, logstd_initializer)
       logstd = tf.tile(
@@ -280,14 +576,13 @@ def feed_forward_gaussian_fun(action_space, config, observations):
     with tf.variable_scope("value"):
       x = flat_observations
       for size in config.value_layers:
-        x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-      value = tf.contrib.layers.fully_connected(x, 1, None)[..., 0]
+        x = tf.layers.dense(x, size, activation=tf.nn.relu)
+      value = tf.layers.dense(x, 1)[..., 0]
   mean = tf.check_numerics(mean, "mean")
   logstd = tf.check_numerics(logstd, "logstd")
   value = tf.check_numerics(value, "value")
 
-  policy = tf.contrib.distributions.MultivariateNormalDiag(mean,
-                                                           tf.exp(logstd))
+  policy = tfp.distributions.MultivariateNormalDiag(mean, tf.exp(logstd))
 
   return NetworkOutput(policy, value, lambda a: tf.clip_by_value(a, -2., 2))
 
@@ -301,128 +596,132 @@ def clip_logits(logits, config):
     return logits
 
 
-def feed_forward_categorical_fun(action_space, config, observations):
+@registry.register_model
+class FeedForwardCategoricalPolicy(PolicyBase):
   """Feed-forward categorical."""
-  if not isinstance(action_space, gym.spaces.Discrete):
-    raise ValueError("Expecting discrete action space.")
-  flat_observations = tf.reshape(observations, [
-      tf.shape(observations)[0], tf.shape(observations)[1],
-      functools.reduce(operator.mul, observations.shape.as_list()[2:], 1)])
-  with tf.variable_scope("network_parameters"):
+
+  def body(self, features):
+    observations = features["inputs_raw"]
+    observations = tf.cast(observations, tf.float32)
+    flat_observations = tf.layers.flatten(observations)
     with tf.variable_scope("policy"):
       x = flat_observations
-      for size in config.policy_layers:
-        x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-      logits = tf.contrib.layers.fully_connected(x, action_space.n,
-                                                 activation_fn=None)
+      for size in self.hparams.policy_layers:
+        x = tf.layers.dense(x, size, activation=tf.nn.relu)
+      logits = tf.layers.dense(x, self.hparams.problem.num_actions)
+      logits = tf.expand_dims(logits, axis=1)
     with tf.variable_scope("value"):
       x = flat_observations
-      for size in config.value_layers:
-        x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-      value = tf.contrib.layers.fully_connected(x, 1, None)[..., 0]
-  logits = clip_logits(logits, config)
-  policy = tf.contrib.distributions.Categorical(logits=logits)
-  return NetworkOutput(policy, value, lambda a: a)
+      for size in self.hparams.value_layers:
+        x = tf.layers.dense(x, size, activation=tf.nn.relu)
+      value = tf.layers.dense(x, 1)
+    logits = clip_logits(logits, self.hparams)
+    return {"target_policy": logits, "target_value": value}
 
 
-def feed_forward_cnn_small_categorical_fun(action_space, config, observations):
+@registry.register_model
+class FeedForwardCnnSmallCategoricalPolicy(PolicyBase):
   """Small cnn network with categorical output."""
-  obs_shape = common_layers.shape_list(observations)
-  x = tf.reshape(observations, [-1] + obs_shape[2:])
-  with tf.variable_scope("network_parameters"):
-    dropout = getattr(config, "dropout_ppo", 0.0)
+
+  def body(self, features):
+    observations = features["inputs_raw"]
+    x = tf.transpose(observations, [0, 2, 3, 1, 4])
+    x_shape = common_layers.shape_list(x)
+    x = tf.reshape(x, x_shape[:-2] + [-1])
+    dropout = getattr(self.hparams, "dropout_ppo", 0.0)
     with tf.variable_scope("feed_forward_cnn_small"):
-      x = tf.to_float(x) / 255.0
-      x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
-                                   activation_fn=tf.nn.relu, padding="SAME")
-      x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
-                                   activation_fn=tf.nn.relu, padding="SAME")
+      x = tf.cast(x, tf.float32) / 255.0
+      x = tf.layers.conv2d(x, 32, (5, 5), strides=(2, 2),
+                           activation=tf.nn.relu, padding="same")
+      x = tf.layers.conv2d(x, 32, (5, 5), strides=(2, 2),
+                           activation=tf.nn.relu, padding="same")
 
-      flat_x = tf.reshape(
-          x, [obs_shape[0], obs_shape[1],
-              functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
-      flat_x = tf.nn.dropout(flat_x, keep_prob=1.0 - dropout)
-      x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
+      flat_x = tf.layers.flatten(x)
+      flat_x = tf.layers.dropout(flat_x, rate=dropout)
+      x = tf.layers.dense(flat_x, 128, activation=tf.nn.relu)
 
-      logits = tf.contrib.layers.fully_connected(x, action_space.n,
-                                                 activation_fn=None)
-      logits = clip_logits(logits, config)
+      logits = tf.layers.dense(
+          x, self.hparams.problem.num_actions, name="dense2"
+      )
+      logits = clip_logits(logits, self.hparams)
+      logits = tf.expand_dims(logits, axis=1)
 
-      value = tf.contrib.layers.fully_connected(
-          x, 1, activation_fn=None)[..., 0]
-      policy = tf.contrib.distributions.Categorical(logits=logits)
-  return NetworkOutput(policy, value, lambda a: a)
+      value = tf.layers.dense(x, 1)
+    return {"target_policy": logits, "target_value": value}
 
 
-def feed_forward_cnn_small_categorical_fun_new(
-    action_space, config, observations):
+@registry.register_model
+class FeedForwardCnnSmallCategoricalPolicyNew(PolicyBase):
   """Small cnn network with categorical output."""
-  obs_shape = common_layers.shape_list(observations)
-  x = tf.reshape(observations, [-1] + obs_shape[2:])
-  with tf.variable_scope("network_parameters"):
-    dropout = getattr(config, "dropout_ppo", 0.0)
+
+  def body(self, features):
+    observations = features["inputs"]
+    x = tf.transpose(observations, [0, 2, 3, 1, 4])
+    x_shape = common_layers.shape_list(x)
+    x = tf.reshape(x, x_shape[:-2] + [-1])
+    dropout = getattr(self.hparams, "dropout_ppo", 0.0)
     with tf.variable_scope("feed_forward_cnn_small"):
-      x = tf.to_float(x) / 255.0
-      x = tf.nn.dropout(x, keep_prob=1.0 - dropout)
+      x = tf.cast(x, tf.float32) / 255.0
+      x = tf.nn.dropout(x, rate=dropout)
       x = tf.layers.conv2d(
           x, 32, (4, 4), strides=(2, 2), name="conv1",
           activation=common_layers.belu, padding="SAME")
-      x = tf.nn.dropout(x, keep_prob=1.0 - dropout)
+      x = tf.nn.dropout(x, rate=dropout)
       x = tf.layers.conv2d(
           x, 64, (4, 4), strides=(2, 2), name="conv2",
           activation=common_layers.belu, padding="SAME")
-      x = tf.nn.dropout(x, keep_prob=1.0 - dropout)
+      x = tf.nn.dropout(x, rate=dropout)
       x = tf.layers.conv2d(
           x, 128, (4, 4), strides=(2, 2), name="conv3",
           activation=common_layers.belu, padding="SAME")
 
-      flat_x = tf.reshape(
-          x, [obs_shape[0], obs_shape[1],
-              functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
-      flat_x = tf.nn.dropout(flat_x, keep_prob=1.0 - dropout)
+      flat_x = tf.layers.flatten(x)
+      flat_x = tf.nn.dropout(flat_x, rate=dropout)
       x = tf.layers.dense(flat_x, 128, activation=tf.nn.relu, name="dense1")
 
-      logits = tf.layers.dense(x, action_space.n, name="dense2")
-      logits = clip_logits(logits, config)
+      logits = tf.layers.dense(
+          x, self.hparams.problem.num_actions, name="dense2"
+      )
+      logits = tf.expand_dims(logits, axis=1)
+      logits = clip_logits(logits, self.hparams)
 
-      value = tf.layers.dense(x, 1, name="value")[..., 0]
-      policy = tf.contrib.distributions.Categorical(logits=logits)
-
-  return NetworkOutput(policy, value, lambda a: a)
+      value = tf.layers.dense(x, 1, name="value")
+    return {"target_policy": logits, "target_value": value}
 
 
-def dense_bitwise_categorical_fun(action_space, config, observations):
+@registry.register_model
+class DenseBitwiseCategoricalPolicy(PolicyBase):
   """Dense network with bitwise input and categorical output."""
-  del config
-  obs_shape = common_layers.shape_list(observations)
-  x = tf.reshape(observations, [-1] + obs_shape[2:])
 
-  with tf.variable_scope("network_parameters"):
+  def body(self, features):
+    observations = features["inputs"]
+    flat_x = tf.layers.flatten(observations)
     with tf.variable_scope("dense_bitwise"):
-      x = discretization.int_to_bit_embed(x, 8, 32)
-      flat_x = tf.reshape(
-          x, [obs_shape[0], obs_shape[1],
-              functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
+      flat_x = discretization.int_to_bit_embed(flat_x, 8, 32)
 
-      x = tf.contrib.layers.fully_connected(flat_x, 256, tf.nn.relu)
-      x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
+      x = tf.layers.dense(flat_x, 256, activation=tf.nn.relu)
+      x = tf.layers.dense(flat_x, 128, activation=tf.nn.relu)
 
-      logits = tf.contrib.layers.fully_connected(x, action_space.n,
-                                                 activation_fn=None)
+      logits = tf.layers.dense(x, self.hparams.problem.num_actions)
 
-      value = tf.contrib.layers.fully_connected(
-          x, 1, activation_fn=None)[..., 0]
-      policy = tf.contrib.distributions.Categorical(logits=logits)
+      value = tf.layers.dense(x, 1)[..., 0]
 
-  return NetworkOutput(policy, value, lambda a: a)
+    return {"target_policy": logits, "target_value": value}
 
 
-def random_policy_fun(action_space, unused_config, observations):
+@registry.register_model
+class RandomPolicy(PolicyBase):
   """Random policy with categorical output."""
-  obs_shape = observations.shape.as_list()
-  with tf.variable_scope("network_parameters"):
-    value = tf.zeros(obs_shape[:2])
-    policy = tf.distributions.Categorical(
-        probs=[[[1. / float(action_space.n)] * action_space.n
-               ] * (obs_shape[0] * obs_shape[1])])
-  return NetworkOutput(policy, value, lambda a: a)
+
+  def body(self, features):
+    observations = features["inputs"]
+    obs_shape = observations.shape.as_list()
+    # Just so Saver doesn't complain because of no variables.
+    tf.get_variable("dummy_var", initializer=0.0)
+    num_actions = self.hparams.problem.num_actions
+    logits = tf.constant(
+        1. / float(num_actions),
+        shape=(obs_shape[:1] + [1, num_actions])
+    )
+    value = tf.zeros(obs_shape[:1] + [1])
+    return {"target_policy": logits, "target_value": value}

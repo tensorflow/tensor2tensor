@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -45,12 +45,12 @@ def get_model(hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
                                                    VOCAB_SIZE,
                                                    hparams)
   if not has_input:
-    p_hparams.input_modality = {}
+    del p_hparams.modality["inputs"]
   hparams.problem_hparams = p_hparams
 
-  inputs = -1 + np.random.random_integers(
+  inputs = np.random.randint(
       VOCAB_SIZE, size=(BATCH_SIZE, INPUT_LENGTH, 1, 1))
-  targets = -1 + np.random.random_integers(
+  targets = np.random.randint(
       VOCAB_SIZE, size=(BATCH_SIZE, TARGET_LENGTH, 1, 1))
   features = {
       "targets": tf.constant(targets, dtype=tf.int32, name="targets"),
@@ -206,8 +206,6 @@ class TransformerTest(tf.test.TestCase):
       beam_res = beam_result.eval()
       fast_res = fast_result.eval()
 
-    self.assertEqual(fast_res.shape,
-                     (BATCH_SIZE, INPUT_LENGTH + decode_length))
     self.assertAllClose(beam_res, fast_res)
 
   def testTransformerWithoutProblem(self):

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,4 +35,7 @@ class GlowInitHook(tf.train.SessionRunHook):
     global_step = session.run(tf.train.get_global_step())
     if global_step == 0:
       ddi = tf.get_collection("glow_init_op")
-      session.run(ddi)
+      # In-case of a multi-GPU system, this just runs the first op in the
+      # collection.
+      if ddi:
+        session.run(ddi[0])

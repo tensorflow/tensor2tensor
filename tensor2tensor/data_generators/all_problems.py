@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,11 +19,12 @@ from __future__ import division
 from __future__ import print_function
 
 import importlib
-import re
+from six.moves import range  # pylint: disable=redefined-builtin
 
 MODULES = [
     "tensor2tensor.data_generators.algorithmic",
     "tensor2tensor.data_generators.algorithmic_math",
+    "tensor2tensor.data_generators.algorithmic_math_two_variables",
     "tensor2tensor.data_generators.allen_brain",
     "tensor2tensor.data_generators.audio",
     "tensor2tensor.data_generators.babi_qa",
@@ -40,6 +41,7 @@ MODULES = [
     "tensor2tensor.data_generators.function_docstring",
     "tensor2tensor.data_generators.gene_expression",
     "tensor2tensor.data_generators.google_robot_pushing",
+    "tensor2tensor.data_generators.gym_env",
     "tensor2tensor.data_generators.ice_parsing",
     "tensor2tensor.data_generators.imagenet",
     "tensor2tensor.data_generators.image_lsun",
@@ -70,6 +72,7 @@ MODULES = [
     "tensor2tensor.data_generators.sst_binary",
     "tensor2tensor.data_generators.subject_verb_agreement",
     "tensor2tensor.data_generators.timeseries",
+    "tensor2tensor.data_generators.transduction_problems",
     "tensor2tensor.data_generators.translate_encs",
     "tensor2tensor.data_generators.translate_ende",
     "tensor2tensor.data_generators.translate_enet",
@@ -78,22 +81,29 @@ MODULES = [
     "tensor2tensor.data_generators.translate_enmk",
     "tensor2tensor.data_generators.translate_envi",
     "tensor2tensor.data_generators.translate_enzh",
-    "tensor2tensor.data_generators.twentybn",
     "tensor2tensor.data_generators.video_generated",
     "tensor2tensor.data_generators.vqa",
     "tensor2tensor.data_generators.wiki",
+    "tensor2tensor.data_generators.wiki_lm",
+    "tensor2tensor.data_generators.wiki_revision",
+    "tensor2tensor.data_generators.wiki_multi_problems",
     "tensor2tensor.data_generators.wikisum.wikisum",
     "tensor2tensor.data_generators.wikitext103",
     "tensor2tensor.data_generators.wsj_parsing",
     "tensor2tensor.data_generators.wnli",
+    "tensor2tensor.envs.mujoco_problems",
+    "tensor2tensor.envs.tic_tac_toe_env_problem",
 ]
 ALL_MODULES = list(MODULES)
 
 
 
 def _is_import_err_msg(err_str, module):
-  module_pattern = "(.)?".join(["(%s)?" % m for m in module.split(".")])
-  return re.match("^No module named (')?%s(')?$" % module_pattern, err_str)
+  parts = module.split(".")
+  suffixes = [".".join(parts[i:]) for i in range(len(parts))]
+  return err_str in (
+      ["No module named %s" % suffix for suffix in suffixes] +
+      ["No module named '%s'" % suffix for suffix in suffixes])
 
 
 def _handle_errors(errors):
@@ -101,7 +111,7 @@ def _handle_errors(errors):
   if not errors:
     return
   log_all = True  # pylint: disable=unused-variable
-  err_msg = "Skipped importing {num_missing} data_generators modules."
+  err_msg = "T2T: skipped importing {num_missing} data_generators modules."
   print(err_msg.format(num_missing=len(errors)))
   for module, err in errors:
     err_str = str(err)

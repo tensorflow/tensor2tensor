@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -37,6 +37,44 @@ def bfloat16_activations_var_getter(getter, *args, **kwargs):
   requested_dtype = kwargs["dtype"]
   if requested_dtype == tf.bfloat16:
     kwargs["dtype"] = tf.float32
+  var = getter(*args, **kwargs)
+  # This if statement is needed to guard the cast, because batch norm
+  # assigns directly to the return value of this custom getter. The cast
+  # makes the return value not a variable so it cannot be assigned. Batch
+  # norm variables are always in fp32 so this if statement is never
+  # triggered for them.
+  if var.dtype.base_dtype != requested_dtype:
+    var = tf.cast(var, requested_dtype)
+  return var
+
+
+def float16_activations_var_getter(getter, *args, **kwargs):
+  """A custom getter function for float32 parameters and float16 activations.
+
+  This function ensures the following:
+    1. All variables requested with type fp16 are stored as type fp32.
+    2. All variables requested with type fp32 are returned as type fp16.
+  See https://docs.nvidia.com/deeplearning/sdk/mixed-precision-training/
+  #training_tensorflow for more information on this strategy.
+
+  Args:
+    getter: custom getter
+    *args: arguments
+    **kwargs: keyword arguments
+
+  Returns:
+    variables with the correct dtype.
+
+  Raises:
+    KeyError: if "dtype" is not provided as a kwarg.
+  """
+  requested_dtype = kwargs["dtype"]
+
+  if requested_dtype == tf.float16:
+    kwargs["dtype"] = tf.float32
+
+  if requested_dtype == tf.float32:
+    requested_dtype = tf.float16
   var = getter(*args, **kwargs)
   # This if statement is needed to guard the cast, because batch norm
   # assigns directly to the return value of this custom getter. The cast

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,15 +19,100 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from functools import partial
+import functools
 import numpy as np
 import scipy
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 arg_scope = tf.contrib.framework.arg_scope
 add_arg_scope = tf.contrib.framework.add_arg_scope
+
+
+def linear_interpolate(tensor1, tensor2, coeffs):
+  """Linearly interpolate between two tensors at coeff.
+
+  Args:
+    tensor1: 3-D Tensor, NHWC
+    tensor2: 3-D Tensor, NHWC
+    coeffs: list of floats.
+  Returns:
+    interp_latents: list of interpolated 4-D Tensors, shape=(1HWC)
+  """
+  interp_tensors = []
+  for coeff in coeffs:
+    interp_tensor = tensor1 + coeff * (tensor2 - tensor1)
+    interp_tensors.append(interp_tensor)
+  return tf.concat(interp_tensors, axis=0)
+
+
+def linear_interpolate_rank(tensor1, tensor2, coeffs, rank=1):
+  """Linearly interpolate channel at "rank" between two tensors.
+
+  The channels are ranked according to their L2 norm between tensor1[channel]
+  and tensor2[channel].
+
+  Args:
+    tensor1: 4-D Tensor, NHWC
+    tensor2: 4-D Tensor, NHWC
+    coeffs: list of floats.
+    rank: integer.
+  Returns:
+    interp_latents: list of interpolated 4-D Tensors, shape=(NHWC)
+  """
+  # sum across space, max across channels.
+  _, _, _, num_channels = common_layers.shape_list(tensor1)
+  diff_sq_sum = tf.reduce_sum((tensor1 - tensor2)**2, axis=(0, 1, 2))
+  _, feature_ranks = tf.math.top_k(diff_sq_sum, k=rank)
+  feature_rank = feature_ranks[-1]
+  channel_inds = tf.range(num_channels, dtype=tf.int32)
+  channel_mask = tf.equal(channel_inds, feature_rank)
+  ones_t = tf.ones(num_channels, dtype=tf.float32)
+  zeros_t = tf.zeros(num_channels, dtype=tf.float32)
+
+  interp_tensors = []
+  for coeff in coeffs:
+    curr_coeff = tf.where(channel_mask, coeff * ones_t, zeros_t)
+    interp_tensor = tensor1 + curr_coeff * (tensor2 - tensor1)
+    interp_tensors.append(interp_tensor)
+  return tf.concat(interp_tensors, axis=0)
+
+
+def postprocess(x, n_bits_x=8):
+  """Converts x from [-0.5, 0.5], to [0, 255].
+
+  Args:
+    x: 3-D or 4-D Tensor normalized between [-0.5, 0.5]
+    n_bits_x: Number of bits representing each pixel of the output.
+              Defaults to 8, to default to 256 possible values.
+  Returns:
+    x: 3-D or 4-D Tensor representing images or videos.
+  """
+  x = tf.where(tf.is_finite(x), x, tf.ones_like(x))
+  x = tf.clip_by_value(x, -0.5, 0.5)
+  x += 0.5
+  x = x * 2**n_bits_x
+  return tf.cast(tf.clip_by_value(x, 0, 255), dtype=tf.uint8)
+
+
+class TemperedNormal(tfp.distributions.Normal):
+  """Normal distribution with temperature T."""
+
+  def __init__(self, loc, scale, temperature=1.0):
+    self.temperature = temperature
+    new_scale = scale * self.temperature
+    tfp.distributions.Normal.__init__(self, loc=loc, scale=new_scale)
+
+  def sample(self, sample_shape=(), seed=None, name="sample"):
+    if self.temperature == 0.0:
+      if not sample_shape:
+        return self.loc
+      loc = tf.expand_dims(self.loc, axis=0)
+      return tf.tile(loc, (sample_shape[0], 1, 1))
+    return super(TemperedNormal, self).sample(
+        sample_shape=sample_shape, seed=seed, name=name)
 
 
 def default_initializer(std=0.05):
@@ -54,7 +139,7 @@ def assign(w, initial_value):
 def get_cond_latents_at_level(cond_latents, level, hparams):
   """Returns a single or list of conditional latents at level 'level'."""
   if cond_latents:
-    if hparams.latent_dist_encoder == "conv_net":
+    if hparams.latent_dist_encoder in ["conv_net", "conv3d_net"]:
       return [cond_latent[level] for cond_latent in cond_latents]
     elif hparams.latent_dist_encoder in ["pointwise", "conv_lstm"]:
       return cond_latents[level]
@@ -66,9 +151,12 @@ def check_cond_latents(cond_latents, hparams):
     return
   if not isinstance(cond_latents[0], list):
     cond_latents = [cond_latents]
-  if len(cond_latents) != hparams.num_cond_latents:
+  exp_num_latents = hparams.num_cond_latents
+  if hparams.latent_dist_encoder == "conv_net":
+    exp_num_latents += int(hparams.cond_first_frame)
+  if len(cond_latents) != exp_num_latents:
     raise ValueError("Expected number of cond_latents: %d, got %d" %
-                     (hparams.num_cond_latents, len(cond_latents)))
+                     (exp_num_latents, len(cond_latents)))
   for cond_latent in cond_latents:
     if len(cond_latent) != hparams.n_levels - 1:
       raise ValueError("Expected level_latents to be %d, got %d" %
@@ -87,6 +175,46 @@ def get_variable_ddi(name, shape, initial_value, dtype=tf.float32, init=False,
     return w
   else:
     return tf.cond(init, lambda: assign(w, initial_value), lambda: w)
+
+
+@add_arg_scope
+def get_dropout(x, rate=0.0, init=True):
+  """Zero dropout during init or prediction time.
+
+  Args:
+    x: 4-D Tensor, shape=(NHWC).
+    rate: Dropout rate.
+    init: Initialization.
+  Returns:
+    x: activations after dropout.
+  """
+  if init or rate == 0:
+    return x
+  return tf.layers.dropout(x, rate=rate, training=True)
+
+
+@add_arg_scope
+def actnorm_3d(name, x, logscale_factor=3.):
+  """Applies actnorm to each time-step independently.
+
+  There are a total of 2*n_channels*n_steps parameters learnt.
+
+  Args:
+    name: variable scope.
+    x: 5-D Tensor, (NTHWC)
+    logscale_factor: Increases the learning rate of the scale by
+                     logscale_factor.
+  Returns:
+    x: 5-D Tensor, (NTHWC) with the per-timestep, per-channel normalization.
+  """
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    x = tf.unstack(x, axis=1)
+    x_normed = []
+    for ind, x_step in enumerate(x):
+      x_step, _ = actnorm("actnorm_%d" % ind, x_step,
+                          logscale_factor=logscale_factor)
+      x_normed.append(x_step)
+    return tf.stack(x_normed, axis=1), None
 
 
 @add_arg_scope
@@ -248,16 +376,20 @@ def invertible_1x1_conv(name, x, reverse=False):
     u = u * np.transpose(l_mask) + tf.diag(sign_s * tf.exp(log_s))
     w = tf.matmul(p, tf.matmul(l, u))
 
-    objective = tf.reduce_sum(log_s) * height * width
+    # If height or width cannot be statically determined then they end up as
+    # tf.int32 tensors, which cannot be directly multiplied with a floating
+    # point tensor without a cast.
+    objective = tf.reduce_sum(log_s) * tf.cast(height * width, log_s.dtype)
     if not reverse:
       w = tf.reshape(w, [1, 1] + w_shape)
       x = tf.nn.conv2d(x, w, [1, 1, 1, 1], "SAME", data_format="NHWC")
     else:
-      u_inv = tf.matrix_inverse(u)
-      l_inv = tf.matrix_inverse(l)
-      p_inv = tf.matrix_inverse(p)
-      w_inv = tf.matmul(u_inv, tf.matmul(l_inv, p_inv))
-      w_inv = tf.reshape(w_inv, [1, 1]+w_shape)
+      # TODO(b/111271662): Remove when supported.
+      def tpu_inv(m):
+        """tf.linalg.inv workaround until it is supported on TPU."""
+        q, r = tf.linalg.qr(m)
+        return tf.linalg.triangular_solve(r, tf.transpose(q), lower=False)
+      w_inv = tf.reshape(tpu_inv(w), [1, 1]+w_shape)
       x = tf.nn.conv2d(
           x, w_inv, [1, 1, 1, 1], "SAME", data_format="NHWC")
       objective *= -1
@@ -289,22 +421,63 @@ def add_edge_bias(x, filter_size):
   return tf.concat([x, x_pad], axis=3)
 
 
+def time_pad(x, filter_size, dilations):
+  """Pad left across time and pad valid across the spatial components.
+
+  Also concats a binary feature that indicates if a feature is padded or not.
+
+  Args:
+    x: 5-D Tensor, (NTHWC)
+    filter_size: list of ints
+    dilations: list of ints, dilations - 1 specifies the number of holes
+               between two filter elements.
+  Returns:
+    x_pad: 5-D Tensor.
+  """
+  x_shape = common_layers.shape_list(x)
+  if filter_size == [1, 1, 1]:
+    return x
+  _, h, w = filter_size
+  eff_h = h + (h - 1)*(dilations[2] - 1)
+  eff_w = w + (w - 1)*(dilations[3] - 1)
+  a = (eff_h - 1) // 2  # vertical padding size
+  b = (eff_w - 1) // 2  # horizontal padding size
+  c = filter_size[0] - 1
+
+  # pad across edges.
+  padding = [[0, 0], [c, 0], [a, a], [b, b], [0, 0]]
+
+  # concat a binary feature across channels to indicate a padding.
+  # 1 indicates that the feature is a padding.
+  x_bias = tf.zeros(x_shape[:-1] + [1])
+  x_bias = tf.pad(x_bias, padding, constant_values=1)
+  x_pad = tf.pad(x, padding)
+  x_pad = tf.concat((x_bias, x_pad), axis=-1)
+  return x_pad
+
+
 @add_arg_scope
-def conv2d(name, x, output_channels, filter_size=None, stride=None,
-           logscale_factor=3.0, apply_actnorm=True, conv_init="default"):
-  """conv2d layer with edge bias padding and optional actnorm.
+def conv(name, x, output_channels, filter_size=None, stride=None,
+         logscale_factor=3.0, apply_actnorm=True, conv_init="default",
+         dilations=None):
+  """Convolutional layer with edge bias padding and optional actnorm.
+
+  If x is 5-dimensional, actnorm is applied independently across every
+  time-step.
 
   Args:
     name: variable scope.
-    x: 4-D Tensor of shape (NHWC)
+    x: 4-D Tensor or 5-D Tensor of shape NHWC or NTHWC
     output_channels: Number of output channels.
-    filter_size:
-    stride:
+    filter_size: list of ints, if None [3, 3] and [2, 3, 3] are defaults for
+                 4-D and 5-D input tensors respectively.
+    stride: list of ints, default stride: 1
     logscale_factor: see actnorm for parameter meaning.
     apply_actnorm: if apply_actnorm the activations of the first minibatch
                    have zero mean and unit variance. Else, there is no scaling
                    applied.
     conv_init: default or zeros. default is a normal distribution with 0.05 std.
+    dilations: List of integers, apply dilations.
   Returns:
     x: actnorm(conv2d(x))
   Raises:
@@ -313,14 +486,36 @@ def conv2d(name, x, output_channels, filter_size=None, stride=None,
   if conv_init == "zeros" and apply_actnorm:
     raise ValueError("apply_actnorm is unstable when init is set to zeros.")
 
-  if filter_size is None:
-    filter_size = [3, 3]
-  if stride is None:
-    stride = [1, 1]
+  x_shape = common_layers.shape_list(x)
+  is_2d = len(x_shape) == 4
+  num_steps = x_shape[1]
 
-  x = add_edge_bias(x, filter_size=filter_size)
-  _, _, _, in_channels = common_layers.shape_list(x)
+  # set filter_size, stride and in_channels
+  if is_2d:
+    if filter_size is None:
+      filter_size = [3, 3]
+    if stride is None:
+      stride = [1, 1]
+    if dilations is None:
+      dilations = [1, 1, 1, 1]
+    actnorm_func = actnorm
+    x = add_edge_bias(x, filter_size=filter_size)
+    conv_filter = tf.nn.conv2d
+  else:
+    if filter_size is None:
+      if num_steps == 1:
+        filter_size = [1, 3, 3]
+      else:
+        filter_size = [2, 3, 3]
+    if stride is None:
+      stride = [1, 1, 1]
+    if dilations is None:
+      dilations = [1, 1, 1, 1, 1]
+    actnorm_func = actnorm_3d
+    x = time_pad(x, filter_size=filter_size, dilations=dilations)
+    conv_filter = tf.nn.conv3d
 
+  in_channels = common_layers.shape_list(x)[-1]
   filter_shape = filter_size + [in_channels, output_channels]
   stride_shape = [1] + stride + [1]
 
@@ -331,13 +526,10 @@ def conv2d(name, x, output_channels, filter_size=None, stride=None,
     elif conv_init == "zeros":
       initializer = tf.zeros_initializer()
 
-    w = tf.get_variable("W", filter_shape, tf.float32,
-                        initializer=initializer)
-    x = tf.nn.conv2d(x, w, stride_shape, padding="VALID", data_format="NHWC")
-
+    w = tf.get_variable("W", filter_shape, tf.float32, initializer=initializer)
+    x = conv_filter(x, w, stride_shape, padding="VALID", dilations=dilations)
     if apply_actnorm:
-      x, _ = actnorm("actnorm", x, logscale_factor=logscale_factor,
-                     trainable=True)
+      x, _ = actnorm_func("actnorm", x, logscale_factor=logscale_factor)
     else:
       x += tf.get_variable("b", [1, 1, 1, output_channels],
                            initializer=tf.zeros_initializer())
@@ -348,68 +540,172 @@ def conv2d(name, x, output_channels, filter_size=None, stride=None,
 
 
 @add_arg_scope
-def conv_block(name, x, mid_channels):
+def conv_block(name, x, mid_channels, dilations=None, activation="relu",
+               dropout=0.0):
   """2 layer conv block used in the affine coupling layer.
 
   Args:
     name: variable scope.
-    x: 4-D Tensor: (batch_size, height, width, channels).
+    x: 4-D or 5-D Tensor.
     mid_channels: Output channels of the second layer.
+    dilations: Optional, list of integers.
+    activation: relu or gatu.
+      If relu, the second layer is relu(W*x)
+      If gatu, the second layer is tanh(W1*x) * sigmoid(W2*x)
+    dropout: Dropout probability.
   Returns:
     x: 4-D Tensor: Output activations.
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
 
+    x_shape = common_layers.shape_list(x)
+    is_2d = len(x_shape) == 4
+    num_steps = x_shape[1]
+    if is_2d:
+      first_filter = [3, 3]
+      second_filter = [1, 1]
+    else:
+      # special case when number of steps equal 1 to avoid
+      # padding.
+      if num_steps == 1:
+        first_filter = [1, 3, 3]
+      else:
+        first_filter = [2, 3, 3]
+      second_filter = [1, 1, 1]
+
     # Edge Padding + conv2d + actnorm + relu:
     # [output: 512 channels]
-    x = conv2d("1_1", x, output_channels=mid_channels, filter_size=[3, 3],
-               stride=[1, 1])
+    x = conv("1_1", x, output_channels=mid_channels, filter_size=first_filter,
+             dilations=dilations)
     x = tf.nn.relu(x)
+    x = get_dropout(x, rate=dropout)
 
-    # Padding + conv2d + actnorm + relu
+    # Padding + conv2d + actnorm + activation.
     # [input, output: 512 channels]
-    x = conv2d("1_2", x, output_channels=mid_channels, filter_size=[1, 1],
-               stride=[1, 1])
-    x = tf.nn.relu(x)
+    if activation == "relu":
+      x = conv("1_2", x, output_channels=mid_channels,
+               filter_size=second_filter, dilations=dilations)
+      x = tf.nn.relu(x)
+    elif activation == "gatu":
+      # x = tanh(w1*x) * sigm(w2*x)
+      x_tanh = conv("1_tanh", x, output_channels=mid_channels,
+                    filter_size=second_filter, dilations=dilations)
+      x_sigm = conv("1_sigm", x, output_channels=mid_channels,
+                    filter_size=second_filter, dilations=dilations)
+      x = tf.nn.tanh(x_tanh) * tf.nn.sigmoid(x_sigm)
+
+    x = get_dropout(x, rate=dropout)
     return x
 
 
-@add_arg_scope
-def affine_coupling_network(name, x, mid_channels, output_channels):
-  """3-layer conv2d.
+def dilated_conv_stack(name, x, mid_channels, output_channels,
+                       dilation_rates, activation="relu",
+                       dropout=0.0):
+  """Dilated convolutional stack.
+
+  Features at different rates are computed independently using a 3 layer
+  convolutional stack and added.
 
   Args:
-    name:
-    x:
+    name: variable scope.
+    x: 5-D Tensor.
+    mid_channels: Number of output channels of the first layer in the conv
+                  stack.
+    output_channels: Number of output channels of the last layer.
+    dilation_rates: A list of dilation rates.
+    activation: Can be either "relu" or "gatu"
+    dropout: dropout.
+  Returns:
+    output: 5-D Tensor.
+  """
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    output = 0.0
+    for dil_ind, dil_rate in enumerate(dilation_rates):
+      # TODO(mechcoder) try (concat across channels + 1x1) modulo memory issues.
+      curr_out = conv_stack("dil_%d" % dil_ind, x, mid_channels=mid_channels,
+                            output_channels=output_channels, dilations=dil_rate,
+                            activation=activation, dropout=dropout)
+      output += curr_out
+    return output
+
+
+@add_arg_scope
+def conv_stack(name, x, mid_channels, output_channels, dilations=None,
+               activation="relu", dropout=0.0):
+  """3-layer convolutional stack.
+
+  Args:
+    name: variable scope.
+    x: 5-D Tensor.
     mid_channels: Number of output channels of the first layer.
     output_channels: Number of output channels.
-
+    dilations: Dilations to apply in the first 3x3 layer and the last 3x3 layer.
+               By default, apply no dilations.
+    activation: relu or gatu.
+      If relu, the second layer is relu(W*x)
+      If gatu, the second layer is tanh(W1*x) * sigmoid(W2*x)
+    dropout: float, 0.0
   Returns:
-    output:
+    output: output of 3 layer conv network.
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
 
-    x = conv_block("conv_block", x, mid_channels=mid_channels)
+    x = conv_block("conv_block", x, mid_channels=mid_channels,
+                   dilations=dilations, activation=activation,
+                   dropout=dropout)
 
     # Final layer.
-    x = conv2d("zeros", x, filter_size=[3, 3], stride=[1, 1],
-               output_channels=output_channels, apply_actnorm=False,
-               conv_init="zeros")
+    x = conv("zeros", x, apply_actnorm=False, conv_init="zeros",
+             output_channels=output_channels, dilations=dilations)
   return x
 
 
 @add_arg_scope
-def affine_coupling(name, x, mid_channels=512, reverse=False):
+def additive_coupling(name, x, mid_channels=512, reverse=False,
+                      activation="relu", dropout=0.0):
+  """Reversible additive coupling layer.
+
+  Args:
+    name: variable scope.
+    x: 4-D Tensor.
+    mid_channels: number of channels in the coupling layer.
+    reverse: Forward or reverse operation.
+    activation: "relu" or "gatu"
+    dropout: default, 0.0
+  Returns:
+    output:
+    objective: 0.0
+  """
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    output_channels = common_layers.shape_list(x)[-1] // 2
+    x1, x2 = tf.split(x, num_or_size_splits=2, axis=-1)
+
+    z1 = x1
+    shift = conv_stack("nn", x1, mid_channels, output_channels=output_channels,
+                       activation=activation, dropout=dropout)
+
+    if not reverse:
+      z2 = x2 + shift
+    else:
+      z2 = x2 - shift
+    return tf.concat([z1, z2], axis=3), 0.0
+
+
+@add_arg_scope
+def affine_coupling(name, x, mid_channels=512, activation="relu",
+                    reverse=False, dropout=0.0):
   """Reversible affine coupling layer.
 
   Args:
-    name:
-    x:
-    mid_channels: intermediate
+    name: variable scope.
+    x: 4-D Tensor.
+    mid_channels: number of channels in the coupling layer.
+    activation: Can be either "relu" or "gatu".
     reverse: Forward or reverse operation.
+    dropout: default, 0.0
   Returns:
-    output:
-    objective:
+    output: input s
+    objective: log-determinant of the jacobian
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     x_shape = common_layers.shape_list(x)
@@ -421,8 +717,9 @@ def affine_coupling(name, x, mid_channels=512, reverse=False):
     # Else:
     # z2 = (x2 / scale) - shift
     z1 = x1
-    log_scale_and_shift = affine_coupling_network(
-        "nn", x1, mid_channels, x_shape[-1])
+    log_scale_and_shift = conv_stack(
+        "nn", x1, mid_channels, x_shape[-1], activation=activation,
+        dropout=dropout)
     shift = log_scale_and_shift[:, :, :, 0::2]
     scale = tf.nn.sigmoid(log_scale_and_shift[:, :, :, 1::2] + 2.0)
     if not reverse:
@@ -474,59 +771,169 @@ def squeeze(name, x, factor=2, reverse=True):
     return x
 
 
+def get_dilation_rates(hparams, width):
+  """Get a list of valid dilation rates.
+
+  Args:
+    hparams: HParams.
+    width: spatial dimension. Ensures that the effective filter size is
+           not larger than the spatial dimension.
+  Returns:
+    allowed_dilations: A list of dilation rates.
+  """
+  # dil_rate=1 means no dilation.
+  allowed_dilations = [[1]*5]
+  apply_dilations = hparams.get("latent_apply_dilations", False)
+  dilation_rates = hparams.get("latent_dilation_rates", [1, 3])
+  if apply_dilations:
+    for rate in dilation_rates:
+      # k + (k - 1) * rate but k is harcoded to be 3 everywhere.
+      filter_size = 3 + 2 * rate
+      if filter_size <= width:
+        curr_dilation = [1, 1, rate+1, rate+1, 1]
+        allowed_dilations.append(curr_dilation)
+  return allowed_dilations
+
+
 @add_arg_scope
-def tensor_to_dist(name, x, output_channels=None, architecture="single_conv",
-                   depth=1, pre_output_channels=512, width=512):
-  """Map x to the mean and log-scale of a Gaussian.
+def temporal_latent_to_dist(name, x, hparams, output_channels=None):
+  """Network that maps a time-indexed list of 3-D latents to a gaussian.
 
   Args:
     name: variable scope.
-    x: 4-D Tensor of shape (NHWC)
-    output_channels: int, number of output channels of the mean.
-                     if not provided, set it to be the output channels of x.
-    architecture: "single_conv" or "glow_nn"
-    depth: depth of architecture mapping to the mean and std.
-    pre_output_channels: output channels before the final (mean, std) mapping.
-    width: Resnet width.
+    x: List of 4-D Tensors indexed by time, (NHWC)
+    hparams: tf.contrib.training.Hparams.
+    output_channels: int, Number of channels of the output gaussian mean.
   Returns:
-    dist: instance of tf.distributions.Normal
-  Raises:
-    ValueError: If architecture not in ["single_conv", "glow_nn"]
+    dist: tfp.distributions.Normal
+  """
+  _, _, width, _, res_channels = common_layers.shape_list(x)
+  if output_channels is None:
+    output_channels = res_channels
+  dilation_rates = get_dilation_rates(hparams, width)
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    h = x
+    for i in range(hparams.latent_encoder_depth):
+      if hparams.latent_apply_dilations:
+        h2 = dilated_conv_stack("dil_latent_3d_res_%d" % i, h,
+                                mid_channels=hparams.latent_encoder_width,
+                                output_channels=res_channels,
+                                dilation_rates=dilation_rates,
+                                activation=hparams.latent_activation,
+                                dropout=hparams.latent_dropout)
+      else:
+        h2 = conv_stack("latent_3d_res_%d" % i, h,
+                        mid_channels=hparams.latent_encoder_width,
+                        output_channels=res_channels,
+                        activation=hparams.latent_activation,
+                        dropout=hparams.latent_dropout)
+      h += h2
+
+    # take last activation that should capture all context since padding is
+    # on left.
+    h = h[:, -1, :, :, :]
+    h = conv("res_final", h, apply_actnorm=False, conv_init="zeros",
+             output_channels=2*output_channels, filter_size=[1, 1])
+    mean, log_scale = h[:, :, :, 0::2], h[:, :, :, 1::2]
+  return tfp.distributions.Normal(mean, tf.exp(log_scale))
+
+
+@add_arg_scope
+def single_conv_dist(name, x, output_channels=None):
+  """A 3x3 convolution mapping x to a standard normal distribution at init.
+
+  Args:
+    name: variable scope.
+    x: 4-D Tensor.
+    output_channels: number of channels of the mean and std.
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     x_shape = common_layers.shape_list(x)
     if output_channels is None:
       output_channels = x_shape[-1]
+    mean_log_scale = conv("conv2d", x, output_channels=2*output_channels,
+                          conv_init="zeros", apply_actnorm=False)
+    mean = mean_log_scale[:, :, :, 0::2]
+    log_scale = mean_log_scale[:, :, :, 1::2]
+    return tf.distributions.Normal(mean, tf.exp(log_scale))
+
+
+@add_arg_scope
+def latent_to_dist(name, x, hparams, output_channels=None):
+  """Map latent to the mean and log-scale of a Gaussian.
+
+  Args:
+    name: variable scope.
+    x: 4-D Tensor of shape (NHWC)
+    hparams: HParams.
+      latent_architecture - can be "single_conv", "glow_nn" or "glow_resnet",
+                            default = single_conv
+      latent_encoder_depth - int, depth of architecture, valid if
+                             latent_architecture is "glow_nn" or "glow_resnet".
+      latent_pre_output_channels - 512, valid only when latent_architecture
+                                   is "glow_nn".
+      latent_encoder_width - 512, maximum width of the network
+    output_channels: int, number of output channels of the mean (and std).
+                     if not provided, set it to be the output channels of x.
+  Returns:
+    dist: instance of tfp.distributions.Normal
+  Raises:
+    ValueError: If architecture not in ["single_conv", "glow_nn"]
+  """
+  architecture = hparams.get("latent_architecture", "single_conv")
+  depth = hparams.get("latent_encoder_depth", 1)
+  pre_output_channels = hparams.get("latent_pre_output_channels", 512)
+  width = hparams.get("latent_encoder_width", 512)
+
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    x_shape = common_layers.shape_list(x)
+    if output_channels is None:
+      output_channels = x_shape[-1]
     if architecture == "single_conv":
-      mean_log_scale = conv2d("conv2d", x, output_channels=2*output_channels,
-                              conv_init="zeros", apply_actnorm=False)
-    elif architecture == "glow_nn":
+      return single_conv_dist("single_conv", x, output_channels)
+    if architecture == "glow_nn":
       mean_log_scale = x
       for layer in range(1, depth + 1):
         mid_channels = pre_output_channels // 2**(depth - layer)
         mean_log_scale = conv_block("glow_nn_%d" % layer, mean_log_scale,
                                     mid_channels=mid_channels)
-      mean_log_scale = conv2d("glow_nn_zeros", mean_log_scale,
-                              filter_size=[3, 3], stride=[1, 1],
-                              output_channels=2*output_channels,
-                              apply_actnorm=False, conv_init="zeros")
+      mean_log_scale = conv("glow_nn_zeros", mean_log_scale,
+                            filter_size=[3, 3], stride=[1, 1],
+                            output_channels=2*output_channels,
+                            apply_actnorm=False, conv_init="zeros")
     elif architecture == "glow_resnet":
       h = x
       for layer in range(depth):
-        h2 = conv_block("glow_res_%d" % layer, h, mid_channels=width)
-        h3 = conv2d("glow_res_zeros_%d" % layer, h2, conv_init="zeros",
-                    output_channels=x_shape[-1], apply_actnorm=False)
+        h3 = conv_stack("latent_resnet_%d" % layer, h,
+                        mid_channels=width, output_channels=x_shape[-1],
+                        dropout=hparams.coupling_dropout)
         h += h3
-      mean_log_scale = conv2d("glow_res_final", h, conv_init="zeros",
-                              output_channels=2*output_channels,
-                              apply_actnorm=False)
+      mean_log_scale = conv("glow_res_final", h, conv_init="zeros",
+                            output_channels=2*output_channels,
+                            apply_actnorm=False)
     else:
       raise ValueError("expected architecture to be single_conv or glow_nn "
                        "got %s" % architecture)
 
     mean = mean_log_scale[:, :, :, 0::2]
     log_scale = mean_log_scale[:, :, :, 1::2]
-    return tf.distributions.Normal(mean, tf.exp(log_scale))
+    return tfp.distributions.Normal(mean, tf.exp(log_scale))
+
+
+@add_arg_scope
+def noise_op(latents, hparams):
+  """Adds isotropic gaussian-noise to each latent.
+
+  Args:
+    latents: 4-D or 5-D tensor, shape=(NTHWC) or (NHWC).
+    hparams: HParams.
+  Returns:
+    latents: latents with isotropic gaussian noise appended.
+  """
+  if hparams.latent_noise == 0 or hparams.mode != tf.estimator.ModeKeys.TRAIN:
+    return latents
+  latent_shape = common_layers.shape_list(latents)
+  return latents + tf.random_normal(latent_shape, stddev=hparams.latent_noise)
 
 
 @add_arg_scope
@@ -538,11 +945,11 @@ def merge_level_and_latent_dist(level_dist, latent_dist,
   according to merge_std.
 
   Args:
-    level_dist: instance of tf.distributions.Normal
-    latent_dist: instance of tf.distributions.Normal
+    level_dist: instance of tfp.distributions.Normal
+    latent_dist: instance of tfp.distributions.Normal
     merge_std: can be "prev_level", "prev_step" or "normal".
   Returns:
-    merged_dist: instance of tf.distributions.Normal
+    merged_dist: instance of tfp.distributions.Normal
   """
   level_mean, level_std = level_dist.loc, level_dist.scale
   latent_mean, latent_std = latent_dist.loc, latent_dist.scale
@@ -557,7 +964,7 @@ def merge_level_and_latent_dist(level_dist, latent_dist,
     scale = level_std
   elif merge_std == "prev_step":
     scale = latent_std
-  return tf.distributions.Normal(loc=new_mean, scale=scale)
+  return tfp.distributions.Normal(loc=new_mean, scale=scale)
 
 
 @add_arg_scope
@@ -578,6 +985,7 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
   latent_dist_encoder = hparams.get("latent_dist_encoder", None)
   latent_skip = hparams.get("latent_skip", False)
   if latent_dist_encoder == "pointwise":
+    last_latent = latent
     merge_std = hparams.level_scale
     latent_shape = common_layers.shape_list(latent)
     z_shape = common_layers.shape_list(z)
@@ -588,34 +996,52 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
         "latent_prior", latent, logscale_factor=3.0)
     cond_dist = merge_level_and_latent_dist(prior_dist, latent_dist,
                                             merge_std=merge_std)
+
   elif latent_dist_encoder == "conv_net":
     output_channels = common_layers.shape_list(z)[-1]
+    last_latent = latent[-1]
     latent_stack = tf.concat([prior_dist.loc] + latent, axis=-1)
-    cond_dist = tensor_to_dist(
-        "latent_stack", latent_stack, output_channels=output_channels,
-        architecture=hparams.latent_architecture,
-        depth=hparams.latent_encoder_depth,
-        pre_output_channels=hparams.latent_pre_output_channels,
-        width=hparams.latent_encoder_width)
-    if latent_skip:
-      cond_dist = tf.distributions.Normal(
-          cond_dist.loc + latent[-1], cond_dist.scale)
+    latent_stack = noise_op(latent_stack, hparams)
+    cond_dist = latent_to_dist(
+        "latent_stack", latent_stack, hparams=hparams,
+        output_channels=output_channels)
+
+  elif latent_dist_encoder == "conv3d_net":
+    last_latent = latent[-1]
+    output_channels = common_layers.shape_list(last_latent)[-1]
+    num_steps = len(latent)
+
+    # Stack across time.
+    cond_latents = tf.stack(latent, axis=1)
+
+    # Concat latents from previous levels across channels.
+    prev_latents = tf.tile(tf.expand_dims(prior_dist.loc, axis=1),
+                           [1, num_steps, 1, 1, 1])
+    cond_latents = tf.concat((cond_latents, prev_latents), axis=-1)
+    cond_latents = noise_op(cond_latents, hparams)
+    cond_dist = temporal_latent_to_dist(
+        "latent_stack", cond_latents, hparams, output_channels=output_channels)
+
   elif latent_dist_encoder == "conv_lstm":
+    last_latent = latent
     output_channels = common_layers.shape_list(z)[-1]
     latent_stack = tf.concat((prior_dist.loc, latent), axis=-1)
+    latent_stack = noise_op(latent_stack, hparams)
     _, state = common_video.conv_lstm_2d(
-        latent_stack, state, output_channels, kernel_size=3,
+        latent_stack, state, hparams.latent_encoder_width, kernel_size=3,
         name="conv_lstm")
-    cond_dist = tensor_to_dist(
+
+    cond_dist = single_conv_dist(
         "state_to_dist", state.h, output_channels=output_channels)
-    if latent_skip:
-      cond_dist = tf.distributions.Normal(
-          cond_dist.loc + latent, cond_dist.scale)
+  if latent_skip:
+    new_mean = cond_dist.loc + last_latent
+    cond_dist = tfp.distributions.Normal(new_mean, cond_dist.scale)
   return cond_dist.loc, cond_dist.scale, state
 
 
 @add_arg_scope
-def compute_prior(name, z, latent, hparams, condition=False, state=None):
+def compute_prior(name, z, latent, hparams, condition=False, state=None,
+                  temperature=1.0):
   """Distribution on z_t conditioned on z_{t-1} and latent.
 
   Args:
@@ -628,11 +1054,12 @@ def compute_prior(name, z, latent, hparams, condition=False, state=None):
             The first-three dimensions of the latent should be the same as z.
     hparams: next_frame_glow_hparams.
     condition: Whether or not to condition the distribution on latent.
-    state: tf.contrib.rnn.LSTMStateTuple.
+    state: tf.nn.rnn_cell.LSTMStateTuple.
            the current state of a LSTM used to model the distribution. Used
            only if hparams.latent_dist_encoder = "conv_lstm".
+    temperature: float, temperature with which to sample from the Gaussian.
   Returns:
-    prior_dist: instance of tf.distributions.Normal
+    prior_dist: instance of tfp.distributions.Normal
     state: Returns updated state.
   Raises:
     ValueError: If hparams.latent_dist_encoder is "pointwise" and if the shape
@@ -641,8 +1068,9 @@ def compute_prior(name, z, latent, hparams, condition=False, state=None):
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     if isinstance(condition, bool):
       condition = tf.constant(condition, dtype=tf.bool)
-    prior_dist = tensor_to_dist("level_prior", z, architecture="single_conv")
+    prior_dist = single_conv_dist("level_prior", z)
     prior_mean, prior_scale = prior_dist.loc, prior_dist.scale
+
     if latent is None:
       mean, scale = prior_mean, prior_scale
     else:
@@ -651,13 +1079,13 @@ def compute_prior(name, z, latent, hparams, condition=False, state=None):
       mean, scale = tf.cond(
           condition, lambda: (cond_mean, cond_scale),
           lambda: (prior_mean, prior_scale))
-    dist = tf.distributions.Normal(mean, scale)
+    dist = TemperedNormal(mean, scale, temperature)
     return dist, state
 
 
 @add_arg_scope
 def split(name, x, reverse=False, eps=None, eps_std=None, cond_latents=None,
-          hparams=None, state=None, condition=False):
+          hparams=None, state=None, condition=False, temperature=1.0):
   """Splits / concatenates x into x1 and x2 across number of channels.
 
   For the forward pass, x2 is assumed be gaussian,
@@ -674,10 +1102,11 @@ def split(name, x, reverse=False, eps=None, eps_std=None, cond_latents=None,
     eps_std: Sample x2 with the provided eps_std.
     cond_latents: optionally condition x2 on cond_latents.
     hparams: next_frame_glow hparams.
-    state: tf.contrib.rnn.LSTMStateTuple. Current state of the LSTM over z_2.
+    state: tf.nn.rnn_cell.LSTMStateTuple.. Current state of the LSTM over z_2.
            Used only when hparams.latent_dist_encoder == "conv_lstm"
     condition: bool, Whether or not to condition the distribution on
                cond_latents.
+    temperature: Temperature with which to sample from the gaussian.
 
   Returns:
   Raises:
@@ -697,7 +1126,8 @@ def split(name, x, reverse=False, eps=None, eps_std=None, cond_latents=None,
       return x1, logpb, eps, x2, state
     else:
       prior_dist, state = compute_prior(
-          "prior_on_z2", x, cond_latents, hparams, condition, state=state)
+          "prior_on_z2", x, cond_latents, hparams, condition, state=state,
+          temperature=temperature)
       if eps is not None:
         x2 = set_eps(prior_dist, eps)
       elif eps_std is not None:
@@ -716,18 +1146,27 @@ def revnet_step(name, x, hparams, reverse=True):
   Args:
     name: used for variable scope.
     x: input
-    hparams: affine_coupling_width is the only hparam that is being used in
+    hparams: coupling_width is the only hparam that is being used in
              this function.
     reverse: forward or reverse pass.
   Returns:
     z: Output of one step of reversible flow.
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    if hparams.coupling == "additive":
+      coupling_layer = functools.partial(
+          additive_coupling, name="additive", reverse=reverse,
+          mid_channels=hparams.coupling_width,
+          activation=hparams.activation, dropout=hparams.coupling_dropout)
+    else:
+      coupling_layer = functools.partial(
+          affine_coupling, name="affine", reverse=reverse,
+          mid_channels=hparams.coupling_width,
+          activation=hparams.activation, dropout=hparams.coupling_dropout)
     ops = [
-        partial(actnorm, name="actnorm", reverse=reverse),
-        partial(invertible_1x1_conv, name="invertible", reverse=reverse),
-        partial(affine_coupling, name="affine", reverse=reverse,
-                mid_channels=hparams.affine_coupling_width)]
+        functools.partial(actnorm, name="actnorm", reverse=reverse),
+        functools.partial(invertible_1x1_conv, name="invertible",
+                          reverse=reverse), coupling_layer]
 
     if reverse:
       ops = ops[::-1]
@@ -777,12 +1216,12 @@ def scale_gaussian_prior(name, z, logscale_factor=3.0, trainable=True):
         "log_scale_latent", shape=z_shape, dtype=tf.float32,
         initializer=tf.zeros_initializer(), trainable=trainable)
     log_scale = log_scale * logscale_factor
-    return tf.distributions.Normal(
+    return tfp.distributions.Normal(
         loc=latent_multiplier * z, scale=tf.exp(log_scale))
 
 
 @add_arg_scope
-def top_prior(name, z_shape, learn_prior="normal"):
+def top_prior(name, z_shape, learn_prior="normal", temperature=1.0):
   """Unconditional prior distribution.
 
   Args:
@@ -794,6 +1233,7 @@ def top_prior(name, z_shape, learn_prior="normal"):
                  and initialized such that the mean and std are zero and one.
                  If set to "normal", the prior is just a Gaussian with zero
                  mean and unit variance.
+    temperature: Temperature with which to sample from the Gaussian.
   Returns:
     objective: 1-D Tensor shape=(batch_size,) summed across spatial components.
   Raises:
@@ -802,13 +1242,13 @@ def top_prior(name, z_shape, learn_prior="normal"):
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     h = tf.zeros(z_shape, dtype=tf.float32)
     if learn_prior == "normal":
-      prior_dist = tf.distributions.Normal(h, tf.exp(h))
+      prior_dist = tfp.distributions.Normal(h, tf.exp(h))
     elif learn_prior == "single_conv":
-      prior_dist = tensor_to_dist("top_learn_prior", h)
+      prior_dist = single_conv_dist("top_learn_prior", h)
     else:
       raise ValueError("Expected learn_prior to be normal or single_conv "
                        "got %s" % learn_prior)
-    return prior_dist
+    return TemperedNormal(prior_dist.loc, prior_dist.scale, temperature)
 
 
 def uniform_binning_correction(x, n_bits=8):
@@ -834,7 +1274,8 @@ def uniform_binning_correction(x, n_bits=8):
 
 @add_arg_scope
 def encoder_decoder(name, x, hparams, eps=None, reverse=False,
-                    cond_latents=None, condition=False, states=None):
+                    cond_latents=None, condition=False, states=None,
+                    temperature=1.0):
   """Glow encoder-decoder. n_levels of (Squeeze + Flow + Split.) operations."""
   # TODO(mechcoder) Change return_type to a dict to be backward compatible.
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
@@ -888,7 +1329,8 @@ def encoder_decoder(name, x, hparams, eps=None, reverse=False,
           x, latent, state = split("split_%d" % level, x, eps=eps[level],
                                    reverse=True, cond_latents=curr_cond_latents,
                                    condition=condition, hparams=hparams,
-                                   state=states[level])
+                                   state=states[level],
+                                   temperature=temperature)
           new_states.append(state)
           all_latents.append(latent)
 

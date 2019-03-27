@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -153,11 +153,11 @@ def fast_tpu_gather(params, indices, name=None):
         gather_result = tf.cast(gather_result, dtype)
       return gather_result
 
-    # If the dtype is int32, use the gather instead of one_hot matmul to avoid
+    # If the dtype is int, use the gather instead of one_hot matmul to avoid
     # precision loss. The max int value can be represented by bfloat16 in MXU is
     # 256, which is smaller than the possible id values. Encoding/decoding can
     # potentially used to make it work, but the benenfit is small right now.
-    if dtype == tf.int32:
+    if dtype.is_integer:
       gather_result = tf.batch_gather(params, indices)
     else:
       gather_result = _gather(params, indices)
@@ -295,9 +295,16 @@ def top_k_with_unique(inputs, k):
   return top_values, indices
 
 
-def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
-                                beam_size, batch_size, prefix="default",
-                                states_to_gather=None, use_tpu=False):
+def compute_topk_scores_and_seq(sequences,
+                                scores,
+                                scores_to_gather,
+                                flags,
+                                beam_size,
+                                batch_size,
+                                prefix="default",
+                                states_to_gather=None,
+                                use_tpu=False,
+                                use_top_k_with_unique=True):
   """Given sequences and scores, will gather the top k=beam size sequences.
 
   This function is used to grow alive, and finished. It takes sequences,
@@ -327,6 +334,8 @@ def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
     prefix: string that will prefix unique names for the ops run.
     states_to_gather: dict (possibly nested) of decoding states.
     use_tpu: A bool, whether to compute topk scores and sequences on TPU.
+    use_top_k_with_unique: bool, whether to use a fast (but decreased precision)
+      top_k during TPU beam search.
 
   Returns:
     Tuple of
@@ -362,7 +371,10 @@ def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
     else:
       topk_gathered_states = states_to_gather
   else:
-    _, topk_indexes = top_k_with_unique(scores, k=beam_size)
+    if use_top_k_with_unique:
+      _, topk_indexes = top_k_with_unique(scores, k=beam_size)
+    else:
+      _, topk_indexes = tf.nn.top_k(scores, k=beam_size)
     # Gather up the highest scoring sequences.  For each operation added, give
     # it a concrete name to simplify observing these operations with tfdbg.
     # Clients can capture these tensors by watching these node names.
@@ -390,7 +402,8 @@ def beam_search(symbols_to_logits_fn,
                 states=None,
                 eos_id=EOS_ID,
                 stop_early=True,
-                use_tpu=False):
+                use_tpu=False,
+                use_top_k_with_unique=True):
   """Beam search with length penalties.
 
   Requires a function that can take the currently decoded symbols and return
@@ -432,6 +445,8 @@ def beam_search(symbols_to_logits_fn,
     eos_id: ID for end of sentence.
     stop_early: a boolean - stop once best sequence is provably determined.
     use_tpu: A bool, whether to do beam search on TPU.
+    use_top_k_with_unique: bool, whether to use a fast (but decreased precision)
+      top_k during TPU beam search.
 
   Returns:
     Tuple of
@@ -501,9 +516,15 @@ def beam_search(symbols_to_logits_fn,
     curr_finished_scores = tf.concat([finished_scores, curr_scores], axis=1)
     curr_finished_flags = tf.concat([finished_flags, curr_finished], axis=1)
     return compute_topk_scores_and_seq(
-        curr_finished_seq, curr_finished_scores, curr_finished_scores,
-        curr_finished_flags, beam_size, batch_size, "grow_finished",
-        use_tpu=use_tpu)
+        curr_finished_seq,
+        curr_finished_scores,
+        curr_finished_scores,
+        curr_finished_flags,
+        beam_size,
+        batch_size,
+        "grow_finished",
+        use_tpu=use_tpu,
+        use_top_k_with_unique=use_top_k_with_unique)
 
   def grow_alive(curr_seq, curr_scores, curr_log_probs, curr_finished, states):
     """Given sequences and scores, will gather the top k=beam size sequences.
@@ -557,7 +578,7 @@ def beam_search(symbols_to_logits_fn,
          dict of transformed decoding states)
     """
     # Get the logits for all the possible next symbols
-    if use_tpu:
+    if use_tpu and states:
       flat_ids = tf.reshape(
           tf.slice(alive_seq, [0, 0, i], [batch_size, beam_size, 1]),
           [batch_size * beam_size, -1])
@@ -570,6 +591,8 @@ def beam_search(symbols_to_logits_fn,
       flat_logits, flat_states = symbols_to_logits_fn(flat_ids, i, flat_states)
       states = nest.map_structure(
           lambda t: _unmerge_beam_dim(t, batch_size, beam_size), flat_states)
+    elif use_tpu:
+      flat_logits = symbols_to_logits_fn(flat_ids, i)
     else:
       flat_logits = symbols_to_logits_fn(flat_ids)
 
@@ -588,7 +611,7 @@ def beam_search(symbols_to_logits_fn,
     # Flatten out (beam_size, vocab_size) probs in to a list of possibilities
     flat_curr_scores = tf.reshape(curr_scores, [-1, beam_size * vocab_size])
 
-    if use_tpu:
+    if use_tpu and use_top_k_with_unique:
       topk_scores, topk_ids = top_k_with_unique(
           flat_curr_scores, k=beam_size * 2)
     else:
@@ -702,7 +725,7 @@ def beam_search(symbols_to_logits_fn,
             finished_flags, states)
 
   def _is_finished(i, unused_alive_seq, alive_log_probs, unused_finished_seq,
-                   finished_scores, finished_in_finished, unused_states):
+                   finished_scores, unused_finished_in_finished, unused_states):
     """Checking termination condition.
 
     We terminate when we decoded up to decode_length or the lowest scoring item
@@ -714,30 +737,33 @@ def beam_search(symbols_to_logits_fn,
       alive_log_probs: probabilities of the beams. [batch_size, beam_size]
       finished_scores: scores for each of these sequences.
         [batch_size, beam_size]
-      finished_in_finished: finished bools for each of these sequences.
-        [batch_size, beam_size]
 
     Returns:
       Bool.
     """
-    if not stop_early:
-      return tf.less(i, decode_length)
     max_length_penalty = tf.pow(((5. + tf.to_float(decode_length)) / 6.), alpha)
     # The best possible score of the most likely alive sequence.
     lower_bound_alive_scores = alive_log_probs[:, 0] / max_length_penalty
 
-    # Now to compute the lowest score of a finished sequence in finished
-    # If the sequence isn't finished, we multiply it's score by 0. since
-    # scores are all -ve, taking the min will give us the score of the lowest
-    # finished item.
-    lowest_score_of_finished_in_finished = tf.reduce_min(
-        finished_scores * tf.to_float(finished_in_finished), axis=1)
-    # If none of the sequences have finished, then the min will be 0 and
-    # we have to replace it by -ve INF if it is. The score of any seq in alive
-    # will be much higher than -ve INF and the termination condition will not
-    # be met.
-    lowest_score_of_finished_in_finished += (
-        (1. - tf.to_float(tf.reduce_any(finished_in_finished, 1))) * -INF)
+    if not stop_early:
+      # by considering the min score (in the top N beams) we ensure that
+      # the decoder will keep decoding until there is at least one beam
+      # (in the top N) that can be improved (w.r.t. the alive beams).
+      # any unfinished beam will have score -INF - thus the min
+      # will always be -INF if there is at least one unfinished beam -
+      # which means the bound_is_met condition cannot be true in this case.
+      lowest_score_of_finished_in_finished = tf.reduce_min(finished_scores)
+    else:
+      # by taking the max score we only care about the first beam;
+      # as soon as this first beam cannot be beaten from the alive beams
+      # the beam decoder can stop.
+      # similarly to the above, if the top beam is not completed, its
+      # finished_score is -INF, thus it will not activate the
+      # bound_is_met condition. (i.e., decoder will keep going on).
+      # note we need to find the max for every sequence eparately - so, we need
+      # to keep the batch dimension (see axis=1)
+      lowest_score_of_finished_in_finished = tf.reduce_max(finished_scores,
+                                                           axis=1)
 
     bound_is_met = tf.reduce_all(
         tf.greater(lowest_score_of_finished_in_finished,
@@ -746,8 +772,15 @@ def beam_search(symbols_to_logits_fn,
     return tf.logical_and(
         tf.less(i, decode_length), tf.logical_not(bound_is_met))
 
+  inner_shape = tf.TensorShape([None, None, None])
+  if use_tpu:
+    inner_shape = tf.TensorShape([batch_size, beam_size, decode_length + 1])
+  if use_tpu:
+    state_struc = nest.map_structure(lambda state: state.get_shape(), states)
+  else:
+    state_struc = nest.map_structure(get_state_shape_invariants, states)
   (_, alive_seq, alive_log_probs, finished_seq, finished_scores,
-   finished_flags, _) = tf.while_loop(
+   finished_flags, states) = tf.while_loop(
        _is_finished,
        inner_loop, [
            tf.constant(0), alive_seq, alive_log_probs, finished_seq,
@@ -755,16 +788,12 @@ def beam_search(symbols_to_logits_fn,
        ],
        shape_invariants=[
            tf.TensorShape([]),
-           (tf.TensorShape([batch_size, beam_size, decode_length + 1])
-            if use_tpu else tf.TensorShape([None, None, None])),
+           inner_shape,
            alive_log_probs.get_shape(),
-           (tf.TensorShape([batch_size, beam_size, decode_length + 1])
-            if use_tpu else tf.TensorShape([None, None, None])),
+           inner_shape,
            finished_scores.get_shape(),
            finished_flags.get_shape(),
-           (nest.map_structure(lambda state: state.get_shape(), states)
-            if use_tpu else
-            nest.map_structure(get_state_shape_invariants, states)),
+           state_struc
        ],
        parallel_iterations=1,
        back_prop=False)
@@ -781,4 +810,4 @@ def beam_search(symbols_to_logits_fn,
       tf.reduce_any(finished_flags, 1), finished_seq, alive_seq)
   finished_scores = tf.where(
       tf.reduce_any(finished_flags, 1), finished_scores, alive_log_probs)
-  return finished_seq, finished_scores
+  return finished_seq, finished_scores, states

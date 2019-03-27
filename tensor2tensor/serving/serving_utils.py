@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -94,7 +94,10 @@ def _encode(inputs, encoder, add_eos=True):
 
 
 def _decode(output_ids, output_decoder):
-  return output_decoder.decode(output_ids, strip_extraneous=True)
+  if len(output_ids.shape) > 1:
+    return [output_decoder.decode(o, strip_extraneous=True) for o in output_ids]
+  else:
+    return output_decoder.decode(output_ids, strip_extraneous=True)
 
 
 
@@ -108,16 +111,16 @@ def make_grpc_request_fn(servable_name, server, timeout_secs):
     request = predict_pb2.PredictRequest()
     request.model_spec.name = servable_name
     request.inputs["input"].CopyFrom(
-        tf.contrib.util.make_tensor_proto(
+        tf.make_tensor_proto(
             [ex.SerializeToString() for ex in examples], shape=[len(examples)]))
     response = stub.Predict(request, timeout_secs)
     outputs = tf.make_ndarray(response.outputs["outputs"])
     scores = tf.make_ndarray(response.outputs["scores"])
     assert len(outputs) == len(scores)
-    return [{
-        "outputs": outputs[i],
-        "scores": scores[i]
-    } for i in range(len(outputs))]
+    return [{  # pylint: disable=g-complex-comprehension
+        "outputs": output,
+        "scores": score
+    } for output, score in zip(outputs, scores)]
 
   return _make_grpc_request
 
@@ -131,7 +134,7 @@ def make_cloud_mlengine_request_fn(credentials, model_name, version):
     parent = "projects/%s/models/%s/versions/%s" % (cloud.default_project(),
                                                     model_name, version)
     input_data = {
-        "instances": [{
+        "instances": [{  # pylint: disable=g-complex-comprehension
             "input": {
                 "b64": base64.b64encode(ex.SerializeToString())
             }

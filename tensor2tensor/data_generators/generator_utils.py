@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import gzip
+import math
 import os
 import random
 import stat
@@ -32,6 +33,7 @@ from six.moves import range  # pylint: disable=redefined-builtin
 import six.moves.urllib_request as urllib
 
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.utils import mlperf_log
 
 import tensorflow as tf
 
@@ -150,6 +152,15 @@ def generate_files(generator, output_filenames,
     return
   tmp_filenames = [fname + ".incomplete" for fname in output_filenames]
   num_shards = len(output_filenames)
+  # Check if is training or eval, ref: train_data_filenames().
+  if num_shards > 0:
+    if "-train" in output_filenames[0]:
+      tag = "train"
+    elif "-dev" in output_filenames[0]:
+      tag = "eval"
+    else:
+      tag = "other"
+
   writers = [tf.python_io.TFRecordWriter(fname) for fname in tmp_filenames]
   counter, shard = 0, 0
   for case in generator:
@@ -170,6 +181,14 @@ def generate_files(generator, output_filenames,
 
   for tmp_name, final_name in zip(tmp_filenames, output_filenames):
     tf.gfile.Rename(tmp_name, final_name)
+
+  if num_shards > 0:
+    if tag == "train":
+      mlperf_log.transformer_print(
+          key=mlperf_log.PREPROC_NUM_TRAIN_EXAMPLES, value=counter)
+    elif tag == "eval":
+      mlperf_log.transformer_print(
+          key=mlperf_log.PREPROC_NUM_EVAL_EXAMPLES, value=counter)
 
   tf.logging.info("Generated %s Examples", counter)
 
@@ -340,12 +359,13 @@ def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
 
 
 def get_or_generate_vocab(data_dir, tmp_dir, vocab_filename, vocab_size,
-                          sources, file_byte_budget=1e6):
+                          sources, file_byte_budget=1e6,
+                          max_subtoken_length=None):
   """Generate a vocabulary from the datasets in sources."""
 
   vocab_generator = generate_lines_for_vocab(tmp_dir, sources, file_byte_budget)
   return get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
-                                     vocab_generator)
+                                     vocab_generator, max_subtoken_length)
 
 
 def generate_lines_for_vocab(tmp_dir, sources, file_byte_budget=1e6):
@@ -471,26 +491,42 @@ def generate_dataset_and_shuffle(train_gen,
                                  shuffle=True):
   generate_files(train_gen, train_paths)
   generate_files(dev_gen, dev_paths)
+  mlperf_log.transformer_print(key=mlperf_log.INPUT_ORDER)
   if shuffle:
     shuffle_dataset(train_paths + dev_paths)
 
 
-def _shuffle_single(fname):
+def _shuffle_single(fname, extra_fn=None):
+  """Shuffle a single file of records.
+
+  Args:
+    fname: a string
+    extra_fn: an optional function from list of TFRecords to list of TFRecords
+      to be called after shuffling.
+  """
   records = read_records(fname)
   random.shuffle(records)
+  if extra_fn is not None:
+    records = extra_fn(records)
   out_fname = fname.replace(UNSHUFFLED_SUFFIX, "")
   write_records(records, out_fname)
   tf.gfile.Remove(fname)
 
 
-def shuffle_dataset(filenames):
-  """Shuffles the dataset."""
+def shuffle_dataset(filenames, extra_fn=None):
+  """Shuffles the dataset.
+
+  Args:
+    filenames: a list of strings
+    extra_fn: an optional function from list of records to list of records
+      to be called after shuffling a file.
+  """
   if outputs_exist(filenames):
     tf.logging.info("Skipping shuffle because output files exist")
     return
   tf.logging.info("Shuffling data...")
   for filename in filenames:
-    _shuffle_single(filename)
+    _shuffle_single(filename, extra_fn=extra_fn)
   tf.logging.info("Data shuffled.")
 
 
@@ -624,6 +660,226 @@ def pack_examples(examples,
     yield c.to_dict()
 
 
+def pack_dataset(dataset, length, keys=None, use_custom_ops=False):
+  """Creates a 'packed' version of a dataset on-the-fly.
+
+  This is meant to replace the irritation of having to create a separate
+  "packed" version of a dataset to train efficiently on TPU.
+
+  Each example in the output dataset represents several examples in the
+  input dataset.
+
+  For each key in the input dataset, two additional keys are created:
+  <key>_segmentation: an int32 tensor identifying the parts
+     representing the original example.
+  <key>_position: an int32 tensor identifying the position within the original
+     example.
+
+  Example:
+  Two input examples get combined to form an output example.
+  The input examples are:
+  {"inputs": [8, 7, 1, 0], "targets":[4, 1, 0]}
+  {"inputs": [2, 3, 4, 1], "targets":[5, 6, 1]}
+  The output example is:
+  {
+                 "inputs": [8, 7, 1, 2, 3, 4, 1, 0, 0, 0]
+    "inputs_segmentation": [1, 1, 1, 2, 2, 2, 2, 0, 0, 0]
+        "inputs_position": [0, 1, 2, 0, 1, 2, 3, 0, 0, 0]
+                "targets": [4, 1, 5, 6, 1, 0, 0, 0, 0, 0]
+   "targets_segmentation": [1, 1, 2, 2, 2, 0, 0, 0, 0, 0]
+       "targets_position": [0, 1, 0, 1, 2, 0, 0, 0, 0, 0]
+  }
+
+  0 represents padding in both the inputs and the outputs.
+
+  Sequences in the incoming examples are truncated to length "length", and the
+  sequences in the output examples all have fixed (padded) length "length".
+
+  TODO(noam): This code is slow - the use_custom_ops option is faster, but
+  requiers a custom-built binary.  Resolve this so that it is easy to get
+  good perfomrance.
+
+  Args:
+    dataset: a tf.data.Dataset
+    length: an integer
+    keys: a list of strings (e.g. ["inputs", "targets"])
+    use_custom_ops: use a custom c++ op not included in standard tf (faster)
+
+  Returns:
+    a tf.data.Dataset
+  """
+  shapes = dataset.output_shapes
+  if keys is None:
+    keys = shapes.keys()
+  for k in keys:
+    if k not in shapes:
+      raise ValueError("Key %s not found in dataset.  Available keys are %s"
+                       % (k, shapes.keys()))
+    if not shapes[k].is_compatible_with(tf.TensorShape([None])):
+      raise ValueError("Tensors to be packed must be one-dimensional.")
+
+  # trim to length
+  dataset = dataset.map(lambda x: {k: x[k][:length] for k in keys})
+  # Setting batch_size=length ensures that the concatenated sequences (if they
+  # have length >=1) are sufficient to fill at least one packed example.
+  batch_size = length
+  dataset = dataset.padded_batch(
+      batch_size, padded_shapes={k: [-1] for k in keys})
+  if use_custom_ops and len(keys) == 2:
+    # custom op only handles 2 keys.
+    # TODO(noam): support other numbers of keys.
+    return _pack_with_custom_ops(dataset, keys, length)
+  else:
+    return _pack_with_tf_ops(dataset, keys, length)
+
+
+def _pack_with_custom_ops(dataset, keys, length):
+  """Helper-function for packing a dataset which has already been batched.
+
+  See pack_dataset()
+
+  Relies on custom ops which require a custom compiled binary.
+  Faster than _pack_with_tf_ops(), and denser packing.
+
+  Args:
+    dataset: a dataset containing padded batches of examples.
+    keys: a list of strings (must have length 2)
+    length: an integer
+
+  Returns:
+    a dataset.
+  """
+  from tensor2tensor.data_generators.ops import pack_sequences_ops  # pylint: disable=g-import-not-at-top
+  # faster and better packing but requires custom-built binary.
+  k1, k2 = keys
+  def map_fn_custom(x):
+    """Map-function."""
+    (k1_packed, k1_segmengation, k1_position,
+     k2_packed, k2_segmentation, k2_position) = (
+         pack_sequences_ops.pack_sequences2(x[k1], x[k2], length))
+    packed = {
+        k1: k1_packed,
+        k1 + "_segmentation": k1_segmengation,
+        k1 + "_position": k1_position,
+        k2: k2_packed,
+        k2 + "_segmentation": k2_segmentation,
+        k2 + "_position": k2_position,
+    }
+    return tf.data.Dataset.from_tensor_slices(packed)
+  dataset = dataset.flat_map(map_fn_custom)
+  return dataset
+
+
+def _pack_with_tf_ops(dataset, keys, length):
+  """Helper-function for packing a dataset which has already been batched.
+
+  See pack_dataset()
+
+  Uses tf.while_loop.  Slow.
+
+  Args:
+    dataset: a dataset containing padded batches of examples.
+    keys: a list of strings
+    length: an integer
+
+  Returns:
+    a dataset.
+  """
+  empty_example = {}
+  for k in keys:
+    empty_example[k] = tf.zeros([0], dtype=tf.int64)
+    empty_example[k + "_position"] = tf.zeros([0], dtype=tf.int32)
+  keys_etc = empty_example.keys()
+
+  def write_packed_example(partial, outputs):
+    new_partial = empty_example.copy()
+    new_outputs = {}
+    for k in keys_etc:
+      new_outputs[k] = outputs[k].write(
+          outputs[k].size(),
+          tf.pad(partial[k], [[0, length - tf.size(partial[k])]]))
+    return new_partial, new_outputs
+
+  def map_fn(x):
+    """Internal function to flat_map over.
+
+    Consumes a batch of input examples and produces a variable number of output
+    examples.
+
+    Args:
+      x: a single example
+    Returns:
+      a tf.data.Dataset
+    """
+    partial = empty_example.copy()
+    i = tf.zeros([], dtype=tf.int32)
+    dynamic_batch_size = tf.shape(x[keys[0]])[0]
+    outputs = {}
+    for k in keys:
+      outputs[k] = tf.TensorArray(
+          tf.int64, size=0, dynamic_size=True, element_shape=[length])
+      outputs[k + "_position"] = tf.TensorArray(
+          tf.int32, size=0, dynamic_size=True, element_shape=[length])
+    def cond_fn(i, partial, outputs):
+      del partial, outputs
+      return i < dynamic_batch_size
+    def body_fn(i, partial, outputs):
+      """Body function for while_loop.
+
+      Args:
+        i: integer scalar
+        partial: dictionary of Tensor (partially-constructed example)
+        outputs: dictionary of TensorArray
+      Returns:
+        A triple containing the new values of the inputs.
+      """
+      can_append = True
+      one_example = {}
+      for k in keys:
+        val = x[k][i]
+        val = val[:tf.reduce_sum(tf.to_int32(tf.not_equal(val, 0)))]
+        one_example[k] = val
+      for k in keys:
+        can_append = tf.logical_and(
+            can_append,
+            tf.less_equal(
+                tf.size(partial[k]) + tf.size(one_example[k]), length))
+      def false_fn():
+        return write_packed_example(partial, outputs)
+      def true_fn():
+        return partial, outputs
+      partial, outputs = tf.cond(can_append, true_fn, false_fn)
+      new_partial = {}
+      for k in keys:
+        new_seq = one_example[k][:length]
+        new_seq_len = tf.size(new_seq)
+        new_partial[k] = tf.concat([partial[k], new_seq], 0)
+        new_partial[k + "_position"] = tf.concat(
+            [partial[k + "_position"],
+             tf.range(new_seq_len, dtype=tf.int32)], 0)
+      partial = new_partial
+      return i+1, partial, outputs
+
+    i, partial, outputs = tf.while_loop(
+        cond_fn, body_fn, (i, partial, outputs),
+        back_prop=False,
+        shape_invariants=(
+            tf.TensorShape([]),
+            {k: tf.TensorShape([None]) for k in keys_etc},
+            {k: tf.TensorShape(None) for k in keys_etc},
+            ))
+    partial, outputs = write_packed_example(partial, outputs)
+    packed = {k: outputs[k].stack() for k in keys_etc}
+    for k in keys:
+      packed[k + "_segmentation"] = (
+          tf.cumsum(tf.to_int32(tf.equal(packed[k + "_position"], 0)), axis=1) *
+          tf.to_int32(tf.not_equal(packed[k], 0)))
+
+    return tf.data.Dataset.from_tensor_slices(packed)
+  dataset = dataset.flat_map(map_fn)
+  return dataset
+
+
 def make_tmp_dir(suffix="", prefix="tmp", dir=None):  # pylint: disable=redefined-builtin
   """Make a temporary directory."""
   if dir is None:
@@ -685,3 +941,41 @@ def tfrecord_iterator(filenames, gzipped=False, example_spec=None):
           yield ex
         except tf.errors.OutOfRangeError:
           break
+
+
+def random_deinterleave(text, separator_symbol="X"):
+  """Create a fill-in-the-blanks training example from text.
+
+  Split on spaces, then cut into segments at random points.  Alternate segments
+  are assigned to the two output strings. separator_symbol separates segments
+  within each of the outputs.
+
+  example:
+    text="The quick brown fox jumps over the lazy dog."
+    returns: ("X quick brown X the lazy X", "The X fox jumps over X dog.")
+
+  The two outputs can also be reversed to yield an instance of the same problem.
+
+  Args:
+    text: a string
+    separator_symbol: a string
+  Returns:
+    a pair of strings
+  """
+  words = text.strip().split(" ")
+  n = len(words)
+  if n <= 1:
+    return text, ""
+  cut = [False] * n
+  cut[0] = True
+  num_cuts = int(math.exp(random.uniform(0, math.log(n))))
+  for _ in range(num_cuts):
+    cut[random.randint(1, n -1)] = True
+  out = [[], []]
+  part = random.randint(0, 1)
+  for i in range(n):
+    if cut[i]:
+      out[part].append(separator_symbol)
+      part = 1 - part
+    out[part].append(words[i])
+  return " ".join(out[0]), " ".join(out[1])

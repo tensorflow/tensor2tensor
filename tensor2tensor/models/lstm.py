@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,8 +29,8 @@ import tensorflow as tf
 
 
 def _dropout_lstm_cell(hparams, train):
-  return tf.contrib.rnn.DropoutWrapper(
-      tf.contrib.rnn.LSTMCell(hparams.hidden_size),
+  return tf.nn.rnn_cell.DropoutWrapper(
+      tf.nn.rnn_cell.LSTMCell(hparams.hidden_size),
       input_keep_prob=1.0 - hparams.dropout * tf.to_float(train))
 
 
@@ -41,7 +41,7 @@ def lstm(inputs, sequence_length, hparams, train, name, initial_state=None):
     inputs: The input `Tensor`, shaped `[batch_size, time_steps, hidden_size]`.
     sequence_length: Lengths of the actual input sequence, excluding padding; a
         `Tensor` shaped `[batch_size]`.
-    hparams: tf.contrib.training.HParams; hyperparameters.
+    hparams: HParams; hyperparameters.
     train: bool; `True` when constructing training graph to enable dropout.
     name: string; Create variable names under this scope.
     initial_state: tuple of `LSTMStateTuple`s; the initial state of each layer.
@@ -58,7 +58,7 @@ def lstm(inputs, sequence_length, hparams, train, name, initial_state=None):
             for _ in range(hparams.num_hidden_layers)]
   with tf.variable_scope(name):
     return tf.nn.dynamic_rnn(
-        tf.contrib.rnn.MultiRNNCell(layers),
+        tf.nn.rnn_cell.MultiRNNCell(layers),
         inputs,
         sequence_length,
         initial_state=initial_state,
@@ -74,7 +74,7 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
   Args:
     inputs: The decoder input `Tensor`, shaped `[batch_size, decoder_steps,
         hidden_size]`.
-    hparams: tf.contrib.training.HParams; hyperparameters.
+    hparams: HParams; hyperparameters.
     train: bool; `True` when constructing training graph to enable dropout.
     name: string; Create variable names under this scope.
     initial_state: Tuple of `LSTMStateTuple`s; the initial state of each layer.
@@ -192,11 +192,11 @@ def lstm_bid_encoder(inputs, sequence_length, hparams, train, name):
   """Bidirectional LSTM for encoding inputs that are [batch x time x size]."""
 
   with tf.variable_scope(name):
-    cell_fw = tf.contrib.rnn.MultiRNNCell(
+    cell_fw = tf.nn.rnn_cell.MultiRNNCell(
         [_dropout_lstm_cell(hparams, train)
          for _ in range(hparams.num_hidden_layers)])
 
-    cell_bw = tf.contrib.rnn.MultiRNNCell(
+    cell_bw = tf.nn.rnn_cell.MultiRNNCell(
         [_dropout_lstm_cell(hparams, train)
          for _ in range(hparams.num_hidden_layers)])
 
@@ -213,7 +213,7 @@ def lstm_bid_encoder(inputs, sequence_length, hparams, train, name):
     encoder_states = []
 
     for i in range(hparams.num_hidden_layers):
-      if isinstance(encoder_fw_state[i], tf.contrib.rnn.LSTMStateTuple):
+      if isinstance(encoder_fw_state[i], tf.nn.rnn_cell.LSTMStateTuple):
         encoder_state_c = tf.concat(
             values=(encoder_fw_state[i].c, encoder_bw_state[i].c),
             axis=1,
@@ -222,7 +222,7 @@ def lstm_bid_encoder(inputs, sequence_length, hparams, train, name):
             values=(encoder_fw_state[i].h, encoder_bw_state[i].h),
             axis=1,
             name="encoder_fw_state_h")
-        encoder_state = tf.contrib.rnn.LSTMStateTuple(
+        encoder_state = tf.nn.rnn_cell.LSTMStateTuple(
             c=encoder_state_c, h=encoder_state_h)
       elif isinstance(encoder_fw_state[i], tf.Tensor):
         encoder_state = tf.concat(

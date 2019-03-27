@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 from __future__ import division
 from __future__ import print_function
 
+from tensor2tensor.layers import modalities
 from tensor2tensor.models.video import basic_stochastic
 from tensor2tensor.utils import registry
 
@@ -26,14 +27,22 @@ from tensor2tensor.utils import registry
 def next_frame_sv2p():
   """SV2P model hparams."""
   hparams = basic_stochastic.next_frame_basic_stochastic()
-  hparams.optimizer = "TrueAdam"
+  hparams.optimizer = "true_adam"
   hparams.learning_rate_schedule = "constant"
   hparams.learning_rate_constant = 1e-3
   hparams.video_num_input_frames = 1
   hparams.video_num_target_frames = 3
   hparams.batch_size = 16
-  hparams.target_modality = "video:l2raw"
-  hparams.input_modalities = "inputs:video:l2raw"
+  hparams.bottom = {
+      "inputs": modalities.video_raw_bottom,
+      "targets": modalities.video_raw_targets_bottom,
+  }
+  hparams.loss = {
+      "targets": modalities.video_l2_raw_loss,
+  }
+  hparams.top = {
+      "targets": modalities.video_raw_top,
+  }
   hparams.video_modality_loss_cutoff = 0.0
   hparams.scheduled_sampling_mode = "count"
   hparams.scheduled_sampling_k = 900.0
@@ -47,6 +56,7 @@ def next_frame_sv2p():
   hparams.add_hparam("dna_kernel_size", 5)
   hparams.add_hparam("upsample_method", "conv2d_transpose")
   hparams.add_hparam("reward_model", "basic")
+  hparams.add_hparam("visualize_logits_histogram", True)
   return hparams
 
 
@@ -56,8 +66,13 @@ def next_frame_sv2p_discrete():
   hparams = next_frame_sv2p()
   hparams.action_injection = "multiplicative"
   hparams.small_mode = True
-  hparams.add_hparam("bottleneck_bits", 16)
+  hparams.add_hparam("bottleneck_bits", 128)
   hparams.add_hparam("bottleneck_noise", 0.02)
+  hparams.add_hparam("discrete_warmup_steps", 40000)
+  hparams.add_hparam("full_latent_tower", False)
+  hparams.add_hparam("latent_predictor_state_size", 128)
+  hparams.add_hparam("latent_predictor_temperature", 0.5)
+  hparams.add_hparam("discretize_warmup_steps", 40000)
   return hparams
 
 
@@ -75,7 +90,6 @@ def next_frame_sv2p_atari():
   hparams.latent_loss_multiplier = 1e-3
   hparams.information_capacity = 0.0
   hparams.small_mode = True
-  hparams.internal_loss = True
   return hparams
 
 
@@ -83,8 +97,9 @@ def next_frame_sv2p_atari():
 def next_frame_sv2p_atari_softmax():
   """SV2P model for atari with softmax."""
   hparams = next_frame_sv2p_atari()
-  hparams.target_modality = "video"
-  hparams.input_modalities = "inputs:video"
+  hparams.bottom = {}
+  hparams.loss = {}
+  hparams.top = {}
   hparams.internal_loss = True
   return hparams
 

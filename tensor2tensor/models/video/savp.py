@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -327,12 +327,13 @@ class NextFrameSavpBase(object):
     return rectified
 
   @staticmethod
-  def train_hooks():
+  def train_hooks(hook_context):
+    del hook_context
     return [update_ops_hook.UpdateOpsHook()]
 
 
 @registry.register_model
-class NextFrameSAVP(sv2p.NextFrameSv2pLegacy, NextFrameSavpBase):
+class NextFrameSAVP(NextFrameSavpBase, sv2p.NextFrameSv2pLegacy):
   """Stochastic Adversarial Video Prediction."""
 
   def construct_model(self, images, actions, rewards):
@@ -430,7 +431,7 @@ class NextFrameSAVP(sv2p.NextFrameSv2pLegacy, NextFrameSavpBase):
         all_action = tf.concat([action, action], axis=0)
         all_rewards = tf.concat([reward, reward], axis=0)
 
-        all_pred_images, lstm_state = self.construct_predictive_tower(
+        all_pred_images, lstm_state, _ = self.construct_predictive_tower(
             all_image, all_rewards, all_action, lstm_state, all_latents,
             concat_latent=True)
 
@@ -497,6 +498,9 @@ class NextFrameSavpRl(NextFrameSavpBase, sv2p.NextFrameSv2p):
     if not self.hparams.use_vae or self.hparams.use_gan:
       raise NotImplementedError("Only supporting VAE for now.")
 
+    if self.has_pred_actions or self.has_values:
+      raise NotImplementedError("Parameter sharing with policy not supported.")
+
     image, action, reward = frames[0], actions[0], rewards[0]
     latent_dims = self.hparams.z_dim
     batch_size = common_layers.shape_list(image)[0]
@@ -554,4 +558,4 @@ class NextFrameSavpRl(NextFrameSavpBase, sv2p.NextFrameSv2p):
 
     pred_reward = self.reward_prediction(
         pred_image, action, reward, latent)
-    return pred_image, pred_reward, 0.0, internal_states
+    return pred_image, pred_reward, None, None, 0.0, internal_states

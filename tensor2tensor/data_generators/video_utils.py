@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import os
 import numpy as np
 import six
@@ -27,9 +28,10 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
-from tensor2tensor.utils import registry
 from tensor2tensor.utils import video_metrics
 
 import tensorflow as tf
@@ -43,61 +45,164 @@ flags.DEFINE_bool(
 
 
 def resize_video_frames(images, size):
-  resized_images = []
-  for image in images:
-    resized_images.append(
-        tf.to_int64(
-            tf.image.resize_images(image, [size, size],
-                                   tf.image.ResizeMethod.BILINEAR)))
-  return resized_images
+  return [tf.to_int64(tf.image.resize_images(
+      image, [size, size], tf.image.ResizeMethod.BILINEAR)) for image in images]
+
+
+def video_augmentation(features, hue=False, saturate=False, contrast=False):
+  """Augments video with optional hue, saturation and constrast.
+
+  Args:
+    features: dict, with keys "inputs", "targets".
+              features["inputs"], 4-D Tensor, shape=(THWC)
+              features["targets"], 4-D Tensor, shape=(THWC)
+    hue: bool, apply hue_transform.
+    saturate: bool, apply saturation transform.
+    contrast: bool, apply constrast transform.
+  Returns:
+    augment_features: dict with transformed "inputs" and "targets".
+  """
+  inputs, targets = features["inputs"], features["targets"]
+  in_steps = common_layers.shape_list(inputs)[0]
+
+  # makes sure that the same augmentation is applied to both input and targets.
+  # if input is 4-D, then tf.image applies the same transform across the batch.
+  video = tf.concat((inputs, targets), axis=0)
+  if hue:
+    video = tf.image.random_hue(video, max_delta=0.2)
+  if saturate:
+    video = tf.image.random_saturation(video, lower=0.5, upper=1.5)
+  if contrast:
+    video = tf.image.random_contrast(video, lower=0.5, upper=1.5)
+  features["inputs"], features["targets"] = video[:in_steps], video[in_steps:]
+  return features
+
+
+def create_border(video, color="blue", border_percent=2):
+  """Creates a border around each frame to differentiate input and target.
+
+  Args:
+    video: 5-D NumPy array.
+    color: string, "blue", "red" or "green".
+    border_percent: Percentarge of the frame covered by the border.
+  Returns:
+    video: 5-D NumPy array.
+  """
+  # Do not create border if the video is not in RGB format
+  if video.shape[-1] != 3:
+    return video
+  color_to_axis = {"blue": 2, "red": 0, "green": 1}
+  axis = color_to_axis[color]
+  _, _, height, width, _ = video.shape
+  border_height = np.ceil(border_percent * height / 100.0).astype(np.int)
+  border_width = np.ceil(border_percent * width / 100.0).astype(np.int)
+  video[:, :, :border_height, :, axis] = 255
+  video[:, :, -border_height:, :, axis] = 255
+  video[:, :, :, :border_width, axis] = 255
+  video[:, :, :, -border_width:, axis] = 255
+  return video
+
+
+def convert_videos_to_summaries(input_videos, output_videos, target_videos,
+                                tag, decode_hparams,
+                                display_ground_truth=False):
+  """Converts input, output and target videos into video summaries.
+
+  Args:
+    input_videos: 5-D NumPy array, (NTHWC) conditioning frames.
+    output_videos: 5-D NumPy array, (NTHWC) model predictions.
+    target_videos: 5-D NumPy array, (NTHWC) target frames.
+    tag: tf summary tag.
+    decode_hparams: HParams.
+    display_ground_truth: Whether or not to display ground truth videos.
+  Returns:
+    summaries: a list of tf frame-by-frame and video summaries.
+  """
+  fps = decode_hparams.frames_per_second
+  border_percent = decode_hparams.border_percent
+  max_outputs = decode_hparams.max_display_outputs
+  target_steps = target_videos.shape[1]
+  all_summaries = []
+  input_videos = create_border(
+      input_videos, color="blue", border_percent=border_percent)
+  target_videos = create_border(
+      target_videos, color="red", border_percent=border_percent)
+  output_videos = create_border(
+      output_videos, color="red", border_percent=border_percent)
+
+  all_input = np.concatenate((input_videos, target_videos), axis=1)
+  all_output = np.concatenate((input_videos, output_videos), axis=1)
+  output_summ_vals, _ = common_video.py_gif_summary(
+      "%s/output" % tag, all_output, max_outputs=max_outputs, fps=fps,
+      return_summary_value=True)
+  all_summaries.extend(output_summ_vals)
+
+  # Optionally display ground truth.
+  if display_ground_truth:
+    input_summ_vals, _ = common_video.py_gif_summary(
+        "%s/input" % tag, all_input, max_outputs=max_outputs, fps=fps,
+        return_summary_value=True)
+    all_summaries.extend(input_summ_vals)
+
+  # Frame-by-frame summaries
+  iterable = zip(output_videos[:max_outputs, :target_steps],
+                 target_videos[:max_outputs])
+  for ind, (input_video, output_video) in enumerate(iterable):
+    t, h, w, c = input_video.shape
+    # Tile vertically
+    input_frames = np.reshape(input_video, (t*h, w, c))
+    output_frames = np.reshape(output_video, (t*h, w, c))
+
+    # Concat across width.
+    all_frames = np.concatenate((input_frames, output_frames), axis=1)
+    tag = "input/output/%s_sample_%d" % (tag, ind)
+    frame_by_frame_summ = image_utils.image_to_tf_summary_value(
+        all_frames, tag=tag)
+    all_summaries.append(frame_by_frame_summ)
+  return all_summaries
 
 
 def display_video_hooks(hook_args):
   """Hooks to display videos at decode time."""
   predictions = hook_args.predictions
-  fps = hook_args.decode_hparams.frames_per_second
+  max_outputs = hook_args.decode_hparams.max_display_outputs
+  max_decodes = hook_args.decode_hparams.max_display_decodes
+
+  with tf.Graph().as_default():
+    _, best_decodes = video_metrics.compute_video_metrics_from_predictions(
+        predictions, decode_hparams=hook_args.decode_hparams)
 
   all_summaries = []
-  for decode_ind, decode in enumerate(predictions):
+  # Displays decodes corresponding to the best/worst metric,
+  for metric, metric_decode_inds in best_decodes.items():
+    curr_metric_inds = metric_decode_inds[:max_outputs]
+    best_inputs, best_outputs, best_targets = [], [], []
+    for sample_ind, decode_ind in enumerate(curr_metric_inds):
+      curr_decode = predictions[decode_ind][sample_ind]
+      best_inputs.append(curr_decode["inputs"])
+      best_outputs.append(curr_decode["outputs"])
+      best_targets.append(curr_decode["targets"])
+    best_inputs = np.array(best_inputs, dtype=np.uint8)
+    best_outputs = np.array(best_outputs, dtype=np.uint8)
+    best_targets = np.array(best_targets, dtype=np.uint8)
+    summaries = convert_videos_to_summaries(
+        best_inputs, best_outputs, best_targets,
+        tag=metric, decode_hparams=hook_args.decode_hparams)
+    all_summaries.extend(summaries)
 
+  # Display random decodes for ten conditioning frames.
+  for decode_ind, decode in enumerate(predictions[: max_decodes]):
     target_videos = video_metrics.stack_data_given_key(decode, "targets")
     output_videos = video_metrics.stack_data_given_key(decode, "outputs")
     input_videos = video_metrics.stack_data_given_key(decode, "inputs")
     target_videos = np.asarray(target_videos, dtype=np.uint8)
     output_videos = np.asarray(output_videos, dtype=np.uint8)
     input_videos = np.asarray(input_videos, dtype=np.uint8)
-
-    # Video gif.
-    all_input = np.concatenate((input_videos, target_videos), axis=1)
-    all_output = np.concatenate((input_videos, output_videos), axis=1)
-    input_summ_vals, _ = common_video.py_gif_summary(
-        "decode_%d/input" % decode_ind,
-        all_input, max_outputs=10,
-        fps=fps,
-        return_summary_value=True)
-    output_summ_vals, _ = common_video.py_gif_summary(
-        "decode_%d/output" % decode_ind,
-        all_output,
-        max_outputs=10,
-        fps=fps,
-        return_summary_value=True)
-    all_summaries.extend(input_summ_vals)
-    all_summaries.extend(output_summ_vals)
-
-    # Frame-by-frame summaries
-    iterable = zip(all_input[:10], all_output[:10])
-    for ind, (input_video, output_video) in enumerate(iterable):
-      t, h, w, c = input_video.shape
-      # Tile vertically
-      input_frames = np.reshape(input_video, (t*h, w, c))
-      output_frames = np.reshape(output_video, (t*h, w, c))
-
-      # Concat across width.
-      all_frames = np.concatenate((input_frames, output_frames), axis=1)
-      tag = "input/output/decode_%d_sample_%d" % (decode_ind, ind)
-      frame_by_frame_summ = image_utils.image_to_tf_summary_value(
-          all_frames, tag=tag)
-      all_summaries.append(frame_by_frame_summ)
+    summaries = convert_videos_to_summaries(
+        input_videos, output_videos, target_videos,
+        tag="decode_%d" % decode_ind, decode_hparams=hook_args.decode_hparams,
+        display_ground_truth=decode_ind == 0)
+    all_summaries.extend(summaries)
   return all_summaries
 
 
@@ -115,8 +220,8 @@ def summarize_video_metrics(hook_args):
   metrics_graph = tf.Graph()
   with metrics_graph.as_default():
     if predictions:
-      metrics_results = video_metrics.compute_video_metrics_from_predictions(
-          predictions)
+      metrics_results, _ = video_metrics.compute_video_metrics_from_predictions(
+          predictions, decode_hparams=hook_args.decode_hparams)
     else:
       metrics_results, _ = video_metrics.compute_video_metrics_from_png_files(
           output_dirs, problem_name, hparams.video_num_target_frames,
@@ -153,6 +258,25 @@ class VideoProblem(problem.Problem):
     self.settable_random_skip = True
     self.settable_use_not_breaking_batching = True
     self.shuffle = True
+
+  def max_frames_per_video(self, hparams):
+    """Maximum number of frames per video as determined by the dataset.
+
+    This is used only in PREDICT mode and handles the corner case where
+    video_num_input_frames + video_num_target_frames is greater than the
+    maximum number of frames per video in the dataset. For eg, 30 in BAIR.
+
+    For this special case, setting this to return "x" limits the input pipeline
+    to handle "x" (input + target) frames. The corresponding video model can
+    then decode arbitrary number of target frames via
+    hparams.video_num_target_frames.
+
+    Args:
+      hparams: HParams.
+    Returns:
+      num_frames: int.
+    """
+    return hparams.video_num_input_frames + hparams.video_num_target_frames
 
   @property
   def num_channels(self):
@@ -209,6 +333,11 @@ class VideoProblem(problem.Problem):
   @property
   def only_keep_videos_from_0th_frame(self):
     return True
+
+  @property
+  def avoid_overlapping_frames(self):
+    """When True, each video has non overlapping frames with every other."""
+    return False
 
   @property
   def use_not_breaking_batching(self):
@@ -358,6 +487,9 @@ class VideoProblem(problem.Problem):
           if self.only_keep_videos_from_0th_frame:
             not_broken = tf.logical_and(not_broken, tf.equal(
                 frame_numbers[0], 0))
+          if self.avoid_overlapping_frames:
+            non_overlap = tf.equal(tf.mod(frame_numbers[0], num_frames), 0)
+            not_broken = tf.logical_and(not_broken, non_overlap)
         else:
           tf.logging.warning("use_not_breaking_batching is True but "
                              "no frame_number is in the dataset.")
@@ -378,8 +510,12 @@ class VideoProblem(problem.Problem):
       return dataset
 
     preprocessed_dataset = dataset.map(_preprocess)
+
     num_frames = (
         hparams.video_num_input_frames + hparams.video_num_target_frames)
+    if mode == tf.estimator.ModeKeys.PREDICT:
+      num_frames = min(self.max_frames_per_video(hparams), num_frames)
+
     # We jump by a random position at the beginning to add variety.
     if (self.random_skip and self.settable_random_skip and interleave and
         mode == tf.estimator.ModeKeys.TRAIN):
@@ -556,6 +692,37 @@ class VideoProblemOld(problem.Problem):
     return eval_metrics
 
 
+class VideoAugmentationProblem(VideoProblem):
+  """Base class for video data-augmentation.
+
+  By default applies a random hue, contrast and saturation transformation
+  to every video. To disable any of these transformations, inherit
+  this class and set the corresponding property to False.
+  """
+
+  @property
+  def hue(self):
+    return True
+
+  @property
+  def contrast(self):
+    return True
+
+  @property
+  def saturate(self):
+    return True
+
+  def preprocess(self, dataset, mode, hparams, interleave=True):
+    dataset = super(VideoAugmentationProblem, self).preprocess(
+        dataset=dataset, mode=mode, hparams=hparams, interleave=interleave)
+    video_augment_func = functools.partial(
+        video_augmentation, hue=self.hue, contrast=self.contrast,
+        saturate=self.saturate)
+    if mode == tf.estimator.ModeKeys.TRAIN:
+      dataset = dataset.map(video_augment_func)
+    return dataset
+
+
 class Video2ClassProblem(VideoProblemOld):
   """Base class for image classification problems."""
 
@@ -604,8 +771,10 @@ class Video2ClassProblem(VideoProblemOld):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
-    p.target_modality = (registry.Modalities.CLASS_LABEL, self.num_classes)
+    p.modality = {"inputs": modalities.ModalityType.IMAGE,
+                  "targets": modalities.ModalityType.CLASS_LABEL}
+    p.vocab_size = {"inputs": 256,
+                    "targets": self.num_classes}
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE_LABEL
 

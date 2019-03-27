@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import copy
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -47,14 +48,11 @@ class Imagetransformer(t2t_model.T2TModel):
     hparams = copy.copy(self._hparams)
     targets = features["targets"]
     if (hparams.likelihood == cia.DistributionType.DMOL and
-        (hparams.target_modality != "image:image_channel_bottom_identity" or
-         hparams.num_channels != 1)):
-      raise ValueError("When using DMOL for the likelihood, target_modality "
-                       "must be image:image_channel_bottom_identity and "
-                       "num_channels must be 1.")
+        hparams.num_channels != 1):
+      raise ValueError("When using DMOL for the likelihood, bottom function "
+                       " must be identity and num_channels must be 1.")
     if (not tf.get_variable_scope().reuse and
-        hparams.mode != tf.contrib.learn.ModeKeys.INFER and
-        hparams.target_modality != "image:image_channel_bottom_identity"):
+        hparams.mode != tf.estimator.ModeKeys.PREDICT):
       tf.summary.image("targets", tf.to_float(targets), max_outputs=1)
 
     # Extra losses list if we want to use moe.
@@ -190,7 +188,8 @@ def image_transformer_base():
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.98
   hparams.label_smoothing = 0.0
-  hparams.target_modality = "image:identity"
+  hparams.bottom["targets"] = modalities.image_channel_embeddings_bottom
+  hparams.top["targets"] = modalities.identity_top
   hparams.norm_type = "layer"
   hparams.layer_prepostprocess_dropout = 0.0
   hparams.add_hparam("filter_size", 512)  # Add new ones like this.
@@ -277,7 +276,8 @@ def imagetransformer_cifar10_base_dmol():
   hparams = image_transformer_base()
   hparams.likelihood = cia.DistributionType.DMOL
   hparams.num_channels = 1
-  hparams.target_modality = "image:image_channel_bottom_identity"
+  hparams.bottom["targets"] = modalities.image_channel_compress_targets_bottom
+  hparams.top["targets"] = modalities.identity_top
   hparams.num_heads = 8
   hparams.batch_size = 8
   hparams.sampling_method = "random"
@@ -418,7 +418,8 @@ def imagetransformerpp_sep_channels_8l_8h():
   hparams = imagetransformer_base()
   hparams.likelihood = cia.DistributionType.DMOL
   hparams.num_channels = 1
-  hparams.target_modality = "image:image_channel_bottom_identity"
+  hparams.bottom["targets"] = modalities.image_channel_compress_targets_bottom
+  hparams.top["targets"] = modalities.identity_top
   hparams.num_heads = 8
   hparams.batch_size = 4
   hparams.attention_key_channels = hparams.attention_value_channels = 0
@@ -881,7 +882,8 @@ def imagetransformerpp_tiny():
   hparams = imagetransformer_tiny()
   hparams.likelihood = cia.DistributionType.DMOL
   hparams.num_channels = 1
-  hparams.target_modality = "image:image_channel_bottom_identity"
+  hparams.bottom["targets"] = modalities.image_channel_compress_targets_bottom
+  hparams.top["targets"] = modalities.identity_top
   return hparams
 
 

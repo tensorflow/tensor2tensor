@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
+from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 
@@ -54,7 +55,7 @@ def shake_shake_skip_connection(x, output_filters, stride, is_training):
 def shake_shake_branch(x, output_filters, stride, rand_forward, rand_backward,
                        hparams):
   """Building a 2 branching convnet."""
-  is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
+  is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
   x = tf.nn.relu(x)
   x = tf.layers.conv2d(
       x,
@@ -76,7 +77,7 @@ def shake_shake_branch(x, output_filters, stride, rand_forward, rand_backward,
 
 def shake_shake_block(x, output_filters, stride, hparams):
   """Builds a full shake-shake sub layer."""
-  is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
+  is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
   batch_size = common_layers.shape_list(x)[0]
 
   # Generate random numbers for scaling the branches.
@@ -138,7 +139,7 @@ class ShakeShake(t2t_model.T2TModel):
 
   def body(self, features):
     hparams = self._hparams
-    is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
+    is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
     inputs = features["inputs"]
     assert (hparams.num_hidden_layers - 2) % 6 == 0
     assert hparams.hidden_size % 16 == 0
@@ -189,7 +190,7 @@ def shakeshake_small():
 @registry.register_hparams
 def shake_shake_quick():
   hparams = shakeshake_small()
-  hparams.optimizer = "Adam"
+  hparams.optimizer = "adam"
   hparams.learning_rate_cosine_cycle_steps = 1000
   hparams.learning_rate = 0.5
   hparams.batch_size = 100
@@ -214,7 +215,7 @@ def shakeshake_tpu():
 
 @registry.register_attack_params
 def shake_shake_fgsm():
-  aparams = tf.contrib.training.HParams()
+  aparams = HParams()
   aparams.attack = "fgsm"
   aparams.attack_epsilons = [(i+1) * 0.1 for i in range(12)]
   aparams.add_hparam("clip_min", 0.0)

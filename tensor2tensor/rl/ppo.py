@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,21 +21,28 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from tensor2tensor.layers import common_layers
 from tensor2tensor.models.research.rl import get_policy
+from tensor2tensor.utils import learning_rate
+from tensor2tensor.utils import optimize
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 
-def get_optimiser(config):
-  if config.optimizer == "Adam":
-    return tf.train.AdamOptimizer(learning_rate=config.learning_rate)
-  return config.optimizer(learning_rate=config.learning_rate)
-
-
-def define_ppo_step(data_points, optimizer, hparams):
+def define_ppo_step(data_points, hparams, action_space, lr):
   """Define ppo step."""
   observation, action, discounted_reward, norm_advantage, old_pdf = data_points
-  new_policy_dist, new_value, _ = get_policy(observation, hparams)
+
+  obs_shape = common_layers.shape_list(observation)
+  observation = tf.reshape(
+      observation, [obs_shape[0] * obs_shape[1]] + obs_shape[2:]
+  )
+  (logits, new_value) = get_policy(observation, hparams, action_space)
+  logits = tf.reshape(logits, obs_shape[:2] + [action_space.n])
+  new_value = tf.reshape(new_value, obs_shape[:2])
+  new_policy_dist = tfp.distributions.Categorical(logits=logits)
+
   new_pdf = new_policy_dist.prob(action)
 
   ratio = new_pdf / old_pdf
@@ -53,27 +60,15 @@ def define_ppo_step(data_points, optimizer, hparams):
   entropy_loss = -hparams.entropy_loss_coef * tf.reduce_mean(entropy)
 
   losses = [policy_loss, value_loss, entropy_loss]
+  loss = sum(losses)
+  variables = tf.global_variables(hparams.policy_network + "/.*")
+  train_op = optimize.optimize(loss, lr, hparams, variables=variables)
 
-  gradients = [list(zip(*optimizer.compute_gradients(loss)))
-               for loss in losses]
-
-  gradients_norms = [tf.global_norm(gradient[0]) for gradient in gradients]
-
-  gradients_flat = sum([gradient[0] for gradient in gradients], ())
-  gradients_variables_flat = sum([gradient[1] for gradient in gradients], ())
-
-  if hparams.max_gradients_norm:
-    gradients_flat, _ = tf.clip_by_global_norm(gradients_flat,
-                                               hparams.max_gradients_norm)
-
-  optimize_op = optimizer.apply_gradients(zip(gradients_flat,
-                                              gradients_variables_flat))
-
-  with tf.control_dependencies([optimize_op]):
-    return [tf.identity(x) for x in losses + gradients_norms]
+  with tf.control_dependencies([train_op]):
+    return [tf.identity(x) for x in losses]
 
 
-def define_ppo_epoch(memory, hparams):
+def define_ppo_epoch(memory, hparams, action_space, batch_size):
   """PPO epoch."""
   observation, reward, done, action, old_pdf, value = memory
 
@@ -90,7 +85,7 @@ def define_ppo_epoch(memory, hparams):
   advantage = calculate_generalized_advantage_estimator(
       reward, value, done, hparams.gae_gamma, hparams.gae_lambda)
 
-  discounted_reward = tf.stop_gradient(advantage + value)
+  discounted_reward = tf.stop_gradient(advantage + value[:-1])
 
   advantage_mean, advantage_variance = tf.nn.moments(advantage, axes=[0, 1],
                                                      keep_dims=True)
@@ -99,34 +94,40 @@ def define_ppo_epoch(memory, hparams):
 
   add_lists_elementwise = lambda l1, l2: [x + y for x, y in zip(l1, l2)]
 
-  number_of_batches = (hparams.epoch_length * hparams.optimization_epochs
+  number_of_batches = ((hparams.epoch_length-1) * hparams.optimization_epochs
                        / hparams.optimization_batch_size)
 
-  if hasattr(hparams, "effective_num_agents"):
-    number_of_batches *= hparams.num_agents
+  if hparams.effective_num_agents is not None:
+    number_of_batches *= batch_size
     number_of_batches /= hparams.effective_num_agents
 
   dataset = tf.data.Dataset.from_tensor_slices(
-      (observation, action, discounted_reward, advantage_normalized, old_pdf))
-  dataset = dataset.shuffle(buffer_size=hparams.epoch_length,
+      (observation[:-1], action[:-1], discounted_reward, advantage_normalized,
+       old_pdf[:-1]))
+  dataset = dataset.shuffle(buffer_size=hparams.epoch_length-1,
                             reshuffle_each_iteration=True)
-  dataset = dataset.repeat(hparams.optimization_epochs)
-  dataset = dataset.batch(hparams.optimization_batch_size)
+  dataset = dataset.repeat(-1)
+  dataset = dataset.batch(hparams.optimization_batch_size, drop_remainder=True)
   iterator = dataset.make_initializable_iterator()
-  optimizer = get_optimiser(hparams)
+
+  lr = learning_rate.learning_rate_schedule(hparams)
 
   with tf.control_dependencies([iterator.initializer]):
     ppo_step_rets = tf.scan(
         lambda a, i: add_lists_elementwise(  # pylint: disable=g-long-lambda
-            a, define_ppo_step(iterator.get_next(), optimizer, hparams)),
+            a, define_ppo_step(
+                iterator.get_next(), hparams, action_space, lr
+            )),
         tf.range(number_of_batches),
-        [0., 0., 0., 0., 0., 0.],
+        [0., 0., 0.],
         parallel_iterations=1)
 
   ppo_summaries = [tf.reduce_mean(ret) / number_of_batches
                    for ret in ppo_step_rets]
-  summaries_names = ["policy_loss", "value_loss", "entropy_loss",
-                     "policy_gradient", "value_gradient", "entropy_gradient"]
+  ppo_summaries.append(lr)
+  summaries_names = [
+      "policy_loss", "value_loss", "entropy_loss", "learning_rate"
+  ]
 
   summaries = [tf.summary.scalar(summary_name, summary)
                for summary_name, summary in zip(summaries_names, ppo_summaries)]
@@ -140,16 +141,19 @@ def define_ppo_epoch(memory, hparams):
 
 def calculate_generalized_advantage_estimator(
     reward, value, done, gae_gamma, gae_lambda):
-  """Generalized advantage estimator."""
+  # pylint: disable=g-doc-args
+  """Generalized advantage estimator.
 
-  # Below is slight weirdness, we set the last reward to 0.
-  # This makes the advantage to be 0 in the last timestep
-  reward = tf.concat([reward[:-1, :], value[-1:, :]], axis=0)
-  next_value = tf.concat([value[1:, :], tf.zeros_like(value[-1:, :])], axis=0)
-  next_not_done = 1 - tf.cast(tf.concat([done[1:, :],
-                                         tf.zeros_like(done[-1:, :])], axis=0),
-                              tf.float32)
-  delta = reward + gae_gamma * next_value * next_not_done - value
+  Returns:
+    GAE estimator. It will be one element shorter than the input; this is
+    because to compute GAE for [0, ..., N-1] one needs V for [1, ..., N].
+  """
+  # pylint: enable=g-doc-args
+
+  next_value = value[1:, :]
+  next_not_done = 1 - tf.cast(done[1:, :], tf.float32)
+  delta = (reward[:-1, :] + gae_gamma * next_value * next_not_done
+           - value[:-1, :])
 
   return_ = tf.reverse(tf.scan(
       lambda agg, cur: cur[0] + cur[1] * gae_gamma * gae_lambda * agg,

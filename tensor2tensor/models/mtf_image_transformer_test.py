@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -46,10 +46,10 @@ def get_model(hparams=None,
   p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE,
                                                    VOCAB_SIZE,
                                                    hparams)
-  p_hparams.input_modality = {}
+  del p_hparams.modality["inputs"]
   hparams.problem_hparams = p_hparams
 
-  targets = -1 + np.random.random_integers(
+  targets = np.random.randint(
       VOCAB_SIZE, size=(BATCH_SIZE, IMG_LENGTH, IMG_LENGTH, 1, 1))
   features = {
       "targets": tf.constant(targets, dtype=tf.int32, name="targets"),
@@ -74,9 +74,10 @@ class MtfImageTransformerTest(tf.test.TestCase):
   def testMtfImageTransformer(self):
     hparams = mtf_image_transformer.mtf_image_transformer_single()
 
-    model, features, hparams = get_model(hparams)
+    # need to know layout ahead of time for local attention.
     hparams.mesh_shape = ""
     hparams.layout = ""
+    model, features, hparams = get_model(hparams)
     mesh, mesh_impl = get_placement_mesh(hparams)
 
     logits, _ = model.mtf_model_fn(features, mesh)
@@ -95,9 +96,10 @@ class MtfImageTransformerTest(tf.test.TestCase):
   def testMtfImageTransformerDataParallel(self):
     hparams = mtf_image_transformer.mtf_image_transformer_single()
 
-    model, features, hparams = get_model(hparams)
+    # need to know layout ahead of time for local attention.
     hparams.mesh_shape = "all:2"
     hparams.layout = "batch:all"
+    model, features, hparams = get_model(hparams)
     mesh, mesh_impl = get_placement_mesh(hparams)
 
     logits, _ = model.mtf_model_fn(features, mesh)
@@ -116,9 +118,10 @@ class MtfImageTransformerTest(tf.test.TestCase):
   def testMtfImageTransformerModelParallel(self):
     hparams = mtf_image_transformer.mtf_image_transformer_single()
 
-    model, features, hparams = get_model(hparams)
+    # need to know layout ahead of time for local attention.
     hparams.mesh_shape = "all:2"
     hparams.layout = "length:all"
+    model, features, hparams = get_model(hparams)
     mesh, mesh_impl = get_placement_mesh(hparams)
 
     logits, _ = model.mtf_model_fn(features, mesh)

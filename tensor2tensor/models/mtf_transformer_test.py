@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -45,12 +45,12 @@ def get_model(hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
                                                    VOCAB_SIZE,
                                                    hparams)
   if not has_input:
-    p_hparams.input_modality = {}
+    del p_hparams.modality["inputs"]
   hparams.problem_hparams = p_hparams
 
-  inputs = -1 + np.random.random_integers(
+  inputs = np.random.randint(
       VOCAB_SIZE, size=(BATCH_SIZE, INPUT_LENGTH, 1, 1))
-  targets = -1 + np.random.random_integers(
+  targets = np.random.randint(
       VOCAB_SIZE, size=(BATCH_SIZE, TARGET_LENGTH, 1, 1))
   features = {
       "targets": tf.constant(targets, dtype=tf.int32, name="targets"),
@@ -134,6 +134,25 @@ class MtfTransformerTest(tf.test.TestCase):
 
   def testMtfTransformerDataModelParallel(self):
     hparams = mtf_transformer.mtf_transformer_single()
+
+    model, features, hparams = get_model(hparams)
+    hparams.mesh_shape = "batch:2;model:2"
+    hparams.layout = "batch:batch;vocab:model;d_ff:model;heads:model"
+    mesh, mesh_impl = get_placement_mesh(hparams)
+
+    logits, _ = model.mtf_model_fn(features, mesh)
+    lowering = mtf.Lowering(mesh.graph, {mesh: mesh_impl})
+    tf_group = lowering.copy_masters_to_slices()
+    tf_logits = lowering.export_to_tf_tensor(logits)
+
+    with self.test_session() as session:
+      session.run(tf.global_variables_initializer())
+      session.run(tf_group)
+      res = session.run(tf_logits)
+    self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, VOCAB_SIZE))
+
+  def testMtfTransformerEncoderDataModelParallel(self):
+    hparams = mtf_transformer.mtf_transformer_enc_single()
 
     model, features, hparams = get_model(hparams)
     hparams.mesh_shape = "batch:2;model:2"

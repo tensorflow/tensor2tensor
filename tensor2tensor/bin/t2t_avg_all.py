@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -60,15 +60,16 @@ def main(_):
   for model in bleu_hook.stepfiles_iterator(model_dir, FLAGS.wait_minutes,
                                             FLAGS.min_steps):
     if models_processed == 0:
-      var_list = tf.contrib.framework.list_variables(model.filename)
+      var_list = tf.train.list_variables(model.filename)
       avg_values = {}
       for (name, shape) in var_list:
-        if not name.startswith("global_step"):
+        if not (name.startswith("global_step") or
+                name.startswith("train_stats/")):
           avg_values[name] = np.zeros(shape)
     models_processed += 1
 
     tf.logging.info("Loading [%d]: %s" % (models_processed, model.filename))
-    reader = tf.contrib.framework.load_checkpoint(model.filename)
+    reader = tf.train.load_checkpoint(model.filename)
     for name in avg_values:
       avg_values[name] += reader.get_tensor(name) / FLAGS.n
     queue.append(model)
@@ -88,6 +89,8 @@ def main(_):
         "global_step",
         initializer=tf.constant(model.steps, dtype=tf.int64),
         trainable=False)
+    with tf.variable_scope("train_stats"):
+      tf.get_variable("problem_0_steps", initializer=0, trainable=False)
     saver = tf.train.Saver(tf.global_variables())
 
     tf.logging.info("Running session for %s" % (out_file))
@@ -103,7 +106,7 @@ def main(_):
     tf.reset_default_graph()
     first_model = queue.popleft()
 
-    reader = tf.contrib.framework.load_checkpoint(first_model.filename)
+    reader = tf.train.load_checkpoint(first_model.filename)
     for name in avg_values:
       avg_values[name] -= reader.get_tensor(name) / FLAGS.n
 

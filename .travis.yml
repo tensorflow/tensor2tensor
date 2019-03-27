@@ -1,7 +1,8 @@
 sudo: required
 language: python
+cache: pip
 git:
-  depth: 10
+  depth: 3
   quiet: true
 services:
   - docker
@@ -13,25 +14,14 @@ env:
     - T2T_PROBLEM=algorithmic_reverse_binary40_test
     - T2T_DATA_DIR=/tmp/t2t-data
     - T2T_TRAIN_DIR=/tmp/t2t-train
-    - TF_LATEST="1.11.*"
+    - TF_LATEST="1.13.*"
     # This is necessary to have gsutil work with Python 2.7
     - BOTO_CONFIG=/dev/null
   matrix:
-    # We test against recent versions of TensorFlow and tf-nightly.
+    # We test against the latest stable TensorFlow and tf-nightly.
     # If updating, also update TF_LATEST above
-    - TF_VERSION="1.10.*"
-    - TF_VERSION="1.11.*"
+    - TF_VERSION="1.13.*"
     - TF_VERSION="tf-nightly"
-matrix:
-  exclude:
-    # We test against all versions in Python 2 but only the latest in Python 3
-    - python: "3.6"
-      env: TF_VERSION="1.10.*"
-    - python: "3.6"
-      env: TF_VERSION="tf-nightly"
-before_install:
-  - sudo apt-get update -qq
-  - sudo apt-get install -qq libhdf5-dev
 install:
   - ./oss_scripts/oss_pip_install.sh
 script:
@@ -40,6 +30,8 @@ script:
 
   # Conditional commands should each be in a separate block to get proper
   # errors on Travis.
-  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "tf-nightly"  ]]; then
-        pylint -j 2 tensor2tensor;
-    fi
+  #
+  # TODO(afrozm): Re-enable if this becomes an issue.
+  # - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "tf-nightly"  ]]; then
+  #       pylint -j 2 tensor2tensor;
+  #   fi

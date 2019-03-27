@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,17 +18,19 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import inspect
 import numpy as np
 import six
 
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import bleu_hook
 from tensor2tensor.utils import rouge
+from tensor2tensor.utils import sari_hook
 
 import tensorflow as tf
 
 from tensorflow.contrib.eager.python import tfe
+from tensorflow.python.util import tf_inspect as inspect
 
 
 class Metrics(object):
@@ -39,13 +41,17 @@ class Metrics(object):
   ACC_PER_SEQ = "accuracy_per_sequence"
   ACC_MULTILABEL_MATCH3 = "accuracy_multilabel_match3"
   NEG_LOG_PERPLEXITY = "neg_log_perplexity"
+  MASKED_NEG_LOG_PERPLEXITY = "masked_neg_log_perplexity"
   APPROX_BLEU = "approx_bleu_score"
+  APPROX_SARI = "approx_sari_score"
   RMSE = "rmse"
   LOG_POISSON = "log_poisson"
+  PEARSON = "pearson"
   R2 = "r_squared"
   ROUGE_2_F = "rouge_2_fscore"
   ROUGE_L_F = "rouge_L_fscore"
   EDIT_DISTANCE = "edit_distance"
+  WORD_ERROR_RATE = "word_error_rate"
   SET_PRECISION = "set_precision"
   SET_RECALL = "set_recall"
   SOFTMAX_CROSS_ENTROPY_ONE_HOT = "softmax_cross_entropy_one_hot"
@@ -242,6 +248,29 @@ def padded_neg_log_perplexity(predictions,
   num, den = common_layers.padded_cross_entropy(
       predictions, labels, 0.0, weights_fn=weights_fn, reduce_sum=False)
   return (-num, den)
+
+
+def padded_neg_log_perplexity_with_masking(
+    predictions,
+    labels,
+    features,
+    weights_fn=None):
+  """Average log-perplexity with custom targets_mask."""
+  del weights_fn
+  if "targets_mask" not in features:
+    raise ValueError("masked_neg_log_perplexity requires targets_mask feature")
+
+  # Features are 4 dimensional, so we need to reshape the targets_mask to match
+  # the shape of the labels. A lot of models rely on these features being 4D,
+  # so it's best to update the shape of the mask.
+  extended_targets_mask_shape = common_layers.shape_list(
+      features["targets_mask"])
+  extended_targets_mask_shape.extend([1, 1])
+  features["targets_mask"] = tf.reshape(features["targets_mask"],
+                                        shape=extended_targets_mask_shape)
+
+  mask_fn = lambda labels: features["targets_mask"]
+  return padded_neg_log_perplexity(predictions, labels, mask_fn)
 
 
 def dmol_neg_log_perplexity(predictions,
@@ -571,32 +600,35 @@ def create_evaluation_metrics(problems, model_hparams):
   def weights_fn_for_mp(problem_task_id):
     return lambda x: common_layers.weights_multi_problem(x, problem_task_id)
 
-  eval_metrics = dict()
+  eval_metrics = {}
   for problem_instance in problems:
     problem_name = problem_instance.name
-    metrics = problem_instance.eval_metrics()
+    if problem_instance.was_reversed:
+      problem_name += "_rev"
+    metrics = problem_instance.eval_metric_fns(model_hparams)
     if hasattr(model_hparams.problem, "task_list"):
-      metrics = model_hparams.problem.eval_metrics()
-    if not all([m in METRICS_FNS for m in metrics]):
-      error_str = ("Unrecognized metric. Problem %s specified metrics "
-                   "%s. Recognized metrics are %s.")
-      raise ValueError(error_str % (problem_name,
-                                    metrics,
-                                    list(METRICS_FNS.keys())))
+      metrics = model_hparams.problem.eval_metric_fns(model_hparams)
 
-    tm = problem_instance.get_hparams(model_hparams).target_modality
+    tm = problem_instance.get_hparams(model_hparams).modality["targets"]
     if not isinstance(tm, dict):
       tm = {"targets": tm}
 
     for target_name, modality in six.iteritems(tm):
-      weights_fn = modality.targets_weights_fn
+      weights_fn = model_hparams.weights_fn.get(
+          "targets",
+          modalities.get_weights_fn(modality))
       if hasattr(model_hparams.problem, "task_list"):
         ptid = problem_instance.task_id  # pylint: disable=cell-var-from-loop
         weights_fn = weights_fn_for_mp(ptid)
 
-      for metric in metrics:
-        metric_fn = METRICS_FNS[metric]
-        metric_name = "metrics-%s/%s/%s" % (problem_name, target_name, metric)
+      for metric, metric_fn in six.iteritems(metrics):
+        overload_eval_metric_name = getattr(
+            model_hparams, "overload_eval_metric_name", None)
+        if len(problems) == 1 and overload_eval_metric_name:
+          metric_name = "metrics-%s/%s/%s" % (
+              overload_eval_metric_name, target_name, metric)
+        else:
+          metric_name = "metrics-%s/%s/%s" % (problem_name, target_name, metric)
         if metric == Metrics.IMAGE_SUMMARY:
           eval_metrics[metric_name] = make_image_wrapped_metric_fn(metric_fn)
         else:
@@ -608,9 +640,13 @@ def create_evaluation_metrics(problems, model_hparams):
 
 def create_eager_metrics_for_problem(problem, model_hparams):
   """See create_eager_metrics."""
-  metric_names = problem.eval_metrics()
-  tm = problem.get_hparams(model_hparams).target_modality
-  return create_eager_metrics(metric_names, weights_fn=tm.targets_weights_fn)
+  metric_fns = problem.eval_metric_fns(model_hparams)
+  problem_hparams = problem.get_hparams(model_hparams)
+  target_modality = problem_hparams.modality["targets"]
+  weights_fn = model_hparams.weights_fn.get(
+      "targets",
+      modalities.get_weights_fn(target_modality))
+  return create_eager_metrics_internal(metric_fns, weights_fn=weights_fn)
 
 
 def create_eager_metrics(metric_names, weights_fn=common_layers.weights_all):
@@ -628,9 +664,26 @@ def create_eager_metrics(metric_names, weights_fn=common_layers.weights_all):
   """
   metric_fns = dict(
       [(name, METRICS_FNS[name]) for name in metric_names])
-  tfe_metrics = dict()
+  return create_eager_metrics_internal(metric_fns, weights_fn)
 
-  for name in metric_names:
+
+def create_eager_metrics_internal(metric_fns,
+                                  weights_fn=common_layers.weights_all):
+  """Create metrics accumulators and averager for Eager mode.
+
+  Args:
+    metric_fns: dict<metric name, metric function>
+    weights_fn: function that takes labels and returns a weights mask. Defaults
+      to weights of all 1, i.e. common_layers.weights_all. Use
+      common_layers.weights_nonzero if labels have 0-padding.
+
+  Returns:
+    (accum_fn(predictions, targets) => None,
+     result_fn() => dict<str metric_name, float avg_val>
+  """
+  tfe_metrics = {}
+
+  for name in metric_fns:
     tfe_metrics[name] = tfe.metrics.Mean(name=name)
 
   def metric_accum(predictions, targets):
@@ -641,12 +694,88 @@ def create_eager_metrics(metric_names, weights_fn=common_layers.weights_all):
 
   def metric_means():
     avgs = {}
-    for name in metric_names:
+    for name in metric_fns:
       avgs[name] = tfe_metrics[name].result().numpy()
     return avgs
 
   return metric_accum, metric_means
 
+
+def word_error_rate(raw_predictions,
+                    labels,
+                    lookup=None,
+                    weights_fn=common_layers.weights_nonzero):
+  """Calculate word error rate.
+
+  Args:
+    raw_predictions: The raw predictions.
+    labels: The actual labels.
+    lookup: A tf.constant mapping indices to output tokens.
+    weights_fn: Weighting function.
+
+  Returns:
+    The word error rate.
+  """
+
+  def from_tokens(raw, lookup_):
+    gathered = tf.gather(lookup_, tf.cast(raw, tf.int32))
+    joined = tf.regex_replace(tf.reduce_join(gathered, axis=1), b"<EOS>.*", b"")
+    cleaned = tf.regex_replace(joined, b"_", b" ")
+    tokens = tf.string_split(cleaned, " ")
+    return tokens
+
+  def from_characters(raw, lookup_):
+    """Convert ascii+2 encoded codes to string-tokens."""
+    corrected = tf.bitcast(
+        tf.clip_by_value(tf.subtract(raw, 2), 0, 255), tf.uint8)
+
+    gathered = tf.gather(lookup_, tf.cast(corrected, tf.int32))[:, :, 0]
+    joined = tf.reduce_join(gathered, axis=1)
+    cleaned = tf.regex_replace(joined, b"\0", b"")
+    tokens = tf.string_split(cleaned, " ")
+    return tokens
+
+  if lookup is None:
+    lookup = tf.constant([chr(i) for i in range(256)])
+    convert_fn = from_characters
+  else:
+    convert_fn = from_tokens
+
+  if weights_fn is not common_layers.weights_nonzero:
+    raise ValueError("Only weights_nonzero can be used for this metric.")
+
+  with tf.variable_scope("word_error_rate", values=[raw_predictions, labels]):
+
+    raw_predictions = tf.squeeze(
+        tf.argmax(raw_predictions, axis=-1), axis=(2, 3))
+    labels = tf.squeeze(labels, axis=(2, 3))
+
+    reference = convert_fn(labels, lookup)
+    predictions = convert_fn(raw_predictions, lookup)
+
+    distance = tf.reduce_sum(
+        tf.edit_distance(predictions, reference, normalize=False))
+    reference_length = tf.cast(
+        tf.size(reference.values, out_type=tf.int32), dtype=tf.float32)
+
+    return distance / reference_length, reference_length
+
+
+def pearson_correlation_coefficient(predictions, labels, weights_fn=None):
+  """Calculate pearson correlation coefficient.
+
+  Args:
+    predictions: The raw predictions.
+    labels: The actual labels.
+    weights_fn: Weighting function.
+
+  Returns:
+    The pearson correlation coefficient.
+  """
+  del weights_fn
+  _, pearson = tf.contrib.metrics.streaming_pearson_correlation(predictions,
+                                                                labels)
+  return pearson, tf.constant(1.0)
 
 # Metrics are functions that take predictions and labels and return
 # a tensor of metrics and a tensor of weights.
@@ -659,13 +788,17 @@ METRICS_FNS = {
     Metrics.ACC_PER_SEQ: padded_sequence_accuracy,
     Metrics.ACC_MULTILABEL_MATCH3: multilabel_accuracy_match3,
     Metrics.NEG_LOG_PERPLEXITY: padded_neg_log_perplexity,
+    Metrics.MASKED_NEG_LOG_PERPLEXITY: padded_neg_log_perplexity_with_masking,
     Metrics.APPROX_BLEU: bleu_hook.bleu_score,
+    Metrics.APPROX_SARI: sari_hook.sari_score,
     Metrics.RMSE: padded_rmse,
     Metrics.LOG_POISSON: padded_log_poisson,
+    Metrics.PEARSON: pearson_correlation_coefficient,
     Metrics.R2: padded_variance_explained,
     Metrics.ROUGE_2_F: rouge.rouge_2_fscore,
     Metrics.ROUGE_L_F: rouge.rouge_l_fscore,
     Metrics.EDIT_DISTANCE: sequence_edit_distance,
+    Metrics.WORD_ERROR_RATE: word_error_rate,
     Metrics.SOFTMAX_CROSS_ENTROPY_ONE_HOT: softmax_cross_entropy_one_hot,
     Metrics.SIGMOID_ACCURACY_ONE_HOT: sigmoid_accuracy_one_hot,
     Metrics.SIGMOID_RECALL_ONE_HOT: sigmoid_recall_one_hot,

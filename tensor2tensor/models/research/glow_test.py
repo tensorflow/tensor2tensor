@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -48,6 +48,7 @@ class GlowModelTest(tf.test.TestCase):
       hparams.n_levels = 2
       hparams.init_batch_size = 256
       hparams.batch_size = 1
+      hparams.data_dir = ''
       cifar_problem = problems.problem('image_cifar10_plain_random_shift')
       hparams.problem = cifar_problem
       model = glow.Glow(hparams, tf.estimator.ModeKeys.TRAIN)
@@ -76,6 +77,7 @@ class GlowModelTest(tf.test.TestCase):
     hparams = glow.glow_hparams()
     hparams.depth = 15
     hparams.n_levels = 2
+    hparams.data_dir = ''
     curr_dir = tempfile.mkdtemp()
 
     # Training pipeline

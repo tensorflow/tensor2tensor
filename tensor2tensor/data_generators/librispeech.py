@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -67,7 +67,7 @@ def _collect_data(directory, input_ext, transcription_ext):
   #   if the datafile was "/path/to/datafile.wav" then the key would be
   #   "/path/to/datafile"
   # value: a pair of strings (media_filepath, label)
-  data_files = dict()
+  data_files = {}
   for root, _, filenames in os.walk(directory):
     transcripts = [filename for filename in filenames
                    if transcription_ext in filename]
@@ -134,11 +134,11 @@ class Librispeech(speech_recognition.SpeechRecognitionProblem):
             members.append(f)
         corpus_tar.extractall(tmp_dir, members=members)
 
-      data_dir = os.path.join(tmp_dir, "LibriSpeech", subdir)
-      data_files = _collect_data(data_dir, "flac", "txt")
+      raw_data_dir = os.path.join(tmp_dir, "LibriSpeech", subdir)
+      data_files = _collect_data(raw_data_dir, "flac", "txt")
       data_pairs = data_files.values()
 
-      encoders = self.feature_encoders(None)
+      encoders = self.feature_encoders(data_dir)
       audio_encoder = encoders["waveforms"]
       text_encoder = encoders["targets"]
 

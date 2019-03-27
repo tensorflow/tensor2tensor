@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,23 +17,29 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import six
+
 # pylint: disable=unused-import
 
 from tensor2tensor.layers import modalities  # pylint: disable=g-import-not-at-top
 from tensor2tensor.models import basic
 from tensor2tensor.models import bytenet
 from tensor2tensor.models import distillation
+from tensor2tensor.models import evolved_transformer
 from tensor2tensor.models import image_transformer
 from tensor2tensor.models import image_transformer_2d
 from tensor2tensor.models import lstm
 from tensor2tensor.models import mtf_image_transformer
 from tensor2tensor.models import mtf_resnet
 from tensor2tensor.models import mtf_transformer
+from tensor2tensor.models import mtf_transformer2
 from tensor2tensor.models import neural_gpu
 from tensor2tensor.models import resnet
 from tensor2tensor.models import revnet
 from tensor2tensor.models import shake_shake
 from tensor2tensor.models import slicenet
+from tensor2tensor.models import text_cnn
 from tensor2tensor.models import transformer
 from tensor2tensor.models import vanilla_gan
 from tensor2tensor.models import xception
@@ -48,11 +54,13 @@ from tensor2tensor.models.research import gene_expression
 from tensor2tensor.models.research import glow
 from tensor2tensor.models.research import lm_experiments
 from tensor2tensor.models.research import moe_experiments
+from tensor2tensor.models.research import multiquery_paper
 from tensor2tensor.models.research import rl
 from tensor2tensor.models.research import similarity_transformer
 from tensor2tensor.models.research import super_lm
 from tensor2tensor.models.research import transformer_moe
 from tensor2tensor.models.research import transformer_nat
+from tensor2tensor.models.research import transformer_parallel
 from tensor2tensor.models.research import transformer_revnet
 from tensor2tensor.models.research import transformer_sketch
 from tensor2tensor.models.research import transformer_symshard
@@ -67,6 +75,7 @@ from tensor2tensor.models.video import basic_recurrent
 from tensor2tensor.models.video import basic_stochastic
 from tensor2tensor.models.video import emily
 from tensor2tensor.models.video import epva
+from tensor2tensor.models.video import next_frame_glow
 from tensor2tensor.models.video import savp
 from tensor2tensor.models.video import sv2p
 

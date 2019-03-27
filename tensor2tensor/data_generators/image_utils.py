@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,8 +27,8 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
-from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -51,6 +51,9 @@ def image_to_tf_summary_value(image, tag):
   """
   curr_image = np.asarray(image, dtype=np.uint8)
   height, width, n_channels = curr_image.shape
+  # If monochrome image, then reshape to [height, width]
+  if n_channels == 1:
+    curr_image = np.reshape(curr_image, [height, width])
   s = io.BytesIO()
   matplotlib_pyplot().imsave(s, curr_image, format="png")
   img_sum = tf.Summary.Image(encoded_image_string=s.getvalue(),
@@ -241,8 +244,10 @@ class Image2ClassProblem(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
-    p.target_modality = (registry.Modalities.CLASS_LABEL, self.num_classes)
+    p.modality = {"inputs": modalities.ModalityType.IMAGE,
+                  "targets": modalities.ModalityType.CLASS_LABEL}
+    p.vocab_size = {"inputs": 256,
+                    "targets": self.num_classes}
     p.batch_size_multiplier = 4 if self.is_small else 256
     p.loss_multiplier = 3.0 if self.is_small else 1.0
     if self._was_reversed:
@@ -260,7 +265,7 @@ class Image2ClassProblem(ImageProblem):
 
 def encode_images_as_png(images):
   """Yield images encoded as pngs."""
-  if tf.contrib.eager.in_eager_mode():
+  if tf.executing_eagerly():
     for image in images:
       yield tf.image.encode_png(image).numpy()
   else:
@@ -353,9 +358,10 @@ class Image2TextProblem(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
-    encoder = self._encoders["targets"]
-    p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
+    p.modality = {"inputs": modalities.ModalityType.IMAGE,
+                  "targets": modalities.ModalityType.SYMBOL}
+    p.vocab_size = {"inputs": 256,
+                    "targets": self._encoders["targets"].vocab_size}
     p.batch_size_multiplier = 256
     p.loss_multiplier = 1.0
     p.input_space_id = problem.SpaceID.IMAGE

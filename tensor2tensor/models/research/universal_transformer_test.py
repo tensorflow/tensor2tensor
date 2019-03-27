@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 
 """Tests for Transformer."""
 
@@ -40,23 +41,25 @@ class UniversalTransformerTest(tf.test.TestCase):
     hparams.filter_size = 32
     hparams.num_heads = 1
     hparams.layer_prepostprocess_dropout = 0.0
+    hparams.mix_with_transformer = ""
 
     p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE,
                                                      VOCAB_SIZE,
                                                      hparams)
     if not has_input:
-      p_hparams.input_modality = {}
+      del p_hparams.modality["inputs"]
     hparams.problems = [p_hparams]
 
-    inputs = -1 + np.random.random_integers(
+    inputs = np.random.randint(
         VOCAB_SIZE, size=(BATCH_SIZE, INPUT_LENGTH, 1, 1))
-    targets = -1 + np.random.random_integers(
+    targets = np.random.randint(
         VOCAB_SIZE, size=(BATCH_SIZE, TARGET_LENGTH, 1, 1))
     features = {
-        "inputs": tf.constant(inputs, dtype=tf.int32, name="inputs"),
         "targets": tf.constant(targets, dtype=tf.int32, name="targets"),
         "target_space_id": tf.constant(1, dtype=tf.int32)
     }
+    if has_input:
+      features["inputs"] = tf.constant(inputs, dtype=tf.int32, name="inputs")
 
     return universal_transformer.UniversalTransformer(
         hparams, mode, p_hparams), features

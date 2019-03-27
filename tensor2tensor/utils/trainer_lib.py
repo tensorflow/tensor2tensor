@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,9 +25,9 @@ import os
 import random
 import numpy as np
 
-from tensor2tensor.data_generators.problem import Problem
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import devices
+from tensor2tensor.utils import hparams_lib
 from tensor2tensor.utils import metrics_hook
 from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
@@ -39,12 +39,27 @@ from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
 
 
-def next_checkpoint(model_dir, timeout_mins=120):
-  """Yields successive checkpoints from model_dir."""
+create_hparams = hparams_lib.create_hparams
+add_problem_hparams = hparams_lib.add_problem_hparams
+
+
+def next_checkpoint(model_dir, timeout_mins=240):
+  """Yields successive checkpoints from model_dir.
+
+  Args:
+    model_dir: The directory in which checkpoints are saved.
+    timeout_mins: The maximum amount of time in minutes to wait
+                  between checkpoints. Set this to -1 to wait indefinitely.
+  Yields:
+    last_ckpt: a new checkpoint path, or None if the timeout was reached.
+  """
   last_ckpt = None
+  timeout_secs = None
+  if timeout_mins != -1:
+    timeout_secs = timeout_mins * 60
   while True:
     last_ckpt = tf.contrib.training.wait_for_new_checkpoint(
-        model_dir, last_ckpt, seconds_to_sleep=60, timeout=60 * timeout_mins)
+        model_dir, last_ckpt, seconds_to_sleep=60, timeout=timeout_secs)
 
     if last_ckpt is None:
       tf.logging.info(
@@ -54,10 +69,44 @@ def next_checkpoint(model_dir, timeout_mins=120):
     yield last_ckpt
 
 
+def next_undecoded_checkpoint(model_dir, timeout_mins=240):
+  """Yields successive checkpoints from model_dir."""
+  last_ckpt = None
+  last_step = 0
+  while True:
+    # Get the latest checkpoint.
+    last_ckpt = tf.contrib.training.wait_for_new_checkpoint(
+        model_dir, last_ckpt, seconds_to_sleep=60, timeout=60 * timeout_mins)
+    # Get all the checkpoint from the model dir.
+    ckpt_path = tf.train.get_checkpoint_state(model_dir)
+    all_model_checkpoint_paths = ckpt_path.all_model_checkpoint_paths
+    ckpt_step = np.inf
+    next_ckpt = None
+    # Find the next checkpoint to eval based on last_step.
+    for ckpt in all_model_checkpoint_paths:
+      step = int(os.path.basename(ckpt).split("-")[1])
+      if step > last_step and step < ckpt_step:
+        ckpt_step = step
+        next_ckpt = ckpt
+
+    # If all the checkpoints have been evaluated.
+    if last_ckpt is None and next_ckpt is None:
+      tf.logging.info(
+          "Eval timeout: no new checkpoints within %dm" % timeout_mins)
+      break
+
+    if next_ckpt is not None:
+      last_step = ckpt_step
+      last_ckpt = next_ckpt
+
+    yield last_ckpt
+
+
 def create_session_config(log_device_placement=False,
                           enable_graph_rewriter=False,
                           gpu_mem_fraction=0.95,
                           use_tpu=False,
+                          xla_jit_level=tf.OptimizerOptions.OFF,
                           inter_op_parallelism_threads=0,
                           intra_op_parallelism_threads=0):
   """The TensorFlow Session config to use."""
@@ -71,7 +120,9 @@ def create_session_config(log_device_placement=False,
     else:
       graph_options = tf.GraphOptions(
           optimizer_options=tf.OptimizerOptions(
-              opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
+              opt_level=tf.OptimizerOptions.L1,
+              do_function_inlining=False,
+              global_jit_level=xla_jit_level))
 
   gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=gpu_mem_fraction)
 
@@ -81,25 +132,9 @@ def create_session_config(log_device_placement=False,
       gpu_options=gpu_options,
       log_device_placement=log_device_placement,
       inter_op_parallelism_threads=inter_op_parallelism_threads,
-      intra_op_parallelism_threads=intra_op_parallelism_threads)
+      intra_op_parallelism_threads=intra_op_parallelism_threads,
+      isolate_session_state=True)
   return config
-
-
-def create_hparams(hparams_set,
-                   hparams_overrides_str="",
-                   data_dir=None,
-                   problem_name=None):
-  """Create HParams with data_dir and problem hparams, if kwargs provided."""
-  hparams = registry.hparams(hparams_set)
-  if data_dir:
-    hparams.add_hparam("data_dir", data_dir)
-  if problem_name:
-    add_problem_hparams(hparams, problem_name)
-  if hparams_overrides_str:
-    tf.logging.info("Overriding hparams in %s with %s", hparams_set,
-                    hparams_overrides_str)
-    hparams = hparams.parse(hparams_overrides_str)
-  return hparams
 
 
 def is_cloud_async_distributed():
@@ -119,7 +154,6 @@ def create_run_config(model_name,
                       keep_checkpoint_every_n_hours=10000,
                       num_gpus=1,
                       gpu_order="",
-                      shard_to_cpu=False,
                       num_async_replicas=1,
                       enable_graph_rewriter=False,
                       gpu_mem_fraction=0.95,
@@ -137,6 +171,7 @@ def create_run_config(model_name,
                       tpu_infeed_sleep_secs=None,
                       use_tpu=False,
                       use_tpu_estimator=False,
+                      xla_jit_level=tf.OptimizerOptions.OFF,
                       inter_op_parallelism_threads=0,
                       log_step_count_steps=100,
                       intra_op_parallelism_threads=0,
@@ -148,6 +183,7 @@ def create_run_config(model_name,
       enable_graph_rewriter=enable_graph_rewriter,
       gpu_mem_fraction=gpu_mem_fraction,
       use_tpu=use_tpu,
+      xla_jit_level=xla_jit_level,
       inter_op_parallelism_threads=inter_op_parallelism_threads,
       intra_op_parallelism_threads=intra_op_parallelism_threads)
   run_config_args = {
@@ -213,7 +249,7 @@ def create_run_config(model_name,
         optionally_use_dist_strat and
         t2t_model.T2TModel.has_symmetric_shards(model_name) and
         not no_data_parallelism and ps_replicas == 0 and ps_gpu == 0 and
-        num_async_replicas == 1 and not shard_to_cpu)
+        num_async_replicas == 1)
 
     if use_distribution_strategy:
       tf.logging.info(
@@ -236,7 +272,6 @@ def create_run_config(model_name,
           worker_replicas=num_async_replicas,
           worker_id=worker_id,
           gpu_order=gpu_order,
-          locally_shard_to_cpu=shard_to_cpu,
           worker_job=worker_job,
           no_data_parallelism=no_data_parallelism)
 
@@ -253,7 +288,7 @@ def create_estimator(model_name,
                      use_xla=False):
   """Create a T2T Estimator."""
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
-      model_name, hparams, decode_hparams=decode_hparams)
+      model_name, hparams, decode_hparams=decode_hparams, use_tpu=use_tpu)
 
 
   del use_xla
@@ -269,6 +304,9 @@ def create_estimator(model_name,
     predict_batch_size = batch_size
     if decode_hparams and decode_hparams.batch_size:
       predict_batch_size = decode_hparams.batch_size
+    if decode_hparams and run_config.tpu_config:
+      decode_hparams.add_hparam("iterations_per_loop",
+                                run_config.tpu_config.iterations_per_loop)
     estimator = tf.contrib.tpu.TPUEstimator(
         model_fn=model_fn,
         model_dir=run_config.model_dir,
@@ -371,6 +409,7 @@ class T2TExperiment(object):
 
   def train(self, max_steps=None):
     mlperf_log.transformer_print(key=mlperf_log.TRAIN_LOOP)
+    mlperf_log.transformer_print(key=mlperf_log.TRAIN_EPOCH, value=0)
     self._estimator.train(
         self._train_spec.input_fn,
         hooks=self._train_spec.hooks,
@@ -393,10 +432,12 @@ class T2TExperiment(object):
           self._train_spec.input_fn,
           steps=eval_steps,
           hooks=self._train_spec.hooks)
+      self._set_eval_dir_name("eval")
       self._estimator.evaluate(
           self._eval_spec.input_fn,
           steps=self._eval_spec.steps,
-          hooks=self._eval_spec.hooks)
+          hooks=self._eval_spec.hooks,
+          name="eval")
       if packed_dataset:
         problem = registry.problem(
             self._hparams.problem.name.replace("_packed", ""))
@@ -404,35 +445,69 @@ class T2TExperiment(object):
         self._hparams.problem = problem
         self._hparams.problem_hparams = p_hparams
       mlperf_log.transformer_print(key=mlperf_log.EVAL_START)
+      if self._hparams.mlperf_mode:
+        self._decode_hparams.mlperf_decode_step = i + eval_steps
       self.decode(dataset_split=tf.estimator.ModeKeys.EVAL)
-      mlperf_log.transformer_print(key=mlperf_log.EVAL_TARGET, value=25.0)
-      mlperf_log.transformer_print(key=mlperf_log.EVAL_STOP)
+      d_hparams = self._decode_hparams
+      if self._hparams.mlperf_mode and d_hparams.mlperf_success:
+        mlperf_log.transformer_print(
+            key=mlperf_log.RUN_STOP, value={"success": "true"})
+        break
+
+    d_hparams = self._decode_hparams
+    if self._hparams.mlperf_mode and not d_hparams.mlperf_success:
+      mlperf_log.transformer_print(
+          key=mlperf_log.RUN_STOP, value={"success": "false"})
+
+  def _set_eval_dir_name(self, eval_dir_name):
+    attr = "eval_dir_name"
+    hp = self._hparams
+    if attr not in hp:
+      hp.add_hparam(attr, "")
+    hp.eval_dir_name = eval_dir_name
 
   def evaluate(self):
+    name = "eval"
+    self._set_eval_dir_name("eval")
     return self._estimator.evaluate(
         self._eval_spec.input_fn,
         steps=self._eval_spec.steps,
-        hooks=self._eval_spec.hooks)
+        hooks=self._eval_spec.hooks,
+        name=name)
 
   def evaluate_on_train_data(self):
+    name = "eval_train"
+    self._set_eval_dir_name(name)
     self._estimator.evaluate(
         self._train_spec.input_fn,
         steps=self._eval_spec.steps,
         hooks=self._eval_spec.hooks,
-        name="eval_train")
+        name=name)
 
   def continuous_eval(self):
     """Evaluate until checkpoints stop being produced."""
-    for _ in next_checkpoint(self._hparams.model_dir):
+    for ckpt_path in next_checkpoint(self._hparams.model_dir,
+                                     self._hparams.eval_timeout_mins):
+      # Skip zero'th step.
+      train_step = decoding.get_step_from_ckpt_path(ckpt_path)
+      if train_step == 0:
+        tf.logging.info("Skipping evaluation at step 0")
+        continue
       self.evaluate()
 
   def continuous_eval_on_train_data(self):
     """Evaluate on train data until checkpoints stop being produced."""
-    for _ in next_checkpoint(self._hparams.model_dir):
+    for ckpt_path in next_checkpoint(self._hparams.model_dir,
+                                     self._hparams.eval_timeout_mins):
+      # Skip zero'th step.
+      train_step = decoding.get_step_from_ckpt_path(ckpt_path)
+      if train_step == 0:
+        tf.logging.info("Skipping evaluation at step 0")
+        continue
       self.evaluate_on_train_data()
 
   def test(self):
-    """Perform 1 step of train and 2 step of eval."""
+    """Perform 1 train step and 1 eval step."""
     if self._use_validation_monitor:
       return self.train_and_evaluate()
 
@@ -459,7 +534,10 @@ class T2TExperiment(object):
         protocol=self._hparams.std_server_protocol)
     server.join()
 
-  def decode(self, dataset_split=None, decode_from_file=False):
+  def decode(self,
+             dataset_split=None,
+             decode_from_file=False,
+             checkpoint_path=None):
     """Decodes from dataset or file."""
     if decode_from_file:
       decoding.decode_from_file(self._estimator,
@@ -468,37 +546,66 @@ class T2TExperiment(object):
                                 self._decode_hparams,
                                 self._decode_hparams.decode_to_file)
     else:
-      decoding.decode_from_dataset(self._estimator,
-                                   self._hparams.problem.name,
-                                   self._hparams,
-                                   self._decode_hparams,
-                                   dataset_split=dataset_split)
+      decoding.decode_from_dataset(
+          self._estimator,
+          self._hparams.problem.name,
+          self._hparams,
+          self._decode_hparams,
+          dataset_split=dataset_split,
+          checkpoint_path=checkpoint_path)
 
   def continuous_decode(self):
     """Decode from dataset on new checkpoint."""
-    for _ in next_checkpoint(self._hparams.model_dir):
+    for _ in next_checkpoint(self._hparams.model_dir,
+                             self._decode_hparams.decode_timeout_mins):
       self.decode()
 
   def continuous_decode_on_train_data(self):
     """Decode from dataset on new checkpoint."""
-    for _ in next_checkpoint(self._hparams.model_dir):
+    for _ in next_checkpoint(self._hparams.model_dir,
+                             self._decode_hparams.decode_timeout_mins):
       self.decode(dataset_split=tf.estimator.ModeKeys.TRAIN)
 
   def continuous_decode_on_eval_data(self):
     """Decode from dataset on new checkpoint."""
-    for ckpt in next_checkpoint(self._hparams.model_dir):
-      current_step = int(os.path.basename(ckpt).split("-")[1])
+    if self._hparams.mlperf_mode:
+      ckpt_generator = next_undecoded_checkpoint(
+          self._hparams.model_dir, self._decode_hparams.decode_timeout_mins)
+    else:
+      ckpt_generator = next_checkpoint(self._hparams.model_dir,
+                                       self._decode_hparams.decode_timeout_mins)
+
+    for ckpt in ckpt_generator:
+      current_step = decoding.get_step_from_ckpt_path(ckpt)
+      tf.logging.info("Decoding step %d" % current_step)
       # Skip checkpoint 0.
       if current_step == 0:
         continue
+      # Decode the latest checkpoint by default.
+      checkpoint_path = None
+      if self._hparams.mlperf_mode:
+        self._decode_hparams.mlperf_decode_step = current_step
+        checkpoint_path = ckpt
+
       mlperf_log.transformer_print(key=mlperf_log.EVAL_START)
-      self.decode(dataset_split=tf.estimator.ModeKeys.EVAL)
-      mlperf_log.transformer_print(key=mlperf_log.EVAL_TARGET, value=25.0)
-      mlperf_log.transformer_print(key=mlperf_log.EVAL_STOP)
+      self.decode(
+          dataset_split=tf.estimator.ModeKeys.EVAL,
+          checkpoint_path=checkpoint_path)
+      d_hparams = self._decode_hparams
+      if self._hparams.mlperf_mode and d_hparams.mlperf_success:
+        mlperf_log.transformer_print(
+            key=mlperf_log.RUN_STOP, value={"success": "true"})
+        break
+
+    d_hparams = self._decode_hparams
+    if self._hparams.mlperf_mode and not d_hparams.mlperf_success:
+      mlperf_log.transformer_print(
+          key=mlperf_log.RUN_STOP, value={"success": "false"})
 
   def continuous_decode_from_file(self):
     """Decode from file on new checkpoint."""
-    for _ in next_checkpoint(self._hparams.model_dir):
+    for _ in next_checkpoint(self._hparams.model_dir,
+                             self._decode_hparams.decode_timeout_mins):
       self.decode(decode_from_file=True)
 
 
@@ -521,6 +628,8 @@ def create_experiment(
     eval_early_stopping_metric=None,
     eval_early_stopping_metric_delta=None,
     eval_early_stopping_metric_minimize=True,
+    eval_timeout_mins=240,
+    eval_use_test_set=False,
     use_tpu=False,
     use_tpu_estimator=False,
     use_xla=False,
@@ -541,6 +650,7 @@ def create_experiment(
   hparams.add_hparam("warm_start_from", warm_start_from)
   hparams.add_hparam("std_server_protocol", std_server_protocol)
   hparams.add_hparam("eval_freq_in_steps", min_eval_frequency)
+  hparams.add_hparam("eval_timeout_mins", eval_timeout_mins)
   if decode_hparams is not None:
     decode_hparams.add_hparam("decode_from_file", decode_from_file)
     decode_hparams.add_hparam("decode_to_file", decode_to_file)
@@ -562,8 +672,12 @@ def create_experiment(
   problem = hparams.problem
   train_input_fn = problem.make_estimator_input_fn(tf.estimator.ModeKeys.TRAIN,
                                                    hparams)
+
+  dataset_split = "test" if eval_use_test_set else None
+  dataset_kwargs = {"dataset_split": dataset_split}
   eval_input_fn = problem.make_estimator_input_fn(tf.estimator.ModeKeys.EVAL,
-                                                  hparams)
+                                                  hparams,
+                                                  dataset_kwargs=dataset_kwargs)
 
   # Export
   exporter = None
@@ -572,9 +686,12 @@ def create_experiment(
       metric = eval_early_stopping_metric or "loss"
       return current_eval_result[metric] < best_eval_result[metric]
 
+    def serving_input_receiver_fn(hparams, decode_hparams, use_tpu):
+      return problem.serving_input_fn(hparams, decode_hparams, use_tpu)
+
     exporter = tf.estimator.BestExporter(
         name="best",
-        serving_input_receiver_fn=lambda: problem.serving_input_fn(hparams),
+        serving_input_receiver_fn=serving_input_receiver_fn,
         compare_fn=compare_fn,
         assets_extra=problem.export_assets)
 
@@ -654,17 +771,6 @@ def create_experiment_fn(*args, **kwargs):
     return create_experiment(run_config, hparams, *args, **kwargs)
 
   return experiment_fn
-
-
-def add_problem_hparams(hparams, problem_name_or_instance):
-  """Add problem hparams for the problems."""
-  if isinstance(problem_name_or_instance, Problem):
-    problem = problem_name_or_instance
-  else:
-    problem = registry.problem(problem_name_or_instance)
-  p_hparams = problem.get_hparams(hparams)
-  hparams.problem = problem
-  hparams.problem_hparams = p_hparams
 
 
 def set_random_seed(seed):

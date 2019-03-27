@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -150,19 +150,43 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
       return self.reward_prediction_basic(*args, **kwargs)
     elif model == "big":
       return self.reward_prediction_big(*args, **kwargs)
+    elif model == "mid":
+      return self.reward_prediction_mid(*args, **kwargs)
     else:
       raise ValueError("Unknown reward model %s" % model)
 
-  def reward_prediction_basic(self, input_images, input_reward, action, latent):
-    del input_reward, action, latent
+  def reward_prediction_basic(
+      self, input_images, input_reward, action, latent, mid_outputs):
+    del input_reward, action, latent, mid_outputs
     x = input_images
     x = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
     x = tfl.dense(x, 128, activation=tf.nn.relu, name="reward_pred")
     x = tf.expand_dims(x, axis=3)
     return x
 
-  def reward_prediction_big(self, input_images, input_reward, action, latent):
+  def reward_prediction_mid(
+      self, input_images, input_reward, action, latent, mid_outputs):
+    """Builds a reward prediction network from intermediate layers."""
+    encoded = []
+    for i, output in enumerate(mid_outputs):
+      enc = output
+      enc = tfl.conv2d(enc, 64, [3, 3], strides=(1, 1), activation=tf.nn.relu)
+      enc = tfl.conv2d(enc, 32, [3, 3], strides=(2, 2), activation=tf.nn.relu)
+      enc = tfl.conv2d(enc, 16, [3, 3], strides=(2, 2), activation=tf.nn.relu)
+      enc = tfl.flatten(enc)
+      enc = tfl.dense(enc, 64, activation=tf.nn.relu, name="rew_enc_%d" % i)
+      encoded.append(enc)
+    x = encoded
+    x = tf.stack(x, axis=1)
+    x = tfl.flatten(x)
+    x = tfl.dense(x, 256, activation=tf.nn.relu, name="rew_dense1")
+    x = tfl.dense(x, 128, activation=tf.nn.relu, name="rew_dense2")
+    return x
+
+  def reward_prediction_big(
+      self, input_images, input_reward, action, latent, mid_outputs):
     """Builds a reward prediction network."""
+    del mid_outputs
     conv_size = self.tinyify([32, 32, 16, 8])
 
     with tf.variable_scope("reward_pred", reuse=tf.AUTO_REUSE):
@@ -290,7 +314,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
 
       if self.hparams.model_options == "CDNA":
         # cdna_input = tf.reshape(hidden5, [int(batch_size), -1])
-        cdna_input = tfcl.flatten(hidden5)
+        cdna_input = tfl.flatten(hidden5)
         transformed += common_video.cdna_transformation(
             input_image, cdna_input, num_masks, int(color_channels),
             self.hparams.dna_kernel_size, self.hparams.relu_shift)
@@ -326,7 +350,8 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
         output = tf.layers.dense(
             output, self.hparams.problem.num_channels * 256, name="logits")
 
-      return output, lstm_state
+      mid_outputs = [enc0, enc1, enc4, enc5, enc6]
+      return output, lstm_state, mid_outputs
 
   def video_features(
       self, all_frames, all_actions, all_rewards, all_raw_frames):
@@ -342,6 +367,10 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
   def next_frame(self, frames, actions, rewards, target_frame,
                  internal_states, video_features):
     del target_frame
+
+    if self.has_policies or self.has_values:
+      raise NotImplementedError("Parameter sharing with policy not supported.")
+
     latent, latent_mean, latent_std = video_features
     frames, actions, rewards = frames[0], actions[0], rewards[0]
 
@@ -351,15 +380,15 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
       if latent_mean is not None:
         extra_loss = self.get_extra_loss([latent_mean], [latent_std])
 
-    pred_image, internal_states = self.construct_predictive_tower(
+    pred_image, internal_states, mid_outputs = self.construct_predictive_tower(
         frames, None, actions, internal_states, latent)
 
     if not self.has_rewards:
-      return pred_image, None, extra_loss, internal_states
+      return pred_image, None, None, None, extra_loss, internal_states
 
     pred_reward = self.reward_prediction(
-        pred_image, actions, rewards, latent)
-    return pred_image, pred_reward, extra_loss, internal_states
+        pred_image, actions, rewards, latent, mid_outputs)
+    return pred_image, pred_reward, None, None, extra_loss, internal_states
 
 
 @registry.register_model
@@ -410,6 +439,10 @@ class NextFrameSv2pDiscrete(NextFrameSv2p):
   def next_frame(self, frames, actions, rewards, target_frame,
                  internal_states, video_features):
     del video_features
+
+    if self.has_pred_actions or self.has_values:
+      raise NotImplementedError("Parameter sharing with policy not supported.")
+
     frames, actions, rewards = frames[0], actions[0], rewards[0]
 
     if internal_states is None:
@@ -418,7 +451,7 @@ class NextFrameSv2pDiscrete(NextFrameSv2p):
     extra_loss = 0.0
     latent = self.simple_discrete_latent_tower(frames, target_frame)
 
-    pred_image, internal_states = self.construct_predictive_tower(
+    pred_image, internal_states, _ = self.construct_predictive_tower(
         frames, None, actions, internal_states, latent, True)
 
     if not self.has_rewards:
@@ -426,7 +459,48 @@ class NextFrameSv2pDiscrete(NextFrameSv2p):
 
     pred_reward = self.reward_prediction(
         pred_image, actions, rewards, latent)
-    return pred_image, pred_reward, extra_loss, internal_states
+    return pred_image, pred_reward, None, None, extra_loss, internal_states
+
+
+@registry.register_model
+class NextFrameSv2pAtari(NextFrameSv2p):
+  """SV2P with specific changes for atari pipeline."""
+
+  def init_internal_states(self):
+    # Hardcoded LSTM-CONV shapes.
+    # These sizes are calculated based on original atari frames.
+    # TODO(mbz): find a cleaner way of doing this maybe?!
+    batch_size = self.hparams.batch_size
+    shapes = [(batch_size, 53, 40, 8),
+              (batch_size, 53, 40, 8),
+              (batch_size, 27, 20, 16),
+              (batch_size, 27, 20, 16),
+              (batch_size, 53, 40, 8)]
+
+    with tf.variable_scope("clean_scope"):
+      # Initialize conv-lstm states with zeros
+      init = tf.zeros_initializer()
+      states = []
+      for i, shape in enumerate(shapes):
+        # every lstm-conv state has two variables named c and h.
+        c = tf.get_variable("c%d" % i, shape, trainable=False, initializer=init)
+        h = tf.get_variable("h%d" % i, shape, trainable=False, initializer=init)
+        states.append((c, h))
+      return states
+
+  def reset_internal_states_ops(self):
+    zeros = [(tf.zeros_like(c), tf.zeros_like(h))
+             for c, h in self.internal_states]
+    return self.save_internal_states_ops(zeros)
+
+  def load_internal_states_ops(self):
+    ops = [(c.read_value(), h.read_value()) for c, h in self.internal_states]
+    return ops
+
+  def save_internal_states_ops(self, internal_states):
+    ops = [[tf.assign(x[0], y[0]), tf.assign(x[1], y[1])]
+           for x, y in zip(self.internal_states, internal_states)]
+    return ops
 
 
 @registry.register_model
@@ -508,7 +582,7 @@ class NextFrameSv2pLegacy(NextFrameSv2p):
           done_warm_start, groundtruth_items, generated_items, ss_func)
 
       # Prediction
-      pred_image, lstm_states = self.construct_predictive_tower(
+      pred_image, lstm_states, _ = self.construct_predictive_tower(
           input_image, None, action, lstm_states, latent)
 
       if self.hparams.reward_prediction:
@@ -719,7 +793,7 @@ class NextFrameSv2pTwoFrames(NextFrameSv2pLegacy):
       latent_stds.append(latent_std)
 
       # Prediction
-      pred_image, lstm_state = self.construct_predictive_tower(
+      pred_image, lstm_state, _ = self.construct_predictive_tower(
           input_image, input_reward, action, lstm_state, latent)
 
       if self.hparams.reward_prediction:

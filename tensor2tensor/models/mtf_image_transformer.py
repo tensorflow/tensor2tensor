@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -46,8 +46,10 @@ class MtfImageTransformer(mtf_model.MtfModel):
 
   @property
   def targets_vocab_dim(self):
-    return mtf.Dimension(
-        "vocab", self._problem_hparams.target_modality._vocab_size)  # pylint: disable=protected-access
+    vocab_size = self._problem_hparams.vocab_size["targets"]
+    if hasattr(self._hparams, "vocab_divisor"):
+      vocab_size += (-vocab_size) % self._hparams.vocab_divisor
+    return mtf.Dimension("vocab", vocab_size)
 
   @property
   def outputs_vocab_dim(self):
@@ -338,13 +340,15 @@ def local_attention1d_masked_decoder(x, kv_dim, heads_dim,
     layer_name = "decoder_layer_%d" % layer
     with tf.variable_scope(layer_name):
       # Self attention layer
+      length_per_split = mtf.tensor_dim_to_size_per_split(
+          hparams.layout, hparams.mesh_shape, length_dim)
       x += layer_prepostprocess_dropout(
           mtf.layers.masked_local_attention_1d(
               mtf.layers.layer_norm(x, model_dim, name="layer_norm_att"),
-              None,
               kv_dim,
               heads_dim,
-              block_length=hparams.block_length,
+              window_size=hparams.block_length,
+              length_per_split=length_per_split,
               name="self_att"), hparams)
       # ffn layer
       x += layer_prepostprocess_dropout(
