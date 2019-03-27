@@ -78,7 +78,10 @@ class RecentTokensMemory(RecurrentMemory):
     # TODO(kitaev): The implementation of the chunking code makes it somewhat
     # convoluted to figure out how many actual sequences we can have per batch.
     # The data pipeline should be revisited at some point.
-    batch_size_in_sequences = hparams.batch_size / hparams.max_length
+    if hasattr(hparams, "recurrent_memory_batch_size"):
+      batch_size_in_sequences = hparams.recurrent_memory_batch_size
+    else:
+      batch_size_in_sequences = hparams.batch_size / hparams.max_length
 
     memory_shape = [batch_size_in_sequences, self.tokens_to_cache, hidden_size]
     bias_shape = [1, 1, self.chunk_length, self.tokens_to_cache]

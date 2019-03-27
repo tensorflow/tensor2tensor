@@ -1535,6 +1535,12 @@ class TransformerMemory(Transformer):
           layer_name] = transformer_memory.RecentTokensMemory(
               layer_name + "/recurrent_memory", hparams)
 
+  @property
+  def has_input(self):
+    if hasattr(self._hparams, "unconditional") and self._hparams.unconditional:
+      return False
+    return super(TransformerMemory, self).has_input
+
   def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha,
                    use_tpu=False):
     """Overriding beam search because for now only the slow version works with
@@ -2641,6 +2647,8 @@ def transformer_wikitext103_l4k_memory_v0():
   hparams.self_attention_type = "dot_product_relative_memory"
   hparams.max_relative_position = 2 * hparams.split_targets_chunk_length
 
+  hparams.add_hparam("unconditional", True)
+  hparams.add_hparam("recurrent_memory_batch_size", 0)  # 0 = try to guess
   # By default, cache one chunk only (like Transformer-XL)
   hparams.add_hparam("num_memory_items", hparams.split_targets_chunk_length)
 
@@ -2664,5 +2672,32 @@ def transformer_wikitext103_l16k_memory_v0():
       hparams.max_length / hparams.split_targets_chunk_length))
 
   hparams.max_relative_position = 2 * hparams.split_targets_chunk_length
+
+  return hparams
+
+
+@registry.register_hparams
+def transformer_cifar10_memory_v0():
+  """HParams for training image_cifar10_plain_gen_flat_rev with memory."""
+  hparams = transformer_wikitext103_l4k_memory_v0()
+
+  hparams.num_hidden_layers = 6
+
+  hparams.max_length = 32 * 32 * 3
+  hparams.split_targets_chunk_length = 64 * 3
+  hparams.split_targets_max_chunks = int(
+      hparams.max_length / hparams.split_targets_chunk_length)
+  hparams.num_memory_items = 128 * 3
+
+  # Since this is an image problem, batch size refers to examples (not tokens)
+  target_images_per_batch = 4
+  hparams.batch_size = int(target_images_per_batch * (
+      hparams.max_length / hparams.split_targets_chunk_length))
+
+  # The recurrent memory needs to know the actual batch size (in sequences)
+  hparams.recurrent_memory_batch_size = hparams.batch_size
+
+  hparams.max_relative_position = (
+      hparams.num_memory_items + hparams.split_targets_chunk_length)
 
   return hparams

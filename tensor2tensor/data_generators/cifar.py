@@ -29,6 +29,7 @@ from six.moves import cPickle
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import mnist
+from tensor2tensor.data_generators import problem
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
@@ -177,6 +178,27 @@ class ImageCifar10PlainGen(ImageCifar10Plain):
     example["inputs"].set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
     example["inputs"] = tf.to_int64(example["inputs"])
     return example
+
+
+@registry.register_problem
+class ImageCifar10PlainGenFlat(ImageCifar10PlainGen):
+  """CIFAR-10 for image generation as a flat array of 64*64*3=12228 elements."""
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
+    example["inputs"] = tf.to_int64(example["inputs"])
+    example["inputs"] = tf.reshape(example["inputs"], (-1,))
+
+    del example["targets"]  # Ensure unconditional generation
+
+    return example
+
+  def hparams(self, defaults, model_hparams):
+    super(ImageCifar10PlainGenFlat, self).hparams(defaults, model_hparams)
+    # Switch to symbol modality
+    p = defaults
+    p.modality["inputs"] = modalities.ModalityType.SYMBOL
+    p.input_space_id = problem.SpaceID.GENERIC
 
 
 @registry.register_problem
