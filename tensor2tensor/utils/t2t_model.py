@@ -1532,6 +1532,9 @@ class T2TModel(base.Layer):
   def initialize_from_ckpt(self, ckpt_dir):
     return initialize_from_ckpt(ckpt_dir=ckpt_dir, hparams=self._hparams)
 
+  def create_host_call(self):
+    return create_host_call(self.hparams.model_dir)
+
   def estimator_spec_train(self, loss, num_async_replicas=1, use_tpu=False):
     """Constructs `tf.estimator.EstimatorSpec` for TRAIN (training) mode."""
     train_op = self.optimize(loss, num_async_replicas=num_async_replicas,
@@ -1547,7 +1550,7 @@ class T2TModel(base.Layer):
 
       # Note: important to call this before remove_summaries()
       if self.hparams.tpu_enable_host_call:
-        host_call = create_host_call(self.hparams.model_dir)
+        host_call = self.create_host_call()
       else:
         host_call = None
 
@@ -1582,7 +1585,14 @@ class T2TModel(base.Layer):
     problem = hparams.problem
 
     if common_layers.is_xla_compiled():
+      # Note: important to call this before remove_summaries()
+      if self.hparams.tpu_enable_host_call:
+        host_call = self.create_host_call()
+      else:
+        host_call = None
+
       remove_summaries()
+
       eval_metrics_fn = create_tpu_eval_metrics_fn(problem, hparams)
 
       batch_size = [feature.shape.as_list()[0] for _, feature
@@ -1606,6 +1616,7 @@ class T2TModel(base.Layer):
       return tf.contrib.tpu.TPUEstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
           eval_metrics=(eval_metrics_fn, eval_metrics_fn_flat_args),
+          host_call=host_call,
           loss=loss)
     else:
       task_list = [problem]
