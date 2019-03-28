@@ -197,7 +197,7 @@ class ImageCifar10PlainGenFlat(ImageCifar10PlainGen):
     super(ImageCifar10PlainGenFlat, self).hparams(defaults, model_hparams)
     # Switch to symbol modality
     p = defaults
-    p.modality["inputs"] = modalities.ModalityType.SYMBOL
+    p.modality["inputs"] = modalities.ModalityType.SYMBOL_WEIGHTS_ALL
     p.input_space_id = problem.SpaceID.GENERIC
 
 
