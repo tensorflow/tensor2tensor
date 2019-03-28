@@ -95,6 +95,11 @@ def is_xla_compiled():
   return control_flow_util.GetContainingXLAContext(ctxt) is not None
 
 
+def to_float(x):
+  """Cast x to float; created because tf.to_float is deprecated."""
+  return tf.cast(x, tf.float32)
+
+
 def dropout_with_broadcast_dims(x, keep_prob, broadcast_dims=None, **kwargs):
   """Like tf.nn.dropout but takes broadcast_dims instead of noise_shape.
 
@@ -154,7 +159,7 @@ def inverse_exp_decay(max_step, min_value=0.01, step=None):
     step = tf.train.get_global_step()
   if step is None:
     return 1.0
-  step = tf.to_float(step)
+  step = to_float(step)
   return inv_base**tf.maximum(float(max_step) - step, 0.0)
 
 
@@ -164,7 +169,7 @@ def inverse_lin_decay(max_step, min_value=0.01, step=None):
     step = tf.train.get_global_step()
   if step is None:
     return 1.0
-  step = tf.to_float(step)
+  step = to_float(step)
   progress = tf.minimum(step / float(max_step), 1.0)
   return progress * (1.0 - min_value) + min_value
 
@@ -237,7 +242,7 @@ def shakeshake(xs, equal_grad=False):
 def convert_rgb_to_real(x):
   """Conversion of pixel values to real numbers."""
   with tf.name_scope("rgb_to_real", values=[x]):
-    x = tf.to_float(x)
+    x = to_float(x)
     x /= 255.0
     return x
 
@@ -245,7 +250,7 @@ def convert_rgb_to_real(x):
 def convert_rgb_to_symmetric_real(x):
   """Conversion of pixel values to real numbers."""
   with tf.name_scope("rgb_to_real", values=[x]):
-    x = tf.to_float(x)
+    x = to_float(x)
     # Convert each pixel intensity in [0, 1, 2, ..., 255] into a real number in
     # the range [-1, 1].
     x = (x / 127.5) - 1
@@ -274,11 +279,11 @@ def standardize_images(x):
   """Image standardization on batches and videos."""
   with tf.name_scope("standardize_images", values=[x]):
     x_shape = shape_list(x)
-    x = tf.to_float(tf.reshape(x, [-1] + x_shape[-3:]))
+    x = to_float(tf.reshape(x, [-1] + x_shape[-3:]))
     x_mean = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
     x_variance = tf.reduce_mean(
         tf.squared_difference(x, x_mean), axis=[1, 2], keepdims=True)
-    num_pixels = tf.to_float(x_shape[-2] * x_shape[-3])
+    num_pixels = to_float(x_shape[-2] * x_shape[-3])
     x = (x - x_mean) / tf.maximum(tf.sqrt(x_variance), tf.rsqrt(num_pixels))
     return tf.reshape(x, x_shape)
 
@@ -708,7 +713,7 @@ def noam_norm(x, epsilon=1.0, name=None):
     shape = x.get_shape()
     ndims = len(shape)
     return (tf.nn.l2_normalize(x, ndims - 1, epsilon=epsilon) * tf.sqrt(
-        tf.to_float(shape[-1])))
+        to_float(shape[-1])))
 
 
 def l2_norm(x, filters=None, epsilon=1e-6, name=None, reuse=None):
@@ -1135,11 +1140,11 @@ def get_timing_signal(length,
   Returns:
     Tensor of shape (length, 2*num_timescales)
   """
-  positions = tf.to_float(tf.range(length))
+  positions = to_float(tf.range(length))
   log_timescale_increment = (
       math.log(max_timescale / min_timescale) / (num_timescales - 1))
   inv_timescales = min_timescale * tf.exp(
-      tf.to_float(tf.range(num_timescales)) * -log_timescale_increment)
+      to_float(tf.range(num_timescales)) * -log_timescale_increment)
   scaled_time = tf.expand_dims(positions, 1) * tf.expand_dims(inv_timescales, 0)
   return tf.concat([tf.sin(scaled_time), tf.cos(scaled_time)], axis=1)
 
@@ -1232,7 +1237,7 @@ def relu_density_logit(x, reduce_dims):
   Returns:
     a Tensor
   """
-  frac = tf.reduce_mean(tf.to_float(x > 0.0), reduce_dims)
+  frac = tf.reduce_mean(to_float(x > 0.0), reduce_dims)
   scaled = tf.log(frac + math.exp(-10)) - tf.log((1.0 - frac) + math.exp(-10))
   return scaled
 
@@ -1614,7 +1619,7 @@ def pad_with_zeros(logits, labels):
 
 def weights_nonzero(labels):
   """Assign weight 1.0 to all labels except for padding (id=0)."""
-  return tf.to_float(tf.not_equal(labels, 0))
+  return to_float(tf.not_equal(labels, 0))
 
 
 def weights_prepend_inputs_to_targets(labels):
@@ -1629,9 +1634,9 @@ def weights_prepend_inputs_to_targets(labels):
   Returns:
     A Tensor of floats.
   """
-  past_first_zero = tf.cumsum(tf.to_float(tf.equal(labels, 0)), axis=1)
-  nonzero = tf.to_float(labels)
-  return tf.to_float(tf.not_equal(past_first_zero * nonzero, 0))
+  past_first_zero = tf.cumsum(to_float(tf.equal(labels, 0)), axis=1)
+  nonzero = to_float(labels)
+  return to_float(tf.not_equal(past_first_zero * nonzero, 0))
 
 
 def check_nonnegative(value):
@@ -1660,24 +1665,24 @@ def weights_multi_problem(labels, taskid=-1):
     ValueError: The Task ID must be valid.
   """
   taskid = check_nonnegative(taskid)
-  past_taskid = tf.cumsum(tf.to_float(tf.equal(labels, taskid)), axis=1)
+  past_taskid = tf.cumsum(to_float(tf.equal(labels, taskid)), axis=1)
   # Additionally zero out the task id location
-  past_taskid *= tf.to_float(tf.not_equal(labels, taskid))
-  non_taskid = tf.to_float(labels)
-  return tf.to_float(tf.not_equal(past_taskid * non_taskid, 0))
+  past_taskid *= to_float(tf.not_equal(labels, taskid))
+  non_taskid = to_float(labels)
+  return to_float(tf.not_equal(past_taskid * non_taskid, 0))
 
 
 def weights_multi_problem_all(labels, taskid=-1):
   """Assign weight 1.0 to only examples from the given task."""
   taskid = check_nonnegative(taskid)
-  weights = tf.to_float(tf.not_equal(labels, 0))
-  past_taskid = tf.cumsum(tf.to_float(tf.equal(labels, taskid)), axis=1)
+  weights = to_float(tf.not_equal(labels, 0))
+  past_taskid = tf.cumsum(to_float(tf.equal(labels, taskid)), axis=1)
   # Additionally zero out the task id location
-  past_taskid *= tf.to_float(tf.not_equal(labels, taskid))
-  non_taskid = tf.to_float(labels)
-  example_mask = tf.to_float(tf.not_equal(past_taskid * non_taskid, 0))
+  past_taskid *= to_float(tf.not_equal(labels, taskid))
+  non_taskid = to_float(labels)
+  example_mask = to_float(tf.not_equal(past_taskid * non_taskid, 0))
   example_mask = tf.reduce_sum(example_mask, axis=1)
-  example_mask = tf.to_float(
+  example_mask = to_float(
       tf.greater(example_mask, tf.zeros_like(example_mask)))
 
   return weights * tf.expand_dims(example_mask, axis=-1)
@@ -1721,7 +1726,7 @@ def weights_concatenated(labels):
   shifted = tf.pad(sentence_num_plus_one,
                    [[0, 0], [2, 0], [0, 0], [0, 0]])[:, :-2, :, :]
   nonboilerplate = tf.equal(sentence_num_plus_one, shifted)
-  ret = tf.to_float(tf.logical_and(nonboilerplate, in_target))
+  ret = to_float(tf.logical_and(nonboilerplate, in_target))
   return ret
 
 
@@ -2106,11 +2111,11 @@ def smoothing_cross_entropy(logits,
   """
   with tf.name_scope("smoothing_cross_entropy", values=[logits, labels]):
     # Low confidence is given to all non-true labels, uniformly.
-    low_confidence = (1.0 - confidence) / tf.to_float(vocab_size - 1)
+    low_confidence = (1.0 - confidence) / to_float(vocab_size - 1)
     # Normalizing constant is the best cross-entropy value with soft targets.
     # We subtract it just for readability, makes no difference on learning.
     normalizing = -(
-        confidence * tf.log(confidence) + tf.to_float(vocab_size - 1) *
+        confidence * tf.log(confidence) + to_float(vocab_size - 1) *
         low_confidence * tf.log(low_confidence + 1e-20))
 
     if gaussian and confidence > 0.0:
@@ -3198,7 +3203,7 @@ def mix(x1,
       if broadcast_last:
         alpha_shape = alpha_shape[:-1] + [1]
       alpha = tf.random_uniform(alpha_shape)
-      alpha = tf.to_float(tf.less(alpha, max_prob))
+      alpha = to_float(tf.less(alpha, max_prob))
       return alpha * x1 + (1.0 - alpha) * x2
 
     def get_res():
@@ -3220,7 +3225,7 @@ def mix(x1,
       if broadcast_last:
         alpha_shape = alpha_shape[:-1] + [1]
       alpha = tf.random_uniform(alpha_shape)
-      alpha = tf.to_float(tf.less(alpha, alpha_p))
+      alpha = to_float(tf.less(alpha, alpha_p))
       return alpha * x1 + (1.0 - alpha) * x2
 
     if max_prob < 1.0:
@@ -3325,6 +3330,39 @@ def argmax_with_score(logits, axis=None):
 
 def log_prob_from_logits(logits, reduce_axis=-1):
   return logits - tf.reduce_logsumexp(logits, axis=reduce_axis, keepdims=True)
+
+
+def top_kth_iterative(x, k):
+  """Compute the k-th top element of x on the last axis iteratively.
+
+  This assumes values in x are non-negative, rescale if needed.
+  It is often faster than tf.nn.top_k for small k, especially if k < 30.
+  Note: this does not support back-propagation, it stops gradients!
+
+  Args:
+    x: a Tensor of non-negative numbers of type float.
+    k: a python integer.
+
+  Returns:
+    a float tensor of the same shape as x but with 1 on the last axis
+    that contains the k-th largest number in x.
+  """
+  # The iterative computation is as follows:
+  #
+  # cur_x = x
+  # for _ in range(k):
+  #   top_x = maximum of elements of cur_x on the last axis
+  #   cur_x = cur_x where cur_x < top_x and 0 everywhere else (top elements)
+  #
+  # We encode this computation in a TF graph using tf.foldl, so the inner
+  # part of the above loop is called "next_x" and tf.foldl does the loop.
+  def next_x(cur_x, _):
+    top_x = tf.reduce_max(cur_x, axis=-1, keep_dims=True)
+    return cur_x * to_float(cur_x < top_x)
+  # We only do k-1 steps of the loop and compute the final max separately.
+  fin_x = tf.foldl(next_x, tf.range(k - 1), initializer=tf.stop_gradient(x),
+                   parallel_iterations=2, back_prop=False)
+  return tf.stop_gradient(tf.reduce_max(fin_x, axis=-1, keep_dims=True))
 
 
 def top_1_tpu(inputs):
@@ -3723,7 +3761,7 @@ def tpu_safe_image_summary(image):
   if is_xla_compiled():
     # We only support float32 images at the moment due to casting complications.
     if image.dtype != tf.float32:
-      image = tf.to_float(image)
+      image = to_float(image)
   else:
     image = tf.cast(image, tf.uint8)
   return image
@@ -3802,7 +3840,7 @@ def weight_targeting(w, k):
 
   transpose_w = tf.transpose(w)
   thres = tf.contrib.framework.sort(tf.abs(transpose_w), axis=1)[:, k]
-  mask = tf.to_float(thres[None, :] >= tf.abs(w))
+  mask = to_float(thres[None, :] >= tf.abs(w))
 
   return tf.reshape(mask, w_shape)
 
@@ -3816,7 +3854,7 @@ def unit_targeting(w, k):
 
   norm = tf.norm(w, axis=0)
   thres = tf.contrib.framework.sort(norm, axis=0)[k]
-  mask = tf.to_float(thres >= norm)[None, :]
+  mask = to_float(thres >= norm)[None, :]
   mask = tf.tile(mask, [size, 1])
 
   return tf.reshape(mask, w_shape)
@@ -3921,7 +3959,7 @@ def targeted_dropout(inputs,
     Tensor, same shape and dtype as `inputs`.
   """
   if not is_training and do_prune:
-    k = tf.round(tf.to_float(k) * tf.to_float(1. - keep_prob))
+    k = tf.round(to_float(k) * to_float(1. - keep_prob))
 
   mask = targeting_fn(inputs, k)
   mask = tf.cast(mask, inputs.dtype)
@@ -3953,7 +3991,7 @@ def kl_divergence(mu, log_var, mu_p=0.0, log_var_p=0.0):
       mu, tf.exp(tf.multiply(0.5, log_var)))
   kld = tfp.distributions.kl_divergence(posterior_distribution,
                                         prior_distribution)
-  return tf.reduce_sum(kld) / tf.to_float(batch_size)
+  return tf.reduce_sum(kld) / to_float(batch_size)
 
 
 def sparse_equals_constant(constant, tensor):

@@ -34,8 +34,10 @@ from tensor2tensor.utils import expert_utils
 import tensorflow as tf
 import tensorflow_probability as tfp
 
+# pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.framework import function
 from tensorflow.python.ops import inplace_ops
+# pylint: enable=g-direct-tensorflow-import
 
 
 # TODO(lukaszkaiser): remove this function when not needed any more.
@@ -1468,6 +1470,20 @@ def grouped_attention_multihead(query_antecedent,
     return o, extra_loss
 
 
+def harden_attention_weights(weights, hard_attention_k):
+  """Make attention weights non-0 only on the top-hard_attention_k ones."""
+  # Subtract the top-kth weight and zero-out all lower ones.
+  # Note that currently in case of numerical ties it will retain more
+  # than k elements. In the future, we may want to avoid this.
+  weights -= common_layers.top_kth_iterative(weights, hard_attention_k)
+  weights = tf.nn.relu(weights)
+  # Re-normalize the weights.
+  weights_sum = tf.reduce_sum(weights, axis=-1, keep_dims=True)
+  weights_sum = tf.maximum(weights_sum, 1e-6)  # Avoid division by 0.
+  weights /= weights_sum
+  return weights
+
+
 def dot_product_attention(q,
                           k,
                           v,
@@ -1479,7 +1495,8 @@ def dot_product_attention(q,
                           save_weights_to=None,
                           dropout_broadcast_dims=None,
                           activation_dtype=None,
-                          weight_dtype=None):
+                          weight_dtype=None,
+                          hard_attention_k=0):
   """Dot-product attention.
 
   Args:
@@ -1502,6 +1519,7 @@ def dot_product_attention(q,
     activation_dtype: Used to define function activation dtype when using
       mixed precision.
     weight_dtype: The dtype weights are stored in when using mixed precision
+    hard_attention_k: integer, if > 0 triggers hard attention (picking top-k)
 
   Returns:
     Tensor with shape [..., length_q, depth_v].
@@ -1515,6 +1533,8 @@ def dot_product_attention(q,
     # If logits are fp16, upcast before softmax
     logits = maybe_upcast(logits, activation_dtype, weight_dtype)
     weights = tf.nn.softmax(logits, name="attention_weights")
+    if hard_attention_k > 0:
+      weights = harden_attention_weights(weights, hard_attention_k)
     weights = common_layers.cast_like(weights, q)
     if save_weights_to is not None:
       save_weights_to[scope.name] = weights
@@ -1602,7 +1622,8 @@ def dot_product_attention_relative(q,
                                    save_weights_to=None,
                                    name=None,
                                    make_image_summary=True,
-                                   cache=False):
+                                   cache=False,
+                                   hard_attention_k=0):
   """Calculate relative position-aware dot-product self-attention.
 
   The attention calculation is augmented with learned representations for the
@@ -1623,6 +1644,7 @@ def dot_product_attention_relative(q,
     name: an optional string.
     make_image_summary: Whether to make an attention image summary.
     cache: whether use cache mode
+    hard_attention_k: integer, if > 0 triggers hard attention (picking top-k)
 
   Returns:
     A Tensor.
@@ -1658,6 +1680,8 @@ def dot_product_attention_relative(q,
     if bias is not None:
       logits += bias
     weights = tf.nn.softmax(logits, name="attention_weights")
+    if hard_attention_k > 0:
+      weights = harden_attention_weights(weights, hard_attention_k)
     if save_weights_to is not None:
       save_weights_to[scope.name] = weights
       save_weights_to[scope.name + "/logits"] = logits
@@ -3970,6 +3994,7 @@ def multihead_attention(query_antecedent,
                         layer_collection=None,
                         recurrent_memory=None,
                         chunk_number=None,
+                        hard_attention_k=0,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -4027,7 +4052,8 @@ def multihead_attention(query_antecedent,
       retains state across chunks. Default is None.
     chunk_number: an optional integer Tensor with shape [batch] used to operate
       the recurrent_memory.
-    **kwargs (dict): Parameters for the attention function
+    hard_attention_k: integer, if > 0 triggers hard attention (picking top-k).
+    **kwargs (dict): Parameters for the attention function.
 
   Caching:
     WARNING: For decoder self-attention, i.e. when memory_antecedent == None,
@@ -4149,11 +4175,13 @@ def multihead_attention(query_antecedent,
       if isinstance(x, tuple):
         x, additional_returned_value = x  # Unpack
     elif attention_type == "dot_product":
-      x = dot_product_attention(q, k, v, bias, dropout_rate, image_shapes,
-                                save_weights_to=save_weights_to,
-                                make_image_summary=make_image_summary,
-                                dropout_broadcast_dims=dropout_broadcast_dims,
-                                activation_dtype=kwargs.get("activation_dtype"))
+      x = dot_product_attention(
+          q, k, v, bias, dropout_rate, image_shapes,
+          save_weights_to=save_weights_to,
+          make_image_summary=make_image_summary,
+          dropout_broadcast_dims=dropout_broadcast_dims,
+          activation_dtype=kwargs.get("activation_dtype"),
+          hard_attention_k=hard_attention_k)
     elif attention_type == "dot_product_relative":
       x = dot_product_attention_relative(
           q,
@@ -4165,7 +4193,8 @@ def multihead_attention(query_antecedent,
           image_shapes,
           save_weights_to=save_weights_to,
           make_image_summary=make_image_summary,
-          cache=cache is not None)
+          cache=cache is not None,
+          hard_attention_k=hard_attention_k)
     elif attention_type == "dot_product_relative_memory":
       x = dot_product_attention_relative_memory(
           q,
@@ -4177,7 +4206,8 @@ def multihead_attention(query_antecedent,
           image_shapes,
           save_weights_to=save_weights_to,
           make_image_summary=make_image_summary,
-          cache=cache is not None)
+          cache=cache is not None,
+          hard_attention_k=hard_attention_k)
     elif attention_type == "dot_product_unmasked_relative_v2":
       x = dot_product_unmasked_self_attention_relative_v2(
           q,

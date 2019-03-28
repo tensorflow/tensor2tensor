@@ -1467,6 +1467,7 @@ def transformer_decoder(decoder_input,
               layer_collection=layer_collection,
               recurrent_memory=recurrent_memory,
               chunk_number=chunk_number,
+              hard_attention_k=hparams.get("hard_attention_k", 0)
               )
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
@@ -1493,7 +1494,8 @@ def transformer_decoder(decoder_input,
                 vars_3d=hparams.get("attention_variables_3d"),
                 activation_dtype=hparams.get("activation_dtype", "float32"),
                 weight_dtype=hparams.get("weight_dtype", "float32"),
-                layer_collection=layer_collection)
+                layer_collection=layer_collection,
+                hard_attention_k=hparams.get("hard_attention_k", 0))
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -1614,6 +1616,8 @@ def transformer_base_v1():
   # For making a transformer encoder unidirectional by using masked
   # attention.
   hparams.add_hparam("unidirectional_encoder", False)
+  # For hard attention.
+  hparams.add_hparam("hard_attention_k", 0)
   return hparams
 
 

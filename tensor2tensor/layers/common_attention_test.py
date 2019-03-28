@@ -44,6 +44,23 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 3, 12))
 
+  @test_utils.run_in_graph_and_eager_modes()
+  def testHardenAttentionWeights(self):
+    x = np.random.rand(5, 3, 12)
+    y = common_attention.harden_attention_weights(
+        tf.nn.softmax(tf.constant(x, dtype=tf.float32)), 3)
+    res = self.evaluate(y)
+    self.assertEqual(res.shape, (5, 3, 12))
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testHardenAttentionAllZeros(self):
+    """Check if the hardening code does not divide by zero for all zeros."""
+    x = np.zeros((5, 3, 12), dtype=np.float32)
+    y = common_attention.harden_attention_weights(
+        tf.constant(x, dtype=tf.float32), 3)
+    res = self.evaluate(y)
+    self.assertAllClose(res, x)
+
   @parameterized.parameters(
       {"input_shape": (5, 3, 12)},
       {"input_shape": (5, 5, 5, 12)},

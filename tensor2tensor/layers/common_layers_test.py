@@ -390,6 +390,20 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     self.assertEqual(actual.shape, (5, 4, 32))
 
   @test_utils.run_in_graph_and_eager_modes()
+  def testTopKthIterativeShape(self):
+    x = np.random.rand(5, 2, 1, 12)
+    y = common_layers.top_kth_iterative(tf.constant(x, dtype=tf.float32), 3)
+    actual = self.evaluate(y)
+    self.assertEqual(actual.shape, (5, 2, 1, 1))
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testTopKthIterativeValue(self):
+    x = [1.0, 2.0, 3.0, 4.0]
+    y = common_layers.top_kth_iterative(tf.constant(x, dtype=tf.float32), 3)
+    actual = self.evaluate(y)
+    self.assertEqual(int(actual[0]), 2.0)
+
+  @test_utils.run_in_graph_and_eager_modes()
   def testBReLU(self):
     x = np.random.rand(5, 2, 1, 12)
     y = common_layers.brelu(tf.constant(x, dtype=tf.float32))

@@ -203,7 +203,8 @@ def transformer_encoder(encoder_input,
               max_length=hparams.get("max_length"),
               vars_3d=hparams.get("attention_variables_3d"),
               activation_dtype=hparams.get("activation_dtype", "float32"),
-              weight_dtype=hparams.get("weight_dtype", "float32"))
+              weight_dtype=hparams.get("weight_dtype", "float32"),
+              hard_attention_k=hparams.get("hard_attention_k", 0))
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
