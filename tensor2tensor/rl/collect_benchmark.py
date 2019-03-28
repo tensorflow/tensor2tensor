@@ -22,7 +22,7 @@ from __future__ import print_function
 from tensorflow.contrib import tpu
 from tensorflow.contrib.cluster_resolver import TPUClusterResolver
 
-from tensor2tensor.models.research.rl import PolicyBase
+from tensor2tensor.data_generators.gym_env import DummyWorldModelProblem
 from tensor2tensor.rl import ppo
 from tensor2tensor.rl import tf_new_collect
 from tensor2tensor.utils import registry
@@ -47,6 +47,46 @@ tf.flags.DEFINE_string(
 HISTORY = 4
 
 
+# This runs just the video prediction model.
+#def make_model_fn(batch_size, epoch_length, num_tpus):
+#  def model_fn(features, labels, mode, params):
+#    with tf.variable_scope("model", reuse=tf.AUTO_REUSE):
+#      model_hparams = trainer_lib.create_hparams("next_frame_basic_stochastic_discrete_long")
+#      problem = DummyWorldModelProblem(
+#        action_space=Discrete(2), reward_range=(-1, 1),
+#        frame_height=210, frame_width=160
+#      )
+#      trainer_lib.add_problem_hparams(model_hparams, problem)
+#      model_hparams.force_full_predict = True
+#      model = registry.model("next_frame_basic_stochastic_discrete")(
+#          model_hparams, tf.estimator.ModeKeys.PREDICT
+#      )
+#      
+#      stack_size = model_hparams.video_num_input_frames
+#      history = tf.zeros(
+#          (batch_size, stack_size, problem.frame_height, problem.frame_width, 3),
+#          dtype=tf.int64
+#      )
+#      action = tf.zeros((batch_size, stack_size), dtype=tf.int64)
+#      
+#      with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+#        model.hparams.video_num_target_frames = 1
+#        model_output = model.infer({
+#            "inputs": history,
+#            "input_action": action,
+#            "reset_internal_states": 0.0
+#        })
+#
+#    # Summaries don't work when training on TPU; remove them.
+#    tf.get_default_graph().get_collection_ref(tf.GraphKeys.SUMMARIES)[:] = []
+#    return tf.contrib.tpu.TPUEstimatorSpec(
+#        mode=tf.estimator.ModeKeys.PREDICT,
+#        predictions={"x": model_output["targets"]},
+#    )
+#  return model_fn
+
+
+# This runs the new collect.
 def make_model_fn(batch_size, epoch_length, num_tpus):
   def model_fn(features, labels, mode, params):
     with tf.variable_scope("model", reuse=tf.AUTO_REUSE):
@@ -118,7 +158,7 @@ def main(_):
         ),
     )
 
-    run(sess, run_config, num_tpus=8, batch_size=16, epoch_length=50)
+    print(run(sess, run_config, num_tpus=8, batch_size=16, epoch_length=50))
 
     if FLAGS.tpu:
       sess.run(tpu.shutdown_system())
