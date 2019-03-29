@@ -91,16 +91,19 @@ class RecentTokensMemory(RecurrentMemory):
       self.previous_segment = tf.get_variable(
           "memsegment", (),
           dtype=tf.int32, trainable=False,
+          collections=[tf.GraphKeys.LOCAL_VARIABLES],
           initializer=tf.constant_initializer(0))
 
       self.previous_vals = tf.get_variable(
           "memvals", memory_shape,
           dtype=tf.float32, trainable=False,
+          collections=[tf.GraphKeys.LOCAL_VARIABLES],
           initializer=tf.constant_initializer(.0))
 
       self.previous_bias = tf.get_variable(
           "membias", bias_shape,
           dtype=tf.float32, trainable=False,
+          collections=[tf.GraphKeys.LOCAL_VARIABLES],
           initializer=tf.constant_initializer(.0))
 
   def pre_attention(self, segment, query_antecedent, memory_antecedent, bias):
