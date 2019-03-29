@@ -21,6 +21,7 @@ from __future__ import print_function
 
 import collections
 import os
+import random
 
 import gin
 
@@ -33,9 +34,14 @@ import tensorflow_datasets as tfds
 Inputs = collections.namedtuple(
     "_Inputs", ["train_stream", "eval_stream", "input_shape"])
 
+# How many examples from the stream to skip at random during training.
+# For now, we skip at most 1M examples.
+# TODO(lukaszkaiser): does it matter for efficiency, should that be changed?
+_MAX_SKIP_EXAMPLES = 1e6
+
 
 @gin.configurable()
-def inputs(dataset_name, data_dir):
+def inputs(dataset_name, data_dir=None):
   """Make Inputs for built-in datasets.
 
   Args:
@@ -175,7 +181,8 @@ def preprocess_fun(dataset, training, max_target_length=-1):
 @gin.configurable(blacklist=["dataset", "training", "shapes", "target_names"])
 def batch_fun(dataset, training, shapes, target_names,
               batch_size=32, eval_batch_size=32,
-              bucket_length=32, buckets=None):
+              bucket_length=32, buckets=None,
+              batch_shuffle_size=512):
   """Batching function."""
   del target_names
   # If bucketing is not specified, check if target shapes are variable.
@@ -209,6 +216,8 @@ def batch_fun(dataset, training, shapes, target_names,
         pad_to_bucket_boundary=training))
   else:
     dataset = dataset.padded_batch(cur_batch_size, shapes)
+  if training:
+    return dataset.shuffle(batch_shuffle_size)
   return dataset
 
 
@@ -225,12 +234,16 @@ def shuffle_and_batch_data(dataset, target_names, features_info, training):
   dataset = dataset.map(append_targets)
   if training:
     dataset = dataset.repeat()
+    # Skip a random fraction at the beginning of the stream.  The skip is
+    # essential for synchronous highly-parallel training to avoid multiple
+    # replicas reading the same data in lock-step.
+    dataset = dataset.skip(random.randint(0, _MAX_SKIP_EXAMPLES))
   shapes = {k: features_info[k].shape for k in features_info}
   shapes = (shapes, shapes[target_names[0]])
   dataset = dataset.shuffle(1024)
   dataset = preprocess_fun(dataset, training)
   dataset = batch_fun(dataset, training, shapes, target_names)
-  return dataset.prefetch(32)
+  return dataset.prefetch(2)
 
 
 @gin.configurable(whitelist=["input_name"])

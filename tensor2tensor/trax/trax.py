@@ -24,6 +24,7 @@ import functools
 import itertools
 import os
 import pickle
+import random
 import time
 
 from absl import logging
@@ -33,16 +34,17 @@ import gin
 import jax
 from jax.experimental import optimizers as jax_opt
 import jax.numpy as np
-import jax.random as random
-
+import numpy
 import six
 
 from tensor2tensor.trax import history as trax_history
+from tensor2tensor.trax import inputs as trax_inputs
 from tensor2tensor.trax import jaxboard
 from tensor2tensor.trax import learning_rate as lr
-from tensor2tensor.trax import optimizers as trax_opt
+from tensor2tensor.trax import optimizers as trax_optimizers
 import tensor2tensor.trax.stax as stax
 
+import tensorflow as tf
 from tensorflow.io import gfile
 
 
@@ -187,6 +189,18 @@ def log_metrics(metrics, summ_writer, log_prefix, step, history=None):
       summ_writer.scalar(full_name, value, step)
 
 
+def get_random_number_generator_and_set_seed(seed=None):
+  """Get a JAX random number generator and set random seed everywhere."""
+  random.seed(seed)
+  # While python random accepts None as seed and uses time/os seed then,
+  # some other functions expect integers so we create one here.
+  if seed is None:
+    seed = random.randint(0, 2**31 - 1)
+  tf.set_random_seed(seed)
+  numpy.random.seed(seed)
+  return jax.random.PRNGKey(seed)
+
+
 # TODO(trax):
 # * Make configurable:
 #   * loss
@@ -259,13 +273,14 @@ def reshape_by_device(train_data, num_devices):
 @gin.configurable(blacklist=["output_dir"])
 def train(output_dir,
           model=gin.REQUIRED,
-          inputs=gin.REQUIRED,
-          optimizer=trax_opt.adam,
+          inputs=trax_inputs.inputs,
+          optimizer=trax_optimizers.adam,
           lr_schedule=lr.MultifactorSchedule,
           train_steps=1000,
           eval_steps=10,
           eval_frequency=100,
           num_devices=None,
+          random_seed=None,
           run_debug_step=False):
   """Train the model on the inputs.
 
@@ -283,6 +298,7 @@ def train(output_dir,
     eval_frequency: int, how often to run evaluation (every eval_frequency
       steps). If None or 0, eval disabled.
     num_devices: how many devices to use (if None, default, use all available)
+    random_seed: the random seed to use; time/os dependent if None (default).
     run_debug_step: bool, if True, will run the model and loss without @jit for
       one step.
 
@@ -290,7 +306,7 @@ def train(output_dir,
     trax.State
   """
   num_devices = num_devices or jax.lib.xla_bridge.device_count()
-  rng = random.PRNGKey(0)
+  rng = get_random_number_generator_and_set_seed(random_seed)
   gfile.makedirs(output_dir)
   # Create summary writers and history.
   train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))

@@ -61,7 +61,6 @@ def _setup_gin():
   """Setup gin configuration."""
   # Imports for configurables
   # pylint: disable=g-import-not-at-top,unused-import,g-bad-import-order,reimported,unused-variable
-  from tensor2tensor.trax import inputs as _trax_inputs
   from tensor2tensor.trax import models as _trax_models
   from tensor2tensor.trax import optimizers as _trax_opt
   # pylint: disable=g-import-not-at-top,unused-import,g-bad-import-order,reimported,unused-variable
@@ -72,9 +71,6 @@ def _setup_gin():
     configs.append("inputs.dataset_name='%s'" % FLAGS.dataset)
     if FLAGS.data_dir:
       configs.append("inputs.data_dir='%s'" % FLAGS.data_dir)
-    else:
-      configs.append("inputs.data_dir=None")
-    configs.append("train.inputs=@trax.inputs.inputs")
   if FLAGS.model:
     configs.append("train.model=@trax.models.%s" % FLAGS.model)
   gin.parse_config_files_and_bindings(FLAGS.config_file, configs)
