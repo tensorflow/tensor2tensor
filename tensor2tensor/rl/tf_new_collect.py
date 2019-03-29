@@ -81,13 +81,25 @@ class NewSimulatedBatchEnv(NewInGraphBatchEnv):
       # We only need 1 target frame here, set it.
       hparams_target_frames = self._model.hparams.video_num_target_frames
       self._model.hparams.video_num_target_frames = 1
-      model_output = self._model.infer({
-          "inputs": history,
-          "input_action": action,
-          "reset_internal_states": 0.0  # TODO: How?
-      })
-      self._model.hparams.video_num_target_frames = hparams_target_frames
 
+      if False:  # Change to True to run a stupid model (single conv).
+        history_squeezed = tf.math.reduce_mean(history, axis=1)
+        model_output = tf.layers.conv2d(
+            tf.cast(history_squeezed, tf.float32),
+            filters=3, kernel_size=(3, 3), padding='same'
+        )
+        model_output = {
+            "targets": tf.expand_dims(model_output, axis=1),
+            "target_reward": tf.ones((self.batch_size,)),
+        }
+      else:
+        model_output = self._model.infer({
+            "inputs": history,
+            "input_action": action,
+            "reset_internal_states": 0.0  # TODO: How?
+        })
+
+    self._model.hparams.video_num_target_frames = hparams_target_frames
     ob_unsqueezed = tf.cast(model_output["targets"], tf.int32)
     new_history = tf.concat([history[:, 1:, ...], ob_unsqueezed], axis=1)
     ob = tf.squeeze(ob_unsqueezed, axis=1)
@@ -101,15 +113,17 @@ class NewSimulatedBatchEnv(NewInGraphBatchEnv):
 
   def reset(self, hidden_state, observation, done):
     hidden_state_unpacked = hidden_state[0]
-    new_hidden_state, observation, _ = tf.scan(
-        lambda _, x: tf.cond(
-            x[2],
-            lambda: self._reset_one_env() + (tf.constant(False),),
-            lambda: x
-        ),
-        (hidden_state_unpacked, observation, done),
-        initializer=(hidden_state_unpacked[0], observation[0], done[0])
-    )
+    # TODO: Always reset on first step.
+    #new_hidden_state, observation, _ = tf.scan(
+    #    lambda _, x: tf.cond(
+    #        x[2],
+    #        lambda: self._reset_one_env() + (tf.constant(False),),
+    #        lambda: x
+    #    ),
+    #    (hidden_state_unpacked, observation, done),
+    #    initializer=(hidden_state_unpacked[0], observation[0], done[0])
+    #)
+    new_hidden_state = hidden_state_unpacked
     return (new_hidden_state,), observation
 
 
@@ -164,16 +178,17 @@ class NewStackWrapper(NewInGraphBatchEnv):
       multiples = (self.history,) + (1,) * (len(ob_shape) - 1)
       return tf.tile(tf.expand_dims(ob, axis=0), multiples)
 
-    # TODO: Replace scan with something parallel.
-    new_stack_hidden_state, _, _ = tf.scan(
-        lambda _, x: tf.cond(
-            x[2],
-            lambda: (extend(x[1]), x[1], tf.constant(False)),
-            lambda: x
-        ),
-        (stack_hidden_state, new_env_observation, done),
-        initializer=(stack_hidden_state[0], new_env_observation[0], done[0])
-    )
+    # TODO: Wrap this in a Python if.
+    #new_stack_hidden_state, _, _ = tf.scan(
+    #    lambda _, x: tf.cond(
+    #        x[2],
+    #        lambda: (extend(x[1]), x[1], tf.constant(False)),
+    #        lambda: x
+    #    ),
+    #    (stack_hidden_state, new_env_observation, done),
+    #    initializer=(stack_hidden_state[0], new_env_observation[0], done[0])
+    #)
+    new_stack_hidden_state = stack_hidden_state
 
     return (
         (new_env_hidden_state, new_stack_hidden_state), new_stack_hidden_state
@@ -261,7 +276,8 @@ def new_define_collect(
 
   # TODO: Replace with while and filling an array manually. Otherwise we have to
   # reshape the accumulator in each iteration so it can fit in an output array
-  # which we discard anyway (we only keep ret[3]).
+  # which we discard anyway (we only keep ret[3]). Can gain up to 12%
+  # performance by doing so.
   ret = tf.scan(
       lambda running_state, _: execution_wrapper(*running_state[:3]),
       tf.range(hparams.epoch_length), initial_batch

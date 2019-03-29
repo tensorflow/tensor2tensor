@@ -87,8 +87,9 @@ HISTORY = 4
 
 
 # This runs the new collect.
-def make_model_fn(batch_size, epoch_length, num_tpus):
+def make_model_fn(epoch_length, num_tpus):
   def model_fn(features, labels, mode, params):
+    batch_size = features.shape[0]
     with tf.variable_scope("model", reuse=tf.AUTO_REUSE):
       batch_env = tf_new_collect.NewSimulatedBatchEnv(
           batch_size,
@@ -111,17 +112,20 @@ def make_model_fn(batch_size, epoch_length, num_tpus):
     tf.get_default_graph().get_collection_ref(tf.GraphKeys.SUMMARIES)[:] = []
     return tf.contrib.tpu.TPUEstimatorSpec(
         mode=tf.estimator.ModeKeys.PREDICT,
-        predictions={"x": memory[1]},
+        predictions={"x": tf.math.reduce_sum(memory[1], axis=-1)},
     )
   return model_fn
 
 
-def input_fn(params):
-  return tf.data.Dataset.from_tensors(tf.zeros([16]))
+def make_input_fn(batch_size):
+  def input_fn(params):
+    return tf.data.Dataset.from_tensors(tf.zeros([batch_size]))
+  return input_fn
 
 
 def run(sess, run_config, num_tpus, batch_size, epoch_length):
-  model_fn = make_model_fn(batch_size, epoch_length, num_tpus)
+  input_fn = make_input_fn(batch_size)
+  model_fn = make_model_fn(epoch_length, num_tpus)
   estimator = tf.contrib.tpu.TPUEstimator(
       model_fn=model_fn,
       use_tpu=bool(FLAGS.tpu),
@@ -158,7 +162,11 @@ def main(_):
         ),
     )
 
-    print(run(sess, run_config, num_tpus=8, batch_size=16, epoch_length=50))
+    run(sess, run_config, num_tpus=8, batch_size=256, epoch_length=50)
+    from time import time
+    t = time()
+    run(sess, run_config, num_tpus=8, batch_size=256, epoch_length=50)
+    print('collect time:', time() - t)
 
     if FLAGS.tpu:
       sess.run(tpu.shutdown_system())
