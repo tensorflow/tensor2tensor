@@ -66,6 +66,7 @@ class NewSimulatedBatchEnv(NewInGraphBatchEnv):
 
   @property
   def meta_data(self):
+    # TODO: namedtuples
     return (
         [([self.batch_size, 4, 210, 160, 3], tf.int32, "hidden_state")],
         ([self.batch_size, 210, 160, 3], tf.int32, "observation"),
@@ -163,6 +164,7 @@ class NewStackWrapper(NewInGraphBatchEnv):
       multiples = (self.history,) + (1,) * (len(ob_shape) - 1)
       return tf.tile(tf.expand_dims(ob, axis=0), multiples)
 
+    # TODO: Replace scan with something parallel.
     new_stack_hidden_state, _, _ = tf.scan(
         lambda _, x: tf.cond(
             x[2],
@@ -218,9 +220,24 @@ def new_define_collect(
   initial_running_state = tf.contrib.framework.nest.pack_sequence_as(
       ((1,) * len(hidden_state_types),) + (2, 3), initial_running_state)
 
+  (hidden_state, observation, done) = initial_running_state
+  hidden_state = [
+      tf.reshape(element, (-1,)) for element in hidden_state
+  ]
+  observation = tf.reshape(observation, (-1,))
+  initial_running_state = (hidden_state, observation, done)
+  initial_ppo_batch = (observation, *initial_ppo_batch[1:])
+
   initial_batch = initial_running_state + (initial_ppo_batch,)
 
   def execution_wrapper(hidden_state, observation, done):
+    # TODO: Abstract this out.
+    hidden_state = [
+        tf.reshape(element, meta_data[0])
+        for (element, meta_data) in zip(hidden_state, hidden_state_types)
+    ]
+    observation = tf.reshape(observation, observation_type[0])
+
     hidden_state, observation = batch_env.reset(hidden_state, observation, done)
     (logits, value_function) = get_policy(observation, hparams, action_space)
     action = common_layers.sample_with_temperature(logits, 1)
@@ -231,14 +248,22 @@ def new_define_collect(
         hidden_state, action
     )
 
+    # TODO: This too.
+    hidden_state = [tf.reshape(x, (-1,)) for x in hidden_state]
+    (new_observation, observation) = (
+        tf.reshape(x, (-1,)) for x in (new_observation, observation)
+    )
+
     return (
         hidden_state, new_observation, done,
         (observation, reward, done, action, pdf, value_function)
     )
 
-  # This can be replaced with a python for loop
+  # TODO: Replace with while and filling an array manually. Otherwise we have to
+  # reshape the accumulator in each iteration so it can fit in an output array
+  # which we discard anyway (we only keep ret[3]).
   ret = tf.scan(
-      lambda a, _: execution_wrapper(a[0], a[1], a[2]),
+      lambda running_state, _: execution_wrapper(*running_state[:3]),
       tf.range(hparams.epoch_length), initial_batch
   )
 
