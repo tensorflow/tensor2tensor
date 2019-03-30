@@ -27,7 +27,7 @@ from absl import flags
 from absl import logging
 
 import gin
-
+import jax
 from tensor2tensor.trax import trax
 
 FLAGS = flags.FLAGS
@@ -42,6 +42,8 @@ flags.DEFINE_multi_string("config_file", None,
 flags.DEFINE_multi_string("config", None,
                           "Configuration parameters (gin string).")
 flags.DEFINE_integer("log_level", logging.INFO, "Log level.")
+flags.DEFINE_bool("use_tpu", False, "Whether we're running on TPU.")
+
 
 
 def _default_output_dir():
@@ -85,6 +87,10 @@ def main(_):
   output_dir = FLAGS.output_dir or _default_output_dir()
   trax.log("Using --output_dir %s" % output_dir)
   output_dir = os.path.expanduser(output_dir)
+
+  # If on TPU, let JAX know.
+  if FLAGS.use_tpu:
+    jax.config.update("jax_platform_name", "tpu")
 
   trax.train(output_dir=output_dir)
 
