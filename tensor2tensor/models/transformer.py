@@ -1533,9 +1533,20 @@ class TransformerMemory(Transformer):
     self.recurrent_memory_by_layer = {}
     for layer in range(hparams.num_decoder_layers or hparams.num_hidden_layers):
       layer_name = "layer_%d" % layer
-      self.recurrent_memory_by_layer[
-          layer_name] = transformer_memory.RecentTokensMemory(
-              layer_name + "/recurrent_memory", hparams)
+      if hparams.memory_type == "neural_memory":
+        memory = transformer_memory.TransformerMemory(
+            batch_size=int(hparams.batch_size / hparams.max_length),
+            key_depth=hparams.hidden_size,
+            val_depth=hparams.hidden_size,
+            memory_size=hparams.split_targets_chunk_length,
+            sharpen_factor=1.,
+            name=layer_name + "/recurrent_memory")
+      elif hparams.memory_type == "transformer_xl":
+        memory = transformer_memory.RecentTokensMemory(
+            layer_name + "/recurrent_memory", hparams)
+      else:
+        raise ValueError("Unsupported memory type: %s" % hparams.memory_type)
+      self.recurrent_memory_by_layer[layer_name] = memory
 
   @property
   def has_input(self):
@@ -2640,6 +2651,7 @@ def transformer_wikitext103_l4k_memory_v0():
 
   hparams.split_targets_chunk_length = 64
   hparams.split_targets_max_chunks = 64
+  hparams.add_hparam("memory_type", "transformer_xl")
 
   # The hparams specify batch size *before* chunking, but we want to have a
   # consistent 4K batch size *after* chunking to fully utilize the hardware.
@@ -2705,3 +2717,4 @@ def transformer_cifar10_memory_v0():
       hparams.num_memory_items + hparams.split_targets_chunk_length)
 
   return hparams
+

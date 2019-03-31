@@ -98,5 +98,28 @@ class TransformerMemoryTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllEqual(0, zero1)
     self.assertAllEqual(0, zero2)
 
+  def testLoss(self):
+    batch_size = 2
+    key_depth = 5
+    val_depth = 5
+    memory_size = 4
+    window_size = 3
+    x_depth = 5
+    memory = transformer_memory.TransformerMemory(
+        batch_size, key_depth, val_depth, memory_size)
+    x = tf.random_uniform([batch_size, window_size, x_depth], minval=.0)
+    memory_results, _, _, _ = (
+        memory.pre_attention(
+            tf.random_uniform([batch_size], minval=0, maxval=1, dtype=tf.int32),
+            x, None, None))
+    x = memory.post_attention(memory_results, x)
+    with tf.control_dependencies([tf.print("x", x)]):
+      is_nan = tf.reduce_any(tf.math.is_nan(x))
+    with self.test_session() as session:
+      session.run(tf.global_variables_initializer())
+      for _ in range(100):
+        is_nan_value, _ = session.run([is_nan, x])
+    self.assertEqual(is_nan_value, False)
+
 if __name__ == "__main__":
   tf.test.main()
