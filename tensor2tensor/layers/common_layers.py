@@ -657,14 +657,22 @@ def layer_norm_vars(filters):
   return scale, bias
 
 
-def layer_norm_compute(x, epsilon, scale, bias):
+def layer_norm_compute(x, epsilon, scale, bias, layer_collection=None):
   """Layer norm raw computation."""
+
+  # Save these before they get converted to tensors by the casting below
+  params = (scale, bias)
+
   epsilon, scale, bias = [cast_like(t, x) for t in [epsilon, scale, bias]]
   mean = tf.reduce_mean(x, axis=[-1], keepdims=True)
   variance = tf.reduce_mean(
       tf.squared_difference(x, mean), axis=[-1], keepdims=True)
   norm_x = (x - mean) * tf.rsqrt(variance + epsilon)
-  return norm_x * scale + bias
+
+  output = norm_x * scale + bias
+
+
+  return output
 
 
 def layer_norm(x,
@@ -679,11 +687,8 @@ def layer_norm(x,
   with tf.variable_scope(
       name, default_name="layer_norm", values=[x], reuse=reuse):
     scale, bias = layer_norm_vars(filters)
-    if layer_collection:
-      tf.logging.info("Registering layer norm to collection with (scale, bias):"
-                      " ({}, {})".format(scale, bias))
-      layer_collection.register_generic((scale, bias), shape_list(x)[0])
-    return layer_norm_compute(x, epsilon, scale, bias)
+    return layer_norm_compute(x, epsilon, scale, bias,
+                              layer_collection=layer_collection)
 
 
 def group_norm(x, filters=None, num_groups=8, epsilon=1e-5):
