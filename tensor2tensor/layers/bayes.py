@@ -20,26 +20,299 @@ from __future__ import division
 from __future__ import print_function
 
 import functools
-import math
+from tensor2tensor.keras import constraints
+from tensor2tensor.keras import initializers
+from tensor2tensor.keras import regularizers
 
-import six
 import tensorflow as tf
 import tensorflow_probability as tfp
-
 from tensorflow_probability import edward2 as ed
 
 
-class Positive(tf.keras.constraints.Constraint):
-  """Positive constraint."""
+def add_weight(cls):
+  """Decorator for Layers, overriding add_weight for trainable initializers."""
+  @functools.wraps(cls.add_weight)
+  def _add_weight(self,
+                  name=None,
+                  shape=None,
+                  dtype=None,
+                  initializer=None,
+                  regularizer=None,
+                  **kwargs):
+    """Adds weight."""
+    if isinstance(initializer, tf.keras.layers.Layer):
+      weight = initializer(shape, dtype)
+      self._trainable_weights.extend(initializer.trainable_weights)  # pylint: disable=protected-access
+      self._non_trainable_weights.extend(initializer.non_trainable_weights)  # pylint: disable=protected-access
+      if regularizer is not None:
+        # TODO(trandustin): Replace need for this with
+        # Layer._handle_weight_regularization. For Eager compatibility, random
+        # variable __init__s cannot apply TF ops (cl/220898007).
+        def loss_fn():
+          """Creates a regularization loss `Tensor`."""
+          with tf.name_scope(name + '/Regularizer'):
+            return regularizer(initializer(shape, dtype))
+        self.add_loss(loss_fn)
+      return weight
+    return super(cls, self).add_weight(name=name,
+                                       shape=shape,
+                                       dtype=dtype,
+                                       initializer=initializer,
+                                       regularizer=regularizer,
+                                       **kwargs)
+  cls.add_weight = _add_weight
+  return cls
 
-  def __init__(self, epsilon=tf.keras.backend.epsilon()):
-    self.epsilon = epsilon
 
-  def __call__(self, w):
-    return tf.maximum(w, self.epsilon)
+@add_weight
+class Conv2DReparameterization(tf.keras.layers.Conv2D):
+  """2D convolution layer (e.g. spatial convolution over images).
 
-  def get_config(self):
-    return {'epsilon': self.epsilon}
+  The layer computes a variational Bayesian approximation to the distribution
+  over convolutional layers,
+
+  ```
+  p(outputs | inputs) = int conv2d(inputs; weights, bias) p(weights, bias)
+    dweights dbias.
+  ```
+
+  It does this with a stochastic forward pass, sampling from learnable
+  distributions on the kernel and bias. Gradients with respect to the
+  distributions' learnable parameters backpropagate via reparameterization.
+  Minimizing cross-entropy plus the layer's losses performs variational
+  minimum description length, i.e., it minimizes an upper bound to the negative
+  marginal likelihood.
+  """
+
+  def __init__(self,
+               filters,
+               kernel_size,
+               strides=(1, 1),
+               padding='valid',
+               data_format=None,
+               dilation_rate=(1, 1),
+               activation=None,
+               use_bias=True,
+               kernel_initializer='trainable_normal',
+               bias_initializer='zeros',
+               kernel_regularizer='normal_kl_divergence',
+               bias_regularizer=None,
+               activity_regularizer=None,
+               kernel_constraint=None,
+               bias_constraint=None,
+               **kwargs):
+    super(Conv2DReparameterization, self).__init__(
+        filters=filters,
+        kernel_size=kernel_size,
+        strides=strides,
+        padding=padding,
+        data_format=data_format,
+        dilation_rate=dilation_rate,
+        activation=activation,
+        use_bias=use_bias,
+        kernel_initializer=initializers.get(kernel_initializer),
+        bias_initializer=initializers.get(bias_initializer),
+        kernel_regularizer=regularizers.get(kernel_regularizer),
+        bias_regularizer=regularizers.get(bias_regularizer),
+        activity_regularizer=regularizers.get(activity_regularizer),
+        kernel_constraint=constraints.get(kernel_constraint),
+        bias_constraint=constraints.get(bias_constraint),
+        **kwargs)
+
+  def call_weights(self):
+    """Calls any weights if the initializer is itself a layer."""
+    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
+      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
+    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
+      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
+
+  def call(self, *args, **kwargs):
+    self.call_weights()
+    return super(Conv2DReparameterization, self).call(*args, **kwargs)
+
+
+@add_weight
+class DenseReparameterization(tf.keras.layers.Dense):
+  """Bayesian densely-connected layer estimated via reparameterization.
+
+  The layer computes a variational Bayesian approximation to the distribution
+  over densely-connected layers,
+
+  ```
+  p(outputs | inputs) = int dense(inputs; weights, bias) p(weights, bias)
+    dweights dbias.
+  ```
+
+  It does this with a stochastic forward pass, sampling from learnable
+  distributions on the kernel and bias. Gradients with respect to the
+  distributions' learnable parameters backpropagate via reparameterization.
+  Minimizing cross-entropy plus the layer's losses performs variational
+  minimum description length, i.e., it minimizes an upper bound to the negative
+  marginal likelihood.
+  """
+
+  def __init__(self,
+               units,
+               activation=None,
+               use_bias=True,
+               kernel_initializer='trainable_normal',
+               bias_initializer='zero',
+               kernel_regularizer='normal_kl_divergence',
+               bias_regularizer=None,
+               activity_regularizer=None,
+               **kwargs):
+    super(DenseReparameterization, self).__init__(
+        units=units,
+        activation=activation,
+        use_bias=use_bias,
+        kernel_initializer=initializers.get(kernel_initializer),
+        bias_initializer=initializers.get(bias_initializer),
+        kernel_regularizer=regularizers.get(kernel_regularizer),
+        bias_regularizer=regularizers.get(bias_regularizer),
+        activity_regularizer=regularizers.get(activity_regularizer),
+        **kwargs)
+
+  def call_weights(self):
+    """Calls any weights if the initializer is itself a layer."""
+    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
+      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
+    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
+      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
+
+  def call(self, *args, **kwargs):
+    self.call_weights()
+    return super(DenseReparameterization, self).call(*args, **kwargs)
+
+
+@add_weight
+class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
+  """Bayesian LSTM cell class estimated via reparameterization.
+
+  The layer computes a variational Bayesian approximation to the distribution
+  over LSTM cell functions,
+
+  ```
+  p(outputs | inputs) = int lstm_cell(inputs; weights, bias) p(weights, bias)
+    dweights dbias,
+  ```
+
+  where the weights consist of both input and recurrent weights.
+
+  It does this with a stochastic forward pass, sampling from learnable
+  distributions on the kernel, recurrent kernel, and bias. Gradients with
+  respect to the distributions' learnable parameters backpropagate via
+  reparameterization.  Minimizing cross-entropy plus the layer's losses performs
+  variational minimum description length, i.e., it minimizes an upper bound to
+  the negative marginal likelihood.
+  """
+
+  def __init__(self,
+               units,
+               activation='tanh',
+               recurrent_activation='hard_sigmoid',
+               use_bias=True,
+               kernel_initializer='trainable_normal',
+               recurrent_initializer='trainable_normal',
+               bias_initializer='zeros',
+               unit_forget_bias=True,
+               kernel_regularizer='normal_kl_divergence',
+               recurrent_regularizer='normal_kl_divergence',
+               bias_regularizer=None,
+               kernel_constraint=None,
+               recurrent_constraint=None,
+               bias_constraint=None,
+               dropout=0.,
+               recurrent_dropout=0.,
+               implementation=1,
+               **kwargs):
+    super(LSTMCellReparameterization, self).__init__(
+        units=units,
+        activation=activation,
+        recurrent_activation=recurrent_activation,
+        use_bias=use_bias,
+        kernel_initializer=initializers.get(kernel_initializer),
+        recurrent_initializer=initializers.get(recurrent_initializer),
+        bias_initializer=initializers.get(bias_initializer),
+        unit_forget_bias=unit_forget_bias,
+        kernel_regularizer=regularizers.get(kernel_regularizer),
+        recurrent_regularizer=regularizers.get(recurrent_regularizer),
+        bias_regularizer=regularizers.get(bias_regularizer),
+        kernel_constraint=constraints.get(kernel_constraint),
+        recurrent_constraint=constraints.get(recurrent_constraint),
+        bias_constraint=constraints.get(bias_constraint),
+        dropout=dropout,
+        recurrent_dropout=recurrent_dropout,
+        implementation=implementation,
+        **kwargs)
+
+  def build(self, input_shape):
+    input_shape = tf.TensorShape(input_shape)
+    input_dim = input_shape[-1]
+    if isinstance(input_dim, tf.Dimension):
+      input_dim = input_dim.value
+    self.kernel = self.add_weight(
+        shape=(input_dim, self.units * 4),
+        name='kernel',
+        initializer=self.kernel_initializer,
+        regularizer=self.kernel_regularizer,
+        constraint=self.kernel_constraint)
+    self.recurrent_kernel = self.add_weight(
+        shape=(self.units, self.units * 4),
+        name='recurrent_kernel',
+        initializer=self.recurrent_initializer,
+        regularizer=self.recurrent_regularizer,
+        constraint=self.recurrent_constraint)
+
+    if self.use_bias:
+      if self.unit_forget_bias:
+        if isinstance(self.bias_initializer, tf.keras.layers.Layer):
+          def bias_mean_initializer(_, *args, **kwargs):
+            return tf.concat([
+                tf.keras.initializers.truncated_normal(
+                    stddev=1e-5)((self.units,), *args, **kwargs),
+                tf.keras.initializers.truncated_normal(
+                    mean=1., stddev=1e-5)((self.units,), *args, **kwargs),
+                tf.keras.initializers.truncated_normal(
+                    stddev=1e-5)((self.units * 2,), *args, **kwargs),
+            ], axis=0)
+          bias_initializer = initializers.TrainableNormal(
+              mean_initializer=bias_mean_initializer)
+        else:
+          def bias_initializer(_, *args, **kwargs):
+            return tf.keras.backend.concatenate([
+                self.bias_initializer((self.units,), *args, **kwargs),
+                tf.keras.initializers.Ones()((self.units,), *args, **kwargs),
+                self.bias_initializer((self.units * 2,), *args, **kwargs),
+            ])
+      else:
+        bias_initializer = self.bias_initializer
+      self.bias = self.add_weight(
+          shape=(self.units * 4,),
+          name='bias',
+          initializer=bias_initializer,
+          regularizer=self.bias_regularizer,
+          constraint=self.bias_constraint)
+    else:
+      self.bias = None
+    self.built = True
+
+  def call_weights(self):
+    """Calls any weights if the initializer is itself a layer."""
+    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
+      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
+    if isinstance(self.recurrent_initializer, tf.keras.layers.Layer):
+      self.recurrent_kernel = self.recurrent_initializer(
+          self.recurrent_kernel.shape, self.dtype)
+    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
+      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
+
+  # NOTE: This will not be called in TF < 1.11.
+  def get_initial_state(self, inputs=None, batch_size=None, dtype=None):
+    """Get the initial state and side-effect sampling of stochastic weights."""
+    if self.built:
+      self.call_weights()
+    return super(LSTMCellReparameterization, self).get_initial_state(
+        inputs=inputs, batch_size=batch_size, dtype=dtype)
 
 
 class Zeros(object):
@@ -123,412 +396,6 @@ class LinearKernel(object):
         'bias': self.bias,
         'encoder': tf.keras.utils.serialize_keras_object(self.encoder),
     }
-
-
-# From `tensorflow/python/ops/init_ops.py`
-def _compute_fans(shape):
-  """Computes the number of input and output units for a weight shape.
-
-  Args:
-    shape: Integer shape tuple or TF tensor shape.
-
-  Returns:
-    A tuple of scalars (fan_in, fan_out).
-  """
-  if len(shape) < 1:  # Just to avoid errors for constants.
-    fan_in = fan_out = 1
-  elif len(shape) == 1:
-    fan_in = fan_out = shape[0]
-  elif len(shape) == 2:
-    fan_in = shape[0]
-    fan_out = shape[1]
-  else:
-    # Assuming convolution kernels (2D, 3D, or more).
-    # kernel shape: (..., input_depth, depth)
-    receptive_field_size = 1.
-    for dim in shape[:-2]:
-      receptive_field_size *= dim
-    fan_in = shape[-2] * receptive_field_size
-    fan_out = shape[-1] * receptive_field_size
-  if isinstance(fan_in, tf.Dimension):
-    fan_in = fan_in.value
-  if isinstance(fan_out, tf.Dimension):
-    fan_out = fan_out.value
-  return fan_in, fan_out
-
-
-class ScaledNormalStdDev(tf.keras.initializers.VarianceScaling):
-  """Initializer capable of adapting its scale to the shape of weights tensors.
-
-  This initializes the standard deviation parameter of a Trainable Normal
-  distribution with a scale based on the shape of the weights tensor.
-  Additionally, A small amount of noise will be added to break weigh symmetry.
-
-  With `distribution="truncated_normal" or "untruncated_normal"`, the standard
-  deviation (after truncation, if used) is `stddev = sqrt(scale / n)`, where n
-  is:
-    - number of input units in the weight tensor, if mode = "fan_in"
-    - number of output units, if mode = "fan_out"
-    - average of the numbers of input and output units, if mode = "fan_avg"
-
-  Args:
-    scale: Scaling factor (positive float).
-    mode: One of "fan_in", "fan_out", "fan_avg".
-    distribution: Random distribution to use. One of "truncated_normal", or
-      "untruncated_normal".
-    seed: A Python integer. Used to create random seeds. See
-      `tf.set_random_seed`
-      for behavior.
-    dtype: The data type. Only floating point types are supported.
-
-  Raises:
-    ValueError: In case of an invalid value for the "scale", mode" or
-      "distribution" arguments.
-  """
-
-  def __init__(self,
-               scale=1.0,
-               mode='fan_in',
-               distribution='untruncated_normal',
-               seed=None,
-               dtype=tf.float32):
-    distribution = distribution.lower()
-    if distribution not in {'truncated_normal', 'untruncated_normal'}:
-      raise ValueError('Invalid `distribution` argument:', distribution)
-    super(ScaledNormalStdDev, self).__init__(scale=scale, mode=mode,
-                                             distribution=distribution,
-                                             seed=seed, dtype=dtype)
-
-  def __call__(self, shape, dtype=None, partition_info=None):
-    if dtype is None:
-      dtype = self.dtype
-    scale = self.scale
-    scale_shape = shape
-    if partition_info is not None:
-      scale_shape = partition_info.full_shape
-    fan_in, fan_out = _compute_fans(scale_shape)
-    if self.mode == 'fan_in':
-      scale /= max(1., fan_in)
-    elif self.mode == 'fan_out':
-      scale /= max(1., fan_out)
-    else:
-      scale /= max(1., (fan_in + fan_out) / 2.)
-    if self.distribution == 'truncated_normal':
-      # constant from scipy.stats.truncnorm.std(a=-2, b=2, loc=0., scale=1.)
-      stddev = math.sqrt(scale) / .87962566103423978
-    else:  # self.distribution == 'untruncated_normal':
-      stddev = math.sqrt(scale)
-    return tf.random.truncated_normal(shape, mean=stddev, stddev=stddev*0.1,
-                                      dtype=dtype)
-
-
-class TrainableNormal(tf.keras.layers.Layer):
-  """Random normal op as an initializer with trainable mean and stddev."""
-
-  def __init__(self,
-               mean_initializer=tf.keras.initializers.truncated_normal(
-                   stddev=1e-5),
-               stddev_initializer='scaled_normal_std_dev',
-               mean_regularizer=None,
-               stddev_regularizer=None,
-               mean_constraint=None,
-               stddev_constraint='positive',
-               seed=None,
-               dtype=tf.float32,
-               **kwargs):
-    """Constructs the initializer."""
-    super(TrainableNormal, self).__init__(dtype=dtype, **kwargs)
-    self.mean_initializer = get(mean_initializer)
-    self.stddev_initializer = get(stddev_initializer)
-    self.mean_regularizer = get(mean_regularizer)
-    self.stddev_regularizer = get(stddev_regularizer)
-    self.mean_constraint = get(mean_constraint)
-    self.stddev_constraint = get(stddev_constraint)
-    self.seed = seed
-
-  def build(self, shape, dtype=None):
-    if dtype is None:
-      dtype = self.dtype
-
-    self.mean = self.add_weight(
-        'mean',
-        shape=shape,
-        initializer=self.mean_initializer,
-        regularizer=self.mean_regularizer,
-        constraint=self.mean_constraint,
-        dtype=dtype,
-        trainable=True)
-    self.stddev = self.add_weight(
-        'stddev',
-        shape=shape,
-        initializer=self.stddev_initializer,
-        regularizer=self.stddev_regularizer,
-        constraint=self.stddev_constraint,
-        dtype=dtype,
-        trainable=True)
-    self.built = True
-
-  def __call__(self, shape, dtype=None, partition_info=None):
-    del partition_info  # unused arg
-    if not self.built:
-      self.build(shape, dtype)
-    return ed.Independent(
-        ed.Normal(loc=self.mean, scale=self.stddev).distribution,
-        reinterpreted_batch_ndims=len(shape))
-
-  def get_config(self):
-    return {
-        'mean_initializer':
-            tf.keras.initializers.serialize(self.mean_initializer),
-        'stddev_initializer':
-            tf.keras.initializers.serialize(self.stddev_initializer),
-        'mean_regularizer':
-            tf.keras.regularizers.serialize(self.mean_regularizer),
-        'stddev_regularizer':
-            tf.keras.regularizers.serialize(self.stddev_regularizer),
-        'mean_constraint':
-            tf.keras.constraints.serialize(self.mean_constraint),
-        'stddev_constraint':
-            tf.keras.constraints.serialize(self.stddev_constraint),
-        'seed': self.seed,
-        'dtype': self.dtype,
-    }
-
-
-class TrainableHeNormal(TrainableNormal):
-  """Trainable normal initialized per He et al. 2015, given a ReLU nonlinearity.
-
-  The distribution is initialized to a Normal scaled by `sqrt(2 / fan_in)`,
-  where `fan_in` is the number of input units. A ReLU nonlinearity is assumed
-  for this initialization scheme.
-
-  References:
-    He K, Zhang X, Ren S, Sun J. Delving deep into rectifiers: Surpassing
-    human-level performance on imagenet classification. In Proceedings of the
-    IEEE international conference on computer vision 2015 (pp. 1026-1034).
-    https://arxiv.org/abs/1502.01852
-  """
-
-  def __init__(self, seed=None, dtype=tf.float32):
-    super(TrainableHeNormal, self).__init__(
-        stddev_initializer=ScaledNormalStdDev(scale=2.0, seed=seed,
-                                              dtype=dtype),
-        seed=seed, dtype=dtype)
-
-  def get_config(self):
-    return {
-        'seed': self.seed,
-        'dtype': self.dtype,
-    }
-
-
-class TrainableGlorotNormal(TrainableNormal):
-  """Trainable normal initialized per Glorot and Bengio, 2010.
-
-  The distribution is initialized to a Normal scaled by `sqrt(2 / fan_in +
-  fan_out)`, where `fan_in` is the number of input units and `fan_out` is the
-  number of output units.
-
-  References:
-    Glorot X, Bengio Y. Understanding the difficulty of training deep
-    feedforward neural networks. In Proceedings of the thirteenth international
-    conference on artificial intelligence and statistics 2010 Mar 31 (pp.
-    249-256). http://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf
-  """
-
-  def __init__(self, seed=None, dtype=tf.float32):
-    super(TrainableGlorotNormal, self).__init__(
-        stddev_initializer=ScaledNormalStdDev(mode='fan_avg', seed=seed,
-                                              dtype=dtype),
-        seed=seed, dtype=dtype)
-
-  def get_config(self):
-    return {
-        'seed': self.seed,
-        'dtype': self.dtype
-    }
-
-
-class NormalKLDivergence(tf.keras.regularizers.Regularizer):
-  """KL divergence regularizer from one normal distribution to another."""
-
-  def __init__(self, mean=0., stddev=1.):
-    """Construct regularizer where default is a KL towards the std normal."""
-    self.mean = mean
-    self.stddev = stddev
-
-  def __call__(self, x):
-    """Computes regularization given an ed.Normal random variable as input."""
-    if not isinstance(x, ed.RandomVariable):
-      raise ValueError('Input must be an ed.RandomVariable.')
-    random_variable = ed.Independent(
-        ed.Normal(
-            loc=tf.broadcast_to(self.mean, x.distribution.event_shape),
-            scale=tf.broadcast_to(self.stddev, x.distribution.event_shape)
-        ).distribution,
-        reinterpreted_batch_ndims=len(x.distribution.event_shape))
-    return random_variable.distribution.kl_divergence(x.distribution)
-
-  def get_config(self):
-    return {
-        'mean': self.mean,
-        'stddev': self.stddev,
-    }
-
-
-def add_weight(cls):
-  """Decorator for Layers, overriding add_weight for trainable initializers."""
-  @functools.wraps(cls.add_weight)
-  def _add_weight(self,
-                  name=None,
-                  shape=None,
-                  dtype=None,
-                  initializer=None,
-                  regularizer=None,
-                  **kwargs):
-    """Adds weight."""
-    if isinstance(initializer, tf.keras.layers.Layer):
-      weight = initializer(shape, dtype)
-      self._trainable_weights.extend(initializer.trainable_weights)  # pylint: disable=protected-access
-      self._non_trainable_weights.extend(initializer.non_trainable_weights)  # pylint: disable=protected-access
-      if regularizer is not None:
-        # TODO(trandustin): Replace need for this with
-        # Layer._handle_weight_regularization. For Eager compatibility, random
-        # variable __init__s cannot apply TF ops (cl/220898007).
-        def loss_fn():
-          """Creates a regularization loss `Tensor`."""
-          with tf.name_scope(name + '/Regularizer'):
-            return regularizer(initializer(shape, dtype))
-        self.add_loss(loss_fn)
-      return weight
-    return super(cls, self).add_weight(name=name,
-                                       shape=shape,
-                                       dtype=dtype,
-                                       initializer=initializer,
-                                       regularizer=regularizer,
-                                       **kwargs)
-  cls.add_weight = _add_weight
-  return cls
-
-
-@add_weight
-class DenseReparameterization(tf.keras.layers.Dense):
-  """Bayesian densely-connected layer estimated via reparameterization.
-
-  The layer computes a variational Bayesian approximation to the distribution
-  over densely-connected layers,
-
-  ```
-  p(outputs | inputs) = int dense(inputs; weights, bias) p(weights, bias)
-    dweights dbias.
-  ```
-
-  It does this with a stochastic forward pass, sampling from learnable
-  distributions on the kernel and bias. Gradients with respect to the
-  distributions' learnable parameters backpropagate via reparameterization.
-  Minimizing cross-entropy plus the layer's losses performs variational
-  minimum description length, i.e., it minimizes an upper bound to the negative
-  marginal likelihood.
-  """
-
-  def __init__(self,
-               units,
-               activation=None,
-               use_bias=True,
-               kernel_initializer='trainable_normal',
-               bias_initializer='zero',
-               kernel_regularizer='normal_kl_divergence',
-               bias_regularizer=None,
-               activity_regularizer=None,
-               **kwargs):
-    super(DenseReparameterization, self).__init__(
-        units=units,
-        activation=get(activation),
-        use_bias=use_bias,
-        kernel_initializer=get(kernel_initializer),
-        bias_initializer=get(bias_initializer),
-        kernel_regularizer=get(kernel_regularizer),
-        bias_regularizer=get(bias_regularizer),
-        activity_regularizer=get(activity_regularizer),
-        **kwargs)
-
-  def call_weights(self):
-    """Calls any weights if the initializer is itself a layer."""
-    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
-      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
-    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
-      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
-
-  def call(self, *args, **kwargs):
-    self.call_weights()
-    return super(DenseReparameterization, self).call(*args, **kwargs)
-
-
-@add_weight
-class Conv2DReparameterization(tf.keras.layers.Conv2D):
-  """2D convolution layer (e.g. spatial convolution over images).
-
-  The layer computes a variational Bayesian approximation to the distribution
-  over convolutional layers,
-
-  ```
-  p(outputs | inputs) = int conv2d(inputs; weights, bias) p(weights, bias)
-    dweights dbias.
-  ```
-
-  It does this with a stochastic forward pass, sampling from learnable
-  distributions on the kernel and bias. Gradients with respect to the
-  distributions' learnable parameters backpropagate via reparameterization.
-  Minimizing cross-entropy plus the layer's losses performs variational
-  minimum description length, i.e., it minimizes an upper bound to the negative
-  marginal likelihood.
-  """
-
-  def __init__(self,
-               filters,
-               kernel_size,
-               strides=(1, 1),
-               padding='valid',
-               data_format=None,
-               dilation_rate=(1, 1),
-               activation=None,
-               use_bias=True,
-               kernel_initializer='trainable_normal',
-               bias_initializer='zeros',
-               kernel_regularizer='normal_kl_divergence',
-               bias_regularizer=None,
-               activity_regularizer=None,
-               kernel_constraint=None,
-               bias_constraint=None,
-               **kwargs):
-    super(Conv2DReparameterization, self).__init__(
-        filters=filters,
-        kernel_size=kernel_size,
-        strides=strides,
-        padding=padding,
-        data_format=data_format,
-        dilation_rate=dilation_rate,
-        activation=get(activation),
-        use_bias=use_bias,
-        kernel_initializer=get(kernel_initializer),
-        bias_initializer=get(bias_initializer),
-        kernel_regularizer=get(kernel_regularizer),
-        bias_regularizer=get(bias_regularizer),
-        activity_regularizer=get(activity_regularizer),
-        kernel_constraint=get(kernel_constraint),
-        bias_constraint=get(bias_constraint),
-        **kwargs)
-
-  def call_weights(self):
-    """Calls any weights if the initializer is itself a layer."""
-    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
-      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
-    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
-      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
-
-  def call(self, *args, **kwargs):
-    self.call_weights()
-    return super(Conv2DReparameterization, self).call(*args, **kwargs)
 
 
 class GaussianProcess(tf.keras.layers.Layer):
@@ -684,137 +551,6 @@ class GaussianProcess(tf.keras.layers.Layer):
     return dict(list(base_config.items()) + list(config.items()))
 
 
-@add_weight
-class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
-  """Bayesian LSTM cell class estimated via reparameterization.
-
-  The layer computes a variational Bayesian approximation to the distribution
-  over LSTM cell functions,
-
-  ```
-  p(outputs | inputs) = int lstm_cell(inputs; weights, bias) p(weights, bias)
-    dweights dbias,
-  ```
-
-  where the weights consist of both input and recurrent weights.
-
-  It does this with a stochastic forward pass, sampling from learnable
-  distributions on the kernel, recurrent kernel, and bias. Gradients with
-  respect to the distributions' learnable parameters backpropagate via
-  reparameterization.  Minimizing cross-entropy plus the layer's losses performs
-  variational minimum description length, i.e., it minimizes an upper bound to
-  the negative marginal likelihood.
-  """
-
-  def __init__(self,
-               units,
-               activation='tanh',
-               recurrent_activation='hard_sigmoid',
-               use_bias=True,
-               kernel_initializer='trainable_normal',
-               recurrent_initializer='trainable_normal',
-               bias_initializer='zeros',
-               unit_forget_bias=True,
-               kernel_regularizer='normal_kl_divergence',
-               recurrent_regularizer='normal_kl_divergence',
-               bias_regularizer=None,
-               kernel_constraint=None,
-               recurrent_constraint=None,
-               bias_constraint=None,
-               dropout=0.,
-               recurrent_dropout=0.,
-               implementation=1,
-               **kwargs):
-    super(LSTMCellReparameterization, self).__init__(
-        units=units,
-        activation=get(activation),
-        recurrent_activation=get(recurrent_activation),
-        use_bias=use_bias,
-        kernel_initializer=get(kernel_initializer),
-        recurrent_initializer=get(recurrent_initializer),
-        bias_initializer=get(bias_initializer),
-        unit_forget_bias=unit_forget_bias,
-        kernel_regularizer=get(kernel_regularizer),
-        recurrent_regularizer=get(recurrent_regularizer),
-        bias_regularizer=get(bias_regularizer),
-        kernel_constraint=get(kernel_constraint),
-        recurrent_constraint=get(recurrent_constraint),
-        bias_constraint=get(bias_constraint),
-        dropout=dropout,
-        recurrent_dropout=recurrent_dropout,
-        implementation=implementation,
-        **kwargs)
-
-  def build(self, input_shape):
-    input_shape = tf.TensorShape(input_shape)
-    input_dim = input_shape[-1]
-    if isinstance(input_dim, tf.Dimension):
-      input_dim = input_dim.value
-    self.kernel = self.add_weight(
-        shape=(input_dim, self.units * 4),
-        name='kernel',
-        initializer=self.kernel_initializer,
-        regularizer=self.kernel_regularizer,
-        constraint=self.kernel_constraint)
-    self.recurrent_kernel = self.add_weight(
-        shape=(self.units, self.units * 4),
-        name='recurrent_kernel',
-        initializer=self.recurrent_initializer,
-        regularizer=self.recurrent_regularizer,
-        constraint=self.recurrent_constraint)
-
-    if self.use_bias:
-      if self.unit_forget_bias:
-        if isinstance(self.bias_initializer, tf.keras.layers.Layer):
-          def bias_mean_initializer(_, *args, **kwargs):
-            return tf.concat([
-                tf.keras.initializers.truncated_normal(
-                    stddev=1e-5)((self.units,), *args, **kwargs),
-                tf.keras.initializers.truncated_normal(
-                    mean=1., stddev=1e-5)((self.units,), *args, **kwargs),
-                tf.keras.initializers.truncated_normal(
-                    stddev=1e-5)((self.units * 2,), *args, **kwargs),
-            ], axis=0)
-          bias_initializer = TrainableNormal(
-              mean_initializer=bias_mean_initializer)
-        else:
-          def bias_initializer(_, *args, **kwargs):
-            return tf.keras.backend.concatenate([
-                self.bias_initializer((self.units,), *args, **kwargs),
-                tf.keras.initializers.Ones()((self.units,), *args, **kwargs),
-                self.bias_initializer((self.units * 2,), *args, **kwargs),
-            ])
-      else:
-        bias_initializer = self.bias_initializer
-      self.bias = self.add_weight(
-          shape=(self.units * 4,),
-          name='bias',
-          initializer=bias_initializer,
-          regularizer=self.bias_regularizer,
-          constraint=self.bias_constraint)
-    else:
-      self.bias = None
-    self.built = True
-
-  def call_weights(self):
-    """Calls any weights if the initializer is itself a layer."""
-    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
-      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
-    if isinstance(self.recurrent_initializer, tf.keras.layers.Layer):
-      self.recurrent_kernel = self.recurrent_initializer(
-          self.recurrent_kernel.shape, self.dtype)
-    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
-      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
-
-  # NOTE: This will not be called in TF < 1.11.
-  def get_initial_state(self, inputs=None, batch_size=None, dtype=None):
-    """Get the initial state and side-effect sampling of stochastic weights."""
-    if self.built:
-      self.call_weights()
-    return super(LSTMCellReparameterization, self).get_initial_state(
-        inputs=inputs, batch_size=batch_size, dtype=dtype)
-
-
 class BayesianLinearModel(tf.keras.Model):
   r"""Bayesian linear model with standard normal prior over its coefficients.
 
@@ -901,47 +637,3 @@ class MixtureLogistic(tf.keras.layers.Layer):
     config = {'num_components': self.num_components}
     base_config = super(MixtureLogistic, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
-
-
-# Compatibility aliases, following tf.keras
-
-# pylint: disable=invalid-name
-positive = Positive
-scaled_normal_std_dev = ScaledNormalStdDev
-trainable_normal = TrainableNormal
-trainable_he_normal = TrainableHeNormal
-trainable_glorot_normal = TrainableGlorotNormal
-normal_kl_divergence = NormalKLDivergence
-# pylint: enable=invalid-name
-
-# Utility functions, following tf.keras
-
-
-def deserialize(config, custom_objects=None):
-  return tf.keras.utils.deserialize_keras_object(
-      config,
-      module_objects=globals(),
-      custom_objects=custom_objects,
-      printable_module_name='bayes')
-
-
-def get(identifier, value=None):
-  """Getter for loading from strings; returns value if can't load."""
-  if value is None:
-    value = identifier
-  if identifier is None:
-    return None
-  elif isinstance(identifier, dict):
-    try:
-      return deserialize(identifier)
-    except ValueError:
-      return value
-  elif isinstance(identifier, six.string_types):
-    config = {'class_name': str(identifier), 'config': {}}
-    try:
-      return deserialize(config)
-    except ValueError:
-      return value
-  elif callable(identifier):
-    return identifier
-  return value

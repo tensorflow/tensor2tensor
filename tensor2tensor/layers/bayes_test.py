@@ -35,7 +35,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
   @test_utils.run_in_graph_and_eager_modes
   def testTrainableNormalStddevConstraint(self):
     layer = bayes.DenseReparameterization(
-        100, kernel_initializer=bayes.TrainableNormal())
+        100, kernel_initializer="trainable_normal")
     inputs = tf.random_normal([1, 1])
     out = layer(inputs)
     stddev = layer.kernel.distribution.stddev()
