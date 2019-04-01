@@ -35,9 +35,9 @@ Inputs = collections.namedtuple(
     "_Inputs", ["train_stream", "eval_stream", "input_shape"])
 
 # How many examples from the stream to skip at random during training.
-# For now, we skip at most 1M examples.
-# TODO(lukaszkaiser): does it matter for efficiency, should that be changed?
-_MAX_SKIP_EXAMPLES = 1e6
+# For now, we skip at most 100K examples for efficiency.
+# TODO(lukaszkaiser): can we improve efficiency, should that be changed?
+_MAX_SKIP_EXAMPLES = 1e5
 
 
 @gin.configurable()

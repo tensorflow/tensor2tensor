@@ -74,10 +74,10 @@ def neg_log_perplexity(batch, model_predictions):
   return masked_mean(xent, targets)
 
 
-def loss(params, batch, model_predict):
+def loss(params, batch, model_predict, rng):
   """Calculate loss."""
   inputs, targets = batch
-  preds = model_predict(params, inputs)
+  preds = model_predict(params, inputs, rng=rng)
   xent = np.sum(preds * stax.one_hot(targets, preds.shape[-1]), axis=-1)
   return - masked_mean(xent, targets)
 
@@ -134,7 +134,7 @@ _METRICS = {
 }
 
 
-def evaluate_train_and_eval(step, inputs, predict_fun, eval_steps,
+def evaluate_train_and_eval(step, inputs, predict_fun, eval_steps, rng,
                             train_sw=None, eval_sw=None, history=None):
   """Evalaute on train and eval data, and log metrics."""
   step_log(step, "Evaluation")
@@ -142,7 +142,8 @@ def evaluate_train_and_eval(step, inputs, predict_fun, eval_steps,
       evaluate(  # pylint: disable=g-complex-comprehension
           itertools.islice(input_stream(), eval_steps),
           predict_fun,
-          _METRICS)
+          _METRICS,
+          rng)
       for input_stream in
       [inputs.train_stream, inputs.eval_stream]]
   if train_sw:
@@ -152,7 +153,7 @@ def evaluate_train_and_eval(step, inputs, predict_fun, eval_steps,
   return train_metrics, eval_metrics
 
 
-def evaluate(inputs_stream, predict_fun, metric_funs):
+def evaluate(inputs_stream, predict_fun, metric_funs, rng):
   """Evaluate.
 
   Args:
@@ -161,6 +162,7 @@ def evaluate(inputs_stream, predict_fun, metric_funs):
       partially applied.
     metric_funs: dict from metric name to metric function, which takes inputs
       and predictions and returns a scalar metric value.
+    rng: random number generator.
 
   Returns:
     metrics: dict from metric name to metric value averaged over the number of
@@ -170,7 +172,8 @@ def evaluate(inputs_stream, predict_fun, metric_funs):
   count = 0
   for inp in inputs_stream:
     count += 1
-    preds = predict_fun(inp[0])
+    rng, subrng = jax.random.split(rng)
+    preds = predict_fun(inp[0], rng=subrng)
     for m, f in six.iteritems(metric_funs):
       metrics[m] += f(inp, preds)
   return {m: v / count for (m, v) in six.iteritems(metrics)}
@@ -238,8 +241,17 @@ def epochs(steps=None, epoch_steps=1):
       break
 
 
-def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun):
+def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun, num_devices):
   """Get jit-ed update function for loss, optimizer, learning rate function."""
+  if num_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
+    @jax.jit
+    def single_update(i, opt_state, batch, rng):
+      _, opt_update = optimizer(lr_fun)
+      params = jax_opt.get_params(opt_state)
+      return opt_update(i, jax.grad(loss_fun)(
+          params, batch, predict_fun, rng), opt_state)
+    return single_update
+
   @functools.partial(jax.pmap, axis_name="batch")
   def mapped_update(i, opt_state, batch):
     _, opt_update = optimizer(lr_fun)
@@ -319,23 +331,20 @@ def train(output_dir,
   history = state.history
   lr_fun = lr_schedule(history)
   opt_init, _ = optimizer(lr_fun)
-  model_init, model_predict_original = model()
-  # We need a model_predict that fills in the random generator if needed.
-  def model_predict(x, y, **kwargs):
-    """Same as model_predict_original but fill in rng if it isn't passed."""
-    if "rng" in kwargs:
-      return model_predict_original(x, y, **kwargs)
-    return model_predict_original(x, y, rng=rng, **kwargs)
+  model_init, model_predict = model()
 
   # Setup state
   step = state.step or 0
   params_initializer = lambda: model_init([-1] + list(inputs.input_shape))[1]
   params = state.params or params_initializer()
-  opt_state = jax.replicate(opt_init(params))
+  opt_state = opt_init(params)
+  if num_devices > 1:  # TODO(lukaszkaiser): use everywhere when pmap is stable.
+    opt_state = jax.replicate(opt_state)
 
   # jit model_predict and update so they're fast
   jit_model_predict = jax.jit(model_predict)  # for evaluation
-  jit_update_fun = _jit_update_fun(model_predict, loss, optimizer, lr_fun)
+  jit_update_fun = _jit_update_fun(model_predict, loss, optimizer, lr_fun,
+                                   num_devices)
 
   print()
   train_stream = inputs.train_stream()
@@ -346,7 +355,7 @@ def train(output_dir,
 
   # Non-compiled debug step helps find problems in models easier.
   if run_debug_step:
-    debug_loss = loss(params, next(train_stream), model_predict)
+    debug_loss = loss(params, next(train_stream), model_predict, rng)
     step_log(step, "Debug step loss %.8f" % debug_loss)
 
   for epoch, epoch_steps in epochs(train_steps, epoch_steps):
@@ -358,8 +367,11 @@ def train(output_dir,
 
     for _ in range(epoch_steps):
       # Train
-      next_train_batch = reshape_by_device(next(train_stream), num_devices)
-      opt_state = jit_update_fun(step, opt_state, next_train_batch)
+      next_train_batch = next(train_stream)
+      if num_devices > 1:  # TODO(lukaszkaiser): use everywhere when possible.
+        next_train_batch = reshape_by_device(next_train_batch, num_devices)
+      rng, subrng = jax.random.split(rng)
+      opt_state = jit_update_fun(step, opt_state, next_train_batch, subrng)
       step += 1
 
       # LR log
@@ -376,12 +388,16 @@ def train(output_dir,
                       epoch_steps / epoch_time, step=step)
 
     # Evaluate
-    params = jax_opt.get_params(jax.unreplicate(opt_state))
+    if num_devices > 1:   # TODO(lukaszkaiser): remove branch when possible.
+      params = jax_opt.get_params(jax.unreplicate(opt_state))
+    else:
+      params = jax_opt.get_params(opt_state)
     evaluate_train_and_eval(
         step=step,
         inputs=inputs,
         predict_fun=functools.partial(jit_model_predict, params),
         eval_steps=eval_steps,
+        rng=rng,
         train_sw=train_sw,
         eval_sw=eval_sw,
         history=history)
@@ -398,7 +414,8 @@ def train(output_dir,
     old_lr_fun = lr_fun
     lr_fun = lr_schedule(history)
     if lr_fun != old_lr_fun:  # For performance, only jit if there is a change.
-      jit_update_fun = _jit_update_fun(model_predict, loss, optimizer, lr_fun)
+      jit_update_fun = _jit_update_fun(model_predict, loss, optimizer, lr_fun,
+                                       num_devices)
 
     # Flush summary writers
     train_sw.writer.flush()
