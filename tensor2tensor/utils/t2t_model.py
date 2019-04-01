@@ -1532,8 +1532,11 @@ class T2TModel(base.Layer):
   def initialize_from_ckpt(self, ckpt_dir):
     return initialize_from_ckpt(ckpt_dir=ckpt_dir, hparams=self._hparams)
 
-  def create_host_call(self):
+  def create_train_host_call(self):
     return create_host_call(self.hparams.model_dir)
+
+  def create_eval_host_call(self):
+    return self.create_train_host_call()
 
   def estimator_spec_train(self, loss, num_async_replicas=1, use_tpu=False):
     """Constructs `tf.estimator.EstimatorSpec` for TRAIN (training) mode."""
@@ -1550,7 +1553,7 @@ class T2TModel(base.Layer):
 
       # Note: important to call this before remove_summaries()
       if self.hparams.tpu_enable_host_call:
-        host_call = self.create_host_call()
+        host_call = self.create_train_host_call()
       else:
         host_call = None
 
@@ -1587,7 +1590,7 @@ class T2TModel(base.Layer):
     if common_layers.is_xla_compiled():
       # Note: important to call this before remove_summaries()
       if self.hparams.tpu_enable_host_call:
-        host_call = self.create_host_call()
+        host_call = self.create_eval_host_call()
       else:
         host_call = None
 
@@ -1718,16 +1721,23 @@ class T2TModel(base.Layer):
     if "batch_prediction_key" in predictions:
       export_out["batch_prediction_key"] = predictions["batch_prediction_key"]
 
-    remove_summaries()
-
     export_outputs = {
         tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
             tf.estimator.export.PredictOutput(export_out)
     }
     if use_tpu:
+      # Note: important to call this before remove_summaries()
+      if self.hparams.tpu_enable_host_call:
+        host_call = self.create_eval_host_call()
+      else:
+        host_call = None
+
+      remove_summaries()
+
       return tf.contrib.tpu.TPUEstimatorSpec(
           tf.estimator.ModeKeys.PREDICT,
           predictions=predictions,
+          host_call=host_call,
           export_outputs=export_outputs)
     else:
       return tf.estimator.EstimatorSpec(
