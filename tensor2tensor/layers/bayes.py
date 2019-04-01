@@ -452,16 +452,15 @@ class DenseReparameterization(tf.keras.layers.Dense):
         activity_regularizer=get(activity_regularizer),
         **kwargs)
 
-  # TODO(trandustin): This name is not accurate. Rename or move functionality
-  # into random variables to resample/recreate their init ops.
-  def sample_weights(self):
+  def call_weights(self):
+    """Calls any weights if the initializer is itself a layer."""
     if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
       self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
     if isinstance(self.bias_initializer, tf.keras.layers.Layer):
       self.bias = self.bias_initializer(self.bias.shape, self.dtype)
 
   def call(self, *args, **kwargs):
-    self.sample_weights()
+    self.call_weights()
     return super(DenseReparameterization, self).call(*args, **kwargs)
 
 
@@ -520,14 +519,15 @@ class Conv2DReparameterization(tf.keras.layers.Conv2D):
         bias_constraint=get(bias_constraint),
         **kwargs)
 
-  def sample_weights(self):
+  def call_weights(self):
+    """Calls any weights if the initializer is itself a layer."""
     if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
       self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
     if isinstance(self.bias_initializer, tf.keras.layers.Layer):
       self.bias = self.bias_initializer(self.bias.shape, self.dtype)
 
   def call(self, *args, **kwargs):
-    self.sample_weights()
+    self.call_weights()
     return super(Conv2DReparameterization, self).call(*args, **kwargs)
 
 
@@ -796,7 +796,8 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
       self.bias = None
     self.built = True
 
-  def sample_weights(self):
+  def call_weights(self):
+    """Calls any weights if the initializer is itself a layer."""
     if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
       self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
     if isinstance(self.recurrent_initializer, tf.keras.layers.Layer):
@@ -809,7 +810,7 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
   def get_initial_state(self, inputs=None, batch_size=None, dtype=None):
     """Get the initial state and side-effect sampling of stochastic weights."""
     if self.built:
-      self.sample_weights()
+      self.call_weights()
     return super(LSTMCellReparameterization, self).get_initial_state(
         inputs=inputs, batch_size=batch_size, dtype=dtype)
 

@@ -26,6 +26,7 @@ from tensor2tensor.layers import bayes
 from tensor2tensor.utils import test_utils
 
 import tensorflow as tf
+from tensorflow_probability import edward2 as ed
 tf.compat.v1.enable_eager_execution()
 
 
@@ -74,6 +75,27 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     else:
       self.assertNotAllClose(res1, res2)
     layer.get_config()
+
+  @test_utils.run_in_graph_and_eager_modes
+  def testDenseReparameterizationMean(self):
+    """Tests that forward pass can use other values, e.g., posterior mean."""
+    def take_mean(f, *args, **kwargs):
+      """Sets random variable value to its mean."""
+      rv = f(*args, **kwargs)
+      rv._value = rv.distribution.mean()
+      return rv
+    inputs = tf.to_float(np.random.rand(5, 3, 7))
+    layer = bayes.DenseReparameterization(4,
+                                          activation=tf.nn.relu,
+                                          use_bias=False)
+    outputs1 = layer(inputs)
+    with ed.interception(take_mean):
+      outputs2 = layer(inputs)
+    self.evaluate(tf.global_variables_initializer())
+    res1, res2 = self.evaluate([outputs1, outputs2])
+    self.assertEqual(res1.shape, (5, 3, 4))
+    self.assertNotAllClose(res1, res2)
+    self.assertAllClose(res2, np.zeros((5, 3, 4)), atol=1e-4)
 
   @test_utils.run_in_graph_and_eager_modes()
   def testDenseReparameterizationLoss(self):
@@ -289,7 +311,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     state = (h0 + noise, c0)
     outputs1, _ = cell(inputs[:, 0, :], state)
     outputs2, _ = cell(inputs[:, 0, :], state)
-    cell.sample_weights()
+    cell.call_weights()
     outputs3, _ = cell(inputs[:, 0, :], state)
     self.evaluate(tf.global_variables_initializer())
     res1, res2, res3 = self.evaluate([outputs1, outputs2, outputs3])
@@ -378,10 +400,10 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     res1, res2, res3 = self.evaluate([outputs1, outputs2, outputs3])
     self.assertEqual(res1.shape, (batch_size, timesteps, hidden_size))
     self.assertEqual(res3.shape, (batch_size, timesteps, hidden_size))
-    # NOTE: `cell.sample_weights` should have been called at the beginning of
+    # NOTE: `cell.call_weights` should have been called at the beginning of
     # each call, so these should be different.
     self.assertNotAllClose(res1, res2)
-    # NOTE: We didn't call `cell.sample_weights` again before computing
+    # NOTE: We didn't call `cell.call_weights` again before computing
     # `outputs3`, so the cell should have had the same weights as it did during
     # computation of `outputs2`, and thus yielded the same output tensor.
     self.assertAllClose(res2, res3)
