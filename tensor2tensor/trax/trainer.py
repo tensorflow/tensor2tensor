@@ -45,7 +45,6 @@ flags.DEFINE_integer("log_level", logging.INFO, "Log level.")
 flags.DEFINE_bool("use_tpu", False, "Whether we're running on TPU.")
 
 
-
 def _default_output_dir():
   """Default output directory."""
   dir_name = "{model_name}_{dataset_name}_{timestamp}".format(

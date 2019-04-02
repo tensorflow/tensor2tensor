@@ -21,7 +21,6 @@ from __future__ import print_function
 import contextlib
 import os
 import sys
-import gin
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.data_generators import problem  # pylint: disable=unused-import
@@ -37,11 +36,6 @@ from tensor2tensor.utils import usr_dir
 import tensorflow as tf
 
 from tensorflow.contrib.tpu.python.tpu import tpu_config
-
-try:
-  from tensor2tensor.trax import trax  # pylint: disable=g-import-not-at-top
-except (TypeError, ImportError):
-  pass
 
 
 flags = tf.flags
@@ -80,7 +74,6 @@ flags.DEFINE_integer("inter_op_parallelism_threads", 0,
 flags.DEFINE_integer("intra_op_parallelism_threads", 0,
                      "Number of intra_op_parallelism_threads to use for CPU. "
                      "See TensorFlow config.proto for details.")
-flags.DEFINE_bool("jax", False, "Whether to use trax.")
 # TODO(lukaszkaiser): resolve memory and variable assign issues and set to True.
 flags.DEFINE_bool(
     "optionally_use_dist_strat", False,
@@ -370,43 +363,6 @@ def run_std_server():
 
 def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
-
-  if FLAGS.jax:
-    # Setup trax FLAGS
-    dataset = FLAGS.problem
-    model = FLAGS.model
-    data_dir = FLAGS.data_dir
-    output_dir = FLAGS.output_dir
-    config_file = [FLAGS.hparams_set]
-    config = [
-        "train.train_steps=%d" % FLAGS.train_steps,
-        "train.eval_steps=%d" % FLAGS.eval_steps,
-        "train.eval_frequency=%d" % FLAGS.local_eval_frequency,
-    ] + str(FLAGS.hparams).split(",")
-
-    # Copied _setup_gin exactly from trax/trainer.py and removed "FLAGS."
-
-    def _setup_gin():
-      """Setup gin configuration."""
-      # Imports for configurables
-      # pylint: disable=g-import-not-at-top,unused-import,g-bad-import-order,reimported,unused-variable
-      from tensor2tensor.trax import inputs as _trax_inputs
-      from tensor2tensor.trax import models as _trax_models
-      from tensor2tensor.trax import optimizers as _trax_opt
-      # pylint: enable=g-import-not-at-top,unused-import,g-bad-import-order,reimported,unused-variable
-
-      configs = config or []
-      # Override with --dataset and --model
-      if dataset:
-        configs.append("inputs.dataset_name='%s'" % dataset)
-        configs.append("inputs.data_dir='%s'" % data_dir)
-        configs.append("train.inputs=@trax.inputs.inputs")
-      if model:
-        configs.append("train.model=@trax.models.%s" % model)
-      gin.parse_config_files_and_bindings(config_file, configs)
-
-    _setup_gin()
-    trax.train(output_dir=output_dir)
 
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
