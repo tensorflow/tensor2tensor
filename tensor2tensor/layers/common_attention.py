@@ -299,7 +299,7 @@ def get_standardized_layers(hparams, dp=None):
 
 
 def add_standard_attention_hparams(hparams):
-  """Adds the hparams used by get_standadized_layers."""
+  """Adds the hparams used by get_standardized_layers."""
   # All hyperparameters ending in "dropout" are automatically set to 0.0
   # when not in training mode.
 
