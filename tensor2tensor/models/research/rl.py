@@ -634,6 +634,10 @@ class FeedForwardCnnSmallCategoricalPolicy(PolicyBase):
 
   def body(self, features):
     observations = features["inputs_raw"]
+    # Axis 0    - Batch.
+    # Axis 1    - Input Frames, 4 frames.
+    # Axis 2, 3 - Height & Width.
+    # Axis 4    - Channels RGB, 3 colours.
     x = tf.transpose(observations, [0, 2, 3, 1, 4])
     x_shape = common_layers.shape_list(x)
     x = tf.reshape(x, x_shape[:-2] + [-1])
