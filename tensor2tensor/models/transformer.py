@@ -2660,7 +2660,7 @@ def transformer_wikitext103_l4k_memory_v0():
       hparams.max_length / hparams.split_targets_chunk_length))  # 262144
 
   hparams.pos = None
-  hparams.self_attention_type = "dot_product_relative_memory"
+  hparams.self_attention_type = "dot_product_relative"
   hparams.max_relative_position = 2 * hparams.split_targets_chunk_length
 
   hparams.add_hparam("unconditional", True)

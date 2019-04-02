@@ -1547,15 +1547,19 @@ def dot_product_attention(q,
     return tf.matmul(weights, v)
 
 
-def _generate_relative_positions_matrix(length, max_relative_position,
+def _generate_relative_positions_matrix(length_q, length_k,
+                                        max_relative_position,
                                         cache=False):
   """Generates matrix of relative positions between inputs."""
   if not cache:
-    range_vec = tf.range(length)
-    range_mat = tf.reshape(tf.tile(range_vec, [length]), [length, length])
-    distance_mat = range_mat - tf.transpose(range_mat)
+    if length_q == length_k:
+      range_vec_q = range_vec_k = tf.range(length_q)
+    else:
+      range_vec_k = tf.range(length_k)
+      range_vec_q = range_vec_k[-length_q:]
+    distance_mat = range_vec_k[None, :] - range_vec_q[:, None]
   else:
-    distance_mat = tf.expand_dims(tf.range(-length+1, 1, 1), 0)
+    distance_mat = tf.expand_dims(tf.range(-length_k+1, 1, 1), 0)
   distance_mat_clipped = tf.clip_by_value(distance_mat, -max_relative_position,
                                           max_relative_position)
   # Shift values to be >= 0. Each integer still uniquely identifies a relative
@@ -1564,13 +1568,13 @@ def _generate_relative_positions_matrix(length, max_relative_position,
   return final_mat
 
 
-def _generate_relative_positions_embeddings(length, depth,
+def _generate_relative_positions_embeddings(length_q, length_k, depth,
                                             max_relative_position, name,
                                             cache=False):
-  """Generates tensor of size [1 if cache else length, length, depth]."""
+  """Generates tensor of size [1 if cache else length_q, length_k, depth]."""
   with tf.variable_scope(name):
     relative_positions_matrix = _generate_relative_positions_matrix(
-        length, max_relative_position, cache=cache)
+        length_q, length_k, max_relative_position, cache=cache)
     vocab_size = max_relative_position * 2 + 1
     # Generates embedding for each relative position of dimension depth.
     embeddings_table = tf.get_variable("embeddings", [vocab_size, depth])
@@ -1623,6 +1627,7 @@ def dot_product_attention_relative(q,
                                    name=None,
                                    make_image_summary=True,
                                    cache=False,
+                                   allow_memory=False,
                                    hard_attention_k=0):
   """Calculate relative position-aware dot-product self-attention.
 
@@ -1644,6 +1649,9 @@ def dot_product_attention_relative(q,
     name: an optional string.
     make_image_summary: Whether to make an attention image summary.
     cache: whether use cache mode
+    allow_memory: whether to assume that recurrent memory is in use. If True,
+      the length dimension of k/v/bias may be longer than the queries, and it is
+      assumed that the extra memory entries precede the non-memory entries.
     hard_attention_k: integer, if > 0 triggers hard attention (picking top-k)
 
   Returns:
@@ -1660,20 +1668,21 @@ def dot_product_attention_relative(q,
       values=[q, k, v]) as scope:
 
     # This calculation only works for self attention.
-    # q, k and v must therefore have the same shape.
-    if not cache:
+    # q, k and v must therefore have the same shape, unless memory is enabled.
+    if not cache and not allow_memory:
       q.get_shape().assert_is_compatible_with(k.get_shape())
       q.get_shape().assert_is_compatible_with(v.get_shape())
 
     # Use separate embeddings suitable for keys and values.
     depth = k.get_shape().as_list()[3]
-    length = common_layers.shape_list(k)[2]
+    length_k = common_layers.shape_list(k)[2]
+    length_q = common_layers.shape_list(q)[2] if allow_memory else length_k
     relations_keys = _generate_relative_positions_embeddings(
-        length, depth, max_relative_position, "relative_positions_keys",
-        cache=cache)
+        length_q, length_k, depth, max_relative_position,
+        "relative_positions_keys", cache=cache)
     relations_values = _generate_relative_positions_embeddings(
-        length, depth, max_relative_position, "relative_positions_values",
-        cache=cache)
+        length_q, length_k, depth, max_relative_position,
+        "relative_positions_values", cache=cache)
 
     # Compute self attention considering the relative position embeddings.
     logits = _relative_attention_inner(q, k, relations_keys, True)
@@ -1689,20 +1698,6 @@ def dot_product_attention_relative(q,
     if not tf.get_variable_scope().reuse and make_image_summary:
       attention_image_summary(weights, image_shapes)
     return _relative_attention_inner(weights, v, relations_values, False)
-
-
-def dot_product_attention_relative_memory(q, k, v, bias, *args, **kwargs):
-  """Wrapper of dot_product_attention_relative to use with recurrent memory."""
-
-  q_len = tf.shape(q)[2]
-  k_len = tf.shape(k)[2]
-  num_memory_items = k_len - q_len
-
-  q = tf.pad(q, [[0, 0], [0, 0], [num_memory_items, 0], [0, 0]])
-  bias = tf.pad(bias, [[0, 0], [0, 0], [num_memory_items, 0], [0, 0]])
-  output = dot_product_attention_relative(q, k, v, bias, *args, **kwargs)
-
-  return output[:, :, num_memory_items:, :]
 
 
 def _relative_position_to_absolute_position_masked(x):
@@ -4194,19 +4189,7 @@ def multihead_attention(query_antecedent,
           save_weights_to=save_weights_to,
           make_image_summary=make_image_summary,
           cache=cache is not None,
-          hard_attention_k=hard_attention_k)
-    elif attention_type == "dot_product_relative_memory":
-      x = dot_product_attention_relative_memory(
-          q,
-          k,
-          v,
-          bias,
-          max_relative_position,
-          dropout_rate,
-          image_shapes,
-          save_weights_to=save_weights_to,
-          make_image_summary=make_image_summary,
-          cache=cache is not None,
+          allow_memory=recurrent_memory is not None,
           hard_attention_k=hard_attention_k)
     elif attention_type == "dot_product_unmasked_relative_v2":
       x = dot_product_unmasked_self_attention_relative_v2(
