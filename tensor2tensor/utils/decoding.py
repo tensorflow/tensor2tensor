@@ -110,7 +110,8 @@ def log_decode_results(inputs,
                        save_images=False,
                        output_dir=None,
                        identity_output=False,
-                       log_results=True):
+                       log_results=True,
+                       skip_eos_postprocess=False):
   """Log inference results."""
 
   # TODO(lukaszkaiser) refactor this into feature_encoder
@@ -132,7 +133,7 @@ def log_decode_results(inputs,
   is_image = "image" in problem_name
   is_text2class = isinstance(registry.problem(problem_name),
                              text_problems.Text2ClassProblem)
-  skip_eos_postprocess = is_image or is_text2class
+  skip_eos_postprocess = is_image or is_text2class or skip_eos_postprocess
 
   decoded_inputs = None
   if is_image and save_images:
@@ -356,7 +357,8 @@ def decode_once(estimator,
           output_dir=output_dir,
           identity_output=decode_hp.identity_output,
           targets=targets,
-          log_results=log_results)
+          log_results=log_results,
+          skip_eos_postprocess=decode_hp.skip_eos_postprocess)
       decoded_outputs.append(decoded)
 
     # Write out predictions if decode_to_file passed
@@ -488,7 +490,8 @@ def decode_from_file(estimator,
             None,
             inputs_vocab,
             targets_vocab,
-            log_results=decode_hp.log_results)
+            log_results=decode_hp.log_results,
+            skip_eos_postprocess=decode_hp.skip_eos_postprocess)
         beam_decodes.append(decoded_outputs)
         if decode_hp.write_beam_scores:
           beam_scores.append(score)
@@ -507,7 +510,8 @@ def decode_from_file(estimator,
           None,
           inputs_vocab,
           targets_vocab,
-          log_results=decode_hp.log_results)
+          log_results=decode_hp.log_results,
+          skip_eos_postprocess=decode_hp.skip_eos_postprocess)
       decodes.append(decoded_outputs)
     total_time_per_step += elapsed_time
     total_cnt += result["outputs"].shape[-1]
