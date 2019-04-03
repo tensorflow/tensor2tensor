@@ -253,15 +253,18 @@ def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun, num_devices):
     return single_update
 
   @functools.partial(jax.pmap, axis_name="batch")
-  def mapped_update(i, opt_state, batch):
+  def mapped_update(i, opt_state, batch, rng):
+    """This is a multi-device version of the update function above."""
+    # We assume all tensors have the first dimension = num_devices.
     _, opt_update = optimizer(lr_fun)
     params = jax_opt.get_params(opt_state)
-    grads = jax.grad(loss_fun)(params, batch, predict_fun)
+    grads = jax.grad(loss_fun)(params, batch, predict_fun, rng)
     grads = jax.tree_util.tree_map(lambda g: jax.lax.psum(g, "batch"), grads)
     return opt_update(i, grads, opt_state)
 
-  def update(i, opt_state, batch):
-    return mapped_update(jax.replicate(i), opt_state, batch)
+  def update(i, opt_state, batch, rng):
+    # TODO(lukaszkaiser): investigate how to replicate rng and correct.
+    return mapped_update(jax.replicate(i), opt_state, batch, jax.replicate(rng))
 
   return update
 

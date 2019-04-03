@@ -42,7 +42,7 @@ train_and_eval_batches.input_name = 'targets'
 
 # Parameters for TransformerLM:
 # ==============================================================================
-TransformerLM.dropout = 0.2
+TransformerLM.dropout = 0.1
 TransformerLM.feature_depth = 512
 TransformerLM.feedforward_depth = 2048
 TransformerLM.max_len = 512
