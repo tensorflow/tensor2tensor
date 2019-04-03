@@ -88,10 +88,9 @@ class NewSimulatedBatchEnv(NewInGraphBatchEnv):
   @property
   def tensor_specs(self):
     return EnvData(
-        # TODO: Ditch the assumption that hidden_state is a tuple.
-        hidden_state=(TensorSpec(
+        hidden_state=TensorSpec(
             shape=(self.batch_size, 4, 210, 160, 3), dtype=tf.int32
-        ),),
+        ),
         observation=TensorSpec(
             shape=(self.batch_size, 210, 160, 3), dtype=tf.int32
         ),
@@ -101,7 +100,7 @@ class NewSimulatedBatchEnv(NewInGraphBatchEnv):
     )
 
   def step(self, hidden_state, action):
-    (history,) = hidden_state
+    history = hidden_state
 
     action = tf.stack([action] * 4, axis=1)
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
@@ -161,21 +160,22 @@ class NewStackWrapper(NewInGraphBatchEnv):
         shape=(self.batch_size, self.history) + ob_spec.shape[1:]
     )
     return specs._replace(
-        hidden_state=(specs.hidden_state + (stacked_ob_spec,)),
+        hidden_state=(stacked_ob_spec, specs.hidden_state),
         observation=stacked_ob_spec,
     )
 
   def step(self, hidden_state, action):
-    env_hidden_state, stack_hidden_state = hidden_state
-    (new_env_hidden_state,), env_ob, env_reward = self._env.step(
-        (env_hidden_state,), action
+    (stack_hidden_state, env_hidden_state) = hidden_state
+    (new_env_hidden_state, env_ob, env_reward) = self._env.step(
+        env_hidden_state, action
     )
     new_stack_hidden_state = tf.concat(
         [stack_hidden_state[:, 1:, ...], tf.expand_dims(env_ob, axis=1)], axis=1
     )
 
     return (
-        (new_env_hidden_state, new_stack_hidden_state), new_stack_hidden_state,
+        (new_stack_hidden_state, new_env_hidden_state),
+        new_stack_hidden_state,
         env_reward
     )
 
