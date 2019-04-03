@@ -106,7 +106,7 @@ def make_model_fn(epoch_length, num_tpus):
         "collect_{}_{}_{}".format(num_tpus, batch_size, epoch_length)
     ):
       memory = tf_new_collect.new_define_collect(
-          batch_env, ppo_hparams, action_space, force_beginning_resets=True
+          batch_env, ppo_hparams, action_space
       )
     # Summaries don't work when training on TPU; remove them.
     tf.get_default_graph().get_collection_ref(tf.GraphKeys.SUMMARIES)[:] = []
