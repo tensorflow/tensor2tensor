@@ -23,6 +23,7 @@ import json
 import os
 import random
 import numpy as np
+from tensorflow.contrib.learn.python.learn.monitors import ValidationMonitor
 
 from tensor2tensor.data_generators.problem import Problem
 from tensor2tensor.utils import decoding
@@ -39,7 +40,7 @@ from tensorflow.python import debug
 
 # Fathom imports
 from fathomt2t.problems.fprecord_text_problem import FPRecordTextProblem
-
+from fathomt2t.monitors import RestartingValidationMonitor
 
 def next_checkpoint(model_dir, timeout_mins=120):
   """Yields successive checkpoints from model_dir."""
@@ -344,15 +345,21 @@ def create_hooks(use_tfdbg=False,
     train_hooks.append(tf.train.ProfilerHook(**defaults))
 
   if use_validation_monitor:
-    tf.logging.info("Using ValidationMonitor")
     # Fathom
     # continuous_train_and_eval breaks early stopping
     flags = tf.flags
     FLAGS = flags.FLAGS
     assert FLAGS.schedule != 'continuous_train_and_eval'
+
+    use_restarting_validation_monitor = FLAGS.use_restarting_validation_monitor
+    if use_restarting_validation_monitor:
+        val_monitor_cls = RestartingValidationMonitor
+        tf.logging.info("Using RestartingValidationMonitor")
+    else:
+        val_monitor_cls = ValidationMonitor
+        tf.logging.info("Using ValidationMonitor")
     
-    train_hooks.append(
-        tf.contrib.learn.monitors.ValidationMonitor(
+    train_hooks.append(val_monitor_cls(
             hooks=eval_hooks, **validation_monitor_kwargs))
 
   if use_early_stopping:

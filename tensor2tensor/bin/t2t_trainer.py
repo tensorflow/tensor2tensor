@@ -133,6 +133,8 @@ flags.DEFINE_string("job-dir", None,
 flags.DEFINE_integer("log_step_count_steps", 100,
                      "Number of local steps after which progress is printed "
                      "out")
+flags.DEFINE_bool('use_restarting_validation_monitor', False,
+                  "Determines whether to use the RestartValidationMonitor class.")
 
 
 def set_hparams_from_args(args):
