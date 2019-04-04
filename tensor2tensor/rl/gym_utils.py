@@ -21,6 +21,7 @@ from __future__ import print_function
 
 import gym
 import numpy as np
+from PIL import Image
 import tensorflow as tf
 
 
@@ -82,18 +83,36 @@ class MaxAndSkipEnv(gym.Wrapper):
 class RenderedEnv(gym.Wrapper):
   """Simple Env wrapper to override observations with rendered rgb values."""
 
-  def __init__(self, env, mode="rgb_array", low=0, high=255):
+  def __init__(self, env, mode="rgb_array", low=0, high=255, resize_to=None):
     gym.Wrapper.__init__(self, env)
     # Get a sample frame to correctly set observation space
     self.mode = mode
     sample_frame = self.render(mode=self.mode)
     assert sample_frame is not None
-    self.observation_space = gym.spaces.Box(
-        low=low, high=high, shape=sample_frame.shape, dtype=sample_frame.dtype)
+    self.should_resize = False
+    if resize_to is None:
+      self.observation_space = gym.spaces.Box(
+          low=low,
+          high=high,
+          shape=sample_frame.shape,
+          dtype=sample_frame.dtype)
+    else:
+      assert len(resize_to) == 2
+      self.should_resize = True
+      self.observation_space = gym.spaces.Box(
+          low=low,
+          high=high,
+          shape=list(resize_to) + list(sample_frame.shape[-1:]),
+          dtype=sample_frame.dtype)
 
   def step(self, action):
     _, reward, done, info = self.env.step(action)
     obs = self.env.render(mode=self.mode)
+    if self.should_resize:
+      img = Image.fromarray(obs)
+      img = img.resize(
+          self.observation_space.shape[:-1], resample=Image.ANTIALIAS)
+      obs = np.array(img)
     return obs, reward, done, info
 
   def reset(self, **kwargs):
@@ -124,7 +143,7 @@ def remove_time_limit_wrapper(env):
 
 
 def gym_env_wrapper(env, rl_env_max_episode_steps, maxskip_env, rendered_env,
-                    sticky_actions):
+                    rendered_env_resize_to, sticky_actions):
   """Wraps a gym environment. see make_gym_env for details."""
   # rl_env_max_episode_steps is None or int.
   assert ((not rl_env_max_episode_steps) or
@@ -143,11 +162,11 @@ def gym_env_wrapper(env, rl_env_max_episode_steps, maxskip_env, rendered_env,
     env = MaxAndSkipEnv(env)  # pylint: disable=redefined-variable-type
 
   if rendered_env:
-    env = RenderedEnv(env)
+    env = RenderedEnv(env, resize_to=rendered_env_resize_to)
 
   if wrap_with_time_limit:
-    env = gym.wrappers.TimeLimit(env,
-                                 max_episode_steps=rl_env_max_episode_steps)
+    env = gym.wrappers.TimeLimit(
+        env, max_episode_steps=rl_env_max_episode_steps)
   return env
 
 
@@ -155,6 +174,7 @@ def make_gym_env(name,
                  rl_env_max_episode_steps=-1,
                  maxskip_env=False,
                  rendered_env=False,
+                 rendered_env_resize_to=None,
                  sticky_actions=False):
   """Create a gym env optionally with a time limit and maxskip wrapper.
 
@@ -168,6 +188,8 @@ def make_gym_env(name,
     maxskip_env: whether to also use MaxAndSkip wrapper before time limit.
     rendered_env: whether to force render for observations. Use this for
       environments that are not natively rendering the scene for observations.
+    rendered_env_resize_to: a list of [height, width] to change the original
+      resolution of the native environment render.
     sticky_actions: whether to use sticky_actions before MaxAndSkip wrapper.
 
   Returns:
@@ -175,7 +197,7 @@ def make_gym_env(name,
   """
   env = gym.make(name)
   return gym_env_wrapper(env, rl_env_max_episode_steps, maxskip_env,
-                         rendered_env, sticky_actions)
+                         rendered_env, rendered_env_resize_to, sticky_actions)
 
 
 def register_gym_env(class_entry_point, version="v0", kwargs=None):
