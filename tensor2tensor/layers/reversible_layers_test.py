@@ -127,6 +127,32 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllEqual(outputs_val[:, 0, :], np.zeros((batch_size, units)))
     self.assertEqual(outputs_val.shape, (batch_size, length, units))
 
+  @test_utils.run_in_graph_and_eager_modes()
+  def testTransformedRandomVariable(self):
+    class Exp(tf.keras.layers.Layer):
+      """Exponential activation function for reversible networks."""
+
+      def __call__(self, inputs, *args, **kwargs):
+        if not isinstance(inputs, ed.RandomVariable):
+          return super(Exp, self).__call__(inputs, *args, **kwargs)
+        return reversible.TransformedRandomVariable(inputs, self)
+
+      def call(self, inputs):
+        return tf.exp(inputs)
+
+      def reverse(self, inputs):
+        return tf.log(inputs)
+
+      def log_det_jacobian(self, inputs):
+        return -tf.log(inputs)
+
+    x = ed.Normal(0., 1.)
+    y = Exp()(x)
+    y_sample = self.evaluate(y.distribution.sample())
+    y_log_prob = self.evaluate(y.distribution.log_prob(y_sample))
+    self.assertGreater(y_sample, 0.)
+    self.assertTrue(np.isfinite(y_log_prob))
+
 
 if __name__ == '__main__':
   tf.test.main()
