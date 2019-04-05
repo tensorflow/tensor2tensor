@@ -133,7 +133,7 @@ flags.DEFINE_string("job-dir", None,
 flags.DEFINE_integer("log_step_count_steps", 100,
                      "Number of local steps after which progress is printed "
                      "out")
-flags.DEFINE_bool('use_restarting_validation_monitor', False,
+flags.DEFINE_bool('skip_eval_on_restart', False,
                   "Determines whether to use the ExitEveryNValidationMonitor "
                   "class.")
 
