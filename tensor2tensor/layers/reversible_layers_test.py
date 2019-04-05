@@ -23,10 +23,10 @@ from absl.testing import parameterized
 import numpy as np
 
 from tensor2tensor.layers import reversible_layers as reversible
-
 from tensor2tensor.utils import test_utils
 
 import tensorflow as tf
+from tensorflow_probability import edward2 as ed
 tf.compat.v1.enable_eager_execution()
 
 
