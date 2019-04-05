@@ -40,7 +40,7 @@ from tensorflow.python import debug
 
 # Fathom imports
 from fathomt2t.problems.fprecord_text_problem import FPRecordTextProblem
-from fathomt2t.monitors import ExitEveryNValidationMonitor
+from fathomt2t.monitors import FathomValidationMonitor
 
 def next_checkpoint(model_dir, timeout_mins=120):
   """Yields successive checkpoints from model_dir."""
@@ -351,16 +351,10 @@ def create_hooks(use_tfdbg=False,
     FLAGS = flags.FLAGS
     assert FLAGS.schedule != 'continuous_train_and_eval'
 
-    use_restarting_validation_monitor = FLAGS.use_restarting_validation_monitor
-    if use_restarting_validation_monitor:
-        val_monitor_cls = ExitEveryNValidationMonitor
-        tf.logging.info("Using ExitEveryNValidationMonitor")
-    else:
-        val_monitor_cls = ValidationMonitor
-        tf.logging.info("Using ValidationMonitor")
-    
-    train_hooks.append(val_monitor_cls(
-            hooks=eval_hooks, **validation_monitor_kwargs))
+    train_hooks.append(FathomValidationMonitor(
+            hooks=eval_hooks,
+            skip_eval_on_restart = FLAGS.use_restarting_validation_monitor,
+            **validation_monitor_kwargs))
 
   if use_early_stopping:
     tf.logging.info("Using EarlyStoppingHook")
