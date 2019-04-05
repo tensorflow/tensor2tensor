@@ -41,6 +41,7 @@ from tensorflow.python import debug
 from fathomt2t.problems.fprecord_text_problem import FPRecordTextProblem
 from fathomt2t.monitors import FathomValidationMonitor
 
+
 def next_checkpoint(model_dir, timeout_mins=120):
   """Yields successive checkpoints from model_dir."""
   last_ckpt = None
