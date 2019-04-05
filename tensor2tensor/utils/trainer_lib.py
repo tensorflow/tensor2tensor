@@ -353,7 +353,7 @@ def create_hooks(use_tfdbg=False,
 
     train_hooks.append(FathomValidationMonitor(
             hooks=eval_hooks,
-            skip_eval_on_restart = FLAGS.use_restarting_validation_monitor,
+            skip_eval_on_restart=FLAGS.use_restarting_validation_monitor,
             **validation_monitor_kwargs))
 
   if use_early_stopping:
