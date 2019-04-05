@@ -133,9 +133,10 @@ flags.DEFINE_string("job-dir", None,
 flags.DEFINE_integer("log_step_count_steps", 100,
                      "Number of local steps after which progress is printed "
                      "out")
-flags.DEFINE_bool('skip_eval_on_restart', False,
-                  "Determines whether to use the ExitEveryNValidationMonitor "
-                  "class.")
+flags.DEFINE_bool('restart_after_eval', False,
+                  "Determines whether to restart training after eval. "
+                  "This flag also disables the first eval that occurs after "
+                  "starting a training run with a checkpointed model")
 
 
 def set_hparams_from_args(args):
