@@ -184,7 +184,6 @@ def main(_):
       The landing page html text.
     """
     if (path == "index.js" or
-        path == "webcomponentsjs/custom-elements-es5-adapter.js" or
         path == "webcomponentsjs/webcomponents-lite.js"):
       # Some vulcanizing methods bundle the javascript into a index.js file
       # paired with index.html but leave two important webcomponents js files
