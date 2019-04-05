@@ -50,6 +50,7 @@ setup(
         'numpy',
         'oauth2client',
         'opencv-python',
+        'Pillow',
         'pypng',
         'requests',
         'scipy',
