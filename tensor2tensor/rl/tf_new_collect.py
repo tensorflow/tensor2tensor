@@ -56,20 +56,28 @@ def sequence_like(elements, original):
     return tuple(elements)
 
 
+def map_sequence(function, sequence):
+  return sequence_like(map(function, sequence), sequence)
+
+
 def init_tensors(spec):
   # spec is either TensorSpec or a tuple of specs.
   try:
     return tf.zeros(spec.shape, spec.dtype)
   except AttributeError:
-    return sequence_like(map(init_tensors, spec), spec)
+    return map_sequence(init_tensors, spec)
 
 
 def flatten_tensors(structure):
   # structure is either tf.Tensor or a tuple of structures.
   if tf.contrib.framework.is_tensor(structure):
-    return tf.reshape(structure, (-1,))
+    if len(structure.shape) > 1:
+      shape = (16, -1)
+    else:
+      shape = (-1,)
+    return tf.reshape(structure, shape)
   else:
-    return sequence_like(map(flatten_tensors, structure), structure)
+    return map_sequence(flatten_tensors, structure)
 
 
 def restore_tensors(structure, spec):

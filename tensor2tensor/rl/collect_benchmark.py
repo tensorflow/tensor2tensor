@@ -102,29 +102,50 @@ def make_model_fn(epoch_length, num_tpus):
     ppo_hparams.policy_network = "feed_forward_cnn_small_categorical_policy"
     ppo_hparams.epoch_length = epoch_length
     action_space = Discrete(2)
-    with tf.variable_scope(
-        "collect_{}_{}_{}".format(num_tpus, batch_size, epoch_length)
-    ):
-      memory = tf_new_collect.new_define_collect(
-          batch_env, ppo_hparams, action_space
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      with tf.variable_scope(
+          "collect_{}_{}_{}".format(num_tpus, batch_size, epoch_length)
+      ):
+        memory = tf_new_collect.new_define_collect(
+            batch_env, ppo_hparams, action_space
+        )
+      ppo_hparams.optimization_batch_size = 32
+
+      ppo_summary = ppo.define_ppo_epoch(
+          memory, ppo_hparams, action_space, batch_env.tensor_specs.observation
       )
+
     # Summaries don't work when training on TPU; remove them.
     tf.get_default_graph().get_collection_ref(tf.GraphKeys.SUMMARIES)[:] = []
+
+    #train_op = memory.reward
+    #train_op = tf.reduce_sum(ppo_summary)
+
     return tf.contrib.tpu.TPUEstimatorSpec(
+        #mode=tf.estimator.ModeKeys.TRAIN,
+        #loss=0.0,
+        #train_op=train_op,
         mode=tf.estimator.ModeKeys.PREDICT,
-        predictions={"x": tf.math.reduce_sum(memory[1], axis=-1)},
+        predictions={"x": tf.expand_dims(ppo_summary[0], axis=0)},
+        #predictions={"x": tf.math.reduce_sum(memory[1], axis=-1)},
     )
   return model_fn
 
 
-def make_input_fn(batch_size):
+def make_input_fn(batch_size, num_epochs):
   def input_fn(params):
-    return tf.data.Dataset.from_tensors(tf.zeros([batch_size]))
+    features = tf.data.Dataset.from_tensors(
+        tf.zeros([batch_size, 1])
+    ).repeat(num_epochs)
+    labels = tf.data.Dataset.from_tensors(
+        tf.zeros([batch_size], dtype=tf.float32)
+    ).repeat(num_epochs)
+    return tf.data.Dataset.zip((features, labels))
   return input_fn
 
 
-def run(sess, run_config, num_tpus, batch_size, epoch_length):
-  input_fn = make_input_fn(batch_size)
+def run(sess, run_config, num_tpus, batch_size, epoch_length, num_epochs):
+  input_fn = make_input_fn(batch_size, num_epochs)
   model_fn = make_model_fn(epoch_length, num_tpus)
   estimator = tf.contrib.tpu.TPUEstimator(
       model_fn=model_fn,
@@ -135,6 +156,7 @@ def run(sess, run_config, num_tpus, batch_size, epoch_length):
       params={},
       config=run_config,
   )
+  #return estimator.train(input_fn=input_fn, steps=num_epochs)
   return list(estimator.predict(input_fn=input_fn))
 
 
@@ -162,11 +184,20 @@ def main(_):
         ),
     )
 
-    run(sess, run_config, num_tpus=8, batch_size=256, epoch_length=50)
     from time import time
     t = time()
-    run(sess, run_config, num_tpus=8, batch_size=256, epoch_length=50)
+    run(
+        sess,
+        run_config,
+        num_tpus=8,
+        batch_size=128,#256,
+        epoch_length=50,
+        #batch_size=16,
+        #epoch_length=4,
+        num_epochs=1,
+    )
     print('collect time:', time() - t)
+    #run(sess, run_config, num_tpus=8, batch_size=256, epoch_length=50)
 
     if FLAGS.tpu:
       sess.run(tpu.shutdown_system())
