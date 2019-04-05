@@ -345,6 +345,7 @@ def create_hooks(use_tfdbg=False,
     train_hooks.append(tf.train.ProfilerHook(**defaults))
 
   if use_validation_monitor:
+    tf.logging.info("Using ValidationMonitor")
     # Fathom
     # continuous_train_and_eval breaks early stopping
     flags = tf.flags
