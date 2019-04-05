@@ -556,6 +556,19 @@ def adaptive_universal_transformer_multilayer_tpu():
 
 
 @registry.register_hparams
+def adaptive_universal_transformer_multilayer_hard():
+  """Multi-layer config for adaptive Transformer with hard attention."""
+  hparams = adaptive_universal_transformer_multilayer_tpu()
+  hparams.batch_size = 256
+  hparams.hard_attention_k = 8
+  hparams.add_step_timing_signal = True
+  # hparams.add_sru = True  # This is very slow on GPUs, does it help?
+  hparams.self_attention_type = "dot_product_relative_v2"
+  hparams.max_relative_position = 256
+  return hparams
+
+
+@registry.register_hparams
 def adaptive_universal_transformer_small():
   hparams = universal_transformer_small()
   hparams.recurrence_type = "act"

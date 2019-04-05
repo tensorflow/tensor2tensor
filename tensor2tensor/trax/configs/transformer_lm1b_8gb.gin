@@ -34,7 +34,7 @@ train.eval_steps = 5
 train.inputs = @trax.inputs.inputs
 train.model = @trax.models.TransformerLM
 train.run_debug_step = False
-train.train_steps = 50000
+train.train_steps = 500000
 
 # Parameters for train_and_eval_batches:
 # ==============================================================================
