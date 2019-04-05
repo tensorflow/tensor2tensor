@@ -20,9 +20,10 @@ from __future__ import print_function
 
 import inspect
 from absl import logging
-import jax.experimental.stax as stax
 import jax.numpy as np
 from jax.tree_util import register_pytree_node as _register_pytree_node
+
+from tensor2tensor.trax.stax import stax_base as stax
 
 
 # Utility functions

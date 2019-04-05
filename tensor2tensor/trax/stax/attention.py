@@ -19,10 +19,11 @@ from __future__ import division
 from __future__ import print_function
 
 from jax import random
-import jax.experimental.stax as stax
 import jax.numpy as np
 import numpy as onp
 import numpy.random as npr
+
+from tensor2tensor.trax.stax import stax_base as stax
 
 
 def causal_mask(size, dtype=np.uint8):
