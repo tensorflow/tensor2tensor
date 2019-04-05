@@ -351,7 +351,7 @@ def create_hooks(use_tfdbg=False,
     flags = tf.flags
     FLAGS = flags.FLAGS
     assert FLAGS.schedule != 'continuous_train_and_eval'
-
+    
     train_hooks.append(
         FathomValidationMonitor(restart_after_eval=FLAGS.restart_after_eval,
             hooks=eval_hooks, **validation_monitor_kwargs))
