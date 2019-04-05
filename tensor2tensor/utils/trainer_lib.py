@@ -23,7 +23,6 @@ import json
 import os
 import random
 import numpy as np
-from tensorflow.contrib.learn.python.learn.monitors import ValidationMonitor
 
 from tensor2tensor.data_generators.problem import Problem
 from tensor2tensor.utils import decoding
