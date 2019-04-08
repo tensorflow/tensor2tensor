@@ -22,6 +22,6 @@ t2t-trainer --registry_help 2>&1 >/dev/null
 t2t-datagen 2>&1 | grep translate_ende 2>&1 >/dev/null && echo passed
 
 # Then install the test dependencies
-pip install -q -e .[tests,allen]
+pip install -q -e .[tests,allen,trax]
 # Make sure to install the atari extras for gym
 pip install "gym[atari]"

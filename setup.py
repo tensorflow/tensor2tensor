@@ -43,8 +43,6 @@ setup(
         'gunicorn',
         'gym',
         'h5py',
-        'jax',
-        'jaxlib',
         'kfac',
         'mesh-tensorflow',
         'numpy',
@@ -76,6 +74,10 @@ setup(
             # install_requires, pip skips the atari extras, so we instead do an
             # explicit pip install gym[atari] for the tests.
             # 'gym[atari]',
+        ],
+        'trax': [
+            'jax',
+            'jaxlib',
         ],
         'allen': ['Pillow==5.1.0', 'pandas==0.23.0'],
     },
