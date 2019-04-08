@@ -20,6 +20,7 @@ from __future__ import print_function
 
 import collections
 import contextlib
+import copy
 import functools
 import math
 import os
@@ -345,9 +346,25 @@ class T2TModel(base.Layer):
                               "and set use_body_sharded to True.")
 
   def model_fn_sharded(self, sharded_features):
+    """Estimator model_fn sharded along batch dimension.
+
+    Args:
+      sharded_features: {str: [Tensor]}. Features sharded along batch dimension.
+        Each list is the same length (== number of shards).
+
+    Returns:
+      sharded_logits: [Tensor]. Logits for each shard of examples.
+      losses: {str: 0-D Tensor}. Loss averaged across shards.
+    """
     dp = self._data_parallelism
+
+    # [{str: Tensor}]. Transpose of 'sharded_features'.
     datashard_to_features = self._to_features_per_datashard(sharded_features)
     if self.use_body_sharded():
+      if  self.hparams.scheduled_sampling_prob > 0.0:
+        raise NotImplementedError(
+            "Scheduled sampling for non-sharded body only.")
+
       # MoE models override body_sharded
       transformed_features = dp(self.bottom, datashard_to_features)
       body_out = self.body_sharded(
@@ -381,6 +398,9 @@ class T2TModel(base.Layer):
           losses.update(training_loss_dict)
     else:
       sharded_logits, sharded_losses = dp(self.model_fn, datashard_to_features)
+      sharded_logits, sharded_losses = dp(
+          self.maybe_scheduled_sampling,
+          datashard_to_features, sharded_logits, sharded_losses)
       if isinstance(sharded_logits[0], dict):
         temp_dict = {k: [] for k, _ in six.iteritems(sharded_logits[0])}
         for k, _ in six.iteritems(sharded_logits[0]):
@@ -388,18 +408,6 @@ class T2TModel(base.Layer):
             temp_dict[k].append(l[k])
         sharded_logits = temp_dict
       losses = average_sharded_losses(sharded_losses)
-
-    # TODO(rsepassi): Reenable scheduled sampling
-    # Disabled because of model_fn_sharded refactor
-    #
-    # do_scheduled_sampling = (  # Only do it if training and set for it.
-    #     self.hparams.scheduled_sampling_prob > 0.0 and
-    #     self.hparams.mode == tf.estimator.ModeKeys.TRAIN)
-    # if do_scheduled_sampling:
-    #   sharded_logits, losses = scheduled_sampling(
-    #       self.hparams, self._problem_hparams, dp,
-    #       sharded_logits, losses, sharded_features,
-    #       transformed_features, self)
 
     return sharded_logits, losses
 
@@ -1767,6 +1775,119 @@ class T2TModel(base.Layer):
         for loss_name, loss_val in sorted(losses_dict.items()):
           tf.summary.scalar(loss_name, loss_val)
 
+  def maybe_scheduled_sampling(self, features, logits, losses):
+    """Scheduled sampling.
+
+    Performs forward inference again with "targets" feature replaced with values
+    sampled from the model.
+
+    This is the identity unless self.hparams.scheduled_sampling_prob > 0
+    (default).
+
+    **WARNING**: This is not a faithful implementation of scheduled sampling.
+    This implementation samples tokens for timestep t condtioned on gold tokens
+    1...t-1. A proper implementation must condition on a mix of gold and
+    sampled tokens. Doing so is not efficient for models such like Transformer.
+
+    Args:
+      features: {str: Tensor}. Features sharded along batch dimension.
+      logits: Tensor. Logits for each shard of data.
+      losses: 0-D Tensor or (num: 0-D Tensor, denom: 0-D Tensor). Loss Tensor
+
+    Returns:
+      new_logits: Tensor.
+      new_losses: {str: loss} where loss is one of (i) a 0-D Tensor or
+        (ii) a (num: 0-D Tensor, denom: 0-D Tensor) pair to be used in a
+        weighted average.
+    """
+    hparams = self.hparams
+    problem_hparams = self._problem_hparams
+
+    # Only do scheduled sampling if requested.
+    if hparams.scheduled_sampling_prob == 0.0:
+      return (logits, losses)
+
+    # Only do scheduled sampling on language tasks.
+    modality = problem_hparams.modality["targets"]
+    if modality != modalities.ModalityType.SYMBOL:
+      assert hparams.scheduled_sampling_prob == 0, (
+          "Scheduled sampling only applies to ModalityType.SYMBOL. Set "
+          "hparams.scheduled_sampling_prob == 0.0.")
+      return (logits, losses)
+
+    # Only do scheduled sampling when training.
+    is_training = (hparams.mode == tf.estimator.ModeKeys.TRAIN)
+    if not is_training:
+      tf.logging.info("Running in %s mode. Not using scheduled sampling.",
+                      hparams.mode)
+      return (logits, losses)
+
+    # Pad vocabulary if vocab size must be evenly divisible by vocab_divisor.
+    vocab_size = problem_hparams.vocab_size["targets"]
+    assert vocab_size is not None
+    assert hparams.vocab_divisor == 1
+
+    def sample(x):
+      """Multinomial sampling from a n-dimensional tensor."""
+      samples = tf.multinomial(tf.reshape(x, [-1, vocab_size]), 1)
+      reshaped_samples = tf.reshape(samples, common_layers.shape_list(x)[:-1])
+      return tf.to_int32(reshaped_samples)
+
+    def mix_gold_sampled(gold_targets, sampled_targets, mixin_prob):
+      """Interleave sampled and gold tokens randomly."""
+      return tf.where(
+          tf.less(
+              tf.random_uniform(common_layers.shape_list(sampled_targets)),
+              mixin_prob),
+          sampled_targets,
+          gold_targets)
+
+    def sampled_results(mixin_prob):
+      """Generate scheduled sampling results."""
+      sampled_targets = sample(logits)
+      new_targets = mix_gold_sampled(features["targets"],
+                                     sampled_targets,
+                                     mixin_prob)
+      new_targets = tf.stop_gradient(new_targets)  # Treat new_targets as given.
+      new_features = copy.copy(features)
+      new_features["targets"] = new_targets
+      with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+        # Compute bottom() for new_targets.
+        #
+        # TODO(duckworthd): Only apply bottom to 'new_targets'.
+        new_transformed_features = self.bottom(new_features)
+
+        # Compute body.
+        with tf.variable_scope("body"):
+          new_body_outputs, new_losses = self._normalize_body_output(
+              self.body(new_transformed_features))
+        assert "training" not in new_losses
+
+        # Compute top.
+        new_logits = self.top(new_body_outputs, new_features)
+
+        # Compute loss. Use original features (== labels).
+        if (hparams.mode != tf.estimator.ModeKeys.PREDICT and
+            hparams.mode != "attack"):
+          new_losses["training"] = self.loss(new_logits, features)
+        else:
+          new_losses["training"] = 0.0
+
+      return new_logits, new_losses
+
+    tf.logging.info("Using scheduled sampling.")
+    assert hparams.scheduled_sampling_prob == 1.0, (
+        "hparams.scheduled_sampling_prob must be 0 or 1.")
+    # Gradually increase over a warmup period. Lower numbers mean more gold
+    # tokens.
+    mixin_prob = (
+        hparams.scheduled_sampling_gold_mixin_prob *
+        common_layers.inverse_exp_decay(
+            hparams.scheduled_sampling_warmup_steps,
+            min_value=0.001)
+    )
+    return sampled_results(mixin_prob)
+
 
 def _with_timing(fn, msg, silent=False):
 
@@ -1983,78 +2104,6 @@ def create_eager_var_store():
     return variable_scope.EagerVariableStore()
   else:
     return DummyVariableStore()
-
-
-def scheduled_sampling(hparams, problem_hparams, dp, sharded_logits, losses,
-                       sharded_features, transformed_features, model):
-  """Scheduled sampling."""
-  modality = problem_hparams.modality["targets"]
-  vocab_size = problem_hparams.vocab_size["targets"]
-  if vocab_size is not None and hasattr(hparams, "vocab_divisor"):
-    vocab_size += (-vocab_size) % hparams.vocab_divisor
-
-  def sample(x):
-    """Multinomial sampling from a n-dimensional tensor."""
-    samples = tf.multinomial(tf.reshape(x, [-1, vocab_size]), 1)
-    reshaped_samples = tf.reshape(samples, common_layers.shape_list(x)[:-1])
-    return tf.to_int32(reshaped_samples)
-
-  def mix_gold_sampled(gold_targets, sampled_targets):
-    return tf.where(
-        tf.less(
-            tf.random_uniform(common_layers.shape_list(sampled_targets)),
-            hparams.scheduled_sampling_gold_mixin_prob), gold_targets,
-        sampled_targets)
-
-  def sampled_results():
-    """Generate scheduled sampling results."""
-    sampled_targets = dp(sample, sharded_logits)
-    new_targets = dp(mix_gold_sampled, sharded_features["targets"],
-                     sampled_targets)
-    new_features = transformed_features
-    with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-      modality_name = hparams.name.get(
-          "targets",
-          modalities.get_name(modality))(hparams, vocab_size)
-      with tf.variable_scope(modality_name):
-        bottom = hparams.bottom.get(
-            "targets", modalities.get_targets_bottom(modality))
-        new_features["targets"] = dp(bottom, new_targets, hparams, vocab_size)
-      with tf.variable_scope("body"):
-        body_outputs, losses = model.model_fn_sharded(new_features)
-        if not isinstance(losses, dict):  # If it's a single extra loss.
-          losses = {"extra": losses}
-      with tf.variable_scope(modality_name):
-        top = hparams.top.get("targets", modalities.get_top(modality))
-        new_sharded_logits = dp(top,
-                                body_outputs,
-                                sharded_features["targets"],
-                                hparams,
-                                vocab_size)
-        if "training" not in losses:
-          loss = hparams.loss.get("targets", modalities.get_loss(modality))
-          weights_fn = hparams.weights_fn.get(
-              "targets", modalities.get_weights_fn(modality))
-          sharded_loss_num, sharded_loss_den = dp(loss,
-                                                  sharded_logits,
-                                                  sharded_features["targets"],
-                                                  hparams,
-                                                  vocab_size,
-                                                  weights_fn=weights_fn)
-          training_loss = (tf.add_n(sharded_loss_num) /
-                           tf.maximum(1.0, tf.add_n(sharded_loss_den)))
-          training_loss *= problem_hparams.loss_multiplier
-          losses["training"] = training_loss
-    return new_sharded_logits, losses
-
-  # Run the above conditionally.
-  prob = hparams.scheduled_sampling_prob
-  prob *= common_layers.inverse_exp_decay(
-      hparams.scheduled_sampling_warmup_steps, min_value=0.001)
-  sharded_logits, losses = tf.cond(
-      tf.less(tf.random_uniform([]), prob), sampled_results,
-      lambda: (sharded_logits, losses))
-  return sharded_logits, losses
 
 
 def average_sharded_losses(sharded_losses):
