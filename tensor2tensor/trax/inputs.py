@@ -26,6 +26,7 @@ import random
 import gin
 
 import jax.numpy as np
+import numpy as onp
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -68,6 +69,48 @@ def inputs(dataset_name, data_dir=None):
   return Inputs(train_stream=train_input_fun,
                 eval_stream=eval_input_fun,
                 input_shape=input_shape)
+
+
+@gin.configurable()
+def random_inputs(
+    input_shape=gin.REQUIRED, input_dtype=onp.int32, input_range=(0, 255),
+    output_shape=gin.REQUIRED, output_dtype=onp.int32, output_range=(0, 9)):
+  """Make random Inputs for debugging.
+
+  Args:
+    input_shape: the shape of inputs (including batch dimension).
+    input_dtype: the type of the inputs (int32 by default).
+    input_range: the range of inputs (defaults to (0, 255)).
+    output_shape: the shape of outputs (including batch dimension).
+    output_dtype: the type of the outputs (int32 by default).
+    output_range: the range of outputs (defaults to (0, 9)).
+
+  Returns:
+    trax.inputs.Inputs
+  """
+  def random_minibatches():
+    """Generate a stream of random mini-batches."""
+    if input_dtype in [onp.float16, onp.float32, onp.float64]:
+      rand = onp.random.uniform
+    else:
+      rand = onp.random.random_integers
+    while True:
+      inp = rand(input_range[0], input_range[1], input_shape)
+      inp = inp.astype(input_dtype)
+      out = rand(output_range[0], output_range[1], output_shape)
+      out = out.astype(output_dtype)
+      yield inp, out
+
+  def train_input_fun():
+    return random_minibatches()
+
+  def eval_input_fun():
+    return random_minibatches()
+
+  input_shape_without_batch = list(input_shape)[1:]
+  return Inputs(train_stream=train_input_fun,
+                eval_stream=eval_input_fun,
+                input_shape=input_shape_without_batch)
 
 
 def dataset_to_stream(dataset, input_name):

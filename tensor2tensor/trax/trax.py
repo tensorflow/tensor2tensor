@@ -351,9 +351,11 @@ def train(output_dir,
 
   print()
   train_stream = inputs.train_stream()
-  epoch_steps = itertools.chain([1,  # first epoch only 1 step
-                                 eval_frequency - 1],
-                                itertools.repeat(eval_frequency))
+  epoch_steps = [train_steps]  # Only training if eval_frequency is 0 or None.
+  if eval_frequency:
+    epoch_steps = itertools.chain([1,  # first epoch only 1 step
+                                   eval_frequency - 1],
+                                  itertools.repeat(eval_frequency))
   step_log(step, "Starting training using %d devices" % num_devices)
 
   # Non-compiled debug step helps find problems in models easier.

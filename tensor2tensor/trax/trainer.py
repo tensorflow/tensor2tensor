@@ -47,9 +47,13 @@ flags.DEFINE_bool("use_tpu", False, "Whether we're running on TPU.")
 
 def _default_output_dir():
   """Default output directory."""
+  try:
+    dataset_name = gin.query_parameter("inputs.dataset_name")
+  except ValueError:
+    dataset_name = "random"
   dir_name = "{model_name}_{dataset_name}_{timestamp}".format(
       model_name=gin.query_parameter("train.model").configurable.name,
-      dataset_name=gin.query_parameter("inputs.dataset_name"),
+      dataset_name=dataset_name,
       timestamp=datetime.datetime.now().strftime("%Y%m%d_%H%M"),
   )
   dir_path = os.path.join("~", "trax", dir_name)
