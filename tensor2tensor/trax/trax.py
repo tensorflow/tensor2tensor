@@ -32,16 +32,17 @@ from absl import logging
 import gin
 
 import jax
-from jax.experimental import optimizers as jax_opt
-import jax.numpy as np
+from jax import random as jax_random
 import numpy
 import six
 
+from tensor2tensor.trax import backend
 from tensor2tensor.trax import history as trax_history
 from tensor2tensor.trax import inputs as trax_inputs
 from tensor2tensor.trax import jaxboard
 from tensor2tensor.trax import learning_rate as lr
-from tensor2tensor.trax import optimizers as trax_optimizers
+from tensor2tensor.trax import optimizers as trax_opt
+from tensor2tensor.trax.backend import numpy as np
 import tensor2tensor.trax.stax as stax
 
 import tensorflow as tf
@@ -172,7 +173,7 @@ def evaluate(inputs_stream, predict_fun, metric_funs, rng):
   count = 0
   for inp in inputs_stream:
     count += 1
-    rng, subrng = jax.random.split(rng)
+    rng, subrng = jax_random.split(rng)
     preds = predict_fun(inp[0], rng=subrng)
     for m, f in six.iteritems(metric_funs):
       metrics[m] += f(inp, preds)
@@ -201,7 +202,7 @@ def get_random_number_generator_and_set_seed(seed=None):
     seed = random.randint(0, 2**31 - 1)
   tf.set_random_seed(seed)
   numpy.random.seed(seed)
-  return jax.random.PRNGKey(seed)
+  return jax_random.PRNGKey(seed)
 
 
 # TODO(trax):
@@ -244,27 +245,27 @@ def epochs(steps=None, epoch_steps=1):
 def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun, num_devices):
   """Get jit-ed update function for loss, optimizer, learning rate function."""
   if num_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
-    @jax.jit
     def single_update(i, opt_state, batch, rng):
       _, opt_update = optimizer(lr_fun)
-      params = jax_opt.get_params(opt_state)
-      return opt_update(i, jax.grad(loss_fun)(
+      params = trax_opt.get_params(opt_state)
+      return opt_update(i, backend.grad(loss_fun)(
           params, batch, predict_fun, rng), opt_state)
-    return single_update
+    return backend.jit(single_update)
 
-  @functools.partial(jax.pmap, axis_name="batch")
   def mapped_update(i, opt_state, batch, rng):
     """This is a multi-device version of the update function above."""
     # We assume all tensors have the first dimension = num_devices.
     _, opt_update = optimizer(lr_fun)
-    params = jax_opt.get_params(opt_state)
-    grads = jax.grad(loss_fun)(params, batch, predict_fun, rng)
+    params = trax_opt.get_params(opt_state)
+    grads = backend.grad(loss_fun)(params, batch, predict_fun, rng)
     grads = jax.tree_util.tree_map(lambda g: jax.lax.psum(g, "batch"), grads)
     return opt_update(i, grads, opt_state)
 
   def update(i, opt_state, batch, rng):
     # TODO(lukaszkaiser): investigate how to replicate rng and correct.
-    return mapped_update(jax.replicate(i), opt_state, batch, jax.replicate(rng))
+    return backend.pmap(mapped_update(
+        jax.replicate(i), opt_state, batch, jax.replicate(rng)),
+                        axis_name="batch")
 
   return update
 
@@ -289,7 +290,7 @@ def reshape_by_device(train_data, num_devices):
 def train(output_dir,
           model=gin.REQUIRED,
           inputs=trax_inputs.inputs,
-          optimizer=trax_optimizers.adam,
+          optimizer=trax_opt.adam,
           lr_schedule=lr.MultifactorSchedule,
           train_steps=1000,
           eval_steps=10,
@@ -345,7 +346,7 @@ def train(output_dir,
     opt_state = jax.replicate(opt_state)
 
   # jit model_predict and update so they're fast
-  jit_model_predict = jax.jit(model_predict)  # for evaluation
+  jit_model_predict = backend.jit(model_predict)  # for evaluation
   jit_update_fun = _jit_update_fun(model_predict, loss, optimizer, lr_fun,
                                    num_devices)
 
@@ -375,7 +376,7 @@ def train(output_dir,
       next_train_batch = next(train_stream)
       if num_devices > 1:  # TODO(lukaszkaiser): use everywhere when possible.
         next_train_batch = reshape_by_device(next_train_batch, num_devices)
-      rng, subrng = jax.random.split(rng)
+      rng, subrng = jax_random.split(rng)
       opt_state = jit_update_fun(step, opt_state, next_train_batch, subrng)
       step += 1
 
@@ -394,9 +395,9 @@ def train(output_dir,
 
     # Evaluate
     if num_devices > 1:   # TODO(lukaszkaiser): remove branch when possible.
-      params = jax_opt.get_params(jax.unreplicate(opt_state))
+      params = trax_opt.get_params(jax.unreplicate(opt_state))
     else:
-      params = jax_opt.get_params(opt_state)
+      params = trax_opt.get_params(opt_state)
     evaluate_train_and_eval(
         step=step,
         inputs=inputs,

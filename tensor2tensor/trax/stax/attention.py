@@ -19,10 +19,10 @@ from __future__ import division
 from __future__ import print_function
 
 from jax import random
-import jax.numpy as np
 import numpy as onp
 import numpy.random as npr
 
+from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.stax import stax_base as stax
 
 

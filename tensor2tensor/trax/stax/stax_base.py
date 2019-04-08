@@ -26,45 +26,53 @@ import functools
 import itertools
 import operator as op
 
+from jax import lax
+from jax import random
+
 import numpy as onp
 import numpy.random as npr
 from six.moves import reduce
-
-from jax import lax
-from jax import random
-from jax.scipy.special import logsumexp
-import jax.numpy as np
-
+from tensor2tensor.trax import backend
+from tensor2tensor.trax.backend import numpy as np
 
 # Following the convention used in Keras and tf.layers, we use CamelCase for the
 # names of layer constructors, like Conv and Relu, while using snake_case for
 # other functions, like lax.conv and relu.
 
 
-def relu(x): return np.maximum(x, 0.)
-def softplus(x): return np.logaddexp(x, 0.)
+def relu(x):
+  return np.maximum(x, 0.)
+
+
+def softplus(x):
+  return np.logaddexp(x, 0.)
+
 
 def logsoftmax(x, axis=-1):
   """Apply log softmax to an array of logits, log-normalizing along an axis."""
-  return x - logsumexp(x, axis, keepdims=True)
+  return x - backend.logsumexp(x, axis, keepdims=True)
+
 
 def softmax(x, axis=-1):
   """Apply softmax to an array of logits, exponentiating and normalizing along an axis."""
   unnormalized = np.exp(x - x.max(axis, keepdims=True))
   return unnormalized / unnormalized.sum(axis, keepdims=True)
 
+
 def fastvar(x, axis, keepdims):
   """A fast but less numerically-stable variance calculation than np.var."""
-  return np.mean(x**2, axis, keepdims=keepdims) - np.mean(x, axis, keepdims=keepdims)**2
+  m1 = np.mean(x**2, axis, keepdims=keepdims)
+  m2 = np.mean(x, axis, keepdims=keepdims)**2
+  return m1 - m2
 
 
 # Initializers
-
 def randn(stddev=1e-2, rng=npr):
   """An initializer function for random normal coefficients."""
   def init(shape):
     return rng.normal(size=shape, scale=stddev).astype('float32')
   return init
+
 
 def glorot(out_dim=0, in_dim=1, scale=onp.sqrt(2), rng=npr):
   """An initializer function for random Glorot-scaled coefficients."""

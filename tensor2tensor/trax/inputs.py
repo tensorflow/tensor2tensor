@@ -25,12 +25,10 @@ import random
 
 import gin
 
-import jax.numpy as np
-import numpy as onp
+import numpy as np
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
-
 
 Inputs = collections.namedtuple(
     "_Inputs", ["train_stream", "eval_stream", "input_shape"])
@@ -73,8 +71,8 @@ def inputs(dataset_name, data_dir=None):
 
 @gin.configurable()
 def random_inputs(
-    input_shape=gin.REQUIRED, input_dtype=onp.int32, input_range=(0, 255),
-    output_shape=gin.REQUIRED, output_dtype=onp.int32, output_range=(0, 9)):
+    input_shape=gin.REQUIRED, input_dtype=np.int32, input_range=(0, 255),
+    output_shape=gin.REQUIRED, output_dtype=np.int32, output_range=(0, 9)):
   """Make random Inputs for debugging.
 
   Args:
@@ -90,10 +88,10 @@ def random_inputs(
   """
   def random_minibatches():
     """Generate a stream of random mini-batches."""
-    if input_dtype in [onp.float16, onp.float32, onp.float64]:
-      rand = onp.random.uniform
+    if input_dtype in [np.float16, np.float32, np.float64]:
+      rand = np.random.uniform
     else:
-      rand = onp.random.random_integers
+      rand = np.random.random_integers
     while True:
       inp = rand(input_range[0], input_range[1], input_shape)
       inp = inp.astype(input_dtype)
