@@ -86,11 +86,11 @@ class RecentTokensMemory(RecurrentMemory):
       batch_size_in_sequences = hparams.batch_size / hparams.max_length
 
     memory_shape = [batch_size_in_sequences, self.tokens_to_cache, hidden_size]
-    bias_shape = [1, 1, self.chunk_length, self.tokens_to_cache]
+    bias_shape = [batch_size_in_sequences, 1, 1, self.tokens_to_cache]
 
     with tf.variable_scope(name):
       self.previous_segment = tf.get_variable(
-          "memsegment", (),
+          "memsegment", (batch_size_in_sequences,),
           dtype=tf.int32, trainable=False,
           collections=[tf.GraphKeys.LOCAL_VARIABLES],
           initializer=tf.constant_initializer(0))
@@ -105,7 +105,7 @@ class RecentTokensMemory(RecurrentMemory):
           "membias", bias_shape,
           dtype=tf.float32, trainable=False,
           collections=[tf.GraphKeys.LOCAL_VARIABLES],
-          initializer=tf.constant_initializer(.0))
+          initializer=tf.constant_initializer(-1e9))
 
   def pre_attention(self, segment, query_antecedent, memory_antecedent, bias):
     """Called prior to self-attention, to incorporate memory items.
@@ -122,39 +122,45 @@ class RecentTokensMemory(RecurrentMemory):
     """
     assert memory_antecedent is None, "We only support language modeling"
 
+    # In eval mode, batch size may be variable
+    memory_batch_size = tf.shape(self.previous_vals)[0]
+    current_batch_size = tf.shape(query_antecedent)[0]
+    amount_to_pad = memory_batch_size - current_batch_size
+
     previous_vals = self.previous_vals
     # If segment id is zero, don't attend back to the memory
-    previous_bias = self.previous_bias + tf.cast(
-        tf.equal(tf.reduce_sum(segment), 0), tf.float32) * -1e9
+    previous_bias = self.previous_bias[:current_batch_size, :, :, :] + tf.cast(
+        tf.equal(segment[:, None, None, None], 0), tf.float32) * -1e9
 
-    # In eval mode, batch size may be variable
-    amount_to_pad = tf.shape(previous_vals)[0] - tf.shape(query_antecedent)[0]
-    sliced_previous_vals = previous_vals[:tf.shape(query_antecedent)[0], :, :]
+    sliced_previous_vals = previous_vals[:current_batch_size, :, :]
 
     new_memory_antecedent = tf.concat(
         [tf.stop_gradient(sliced_previous_vals), query_antecedent], 1)
-    new_bias = tf.concat([tf.stop_gradient(previous_bias), bias], -1)
+    new_bias = tf.concat([
+        tf.tile(tf.stop_gradient(previous_bias), [1, 1, self.chunk_length, 1]),
+        tf.tile(bias, [current_batch_size, 1, 1, 1]),
+    ], -1)
 
-    remember_segment = segment[0]
+    remember_segment = tf.pad(segment, [[0, amount_to_pad]])
     # TODO(kitaev): The code assumes that we always either increment the chunk
-    # number or reset it to zero, which is checked by the assertion. This
-    # assumption will not hold if we re-run the model for each token, e.g. for
-    # autoregressive greedy/beam/sampling decode.
-    with tf.control_dependencies(
-        [tf.Assert(tf.math.logical_or(
-            tf.equal(remember_segment, 0),
-            tf.equal(remember_segment, self.previous_segment + 1)),
-                   [self.previous_segment, remember_segment])]):
-      remember_segment = tf.identity(remember_segment)
-
+    # number or reset it to zero. This assumption will not hold if we re-run the
+    # model for each token, e.g. for autoregressive greedy/beam/sampling decode.
     remember_vals = tf.pad(query_antecedent,
                            [[0, amount_to_pad], [0, 0], [0, 0]])
-    remember_bias = tf.zeros_like(bias) + tf.reduce_max(
-        bias, -1, keep_dims=True)
+    # Query position is on axis -2 for bias: as long as a token can be attended
+    # to from at least one query position (i.e. it's not padding), memorize it.
+    remember_bias = tf.tile(
+        tf.reduce_max(bias, -2, keepdims=True), [memory_batch_size, 1, 1, 1])
     # Assume that query_antecedent is always a full chunk (i.e. not truncated)
     if self.chunk_length < self.tokens_to_cache:
       remember_vals = tf.concat([previous_vals, remember_vals], 1)
-      remember_bias = tf.concat([previous_bias, remember_bias], -1)
+      remember_bias = tf.concat([
+          previous_bias - 1e9 * tf.cast(
+              tf.equal(
+                  tf.pad(segment, [[0, amount_to_pad]])[:, None, None, None],
+                  0), tf.float32),
+          remember_bias
+      ], -1)
     if self.chunk_length != self.tokens_to_cache:
       remember_vals = remember_vals[:, -self.tokens_to_cache:, :]
       remember_bias = remember_bias[:, :, :, -self.tokens_to_cache:]

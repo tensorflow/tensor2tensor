@@ -253,19 +253,19 @@ class Transformer(t2t_model.T2TModel):
     if self.recurrent_memory_by_layer is not None:
       # TODO(kitaev): The chunk_number feature currently has the same shape as
       # "targets", but this is only for the purposes of sharing sharding code.
-      # In fact every token within the batch must have the same chunk number.
+      # In fact every token within an example must have the same chunk number.
       chunk_number_each_token = tf.squeeze(features["chunk_number"], (-1, -2))
-      chunk_number_each_batch = chunk_number_each_token[:, 0]
+      chunk_number_each_example = chunk_number_each_token[:, 0]
       # Uncomment the code below to verify that tokens within a batch share the
       # same chunk number:
       # with tf.control_dependencies([
       #     tf.assert_equal(chunk_number_each_token,
-      #                     chunk_number_each_batch[:, None])
+      #                     chunk_number_each_example[:, None])
       # ]):
-      #   chunk_number_each_batch = tf.identity(chunk_number_each_batch)
+      #   chunk_number_each_example = tf.identity(chunk_number_each_example)
       decode_kwargs = dict(
           recurrent_memory_by_layer=self.recurrent_memory_by_layer,
-          chunk_number=chunk_number_each_batch,
+          chunk_number=chunk_number_each_example,
           )
 
     decoder_output = self.decode(
@@ -2651,6 +2651,7 @@ def transformer_wikitext103_l4k_memory_v0():
 
   hparams.split_targets_chunk_length = 64
   hparams.split_targets_max_chunks = 64
+  hparams.split_targets_strided_training = True
   hparams.add_hparam("memory_type", "transformer_xl")
 
   # The hparams specify batch size *before* chunking, but we want to have a
