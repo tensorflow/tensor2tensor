@@ -72,7 +72,7 @@ def make_model_fn(epoch_length, num_tpus):
       # Overriding the batch size to the minimal value to speed this up.
       ppo_hparams.optimization_batch_size = 1
 
-      ppo_summary = ppo.define_ppo_epoch(
+      ppo_summary = ppo_tpu.define_ppo_epoch(
           memory, ppo_hparams, action_space, batch_env.tensor_specs.observation
       )
 
