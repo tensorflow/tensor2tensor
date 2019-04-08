@@ -25,7 +25,8 @@ MultifactorSchedule.warmup_steps = 8000
 
 # Parameters for preprocess_fun:
 # ==============================================================================
-preprocess_fun.max_target_length = 511
+shuffle_and_batch_data.preprocess_fun=@trax.inputs.lm1b_preprocess
+lm1b.max_target_length = 511
 
 # Parameters for train:
 # ==============================================================================

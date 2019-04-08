@@ -14,7 +14,7 @@ batch_fun.eval_batch_size = 32
 # Parameters for inputs:
 # ==============================================================================
 inputs.data_dir = None
-inputs.dataset_name = 't2t_image_imagenet224'
+inputs.dataset_name = 'cifar10'
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================
@@ -26,19 +26,22 @@ MultifactorSchedule.warmup_steps = 400
 # ==============================================================================
 momentum.mass = 0.9
 
-
-# Parameters for Resnet50:
+# Parameters for preprocess_fun:
 # ==============================================================================
-Resnet50.hidden_size = 64
-Resnet50.num_output_classes = 1001
+shuffle_and_batch_data.preprocess_fun=@trax.inputs.cifar10_no_augmentation_preprocess
+
+# Parameters for WideResnet:
+# ==============================================================================
+WideResnet.num_blocks = 3
+WideResnet.hidden_size = 64
+WideResnet.num_output_classes = 10
 
 # Parameters for train:
 # ==============================================================================
 train.eval_frequency = 2000
 train.eval_steps = 20
 train.inputs = @trax.inputs.inputs
-train.model = @trax.models.Resnet50
+train.model = @trax.models.WideResnet
 train.optimizer = @trax.optimizers.momentum
 train.train_steps = 1000000
 train.lr_schedule = @learning_rate.EvalAdjustingSchedule
-

@@ -92,3 +92,43 @@ def Resnet50(hidden_size=64, num_output_classes=1001):
       IdentityBlock(3, [8 * hidden_size, 8 * hidden_size]),
       stax.AvgPool((7, 7)), stax.Flatten,
       stax.Dense(num_output_classes), stax.LogSoftmax)
+
+
+def WideResnetBlock(channels, strides=(1, 1), channel_mismatch=False):
+  """WideResnet convolutational block."""
+  main = stax.serial(stax.BatchNorm(), stax.Relu,
+                     stax.Conv(channels, (3, 3), strides, padding='SAME'),
+                     stax.BatchNorm(), stax.Relu,
+                     stax.Conv(channels, (3, 3), padding='SAME'))
+  shortcut = stax.Identity if not channel_mismatch else stax.Conv(
+      channels, (3, 3), strides, padding='SAME')
+  return stax.serial(
+      stax.FanOut(2), stax.parallel(main, shortcut), stax.FanInSum)
+
+
+def WideResnetGroup(n, channels, strides=(1, 1)):
+  blocks = []
+  blocks += [WideResnetBlock(channels, strides, channel_mismatch=True)]
+  for _ in range(n - 1):
+    blocks += [WideResnetBlock(channels, (1, 1))]
+  return stax.serial(*blocks)
+
+
+def WideResnet(num_blocks=3, hidden_size=64, num_output_classes=10):
+  """WideResnet from https://arxiv.org/pdf/1605.07146.pdf.
+
+  Args:
+    num_blocks: int, number of blocks in a group.
+    hidden_size: the size of the first hidden layer (multiplied later).
+    num_output_classes: int, number of classes to distinguish.
+
+  Returns:
+    The WideResnet model with given layer and output sizes.
+  """
+  return stax.serial(
+      stax.Conv(hidden_size, (3, 3), padding='SAME'),
+      WideResnetGroup(num_blocks, hidden_size),
+      WideResnetGroup(num_blocks, hidden_size * 2, (2, 2)),
+      WideResnetGroup(num_blocks, hidden_size * 4, (2, 2)), stax.BatchNorm(),
+      stax.Relu, stax.AvgPool((8, 8)), stax.Flatten,
+      stax.Dense(num_output_classes), stax.LogSoftmax)
