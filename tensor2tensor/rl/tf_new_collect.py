@@ -71,11 +71,7 @@ def init_tensors(spec):
 def flatten_tensors(structure):
   # structure is either tf.Tensor or a tuple of structures.
   if tf.contrib.framework.is_tensor(structure):
-    if len(structure.shape) > 1:
-      shape = (16, -1)
-    else:
-      shape = (-1,)
-    return tf.reshape(structure, shape)
+    return tf.reshape(structure, (-1,))
   else:
     return map_sequence(flatten_tensors, structure)
 

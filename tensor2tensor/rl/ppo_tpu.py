@@ -13,65 +13,84 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""PPO on TPU."""
+"""PPO algorithm implementation.
 
+Based on: https://arxiv.org/abs/1707.06347
+"""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensorflow.contrib import tpu
-from tensorflow.contrib.cluster_resolver import TPUClusterResolver
-
-from tensor2tensor.models.research.rl import PolicyBase
-from tensor2tensor.rl import ppo
+from tensor2tensor.layers import common_layers
+from tensor2tensor.models.research.rl import get_policy
 from tensor2tensor.rl import tf_new_collect
-from tensor2tensor.utils import registry
-from tensor2tensor.utils import trainer_lib
+from tensor2tensor.utils import learning_rate
+from tensor2tensor.utils import optimize
 
 import tensorflow as tf
-
-from gym.spaces import Discrete
-from munch import Munch
+import tensorflow_probability as tfp
 
 
-FLAGS = tf.flags.FLAGS
+def define_ppo_step(data_points, hparams, action_space, observation_spec):
+  """Define ppo step."""
+  # Most PPO code has been removed to get a minimal reproducible example.
+  # What's left is restoring the observation to the original shape, feeding
+  # it to the policy network and computing a "loss" dependent on the result
+  # to ensure that it gets computed in the graph.
 
+  observation = data_points
 
-EPOCH_LENGTH = 50
-BATCH_SIZE = 16
-HISTORY = 4
-TPU_NAME = "ng-tpu-01"
-
-
-def main(_):
-  batch_env = tf_new_collect.NewSimulatedBatchEnv(
-      BATCH_SIZE,
-      "next_frame_basic_stochastic_discrete",
-      trainer_lib.create_hparams("next_frame_basic_stochastic_discrete_long")
-  )
-  batch_env = tf_new_collect.NewStackWrapper(batch_env, HISTORY)
-
-  ppo_hparams = trainer_lib.create_hparams("ppo_original_params")
-  ppo_hparams.policy_network = "feed_forward_cnn_small_categorical_policy"
-  action_space = Discrete(2)
-  with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-    with tf.variable_scope("collect", reuse=tf.AUTO_REUSE):
-      memory = tf_new_collect.new_define_collect(
-          batch_env, ppo_hparams, action_space, force_beginning_resets=True
+  obs_shape = observation_spec.shape
+  # Join the two batch dimensions, so
+  # observation_shape = (BS, HISTORY, H, W, C).
+  # This operation seems to be the problem.
+  observation = tf_new_collect.restore_tensors(
+      observation, observation_spec._replace(
+          shape=((obs_shape[0] * obs_shape[1],) + obs_shape[2:]),
       )
-    ppo_summary = memory
-    ppo_summary = ppo.define_ppo_epoch(
-        memory, ppo_hparams, action_space, batch_env.batch_size
-    )
-  ppo_summary = tpu.rewrite(lambda: ppo_summary)
-  tpu_grpc_url = TPUClusterResolver(tpu=[TPU_NAME]).get_master()
-  with tf.Session(tpu_grpc_url) as sess:
-    sess.run(tpu.initialize_system())
-    sess.run(tf.global_variables_initializer())
-    summary = sess.run(ppo_summary)
-    print(summary)
-    sess.run(tpu.shutdown_system())
+  )
+
+  # Run the network on the observation. This takes about 9 minutes, which is
+  # really slow, especially because we need to run this several times in 1 PPO
+  # epoch. For comparison, running just the collect takes about 2 min on TPU V3,
+  # TF 1.13.
+  (logits, new_value) = get_policy(observation, hparams, action_space)
+  x = tf.math.reduce_mean(new_value)
+  losses = [x] * 3
+
+  # This variant is fast (takes about as much time as just the collect),
+  # possibly because the reshape above gets optimized out because it doesn't
+  # affect the result (we take a mean over all dimensions).
+  #x = tf.to_float(tf.math.reduce_mean(observation))
+  #losses = [obs_mean] * 3
+
+  # This takes about 7 minutes - still very slow, which indicates that the
+  # network itself is not the cause - BTW it's interesting, because we're again
+  # taking a mean over all dimensions, just in 2 steps and with a cast in
+  # between, it seems that the optimizer doesn't handle this.
+  #x = tf.to_float(tf.math.reduce_mean(observation, axis=(1, 2, 3, 4)))
+  #losses = [tf.math.reduce_mean(new_value)] * 3
+
+  return losses
 
 
-if __name__ == "__main__":
-  tf.app.run()
+def define_ppo_epoch(memory, hparams, action_space, observation_spec):
+  """PPO epoch."""
+  # Most PPO code has been removed to get a minimal reproducible example.
+
+  # This is to avoid propagating gradients through simulated environment.
+  observation = tf.stop_gradient(memory.observation)
+  # Observations are batched on 2 levels: collect batches (parallel rollouts
+  # from the world model) and PPO optimization batches, so
+  # observation_shape = (PPO_BS, COLLECT_BS, HISTORY, H, W, C)
+  observation_spec = observation_spec._replace(
+      shape=((hparams.optimization_batch_size,) + observation_spec.shape)
+  )
+  # Normally we would shuffle the memory and go over it in batches, but even
+  # this small example hangs up (just taking the first batch once, without
+  # shuffling).
+  ppo_step_rets = define_ppo_step(observation[:hparams.optimization_batch_size, :],
+                             hparams, action_space, observation_spec
+                            )
+  ppo_summaries = [tf.reduce_mean(ret) for ret in ppo_step_rets]
+  return ppo_summaries
