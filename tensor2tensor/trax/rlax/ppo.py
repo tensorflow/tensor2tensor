@@ -21,6 +21,7 @@ from __future__ import print_function
 
 import functools
 import time
+
 from absl import logging
 import gym
 from jax import grad
@@ -29,8 +30,9 @@ from jax import lax
 from jax import numpy as np
 from jax import random as jax_random
 from jax import vmap
-from jax.experimental import optimizers
 import numpy as onp
+from tensor2tensor.trax import optimizers as trax_opt
+from tensor2tensor.trax import trax
 from tensor2tensor.trax.stax import stax_base as stax
 
 DEBUG_LOGGING = False
@@ -43,50 +45,50 @@ BATCH_TRAJECTORIES = 32
 POLICY = "categorical-sampling"
 
 
-# TODO(afrozm): Have a single net for both policy and value.
-def initialize_policy_and_value_nets(rng_key, num_actions,
-                                     batch_observations_shape):
-  """Setup and initialize the policy and value networks."""
-  key1, key2 = jax_random.split(rng_key)
+def policy_net(jax_rng_key,
+               batch_observations_shape,
+               num_actions,
+               bottom_layers=None):
+  """A policy net function."""
+  key1, _ = jax_random.split(jax_rng_key)
 
-  policy_net_init, policy_net_apply = stax.serial(
-      stax.Dense(16),
-      stax.Relu,
-      stax.Dense(4),
-      stax.Relu,
-      stax.Dense(num_actions),
-      stax.Softmax,
-  )
+  # Use the bottom_layers as the bottom part of the network and just add the
+  # required layers on top of it.
+  if bottom_layers is None:
+    bottom_layers = []
+  bottom_layers.extend([stax.Dense(num_actions), stax.Softmax])
 
-  _, policy_net_params = policy_net_init(key1, batch_observations_shape)
+  net_init, net_apply = stax.serial(*bottom_layers)
 
-  value_net_init, value_net_apply = stax.serial(
-      stax.Dense(16),
-      stax.Relu,
-      stax.Dense(4),
-      stax.Relu,
-      stax.Dense(1),  # 1 since we want to predict reward using value network.
-  )
-
-  _, value_net_params = value_net_init(key2, batch_observations_shape)
-
-  return ((policy_net_params, policy_net_apply), (value_net_params,
-                                                  value_net_apply))
+  _, net_params = net_init(key1, batch_observations_shape)
+  return net_params, net_apply
 
 
-def initialize_optimizers(policy_net_params, value_net_params):
-  """Initialize optimizers for the policy and value params."""
-  # ppo_opt_init, ppo_opt_update = optimizers.sgd(step_size=1e-3)
-  # val_opt_init, val_opt_update = optimizers.sgd(step_size=1e-3)
-  ppo_opt_init, ppo_opt_update = optimizers.adam(
+def value_net(jax_rng_key,
+              batch_observations_shape,
+              num_actions,
+              bottom_layers=None):
+  """A value net function."""
+  del num_actions
+  key1, _ = jax_random.split(jax_rng_key)
+
+  if bottom_layers is None:
+    bottom_layers = []
+  bottom_layers.extend([
+      stax.Dense(1),
+  ])
+
+  net_init, net_apply = stax.serial(*bottom_layers)
+
+  _, net_params = net_init(key1, batch_observations_shape)
+  return net_params, net_apply
+
+
+def optimizer_fun(net_params):
+  opt_init, opt_update = trax_opt.adam(
       step_size=1e-3, b1=0.9, b2=0.999, eps=1e-08)
-  value_opt_init, value_opt_update = optimizers.adam(
-      step_size=1e-3, b1=0.9, b2=0.999, eps=1e-08)
-
-  ppo_opt_state = ppo_opt_init(policy_net_params)
-  value_opt_state = value_opt_init(value_net_params)
-
-  return (ppo_opt_state, ppo_opt_update), (value_opt_state, value_opt_update)
+  opt_state = opt_init(net_params)
+  return opt_state, opt_update
 
 
 # Should this be collect 'n' trajectories, or
@@ -393,7 +395,7 @@ def ppo_opt_step(i,
                  lambda_=0.95,
                  epsilon=0.1):
   """PPO optimizer step."""
-  new_policy_params = optimizers.get_params(opt_state)
+  new_policy_params = trax_opt.get_params(opt_state)
   g = grad(
       ppo_loss, argnums=1)(
           policy_net_apply,
@@ -421,7 +423,7 @@ def value_opt_step(i,
                    reward_mask,
                    gamma=0.99):
   """Value optimizer step."""
-  value_params = optimizers.get_params(opt_state)
+  value_params = trax_opt.get_params(opt_state)
   # Note this partial application here and argnums above in ppo_opt_step.
   g = grad(functools.partial(value_loss, value_net_apply))(
       value_params,
@@ -438,15 +440,21 @@ def get_time(t1, t2=None):
   return round((t2 - t1) * 1000, 2)
 
 
-def training_loop(env=None,
-                  env_name="CartPole-v0",
-                  epochs=EPOCHS,
-                  batch_size=BATCH_TRAJECTORIES,
-                  num_optimizer_steps=NUM_OPTIMIZER_STEPS,
-                  print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
-                  random_seed=None):
+def training_loop(
+    env=None,
+    env_name="CartPole-v0",
+    epochs=EPOCHS,
+    policy_net_fun=None,
+    value_net_fun=None,
+    policy_and_value_net_fun=None,  # TODO(afrozm): Implement.
+    policy_optimizer_fun=optimizer_fun,
+    value_optimizer_fun=optimizer_fun,
+    batch_size=BATCH_TRAJECTORIES,
+    num_optimizer_steps=NUM_OPTIMIZER_STEPS,
+    print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
+    random_seed=None):
   """Runs the training loop for PPO, with fixed policy and value nets."""
-  onp.random.seed(random_seed)
+  jax_rng_key = trax.get_random_number_generator_and_set_seed(random_seed)
 
   value_losses = []
   ppo_objective = []
@@ -459,14 +467,23 @@ def training_loop(env=None,
   assert isinstance(env.action_space, gym.spaces.Discrete)
   num_actions = env.action_space.n
 
-  rng_key = jax_random.PRNGKey(0)
-  ((policy_net_params, policy_net_apply),
-   (value_net_params, value_net_apply)) = initialize_policy_and_value_nets(
-       rng_key, num_actions, batch_observations_shape)
+  # TODO(afrozm): Have a single net for both policy and action.
+  assert policy_and_value_net_fun is None
 
-  (ppo_opt_state, ppo_opt_update), (value_opt_state,
-                                    value_opt_update) = initialize_optimizers(
-                                        policy_net_params, value_net_params)
+  # Initialize the policy and value functions.
+  assert policy_net_fun and value_net_fun
+  jax_rng_key, key1, key2 = jax_random.split(jax_rng_key, num=3)
+
+  policy_net_params, policy_net_apply = policy_net_fun(
+      key1, batch_observations_shape, num_actions)
+  value_net_params, value_net_apply = value_net_fun(
+      key2, batch_observations_shape, num_actions)
+
+  # Initialize the optimizers.
+  assert policy_optimizer_fun and value_optimizer_fun
+
+  ppo_opt_state, ppo_opt_update = policy_optimizer_fun(policy_net_params)
+  value_opt_state, value_opt_update = value_optimizer_fun(value_net_params)
 
   for i in range(epochs):
     t = time.time()
@@ -552,7 +569,7 @@ def training_loop(env=None,
           epsilon=epsilon)
       t2 = time.time()
       # Get the new params.
-      new_policy_net_params = optimizers.get_params(ppo_opt_state)
+      new_policy_net_params = trax_opt.get_params(ppo_opt_state)
       if ((j + 1) %
           print_every_optimizer_steps == 0) or (j == num_optimizer_steps - 1):
         new_ppo_loss = ppo_loss(
@@ -591,7 +608,7 @@ def training_loop(env=None,
           reward_mask,
           gamma=GAMMA)
       t2 = time.time()
-      value_net_params = optimizers.get_params(value_opt_state)
+      value_net_params = trax_opt.get_params(value_opt_state)
       if ((j + 1) %
           print_every_optimizer_steps == 0) or (j == num_optimizer_steps - 1):
         new_value_loss = value_loss(
@@ -611,8 +628,8 @@ def training_loop(env=None,
     logging.debug("Grad desc took %0.2f msec", get_time(t1))
 
     # Set the optimized params to new params.
-    policy_net_params = optimizers.get_params(ppo_opt_state)
-    value_net_params = optimizers.get_params(value_opt_state)
+    policy_net_params = trax_opt.get_params(ppo_opt_state)
+    value_net_params = trax_opt.get_params(value_opt_state)
 
     logging.info(
         "Epoch [% 6d], average reward [%10.2f], ppo loss [%10.2f], "
