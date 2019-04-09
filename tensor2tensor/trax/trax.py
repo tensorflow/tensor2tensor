@@ -288,6 +288,7 @@ def reshape_by_device(train_data, num_devices):
 @gin.configurable(blacklist=["output_dir"])
 def train(output_dir,
           model=gin.REQUIRED,
+          loss_fun=loss,
           inputs=trax_inputs.inputs,
           optimizer=trax_opt.adam,
           lr_schedule=lr.MultifactorSchedule,
@@ -303,6 +304,8 @@ def train(output_dir,
     output_dir: Directory where to put the logs and checkpoints.
     model: The model to train as a callable returning 2 callables, an init_fun
       and apply_fun.
+    loss_fun: callable with signature: params, trax.inputs.Inputs, model, rng
+      -> loss.
     inputs: callable returning trax.inputs.Inputs.
     optimizer: The optimizer as a callable taking a learning_rate callable and
       returning 2 callables, opt_init and opt_update.
@@ -348,7 +351,7 @@ def train(output_dir,
 
   # jit model_predict and update so they're fast
   jit_model_predict = backend.jit(model_predict)  # for evaluation
-  jit_update_fun = _jit_update_fun(model_predict, loss, optimizer, lr_fun,
+  jit_update_fun = _jit_update_fun(model_predict, loss_fun, optimizer, lr_fun,
                                    num_devices)
 
   print()
@@ -362,7 +365,7 @@ def train(output_dir,
 
   # Non-compiled debug step helps find problems in models easier.
   if run_debug_step:
-    debug_loss = loss(params, next(train_stream), model_predict, rng)
+    debug_loss = loss_fun(params, next(train_stream), model_predict, rng)
     step_log(step, "Debug step loss %.8f" % debug_loss)
 
   for epoch, epoch_steps in epochs(train_steps, epoch_steps):
@@ -421,8 +424,8 @@ def train(output_dir,
     old_lr_fun = lr_fun
     lr_fun = lr_schedule(history)
     if lr_fun != old_lr_fun:  # For performance, only jit if there is a change.
-      jit_update_fun = _jit_update_fun(model_predict, loss, optimizer, lr_fun,
-                                       num_devices)
+      jit_update_fun = _jit_update_fun(model_predict, loss_fun, optimizer,
+                                       lr_fun, num_devices)
 
     # Flush summary writers
     train_sw.writer.flush()
