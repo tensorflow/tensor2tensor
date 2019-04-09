@@ -186,7 +186,7 @@ def main(_):
   exporter = tf.estimator.FinalExporter(
       "exporter",
       lambda: problem.serving_input_fn(hparams, decode_hparams, FLAGS.use_tpu),
-      as_text=True)
+      as_text=False)
 
   exporter.export(
       estimator,
