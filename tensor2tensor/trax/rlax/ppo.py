@@ -208,6 +208,7 @@ def pad_trajectories(trajectories, boundary=10):
       padded_observations), np.stack(padded_actions), np.stack(padded_rewards)
 
 
+# TODO(afrozm): Make this batched by default.
 def rewards_to_go(rewards, reward_mask=1.0, gamma=0.99):
   r"""r2g[t] = \sum_{l=0}^{\infty}(\gamma^l * r_{t+l})."""
   time_steps = len(rewards)
@@ -228,13 +229,14 @@ def rewards_to_go(rewards, reward_mask=1.0, gamma=0.99):
   return r2g * reward_mask
 
 
+# TODO(afrozm): Make this batched by default.
 @functools.partial(jit, static_argnums=(0,))
-def batched_avg_value_function_loss(value_net_apply,
-                                    value_net_params,
-                                    observations,
-                                    rewards,
-                                    reward_mask=1.0,
-                                    gamma=0.99):
+def value_loss(value_net_apply,
+               value_net_params,
+               observations,
+               rewards,
+               reward_mask=1.0,
+               gamma=0.99):
   """L2 loss on the value function's outputs."""
 
   # Capturing the value_net_apply from the parent function's scope.
@@ -245,8 +247,7 @@ def batched_avg_value_function_loss(value_net_apply,
                                       reward_mask=1.0,
                                       gamma=0.99):
     """Compute the actual loss for a trajectory."""
-    r2g = rewards_to_go(
-        rewards, reward_mask=reward_mask, gamma=gamma)
+    r2g = rewards_to_go(rewards, reward_mask=reward_mask, gamma=gamma)
     v = value_net_apply(value_net_params, observations[:-1])
     v = np.squeeze(v) * reward_mask
     loss = v - r2g
@@ -260,28 +261,25 @@ def batched_avg_value_function_loss(value_net_apply,
           value_net_params, observations, rewards, reward_mask, gamma=gamma))
 
 
-def batched_deltas(predicted_values, rewards, reward_mask, gamma=0.99):
+def deltas(predicted_values, rewards, reward_mask, gamma=0.99):
   r"""\delta_t = \sum_{l = 0}^{\infty}(r_t + \gamma * V(s_{t+1}) - V(s_t))."""
   # predicted_values are application of value net only the observations.
   # B x T+1
 
-  deltas = []
+  # `d`s are basically one-step TD residuals.
+  d = []
   _, T = rewards.shape  # pylint: disable=invalid-name
   for t in range(T):
-    deltas.append(rewards[:, t] + (gamma * predicted_values[:, t + 1]) -
-                  predicted_values[:, t])
+    d.append(rewards[:, t] + (gamma * predicted_values[:, t + 1]) -
+             predicted_values[:, t])
 
-  return np.array(deltas).T * reward_mask
+  return np.array(d).T * reward_mask
 
 
-def batched_gae_advantages(
-    deltas,
-    reward_mask,
-    lamda=0.95,  # NOTYPO
-    gamma=0.99):
+def gae_advantages(td_deltas, reward_mask, lambda_=0.95, gamma=0.99):
   r"""A_t = \sum_{l=0}^{\infty}(\gamma * \lambda)^{l}(\delta_{t+l})."""
-  _, T = deltas.shape  # pylint: disable=invalid-name
-  gl = lamda * gamma  # NOTYPO
+  _, T = td_deltas.shape  # pylint: disable=invalid-name
+  gl = lambda_ * gamma
 
   # [[1, gl, gl**2, ... gl**T-1]]
   # Not jittable, T should be a compile time constant.
@@ -292,8 +290,8 @@ def batched_gae_advantages(
   gl_gp = np.array(gl_geometric_progression)
   gl_gp = gl_gp.reshape((1, T))
 
-  # deltas * gl_gp
-  deltas_gl_gp = deltas * gl_gp
+  # td_deltas * gl_gp
+  deltas_gl_gp = td_deltas * gl_gp
 
   # A0 - advantage for 0th time-step, across all batches.
   As = []  # pylint: disable=invalid-name
@@ -302,25 +300,36 @@ def batched_gae_advantages(
 
   # Now compute the other advantages.
   for t in range(1, T):
-    As.append((As[-1] - deltas[:, t - 1]) / gl)
+    As.append((As[-1] - td_deltas[:, t - 1]) / gl)
 
   return np.stack(As).T * reward_mask
 
 
-def batched_probabs(probab_observations, actions):
+def chosen_probabs(probab_observations, actions):
+  """Picks out the probabilities of the actions along batch and time-steps.
+
+  Args:
+    probab_observations: `[B, T, #actions]` ndarray, where
+      probab_observations[b, t, i] contains the probability of action = i at the
+      t^th time-step in the b^th trajectory.
+    actions: `[B, T]` ndarray, with each entry in [0, #actions) denoting which
+      action was chosen in the b^th trajectory's t^th time-step.
+
+  Returns:
+    `[B, T]` ndarray with the probabilities of the chosen actions.
+  """
   b, t = actions.shape
   return probab_observations[np.arange(b)[:, None], np.arange(t), actions]
 
 
-def batched_probab_ratios(policy_net_apply, old_policy_params,
-                          new_policy_params, observations, actions,
-                          reward_mask):
+def probab_ratios(policy_net_apply, old_policy_params, new_policy_params,
+                  observations, actions, reward_mask):
   """Calculates the probaility ratios for each time-step in a trajectory."""
   p_old = policy_net_apply(old_policy_params, observations)
   p_new = policy_net_apply(new_policy_params, observations)
 
-  bp_old = batched_probabs(p_old, actions)
-  bp_new = batched_probabs(p_new, actions)
+  bp_old = chosen_probabs(p_old, actions)
+  bp_new = chosen_probabs(p_new, actions)
 
   # Add a small number to bp_old, where reward_mask is 0, this is just to help
   # never to divide by 0.
@@ -331,66 +340,62 @@ def batched_probab_ratios(policy_net_apply, old_policy_params,
   return ret_val
 
 
-def batched_clipped_probab_ratios(bpr, reward_mask, epsilon=0.2):
+def clipped_probab_ratios(bpr, reward_mask, epsilon=0.2):
   return reward_mask * np.clip(bpr, 1 - epsilon, 1 + epsilon)
 
 
-def batched_clipped_objective(bpr, adv, reward_mask, epsilon=0.2):
+def clipped_objective(bpr, adv, reward_mask, epsilon=0.2):
   c1 = bpr * adv
-  c2 = batched_clipped_probab_ratios(bpr, reward_mask, epsilon=epsilon) * adv
+  c2 = clipped_probab_ratios(bpr, reward_mask, epsilon=epsilon) * adv
   return np.minimum(c1, c2)
 
 
 @functools.partial(jit, static_argnums=(0, 3))
-def batched_ppo_loss(
-    policy_net_apply,
-    new_policy_params,
-    old_policy_params,
-    value_net_apply,
-    value_net_params,
-    padded_observations,
-    padded_actions,
-    padded_rewards,
-    reward_mask,
-    gamma=0.99,
-    lamda=0.95,  # NOTYPO
-    epsilon=0.2):
+def ppo_loss(policy_net_apply,
+             new_policy_params,
+             old_policy_params,
+             value_net_apply,
+             value_net_params,
+             padded_observations,
+             padded_actions,
+             padded_rewards,
+             reward_mask,
+             gamma=0.99,
+             lambda_=0.95,
+             epsilon=0.2):
   """PPO objective, with an eventual minus sign."""
   # V(s_t) forall s & t
   value_function = np.squeeze(
       value_net_apply(value_net_params, padded_observations))
-  deltas = batched_deltas(
-      value_function, padded_rewards, reward_mask, gamma=gamma)
-  advantages = batched_gae_advantages(
-      deltas, reward_mask, lamda=lamda, gamma=gamma)  # NOTYPO
-  ratios = batched_probab_ratios(policy_net_apply, old_policy_params,
-                                 new_policy_params, padded_observations,
-                                 padded_actions, reward_mask)
-  clipped_loss = batched_clipped_objective(
+  td_deltas = deltas(value_function, padded_rewards, reward_mask, gamma=gamma)
+  advantages = gae_advantages(
+      td_deltas, reward_mask, lambda_=lambda_, gamma=gamma)
+  ratios = probab_ratios(policy_net_apply, old_policy_params, new_policy_params,
+                         padded_observations, padded_actions, reward_mask)
+  clipped_loss = clipped_objective(
       ratios, advantages, reward_mask, epsilon=epsilon)
   return -np.sum(clipped_loss)
 
 
 @functools.partial(jit, static_argnums=(2, 3, 5))
-def ppo_opt_step(
-    i,
-    opt_state,
-    ppo_opt_update,
-    policy_net_apply,
-    old_policy_params,
-    value_net_apply,
-    value_net_params,
-    padded_observations,
-    padded_actions,
-    padded_rewards,
-    reward_mask,
-    gamma=0.99,
-    lamda=0.95,  # NOTYPO
-    epsilon=0.1):
+def ppo_opt_step(i,
+                 opt_state,
+                 ppo_opt_update,
+                 policy_net_apply,
+                 old_policy_params,
+                 value_net_apply,
+                 value_net_params,
+                 padded_observations,
+                 padded_actions,
+                 padded_rewards,
+                 reward_mask,
+                 gamma=0.99,
+                 lambda_=0.95,
+                 epsilon=0.1):
   """PPO optimizer step."""
   new_policy_params = optimizers.get_params(opt_state)
   g = grad(
-      batched_ppo_loss, argnums=1)(
+      ppo_loss, argnums=1)(
           policy_net_apply,
           new_policy_params,
           old_policy_params,
@@ -401,7 +406,7 @@ def ppo_opt_step(
           padded_rewards,
           reward_mask,
           gamma=gamma,
-          lamda=lamda,  # NOTYPO
+          lambda_=lambda_,
           epsilon=epsilon)
   return ppo_opt_update(i, g, opt_state)
 
@@ -418,7 +423,7 @@ def value_opt_step(i,
   """Value optimizer step."""
   value_params = optimizers.get_params(opt_state)
   # Note this partial application here and argnums above in ppo_opt_step.
-  g = grad(functools.partial(batched_avg_value_function_loss, value_net_apply))(
+  g = grad(functools.partial(value_loss, value_net_apply))(
       value_params,
       padded_observations,
       padded_rewards,
@@ -494,7 +499,7 @@ def training_loop(env=None,
     epsilon = 0.1 if epochs == 1 else 0.1 * (1.0 - (i / (epochs - 1)))
 
     t = time.time()
-    val_loss = batched_avg_value_function_loss(
+    cur_value_loss = value_loss(
         value_net_apply,
         value_net_params,
         padded_observations,
@@ -503,10 +508,10 @@ def training_loop(env=None,
         gamma=GAMMA)
 
     logging.debug("Calculating value loss took %0.2f msec.", get_time(t))
-    value_losses.append(val_loss)
+    value_losses.append(cur_value_loss)
 
     t = time.time()
-    ppo_loss = batched_ppo_loss(
+    cur_ppo_loss = ppo_loss(
         policy_net_apply,
         policy_net_params,
         policy_net_params,
@@ -517,11 +522,11 @@ def training_loop(env=None,
         padded_rewards,
         reward_mask,
         gamma=GAMMA,
-        lamda=LAMBDA,  # NOTYPO
+        lambda_=LAMBDA,
         epsilon=epsilon)
     # ppo_loss = 11.00110011
     logging.debug("Calculating PPO loss took %0.2f msec.", get_time(t))
-    ppo_objective.append(-ppo_loss)
+    ppo_objective.append(-cur_ppo_loss)
 
     # Run optimizers.
     logging.debug("PPO Optimization")
@@ -543,14 +548,14 @@ def training_loop(env=None,
           padded_rewards,
           reward_mask,
           gamma=GAMMA,
-          lamda=LAMBDA,  # NOTYPO
+          lambda_=LAMBDA,
           epsilon=epsilon)
       t2 = time.time()
       # Get the new params.
       new_policy_net_params = optimizers.get_params(ppo_opt_state)
       if ((j + 1) %
           print_every_optimizer_steps == 0) or (j == num_optimizer_steps - 1):
-        new_ppo_loss = batched_ppo_loss(
+        new_ppo_loss = ppo_loss(
             policy_net_apply,
             new_policy_net_params,
             policy_net_params,
@@ -561,15 +566,16 @@ def training_loop(env=None,
             padded_rewards,
             reward_mask,
             gamma=GAMMA,
-            lamda=LAMBDA,  # NOTYPO
+            lambda_=LAMBDA,
             epsilon=epsilon)
         logging.debug("One PPO grad desc took: %0.2f msec", get_time(t, t2))
-        logging.debug("PPO loss [%10.2f] -> [%10.2f]", ppo_loss, new_ppo_loss)
+        logging.debug("PPO loss [%10.2f] -> [%10.2f]", cur_ppo_loss,
+                      new_ppo_loss)
       # Update the params.
       policy_net_params = new_policy_net_params
 
     logging.debug("Total PPO loss reduction [%0.2f]%%",
-                  (100 * (ppo_loss - new_ppo_loss) / np.abs(ppo_loss)))
+                  (100 * (cur_ppo_loss - new_ppo_loss) / np.abs(cur_ppo_loss)))
 
     logging.debug("Value Optimization")
 
@@ -588,7 +594,7 @@ def training_loop(env=None,
       value_net_params = optimizers.get_params(value_opt_state)
       if ((j + 1) %
           print_every_optimizer_steps == 0) or (j == num_optimizer_steps - 1):
-        new_val_loss = batched_avg_value_function_loss(
+        new_value_loss = value_loss(
             value_net_apply,
             value_net_params,
             padded_observations,
@@ -596,9 +602,11 @@ def training_loop(env=None,
             reward_mask,
             gamma=GAMMA)
         logging.debug("One value grad desc took: %0.2f msec", get_time(t, t2))
-        logging.debug("Value loss [%10.2f] -> [%10.2f]", val_loss, new_val_loss)
+        logging.debug("Value loss [%10.2f] -> [%10.2f]", cur_value_loss,
+                      new_value_loss)
     logging.debug("Total value loss reduction [%0.2f]%%",
-                  (100 * (val_loss - new_val_loss) / np.abs(val_loss)))
+                  (100 *
+                   (cur_value_loss - new_value_loss) / np.abs(cur_value_loss)))
 
     logging.debug("Grad desc took %0.2f msec", get_time(t1))
 
@@ -606,9 +614,10 @@ def training_loop(env=None,
     policy_net_params = optimizers.get_params(ppo_opt_state)
     value_net_params = optimizers.get_params(value_opt_state)
 
-    logging.info("Epoch [% 6d], average reward [%10.2f], ppo loss [%10.2f], "
-                 "value loss [%10.2f], took [%10.2f msec]",
-                 i, avg_reward, new_ppo_loss, new_val_loss, get_time(t0))
+    logging.info(
+        "Epoch [% 6d], average reward [%10.2f], ppo loss [%10.2f], "
+        "value loss [%10.2f], took [%10.2f msec]", i, avg_reward, new_ppo_loss,
+        new_value_loss, get_time(t0))
 
   logging.debug("value_losses: %s", np.stack(value_losses))
   logging.debug("ppo_objective: %s", np.stack(ppo_objective))
