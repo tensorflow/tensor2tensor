@@ -35,10 +35,10 @@ def random_inputs(rng, input_shape):
 
 
 def check_shape_agreement(test_case, init_fun, apply_fun, input_shape):
-  result_shape, params = init_fun(input_shape)
+  rng_key1, rng_key2 = random.split(random.PRNGKey(0))
+  result_shape, params = init_fun(rng_key1, input_shape)
   inputs = random_inputs(onp.random.RandomState(0), input_shape)
-  rng_key = random.PRNGKey(0)
-  result = apply_fun(params, inputs, rng=rng_key)
+  result = apply_fun(params, inputs, rng=rng_key2)
   test_case.assertEqual(result.shape, result_shape)
 
 
@@ -149,7 +149,8 @@ class SlaxTest(absltest.TestCase):
         return _build_combinator_tree(tree_spec, (x, y, z, w, v))
       check_staxlayer(self, lambda_fun, [(1, 5, 7, 11),]*5)
 
-  def testLambda_6_args(self):
+  # TODO(mattjj,levskaya): timing out, re-enable with longer timeout?
+  def DISABLED_testLambda_6_args(self):  # pylint: disable=invalid-name
     for tree_spec in _enumerate_trees_w_leaves(6):
       @stax.Lambda
       def lambda_fun(x, y, z, w, v, u):

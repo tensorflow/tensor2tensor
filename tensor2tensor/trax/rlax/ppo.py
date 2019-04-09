@@ -27,6 +27,7 @@ from jax import grad
 from jax import jit
 from jax import lax
 from jax import numpy as np
+from jax import random as jax_random
 from jax import vmap
 from jax.experimental import optimizers
 import numpy as onp
@@ -43,8 +44,11 @@ POLICY = "categorical-sampling"
 
 
 # TODO(afrozm): Have a single net for both policy and value.
-def initialize_policy_and_value_nets(num_actions, batch_observations_shape):
+def initialize_policy_and_value_nets(rng_key, num_actions,
+                                     batch_observations_shape):
   """Setup and initialize the policy and value networks."""
+  key1, key2 = jax_random.split(rng_key)
+
   policy_net_init, policy_net_apply = stax.serial(
       stax.Dense(16),
       stax.Relu,
@@ -54,7 +58,7 @@ def initialize_policy_and_value_nets(num_actions, batch_observations_shape):
       stax.Softmax,
   )
 
-  _, policy_net_params = policy_net_init(batch_observations_shape)
+  _, policy_net_params = policy_net_init(key1, batch_observations_shape)
 
   value_net_init, value_net_apply = stax.serial(
       stax.Dense(16),
@@ -64,7 +68,7 @@ def initialize_policy_and_value_nets(num_actions, batch_observations_shape):
       stax.Dense(1),  # 1 since we want to predict reward using value network.
   )
 
-  _, value_net_params = value_net_init(batch_observations_shape)
+  _, value_net_params = value_net_init(key2, batch_observations_shape)
 
   return ((policy_net_params, policy_net_apply), (value_net_params,
                                                   value_net_apply))
@@ -450,9 +454,10 @@ def training_loop(env=None,
   assert isinstance(env.action_space, gym.spaces.Discrete)
   num_actions = env.action_space.n
 
+  rng_key = jax_random.PRNGKey(0)
   ((policy_net_params, policy_net_apply),
    (value_net_params, value_net_apply)) = initialize_policy_and_value_nets(
-       num_actions, batch_observations_shape)
+       rng_key, num_actions, batch_observations_shape)
 
   (ppo_opt_state, ppo_opt_update), (value_opt_state,
                                     value_opt_update) = initialize_optimizers(

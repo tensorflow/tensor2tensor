@@ -252,6 +252,7 @@ def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun, num_devices):
           params, batch, predict_fun, rng), opt_state)
     return backend.jit(single_update)
 
+  @functools.partial(backend.pmap, axis_name="batch")
   def mapped_update(i, opt_state, batch, rng):
     """This is a multi-device version of the update function above."""
     # We assume all tensors have the first dimension = num_devices.
@@ -263,9 +264,7 @@ def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun, num_devices):
 
   def update(i, opt_state, batch, rng):
     # TODO(lukaszkaiser): investigate how to replicate rng and correct.
-    return backend.pmap(mapped_update(
-        jax.replicate(i), opt_state, batch, jax.replicate(rng)),
-                        axis_name="batch")
+    return mapped_update(jax.replicate(i), opt_state, batch, jax.replicate(rng))
 
   return update
 
@@ -339,7 +338,9 @@ def train(output_dir,
 
   # Setup state
   step = state.step or 0
-  params_initializer = lambda: model_init([-1] + list(inputs.input_shape))[1]
+  rng, init_key = jax_random.split(rng)
+  params_initializer = \
+      lambda: model_init(init_key, [-1] + list(inputs.input_shape))[1]
   params = state.params or params_initializer()
   opt_state = opt_init(params)
   if num_devices > 1:  # TODO(lukaszkaiser): use everywhere when pmap is stable.

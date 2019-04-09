@@ -33,7 +33,7 @@ def causal_mask(size, dtype=np.uint8):
 
 def CausalMask(axis=-1):  # pylint: disable=invalid-name
   """Layer to create a causal mask for its inputs."""
-  init_fun = lambda input_shape: (input_shape, ())
+  init_fun = lambda _, input_shape: (input_shape, ())
   def apply_fun(params, inputs, **kwargs):
     del params, kwargs
     return causal_mask(inputs.shape[axis], dtype=inputs.dtype)
@@ -85,7 +85,7 @@ def xavier_uniform(out_dim=0, in_dim=1, rng=npr):
 
 def LayerNorm(epsilon=1e-6):  # pylint: disable=invalid-name
   """Layer construction function for Layer Normalization layer.."""
-  def init_fun(input_shape):
+  def init_fun(_, input_shape):
     features = input_shape[-1]
     scale = np.ones(features)
     bias = np.zeros(features)
@@ -104,7 +104,7 @@ def LayerNorm(epsilon=1e-6):  # pylint: disable=invalid-name
 
 def Embedding(feature_depth, vocab_size):  # pylint: disable=invalid-name
   """Layer constructor function for a dense embedding layer."""
-  def init_fun(input_shape):
+  def init_fun(_, input_shape):
     output_shape = tuple(input_shape) + (feature_depth,)
     dense_embedding = xavier_uniform()((vocab_size, feature_depth))
     return output_shape, dense_embedding
@@ -117,7 +117,7 @@ def Embedding(feature_depth, vocab_size):  # pylint: disable=invalid-name
 
 def PositionalEncoding(feature_depth, max_len):  # pylint: disable=invalid-name
   """Implements bare positional encoding."""
-  def init_fun(input_shape):
+  def init_fun(_, input_shape):
     # Compute the positional encodings once in log space.
     pe = onp.zeros((max_len, feature_depth), dtype=onp.float32)
     position = onp.arange(0, max_len)[:, onp.newaxis]
@@ -174,7 +174,7 @@ def PureDotProductAttention(dropout=1.0, mode='train'):  # pylint: disable=inval
   Returns:
     Pure single-headed attention layer. (No Dense transforms on input.)
   """
-  def init_fun(input_shapes):
+  def init_fun(_, input_shapes):
     q_shape, _, v_shape, _ = input_shapes
     output_shape = q_shape[:-1] + (v_shape[-1],)
     return output_shape, ()
@@ -200,7 +200,7 @@ def PureMultiHeadedAttention(  # pylint: disable=invalid-name
   Returns:
     Pure Multi-headed attention layer. (No Dense transforms on input.)
   """
-  def init_fun(input_shapes):
+  def init_fun(_, input_shapes):
     input_shape = input_shapes[0]
     output_shape = input_shape[:-1] + (feature_depth,)
     return output_shape, ()
