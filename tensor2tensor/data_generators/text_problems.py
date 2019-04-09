@@ -691,6 +691,25 @@ def text2text_generate_encoded(sample_generator,
     yield sample
 
 
+def text2text_generate_aan_encoded(sample_generator,
+                               vocab,
+                               targets_vocab=None,
+                               has_inputs=True,
+                               inputs_prefix="",
+                               targets_prefix=""):
+  """Encode Text2Text samples from the generator with the vocab with seq_len."""
+  targets_vocab = targets_vocab or vocab
+  for sample in sample_generator:
+    if has_inputs:
+      sample["inputs"] = vocab.encode(inputs_prefix + sample["inputs"])
+      sample["inputs"].append(text_encoder.EOS_ID)
+    sample["targets"] = targets_vocab.encode(targets_prefix + sample["targets"])
+    sample["targets"].append(text_encoder.EOS_ID)
+    sample["input_length"] = len(sample["inputs"])
+    sample["target_length"] = len(sample["targets"])
+    yield sample
+
+
 @registry.register_problem
 class Text2textTmpdir(Text2TextProblem):
   """Allows training a Text2TextProblem without defining a subclass.
