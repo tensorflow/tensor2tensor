@@ -428,8 +428,8 @@ def train(output_dir,
                                        lr_fun, num_devices)
 
     # Flush summary writers
-    train_sw.writer.flush()
-    eval_sw.writer.flush()
+    train_sw.flush()
+    eval_sw.flush()
 
   step_log(step, "Training done")
   return State(params=params, step=step, history=history)
