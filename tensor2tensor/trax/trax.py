@@ -299,6 +299,7 @@ def train(output_dir,
           eval_frequency=100,
           num_devices=None,
           random_seed=None,
+          jit_eval=True,
           run_debug_step=False):
   """Train the model on the inputs.
 
@@ -319,6 +320,7 @@ def train(output_dir,
       steps). If None or 0, eval disabled.
     num_devices: how many devices to use (if None, default, use all available)
     random_seed: the random seed to use; time/os dependent if None (default).
+    jit_eval: whether to compile the evaulation function (true by default).
     run_debug_step: bool, if True, will run the model and loss without @jit for
       one step.
 
@@ -352,7 +354,9 @@ def train(output_dir,
     opt_state = jax.replicate(opt_state)
 
   # jit model_predict and update so they're fast
-  jit_model_predict = backend.jit(model_predict)  # for evaluation
+  jit_model_predict = model_predict
+  if jit_eval:
+    jit_model_predict = backend.jit(model_predict)  # for evaluation
   jit_update_fun = _jit_update_fun(model_predict, loss_fun, optimizer, lr_fun,
                                    num_devices)
 

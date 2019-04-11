@@ -1,0 +1,54 @@
+import tensor2tensor.trax.inputs
+import tensor2tensor.trax.models
+import tensor2tensor.trax.optimizers
+import tensor2tensor.trax.trax
+
+# Parameters for batch_fun:
+# ==============================================================================
+batch_fun.batch_size = 256
+batch_fun.eval_batch_size = 128
+
+# Parameters for inputs:
+# ==============================================================================
+inputs.data_dir = None
+inputs.dataset_name = 't2t_languagemodel_lm1b32k'
+
+# Parameters for mask:
+# ==============================================================================
+masked_mean.mask_id = 0
+
+# Parameters for MultifactorSchedule:
+# ==============================================================================
+MultifactorSchedule.constant = 0.1
+MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
+MultifactorSchedule.warmup_steps = 8000
+
+# Parameters for preprocess_fun:
+# ==============================================================================
+shuffle_and_batch_data.preprocess_fun=@trax.inputs.lm1b_preprocess
+lm1b_preprocess.max_target_length = 511
+
+# Parameters for train:
+# ==============================================================================
+train.eval_frequency = 1000
+train.eval_steps = 10
+train.jit_eval = False  # Eval lengths vary a lot, compiling each time is slow.
+train.inputs = @trax.inputs.inputs
+train.model = @trax.models.TransformerLM
+train.run_debug_step = False
+train.train_steps = 500000
+
+# Parameters for train_and_eval_batches:
+# ==============================================================================
+train_and_eval_batches.input_name = 'targets'
+
+# Parameters for TransformerLM:
+# ==============================================================================
+TransformerLM.dropout = 0.1
+TransformerLM.feature_depth = 512
+TransformerLM.feedforward_depth = 2048
+TransformerLM.max_len = 512
+TransformerLM.mode = 'train'
+TransformerLM.num_heads = 8
+TransformerLM.num_layers = 6
+TransformerLM.vocab_size = 32000
