@@ -151,6 +151,7 @@ def evaluate_train_and_eval(step, inputs, predict_fun, eval_steps, rng,
     log_metrics(train_metrics, train_sw, "train", step, history=history)
   if eval_sw:
     log_metrics(eval_metrics, eval_sw, "eval", step, history=history)
+  step_log(step, "Finished evaluation")
   return train_metrics, eval_metrics
 
 

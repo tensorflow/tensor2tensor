@@ -19,7 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from jax.experimental import stax
+import tensor2tensor.trax.stax as stax
 
 
 def ConvBlock(kernel_size, filters, strides):

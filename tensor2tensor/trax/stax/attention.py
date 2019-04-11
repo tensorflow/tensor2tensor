@@ -20,7 +20,6 @@ from __future__ import print_function
 
 from jax import random
 import numpy as onp
-import numpy.random as npr
 
 from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.stax import stax_base as stax
@@ -73,13 +72,13 @@ def prepare_paired_sequence_batch(source, target_in, pad=0):
           source_mask, target_mask, memory_mask, ntokens)
 
 
-def xavier_uniform(out_dim=0, in_dim=1, rng=npr):
+def xavier_uniform(out_dim=0, in_dim=1):
   """An initializer function for random uniform xavier-scaled coefficients."""
-  def init(shape):
+  def init(rng, shape):
     fan_in, fan_out = shape[in_dim], shape[out_dim]
     std = np.sqrt(2.0 / (fan_in + fan_out))
-    a = onp.sqrt(3.0) * std
-    return rng.uniform(low=-a, high=a, size=shape).astype('float32')
+    a = np.sqrt(3.0) * std
+    return random.uniform(rng, shape, minval=-a, maxval=a)
   return init
 
 
@@ -104,9 +103,9 @@ def LayerNorm(epsilon=1e-6):  # pylint: disable=invalid-name
 
 def Embedding(feature_depth, vocab_size):  # pylint: disable=invalid-name
   """Layer constructor function for a dense embedding layer."""
-  def init_fun(_, input_shape):
+  def init_fun(rng, input_shape):
     output_shape = tuple(input_shape) + (feature_depth,)
-    dense_embedding = xavier_uniform()((vocab_size, feature_depth))
+    dense_embedding = xavier_uniform()(rng, (vocab_size, feature_depth))
     return output_shape, dense_embedding
   def apply_fun(params, inputs, **kwargs):
     del kwargs

@@ -26,12 +26,12 @@ MultifactorSchedule.warmup_steps = 8000
 # Parameters for preprocess_fun:
 # ==============================================================================
 shuffle_and_batch_data.preprocess_fun=@trax.inputs.lm1b_preprocess
-lm1b.max_target_length = 511
+lm1b_preprocess.max_target_length = 511
 
 # Parameters for train:
 # ==============================================================================
 train.eval_frequency = 1000
-train.eval_steps = 5
+train.eval_steps = 10
 train.inputs = @trax.inputs.inputs
 train.model = @trax.models.TransformerLM
 train.run_debug_step = False
