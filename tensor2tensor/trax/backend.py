@@ -22,9 +22,13 @@ from __future__ import print_function
 import gin
 
 import jax
+from jax import random as jax_random
 import jax.numpy as jnp
 import jax.scipy.special as jax_special
 import numpy as onp
+
+import tensorflow as tf
+
 
 
 @gin.configurable()
@@ -40,6 +44,11 @@ _JAX_BACKEND = {
     "jit": jax.jit,
     "grad": jax.grad,
     "pmap": jax.pmap,
+    "random_uniform": jax_random.uniform,
+    "random_normal": jax_random.normal,
+    "random_bernoulli": jax_random.bernoulli,
+    "random_get_prng": jax_random.PRNGKey,
+    "random_split": jax_random.split,
 }
 
 
@@ -47,10 +56,6 @@ _NUMPY_BACKEND = {
     "np": onp,
     "jit": (lambda f: f),
 }
-
-
-# TODO(lukaszkaiser): make this lazy so we can switch backends on the fly.
-numpy = backend()["np"]
 
 
 def logsumexp(*args, **kwargs):
@@ -67,3 +72,36 @@ def grad(*args, **kwargs):
 
 def pmap(*args, **kwargs):
   return backend()["pmap"](*args, **kwargs)
+
+
+# For numpy and random modules, we need to call "backend()" lazily, only when
+# the function is called -- so that it can be set by gin configs.
+# (Otherwise, backend() is called on import before gin-config is parsed.)
+# To do that, we make objects to encapsulated these modules.
+
+
+class RandomBackend(object):
+  """Backend providing random functions."""
+
+  def get_prng(self, seed):
+    return backend()["random_get_prng"](seed)
+
+  def split(self, prng, num=2):
+    return backend()["random_split"](prng, num)
+
+  def uniform(self, *args, **kwargs):
+    return backend()["random_uniform"](*args, **kwargs)
+
+  def normal(self, *args, **kwargs):
+    return backend()["random_normal"](*args, **kwargs)
+
+  def bernoulli(self, *args, **kwargs):
+    return backend()["random_bernoulli"](*args, **kwargs)
+
+
+random = RandomBackend()
+
+# TODO(lukaszkaiser): make this lazy as random above so gin-config works.
+numpy = backend()["np"]
+
+

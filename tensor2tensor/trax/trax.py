@@ -32,8 +32,7 @@ from absl import logging
 import gin
 
 import jax
-from jax import lax_parallel as lax_para
-from jax import random as jax_random
+from jax import lax_parallel as lax_parallel
 import numpy
 import six
 
@@ -44,6 +43,7 @@ from tensor2tensor.trax import jaxboard
 from tensor2tensor.trax import learning_rate as lr
 from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax.backend import numpy as np
+from tensor2tensor.trax.backend import random as jax_random
 import tensor2tensor.trax.stax as stax
 
 import tensorflow as tf
@@ -204,7 +204,7 @@ def get_random_number_generator_and_set_seed(seed=None):
     seed = random.randint(0, 2**31 - 1)
   tf.set_random_seed(seed)
   numpy.random.seed(seed)
-  return jax_random.PRNGKey(seed)
+  return jax_random.get_prng(seed)
 
 
 # TODO(trax):
@@ -261,7 +261,8 @@ def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun, num_devices):
     _, opt_update = optimizer(lr_fun)
     params = trax_opt.get_params(opt_state)
     grads = backend.grad(loss_fun)(params, batch, predict_fun, rng)
-    grads = jax.tree_util.tree_map(lambda g: lax_para.psum(g, "batch"), grads)
+    grads = jax.tree_util.tree_map(
+        lambda g: lax_parallel.psum(g, "batch"), grads)
     return opt_update(i, grads, opt_state)
 
   def update(i, opt_state, batch, rng):

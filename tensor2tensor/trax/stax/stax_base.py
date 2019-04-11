@@ -27,7 +27,6 @@ import itertools
 import operator as op
 
 from jax import lax
-from jax import random
 
 import numpy as onp
 from six.moves import reduce
@@ -78,7 +77,7 @@ def fastvar(x, axis, keepdims):
 def randn(stddev=1e-2):
   """An initializer function for random normal coefficients."""
   def init(rng, shape):
-    return (stddev * random.normal(rng, shape)).astype('float32')
+    return (stddev * backend.random.normal(rng, shape)).astype('float32')
   return init
 
 
@@ -88,7 +87,7 @@ def glorot(out_dim=0, in_dim=1, scale=onp.sqrt(2)):
     fan_in, fan_out = shape[in_dim], shape[out_dim]
     size = onp.prod(onp.delete(shape, [in_dim, out_dim]))
     std = scale / np.sqrt((fan_in + fan_out) / 2. * size)
-    return (std * random.normal(rng, shape)).astype('float32')
+    return (std * backend.random.normal(rng, shape)).astype('float32')
   return init
 
 
@@ -275,7 +274,7 @@ def Dropout(rate, mode='train'):
              'jax.random.PRNGKey value.')
       raise ValueError(msg)
     if mode == 'train':
-      keep = random.bernoulli(rng, rate, inputs.shape)
+      keep = backend.random.bernoulli(rng, rate, inputs.shape)
       return np.where(keep, inputs / rate, 0)
     else:
       return inputs
@@ -299,13 +298,15 @@ def serial(*layers):
   def init_fun(rng, input_shape):
     params = []
     for init_fun in init_funs:
-      rng, layer_rng = random.split(rng)
+      rng, layer_rng = backend.random.split(rng)
       input_shape, param = init_fun(layer_rng, input_shape)
       params.append(param)
     return input_shape, params
   def apply_fun(params, inputs, **kwargs):
     rng = kwargs.pop('rng', None)
-    rngs = random.split(rng, nlayers) if rng is not None else (None,) * nlayers
+    rngs = (None,) * nlayers
+    if rng is not None:
+      rngs = backend.random.split(rng, nlayers)
     for fun, param, rng in zip(apply_funs, params, rngs):
       inputs = fun(param, inputs, rng=rng, **kwargs)
     return inputs
@@ -328,12 +329,14 @@ def parallel(*layers):
   nlayers = len(layers)
   init_funs, apply_funs = zip(*layers)
   def init_fun(rng, input_shape):
-    rngs = random.split(rng, nlayers)
+    rngs = backend.random.split(rng, nlayers)
     return zip(*[init(rng, shape) for init, rng, shape
                  in zip(init_funs, rngs, input_shape)])
   def apply_fun(params, inputs, **kwargs):
     rng = kwargs.pop('rng', None)
-    rngs = random.split(rng, nlayers) if rng is not None else (None,) * nlayers
+    rngs = (None,) * nlayers
+    if rng is not None:
+      rngs = backend.random.split(rng, nlayers)
     return [f(p, x, rng=r, **kwargs)
             for f, p, x, r in zip(apply_funs, params, inputs, rngs)]
   return init_fun, apply_fun
