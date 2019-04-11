@@ -40,11 +40,12 @@ def check_shape_agreement(test_case, init_fun, apply_fun, input_shape):
   inputs = random_inputs(onp.random.RandomState(0), input_shape)
   result = apply_fun(params, inputs, rng=rng_key2)
   test_case.assertEqual(result.shape, result_shape)
+  return result_shape
 
 
 def check_staxlayer(test_case, staxlayer, input_shape):
   init_fun, apply_fun = staxlayer
-  check_shape_agreement(test_case, init_fun, apply_fun, input_shape)
+  return check_shape_agreement(test_case, init_fun, apply_fun, input_shape)
 
 
 # Helper functions for testing Lambda wrapper against functions involving
@@ -93,6 +94,28 @@ def _build_combinator_tree(input_treespec, in_vars):
 
 
 class SlaxTest(absltest.TestCase):
+
+  def test_flatten_n(self):
+    input_shape = (29, 87, 10, 20, 30)
+
+    actual_shape = check_staxlayer(self, stax.Flatten(1), input_shape)
+    self.assertEqual(actual_shape, (29, 87 * 10 * 20 * 30))
+
+    actual_shape = check_staxlayer(self, stax.Flatten(2), input_shape)
+    self.assertEqual(actual_shape, (29, 87, 10 * 20 * 30))
+
+    actual_shape = check_staxlayer(self, stax.Flatten(3), input_shape)
+    self.assertEqual(actual_shape, (29, 87, 10, 20 * 30))
+
+    actual_shape = check_staxlayer(self, stax.Flatten(4), input_shape)
+    self.assertEqual(actual_shape, (29, 87, 10, 20, 30))
+
+    # Not enough dimensions.
+    with self.assertRaises(ValueError):
+      check_staxlayer(self, stax.Flatten(5), input_shape)
+
+    with self.assertRaises(ValueError):
+      check_staxlayer(self, stax.Flatten(6), input_shape)
 
   # Lambdas replace the staxlayer input stream with a placeholder that
   # _should_ break any use of unbound variables in the input stream.

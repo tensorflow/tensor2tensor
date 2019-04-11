@@ -90,7 +90,7 @@ def Resnet50(hidden_size=64, num_output_classes=1001):
       ConvBlock(3, [8 * hidden_size, 8 * hidden_size, 32*hidden_size], (2, 2)),
       IdentityBlock(3, [8 * hidden_size, 8 * hidden_size]),
       IdentityBlock(3, [8 * hidden_size, 8 * hidden_size]),
-      stax.AvgPool((7, 7)), stax.Flatten,
+      stax.AvgPool((7, 7)), stax.Flatten(),
       stax.Dense(num_output_classes), stax.LogSoftmax)
 
 
@@ -130,5 +130,5 @@ def WideResnet(num_blocks=3, hidden_size=64, num_output_classes=10):
       WideResnetGroup(num_blocks, hidden_size),
       WideResnetGroup(num_blocks, hidden_size * 2, (2, 2)),
       WideResnetGroup(num_blocks, hidden_size * 4, (2, 2)), stax.BatchNorm(),
-      stax.Relu, stax.AvgPool((8, 8)), stax.Flatten,
+      stax.Relu, stax.AvgPool((8, 8)), stax.Flatten(),
       stax.Dense(num_output_classes), stax.LogSoftmax)
