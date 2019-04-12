@@ -19,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 import importlib
+import six
 from six.moves import range  # pylint: disable=redefined-builtin
 
 MODULES = [
