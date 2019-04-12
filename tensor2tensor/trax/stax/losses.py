@@ -19,7 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 import gin
-import jax.numpy as np
+from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.stax import slax
 
 

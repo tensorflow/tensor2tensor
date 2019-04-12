@@ -27,7 +27,7 @@ from absl import flags
 from absl import logging
 
 import gin
-
+import jax
 from tensor2tensor.trax import trax
 
 FLAGS = flags.FLAGS
@@ -42,13 +42,18 @@ flags.DEFINE_multi_string("config_file", None,
 flags.DEFINE_multi_string("config", None,
                           "Configuration parameters (gin string).")
 flags.DEFINE_integer("log_level", logging.INFO, "Log level.")
+flags.DEFINE_bool("use_tpu", False, "Whether we're running on TPU.")
 
 
 def _default_output_dir():
   """Default output directory."""
+  try:
+    dataset_name = gin.query_parameter("inputs.dataset_name")
+  except ValueError:
+    dataset_name = "random"
   dir_name = "{model_name}_{dataset_name}_{timestamp}".format(
       model_name=gin.query_parameter("train.model").configurable.name,
-      dataset_name=gin.query_parameter("inputs.dataset_name"),
+      dataset_name=dataset_name,
       timestamp=datetime.datetime.now().strftime("%Y%m%d_%H%M"),
   )
   dir_path = os.path.join("~", "trax", dir_name)
@@ -61,7 +66,6 @@ def _setup_gin():
   """Setup gin configuration."""
   # Imports for configurables
   # pylint: disable=g-import-not-at-top,unused-import,g-bad-import-order,reimported,unused-variable
-  from tensor2tensor.trax import inputs as _trax_inputs
   from tensor2tensor.trax import models as _trax_models
   from tensor2tensor.trax import optimizers as _trax_opt
   # pylint: disable=g-import-not-at-top,unused-import,g-bad-import-order,reimported,unused-variable
@@ -72,9 +76,6 @@ def _setup_gin():
     configs.append("inputs.dataset_name='%s'" % FLAGS.dataset)
     if FLAGS.data_dir:
       configs.append("inputs.data_dir='%s'" % FLAGS.data_dir)
-    else:
-      configs.append("inputs.data_dir=None")
-    configs.append("train.inputs=@trax.inputs.inputs")
   if FLAGS.model:
     configs.append("train.model=@trax.models.%s" % FLAGS.model)
   gin.parse_config_files_and_bindings(FLAGS.config_file, configs)
@@ -89,6 +90,10 @@ def main(_):
   output_dir = FLAGS.output_dir or _default_output_dir()
   trax.log("Using --output_dir %s" % output_dir)
   output_dir = os.path.expanduser(output_dir)
+
+  # If on TPU, let JAX know.
+  if FLAGS.use_tpu:
+    jax.config.update("jax_platform_name", "tpu")
 
   trax.train(output_dir=output_dir)
 

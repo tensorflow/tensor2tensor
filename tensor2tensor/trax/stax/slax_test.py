@@ -35,16 +35,17 @@ def random_inputs(rng, input_shape):
 
 
 def check_shape_agreement(test_case, init_fun, apply_fun, input_shape):
-  result_shape, params = init_fun(input_shape)
+  rng_key1, rng_key2 = random.split(random.PRNGKey(0))
+  result_shape, params = init_fun(rng_key1, input_shape)
   inputs = random_inputs(onp.random.RandomState(0), input_shape)
-  rng_key = random.PRNGKey(0)
-  result = apply_fun(params, inputs, rng=rng_key)
+  result = apply_fun(params, inputs, rng=rng_key2)
   test_case.assertEqual(result.shape, result_shape)
+  return result_shape
 
 
 def check_staxlayer(test_case, staxlayer, input_shape):
   init_fun, apply_fun = staxlayer
-  check_shape_agreement(test_case, init_fun, apply_fun, input_shape)
+  return check_shape_agreement(test_case, init_fun, apply_fun, input_shape)
 
 
 # Helper functions for testing Lambda wrapper against functions involving
@@ -93,6 +94,28 @@ def _build_combinator_tree(input_treespec, in_vars):
 
 
 class SlaxTest(absltest.TestCase):
+
+  def test_flatten_n(self):
+    input_shape = (29, 87, 10, 20, 30)
+
+    actual_shape = check_staxlayer(self, stax.Flatten(1), input_shape)
+    self.assertEqual(actual_shape, (29, 87 * 10 * 20 * 30))
+
+    actual_shape = check_staxlayer(self, stax.Flatten(2), input_shape)
+    self.assertEqual(actual_shape, (29, 87, 10 * 20 * 30))
+
+    actual_shape = check_staxlayer(self, stax.Flatten(3), input_shape)
+    self.assertEqual(actual_shape, (29, 87, 10, 20 * 30))
+
+    actual_shape = check_staxlayer(self, stax.Flatten(4), input_shape)
+    self.assertEqual(actual_shape, (29, 87, 10, 20, 30))
+
+    # Not enough dimensions.
+    with self.assertRaises(ValueError):
+      check_staxlayer(self, stax.Flatten(5), input_shape)
+
+    with self.assertRaises(ValueError):
+      check_staxlayer(self, stax.Flatten(6), input_shape)
 
   # Lambdas replace the staxlayer input stream with a placeholder that
   # _should_ break any use of unbound variables in the input stream.
@@ -149,7 +172,8 @@ class SlaxTest(absltest.TestCase):
         return _build_combinator_tree(tree_spec, (x, y, z, w, v))
       check_staxlayer(self, lambda_fun, [(1, 5, 7, 11),]*5)
 
-  def testLambda_6_args(self):
+  # TODO(mattjj,levskaya): timing out, re-enable with longer timeout?
+  def DISABLED_testLambda_6_args(self):  # pylint: disable=invalid-name
     for tree_spec in _enumerate_trees_w_leaves(6):
       @stax.Lambda
       def lambda_fun(x, y, z, w, v, u):
@@ -184,7 +208,8 @@ class SlaxTest(absltest.TestCase):
       def lambda_fun1(x, y, z, w, v):
         input_tree = _build_combinator_tree(tree_spec, (x, y, z))
         return stax.serial(input_tree,
-                           stax.multiplex(stax.Identity, w, v),
+                           stax.FanOut(3),
+                           stax.parallel(stax.Identity, w, v),
                            stax.FanInSum)
       check_staxlayer(self, lambda_fun1, [(1, 5, 7, 11),]*5)
 
@@ -192,7 +217,8 @@ class SlaxTest(absltest.TestCase):
       def lambda_fun2(x, y, z, w, v):
         input_tree = _build_combinator_tree(tree_spec, (x, y, z))
         return stax.serial(input_tree,
-                           stax.multiplex(w, stax.Identity, v),
+                           stax.FanOut(3),
+                           stax.parallel(w, stax.Identity, v),
                            stax.FanInSum)
       check_staxlayer(self, lambda_fun2, [(1, 5, 7, 11),]*5)
 
@@ -200,7 +226,8 @@ class SlaxTest(absltest.TestCase):
       def lambda_fun3(x, y, z, w, v):
         input_tree = _build_combinator_tree(tree_spec, (x, y, z))
         return stax.serial(input_tree,
-                           stax.multiplex(w, v, stax.Identity),
+                           stax.FanOut(3),
+                           stax.parallel(w, v, stax.Identity),
                            stax.FanInSum)
       check_staxlayer(self, lambda_fun3, [(1, 5, 7, 11),]*5)
   # pylint: enable=cell-var-from-loop

@@ -13,29 +13,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tiny run of trainer_model_based. Smoke test."""
+"""Tests for tensor2tensor.trax.rlax.ppo."""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# from tensor2tensor.rl import trainer_model_based
-
-import tensorflow as tf
-
-FLAGS = tf.flags.FLAGS
+import numpy as np
+from tensor2tensor.trax.rlax import ppo
+from tensorflow import test
 
 
-class ModelRLExperimentTest(tf.test.TestCase):
+class PpoTest(test.TestCase):
 
-  def test_dqn_basic(self):
-    # TODO(afrozm): The latest changes in Dopamine break this test, so
-    # temporarily disabling this test.
-    pass
-    # FLAGS.output_dir = tf.test.get_temp_dir()
-    # FLAGS.loop_hparams_set = "rlmb_dqn_tiny"
-    # FLAGS.schedule = "train"  # skip evaluation for world model training
-    # trainer_model_based.main(None)
+  def test_rewards_to_go(self):
+    time_steps = 4
+    # [1., 1., 1., 1.]
+    rewards = np.ones((time_steps,))
+    # No discounting.
+    self.assertAllEqual(ppo.rewards_to_go(rewards, gamma=1.0),
+                        np.array([4., 3., 2., 1.]))
+    # Discounting.
+    self.assertAllEqual(ppo.rewards_to_go(rewards, gamma=0.5),
+                        np.array([1.875, 1.75, 1.5, 1.]))
 
 
 if __name__ == "__main__":
-  tf.test.main()
+  test.main()

@@ -214,10 +214,6 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 7, 11))
 
-    # Testing layer collection.
-    layer_collection = kfac.LayerCollection()
-    common_layers.layer_norm(x, layer_collection=layer_collection)
-    self.assertLen(layer_collection.get_blocks(), 1)
 
   @test_utils.run_in_graph_and_eager_modes()
   def testGroupNorm(self):
@@ -317,13 +313,6 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     self.assertEqual(actual.shape, (5, 2, 1, 11))
     self.assertAllClose(actual, x1, atol=1e-03)
 
-  @test_utils.run_in_graph_mode_only()
-  def testApplyNormWithLayerCollection(self):
-    x = np.random.rand(5, 2, 1, 11)
-    layer_collection = kfac.LayerCollection()
-    common_layers.apply_norm(x, "layer", depth=11, epsilon=1e-6,
-                             layer_collection=layer_collection)
-    self.assertLen(layer_collection.get_blocks(), 1)
 
   @test_utils.run_in_graph_mode_only()
   def testDenseWithLayerCollection(self):
@@ -388,6 +377,20 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     self.evaluate(tf.global_variables_initializer())
     actual = self.evaluate(layer)
     self.assertEqual(actual.shape, (5, 4, 32))
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testTopKthIterativeShape(self):
+    x = np.random.rand(5, 2, 1, 12)
+    y = common_layers.top_kth_iterative(tf.constant(x, dtype=tf.float32), 3)
+    actual = self.evaluate(y)
+    self.assertEqual(actual.shape, (5, 2, 1, 1))
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testTopKthIterativeValue(self):
+    x = [1.0, 2.0, 3.0, 4.0]
+    y = common_layers.top_kth_iterative(tf.constant(x, dtype=tf.float32), 3)
+    actual = self.evaluate(y)
+    self.assertEqual(int(actual[0]), 2.0)
 
   @test_utils.run_in_graph_and_eager_modes()
   def testBReLU(self):

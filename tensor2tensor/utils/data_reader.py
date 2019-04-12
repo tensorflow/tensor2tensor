@@ -519,6 +519,38 @@ def input_fn(dataset,
     dataset = dataset.flat_map(split_on_length)
     dataset = dataset.filter(is_nonzero_chunk)
 
+    # The chunking data pipeline thus far creates batches of examples where all
+    # of the examples have the same chunk number. This can lead to periodic
+    # fluctuations in the loss; for example, when all examples in the batch have
+    # chunk number 0 the loss may be higher than midway through a sequence.
+    # Enabling split_targets_strided_training adjusts the data so that each
+    # batch includes examples at various points within a sequence.
+    if is_training and hparams.split_targets_strided_training:
+      # TODO(kitaev): make sure that shape inference works on GPU, not just TPU.
+      inferred_batch_size = dataset.output_shapes["targets"].as_list()[0]
+      if inferred_batch_size is None:
+        raise ValueError(
+            "Strided training is only implemented when the batch size can be "
+            "inferred statically, for example when training on TPU."
+        )
+      chunk_stride = inferred_batch_size * max(
+          1, max_chunks // inferred_batch_size) + 1
+
+      def collapse_nested_datasets(example):
+        """Converts a dataset of datasets to a dataset of tensor features."""
+        new_example = {}
+        for k, v in example.items():
+          v = tf.data.experimental.get_single_element(
+              v.batch(inferred_batch_size, drop_remainder=True))
+          new_example[k] = v
+        return tf.data.Dataset.from_tensor_slices(new_example)
+
+      dataset = dataset.apply(tf.data.experimental.unbatch())
+      dataset = dataset.window(inferred_batch_size, inferred_batch_size,
+                               chunk_stride)
+      dataset = dataset.flat_map(collapse_nested_datasets)
+      dataset = dataset.batch(inferred_batch_size, drop_remainder=True)
+
   def prepare_for_output(example):
     if not config or not config.use_tpu:
       _summarize_features(example, num_shards)

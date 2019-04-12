@@ -83,13 +83,7 @@ class ActNorm(tf.keras.layers.Layer):
 
     if not isinstance(inputs, ed.RandomVariable):
       return super(ActNorm, self).__call__(inputs, *args, **kwargs)
-
-    bijector = tfp.bijectors.Inline(
-        forward_fn=self.__call__,
-        inverse_fn=self.reverse,
-        inverse_log_det_jacobian_fn=lambda y: -self.log_det_jacobian(y),
-        forward_min_event_ndims=0)
-    return ed.TransformedDistribution(inputs.distribution, bijector=bijector)
+    return TransformedRandomVariable(inputs, self)
 
   def call(self, inputs):
     return (inputs + self.bias) * tf.exp(self.log_scale)
@@ -362,3 +356,103 @@ def sinkhorn(inputs, n_iters=20):
                             [-1, 1, vocab_size])
   outputs = tf.exp(log_alpha)
   return outputs
+
+
+class TransformedDistribution(tfp.distributions.Distribution):
+  """Distribution of f(x), where x ~ p(x) and f is reversible."""
+
+  def __init__(self, base, reversible_layer, name=None):
+    """Constructs a transformed distribution.
+
+    Args:
+      base: Base distribution.
+      reversible_layer: Callable with methods `reverse` and `log_det_jacobian`.
+      name: Name for scoping operations in the class.
+    """
+    self.base = base
+    self.reversible_layer = reversible_layer
+    if name is None:
+      name = reversible_layer.name + base.name
+    super(TransformedDistribution, self).__init__(
+        base.dtype,
+        base.reparameterization_type,
+        base.validate_args,
+        base.allow_nan_stats,
+        parameters=dict(locals()),
+        name=name)
+
+  def _event_shape_tensor(self):
+    return self.base.event_shape_tensor()
+
+  def _event_shape(self):
+    return self.base.event_shape
+
+  def _batch_shape_tensor(self):
+    return self.base.batch_shape_tensor()
+
+  def _batch_shape(self):
+    return self.base.batch_shape
+
+  def __getitem__(self, slices):
+    overrides = {'base': self.base[slices]}
+    return self.copy(**overrides)
+
+  def _call_sample_n(self, sample_shape, seed, name, **kwargs):
+    x = self.base.sample(sample_shape, seed, **kwargs)
+    y = self.reversible_layer(x)
+    return y
+
+  def _log_prob(self, value):
+    x = self.reversible_layer.reverse(value)
+    log_det_jacobian = self.reversible_layer.log_det_jacobian(value)
+    return self.base.log_prob(x) + log_det_jacobian
+
+  def _prob(self, value):
+    if not hasattr(self.base, '_prob'):
+      return tf.exp(self.log_prob(value))
+    x = self.reversible_layer.reverse(value)
+    log_det_jacobian = self.reversible_layer.log_det_jacobian(value)
+    return self.base.prob(x) * tf.exp(log_det_jacobian)
+
+  def _log_cdf(self, value):
+    x = self.reversible_layer.reverse(value)
+    return self.base.log_cdf(x)
+
+  def _cdf(self, value):
+    x = self.reversible_layer.reverse(value)
+    return self.base.cdf(x)
+
+  def _log_survival_function(self, value):
+    x = self.reversible_layer.reverse(value)
+    return self.base.log_survival_function(x)
+
+  def _survival_function(self, value):
+    x = self.reversible_layer.reverse(value)
+    return self.base.survival_function(x)
+
+  def _quantile(self, value):
+    inverse_cdf = self.base.quantile(value)
+    return self.reversible_layer(inverse_cdf)
+
+  def _entropy(self):
+    dummy = tf.zeros(
+        tf.concat([self.batch_shape_tensor(), self.event_shape_tensor()], 0),
+        dtype=self.dtype)
+    log_det_jacobian = self.reversible_layer.log_det_jacobian(dummy)
+    entropy = self.base.entropy() - log_det_jacobian
+    return entropy
+
+
+@ed.interceptable
+def TransformedRandomVariable(random_variable,  # pylint: disable=invalid-name
+                              reversible_layer,
+                              name=None,
+                              sample_shape=(),
+                              value=None):
+  """Random variable for f(x), where x ~ p(x) and f is reversible."""
+  return ed.RandomVariable(
+      distribution=TransformedDistribution(random_variable.distribution,
+                                           reversible_layer,
+                                           name=name),
+      sample_shape=sample_shape,
+      value=value)

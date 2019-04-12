@@ -39,6 +39,7 @@ from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import rl_utils
 from tensor2tensor.rl import trainer_model_based_params
+from tensor2tensor.rl.dopamine_connector import DQNLearner  # pylint: disable=unused-import
 from tensor2tensor.rl.restarter import Restarter
 from tensor2tensor.utils import trainer_lib
 
@@ -287,6 +288,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   metrics = {}
 
   # Collect data from the real environment.
+  policy_model_dir = directories["policy"]
   tf.logging.info("Initial training of the policy in real environment.")
   train_agent_real_env(env, learner, hparams, epoch)
   metrics["mean_reward/train/clipped"] = rl_utils.compute_mean_reward(

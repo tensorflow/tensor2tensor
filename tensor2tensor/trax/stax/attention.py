@@ -19,10 +19,10 @@ from __future__ import division
 from __future__ import print_function
 
 from jax import random
-import jax.experimental.stax as stax
-import jax.numpy as np
 import numpy as onp
-import numpy.random as npr
+
+from tensor2tensor.trax.backend import numpy as np
+from tensor2tensor.trax.stax import stax_base as stax
 
 
 def causal_mask(size, dtype=np.uint8):
@@ -32,7 +32,7 @@ def causal_mask(size, dtype=np.uint8):
 
 def CausalMask(axis=-1):  # pylint: disable=invalid-name
   """Layer to create a causal mask for its inputs."""
-  init_fun = lambda input_shape: (input_shape, ())
+  init_fun = lambda _, input_shape: (input_shape, ())
   def apply_fun(params, inputs, **kwargs):
     del params, kwargs
     return causal_mask(inputs.shape[axis], dtype=inputs.dtype)
@@ -72,38 +72,40 @@ def prepare_paired_sequence_batch(source, target_in, pad=0):
           source_mask, target_mask, memory_mask, ntokens)
 
 
-def xavier_uniform(out_dim=0, in_dim=1, rng=npr):
+def xavier_uniform(out_dim=0, in_dim=1):
   """An initializer function for random uniform xavier-scaled coefficients."""
-  def init(shape):
+  def init(rng, shape):
     fan_in, fan_out = shape[in_dim], shape[out_dim]
     std = np.sqrt(2.0 / (fan_in + fan_out))
-    a = onp.sqrt(3.0) * std
-    return rng.uniform(low=-a, high=a, size=shape).astype('float32')
+    a = np.sqrt(3.0) * std
+    return random.uniform(rng, shape, minval=-a, maxval=a)
   return init
 
 
-def LayerNorm(features, epsilon=1e-5):  # pylint: disable=invalid-name
+def LayerNorm(epsilon=1e-6):  # pylint: disable=invalid-name
   """Layer construction function for Layer Normalization layer.."""
-  def init_fun(input_shape):
-    a_2 = np.ones(features)
-    b_2 = np.zeros(features)
-    return input_shape, (a_2, b_2)
+  def init_fun(_, input_shape):
+    features = input_shape[-1]
+    scale = np.ones(features)
+    bias = np.zeros(features)
+    return input_shape, (scale, bias)
 
   def apply_fun(params, inputs, **kwargs):
     del kwargs
-    (a_2, b_2) = params
+    (scale, bias) = params
     mean = np.mean(inputs, axis=-1, keepdims=True)
-    std = np.std(inputs, axis=-1, keepdims=True)
-    return a_2 * (inputs - mean) / (std + epsilon) + b_2
+    variance = np.mean((inputs - mean)**2, axis=-1, keepdims=True)
+    norm_inputs = (inputs - mean) / np.sqrt(variance + epsilon)
+    return norm_inputs * scale + bias
 
   return init_fun, apply_fun
 
 
 def Embedding(feature_depth, vocab_size):  # pylint: disable=invalid-name
   """Layer constructor function for a dense embedding layer."""
-  def init_fun(input_shape):
+  def init_fun(rng, input_shape):
     output_shape = tuple(input_shape) + (feature_depth,)
-    dense_embedding = xavier_uniform()((vocab_size, feature_depth))
+    dense_embedding = xavier_uniform()(rng, (vocab_size, feature_depth))
     return output_shape, dense_embedding
   def apply_fun(params, inputs, **kwargs):
     del kwargs
@@ -114,7 +116,7 @@ def Embedding(feature_depth, vocab_size):  # pylint: disable=invalid-name
 
 def PositionalEncoding(feature_depth, max_len):  # pylint: disable=invalid-name
   """Implements bare positional encoding."""
-  def init_fun(input_shape):
+  def init_fun(_, input_shape):
     # Compute the positional encodings once in log space.
     pe = onp.zeros((max_len, feature_depth), dtype=onp.float32)
     position = onp.arange(0, max_len)[:, onp.newaxis]
@@ -171,7 +173,7 @@ def PureDotProductAttention(dropout=1.0, mode='train'):  # pylint: disable=inval
   Returns:
     Pure single-headed attention layer. (No Dense transforms on input.)
   """
-  def init_fun(input_shapes):
+  def init_fun(_, input_shapes):
     q_shape, _, v_shape, _ = input_shapes
     output_shape = q_shape[:-1] + (v_shape[-1],)
     return output_shape, ()
@@ -197,7 +199,7 @@ def PureMultiHeadedAttention(  # pylint: disable=invalid-name
   Returns:
     Pure Multi-headed attention layer. (No Dense transforms on input.)
   """
-  def init_fun(input_shapes):
+  def init_fun(_, input_shapes):
     input_shape = input_shapes[0]
     output_shape = input_shape[:-1] + (feature_depth,)
     return output_shape, ()

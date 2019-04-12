@@ -70,22 +70,23 @@ def TransformerEncoder(mode='train',  # pylint: disable=invalid-name
     """
     encoder_layer = stax.serial(
         # input attends to self
-        stax.residual(stax.LayerNorm(feature_depth),
-                      stax.multiplex(stax.Identity,  # query
-                                     stax.Identity,  # key
-                                     stax.Identity,  # value
-                                     source_mask),  # attention mask
+        stax.residual(stax.LayerNorm(),
+                      stax.FanOut(4),
+                      stax.parallel(stax.Identity,  # query
+                                    stax.Identity,  # key
+                                    stax.Identity,  # value
+                                    source_mask),  # attention mask
                       multi_attention,
                       stax.Dropout(keep_rate, mode=mode)),
         # feed-forward
-        stax.residual(stax.LayerNorm(feature_depth),
+        stax.residual(stax.LayerNorm(),
                       feed_forward,
                       stax.Dropout(keep_rate, mode=mode))
     )
     return stax.serial(
         embedded_source,
         stax.repeat(encoder_layer, num_layers),
-        stax.LayerNorm(feature_depth),
+        stax.LayerNorm(),
     )
 
   return encoder
@@ -129,15 +130,16 @@ def TransformerLM(vocab_size,  # pylint: disable=invalid-name
   # Single decoder layer
   decoder_layer = stax.serial(
       # target attends to self
-      stax.residual(stax.LayerNorm(feature_depth),
-                    stax.multiplex(stax.Identity,  # query
-                                   stax.Identity,  # key
-                                   stax.Identity,  # value
-                                   stax.CausalMask(axis=-2)),  # attention mask
+      stax.residual(stax.LayerNorm(),
+                    stax.FanOut(4),
+                    stax.parallel(stax.Identity,  # query
+                                  stax.Identity,  # key
+                                  stax.Identity,  # value
+                                  stax.CausalMask(axis=-2)),  # attention mask
                     multi_attention,
                     stax.Dropout(keep_rate, mode=mode)),
       # feed-forward
-      stax.residual(stax.LayerNorm(feature_depth),
+      stax.residual(stax.LayerNorm(),
                     feed_forward,
                     stax.Dropout(keep_rate, mode=mode))
   )
@@ -145,10 +147,10 @@ def TransformerLM(vocab_size,  # pylint: disable=invalid-name
   return stax.serial(
       stax.ShiftRight(),
       stax.Embedding(feature_depth, vocab_size),
-      stax.PositionalEncoding(feature_depth, max_len=max_len),
       stax.Dropout(keep_rate, mode=mode),
+      stax.PositionalEncoding(feature_depth, max_len=max_len),
       stax.repeat(decoder_layer, num_layers),
-      stax.LayerNorm(feature_depth),
+      stax.LayerNorm(),
       stax.Dense(vocab_size, W_init=stax.xavier_uniform()),
       stax.LogSoftmax
   )
@@ -188,8 +190,8 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
   keep_rate = 1.0 - dropout
   # Input embedding and positional encoding
   inject_position = stax.serial(
-      stax.PositionalEncoding(feature_depth, max_len=max_len),
-      stax.Dropout(keep_rate, mode=mode)
+      stax.Dropout(keep_rate, mode=mode),
+      stax.PositionalEncoding(feature_depth, max_len=max_len)
   )
   if shared_embedding:
     assert source_vocab_size == target_vocab_size
@@ -228,15 +230,16 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
     """
     encoder_layer = stax.serial(
         # input attends to self
-        stax.residual(stax.LayerNorm(feature_depth),
-                      stax.multiplex(stax.Identity,  # query
-                                     stax.Identity,  # key
-                                     stax.Identity,  # value
-                                     source_mask),  # attention mask
+        stax.residual(stax.LayerNorm(),
+                      stax.FanOut(4),
+                      stax.parallel(stax.Identity,  # query
+                                    stax.Identity,  # key
+                                    stax.Identity,  # value
+                                    source_mask),  # attention mask
                       multi_attention,
                       stax.Dropout(keep_rate, mode=mode)),
         # feed-forward
-        stax.residual(stax.LayerNorm(feature_depth),
+        stax.residual(stax.LayerNorm(),
                       feed_forward,
                       stax.Dropout(keep_rate, mode=mode))
     )
@@ -244,7 +247,7 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
         source,
         source_embedding_layer,
         stax.repeat(encoder_layer, num_layers),
-        stax.LayerNorm(feature_depth),
+        stax.LayerNorm(),
     )
 
   # Decoder
@@ -263,23 +266,25 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
     """
     decoder_layer = stax.serial(
         # target attends to self
-        stax.residual(stax.LayerNorm(feature_depth),
-                      stax.multiplex(stax.Identity,  # query
-                                     stax.Identity,  # key
-                                     stax.Identity,  # value
-                                     target_mask),  # attention mask
+        stax.residual(stax.LayerNorm(),
+                      stax.FanOut(4),
+                      stax.parallel(stax.Identity,  # query
+                                    stax.Identity,  # key
+                                    stax.Identity,  # value
+                                    target_mask),  # attention mask
                       multi_attention,
                       stax.Dropout(keep_rate, mode=mode)),
         # target attends to encoded source
-        stax.residual(stax.LayerNorm(feature_depth),
-                      stax.multiplex(stax.Identity,  # query
-                                     memory,  # key
-                                     memory,  # value
-                                     memory_mask),  # attention mask
+        stax.residual(stax.LayerNorm(),
+                      stax.FanOut(4),
+                      stax.parallel(stax.Identity,  # query
+                                    memory,  # key
+                                    memory,  # value
+                                    memory_mask),  # attention mask
                       multi_attention,
                       stax.Dropout(keep_rate, mode=mode)),
         # feed-forward
-        stax.residual(stax.LayerNorm(feature_depth),
+        stax.residual(stax.LayerNorm(),
                       feed_forward,
                       stax.Dropout(keep_rate, mode=mode))
     )
@@ -287,7 +292,7 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
         target,
         target_embedding_layer,
         stax.repeat(decoder_layer, num_layers),
-        stax.LayerNorm(feature_depth),
+        stax.LayerNorm(),
     )
 
   # The Transformer

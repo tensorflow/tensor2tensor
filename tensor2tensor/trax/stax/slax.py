@@ -20,9 +20,10 @@ from __future__ import print_function
 
 import inspect
 from absl import logging
-import jax.experimental.stax as stax
-import jax.numpy as np
 from jax.tree_util import register_pytree_node as _register_pytree_node
+
+from tensor2tensor.trax.backend import numpy as np
+from tensor2tensor.trax.stax import stax_base as stax
 
 
 # Utility functions
@@ -34,7 +35,7 @@ def one_hot(x, size, dtype=np.float32):
 
 def ShiftRight():  # pylint: disable=invalid-name
   """Layer to shift the tensor to the right by padding on axis 1."""
-  init_fun = lambda input_shape: (input_shape, ())
+  init_fun = lambda _, input_shape: (input_shape, ())
   def apply_fun(params, inputs, **kwargs):
     del params, kwargs
     pad_widths = [(0, 0), (1, 0)]
@@ -73,22 +74,6 @@ def residual(*layers, **kwargs):
     raise ValueError('Empty residual combinator.')
 
 
-def multiplex(*args):
-  """Helper to form input argument lists of bound variables.
-
-  Args:
-    *args: list of bound layers or raw stax Identity layers.
-
-  Returns:
-    A layer returning in parallel the bound variables as well as
-  (multiple) copies of this layer's input wherever Identity has been specified.
-  """
-  return stax.serial(
-      stax.FanOut(len(args)),
-      stax.parallel(*args)
-  )
-
-
 # Utility Layers
 # ------------------------------------------------------------------------------
 def Take(*args):  # pylint: disable=invalid-name
@@ -103,7 +88,7 @@ def Take(*args):  # pylint: disable=invalid-name
     If the resulting output list has only one member, it is automatically
     unwrapped and the contents are passed on directly.
   """
-  def init_fun(input_shape):
+  def init_fun(_, input_shape):
     output_shape = []
     for arg in args:
       output_shape.append(input_shape[arg])
@@ -143,7 +128,7 @@ def LogInputs(prefix='', debug=True):  # pylint: disable=invalid-name
       return [inputs[k].shape for k in inputs.keys()]
     else:
       return inputs.shape
-  def init_fun(input_shape):
+  def init_fun(_, input_shape):
     if debug:
       logging.info('%s [init]: %s', prefix, input_shape)
     return input_shape, ()
@@ -185,16 +170,16 @@ class Share(tuple):
     self._first_init = True
     self.params = None  # cached staxlayer params
 
-  def _init_fun(self, input_shape):  # pylint: disable=missing-docstring
+  def _init_fun(self, rng_key, input_shape):  # pylint: disable=missing-docstring
     if self._first_init:
       # point of first subgraph initialization call: sets params, output_shape
       self._first_init = False
-      out_shape, self.params = self._orig_init_fun(input_shape)
+      out_shape, self.params = self._orig_init_fun(rng_key, input_shape)
       return out_shape, self.params
     else:
       # point of subgraph reuse:
       # params are just a marker to apply_funs signalling subgraph params reuse
-      out_shape, _ = self._orig_init_fun(input_shape)
+      out_shape, _ = self._orig_init_fun(rng_key, input_shape)
       return out_shape, _TreeMarker()
 
   def _apply_fun(self, params, inputs, **kwargs):
@@ -230,11 +215,11 @@ class Bind(tuple):
     self.params = None  # cached staxlayer params
     self.value = None  # cached staxlayer output value
 
-  def _init_fun(self, input_shape):
+  def _init_fun(self, rng_key, input_shape):
     if self._first_init:
       # point of first subgraph initialization call: sets params, output_shape
       self._first_init = False
-      self._out_shape, self.params = self._orig_init_fun(input_shape)
+      self._out_shape, self.params = self._orig_init_fun(rng_key, input_shape)
       return self._out_shape, self.params
     else:
       # point of subgraph reuse:
@@ -359,7 +344,7 @@ _register_pytree_node(_PlaceholderTree,
 
 def _PlaceholderInputs():  # pylint: disable=invalid-name
   """Feeds placeholders into input combinators of a Lambda-bound staxlayer."""
-  init_fun = lambda input_shape: iter((_PlaceholderTree(), _PlaceholderTree()))
+  init_fun = lambda _, shape: iter((_PlaceholderTree(), _PlaceholderTree()))
   apply_fun = lambda params, inputs, **kwargs: _PlaceholderTree()
   return init_fun, apply_fun
 _PlaceholderInputs = _PlaceholderInputs()  # pylint: disable=invalid-name

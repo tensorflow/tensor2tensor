@@ -50,7 +50,7 @@ def next_frame_basic_deterministic():
   hparams.add_hparam("do_autoregressive_rnn", False)
   hparams.add_hparam("autoregressive_rnn_lookback", 8)
   hparams.add_hparam("autoregressive_rnn_warmup_steps", 8000)
-  hparams.add_hparam("activation_fn", "belu")
+  hparams.add_hparam("activation_fn", "relu")
   hparams.bottom["inputs"] = modalities.video_identity_bottom
   hparams.bottom["targets"] = modalities.video_identity_bottom
   return hparams

@@ -253,19 +253,19 @@ class Transformer(t2t_model.T2TModel):
     if self.recurrent_memory_by_layer is not None:
       # TODO(kitaev): The chunk_number feature currently has the same shape as
       # "targets", but this is only for the purposes of sharing sharding code.
-      # In fact every token within the batch must have the same chunk number.
+      # In fact every token within an example must have the same chunk number.
       chunk_number_each_token = tf.squeeze(features["chunk_number"], (-1, -2))
-      chunk_number_each_batch = chunk_number_each_token[:, 0]
+      chunk_number_each_example = chunk_number_each_token[:, 0]
       # Uncomment the code below to verify that tokens within a batch share the
       # same chunk number:
       # with tf.control_dependencies([
       #     tf.assert_equal(chunk_number_each_token,
-      #                     chunk_number_each_batch[:, None])
+      #                     chunk_number_each_example[:, None])
       # ]):
-      #   chunk_number_each_batch = tf.identity(chunk_number_each_batch)
+      #   chunk_number_each_example = tf.identity(chunk_number_each_example)
       decode_kwargs = dict(
           recurrent_memory_by_layer=self.recurrent_memory_by_layer,
-          chunk_number=chunk_number_each_batch,
+          chunk_number=chunk_number_each_example,
           )
 
     decoder_output = self.decode(
@@ -1467,6 +1467,7 @@ def transformer_decoder(decoder_input,
               layer_collection=layer_collection,
               recurrent_memory=recurrent_memory,
               chunk_number=chunk_number,
+              hard_attention_k=hparams.get("hard_attention_k", 0)
               )
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
@@ -1493,7 +1494,8 @@ def transformer_decoder(decoder_input,
                 vars_3d=hparams.get("attention_variables_3d"),
                 activation_dtype=hparams.get("activation_dtype", "float32"),
                 weight_dtype=hparams.get("weight_dtype", "float32"),
-                layer_collection=layer_collection)
+                layer_collection=layer_collection,
+                hard_attention_k=hparams.get("hard_attention_k", 0))
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -1531,9 +1533,26 @@ class TransformerMemory(Transformer):
     self.recurrent_memory_by_layer = {}
     for layer in range(hparams.num_decoder_layers or hparams.num_hidden_layers):
       layer_name = "layer_%d" % layer
-      self.recurrent_memory_by_layer[layer_name] = transformer_memory.RecurrentMemory(
-          layer_name + "/recurrent_memory", hparams)
+      if hparams.memory_type == "neural_memory":
+        memory = transformer_memory.TransformerMemory(
+            batch_size=int(hparams.batch_size / hparams.max_length),
+            key_depth=hparams.hidden_size,
+            val_depth=hparams.hidden_size,
+            memory_size=hparams.split_targets_chunk_length,
+            sharpen_factor=1.,
+            name=layer_name + "/recurrent_memory")
+      elif hparams.memory_type == "transformer_xl":
+        memory = transformer_memory.RecentTokensMemory(
+            layer_name + "/recurrent_memory", hparams)
+      else:
+        raise ValueError("Unsupported memory type: %s" % hparams.memory_type)
+      self.recurrent_memory_by_layer[layer_name] = memory
 
+  @property
+  def has_input(self):
+    if hasattr(self._hparams, "unconditional") and self._hparams.unconditional:
+      return False
+    return super(TransformerMemory, self).has_input
 
   def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha,
                    use_tpu=False):
@@ -1608,6 +1627,8 @@ def transformer_base_v1():
   # For making a transformer encoder unidirectional by using masked
   # attention.
   hparams.add_hparam("unidirectional_encoder", False)
+  # For hard attention.
+  hparams.add_hparam("hard_attention_k", 0)
   return hparams
 
 
@@ -2630,6 +2651,8 @@ def transformer_wikitext103_l4k_memory_v0():
 
   hparams.split_targets_chunk_length = 64
   hparams.split_targets_max_chunks = 64
+  hparams.split_targets_strided_training = True
+  hparams.add_hparam("memory_type", "transformer_xl")
 
   # The hparams specify batch size *before* chunking, but we want to have a
   # consistent 4K batch size *after* chunking to fully utilize the hardware.
@@ -2638,7 +2661,61 @@ def transformer_wikitext103_l4k_memory_v0():
       hparams.max_length / hparams.split_targets_chunk_length))  # 262144
 
   hparams.pos = None
-  hparams.self_attention_type = "dot_product_relative_memory"
+  hparams.self_attention_type = "dot_product_relative"
+  hparams.max_relative_position = 2 * hparams.split_targets_chunk_length
+
+  hparams.add_hparam("unconditional", True)
+  hparams.add_hparam("recurrent_memory_batch_size", 0)  # 0 = try to guess
+  # By default, cache one chunk only (like Transformer-XL)
+  hparams.add_hparam("num_memory_items", hparams.split_targets_chunk_length)
+
+  return hparams
+
+
+@registry.register_hparams
+def transformer_wikitext103_l16k_memory_v0():
+  """HParams for training languagemodel_wikitext103_l16k with memory."""
+  hparams = transformer_wikitext103_l4k_memory_v0()
+
+  hparams.max_length = 16384
+  hparams.split_targets_chunk_length = 64
+  hparams.split_targets_max_chunks = int(
+      hparams.max_length / hparams.split_targets_chunk_length)
+
+  # The hparams specify batch size *before* chunking, but we want to have a
+  # consistent 4K batch size *after* chunking to fully utilize the hardware.
+  target_tokens_per_batch = 4096
+  hparams.batch_size = int(target_tokens_per_batch * (
+      hparams.max_length / hparams.split_targets_chunk_length))
+
   hparams.max_relative_position = 2 * hparams.split_targets_chunk_length
 
   return hparams
+
+
+@registry.register_hparams
+def transformer_cifar10_memory_v0():
+  """HParams for training image_cifar10_plain_gen_flat_rev with memory."""
+  hparams = transformer_wikitext103_l4k_memory_v0()
+
+  hparams.num_hidden_layers = 6
+
+  hparams.max_length = 32 * 32 * 3
+  hparams.split_targets_chunk_length = 64 * 3
+  hparams.split_targets_max_chunks = int(
+      hparams.max_length / hparams.split_targets_chunk_length)
+  hparams.num_memory_items = 128 * 3
+
+  # Since this is an image problem, batch size refers to examples (not tokens)
+  target_images_per_batch = 4
+  hparams.batch_size = int(target_images_per_batch * (
+      hparams.max_length / hparams.split_targets_chunk_length))
+
+  # The recurrent memory needs to know the actual batch size (in sequences)
+  hparams.recurrent_memory_batch_size = hparams.batch_size
+
+  hparams.max_relative_position = (
+      hparams.num_memory_items + hparams.split_targets_chunk_length)
+
+  return hparams
+

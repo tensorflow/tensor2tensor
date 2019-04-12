@@ -34,8 +34,10 @@ from tensor2tensor.utils import expert_utils
 import tensorflow as tf
 import tensorflow_probability as tfp
 
+# pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.framework import function
 from tensorflow.python.ops import inplace_ops
+# pylint: enable=g-direct-tensorflow-import
 
 
 # TODO(lukaszkaiser): remove this function when not needed any more.
@@ -297,7 +299,7 @@ def get_standardized_layers(hparams, dp=None):
 
 
 def add_standard_attention_hparams(hparams):
-  """Adds the hparams used by get_standadized_layers."""
+  """Adds the hparams used by get_standardized_layers."""
   # All hyperparameters ending in "dropout" are automatically set to 0.0
   # when not in training mode.
 
@@ -1468,6 +1470,20 @@ def grouped_attention_multihead(query_antecedent,
     return o, extra_loss
 
 
+def harden_attention_weights(weights, hard_attention_k):
+  """Make attention weights non-0 only on the top-hard_attention_k ones."""
+  # Subtract the top-kth weight and zero-out all lower ones.
+  # Note that currently in case of numerical ties it will retain more
+  # than k elements. In the future, we may want to avoid this.
+  weights -= common_layers.top_kth_iterative(weights, hard_attention_k)
+  weights = tf.nn.relu(weights)
+  # Re-normalize the weights.
+  weights_sum = tf.reduce_sum(weights, axis=-1, keep_dims=True)
+  weights_sum = tf.maximum(weights_sum, 1e-6)  # Avoid division by 0.
+  weights /= weights_sum
+  return weights
+
+
 def dot_product_attention(q,
                           k,
                           v,
@@ -1479,7 +1495,8 @@ def dot_product_attention(q,
                           save_weights_to=None,
                           dropout_broadcast_dims=None,
                           activation_dtype=None,
-                          weight_dtype=None):
+                          weight_dtype=None,
+                          hard_attention_k=0):
   """Dot-product attention.
 
   Args:
@@ -1502,6 +1519,7 @@ def dot_product_attention(q,
     activation_dtype: Used to define function activation dtype when using
       mixed precision.
     weight_dtype: The dtype weights are stored in when using mixed precision
+    hard_attention_k: integer, if > 0 triggers hard attention (picking top-k)
 
   Returns:
     Tensor with shape [..., length_q, depth_v].
@@ -1515,6 +1533,8 @@ def dot_product_attention(q,
     # If logits are fp16, upcast before softmax
     logits = maybe_upcast(logits, activation_dtype, weight_dtype)
     weights = tf.nn.softmax(logits, name="attention_weights")
+    if hard_attention_k > 0:
+      weights = harden_attention_weights(weights, hard_attention_k)
     weights = common_layers.cast_like(weights, q)
     if save_weights_to is not None:
       save_weights_to[scope.name] = weights
@@ -1527,15 +1547,19 @@ def dot_product_attention(q,
     return tf.matmul(weights, v)
 
 
-def _generate_relative_positions_matrix(length, max_relative_position,
+def _generate_relative_positions_matrix(length_q, length_k,
+                                        max_relative_position,
                                         cache=False):
   """Generates matrix of relative positions between inputs."""
   if not cache:
-    range_vec = tf.range(length)
-    range_mat = tf.reshape(tf.tile(range_vec, [length]), [length, length])
-    distance_mat = range_mat - tf.transpose(range_mat)
+    if length_q == length_k:
+      range_vec_q = range_vec_k = tf.range(length_q)
+    else:
+      range_vec_k = tf.range(length_k)
+      range_vec_q = range_vec_k[-length_q:]
+    distance_mat = range_vec_k[None, :] - range_vec_q[:, None]
   else:
-    distance_mat = tf.expand_dims(tf.range(-length+1, 1, 1), 0)
+    distance_mat = tf.expand_dims(tf.range(-length_k+1, 1, 1), 0)
   distance_mat_clipped = tf.clip_by_value(distance_mat, -max_relative_position,
                                           max_relative_position)
   # Shift values to be >= 0. Each integer still uniquely identifies a relative
@@ -1544,13 +1568,13 @@ def _generate_relative_positions_matrix(length, max_relative_position,
   return final_mat
 
 
-def _generate_relative_positions_embeddings(length, depth,
+def _generate_relative_positions_embeddings(length_q, length_k, depth,
                                             max_relative_position, name,
                                             cache=False):
-  """Generates tensor of size [1 if cache else length, length, depth]."""
+  """Generates tensor of size [1 if cache else length_q, length_k, depth]."""
   with tf.variable_scope(name):
     relative_positions_matrix = _generate_relative_positions_matrix(
-        length, max_relative_position, cache=cache)
+        length_q, length_k, max_relative_position, cache=cache)
     vocab_size = max_relative_position * 2 + 1
     # Generates embedding for each relative position of dimension depth.
     embeddings_table = tf.get_variable("embeddings", [vocab_size, depth])
@@ -1602,7 +1626,9 @@ def dot_product_attention_relative(q,
                                    save_weights_to=None,
                                    name=None,
                                    make_image_summary=True,
-                                   cache=False):
+                                   cache=False,
+                                   allow_memory=False,
+                                   hard_attention_k=0):
   """Calculate relative position-aware dot-product self-attention.
 
   The attention calculation is augmented with learned representations for the
@@ -1623,6 +1649,10 @@ def dot_product_attention_relative(q,
     name: an optional string.
     make_image_summary: Whether to make an attention image summary.
     cache: whether use cache mode
+    allow_memory: whether to assume that recurrent memory is in use. If True,
+      the length dimension of k/v/bias may be longer than the queries, and it is
+      assumed that the extra memory entries precede the non-memory entries.
+    hard_attention_k: integer, if > 0 triggers hard attention (picking top-k)
 
   Returns:
     A Tensor.
@@ -1638,26 +1668,29 @@ def dot_product_attention_relative(q,
       values=[q, k, v]) as scope:
 
     # This calculation only works for self attention.
-    # q, k and v must therefore have the same shape.
-    if not cache:
+    # q, k and v must therefore have the same shape, unless memory is enabled.
+    if not cache and not allow_memory:
       q.get_shape().assert_is_compatible_with(k.get_shape())
       q.get_shape().assert_is_compatible_with(v.get_shape())
 
     # Use separate embeddings suitable for keys and values.
     depth = k.get_shape().as_list()[3]
-    length = common_layers.shape_list(k)[2]
+    length_k = common_layers.shape_list(k)[2]
+    length_q = common_layers.shape_list(q)[2] if allow_memory else length_k
     relations_keys = _generate_relative_positions_embeddings(
-        length, depth, max_relative_position, "relative_positions_keys",
-        cache=cache)
+        length_q, length_k, depth, max_relative_position,
+        "relative_positions_keys", cache=cache)
     relations_values = _generate_relative_positions_embeddings(
-        length, depth, max_relative_position, "relative_positions_values",
-        cache=cache)
+        length_q, length_k, depth, max_relative_position,
+        "relative_positions_values", cache=cache)
 
     # Compute self attention considering the relative position embeddings.
     logits = _relative_attention_inner(q, k, relations_keys, True)
     if bias is not None:
       logits += bias
     weights = tf.nn.softmax(logits, name="attention_weights")
+    if hard_attention_k > 0:
+      weights = harden_attention_weights(weights, hard_attention_k)
     if save_weights_to is not None:
       save_weights_to[scope.name] = weights
       save_weights_to[scope.name + "/logits"] = logits
@@ -1665,20 +1698,6 @@ def dot_product_attention_relative(q,
     if not tf.get_variable_scope().reuse and make_image_summary:
       attention_image_summary(weights, image_shapes)
     return _relative_attention_inner(weights, v, relations_values, False)
-
-
-def dot_product_attention_relative_memory(q, k, v, bias, *args, **kwargs):
-  """Wrapper of dot_product_attention_relative to use with recurrent memory."""
-
-  q_len = tf.shape(q)[2]
-  k_len = tf.shape(k)[2]
-  num_memory_items = k_len - q_len
-
-  q = tf.pad(q, [[0, 0], [0, 0], [num_memory_items, 0], [0, 0]])
-  bias = tf.pad(bias, [[0, 0], [0, 0], [num_memory_items, 0], [0, 0]])
-  output = dot_product_attention_relative(q, k, v, bias, *args, **kwargs)
-
-  return output[:, :, num_memory_items:, :]
 
 
 def _relative_position_to_absolute_position_masked(x):
@@ -2120,7 +2139,7 @@ def dot_product_unmasked_self_attention_relative_2d(
     # This calculation only works for self attention.
     # q, k and v must therefore have the same shape.
     q.get_shape().assert_is_compatible_with(k.get_shape())
-    q.get_shape().assert_is_compatible_with(v.get_shape())
+    q.get_shape()[:-1].assert_is_compatible_with(v.get_shape()[:-1])
 
     (height, width) = (common_layers.shape_list(q)[2],
                        common_layers.shape_list(q)[3])
@@ -3970,6 +3989,7 @@ def multihead_attention(query_antecedent,
                         layer_collection=None,
                         recurrent_memory=None,
                         chunk_number=None,
+                        hard_attention_k=0,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -4027,7 +4047,8 @@ def multihead_attention(query_antecedent,
       retains state across chunks. Default is None.
     chunk_number: an optional integer Tensor with shape [batch] used to operate
       the recurrent_memory.
-    **kwargs (dict): Parameters for the attention function
+    hard_attention_k: integer, if > 0 triggers hard attention (picking top-k).
+    **kwargs (dict): Parameters for the attention function.
 
   Caching:
     WARNING: For decoder self-attention, i.e. when memory_antecedent == None,
@@ -4149,11 +4170,13 @@ def multihead_attention(query_antecedent,
       if isinstance(x, tuple):
         x, additional_returned_value = x  # Unpack
     elif attention_type == "dot_product":
-      x = dot_product_attention(q, k, v, bias, dropout_rate, image_shapes,
-                                save_weights_to=save_weights_to,
-                                make_image_summary=make_image_summary,
-                                dropout_broadcast_dims=dropout_broadcast_dims,
-                                activation_dtype=kwargs.get("activation_dtype"))
+      x = dot_product_attention(
+          q, k, v, bias, dropout_rate, image_shapes,
+          save_weights_to=save_weights_to,
+          make_image_summary=make_image_summary,
+          dropout_broadcast_dims=dropout_broadcast_dims,
+          activation_dtype=kwargs.get("activation_dtype"),
+          hard_attention_k=hard_attention_k)
     elif attention_type == "dot_product_relative":
       x = dot_product_attention_relative(
           q,
@@ -4165,19 +4188,9 @@ def multihead_attention(query_antecedent,
           image_shapes,
           save_weights_to=save_weights_to,
           make_image_summary=make_image_summary,
-          cache=cache is not None)
-    elif attention_type == "dot_product_relative_memory":
-      x = dot_product_attention_relative_memory(
-          q,
-          k,
-          v,
-          bias,
-          max_relative_position,
-          dropout_rate,
-          image_shapes,
-          save_weights_to=save_weights_to,
-          make_image_summary=make_image_summary,
-          cache=cache is not None)
+          cache=cache is not None,
+          allow_memory=recurrent_memory is not None,
+          hard_attention_k=hard_attention_k)
     elif attention_type == "dot_product_unmasked_relative_v2":
       x = dot_product_unmasked_self_attention_relative_v2(
           q,

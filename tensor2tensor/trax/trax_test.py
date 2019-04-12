@@ -23,6 +23,8 @@ import contextlib
 import functools
 import tempfile
 
+from jax import test_util  # pylint: disable=unused-import
+from jax.config import config
 import numpy as np
 
 from tensor2tensor.trax import inputs as inputs_lib
@@ -91,4 +93,5 @@ class TraxTest(test.TestCase):
 
 
 if __name__ == "__main__":
+  config.config_with_absl()
   test.main()

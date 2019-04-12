@@ -39,3 +39,6 @@ constant = opt_configure(opt.constant)
 exponential_decay = opt_configure(opt.exponential_decay)
 inverse_time_decay = opt_configure(opt.inverse_time_decay)
 piecewise_constant = opt_configure(opt.piecewise_constant)
+
+# Get params
+get_params = opt.get_params

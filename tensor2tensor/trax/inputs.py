@@ -21,21 +21,26 @@ from __future__ import print_function
 
 import collections
 import os
+import random
 
 import gin
 
-import jax.numpy as np
+import numpy as np
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
-
 Inputs = collections.namedtuple(
     "_Inputs", ["train_stream", "eval_stream", "input_shape"])
 
+# How many examples from the stream to skip at random during training.
+# For now, we skip at most 100K examples for efficiency.
+# TODO(lukaszkaiser): can we improve efficiency, should that be changed?
+_MAX_SKIP_EXAMPLES = 1e5
+
 
 @gin.configurable()
-def inputs(dataset_name, data_dir):
+def inputs(dataset_name, data_dir=None):
   """Make Inputs for built-in datasets.
 
   Args:
@@ -62,6 +67,48 @@ def inputs(dataset_name, data_dir):
   return Inputs(train_stream=train_input_fun,
                 eval_stream=eval_input_fun,
                 input_shape=input_shape)
+
+
+@gin.configurable()
+def random_inputs(
+    input_shape=gin.REQUIRED, input_dtype=np.int32, input_range=(0, 255),
+    output_shape=gin.REQUIRED, output_dtype=np.int32, output_range=(0, 9)):
+  """Make random Inputs for debugging.
+
+  Args:
+    input_shape: the shape of inputs (including batch dimension).
+    input_dtype: the type of the inputs (int32 by default).
+    input_range: the range of inputs (defaults to (0, 255)).
+    output_shape: the shape of outputs (including batch dimension).
+    output_dtype: the type of the outputs (int32 by default).
+    output_range: the range of outputs (defaults to (0, 9)).
+
+  Returns:
+    trax.inputs.Inputs
+  """
+  def random_minibatches():
+    """Generate a stream of random mini-batches."""
+    if input_dtype in [np.float16, np.float32, np.float64]:
+      rand = np.random.uniform
+    else:
+      rand = np.random.random_integers
+    while True:
+      inp = rand(input_range[0], input_range[1], input_shape)
+      inp = inp.astype(input_dtype)
+      out = rand(output_range[0], output_range[1], output_shape)
+      out = out.astype(output_dtype)
+      yield inp, out
+
+  def train_input_fun():
+    return random_minibatches()
+
+  def eval_input_fun():
+    return random_minibatches()
+
+  input_shape_without_batch = list(input_shape)[1:]
+  return Inputs(train_stream=train_input_fun,
+                eval_stream=eval_input_fun,
+                input_shape=input_shape_without_batch)
 
 
 def dataset_to_stream(dataset, input_name):
@@ -163,19 +210,11 @@ def _train_and_eval_dataset_v1(problem_name, data_dir):
   return train_dataset, eval_dataset, info, supervised_keys
 
 
-@gin.configurable(blacklist=["dataset", "training"])
-def preprocess_fun(dataset, training, max_target_length=-1):
-  def target_right_length(_, target):
-    return tf.less(tf.shape(target)[0], max_target_length + 1)
-  if max_target_length > 0 and training:
-    dataset = dataset.filter(target_right_length)
-  return dataset
-
-
 @gin.configurable(blacklist=["dataset", "training", "shapes", "target_names"])
 def batch_fun(dataset, training, shapes, target_names,
               batch_size=32, eval_batch_size=32,
-              bucket_length=32, buckets=None):
+              bucket_length=32, buckets=None,
+              batch_shuffle_size=512):
   """Batching function."""
   del target_names
   # If bucketing is not specified, check if target shapes are variable.
@@ -209,10 +248,45 @@ def batch_fun(dataset, training, shapes, target_names,
         pad_to_bucket_boundary=training))
   else:
     dataset = dataset.padded_batch(cur_batch_size, shapes)
+  if training:
+    return dataset.shuffle(batch_shuffle_size)
   return dataset
 
 
-def shuffle_and_batch_data(dataset, target_names, features_info, training):
+# pylint: disable=unused-argument
+@gin.configurable(blacklist=["dataset", "training"])
+def cifar10_no_augmentation_preprocess(dataset, training):
+
+  def cast_image(features, targets):
+    features["image"] = tf.cast(features["image"], tf.float32) / 255.0
+    return features, targets
+
+  dataset = dataset.map(cast_image)
+  return dataset
+
+
+# pylint: disable=unused-argument
+def no_preprocess(dataset, training):
+  return dataset
+
+
+@gin.configurable(blacklist=["dataset", "training"])
+def lm1b_preprocess(dataset, training, max_target_length=-1):
+
+  def target_right_length(_, target):
+    return tf.less(tf.shape(target)[0], max_target_length + 1)
+
+  if max_target_length > 0 and training:
+    dataset = dataset.filter(target_right_length)
+  return dataset
+
+
+@gin.configurable(whitelist=["preprocess_fun"])
+def shuffle_and_batch_data(dataset,
+                           target_names,
+                           features_info,
+                           training,
+                           preprocess_fun=no_preprocess):
   """Shuffle and batch the given dataset."""
   def append_targets(example):
     """Append targets to the example dictionary. Needed for Keras."""
@@ -225,12 +299,16 @@ def shuffle_and_batch_data(dataset, target_names, features_info, training):
   dataset = dataset.map(append_targets)
   if training:
     dataset = dataset.repeat()
+    # Skip a random fraction at the beginning of the stream.  The skip is
+    # essential for synchronous highly-parallel training to avoid multiple
+    # replicas reading the same data in lock-step.
+    dataset = dataset.skip(random.randint(0, _MAX_SKIP_EXAMPLES))
+  dataset = preprocess_fun(dataset, training)
   shapes = {k: features_info[k].shape for k in features_info}
   shapes = (shapes, shapes[target_names[0]])
   dataset = dataset.shuffle(1024)
-  dataset = preprocess_fun(dataset, training)
   dataset = batch_fun(dataset, training, shapes, target_names)
-  return dataset.prefetch(32)
+  return dataset.prefetch(2)
 
 
 @gin.configurable(whitelist=["input_name"])

@@ -24,6 +24,7 @@ from six.moves import range  # pylint: disable=redefined-builtin
 MODULES = [
     "tensor2tensor.data_generators.algorithmic",
     "tensor2tensor.data_generators.algorithmic_math",
+    "tensor2tensor.data_generators.algorithmic_math_deepmind",
     "tensor2tensor.data_generators.algorithmic_math_two_variables",
     "tensor2tensor.data_generators.allen_brain",
     "tensor2tensor.data_generators.audio",

@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.13.1',
+    version='1.13.2',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -43,13 +43,12 @@ setup(
         'gunicorn',
         'gym',
         'h5py',
-        'jax',
-        'jaxlib',
         'kfac',
         'mesh-tensorflow',
         'numpy',
         'oauth2client',
         'opencv-python',
+        'Pillow',
         'pypng',
         'requests',
         'scipy',
@@ -75,6 +74,10 @@ setup(
             # install_requires, pip skips the atari extras, so we instead do an
             # explicit pip install gym[atari] for the tests.
             # 'gym[atari]',
+        ],
+        'trax': [
+            'jax',
+            'jaxlib',
         ],
         'allen': ['Pillow==5.1.0', 'pandas==0.23.0'],
     },

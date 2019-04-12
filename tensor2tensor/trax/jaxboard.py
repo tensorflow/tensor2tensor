@@ -23,6 +23,7 @@ from __future__ import print_function
 
 import io
 import struct
+import time
 import warnings
 import wave
 import matplotlib as mpl
@@ -38,6 +39,11 @@ from tensorflow import HistogramProto
 from tensorflow import Summary
 from tensorflow import SummaryMetadata
 from tensorflow.io import gfile
+
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.core.util import event_pb2
+from tensorflow.python.summary.writer.event_file_writer import EventFileWriter
+# pylint: enable=g-direct-tensorflow-import
 
 
 def _pack_images(images, rows, cols):
@@ -78,22 +84,29 @@ class SummaryWriter(object):
     if not gfile.isdir(log_dir):
       gfile.makedirs(log_dir)
 
-    self.writer = tf.summary.FileWriter(log_dir, graph=None)
-    self.end_summaries = []
-    self.step = 0
-    self.closed = False
+    self._event_writer = EventFileWriter(log_dir, 10, 120, None)
+    self._step = 0
+    self._closed = False
+
+  def add_summary(self, summary, step):
+    event = event_pb2.Event(summary=summary)
+    event.wall_time = time.time()
+    if step is not None:
+      event.step = int(step)
+    self._event_writer.add_event(event)
 
   def close(self):
     """Close SummaryWriter. Final!"""
-    if not self.closed:
-      for summary in self.end_summaries:
-        self.writer.add_summary(summary, self.step)
-      self.writer.close()
-      self.closed = True
-      del self.writer
+    if not self._closed:
+      self._event_writer.close()
+      self._closed = True
+      del self._event_writer
 
   def __del__(self):  # safe?
     self.close()
+
+  def flush(self):
+    self._event_writer.flush()
 
   def scalar(self, tag, value, step=None):
     """Saves scalar value.
@@ -105,11 +118,11 @@ class SummaryWriter(object):
     """
     value = float(onp.array(value))
     if step is None:
-      step = self.step
+      step = self._step
     else:
-      self.step = step
+      self._step = step
     summary = Summary(value=[Summary.Value(tag=tag, simple_value=value)])
-    self.writer.add_summary(summary, step)
+    self.add_summary(summary, step)
 
   def image(self, tag, image, step=None):
     """Saves RGB image summary from onp.ndarray [H,W], [H,W,1], or [H,W,3].
@@ -121,9 +134,9 @@ class SummaryWriter(object):
     """
     image = onp.array(image)
     if step is None:
-      step = self.step
+      step = self._step
     else:
-      self.step = step
+      self._step = step
     if len(onp.shape(image)) == 2:
       image = image[:, :, onp.newaxis]
     if onp.shape(image)[-1] == 1:
@@ -136,7 +149,7 @@ class SummaryWriter(object):
         height=image.shape[0],
         width=image.shape[1])
     summary = Summary(value=[Summary.Value(tag=tag, image=image_summary)])
-    self.writer.add_summary(summary, step)
+    self.add_summary(summary, step)
 
   def images(self, tag, images, step=None, rows=None, cols=None):
     """Saves (rows, cols) tiled images from onp.ndarray.
@@ -155,9 +168,9 @@ class SummaryWriter(object):
     """
     images = onp.array(images)
     if step is None:
-      step = self.step
+      step = self._step
     else:
-      self.step = step
+      self._step = step
     n_images = onp.shape(images)[0]
     if rows is None and cols is None:
       rows = 1
@@ -179,9 +192,9 @@ class SummaryWriter(object):
       close_plot: bool: automatically closes plot
     """
     if step is None:
-      step = self.step
+      step = self._step
     else:
-      self.step = step
+      self._step = step
     fig = mpl_plt.get_current_fig_manager()
     img_w, img_h = fig.canvas.get_width_height()
     image_buf = io.BytesIO()
@@ -192,7 +205,7 @@ class SummaryWriter(object):
         height=img_h,
         width=img_w)
     summary = Summary(value=[Summary.Value(tag=tag, image=image_summary)])
-    self.writer.add_summary(summary, step)
+    self.add_summary(summary, step)
     if close_plot:
       mpl_plt.close()
 
@@ -209,9 +222,9 @@ class SummaryWriter(object):
     """
     audiodata = onp.array(audiodata)
     if step is None:
-      step = self.step
+      step = self._step
     else:
-      self.step = step
+      self._step = step
     audiodata = onp.clip(onp.squeeze(audiodata), -1, 1)
     if audiodata.ndim != 1:
       raise ValueError('Audio data must be 1D.')
@@ -233,7 +246,7 @@ class SummaryWriter(object):
         encoded_audio_string=encoded_audio_bytes,
         content_type='audio/wav')
     summary = Summary(value=[Summary.Value(tag=tag, audio=audio)])
-    self.writer.add_summary(summary, step)
+    self.add_summary(summary, step)
 
   def histogram(self, tag, values, bins, step=None):
     """Saves histogram of values.
@@ -245,9 +258,9 @@ class SummaryWriter(object):
       step: int: training step
     """
     if step is None:
-      step = self.step
+      step = self._step
     else:
-      self.step = step
+      self._step = step
     values = onp.array(values)
     bins = onp.array(bins)
     values = onp.reshape(values, -1)
@@ -271,7 +284,7 @@ class SummaryWriter(object):
         bucket_limit=limits.tolist(),
         bucket=counts.tolist())
     summary = Summary(value=[Summary.Value(tag=tag, histo=histo)])
-    self.writer.add_summary(summary, step)
+    self.add_summary(summary, step)
 
   def text(self, tag, textdata, step=None):
     """Saves a text summary.
@@ -283,9 +296,9 @@ class SummaryWriter(object):
     Note: markdown formatting is rendered by tensorboard.
     """
     if step is None:
-      step = self.step
+      step = self._step
     else:
-      self.step = step
+      self._step = step
     smd = SummaryMetadata(
         plugin_data=SummaryMetadata.PluginData(plugin_name='text'))
     if isinstance(textdata, (str, bytes)):
@@ -306,7 +319,7 @@ class SummaryWriter(object):
             shape=(datashape[0], datashape[1]))
     summary = Summary(
         value=[Summary.Value(tag=tag, metadata=smd, tensor=tensor)])
-    self.writer.add_summary(summary, step)
+    self.add_summary(summary, step)
 
 
 # Copied from gin/tf/utils.py:GinConfigSaverHook

@@ -43,6 +43,10 @@ class SimpleEnv(gym.Env):
     else:
       return self.observation_space.high, +1.0, True, {}
 
+  def render(self, mode="human"):
+    del mode  # Unused
+    return np.zeros([640, 480, 3], np.uint8)
+
 
 class EnvWithOptions(SimpleEnv):
   """A simple env that takes arguments on init."""
@@ -79,6 +83,11 @@ class GymUtilsTest(tf.test.TestCase):
     self.assertTrue(isinstance(env, gym.wrappers.TimeLimit))
     self.assertTrue(env._max_episode_steps is None)
 
+  def test_rendered_env(self):
+    env = gym_utils.RenderedEnv(SimpleEnv(), resize_to=(64, 64))
+    obs, _, _, _ = env.step(1)
+    self.assertTrue(np.allclose(np.zeros([64, 64, 3], np.uint8), obs))
+
   def test_gym_registration(self):
     reg_id, env = gym_utils.register_gym_env(
         "tensor2tensor.rl.gym_utils_test:SimpleEnv")
@@ -89,8 +98,8 @@ class GymUtilsTest(tf.test.TestCase):
     self.assertTrue(isinstance(env, gym.Env))
 
     # Just make sure we got the same environment.
-    self.assertTrue(np.allclose(env.reset(),
-                                np.zeros(shape=(3, 3), dtype=np.uint8)))
+    self.assertTrue(
+        np.allclose(env.reset(), np.zeros(shape=(3, 3), dtype=np.uint8)))
 
     _, _, done, _ = env.step(1)
     self.assertTrue(done)
@@ -98,8 +107,7 @@ class GymUtilsTest(tf.test.TestCase):
   def test_gym_registration_with_kwargs(self):
     reg_id, env = gym_utils.register_gym_env(
         "tensor2tensor.rl.gym_utils_test:EnvWithOptions",
-        kwargs={"done_action": 2}
-    )
+        kwargs={"done_action": 2})
 
     self.assertEqual("T2TEnv-EnvWithOptions-v0", reg_id)
 
@@ -120,8 +128,7 @@ class GymUtilsTest(tf.test.TestCase):
     reg_id, env = gym_utils.register_gym_env(
         "tensor2tensor.rl.gym_utils_test:EnvWithOptions",
         version="v1",
-        kwargs={"done_action": 1}
-    )
+        kwargs={"done_action": 1})
 
     self.assertEqual("T2TEnv-EnvWithOptions-v1", reg_id)
 
