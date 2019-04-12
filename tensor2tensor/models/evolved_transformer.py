@@ -29,6 +29,16 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.ops import inplace_ops
+# pylint: enable=g-direct-tensorflow-import
+
+_CONV_BRANCHES_NAME = "conv_branches"
+_FIRST_ATTEND_TO_ENCODER_NAME = "first_attend_to_encoder"
+_SECOND_ATTEND_TO_ENCODER_NAME = "second_attend_to_encoder"
+_SIXTEEN_HEAD_ATTENTION_NAME = "16_head_self_attention"
+_VANILLA_ATTENTION_NAME = "self_attention"
+
 
 @registry.register_model
 class EvolvedTransformer(transformer.Transformer):
@@ -38,31 +48,7 @@ class EvolvedTransformer(transformer.Transformer):
     super(EvolvedTransformer, self).__init__(*args, **kwargs)
     self._encoder_function = evolved_transformer_encoder
     self._decoder_function = evolved_transformer_decoder
-
-  def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha,
-                   use_tpu):
-    """Forced slow beam decode because cache is not supported.
-
-    Args:
-      features: an map of string to `Tensor`.
-      decode_length: an integer.  How many additional timesteps to decode.
-      beam_size: number of beams.
-      top_beams: an integer. How many of the beams to return.
-      alpha: Float that controls the length penalty. larger the alpha, stronger
-        the preference for longer translations.
-      use_tpu: Whether or not TPU is being used.
-
-    Returns:
-      A dict of decoding results {
-          "outputs": integer `Tensor` of decoded ids of shape
-              [batch_size, <= decode_length] if beam_size == 1 or
-              [batch_size, top_beams, <= decode_length].
-          "scores": decoding log probs from the beam search,
-              None if using greedy decoding (beam_size=1).
-      }
-    """
-    return self._beam_decode_slow(features, decode_length, beam_size, top_beams,
-                                  alpha, use_tpu)
+    self._init_cache_fn = _init_evolved_transformer_cache
 
 
 def evolved_transformer_encoder(encoder_input,
@@ -252,7 +238,8 @@ def evolved_transformer_decoder(decoder_input,
     encoder_decoder_attention_bias: bias Tensor for encoder-decoder attention
       (see common_attention.attention_bias()).
     hparams: hyperparameters for model.
-    cache: Not supported.
+    cache: dict, containing tensors which are the results of previous
+      layers, used for fast decoding.
     decode_loop_step: An integer, step number of the decoding loop. Only used
       for inference on TPU.
     name: a string.
@@ -270,7 +257,7 @@ def evolved_transformer_decoder(decoder_input,
   Returns:
     Decoder output tensor.
   """
-  del cache, losses
+  del losses
 
   attention_dropout_broadcast_dims = (
       common_layers.comma_separated_string_to_integer_list(
@@ -278,16 +265,19 @@ def evolved_transformer_decoder(decoder_input,
 
   with tf.variable_scope(name):
     hidden_state = decoder_input
-    layer_cache = None
 
     for layer in range(hparams.num_decoder_layers or hparams.num_hidden_layers):
-      with tf.variable_scope("layer_%d" % layer):
+      layer_name = "layer_%d" % layer
+      layer_cache = cache[layer_name] if cache is not None else None
+      with tf.variable_scope(layer_name):
 
-        with tf.variable_scope("16_head_self_attention"):
+        with tf.variable_scope(_SIXTEEN_HEAD_ATTENTION_NAME):
           residual_state = hidden_state
           hidden_state = common_layers.layer_preprocess(hidden_state, hparams)
 
           # Attention with at least 16 heads.
+          attention_cache = layer_cache[
+              _SIXTEEN_HEAD_ATTENTION_NAME] if layer_cache is not None else None
           left_state = common_attention.multihead_attention(
               hidden_state,
               None,
@@ -303,7 +293,7 @@ def evolved_transformer_decoder(decoder_input,
                   hparams.heads_share_relative_embedding),
               add_relative_to_values=hparams.add_relative_to_values,
               save_weights_to=save_weights_to,
-              cache=layer_cache,
+              cache=attention_cache,
               make_image_summary=make_image_summary,
               dropout_broadcast_dims=attention_dropout_broadcast_dims,
               max_length=hparams.get("max_length"),
@@ -313,7 +303,10 @@ def evolved_transformer_decoder(decoder_input,
               weight_dtype=hparams.get("weight_dtype", "float32"))
 
         if encoder_output is not None:
-          with tf.variable_scope("first_attend_to_encoder"):
+          with tf.variable_scope(_FIRST_ATTEND_TO_ENCODER_NAME):
+            attention_cache = (
+                layer_cache[_FIRST_ATTEND_TO_ENCODER_NAME]
+                if layer_cache is not None else None)
             right_state = common_attention.multihead_attention(
                 hidden_state,
                 encoder_output,
@@ -328,7 +321,7 @@ def evolved_transformer_decoder(decoder_input,
                     hparams.heads_share_relative_embedding),
                 add_relative_to_values=hparams.add_relative_to_values,
                 save_weights_to=save_weights_to,
-                cache=layer_cache,
+                cache=attention_cache,
                 make_image_summary=make_image_summary,
                 dropout_broadcast_dims=attention_dropout_broadcast_dims,
                 max_length=hparams.get("max_length"),
@@ -347,7 +340,7 @@ def evolved_transformer_decoder(decoder_input,
           hidden_state = common_layers.layer_postprocess(
               residual_state, left_state, hparams)
 
-        with tf.variable_scope("conv_branches"):
+        with tf.variable_scope(_CONV_BRANCHES_NAME):
           residual_state = hidden_state
           hidden_state = common_layers.layer_preprocess(hidden_state, hparams)
 
@@ -357,8 +350,38 @@ def evolved_transformer_decoder(decoder_input,
                 tf.expand_dims(nonpadding, 2), [1, 1, hparams.hidden_size])
             hidden_state *= mask
 
-          # Shift inputs so that future tokens cannot be seen.
-          left_state = tf.pad(hidden_state, paddings=[[0, 0], [10, 0], [0, 0]])
+          # TODO(davidso): This needlessly recomputes past positions. Limit
+          # the module inputs to only include positions that are convered by
+          # the new output position's receptive field.
+          if layer_cache:
+            if decode_loop_step is None:
+              hidden_state = layer_cache[_CONV_BRANCHES_NAME] = tf.concat(
+                  [layer_cache[_CONV_BRANCHES_NAME], hidden_state], axis=1)
+              left_state = hidden_state
+              right_state = hidden_state
+
+            else:
+              # Inplace update is required for inference on TPU.
+              # Inplace_ops only supports inplace_update on the first dimension.
+              tmp = tf.transpose(
+                  layer_cache[_CONV_BRANCHES_NAME], perm=[1, 0, 2])
+              tmp = tf.expand_dims(tmp, axis=1)
+              tmp = inplace_ops.alias_inplace_update(
+                  tmp,
+                  decode_loop_step * tf.shape(hidden_state)[1],
+                  tf.transpose(hidden_state, perm=[1, 0, 2]))
+              tmp = tf.squeeze(tmp, axis=1)
+              hidden_state = layer_cache[_CONV_BRANCHES_NAME] = tf.transpose(
+                  tmp, perm=[1, 0, 2])
+
+              read_to_index = decode_loop_step + 1
+              left_state = hidden_state[:, :read_to_index, :]
+              right_state = hidden_state[:, :read_to_index, :]
+          else:
+            left_state = hidden_state
+            right_state = hidden_state
+
+          left_state = tf.pad(left_state, paddings=[[0, 0], [10, 0], [0, 0]])
           left_output_dim = int(hparams.hidden_size * 2)
           separable_conv_11x1 = tf.layers.SeparableConv1D(
               left_output_dim,
@@ -370,7 +393,7 @@ def evolved_transformer_decoder(decoder_input,
           left_state = tf.nn.dropout(left_state,
                                      1 - hparams.layer_prepostprocess_dropout)
 
-          right_state = tf.pad(hidden_state, paddings=[[0, 0], [6, 0], [0, 0]])
+          right_state = tf.pad(right_state, paddings=[[0, 0], [6, 0], [0, 0]])
           right_output_dim = int(hparams.hidden_size / 2)
           separable_conv_7x1_1 = tf.layers.SeparableConv1D(
               right_output_dim, 7, padding="VALID", name="separable_conv_7x1_1")
@@ -399,13 +422,18 @@ def evolved_transformer_decoder(decoder_input,
               name="separable_conv_7x1_2")
           hidden_state = separable_conv_7x1_2.apply(hidden_state)
 
+          if layer_cache:
+            hidden_state = hidden_state[:, -1:, :]
+
           hidden_state = common_layers.layer_postprocess(
               residual_state, hidden_state, hparams)
 
-        with tf.variable_scope("self_attention"):
+        with tf.variable_scope(_VANILLA_ATTENTION_NAME):
           residual_state = hidden_state
           hidden_state = common_layers.layer_preprocess(hidden_state, hparams)
 
+          attention_cache = layer_cache[
+              _VANILLA_ATTENTION_NAME] if layer_cache is not None else None
           hidden_state = common_attention.multihead_attention(
               hidden_state,
               None,
@@ -421,7 +449,7 @@ def evolved_transformer_decoder(decoder_input,
                   hparams.heads_share_relative_embedding),
               add_relative_to_values=hparams.add_relative_to_values,
               save_weights_to=save_weights_to,
-              cache=layer_cache,
+              cache=attention_cache,
               make_image_summary=make_image_summary,
               dropout_broadcast_dims=attention_dropout_broadcast_dims,
               max_length=hparams.get("max_length"),
@@ -433,10 +461,13 @@ def evolved_transformer_decoder(decoder_input,
               residual_state, hidden_state, hparams)
 
         if encoder_output is not None:
-          with tf.variable_scope("second_attend_to_encoder"):
+          with tf.variable_scope(_SECOND_ATTEND_TO_ENCODER_NAME):
             residual_state = hidden_state
             hidden_state = common_layers.layer_preprocess(hidden_state, hparams)
 
+            attention_cache = (
+                layer_cache[_SECOND_ATTEND_TO_ENCODER_NAME]
+                if layer_cache is not None else None)
             hidden_state = common_attention.multihead_attention(
                 hidden_state,
                 encoder_output,
@@ -451,7 +482,7 @@ def evolved_transformer_decoder(decoder_input,
                     hparams.heads_share_relative_embedding),
                 add_relative_to_values=hparams.add_relative_to_values,
                 save_weights_to=save_weights_to,
-                cache=layer_cache,
+                cache=attention_cache,
                 make_image_summary=make_image_summary,
                 dropout_broadcast_dims=attention_dropout_broadcast_dims,
                 max_length=hparams.get("max_length"),
@@ -479,6 +510,111 @@ def evolved_transformer_decoder(decoder_input,
               residual_state, hidden_state, hparams)
 
     return common_layers.layer_preprocess(hidden_state, hparams)
+
+
+def _add_attend_to_encoder_cache(cache, attention_name, hparams, num_layers,
+                                 key_channels, value_channels,
+                                 vars_3d_num_heads, scope_prefix,
+                                 encoder_output):
+  """Add attend-to-encoder layers to cache."""
+  for layer in range(num_layers):
+    layer_name = "layer_%d" % layer
+    with tf.variable_scope("%sdecoder/%s/%s/multihead_attention" %
+                           (scope_prefix, layer_name, attention_name)):
+      k_encdec = common_attention.compute_attention_component(
+          encoder_output,
+          key_channels,
+          name="k",
+          vars_3d_num_heads=vars_3d_num_heads)
+      k_encdec = common_attention.split_heads(k_encdec, hparams.num_heads)
+      v_encdec = common_attention.compute_attention_component(
+          encoder_output,
+          value_channels,
+          name="v",
+          vars_3d_num_heads=vars_3d_num_heads)
+      v_encdec = common_attention.split_heads(v_encdec, hparams.num_heads)
+    cache[layer_name][attention_name] = {
+        "k_encdec": k_encdec,
+        "v_encdec": v_encdec
+    }
+  return cache
+
+
+def _init_evolved_transformer_cache(cache, hparams, batch_size,
+                                    attention_init_length, encoder_output,
+                                    encoder_decoder_attention_bias,
+                                    scope_prefix):
+  """Create the initial cache for Evolved Transformer fast decoding."""
+  key_channels = hparams.attention_key_channels or hparams.hidden_size
+  value_channels = hparams.attention_value_channels or hparams.hidden_size
+  num_layers = hparams.num_decoder_layers or hparams.num_hidden_layers
+  vars_3d_num_heads = (
+      hparams.num_heads if hparams.get("attention_variables_3d") else 0)
+
+  # Add self-attentions.
+  if cache is None:
+    cache = {}
+  cache.update({
+      "layer_%d" % layer: {  # pylint: disable=g-complex-comprehension
+          _SIXTEEN_HEAD_ATTENTION_NAME: {
+              "k":
+                  common_attention.split_heads(
+                      tf.zeros(
+                          [batch_size, attention_init_length, key_channels]),
+                      max(16, hparams.num_heads)),
+              "v":
+                  common_attention.split_heads(
+                      tf.zeros(
+                          [batch_size, attention_init_length, value_channels]),
+                      max(16, hparams.num_heads)),
+          },
+          _VANILLA_ATTENTION_NAME: {
+              "k":
+                  common_attention.split_heads(
+                      tf.zeros(
+                          [batch_size, attention_init_length, key_channels]),
+                      hparams.num_heads),
+              "v":
+                  common_attention.split_heads(
+                      tf.zeros(
+                          [batch_size, attention_init_length, value_channels]),
+                      hparams.num_heads),
+          }
+      } for layer in range(num_layers)
+  })
+
+  # Add branched layers.
+  for layer in range(num_layers):
+    cache["layer_%d" % layer][_CONV_BRANCHES_NAME] = tf.zeros(
+        [batch_size, attention_init_length, hparams.hidden_size])
+
+  # Add encoder embedding attentions.
+  if encoder_output is not None:
+    cache = _add_attend_to_encoder_cache(
+        cache=cache,
+        attention_name=_FIRST_ATTEND_TO_ENCODER_NAME,
+        hparams=hparams,
+        num_layers=num_layers,
+        key_channels=key_channels,
+        value_channels=value_channels,
+        vars_3d_num_heads=vars_3d_num_heads,
+        scope_prefix=scope_prefix,
+        encoder_output=encoder_output)
+    cache = _add_attend_to_encoder_cache(
+        cache=cache,
+        attention_name=_SECOND_ATTEND_TO_ENCODER_NAME,
+        hparams=hparams,
+        num_layers=num_layers,
+        key_channels=key_channels,
+        value_channels=value_channels,
+        vars_3d_num_heads=vars_3d_num_heads,
+        scope_prefix=scope_prefix,
+        encoder_output=encoder_output)
+
+    cache["encoder_output"] = encoder_output
+    cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
+
+  return cache
 
 
 # TODO(davidso): Update optimizer, learning rate, and decay to match paper.

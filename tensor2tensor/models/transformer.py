@@ -188,6 +188,7 @@ class Transformer(t2t_model.T2TModel):
     self.recurrent_memory_by_layer = None  # Override to enable recurrent memory
     self._encoder_function = transformer_encoder
     self._decoder_function = transformer_decoder
+    self._init_cache_fn = _init_transformer_cache
 
   def encode(self, inputs, target_space, hparams, features=None, losses=None):
     """Encode transformer inputs, see transformer_encode."""
@@ -594,6 +595,7 @@ class Transformer(t2t_model.T2TModel):
         hparams=hparams,
         decode_length=decode_length,
         vocab_size=target_vocab_size,
+        init_cache_fn=self._init_cache_fn,
         beam_size=beam_size,
         top_beams=top_beams,
         alpha=alpha,
@@ -813,6 +815,7 @@ class Transformer(t2t_model.T2TModel):
         hparams=hparams,
         decode_length=decode_length,
         vocab_size=target_vocab_size,
+        init_cache_fn=self._init_cache_fn,
         beam_size=beam_size,
         top_beams=top_beams,
         alpha=alpha,
@@ -826,12 +829,76 @@ class Transformer(t2t_model.T2TModel):
     return ret
 
 
+def _init_transformer_cache(cache, hparams, batch_size, attention_init_length,
+                            encoder_output, encoder_decoder_attention_bias,
+                            scope_prefix):
+  """Create the initial cache for Transformer fast decoding."""
+  key_channels = hparams.attention_key_channels or hparams.hidden_size
+  value_channels = hparams.attention_value_channels or hparams.hidden_size
+  num_layers = hparams.num_decoder_layers or hparams.num_hidden_layers
+  vars_3d_num_heads = (
+      hparams.num_heads if hparams.get("attention_variables_3d") else 0)
+
+  if cache is None:
+    cache = {}
+  cache.update({
+      "layer_%d" % layer: {  # pylint: disable=g-complex-comprehension
+          "k":
+              common_attention.split_heads(
+                  tf.zeros([batch_size,
+                            attention_init_length,
+                            key_channels]), hparams.num_heads),
+          "v":
+              common_attention.split_heads(
+                  tf.zeros([batch_size,
+                            attention_init_length,
+                            value_channels]), hparams.num_heads),
+      } for layer in range(num_layers)
+  })
+
+  # If `ffn_layer` is in `["dense_relu_dense" or "conv_hidden_relu"]`, then the
+  # cache key "f" won't be used, which means that the` shape of cache["f"]`
+  # won't be changed to
+  # `[beamsize*batch_size, decode_length, hparams.hidden_size]` and may cause
+  # error when applying `nest.map reshape function` on it.
+  if hparams.ffn_layer not in ["dense_relu_dense", "conv_hidden_relu"]:
+    for layer in range(num_layers):
+      cache["layer_%d" % layer]["f"] = tf.zeros(
+          [batch_size, 0, hparams.hidden_size])
+
+  if encoder_output is not None:
+    for layer in range(num_layers):
+      layer_name = "layer_%d" % layer
+      with tf.variable_scope(
+          "%sdecoder/%s/encdec_attention/multihead_attention" %
+          (scope_prefix, layer_name)):
+        k_encdec = common_attention.compute_attention_component(
+            encoder_output,
+            key_channels,
+            name="k",
+            vars_3d_num_heads=vars_3d_num_heads)
+        k_encdec = common_attention.split_heads(k_encdec, hparams.num_heads)
+        v_encdec = common_attention.compute_attention_component(
+            encoder_output,
+            value_channels,
+            name="v",
+            vars_3d_num_heads=vars_3d_num_heads)
+        v_encdec = common_attention.split_heads(v_encdec, hparams.num_heads)
+      cache[layer_name]["k_encdec"] = k_encdec
+      cache[layer_name]["v_encdec"] = v_encdec
+
+    cache["encoder_output"] = encoder_output
+    cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
+  return cache
+
+
 def fast_decode_tpu(encoder_output,
                     encoder_decoder_attention_bias,
                     symbols_to_logits_fn,
                     hparams,
                     decode_length,
                     vocab_size,
+                    init_cache_fn=_init_transformer_cache,
                     beam_size=1,
                     top_beams=1,
                     alpha=1.0,
@@ -855,6 +922,7 @@ def fast_decode_tpu(encoder_output,
     hparams: Run hyperparameters.
     decode_length: An integer, how many additional timesteps to decode.
     vocab_size: Output vocabulary size.
+    init_cache_fn: Function that returns the initial cache dict.
     beam_size: An integer, number of beams.
     top_beams: An integer, how many of the beams to return.
     alpha: A float that controls the length penalty. Larger the alpha, stronger
@@ -883,57 +951,9 @@ def fast_decode_tpu(encoder_output,
   if encoder_output is not None:
     batch_size = common_layers.shape_list(encoder_output)[0]
 
-  key_channels = hparams.attention_key_channels or hparams.hidden_size
-  value_channels = hparams.attention_value_channels or hparams.hidden_size
-  num_layers = hparams.num_decoder_layers or hparams.num_hidden_layers
-  vars_3d_num_heads = (
-      hparams.num_heads if hparams.get("attention_variables_3d") else 0)
-
-  cache = {
-      "layer_%d" % layer: {  # pylint: disable=g-complex-comprehension
-          "k":
-          common_attention.split_heads(
-              tf.zeros([batch_size, decode_length, key_channels]),
-              hparams.num_heads),
-          "v":
-          common_attention.split_heads(
-              tf.zeros([batch_size, decode_length, value_channels]),
-              hparams.num_heads),
-      } for layer in range(num_layers)
-  }
-
-  # If `ffn_layer` is in `["dense_relu_dense" or "conv_hidden_relu"]`, then the
-  # cache key "f" won't be used, which means that the` shape of cache["f"]`
-  # won't be changed to
-  # `[beamsize*batch_size, decode_length, hparams.hidden_size]` and may cause
-  # error when applying `nest.map reshape function` on it.
-  if hparams.ffn_layer not in ["dense_relu_dense", "conv_hidden_relu"]:
-    for layer in range(num_layers):
-      cache["layer_%d" % layer]["f"] = tf.zeros(
-          [batch_size, 0, hparams.hidden_size])
-
-  if encoder_output is not None:
-    for layer in range(num_layers):
-      layer_name = "layer_%d" % layer
-      with tf.variable_scope("%sdecoder/%s/encdec_attention/multihead_attention"
-                             % (scope_prefix, layer_name)):
-        k_encdec = common_attention.compute_attention_component(
-            encoder_output,
-            key_channels,
-            name="k",
-            vars_3d_num_heads=vars_3d_num_heads)
-        k_encdec = common_attention.split_heads(k_encdec, hparams.num_heads)
-        v_encdec = common_attention.compute_attention_component(
-            encoder_output,
-            value_channels,
-            name="v",
-            vars_3d_num_heads=vars_3d_num_heads)
-        v_encdec = common_attention.split_heads(v_encdec, hparams.num_heads)
-      cache[layer_name]["k_encdec"] = k_encdec
-      cache[layer_name]["v_encdec"] = v_encdec
-
-    cache["encoder_output"] = encoder_output
-    cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
+  cache = init_cache_fn(None, hparams, batch_size, decode_length,
+                        encoder_output, encoder_decoder_attention_bias,
+                        scope_prefix)
 
   mlperf_log.transformer_print(
       key=mlperf_log.MODEL_HP_SEQ_BEAM_SEARCH,
@@ -1031,6 +1051,7 @@ def fast_decode(encoder_output,
                 hparams,
                 decode_length,
                 vocab_size,
+                init_cache_fn=_init_transformer_cache,
                 beam_size=1,
                 top_beams=1,
                 alpha=1.0,
@@ -1054,6 +1075,7 @@ def fast_decode(encoder_output,
     hparams: run hyperparameters
     decode_length: an integer.  How many additional timesteps to decode.
     vocab_size: Output vocabulary size.
+    init_cache_fn: Function that returns the initial cache dict.
     beam_size: number of beams.
     top_beams: an integer. How many of the beams to return.
     alpha: Float that controls the length penalty. larger the alpha, stronger
@@ -1081,57 +1103,14 @@ def fast_decode(encoder_output,
   if encoder_output is not None:
     batch_size = common_layers.shape_list(encoder_output)[0]
 
-  key_channels = hparams.attention_key_channels or hparams.hidden_size
-  value_channels = hparams.attention_value_channels or hparams.hidden_size
-  num_layers = hparams.num_decoder_layers or hparams.num_hidden_layers
-  vars_3d_num_heads = (
-      hparams.num_heads if hparams.get("attention_variables_3d") else 0)
-
-  if cache is None:
-    cache = {}
-  cache.update({
-      "layer_%d" % layer: {  # pylint: disable=g-complex-comprehension
-          "k":
-              common_attention.split_heads(
-                  tf.zeros([batch_size, 0, key_channels]), hparams.num_heads),
-          "v":
-              common_attention.split_heads(
-                  tf.zeros([batch_size, 0, value_channels]), hparams.num_heads),
-      } for layer in range(num_layers)
-  })
-
-  # If `ffn_layer` is in `["dense_relu_dense" or "conv_hidden_relu"]`, then the
-  # cache key "f" won't be used, which means that the` shape of cache["f"]`
-  # won't be changed to
-  # `[beamsize*batch_size, decode_length, hparams.hidden_size]` and may cause
-  # error when applying `nest.map reshape function` on it.
-  if hparams.ffn_layer not in ["dense_relu_dense", "conv_hidden_relu"]:
-    for layer in range(num_layers):
-      cache["layer_%d" % layer]["f"] = tf.zeros(
-          [batch_size, 0, hparams.hidden_size])
-
-  if encoder_output is not None:
-    for layer in range(num_layers):
-      layer_name = "layer_%d" % layer
-      with tf.variable_scope("%sdecoder/%s/encdec_attention/multihead_attention"
-                             % (scope_prefix, layer_name)):
-        k_encdec = common_attention.compute_attention_component(
-            encoder_output,
-            key_channels,
-            name="k",
-            vars_3d_num_heads=vars_3d_num_heads)
-        k_encdec = common_attention.split_heads(k_encdec, hparams.num_heads)
-        v_encdec = common_attention.compute_attention_component(
-            encoder_output,
-            value_channels,
-            name="v",
-            vars_3d_num_heads=vars_3d_num_heads)
-        v_encdec = common_attention.split_heads(v_encdec, hparams.num_heads)
-      cache[layer_name]["k_encdec"] = k_encdec
-      cache[layer_name]["v_encdec"] = v_encdec
-
-    cache["encoder_output"] = encoder_output
-    cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
+  cache = init_cache_fn(
+      cache=cache,
+      hparams=hparams,
+      batch_size=batch_size,
+      attention_init_length=0,
+      encoder_output=encoder_output,
+      encoder_decoder_attention_bias=encoder_decoder_attention_bias,
+      scope_prefix=scope_prefix)
 
   if beam_size > 1:  # Beam Search
     initial_ids = sos_id * tf.ones([batch_size], dtype=tf.int32)
