@@ -31,13 +31,6 @@ import tensorflow as tf
 
 
 
-@gin.configurable()
-def backend(name="jax"):
-  if name == "numpy":
-    return _NUMPY_BACKEND
-  return _JAX_BACKEND
-
-
 _JAX_BACKEND = {
     "np": jnp,
     "logsumexp": jax_special.logsumexp,
@@ -101,7 +94,15 @@ class RandomBackend(object):
 
 random = RandomBackend()
 
+
+
+
+@gin.configurable()
+def backend(name="jax"):
+  if name == "numpy":
+    return _NUMPY_BACKEND
+  return _JAX_BACKEND
+
+
 # TODO(lukaszkaiser): make this lazy as random above so gin-config works.
 numpy = backend()["np"]
-
-
