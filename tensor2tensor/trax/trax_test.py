@@ -47,6 +47,7 @@ def test_inputs(num_classes):
 
   return inputs_lib.Inputs(
       train_stream=input_stream,
+      train_eval_stream=input_stream,
       eval_stream=input_stream,
       input_shape=input_shape)
 

@@ -12,6 +12,7 @@ batch_fun.eval_batch_size = 128
 # ==============================================================================
 inputs.data_dir = None
 inputs.dataset_name = 't2t_languagemodel_lm1b32k'
+inputs.input_name = 'targets'
 
 # Parameters for mask:
 # ==============================================================================
@@ -36,10 +37,6 @@ train.inputs = @trax.inputs.inputs
 train.model = @trax.models.TransformerLM
 train.run_debug_step = False
 train.train_steps = 500000
-
-# Parameters for train_and_eval_batches:
-# ==============================================================================
-train_and_eval_batches.input_name = 'targets'
 
 # Parameters for TransformerLM:
 # ==============================================================================

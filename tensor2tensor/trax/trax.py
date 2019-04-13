@@ -147,7 +147,7 @@ def evaluate_train_and_eval(step, inputs, predict_fun, eval_steps, rng,
           _METRICS,
           rng)
       for input_stream in
-      [inputs.train_stream, inputs.eval_stream]]
+      [inputs.train_eval_stream, inputs.eval_stream]]
   if train_sw:
     log_metrics(train_metrics, train_sw, "train", step, history=history)
   if eval_sw:
@@ -244,6 +244,32 @@ def epochs(steps=None, epoch_steps=1):
       break
 
 
+def _jit_predict_fun(model_predict, num_devices, jit_eval):
+  """Use jit on model_predict if required."""
+  def predict(params, batch, rng=None):
+    """Predict function jited and parallelized as requested."""
+    # If not jit'ing, just run the function.
+    if not jit_eval:
+      return model_predict(params, batch, rng=rng)
+
+    # On one device, jit and run.
+    if num_devices == 1:
+      return backend.jit(model_predict)(params, batch, rng=rng)
+
+    # Multi-devices, pmap and run.
+    @functools.partial(backend.pmap, axis_name="batch")
+    def mapped_predict(params, batch, rng):
+      return model_predict(params, batch, rng=rng)
+    pred = mapped_predict(
+        jax.replicate(params),
+        reshape_by_device(batch, num_devices),
+        jax.replicate(rng))
+    batch_size = batch.shape[0]
+    return np.reshape(pred, [batch_size] + list(pred.shape[2:]))
+
+  return predict
+
+
 def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun, num_devices):
   """Get jit-ed update function for loss, optimizer, learning rate function."""
   if num_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
@@ -272,20 +298,30 @@ def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun, num_devices):
   return update
 
 
-def reshape_by_device(train_data, num_devices):
-  """Reshape the train_data into a shape [num_devices, ...]."""
-  x, y = train_data
-  x_shape, y_shape = list(x.shape), list(y.shape)
-  assert x_shape[0] == y_shape[0]  # Same batch size.
+def reshape_by_device(x, num_devices):
+  """Reshape x into a shape [num_devices, ...]."""
+  x_shape = list(x.shape)
   batch_size = x_shape[0]
   batch_size_per_device = batch_size // num_devices
   # We require that num_devices divides batch_size evenly.
-  assert batch_size_per_device * num_devices == batch_size
-  # New shapes.
+  if batch_size_per_device * num_devices != batch_size:
+    logging.fatal(
+        "We require that num_devices[%d] divides batch_size[%d] evenly.",
+        num_devices, batch_size)
+  # New shape.
   new_shape_prefix = [num_devices, batch_size_per_device]
-  x = np.reshape(x, new_shape_prefix + x_shape[1:])
-  y = np.reshape(y, new_shape_prefix + y_shape[1:])
-  return x, y
+  return np.reshape(x, new_shape_prefix + x_shape[1:])
+
+
+def reshape_by_device_pair(train_data, num_devices):
+  """Reshape by device for a pair."""
+  x, y = train_data
+  x_shape, y_shape = list(x.shape), list(y.shape)
+  if x_shape[0] != y_shape[0]:  # Same batch size.
+    logging.fatal(
+        "Batch size is not the same for train_data pair: [%d] vs [%d]",
+        x_shape[0], y_shape[0])
+  return reshape_by_device(x, num_devices), reshape_by_device(y, num_devices)
 
 
 @gin.configurable(blacklist=["output_dir"])
@@ -355,9 +391,7 @@ def train(output_dir,
     opt_state = jax.replicate(opt_state)
 
   # jit model_predict and update so they're fast
-  jit_model_predict = model_predict
-  if jit_eval:
-    jit_model_predict = backend.jit(model_predict)  # for evaluation
+  jit_model_predict = _jit_predict_fun(model_predict, num_devices, jit_eval)
   jit_update_fun = _jit_update_fun(model_predict, loss_fun, optimizer, lr_fun,
                                    num_devices)
 
@@ -386,7 +420,7 @@ def train(output_dir,
       # Train
       next_train_batch = next(train_stream)
       if num_devices > 1:  # TODO(lukaszkaiser): use everywhere when possible.
-        next_train_batch = reshape_by_device(next_train_batch, num_devices)
+        next_train_batch = reshape_by_device_pair(next_train_batch, num_devices)
       rng, subrng = jax_random.split(rng)
       opt_state = jit_update_fun(step, opt_state, next_train_batch, subrng)
       step += 1

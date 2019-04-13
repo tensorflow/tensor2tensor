@@ -30,8 +30,22 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
+# Inputs is the trax tuple defining the input streams and shapes.
+# * train_stream: training data that will be used for training
+#     may include all the augmentation or selection the training wants
+#     the shape of examples is [batch_fun.batch_size, ...]
+# * train_eval_stream: training data used for evaluation
+#     examples from training data but usually without augmentation
+#     the shape of examples is [batch_fun.eval_batch_size, ...]
+# * eval_stream: evaluation data stream
+#     examples from evaluation data, usually without augmentation
+#     the shape of examples is [batch_fun.eval_batch_size, ...]
+# * input_shape: the shape of inputs
+#     the [...] above, without batch size
+
 Inputs = collections.namedtuple(
-    "_Inputs", ["train_stream", "eval_stream", "input_shape"])
+    "_Inputs",
+    ["train_stream", "train_eval_stream", "eval_stream", "input_shape"])
 
 # How many examples from the stream to skip at random during training.
 # For now, we skip at most 100K examples for efficiency.
@@ -40,13 +54,14 @@ _MAX_SKIP_EXAMPLES = 1e5
 
 
 @gin.configurable()
-def inputs(dataset_name, data_dir=None):
+def inputs(dataset_name, data_dir=None, input_name=None):
   """Make Inputs for built-in datasets.
 
   Args:
     dataset_name: a TFDS or T2T dataset name. If it's a T2T dataset name, prefix
       with "t2t_".
     data_dir: data directory.
+    input_name: optional, name of the inputs from the dictionary.
 
   Returns:
     trax.inputs.Inputs
@@ -54,17 +69,21 @@ def inputs(dataset_name, data_dir=None):
   assert data_dir, "Must provide a data directory"
   data_dir = os.path.expanduser(data_dir)
 
-  (train_batches, eval_batches,
-   input_name, input_shape) = train_and_eval_batches(
-       dataset_name, data_dir)
+  (train_batches, train_eval_batches, eval_batches,
+   input_name, input_shape) = _train_and_eval_batches(
+       dataset_name, data_dir, input_name)
 
   def train_input_fun():
     return dataset_to_stream(train_batches, input_name)
+
+  def train_eval_input_fun():
+    return dataset_to_stream(train_eval_batches, input_name)
 
   def eval_input_fun():
     return dataset_to_stream(eval_batches, input_name)
 
   return Inputs(train_stream=train_input_fun,
+                train_eval_stream=train_eval_input_fun,
                 eval_stream=eval_input_fun,
                 input_shape=input_shape)
 
@@ -99,15 +118,10 @@ def random_inputs(
       out = out.astype(output_dtype)
       yield inp, out
 
-  def train_input_fun():
-    return random_minibatches()
-
-  def eval_input_fun():
-    return random_minibatches()
-
   input_shape_without_batch = list(input_shape)[1:]
-  return Inputs(train_stream=train_input_fun,
-                eval_stream=eval_input_fun,
+  return Inputs(train_stream=random_minibatches,
+                train_eval_stream=random_minibatches,
+                eval_stream=random_minibatches,
                 input_shape=input_shape_without_batch)
 
 
@@ -281,11 +295,12 @@ def lm1b_preprocess(dataset, training, max_target_length=-1):
   return dataset
 
 
-@gin.configurable(whitelist=["preprocess_fun"])
+@gin.configurable(whitelist=["preprocess_fun", "shuffle_buffer_size"])
 def shuffle_and_batch_data(dataset,
                            target_names,
                            features_info,
                            training,
+                           shuffle_buffer_size=1024,
                            preprocess_fun=no_preprocess):
   """Shuffle and batch the given dataset."""
   def append_targets(example):
@@ -306,21 +321,23 @@ def shuffle_and_batch_data(dataset,
   dataset = preprocess_fun(dataset, training)
   shapes = {k: features_info[k].shape for k in features_info}
   shapes = (shapes, shapes[target_names[0]])
-  dataset = dataset.shuffle(1024)
+  dataset = dataset.shuffle(shuffle_buffer_size)
   dataset = batch_fun(dataset, training, shapes, target_names)
   return dataset.prefetch(2)
 
 
-@gin.configurable(whitelist=["input_name"])
-def train_and_eval_batches(dataset, data_dir, input_name=None):
+def _train_and_eval_batches(dataset, data_dir, input_name):
   """Return train and eval batches with input name and shape."""
   (train_data, eval_data, features_info, keys) = train_and_eval_dataset(
       dataset, data_dir)
   input_names, target_names = keys[0], keys[1]
   train_batches = shuffle_and_batch_data(
       train_data, target_names, features_info, training=True)
+  train_eval_batches = shuffle_and_batch_data(  # Data for eval-on-train.
+      train_data, target_names, features_info, training=False)
   eval_batches = shuffle_and_batch_data(
       eval_data, target_names, features_info, training=False)
   input_name = input_name or input_names[0]
   input_shape = features_info[input_name].shape
-  return train_batches, eval_batches, input_name, list(input_shape)
+  return (train_batches, train_eval_batches, eval_batches,
+          input_name, list(input_shape))
