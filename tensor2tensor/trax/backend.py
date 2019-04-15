@@ -95,6 +95,16 @@ class RandomBackend(object):
 random = RandomBackend()
 
 
+# A class that just forwards attribute accesses to backend's numpy object.
+class NumpyBackend(object):
+
+  def __getattr__(self, attr):
+    return getattr(backend()["np"], attr)
+
+
+numpy = NumpyBackend()
+
+
 
 
 @gin.configurable()
@@ -103,6 +113,3 @@ def backend(name="jax"):
     return _NUMPY_BACKEND
   return _JAX_BACKEND
 
-
-# TODO(lukaszkaiser): make this lazy as random above so gin-config works.
-numpy = backend()["np"]
