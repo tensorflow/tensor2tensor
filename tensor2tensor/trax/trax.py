@@ -32,7 +32,7 @@ from absl import logging
 import gin
 
 import jax
-from jax import lax_parallel as lax_parallel
+from jax import lax
 import numpy
 import six
 
@@ -288,7 +288,7 @@ def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun, num_devices):
     params = trax_opt.get_params(opt_state)
     grads = backend.grad(loss_fun)(params, batch, predict_fun, rng)
     grads = jax.tree_util.tree_map(
-        lambda g: lax_parallel.psum(g, "batch"), grads)
+        lambda g: lax.psum(g, "batch"), grads)
     return opt_update(i, grads, opt_state)
 
   def update(i, opt_state, batch, rng):
