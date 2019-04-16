@@ -637,9 +637,9 @@ def create_experiment(
     additional_train_hooks=None,
     additional_eval_hooks=None,
     warm_start_from=None,
-    decode_from_file=None,
-    decode_to_file=None,
-    decode_reference=None,
+    decode_from_file="",
+    decode_to_file="",
+    decode_reference="",
     std_server_protocol=None):
   """Create Experiment."""
   # HParams
@@ -654,8 +654,10 @@ def create_experiment(
   hparams.add_hparam("eval_timeout_mins", eval_timeout_mins)
   if decode_hparams is not None:
     decode_hparams.add_hparam("decode_from_file", decode_from_file)
-    decode_hparams.add_hparam("decode_to_file", decode_to_file)
-    decode_hparams.add_hparam("decode_reference", decode_reference)
+    if decode_to_file and not decode_hparams.decode_to_file:
+      decode_hparams.decode_to_file = decode_to_file
+    if decode_reference and not decode_hparams.decode_reference:
+      decode_hparams.decode_reference = decode_reference
   add_problem_hparams(hparams, problem_name)
 
   # Estimator

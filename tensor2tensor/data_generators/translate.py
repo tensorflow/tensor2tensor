@@ -91,8 +91,7 @@ def compute_bleu_summaries(hook_args):
   """
   decode_hparams = hook_args.decode_hparams
 
-  if (decode_hparams.decode_reference is None or
-      decode_hparams.decode_to_file is None):
+  if not (decode_hparams.decode_reference and decode_hparams.decode_to_file):
     return None
 
   values = []

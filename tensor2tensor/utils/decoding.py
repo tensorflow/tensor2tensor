@@ -65,7 +65,8 @@ def decode_hparams(overrides=""):
       identity_output=False,
       num_samples=-1,  # Number of examples to decode.
       delimiter="\n",
-      decode_to_file=None,  # str. Prefix for filename to write decodings to.
+      decode_to_file="",  # str. Prefix for filename to write decodings to.
+      decode_reference="",  # str. Filename to read references from.
       decode_in_memory=False,
       # How much decode should wait for the next checkpoint
       decode_timeout_mins=240,
