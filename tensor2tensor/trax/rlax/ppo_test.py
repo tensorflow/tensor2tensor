@@ -19,23 +19,410 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import jax
+from jax import random as jax_random
 import numpy as np
+from tensor2tensor.trax import trax
+from tensor2tensor.trax.rlax import fake_env
 from tensor2tensor.trax.rlax import ppo
+from tensor2tensor.trax.stax import stax_base as stax
 from tensorflow import test
 
 
 class PpoTest(test.TestCase):
 
+  def setUp(self):
+    self.rng_key = trax.get_random_number_generator_and_set_seed(0)
+
+  def test_policy_net(self):
+    observation_shape = (3, 4)
+    num_actions = 2
+    policy_params, policy_apply = ppo.policy_net(
+        self.rng_key,
+        (-1, -1) + observation_shape,
+        num_actions,
+        # flatten except batch and time
+        # step dimensions.
+        [stax.Flatten(2)])
+
+    # Generate a batch of observations.
+    batch = 2
+    time_steps = 10
+    batch_of_observations = np.random.uniform(
+        size=(batch, time_steps) + observation_shape)
+
+    # Apply the policy net on observations
+    policy_output = policy_apply(policy_params, batch_of_observations)
+
+    # Verify certain expectations on the output.
+    self.assertEqual((batch, time_steps, num_actions), policy_output.shape)
+
+    # Also last axis normalizes to 1, since these are probabilities.
+    sum_actions = np.sum(policy_output, axis=-1)
+    self.assertAllClose(np.ones_like(sum_actions), sum_actions)
+
+  def test_value_net(self):
+    observation_shape = (3, 4, 5)
+    num_actions = 2
+    value_params, value_apply = ppo.value_net(self.rng_key,
+                                              (-1, -1) + observation_shape,
+                                              num_actions, [stax.Flatten(2)])
+    batch = 2
+    time_steps = 10
+    batch_of_observations = np.random.uniform(
+        size=(batch, time_steps) + observation_shape)
+    value_output = value_apply(value_params, batch_of_observations)
+
+    # NOTE: The extra dimension at the end because of Dense(1).
+    self.assertEqual((batch, time_steps, 1), value_output.shape)
+
+  def test_collect_trajectories(self):
+    observation_shape = (2, 3, 4)
+    num_actions = 2
+    policy_params, policy_apply = ppo.policy_net(
+        self.rng_key,
+        (-1, -1) + observation_shape,
+        num_actions,
+        # flatten except batch and time
+        # step dimensions.
+        [stax.Flatten(2)])
+
+    # We'll get done at time-step #10, starting from 0, therefore in 11 steps.
+    done_time_step = 5
+    env = fake_env.FakeEnv(
+        observation_shape, num_actions, done_time_step=done_time_step)
+
+    num_trajectories = 5
+    trajectories = ppo.collect_trajectories(
+        env,
+        policy_apply,
+        policy_params,
+        num_trajectories,
+        policy="categorical-sampling")
+
+    # Number of trajectories is as expected.
+    self.assertEqual(num_trajectories, len(trajectories))
+
+    # Shapes of observations, actions and rewards are as expected.
+    for observations, actions, rewards in trajectories:
+      # observations are one more in number than rewards or actions.
+      self.assertEqual((done_time_step + 2,) + observation_shape,
+                       observations.shape)
+      self.assertEqual((done_time_step + 1,), actions.shape)
+      self.assertEqual((done_time_step + 1,), rewards.shape)
+
+  def test_pad_trajectories(self):
+    observation_shape = (2, 3, 4)
+    trajectories = []
+    num_trajectories = 7
+    num_actions = 10
+
+    # Time-steps are between [min_allowable_time_step, max_allowable_time_step]
+    max_allowable_time_step = 19
+    min_allowable_time_step = 5
+
+    # The actual max we see in the data.
+    max_time_step = -1
+
+    # Bucket length.
+    bucket_length = 15
+
+    # Make `num_trajectories` random trajectories.
+    for i in range(num_trajectories):
+      time_steps = np.random.randint(min_allowable_time_step,
+                                     max_allowable_time_step + 1)
+      if time_steps > max_time_step:
+        max_time_step = time_steps
+      observations = np.random.randint(
+          0, 255, size=(time_steps + 1,) + observation_shape).astype(np.uint8)
+      rewards = np.random.uniform(size=(time_steps,)).astype(np.float32)
+      actions = np.random.randint(
+          0, num_actions, size=(time_steps,)).astype(np.int32)
+      trajectories.append((observations, rewards, actions))
+
+    # Now pad these trajectories.
+    padded_trajectories = ppo.pad_trajectories(
+        trajectories, boundary=bucket_length)
+
+    # Expected padding.
+    i = 1
+    while i * bucket_length < max_time_step:
+      i += 1
+    expected_padding = i * bucket_length
+
+    # Get the padded objects.
+    (pad_lengths, reward_mask, padded_observations, padded_actions,
+     padded_rewards) = padded_trajectories
+
+    # Expectations on the padded shapes.
+    self.assertEqual(padded_observations.shape, (
+        num_trajectories,
+        expected_padding + 1,
+    ) + observation_shape)
+    self.assertEqual(padded_actions.shape, (num_trajectories, expected_padding))
+    self.assertEqual(padded_rewards.shape, (num_trajectories, expected_padding))
+    self.assertEqual(reward_mask.shape, (num_trajectories, expected_padding))
+
+    # Assert that the padding lengths and reward mask are consistent.
+    self.assertAllEqual(
+        np.full((num_trajectories,), expected_padding),
+        np.array(np.sum(reward_mask, axis=1)) + pad_lengths)
+
   def test_rewards_to_go(self):
-    time_steps = 4
-    # [1., 1., 1., 1.]
-    rewards = np.ones((time_steps,))
-    # No discounting.
-    self.assertAllEqual(ppo.rewards_to_go(rewards, gamma=1.0),
-                        np.array([4., 3., 2., 1.]))
-    # Discounting.
-    self.assertAllEqual(ppo.rewards_to_go(rewards, gamma=0.5),
-                        np.array([1.875, 1.75, 1.5, 1.]))
+    rewards = np.array([
+        [1, 2, 4, 8, 16, 32, 64, 128],
+        [1, 1, 1, 1, 1, 1, 1, 1],
+    ])
+
+    rewards_mask = np.array([
+        [1, 1, 1, 1, 1, 0, 0, 0],
+        [1, 1, 1, 1, 1, 1, 1, 0],
+    ])
+
+    gamma = 0.5
+
+    rewards_to_go = ppo.rewards_to_go(rewards, rewards_mask, gamma)
+
+    self.assertAllEqual(
+        np.array([
+            [5, 8, 12, 16, 16, 0, 0, 0],
+            [1.984375, 1.96875, 1.9375, 1.875, 1.75, 1.5, 1.0, 0],
+        ]), rewards_to_go)
+
+  def test_value_loss(self):
+    rewards = np.array([
+        [1, 2, 4, 8, 16, 32, 64, 128],
+        [1, 1, 1, 1, 1, 1, 1, 1],
+    ])
+
+    rewards_mask = np.array([
+        [1, 1, 1, 1, 1, 0, 0, 0],
+        [1, 1, 1, 1, 1, 1, 1, 0],
+    ])
+
+    gamma = 0.5
+
+    # Random observations and a value function that returns a constant value.
+    # NOTE: Observations have an extra time-step.
+    B, T = rewards.shape  # pylint: disable=invalid-name
+    observation_shape = (210, 160, 3)  # atari pong
+    random_observations = np.random.uniform(size=(B, T + 1) + observation_shape)
+
+    def value_net_apply(params, observations):
+      del params
+      # pylint: disable=invalid-name
+      B, T_p_1, OBS = (observations.shape[0], observations.shape[1],
+                       observations.shape[2:])
+      del OBS
+      return np.ones((B, T_p_1, 1))
+      # pylint: enable=invalid-name
+
+    with jax.disable_jit():
+      value_loss = ppo.value_loss(
+          value_net_apply, [],
+          random_observations,
+          rewards,
+          rewards_mask,
+          gamma=gamma)
+
+    self.assertNear(53.3637084961, value_loss, 1e-6)
+
+  def test_deltas(self):
+    rewards = np.array([
+        [1, 2, 4, 8, 16, 32, 64, 128],
+        [1, 1, 1, 1, 1, 1, 1, 1],
+    ])
+
+    rewards_mask = np.array([
+        [1, 1, 1, 1, 1, 0, 0, 0],
+        [1, 1, 1, 1, 1, 1, 1, 0],
+    ])
+
+    B, T = rewards.shape  # pylint: disable=invalid-name
+
+    # Say, all predicted values are 1.
+    predicted_values = np.ones((B, T + 1))
+
+    gamma = 1.0
+
+    td_residuals = ppo.deltas(predicted_values, rewards, rewards_mask, gamma)
+
+    # With V(s) being the same for all s, td_residuals should be
+    # equal to the rewards + (\gamma - 1)*v(s), masked in the right places.
+    truncated_pv = predicted_values[:, :-1]
+    masked_rewards = rewards * rewards_mask
+    expected_residuals = (masked_rewards +
+                          (gamma - 1) * truncated_pv) * rewards_mask
+    self.assertAllEqual(expected_residuals, td_residuals)
+
+    gamma = 0.5
+    td_residuals = ppo.deltas(predicted_values, rewards, rewards_mask, gamma)
+    expected_residuals = (masked_rewards +
+                          (gamma - 1) * truncated_pv) * rewards_mask
+    self.assertAllEqual(expected_residuals, td_residuals)
+
+  def test_gae_advantages(self):
+    td_deltas = np.array([
+        [1, 2, 4, 8, 16, 32, 64, 128],
+        [1, 1, 1, 1, 1, 1, 1, 1],
+    ])
+
+    rewards_mask = np.array([
+        [1, 1, 1, 1, 1, 0, 0, 0],
+        [1, 1, 1, 1, 1, 1, 1, 0],
+    ])
+
+    gamma = 0.5
+    lambda_ = 1.0
+
+    expected_gae_advantages = np.array([
+        [5, 8, 12, 16, 16, 0, 0, 0],
+        [1.984375, 1.96875, 1.9375, 1.875, 1.75, 1.5, 1.0, 0],
+    ])
+
+    gae_advantages = ppo.gae_advantages(td_deltas * rewards_mask, rewards_mask,
+                                        lambda_, gamma)
+    self.assertAllEqual(expected_gae_advantages, gae_advantages)
+
+    gamma = 1.0
+    lambda_ = 0.5
+
+    gae_advantages = ppo.gae_advantages(td_deltas * rewards_mask, rewards_mask,
+                                        lambda_, gamma)
+    self.assertAllEqual(expected_gae_advantages, gae_advantages)
+
+  def test_chosen_probabs(self):
+    # Shape (2, 2, 3)
+    probab_observations = np.array([[[0.1, 0.2, 0.7], [0.4, 0.1, 0.5]],
+                                    [[0.3, 0.1, 0.6], [0.1, 0.1, 0.8]]])
+
+    # Shape (2, 2)
+    actions = np.array([[1, 2], [0, 1]])
+
+    chosen_probabs = ppo.chosen_probabs(probab_observations, actions)
+
+    self.assertAllEqual(np.array([[0.2, 0.5], [0.3, 0.1]]), chosen_probabs)
+
+  def test_compute_probab_ratios(self):
+    p_old = np.array([[
+        [0.1, 0.2, 0.6, 0.1],
+        [0.4, 0.1, 0.4, 0.1],
+        [0.3, 0.1, 0.5, 0.1],
+        [0.1, 0.2, 0.6, 0.1],
+    ],
+                      [
+                          [0.3, 0.1, 0.5, 0.1],
+                          [0.1, 0.1, 0.4, 0.4],
+                          [0.3, 0.1, 0.5, 0.1],
+                          [0.1, 0.2, 0.6, 0.1],
+                      ]])
+
+    p_new = np.array([[
+        [0.3, 0.1, 0.5, 0.1],
+        [0.4, 0.1, 0.1, 0.3],
+        [0.1, 0.2, 0.1, 0.6],
+        [0.3, 0.1, 0.5, 0.1],
+    ],
+                      [
+                          [0.1, 0.2, 0.1, 0.6],
+                          [0.1, 0.1, 0.2, 0.6],
+                          [0.3, 0.1, 0.3, 0.3],
+                          [0.1, 0.2, 0.1, 0.6],
+                      ]])
+
+    actions = np.array([[1, 2, 0, 1], [0, 3, 3, 0]])
+
+    mask = np.array([[1, 1, 0, 0], [1, 1, 1, 0]])
+
+    probab_ratios = ppo.compute_probab_ratios(p_old, p_new, actions, mask)
+
+    self.assertAllClose(
+        np.array([
+            [0.1 / 0.2, 0.1 / 0.4, 0.0, 0.0],
+            [0.1 / 0.3, 0.6 / 0.4, 0.3 / 0.1, 0.0],
+        ]), probab_ratios)
+
+  def test_clipped_probab_ratios(self):
+    probab_ratios = np.array([
+        [1.5, 1.0, 0.5, 0.7],
+        [2.5, 2.0, 0.1, 1.0],
+    ])
+
+    mask = np.array([[1, 1, 0, 0], [1, 1, 1, 0]])
+
+    clipped_probab_ratios = ppo.clipped_probab_ratios(probab_ratios, mask, 0.1)
+
+    self.assertAllClose(
+        np.array([
+            [1.1, 1.0, 0, 0],
+            [1.1, 1.1, 0.9, 0],
+        ]), clipped_probab_ratios)
+
+  def test_clipped_objective(self):
+    probab_ratios = np.array([
+        [1.5, 2.0, 0.5, 0.7],
+        [2.5, 2.0, 0.1, 1.0],
+    ])
+
+    advantages = np.array([
+        [0.1, 0.1, 0.5, 0.7],
+        [2.0, 2.0, 2.0, 2.0],
+    ])
+
+    mask = np.array([[1, 1, 0, 0], [1, 1, 1, 0]])
+
+    epsilon = 0.1
+
+    unused_clipped_probab_ratios = np.array([
+        [1.1, 1.1, 0.9, 0.9],
+        [1.1, 1.1, 0.9, 1.0],
+    ])
+
+    minimums = np.array([
+        [1.1, 1.1, 0.5, 0.7],
+        [1.1, 1.1, 0.1, 1.0],
+    ])
+
+    # advantages * minimums * mask
+    objective = np.array([
+        [0.11, 0.11, 0.0, 0.0],
+        [2.2, 2.2, 0.2, 0.0],
+    ])
+
+    # Assert that we computed things correctly in this test.
+    self.assertAllClose(advantages * mask * minimums, objective)
+
+    self.assertAllClose(
+        objective,
+        ppo.clipped_objective(probab_ratios, advantages, mask, epsilon))
+
+  def test_ppo_loss(self):
+    self.rng_key, key1, key2, key3 = jax_random.split(self.rng_key, num=4)
+
+    B, T, A, OBS = 2, 10, 2, (28, 28, 3)  # pylint: disable=invalid-name
+    batch_observation_shape = (-1, -1) + OBS
+
+    old_policy_params, _ = ppo.policy_net(key1, batch_observation_shape, A,
+                                          [stax.Flatten(2)])
+
+    new_policy_params, policy_apply = ppo.policy_net(key2,
+                                                     batch_observation_shape, A,
+                                                     [stax.Flatten(2)])
+
+    value_params, value_apply = ppo.value_net(key3, batch_observation_shape, A,
+                                              [stax.Flatten(2)])
+
+    # Generate a batch of observations.
+
+    observations = np.random.uniform(size=(B, T + 1) + OBS)
+    actions = np.random.randint(0, A, size=(B, T))
+    rewards = np.random.uniform(0, 1, size=(B, T))
+    mask = np.ones_like(rewards)
+
+    # Just test that this computes at all.
+    _ = ppo.ppo_loss(policy_apply, new_policy_params, old_policy_params,
+                     value_apply, value_params, observations, actions, rewards,
+                     mask)
 
 
 if __name__ == "__main__":

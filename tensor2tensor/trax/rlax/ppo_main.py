@@ -29,10 +29,12 @@ from tensor2tensor.trax.stax import stax_base as stax
 
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("env", "CartPole-v0", "Name of the environment to make.")
+flags.DEFINE_string("env_name", None, "Name of the environment to make.")
+flags.DEFINE_string("t2t_gym_env", None, "Name of the T2TGymEnv to make.")
 flags.DEFINE_integer("epochs", 100, "Number of epochs to run for.")
 flags.DEFINE_integer("random_seed", 0, "Random seed.")
 flags.DEFINE_integer("log_level", logging.INFO, "Log level.")
+flags.DEFINE_integer("batch_size", 32, "Batch of trajectories needed.")
 
 
 def common_stax_layers():
@@ -43,13 +45,18 @@ def main(argv):
   del argv
   logging.set_verbosity(FLAGS.log_level)
   bottom_layers = common_stax_layers()
+
+  if FLAGS.env_name == "Pong-v0":
+    bottom_layers = [stax.Flatten(2)] + bottom_layers
+
   ppo.training_loop(
-      env_name=FLAGS.env,
+      env_name=FLAGS.env_name,
       epochs=FLAGS.epochs,
       policy_net_fun=functools.partial(
           ppo.policy_net, bottom_layers=bottom_layers),
       value_net_fun=functools.partial(
           ppo.value_net, bottom_layers=bottom_layers),
+      batch_size=FLAGS.batch_size,
       random_seed=FLAGS.random_seed)
 
 
