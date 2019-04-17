@@ -34,10 +34,16 @@ from tensorflow.python.ops import inplace_ops
 # pylint: enable=g-direct-tensorflow-import
 
 _CONV_BRANCHES_NAME = "conv_branches"
+_CONV_BRANCHES_FIRST_LAYER_NAME = _CONV_BRANCHES_NAME + "_first"
+_CONV_BRANCHES_SECOND_LAYER_NAME = _CONV_BRANCHES_NAME + "_second"
 _FIRST_ATTEND_TO_ENCODER_NAME = "first_attend_to_encoder"
 _SECOND_ATTEND_TO_ENCODER_NAME = "second_attend_to_encoder"
 _SIXTEEN_HEAD_ATTENTION_NAME = "16_head_self_attention"
 _VANILLA_ATTENTION_NAME = "self_attention"
+
+_DECODER_LEFT_CONV_PADDING = 10
+_DECODER_RIGHT_CONV_PADDING = 6
+_DECODER_FINAL_CONV_PADDING = 6
 
 
 @registry.register_model
@@ -358,38 +364,54 @@ def evolved_transformer_decoder(decoder_input,
                 tf.expand_dims(nonpadding, 2), [1, 1, hparams.hidden_size])
             hidden_state *= mask
 
-          # TODO(davidso): This needlessly recomputes past positions. Limit
-          # the module inputs to only include positions that are convered by
-          # the new output position's receptive field.
           if layer_cache:
             if decode_loop_step is None:
-              hidden_state = layer_cache[_CONV_BRANCHES_NAME] = tf.concat(
-                  [layer_cache[_CONV_BRANCHES_NAME], hidden_state], axis=1)
+              hidden_state = layer_cache[
+                  _CONV_BRANCHES_FIRST_LAYER_NAME] = tf.concat(
+                      [
+                          layer_cache[_CONV_BRANCHES_FIRST_LAYER_NAME],
+                          hidden_state
+                      ],
+                      axis=1)[:, -1 * _DECODER_LEFT_CONV_PADDING - 1:, :]
               left_state = hidden_state
-              right_state = hidden_state
+              right_state = hidden_state[:, _DECODER_LEFT_CONV_PADDING -
+                                         _DECODER_RIGHT_CONV_PADDING:, :]
 
             else:
               # Inplace update is required for inference on TPU.
               # Inplace_ops only supports inplace_update on the first dimension.
               tmp = tf.transpose(
-                  layer_cache[_CONV_BRANCHES_NAME], perm=[1, 0, 2])
+                  layer_cache[_CONV_BRANCHES_FIRST_LAYER_NAME], perm=[1, 0, 2])
               tmp = tf.expand_dims(tmp, axis=1)
               tmp = inplace_ops.alias_inplace_update(
                   tmp,
                   decode_loop_step * tf.shape(hidden_state)[1],
                   tf.transpose(hidden_state, perm=[1, 0, 2]))
               tmp = tf.squeeze(tmp, axis=1)
-              hidden_state = layer_cache[_CONV_BRANCHES_NAME] = tf.transpose(
-                  tmp, perm=[1, 0, 2])
+              hidden_state = layer_cache[
+                  _CONV_BRANCHES_FIRST_LAYER_NAME] = tf.transpose(
+                      tmp, perm=[1, 0, 2])
 
-              read_to_index = decode_loop_step + 1
-              left_state = hidden_state[:, :read_to_index, :]
-              right_state = hidden_state[:, :read_to_index, :]
-          else:
-            left_state = hidden_state
-            right_state = hidden_state
+              left_state_indexes = [
+                  decode_loop_step + i
+                  for i in range(_DECODER_LEFT_CONV_PADDING + 1)
+              ]
+              left_state = tf.gather(hidden_state, left_state_indexes, axis=1)
+              right_state_indexes = [
+                  decode_loop_step + i +
+                  (_DECODER_LEFT_CONV_PADDING - _DECODER_RIGHT_CONV_PADDING)
+                  for i in range(_DECODER_RIGHT_CONV_PADDING + 1)
+              ]
+              right_state = tf.gather(hidden_state, right_state_indexes, axis=1)
 
-          left_state = tf.pad(left_state, paddings=[[0, 0], [10, 0], [0, 0]])
+          else:  # No caching.
+            left_state = tf.pad(
+                hidden_state,
+                paddings=[[0, 0], [_DECODER_LEFT_CONV_PADDING, 0], [0, 0]])
+            right_state = tf.pad(
+                hidden_state,
+                paddings=[[0, 0], [_DECODER_RIGHT_CONV_PADDING, 0], [0, 0]])
+
           left_output_dim = int(hparams.hidden_size * 2)
           separable_conv_11x1 = tf.layers.SeparableConv1D(
               left_output_dim,
@@ -401,7 +423,6 @@ def evolved_transformer_decoder(decoder_input,
           left_state = tf.nn.dropout(left_state,
                                      1 - hparams.layer_prepostprocess_dropout)
 
-          right_state = tf.pad(right_state, paddings=[[0, 0], [6, 0], [0, 0]])
           right_output_dim = int(hparams.hidden_size / 2)
           separable_conv_7x1_1 = tf.layers.SeparableConv1D(
               right_output_dim, 7, padding="VALID", name="separable_conv_7x1_1")
@@ -422,16 +443,48 @@ def evolved_transformer_decoder(decoder_input,
                 tf.expand_dims(nonpadding, 2), [1, 1, hparams.hidden_size * 2])
             hidden_state *= mask
 
-          hidden_state = tf.pad(hidden_state, paddings=[[0, 0], [6, 0], [0, 0]])
+          if layer_cache:
+            if decode_loop_step is None:
+              hidden_state = layer_cache[
+                  _CONV_BRANCHES_SECOND_LAYER_NAME] = tf.concat(
+                      [
+                          layer_cache[_CONV_BRANCHES_SECOND_LAYER_NAME],
+                          hidden_state
+                      ],
+                      axis=1)[:, -1 * _DECODER_FINAL_CONV_PADDING - 1:, :]
+
+            else:
+              # Inplace update is required for inference on TPU.
+              # Inplace_ops only supports inplace_update on the first dimension.
+              tmp = tf.transpose(
+                  layer_cache[_CONV_BRANCHES_SECOND_LAYER_NAME], perm=[1, 0, 2])
+              tmp = tf.expand_dims(tmp, axis=1)
+              tmp = inplace_ops.alias_inplace_update(
+                  tmp, (decode_loop_step + _DECODER_FINAL_CONV_PADDING) *
+                  tf.shape(hidden_state)[1],
+                  tf.transpose(hidden_state, perm=[1, 0, 2]))
+              tmp = tf.squeeze(tmp, axis=1)
+              hidden_state = layer_cache[
+                  _CONV_BRANCHES_SECOND_LAYER_NAME] = tf.transpose(
+                      tmp, perm=[1, 0, 2])
+
+              hidden_state_indexes = [
+                  decode_loop_step + i
+                  for i in range(_DECODER_FINAL_CONV_PADDING + 1)
+              ]
+              hidden_state = tf.gather(
+                  hidden_state, hidden_state_indexes, axis=1)
+          else:
+            hidden_state = tf.pad(
+                hidden_state,
+                paddings=[[0, 0], [_DECODER_FINAL_CONV_PADDING, 0], [0, 0]])
+
           separable_conv_7x1_2 = tf.layers.SeparableConv1D(
               hparams.hidden_size,
               7,
               padding="VALID",
               name="separable_conv_7x1_2")
           hidden_state = separable_conv_7x1_2.apply(hidden_state)
-
-          if layer_cache:
-            hidden_state = hidden_state[:, -1:, :]
 
           hidden_state = common_layers.layer_postprocess(
               residual_state, hidden_state, hparams)
@@ -591,10 +644,16 @@ def _init_evolved_transformer_cache(cache, hparams, batch_size,
       } for layer in range(num_layers)
   })
 
-  # Add branched layers.
+  # Add branched layers. Pad with additional zeros for causal convolution.
   for layer in range(num_layers):
-    cache["layer_%d" % layer][_CONV_BRANCHES_NAME] = tf.zeros(
-        [batch_size, attention_init_length, hparams.hidden_size])
+    cache["layer_%d" % layer][_CONV_BRANCHES_FIRST_LAYER_NAME] = tf.zeros([
+        batch_size, attention_init_length + _DECODER_LEFT_CONV_PADDING,
+        hparams.hidden_size
+    ])
+    cache["layer_%d" % layer][_CONV_BRANCHES_SECOND_LAYER_NAME] = tf.zeros([
+        batch_size, attention_init_length + _DECODER_FINAL_CONV_PADDING,
+        hparams.hidden_size * 2
+    ])
 
   # Add encoder embedding attentions.
   if encoder_output is not None:
