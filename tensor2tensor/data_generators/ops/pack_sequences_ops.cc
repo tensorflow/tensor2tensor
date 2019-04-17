@@ -15,7 +15,7 @@ using ::tensorflow::Tensor;
 using ::tensorflow::TensorShape;
 using ::tensorflow::shape_inference::InferenceContext;
 
-// TODO(noam): this op packs a dataset of pairs of sequaneces (inputs, targets)
+// TODO(noam): this op packs a dataset of pairs of sequences (inputs, targets)
 // Generalize later to an arbitrary number of sequences.
 REGISTER_OP("PackSequences2")
     .Input("inputs: int64")
