@@ -50,6 +50,7 @@ def next_frame_glow_hparams():
   # This function is used to model the prior over z_{t}. Can be,
   # Pointwise -> point-wise multiplication of z_{t-1}.
   # conv_net -> one-layer convolution over z_{t-1} .. z_{t - num_cond_latents}
+  # conv3d_net or conv_lstm
   hparams.add_hparam("latent_dist_encoder", "conv_net")
   # Number of latents used in the encoder above.
   hparams.add_hparam("num_cond_latents", 1)
