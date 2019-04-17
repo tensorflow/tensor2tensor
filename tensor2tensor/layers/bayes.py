@@ -132,6 +132,100 @@ class Conv2DReparameterization(tf.keras.layers.Conv2D):
 
 
 @add_weight
+class Conv2DVariationalDropout(tf.keras.layers.Conv2D):
+  """2D convolution layer with variational dropout (Kingma et al., 2015).
+
+  Implementation follows the additive parameterization of
+  Molchanov et al. (2017).
+  """
+
+  def __init__(self,
+               filters,
+               kernel_size,
+               strides=(1, 1),
+               padding='valid',
+               data_format=None,
+               dilation_rate=(1, 1),
+               activation=None,
+               use_bias=True,
+               kernel_initializer='trainable_normal',
+               bias_initializer='zeros',
+               kernel_regularizer='log_uniform_kl_divergence',
+               bias_regularizer=None,
+               activity_regularizer=None,
+               kernel_constraint=None,
+               bias_constraint=None,
+               **kwargs):
+    super(Conv2DVariationalDropout, self).__init__(
+        filters=filters,
+        kernel_size=kernel_size,
+        strides=strides,
+        padding=padding,
+        data_format=data_format,
+        dilation_rate=dilation_rate,
+        activation=activation,
+        use_bias=use_bias,
+        kernel_initializer=initializers.get(kernel_initializer),
+        bias_initializer=initializers.get(bias_initializer),
+        kernel_regularizer=regularizers.get(kernel_regularizer),
+        bias_regularizer=regularizers.get(bias_regularizer),
+        activity_regularizer=regularizers.get(activity_regularizer),
+        kernel_constraint=constraints.get(kernel_constraint),
+        bias_constraint=constraints.get(bias_constraint),
+        **kwargs)
+
+  def call_weights(self):
+    """Calls any weights if the initializer is itself a layer."""
+    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
+      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
+    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
+      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
+
+  def call(self, inputs, training=None):
+    self.call_weights()
+    if training is None:
+      training = tf.keras.backend.learning_phase()
+
+    def dropped_inputs():
+      """Forward pass with dropout."""
+      # Clip magnitude of dropout rate, where we get the dropout rate alpha from
+      # the additive parameterization (Molchanov et al., 2017): for weight ~
+      # Normal(mu, sigma**2), the variance `sigma**2 = alpha * mu**2`.
+      mean = self.kernel.distribution.mean()
+      log_variance = tf.log(self.kernel.distribution.variance())
+      log_alpha = log_variance - tf.log(tf.square(mean) +
+                                        tf.keras.backend.epsilon())
+      log_alpha = tf.clip_by_value(log_alpha, -8., 8.)
+      log_variance = log_alpha + tf.log(tf.square(mean) +
+                                        tf.keras.backend.epsilon())
+
+      means = self._convolution_op(inputs, mean)
+      stddevs = tf.sqrt(
+          self._convolution_op(tf.square(inputs), tf.exp(log_variance)) +
+          tf.keras.backend.epsilon())
+      outputs = means + stddevs * tf.random_normal(tf.shape(stddevs))
+      if self.use_bias:
+        outputs = tf.nn.bias_add(outputs, self.bias)
+      if self.activation is not None:
+        outputs = self.activation(outputs)
+      return outputs
+
+    # Following tf.keras.Dropout, only apply variational dropout if training
+    # flag is True. The kernel must also be a random variable.
+    training_value = tf.contrib.util.constant_value(training)
+    if training_value is not None:
+      if training_value and isinstance(self.kernel, ed.RandomVariable):
+        return dropped_inputs()
+      else:
+        return super(Conv2DVariationalDropout, self).call(inputs)
+    else:
+      return tf.cond(tf.logical_and(training,
+                                    isinstance(self.kernel, ed.RandomVariable)),
+                     dropped_inputs,
+                     lambda: super(Conv2DVariationalDropout, self).call(inputs))
+
+
+@add_weight
 class DenseReparameterization(tf.keras.layers.Dense):
   """Bayesian densely-connected layer estimated via reparameterization.
 
@@ -182,6 +276,92 @@ class DenseReparameterization(tf.keras.layers.Dense):
   def call(self, *args, **kwargs):
     self.call_weights()
     return super(DenseReparameterization, self).call(*args, **kwargs)
+
+
+@add_weight
+class DenseVariationalDropout(tf.keras.layers.Dense):
+  """Densely-connected layer with variational dropout (Kingma et al., 2015).
+
+  Implementation follows the additive parameterization of
+  Molchanov et al. (2017).
+  """
+
+  def __init__(self,
+               units,
+               activation=None,
+               use_bias=True,
+               kernel_initializer='trainable_normal',
+               bias_initializer='zero',
+               kernel_regularizer='log_uniform_kl_divergence',
+               bias_regularizer=None,
+               activity_regularizer=None,
+               **kwargs):
+    super(DenseVariationalDropout, self).__init__(
+        units=units,
+        activation=activation,
+        use_bias=use_bias,
+        kernel_initializer=initializers.get(kernel_initializer),
+        bias_initializer=initializers.get(bias_initializer),
+        kernel_regularizer=regularizers.get(kernel_regularizer),
+        bias_regularizer=regularizers.get(bias_regularizer),
+        activity_regularizer=regularizers.get(activity_regularizer),
+        **kwargs)
+
+  def call_weights(self):
+    """Calls any weights if the initializer is itself a layer."""
+    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
+      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
+    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
+      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
+
+  def call(self, inputs, training=None):
+    self.call_weights()
+    if training is None:
+      training = tf.keras.backend.learning_phase()
+
+    def dropped_inputs():
+      """Forward pass with dropout."""
+      # Clip magnitude of dropout rate, where we get the dropout rate alpha from
+      # the additive parameterization (Molchanov et al., 2017): for weight ~
+      # Normal(mu, sigma**2), the variance `sigma**2 = alpha * mu**2`.
+      mean = self.kernel.distribution.mean()
+      log_variance = tf.log(self.kernel.distribution.variance())
+      log_alpha = log_variance - tf.log(tf.square(mean) +
+                                        tf.keras.backend.epsilon())
+      log_alpha = tf.clip_by_value(log_alpha, -8., 8.)
+      log_variance = log_alpha + tf.log(tf.square(mean) +
+                                        tf.keras.backend.epsilon())
+
+      if inputs.shape.ndims <= 2:
+        means = tf.matmul(inputs, mean)
+        stddevs = tf.sqrt(
+            tf.matmul(tf.square(inputs), tf.exp(log_variance)) +
+            tf.keras.backend.epsilon())
+      else:
+        means = tf.tensordot(inputs, mean, [[-1], [0]])
+        stddevs = tf.sqrt(
+            tf.tensordot(tf.square(inputs), tf.exp(log_variance), [[-1], [0]]) +
+            tf.keras.backend.epsilon())
+      outputs = means + stddevs * tf.random_normal(tf.shape(stddevs))
+      if self.use_bias:
+        outputs = tf.nn.bias_add(outputs, self.bias)
+      if self.activation is not None:
+        outputs = self.activation(outputs)
+      return outputs
+
+    # Following tf.keras.Dropout, only apply variational dropout if training
+    # flag is True. The kernel must also be a random variable.
+    training_value = tf.contrib.util.constant_value(training)
+    if training_value is not None:
+      if training_value and isinstance(self.kernel, ed.RandomVariable):
+        return dropped_inputs()
+      else:
+        return super(DenseVariationalDropout, self).call(inputs)
+    else:
+      return tf.cond(tf.logical_and(training,
+                                    isinstance(self.kernel, ed.RandomVariable)),
+                     dropped_inputs,
+                     lambda: super(DenseVariationalDropout, self).call(inputs))
 
 
 @add_weight

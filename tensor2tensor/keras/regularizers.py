@@ -25,11 +25,41 @@ import tensorflow as tf
 from tensorflow_probability import edward2 as ed
 
 
+class LogUniformKLDivergence(tf.keras.regularizers.Regularizer):
+  """KL divergence regularizer from an input to the log-uniform distribution."""
+
+  def __call__(self, x):
+    """Computes regularization given an ed.Normal random variable as input."""
+    if not isinstance(x, ed.RandomVariable):
+      raise ValueError('Input must be an ed.RandomVariable (for correct math, '
+                       'an ed.Normal random variable).')
+    # Clip magnitude of dropout rate, where we get the dropout rate alpha from
+    # the additive parameterization (Molchanov et al., 2017): for weight ~
+    # Normal(mu, sigma**2), the variance `sigma**2 = alpha * mu**2`.
+    mean = x.distribution.mean()
+    log_variance = tf.log(x.distribution.variance())
+    log_alpha = log_variance - tf.log(tf.square(mean) +
+                                      tf.keras.backend.epsilon())
+    log_alpha = tf.clip_by_value(log_alpha, -8., 8.)
+
+    # Set magic numbers for cubic polynomial approx. (Molchanov et al., 2017).
+    k1 = 0.63576
+    k2 = 1.8732
+    k3 = 1.48695
+    c = -k1
+    output = tf.reduce_sum(k1 * tf.nn.sigmoid(k2 + k3 * log_alpha) +
+                           -0.5 * tf.log1p(tf.exp(-log_alpha)) + c)
+    return output
+
+  def get_config(self):
+    return {}
+
+
 class NormalKLDivergence(tf.keras.regularizers.Regularizer):
-  """KL divergence regularizer from one normal distribution to another."""
+  """KL divergence regularizer from an input to the normal distribution."""
 
   def __init__(self, mean=0., stddev=1.):
-    """Construct regularizer where default is a KL towards the std normal."""
+    """Constructs regularizer where default is a KL towards the std normal."""
     self.mean = mean
     self.stddev = stddev
 
@@ -54,8 +84,10 @@ class NormalKLDivergence(tf.keras.regularizers.Regularizer):
 
 # Compatibility aliases, following tf.keras
 
-
-normal_kl_divergence = NormalKLDivergence  # pylint: disable=invalid-name
+# pylint: disable=invalid-name
+log_uniform_kl_divergence = LogUniformKLDivergence
+normal_kl_divergence = NormalKLDivergence
+# pylint: enable=invalid-name
 
 # Utility functions, following tf.keras
 
