@@ -100,7 +100,15 @@ def evolved_transformer_encoder(encoder_input,
       attention_bias = encoder_self_attention_bias
       if attn_bias_for_padding is not None:
         attention_bias = attn_bias_for_padding
-      padding = common_attention.attention_bias_to_padding(attention_bias)
+      # Only bfloat16 and float32 supported.
+      float_type = hparams.get("activation_dtype", "float32")
+      if float_type == "bfloat16":
+        cast_fn = tf.to_bfloat16
+      else:
+        assert float_type == "float32"
+        cast_fn = tf.to_float
+      padding = common_attention.attention_bias_to_padding(
+          attention_bias, cast_fn)
       nonpadding = 1.0 - padding
 
     for layer in range(hparams.num_encoder_layers or hparams.num_hidden_layers):

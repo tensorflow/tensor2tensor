@@ -947,20 +947,21 @@ def attention_bias_ignore_padding(memory_padding):
 
 
 @expert_utils.add_name_scope()
-def attention_bias_to_padding(attention_bias):
+def attention_bias_to_padding(attention_bias, cast_fn=tf.to_float):
   """Inverse of attention_bias_ignore_padding().
 
   Args:
     attention_bias: a `Tensor` with shape [batch, 1, 1, memory_length], as
       returned by attention_bias_ignore_padding().
+    cast_fn: function used to cast to output type.
 
   Returns:
     a Tensor with shape [batch, memory_length] with 1.0 in padding positions
-    and 0.0 in non-padding positions.
+    and 0.0 in non-padding positions. Type is determined by cast_fn.
   """
   # `attention_bias` is a large negative number in padding positions and 0.0
   # elsewhere.
-  return tf.squeeze(tf.to_float(tf.less(attention_bias, -1)), axis=[1, 2])
+  return tf.squeeze(cast_fn(tf.less(attention_bias, -1)), axis=[1, 2])
 
 
 @expert_utils.add_name_scope()
