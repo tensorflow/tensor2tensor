@@ -60,16 +60,18 @@ def IdentityBlock(kernel_size, filters):
       stax.FanInSum, stax.Relu)
 
 
-def Resnet50(hidden_size=64, num_output_classes=1001):
+def Resnet50(hidden_size=64, num_output_classes=1001, mode='train'):
   """ResNet.
 
   Args:
     hidden_size: the size of the first hidden layer (multiplied later).
     num_output_classes: how many classes to distinguish.
+    mode: whether we are training or evaluating or doing inference.
 
   Returns:
     The ResNet model with the given layer and output sizes.
   """
+  del mode
   return stax.serial(
       stax.Conv(hidden_size, (7, 7), (2, 2), 'SAME'),
       stax.BatchNorm(), stax.Relu,

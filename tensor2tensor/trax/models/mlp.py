@@ -25,7 +25,9 @@ import tensor2tensor.trax.stax as stax
 def MLP(num_hidden_layers=2,
         hidden_size=512,
         activation_fn=stax.Relu,
-        num_output_classes=10):
+        num_output_classes=10,
+        mode="train"):
+  del mode
   layers = [stax.Flatten()]
   layers += [stax.Dense(hidden_size), activation_fn] * num_hidden_layers
   layers += [stax.Dense(num_output_classes), stax.LogSoftmax]

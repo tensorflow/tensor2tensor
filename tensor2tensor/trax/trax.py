@@ -244,14 +244,10 @@ def epochs(steps=None, epoch_steps=1):
       break
 
 
-def _jit_predict_fun(model_predict, num_devices, jit_eval):
+def _jit_predict_fun(model_predict, num_devices):
   """Use jit on model_predict if required."""
   def predict(params, batch, rng=None):
     """Predict function jited and parallelized as requested."""
-    # If not jit'ing, just run the function.
-    if not jit_eval:
-      return model_predict(params, batch, rng=rng)
-
     # On one device, jit and run.
     if num_devices == 1:
       return backend.jit(model_predict)(params, batch, rng=rng)
@@ -261,7 +257,7 @@ def _jit_predict_fun(model_predict, num_devices, jit_eval):
     def mapped_predict(params, batch, rng):
       return model_predict(params, batch, rng=rng)
     pred = mapped_predict(
-        jax.replicate(params),
+        params,
         reshape_by_device(batch, num_devices),
         jax.replicate(rng))
     batch_size = batch.shape[0]
@@ -336,7 +332,6 @@ def train(output_dir,
           eval_frequency=100,
           num_devices=None,
           random_seed=None,
-          jit_eval=True,
           run_debug_step=False):
   """Train the model on the inputs.
 
@@ -357,7 +352,6 @@ def train(output_dir,
       steps). If None or 0, eval disabled.
     num_devices: how many devices to use (if None, default, use all available)
     random_seed: the random seed to use; time/os dependent if None (default).
-    jit_eval: whether to compile the evaulation function (true by default).
     run_debug_step: bool, if True, will run the model and loss without @jit for
       one step.
 
@@ -371,14 +365,15 @@ def train(output_dir,
   train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
   eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
 
-  inputs = inputs()
+  inputs = inputs(num_devices)
 
   # Setup optimizer and model
   state = restore_state(output_dir)
   history = state.history
   lr_fun = lr_schedule(history)
   opt_init, _ = optimizer(lr_fun)
-  model_init, model_predict = model()
+  model_init, model_predict_train = model(mode="train")
+  _, model_predict_eval = model(mode="eval")
 
   # Setup state
   step = state.step or 0
@@ -391,14 +386,14 @@ def train(output_dir,
     opt_state = jax.replicate(opt_state)
 
   # jit model_predict and update so they're fast
-  jit_model_predict = _jit_predict_fun(model_predict, num_devices, jit_eval)
-  jit_update_fun = _jit_update_fun(model_predict, loss_fun, optimizer, lr_fun,
-                                   num_devices)
+  jit_model_predict_eval = _jit_predict_fun(model_predict_eval, num_devices)
+  jit_update_fun = _jit_update_fun(
+      model_predict_train, loss_fun, optimizer, lr_fun, num_devices)
 
   print()
   train_stream = inputs.train_stream()
   epoch_steps = [train_steps]  # Only training if eval_frequency is 0 or None.
-  if eval_frequency:
+  if eval_frequency and eval_steps > 0:
     epoch_steps = itertools.chain([1,  # first epoch only 1 step
                                    eval_frequency - 1],
                                   itertools.repeat(eval_frequency))
@@ -406,7 +401,7 @@ def train(output_dir,
 
   # Non-compiled debug step helps find problems in models easier.
   if run_debug_step:
-    debug_loss = loss_fun(params, next(train_stream), model_predict, rng)
+    debug_loss = loss_fun(params, next(train_stream), model_predict_train, rng)
     step_log(step, "Debug step loss %.8f" % debug_loss)
 
   for epoch, epoch_steps in epochs(train_steps, epoch_steps):
@@ -439,14 +434,11 @@ def train(output_dir,
                       epoch_steps / epoch_time, step=step)
 
     # Evaluate
-    if num_devices > 1:   # TODO(lukaszkaiser): remove branch when possible.
-      params = trax_opt.get_params(jax.unreplicate(opt_state))
-    else:
-      params = trax_opt.get_params(opt_state)
+    params = trax_opt.get_params(opt_state)
     evaluate_train_and_eval(
         step=step,
         inputs=inputs,
-        predict_fun=functools.partial(jit_model_predict, params),
+        predict_fun=functools.partial(jit_model_predict_eval, params),
         eval_steps=eval_steps,
         rng=rng,
         train_sw=train_sw,
@@ -465,8 +457,8 @@ def train(output_dir,
     old_lr_fun = lr_fun
     lr_fun = lr_schedule(history)
     if lr_fun != old_lr_fun:  # For performance, only jit if there is a change.
-      jit_update_fun = _jit_update_fun(model_predict, loss_fun, optimizer,
-                                       lr_fun, num_devices)
+      jit_update_fun = _jit_update_fun(
+          model_predict_train, loss_fun, optimizer, lr_fun, num_devices)
 
     # Flush summary writers
     train_sw.flush()

@@ -99,7 +99,7 @@ def TransformerLM(vocab_size,  # pylint: disable=invalid-name
                   feedforward_depth=2048,
                   num_heads=8,
                   dropout=0.1,
-                  max_len=512):
+                  max_len=2048):
   """Transformer language model (only uses the decoder part of Transformer).
 
   Args:

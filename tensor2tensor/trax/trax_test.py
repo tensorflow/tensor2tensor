@@ -69,7 +69,7 @@ class TraxTest(test.TestCase):
       model = functools.partial(models.MLP,
                                 hidden_size=16,
                                 num_output_classes=num_classes)
-      inputs = lambda: test_inputs(num_classes)
+      inputs = lambda _: test_inputs(num_classes)
 
       # Train and evaluate
       state = trax.train(output_dir,
@@ -89,7 +89,7 @@ class TraxTest(test.TestCase):
 
       # Predict with final params
       _, predict_fun = model()
-      inputs = inputs().train_stream()
+      inputs = inputs(1).train_stream()
       predict_fun(state.params, next(inputs)[0])
 
 
