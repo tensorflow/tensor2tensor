@@ -135,13 +135,13 @@ def collect_trajectories(env,
     observation = env.reset()
     observations.append(observation)
     while not done:
-      # Add a batch dimension and time dimension.
+      # Add a batch dimension and time dimension, so shape is (1, 1) + OBS
       observation = observation[np.newaxis, np.newaxis, :]
 
-      # Run the policy, pick an action.
+      # Run the policy, to pick an action, shape is (1, 1, A)
       predictions = policy_net_apply(policy_net_params, observation)
 
-      # Squeeze the added dimension.
+      # Squeeze the added dimension, shape is (A,)
       predictions = np.squeeze(predictions)
 
       # Policy can be run in one of the following ways:
@@ -160,8 +160,7 @@ def collect_trajectories(env,
           # Return the best action.
           action = np.argmax(predictions)
       elif policy == "categorical-sampling":
-        # import pdb; pdb.set_trace()
-        action = int(onp.argwhere(onp.random.multinomial(1, predictions) == 1))
+        action = onp.argwhere(onp.random.multinomial(1, predictions) == 1)
       else:
         raise ValueError("Unknown policy: %s" % policy)
 
@@ -203,7 +202,7 @@ def get_padding_value(dtype):
 
 
 # TODO(afrozm): Use np.pad instead and make jittable?
-def pad_trajectories(trajectories, boundary=10):
+def pad_trajectories(trajectories, boundary=20):
   """Pad trajectories to a bucket length that is a multiple of boundary.
 
   Args:
@@ -582,6 +581,7 @@ def training_loop(
     batch_size=BATCH_TRAJECTORIES,
     num_optimizer_steps=NUM_OPTIMIZER_STEPS,
     print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
+    boundary=20,
     random_seed=None):
   """Runs the training loop for PPO, with fixed policy and value nets."""
   jax_rng_key = trax.get_random_number_generator_and_set_seed(random_seed)
@@ -631,19 +631,21 @@ def training_loop(
 
     avg_reward = float(sum(np.sum(traj[2]) for traj in trajs)) / len(trajs)
     max_reward = max(np.sum(traj[2]) for traj in trajs)
+    min_reward = min(np.sum(traj[2]) for traj in trajs)
     average_rewards.append(avg_reward)
 
-    logging.vlog(1, "Rewards average=[%0.2f], max=[%0.2f]", avg_reward,
-                 max_reward)
+    logging.vlog(1, "Rewards average=[%0.2f], max=[%0.2f], min=[%0.2f]",
+                 avg_reward, max_reward, min_reward)
     logging.vlog(1, "Collecting trajectories took %0.2f msec.", get_time(t))
-    logging.vlog(1, "Trajectory Length average=[%0.2f], max=[%0.2f]",
+    logging.vlog(1,
+                 "Trajectory Length average=[%0.2f], max=[%0.2f], min=[%0.2f]",
                  float(sum(len(traj[0]) for traj in trajs)) / len(trajs),
-                 max(len(traj[0]) for traj in trajs))
+                 max(len(traj[0]) for traj in trajs),
+                 min(len(traj[0]) for traj in trajs))
 
     t = time.time()
     (_, reward_mask, padded_observations, padded_actions,
-     padded_rewards) = pad_trajectories(
-         trajs, boundary=20)
+     padded_rewards) = pad_trajectories(trajs, boundary=boundary)
 
     logging.vlog(1, "Padding trajectories took %0.2f msec.", get_time(t))
     logging.vlog(1, "Padded Observations' shape [%s]",

@@ -24,8 +24,8 @@ import functools
 from absl import app
 from absl import flags
 from absl import logging
+from tensor2tensor.trax import stax
 from tensor2tensor.trax.rlax import ppo
-from tensor2tensor.trax.stax import stax_base as stax
 
 FLAGS = flags.FLAGS
 
@@ -35,6 +35,8 @@ flags.DEFINE_integer("epochs", 100, "Number of epochs to run for.")
 flags.DEFINE_integer("random_seed", 0, "Random seed.")
 flags.DEFINE_integer("log_level", logging.INFO, "Log level.")
 flags.DEFINE_integer("batch_size", 32, "Batch of trajectories needed.")
+flags.DEFINE_integer("boundary", 20,
+                     "We pad trajectories at integer multiples of this number.")
 
 
 def common_stax_layers():
@@ -47,7 +49,7 @@ def main(argv):
   bottom_layers = common_stax_layers()
 
   if FLAGS.env_name == "Pong-v0":
-    bottom_layers = [stax.Flatten(2)] + bottom_layers
+    bottom_layers = [stax.Div(255.0), stax.Flatten(2)] + bottom_layers
 
   ppo.training_loop(
       env_name=FLAGS.env_name,
@@ -57,6 +59,7 @@ def main(argv):
       value_net_fun=functools.partial(
           ppo.value_net, bottom_layers=bottom_layers),
       batch_size=FLAGS.batch_size,
+      boundary=FLAGS.boundary,
       random_seed=FLAGS.random_seed)
 
 

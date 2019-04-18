@@ -117,6 +117,19 @@ class SlaxTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       check_staxlayer(self, stax.Flatten(6), input_shape)
 
+  def test_div(self):
+    init_fun, apply_fun = stax.Div(2)
+    input_np = onp.array([[1, 2, 3], [4, 5, 6]], dtype=onp.float32)
+    input_shape = input_np.shape
+    _, _ = init_fun(None, input_shape)
+    output_np = apply_fun(None, input_np)
+    # absltest doesn't have ndarray equalities.
+    expected_output_np = input_np / 2.0
+    self.assertAlmostEqual(
+        0.0,
+        onp.sum((output_np - expected_output_np) ** 2),
+        delta=1e-6)
+
   # Lambdas replace the staxlayer input stream with a placeholder that
   # _should_ break any use of unbound variables in the input stream.
   def testLambda_forbidden_access(self):

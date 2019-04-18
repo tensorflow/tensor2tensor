@@ -281,6 +281,14 @@ def Dropout(rate, mode='train'):
   return init_fun, apply_fun
 
 
+def Div(divisor):
+  def init_fun(_, input_shape):
+    return input_shape, ()
+  def apply_fun(params, inputs, **kwargs):
+    return inputs / divisor
+  return init_fun, apply_fun
+
+
 # Composing layers via combinators
 
 
