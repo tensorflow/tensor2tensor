@@ -127,22 +127,24 @@ def collect_trajectories(env,
   trajectories = []
 
   for _ in range(num_trajectories):
-    observations = []
     rewards = []
     actions = []
     done = False
 
     observation = env.reset()
-    observations.append(observation)
+
+    # This is currently shaped (1, 1) + OBS, but new observations will keep
+    # getting added to it, making it eventually (1, T+1) + OBS
+    observation_history = observation[np.newaxis, np.newaxis, :]
+
     while not done:
-      # Add a batch dimension and time dimension, so shape is (1, 1) + OBS
-      observation = observation[np.newaxis, np.newaxis, :]
+      # Run the policy, to pick an action, shape is (1, t, A) because
+      # observation_history is shaped (1, t) + OBS
+      predictions = policy_net_apply(policy_net_params, observation_history)
 
-      # Run the policy, to pick an action, shape is (1, 1, A)
-      predictions = policy_net_apply(policy_net_params, observation)
-
-      # Squeeze the added dimension, shape is (A,)
-      predictions = np.squeeze(predictions)
+      # We need the predictions for the last time-step, so squeeze the batch
+      # dimension and take the last time-step.
+      predictions = np.squeeze(predictions, axis=0)[-1]
 
       # Policy can be run in one of the following ways:
       #  - Greedy
@@ -169,14 +171,20 @@ def collect_trajectories(env,
 
       observation, reward, done, _ = env.step(action)
 
-      observations.append(observation)
+      # observation is of shape OBS, so add extra dims and concatenate on the
+      # time dimension.
+      observation_history = np.concatenate(
+          [observation_history, observation[np.newaxis, np.newaxis, :]], axis=1)
+
       rewards.append(reward)
       actions.append(action)
 
     # This means we are done
     assert done
+    # observation_history is (1, T+1) + OBS, lets squeeze out the batch dim.
+    observation_history = np.squeeze(observation_history, axis=0)
     trajectories.append(
-        (np.stack(observations), np.stack(actions), np.stack(rewards)))
+        (observation_history, np.stack(actions), np.stack(rewards)))
 
   return trajectories
 
@@ -480,7 +488,7 @@ def ppo_loss(policy_net_apply,
 
   # (B, T)
   td_deltas = deltas(
-      np.squeeze(predicted_values, axis=2),
+      np.squeeze(predicted_values, axis=2),  # (B, T)
       padded_rewards,
       reward_mask,
       gamma=gamma)
