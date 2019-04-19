@@ -137,6 +137,21 @@ def optimizer_fun(net_params, step_size=1e-3):
   return opt_state, opt_update
 
 
+def log_params(params, name="params"):
+  """Dumps the params with `logging.error`."""
+  for i, param in enumerate(params):
+    if not param:
+      # Empty tuple.
+      continue
+    if not isinstance(param, tuple):
+      logging.error(
+          "%s[%d] : (%s) = [%s]", name, i, param.shape, onp.array(param))
+    else:
+      for j, p in enumerate(param):
+        logging.error(
+            "\t%s[%d, %d] : (%s) = [%s]", name, i, j, p.shape, onp.array(p))
+
+
 # Should this be collect 'n' trajectories, or
 # Run the env for 'n' steps and take completed trajectories, or
 # Any other option?
@@ -202,17 +217,7 @@ def collect_trajectories(env,
         logging.error("predictions: [%s]", predictions)
         logging.error("observation_history: [%s]", observation_history)
         logging.error("policy_net_params: [%s]", policy_net_params)
-        for i, param in enumerate(policy_net_params):
-          if not param:
-            # Empty tuple.
-            continue
-          if not isinstance(param, tuple):
-            logging.error(
-                "Param[%d] : (%s) = [%s]", i, param.shape, onp.array(param))
-          else:
-            for j, p in enumerate(param):
-              logging.error(
-                  "\tParam[%d, %d] : (%s) = [%s]", i, j, p.shape, onp.array(p))
+        log_params(policy_net_params, "policy_net_params")
         raise err
 
       observation, reward, done, _ = env.step(action)
