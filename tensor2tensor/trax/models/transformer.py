@@ -18,13 +18,25 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
-from jax import random
-import jax.numpy as np
 import tensor2tensor.trax.stax as stax
 
 
-def TransformerEncoder(mode='train',  # pylint: disable=invalid-name
+def ResidualFeedForward(feature_depth,
+                        feedforward_depth,
+                        dropout,
+                        mode):
+  """Residual feed-forward layer with normalization at start."""
+  return stax.residual(
+      stax.LayerNorm(),
+      stax.Dense(feedforward_depth, W_init=stax.xavier_uniform()),
+      stax.Relu,
+      stax.Dropout(dropout, mode=mode),
+      stax.Dense(feature_depth, W_init=stax.xavier_uniform()),
+      stax.Dropout(dropout, mode=mode)
+  )
+
+
+def TransformerEncoder(mode='train',
                        num_layers=6,
                        feature_depth=512,
                        feedforward_depth=2048,
@@ -45,20 +57,12 @@ def TransformerEncoder(mode='train',  # pylint: disable=invalid-name
     A staxlayer for implementing a raw Transformer encoder stack.  No embedding
     or positional signals are added by this layer.
   """
-  keep_rate = 1.0 - dropout
   # Multi-headed Attention and Feed-forward layers
   multi_attention = stax.MultiHeadedAttention(
-      feature_depth, num_heads=num_heads, dropout=keep_rate, mode=mode)
-
-  feed_forward = stax.serial(
-      stax.Dense(feedforward_depth, W_init=stax.xavier_uniform()),
-      stax.Relu,
-      stax.Dropout(keep_rate, mode=mode),
-      stax.Dense(feature_depth, W_init=stax.xavier_uniform())
-  )
+      feature_depth, num_heads=num_heads, dropout=dropout, mode=mode)
 
   @stax.Lambda
-  def encoder(embedded_source, source_mask):
+  def Encoder(embedded_source, source_mask):
     """Transformer encoder stack.
 
     Args:
@@ -77,11 +81,10 @@ def TransformerEncoder(mode='train',  # pylint: disable=invalid-name
                                     stax.Identity,  # value
                                     source_mask),  # attention mask
                       multi_attention,
-                      stax.Dropout(keep_rate, mode=mode)),
+                      stax.Dropout(dropout, mode=mode)),
         # feed-forward
-        stax.residual(stax.LayerNorm(),
-                      feed_forward,
-                      stax.Dropout(keep_rate, mode=mode))
+        ResidualFeedForward(
+            feature_depth, feedforward_depth, dropout, mode=mode)
     )
     return stax.serial(
         embedded_source,
@@ -89,74 +92,84 @@ def TransformerEncoder(mode='train',  # pylint: disable=invalid-name
         stax.LayerNorm(),
     )
 
-  return encoder
+  return Encoder
 
 
-def TransformerLM(vocab_size,  # pylint: disable=invalid-name
-                  mode='train',
-                  num_layers=6,
-                  feature_depth=512,
-                  feedforward_depth=2048,
-                  num_heads=8,
-                  dropout=0.1,
-                  max_len=2048):
-  """Transformer language model (only uses the decoder part of Transformer).
+def DecoderLayer(feature_depth,
+                 feedforward_depth,
+                 num_heads,
+                 dropout,
+                 mode):
+  """Transformer decoder layer.
 
   Args:
-    vocab_size: int: vocab size
-    mode: str: 'train' or 'eval'
-    num_layers: int: number of encoder/decoder layers
     feature_depth: int:  depth of embedding
     feedforward_depth: int: depth of feed-forward layer
     num_heads: int: number of attention heads
     dropout: float: dropout rate (how much to drop out)
-    max_len: int: maximum symbol length for positional encoding
+    mode: str: 'train' or 'eval'
 
   Returns:
     init and apply.
   """
-  keep_rate = 1.0 - dropout
-  # Multi-headed Attention and Feed-forward layers
-  multi_attention = stax.MultiHeadedAttention(
-      feature_depth, num_heads=num_heads, dropout=keep_rate, mode=mode)
-
-  feed_forward = stax.serial(
-      stax.Dense(feedforward_depth, W_init=stax.xavier_uniform()),
-      stax.Relu,
-      stax.Dropout(keep_rate, mode=mode),
-      stax.Dense(feature_depth, W_init=stax.xavier_uniform())
+  return stax.serial(
+      stax.residual(  # Self-attention block.
+          stax.LayerNorm(),
+          stax.FanOut(4),
+          stax.parallel(stax.Identity,  # query
+                        stax.Identity,  # key
+                        stax.Identity,  # value
+                        stax.CausalMask(axis=-2)),  # attention mask
+          stax.MultiHeadedAttention(feature_depth, num_heads=num_heads,
+                                    dropout=dropout, mode=mode),
+          stax.Dropout(dropout, mode=mode)
+      ),
+      ResidualFeedForward(feature_depth, feedforward_depth, dropout, mode=mode)
   )
 
-  # Single decoder layer
-  decoder_layer = stax.serial(
-      # target attends to self
-      stax.residual(stax.LayerNorm(),
-                    stax.FanOut(4),
-                    stax.parallel(stax.Identity,  # query
-                                  stax.Identity,  # key
-                                  stax.Identity,  # value
-                                  stax.CausalMask(axis=-2)),  # attention mask
-                    multi_attention,
-                    stax.Dropout(keep_rate, mode=mode)),
-      # feed-forward
-      stax.residual(stax.LayerNorm(),
-                    feed_forward,
-                    stax.Dropout(keep_rate, mode=mode))
-  )
 
+def TransformerLM(vocab_size,
+                  feature_depth=512,
+                  feedforward_depth=2048,
+                  num_layers=6,
+                  num_heads=8,
+                  dropout=0.1,
+                  max_len=2048,
+                  mode='train'):
+  """Transformer language model (only uses the decoder part of Transformer).
+
+  Args:
+    vocab_size: int: vocab size
+    feature_depth: int:  depth of embedding
+    feedforward_depth: int: depth of feed-forward layer
+    num_layers: int: number of encoder/decoder layers
+    num_heads: int: number of attention heads
+    dropout: float: dropout rate (how much to drop out)
+    max_len: int: maximum symbol length for positional encoding
+    mode: str: 'train' or 'eval'
+
+  Returns:
+    init and apply.
+  """
   return stax.serial(
       stax.ShiftRight(),
       stax.Embedding(feature_depth, vocab_size),
-      stax.Dropout(keep_rate, mode=mode),
+      stax.Dropout(dropout, mode=mode),
       stax.PositionalEncoding(feature_depth, max_len=max_len),
-      stax.repeat(decoder_layer, num_layers),
+      stax.repeat(
+          DecoderLayer(
+              feature_depth, feedforward_depth, num_heads, dropout, mode),
+          num_layers),
       stax.LayerNorm(),
       stax.Dense(vocab_size, W_init=stax.xavier_uniform()),
       stax.LogSoftmax
   )
 
 
-def Transformer(source_vocab_size,  # pylint: disable=invalid-name
+# TODO(lukaszkaiser): rewrite the model below.
+
+
+def Transformer(source_vocab_size,
                 target_vocab_size,
                 mode='train',
                 num_layers=6,
@@ -187,10 +200,9 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
   the 'evals' functions that itself returns a namedtuple containing evaluation
   functions for the trained encoder, decoder, and generator substax.
   """
-  keep_rate = 1.0 - dropout
   # Input embedding and positional encoding
   inject_position = stax.serial(
-      stax.Dropout(keep_rate, mode=mode),
+      stax.Dropout(dropout, mode=mode),
       stax.PositionalEncoding(feature_depth, max_len=max_len)
   )
   if shared_embedding:
@@ -207,18 +219,11 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
 
   # Multi-headed Attention and Feed-forward layers
   multi_attention = stax.MultiHeadedAttention(
-      feature_depth, num_heads=num_heads, dropout=keep_rate, mode=mode)
-
-  feed_forward = stax.serial(
-      stax.Dense(feedforward_depth, W_init=stax.xavier_uniform()),
-      stax.Relu,
-      stax.Dropout(keep_rate, mode=mode),
-      stax.Dense(feature_depth, W_init=stax.xavier_uniform())
-  )
+      feature_depth, num_heads=num_heads, dropout=dropout, mode=mode)
 
   # Encoder
   @stax.Lambda
-  def encoder(source, source_mask):
+  def Encoder(source, source_mask):
     """Transformer encoder stack.
 
     Args:
@@ -237,11 +242,10 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
                                     stax.Identity,  # value
                                     source_mask),  # attention mask
                       multi_attention,
-                      stax.Dropout(keep_rate, mode=mode)),
+                      stax.Dropout(dropout, mode=mode)),
         # feed-forward
-        stax.residual(stax.LayerNorm(),
-                      feed_forward,
-                      stax.Dropout(keep_rate, mode=mode))
+        ResidualFeedForward(
+            feature_depth, feedforward_depth, dropout, mode=mode),
     )
     return stax.serial(
         source,
@@ -252,7 +256,7 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
 
   # Decoder
   @stax.Lambda
-  def decoder(memory, target, target_mask, memory_mask):
+  def Decoder(memory, target, target_mask, memory_mask):
     """Transformer decoder stack.
 
     Args:
@@ -273,7 +277,7 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
                                     stax.Identity,  # value
                                     target_mask),  # attention mask
                       multi_attention,
-                      stax.Dropout(keep_rate, mode=mode)),
+                      stax.Dropout(dropout, mode=mode)),
         # target attends to encoded source
         stax.residual(stax.LayerNorm(),
                       stax.FanOut(4),
@@ -282,11 +286,10 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
                                     memory,  # value
                                     memory_mask),  # attention mask
                       multi_attention,
-                      stax.Dropout(keep_rate, mode=mode)),
+                      stax.Dropout(dropout, mode=mode)),
         # feed-forward
-        stax.residual(stax.LayerNorm(),
-                      feed_forward,
-                      stax.Dropout(keep_rate, mode=mode))
+        ResidualFeedForward(
+            feature_depth, feedforward_depth, dropout, mode=mode)
     )
     return stax.serial(
         target,
@@ -297,13 +300,13 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
 
   # The Transformer
   @stax.Lambda
-  def transformer(source, target, source_mask, target_mask, memory_mask):
-    encoded_source = encoder(source, source_mask)
-    return decoder(encoded_source, target, target_mask, memory_mask)
+  def transformer(source, target, source_mask, target_mask, memory_mask):  # pylint: disable=invalid-name
+    encoded_source = Encoder(source, source_mask)
+    return Decoder(encoded_source, target, target_mask, memory_mask)
 
   # Finally, bind the generator transform to use later for inference.
   @stax.Lambda
-  def generator(encoded_target):
+  def Generator(encoded_target):
     return stax.serial(
         encoded_target,
         stax.Dense(target_vocab_size, W_init=stax.xavier_uniform()),
@@ -312,34 +315,10 @@ def Transformer(source_vocab_size,  # pylint: disable=invalid-name
 
   # Model-Building and Evaluation Functions
   # Get entire model's init and apply pair
-  top_init, top_apply = generator(transformer)
+  top_init, top_apply = Generator(transformer)
 
   # By default act as a normal Stax constructor and emit an (init, apply) pair.
   if not return_evals:
     return (top_init, top_apply)
   else:
-    # Inference-time function for binding trained params to model and returning
-    # the python-bound sub-expressions for evaluation and sequence generation.
-    def make_namedtuple(**kwargs):
-      return collections.namedtuple('Model', kwargs.keys())(**kwargs)
-
-    def get_evals(params):
-      # We need to feed _concrete_ trained parameters through the network once.
-      # Otherwise the bound parameters point to abstract tracer values.
-      # The inputs don't matter.
-      fake_inputs = 5 * (np.ones((1), dtype=np.int32),)
-      fake_key = random.PRNGKey(1)
-      top_apply(params, fake_inputs, rng=fake_key)
-      # We can now return eval functions from the bound pieces of the model.
-      return make_namedtuple(
-          encoder=stax.make_apply_fun(encoder),
-          generator=stax.make_apply_fun(generator),
-          decoder=stax.make_apply_fun(decoder),
-      )
-
-    # We return the functions needed to train and evaluate the Transformer.
-    return make_namedtuple(
-        init=top_init,
-        apply=top_apply,
-        evals=get_evals,
-    )
+    raise ValueError('inference in this model is still a work in progress')

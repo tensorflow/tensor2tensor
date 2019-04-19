@@ -273,9 +273,11 @@ def Dropout(rate, mode='train'):
              'it like `apply_fun(params, inputs, key)` where `key` is a '
              'jax.random.PRNGKey value.')
       raise ValueError(msg)
-    if mode == 'train':
-      keep = backend.random.bernoulli(rng, rate, inputs.shape)
-      return np.where(keep, inputs / rate, 0)
+    if rate >= 1.0:
+      raise ValueError('Dropout rates must be lower than 1.')
+    if mode == 'train' and rate > 0.0:
+      keep = backend.random.bernoulli(rng, 1.0 - rate, inputs.shape)
+      return np.where(keep, inputs / (1.0 - rate), 0)
     else:
       return inputs
   return init_fun, apply_fun

@@ -144,7 +144,7 @@ def dot_product_attention(query, key, value, mask, dropout, mode, rng):
     key: array of representations
     value: array of representations
     mask: attention-mask, gates attention
-    dropout: float: dropout rate - keep probability
+    dropout: float: dropout rate
     mode: 'eval' or 'train': whether to use dropout
     rng: JAX PRNGKey: subkey for disposable use
 
@@ -156,18 +156,20 @@ def dot_product_attention(query, key, value, mask, dropout, mode, rng):
   if mask is not None:
     dots = np.where(mask, dots, -1e9)
   dots = stax.softmax(dots, axis=-1)
-  if dropout is not None and mode == 'train':
-    keep = random.bernoulli(rng, dropout, dots.shape)
-    dots = np.where(keep, dots / dropout, 0)
+  if dropout >= 1.0:
+    raise ValueError('Dropout rates must be lower than 1.')
+  if dropout is not None and dropout > 0.0 and mode == 'train':
+    keep = random.bernoulli(rng, 1.0 - dropout, dots.shape)
+    dots = np.where(keep, dots / (1.0 - dropout), 0)
   out = np.matmul(dots, value)
   return out
 
 
-def PureDotProductAttention(dropout=1.0, mode='train'):  # pylint: disable=invalid-name
+def PureDotProductAttention(dropout=0.0, mode='train'):  # pylint: disable=invalid-name
   """Pure single-headed self-attention.
 
   Args:
-    dropout: float: dropout rate - keep probability
+    dropout: float: dropout rate
     mode: str: 'train' or 'eval'
 
   Returns:
@@ -187,13 +189,13 @@ def PureDotProductAttention(dropout=1.0, mode='train'):  # pylint: disable=inval
 
 
 def PureMultiHeadedAttention(  # pylint: disable=invalid-name
-    feature_depth, num_heads=8, dropout=1.0, mode='train'):
+    feature_depth, num_heads=8, dropout=0.0, mode='train'):
   """Pure transformer-style multi-headed attention.
 
   Args:
     feature_depth: int:  depth of embedding
     num_heads: int: number of attention heads
-    dropout: float: dropout rate - keep probability
+    dropout: float: dropout rate
     mode: str: 'train' or 'eval'
 
   Returns:
@@ -227,13 +229,13 @@ def PureMultiHeadedAttention(  # pylint: disable=invalid-name
 
 
 def MultiHeadedAttention(  # pylint: disable=invalid-name
-    feature_depth, num_heads=8, dropout=1.0, mode='train'):
+    feature_depth, num_heads=8, dropout=0.0, mode='train'):
   """Transformer-style multi-headed attention.
 
   Args:
     feature_depth: int:  depth of embedding
     num_heads: int: number of attention heads
-    dropout: float: dropout rate - keep probability
+    dropout: float: dropout rate
     mode: str: 'train' or 'eval'
 
   Returns:
