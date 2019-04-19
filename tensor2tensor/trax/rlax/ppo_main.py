@@ -35,8 +35,10 @@ flags.DEFINE_integer("epochs", 100, "Number of epochs to run for.")
 flags.DEFINE_integer("random_seed", 0, "Random seed.")
 flags.DEFINE_integer("log_level", logging.INFO, "Log level.")
 flags.DEFINE_integer("batch_size", 32, "Batch of trajectories needed.")
+flags.DEFINE_integer("num_optimizer_steps", 100, "Number of optimizer steps.")
 flags.DEFINE_integer("boundary", 20,
                      "We pad trajectories at integer multiples of this number.")
+flags.DEFINE_float("learning_rate", 1e-3, "Learning rate.")
 
 
 def common_stax_layers():
@@ -51,6 +53,9 @@ def main(argv):
   if FLAGS.env_name == "Pong-v0":
     bottom_layers = [stax.Div(255.0), stax.Flatten(2)] + bottom_layers
 
+  optimizer_fun = functools.partial(ppo.optimizer_fun,
+                                    step_size=FLAGS.learning_rate)
+
   ppo.training_loop(
       env_name=FLAGS.env_name,
       epochs=FLAGS.epochs,
@@ -58,7 +63,10 @@ def main(argv):
           ppo.policy_net, bottom_layers=bottom_layers),
       value_net_fun=functools.partial(
           ppo.value_net, bottom_layers=bottom_layers),
+      policy_optimizer_fun=optimizer_fun,
+      value_optimizer_fun=optimizer_fun,
       batch_size=FLAGS.batch_size,
+      num_optimizer_steps=FLAGS.num_optimizer_steps,
       boundary=FLAGS.boundary,
       random_seed=FLAGS.random_seed)
 

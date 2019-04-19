@@ -106,9 +106,9 @@ def value_net(rng_key,
   return net_params, net_apply
 
 
-def optimizer_fun(net_params):
+def optimizer_fun(net_params, step_size=1e-3):
   opt_init, opt_update = trax_opt.adam(
-      step_size=1e-3, b1=0.9, b2=0.999, eps=1e-08)
+      step_size=step_size, b1=0.9, b2=0.999, eps=1e-08)
   opt_state = opt_init(net_params)
   return opt_state, opt_update
 
