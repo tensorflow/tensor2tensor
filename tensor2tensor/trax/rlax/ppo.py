@@ -167,7 +167,29 @@ def collect_trajectories(env,
         raise ValueError("Unknown policy: %s" % policy)
 
       # NOTE: Assumption, single batch.
-      action = int(action)
+      try:
+        action = int(action)
+      except TypeError as err:
+        # Let's dump some information before we die off.
+        logging.error("Cannot convert action into an integer: [%s]", err)
+        logging.error("action.shape: [%s]", action.shape)
+        logging.error("action: [%s]", action)
+        logging.error("predictions.shape: [%s]", predictions.shape)
+        logging.error("predictions: [%s]", predictions)
+        logging.error("observation_history: [%s]", observation_history)
+        logging.error("policy_net_params: [%s]", policy_net_params)
+        for i, param in enumerate(policy_net_params):
+          if not param:
+            # Empty tuple.
+            continue
+          if not isinstance(param, tuple):
+            logging.error(
+                "Param[%d] : (%s) = [%s]", i, param.shape, onp.array(param))
+          else:
+            for j, p in enumerate(param):
+              logging.error(
+                  "\tParam[%d, %d] : (%s) = [%s]", i, j, p.shape, onp.array(p))
+        raise err
 
       observation, reward, done, _ = env.step(action)
 
@@ -808,3 +830,4 @@ def training_loop(
 
   return ((policy_net_params, value_net_params), average_rewards,
           np.stack(value_losses), np.stack(ppo_objective))
+
