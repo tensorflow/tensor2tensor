@@ -354,6 +354,20 @@ class Problem(object):
         metrics.Metrics.ACC_PER_SEQ, metrics.Metrics.NEG_LOG_PERPLEXITY
     ]
 
+  def eval_metric_fns(self, model_hparams):
+    del model_hparams
+    metric_names = self.eval_metrics()
+    if not all([m in metrics.METRICS_FNS for m in metric_names]):
+      error_str = ("Unrecognized metric. Problem %s specified metrics "
+                   "%s. Recognized metrics are %s.")
+      raise ValueError(error_str % (self.name,
+                                    metric_names,
+                                    list(metrics.METRICS_FNS.keys())))
+    return {
+        metric_name: metrics.METRICS_FNS[metric_name]
+        for metric_name in metric_names
+    }
+
   @property
   def task_id(self):
     if self._task_id == -1 and hasattr(self, "global_task_id"):
