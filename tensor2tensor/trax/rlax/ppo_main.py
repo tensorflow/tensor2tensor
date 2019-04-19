@@ -23,7 +23,7 @@ import functools
 
 from absl import app
 from absl import flags
-from absl import logging
+from jax.config import config
 from tensor2tensor.trax import stax
 from tensor2tensor.trax.rlax import ppo
 
@@ -33,12 +33,13 @@ flags.DEFINE_string("env_name", None, "Name of the environment to make.")
 flags.DEFINE_string("t2t_gym_env", None, "Name of the T2TGymEnv to make.")
 flags.DEFINE_integer("epochs", 100, "Number of epochs to run for.")
 flags.DEFINE_integer("random_seed", 0, "Random seed.")
-flags.DEFINE_integer("log_level", logging.INFO, "Log level.")
 flags.DEFINE_integer("batch_size", 32, "Batch of trajectories needed.")
 flags.DEFINE_integer("num_optimizer_steps", 100, "Number of optimizer steps.")
 flags.DEFINE_integer("boundary", 20,
                      "We pad trajectories at integer multiples of this number.")
 flags.DEFINE_float("learning_rate", 1e-3, "Learning rate.")
+flags.DEFINE_boolean("jax_debug_nans", False,
+                     "Setting to true will help to debug nans.")
 
 
 def common_stax_layers():
@@ -47,7 +48,10 @@ def common_stax_layers():
 
 def main(argv):
   del argv
-  logging.set_verbosity(FLAGS.log_level)
+
+  if FLAGS.jax_debug_nans:
+    config.update("jax_debug_nans", True)
+
   bottom_layers = common_stax_layers()
 
   if FLAGS.env_name == "Pong-v0":
