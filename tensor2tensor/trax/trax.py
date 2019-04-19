@@ -270,27 +270,27 @@ def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun, num_devices):
   """Get jit-ed update function for loss, optimizer, learning rate function."""
   if num_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
     def single_update(i, opt_state, batch, rng):
+      rng, subrng = jax_random.split(rng[0])
       _, opt_update = optimizer(lr_fun)
       params = trax_opt.get_params(opt_state)
       return opt_update(i, backend.grad(loss_fun)(
-          params, batch, predict_fun, rng), opt_state)
+          params, batch, predict_fun, rng), opt_state), [subrng]
     return backend.jit(single_update)
 
   @functools.partial(backend.pmap, axis_name="batch")
   def mapped_update(i, opt_state, batch, rng):
     """This is a multi-device version of the update function above."""
     # We assume all tensors have the first dimension = num_devices.
+    rng, subrng = jax_random.split(rng)
     _, opt_update = optimizer(lr_fun)
     params = trax_opt.get_params(opt_state)
     grads = backend.grad(loss_fun)(params, batch, predict_fun, rng)
     grads = jax.tree_util.tree_map(
         lambda g: lax.psum(g, "batch"), grads)
-    return opt_update(i, grads, opt_state)
+    return opt_update(i, grads, opt_state), subrng
 
   def update(i, opt_state, batch, rng):
-    # TODO(lukaszkaiser): investigate how to replicate rng and correct.
-    rngs = jax_random.split(rng, num_devices)
-    return mapped_update(jax.replicate(i), opt_state, batch, rngs)
+    return mapped_update(jax.replicate(i), opt_state, batch, rng)
 
   return update
 
@@ -379,6 +379,7 @@ def train(output_dir,
   # Setup state
   step = state.step or 0
   rng, init_key = jax_random.split(rng)
+  rngs = jax_random.split(rng, num_devices)
   params_initializer = \
       lambda: model_init(init_key, [-1] + list(inputs.input_shape))[1]
   params = state.params or params_initializer()
@@ -417,8 +418,7 @@ def train(output_dir,
       next_train_batch = next(train_stream)
       if num_devices > 1:  # TODO(lukaszkaiser): use everywhere when possible.
         next_train_batch = reshape_by_device_pair(next_train_batch, num_devices)
-      rng, subrng = jax_random.split(rng)
-      opt_state = jit_update_fun(step, opt_state, next_train_batch, subrng)
+      opt_state, rngs = jit_update_fun(step, opt_state, next_train_batch, rngs)
       step += 1
 
       # LR log
