@@ -76,6 +76,23 @@ class PpoTest(test.TestCase):
     # NOTE: The extra dimension at the end because of Dense(1).
     self.assertEqual((batch, time_steps, 1), value_output.shape)
 
+  def test_policy_and_value_net(self):
+    observation_shape = (3, 4, 5)
+    batch_observation_shape = (-1, -1) + observation_shape
+    num_actions = 2
+    pnv_params, pnv_apply = ppo.policy_and_value_net(
+        self.rng_key, batch_observation_shape, num_actions, [stax.Flatten(2)])
+    batch = 2
+    time_steps = 10
+    batch_of_observations = np.random.uniform(
+        size=(batch, time_steps) + observation_shape)
+    pnv_output = pnv_apply(pnv_params, batch_of_observations)
+
+    # Output is a list, first is probab of actions and the next is value output.
+    self.assertEqual(2, len(pnv_output))
+    self.assertEqual((batch, time_steps, num_actions), pnv_output[0].shape)
+    self.assertEqual((batch, time_steps, 1), pnv_output[1].shape)
+
   def test_collect_trajectories(self):
     observation_shape = (2, 3, 4)
     num_actions = 2

@@ -106,6 +106,30 @@ def value_net(rng_key,
   return net_params, net_apply
 
 
+def policy_and_value_net(rng_key,
+                         batch_observations_shape,
+                         num_actions,
+                         bottom_layers=None):
+  """A policy and value net function."""
+
+  # Layers.
+  layers = []
+  if bottom_layers is not None:
+    layers.extend(bottom_layers)
+
+  # Now, with the current logits, one head computes action probabilities and the
+  # other computes the value function.
+  layers.extend([stax.FanOut(2), stax.parallel(
+      stax.serial(stax.Dense(num_actions), stax.Softmax),
+      stax.Dense(1)
+  )])
+
+  net_init, net_apply = stax.serial(*layers)
+
+  _, net_params = net_init(rng_key, batch_observations_shape)
+  return net_params, net_apply
+
+
 def optimizer_fun(net_params, step_size=1e-3):
   opt_init, opt_update = trax_opt.adam(
       step_size=step_size, b1=0.9, b2=0.999, eps=1e-08)
