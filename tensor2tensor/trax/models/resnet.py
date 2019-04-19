@@ -116,17 +116,20 @@ def WideResnetGroup(n, channels, strides=(1, 1)):
   return stax.serial(*blocks)
 
 
-def WideResnet(num_blocks=3, hidden_size=64, num_output_classes=10):
+def WideResnet(num_blocks=3, hidden_size=64, num_output_classes=10,
+               mode='train'):
   """WideResnet from https://arxiv.org/pdf/1605.07146.pdf.
 
   Args:
     num_blocks: int, number of blocks in a group.
     hidden_size: the size of the first hidden layer (multiplied later).
     num_output_classes: int, number of classes to distinguish.
+    mode: is it training or eval.
 
   Returns:
     The WideResnet model with given layer and output sizes.
   """
+  del mode
   return stax.serial(
       stax.Conv(hidden_size, (3, 3), padding='SAME'),
       WideResnetGroup(num_blocks, hidden_size),

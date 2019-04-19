@@ -18,10 +18,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from jax import random
 import numpy as onp
 
 from tensor2tensor.trax.backend import numpy as np
+from tensor2tensor.trax.backend import random
 from tensor2tensor.trax.stax import stax_base as stax
 
 

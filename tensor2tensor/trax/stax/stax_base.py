@@ -368,3 +368,51 @@ def shape_dependent(make_layer):
   def apply_fun(params, inputs, **kwargs):
     return make_layer(inputs.shape)[1](params, inputs, **kwargs)
   return init_fun, apply_fun
+
+
+# Utility functions
+# ------------------------------------------------------------------------------
+def one_hot(x, size, dtype=np.float32):
+  """Make a n+1 dim one-hot array from n dim int-categorical array."""
+  return np.array(x[..., np.newaxis] == np.arange(size), dtype)
+
+
+def ShiftRight():  # pylint: disable=invalid-name
+  """Layer to shift the tensor to the right by padding on axis 1."""
+  init_fun = lambda _, input_shape: (input_shape, ())
+  def apply_fun(params, inputs, **kwargs):
+    del params, kwargs
+    pad_widths = [(0, 0), (1, 0)]
+    pad_widths += [(0, 0) for _ in range(len(inputs.shape) - 2)]
+    padded = np.pad(inputs, pad_widths, mode='constant')
+    return padded[:, :-1, ...]
+  return init_fun, apply_fun
+
+
+# Utility Combinators
+# ------------------------------------------------------------------------------
+def repeat(layer, num_repeats):
+  """Repeats layers serially num_repeats times."""
+  if num_repeats < 1:
+    raise ValueError('Repeat combinator num_repeats must be >= 1.')
+  layers = num_repeats * (layer,)
+  return serial(*layers)
+
+
+def residual(*layers, **kwargs):
+  """Constructs a residual version of layers, summing input to layers output."""
+  res = kwargs.get('res', Identity)
+  if len(layers) > 1:
+    return serial(
+        FanOut(2),
+        parallel(serial(*layers), res),
+        FanInSum
+    )
+  elif len(layers) == 1:
+    return serial(
+        FanOut(2),
+        parallel(layers[0], res),
+        FanInSum
+    )
+  else:
+    raise ValueError('Empty residual combinator.')
