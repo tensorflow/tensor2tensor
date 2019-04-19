@@ -259,7 +259,7 @@ def _jit_predict_fun(model_predict, num_devices):
     pred = mapped_predict(
         params,
         reshape_by_device(batch, num_devices),
-        jax.replicate(rng))
+        jax_random.split(rng, num_devices))
     batch_size = batch.shape[0]
     return np.reshape(pred, [batch_size] + list(pred.shape[2:]))
 
@@ -289,7 +289,8 @@ def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun, num_devices):
 
   def update(i, opt_state, batch, rng):
     # TODO(lukaszkaiser): investigate how to replicate rng and correct.
-    return mapped_update(jax.replicate(i), opt_state, batch, jax.replicate(rng))
+    rngs = jax_random.split(rng, num_devices)
+    return mapped_update(jax.replicate(i), opt_state, batch, rngs)
 
   return update
 
