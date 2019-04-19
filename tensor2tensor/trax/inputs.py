@@ -239,11 +239,13 @@ def _train_and_eval_dataset_v1(problem_name, data_dir):
 @gin.configurable(blacklist=["dataset", "training", "shapes",
                              "target_names", "num_devices"])
 def batch_fun(dataset, training, shapes, target_names, num_devices,
-              batch_size=32, eval_batch_size=32,
+              batch_size_per_device=32, batch_size=None, eval_batch_size=32,
               bucket_length=32, buckets=None,
               batch_shuffle_size=128, max_eval_length=None):
   """Batching function."""
   del target_names
+  # Batch size is batch_size_per_device * num_devices unless given directly.
+  batch_size = batch_size or batch_size_per_device * num_devices
   # If bucketing is not specified, check if target shapes are variable.
   cur_batch_size = batch_size if training else eval_batch_size
   # Make cur_batch_size divisible by num_devices.

@@ -5,7 +5,7 @@ import tensor2tensor.trax.trax
 
 # Parameters for batch_fun:
 # ==============================================================================
-batch_fun.batch_size = 256
+batch_fun.batch_size_per_device = 16
 batch_fun.eval_batch_size = 128
 batch_fun.max_eval_length = 2048
 
