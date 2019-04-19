@@ -189,6 +189,30 @@ class PpoTest(test.TestCase):
             [1.984375, 1.96875, 1.9375, 1.875, 1.75, 1.5, 1.0, 0],
         ]), rewards_to_go)
 
+  def test_rewards_to_go_really_long_sequences(self):
+    T = 1200  # pylint: disable=invalid-name
+
+    rewards = np.random.uniform(1e-3, 1e-2, (1, T))
+
+    # Make a mask, clear out a fixed number `L` of 1s from the end.
+    L = 36  # pylint: disable=invalid-name
+    assert L < T
+    rewards_mask = np.ones_like(rewards)
+    rewards_mask[0, L:] = 0
+
+    gamma = 0.94
+
+    actual_r2g = ppo.rewards_to_go(rewards, rewards_mask, gamma).reshape(-1)
+
+    # Let's compute r2g the slow way.
+    masked_rewards = (rewards_mask * rewards).reshape(-1)
+    expected_r2g = np.zeros_like(masked_rewards)
+    for t in range(T):
+      for j in range(t, T):
+        expected_r2g[t] += (gamma**(j-t)) * masked_rewards[j]
+
+    self.assertAllClose(expected_r2g, actual_r2g)
+
   def test_value_loss(self):
     rewards = np.array([
         [1, 2, 4, 8, 16, 32, 64, 128],

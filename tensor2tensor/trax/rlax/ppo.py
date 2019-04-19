@@ -283,6 +283,7 @@ def pad_trajectories(trajectories, boundary=20):
       padded_observations), np.stack(padded_actions), np.stack(padded_rewards)
 
 
+# TODO(afrozm): JAX-ify this, this is too slow for pong.
 def rewards_to_go(rewards, mask, gamma=0.99):
   r"""Computes rewards to go.
 
@@ -299,32 +300,39 @@ def rewards_to_go(rewards, mask, gamma=0.99):
   Returns:
     rewards to go, np.ndarray of shape (B, T).
   """
-  B, T = rewards.shape  # pylint: disable=invalid-name
+  B, T = rewards.shape  # pylint: disable=invalid-name,unused-variable
 
-  # [[1, g, g**2, ... g**T-1]]
-  # Not jittable, T should be a compile time constant.
-  # gammas = np.geomspace(1, g**T, T, endpoint=False).reshape(1, T)
+  masked_rewards = rewards * mask  # (B, T)
 
-  # Get a geometric progression of gamma, of length T.
-  gammas = [gamma**t for t in range(T)]
-  gammas = np.array(gammas).reshape((1, T))
+  # We use the following recurrence relation, derived from the equation above:
+  #
+  # r2g[t+1] = (r2g[t] - r[t]) / gamma
+  #
+  # This means we'll need to calculate r2g[0] first and then r2g[1] and so on ..
+  #
+  # **However** this leads to overflows for long sequences: r2g[t] - r[t] > 0
+  # and gamma < 1.0, so the division keeps increasing.
+  #
+  # So we just run the recurrence in reverse, i.e.
+  #
+  # r2g[t] = r[t] + (gamma*r2g[t+1])
+  #
+  # This is much better, but might have lost updates since the (small) rewards
+  # at earlier time-steps may get added to a (very?) large sum.
 
-  # Discounted rewards.
-  undiscounted_rewards = rewards * mask  # (B, T)
-  discounted_rewards = undiscounted_rewards * gammas  # (B, T)
+  # Compute r2g_{T-1} at the start and then compute backwards in time.
+  r2gs = [masked_rewards[:, -1]]
 
-  # Get rewards to go at first time-step.
-  r0 = np.sum(discounted_rewards, axis=1)  # (B,)
-  assert r0.shape == (B,)
+  # Go from T-2 down to 0.
+  for t in reversed(range(T - 1)):
+    r2gs.append(masked_rewards[:, t] + (gamma * r2gs[-1]))
 
-  rs = [r0]
+  # The list should have length T.
+  assert T == len(r2gs)
 
-  # Now compute the other advantages wrt the first one.
-  for t in range(1, T):
-    rs.append((rs[-1] - undiscounted_rewards[:, t - 1]) / gamma)
-
-  # len(rs) is T and each element is (B,), this makes it (B, T)
-  return np.stack(rs, axis=1)
+  # First we stack them in the correct way to make it (B, T), but these are
+  # still from newest (T-1) to oldest (0), so then we flip it on time axis.
+  return np.flip(np.stack(r2gs, axis=1), axis=1)
 
 
 @functools.partial(jit, static_argnums=(0,))
@@ -364,6 +372,7 @@ def value_loss(value_net_apply,
   return np.sum(loss) / np.sum(reward_mask)
 
 
+# TODO(afrozm): JAX-ify this, this is too slow for pong.
 def deltas(predicted_values, rewards, mask, gamma=0.99):
   r"""Computes TD-residuals from V(s) and rewards.
 
@@ -629,6 +638,7 @@ def training_loop(
   for i in range(epochs):
     t = time.time()
     t0 = t
+    logging.vlog(1, "Epoch [% 6d] collecting trajectories.", i)
     trajs = collect_trajectories(
         env,
         policy_net_apply,
