@@ -325,6 +325,30 @@ def rlmb_base_stochastic_discrete():
 
 
 @registry.register_hparams
+def rlmb_base_stochastic_discrete_200k():
+  """Base setting with stochastic discrete model with 200k steps."""
+  hparams = rlmb_base_stochastic_discrete()
+  hparams.num_real_env_frames = 96000 * 2
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_base_stochastic_discrete_500k():
+  """Base setting with stochastic discrete model with 500k steps."""
+  hparams = rlmb_base_stochastic_discrete()
+  hparams.num_real_env_frames = 96000 * 5
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_base_stochastic_discrete_1m():
+  """Base setting with stochastic discrete model with 1M steps."""
+  hparams = rlmb_base_stochastic_discrete()
+  hparams.num_real_env_frames = 96000 * 10
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_base_stochastic_discrete_param_sharing():
   """Base setting with stochastic discrete model with parameter sharing."""
   hparams = rlmb_base_stochastic_discrete()
@@ -406,18 +430,18 @@ def rlmb_long_stochastic_discrete_gamma90():
 
 
 @registry.register_hparams
-def rlmb_long_stochastic_discrete_3epochs():
+def rlmb_base_stochastic_discrete_3epochs():
   """Long setting with stochastic discrete model, changed epochs."""
-  hparams = rlmb_long_stochastic_discrete()
+  hparams = rlmb_base_stochastic_discrete()
   hparams.epochs = 3
   hparams.ppo_epochs_num = 2000
   return hparams
 
 
 @registry.register_hparams
-def rlmb_long_stochastic_discrete_1epoch():
+def rlmb_base_stochastic_discrete_1epoch():
   """Long setting with stochastic discrete model, changed epochs."""
-  hparams = rlmb_long_stochastic_discrete()
+  hparams = rlmb_base_stochastic_discrete()
   hparams.epochs = 1
   hparams.ppo_epochs_num = 3000
   return hparams
