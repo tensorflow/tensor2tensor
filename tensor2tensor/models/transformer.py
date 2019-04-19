@@ -2698,3 +2698,26 @@ def transformer_cifar10_memory_v0():
 
   return hparams
 
+
+@registry.register_hparams
+def transformer_imagenet64_memory_v0():
+  """HParams for training image_imagenet64_gen_flat_rev with memory."""
+  hparams = transformer_cifar10_memory_v0()
+
+  hparams.max_length = 64 * 64 * 3
+  hparams.split_targets_chunk_length = 64 * 3
+  hparams.split_targets_max_chunks = int(
+      hparams.max_length / hparams.split_targets_chunk_length)
+  hparams.num_memory_items = 128 * 3
+
+  # Since this is an image problem, batch size refers to examples (not tokens)
+  target_images_per_batch = 2
+  hparams.batch_size = int(target_images_per_batch * (
+      hparams.max_length / hparams.split_targets_chunk_length))
+
+  # The recurrent memory needs to know the actual batch size (in sequences)
+  hparams.recurrent_memory_batch_size = hparams.batch_size
+
+  hparams.max_relative_position = 3072
+
+  return hparams
