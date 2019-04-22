@@ -38,6 +38,9 @@ flags.DEFINE_integer("batch_size", 32, "Batch of trajectories needed.")
 flags.DEFINE_integer("num_optimizer_steps", 100, "Number of optimizer steps.")
 flags.DEFINE_integer("boundary", 20,
                      "We pad trajectories at integer multiples of this number.")
+flags.DEFINE_integer("max_timestep", None,
+                     "If set to an integer, maximum number of time-steps in a "
+                     "trajectory.")
 flags.DEFINE_float("learning_rate", 1e-3, "Learning rate.")
 flags.DEFINE_boolean("jax_debug_nans", False,
                      "Setting to true will help to debug nans.")
@@ -72,6 +75,7 @@ def main(argv):
         batch_size=FLAGS.batch_size,
         num_optimizer_steps=FLAGS.num_optimizer_steps,
         boundary=FLAGS.boundary,
+        max_timestep=FLAGS.max_timestep,
         random_seed=FLAGS.random_seed)
 
   if FLAGS.jax_debug_nans:

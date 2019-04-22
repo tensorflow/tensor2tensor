@@ -106,7 +106,7 @@ class PpoTest(test.TestCase):
         # step dimensions.
         [stax.Flatten(num_axis_to_keep=2)])
 
-    # We'll get done at time-step #10, starting from 0, therefore in 11 steps.
+    # We'll get done at time-step #5, starting from 0, therefore in 6 steps.
     done_time_step = 5
     env = fake_env.FakeEnv(
         observation_shape, num_actions, done_time_step=done_time_step)
@@ -129,6 +129,49 @@ class PpoTest(test.TestCase):
                        observations.shape)
       self.assertEqual((done_time_step + 1,), actions.shape)
       self.assertEqual((done_time_step + 1,), rewards.shape)
+
+  def test_collect_trajectories_max_timestep(self):
+    observation_shape = (2, 3, 4)
+    num_actions = 2
+    policy_params, policy_apply = ppo.policy_net(
+        self.rng_key,
+        (-1, -1) + observation_shape,
+        num_actions,
+        # flatten except batch and time
+        # step dimensions.
+        [stax.Flatten(num_axis_to_keep=2)])
+
+    # We'll get done at time-step #5, starting from 0, therefore in 6 steps.
+    done_time_step = 5
+    env = fake_env.FakeEnv(
+        observation_shape, num_actions, done_time_step=done_time_step)
+
+    num_trajectories = 5
+
+    # Let's collect trajectories only till `max_timestep`.
+    max_timestep = 3
+
+    # we're testing when we early stop the trajectory.
+    assert max_timestep < done_time_step
+
+    trajectories = ppo.collect_trajectories(
+        env,
+        policy_apply,
+        policy_params,
+        num_trajectories,
+        policy="categorical-sampling",
+        max_timestep=max_timestep)
+
+    # Number of trajectories is as expected.
+    self.assertEqual(num_trajectories, len(trajectories))
+
+    # Shapes of observations, actions and rewards are as expected.
+    for observations, actions, rewards in trajectories:
+      # observations are one more in number than rewards or actions.
+      self.assertEqual((max_timestep,) + observation_shape,
+                       observations.shape)
+      self.assertEqual((max_timestep - 1,), actions.shape)
+      self.assertEqual((max_timestep - 1,), rewards.shape)
 
   def test_pad_trajectories(self):
     observation_shape = (2, 3, 4)

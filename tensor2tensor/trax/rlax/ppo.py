@@ -161,6 +161,7 @@ def collect_trajectories(env,
                          policy_net_params,
                          num_trajectories=1,
                          policy="greedy",
+                         max_timestep=None,
                          epsilon=0.1):
   """Collect trajectories with the given policy net and behaviour."""
   trajectories = []
@@ -176,7 +177,10 @@ def collect_trajectories(env,
     # getting added to it, making it eventually (1, T+1) + OBS
     observation_history = observation[np.newaxis, np.newaxis, :]
 
-    while not done:
+    # Run either till we're done OR if max_timestep is defined only till that
+    # timestep.
+    while ((not done) and
+           (not max_timestep or observation_history.shape[1] < max_timestep)):
       # Run the policy, to pick an action, shape is (1, t, A) because
       # observation_history is shaped (1, t) + OBS
       predictions = policy_net_apply(policy_net_params, observation_history)
@@ -230,8 +234,9 @@ def collect_trajectories(env,
       rewards.append(reward)
       actions.append(action)
 
-    # This means we are done
-    assert done
+    # This means we are done we're been terminated early.
+    assert done or (
+        max_timestep and max_timestep >= observation_history.shape[1])
     # observation_history is (1, T+1) + OBS, lets squeeze out the batch dim.
     observation_history = np.squeeze(observation_history, axis=0)
     trajectories.append(
@@ -650,6 +655,7 @@ def training_loop(
     num_optimizer_steps=NUM_OPTIMIZER_STEPS,
     print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
     boundary=20,
+    max_timestep=None,
     random_seed=None):
   """Runs the training loop for PPO, with fixed policy and value nets."""
   jax_rng_key = trax.get_random_number_generator_and_set_seed(random_seed)
@@ -696,6 +702,7 @@ def training_loop(
         policy_net_params,
         num_trajectories=batch_size,
         policy=POLICY,
+        max_timestep=max_timestep,
         epsilon=(10.0 / (i + 10.0)))  # this is a different epsilon.
 
     avg_reward = float(sum(np.sum(traj[2]) for traj in trajs)) / len(trajs)
@@ -849,9 +856,10 @@ def training_loop(
     value_net_params = trax_opt.get_params(value_opt_state)
 
     logging.info(
-        "Epoch [% 6d], average reward [%10.2f], ppo loss [%10.2f], "
-        "value loss [%10.2f], took [%10.2f msec]", i, avg_reward, new_ppo_loss,
-        new_value_loss, get_time(t0))
+        "Epoch [% 6d], Reward[min, max, avg] [%10.2f,%10.2f,%10.2f], "
+        "ppo loss [%10.2f], value loss [%10.2f], took [%10.2f msec]",
+        i, min_reward, max_reward, avg_reward, new_ppo_loss, new_value_loss,
+        get_time(t0))
 
   logging.vlog(1, "value_losses: %s", np.stack(value_losses))
   logging.vlog(1, "ppo_objective: %s", np.stack(ppo_objective))
