@@ -146,7 +146,9 @@ def dataset_to_stream(dataset, input_name):
     yield inp, out
 
 
-def train_and_eval_dataset(dataset_name, data_dir):
+@gin.configurable(whitelist=["train_shuffle_files", "test_shuffle_files"])
+def train_and_eval_dataset(dataset_name, data_dir, train_shuffle_files=True,
+                           test_shuffle_files=False):
   """Return train and evaluation datasets, feature info and supervised keys.
 
   Args:
@@ -154,6 +156,10 @@ def train_and_eval_dataset(dataset_name, data_dir):
       then we'll search T2T Problem registry for it, otherwise we assume it
       is a dataset from TFDS and load it from there.
     data_dir: directory where the data is located.
+    train_shuffle_files: Boolean determining whether or not to shuffle the train
+      files at startup. Set to False if you want data determinism.
+    test_shuffle_files: Boolean determining whether or not to shuffle the test
+      files at startup. Set to False if you want data determinism.
 
   Returns:
     a 4-tuple consisting of:
@@ -176,8 +182,12 @@ def train_and_eval_dataset(dataset_name, data_dir):
   eval_split = tfds.Split.VALIDATION
   if tfds.Split.VALIDATION not in splits:
     eval_split = tfds.Split.TEST
-  train, valid = tfds.load(
-      name=dataset_name, split=[tfds.Split.TRAIN, eval_split])
+  train = tfds.load(
+      name=dataset_name, split=tfds.Split.TRAIN,
+      as_dataset_kwargs={"shuffle_files": train_shuffle_files})
+  valid = tfds.load(
+      name=dataset_name, split=eval_split,
+      as_dataset_kwargs={"shuffle_files": test_shuffle_files})
   keys = None
   if info.supervised_keys:
     keys = ([info.supervised_keys[0]], [info.supervised_keys[1]])
@@ -208,6 +218,7 @@ def _select_features(example, feature_list=None):
 def _train_and_eval_dataset_v1(problem_name, data_dir):
   """Return train and evaluation datasets, feature info and supervised keys."""
   from tensor2tensor import problems  # pylint: disable=g-import-not-at-top
+  assert not tf.executing_eagerly(), "tf.eager mode must be turned off."
   problem = problems.problem(problem_name)
   train_dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, data_dir)
   train_dataset = train_dataset.map(_select_features)
