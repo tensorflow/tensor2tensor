@@ -22,10 +22,10 @@ from __future__ import print_function
 import jax
 from jax import random as jax_random
 import numpy as np
+from tensor2tensor.trax import stax
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.rlax import fake_env
 from tensor2tensor.trax.rlax import ppo
-from tensor2tensor.trax.stax import stax_base as stax
 from tensorflow import test
 
 
