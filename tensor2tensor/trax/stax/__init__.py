@@ -23,4 +23,5 @@ from __future__ import print_function
 # pylint: disable=wildcard-import
 from tensor2tensor.trax.stax.attention import *
 from tensor2tensor.trax.stax.base import *
+from tensor2tensor.trax.stax.combinators import *
 from tensor2tensor.trax.stax.stax_base import *

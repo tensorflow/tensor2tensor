@@ -43,7 +43,10 @@ flags.DEFINE_boolean("jax_debug_nans", False,
 
 
 def common_stax_layers():
-  return [stax.Dense(16), stax.Relu, stax.Dense(4), stax.Relu]
+  layers = []
+  if FLAGS.env_name == "Pong-v0":
+    layers = [stax.Div(divisor=255.0), stax.Flatten(num_axis_to_keep=2)]
+  return layers + [stax.Dense(16), stax.Relu(), stax.Dense(4), stax.Relu()]
 
 
 def main(argv):
@@ -52,11 +55,6 @@ def main(argv):
   if FLAGS.jax_debug_nans:
     config.update("jax_debug_nans", True)
 
-  bottom_layers = common_stax_layers()
-
-  if FLAGS.env_name == "Pong-v0":
-    bottom_layers = [stax.Div(255.0), stax.Flatten(2)] + bottom_layers
-
   optimizer_fun = functools.partial(ppo.optimizer_fun,
                                     step_size=FLAGS.learning_rate)
 
@@ -64,9 +62,9 @@ def main(argv):
       env_name=FLAGS.env_name,
       epochs=FLAGS.epochs,
       policy_net_fun=functools.partial(
-          ppo.policy_net, bottom_layers=bottom_layers),
+          ppo.policy_net, bottom_layers=common_stax_layers()),
       value_net_fun=functools.partial(
-          ppo.value_net, bottom_layers=bottom_layers),
+          ppo.value_net, bottom_layers=common_stax_layers()),
       policy_optimizer_fun=optimizer_fun,
       value_optimizer_fun=optimizer_fun,
       batch_size=FLAGS.batch_size,

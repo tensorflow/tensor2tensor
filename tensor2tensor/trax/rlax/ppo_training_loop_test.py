@@ -22,8 +22,8 @@ from __future__ import print_function
 import functools
 import gym
 from tensor2tensor.rl import gym_utils
+from tensor2tensor.trax import stax
 from tensor2tensor.trax.rlax import ppo
-from tensor2tensor.trax.stax import stax_base as stax
 from tensorflow import test
 
 
@@ -37,16 +37,14 @@ class PpoTrainingLoopTest(test.TestCase):
     env = gym.wrappers.TimeLimit(env, max_episode_steps=2)
     num_epochs = 2
     batch_size = 2
-    # Common bottom layer(s).
-    bottom_layers = [stax.Dense(1)]
     # Run the training loop.
     _, rewards, val_losses, ppo_objectives = ppo.training_loop(
         env=env,
         epochs=num_epochs,
         policy_net_fun=functools.partial(
-            ppo.policy_net, bottom_layers=bottom_layers),
+            ppo.policy_net, bottom_layers=[stax.Dense(1)]),
         value_net_fun=functools.partial(
-            ppo.value_net, bottom_layers=bottom_layers),
+            ppo.value_net, bottom_layers=[stax.Dense(1)]),
         batch_size=batch_size,
         num_optimizer_steps=1,
         random_seed=0)

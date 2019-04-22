@@ -18,10 +18,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import itertools
 from absl.testing import absltest
-from jax import random
 import numpy as onp
+from tensor2tensor.trax.backend import random
 import tensor2tensor.trax.stax as stax
 
 
@@ -35,7 +34,7 @@ def random_inputs(rng, input_shape):
 
 
 def check_shape_agreement(test_case, init_fun, apply_fun, input_shape):
-  rng_key1, rng_key2 = random.split(random.PRNGKey(0))
+  rng_key1, rng_key2 = random.split(random.get_prng(0))
   result_shape, params = init_fun(rng_key1, input_shape)
   inputs = random_inputs(onp.random.RandomState(0), input_shape)
   result = apply_fun(params, inputs, rng=rng_key2)
@@ -48,80 +47,39 @@ def check_staxlayer(test_case, staxlayer, input_shape):
   return check_shape_agreement(test_case, init_fun, apply_fun, input_shape)
 
 
-# Helper functions for testing Lambda wrapper against functions involving
-# complicated input trees:
-def _enumerate_trees_w_leaves(n_leaves):
-  """Construct all rooted trees with n leaves."""
-  def enumtree(*args):
-    n_args = len(args)
-    # trivial cases:
-    if n_args == 0:
-      return []
-    if n_args == 1:
-      return args
-    # general case of 2 or more args:
-    # build index array
-    idxs = range(0, n_args)
-    trees = []
-    # we consider all possible subsets of size n_set to gather
-    for n_set in range(2, n_args+1):
-      idxsets = list(itertools.combinations(idxs, n_set))
-      for idxset in idxsets:
-        # recurse by joining all subtrees with
-        # n_set leaves and (n_args - n_set) leaves
-        arg_set = tuple(args[i] for i in idxs if i in idxset)
-        arg_coset = tuple(args[i] for i in idxs if i not in idxset)
-        if arg_coset:
-          trees.extend(tuple(itertools.product(enumtree(*arg_set),
-                                               enumtree(*arg_coset))))
-        else:
-          # trivial case where arg_set is entire set
-          trees.append(arg_set)
-    return trees
-  # return enumerated trees with integers as leaves
-  return enumtree(*range(n_leaves))
-
-
-def _build_combinator_tree(input_treespec, in_vars):
-  """Build a trivial Staxlayer that takes a complicated tree of inputs."""
-  parallel_args = []
-  for e in input_treespec:
-    if isinstance(e, int):
-      parallel_args.append(in_vars[e])
-    elif isinstance(e, tuple):
-      parallel_args.append(_build_combinator_tree(e, in_vars))
-  return stax.serial(stax.parallel(*parallel_args), stax.FanInSum)
-
-
 class SlaxTest(absltest.TestCase):
 
   def test_flatten_n(self):
     input_shape = (29, 87, 10, 20, 30)
 
-    actual_shape = check_staxlayer(self, stax.Flatten(1), input_shape)
+    actual_shape = check_staxlayer(self, stax.Flatten(), input_shape)
     self.assertEqual(actual_shape, (29, 87 * 10 * 20 * 30))
 
-    actual_shape = check_staxlayer(self, stax.Flatten(2), input_shape)
+    actual_shape = check_staxlayer(self, stax.Flatten(num_axis_to_keep=2),
+                                   input_shape)
     self.assertEqual(actual_shape, (29, 87, 10 * 20 * 30))
 
-    actual_shape = check_staxlayer(self, stax.Flatten(3), input_shape)
+    actual_shape = check_staxlayer(self, stax.Flatten(num_axis_to_keep=3),
+                                   input_shape)
     self.assertEqual(actual_shape, (29, 87, 10, 20 * 30))
 
-    actual_shape = check_staxlayer(self, stax.Flatten(4), input_shape)
+    actual_shape = check_staxlayer(self, stax.Flatten(num_axis_to_keep=4),
+                                   input_shape)
     self.assertEqual(actual_shape, (29, 87, 10, 20, 30))
 
     # Not enough dimensions.
     with self.assertRaises(ValueError):
-      check_staxlayer(self, stax.Flatten(5), input_shape)
+      check_staxlayer(self, stax.Flatten(num_axis_to_keep=5), input_shape)
 
     with self.assertRaises(ValueError):
-      check_staxlayer(self, stax.Flatten(6), input_shape)
+      check_staxlayer(self, stax.Flatten(num_axis_to_keep=6), input_shape)
 
   def test_div(self):
-    init_fun, apply_fun = stax.Div(2)
+    init_fun, apply_fun = stax.Div(divisor=2.0)
     input_np = onp.array([[1, 2, 3], [4, 5, 6]], dtype=onp.float32)
     input_shape = input_np.shape
-    _, _ = init_fun(None, input_shape)
+    rng = random.get_prng(0)
+    _, _ = init_fun(rng, input_shape)
     output_np = apply_fun(None, input_np)
     # absltest doesn't have ndarray equalities.
     expected_output_np = input_np / 2.0
@@ -129,6 +87,22 @@ class SlaxTest(absltest.TestCase):
         0.0,
         onp.sum((output_np - expected_output_np) ** 2),
         delta=1e-6)
+
+  def test_dense_param_sharing(self):
+    model1 = stax.Serial(stax.Dense(32), stax.Dense(32))
+    layer = stax.Dense(32)
+    model2 = stax.Serial(layer, layer)
+    init_fun1, _ = model1
+    init_fun2, _ = model2
+    rng = random.get_prng(0)
+    _, params1 = init_fun1(rng, [-1, 32])
+    _, params2 = init_fun2(rng, [-1, 32])
+    # The first parameters have 2 kernels of size (32, 32).
+    self.assertEqual((32, 32), params1[0][0].shape)
+    self.assertEqual((32, 32), params1[1][0].shape)
+    # The second parameters have 1 kernel of size (32, 32) and an empty dict.
+    self.assertEqual((32, 32), params2[0][0].shape)
+    self.assertEqual((), params2[1])
 
 
 if __name__ == "__main__":

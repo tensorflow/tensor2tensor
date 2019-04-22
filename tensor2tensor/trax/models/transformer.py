@@ -26,13 +26,13 @@ def ResidualFeedForward(feature_depth,
                         dropout,
                         mode):
   """Residual feed-forward layer with normalization at start."""
-  return stax.residual(
+  return stax.Residual(
       stax.LayerNorm(),
       stax.Dense(feedforward_depth, W_init=stax.xavier_uniform()),
-      stax.Relu,
-      stax.Dropout(dropout, mode=mode),
+      stax.Relu(),
+      stax.Dropout(rate=dropout, mode=mode),
       stax.Dense(feature_depth, W_init=stax.xavier_uniform()),
-      stax.Dropout(dropout, mode=mode)
+      stax.Dropout(rate=dropout, mode=mode)
   )
 
 
@@ -72,21 +72,21 @@ def TransformerEncoder(mode='train',
     Returns:
       Staxlayer variable that outputs encoded source.
     """
-    encoder_layer = stax.serial(
+    encoder_layer = stax.Serial(
         # input attends to self
-        stax.residual(stax.LayerNorm(),
-                      stax.FanOut(4),
-                      stax.parallel(stax.Identity,  # query
-                                    stax.Identity,  # key
-                                    stax.Identity,  # value
+        stax.Residual(stax.LayerNorm(),
+                      stax.FanOut(size=4),
+                      stax.Parallel(stax.Identity(),  # query
+                                    stax.Identity(),  # key
+                                    stax.Identity(),  # value
                                     source_mask),  # attention mask
                       multi_attention,
-                      stax.Dropout(dropout, mode=mode)),
+                      stax.Dropout(rate=dropout, mode=mode)),
         # feed-forward
         ResidualFeedForward(
             feature_depth, feedforward_depth, dropout, mode=mode)
     )
-    return stax.serial(
+    return stax.Serial(
         embedded_source,
         stax.repeat(encoder_layer, num_layers),
         stax.LayerNorm(),
@@ -112,17 +112,17 @@ def DecoderLayer(feature_depth,
   Returns:
     init and apply.
   """
-  return stax.serial(
-      stax.residual(  # Self-attention block.
+  return stax.Serial(
+      stax.Residual(  # Self-attention block.
           stax.LayerNorm(),
-          stax.FanOut(4),
-          stax.parallel(stax.Identity,  # query
-                        stax.Identity,  # key
-                        stax.Identity,  # value
+          stax.FanOut(size=4),
+          stax.Parallel(stax.Identity(),  # query
+                        stax.Identity(),  # key
+                        stax.Identity(),  # value
                         stax.CausalMask(axis=-2)),  # attention mask
           stax.MultiHeadedAttention(feature_depth, num_heads=num_heads,
                                     dropout=dropout, mode=mode),
-          stax.Dropout(dropout, mode=mode)
+          stax.Dropout(rate=dropout, mode=mode)
       ),
       ResidualFeedForward(feature_depth, feedforward_depth, dropout, mode=mode)
   )
@@ -151,18 +151,17 @@ def TransformerLM(vocab_size,
   Returns:
     init and apply.
   """
-  return stax.serial(
+  return stax.Serial(
       stax.ShiftRight(),
       stax.Embedding(feature_depth, vocab_size),
-      stax.Dropout(dropout, mode=mode),
-      stax.PositionalEncoding(feature_depth, max_len=max_len),
-      stax.repeat(
-          DecoderLayer(
-              feature_depth, feedforward_depth, num_heads, dropout, mode),
-          num_layers),
+      stax.Dropout(rate=dropout, mode=mode),
+      stax.PositionalEncoding(max_len=max_len),
+      stax.Serial([DecoderLayer(feature_depth, feedforward_depth, num_heads,
+                                dropout, mode)
+                   for _ in range(num_layers)]),
       stax.LayerNorm(),
       stax.Dense(vocab_size, W_init=stax.xavier_uniform()),
-      stax.LogSoftmax
+      stax.LogSoftmax()
   )
 
 
@@ -201,7 +200,7 @@ def Transformer(source_vocab_size,
   functions for the trained encoder, decoder, and generator substax.
   """
   # Input embedding and positional encoding
-  inject_position = stax.serial(
+  inject_position = stax.Serial(
       stax.Dropout(dropout, mode=mode),
       stax.PositionalEncoding(feature_depth, max_len=max_len)
   )
@@ -209,13 +208,13 @@ def Transformer(source_vocab_size,
     assert source_vocab_size == target_vocab_size
     # Weight-shared Embedding
     embedding = stax.Share(stax.Embedding(feature_depth, source_vocab_size))
-    source_embedding_layer = stax.serial(embedding, inject_position)
+    source_embedding_layer = stax.Serial(embedding, inject_position)
     target_embedding_layer = source_embedding_layer
   else:
     source_embedding = stax.Embedding(feature_depth, source_vocab_size)
     target_embedding = stax.Embedding(feature_depth, target_vocab_size)
-    source_embedding_layer = stax.serial(source_embedding, inject_position)
-    target_embedding_layer = stax.serial(target_embedding, inject_position)
+    source_embedding_layer = stax.Serial(source_embedding, inject_position)
+    target_embedding_layer = stax.Serial(target_embedding, inject_position)
 
   # Multi-headed Attention and Feed-forward layers
   multi_attention = stax.MultiHeadedAttention(
@@ -233,13 +232,13 @@ def Transformer(source_vocab_size,
     Returns:
       Staxlayer variable that outputs encoded source.
     """
-    encoder_layer = stax.serial(
+    encoder_layer = stax.Serial(
         # input attends to self
-        stax.residual(stax.LayerNorm(),
-                      stax.FanOut(4),
-                      stax.parallel(stax.Identity,  # query
-                                    stax.Identity,  # key
-                                    stax.Identity,  # value
+        stax.Residual(stax.LayerNorm(),
+                      stax.FanOut(size=4),
+                      stax.Parallel(stax.Identity(),  # query
+                                    stax.Identity(),  # key
+                                    stax.Identity(),  # value
                                     source_mask),  # attention mask
                       multi_attention,
                       stax.Dropout(dropout, mode=mode)),
@@ -247,7 +246,7 @@ def Transformer(source_vocab_size,
         ResidualFeedForward(
             feature_depth, feedforward_depth, dropout, mode=mode),
     )
-    return stax.serial(
+    return stax.Serial(
         source,
         source_embedding_layer,
         stax.repeat(encoder_layer, num_layers),
@@ -268,20 +267,20 @@ def Transformer(source_vocab_size,
     Returns:
       Staxlayer variable that outputs encoded source.
     """
-    decoder_layer = stax.serial(
+    decoder_layer = stax.Serial(
         # target attends to self
-        stax.residual(stax.LayerNorm(),
-                      stax.FanOut(4),
-                      stax.parallel(stax.Identity,  # query
-                                    stax.Identity,  # key
-                                    stax.Identity,  # value
+        stax.Residual(stax.LayerNorm(),
+                      stax.FanOut(size=4),
+                      stax.Parallel(stax.Identity(),  # query
+                                    stax.Identity(),  # key
+                                    stax.Identity(),  # value
                                     target_mask),  # attention mask
                       multi_attention,
                       stax.Dropout(dropout, mode=mode)),
         # target attends to encoded source
-        stax.residual(stax.LayerNorm(),
-                      stax.FanOut(4),
-                      stax.parallel(stax.Identity,  # query
+        stax.Residual(stax.LayerNorm(),
+                      stax.FanOut(size=4),
+                      stax.Parallel(stax.Identity(),  # query
                                     memory,  # key
                                     memory,  # value
                                     memory_mask),  # attention mask
@@ -291,7 +290,7 @@ def Transformer(source_vocab_size,
         ResidualFeedForward(
             feature_depth, feedforward_depth, dropout, mode=mode)
     )
-    return stax.serial(
+    return stax.Serial(
         target,
         target_embedding_layer,
         stax.repeat(decoder_layer, num_layers),
@@ -307,7 +306,7 @@ def Transformer(source_vocab_size,
   # Finally, bind the generator transform to use later for inference.
   @stax.Lambda
   def Generator(encoded_target):
-    return stax.serial(
+    return stax.Serial(
         encoded_target,
         stax.Dense(target_vocab_size, W_init=stax.xavier_uniform()),
         stax.LogSoftmax

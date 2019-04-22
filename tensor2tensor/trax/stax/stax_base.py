@@ -13,16 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Stax is a small flexible neural net specification library from scratch."""
-
-# Forked from JAX for more experimentation on syntax and back-ends.
-# See JAX version at https://github.com/google/jax/tree/master/jax/experimental
+"""Trax layers library."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import functools
 import itertools
 import operator as op
 
@@ -32,48 +28,17 @@ import numpy as onp
 from six.moves import reduce
 from tensor2tensor.trax import backend
 from tensor2tensor.trax.backend import numpy as np
+from tensor2tensor.trax.stax import base
 
 # Following the convention used in Keras and tf.layers, we use CamelCase for the
 # names of layer constructors, like Conv and Relu, while using snake_case for
-# other functions, like lax.conv and relu.
-
-# use CamelCase for layer constructors
+# other functions, like lax.conv and relu. To allow this, we disable below.
 # pylint: disable=invalid-name
 
-# don't have docstrings for init_fun / apply_fun pairs
-# pylint: disable=missing-docstring
 
-# ignore unused arguments
-# pylint: disable=unused-argument
+# Initializers.
 
 
-def relu(x):
-  return np.maximum(x, 0.)
-
-
-def softplus(x):
-  return np.logaddexp(x, 0.)
-
-
-def logsoftmax(x, axis=-1):
-  """Apply log softmax to an array of logits, log-normalizing along an axis."""
-  return x - backend.logsumexp(x, axis, keepdims=True)
-
-
-def softmax(x, axis=-1):
-  """Apply softmax to an array of logits, exponentiating and normalizing along an axis."""
-  unnormalized = np.exp(x - x.max(axis, keepdims=True))
-  return unnormalized / unnormalized.sum(axis, keepdims=True)
-
-
-def fastvar(x, axis, keepdims):
-  """A fast but less numerically-stable variance calculation than np.var."""
-  m1 = np.mean(x**2, axis, keepdims=keepdims)
-  m2 = np.mean(x, axis, keepdims=keepdims)**2
-  return m1 - m2
-
-
-# Initializers
 def randn(stddev=1e-2):
   """An initializer function for random normal coefficients."""
   def init(rng, shape):
@@ -91,112 +56,242 @@ def glorot(out_dim=0, in_dim=1, scale=onp.sqrt(2)):
   return init
 
 
-zeros = lambda rng, shape: np.zeros(shape, dtype='float32')
-ones = lambda rng, shape: np.ones(shape, dtype='float32')
+def xavier_uniform(out_dim=0, in_dim=1):
+  """An initializer function for random uniform xavier-scaled coefficients."""
+  def init(rng, shape):
+    fan_in, fan_out = shape[in_dim], shape[out_dim]
+    std = np.sqrt(2.0 / (fan_in + fan_out))
+    a = np.sqrt(3.0) * std
+    return backend.random.uniform(rng, shape, minval=-a, maxval=a)
+  return init
 
 
-# Layers
-
-# Each layer constructor function returns an (init_fun, apply_fun) pair, where
-#   init_fun: takes an input shape and returns an (output_shape, params) pair,
-#   apply_fun: takes params, inputs, and an rng key and applies the layer.
+def one_hot(x, size, dtype=np.float32):
+  """Make a n+1 dim one-hot array from n dim int-categorical array."""
+  return np.array(x[..., np.newaxis] == np.arange(size), dtype)
 
 
-def Dense(out_dim, W_init=glorot(), b_init=randn()):
+# Layers.
+
+
+@base.layer()
+def Relu(params, x, **kwargs):
+  del params, kwargs
+  return np.maximum(x, 0.)
+
+
+@base.layer()
+def Tanh(params, x, **kwargs):
+  del params, kwargs
+  return np.tanh(x)
+
+
+@base.layer()
+def Exp(params, x, **kwargs):
+  del params, kwargs
+  return np.exp(x)
+
+
+@base.layer()
+def LogSoftmax(params, x, axis=-1, **kwargs):
+  """Apply log softmax to x: log-normalize along the given axis."""
+  del params, kwargs
+  return x - backend.logsumexp(x, axis, keepdims=True)
+
+
+@base.layer()
+def Softmax(params, x, axis=-1, **kwargs):
+  """Apply softmax to x: exponentiate and normalize along the given axis."""
+  del params, kwargs
+  return np.exp(x - backend.logsumexp(x, axis, keepdims=True))
+
+
+@base.layer()
+def Softplus(params, x, **kwargs):
+  del params, kwargs
+  return np.logaddexp(x, 0.)
+
+
+class Dense(base.Layer):
   """Layer constructor function for a dense (fully-connected) layer."""
-  def init_fun(rng, input_shape):
-    output_shape = input_shape[:-1] + (out_dim,)
-    w, b = W_init(rng, (input_shape[-1], out_dim)), b_init(rng, (out_dim,))
-    return output_shape, (w, b)
-  def apply_fun(params, inputs, **kwargs):
-    del kwargs  # unused
+
+  def __init__(self, out_dim, W_init=glorot(), b_init=randn()):
+    super(Dense, self).__init__()
+    self._out_dim = out_dim
+    self._W_init = W_init
+    self._b_init = b_init
+
+  def call(self, params, inputs, **kwargs):
+    del kwargs
     w, b = params
     return np.dot(inputs, w) + b
-  return init_fun, apply_fun
+
+  def output_shape(self, input_shape):
+    return tuple(input_shape[:-1]) + (self._out_dim,)
+
+  def new_parameters(self, input_shape, rng):
+    w = self._W_init(rng, (input_shape[-1], self._out_dim))
+    b = self._b_init(rng, (self._out_dim,))
+    return (w, b)
 
 
-def GeneralConv(dimension_numbers, out_chan, filter_shape,
-                strides=None, padding='VALID', W_init=None, b_init=randn(1e-6)):
-  """Layer construction function for a general convolution layer."""
-  lhs_spec, rhs_spec, out_spec = dimension_numbers
-  one = (1,) * len(filter_shape)
-  strides = strides or one
-  W_init = W_init or glorot(rhs_spec.index('O'), rhs_spec.index('I'))
-  def init_fun(rng, input_shape):
-    filter_shape_iter = iter(filter_shape)
-    kernel_shape = [out_chan if c == 'O' else
-                    input_shape[lhs_spec.index('C')] if c == 'I' else
-                    next(filter_shape_iter) for c in rhs_spec]
-    output_shape = lax.conv_general_shape_tuple(
-        input_shape, kernel_shape, strides, padding, dimension_numbers)
-    bias_shape = [out_chan if c == 'C' else 1 for c in out_spec]
+class Embedding(base.Layer):
+  """Layer constructor function for an embedding layer."""
+
+  def __init__(self, feature_depth, vocab_size, W_init=xavier_uniform()):
+    super(Embedding, self).__init__()
+    self._feature_depth = feature_depth
+    self._vocab_size = vocab_size
+    self._W_init = W_init
+
+  def call(self, params, inputs, **kwargs):
+    del kwargs
+    return np.take(params, inputs, axis=0)
+
+  def output_shape(self, input_shape):
+    return tuple(input_shape) + (self._feature_depth,)
+
+  def new_parameters(self, input_shape, rng):
+    return self._W_init(rng, (self._vocab_size, self._feature_depth))
+
+
+class Conv(base.Layer):
+  """Layer constructor function for a general convolution layer."""
+
+  def __init__(self, out_chan, filter_shape, strides=None, padding='VALID',
+               dimension_numbers=('NHWC', 'HWIO', 'NHWC'),
+               W_init=None, b_init=randn(1e-6)):
+    super(Conv, self).__init__()
+    self._out_chan = out_chan
+    self._filter_shape = filter_shape
+    self._padding = padding
+    self._dimension_numbers = dimension_numbers
+    self._lhs_spec, self._rhs_spec, self._out_spec = dimension_numbers
+    self._one = (1,) * len(filter_shape)
+    self._strides = strides or self._one
+    self._b_init = b_init
+    rhs_spec = self._rhs_spec
+    self._W_init = W_init or glorot(rhs_spec.index('O'), rhs_spec.index('I'))
+
+  def call(self, params, inputs, **kwargs):
+    del kwargs
+    w, b = params
+    return lax.conv_general_dilated(
+        inputs, w, self._strides, self._padding, self._one, self._one,
+        self._dimension_numbers) + b
+
+  def _kernel_shape(self, input_shape):
+    """Helper to calculate the kernel shape."""
+    filter_shape_iter = iter(self._filter_shape)
+    return [self._out_chan if c == 'O' else
+            input_shape[self._lhs_spec.index('C')] if c == 'I' else
+            next(filter_shape_iter) for c in self._rhs_spec]
+
+  def output_shape(self, input_shape):
+    kernel_shape = self._kernel_shape(input_shape)
+    return lax.conv_general_shape_tuple(
+        input_shape, kernel_shape,
+        self._strides, self._padding, self._dimension_numbers)
+
+  def new_parameters(self, input_shape, rng):
+    kernel_shape = self._kernel_shape(input_shape)
+    bias_shape = [self._out_chan if c == 'C' else 1 for c in self._out_spec]
     bias_shape = tuple(itertools.dropwhile(lambda x: x == 1, bias_shape))
-    W, b = W_init(rng, kernel_shape), b_init(rng, bias_shape)
-    return output_shape, (W, b)
-  def apply_fun(params, inputs, **kwargs):
-    W, b = params
-    return lax.conv_general_dilated(inputs, W, strides, padding, one, one,
-                                    dimension_numbers) + b
-  return init_fun, apply_fun
-Conv = functools.partial(GeneralConv, ('NHWC', 'HWIO', 'NHWC'))
+    w = self._W_init(rng, kernel_shape)
+    b = self._b_init(rng, bias_shape)
+    return (w, b)
 
 
-def BatchNorm(axis=(0, 1, 2), epsilon=1e-5, center=True, scale=True,
-              beta_init=zeros, gamma_init=ones):
-  """Layer construction function for a batch normalization layer."""
-  _beta_init = lambda rng, shape: beta_init(rng, shape) if center else ()
-  _gamma_init = lambda rng, shape: gamma_init(rng, shape) if scale else ()
+# Flatten.
+def _flatten_output_shape(input_shape, num_axis_to_keep=1):
+  """Output shape of a flatten layer."""
+  if num_axis_to_keep >= len(input_shape):
+    raise ValueError(
+        "num_axis_to_keep[%d] should be less than input's rank[%d]" %
+        (num_axis_to_keep, len(input_shape)))
+  return tuple(input_shape[:num_axis_to_keep]) + (
+      reduce(op.mul, input_shape[num_axis_to_keep:], 1),)
+
+
+@base.layer(output_shape=_flatten_output_shape)
+def Flatten(params, inputs, num_axis_to_keep=1, **kwargs):
+  del params, kwargs
+  return np.reshape(inputs, (inputs.shape[:num_axis_to_keep] + (-1,)))
+
+
+# Batch normalization.
+def _batch_norm_new_params(input_shape, rng, axis=(0, 1, 2),
+                           center=True, scale=True, **kwargs):
+  """Helper to initialize batch norm params."""
+  del rng, kwargs
   axis = (axis,) if np.isscalar(axis) else axis
-  def init_fun(rng, input_shape):
-    shape = tuple(d for i, d in enumerate(input_shape) if i not in axis)
-    beta, gamma = _beta_init(rng, shape), _gamma_init(rng, shape)
-    return input_shape, (beta, gamma)
-  def apply_fun(params, x, **kwargs):
-    beta, gamma = params
-    # TODO(phawkins): np.expand_dims should accept an axis tuple.
-    # (https://github.com/numpy/numpy/issues/12290)
-    ed = tuple(None if i in axis else slice(None) for i in range(np.ndim(x)))
-    beta = beta[ed]
-    gamma = gamma[ed]
-    mean, var = np.mean(x, axis, keepdims=True), fastvar(x, axis, keepdims=True)
-    z = (x - mean) / np.sqrt(var + epsilon)
-    if center and scale: return gamma * z + beta
-    if center: return z + beta
-    if scale: return gamma * z
-    return z
-  return init_fun, apply_fun
+  shape = tuple(d for i, d in enumerate(input_shape) if i not in axis)
+  beta = np.zeros(shape, dtype='float32') if center else ()
+  gamma = np.ones(shape, dtype='float32') if scale else ()
+  return (beta, gamma)
 
 
-def _elemwise_no_params(fun, **fun_kwargs):
-  init_fun = lambda rng, input_shape: (input_shape, ())
-  apply_fun = lambda params, inputs, **kwargs: fun(inputs, **fun_kwargs)
-  return init_fun, apply_fun
-Tanh = _elemwise_no_params(np.tanh)
-Relu = _elemwise_no_params(relu)
-Exp = _elemwise_no_params(np.exp)
-LogSoftmax = _elemwise_no_params(logsoftmax, axis=-1)
-Softmax = _elemwise_no_params(softmax, axis=-1)
-Softplus = _elemwise_no_params(softplus)
+@base.layer(new_parameters=_batch_norm_new_params)
+def BatchNorm(params, x, axis=(0, 1, 2), epsilon=1e-5,
+              center=True, scale=True, **unused_kwargs):
+  """Layer construction function for a batch normalization layer."""
+  mean = np.mean(x, axis, keepdims=True)
+  # Fast but less numerically-stable variance calculation than np.var.
+  m1 = np.mean(x**2, axis, keepdims=True)
+  var = m1 - mean**2
+  z = (x - mean) / np.sqrt(var + epsilon)
+
+  # Expand the parameters to have the right axes.
+  beta, gamma = params
+  # TODO(phawkins): np.expand_dims should accept an axis tuple.
+  # (https://github.com/numpy/numpy/issues/12290)
+  ed = tuple(None if i in axis else slice(None) for i in range(np.ndim(x)))
+  beta = beta[ed]
+  gamma = gamma[ed]
+
+  # Return the z rescaled by the parameters if requested.
+  if center and scale:
+    return gamma * z + beta
+  if center:
+    return z + beta
+  if scale:
+    return gamma * z
+  return z
 
 
-def _pooling_layer(reducer, init_val, rescaler=None):
-  def PoolingLayer(window_shape, strides=None, padding='VALID'):
-    """Layer construction function for a pooling layer."""
-    strides = strides or (1,) * len(window_shape)
-    rescale = rescaler(window_shape, strides, padding) if rescaler else None
-    dims = (1,) + window_shape + (1,)  # NHWC
-    strides = (1,) + strides + (1,)
-    def init_fun(rng, input_shape):
-      out_shape = lax.reduce_window_shape_tuple(input_shape, dims, strides,
-                                                padding)
-      return out_shape, ()
-    def apply_fun(params, inputs, **kwargs):
-      out = lax.reduce_window(inputs, init_val, reducer, dims, strides, padding)
-      return rescale(out, inputs) if rescale else out
-    return init_fun, apply_fun
-  return PoolingLayer
-MaxPool = _pooling_layer(lax.max, -np.inf)
-SumPool = _pooling_layer(lax.add, 0.)
+# Pooling.
+def _pooling_output_shape(input_shape, pool_size=(2, 2),
+                          strides=None, padding='VALID'):
+  """Helper: compute the output shape for the pooling layer."""
+  dims = (1,) + pool_size + (1,)  # NHWC
+  strides = strides or (1,) * len(pool_size)
+  strides = (1,) + strides + (1,)
+  return lax.reduce_window_shape_tuple(input_shape, dims, strides, padding)
+
+
+def _pooling_general(inputs, reducer, init_val, rescaler=None,
+                     pool_size=(2, 2), strides=None, padding='VALID'):
+  """Helper: general pooling computation used in pooling layers later."""
+  strides = strides or (1,) * len(pool_size)
+  rescale = rescaler(pool_size, strides, padding) if rescaler else None
+  dims = (1,) + pool_size + (1,)  # NHWC
+  strides = (1,) + strides + (1,)
+  out = lax.reduce_window(inputs, init_val, reducer, dims, strides, padding)
+  return rescale(out, inputs) if rescale else out
+
+
+@base.layer(output_shape=_pooling_output_shape)
+def MaxPool(params, x, pool_size=(2, 2), strides=None, padding='VALID', **kw):
+  del params, kw
+  return _pooling_general(x, lax.max, -np.inf, pool_size=pool_size,
+                          strides=strides, padding=padding)
+
+
+@base.layer(output_shape=_pooling_output_shape)
+def SumPool(params, x, pool_size=(2, 2), strides=None, padding='VALID', **kw):
+  del params, kw
+  return _pooling_general(x, lax.add, 0., pool_size=pool_size,
+                          strides=strides, padding=padding)
 
 
 def _normalize_by_window_size(dims, strides, padding):
@@ -205,214 +300,44 @@ def _normalize_by_window_size(dims, strides, padding):
     window_sizes = lax.reduce_window(one, 0., lax.add, dims, strides, padding)
     return outputs / window_sizes[..., np.newaxis]
   return rescale
-AvgPool = _pooling_layer(lax.add, 0., _normalize_by_window_size)
 
 
-def Flatten(num_axis_to_keep=1):
-  """Layer construction function for flattening all but the leading dims."""
-  def init_fun(rng, input_shape):
-    del rng
-    if num_axis_to_keep >= len(input_shape):
-      raise ValueError(
-          "num_axis_to_keep[%d] should be less than input's rank[%d]" %
-          (num_axis_to_keep, len(input_shape)))
-    output_shape = tuple(input_shape[:num_axis_to_keep]) + (
-        reduce(op.mul, input_shape[num_axis_to_keep:], 1),)
-    return output_shape, ()
-  def apply_fun(params, inputs, **kwargs):
-    del params, kwargs
-    return np.reshape(inputs, (inputs.shape[:num_axis_to_keep] + (-1,)))
-  return init_fun, apply_fun
+@base.layer(output_shape=_pooling_output_shape)
+def AvgPool(params, x, pool_size=(2, 2), strides=None, padding='VALID', **kw):
+  del params, kw
+  return _pooling_general(x, lax.add, 0., _normalize_by_window_size,
+                          pool_size, strides=strides, padding=padding)
 
 
-def Identity():
-  """Layer construction function for an identity layer."""
-  init_fun = lambda rng, input_shape: (input_shape, ())
-  apply_fun = lambda params, inputs, **kwargs: inputs
-  return init_fun, apply_fun
-Identity = Identity()
-
-
-def FanOut(num):
-  """Layer construction function for a fan-out layer."""
-  init_fun = lambda rng, input_shape: ([input_shape] * num, ())
-  apply_fun = lambda params, inputs, **kwargs: [inputs] * num
-  return init_fun, apply_fun
-
-
-def FanInSum():
-  """Layer construction function for a fan-in sum layer."""
-  init_fun = lambda rng, input_shape: (input_shape[0], ())
-  apply_fun = lambda params, inputs, **kwargs: sum(inputs)
-  return init_fun, apply_fun
-FanInSum = FanInSum()
-
-
-def FanInConcat(axis=-1):
-  """Layer construction function for a fan-in concatenation layer."""
-  def init_fun(rng, input_shape):
-    ax = axis % len(input_shape[0])
-    concat_size = sum(shape[ax] for shape in input_shape)
-    out_shape = input_shape[0][:ax] + (concat_size,) + input_shape[0][ax+1:]
-    return out_shape, ()
-  def apply_fun(params, inputs, **kwargs):
-    return np.concatenate(inputs, axis)
-  return init_fun, apply_fun
-
-
-def Dropout(rate, mode='train'):
+@base.layer()
+def Dropout(params, x, rate=0.0, mode='train', rng=None, **kwargs):
   """Layer construction function for a dropout layer with given rate."""
-  def init_fun(_, input_shape):
-    return input_shape, ()
-  def apply_fun(params, inputs, **kwargs):  # pylint: disable=missing-docstring
-    del params  # Unused.
-    rng = kwargs.get('rng', None)
-    if rng is None:
-      msg = ('Dropout layer requires apply_fun to be called with a PRNG key '
-             'argument. That is, instead of `apply_fun(params, inputs)`, call '
-             'it like `apply_fun(params, inputs, key)` where `key` is a '
-             'jax.random.PRNGKey value.')
-      raise ValueError(msg)
-    if rate >= 1.0:
-      raise ValueError('Dropout rates must be lower than 1.')
-    if mode == 'train' and rate > 0.0:
-      keep = backend.random.bernoulli(rng, 1.0 - rate, inputs.shape)
-      return np.where(keep, inputs / (1.0 - rate), 0)
-    else:
-      return inputs
-  return init_fun, apply_fun
-
-
-def Div(divisor):
-  def init_fun(_, input_shape):
-    return input_shape, ()
-  def apply_fun(params, inputs, **kwargs):
-    return inputs / divisor
-  return init_fun, apply_fun
-
-
-# Composing layers via combinators
-
-
-def serial(*layers):
-  """Combinator for composing layers in serial.
-
-  Args:
-    *layers: a sequence of layers, each an (init_fun, apply_fun) pair.
-  Returns:
-    A new layer, meaning an (init_fun, apply_fun) pair, representing the serial
-    composition of the given sequence of layers.
-  """
-  nlayers = len(layers)
-  init_funs, apply_funs = zip(*layers)
-  def init_fun(rng, input_shape):
-    params = []
-    for init_fun in init_funs:
-      rng, layer_rng = backend.random.split(rng)
-      input_shape, param = init_fun(layer_rng, input_shape)
-      params.append(param)
-    return input_shape, params
-  def apply_fun(params, inputs, **kwargs):
-    rng = kwargs.pop('rng', None)
-    rngs = (None,) * nlayers
-    if rng is not None:
-      rngs = backend.random.split(rng, nlayers)
-    for fun, param, rng in zip(apply_funs, params, rngs):
-      inputs = fun(param, inputs, rng=rng, **kwargs)
-    return inputs
-  return init_fun, apply_fun
-
-
-def parallel(*layers):
-  """Combinator for composing layers in parallel.
-
-  The layer resulting from this combinator is often used with the FanOut and
-  FanInSum layers.
-  Args:
-    *layers: a sequence of layers, each an (init_fun, apply_fun) pair.
-  Returns:
-    A new layer, meaning an (init_fun, apply_fun) pair, representing the
-    parallel composition of the given sequence of layers. In particular, the
-    returned layer takes a sequence of inputs and returns a sequence of outputs
-    with the same length as the argument `layers`.
-  """
-  nlayers = len(layers)
-  init_funs, apply_funs = zip(*layers)
-  def init_fun(rng, input_shape):
-    rngs = backend.random.split(rng, nlayers)
-    return zip(*[init(rng, shape) for init, rng, shape
-                 in zip(init_funs, rngs, input_shape)])
-  def apply_fun(params, inputs, **kwargs):
-    rng = kwargs.pop('rng', None)
-    rngs = (None,) * nlayers
-    if rng is not None:
-      rngs = backend.random.split(rng, nlayers)
-    return [f(p, x, rng=r, **kwargs)
-            for f, p, x, r in zip(apply_funs, params, inputs, rngs)]
-  return init_fun, apply_fun
-
-
-def shape_dependent(make_layer):
-  """Combinator to delay layer constructor pair until input shapes are known.
-
-  Args:
-    make_layer: a one-argument function that takes an input shape as an argument
-      (a tuple of positive integers) and returns an (init_fun, apply_fun) pair.
-  Returns:
-    A new layer, meaning an (init_fun, apply_fun) pair, representing the same
-    layer as returned by `make_layer` but with its construction delayed until
-    input shapes are known.
-  """
-  def init_fun(rng, input_shape):
-    return make_layer(input_shape)[0](rng, input_shape)
-  def apply_fun(params, inputs, **kwargs):
-    return make_layer(inputs.shape)[1](params, inputs, **kwargs)
-  return init_fun, apply_fun
-
-
-# Utility functions
-# ------------------------------------------------------------------------------
-def one_hot(x, size, dtype=np.float32):
-  """Make a n+1 dim one-hot array from n dim int-categorical array."""
-  return np.array(x[..., np.newaxis] == np.arange(size), dtype)
-
-
-def ShiftRight():  # pylint: disable=invalid-name
-  """Layer to shift the tensor to the right by padding on axis 1."""
-  init_fun = lambda _, input_shape: (input_shape, ())
-  def apply_fun(params, inputs, **kwargs):
-    del params, kwargs
-    pad_widths = [(0, 0), (1, 0)]
-    pad_widths += [(0, 0) for _ in range(len(inputs.shape) - 2)]
-    padded = np.pad(inputs, pad_widths, mode='constant')
-    return padded[:, :-1, ...]
-  return init_fun, apply_fun
-
-
-# Utility Combinators
-# ------------------------------------------------------------------------------
-def repeat(layer, num_repeats):
-  """Repeats layers serially num_repeats times."""
-  if num_repeats < 1:
-    raise ValueError('Repeat combinator num_repeats must be >= 1.')
-  layers = num_repeats * (layer,)
-  return serial(*layers)
-
-
-def residual(*layers, **kwargs):
-  """Constructs a residual version of layers, summing input to layers output."""
-  res = kwargs.get('res', Identity)
-  if len(layers) > 1:
-    return serial(
-        FanOut(2),
-        parallel(serial(*layers), res),
-        FanInSum
-    )
-  elif len(layers) == 1:
-    return serial(
-        FanOut(2),
-        parallel(layers[0], res),
-        FanInSum
-    )
+  del params, kwargs
+  if rng is None:
+    msg = ('Dropout layer requires apply_fun to be called with a rng keyword '
+           'argument. That is, instead of `Dropout(params, inputs)`, call '
+           'it like `Dropout(params, inputs, rng=key)`.')
+    raise ValueError(msg)
+  if rate >= 1.0:
+    raise ValueError('Dropout rate (%f) must be lower than 1.' % rate)
+  if mode == 'train' and rate > 0.0:
+    keep = backend.random.bernoulli(rng, 1.0 - rate, x.shape)
+    return np.where(keep, x / (1.0 - rate), 0)
   else:
-    raise ValueError('Empty residual combinator.')
+    return x
+
+
+@base.layer()
+def Div(params, x, divisor=1.0, **kwargs):
+  del params, kwargs
+  return x / divisor
+
+
+@base.layer()
+def ShiftRight(params, inputs, **kwargs):
+  """Layer to shift the tensor to the right by padding on axis 1."""
+  del params, kwargs
+  pad_widths = [(0, 0), (1, 0)]
+  pad_widths += [(0, 0) for _ in range(len(inputs.shape) - 2)]
+  padded = np.pad(inputs, pad_widths, mode='constant')
+  return padded[:, :-1, ...]

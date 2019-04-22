@@ -57,8 +57,8 @@ from jax import numpy as np
 from jax import random as jax_random
 import numpy as onp
 from tensor2tensor.trax import optimizers as trax_opt
+from tensor2tensor.trax import stax
 from tensor2tensor.trax import trax
-from tensor2tensor.trax.stax import stax_base as stax
 
 DEBUG_LOGGING = False
 GAMMA = 0.99
@@ -79,9 +79,9 @@ def policy_net(rng_key,
   # required layers on top of it.
   if bottom_layers is None:
     bottom_layers = []
-  bottom_layers.extend([stax.Dense(num_actions), stax.Softmax])
+  bottom_layers.extend([stax.Dense(num_actions), stax.Softmax()])
 
-  net_init, net_apply = stax.serial(*bottom_layers)
+  net_init, net_apply = stax.Serial(bottom_layers)
 
   _, net_params = net_init(rng_key, batch_observations_shape)
   return net_params, net_apply
@@ -100,7 +100,7 @@ def value_net(rng_key,
       stax.Dense(1),
   ])
 
-  net_init, net_apply = stax.serial(*bottom_layers)
+  net_init, net_apply = stax.Serial(bottom_layers)
 
   _, net_params = net_init(rng_key, batch_observations_shape)
   return net_params, net_apply
@@ -119,12 +119,12 @@ def policy_and_value_net(rng_key,
 
   # Now, with the current logits, one head computes action probabilities and the
   # other computes the value function.
-  layers.extend([stax.FanOut(2), stax.parallel(
-      stax.serial(stax.Dense(num_actions), stax.Softmax),
+  layers.extend([stax.FanOut(), stax.Parallel(
+      stax.Serial(stax.Dense(num_actions), stax.Softmax()),
       stax.Dense(1)
   )])
 
-  net_init, net_apply = stax.serial(*layers)
+  net_init, net_apply = stax.Serial(layers)
 
   _, net_params = net_init(rng_key, batch_observations_shape)
   return net_params, net_apply
@@ -859,4 +859,3 @@ def training_loop(
 
   return ((policy_net_params, value_net_params), average_rewards,
           np.stack(value_losses), np.stack(ppo_objective))
-
