@@ -24,7 +24,7 @@ from tensor2tensor.trax import backend
 from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.stax import base
 from tensor2tensor.trax.stax import combinators
-from tensor2tensor.trax.stax import stax_base as stax
+from tensor2tensor.trax.stax import core
 
 
 @base.layer(output_shape=lambda shape, axis=-1: (1, shape[axis], shape[axis]))
@@ -38,8 +38,9 @@ def MakeTargetMask(target, pad=0):
   """Create an attention mask to hide padding and future words."""
   target_mask = (target != pad)[ :, np.newaxis, :]
   target_dtype = target_mask.dtype
-  target_mask = (
-      (target_mask & stax.causal_mask(target.shape[-1])).astype(target_dtype))
+  causal_mask = onp.tril(onp.ones((1, target.shape[-1], target.shape[-1]),
+                                  dtype=target_dtype), k=0)
+  target_mask = target_mask & causal_mask
   return np.expand_dims(target_mask, axis=1)
 
 
@@ -222,13 +223,13 @@ def MultiHeadedAttention(
   """
   return combinators.Serial(
       combinators.Parallel(
-          stax.Dense(feature_depth, W_init=stax.xavier_uniform()),
-          stax.Dense(feature_depth, W_init=stax.xavier_uniform()),
-          stax.Dense(feature_depth, W_init=stax.xavier_uniform()),
+          core.Dense(feature_depth, W_init=core.xavier_uniform()),
+          core.Dense(feature_depth, W_init=core.xavier_uniform()),
+          core.Dense(feature_depth, W_init=core.xavier_uniform()),
           combinators.Identity()
       ),
       PureMultiHeadedAttention(  # pylint: disable=no-value-for-parameter
           feature_depth=feature_depth, num_heads=num_heads,
           dropout=dropout, mode=mode),
-      stax.Dense(feature_depth, W_init=stax.xavier_uniform()),
+      core.Dense(feature_depth, W_init=core.xavier_uniform()),
   )

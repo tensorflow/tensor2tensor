@@ -155,6 +155,24 @@ class Embedding(base.Layer):
     return self._W_init(rng, (self._vocab_size, self._feature_depth))
 
 
+def padtype_to_pads(in_shape, window_shape, window_strides, padding):
+  """Convert padding string to list of pairs of pad values."""
+  padding = padding.upper()
+  if padding == 'SAME':
+    out_shape = onp.ceil(
+        onp.true_divide(in_shape, window_strides)).astype(int)
+    pad_sizes = [max((out_size - 1) * stride + window_shape - in_size, 0)
+                 for out_size, stride, window_shape, in_size
+                 in zip(out_shape, window_strides, window_shape, in_shape)]
+    return [(pad_size // 2, pad_size - pad_size // 2)
+            for pad_size in pad_sizes]
+  elif padding == 'VALID':
+    return [(0, 0)] * len(in_shape)
+  else:
+    msg = 'Unknown padding type: {}.'
+    raise TypeError(msg.format(padding))
+
+
 class Conv(base.Layer):
   """Layer constructor function for a general convolution layer."""
 
@@ -187,9 +205,64 @@ class Conv(base.Layer):
             input_shape[self._lhs_spec.index('C')] if c == 'I' else
             next(filter_shape_iter) for c in self._rhs_spec]
 
+  def _conv_shape_tuple(self, lhs_shape, rhs_shape, strides, pads):
+    """Compute the shape of a conv given input shapes in canonical order."""
+    if isinstance(pads, str):
+      pads = padtype_to_pads(lhs_shape[2:], rhs_shape[2:], strides, pads)
+    if len(pads) != len(lhs_shape) - 2:
+      msg = 'Wrong number of explicit pads for conv: expected {}, got {}.'
+      raise TypeError(msg.format(len(lhs_shape) - 2, len(pads)))
+    lhs_padded = onp.add(lhs_shape[2:], onp.add(*zip(*pads)))
+    out_space = onp.floor_divide(
+        onp.subtract(lhs_padded, rhs_shape[2:]), strides) + 1
+    out_space = onp.maximum(0, out_space)
+    out_shape = (lhs_shape[0], rhs_shape[0]) + tuple(out_space)
+    return tuple(out_shape)
+
+  def _conv_general_permutations(self, dimension_numbers):
+    """Utility for convolution dimension permutations relative to Conv HLO."""
+    lhs_spec, rhs_spec, out_spec = dimension_numbers
+    lhs_char, rhs_char, out_char = ('N', 'C'), ('O', 'I'), ('N', 'C')
+    charpairs = (lhs_char, rhs_char, out_char)
+    for i, (a, b) in enumerate(charpairs):
+      if not (dimension_numbers[i].count(a) == 1 and
+              dimension_numbers[i].count(b) == 1):
+        msg = ('convolution dimension_numbers[{}] must contain the characters '
+               '"{}" and "{}" exatly once, got {}.')
+        raise TypeError(msg.format(i, a, b, dimension_numbers[i]))
+      if len(dimension_numbers[i]) != len(set(dimension_numbers[i])):
+        msg = ('convolution dimension_numbers[{}] cannot have duplicate '
+               'characters, got {}.')
+        raise TypeError(msg.format(i, dimension_numbers[i]))
+    if not (set(lhs_spec) - set(lhs_char) == set(rhs_spec) - set(rhs_char) ==
+            set(out_spec) - set(out_char)):
+      msg = ('convolution dimension_numbers elements must each have the same '
+             'set of spatial characters, got {}.')
+      raise TypeError(msg.format(dimension_numbers))
+
+    def getperm(spec, charpair):
+      spatial = (i for i, c in enumerate(spec) if c not in charpair)
+      if spec is not rhs_spec:
+        spatial = sorted(spatial, key=lambda i: rhs_spec.index(spec[i]))
+      return (spec.index(charpair[0]), spec.index(charpair[1])) + tuple(spatial)
+
+    lhs_perm, rhs_perm, out_perm = map(getperm, dimension_numbers, charpairs)
+    return lhs_perm, rhs_perm, out_perm
+
+  def _conv_general_shape_tuple(self, lhs_shape, rhs_shape, window_strides,
+                                padding, dimension_numbers):
+    """Generalized computation of conv shape."""
+    lhs_perm, rhs_perm, out_perm = self._conv_general_permutations(
+        dimension_numbers)
+    lhs_trans = onp.take(lhs_shape, lhs_perm)
+    rhs_trans = onp.take(rhs_shape, rhs_perm)
+    out_trans = self._conv_shape_tuple(
+        lhs_trans, rhs_trans, window_strides, padding)
+    return tuple(onp.take(out_trans, onp.argsort(out_perm)))
+
   def output_shape(self, input_shape):
     kernel_shape = self._kernel_shape(input_shape)
-    return lax.conv_general_shape_tuple(
+    return self._conv_general_shape_tuple(
         input_shape, kernel_shape,
         self._strides, self._padding, self._dimension_numbers)
 
@@ -264,18 +337,21 @@ def _pooling_output_shape(input_shape, pool_size=(2, 2),
                           strides=None, padding='VALID'):
   """Helper: compute the output shape for the pooling layer."""
   dims = (1,) + pool_size + (1,)  # NHWC
-  strides = strides or (1,) * len(pool_size)
-  strides = (1,) + strides + (1,)
-  return lax.reduce_window_shape_tuple(input_shape, dims, strides, padding)
+  spatial_strides = strides or (1,) * len(pool_size)
+  strides = (1,) + spatial_strides + (1,)
+  pads = padtype_to_pads(input_shape, dims, strides, padding)
+  operand_padded = onp.add(input_shape, onp.add(*zip(*pads)))
+  t = onp.floor_divide(onp.subtract(operand_padded, dims), strides) + 1
+  return tuple(t)
 
 
 def _pooling_general(inputs, reducer, init_val, rescaler=None,
                      pool_size=(2, 2), strides=None, padding='VALID'):
   """Helper: general pooling computation used in pooling layers later."""
-  strides = strides or (1,) * len(pool_size)
-  rescale = rescaler(pool_size, strides, padding) if rescaler else None
+  spatial_strides = strides or (1,) * len(pool_size)
+  rescale = rescaler(pool_size, spatial_strides, padding) if rescaler else None
   dims = (1,) + pool_size + (1,)  # NHWC
-  strides = (1,) + strides + (1,)
+  strides = (1,) + spatial_strides + (1,)
   out = lax.reduce_window(inputs, init_val, reducer, dims, strides, padding)
   return rescale(out, inputs) if rescale else out
 
@@ -294,10 +370,11 @@ def SumPool(params, x, pool_size=(2, 2), strides=None, padding='VALID', **kw):
                           strides=strides, padding=padding)
 
 
-def _normalize_by_window_size(dims, strides, padding):
+def _normalize_by_window_size(dims, spatial_strides, padding):
   def rescale(outputs, inputs):
     one = np.ones(inputs.shape[1:-1], dtype=inputs.dtype)
-    window_sizes = lax.reduce_window(one, 0., lax.add, dims, strides, padding)
+    window_sizes = lax.reduce_window(
+        one, 0., lax.add, dims, spatial_strides, padding)
     return outputs / window_sizes[..., np.newaxis]
   return rescale
 
