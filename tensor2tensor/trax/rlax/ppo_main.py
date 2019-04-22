@@ -23,6 +23,7 @@ import functools
 
 from absl import app
 from absl import flags
+import jax
 from jax.config import config
 from tensor2tensor.trax import stax
 from tensor2tensor.trax.rlax import ppo
@@ -55,23 +56,29 @@ def main(argv):
   if FLAGS.jax_debug_nans:
     config.update("jax_debug_nans", True)
 
-  optimizer_fun = functools.partial(ppo.optimizer_fun,
-                                    step_size=FLAGS.learning_rate)
+  def run_training_loop():
+    optimizer_fun = functools.partial(
+        ppo.optimizer_fun, step_size=FLAGS.learning_rate)
 
-  ppo.training_loop(
-      env_name=FLAGS.env_name,
-      epochs=FLAGS.epochs,
-      policy_net_fun=functools.partial(
-          ppo.policy_net, bottom_layers=common_stax_layers()),
-      value_net_fun=functools.partial(
-          ppo.value_net, bottom_layers=common_stax_layers()),
-      policy_optimizer_fun=optimizer_fun,
-      value_optimizer_fun=optimizer_fun,
-      batch_size=FLAGS.batch_size,
-      num_optimizer_steps=FLAGS.num_optimizer_steps,
-      boundary=FLAGS.boundary,
-      random_seed=FLAGS.random_seed)
+    ppo.training_loop(
+        env_name=FLAGS.env_name,
+        epochs=FLAGS.epochs,
+        policy_net_fun=functools.partial(
+            ppo.policy_net, bottom_layers=common_stax_layers()),
+        value_net_fun=functools.partial(
+            ppo.value_net, bottom_layers=common_stax_layers()),
+        policy_optimizer_fun=optimizer_fun,
+        value_optimizer_fun=optimizer_fun,
+        batch_size=FLAGS.batch_size,
+        num_optimizer_steps=FLAGS.num_optimizer_steps,
+        boundary=FLAGS.boundary,
+        random_seed=FLAGS.random_seed)
 
+  if FLAGS.jax_debug_nans:
+    with jax.disable_jit():
+      run_training_loop()
+  else:
+    run_training_loop()
 
 if __name__ == "__main__":
   app.run(main)
