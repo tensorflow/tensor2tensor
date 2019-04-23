@@ -129,8 +129,11 @@ def score_file(filename):
 
   with tf.Session() as sess:
     # Load weights from checkpoint.
-    ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)
-    ckpt = ckpts.model_checkpoint_path
+    if FLAGS.checkpoint_path is None:
+      ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)
+      ckpt = ckpts.model_checkpoint_path
+    else:
+      ckpt = FLAGS.checkpoint_path
     saver.restore(sess, ckpt)
     # Run on each line.
     with tf.gfile.Open(filename) as f:
