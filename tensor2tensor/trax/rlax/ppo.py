@@ -56,8 +56,8 @@ from jax import lax
 from jax import numpy as np
 from jax import random as jax_random
 import numpy as onp
+from tensor2tensor.trax import layers
 from tensor2tensor.trax import optimizers as trax_opt
-from tensor2tensor.trax import stax
 from tensor2tensor.trax import trax
 
 DEBUG_LOGGING = False
@@ -79,9 +79,11 @@ def policy_net(rng_key,
   # required layers on top of it.
   if bottom_layers is None:
     bottom_layers = []
+
   # NOTE: The LogSoftmax instead of the Softmax.
-  bottom_layers.extend([stax.Dense(num_actions), stax.LogSoftmax()])
-  net = stax.Serial(*bottom_layers)
+  bottom_layers.extend([layers.Dense(num_actions), layers.LogSoftmax()])
+  net = layers.Serial(*bottom_layers)
+
   return net.initialize(batch_observations_shape, rng_key), net
 
 
@@ -95,9 +97,9 @@ def value_net(rng_key,
   if bottom_layers is None:
     bottom_layers = []
   bottom_layers.extend([
-      stax.Dense(1),
+      layers.Dense(1),
   ])
-  net = stax.Serial(*bottom_layers)
+  net = layers.Serial(*bottom_layers)
   return net.initialize(batch_observations_shape, rng_key), net
 
 
@@ -108,19 +110,18 @@ def policy_and_value_net(rng_key,
   """A policy and value net function."""
 
   # Layers.
-  layers = []
+  cur_layers = []
   if bottom_layers is not None:
-    layers.extend(bottom_layers)
+    cur_layers.extend(bottom_layers)
 
   # Now, with the current logits, one head computes action probabilities and the
   # other computes the value function.
   # NOTE: The LogSoftmax instead of the Softmax.
-  layers.extend([stax.FanOut(), stax.Parallel(
-      stax.Serial(stax.Dense(num_actions), stax.LogSoftmax()),
-      stax.Dense(1)
+  cur_layers.extend([layers.FanOut(), layers.Parallel(
+      layers.Serial(layers.Dense(num_actions), layers.LogSoftmax()),
+      layers.Dense(1)
   )])
-
-  net = stax.Serial(*layers)
+  net = layers.Serial(*cur_layers)
   return net.initialize(batch_observations_shape, rng_key), net
 
 

@@ -13,15 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for Stax base layer."""
+"""Tests for base layers."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 from absl.testing import absltest
 import numpy as onp
+from tensor2tensor.trax import layers
 from tensor2tensor.trax.backend import random
-import tensor2tensor.trax.stax as stax
 
 
 def random_inputs(rng, input_shape):
@@ -43,8 +43,8 @@ def check_shape_agreement(test_case, layer, input_shape):
   return result_shape
 
 
-def check_staxlayer(test_case, staxlayer, input_shape):
-  return check_shape_agreement(test_case, staxlayer, input_shape)
+def check_layer(test_case, layer, input_shape):
+  return check_shape_agreement(test_case, layer, input_shape)
 
 
 class SlaxTest(absltest.TestCase):
@@ -52,30 +52,30 @@ class SlaxTest(absltest.TestCase):
   def test_flatten_n(self):
     input_shape = (29, 87, 10, 20, 30)
 
-    actual_shape = check_staxlayer(self, stax.Flatten(), input_shape)
+    actual_shape = check_layer(self, layers.Flatten(), input_shape)
     self.assertEqual(actual_shape, (29, 87 * 10 * 20 * 30))
 
-    actual_shape = check_staxlayer(self, stax.Flatten(num_axis_to_keep=2),
-                                   input_shape)
+    actual_shape = check_layer(self, layers.Flatten(num_axis_to_keep=2),
+                               input_shape)
     self.assertEqual(actual_shape, (29, 87, 10 * 20 * 30))
 
-    actual_shape = check_staxlayer(self, stax.Flatten(num_axis_to_keep=3),
-                                   input_shape)
+    actual_shape = check_layer(self, layers.Flatten(num_axis_to_keep=3),
+                               input_shape)
     self.assertEqual(actual_shape, (29, 87, 10, 20 * 30))
 
-    actual_shape = check_staxlayer(self, stax.Flatten(num_axis_to_keep=4),
-                                   input_shape)
+    actual_shape = check_layer(self, layers.Flatten(num_axis_to_keep=4),
+                               input_shape)
     self.assertEqual(actual_shape, (29, 87, 10, 20, 30))
 
     # Not enough dimensions.
     with self.assertRaises(ValueError):
-      check_staxlayer(self, stax.Flatten(num_axis_to_keep=5), input_shape)
+      check_layer(self, layers.Flatten(num_axis_to_keep=5), input_shape)
 
     with self.assertRaises(ValueError):
-      check_staxlayer(self, stax.Flatten(num_axis_to_keep=6), input_shape)
+      check_layer(self, layers.Flatten(num_axis_to_keep=6), input_shape)
 
   def test_div(self):
-    layer = stax.Div(divisor=2.0)
+    layer = layers.Div(divisor=2.0)
     input_np = onp.array([[1, 2, 3], [4, 5, 6]], dtype=onp.float32)
     output_np = layer(input_np)
     # absltest doesn't have ndarray equalities.
@@ -86,9 +86,9 @@ class SlaxTest(absltest.TestCase):
         delta=1e-6)
 
   def test_dense_param_sharing(self):
-    model1 = stax.Serial(stax.Dense(32), stax.Dense(32))
-    layer = stax.Dense(32)
-    model2 = stax.Serial(layer, layer)
+    model1 = layers.Serial(layers.Dense(32), layers.Dense(32))
+    layer = layers.Dense(32)
+    model2 = layers.Serial(layer, layer)
     rng = random.get_prng(0)
     params1 = model1.initialize((-1, 32), rng)
     params2 = model2.initialize((-1, 32), rng)

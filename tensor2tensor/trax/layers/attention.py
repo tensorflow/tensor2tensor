@@ -22,9 +22,9 @@ import numpy as onp
 
 from tensor2tensor.trax import backend
 from tensor2tensor.trax.backend import numpy as np
-from tensor2tensor.trax.stax import base
-from tensor2tensor.trax.stax import combinators
-from tensor2tensor.trax.stax import core
+from tensor2tensor.trax.layers import base
+from tensor2tensor.trax.layers import combinators
+from tensor2tensor.trax.layers import core
 
 
 @base.layer(output_shape=lambda shape, axis=-1: (1, shape[axis], shape[axis]))

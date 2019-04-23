@@ -25,7 +25,7 @@ from absl import app
 from absl import flags
 import jax
 from jax.config import config
-from tensor2tensor.trax import stax
+from tensor2tensor.trax import layers
 from tensor2tensor.trax.rlax import ppo
 
 FLAGS = flags.FLAGS
@@ -46,11 +46,12 @@ flags.DEFINE_boolean("jax_debug_nans", False,
                      "Setting to true will help to debug nans.")
 
 
-def common_stax_layers():
-  layers = []
+def common_layers():
+  cur_layers = []
   if FLAGS.env_name == "Pong-v0":
-    layers = [stax.Div(divisor=255.0), stax.Flatten(num_axis_to_keep=2)]
-  return layers + [stax.Dense(16), stax.Relu(), stax.Dense(4), stax.Relu()]
+    cur_layers = [layers.Div(divisor=255.0), layers.Flatten(num_axis_to_keep=2)]
+  return cur_layers + [layers.Dense(16), layers.Relu(),
+                       layers.Dense(4), layers.Relu()]
 
 
 def main(argv):
@@ -67,9 +68,9 @@ def main(argv):
         env_name=FLAGS.env_name,
         epochs=FLAGS.epochs,
         policy_net_fun=functools.partial(
-            ppo.policy_net, bottom_layers=common_stax_layers()),
+            ppo.policy_net, bottom_layers=common_layers()),
         value_net_fun=functools.partial(
-            ppo.value_net, bottom_layers=common_stax_layers()),
+            ppo.value_net, bottom_layers=common_layers()),
         policy_optimizer_fun=optimizer_fun,
         value_optimizer_fun=optimizer_fun,
         batch_size=FLAGS.batch_size,

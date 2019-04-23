@@ -22,7 +22,7 @@ from __future__ import print_function
 import functools
 import gym
 from tensor2tensor.rl import gym_utils
-from tensor2tensor.trax import stax
+from tensor2tensor.trax import layers
 from tensor2tensor.trax.rlax import ppo
 from tensorflow import test
 
@@ -42,9 +42,9 @@ class PpoTrainingLoopTest(test.TestCase):
         env=env,
         epochs=num_epochs,
         policy_net_fun=functools.partial(
-            ppo.policy_net, bottom_layers=[stax.Dense(1)]),
+            ppo.policy_net, bottom_layers=[layers.Dense(1)]),
         value_net_fun=functools.partial(
-            ppo.value_net, bottom_layers=[stax.Dense(1)]),
+            ppo.value_net, bottom_layers=[layers.Dense(1)]),
         batch_size=batch_size,
         num_optimizer_steps=1,
         random_seed=0)

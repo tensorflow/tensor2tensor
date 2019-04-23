@@ -22,7 +22,7 @@ from __future__ import print_function
 import jax
 from jax import random as jax_random
 import numpy as np
-from tensor2tensor.trax import stax
+from tensor2tensor.trax import layers
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.rlax import fake_env
 from tensor2tensor.trax.rlax import ppo
@@ -43,7 +43,7 @@ class PpoTest(test.TestCase):
         num_actions,
         # flatten except batch and time
         # step dimensions.
-        [stax.Flatten(num_axis_to_keep=2)])
+        [layers.Flatten(num_axis_to_keep=2)])
 
     # Generate a batch of observations.
     batch = 2
@@ -67,7 +67,7 @@ class PpoTest(test.TestCase):
     value_params, value_apply = ppo.value_net(
         self.rng_key,
         (-1, -1) + observation_shape,
-        num_actions, [stax.Flatten(num_axis_to_keep=2)])
+        num_actions, [layers.Flatten(num_axis_to_keep=2)])
     batch = 2
     time_steps = 10
     batch_of_observations = np.random.uniform(
@@ -83,7 +83,7 @@ class PpoTest(test.TestCase):
     num_actions = 2
     pnv_params, pnv_apply = ppo.policy_and_value_net(
         self.rng_key, batch_observation_shape, num_actions,
-        [stax.Flatten(num_axis_to_keep=2)])
+        [layers.Flatten(num_axis_to_keep=2)])
     batch = 2
     time_steps = 10
     batch_of_observations = np.random.uniform(
@@ -104,7 +104,7 @@ class PpoTest(test.TestCase):
         num_actions,
         # flatten except batch and time
         # step dimensions.
-        [stax.Flatten(num_axis_to_keep=2)])
+        [layers.Flatten(num_axis_to_keep=2)])
 
     # We'll get done at time-step #5, starting from 0, therefore in 6 steps.
     done_time_step = 5
@@ -139,7 +139,7 @@ class PpoTest(test.TestCase):
         num_actions,
         # flatten except batch and time
         # step dimensions.
-        [stax.Flatten(num_axis_to_keep=2)])
+        [layers.Flatten(num_axis_to_keep=2)])
 
     # We'll get done at time-step #5, starting from 0, therefore in 6 steps.
     done_time_step = 5
@@ -487,16 +487,16 @@ class PpoTest(test.TestCase):
     batch_observation_shape = (-1, -1) + OBS
 
     old_policy_params, _ = ppo.policy_net(key1, batch_observation_shape, A,
-                                          [stax.Flatten(num_axis_to_keep=2)])
+                                          [layers.Flatten(num_axis_to_keep=2)])
 
     new_policy_params, policy_apply = ppo.policy_net(
         key2,
         batch_observation_shape, A,
-        [stax.Flatten(num_axis_to_keep=2)])
+        [layers.Flatten(num_axis_to_keep=2)])
 
     value_params, value_apply = ppo.value_net(
         key3, batch_observation_shape, A,
-        [stax.Flatten(num_axis_to_keep=2)])
+        [layers.Flatten(num_axis_to_keep=2)])
 
     # Generate a batch of observations.
 

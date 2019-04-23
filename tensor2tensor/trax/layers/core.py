@@ -28,7 +28,7 @@ import numpy as onp
 from six.moves import reduce
 from tensor2tensor.trax import backend
 from tensor2tensor.trax.backend import numpy as np
-from tensor2tensor.trax.stax import base
+from tensor2tensor.trax.layers import base
 
 # Following the convention used in Keras and tf.layers, we use CamelCase for the
 # names of layer constructors, like Conv and Relu, while using snake_case for

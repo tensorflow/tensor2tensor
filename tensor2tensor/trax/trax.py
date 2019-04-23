@@ -40,11 +40,11 @@ from tensor2tensor.trax import backend
 from tensor2tensor.trax import history as trax_history
 from tensor2tensor.trax import inputs as trax_inputs
 from tensor2tensor.trax import jaxboard
+from tensor2tensor.trax import layers
 from tensor2tensor.trax import learning_rate as lr
 from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.backend import random as jax_random
-import tensor2tensor.trax.stax as stax
 
 import tensorflow as tf
 from tensorflow.io import gfile
@@ -71,7 +71,7 @@ def accuracy(batch, model_predictions):
 def neg_log_perplexity(batch, model_predictions):
   """Calculate negative log perplexity."""
   _, targets = batch
-  hot_targets = stax.one_hot(targets, model_predictions.shape[-1])
+  hot_targets = layers.one_hot(targets, model_predictions.shape[-1])
   xent = np.sum(model_predictions * hot_targets, axis=-1)
   return masked_mean(xent, targets)
 
@@ -80,7 +80,7 @@ def loss(params, batch, model_predict, rng):
   """Calculate loss."""
   inputs, targets = batch
   preds = model_predict(inputs, params, rng=rng)
-  xent = np.sum(preds * stax.one_hot(targets, preds.shape[-1]), axis=-1)
+  xent = np.sum(preds * layers.one_hot(targets, preds.shape[-1]), axis=-1)
   return - masked_mean(xent, targets)
 
 

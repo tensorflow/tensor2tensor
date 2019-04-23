@@ -20,7 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.trax import backend
-from tensor2tensor.trax.stax import base
+from tensor2tensor.trax.layers import base
 
 
 class Serial(base.Layer):
