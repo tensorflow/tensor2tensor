@@ -80,11 +80,8 @@ def policy_net(rng_key,
   if bottom_layers is None:
     bottom_layers = []
   bottom_layers.extend([stax.Dense(num_actions), stax.Softmax()])
-
-  net_init, net_apply = stax.Serial(bottom_layers)
-
-  _, net_params = net_init(rng_key, batch_observations_shape)
-  return net_params, net_apply
+  net = stax.Serial(*bottom_layers)
+  return net.initialize(batch_observations_shape, rng_key), net
 
 
 def value_net(rng_key,
@@ -99,11 +96,8 @@ def value_net(rng_key,
   bottom_layers.extend([
       stax.Dense(1),
   ])
-
-  net_init, net_apply = stax.Serial(bottom_layers)
-
-  _, net_params = net_init(rng_key, batch_observations_shape)
-  return net_params, net_apply
+  net = stax.Serial(*bottom_layers)
+  return net.initialize(batch_observations_shape, rng_key), net
 
 
 def policy_and_value_net(rng_key,
@@ -124,10 +118,8 @@ def policy_and_value_net(rng_key,
       stax.Dense(1)
   )])
 
-  net_init, net_apply = stax.Serial(layers)
-
-  _, net_params = net_init(rng_key, batch_observations_shape)
-  return net_params, net_apply
+  net = stax.Serial(*layers)
+  return net.initialize(batch_observations_shape, rng_key), net
 
 
 def optimizer_fun(net_params, step_size=1e-3):
@@ -183,7 +175,7 @@ def collect_trajectories(env,
            (not max_timestep or observation_history.shape[1] < max_timestep)):
       # Run the policy, to pick an action, shape is (1, t, A) because
       # observation_history is shaped (1, t) + OBS
-      predictions = policy_net_apply(policy_net_params, observation_history)
+      predictions = policy_net_apply(observation_history, policy_net_params)
 
       # We need the predictions for the last time-step, so squeeze the batch
       # dimension and take the last time-step.
@@ -419,7 +411,7 @@ def value_loss(value_net_apply,
 
   r2g = rewards_to_go(rewards, reward_mask, gamma=gamma)  # (B, T)
   # NOTE: observations is (B, T+1) + OBS, value_prediction is (B, T+1, 1)
-  value_prediction = value_net_apply(value_net_params, observations)
+  value_prediction = value_net_apply(observations, value_net_params)
   assert (B, T + 1, 1) == value_prediction.shape
   value_prediction = np.squeeze(value_prediction, axis=2)  # (B, T+1)
   value_prediction = value_prediction[:, :-1] * reward_mask  # (B, T)
@@ -549,7 +541,7 @@ def ppo_loss(policy_net_apply,
              epsilon=0.2):
   """PPO objective, with an eventual minus sign."""
   # (B, T+1, 1)
-  predicted_values = value_net_apply(value_net_params, padded_observations)
+  predicted_values = value_net_apply(padded_observations, value_net_params)
 
   # (B, T)
   td_deltas = deltas(
@@ -563,8 +555,8 @@ def ppo_loss(policy_net_apply,
       td_deltas, reward_mask, lambda_=lambda_, gamma=gamma)
 
   # probab_actions_{old,new} are both (B, T, A)
-  probab_actions_old = policy_net_apply(old_policy_params, padded_observations)
-  probab_actions_new = policy_net_apply(new_policy_params, padded_observations)
+  probab_actions_old = policy_net_apply(padded_observations, old_policy_params)
+  probab_actions_new = policy_net_apply(padded_observations, new_policy_params)
 
   # (B, T)
   ratios = compute_probab_ratios(probab_actions_old, probab_actions_new,

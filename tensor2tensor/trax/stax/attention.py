@@ -28,7 +28,7 @@ from tensor2tensor.trax.stax import core
 
 
 @base.layer(output_shape=lambda shape, axis=-1: (1, shape[axis], shape[axis]))
-def CausalMask(params, x, axis=-1, **kwargs):
+def CausalMask(x, params, axis=-1, **kwargs):
   del params, kwargs
   size = x.shape[axis]
   return onp.tril(onp.ones((1, size, size), dtype=x.dtype), k=0)
@@ -79,7 +79,7 @@ def _layer_norm_new_params(input_shape, rng, epsilon=1e-6):  # pylint: disable=i
 
 
 @base.layer(new_parameters=_layer_norm_new_params)
-def LayerNorm(params, x, epsilon=1e-6, **unused_kwargs):
+def LayerNorm(x, params, epsilon=1e-6, **unused_kwargs):
   (scale, bias) = params
   mean = np.mean(x, axis=-1, keepdims=True)
   variance = np.mean((x - mean)**2, axis=-1, keepdims=True)
@@ -102,7 +102,7 @@ def _positional_encoding_new_params(input_shape, rng, max_len=2048):  # pylint: 
 
 
 @base.layer(new_parameters=_positional_encoding_new_params)
-def PositionalEncoding(params, x, **unused_kwargs):
+def PositionalEncoding(x, params, **unused_kwargs):
   """Implements bare positional encoding."""
   symbol_size = np.shape(x)[1]
   return x + params[:, :symbol_size]
@@ -170,14 +170,13 @@ def _multihead_attention_output_shape(  # pylint: disable=invalid-name
 
 
 @base.layer(output_shape=_multihead_attention_output_shape)
-def PureMultiHeadedAttention(
-    params, x, feature_depth=None, num_heads=8, dropout=0.0, mode='train',
-    **kwargs):
+def PureMultiHeadedAttention(x, params, feature_depth=None,
+                             num_heads=8, dropout=0.0, mode='train', **kwargs):
   """Pure transformer-style multi-headed attention.
 
   Args:
-    params: parameters (none)
     x: inputs (q, k, v, mask)
+    params: parameters (none)
     feature_depth: int:  depth of embedding
     num_heads: int: number of attention heads
     dropout: float: dropout rate
@@ -223,13 +222,17 @@ def MultiHeadedAttention(
   """
   return combinators.Serial(
       combinators.Parallel(
-          core.Dense(feature_depth, W_init=core.xavier_uniform()),
-          core.Dense(feature_depth, W_init=core.xavier_uniform()),
-          core.Dense(feature_depth, W_init=core.xavier_uniform()),
+          core.Dense(feature_depth,
+                     kernel_initializer=core.XavierUniformInitializer()),
+          core.Dense(feature_depth,
+                     kernel_initializer=core.XavierUniformInitializer()),
+          core.Dense(feature_depth,
+                     kernel_initializer=core.XavierUniformInitializer()),
           combinators.Identity()
       ),
       PureMultiHeadedAttention(  # pylint: disable=no-value-for-parameter
           feature_depth=feature_depth, num_heads=num_heads,
           dropout=dropout, mode=mode),
-      core.Dense(feature_depth, W_init=core.xavier_uniform()),
+      core.Dense(feature_depth,
+                 kernel_initializer=core.XavierUniformInitializer()),
   )

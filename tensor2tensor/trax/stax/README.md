@@ -21,10 +21,21 @@ The base layer class wraps these functions and provides initialization
 and call functions to be used as follows.
 
 ```python
-input = np.zeros(10)
 layer = MyLayer()
-params = layer.initialize()
-output = layer(params, input)
+x = np.zeros(10)
+params = layer.initialize(x.shape)
+output = layer(x, params)
+```
+
+## Decorator
+
+To create simple layers, especially ones without parameters and where
+the output shape is the same as the input shape, use the layer decorator.
+
+```python
+@base.layer()
+def Relu(x, **unused_kwargs):
+  return np.maximum(x, 0.)
 ```
 
 ## Parameter sharing
@@ -36,6 +47,8 @@ standard_mlp = layers.Serial(layers.Dense(10), layers.Dense(10))
 layer = Dense(10)
 shared_parameters_mlp = layers.Serial(layer, layer)
 ```
+For this reason, if you call `layer.initialize(...)` for the second time
+on an already initialized layer, it will return `()`.
 
 ## Core layers
 

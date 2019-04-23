@@ -28,21 +28,17 @@ class Serial(base.Layer):
 
   def __init__(self, *layers):
     super(Serial, self).__init__()
-    # If called with one list argument, treat it as layers.
-    if len(layers) == 1 and isinstance(layers[0], list):
-      layers = layers[0]
     self._nlayers = len(layers)
     self._layers = layers
-    self._init_funs, self._apply_funs = zip(*layers)
 
-  def call(self, params, inputs, **kwargs):
+  def call(self, x, params=(), **kwargs):
     rng = kwargs.pop('rng', None)
     rngs = (None,) * self._nlayers
     if rng is not None:
       rngs = backend.random.split(rng, self._nlayers)
-    for fun, param, rng in zip(self._apply_funs, params, rngs):
-      inputs = fun(param, inputs, rng=rng, **kwargs)
-    return inputs
+    for layer, p, rng in zip(self._layers, params, rngs):
+      x = layer(x, p, rng=rng, **kwargs)
+    return x
 
   def output_shape(self, input_shape):
     cur_shape = input_shape
@@ -52,28 +48,28 @@ class Serial(base.Layer):
 
   def new_parameters(self, input_shape, rng):
     params = []
-    for init_fun in self._init_funs:
+    cur_shape = input_shape
+    for layer in self._layers:
       rng, layer_rng = backend.random.split(rng)
-      input_shape, param = init_fun(layer_rng, input_shape)
+      param = layer.initialize(cur_shape, layer_rng)
+      cur_shape = layer.output_shape(cur_shape)
       params.append(param)
     return params
 
 
 @base.layer()
-def Identity(params, x, **kwargs):
-  del params, kwargs
+def Identity(x, **unused_kwargs):
   return x
 
 
 @base.layer(output_shape=lambda input_shape, size=2: [input_shape] * size)
-def FanOut(params, x, size=2, **kwargs):
+def FanOut(x, params, size=2, **kwargs):
   del params, kwargs
   return [x] * size
 
 
 @base.layer(output_shape=lambda input_shape_list: input_shape_list[0])
-def FanInSum(params, x, **kwargs):
-  del params, kwargs
+def FanInSum(x, **unused_kwargs):
   return sum(x)  # Here x is a list of tensors of the same shape, we add them.
 
 
@@ -86,7 +82,7 @@ def _fan_in_concat_shape(input_shape, axis=-1):  # pylint: disable=invalid-name
 
 
 @base.layer(output_shape=_fan_in_concat_shape)
-def FanInConcat(params, x, axis=-1, **kwargs):
+def FanInConcat(x, params, axis=-1, **kwargs):
   del params, kwargs
   return backend.numpy.concatenate(x, axis)
 
@@ -109,20 +105,16 @@ class Parallel(base.Layer):
 
   def __init__(self, *layers):
     super(Parallel, self).__init__()
-    # If called with one list argument, treat it as layers.
-    if len(layers) == 1 and isinstance(layers[0], list):
-      layers = layers[0]
     self._nlayers = len(layers)
     self._layers = layers
-    self._init_funs, self._apply_funs = zip(*layers)
 
-  def call(self, params, inputs, **kwargs):
+  def call(self, inputs, params=(), **kwargs):
     rng = kwargs.pop('rng', None)
     rngs = (None,) * self._nlayers
     if rng is not None:
       rngs = backend.random.split(rng, self._nlayers)
-    return [f(p, x, rng=r, **kwargs)
-            for f, p, x, r in zip(self._apply_funs, params, inputs, rngs)]
+    return [layer(x, params=p, rng=r, **kwargs)
+            for layer, x, p, r in zip(self._layers, inputs, params, rngs)]
 
   def output_shape(self, input_shapes):
     return tuple([layer.output_shape(shape)
@@ -130,9 +122,8 @@ class Parallel(base.Layer):
 
   def new_parameters(self, input_shape, rng):
     rngs = backend.random.split(rng, self._nlayers)
-    _, p = zip(*[init(rng, shape) for init, rng, shape
-                 in zip(self._init_funs, rngs, input_shape)])
-    return p
+    return [layer.initialize(shape, rng) for layer, shape, rng
+            in zip(self._layers, input_shape, rngs)]
 
 
 def Residual(*layers, **kwargs):

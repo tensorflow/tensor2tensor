@@ -39,16 +39,16 @@ from tensor2tensor.trax.stax import base
 # Initializers.
 
 
-def randn(stddev=1e-2):
+def RandomNormalInitializer(stddev=1e-2):
   """An initializer function for random normal coefficients."""
-  def init(rng, shape):
+  def init(shape, rng):
     return (stddev * backend.random.normal(rng, shape)).astype('float32')
   return init
 
 
-def glorot(out_dim=0, in_dim=1, scale=onp.sqrt(2)):
+def GlorotNormalInitializer(out_dim=0, in_dim=1, scale=onp.sqrt(2)):
   """An initializer function for random Glorot-scaled coefficients."""
-  def init(rng, shape):
+  def init(shape, rng):
     fan_in, fan_out = shape[in_dim], shape[out_dim]
     size = onp.prod(onp.delete(shape, [in_dim, out_dim]))
     std = scale / np.sqrt((fan_in + fan_out) / 2. * size)
@@ -56,9 +56,9 @@ def glorot(out_dim=0, in_dim=1, scale=onp.sqrt(2)):
   return init
 
 
-def xavier_uniform(out_dim=0, in_dim=1):
+def XavierUniformInitializer(out_dim=0, in_dim=1):
   """An initializer function for random uniform xavier-scaled coefficients."""
-  def init(rng, shape):
+  def init(shape, rng):
     fan_in, fan_out = shape[in_dim], shape[out_dim]
     std = np.sqrt(2.0 / (fan_in + fan_out))
     a = np.sqrt(3.0) * std
@@ -75,84 +75,84 @@ def one_hot(x, size, dtype=np.float32):
 
 
 @base.layer()
-def Relu(params, x, **kwargs):
-  del params, kwargs
+def Relu(x, **unused_kwargs):
   return np.maximum(x, 0.)
 
 
 @base.layer()
-def Tanh(params, x, **kwargs):
-  del params, kwargs
+def Tanh(x, **unused_kwargs):
   return np.tanh(x)
 
 
 @base.layer()
-def Exp(params, x, **kwargs):
-  del params, kwargs
+def Exp(x, **unused_kwargs):
   return np.exp(x)
 
 
 @base.layer()
-def LogSoftmax(params, x, axis=-1, **kwargs):
+def LogSoftmax(x, params, axis=-1, **kwargs):
   """Apply log softmax to x: log-normalize along the given axis."""
   del params, kwargs
   return x - backend.logsumexp(x, axis, keepdims=True)
 
 
 @base.layer()
-def Softmax(params, x, axis=-1, **kwargs):
+def Softmax(x, params, axis=-1, **kwargs):
   """Apply softmax to x: exponentiate and normalize along the given axis."""
   del params, kwargs
   return np.exp(x - backend.logsumexp(x, axis, keepdims=True))
 
 
 @base.layer()
-def Softplus(params, x, **kwargs):
-  del params, kwargs
+def Softplus(x, **unused_kwargs):
   return np.logaddexp(x, 0.)
 
 
 class Dense(base.Layer):
   """Layer constructor function for a dense (fully-connected) layer."""
 
-  def __init__(self, out_dim, W_init=glorot(), b_init=randn()):
+  def __init__(self, units,
+               kernel_initializer=GlorotNormalInitializer(),
+               bias_initializer=RandomNormalInitializer(1e-6)):
     super(Dense, self).__init__()
-    self._out_dim = out_dim
-    self._W_init = W_init
-    self._b_init = b_init
+    self._units = units
+    self._kernel_initializer = kernel_initializer
+    self._bias_initializer = bias_initializer
 
-  def call(self, params, inputs, **kwargs):
+  def call(self, x, params, **kwargs):
     del kwargs
     w, b = params
-    return np.dot(inputs, w) + b
+    return np.dot(x, w) + b
 
   def output_shape(self, input_shape):
-    return tuple(input_shape[:-1]) + (self._out_dim,)
+    return tuple(input_shape[:-1]) + (self._units,)
 
   def new_parameters(self, input_shape, rng):
-    w = self._W_init(rng, (input_shape[-1], self._out_dim))
-    b = self._b_init(rng, (self._out_dim,))
+    w = self._kernel_initializer((input_shape[-1], self._units), rng)
+    b = self._bias_initializer((self._units,), rng)
     return (w, b)
 
 
 class Embedding(base.Layer):
   """Layer constructor function for an embedding layer."""
 
-  def __init__(self, feature_depth, vocab_size, W_init=xavier_uniform()):
+  def __init__(self, feature_depth, vocab_size,
+               kernel_initializer=XavierUniformInitializer()):
     super(Embedding, self).__init__()
     self._feature_depth = feature_depth
     self._vocab_size = vocab_size
-    self._W_init = W_init
+    self._kernel_initializer = kernel_initializer
 
-  def call(self, params, inputs, **kwargs):
+  def call(self, x, params, **kwargs):
     del kwargs
-    return np.take(params, inputs, axis=0)
+    return np.take(params, x, axis=0)
 
   def output_shape(self, input_shape):
     return tuple(input_shape) + (self._feature_depth,)
 
   def new_parameters(self, input_shape, rng):
-    return self._W_init(rng, (self._vocab_size, self._feature_depth))
+    return self._kernel_initializer(
+        (self._vocab_size, self._feature_depth), rng)
 
 
 def padtype_to_pads(in_shape, window_shape, window_strides, padding):
@@ -176,34 +176,36 @@ def padtype_to_pads(in_shape, window_shape, window_strides, padding):
 class Conv(base.Layer):
   """Layer constructor function for a general convolution layer."""
 
-  def __init__(self, out_chan, filter_shape, strides=None, padding='VALID',
+  def __init__(self, filters, kernel_size, strides=None, padding='VALID',
                dimension_numbers=('NHWC', 'HWIO', 'NHWC'),
-               W_init=None, b_init=randn(1e-6)):
+               kernel_initializer=None,
+               bias_initializer=RandomNormalInitializer(1e-6)):
     super(Conv, self).__init__()
-    self._out_chan = out_chan
-    self._filter_shape = filter_shape
+    self._filters = filters
+    self._kernel_size = kernel_size
     self._padding = padding
     self._dimension_numbers = dimension_numbers
     self._lhs_spec, self._rhs_spec, self._out_spec = dimension_numbers
-    self._one = (1,) * len(filter_shape)
+    self._one = (1,) * len(kernel_size)
     self._strides = strides or self._one
-    self._b_init = b_init
+    self._bias_initializer = bias_initializer
     rhs_spec = self._rhs_spec
-    self._W_init = W_init or glorot(rhs_spec.index('O'), rhs_spec.index('I'))
+    self._kernel_initializer = kernel_initializer or GlorotNormalInitializer(
+        rhs_spec.index('O'), rhs_spec.index('I'))
 
-  def call(self, params, inputs, **kwargs):
+  def call(self, x, params=(), **kwargs):
     del kwargs
     w, b = params
     return lax.conv_general_dilated(
-        inputs, w, self._strides, self._padding, self._one, self._one,
+        x, w, self._strides, self._padding, self._one, self._one,
         self._dimension_numbers) + b
 
   def _kernel_shape(self, input_shape):
     """Helper to calculate the kernel shape."""
-    filter_shape_iter = iter(self._filter_shape)
-    return [self._out_chan if c == 'O' else
+    kernel_size_iter = iter(self._kernel_size)
+    return [self._filters if c == 'O' else
             input_shape[self._lhs_spec.index('C')] if c == 'I' else
-            next(filter_shape_iter) for c in self._rhs_spec]
+            next(kernel_size_iter) for c in self._rhs_spec]
 
   def _conv_shape_tuple(self, lhs_shape, rhs_shape, strides, pads):
     """Compute the shape of a conv given input shapes in canonical order."""
@@ -268,10 +270,10 @@ class Conv(base.Layer):
 
   def new_parameters(self, input_shape, rng):
     kernel_shape = self._kernel_shape(input_shape)
-    bias_shape = [self._out_chan if c == 'C' else 1 for c in self._out_spec]
+    bias_shape = [self._filters if c == 'C' else 1 for c in self._out_spec]
     bias_shape = tuple(itertools.dropwhile(lambda x: x == 1, bias_shape))
-    w = self._W_init(rng, kernel_shape)
-    b = self._b_init(rng, bias_shape)
+    w = self._kernel_initializer(kernel_shape, rng)
+    b = self._bias_initializer(bias_shape, rng)
     return (w, b)
 
 
@@ -287,9 +289,9 @@ def _flatten_output_shape(input_shape, num_axis_to_keep=1):
 
 
 @base.layer(output_shape=_flatten_output_shape)
-def Flatten(params, inputs, num_axis_to_keep=1, **kwargs):
+def Flatten(x, params, num_axis_to_keep=1, **kwargs):
   del params, kwargs
-  return np.reshape(inputs, (inputs.shape[:num_axis_to_keep] + (-1,)))
+  return np.reshape(x, (x.shape[:num_axis_to_keep] + (-1,)))
 
 
 # Batch normalization.
@@ -305,7 +307,7 @@ def _batch_norm_new_params(input_shape, rng, axis=(0, 1, 2),
 
 
 @base.layer(new_parameters=_batch_norm_new_params)
-def BatchNorm(params, x, axis=(0, 1, 2), epsilon=1e-5,
+def BatchNorm(x, params, axis=(0, 1, 2), epsilon=1e-5,
               center=True, scale=True, **unused_kwargs):
   """Layer construction function for a batch normalization layer."""
   mean = np.mean(x, axis, keepdims=True)
@@ -357,14 +359,14 @@ def _pooling_general(inputs, reducer, init_val, rescaler=None,
 
 
 @base.layer(output_shape=_pooling_output_shape)
-def MaxPool(params, x, pool_size=(2, 2), strides=None, padding='VALID', **kw):
+def MaxPool(x, params, pool_size=(2, 2), strides=None, padding='VALID', **kw):
   del params, kw
   return _pooling_general(x, lax.max, -np.inf, pool_size=pool_size,
                           strides=strides, padding=padding)
 
 
 @base.layer(output_shape=_pooling_output_shape)
-def SumPool(params, x, pool_size=(2, 2), strides=None, padding='VALID', **kw):
+def SumPool(x, params, pool_size=(2, 2), strides=None, padding='VALID', **kw):
   del params, kw
   return _pooling_general(x, lax.add, 0., pool_size=pool_size,
                           strides=strides, padding=padding)
@@ -380,14 +382,14 @@ def _normalize_by_window_size(dims, spatial_strides, padding):
 
 
 @base.layer(output_shape=_pooling_output_shape)
-def AvgPool(params, x, pool_size=(2, 2), strides=None, padding='VALID', **kw):
+def AvgPool(x, params, pool_size=(2, 2), strides=None, padding='VALID', **kw):
   del params, kw
   return _pooling_general(x, lax.add, 0., _normalize_by_window_size,
                           pool_size, strides=strides, padding=padding)
 
 
 @base.layer()
-def Dropout(params, x, rate=0.0, mode='train', rng=None, **kwargs):
+def Dropout(x, params, rate=0.0, mode='train', rng=None, **kwargs):
   """Layer construction function for a dropout layer with given rate."""
   del params, kwargs
   if rng is None:
@@ -405,16 +407,15 @@ def Dropout(params, x, rate=0.0, mode='train', rng=None, **kwargs):
 
 
 @base.layer()
-def Div(params, x, divisor=1.0, **kwargs):
+def Div(x, params, divisor=1.0, **kwargs):
   del params, kwargs
   return x / divisor
 
 
 @base.layer()
-def ShiftRight(params, inputs, **kwargs):
+def ShiftRight(x, **unused_kwargs):
   """Layer to shift the tensor to the right by padding on axis 1."""
-  del params, kwargs
   pad_widths = [(0, 0), (1, 0)]
-  pad_widths += [(0, 0) for _ in range(len(inputs.shape) - 2)]
-  padded = np.pad(inputs, pad_widths, mode='constant')
+  pad_widths += [(0, 0) for _ in range(len(x.shape) - 2)]
+  padded = np.pad(x, pad_widths, mode='constant')
   return padded[:, :-1, ...]

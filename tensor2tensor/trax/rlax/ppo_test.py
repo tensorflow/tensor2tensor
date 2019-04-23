@@ -52,7 +52,7 @@ class PpoTest(test.TestCase):
         size=(batch, time_steps) + observation_shape)
 
     # Apply the policy net on observations
-    policy_output = policy_apply(policy_params, batch_of_observations)
+    policy_output = policy_apply(batch_of_observations, policy_params)
 
     # Verify certain expectations on the output.
     self.assertEqual((batch, time_steps, num_actions), policy_output.shape)
@@ -72,7 +72,7 @@ class PpoTest(test.TestCase):
     time_steps = 10
     batch_of_observations = np.random.uniform(
         size=(batch, time_steps) + observation_shape)
-    value_output = value_apply(value_params, batch_of_observations)
+    value_output = value_apply(batch_of_observations, value_params)
 
     # NOTE: The extra dimension at the end because of Dense(1).
     self.assertEqual((batch, time_steps, 1), value_output.shape)
@@ -88,7 +88,7 @@ class PpoTest(test.TestCase):
     time_steps = 10
     batch_of_observations = np.random.uniform(
         size=(batch, time_steps) + observation_shape)
-    pnv_output = pnv_apply(pnv_params, batch_of_observations)
+    pnv_output = pnv_apply(batch_of_observations, pnv_params)
 
     # Output is a list, first is probab of actions and the next is value output.
     self.assertEqual(2, len(pnv_output))
@@ -294,7 +294,7 @@ class PpoTest(test.TestCase):
     observation_shape = (210, 160, 3)  # atari pong
     random_observations = np.random.uniform(size=(B, T + 1) + observation_shape)
 
-    def value_net_apply(params, observations):
+    def value_net_apply(observations, params):
       del params
       # pylint: disable=invalid-name
       B, T_p_1, OBS = (observations.shape[0], observations.shape[1],

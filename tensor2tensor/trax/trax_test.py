@@ -88,9 +88,8 @@ class TraxTest(test.TestCase):
       self.assertEqual(2, len(eval_acc))
 
       # Predict with final params
-      _, predict_fun = model()
       inputs = inputs(1).train_stream()
-      predict_fun(state.params, next(inputs)[0])
+      model()(next(inputs)[0], state.params)
 
 
 if __name__ == "__main__":

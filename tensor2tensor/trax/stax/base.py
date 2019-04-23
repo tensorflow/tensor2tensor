@@ -33,15 +33,11 @@ class Layer(object):
     self._first_init = True
     # Cache parameters here, defaults empty params (we use () for that).
     self._params = ()  # cached parameters
-    # Caller field storing file name and line number where the caller class
-    # was created. Since most layers inherit directly from this class, they
-    # call this init (stack 0) in their init (stack 1) and we want the caller
-    # that created them, so we take stack position 2 here.
-    # TODO(lukaszkaiser): this will break with more inheritance, correct.
-    self._caller = inspect.getframeinfo(inspect.stack()[2][0])
+    # Caller field storing info on where the caller class was created.
+    self._caller = _find_frame(inspect.stack())
 
-  def call(self, params, inputs, **kwargs):
-    """Call this layer using the given parameters on the given inputs."""
+  def call(self, x, params=(), **kwargs):
+    """Call this layer in input x using the given parameters."""
     raise NotImplementedError
 
   def output_shape(self, input_shape):
@@ -59,7 +55,7 @@ class Layer(object):
     raise NotImplementedError
 
   def new_parameters(self, input_shape, rng):
-    """Initialize parameters given input shape and return with output shape.
+    """Create new parameters for the layer given an input shape and rng.
 
     Note that all arguments and return values can be tuples or dictionaries
     or arbitraty nested structures composed of tuples and dictionaries.
@@ -75,37 +71,46 @@ class Layer(object):
 
   # End of subclassing interface, all functions below are internal.
 
-  def _init_fun(self, rng, input_shape):
-    """Internal modification of init_fun, saves variables."""
-    out_shape = self.output_shape(input_shape)
+  def initialize(self, input_shape, rng):
+    """Initialize the layer given an input shape and rng.
 
+    Returns new_parameters(input_shape, rng) on the first call and () on any
+    subsequent call, as the layer is already initialized. This is used for
+    networks that share parameters, so the layer only produces them once.
+
+    Note that all arguments and return values can be tuples or dictionaries
+    or arbitraty nested structures composed of tuples and dictionaries.
+
+    Args:
+      input_shape: a tuple representing the shape of the input.
+      rng: random number generator.
+
+    Returns:
+      Newly created parameters on the first call and () on all subsequent calls.
+    """
     # Re-using this layer, no new parameters.
     if not self._first_init:
-      return out_shape, ()
+      return ()
 
     # First call of this layer, create parameters.
     self._first_init = False
     self._params = self.new_parameters(input_shape, rng)
-    return out_shape, self._params
+    return self._params
 
-  def __call__(self, params, inputs, **kwargs):
+  def __call__(self, x, params=(), **kwargs):
     try:
       # If params are nothing, we may be reusing this layer.
       # Use the cached parameters to calculate the value.
       # Note: to make sure jit tracers can decide this branch in python we
       #   use "params is ()" instead of, e.g., "not params" or "params == ()".
       if params is ():  # pylint: disable=literal-comparison
-        return self.call(self._params, inputs, **kwargs)
+        return self.call(x, params=self._params, **kwargs)
       # In this case, we're called for the first time: cache parameters.
       self._params = params
-      return self.call(params, inputs, **kwargs)
+      return self.call(x, params=params, **kwargs)
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback()
-      raise LayerError(name, self._caller, shapes(inputs), trace)
-
-  # when unpacking this (init, apply) pair we return the wrapped funs
-  def __iter__(self):
-    return iter((self._init_fun, self.__call__))
+      raise LayerError(name, self._caller, shapes(x), trace)
 
 
 class LayerError(Exception):
@@ -151,6 +156,17 @@ def shapes(x):
     except Exception:  # pylint: disable=broad-except
       return []
   return nested_map(x, shape)
+
+
+def _find_frame(stack, start=0):
+  """Find the frame with the caller on the stack."""
+  # We want to find the first place where the layer was called
+  # that is *not* an __init__ function of an inheriting layer.
+  frame = inspect.getframeinfo(stack[start][0])
+  # If we are in an init, move on.
+  if frame.function == '__init__':
+    return _find_frame(stack, start + 1)
+  return frame
 
 
 def _shorten_file_path(line):
@@ -207,13 +223,13 @@ def layer(output_shape=None, new_parameters=None):
       kwargs = self._init_kwargs  # pylint: disable=protected-access
       return new_parameters(input_shape, rng, **kwargs)
 
-    def call_fun(self, params, inputs, **kwargs):
+    def call_fun(self, x, params=(), **kwargs):
       """The call function of the created class, derived from call."""
       # Merge on-call kwargs with class-kwargs.
       call_kwargs = kwargs.copy()
       call_kwargs.update(self._init_kwargs)  # pylint: disable=protected-access
       # Call with the merged kwargs.
-      return call(params, inputs, **call_kwargs)
+      return call(x, params=params, **call_kwargs)
 
     # Set doc for python help.
     call_fun.__doc__ = call.__doc__

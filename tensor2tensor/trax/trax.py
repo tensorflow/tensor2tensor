@@ -79,7 +79,7 @@ def neg_log_perplexity(batch, model_predictions):
 def loss(params, batch, model_predict, rng):
   """Calculate loss."""
   inputs, targets = batch
-  preds = model_predict(params, inputs, rng=rng)
+  preds = model_predict(inputs, params, rng=rng)
   xent = np.sum(preds * stax.one_hot(targets, preds.shape[-1]), axis=-1)
   return - masked_mean(xent, targets)
 
@@ -246,21 +246,21 @@ def epochs(steps=None, epoch_steps=1):
 
 def _jit_predict_fun(model_predict, num_devices):
   """Use jit on model_predict if required."""
-  def predict(params, batch, rng=None):
+  def predict(x, params=(), rng=None):
     """Predict function jited and parallelized as requested."""
     # On one device, jit and run.
     if num_devices == 1:
-      return backend.jit(model_predict)(params, batch, rng=rng)
+      return backend.jit(model_predict)(x, params, rng=rng)
 
     # Multi-devices, pmap and run.
     @functools.partial(backend.pmap, axis_name="batch")
-    def mapped_predict(params, batch, rng):
-      return model_predict(params, batch, rng=rng)
+    def mapped_predict(x, params, rng):
+      return model_predict(x, params, rng=rng)
     pred = mapped_predict(
+        reshape_by_device(x, num_devices),
         params,
-        reshape_by_device(batch, num_devices),
         jax_random.split(rng, num_devices))
-    batch_size = batch.shape[0]
+    batch_size = x.shape[0]
     return np.reshape(pred, [batch_size] + list(pred.shape[2:]))
 
   return predict
@@ -373,16 +373,15 @@ def train(output_dir,
   history = state.history
   lr_fun = lr_schedule(history)
   opt_init, _ = optimizer(lr_fun)
-  model_init, model_predict_train = model(mode="train")
-  _, model_predict_eval = model(mode="eval")
+  model_train = model(mode="train")
+  model_predict_eval = model(mode="eval")
 
   # Setup state
   step = state.step or 0
-  rng, init_key = jax_random.split(rng)
+  rng, init_rng = jax_random.split(rng)
   rngs = jax_random.split(rng, num_devices)
-  params_initializer = \
-      lambda: model_init(init_key, [-1] + list(inputs.input_shape))[1]
-  params = state.params or params_initializer()
+  model_input_shape = tuple([-1] + list(inputs.input_shape))
+  params = state.params or model_train.initialize(model_input_shape, init_rng)
   opt_state = opt_init(params)
   if num_devices > 1:  # TODO(lukaszkaiser): use everywhere when pmap is stable.
     opt_state = jax.replicate(opt_state)
@@ -390,7 +389,7 @@ def train(output_dir,
   # jit model_predict and update so they're fast
   jit_model_predict_eval = _jit_predict_fun(model_predict_eval, num_devices)
   jit_update_fun = _jit_update_fun(
-      model_predict_train, loss_fun, optimizer, lr_fun, num_devices)
+      model_train, loss_fun, optimizer, lr_fun, num_devices)
 
   print()
   train_stream = inputs.train_stream()
@@ -403,7 +402,7 @@ def train(output_dir,
 
   # Non-compiled debug step helps find problems in models easier.
   if run_debug_step:
-    debug_loss = loss_fun(params, next(train_stream), model_predict_train, rng)
+    debug_loss = loss_fun(params, next(train_stream), model_train, rng)
     step_log(step, "Debug step loss %.8f" % debug_loss)
 
   for epoch, epoch_steps in epochs(train_steps, epoch_steps):
@@ -439,7 +438,7 @@ def train(output_dir,
     evaluate_train_and_eval(
         step=step,
         inputs=inputs,
-        predict_fun=functools.partial(jit_model_predict_eval, params),
+        predict_fun=functools.partial(jit_model_predict_eval, params=params),
         eval_steps=eval_steps,
         rng=rng,
         train_sw=train_sw,
@@ -459,7 +458,7 @@ def train(output_dir,
     lr_fun = lr_schedule(history)
     if lr_fun != old_lr_fun:  # For performance, only jit if there is a change.
       jit_update_fun = _jit_update_fun(
-          model_predict_train, loss_fun, optimizer, lr_fun, num_devices)
+          model_train, loss_fun, optimizer, lr_fun, num_devices)
 
     # Flush summary writers
     train_sw.flush()

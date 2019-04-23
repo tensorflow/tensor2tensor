@@ -28,10 +28,12 @@ def ResidualFeedForward(feature_depth,
   """Residual feed-forward layer with normalization at start."""
   return stax.Residual(
       stax.LayerNorm(),
-      stax.Dense(feedforward_depth, W_init=stax.xavier_uniform()),
+      stax.Dense(feedforward_depth,
+                 kernel_initializer=stax.XavierUniformInitializer()),
       stax.Relu(),
       stax.Dropout(rate=dropout, mode=mode),
-      stax.Dense(feature_depth, W_init=stax.xavier_uniform()),
+      stax.Dense(feature_depth,
+                 kernel_initializer=stax.XavierUniformInitializer()),
       stax.Dropout(rate=dropout, mode=mode)
   )
 
@@ -156,11 +158,12 @@ def TransformerLM(vocab_size,
       stax.Embedding(feature_depth, vocab_size),
       stax.Dropout(rate=dropout, mode=mode),
       stax.PositionalEncoding(max_len=max_len),
-      stax.Serial([DecoderLayer(feature_depth, feedforward_depth, num_heads,
-                                dropout, mode)
-                   for _ in range(num_layers)]),
+      stax.Serial(*[DecoderLayer(feature_depth, feedforward_depth, num_heads,
+                                 dropout, mode)
+                    for _ in range(num_layers)]),
       stax.LayerNorm(),
-      stax.Dense(vocab_size, W_init=stax.xavier_uniform()),
+      stax.Dense(vocab_size,
+                 kernel_initializer=stax.XavierUniformInitializer()),
       stax.LogSoftmax()
   )
 
@@ -308,7 +311,8 @@ def Transformer(source_vocab_size,
   def Generator(encoded_target):
     return stax.Serial(
         encoded_target,
-        stax.Dense(target_vocab_size, W_init=stax.xavier_uniform()),
+        stax.Dense(target_vocab_size,
+                   kernel_initializer=stax.XavierUniformInitializer()),
         stax.LogSoftmax
     )
 
