@@ -355,6 +355,33 @@ class Problem(object):
     ]
 
   @property
+  def all_metrics_fns(self):
+    return metrics.METRICS_FNS
+
+  def eval_metric_fns(self, model_hparams):
+    """
+    Taken from
+    https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/problem.py#L360
+    and uses self.all_metrics_fns instead of METRICS_FNS so that we can extend
+    the metrics we want to use in the problem directly rather than
+    extending METRICS_FNS.
+
+    """
+    del model_hparams
+    metric_names = self.eval_metrics()
+
+    if not all([m in self.all_metrics_fns for m in metric_names]):
+      error_str = ("Unrecognized metric. Problem %s specified metrics "
+                   "%s. Recognized metrics are %s.")
+      raise ValueError(error_str % (self.name,
+                                    metric_names,
+                                    list(self.all_metrics_fns.keys())))
+    return {
+        metric_name: self.all_metrics_fns[metric_name]
+        for metric_name in metric_names
+    }
+
+  @property
   def task_id(self):
     if self._task_id == -1 and hasattr(self, "global_task_id"):
       self._task_id = self.global_task_id()

@@ -609,15 +609,9 @@ def create_evaluation_metrics(problems, model_hparams):
   eval_metrics = dict()
   for problem_instance in problems:
     problem_name = problem_instance.name
-    metrics = problem_instance.eval_metrics()
+    metrics = problem_instance.eval_metric_fns(model_hparams)
     if hasattr(model_hparams.problem, "task_list"):
-      metrics = model_hparams.problem.eval_metrics()
-    if not all([m in METRICS_FNS for m in metrics]):
-      error_str = ("Unrecognized metric. Problem %s specified metrics "
-                   "%s. Recognized metrics are %s.")
-      raise ValueError(error_str % (problem_name,
-                                    metrics,
-                                    list(METRICS_FNS.keys())))
+      metrics = model_hparams.problem.eval_metrics_fns(model_hparams)
 
     tm = problem_instance.get_hparams(model_hparams).target_modality
     if not isinstance(tm, dict):
