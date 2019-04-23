@@ -79,7 +79,8 @@ def policy_net(rng_key,
   # required layers on top of it.
   if bottom_layers is None:
     bottom_layers = []
-  bottom_layers.extend([stax.Dense(num_actions), stax.Softmax()])
+  # NOTE: The LogSoftmax instead of the Softmax.
+  bottom_layers.extend([stax.Dense(num_actions), stax.LogSoftmax()])
   net = stax.Serial(*bottom_layers)
   return net.initialize(batch_observations_shape, rng_key), net
 
@@ -113,8 +114,9 @@ def policy_and_value_net(rng_key,
 
   # Now, with the current logits, one head computes action probabilities and the
   # other computes the value function.
+  # NOTE: The LogSoftmax instead of the Softmax.
   layers.extend([stax.FanOut(), stax.Parallel(
-      stax.Serial(stax.Dense(num_actions), stax.Softmax()),
+      stax.Serial(stax.Dense(num_actions), stax.LogSoftmax()),
       stax.Dense(1)
   )])
 
@@ -197,6 +199,10 @@ def collect_trajectories(env,
           # Return the best action.
           action = np.argmax(predictions)
       elif policy == "categorical-sampling":
+        # NOTE: The predictions aren't probabilities but log-probabilities
+        # instead, since they were computed with LogSoftmax.
+        # So just np.exp them to make them probabilities.
+        predictions = np.exp(predictions)
         action = onp.argwhere(onp.random.multinomial(1, predictions) == 1)
       else:
         raise ValueError("Unknown policy: %s" % policy)
@@ -478,13 +484,13 @@ def chosen_probabs(probab_observations, actions):
 
   Args:
     probab_observations: ndarray of shape `[B, T, A]`, where
-      probab_observations[b, t, i] contains the probability of action = i at the
-      t^th time-step in the b^th trajectory.
+      probab_observations[b, t, i] contains the log-probability of action = i at
+      the t^th time-step in the b^th trajectory.
     actions: ndarray of shape `[B, T]`, with each entry in [0, A) denoting which
       action was chosen in the b^th trajectory's t^th time-step.
 
   Returns:
-    `[B, T]` ndarray with the probabilities of the chosen actions.
+    `[B, T]` ndarray with the log-probabilities of the chosen actions.
   """
   b, t = actions.shape
   return probab_observations[np.arange(b)[:, None], np.arange(t), actions]
@@ -494,7 +500,7 @@ def compute_probab_ratios(p_old, p_new, actions, reward_mask):
   """Computes the probability ratios for each time-step in a trajectory.
 
   Args:
-    p_old: ndarray of shape [B, T, A] of the probabilities that the policy
+    p_old: ndarray of shape [B, T, A] of the log-probabilities that the policy
       network assigns to all the actions at each time-step in each batch using
       the old parameters.
     p_new: ndarray of shape [B, T, A], same as above, but using new policy
@@ -506,13 +512,11 @@ def compute_probab_ratios(p_old, p_new, actions, reward_mask):
     probab_ratios: ndarray of shape [B, T], where
     probab_ratios_{b,t} = p_new_{b,t,action_{b,t}} / p_old_{b,t,action_{b,t}}
   """
-  bp_old = chosen_probabs(p_old, actions)
-  bp_new = chosen_probabs(p_new, actions)
+  logp_old = chosen_probabs(p_old, actions)
+  logp_new = chosen_probabs(p_new, actions)
 
-  # Add a small number to bp_old, where reward_mask is 0, this is just to help
-  # never to divide by 0.
-  bp_old = bp_old + (0.1 * np.abs(reward_mask - 1))
-  probab_ratios = (bp_new * reward_mask) / bp_old
+  # Since these are log-probabilities, we just subtract them.
+  probab_ratios = np.exp(logp_new - logp_old) * reward_mask
   return probab_ratios
 
 
@@ -555,11 +559,14 @@ def ppo_loss(policy_net_apply,
       td_deltas, reward_mask, lambda_=lambda_, gamma=gamma)
 
   # probab_actions_{old,new} are both (B, T, A)
-  probab_actions_old = policy_net_apply(padded_observations, old_policy_params)
-  probab_actions_new = policy_net_apply(padded_observations, new_policy_params)
+  log_probab_actions_old = policy_net_apply(padded_observations,
+                                            old_policy_params)
+  log_probab_actions_new = policy_net_apply(padded_observations,
+                                            new_policy_params)
 
   # (B, T)
-  ratios = compute_probab_ratios(probab_actions_old, probab_actions_new,
+  ratios = compute_probab_ratios(log_probab_actions_old,
+                                 log_probab_actions_new,
                                  padded_actions, reward_mask)
 
   # (B, T)

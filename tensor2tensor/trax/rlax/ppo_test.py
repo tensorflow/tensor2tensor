@@ -57,8 +57,8 @@ class PpoTest(test.TestCase):
     # Verify certain expectations on the output.
     self.assertEqual((batch, time_steps, num_actions), policy_output.shape)
 
-    # Also last axis normalizes to 1, since these are probabilities.
-    sum_actions = np.sum(policy_output, axis=-1)
+    # Also exp of last axis normalizes to 1, since these are log-probabilities.
+    sum_actions = np.sum(np.exp(policy_output), axis=-1)
     self.assertAllClose(np.ones_like(sum_actions), sum_actions)
 
   def test_value_net(self):
@@ -391,30 +391,28 @@ class PpoTest(test.TestCase):
 
   def test_compute_probab_ratios(self):
     p_old = np.array([[
-        [0.1, 0.2, 0.6, 0.1],
-        [0.4, 0.1, 0.4, 0.1],
-        [0.3, 0.1, 0.5, 0.1],
-        [0.1, 0.2, 0.6, 0.1],
-    ],
-                      [
-                          [0.3, 0.1, 0.5, 0.1],
-                          [0.1, 0.1, 0.4, 0.4],
-                          [0.3, 0.1, 0.5, 0.1],
-                          [0.1, 0.2, 0.6, 0.1],
-                      ]])
+        [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
+        [np.log(0.4), np.log(0.1), np.log(0.4), np.log(0.1)],
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+        [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
+    ], [
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+        [np.log(0.1), np.log(0.1), np.log(0.4), np.log(0.4)],
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+        [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
+    ]])
 
     p_new = np.array([[
-        [0.3, 0.1, 0.5, 0.1],
-        [0.4, 0.1, 0.1, 0.3],
-        [0.1, 0.2, 0.1, 0.6],
-        [0.3, 0.1, 0.5, 0.1],
-    ],
-                      [
-                          [0.1, 0.2, 0.1, 0.6],
-                          [0.1, 0.1, 0.2, 0.6],
-                          [0.3, 0.1, 0.3, 0.3],
-                          [0.1, 0.2, 0.1, 0.6],
-                      ]])
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+        [np.log(0.4), np.log(0.1), np.log(0.1), np.log(0.3)],
+        [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+    ], [
+        [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
+        [np.log(0.1), np.log(0.1), np.log(0.2), np.log(0.6)],
+        [np.log(0.3), np.log(0.1), np.log(0.3), np.log(0.3)],
+        [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
+    ]])
 
     actions = np.array([[1, 2, 0, 1], [0, 3, 3, 0]])
 
