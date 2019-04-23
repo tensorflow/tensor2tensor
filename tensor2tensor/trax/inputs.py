@@ -163,8 +163,8 @@ def train_and_eval_dataset(dataset_name, data_dir, train_shuffle_files=True,
 
   Returns:
     a 4-tuple consisting of:
-     * the train tf.Daataset
-     * the eval tf.Daataset
+     * the train tf.Dataset
+     * the eval tf.Dataset
      * information about features: a python dictionary with feature names
          as keys and an object as value that provides .shape and .num_classes.
      * supervised_keys: information what's the input and what's the target,
