@@ -1842,7 +1842,7 @@ class T2TModel(base.Layer):
           sampled_targets,
           gold_targets)
 
-    def sampled_results(mixin_prob):
+    def sampled_results(features, logits, mixin_prob):
       """Generate scheduled sampling results."""
       sampled_targets = sample(logits)
       new_targets = mix_gold_sampled(features["targets"],
@@ -1886,7 +1886,17 @@ class T2TModel(base.Layer):
             hparams.scheduled_sampling_warmup_steps,
             min_value=0.001)
     )
-    return sampled_results(mixin_prob)
+
+    # Apply scheduled sampling over N passes. The logits from the (n-1)-th pass
+    # will be mixed with gold tokens for conditioning in the n-th pass.
+    assert hparams.scheduled_sampling_num_passes > 0, (
+        "hparams.scheduled_sampling_num_passes must be > 0 if "
+        "hparams.scheduled_sampling_prob > 0.0")
+    new_logits = logits
+    new_losses = losses
+    for _ in range(hparams.scheduled_sampling_num_passes):
+      new_logits, new_losses = sampled_results(features, new_logits, mixin_prob)
+    return new_logits, new_losses
 
 
 def _with_timing(fn, msg, silent=False):

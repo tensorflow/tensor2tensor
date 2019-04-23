@@ -242,12 +242,14 @@ def basic_params1():
       # will such additional step be run. It's turned off (0.0) by default.
       # This probability will exponentially warm up for the number of
       # steps determined by scheduled_sampling_warmup_steps.
-      # The tensor used for the second step will consist of outputs from
-      # the first step mixed with gold truth, with the proportion of gold
-      # determined by scheduled_sampling_gold_mixin_prob.
+      # The tensor used for the n-th pass will consist of outputs from
+      # the (n-1)-th pass mixed with gold truth, with the proportion of gold
+      # determined by scheduled_sampling_gold_mixin_prob. Control the number
+      # of passes with scheduled_sampling_num_passes.
       scheduled_sampling_prob=0.0,
       scheduled_sampling_warmup_steps=50000,
       scheduled_sampling_gold_mixin_prob=0.5,
+      scheduled_sampling_num_passes=1,
       # This setting controls whether to copy variables around in a daisy chain
       # (if true) or leave their placement to TensorFlow. It only affects multi
       # device training and mostly should be turned on for performance. One
