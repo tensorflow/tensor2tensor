@@ -359,7 +359,14 @@ class Problem(object):
       return metrics.METRICS_FNS
 
   def eval_metric_fns(self, model_hparams):
-    # taken from https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/problem.py#L360
+    """
+    Taken from
+    https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/problem.py#L360
+    and uses self.all_metrics_fns instead of METRICS_FNS so that we can extend
+    the metrics we want to use in the problem directly rather than
+    extending METRICS_FNS.
+
+    """
     del model_hparams
     metric_names = self.eval_metrics()
 
