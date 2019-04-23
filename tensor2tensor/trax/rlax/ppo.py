@@ -26,18 +26,22 @@ A, scalar  - Number of actions, assuming a discrete space.
 
 Policy and Value function signatures:
 
-Policy Function :: [B, T] + OBS -> [B, T, A]
-Value  Function :: [B, T] + OBS -> [B, T, 1]
+Policy            Function :: [B, T] + OBS ->  [B, T, A]
+Value             Function :: [B, T] + OBS ->  [B, T, 1]
+Policy and Value  Function :: [B, T] + OBS -> ([B, T, A], [B, T, 1])
 
 i.e. the policy net should take a batch of *trajectories* and at each time-step
 in each batch deliver a probability distribution over actions.
 
-NOTE: It doesn't return logits, rather the expectation is that it return a
-normalized distribution instead.
+NOTE: It doesn't return logits, rather the expectation is that it returns
+log-probabilities instead.
 
 NOTE: The policy and value functions need to take care to not take into account
 future time-steps while deciding the actions (or value) for the current
 time-step.
+
+Policy and Value Function produces a tuple of the expected output of a policy
+function and a value function.
 
 """
 
@@ -161,7 +165,8 @@ def collect_trajectories(env,
   """Collect trajectories with the given policy net and behaviour."""
   trajectories = []
 
-  for _ in range(num_trajectories):
+  for t in range(num_trajectories):
+    t_start = time.time()
     rewards = []
     actions = []
     done = False
@@ -174,8 +179,10 @@ def collect_trajectories(env,
 
     # Run either till we're done OR if max_timestep is defined only till that
     # timestep.
+    ts = 0
     while ((not done) and
            (not max_timestep or observation_history.shape[1] < max_timestep)):
+      ts_start = time.time()
       # Run the policy, to pick an action, shape is (1, t, A) because
       # observation_history is shaped (1, t) + OBS
       predictions = policy_net_apply(observation_history, policy_net_params)
@@ -232,6 +239,13 @@ def collect_trajectories(env,
 
       rewards.append(reward)
       actions.append(action)
+
+      ts += 1
+      logging.vlog(
+          2, "  Collected time-step[ %5d] of trajectory[ %5d] in [%0.2f] msec.",
+          ts, t, get_time(ts_start))
+    logging.vlog(
+        2, " Collected trajectory[ %5d] in [%0.2f] msec.", t, get_time(t_start))
 
     # This means we are done we're been terminated early.
     assert done or (
@@ -484,7 +498,7 @@ def chosen_probabs(probab_observations, actions):
   """Picks out the probabilities of the actions along batch and time-steps.
 
   Args:
-    probab_observations: ndarray of shape `[B, T, A]`, where
+    probab_observations: ndarray of shape `[B, T+1, A]`, where
       probab_observations[b, t, i] contains the log-probability of action = i at
       the t^th time-step in the b^th trajectory.
     actions: ndarray of shape `[B, T]`, with each entry in [0, A) denoting which
@@ -493,18 +507,19 @@ def chosen_probabs(probab_observations, actions):
   Returns:
     `[B, T]` ndarray with the log-probabilities of the chosen actions.
   """
-  b, t = actions.shape
-  return probab_observations[np.arange(b)[:, None], np.arange(t), actions]
+  B, T = actions.shape  # pylint: disable=invalid-name
+  assert (B, T+1) == probab_observations.shape[:2]
+  return probab_observations[np.arange(B)[:, None], np.arange(T), actions]
 
 
 def compute_probab_ratios(p_old, p_new, actions, reward_mask):
   """Computes the probability ratios for each time-step in a trajectory.
 
   Args:
-    p_old: ndarray of shape [B, T, A] of the log-probabilities that the policy
+    p_old: ndarray of shape [B, T+1, A] of the log-probabilities that the policy
       network assigns to all the actions at each time-step in each batch using
       the old parameters.
-    p_new: ndarray of shape [B, T, A], same as above, but using new policy
+    p_new: ndarray of shape [B, T+1, A], same as above, but using new policy
       network parameters.
     actions: ndarray of shape [B, T] where each element is from [0, A).
     reward_mask: ndarray of shape [B, T] masking over probabilities.
@@ -513,11 +528,20 @@ def compute_probab_ratios(p_old, p_new, actions, reward_mask):
     probab_ratios: ndarray of shape [B, T], where
     probab_ratios_{b,t} = p_new_{b,t,action_{b,t}} / p_old_{b,t,action_{b,t}}
   """
+
+  B, T = actions.shape  # pylint: disable=invalid-name
+  assert (B, T+1) == p_old.shape[:2]
+  assert (B, T+1) == p_new.shape[:2]
+
   logp_old = chosen_probabs(p_old, actions)
   logp_new = chosen_probabs(p_new, actions)
 
+  assert (B, T) == logp_old.shape
+  assert (B, T) == logp_new.shape
+
   # Since these are log-probabilities, we just subtract them.
   probab_ratios = np.exp(logp_new - logp_old) * reward_mask
+  assert (B, T) == probab_ratios.shape
   return probab_ratios
 
 
@@ -545,34 +569,48 @@ def ppo_loss(policy_net_apply,
              lambda_=0.95,
              epsilon=0.2):
   """PPO objective, with an eventual minus sign."""
+  B, T = padded_rewards.shape  # pylint: disable=invalid-name
+  assert (B, T+1) == padded_observations.shape[:2]
+  assert (B, T) == padded_actions.shape
+  assert (B, T) == padded_rewards.shape
+  assert (B, T) == reward_mask.shape
+
   # (B, T+1, 1)
   predicted_values = value_net_apply(padded_observations, value_net_params)
+  assert (B, T+1, 1) == predicted_values.shape
 
   # (B, T)
   td_deltas = deltas(
-      np.squeeze(predicted_values, axis=2),  # (B, T)
+      np.squeeze(predicted_values, axis=2),  # (B, T+1)
       padded_rewards,
       reward_mask,
       gamma=gamma)
+  assert (B, T) == td_deltas.shape
 
   # (B, T)
   advantages = gae_advantages(
       td_deltas, reward_mask, lambda_=lambda_, gamma=gamma)
+  assert (B, T) == advantages.shape
 
-  # probab_actions_{old,new} are both (B, T, A)
+  # probab_actions_{old,new} are both (B, T+1, A)
   log_probab_actions_old = policy_net_apply(padded_observations,
                                             old_policy_params)
   log_probab_actions_new = policy_net_apply(padded_observations,
                                             new_policy_params)
+  assert (B, T+1) == log_probab_actions_old.shape[:2]
+  assert (B, T+1) == log_probab_actions_new.shape[:2]
+  assert log_probab_actions_old.shape[-1] == log_probab_actions_new.shape[-1]
 
   # (B, T)
   ratios = compute_probab_ratios(log_probab_actions_old,
                                  log_probab_actions_new,
                                  padded_actions, reward_mask)
+  assert (B, T) == ratios.shape
 
   # (B, T)
   objective = clipped_objective(
       ratios, advantages, reward_mask, epsilon=epsilon)
+  assert (B, T) == objective.shape
 
   # ()
   average_objective = np.sum(objective) / np.sum(reward_mask)

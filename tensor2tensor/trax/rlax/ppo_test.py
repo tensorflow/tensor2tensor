@@ -378,9 +378,11 @@ class PpoTest(test.TestCase):
     self.assertAllEqual(expected_gae_advantages, gae_advantages)
 
   def test_chosen_probabs(self):
-    # Shape (2, 2, 3)
-    probab_observations = np.array([[[0.1, 0.2, 0.7], [0.4, 0.1, 0.5]],
-                                    [[0.3, 0.1, 0.6], [0.1, 0.1, 0.8]]])
+    # Shape (2, 2+1, 3)
+    probab_observations = np.array(
+        [[[0.1, 0.2, 0.7], [0.4, 0.1, 0.5], [0.2, 0.4, 0.4]],
+         [[0.3, 0.1, 0.6], [0.1, 0.1, 0.8], [0.2, 0.4, 0.4]]]
+    )
 
     # Shape (2, 2)
     actions = np.array([[1, 2], [0, 1]])
@@ -395,11 +397,13 @@ class PpoTest(test.TestCase):
         [np.log(0.4), np.log(0.1), np.log(0.4), np.log(0.1)],
         [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
         [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
     ], [
         [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
         [np.log(0.1), np.log(0.1), np.log(0.4), np.log(0.4)],
         [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
         [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
     ]])
 
     p_new = np.array([[
@@ -407,10 +411,12 @@ class PpoTest(test.TestCase):
         [np.log(0.4), np.log(0.1), np.log(0.1), np.log(0.3)],
         [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
         [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+        [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
     ], [
         [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
         [np.log(0.1), np.log(0.1), np.log(0.2), np.log(0.6)],
         [np.log(0.3), np.log(0.1), np.log(0.3), np.log(0.3)],
+        [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
         [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
     ]])
 
