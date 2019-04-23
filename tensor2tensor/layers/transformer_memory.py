@@ -127,12 +127,11 @@ class RecentTokensMemory(RecurrentMemory):
     current_batch_size = tf.shape(query_antecedent)[0]
     amount_to_pad = memory_batch_size - current_batch_size
 
-    previous_vals = self.previous_vals
     # If segment id is zero, don't attend back to the memory
     previous_bias = self.previous_bias[:current_batch_size, :, :, :] + tf.cast(
         tf.equal(segment[:, None, None, None], 0), tf.float32) * -1e9
 
-    sliced_previous_vals = previous_vals[:current_batch_size, :, :]
+    sliced_previous_vals = self.previous_vals[:current_batch_size, :, :]
 
     new_memory_antecedent = tf.concat(
         [tf.stop_gradient(sliced_previous_vals), query_antecedent], 1)
@@ -153,9 +152,9 @@ class RecentTokensMemory(RecurrentMemory):
         tf.reduce_max(bias, -2, keepdims=True), [memory_batch_size, 1, 1, 1])
     # Assume that query_antecedent is always a full chunk (i.e. not truncated)
     if self.chunk_length < self.tokens_to_cache:
-      remember_vals = tf.concat([previous_vals, remember_vals], 1)
+      remember_vals = tf.concat([self.previous_vals, remember_vals], 1)
       remember_bias = tf.concat([
-          previous_bias - 1e9 * tf.cast(
+          self.previous_bias - 1e9 * tf.cast(
               tf.equal(
                   tf.pad(segment, [[0, amount_to_pad]])[:, None, None, None],
                   0), tf.float32),

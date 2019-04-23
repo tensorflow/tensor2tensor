@@ -32,7 +32,7 @@ from absl import logging
 import gin
 
 import jax
-from jax import lax_parallel as lax_parallel
+from jax import lax
 import numpy
 import six
 
@@ -40,11 +40,11 @@ from tensor2tensor.trax import backend
 from tensor2tensor.trax import history as trax_history
 from tensor2tensor.trax import inputs as trax_inputs
 from tensor2tensor.trax import jaxboard
+from tensor2tensor.trax import layers
 from tensor2tensor.trax import learning_rate as lr
 from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.backend import random as jax_random
-import tensor2tensor.trax.stax as stax
 
 import tensorflow as tf
 from tensorflow.io import gfile
@@ -71,7 +71,7 @@ def accuracy(batch, model_predictions):
 def neg_log_perplexity(batch, model_predictions):
   """Calculate negative log perplexity."""
   _, targets = batch
-  hot_targets = stax.one_hot(targets, model_predictions.shape[-1])
+  hot_targets = layers.one_hot(targets, model_predictions.shape[-1])
   xent = np.sum(model_predictions * hot_targets, axis=-1)
   return masked_mean(xent, targets)
 
@@ -79,8 +79,8 @@ def neg_log_perplexity(batch, model_predictions):
 def loss(params, batch, model_predict, rng):
   """Calculate loss."""
   inputs, targets = batch
-  preds = model_predict(params, inputs, rng=rng)
-  xent = np.sum(preds * stax.one_hot(targets, preds.shape[-1]), axis=-1)
+  preds = model_predict(inputs, params, rng=rng)
+  xent = np.sum(preds * layers.one_hot(targets, preds.shape[-1]), axis=-1)
   return - masked_mean(xent, targets)
 
 
@@ -147,7 +147,7 @@ def evaluate_train_and_eval(step, inputs, predict_fun, eval_steps, rng,
           _METRICS,
           rng)
       for input_stream in
-      [inputs.train_stream, inputs.eval_stream]]
+      [inputs.train_eval_stream, inputs.eval_stream]]
   if train_sw:
     log_metrics(train_metrics, train_sw, "train", step, history=history)
   if eval_sw:
@@ -244,48 +244,81 @@ def epochs(steps=None, epoch_steps=1):
       break
 
 
+def _jit_predict_fun(model_predict, num_devices):
+  """Use jit on model_predict if required."""
+  def predict(x, params=(), rng=None):
+    """Predict function jited and parallelized as requested."""
+    # On one device, jit and run.
+    if num_devices == 1:
+      return backend.jit(model_predict)(x, params, rng=rng)
+
+    # Multi-devices, pmap and run.
+    @functools.partial(backend.pmap, axis_name="batch")
+    def mapped_predict(x, params, rng):
+      return model_predict(x, params, rng=rng)
+    pred = mapped_predict(
+        reshape_by_device(x, num_devices),
+        params,
+        jax_random.split(rng, num_devices))
+    batch_size = x.shape[0]
+    return np.reshape(pred, [batch_size] + list(pred.shape[2:]))
+
+  return predict
+
+
 def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun, num_devices):
   """Get jit-ed update function for loss, optimizer, learning rate function."""
   if num_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
     def single_update(i, opt_state, batch, rng):
+      rng, subrng = jax_random.split(rng[0])
       _, opt_update = optimizer(lr_fun)
       params = trax_opt.get_params(opt_state)
       return opt_update(i, backend.grad(loss_fun)(
-          params, batch, predict_fun, rng), opt_state)
+          params, batch, predict_fun, rng), opt_state), [subrng]
     return backend.jit(single_update)
 
   @functools.partial(backend.pmap, axis_name="batch")
   def mapped_update(i, opt_state, batch, rng):
     """This is a multi-device version of the update function above."""
     # We assume all tensors have the first dimension = num_devices.
+    rng, subrng = jax_random.split(rng)
     _, opt_update = optimizer(lr_fun)
     params = trax_opt.get_params(opt_state)
     grads = backend.grad(loss_fun)(params, batch, predict_fun, rng)
     grads = jax.tree_util.tree_map(
-        lambda g: lax_parallel.psum(g, "batch"), grads)
-    return opt_update(i, grads, opt_state)
+        lambda g: lax.psum(g, "batch"), grads)
+    return opt_update(i, grads, opt_state), subrng
 
   def update(i, opt_state, batch, rng):
-    # TODO(lukaszkaiser): investigate how to replicate rng and correct.
-    return mapped_update(jax.replicate(i), opt_state, batch, jax.replicate(rng))
+    return mapped_update(jax.replicate(i), opt_state, batch, rng)
 
   return update
 
 
-def reshape_by_device(train_data, num_devices):
-  """Reshape the train_data into a shape [num_devices, ...]."""
-  x, y = train_data
-  x_shape, y_shape = list(x.shape), list(y.shape)
-  assert x_shape[0] == y_shape[0]  # Same batch size.
+def reshape_by_device(x, num_devices):
+  """Reshape x into a shape [num_devices, ...]."""
+  x_shape = list(x.shape)
   batch_size = x_shape[0]
   batch_size_per_device = batch_size // num_devices
   # We require that num_devices divides batch_size evenly.
-  assert batch_size_per_device * num_devices == batch_size
-  # New shapes.
+  if batch_size_per_device * num_devices != batch_size:
+    logging.fatal(
+        "We require that num_devices[%d] divides batch_size[%d] evenly.",
+        num_devices, batch_size)
+  # New shape.
   new_shape_prefix = [num_devices, batch_size_per_device]
-  x = np.reshape(x, new_shape_prefix + x_shape[1:])
-  y = np.reshape(y, new_shape_prefix + y_shape[1:])
-  return x, y
+  return np.reshape(x, new_shape_prefix + x_shape[1:])
+
+
+def reshape_by_device_pair(train_data, num_devices):
+  """Reshape by device for a pair."""
+  x, y = train_data
+  x_shape, y_shape = list(x.shape), list(y.shape)
+  if x_shape[0] != y_shape[0]:  # Same batch size.
+    logging.fatal(
+        "Batch size is not the same for train_data pair: [%d] vs [%d]",
+        x_shape[0], y_shape[0])
+  return reshape_by_device(x, num_devices), reshape_by_device(y, num_devices)
 
 
 @gin.configurable(blacklist=["output_dir"])
@@ -300,7 +333,6 @@ def train(output_dir,
           eval_frequency=100,
           num_devices=None,
           random_seed=None,
-          jit_eval=True,
           run_debug_step=False):
   """Train the model on the inputs.
 
@@ -321,7 +353,6 @@ def train(output_dir,
       steps). If None or 0, eval disabled.
     num_devices: how many devices to use (if None, default, use all available)
     random_seed: the random seed to use; time/os dependent if None (default).
-    jit_eval: whether to compile the evaulation function (true by default).
     run_debug_step: bool, if True, will run the model and loss without @jit for
       one step.
 
@@ -335,36 +366,35 @@ def train(output_dir,
   train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
   eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
 
-  inputs = inputs()
+  inputs = inputs(num_devices)
 
   # Setup optimizer and model
   state = restore_state(output_dir)
   history = state.history
   lr_fun = lr_schedule(history)
   opt_init, _ = optimizer(lr_fun)
-  model_init, model_predict = model()
+  model_train = model(mode="train")
+  model_predict_eval = model(mode="eval")
 
   # Setup state
   step = state.step or 0
-  rng, init_key = jax_random.split(rng)
-  params_initializer = \
-      lambda: model_init(init_key, [-1] + list(inputs.input_shape))[1]
-  params = state.params or params_initializer()
+  rng, init_rng = jax_random.split(rng)
+  rngs = jax_random.split(rng, num_devices)
+  model_input_shape = tuple([-1] + list(inputs.input_shape))
+  params = state.params or model_train.initialize(model_input_shape, init_rng)
   opt_state = opt_init(params)
   if num_devices > 1:  # TODO(lukaszkaiser): use everywhere when pmap is stable.
     opt_state = jax.replicate(opt_state)
 
   # jit model_predict and update so they're fast
-  jit_model_predict = model_predict
-  if jit_eval:
-    jit_model_predict = backend.jit(model_predict)  # for evaluation
-  jit_update_fun = _jit_update_fun(model_predict, loss_fun, optimizer, lr_fun,
-                                   num_devices)
+  jit_model_predict_eval = _jit_predict_fun(model_predict_eval, num_devices)
+  jit_update_fun = _jit_update_fun(
+      model_train, loss_fun, optimizer, lr_fun, num_devices)
 
   print()
   train_stream = inputs.train_stream()
   epoch_steps = [train_steps]  # Only training if eval_frequency is 0 or None.
-  if eval_frequency:
+  if eval_frequency and eval_steps > 0:
     epoch_steps = itertools.chain([1,  # first epoch only 1 step
                                    eval_frequency - 1],
                                   itertools.repeat(eval_frequency))
@@ -372,7 +402,7 @@ def train(output_dir,
 
   # Non-compiled debug step helps find problems in models easier.
   if run_debug_step:
-    debug_loss = loss_fun(params, next(train_stream), model_predict, rng)
+    debug_loss = loss_fun(params, next(train_stream), model_train, rng)
     step_log(step, "Debug step loss %.8f" % debug_loss)
 
   for epoch, epoch_steps in epochs(train_steps, epoch_steps):
@@ -386,9 +416,8 @@ def train(output_dir,
       # Train
       next_train_batch = next(train_stream)
       if num_devices > 1:  # TODO(lukaszkaiser): use everywhere when possible.
-        next_train_batch = reshape_by_device(next_train_batch, num_devices)
-      rng, subrng = jax_random.split(rng)
-      opt_state = jit_update_fun(step, opt_state, next_train_batch, subrng)
+        next_train_batch = reshape_by_device_pair(next_train_batch, num_devices)
+      opt_state, rngs = jit_update_fun(step, opt_state, next_train_batch, rngs)
       step += 1
 
       # LR log
@@ -405,14 +434,11 @@ def train(output_dir,
                       epoch_steps / epoch_time, step=step)
 
     # Evaluate
-    if num_devices > 1:   # TODO(lukaszkaiser): remove branch when possible.
-      params = trax_opt.get_params(jax.unreplicate(opt_state))
-    else:
-      params = trax_opt.get_params(opt_state)
+    params = trax_opt.get_params(opt_state)
     evaluate_train_and_eval(
         step=step,
         inputs=inputs,
-        predict_fun=functools.partial(jit_model_predict, params),
+        predict_fun=functools.partial(jit_model_predict_eval, params=params),
         eval_steps=eval_steps,
         rng=rng,
         train_sw=train_sw,
@@ -431,8 +457,8 @@ def train(output_dir,
     old_lr_fun = lr_fun
     lr_fun = lr_schedule(history)
     if lr_fun != old_lr_fun:  # For performance, only jit if there is a change.
-      jit_update_fun = _jit_update_fun(model_predict, loss_fun, optimizer,
-                                       lr_fun, num_devices)
+      jit_update_fun = _jit_update_fun(
+          model_train, loss_fun, optimizer, lr_fun, num_devices)
 
     # Flush summary writers
     train_sw.flush()

@@ -47,6 +47,7 @@ def test_inputs(num_classes):
 
   return inputs_lib.Inputs(
       train_stream=input_stream,
+      train_eval_stream=input_stream,
       eval_stream=input_stream,
       input_shape=input_shape)
 
@@ -68,7 +69,7 @@ class TraxTest(test.TestCase):
       model = functools.partial(models.MLP,
                                 hidden_size=16,
                                 num_output_classes=num_classes)
-      inputs = lambda: test_inputs(num_classes)
+      inputs = lambda _: test_inputs(num_classes)
 
       # Train and evaluate
       state = trax.train(output_dir,
@@ -87,9 +88,8 @@ class TraxTest(test.TestCase):
       self.assertEqual(2, len(eval_acc))
 
       # Predict with final params
-      _, predict_fun = model()
-      inputs = inputs().train_stream()
-      predict_fun(state.params, next(inputs)[0])
+      inputs = inputs(1).train_stream()
+      model()(next(inputs)[0], state.params)
 
 
 if __name__ == "__main__":

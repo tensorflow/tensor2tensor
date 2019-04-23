@@ -18,10 +18,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# We create a flat stax.* namespace for uniform calling conventions as we
+# We create a flat layers.* namespace for uniform calling conventions as we
 # upstream changes.
 # pylint: disable=wildcard-import
-from tensor2tensor.trax.stax.attention import *
-from tensor2tensor.trax.stax.losses import *
-from tensor2tensor.trax.stax.slax import *
-from tensor2tensor.trax.stax.stax_base import *
+from tensor2tensor.trax.layers.attention import *
+from tensor2tensor.trax.layers.base import *
+from tensor2tensor.trax.layers.combinators import *
+from tensor2tensor.trax.layers.core import *

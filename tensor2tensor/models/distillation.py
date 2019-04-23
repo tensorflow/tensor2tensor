@@ -105,7 +105,10 @@ class Distillation(t2t_model.T2TModel):
             labels=one_hot_targets, logits=student_logits)
         teacher_targets = tf.nn.softmax(teacher_logits / hp.distill_temperature)
         student_distill_xent = tf.nn.softmax_cross_entropy_with_logits_v2(
-            labels=tf.stop_gradient(teacher_targets), logits=student_logits)
+            labels=tf.stop_gradient(teacher_targets),
+            logits=student_logits / hp.distill_temperature)
+        # scale soft target obj. to match hard target obj. scale
+        student_distill_xent *= hp.distill_temperature**2
 
         outputs = student_logits
 
