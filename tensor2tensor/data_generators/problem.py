@@ -356,18 +356,22 @@ class Problem(object):
         metrics.Metrics.ACC, metrics.Metrics.ACC_TOP5,
         metrics.Metrics.ACC_PER_SEQ, metrics.Metrics.NEG_LOG_PERPLEXITY
     ]
+  
+  @property
+  def all_metrics_fns(self):
+    return metrics.METRICS_FNS
 
   def eval_metric_fns(self, model_hparams):
     del model_hparams
     metric_names = self.eval_metrics()
-    if not all([m in metrics.METRICS_FNS for m in metric_names]):
+    if not all([m in self.all_metrics_fns for m in metric_names]):
       error_str = ("Unrecognized metric. Problem %s specified metrics "
                    "%s. Recognized metrics are %s.")
       raise ValueError(error_str % (self.name,
                                     metric_names,
-                                    list(metrics.METRICS_FNS.keys())))
+                                    list(self.all_metrics_fns.keys())))
     return {
-        metric_name: metrics.METRICS_FNS[metric_name]
+        metric_name: self.all_metrics_fns[metric_name]
         for metric_name in metric_names
     }
 
