@@ -1846,8 +1846,8 @@ def padded_cross_entropy_mixture(logits,
   new_shape_for_xent = [num_mixtures] + shape_list(labels)
   labels = tf.tile(labels, [num_mixtures, 1, 1, 1])
 
-  xent, weights = padded_cross_entropy(
-      logits, labels, label_smoothing, weights_fn, reduce_sum, cutoff, gaussian)
+  xent, weights = padded_cross_entropy(logits, labels, label_smoothing,
+                                       weights_fn, reduce_sum, cutoff, gaussian)
 
   # reshape xent and weights to have the num_mixtures as first dimension
   xent = tf.reshape(xent, new_shape_for_xent)
@@ -1860,8 +1860,8 @@ def padded_cross_entropy_mixture(logits,
   if return_best_logits:
     best_mixture_indices = tf.cast(tf.argmin(xent, 0), dtype=tf.int32)
     individual_element_indices = tf.range(batch_size)
-    stacked_mixture_element_indices = tf.stack(
-        (tf.squeeze(best_mixture_indices), individual_element_indices), -1)
+    stacked_mixture_element_indices = tf.stack((tf.squeeze(
+        best_mixture_indices, axis=[1, 2]), individual_element_indices), -1)
     best_logits = tf.reshape(logits,
                              [num_mixtures, -1, timesteps, 1, 1, vocab_size])
     best_logits = tf.gather_nd(best_logits, stacked_mixture_element_indices)
@@ -1874,22 +1874,27 @@ def padded_cross_entropy_mixture(logits,
           message="Each batch element should have a probability value for each mixture element"
       )
   ]):
-    xent = tf.reduce_min(xent, axis=0)
+    xent_min = tf.reduce_min(xent, axis=0)
+    xent_max = tf.reduce_max(xent, axis=0)
     weights = tf.reduce_mean(weights, axis=0)
 
   with tf.control_dependencies([
       tf.assert_equal(
-          tf.shape(xent)[0], [batch_size],
+          tf.shape(xent_min)[0], [batch_size],
           message="There should be batch_size elements after selecting best mixture probabilities"
       )
   ]):
-    summed_xent = tf.reduce_sum(xent)
+    summed_xent_min = tf.reduce_sum(xent_min)
+    summed_xent_max = tf.reduce_sum(xent_max)
     summed_weights = tf.reduce_sum(weights)
 
+    tf.summary.scalar("mixture_xents_min", summed_xent_min / summed_weights)
+    tf.summary.scalar("mixture_xents_max", summed_xent_max / summed_weights)
+
   if return_best_logits:
-    return summed_xent, summed_weights, best_logits
+    return summed_xent_min, summed_weights, best_logits
   else:
-    return summed_xent, summed_weights
+    return summed_xent_min, summed_weights
 
 
 def _weights_one_third(labels):

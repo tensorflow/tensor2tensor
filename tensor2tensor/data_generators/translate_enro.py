@@ -32,7 +32,7 @@ _ENRO_TRAIN_DATASETS = [
     [
         "http://www.statmt.org/europarl/v7/ro-en.tgz",
         ("europarl-v7.ro-en.en", "europarl-v7.ro-en.ro")
-    ],
+    ]
 ]
 _ENRO_TEST_DATASETS = [
     [
