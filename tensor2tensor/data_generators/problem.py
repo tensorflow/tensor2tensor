@@ -356,7 +356,7 @@ class Problem(object):
 
   @property
   def all_metrics_fns(self):
-      return metrics.METRICS_FNS
+    return metrics.METRICS_FNS
 
   def eval_metric_fns(self, model_hparams):
     """
