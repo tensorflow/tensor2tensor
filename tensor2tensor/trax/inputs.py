@@ -27,6 +27,7 @@ import gin
 
 import numpy as np
 
+from tensor2tensor import problems_colab as t2t_problems
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
@@ -217,9 +218,8 @@ def _select_features(example, feature_list=None):
 
 def _train_and_eval_dataset_v1(problem_name, data_dir):
   """Return train and evaluation datasets, feature info and supervised keys."""
-  from tensor2tensor import problems  # pylint: disable=g-import-not-at-top
   assert not tf.executing_eagerly(), "tf.eager mode must be turned off."
-  problem = problems.problem(problem_name)
+  problem = t2t_problems.problem(problem_name)
   train_dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, data_dir)
   train_dataset = train_dataset.map(_select_features)
   eval_dataset = problem.dataset(tf.estimator.ModeKeys.EVAL, data_dir)
