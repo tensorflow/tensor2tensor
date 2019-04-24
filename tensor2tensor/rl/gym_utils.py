@@ -117,7 +117,13 @@ class RenderedEnv(gym.Wrapper):
 
   def reset(self, **kwargs):
     self.env.reset(**kwargs)
-    return self.env.render(mode=self.mode)
+    obs = self.env.render(mode=self.mode)
+    if self.should_resize:
+      img = Image.fromarray(obs)
+      img = img.resize(self.observation_space.shape[:-1],
+                       resample=Image.ANTIALIAS)
+      obs = np.asarray(img)
+    return obs
 
 
 def remove_time_limit_wrapper(env):
