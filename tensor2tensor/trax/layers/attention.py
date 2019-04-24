@@ -34,6 +34,12 @@ def CausalMask(x, params, axis=-1, **kwargs):
   return onp.tril(onp.ones((1, size, size), dtype=x.dtype), k=0)
 
 
+@base.layer(output_shape=lambda shape, pad=0: (shape[0], 1, 1, shape[-1]))
+def PaddingMask(x, params, pad=0, **kwargs):
+  del params, kwargs
+  return np.reshape(x != pad, (x.shape[0], 1, 1, x.shape[-1]))
+
+
 def MakeTargetMask(target, pad=0):
   """Create an attention mask to hide padding and future words."""
   target_mask = (target != pad)[ :, np.newaxis, :]
@@ -188,7 +194,7 @@ def PureMultiHeadedAttention(x, params, feature_depth=None,
   """
   del params
   rng = kwargs.get('rng', None)
-  q, k, v, mask = x
+  (q, k, v), mask = x
   assert feature_depth % num_heads == 0
   head_depth = feature_depth // num_heads
   nbatch = np.shape(q)[0]
@@ -207,9 +213,11 @@ def PureMultiHeadedAttention(x, params, feature_depth=None,
           dropout=dropout, mode=mode, rng=rng))
 
 
-def MultiHeadedAttention(
+def MultiHeadedAttentionQKV(
     feature_depth, num_heads=8, dropout=0.0, mode='train'):
   """Transformer-style multi-headed attention.
+
+  Accepts inputs of the form (q, k, v), mask.
 
   Args:
     feature_depth: int:  depth of embedding
@@ -222,12 +230,14 @@ def MultiHeadedAttention(
   """
   return combinators.Serial(
       combinators.Parallel(
-          core.Dense(feature_depth,
-                     kernel_initializer=core.XavierUniformInitializer()),
-          core.Dense(feature_depth,
-                     kernel_initializer=core.XavierUniformInitializer()),
-          core.Dense(feature_depth,
-                     kernel_initializer=core.XavierUniformInitializer()),
+          combinators.Parallel(
+              core.Dense(feature_depth,
+                         kernel_initializer=core.XavierUniformInitializer()),
+              core.Dense(feature_depth,
+                         kernel_initializer=core.XavierUniformInitializer()),
+              core.Dense(feature_depth,
+                         kernel_initializer=core.XavierUniformInitializer()),
+          ),
           combinators.Identity()
       ),
       PureMultiHeadedAttention(  # pylint: disable=no-value-for-parameter
@@ -235,4 +245,29 @@ def MultiHeadedAttention(
           dropout=dropout, mode=mode),
       core.Dense(feature_depth,
                  kernel_initializer=core.XavierUniformInitializer()),
+  )
+
+
+def MultiHeadedAttention(
+    feature_depth, num_heads=8, dropout=0.0, mode='train'):
+  """Transformer-style multi-headed attention.
+
+  Accepts inputs of the form (x, mask) and constructs (q, k, v) from x.
+
+  Args:
+    feature_depth: int:  depth of embedding
+    num_heads: int: number of attention heads
+    dropout: float: dropout rate
+    mode: str: 'train' or 'eval'
+
+  Returns:
+    Multi-headed self-attention layer.
+  """
+  return combinators.Serial(
+      combinators.Parallel(
+          combinators.Branch(num_branches=3),  # q = k = v = first input
+          combinators.Identity()  # pass the mask
+      ),
+      MultiHeadedAttentionQKV(  # pylint: disable=no-value-for-parameter
+          feature_depth, num_heads=num_heads, dropout=dropout, mode=mode),
   )

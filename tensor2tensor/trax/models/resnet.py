@@ -28,17 +28,24 @@ def ConvBlock(kernel_size, filters, strides):
   filters1, filters2, filters3 = filters
   main = layers.Serial(
       layers.Conv(filters1, (1, 1), strides),
-      layers.BatchNorm(), layers.Relu(),
+      layers.BatchNorm(),
+      layers.Relu(),
       layers.Conv(filters2, (ks, ks), padding='SAME'),
-      layers.BatchNorm(), layers.Relu(),
-      layers.Conv(filters3, (1, 1)), layers.BatchNorm())
+      layers.BatchNorm(),
+      layers.Relu(),
+      layers.Conv(filters3, (1, 1)),
+      layers.BatchNorm()
+  )
   shortcut = layers.Serial(
       layers.Conv(filters3, (1, 1), strides),
-      layers.BatchNorm())
+      layers.BatchNorm()
+  )
   return layers.Serial(
-      layers.FanOut(),
+      layers.Branch(),
       layers.Parallel(main, shortcut),
-      layers.FanInSum(), layers.Relu())
+      layers.SumBranches(),
+      layers.Relu()
+  )
 
 
 def IdentityBlock(kernel_size, filters):
@@ -47,14 +54,20 @@ def IdentityBlock(kernel_size, filters):
   filters1, filters2, filters3 = filters
   main = layers.Serial(
       layers.Conv(filters1, (1, 1)),
-      layers.BatchNorm(), layers.Relu(),
+      layers.BatchNorm(),
+      layers.Relu(),
       layers.Conv(filters2, (ks, ks), padding='SAME'),
-      layers.BatchNorm(), layers.Relu(),
-      layers.Conv(filters3, (1, 1)), layers.BatchNorm())
+      layers.BatchNorm(),
+      layers.Relu(),
+      layers.Conv(filters3, (1, 1)),
+      layers.BatchNorm()
+  )
   return layers.Serial(
-      layers.FanOut(),
+      layers.Branch(),
       layers.Parallel(main, layers.Identity()),
-      layers.FanInSum(), layers.Relu())
+      layers.SumBranches(),
+      layers.Relu()
+  )
 
 
 def Resnet50(hidden_size=64, num_output_classes=1001, mode='train'):
@@ -102,7 +115,7 @@ def WideResnetBlock(channels, strides=(1, 1), channel_mismatch=False):
   shortcut = layers.Identity() if not channel_mismatch else layers.Conv(
       channels, (3, 3), strides, padding='SAME')
   return layers.Serial(
-      layers.FanOut(), layers.Parallel(main, shortcut), layers.FanInSum())
+      layers.Branch(), layers.Parallel(main, shortcut), layers.SumBranches())
 
 
 def WideResnetGroup(n, channels, strides=(1, 1)):

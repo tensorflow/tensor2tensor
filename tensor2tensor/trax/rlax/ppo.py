@@ -121,7 +121,7 @@ def policy_and_value_net(rng_key,
   # Now, with the current logits, one head computes action probabilities and the
   # other computes the value function.
   # NOTE: The LogSoftmax instead of the Softmax.
-  cur_layers.extend([layers.FanOut(), layers.Parallel(
+  cur_layers.extend([layers.Branch(), layers.Parallel(
       layers.Serial(layers.Dense(num_actions), layers.LogSoftmax()),
       layers.Dense(1)
   )])

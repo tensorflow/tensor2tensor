@@ -59,30 +59,83 @@ class Serial(base.Layer):
 
 @base.layer()
 def Identity(x, **unused_kwargs):
+  """Identity layer, return the inputs."""
   return x
 
 
-@base.layer(output_shape=lambda input_shape, size=2: [input_shape] * size)
-def FanOut(x, params, size=2, **kwargs):
+# Re-ordering layer.
+def _reorder_shape(input_shape, output=None):  # pylint: disable=invalid-name
+  """Helper to determine the shape of reorder output."""
+  if output is None:
+    return input_shape
+  return base.nested_map(output, lambda i: input_shape[i])
+
+
+@base.layer(output_shape=_reorder_shape)
+def Reorder(x, params, output=None, **kwargs):
+  """Reorder a tuple into another tuple.
+
+  For example, we can re-order (x, y) into (y, x) or even (y, (x, y), y).
+  The output argument specifies how to re-order, using integers that refer
+  to indices in the input tuple. For example, if
+
+    input = (x, y, z)
+
+  then
+
+    Reorder(input, output=(1, 0, 2))   = (y, x, z)
+    Reorder(input, output=(0, 0))      = (x, x)
+    Reorder(input, output=(0, (1, 1))) = (x, (y, y))
+    Reorder(input, output=((2, 0), (1, 1))) = ((z, x), (y, y))
+
+  By default (if no output is given) Reorder does nothing (Identity).
+
+  Args:
+    x: the input tuple to re-order.
+    params: layer parameters (unused).
+    output: the specification of the output tuple: a nested tuple of ints.
+    **kwargs: other arguments (unused).
+
+  Returns:
+    The re-ordered tuple with the same shape as output.
+  """
   del params, kwargs
-  return [x] * size
+  if output is None:
+    return x
+  return base.nested_map(output, lambda i: x[i])
+
+
+@base.layer(output_shape=lambda shape, num_branches=2: [shape] * num_branches)
+def Branch(x, params, num_branches=2, **kwargs):
+  del params, kwargs
+  return [x] * num_branches
 
 
 @base.layer(output_shape=lambda input_shape_list: input_shape_list[0])
-def FanInSum(x, **unused_kwargs):
+def FirstBranch(x, **unused_kwargs):
+  return x[0]  # Here x is a list of tensors, we select the first.
+
+
+@base.layer(output_shape=lambda input_shape_list: input_shape_list[1])
+def SecondBranch(x, **unused_kwargs):
+  return x[1]  # Here x is a list of tensors, we select the second.
+
+
+@base.layer(output_shape=lambda input_shape_list: input_shape_list[0])
+def SumBranches(x, **unused_kwargs):
   return sum(x)  # Here x is a list of tensors of the same shape, we add them.
 
 
-def _fan_in_concat_shape(input_shape, axis=-1):  # pylint: disable=invalid-name
-  """Helper to determine the shape of FanInConcat output."""
+def _concatenate_shape(input_shape, axis=-1):  # pylint: disable=invalid-name
+  """Helper to determine the shape of Concatenate output."""
   ax = axis % len(input_shape[0])
   concat_size = sum(shape[ax] for shape in input_shape)
   out_shape = input_shape[0][:ax] + (concat_size,) + input_shape[0][ax+1:]
   return out_shape
 
 
-@base.layer(output_shape=_fan_in_concat_shape)
-def FanInConcat(x, params, axis=-1, **kwargs):
+@base.layer(output_shape=_concatenate_shape)
+def Concatenate(x, params, axis=-1, **kwargs):
   del params, kwargs
   return backend.numpy.concatenate(x, axis)
 
@@ -90,16 +143,14 @@ def FanInConcat(x, params, axis=-1, **kwargs):
 class Parallel(base.Layer):
   """Combinator for composing layers in parallel.
 
-  The layer resulting from this combinator is often used with the FanOut and
-  FanInSum layers.
+  This layer is often used with the Branch and SumBranches layers.
 
   Args:
-    *layers: a sequence of layers, each an (init_fun, apply_fun) pair.
+    *layers: a sequence of layers.
 
   Returns:
-    A new layer, meaning an (init_fun, apply_fun) pair, representing the
-    parallel composition of the given sequence of layers. In particular, the
-    returned layer takes a sequence of inputs and returns a sequence of outputs
+    A new layer representing parallel composition of the given layers.
+    The new layer takes a sequence of inputs and returns a sequence of outputs
     with the same length as the argument `layers`.
   """
 
@@ -128,18 +179,18 @@ class Parallel(base.Layer):
 
 def Residual(*layers, **kwargs):
   """Constructs a residual version of layers, summing input to layers output."""
-  res = kwargs.get('res', Identity())  # pylint: disable=no-value-for-parameter
+  shortcut = kwargs.get('shortcut', Identity())  # pylint: disable=no-value-for-parameter
   if len(layers) > 1:
     return Serial(
-        FanOut(),  # pylint: disable=no-value-for-parameter
-        Parallel(Serial(*layers), res),
-        FanInSum()  # pylint: disable=no-value-for-parameter
+        Branch(),  # pylint: disable=no-value-for-parameter
+        Parallel(Serial(*layers), shortcut),
+        SumBranches()  # pylint: disable=no-value-for-parameter
     )
   elif len(layers) == 1:
     return Serial(
-        FanOut(),  # pylint: disable=no-value-for-parameter
-        Parallel(layers[0], res),
-        FanInSum()  # pylint: disable=no-value-for-parameter
+        Branch(),  # pylint: disable=no-value-for-parameter
+        Parallel(layers[0], shortcut),
+        SumBranches()  # pylint: disable=no-value-for-parameter
     )
   else:
     raise ValueError('Empty residual combinator.')

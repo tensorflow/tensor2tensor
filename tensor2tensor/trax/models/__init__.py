@@ -35,4 +35,5 @@ def model_configure(*args, **kwargs):
 MLP = model_configure(mlp.MLP)
 Resnet50 = model_configure(resnet.Resnet50)
 WideResnet = model_configure(resnet.WideResnet)
+TransformerEncoder = model_configure(transformer.TransformerEncoder)
 TransformerLM = model_configure(transformer.TransformerLM)

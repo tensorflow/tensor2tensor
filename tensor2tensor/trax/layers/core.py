@@ -412,6 +412,20 @@ def Div(x, params, divisor=1.0, **kwargs):
   return x / divisor
 
 
+# Mean.
+def _mean_output_shape(input_shape, axis=-1, keepdims=False):
+  shape1 = list(input_shape)[:axis]  # Shape before axis.
+  shape2 = list(input_shape)[axis:][1:]  # Shape after axis.
+  mid_shape = [1] if keepdims else []
+  return tuple(shape1 + mid_shape + shape2)
+
+
+@base.layer(output_shape=_mean_output_shape)
+def Mean(x, params, axis=-1, keepdims=False, **kwargs):
+  del params, kwargs
+  return np.mean(x, axis=axis, keepdims=keepdims)
+
+
 @base.layer()
 def ShiftRight(x, **unused_kwargs):
   """Layer to shift the tensor to the right by padding on axis 1."""

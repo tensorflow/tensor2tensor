@@ -38,62 +38,88 @@ def ResidualFeedForward(feature_depth,
   )
 
 
-def TransformerEncoder(mode='train',
-                       num_layers=6,
-                       feature_depth=512,
-                       feedforward_depth=2048,
-                       num_heads=8,
-                       dropout=0.1):
-  """Transformer Encoder Stack.
+def EncoderLayer(feature_depth,
+                 feedforward_depth,
+                 num_heads,
+                 dropout,
+                 mode):
+  """Transformer encoder layer.
+
+  The input to the encoder is a pair (embedded source, mask) where
+  the mask is created from the original source to prevent attending
+  to the padding part of the input.
 
   Args:
-    mode: str: 'train' or 'eval'
-    num_layers: int: number of encoder/decoder layers
     feature_depth: int:  depth of embedding
     feedforward_depth: int: depth of feed-forward layer
     num_heads: int: number of attention heads
-    dropout: float: dropout rate
+    dropout: float: dropout rate (how much to drop out)
+    mode: str: 'train' or 'eval'
 
   Returns:
-    A layer for implementing a raw Transformer encoder stack.  No embedding
-    or positional signals are added by this layer.
+    the layer, returning a pair (actiavtions, mask).
   """
-  # Multi-headed Attention and Feed-forward layers
-  multi_attention = layers.MultiHeadedAttention(
-      feature_depth, num_heads=num_heads, dropout=dropout, mode=mode)
+  # The encoder block expects (activation, mask) as input and returns
+  # the new activations only, we add the mask back to output next.
+  encoder_block = layers.Serial(
+      layers.Residual(  # Attention block here.
+          layers.Parallel(layers.LayerNorm(), layers.Identity()),
+          layers.MultiHeadedAttention(feature_depth, num_heads=num_heads,
+                                      dropout=dropout, mode=mode),
+          layers.Dropout(rate=dropout, mode=mode),
+          shortcut=layers.FirstBranch()
+      ),
+      ResidualFeedForward(feature_depth, feedforward_depth, dropout, mode=mode)
+  )
+  # Now we add the mask back.
+  return layers.Serial(
+      layers.Reorder(output=((0, 1), 1)),  # (x, mask) --> ((x, mask), mask)
+      layers.Parallel(encoder_block, layers.Identity())
+  )
 
-  @layers.Lambda
-  def Encoder(embedded_source, source_mask):
-    """Transformer encoder stack.
 
-    Args:
-      embedded_source: layer variable: embedded source sequences
-      source_mask: layer variable: self-attention mask
+def TransformerEncoder(vocab_size,
+                       num_classes=10,
+                       feature_depth=512,
+                       feedforward_depth=2048,
+                       num_layers=6,
+                       num_heads=8,
+                       dropout=0.1,
+                       max_len=2048,
+                       mode='train'):
+  """Transformer encoder.
 
-    Returns:
-      Layer variable that outputs encoded source.
-    """
-    encoder_layer = layers.Serial(
-        # input attends to self
-        layers.Residual(layers.LayerNorm(),
-                        layers.FanOut(size=4),
-                        layers.Parallel(layers.Identity(),  # query
-                                        layers.Identity(),  # key
-                                        layers.Identity(),  # value
-                                        source_mask),  # attention mask
-                        multi_attention,
-                        layers.Dropout(rate=dropout, mode=mode)),
-        # feed-forward
-        ResidualFeedForward(
-            feature_depth, feedforward_depth, dropout, mode=mode)
-    )
-    return layers.Serial(
-        embedded_source,
-        layers.repeat(encoder_layer, num_layers),
-        layers.LayerNorm(),
-    )
+  Args:
+    vocab_size: int: vocab size
+    num_classes: how many classes on output
+    feature_depth: int:  depth of embedding
+    feedforward_depth: int: depth of feed-forward layer
+    num_layers: int: number of encoder/decoder layers
+    num_heads: int: number of attention heads
+    dropout: float: dropout rate (how much to drop out)
+    max_len: int: maximum symbol length for positional encoding
+    mode: str: 'train' or 'eval'
 
-  return Encoder
+  Returns:
+    the Transformer encoder layer.
+  """
+  input_embedding = layers.Serial(
+      layers.Embedding(feature_depth, vocab_size),
+      layers.Dropout(rate=dropout, mode=mode),
+      layers.PositionalEncoding(max_len=max_len)
+  )
+  return layers.Serial(
+      layers.Branch(),  # Branch input to create embedding and mask.
+      layers.Parallel(input_embedding, layers.PaddingMask()),
+      layers.Serial(*[EncoderLayer(feature_depth, feedforward_depth, num_heads,
+                                   dropout, mode)
+                      for _ in range(num_layers)]),
+      layers.FirstBranch(),  # Drop the mask.
+      layers.LayerNorm(),
+      layers.Mean(axis=1),  # Average on length.
+      layers.Dense(num_classes),
+      layers.LogSoftmax()
+  )
 
 
 def DecoderLayer(feature_depth,
@@ -111,15 +137,13 @@ def DecoderLayer(feature_depth,
     mode: str: 'train' or 'eval'
 
   Returns:
-    init and apply.
+    the layer.
   """
   return layers.Serial(
       layers.Residual(  # Self-attention block.
           layers.LayerNorm(),
-          layers.FanOut(size=4),
-          layers.Parallel(layers.Identity(),  # query
-                          layers.Identity(),  # key
-                          layers.Identity(),  # value
+          layers.Branch(),
+          layers.Parallel(layers.Identity(),  # activation for (q, k, v)
                           layers.CausalMask(axis=-2)),  # attention mask
           layers.MultiHeadedAttention(feature_depth, num_heads=num_heads,
                                       dropout=dropout, mode=mode),
@@ -150,7 +174,7 @@ def TransformerLM(vocab_size,
     mode: str: 'train' or 'eval'
 
   Returns:
-    init and apply.
+    the layer.
   """
   return layers.Serial(
       layers.ShiftRight(),
@@ -237,7 +261,7 @@ def Transformer(source_vocab_size,
     encoder_layer = layers.Serial(
         # input attends to self
         layers.Residual(layers.LayerNorm(),
-                        layers.FanOut(size=4),
+                        layers.Branch(size=4),
                         layers.Parallel(layers.Identity(),  # query
                                         layers.Identity(),  # key
                                         layers.Identity(),  # value
@@ -272,7 +296,7 @@ def Transformer(source_vocab_size,
     decoder_layer = layers.Serial(
         # target attends to self
         layers.Residual(layers.LayerNorm(),
-                        layers.FanOut(size=4),
+                        layers.Branch(size=4),
                         layers.Parallel(layers.Identity(),  # query
                                         layers.Identity(),  # key
                                         layers.Identity(),  # value
@@ -281,7 +305,7 @@ def Transformer(source_vocab_size,
                         layers.Dropout(dropout, mode=mode)),
         # target attends to encoded source
         layers.Residual(layers.LayerNorm(),
-                        layers.FanOut(size=4),
+                        layers.Branch(size=4),
                         layers.Parallel(layers.Identity(),  # query
                                         memory,  # key
                                         memory,  # value
@@ -316,7 +340,7 @@ def Transformer(source_vocab_size,
     )
 
   # Model-Building and Evaluation Functions
-  # Get entire model's init and apply pair
+  # Get entire model's the layer pair
   top_init, top_apply = Generator(transformer)
 
   # By default act as a normal constructor and emit an (init, apply) pair.
