@@ -128,8 +128,7 @@ class Glow(t2t_model.T2TModel):
       init_features: initialization features.
     """
     train_dataset = self.hparams.problem.dataset(
-        tf.estimator.ModeKeys.TRAIN, data_dir=self.hparams.data_dir,
-        hparams=self.hparams)
+        tf.estimator.ModeKeys.TRAIN, hparams=self.hparams)
     train_dataset = train_dataset.batch(self.hparams.init_batch_size)
     train_dataset = self.init_preprocess(train_dataset)
     return train_dataset.make_one_shot_iterator().get_next()

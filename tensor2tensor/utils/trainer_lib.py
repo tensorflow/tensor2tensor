@@ -532,7 +532,7 @@ class T2TExperiment(object):
         config.cluster_spec,
         job_name=config.task_type,
         task_index=config.task_id,
-        protocol=config.protocol)
+        protocol=self._hparams.std_server_protocol)
     server.join()
 
   def decode(self,

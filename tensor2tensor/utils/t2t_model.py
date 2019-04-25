@@ -308,7 +308,7 @@ class T2TModel(base.Layer):
     modality_name = self._hparams.name.get(
         "targets",
         modalities.get_name(modality))(self._hparams, vocab_size)
-    return modality_name.startswith("real")
+    return modality_name.startswith("Real")
 
   def call(self, inputs, **kwargs):
     del kwargs
