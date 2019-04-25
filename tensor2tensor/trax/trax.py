@@ -120,11 +120,15 @@ def save_gin(output_dir, sw=None):
             jaxboard.markdownify_operative_config_str(config_str))
 
 
-def save_state(state, output_dir):
+def save_state(state, output_dir, keep=False):
   """Save State and optionally gin config."""
   params_file = os.path.join(output_dir, "model.pkl")
   with gfile.GFile(params_file, "wb") as f:
     pickle.dump((state.params, state.step, state.history), f)
+  if keep:
+    params_file = os.path.join(output_dir, "model_{}.pkl".format(state.step))
+    with gfile.GFile(params_file, "wb") as f:
+      pickle.dump((state.params, state.step, state.history), f)
   log("Model saved to %s" % params_file, stdout=False)
 
 
@@ -329,6 +333,7 @@ def train(output_dir,
           optimizer=trax_opt.adam,
           lr_schedule=lr.MultifactorSchedule,
           train_steps=1000,
+          save_steps=None,
           eval_steps=10,
           eval_frequency=100,
           num_devices=None,
@@ -348,6 +353,8 @@ def train(output_dir,
     lr_schedule: A learning rate schedule as a function that takes history and
       returns a function from step to learning rate (a float).
     train_steps: int, total number of training steps.
+    save_steps: list of integers. Keep a model file at each of the supplied save
+      steps.
     eval_steps: int, num of steps per evaluation. If None or 0, eval disabled.
     eval_frequency: int, how often to run evaluation (every eval_frequency
       steps). If None or 0, eval disabled.
@@ -359,6 +366,8 @@ def train(output_dir,
   Returns:
     trax.State
   """
+  if save_steps is None:
+    save_steps = []
   num_devices = num_devices or jax.lib.xla_bridge.device_count()
   rng = get_random_number_generator_and_set_seed(random_seed)
   gfile.makedirs(output_dir)
@@ -391,7 +400,6 @@ def train(output_dir,
   jit_update_fun = _jit_update_fun(
       model_train, loss_fun, optimizer, lr_fun, num_devices)
 
-  print()
   train_stream = inputs.train_stream()
   epoch_steps = [train_steps]  # Only training if eval_frequency is 0 or None.
   if eval_frequency and eval_steps > 0:
@@ -419,6 +427,11 @@ def train(output_dir,
         next_train_batch = reshape_by_device_pair(next_train_batch, num_devices)
       opt_state, rngs = jit_update_fun(step, opt_state, next_train_batch, rngs)
       step += 1
+
+      if step in save_steps:
+        save_state(State(params=params, step=step, history=history),
+                   output_dir,
+                   keep=True)
 
       # LR log
       if step == 1 or step % 10 == 0:
