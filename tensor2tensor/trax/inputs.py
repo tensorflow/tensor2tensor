@@ -55,7 +55,8 @@ _MAX_SKIP_EXAMPLES = 1e5
 
 
 @gin.configurable(blacklist=["num_devices"])
-def inputs(num_devices, dataset_name, data_dir=None, input_name=None):
+def inputs(num_devices, dataset_name, data_dir=None, input_name=None,
+           num_chunks=0, append_targets=False):
   """Make Inputs for built-in datasets.
 
   Args:
@@ -64,6 +65,9 @@ def inputs(num_devices, dataset_name, data_dir=None, input_name=None):
       with "t2t_".
     data_dir: data directory.
     input_name: optional, name of the inputs from the dictionary.
+    num_chunks: optional, into how many pieces should we chunk (large inputs).
+    append_targets: optional, instead of inputs return a pair (inputs, targets)
+      which is useful for autoregressive models.
 
   Returns:
     trax.inputs.Inputs
@@ -75,18 +79,19 @@ def inputs(num_devices, dataset_name, data_dir=None, input_name=None):
    input_name, input_shape) = _train_and_eval_batches(
        dataset_name, data_dir, input_name, num_devices)
 
-  def train_input_fun():
-    return dataset_to_stream(train_batches, input_name)
+  def numpy_stream(dataset):
+    return dataset_to_stream(
+        dataset, input_name,
+        num_chunks=num_chunks, append_targets=append_targets)
 
-  def train_eval_input_fun():
-    return dataset_to_stream(train_eval_batches, input_name)
+  if num_chunks > 0:
+    length = input_shape[0]
+    input_shape = tuple(
+        [tuple([length // num_chunks] + list(input_shape)[1:])] * num_chunks)
 
-  def eval_input_fun():
-    return dataset_to_stream(eval_batches, input_name)
-
-  return Inputs(train_stream=train_input_fun,
-                train_eval_stream=train_eval_input_fun,
-                eval_stream=eval_input_fun,
+  return Inputs(train_stream=lambda: numpy_stream(train_batches),
+                train_eval_stream=lambda: numpy_stream(train_eval_batches),
+                eval_stream=lambda: numpy_stream(eval_batches),
                 input_shape=input_shape)
 
 
@@ -138,12 +143,17 @@ def random_inputs(
                 input_shape=input_shape_without_batch)
 
 
-def dataset_to_stream(dataset, input_name):
+def dataset_to_stream(dataset, input_name, num_chunks=0, append_targets=False):
   """Takes a tf.Dataset and creates a numpy stream of ready batches."""
   for example in tfds.as_numpy(dataset):
     inp, out = example[0][input_name], example[1]
     if len(out.shape) > 1 and out.shape[-1] == 1:
       out = np.squeeze(out, axis=-1)
+    if num_chunks > 0:
+      inp = np.split(inp, num_chunks, axis=1)
+      out = np.split(out, num_chunks, axis=1)
+    if append_targets:
+      inp = (inp, out)
     yield inp, out
 
 

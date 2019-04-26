@@ -43,7 +43,16 @@ class Serial(base.Layer):
   def output_shape(self, input_shape):
     cur_shape = input_shape
     for layer in self._layers:
-      cur_shape = layer.output_shape(cur_shape)
+      try:
+        cur_shape = layer.output_shape(cur_shape)
+      except Exception:
+        # Since this is a widely used combinator, we improve errors here.
+        # Private methods are accessed as an exception for that reason.
+        name, trace = layer.__class__.__name__, base._short_traceback()  # pylint: disable=protected-access
+        raise base.LayerError(
+            name, 'output_shape',
+            layer._caller, input_shape, trace)  # pylint: disable=protected-access
+
     return cur_shape
 
   def new_parameters(self, input_shape, rng):
@@ -121,9 +130,24 @@ def SecondBranch(x, **unused_kwargs):
   return x[1]  # Here x is a list of tensors, we select the second.
 
 
+def _nested_sum(inputs):  # pylint: disable=invalid-name
+  """Helper: sum a list of arrays or nested arrays."""
+  # First the simple non-nested case.
+  if not isinstance(inputs[0], (list, tuple)):
+    return sum(inputs)
+  # In the nested case, sum on each axis separately.
+  result_list = []
+  for i in range(len(inputs[0])):
+    result_list.append(_nested_sum([x[i] for x in inputs]))
+  if isinstance(inputs[0], list):
+    return result_list
+  return tuple(result_list)
+
+
 @base.layer(output_shape=lambda input_shape_list: input_shape_list[0])
 def SumBranches(x, **unused_kwargs):
-  return sum(x)  # Here x is a list of tensors of the same shape, we add them.
+  # Here x is a list of tensors of the same shape, or nested structures.
+  return _nested_sum(x)
 
 
 def _concatenate_shape(input_shape, axis=-1):  # pylint: disable=invalid-name
@@ -194,3 +218,47 @@ def Residual(*layers, **kwargs):
     )
   else:
     raise ValueError('Empty residual combinator.')
+
+
+class Map(base.Layer):
+  """Combinator for applying a layer to a list or tuple.
+
+  Args:
+    layer: a layer to apply to each element.
+
+  Returns:
+    A new layer representing mapping layer to all elements of the input.
+  """
+
+  def __init__(self, layer, check_shapes=True):
+    super(Map, self).__init__()
+    self._layer = layer
+    # Generally a Map should be applied to lists where all elements have
+    # the same shape -- because self._layer will only be initialized once
+    # and it could have different parameters for different shapes. But there
+    # are valid cases -- e.g., when self._layer has no parameters -- where we
+    # can apply Map to different shapes -- set check_shapes=False in such cases.
+    self._check_shapes = check_shapes
+
+  def call(self, inputs, params=(), **kwargs):
+    rng = kwargs.pop('rng', None)
+    rngs = (None,) * len(inputs)
+    if rng is not None:
+      rngs = backend.random.split(rng, len(inputs))
+    result = [self._layer(x, params=params, rng=r, **kwargs)
+              for x, r in zip(inputs, rngs)]
+    if isinstance(inputs, list):
+      return result
+    return tuple(result)
+
+  def output_shape(self, input_shapes):
+    return tuple([self._layer.output_shape(shape) for shape in input_shapes])
+
+  def new_parameters(self, input_shape, rng):
+    first_shape = input_shape[0]
+    if self._check_shapes:
+      for shape in input_shape:
+        if shape != first_shape:
+          raise ValueError('Map layer can only be applied to list of elements '
+                           'with the same shapes. Shapes: %s' % str(shape))
+    return self._layer.initialize(first_shape, rng)

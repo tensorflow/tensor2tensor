@@ -1,0 +1,43 @@
+import tensor2tensor.trax.inputs
+import tensor2tensor.trax.models
+import tensor2tensor.trax.optimizers
+import tensor2tensor.trax.trax
+
+# Parameters for batch_fun:
+# ==============================================================================
+batch_fun.batch_size_per_device = 1
+batch_fun.eval_batch_size = 8
+batch_fun.max_eval_length = 12288  # 64 * 64 * 3
+
+# Parameters for inputs:
+# ==============================================================================
+inputs.num_chunks = 64
+inputs.data_dir = None
+inputs.dataset_name = 't2t_image_imagenet64_gen_flat_rev'
+inputs.input_name = 'targets'
+
+# Parameters for MultifactorSchedule:
+# ==============================================================================
+MultifactorSchedule.constant = 0.1
+MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
+MultifactorSchedule.warmup_steps = 8000
+
+# Parameters for train:
+# ==============================================================================
+train.eval_frequency = 1000
+train.eval_steps = 10
+train.inputs = @trax.inputs.inputs
+train.model = @trax.models.ChunkedTransformerLM
+train.run_debug_step = False
+train.train_steps = 500000
+
+# Parameters for ChunkedTransformerLM:
+# ==============================================================================
+ChunkedTransformerLM.dropout = 0.1
+ChunkedTransformerLM.feature_depth = 1024
+ChunkedTransformerLM.feedforward_depth = 4096
+ChunkedTransformerLM.max_len = 12288  # 64 * 64 * 3
+ChunkedTransformerLM.mode = 'train'
+ChunkedTransformerLM.num_heads = 4
+ChunkedTransformerLM.num_layers = 3
+ChunkedTransformerLM.vocab_size = 256

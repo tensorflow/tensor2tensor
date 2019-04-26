@@ -191,6 +191,92 @@ def TransformerLM(vocab_size,
   )
 
 
+def ChunkedDecoderLayer(feature_depth,
+                        feedforward_depth,
+                        num_heads,
+                        dropout,
+                        chunk_selector,
+                        mode):
+  """Transformer decoder layer operating on chunks.
+
+  Args:
+    feature_depth: int:  depth of embedding
+    feedforward_depth: int: depth of feed-forward layer
+    num_heads: int: number of attention heads
+    dropout: float: dropout rate (how much to drop out)
+    chunk_selector: a function from chunk number to list of chunks to attend.
+    mode: str: 'train' or 'eval'
+
+  Returns:
+    the layer.
+  """
+  return layers.Serial(
+      layers.Residual(  # Self-attention block.
+          layers.Map(layers.LayerNorm()),
+          layers.ChunkedCausalMultiHeadedAttention(
+              feature_depth, num_heads=num_heads, dropout=dropout,
+              chunk_selector=chunk_selector, mode=mode),
+          layers.Map(layers.Dropout(rate=dropout, mode=mode)),
+      ),
+      layers.Map(ResidualFeedForward(
+          feature_depth, feedforward_depth, dropout, mode=mode))
+  )
+
+
+def ChunkedTransformerLM(vocab_size,
+                         feature_depth=512,
+                         feedforward_depth=2048,
+                         num_layers=6,
+                         num_heads=8,
+                         dropout=0.1,
+                         chunk_selector=None,
+                         max_len=2048,
+                         mode='train'):
+  """Transformer language model operating on chunks.
+
+  The input to this  model is a sequence presented as a list or tuple of chunks:
+    (chunk1, chunk2, chunks3, ..., chunkN).
+  Each chunk should have the same shape (batch, chunk-length) and together they
+  represent a long sequence that's a concatenation chunk1,chunk2,...,chunkN.
+
+  Chunked Transformer emulates the operation of a Transformer on this long
+  sequence except for the chunked attention layer, which may attend to only
+  a subset of the chunks to reduce memory use.
+
+  Args:
+    vocab_size: int: vocab size
+    feature_depth: int:  depth of embedding
+    feedforward_depth: int: depth of feed-forward layer
+    num_layers: int: number of encoder/decoder layers
+    num_heads: int: number of attention heads
+    dropout: float: dropout rate (how much to drop out)
+    chunk_selector: a function from chunk number to list of chunks to attend
+      (if None, attends to the previous chunks which is equivalent to setting
+       chunk_selector(x) = [] if x < 1 else [x-1] (TransformerXL); we attend
+       to the current chunk with a causal mask too, selected chunks unmasked).
+    max_len: int: maximum symbol length for positional encoding
+    mode: str: 'train' or 'eval'
+
+  Returns:
+    the layer.
+  """
+  stack = [ChunkedDecoderLayer(feature_depth, feedforward_depth, num_heads,
+                               dropout, chunk_selector, mode)
+           for _ in range(num_layers)]
+  # Below each Map(L) applies the layer L to each chunk independently.
+  return layers.Serial(
+      layers.ShiftRight(),
+      layers.Map(layers.Embedding(feature_depth, vocab_size)),
+      layers.Map(layers.Dropout(rate=dropout, mode=mode)),
+      layers.PositionalEncoding(max_len=max_len),
+      layers.Serial(*stack),
+      layers.Map(layers.LayerNorm()),
+      layers.Map(layers.Dense(
+          vocab_size, kernel_initializer=layers.XavierUniformInitializer())),
+      layers.Map(layers.LogSoftmax()),
+  )
+
+
 # TODO(lukaszkaiser): rewrite the model below.
 
 

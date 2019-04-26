@@ -88,14 +88,18 @@ class Layer(object):
     Returns:
       Newly created parameters on the first call and () on all subsequent calls.
     """
-    # Re-using this layer, no new parameters.
-    if not self._first_init:
-      return ()
+    try:
+      # Re-using this layer, no new parameters.
+      if not self._first_init:
+        return ()
 
-    # First call of this layer, create parameters.
-    self._first_init = False
-    self._params = self.new_parameters(input_shape, rng)
-    return self._params
+      # First call of this layer, create parameters.
+      self._first_init = False
+      self._params = self.new_parameters(input_shape, rng)
+      return self._params
+    except Exception:
+      name, trace = self.__class__.__name__, _short_traceback()
+      raise LayerError(name, 'initialize', self._caller, input_shape, trace)
 
   def __call__(self, x, params=(), **kwargs):
     try:
@@ -110,7 +114,7 @@ class Layer(object):
       return self.call(x, params=params, **kwargs)
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback()
-      raise LayerError(name, self._caller, shapes(x), trace)
+      raise LayerError(name, 'call', self._caller, shapes(x), trace)
 
 
 class LayerError(Exception):
@@ -120,8 +124,10 @@ class LayerError(Exception):
     message: the message corresponding to this exception.
   """
 
-  def __init__(self, layer_name, caller, input_shapes, traceback_string):
+  def __init__(self, layer_name, function_name, caller,
+               input_shapes, traceback_string):
     self._layer_name = layer_name
+    self._function_name = function_name  # Is it call or initialize?
     self._caller = caller  # Python inspect object with init caller info.
     self._traceback = traceback_string
     self._input_shapes = input_shapes
@@ -129,7 +135,8 @@ class LayerError(Exception):
 
   @property
   def message(self):
-    prefix = 'Exception passing through layer %s:\n' % self._layer_name
+    prefix = 'Exception passing through layer '
+    prefix += '%s (in %s):\n' % (self._layer_name, self._function_name)
     short_path = '[...]/' + '/'.join(self._caller.filename.split('/')[-3:])
     caller = '  layer created in file %s, line %d\n' % (short_path,
                                                         self._caller.lineno)

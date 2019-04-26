@@ -424,12 +424,3 @@ def _mean_output_shape(input_shape, axis=-1, keepdims=False):
 def Mean(x, params, axis=-1, keepdims=False, **kwargs):
   del params, kwargs
   return np.mean(x, axis=axis, keepdims=keepdims)
-
-
-@base.layer()
-def ShiftRight(x, **unused_kwargs):
-  """Layer to shift the tensor to the right by padding on axis 1."""
-  pad_widths = [(0, 0), (1, 0)]
-  pad_widths += [(0, 0) for _ in range(len(x.shape) - 2)]
-  padded = np.pad(x, pad_widths, mode='constant')
-  return padded[:, :-1, ...]
