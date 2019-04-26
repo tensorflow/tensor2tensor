@@ -325,6 +325,14 @@ def rlmb_base_stochastic_discrete():
 
 
 @registry.register_hparams
+def rlmb_base_stochastic_discrete_75k_model_steps():
+  """Base setting with stochastic discrete model with 75k WM steps."""
+  hparams = rlmb_base_stochastic_discrete()
+  hparams.model_train_steps = 15000 * 5
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_base_stochastic_discrete_200k():
   """Base setting with stochastic discrete model with 200k steps."""
   hparams = rlmb_base_stochastic_discrete()
