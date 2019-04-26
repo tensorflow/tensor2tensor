@@ -56,8 +56,8 @@ def GlorotNormalInitializer(out_dim=0, in_dim=1, scale=onp.sqrt(2)):
   return init
 
 
-def XavierUniformInitializer(out_dim=0, in_dim=1):
-  """An initializer function for random uniform xavier-scaled coefficients."""
+def GlorotUniformInitializer(out_dim=0, in_dim=1):
+  """An initializer function for random uniform Glorot-scaled coefficients."""
   def init(shape, rng):
     fan_in, fan_out = shape[in_dim], shape[out_dim]
     std = np.sqrt(2.0 / (fan_in + fan_out))
@@ -112,7 +112,7 @@ class Dense(base.Layer):
   """Layer constructor function for a dense (fully-connected) layer."""
 
   def __init__(self, units,
-               kernel_initializer=GlorotNormalInitializer(),
+               kernel_initializer=GlorotUniformInitializer(),
                bias_initializer=RandomNormalInitializer(1e-6)):
     super(Dense, self).__init__()
     self._units = units
@@ -137,7 +137,7 @@ class Embedding(base.Layer):
   """Layer constructor function for an embedding layer."""
 
   def __init__(self, feature_depth, vocab_size,
-               kernel_initializer=XavierUniformInitializer()):
+               kernel_initializer=GlorotUniformInitializer()):
     super(Embedding, self).__init__()
     self._feature_depth = feature_depth
     self._vocab_size = vocab_size

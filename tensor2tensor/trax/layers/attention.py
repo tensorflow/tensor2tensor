@@ -244,20 +244,16 @@ def MultiHeadedAttentionQKV(
   return combinators.Serial(
       combinators.Parallel(
           combinators.Parallel(
-              core.Dense(feature_depth,
-                         kernel_initializer=core.XavierUniformInitializer()),
-              core.Dense(feature_depth,
-                         kernel_initializer=core.XavierUniformInitializer()),
-              core.Dense(feature_depth,
-                         kernel_initializer=core.XavierUniformInitializer()),
+              core.Dense(feature_depth),
+              core.Dense(feature_depth),
+              core.Dense(feature_depth),
           ),
           combinators.Identity()
       ),
       PureMultiHeadedAttention(  # pylint: disable=no-value-for-parameter
           feature_depth=feature_depth, num_heads=num_heads,
           dropout=dropout, mode=mode),
-      core.Dense(feature_depth,
-                 kernel_initializer=core.XavierUniformInitializer()),
+      core.Dense(feature_depth),
   )
 
 
@@ -376,12 +372,9 @@ def ChunkedCausalMultiHeadedAttention(
       ),
       combinators.Parallel(
           combinators.Parallel(
-              core.Dense(feature_depth,
-                         kernel_initializer=core.XavierUniformInitializer()),
-              core.Dense(feature_depth,
-                         kernel_initializer=core.XavierUniformInitializer()),
-              core.Dense(feature_depth,
-                         kernel_initializer=core.XavierUniformInitializer()),
+              core.Dense(feature_depth),
+              core.Dense(feature_depth),
+              core.Dense(feature_depth),
           ),
           combinators.Identity()
       )
@@ -392,8 +385,7 @@ def ChunkedCausalMultiHeadedAttention(
       combinators.Map(PureMultiHeadedAttention(  # pylint: disable=no-value-for-parameter
           feature_depth=feature_depth, num_heads=num_heads,
           dropout=dropout, mode=mode), check_shapes=False),
-      combinators.Map(core.Dense(
-          feature_depth, kernel_initializer=core.XavierUniformInitializer())),
+      combinators.Map(core.Dense(feature_depth))
   )
 
 

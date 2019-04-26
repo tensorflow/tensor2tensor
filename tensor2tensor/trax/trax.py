@@ -25,6 +25,7 @@ import itertools
 import os
 import pickle
 import random
+import sys
 import time
 
 from absl import logging
@@ -115,6 +116,7 @@ def log(s, stdout=True):
   logging.info(s)
   if stdout:
     print(s)
+    sys.stdout.flush()
 
 
 def step_log(step, s):

@@ -28,12 +28,10 @@ def ResidualFeedForward(feature_depth,
   """Residual feed-forward layer with normalization at start."""
   return layers.Residual(
       layers.LayerNorm(),
-      layers.Dense(feedforward_depth,
-                   kernel_initializer=layers.XavierUniformInitializer()),
+      layers.Dense(feedforward_depth),
       layers.Relu(),
       layers.Dropout(rate=dropout, mode=mode),
-      layers.Dense(feature_depth,
-                   kernel_initializer=layers.XavierUniformInitializer()),
+      layers.Dense(feature_depth),
       layers.Dropout(rate=dropout, mode=mode)
   )
 
@@ -185,8 +183,7 @@ def TransformerLM(vocab_size,
                                    dropout, mode)
                       for _ in range(num_layers)]),
       layers.LayerNorm(),
-      layers.Dense(vocab_size,
-                   kernel_initializer=layers.XavierUniformInitializer()),
+      layers.Dense(vocab_size),
       layers.LogSoftmax()
   )
 
@@ -271,8 +268,7 @@ def ChunkedTransformerLM(vocab_size,
       layers.PositionalEncoding(max_len=max_len),
       layers.Serial(*stack),
       layers.Map(layers.LayerNorm()),
-      layers.Map(layers.Dense(
-          vocab_size, kernel_initializer=layers.XavierUniformInitializer())),
+      layers.Map(layers.Dense(vocab_size)),
       layers.Map(layers.LogSoftmax()),
   )
 
@@ -420,8 +416,7 @@ def Transformer(source_vocab_size,
   def Generator(encoded_target):
     return layers.Serial(
         encoded_target,
-        layers.Dense(target_vocab_size,
-                     kernel_initializer=layers.XavierUniformInitializer()),
+        layers.Dense(target_vocab_size),
         layers.LogSoftmax
     )
 
