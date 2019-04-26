@@ -1199,7 +1199,7 @@ def revnet(name, x, hparams, reverse=True):
   Args:
     name: variable scope for the revnet block.
     x: 4-D Tensor, shape=(NHWC).
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     reverse: bool, forward or backward pass.
   Returns:
     x: 4-D Tensor, shape=(NHWC).
@@ -1306,7 +1306,7 @@ def encoder_decoder(name, x, hparams, eps=None, reverse=False,
   Args:
     name: variable scope.
     x: 4-D Tensor, shape=(NHWC).
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     eps: Stores (glow(x) - mu) / sigma during the forward pass.
          Used only to test if the network is reversible.
     reverse: Forward or reverse pass.

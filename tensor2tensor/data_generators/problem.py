@@ -27,9 +27,9 @@ import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import data_reader
+from tensor2tensor.utils import hparam
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import mlperf_log
-from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
@@ -131,7 +131,7 @@ class TaskID(object):
 
 
 def default_model_hparams():
-  return HParams(
+  return hparam.HParams(
       max_input_seq_length=0,
       max_target_seq_length=0,
       prepend_mode="none",
@@ -1016,7 +1016,7 @@ def _reverse_problem_hparams(p_hparams):
 
 def _default_hparams():
   """A set of basic model hyperparameters."""
-  return HParams(
+  return hparam.HParams(
       # Use this parameter to get comparable perplexity numbers with different
       # tokenizations.  This value should be set to the ratio of the number of
       # tokens in the test set according to the tokenization used to the number

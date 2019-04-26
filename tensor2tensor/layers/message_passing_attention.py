@@ -866,7 +866,7 @@ def precompute_edge_matrices(adjacency, hparams):
   (we don't want to add to the graph everytime _fprop is called)
   Args:
     adjacency: placeholder of real valued vectors of shape [B, L, L, E]
-    hparams: tf.HParams object
+    hparams: HParams object
   Returns:
     edge_matrices: [batch, L * D, L * D] the dense matrix for message passing
     viewed as a block matrix (L,L) blocks of size (D,D). Each plot is a function

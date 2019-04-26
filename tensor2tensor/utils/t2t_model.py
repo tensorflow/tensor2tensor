@@ -1889,13 +1889,8 @@ class T2TModel(base.Layer):
 
     # Apply scheduled sampling over N passes. The logits from the (n-1)-th pass
     # will be mixed with gold tokens for conditioning in the n-th pass.
-    if hasattr(hparams, "scheduled_sampling_num_passes"):
-      scheduled_sampling_num_passes = hparams.scheduled_sampling_num_passes
-    else:
-      # TODO(duckworthd): Delete once scheduled_sampling_num_passes is added to
-      # common_hparams.py.
-      scheduled_sampling_num_passes = 1
-
+    scheduled_sampling_num_passes = getattr(
+        hparams, "scheduled_sampling_num_passes", 1)
     assert scheduled_sampling_num_passes > 0, (
         "hparams.scheduled_sampling_num_passes must be > 0 if "
         "hparams.scheduled_sampling_prob > 0.0")

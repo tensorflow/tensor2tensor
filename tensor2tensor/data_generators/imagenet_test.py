@@ -21,7 +21,7 @@ from __future__ import print_function
 
 from absl.testing import parameterized
 from tensor2tensor.data_generators import imagenet
-from tensor2tensor.utils.hparam import HParams
+from tensor2tensor.utils import hparam
 
 import tensorflow as tf
 
@@ -35,7 +35,7 @@ class ImagenetTest(parameterized.TestCase, tf.test.TestCase):
   def testImagenetMultiResolutionPreprocessExample(self, resize_method):
     example = {"inputs": tf.random_uniform([64, 64, 3], minval=-1.)}
     mode = tf.estimator.ModeKeys.TRAIN
-    hparams = HParams(resolutions=[8, 16, 32])
+    hparams = hparam.HParams(resolutions=[8, 16, 32])
     if resize_method is not None:
       hparams.resize_method = resize_method
 

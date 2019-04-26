@@ -22,8 +22,8 @@ import six
 
 
 from tensor2tensor.data_generators import gym_env
+from tensor2tensor.utils import hparam
 from tensor2tensor.utils import registry
-from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 
@@ -45,7 +45,7 @@ HP_SCOPES = ["loop", "model", "ppo"]
 
 
 def _rlmb_base():
-  return HParams(
+  return hparam.HParams(
       epochs=15,
       # Total frames used for training. This will be distributed evenly across
       # hparams.epochs.
@@ -852,7 +852,7 @@ def merge_unscoped_hparams(scopes_and_hparams):
       scoped_key = "%s.%s" % (scope, key)
       merged_values[scoped_key] = value
 
-  return HParams(**merged_values)
+  return hparam.HParams(**merged_values)
 
 
 def split_scoped_hparams(scopes, merged_hparams):
@@ -865,7 +865,7 @@ def split_scoped_hparams(scopes, merged_hparams):
     split_values[scope][key] = value
 
   return [
-      HParams(**split_values[scope]) for scope in scopes
+      hparam.HParams(**split_values[scope]) for scope in scopes
   ]
 
 
@@ -919,7 +919,7 @@ def dynamic_register_hparams(name, hparams):
 
   @registry.register_hparams(name)
   def new_hparams_set():
-    return HParams(**hparams.values())
+    return hparam.HParams(**hparams.values())
 
   return new_hparams_set
 

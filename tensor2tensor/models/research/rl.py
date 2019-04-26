@@ -33,10 +33,10 @@ from tensor2tensor.models.video import basic_stochastic
 from tensor2tensor.rl.envs.py_func_batch_env import PyFuncBatchEnv
 from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
 from tensor2tensor.rl.envs.simulated_batch_gym_env import SimulatedBatchGymEnv
+from tensor2tensor.utils import hparam
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 from tensor2tensor.utils import trainer_lib
-from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -79,7 +79,7 @@ def ppo_base_v1():
 @registry.register_hparams
 def basic_policy_parameters():
   wrappers = None
-  return HParams(wrappers=wrappers)
+  return hparam.HParams(wrappers=wrappers)
 
 
 @registry.register_hparams
@@ -345,7 +345,7 @@ def ppo_pong_ae_base():
 def dqn_atari_base():
   # These params are based on agents/dqn/configs/dqn.gin
   # with some modifications taking into account our code
-  return HParams(
+  return hparam.HParams(
       agent_gamma=0.99,
       agent_update_horizon=1,
       agent_min_replay_history=20000,  # agent steps
@@ -399,7 +399,7 @@ def rlmf_tiny_overrides():
 
 @registry.register_hparams
 def rlmf_original():
-  return HParams(
+  return hparam.HParams(
       game="pong",
       sticky_actions=False,
       base_algo="ppo",

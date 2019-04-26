@@ -22,9 +22,9 @@ from __future__ import print_function
 
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import hparam
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
-from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 
@@ -792,7 +792,7 @@ def resnet_200():
 # Pruning parameters
 @registry.register_pruning_params
 def resnet_weight():
-  hp = HParams()
+  hp = hparam.HParams()
   hp.add_hparam("strategy", "weight")
   hp.add_hparam("black_list", ["logits", "bias"])
   hp.add_hparam("white_list", ["td_conv"])
@@ -810,7 +810,7 @@ def resnet_unit():
 # Adversarial attack parameters
 @registry.register_attack_params
 def resnet_fgsm():
-  aparams = HParams()
+  aparams = hparam.HParams()
   aparams.attack = "fgsm"
   aparams.epsilon_name = "eps"
   aparams.attack_epsilons = [i * 0.8 for i in range(20)]

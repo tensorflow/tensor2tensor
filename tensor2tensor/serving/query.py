@@ -25,9 +25,9 @@ from six.moves import input  # pylint: disable=redefined-builtin
 
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.serving import serving_utils
+from tensor2tensor.utils import hparam
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir
-from tensor2tensor.utils.hparam import HParams
 import tensorflow as tf
 
 flags = tf.flags
@@ -81,7 +81,7 @@ def main(_):
   validate_flags()
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   problem = registry.problem(FLAGS.problem)
-  hparams = HParams(
+  hparams = hparam.HParams(
       data_dir=os.path.expanduser(FLAGS.data_dir))
   problem.get_hparams(hparams)
   request_fn = make_request_fn()

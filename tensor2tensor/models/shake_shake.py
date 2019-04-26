@@ -20,9 +20,9 @@ from __future__ import division
 from __future__ import print_function
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import hparam
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
-from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 
@@ -215,7 +215,7 @@ def shakeshake_tpu():
 
 @registry.register_attack_params
 def shake_shake_fgsm():
-  aparams = HParams()
+  aparams = hparam.HParams()
   aparams.attack = "fgsm"
   aparams.attack_epsilons = [(i+1) * 0.1 for i in range(12)]
   aparams.add_hparam("clip_min", 0.0)

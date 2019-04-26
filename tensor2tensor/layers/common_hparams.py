@@ -19,8 +19,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from six.moves import zip  # pylint: disable=redefined-builtin
+from tensor2tensor.utils import hparam
 from tensor2tensor.utils import registry
-from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 
@@ -28,7 +28,7 @@ import tensorflow as tf
 @registry.register_hparams("basic_1")
 def basic_params1():
   """A set of basic hyperparameters."""
-  return HParams(
+  return hparam.HParams(
       # If the problem consists of variable-length sequences
       # (see problem.batch_size_means_tokens()), then this is the number
       # of tokens per batch per GPU or per TPU core.  Otherwise, this is
@@ -339,7 +339,7 @@ def basic_params1():
       # Load weights from a second model. For instance, when using
       # pre-trained weights, you might want to initialize the encoder
       # and decoder by loading different models.
-      warm_start_from_second=""
+      warm_start_from_second="",
   )
 
 
