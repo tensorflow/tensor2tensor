@@ -28,6 +28,7 @@ import numpy as np
 from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 
+from tensor2tensor.layers import area_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import expert_utils
 
@@ -3991,6 +3992,12 @@ def multihead_attention(query_antecedent,
                         recurrent_memory=None,
                         chunk_number=None,
                         hard_attention_k=0,
+                        max_area_width=1,
+                        max_area_height=1,
+                        memory_height=1,
+                        area_key_mode="mean",
+                        area_value_mode="sum",
+                        training=True,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -4049,6 +4056,14 @@ def multihead_attention(query_antecedent,
     chunk_number: an optional integer Tensor with shape [batch] used to operate
       the recurrent_memory.
     hard_attention_k: integer, if > 0 triggers hard attention (picking top-k).
+    max_area_width: the max width allowed for an area.
+    max_area_height: the max height allowed for an area.
+    memory_height: the height of the memory.
+    area_key_mode: the mode for computing area keys, which can be "mean",
+      "concat", "sum", "sample_concat", and "sample_sum".
+    area_value_mode: the mode for computing area values, which can be either
+      "mean", or "sum".
+    training: indicating if it is in the training mode.
     **kwargs (dict): Parameters for the attention function.
 
   Caching:
@@ -4171,13 +4186,27 @@ def multihead_attention(query_antecedent,
       if isinstance(x, tuple):
         x, additional_returned_value = x  # Unpack
     elif attention_type == "dot_product":
-      x = dot_product_attention(
-          q, k, v, bias, dropout_rate, image_shapes,
-          save_weights_to=save_weights_to,
-          make_image_summary=make_image_summary,
-          dropout_broadcast_dims=dropout_broadcast_dims,
-          activation_dtype=kwargs.get("activation_dtype"),
-          hard_attention_k=hard_attention_k)
+      tf.logging.info("max_area_width=%d, max_area_height=%d",
+                      max_area_width, max_area_height)
+      if max_area_width > 1 or max_area_height > 1:
+        x = area_attention.dot_product_area_attention(
+            q, k, v, bias, dropout_rate, image_shapes,
+            save_weights_to=save_weights_to,
+            dropout_broadcast_dims=dropout_broadcast_dims,
+            max_area_width=max_area_width,
+            max_area_height=max_area_height,
+            memory_height=memory_height,
+            area_key_mode=area_key_mode,
+            area_value_mode=area_value_mode,
+            training=training)
+      else:
+        x = dot_product_attention(q, k, v, bias, dropout_rate, image_shapes,
+                                  save_weights_to=save_weights_to,
+                                  make_image_summary=make_image_summary,
+                                  dropout_broadcast_dims=dropout_broadcast_dims,
+                                  activation_dtype=kwargs.get(
+                                      "activation_dtype"),
+                                  hard_attention_k=hard_attention_k)
     elif attention_type == "dot_product_relative":
       x = dot_product_attention_relative(
           q,

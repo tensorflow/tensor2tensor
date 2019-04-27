@@ -340,6 +340,14 @@ def basic_params1():
       # pre-trained weights, you might want to initialize the encoder
       # and decoder by loading different models.
       warm_start_from_second="",
+      # Area attention hyper parameters
+      area_value_mode="none",
+      area_key_mode="none",
+      # Using area attention for the number of layers from the bottom
+      num_area_layers=0,
+      max_area_width=1,
+      max_area_height=1,
+      memory_height=1
   )
 
 

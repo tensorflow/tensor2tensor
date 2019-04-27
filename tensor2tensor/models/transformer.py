@@ -1417,6 +1417,15 @@ def transformer_decoder(decoder_input,
         recurrent_memory = recurrent_memory_by_layer[layer_name]
       else:
         recurrent_memory = None
+
+      if layer < hparams.get("num_area_layers", 0):
+        max_area_width = hparams.get("max_area_width", 1)
+        max_area_height = hparams.get("max_area_height", 1)
+        memory_height = hparams.get("max_area_height", 1)
+      else:
+        max_area_width = 1
+        max_area_height = 1
+        memory_height = 1
       with tf.variable_scope(layer_name):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
@@ -1446,8 +1455,14 @@ def transformer_decoder(decoder_input,
               layer_collection=layer_collection,
               recurrent_memory=recurrent_memory,
               chunk_number=chunk_number,
-              hard_attention_k=hparams.get("hard_attention_k", 0)
-              )
+              hard_attention_k=hparams.get("hard_attention_k", 0),
+              max_area_width=max_area_width,
+              max_area_height=max_area_height,
+              memory_height=memory_height,
+              area_key_mode=hparams.get("area_key_mode", "none"),
+              area_value_mode=hparams.get("area_value_mode", "none"),
+              training=(hparams.get("mode", tf.estimator.ModeKeys.TRAIN)
+                        == tf.estimator.ModeKeys.TRAIN))
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
           with tf.variable_scope("encdec_attention"):
@@ -1474,7 +1489,14 @@ def transformer_decoder(decoder_input,
                 activation_dtype=hparams.get("activation_dtype", "float32"),
                 weight_dtype=hparams.get("weight_dtype", "float32"),
                 layer_collection=layer_collection,
-                hard_attention_k=hparams.get("hard_attention_k", 0))
+                hard_attention_k=hparams.get("hard_attention_k", 0),
+                max_area_width=max_area_width,
+                max_area_height=max_area_height,
+                memory_height=memory_height,
+                area_key_mode=hparams.get("area_key_mode", "none"),
+                area_value_mode=hparams.get("area_value_mode", "none"),
+                training=(hparams.get("mode", tf.estimator.ModeKeys.TRAIN)
+                          == tf.estimator.ModeKeys.TRAIN))
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(

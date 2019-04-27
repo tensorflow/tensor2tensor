@@ -183,6 +183,14 @@ def transformer_encoder(encoder_input,
     for layer in range(hparams.num_encoder_layers or hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("self_attention"):
+          if layer < hparams.get("num_area_layers", 0):
+            max_area_width = hparams.get("max_area_width", 1)
+            max_area_height = hparams.get("max_area_height", 1)
+            memory_height = hparams.get("memory_height", 1)
+          else:
+            max_area_width = 1
+            max_area_height = 1
+            memory_height = 1
           y = common_attention.multihead_attention(
               common_layers.layer_preprocess(x, hparams),
               None,
@@ -204,7 +212,14 @@ def transformer_encoder(encoder_input,
               vars_3d=hparams.get("attention_variables_3d"),
               activation_dtype=hparams.get("activation_dtype", "float32"),
               weight_dtype=hparams.get("weight_dtype", "float32"),
-              hard_attention_k=hparams.get("hard_attention_k", 0))
+              hard_attention_k=hparams.get("hard_attention_k", 0),
+              max_area_width=max_area_width,
+              max_area_height=max_area_height,
+              memory_height=memory_height,
+              area_key_mode=hparams.get("area_key_mode", "none"),
+              area_value_mode=hparams.get("area_value_mode", "none"),
+              training=(hparams.get("mode", tf.estimator.ModeKeys.TRAIN)
+                        == tf.estimator.ModeKeys.TRAIN))
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
