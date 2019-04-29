@@ -13,30 +13,38 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Models defined in trax."""
+"""Tests for google3.third_party.py.tensor2tensor.trax.models.neural_gpu."""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import gin
-
-from tensor2tensor.trax.models import mlp
+from absl import logging
+import numpy as np
+from tensor2tensor.trax.backend import random as jax_random
 from tensor2tensor.trax.models import neural_gpu
-from tensor2tensor.trax.models import resnet
-from tensor2tensor.trax.models import transformer
+from google3.testing.pybase import googletest
 
 
-# Ginify
-def model_configure(*args, **kwargs):
-  kwargs["module"] = "trax.models"
-  return gin.external_configurable(*args, **kwargs)
+class NeuralGPUTest(googletest.TestCase):
+
+  def test_ngpu(self):
+    vocab_size = 2
+    in_shape = [3, 5, 7]
+    source = np.ones(in_shape, dtype=np.int32)
+
+    model = neural_gpu.NeuralGPU(
+        feature_depth=30, steps=4, vocab_size=vocab_size)
+    # Build params
+    rng = jax_random.get_prng(0)
+    logging.info(model)
+    model.initialize(in_shape, rng)
+
+    # Run network
+    output = model(source)
+
+    self.assertEqual(tuple(in_shape + [vocab_size]), output.shape)
 
 
-# pylint: disable=invalid-name
-ChunkedTransformerLM = model_configure(transformer.ChunkedTransformerLM)
-MLP = model_configure(mlp.MLP)
-NeuralGPU = model_configure(neural_gpu.NeuralGPU)
-Resnet50 = model_configure(resnet.Resnet50)
-TransformerEncoder = model_configure(transformer.TransformerEncoder)
-TransformerLM = model_configure(transformer.TransformerLM)
-WideResnet = model_configure(resnet.WideResnet)
+if __name__ == '__main__':
+  googletest.main()

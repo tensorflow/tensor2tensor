@@ -25,3 +25,4 @@ from tensor2tensor.trax.layers.attention import *
 from tensor2tensor.trax.layers.base import *
 from tensor2tensor.trax.layers.combinators import *
 from tensor2tensor.trax.layers.core import *
+from tensor2tensor.trax.layers.rnn import *

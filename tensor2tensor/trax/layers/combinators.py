@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import operator
 from tensor2tensor.trax import backend
 from tensor2tensor.trax.layers import base
 
@@ -130,24 +131,59 @@ def SecondBranch(x, **unused_kwargs):
   return x[1]  # Here x is a list of tensors, we select the second.
 
 
-def _nested_sum(inputs):  # pylint: disable=invalid-name
+def _nested_op(inputs, op):  # pylint: disable=invalid-name
   """Helper: sum a list of arrays or nested arrays."""
   # First the simple non-nested case.
   if not isinstance(inputs[0], (list, tuple)):
-    return sum(inputs)
+    return op(inputs)
   # In the nested case, sum on each axis separately.
   result_list = []
   for i in range(len(inputs[0])):
-    result_list.append(_nested_sum([x[i] for x in inputs]))
+    result_list.append(_nested_op([x[i] for x in inputs], op=op))
   if isinstance(inputs[0], list):
     return result_list
   return tuple(result_list)
 
 
+def _nested_sum(inputs):  # pylint: disable=invalid-name
+  return _nested_op(inputs=inputs, op=sum)
+
+
+def _nested_product(inputs):  # pylint: disable=invalid-name
+  return _nested_op(inputs=inputs, op=lambda xs: reduce(operator.mul, xs))
+
+
 @base.layer(output_shape=lambda input_shape_list: input_shape_list[0])
 def SumBranches(x, **unused_kwargs):
+  """Sum branches elementwise."""
   # Here x is a list of tensors of the same shape, or nested structures.
   return _nested_sum(x)
+
+
+@base.layer(output_shape=lambda input_shape_list: input_shape_list[0])
+def MultiplyBranches(x, **unused_kwargs):
+  """Multiply branches elementwise."""
+  return _nested_product(x)
+
+
+@base.layer(output_shape=lambda input_shape_list: input_shape_list[0])
+def GateBranches(x, **unused_kwargs):
+  """Implements a gating function on a (memory, gate, candidate) tuple.
+
+  Final update is memory * gate + (1-gate) * candidate
+
+  This gating equation may also be referred to as Highway Network.
+  Highway Networks: https://arxiv.org/abs/1505.00387
+
+  Args:
+    x: A tuple of (memory, gate, candidate)
+
+  Returns:
+    The result of applying gating.
+  """
+  assert len(x) == 3, x
+  state, gate, candidate = x
+  return gate * state + (1.0 - gate) * candidate
 
 
 def _concatenate_shape(input_shape, axis=-1):  # pylint: disable=invalid-name

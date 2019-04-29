@@ -75,13 +75,36 @@ def one_hot(x, size, dtype=np.float32):
 
 
 @base.layer()
+def AddConstant(x, params, constant=0.0, **unused_kwargs):
+  del params
+  return x + constant
+
+
+@base.layer()
 def Relu(x, **unused_kwargs):
   return np.maximum(x, 0.)
 
 
 @base.layer()
+def Sigmoid(x, **unused_kwargs):
+  return 1. / (1. + np.exp(-x))
+
+
+@base.layer()
 def Tanh(x, **unused_kwargs):
   return np.tanh(x)
+
+
+@base.layer()
+def HardSigmoid(x, **unused_kwargs):
+  """Linear approximation to sigmoid."""
+  return np.maximum(0, np.minimum(1, (1 + x)))
+
+
+@base.layer()
+def HardTanh(x, **unused_kwargs):
+  """Linear approximation to tanh."""
+  return np.maximum(-1, np.minimum(1, x))
 
 
 @base.layer()
