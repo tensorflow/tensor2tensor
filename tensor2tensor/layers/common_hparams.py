@@ -70,7 +70,7 @@ def basic_params1():
       optimizer_adafactor_clipping_threshold=1.0,
       optimizer_adafactor_multiply_by_parameter_scale=True,
       # Number of accumulating steps for multi step optimizers.
-      optimizer_multistep_accumulate_steps=None,
+      optimizer_multistep_accumulate_steps=0,
       # Loss scaling used.
       # Generally only necessary with mixed precision training.
       # Mixed precision training only supports exponential scaling currently

@@ -1974,7 +1974,7 @@ def transformer_base_single_gpu():
 def transformer_base_multistep8():
   """HParams for simulating 8 GPUs with MultistepAdam optimizer."""
   hparams = transformer_base()
-  hparams.optimizer = "MultistepAdam"
+  hparams.optimizer = "multistep_adam"
   hparams.optimizer_multistep_accumulate_steps = 8
   return hparams
 

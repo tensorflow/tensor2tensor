@@ -4186,8 +4186,6 @@ def multihead_attention(query_antecedent,
       if isinstance(x, tuple):
         x, additional_returned_value = x  # Unpack
     elif attention_type == "dot_product":
-      tf.logging.info("max_area_width=%d, max_area_height=%d",
-                      max_area_width, max_area_height)
       if max_area_width > 1 or max_area_height > 1:
         x = area_attention.dot_product_area_attention(
             q, k, v, bias, dropout_rate, image_shapes,
