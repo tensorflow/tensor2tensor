@@ -323,14 +323,14 @@ def rlmb_base_stochastic_discrete():
   hparams.simulated_batch_size = 16
   return hparams
 
+
 @registry.register_hparams
 def rlmb_base_stochastic_discrete_sticky_actions():
-  """Base setting with stochastic discrete model with sticky action
-  environment.
-  """
+  """Base setting, stochastic discrete model with sticky action environment."""
   hparams = rlmb_base_stochastic_discrete()
   hparams.sticky_actions = True
   return hparams
+
 
 @registry.register_hparams
 def rlmb_base_stochastic_discrete_75k_model_steps():
