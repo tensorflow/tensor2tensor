@@ -155,6 +155,17 @@ def nested_map(x, f):
   return f(x)
 
 
+def nested_reduce(x, f):
+  """Fold the function f to the nested structure x (dicts, tuples, lists)."""
+  if isinstance(x, list):
+    return f([nested_reduce(y, f) for y in x])
+  if isinstance(x, tuple):
+    return f(tuple([nested_reduce(y, f) for y in x]))
+  if isinstance(x, dict):
+    return f({k: nested_reduce(x[k], f) for k in x})
+  return x
+
+
 def shapes(x):
   """Get a structure of shapes for a structure of nested arrays."""
   def shape(x):
@@ -163,6 +174,16 @@ def shapes(x):
     except Exception:  # pylint: disable=broad-except
       return []
   return nested_map(x, shape)
+
+
+def sizes(x):
+  """Get a structure of sizes for a structure of nested arrays."""
+  def size(x):
+    try:
+      return x.size
+    except Exception:  # pylint: disable=broad-except
+      return 0
+  return nested_map(x, size)
 
 
 def _find_frame(stack, start=0):

@@ -293,8 +293,13 @@ def _jit_predict_fun(model_predict, num_devices):
         reshape_by_device(x, num_devices),
         params,
         jax_random.split(rng, num_devices))
-    batch_size = x.shape[0]
-    return np.reshape(pred, [batch_size] + list(pred.shape[2:]))
+    # Need to reduce the [device, per-device-batch, ...] tensors back to
+    # a [batch, ...] tensor. The tensors may be nested.
+    if not isinstance(x, (list, tuple)):  # Not nested.
+      batch_size = x.shape[0]
+      return np.reshape(pred, [batch_size] + list(pred.shape[2:]))
+    batch_size = x[0].shape[0]
+    return [np.reshape(p, [batch_size] + list(p.shape[2:])) for p in pred]
 
   return predict
 
@@ -362,7 +367,8 @@ def train(output_dir,
           eval_frequency=100,
           num_devices=None,
           random_seed=None,
-          run_debug_step=False):
+          run_debug_step=False,
+          save_forward_graph=False):
   """Train the model on the inputs.
 
   Args:
@@ -386,6 +392,7 @@ def train(output_dir,
     random_seed: the random seed to use; time/os dependent if None (default).
     run_debug_step: bool, if True, will run the model and loss without @jit for
       one step.
+    save_forward_graph: bool, if True, save forward computation graph to file.
 
   Returns:
     trax.State
@@ -476,8 +483,14 @@ def train(output_dir,
       train_sw.scalar("training/steps per second",
                       epoch_steps / epoch_time, step=step)
 
-    # Evaluate
+    # Print number of parameters
     params = trax_opt.get_params(opt_state)
+    if step == 1:
+      sizes = layers.sizes(params)
+      total_size = layers.nested_reduce(sizes, sum)
+      step_log(step, "Total trainable parameters size: %d" % total_size)
+
+    # Evaluate
     evaluate_train_and_eval(
         step=step,
         inputs=inputs,
@@ -487,6 +500,14 @@ def train(output_dir,
         train_sw=train_sw,
         eval_sw=eval_sw,
         history=history)
+
+    # Save computation graph
+    if save_forward_graph and step == 1:
+      # Dump forward computation graph to file.
+      computation = jax.xla_computation(model_predict_eval)(
+          next_train_batch[0], params=params, rng=rng)
+      with gfile.GFile(os.path.join(output_dir, "forward_graph.dot"), "w") as f:
+        f.write(computation.GetHloDotGraph())
 
     # Save state
     save_state(State(params=params, step=step, history=history), output_dir)
