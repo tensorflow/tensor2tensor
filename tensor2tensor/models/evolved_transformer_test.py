@@ -30,12 +30,15 @@ BATCH_SIZE = 3
 INPUT_LENGTH = 5
 TARGET_LENGTH = 7
 VOCAB_SIZE = 10
+DECODE_LENGTH = 3
 
 
 def get_model(hparams, has_input=True):
   hparams.layer_prepostprocess_dropout = 0.0
-  hparams.hidden_size = 16
+  hparams.hidden_size = 4
   hparams.num_heads = 1
+  hparams.num_encoder_layers = 1
+  hparams.num_decoder_layers = 1
 
   p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE, VOCAB_SIZE,
                                                    hparams)
@@ -70,7 +73,7 @@ class EvolvedTransformerTest(tf.test.TestCase):
   def testSlowVsFast(self):
     model, features = get_model(transformer.transformer_tiny())
 
-    decode_length = 30
+    decode_length = DECODE_LENGTH
 
     out_logits, _ = model(features)
     out_logits = tf.squeeze(out_logits, axis=[2, 3])
@@ -105,7 +108,7 @@ class EvolvedTransformerTest(tf.test.TestCase):
     model, features = get_model(
         transformer.transformer_tiny(), has_input=False)
 
-    decode_length = 30
+    decode_length = DECODE_LENGTH
 
     out_logits, _ = model(features)
     out_logits = tf.squeeze(out_logits, axis=[2, 3])
@@ -139,7 +142,7 @@ class EvolvedTransformerTest(tf.test.TestCase):
   def testBeamVsFast(self):
     model, features = get_model(transformer.transformer_tiny())
 
-    decode_length = 30
+    decode_length = DECODE_LENGTH
 
     out_logits, _ = model(features)
     out_logits = tf.squeeze(out_logits, axis=[2, 3])
@@ -204,7 +207,7 @@ class EvolvedTransformerTest(tf.test.TestCase):
     return model, features
 
   def testGreedySlowTPUVsNonTPU(self):
-    decode_length = 30
+    decode_length = DECODE_LENGTH
 
     model, features = self._create_greedy_infer_model()
 
@@ -226,7 +229,7 @@ class EvolvedTransformerTest(tf.test.TestCase):
     self.assertAllClose(slow_tpu_res, slow_non_tpu_res)
 
   def testGreedyFastTPUVsNonTPU(self):
-    decode_length = 30
+    decode_length = DECODE_LENGTH
 
     model, features = self._create_greedy_infer_model()
 
@@ -246,7 +249,7 @@ class EvolvedTransformerTest(tf.test.TestCase):
     self.assertAllClose(fast_tpu_res, fast_non_tpu_res)
 
   def testGreedyTPUSlowVsFast(self):
-    decode_length = 30
+    decode_length = DECODE_LENGTH
 
     model, features = self._create_greedy_infer_model()
 
