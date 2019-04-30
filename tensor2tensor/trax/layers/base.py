@@ -22,6 +22,9 @@ from __future__ import print_function
 import inspect
 import traceback
 
+import numpy as onp
+from tensor2tensor.trax.backend import random
+
 
 class Layer(object):
   """Layer object, base class. Handles parameter sharing."""
@@ -170,7 +173,7 @@ def shapes(x):
   """Get a structure of shapes for a structure of nested arrays."""
   def shape(x):
     try:
-      return x.shape
+      return tuple([int(i) for i in x.shape])
     except Exception:  # pylint: disable=broad-except
       return []
   return nested_map(x, shape)
@@ -274,3 +277,29 @@ def layer(output_shape=None, new_parameters=None):
 
     return cls
   return layer_decorator
+
+
+def _random_inputs(input_shape, rng, integer_inputs=False):
+  """Create random floats of the given shape."""
+  if isinstance(input_shape[0], int):  # Non-nested shape.
+    if not integer_inputs:
+      return random.uniform(rng, input_shape, minval=-1.0, maxval=1.0)
+    return random.bernoulli(rng, 0.5, input_shape).astype(onp.int32)
+  elif isinstance(input_shape, (list, tuple)):  # Nested shape.
+    return [_random_inputs(shape, rng, integer_inputs) for shape in input_shape]
+  else:
+    raise TypeError(type(input_shape))
+
+
+def check_shape_agreement(layer_instance, input_shape, integer_inputs=False):
+  """Check if layer.output_shape agrees with the actual output shape."""
+  rng1, rng2, rng3 = random.split(random.get_prng(0), 3)
+  output_shape = layer_instance.output_shape(input_shape)
+  output_shape = nested_map(output_shape, int)  # Make non-numpy.
+  params = layer_instance.initialize(input_shape, rng1)
+  inputs = _random_inputs(input_shape, rng2, integer_inputs=integer_inputs)
+  result = layer_instance(inputs, params, rng=rng3)
+  result_shape = shapes(result)
+  msg = 'output shape %s != real result shape %s' % (output_shape, result_shape)
+  assert output_shape == result_shape, msg
+  return output_shape

@@ -13,33 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for rnn layers."""
-
+"""Tests for combinator layers."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 from absl.testing import absltest
 from tensor2tensor.trax.layers import base
-from tensor2tensor.trax.layers import rnn
+from tensor2tensor.trax.layers import combinators
 
 
-class RnnLayerTest(absltest.TestCase):
+class CombinatorLayerTest(absltest.TestCase):
 
-  def _test_cell_runs(self, layer, input_shape, output_shape):
-    final_shape = base.check_shape_agreement(layer, input_shape)
-    self.assertEqual(output_shape, final_shape)
-
-  def test_conv_gru_cell(self):
-    self._test_cell_runs(
-        rnn.ConvGRUCell(units=9, kernel_size=(3, 3)),
-        input_shape=(8, 1, 7, 9),
-        output_shape=(8, 1, 7, 9))
-
-  def test_gru_cell(self):
-    self._test_cell_runs(
-        rnn.GRUCell(units=9), input_shape=(8, 7, 9), output_shape=(8, 7, 9))
+  def test_unnest_branches(self):
+    input_shape = ((2, 3), [(4, 5), (6, 7)], (8, 9, 10))
+    expected_shape = ((2, 3), (4, 5), (6, 7), (8, 9, 10))
+    output_shape = base.check_shape_agreement(
+        combinators.UnnestBranches(), input_shape)
+    self.assertEqual(output_shape, expected_shape)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
   absltest.main()

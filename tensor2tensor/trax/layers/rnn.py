@@ -17,7 +17,6 @@
 
 from __future__ import absolute_import
 from __future__ import division
-from __future__ import google_type_annotations
 from __future__ import print_function
 
 from tensor2tensor.trax.layers import combinators
@@ -129,11 +128,11 @@ def GeneralGRUCell(candidate_transform,
 
               # Final projection + tanh to get Ct
               candidate_transform(),
-              candidate_nonlinearity()),  # Candidate gate
+              candidate_nonlinearity(),  # Candidate gate
 
-          # Only apply dropout on the C gate.
-          # Paper reports that 0.1 is a good default.
-          core.Dropout(rate=dropout_rate_c)),
-
+              # Only apply dropout on the C gate.
+              # Paper reports that 0.1 is a good default.
+              core.Dropout(rate=dropout_rate_c)),
+      ),
       # Gate memory and candidate
       combinators.GateBranches())

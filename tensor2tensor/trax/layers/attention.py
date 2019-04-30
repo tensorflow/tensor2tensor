@@ -40,38 +40,23 @@ def PaddingMask(x, params, pad=0, **kwargs):
   return np.reshape(x != pad, (x.shape[0], 1, 1, x.shape[-1]))
 
 
-def MakeTargetMask(target, pad=0):
-  """Create an attention mask to hide padding and future words."""
-  target_mask = (target != pad)[ :, np.newaxis, :]
-  target_dtype = target_mask.dtype
-  causal_mask = onp.tril(onp.ones((1, target.shape[-1], target.shape[-1]),
-                                  dtype=target_dtype), k=0)
-  target_mask = target_mask & causal_mask
-  return np.expand_dims(target_mask, axis=1)
+def EncoderDecoderMaskShape(inputs):
+  """Helper: shape for encoder-decoder mask."""
+  (padding_mask_shape, decoder_input_shape) = inputs
+  batch_size = padding_mask_shape[0]
+  input_length = padding_mask_shape[-1]
+  target_length = decoder_input_shape[1]
+  return (batch_size, 1, target_length, input_length)
 
 
-def PreparePairedSequenceBatch(source, target_in, pad=0):
-  """Build masks for this batch.
-
-  Args:
-    source: (batch, source_len) array of integer-coded symbols for inputs
-    target_in: (batch, batch_len) array of integer-coded symbols for targets
-    pad: int: the padding symbol used to pad the above
-
-  Returns:
-    Prepared batch of tuple of arrays: source, input-target, shifted-target,
-    source mask, target mask, source-target "memory" mask, minibatch token count
-  """
-  target = target_in[:, :-1]
-  target_y = target_in[:, 1:]
-  source_mask = np.reshape(source != pad,
-                           (source.shape[0], 1, 1, source.shape[-1]))
-  target_mask = MakeTargetMask(target, pad)
-  memory_mask = (
-      np.reshape(np.arange(target.shape[-1]) < source.shape[-1], [-1, 1]))
-  ntokens = np.sum(target_y != pad)
-  return (source, target, target_y,
-          source_mask, target_mask, memory_mask, ntokens)
+@base.layer(output_shape=EncoderDecoderMaskShape)
+def EncoderDecoderMask(x, **unused_kwargs):
+  """Make encoder-decoder mask from a padding mask and decoder input."""
+  (padding_mask, decoder_input) = x
+  padding_mask = np.reshape(
+      padding_mask, (padding_mask.shape[0], 1, 1, padding_mask.shape[-1]))
+  # Final mask shape is [batch, 1 for heads, decoder-len, encoder-len].
+  return padding_mask + np.ones((1, 1, decoder_input.shape[1], 1))
 
 
 # Layer normalization.

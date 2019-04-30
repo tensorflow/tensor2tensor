@@ -19,30 +19,22 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import numpy as np
-from tensor2tensor.trax.backend import random as jax_random
+from absl.testing import absltest
+from tensor2tensor.trax.layers import base
 from tensor2tensor.trax.models import neural_gpu
-import tensorflow as tf
 
 
-class NeuralGPUTest(tf.test.TestCase):
+class NeuralGPUTest(absltest.TestCase):
 
   def test_ngpu(self):
     vocab_size = 2
-    in_shape = [3, 5, 7]
-    source = np.ones(in_shape, dtype=np.int32)
-
+    input_shape = [3, 5, 7]
     model = neural_gpu.NeuralGPU(
         feature_depth=30, steps=4, vocab_size=vocab_size)
-    # Build params
-    rng = jax_random.get_prng(0)
-    model.initialize(in_shape, rng)
-
-    # Run network
-    output = model(source)
-
-    self.assertEqual(tuple(in_shape + [vocab_size]), output.shape)
+    final_shape = base.check_shape_agreement(
+        model, tuple(input_shape), integer_inputs=True)
+    self.assertEqual(tuple(input_shape + [vocab_size]), final_shape)
 
 
 if __name__ == '__main__':
-  tf.test.main()
+  absltest.main()

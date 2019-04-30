@@ -20,6 +20,8 @@ from __future__ import division
 from __future__ import print_function
 
 import operator
+import six
+
 from tensor2tensor.trax import backend
 from tensor2tensor.trax.layers import base
 
@@ -71,6 +73,37 @@ class Serial(base.Layer):
 def Identity(x, **unused_kwargs):
   """Identity layer, return the inputs."""
   return x
+
+
+def Unnest(x):
+  """Helper: remove nesting in x, return a flat tuple."""
+  if not isinstance(x, (list, tuple)):
+    return (x,)
+  return tuple([z for y in x for z in Unnest(y)])  # pylint: disable=g-complex-comprehension
+
+
+def UnnestShape(shape):
+  """Unnest a nested structure of shapes."""
+
+  class Shape(object):
+    """Since shapes are tuples, make them a class to not unnest too far."""
+
+    def __init__(self, shape):
+      self.shape = shape
+
+  def MakeShape(nested_shape):
+    """Make all shape-tuples in the nested object shape-classes."""
+    if isinstance(nested_shape[0], int):  # Not nested.
+      return Shape(nested_shape)
+    return [MakeShape(shape) for shape in nested_shape]
+
+  # Unnest on the level of shape-classes and bring back shape-tuples.
+  return tuple([y.shape for y in Unnest(MakeShape(shape))])
+
+
+@base.layer(output_shape=UnnestShape)
+def UnnestBranches(x, **unused_kwargs):
+  return Unnest(x)
 
 
 # Re-ordering layer.
@@ -131,6 +164,11 @@ def SecondBranch(x, **unused_kwargs):
   return x[1]  # Here x is a list of tensors, we select the second.
 
 
+@base.layer(output_shape=lambda input_shape_list: input_shape_list[2])
+def ThirdBranch(x, **unused_kwargs):
+  return x[2]  # Here x is a list of tensors, we select the third.
+
+
 def _nested_op(inputs, op):  # pylint: disable=invalid-name
   """Helper: sum a list of arrays or nested arrays."""
   # First the simple non-nested case.
@@ -150,7 +188,8 @@ def _nested_sum(inputs):  # pylint: disable=invalid-name
 
 
 def _nested_product(inputs):  # pylint: disable=invalid-name
-  return _nested_op(inputs=inputs, op=lambda xs: reduce(operator.mul, xs))
+  return _nested_op(
+      inputs=inputs, op=lambda xs: six.moves.reduce(operator.mul, xs))
 
 
 @base.layer(output_shape=lambda input_shape_list: input_shape_list[0])
@@ -227,9 +266,19 @@ class Parallel(base.Layer):
     return [layer(x, params=p, rng=r, **kwargs)
             for layer, x, p, r in zip(self._layers, inputs, params, rngs)]
 
-  def output_shape(self, input_shapes):
-    return tuple([layer.output_shape(shape)
-                  for layer, shape in zip(self._layers, input_shapes)])
+  def output_shape(self, input_shape):
+    output_shapes = []
+    for i, layer in enumerate(self._layers):
+      try:
+        output_shapes.append(layer.output_shape(input_shape[i]))
+      except Exception:
+        # Since this is a widely used combinator, we improve errors here.
+        # Private methods are accessed as an exception for that reason.
+        name, trace = layer.__class__.__name__, base._short_traceback()  # pylint: disable=protected-access
+        raise base.LayerError(
+            name, 'output_shape',
+            layer._caller, input_shape[i], trace)  # pylint: disable=protected-access
+    return tuple(output_shapes)
 
   def new_parameters(self, input_shape, rng):
     rngs = backend.random.split(rng, self._nlayers)
