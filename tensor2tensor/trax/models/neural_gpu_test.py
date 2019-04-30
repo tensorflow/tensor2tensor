@@ -19,14 +19,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from absl import logging
 import numpy as np
 from tensor2tensor.trax.backend import random as jax_random
 from tensor2tensor.trax.models import neural_gpu
-from google3.testing.pybase import googletest
+import tensorflow as tf
 
 
-class NeuralGPUTest(googletest.TestCase):
+class NeuralGPUTest(tf.test.TestCase):
 
   def test_ngpu(self):
     vocab_size = 2
@@ -37,7 +36,6 @@ class NeuralGPUTest(googletest.TestCase):
         feature_depth=30, steps=4, vocab_size=vocab_size)
     # Build params
     rng = jax_random.get_prng(0)
-    logging.info(model)
     model.initialize(in_shape, rng)
 
     # Run network
@@ -47,4 +45,4 @@ class NeuralGPUTest(googletest.TestCase):
 
 
 if __name__ == '__main__':
-  googletest.main()
+  tf.test.main()

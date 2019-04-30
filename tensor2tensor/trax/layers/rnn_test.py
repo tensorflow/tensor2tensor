@@ -22,10 +22,10 @@ from __future__ import print_function
 import numpy as np
 from tensor2tensor.trax.backend import random as jax_random
 from tensor2tensor.trax.layers import rnn
-from google3.testing.pybase import googletest
+import tensorflow as tf
 
 
-class RnnModelTest(googletest.TestCase):
+class RnnModelTest(tf.test.TestCase):
 
   def _test_cell_runs(self, model, input_shape, output_shape):
     source = np.ones(input_shape, dtype=np.float32)
@@ -51,4 +51,4 @@ class RnnModelTest(googletest.TestCase):
 
 
 if __name__ == '__main__':
-  googletest.main()
+  tf.test.main()
