@@ -20,7 +20,6 @@ from __future__ import division
 from __future__ import google_type_annotations
 from __future__ import print_function
 
-import google3
 from tensor2tensor.trax.layers import combinators
 from tensor2tensor.trax.layers import core
 
