@@ -99,30 +99,29 @@ class RenderedEnv(gym.Wrapper):
     else:
       assert len(resize_to) == 2
       self.should_resize = True
+      num_channels = sample_frame.shape[-1]
       self.observation_space = gym.spaces.Box(
           low=low,
           high=high,
-          shape=list(resize_to) + list(sample_frame.shape[-1:]),
+          shape=list(resize_to) + [num_channels],
           dtype=sample_frame.dtype)
+
+  def _maybe_resize(self, obs):
+    if not self.should_resize:
+      return obs
+    height, width = self.observation_space.shape[:2]
+    img = Image.fromarray(obs)
+    img = img.resize([width, height], resample=Image.ANTIALIAS)
+    return np.array(img)
 
   def step(self, action):
     _, reward, done, info = self.env.step(action)
-    obs = self.env.render(mode=self.mode)
-    if self.should_resize:
-      img = Image.fromarray(obs)
-      img = img.resize(
-          self.observation_space.shape[:-1], resample=Image.ANTIALIAS)
-      obs = np.array(img)
+    obs = self._maybe_resize(self.env.render(mode=self.mode))
     return obs, reward, done, info
 
   def reset(self, **kwargs):
     self.env.reset(**kwargs)
-    obs = self.env.render(mode=self.mode)
-    if self.should_resize:
-      img = Image.fromarray(obs)
-      img = img.resize(self.observation_space.shape[:-1],
-                       resample=Image.ANTIALIAS)
-      obs = np.asarray(img)
+    obs = self._maybe_resize(self.env.render(mode=self.mode))
     return obs
 
 
