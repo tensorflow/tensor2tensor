@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import functools
+import math
 from tensor2tensor.keras import constraints
 from tensor2tensor.keras import initializers
 from tensor2tensor.keras import regularizers
@@ -223,6 +224,172 @@ class Conv2DVariationalDropout(tf.keras.layers.Conv2D):
                                     isinstance(self.kernel, ed.RandomVariable)),
                      dropped_inputs,
                      lambda: super(Conv2DVariationalDropout, self).call(inputs))
+
+
+@add_weight
+class DenseDVI(tf.keras.layers.Dense):
+  """Densely-connected layer with deterministic VI (Wu et al., 2018).
+
+  This layer computes a variational inference approximation via first and second
+  moments. It is accurate if the kernel and bias initializers return factorized
+  normal random variables and the number of units is sufficiently large. The
+  advantage is that the forward pass is deterministic, reducing variance of
+  gradients during training. The disadvantage is an O(features^2*units) compute
+  and O(features^2 + features*units) memory complexity. In comparison,
+  DenseReparameterization has O(features*units) compute and memory complexity.
+
+  #### Examples
+
+  Below implements deterministic variational inference for Bayesian
+  feedforward network regression. We use the exact expected log-likelihood from
+  Wu et al. (2018), Eq. 8. Assume 2-D real-valued tensors of `features` and
+  `labels` of shapes `[batch_size, num_features]` and `[batch_size, 1]`
+  respectively.
+
+  ```python
+  from tensor2tensor.layers import bayes
+
+  model = tf.keras.Sequential([
+      bayes.DenseDVI(256, activation=tf.nn.relu),
+      bayes.DenseDVI(256, activation=tf.nn.relu),
+      bayes.DenseDVI(1, activation=None),
+  ])
+  locs = model(features)
+  nll = 0.5 * tf.reduce_mean(locs.distribution.variance() +
+                             (labels - locs.distribution.mean())**2)
+  kl = sum(model.losses) / total_dataset_size
+  loss = nll + kl
+  train_op = tf.train.AdamOptimizer(0.1).minimize(loss)
+  ```
+
+  For evaluation, feed in data and use, e.g., `predictions.distribution.mean()`
+  to make predictions via the posterior predictive distribution.
+
+  ```python
+  predictions = ed.Normal(loc=locs.distribution.mean(),
+                          scale=locs.distribution.variance() + 1.)
+  ```
+  """
+
+  def __init__(self,
+               units,
+               activation=None,
+               use_bias=True,
+               kernel_initializer='trainable_normal',
+               bias_initializer='zero',
+               kernel_regularizer='normal_kl_divergence',
+               bias_regularizer=None,
+               activity_regularizer=None,
+               **kwargs):
+    super(DenseDVI, self).__init__(
+        units=units,
+        activation=activation,
+        use_bias=use_bias,
+        kernel_initializer=initializers.get(kernel_initializer),
+        bias_initializer=initializers.get(bias_initializer),
+        kernel_regularizer=regularizers.get(kernel_regularizer),
+        bias_regularizer=regularizers.get(bias_regularizer),
+        activity_regularizer=regularizers.get(activity_regularizer),
+        **kwargs)
+
+  def call_weights(self):
+    """Calls any weights if the initializer is itself a layer."""
+    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
+      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
+    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
+      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
+
+  def call(self, inputs):
+    self.call_weights()
+    if (not isinstance(inputs, ed.RandomVariable) and
+        not isinstance(self.kernel, ed.RandomVariable) and
+        not isinstance(self.bias, ed.RandomVariable)):
+      return super(DenseDVI, self).call(inputs)
+    inputs_mean, inputs_variance, inputs_covariance = get_moments(inputs)
+    kernel_mean, kernel_variance, _ = get_moments(self.kernel)
+    if self.use_bias:
+      bias_mean, _, bias_covariance = get_moments(self.bias)
+
+    # E[outputs] = E[inputs] * E[kernel] + E[bias]
+    mean = tf.tensordot(inputs_mean, kernel_mean, [[-1], [0]])
+    if self.use_bias:
+      mean = tf.nn.bias_add(mean, bias_mean)
+
+    # Cov = E[inputs**2] Cov(kernel) + E[W]^T Cov(inputs) E[W] + Cov(bias)
+    # For first term, assume Cov(kernel) = 0 on off-diagonals so we only
+    # compute diagonal term.
+    covariance_diag = tf.tensordot(inputs_variance + inputs_mean**2,
+                                   kernel_variance, [[-1], [0]])
+    # Compute quadratic form E[W]^T Cov E[W] from right-to-left. First is
+    #  [..., features, features], [features, units] -> [..., features, units].
+    cov_w = tf.tensordot(inputs_covariance, kernel_mean, [[-1], [0]])
+    # Next is [..., features, units], [features, units] -> [..., units, units].
+    w_cov_w = tf.tensordot(cov_w, kernel_mean, [[-2], [0]])
+    covariance = w_cov_w
+    if self.use_bias:
+      covariance += bias_covariance
+    covariance = tf.matrix_set_diag(
+        covariance, tf.matrix_diag_part(covariance) + covariance_diag)
+
+    if self.activation in (tf.keras.activations.relu, tf.nn.relu):
+      # Compute activation's moments with variable names from Wu et al. (2018).
+      variance = tf.matrix_diag_part(covariance)
+      scale = tf.sqrt(variance)
+      mu = mean / (scale + tf.keras.backend.epsilon())
+      mean = scale * soft_relu(mu)
+
+      pairwise_variances = (tf.expand_dims(variance, -1) *
+                            tf.expand_dims(variance, -2))  # [..., units, units]
+      rho = covariance / tf.sqrt(pairwise_variances +
+                                 tf.keras.backend.epsilon())
+      rho = tf.clip_by_value(rho,
+                             -1. / (1. + tf.keras.backend.epsilon()),
+                             1. / (1. + tf.keras.backend.epsilon()))
+      s = covariance / (rho + tf.keras.backend.epsilon())
+      mu1 = tf.expand_dims(mu, -1)  # [..., units, 1]
+      mu2 = tf.matrix_transpose(mu1)  # [..., 1, units]
+      a = (soft_relu(mu1) * soft_relu(mu2) +
+           rho * tfp.distributions.Normal(0., 1.).cdf(mu1) *
+           tfp.distributions.Normal(0., 1.).cdf(mu2))
+      gh = tf.asinh(rho)
+      bar_rho = tf.sqrt(1. - rho**2)
+      gr = gh + rho / (1. + bar_rho)
+      # Include numerically stable versions of gr and rho when multiplying or
+      # dividing them. The sign of gr*rho and rho/gr is always positive.
+      safe_gr = tf.abs(gr) + 0.5 * tf.keras.backend.epsilon()
+      safe_rho = tf.abs(rho) + tf.keras.backend.epsilon()
+      exp_negative_q = gr / (2. * math.pi) * tf.exp(
+          -safe_rho / (2. * safe_gr * (1 + bar_rho)) +
+          (gh - rho) / (safe_gr * safe_rho) * mu1 * mu2)
+      covariance = s * (a + exp_negative_q)
+    elif self.activation not in (tf.keras.activations.linear, None):
+      raise NotImplementedError('Activation is {}. Deterministic variational '
+                                'inference is only available if activation is '
+                                'ReLU or None.'.format(self.activation))
+
+    return ed.MultivariateNormalFullCovariance(mean, covariance)
+
+
+def get_moments(x):
+  """Gets first and second moments of input."""
+  if isinstance(x, ed.RandomVariable):
+    mean = x.distribution.mean()
+    variance = x.distribution.variance()
+    try:
+      covariance = x.distribution.covariance()
+    except NotImplementedError:
+      covariance = tf.zeros(x.shape.concatenate(x.shape[-1]), dtype=x.dtype)
+      covariance = tf.matrix_set_diag(covariance, variance)
+  else:
+    mean = x
+    variance = tf.zeros_like(x)
+    covariance = tf.zeros(x.shape.concatenate(x.shape[-1]), dtype=x.dtype)
+  return mean, variance, covariance
+
+
+def soft_relu(x):
+  return (tfp.distributions.Normal(0., 1.).prob(x) +
+          x * tfp.distributions.Normal(0., 1.).cdf(x))
 
 
 @add_weight

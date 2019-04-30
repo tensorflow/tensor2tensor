@@ -113,6 +113,18 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllGreater(res, 0.)
 
   @parameterized.parameters(
+      {"layer": bayes.DenseDVI,
+       "kernel_initializer": "zeros",
+       "bias_initializer": "zeros",
+       "all_close": True},
+      {"layer": bayes.DenseDVI,
+       "kernel_initializer": "trainable_normal",
+       "bias_initializer": "zeros",
+       "all_close": False},
+      {"layer": bayes.DenseDVI,
+       "kernel_initializer": "zeros",
+       "bias_initializer": "trainable_normal",
+       "all_close": False},
       {"layer": bayes.DenseReparameterization,
        "kernel_initializer": "zeros",
        "bias_initializer": "zeros",
@@ -155,7 +167,8 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     self.evaluate(tf.global_variables_initializer())
     res1, res2 = self.evaluate([outputs1, outputs2])
     self.assertEqual(res1.shape, (5, 3, 4))
-    self.assertAllGreaterEqual(res1, 0.)
+    if layer != bayes.DenseDVI:
+      self.assertAllGreaterEqual(res1, 0.)
     if all_close:
       self.assertAllClose(res1, res2)
     else:
@@ -163,6 +176,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     model.get_config()
 
   @parameterized.parameters(
+      {"layer": bayes.DenseDVI},
       {"layer": bayes.DenseReparameterization},
       {"layer": bayes.DenseVariationalDropout},
   )
@@ -184,9 +198,11 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     res1, res2 = self.evaluate([outputs1, outputs2])
     self.assertEqual(res1.shape, (5, 3, 4))
     self.assertNotAllClose(res1, res2)
-    self.assertAllClose(res2, np.zeros((5, 3, 4)), atol=1e-4)
+    if layer != bayes.DenseDVI:
+      self.assertAllClose(res2, np.zeros((5, 3, 4)), atol=1e-4)
 
   @parameterized.parameters(
+      {"layer": bayes.DenseDVI},
       {"layer": bayes.DenseReparameterization},
       {"layer": bayes.DenseVariationalDropout},
   )
@@ -238,6 +254,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
       self.assertIsNotNone(grad)
 
   @parameterized.parameters(
+      {"layer": bayes.DenseDVI},
       {"layer": bayes.DenseReparameterization},
       {"layer": bayes.DenseVariationalDropout},
   )
@@ -259,6 +276,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     self.assertLen(model.losses, 1)
 
   @parameterized.parameters(
+      {"layer": bayes.DenseDVI},
       {"layer": bayes.DenseReparameterization},
       {"layer": bayes.DenseVariationalDropout},
   )
@@ -281,6 +299,60 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     res = self.evaluate(outputs)
     self.assertEqual(res.shape, (3, 2))
     self.assertLen(model.losses, 1)
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testDenseDVIIsDeterministic(self):
+    """Tests that DenseDVI network has a deterministic loss function."""
+    features = tf.to_float(np.random.rand(3, 2))
+    labels = tf.to_float(np.random.rand(3, 1))
+    model = tf.keras.Sequential([
+        bayes.DenseDVI(5, activation=tf.nn.relu),
+        bayes.DenseDVI(1, activation=None),
+    ])
+    outputs = model(features, training=True)
+    nll = -tf.reduce_sum(outputs.distribution.log_prob(labels))
+    kl = sum(model.losses)
+    loss = nll + kl
+    self.evaluate(tf.global_variables_initializer())
+    res1 = self.evaluate(loss)
+    res2 = self.evaluate(loss)
+    self.assertEqual(res1, res2)
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testDenseDVIMoments(self):
+    """Verifies DenseDVI's moments empirically with samples."""
+    tf.set_random_seed(377269)
+    batch_size = 3
+    num_features = 5
+    units = 128
+    num_samples = 50000
+    inputs = tf.to_float(np.random.rand(batch_size, num_features))
+    layer = bayes.DenseDVI(units, activation=tf.nn.relu)
+
+    outputs1 = layer(inputs)
+    mean1 = outputs1.distribution.mean()
+    covariance1 = outputs1.distribution.covariance()
+
+    kernel_samples = layer.kernel.distribution.sample(num_samples)
+    outputs2 = layer.activation(
+        tf.einsum("bd,sdu->sbu", inputs, kernel_samples) +
+        tf.reshape(layer.bias, [1, 1, units]))
+    mean2 = tf.reduce_mean(outputs2, axis=0)
+    centered_outputs2 = tf.transpose(outputs2 - mean2, [1, 2, 0])
+    covariance2 = tf.matmul(centered_outputs2,
+                            centered_outputs2,
+                            transpose_b=True) / float(num_samples)
+
+    self.evaluate(tf.global_variables_initializer())
+    mean1_val, covariance1_val, mean2_val, covariance2_val = self.evaluate(
+        [mean1, covariance1, mean2, covariance2])
+    # Check % of mismatches is not too high according to heuristic thresholds.
+    num_mismatches = np.sum(np.abs(mean1_val - mean2_val) > 5e-3)
+    percent_mismatches = num_mismatches / float(batch_size * units)
+    self.assertLessEqual(percent_mismatches, 0.05)
+    num_mismatches = np.sum(np.abs(covariance1_val - covariance2_val) > 5e-3)
+    percent_mismatches = num_mismatches / float(batch_size * units * units)
+    self.assertLessEqual(percent_mismatches, 0.05)
 
   @test_utils.run_in_graph_and_eager_modes()
   def testGaussianProcessPosterior(self):
