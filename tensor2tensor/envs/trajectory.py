@@ -93,6 +93,10 @@ class Trajectory(object):
         processed_rewards += ts.processed_reward
     return raw_rewards, processed_rewards
 
+  @property
+  def observations_np(self):
+    return np.stack([ts.observation for ts in self.time_steps])
+
 
 class BatchTrajectory(object):
   """Basically a batch of active trajectories and a list of completed ones."""
@@ -273,3 +277,39 @@ class BatchTrajectory(object):
 
     num_time_steps = sum(t.num_time_steps for t in self.trajectories)
     return num_time_steps + self.num_completed_time_steps
+
+  @property
+  def num_completed_trajectories(self):
+    """Returns the number of completed trajectories."""
+    return len(self.completed_trajectories)
+
+  def observations_np(self, boundary=20):
+    """Pads the observations in all the trajectories and returns them.
+
+    Args:
+      boundary: integer, Observations will be padded to (n * boundary) + 1 where
+          n is an integer.
+
+    Returns:
+      a tuple(padded_observations, time_steps), with shapes:
+      padded_observations: (self.batch_size, n * boundary + 1) + OBS
+      time_steps: integer list of length = self.batch_size
+    """
+    list_observations_np_ts = [t.observations_np for t in self.trajectories]
+    # Every element in `list_observations_np_ts` is shaped (t,) + OBS
+    OBS = list_observations_np_ts[0].shape[1:]  # pylint: disable=invalid-name
+
+    num_time_steps = [t.num_time_steps for t in self.trajectories]
+    t_max = max(num_time_steps)
+    # t_max is rounded to the next multiple of `boundary`
+    boundary = int(boundary)
+    bucket_length = boundary * int(np.ceil(float(t_max) / boundary))
+
+    def padding_config(obs):
+      # We're padding the first axis only, since that is the time-step.
+      num_to_pad = bucket_length + 1 - obs.shape[0]
+      return [(0, num_to_pad)] + [(0, 0)] * len(OBS)
+
+    return np.stack([
+        np.pad(obs, padding_config(obs), "constant")
+        for obs in list_observations_np_ts]), num_time_steps

@@ -90,6 +90,15 @@ class TrajectoryTest(tf.test.TestCase):
     self.assertEqual(5, raw_reward)
     self.assertEqual(500, processed_reward)
 
+  def test_observation_np(self):
+    t = trajectory.Trajectory()
+    ts = 5
+    shape = (3, 4)
+    for _ in range(ts):
+      t.add_time_step(observation=np.random.uniform(size=shape), done=False)
+
+    self.assertEqual((ts,) + shape, t.observations_np.shape)
+
 
 class BatchTrajectoryTest(tf.test.TestCase):
 
@@ -111,7 +120,7 @@ class BatchTrajectoryTest(tf.test.TestCase):
     bt = trajectory.BatchTrajectory(batch_size=self.BATCH_SIZE)
 
     self.assertEqual(self.BATCH_SIZE, len(bt.trajectories))
-    self.assertEqual(0, len(bt.completed_trajectories))
+    self.assertEqual(0, bt.num_completed_trajectories)
 
   def test_reset_all(self):
     bt = trajectory.BatchTrajectory(batch_size=self.BATCH_SIZE)
@@ -125,7 +134,7 @@ class BatchTrajectoryTest(tf.test.TestCase):
     # Assert that all trajectories are active and not done (reset never marks
     # anything as done).
     self.assertTrue(all(t.is_active for t in bt.trajectories))
-    self.assertEqual(0, len(bt.completed_trajectories))
+    self.assertEqual(0, bt.num_completed_trajectories)
 
   def test_num_time_steps(self):
     bt = trajectory.BatchTrajectory(batch_size=self.BATCH_SIZE)
@@ -150,7 +159,7 @@ class BatchTrajectoryTest(tf.test.TestCase):
         all(not t.is_active for t in bt.trajectories[self.BATCH_SIZE // 2:]))
 
     # Nothing is done anyways.
-    self.assertEqual(0, len(bt.completed_trajectories))
+    self.assertEqual(0, bt.num_completed_trajectories)
 
   def test_step(self):
     bt = trajectory.BatchTrajectory(batch_size=self.BATCH_SIZE)
@@ -179,7 +188,7 @@ class BatchTrajectoryTest(tf.test.TestCase):
     bt.step(new_observations, raw_rewards, processed_rewards, dones, actions)
 
     # Expect to see `num_done` number of completed trajectories.
-    self.assertEqual(num_done, len(bt.completed_trajectories))
+    self.assertEqual(num_done, bt.num_completed_trajectories)
 
     # Expect to see that the rest are marked as active.
     num_active = sum(t.is_active for t in bt.trajectories)
@@ -207,7 +216,7 @@ class BatchTrajectoryTest(tf.test.TestCase):
     bt.step(new_observations, raw_rewards, processed_rewards, dones, actions)
 
     # Assert that nothing is done, since dones is False
-    self.assertEqual(0, len(bt.completed_trajectories))
+    self.assertEqual(0, bt.num_completed_trajectories)
 
     # The only trajectory is active.
     self.assertEqual(batch_size, len(bt.trajectories))
@@ -238,6 +247,90 @@ class BatchTrajectoryTest(tf.test.TestCase):
     self.assertEqual(processed_rewards[0], ts[1].processed_reward)
     self.assertIsNone(ts[0].processed_reward)
 
+  def test_observations_np(self):
+    bt = trajectory.BatchTrajectory(batch_size=self.BATCH_SIZE)
+    indices = np.arange(self.BATCH_SIZE)
+    observations, _, _, _ = self.get_random_observations_rewards_actions_dones()
+
+    # Have to call reset first.
+    bt.reset(indices, observations)
+
+    # Number of time-steps now looks like the following:
+    # (1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+    lengths = np.full((self.BATCH_SIZE,), 1)
+
+    ts = 5
+    for _ in range(ts):
+      (observations, rewards, actions, dones
+      ) = self.get_random_observations_rewards_actions_dones()
+      dones[...] = False
+      bt.step(observations, rewards, rewards, dones, actions)
+
+    # Number of time-steps now looks like the following:
+    # (6, 6, 6, 6, 6, 6, 6, 6, 6, 6)
+    lengths = lengths + ts
+
+    # Now let's mark the first two as done.
+    observations, _, _, _ = self.get_random_observations_rewards_actions_dones(
+        batch_size=2)
+    bt.reset(np.array([0, 1]), observations)
+
+    # Number of time-steps now looks like the following:
+    # (1, 1, 6, 6, 6, 6, 6, 6, 6, 6)
+    lengths[0] = lengths[1] = 1
+
+    for _ in range(ts):
+      (observations, rewards, actions, dones
+      ) = self.get_random_observations_rewards_actions_dones()
+      dones[...] = False
+      bt.step(observations, rewards, rewards, dones, actions)
+
+    # Number of time-steps now looks like the following:
+    # (6, 6, 11, 11, 11, 11, 11, 11, 11, 11)
+    lengths = lengths + ts
+
+    boundary = 20
+    padded_obs_np, padded_lengths = bt.observations_np(boundary=boundary)
+
+    # The lengths are what we expect them to be.
+    self.assertAllEqual(lengths, padded_lengths)
+
+    # The padded_observations are the shape we expect them to be.
+    self.assertEqual((self.BATCH_SIZE, boundary + 1) + self.OBSERVATION_SHAPE,
+                     padded_obs_np.shape)
+
+    # Let's do 10 more steps (to go on the other side of the boundary.
+    ts = 10
+    for _ in range(ts):
+      (observations, rewards, actions, dones
+      ) = self.get_random_observations_rewards_actions_dones()
+      dones[...] = False
+      bt.step(observations, rewards, rewards, dones, actions)
+
+    # Number of time-steps now looks like the following:
+    # (16, 16, 21, 21, 21, 21, 21, 21, 21, 21)
+    lengths = lengths + ts
+
+    padded_obs_np, padded_lengths = bt.observations_np(boundary=boundary)
+
+    # The lengths are what we expect them to be.
+    self.assertAllEqual(lengths, padded_lengths)
+
+    # The padded_observations are the shape we expect them to be.
+    self.assertEqual((self.BATCH_SIZE,
+                      (2 * boundary) + 1) + self.OBSERVATION_SHAPE,
+                     padded_obs_np.shape)
+
+    # Test that the padding is the only part that is all 0s.
+    # NOTE: There is almost 0 probability that the random observation is all 0s.
+    zero_obs = np.full(self.OBSERVATION_SHAPE, 0.)
+    for b in range(self.BATCH_SIZE):
+      # The first lengths[b] will be actual data, rest is 0s.
+      for ts in range(lengths[b]):
+        self.assertFalse(np.all(zero_obs == padded_obs_np[b][ts]))
+
+      for ts in range(lengths[b], len(padded_obs_np[b])):
+        self.assertAllEqual(zero_obs, padded_obs_np[b][ts])
 
 if __name__ == '__main__':
   tf.test.main()
