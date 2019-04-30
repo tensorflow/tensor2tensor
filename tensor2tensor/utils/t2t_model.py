@@ -707,14 +707,15 @@ class T2TModel(base.Layer):
           features["targets"],
           weights=features.get("targets_mask"))
 
-  def optimize(self, loss, num_async_replicas=1, use_tpu=False):
+  def optimize(self, loss, num_async_replicas=1, use_tpu=False, variables=None):
     """Return a training op minimizing loss."""
     lr = learning_rate.learning_rate_schedule(self.hparams)
     if num_async_replicas > 1:
       log_info("Dividing learning rate by num_async_replicas: %d",
                num_async_replicas)
     lr /= math.sqrt(float(num_async_replicas))
-    train_op = optimize.optimize(loss, lr, self.hparams, use_tpu=use_tpu)
+    train_op = optimize.optimize(
+        loss, lr, self.hparams, use_tpu=use_tpu, variables=variables)
     return train_op
 
   def set_mode(self, mode):
