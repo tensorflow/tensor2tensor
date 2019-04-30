@@ -29,6 +29,7 @@ import sys
 import time
 
 from absl import logging
+import cloudpickle
 
 import gin
 
@@ -151,13 +152,20 @@ def save_gin(output_dir, sw=None):
 
 def save_state(state, output_dir, keep=False):
   """Save State and optionally gin config."""
+  # TODO(gilmer, lukaszkaiser): figure out how to use cloudpickle in python3.
+  # Currently the code throws an error when run in python3.
+  if sys.version_info[0] < 3:
+    pkl_module = cloudpickle
+  else:
+    pkl_module = pickle
   params_file = os.path.join(output_dir, "model.pkl")
+  params = jax.unreplicate(state.params)
   with gfile.GFile(params_file, "wb") as f:
-    pickle.dump((state.params, state.step, state.history), f)
+    pkl_module.dump((params, state.step, state.history), f)
   if keep:
     params_file = os.path.join(output_dir, "model_{}.pkl".format(state.step))
     with gfile.GFile(params_file, "wb") as f:
-      pickle.dump((state.params, state.step, state.history), f)
+      pkl_module.dump((params, state.step, state.history), f)
   log("Model saved to %s" % params_file, stdout=False)
 
 
@@ -466,6 +474,7 @@ def train(output_dir,
       step += 1
 
       if step in save_steps:
+        params = trax_opt.get_params(opt_state)
         save_state(State(params=params, step=step, history=history),
                    output_dir,
                    keep=True)
