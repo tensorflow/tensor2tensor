@@ -82,7 +82,7 @@ def AddConstant(x, params, constant=0.0, **unused_kwargs):
 
 @base.layer()
 def Relu(x, **unused_kwargs):
-  return np.maximum(x, 0.)
+  return np.maximum(x, np.array(0, dtype=x.dtype))
 
 
 @base.layer()

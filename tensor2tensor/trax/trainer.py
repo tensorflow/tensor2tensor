@@ -30,6 +30,9 @@ import gin
 import jax
 from tensor2tensor.trax import trax
 
+import tensorflow as tf
+
+
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("dataset", None, "Which dataset to use.")
@@ -43,6 +46,7 @@ flags.DEFINE_multi_string("config", None,
                           "Configuration parameters (gin string).")
 flags.DEFINE_integer("log_level", logging.INFO, "Log level.")
 flags.DEFINE_bool("use_tpu", False, "Whether we're running on TPU.")
+flags.DEFINE_bool("tf_eager", False, "Whether we're running TF in eager mode.")
 
 
 def _default_output_dir():
@@ -83,6 +87,9 @@ def _setup_gin():
 
 def main(_):
   logging.set_verbosity(FLAGS.log_level)
+
+  if FLAGS.tf_eager:
+    tf.enable_eager_execution()
 
   _setup_gin()
 

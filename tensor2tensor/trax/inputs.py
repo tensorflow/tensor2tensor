@@ -230,27 +230,39 @@ def _select_features(example, feature_list=None):
   return {f: example[f] for f in feature_list if f in example}
 
 
+def _eager_dataset_iterator(dataset):
+  for item in dataset:
+    flat = tf.nest.flatten(item)
+    flat = [el.numpy() for el in flat]
+    yield tf.nest.pack_sequence_as(item, flat)
+
+
 def _train_and_eval_dataset_v1(problem_name, data_dir):
   """Return train and evaluation datasets, feature info and supervised keys."""
-  assert not tf.executing_eagerly(), "tf.eager mode must be turned off."
-  problem = t2t_problems.problem(problem_name)
-  train_dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, data_dir)
-  train_dataset = train_dataset.map(_select_features)
-  eval_dataset = problem.dataset(tf.estimator.ModeKeys.EVAL, data_dir)
-  eval_dataset = eval_dataset.map(_select_features)
-  hparams = problem.get_hparams()
-  # We take a few training examples to guess the shapes.
-  input_shapes, target_shapes = [], []
-  example_tensor = train_dataset.make_one_shot_iterator().get_next()
-  sess = tf.Session()
-  example1 = sess.run(example_tensor)
-  example2 = sess.run(example_tensor)
-  example3 = sess.run(example_tensor)
+  with tf.device("cpu:0"):
+    problem = t2t_problems.problem(problem_name)
+    train_dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, data_dir)
+    train_dataset = train_dataset.map(_select_features)
+    eval_dataset = problem.dataset(tf.estimator.ModeKeys.EVAL, data_dir)
+    eval_dataset = eval_dataset.map(_select_features)
+    hparams = problem.get_hparams()
+    # We take a few training examples to guess the shapes.
+    input_shapes, target_shapes, examples = [], [], []
+    if tf.executing_eagerly():
+      for example in _eager_dataset_iterator(train_dataset.take(3)):
+        examples.append(example)
+    else:
+      example_tensor = train_dataset.make_one_shot_iterator().get_next()
+      sess = tf.Session()
+      example1 = sess.run(example_tensor)
+      example2 = sess.run(example_tensor)
+      example3 = sess.run(example_tensor)
+      examples = [example1, example2, example3]
   # We use "inputs" as input except for purely auto-regressive tasks like
   # language models where "targets" are used as input_key.
-  input_key = "inputs" if "inputs" in example1 else "targets"
+  input_key = "inputs" if "inputs" in examples[0] else "targets"
   supervised_keys = ([input_key], ["targets"])
-  for example in [example1, example2, example3]:
+  for example in examples:
     input_shapes.append(list(example[input_key].shape))
     target_shapes.append(list(example["targets"].shape))
   input_vocab_size = hparams.vocab_size[input_key]
