@@ -677,7 +677,7 @@ def set_random_seed(seed):
   random.seed(seed)
   np.random.seed(seed)
   # Fathom
-  tf.logging.warn("Set random seed to: %d", FLAGS.random_seed)
+  tf.logging.warn("Set random seed to: %d", seed)
 
 
 def restore_checkpoint(ckpt_dir, saver, sess, must_restore=False):
