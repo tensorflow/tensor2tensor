@@ -26,8 +26,9 @@ from tensor2tensor.layers import reversible_layers as reversible
 from tensor2tensor.utils import test_utils
 
 import tensorflow as tf
-from tensorflow_probability import edward2 as ed
+import tensorflow_probability as tfp
 tf.compat.v1.enable_eager_execution()
+
 
 
 
@@ -133,7 +134,7 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
       """Exponential activation function for reversible networks."""
 
       def __call__(self, inputs, *args, **kwargs):
-        if not isinstance(inputs, ed.RandomVariable):
+        if not isinstance(inputs, tfp.edward2.RandomVariable):
           return super(Exp, self).__call__(inputs, *args, **kwargs)
         return reversible.TransformedRandomVariable(inputs, self)
 
@@ -146,7 +147,7 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
       def log_det_jacobian(self, inputs):
         return -tf.log(inputs)
 
-    x = ed.Normal(0., 1.)
+    x = tfp.edward2.Normal(0., 1.)
     y = Exp()(x)
     y_sample = self.evaluate(y.distribution.sample())
     y_log_prob = self.evaluate(y.distribution.log_prob(y_sample))

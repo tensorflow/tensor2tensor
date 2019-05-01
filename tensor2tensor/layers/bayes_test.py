@@ -26,7 +26,7 @@ from tensor2tensor.layers import bayes
 from tensor2tensor.utils import test_utils
 
 import tensorflow as tf
-from tensorflow_probability import edward2 as ed
+import tensorflow_probability as tfp
 tf.compat.v1.enable_eager_execution()
 
 
@@ -192,7 +192,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     inputs = tf.to_float(np.random.rand(5, 3, 7))
     model = layer(4, activation=tf.nn.relu, use_bias=False)
     outputs1 = model(inputs)
-    with ed.interception(take_mean):
+    with tfp.edward2.interception(take_mean):
       outputs2 = model(inputs)
     self.evaluate(tf.global_variables_initializer())
     res1, res2 = self.evaluate([outputs1, outputs2])
@@ -581,4 +581,3 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
 
 if __name__ == "__main__":
   tf.test.main()
-

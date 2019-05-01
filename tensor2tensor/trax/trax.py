@@ -303,10 +303,10 @@ def _jit_predict_fun(model_predict, num_devices):
         jax_random.split(rng, num_devices))
     # Need to reduce the [device, per-device-batch, ...] tensors back to
     # a [batch, ...] tensor. The tensors may be nested.
-    if not isinstance(x, (list, tuple)):  # Not nested.
-      batch_size = x.shape[0]
+    if not isinstance(pred, (list, tuple)):  # Not nested.
+      batch_size = pred.shape[0] * pred.shape[1]
       return np.reshape(pred, [batch_size] + list(pred.shape[2:]))
-    batch_size = x[0].shape[0]
+    batch_size = pred[0].shape[0] * pred[0].shape[1]
     return [np.reshape(p, [batch_size] + list(p.shape[2:])) for p in pred]
 
   return predict
