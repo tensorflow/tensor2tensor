@@ -19,6 +19,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import numpy as np
+
+from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import env_problem_utils
 from tensor2tensor.envs import tic_tac_toe_env  # pylint: disable=unused-import
 from tensor2tensor.envs import tic_tac_toe_env_problem
@@ -43,6 +46,41 @@ class EnvProblemUtilsTest(tf.test.TestCase):
         num_steps * batch_size + len(ep.trajectories.completed_trajectories) +
         batch_size, ep.trajectories.num_time_steps)
 
+  def test_play_env_problem_with_policy(self):
+    env = env_problem.EnvProblem(
+        base_env_name="CartPole-v0",
+        batch_size=2,
+        reward_range=(-1, 1))
 
-if __name__ == '__main__':
+    def policy_fun(observations):
+      b, t = observations.shape[:2]
+      a = env.action_space.n
+      p = np.random.uniform(size=(b, t, a))
+      p = np.exp(p)
+      p = p / np.sum(p, axis=-1, keepdims=True)
+      return np.log(p)
+
+    max_timestep = 15
+    num_trajectories = 2
+    trajectories = env_problem_utils.play_env_problem_with_policy(
+        env, policy_fun, num_trajectories=num_trajectories,
+        max_timestep=max_timestep, boundary=20)
+
+    self.assertEqual(num_trajectories, len(trajectories))
+
+    # Check shapes within trajectories.
+    traj = trajectories[0]
+    T = traj[1].shape[0]  # pylint: disable=invalid-name
+    self.assertEqual((T+1, 4), traj[0].shape)  # (4,) is OBS
+    self.assertEqual((T,), traj[2].shape)
+    self.assertLessEqual(T, max_timestep)
+
+    traj = trajectories[1]
+    T = traj[1].shape[0]  # pylint: disable=invalid-name
+    self.assertEqual((T+1, 4), traj[0].shape)
+    self.assertEqual((T,), traj[2].shape)
+    self.assertLessEqual(T, max_timestep)
+
+
+if __name__ == "__main__":
   tf.test.main()

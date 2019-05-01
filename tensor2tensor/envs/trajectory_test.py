@@ -99,6 +99,39 @@ class TrajectoryTest(tf.test.TestCase):
 
     self.assertEqual((ts,) + shape, t.observations_np.shape)
 
+  def test_as_numpy(self):
+    t = trajectory.Trajectory()
+    shape = (3, 4)
+
+    # We'll have `ts` observations and `ts-1` actions and rewards.
+    ts = 5
+    num_actions = 6
+    observations = np.random.uniform(size=(ts,) + shape)
+    actions = np.random.choice(range(num_actions), size=(ts-1,))
+    rewards = np.random.choice([-1, 0, 1], size=(ts-1,))
+
+    # First time-step has no reward.
+    t.add_time_step(observation=observations[0],
+                    done=False,
+                    action=actions[0])
+    for i in range(1, ts - 1):
+      t.add_time_step(observation=observations[i],
+                      done=False,
+                      raw_reward=rewards[i-1],
+                      processed_reward=rewards[i-1],
+                      action=actions[i])
+    # Last time-step has no action.
+    t.add_time_step(observation=observations[-1],
+                    done=False,
+                    raw_reward=rewards[-1],
+                    processed_reward=rewards[-1])
+
+    traj_np = t.as_numpy
+
+    self.assertAllEqual(observations, traj_np[0])
+    self.assertAllEqual(actions, traj_np[1])
+    self.assertAllEqual(rewards, traj_np[2])
+
 
 class BatchTrajectoryTest(tf.test.TestCase):
 
@@ -290,7 +323,8 @@ class BatchTrajectoryTest(tf.test.TestCase):
     lengths = lengths + ts
 
     boundary = 20
-    padded_obs_np, padded_lengths = bt.observations_np(boundary=boundary)
+    padded_obs_np = bt.observations_np(boundary=boundary)
+    padded_lengths = bt.trajectory_lengths
 
     # The lengths are what we expect them to be.
     self.assertAllEqual(lengths, padded_lengths)
@@ -311,7 +345,8 @@ class BatchTrajectoryTest(tf.test.TestCase):
     # (16, 16, 21, 21, 21, 21, 21, 21, 21, 21)
     lengths = lengths + ts
 
-    padded_obs_np, padded_lengths = bt.observations_np(boundary=boundary)
+    padded_obs_np = bt.observations_np(boundary=boundary)
+    padded_lengths = bt.trajectory_lengths
 
     # The lengths are what we expect them to be.
     self.assertAllEqual(lengths, padded_lengths)
