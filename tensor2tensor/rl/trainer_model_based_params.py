@@ -333,6 +333,26 @@ def rlmb_base_stochastic_discrete_sticky_actions():
 
 
 @registry.register_hparams
+def rlmb_base_stochastic_discrete_20k():
+  """Base setting with stochastic discrete model with 20k steps."""
+  hparams = rlmb_base_stochastic_discrete()
+  # Our num_real_env_frames should be divisible by real_ppo_epoch_length*epochs
+  # Here we decrease epochs to 6 and make this number 16*200*6.
+  hparams.num_real_env_frames = 19200
+  hparams.epochs = 6
+  hparams.ppo_epochs_num = 2000  # Increase PPO steps as we have less epochs.
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_base_stochastic_discrete_50k():
+  """Base setting with stochastic discrete model with 50k steps."""
+  hparams = rlmb_base_stochastic_discrete()
+  hparams.num_real_env_frames = 48000
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_base_stochastic_discrete_75k_model_steps():
   """Base setting with stochastic discrete model with 75k WM steps."""
   hparams = rlmb_base_stochastic_discrete()
