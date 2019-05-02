@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
+from tensor2tensor.layers import area_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
@@ -102,10 +103,46 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
   else:
     raise ValueError("Unknown hparams.attention_mechanism = %s, must be "
                      "luong or bahdanau." % hparams.attention_mechanism)
-  attention_mechanism = attention_mechanism_class(
-      hparams.hidden_size, encoder_outputs,
-      memory_sequence_length=encoder_output_length)
-
+  if hparams.get("max_area_width", 1) > 1:
+    def _area_key_value_fn(keys, values):
+      """Custom fn for computing area keys and values."""
+      tf.logging.info("max_area_width=%d, area_key_mode=%s, area_value_mode=%s",
+                      hparams.get("max_area_width", 1),
+                      hparams.get("area_key_mode", "none"),
+                      hparams.get("area_value_mode", "none"))
+      keys = area_attention.compute_area_key(
+          keys, max_area_width=hparams.get("max_area_width", 1),
+          mode=hparams.get("area_key_mode", "none"), name="decoder_encoder",
+          training=(hparams.mode == tf.estimator.ModeKeys.TRAIN))
+      if hparams.get("area_value_mode", "none") == "sum":
+        _, _, values, _, _ = area_attention.compute_area_features(
+            values, max_area_width=hparams.get("max_area_width", 1))
+      elif hparams.get("area_value_mode", "none") == "mean":
+        values, _, _, _, _ = area_attention.compute_area_features(
+            values, max_area_width=hparams.get("max_area_width", 1))
+      else:
+        raise ValueError(
+            "Unsupported area_value_mode: %s" % hparams.get(
+                "area_value_mode", "none"))
+      return keys, values
+    area_mask = area_attention.lengths_to_area_mask(
+        feature_length=encoder_output_length,
+        length=common_layers.shape_list(encoder_outputs)[1],
+        max_area_size=hparams.get("max_area_width", "1"))
+    def _area_prob_fn(score):
+      alignments = tf.nn.softmax(score)
+      alignments = tf.where(area_mask, alignments, tf.zeros_like(alignments))
+      alignments = tf.div(alignments, tf.reduce_sum(
+          alignments, axis=-1, keepdims=True))
+      return alignments
+    attention_mechanism = attention_mechanism_class(
+        hparams.hidden_size, encoder_outputs,
+        memory_sequence_length=None,
+        probability_fn=_area_prob_fn,
+        custom_key_value_fn=_area_key_value_fn)
+  else:
+    attention_mechanism = attention_mechanism_class(hparams.hidden_size,
+                                                    encoder_outputs)
   cell = tf.contrib.seq2seq.AttentionWrapper(
       tf.nn.rnn_cell.MultiRNNCell(layers),
       [attention_mechanism]*hparams.num_heads,
@@ -339,6 +376,7 @@ class LSTMSeq2seqAttention(t2t_model.T2TModel):
     flat_target = tf.reshape(features["targets_raw"],
                              [target_shape[0], target_shape[1]])
     targets_length = tf.reduce_sum(tf.minimum(flat_target, 1), -1)
+    tf.logging.info(self._hparams)
     return lstm_seq2seq_internal_attention(
         features["inputs"], features["targets"], self._hparams, train,
         inputs_length, targets_length)
@@ -441,4 +479,44 @@ def lstm_asr_v1():
   hparams.max_length = hparams.max_input_seq_length
   hparams.min_length_bucket = hparams.max_input_seq_length // 2
   hparams.learning_rate = 0.05
+  return hparams
+
+
+@registry.register_hparams
+def lstm_area_attention_base():
+  """Hparams for LSTM with area attention."""
+  hparams = lstm_luong_attention()
+  hparams.batch_size = 16384
+  hparams.num_hidden_layers = 2
+  hparams.hidden_size = 1024
+  hparams.num_heads = 4
+  hparams.dropout = 0.2
+  hparams.learning_rate = 0.1
+  hparams.max_area_width = 2
+  hparams.area_key_mode = "mean"
+  hparams.area_value_mode = "sum"
+  return hparams
+
+
+@registry.register_hparams
+def lstm_area_attention_enfr():
+  """Hparams for LSTM with area attention."""
+  hparams = lstm_area_attention_base()
+  hparams.dropout = 0.1
+  return hparams
+
+
+@registry.register_hparams
+def lstm_area_attention_char():
+  """Hparams for LSTM with area attention."""
+  hparams = lstm_area_attention_base()
+  hparams.batch_size = 20480
+  return hparams
+
+
+@registry.register_hparams
+def lstm_area_attention_char_enfr():
+  """Hparams for LSTM with area attention."""
+  hparams = lstm_area_attention_char()
+  hparams.dropout = 0.1
   return hparams

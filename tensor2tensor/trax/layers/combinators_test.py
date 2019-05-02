@@ -13,16 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Layers defined in trax."""
+"""Tests for combinator layers."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# We create a flat layers.* namespace for uniform calling conventions as we
-# upstream changes.
-# pylint: disable=wildcard-import
-from tensor2tensor.trax.layers.attention import *
-from tensor2tensor.trax.layers.base import *
-from tensor2tensor.trax.layers.combinators import *
-from tensor2tensor.trax.layers.core import *
-from tensor2tensor.trax.layers.rnn import *
+from absl.testing import absltest
+from tensor2tensor.trax.layers import base
+from tensor2tensor.trax.layers import combinators
+
+
+class CombinatorLayerTest(absltest.TestCase):
+
+  def test_unnest_branches(self):
+    input_shape = ((2, 3), [(4, 5), (6, 7)], (8, 9, 10))
+    expected_shape = ((2, 3), (4, 5), (6, 7), (8, 9, 10))
+    output_shape = base.check_shape_agreement(
+        combinators.UnnestBranches(), input_shape)
+    self.assertEqual(output_shape, expected_shape)
+
+
+if __name__ == "__main__":
+  absltest.main()

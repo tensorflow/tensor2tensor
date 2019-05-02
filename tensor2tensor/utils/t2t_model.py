@@ -308,7 +308,7 @@ class T2TModel(base.Layer):
     modality_name = self._hparams.name.get(
         "targets",
         modalities.get_name(modality))(self._hparams, vocab_size)
-    return modality_name.startswith("Real")
+    return modality_name.startswith("real")
 
   def call(self, inputs, **kwargs):
     del kwargs
@@ -707,14 +707,15 @@ class T2TModel(base.Layer):
           features["targets"],
           weights=features.get("targets_mask"))
 
-  def optimize(self, loss, num_async_replicas=1, use_tpu=False):
+  def optimize(self, loss, num_async_replicas=1, use_tpu=False, variables=None):
     """Return a training op minimizing loss."""
     lr = learning_rate.learning_rate_schedule(self.hparams)
     if num_async_replicas > 1:
       log_info("Dividing learning rate by num_async_replicas: %d",
                num_async_replicas)
     lr /= math.sqrt(float(num_async_replicas))
-    train_op = optimize.optimize(loss, lr, self.hparams, use_tpu=use_tpu)
+    train_op = optimize.optimize(
+        loss, lr, self.hparams, use_tpu=use_tpu, variables=variables)
     return train_op
 
   def set_mode(self, mode):
@@ -1842,7 +1843,7 @@ class T2TModel(base.Layer):
           sampled_targets,
           gold_targets)
 
-    def sampled_results(mixin_prob):
+    def sampled_results(features, logits, mixin_prob):
       """Generate scheduled sampling results."""
       sampled_targets = sample(logits)
       new_targets = mix_gold_sampled(features["targets"],
@@ -1886,7 +1887,19 @@ class T2TModel(base.Layer):
             hparams.scheduled_sampling_warmup_steps,
             min_value=0.001)
     )
-    return sampled_results(mixin_prob)
+
+    # Apply scheduled sampling over N passes. The logits from the (n-1)-th pass
+    # will be mixed with gold tokens for conditioning in the n-th pass.
+    scheduled_sampling_num_passes = getattr(
+        hparams, "scheduled_sampling_num_passes", 1)
+    assert scheduled_sampling_num_passes > 0, (
+        "hparams.scheduled_sampling_num_passes must be > 0 if "
+        "hparams.scheduled_sampling_prob > 0.0")
+    new_logits = logits
+    new_losses = losses
+    for _ in range(scheduled_sampling_num_passes):
+      new_logits, new_losses = sampled_results(features, new_logits, mixin_prob)
+    return new_logits, new_losses
 
 
 def _with_timing(fn, msg, silent=False):

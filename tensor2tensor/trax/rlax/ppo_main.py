@@ -43,7 +43,8 @@ flags.DEFINE_integer("max_timestep", None,
                      "trajectory.")
 flags.DEFINE_float("learning_rate", 1e-3, "Learning rate.")
 flags.DEFINE_boolean("jax_debug_nans", False,
-                     "Setting to true will help to debug nans.")
+                     "Setting to true will help to debug nans and disable jit.")
+flags.DEFINE_boolean("disable_jit", False, "Setting to true will disable jit.")
 
 
 def common_layers():
@@ -67,19 +68,16 @@ def main(argv):
     ppo.training_loop(
         env_name=FLAGS.env_name,
         epochs=FLAGS.epochs,
-        policy_net_fun=functools.partial(
-            ppo.policy_net, bottom_layers=common_layers()),
-        value_net_fun=functools.partial(
-            ppo.value_net, bottom_layers=common_layers()),
-        policy_optimizer_fun=optimizer_fun,
-        value_optimizer_fun=optimizer_fun,
+        policy_and_value_net_fun=functools.partial(
+            ppo.policy_and_value_net, bottom_layers=common_layers()),
+        policy_and_value_optimizer_fun=optimizer_fun,
         batch_size=FLAGS.batch_size,
         num_optimizer_steps=FLAGS.num_optimizer_steps,
         boundary=FLAGS.boundary,
         max_timestep=FLAGS.max_timestep,
         random_seed=FLAGS.random_seed)
 
-  if FLAGS.jax_debug_nans:
+  if FLAGS.jax_debug_nans or FLAGS.disable_jit:
     with jax.disable_jit():
       run_training_loop()
   else:

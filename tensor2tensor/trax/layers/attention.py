@@ -34,38 +34,29 @@ def CausalMask(x, params, axis=-1, **kwargs):
   return onp.tril(onp.ones((1, size, size), dtype=x.dtype), k=0)
 
 
-def MakeTargetMask(target, pad=0):
-  """Create an attention mask to hide padding and future words."""
-  target_mask = (target != pad)[ :, np.newaxis, :]
-  target_dtype = target_mask.dtype
-  causal_mask = onp.tril(onp.ones((1, target.shape[-1], target.shape[-1]),
-                                  dtype=target_dtype), k=0)
-  target_mask = target_mask & causal_mask
-  return np.expand_dims(target_mask, axis=1)
+@base.layer(output_shape=lambda shape, pad=0: (shape[0], 1, 1, shape[-1]))
+def PaddingMask(x, params, pad=0, **kwargs):
+  del params, kwargs
+  return np.reshape(x != pad, (x.shape[0], 1, 1, x.shape[-1]))
 
 
-def PreparePairedSequenceBatch(source, target_in, pad=0):
-  """Build masks for this batch.
+def EncoderDecoderMaskShape(inputs):
+  """Helper: shape for encoder-decoder mask."""
+  (padding_mask_shape, decoder_input_shape) = inputs
+  batch_size = padding_mask_shape[0]
+  input_length = padding_mask_shape[-1]
+  target_length = decoder_input_shape[1]
+  return (batch_size, 1, target_length, input_length)
 
-  Args:
-    source: (batch, source_len) array of integer-coded symbols for inputs
-    target_in: (batch, batch_len) array of integer-coded symbols for targets
-    pad: int: the padding symbol used to pad the above
 
-  Returns:
-    Prepared batch of tuple of arrays: source, input-target, shifted-target,
-    source mask, target mask, source-target "memory" mask, minibatch token count
-  """
-  target = target_in[:, :-1]
-  target_y = target_in[:, 1:]
-  source_mask = np.reshape(source != pad,
-                           (source.shape[0], 1, 1, source.shape[-1]))
-  target_mask = MakeTargetMask(target, pad)
-  memory_mask = (
-      np.reshape(np.arange(target.shape[-1]) < source.shape[-1], [-1, 1]))
-  ntokens = np.sum(target_y != pad)
-  return (source, target, target_y,
-          source_mask, target_mask, memory_mask, ntokens)
+@base.layer(output_shape=EncoderDecoderMaskShape)
+def EncoderDecoderMask(x, **unused_kwargs):
+  """Make encoder-decoder mask from a padding mask and decoder input."""
+  (padding_mask, decoder_input) = x
+  padding_mask = np.reshape(
+      padding_mask, (padding_mask.shape[0], 1, 1, padding_mask.shape[-1]))
+  # Final mask shape is [batch, 1 for heads, decoder-len, encoder-len].
+  return padding_mask + np.ones((1, 1, decoder_input.shape[1], 1))
 
 
 # Layer normalization.
@@ -91,21 +82,34 @@ def LayerNorm(x, params, epsilon=1e-6, **unused_kwargs):
 def _positional_encoding_new_params(input_shape, rng, max_len=2048):  # pylint: disable=invalid-name
   """Helper: create positional encoding parameters."""
   del rng
-  feature_depth = input_shape[-1]
+  # Check if we are operating on chunked inputs by checking if the first
+  # shape is a list/tuple of shapes (otherwise it's an int or numpy array).
+  is_chunked = isinstance(input_shape[0], (list, tuple))
+  feature_depth = input_shape[0][-1] if is_chunked else input_shape[-1]
   pe = onp.zeros((max_len, feature_depth), dtype=onp.float32)
   position = onp.arange(0, max_len)[:, onp.newaxis]
   div_term = onp.exp(
       onp.arange(0, feature_depth, 2) * -(onp.log(10000.0) / feature_depth))
   pe[:, 0::2] = onp.sin(position * div_term)
   pe[:, 1::2] = onp.cos(position * div_term)
-  return np.array(pe[onp.newaxis, :])  # send to device
+  pe = pe[onp.newaxis, :, :]  # [1, max_len, feature_depth]
+  return np.array(pe)  # These are trainable parameters, initialized as above.
 
 
 @base.layer(new_parameters=_positional_encoding_new_params)
 def PositionalEncoding(x, params, **unused_kwargs):
   """Implements bare positional encoding."""
-  symbol_size = np.shape(x)[1]
-  return x + params[:, :symbol_size]
+  if not isinstance(x, (list, tuple)):  # non-chunked inputs
+    symbol_size = np.shape(x)[1]
+    return x + params[:, :symbol_size, :]
+  # Chunked case: apply to all chunks selecting as much as needed.
+  offset = 0
+  results = []
+  for chunk in x:
+    symbol_size = np.shape(chunk)[1]
+    results.append(chunk + params[:, offset:offset + symbol_size, :])
+    offset += symbol_size
+  return results
 
 
 def DotProductAttention(query, key, value, mask, dropout, mode, rng):
@@ -163,32 +167,32 @@ def PureDotProductAttention(dropout=0.0, mode='train'):
 
 
 def _multihead_attention_output_shape(  # pylint: disable=invalid-name
-    input_shapes, feature_depth=None, **unused_kwargs):
+    input_shapes, **unused_kwargs):
   """Helper: calculate multihead attention output shape."""
-  input_shape = input_shapes[0]  # Inputs are (q, k, v, mask).
-  return input_shape[:-1] + (feature_depth,)
+  q_shape = input_shapes[0][0]  # Inputs are ((q, k, v), mask).
+  return q_shape
 
 
 @base.layer(output_shape=_multihead_attention_output_shape)
-def PureMultiHeadedAttention(x, params, feature_depth=None,
-                             num_heads=8, dropout=0.0, mode='train', **kwargs):
+def PureMultiHeadedAttention(x, params, num_heads=8, dropout=0.0,
+                             mode='train', **kwargs):
   """Pure transformer-style multi-headed attention.
 
   Args:
-    x: inputs (q, k, v, mask)
+    x: inputs ((q, k, v), mask)
     params: parameters (none)
-    feature_depth: int:  depth of embedding
     num_heads: int: number of attention heads
     dropout: float: dropout rate
     mode: str: 'train' or 'eval'
     **kwargs: other arguments including the rng
 
   Returns:
-    Pure Multi-headed attention layer. (No Dense transforms on input.)
+    Pure Multi-headed attention layer (no Dense transforms on input).
   """
   del params
   rng = kwargs.get('rng', None)
-  q, k, v, mask = x
+  (q, k, v), mask = x
+  feature_depth = q.shape[-1]
   assert feature_depth % num_heads == 0
   head_depth = feature_depth // num_heads
   nbatch = np.shape(q)[0]
@@ -207,9 +211,11 @@ def PureMultiHeadedAttention(x, params, feature_depth=None,
           dropout=dropout, mode=mode, rng=rng))
 
 
-def MultiHeadedAttention(
+def MultiHeadedAttentionQKV(
     feature_depth, num_heads=8, dropout=0.0, mode='train'):
   """Transformer-style multi-headed attention.
+
+  Accepts inputs of the form (q, k, v), mask.
 
   Args:
     feature_depth: int:  depth of embedding
@@ -222,17 +228,167 @@ def MultiHeadedAttention(
   """
   return combinators.Serial(
       combinators.Parallel(
-          core.Dense(feature_depth,
-                     kernel_initializer=core.XavierUniformInitializer()),
-          core.Dense(feature_depth,
-                     kernel_initializer=core.XavierUniformInitializer()),
-          core.Dense(feature_depth,
-                     kernel_initializer=core.XavierUniformInitializer()),
+          combinators.Parallel(
+              core.Dense(feature_depth),
+              core.Dense(feature_depth),
+              core.Dense(feature_depth),
+          ),
           combinators.Identity()
       ),
       PureMultiHeadedAttention(  # pylint: disable=no-value-for-parameter
           feature_depth=feature_depth, num_heads=num_heads,
           dropout=dropout, mode=mode),
-      core.Dense(feature_depth,
-                 kernel_initializer=core.XavierUniformInitializer()),
+      core.Dense(feature_depth),
   )
+
+
+def MultiHeadedAttention(
+    feature_depth, num_heads=8, dropout=0.0, mode='train'):
+  """Transformer-style multi-headed attention.
+
+  Accepts inputs of the form (x, mask) and constructs (q, k, v) from x.
+
+  Args:
+    feature_depth: int:  depth of embedding
+    num_heads: int: number of attention heads
+    dropout: float: dropout rate
+    mode: str: 'train' or 'eval'
+
+  Returns:
+    Multi-headed self-attention layer.
+  """
+  return combinators.Serial(
+      combinators.Parallel(
+          combinators.Branch(num_branches=3),  # q = k = v = first input
+          combinators.Identity()  # pass the mask
+      ),
+      MultiHeadedAttentionQKV(  # pylint: disable=no-value-for-parameter
+          feature_depth, num_heads=num_heads, dropout=dropout, mode=mode),
+  )
+
+
+# Chunked attention.
+def _chunked_selector_output_shape(  # pylint: disable=invalid-name
+    input_shapes, selector=None, **unused_kwargs):
+  """Helper: calculate output shape for chunked key selector (see below)."""
+  # Read the main function below first, the shape logic just follows the ops.
+  selector = selector or (lambda x: [] if x < 1 else [x-1])
+  triples, _ = zip(*input_shapes)
+  (query_shapes, key_shapes, value_shapes) = zip(*triples)
+  result = []
+  for i in range(len(input_shapes)):
+    selected = selector(i)
+    cur_key_shape, cur_value_shape = key_shapes[i], value_shapes[i]
+    # Since keys and values are [batch, length, depth] we concatenate on axis=1.
+    new_key_len = sum([key_shapes[j][1] for j in selected]) + cur_key_shape[1]
+    new_key_shape = (cur_key_shape[0], new_key_len, cur_key_shape[2])
+    new_value_len = sum(
+        [value_shapes[j][1] for j in selected]) + cur_value_shape[1]
+    new_value_shape = (cur_value_shape[0], new_value_len, cur_value_shape[2])
+    # Masks are (1, query-len, key-len).
+    new_mask_shape = (1, query_shapes[i][1], new_key_len)
+    new_shape = ((query_shapes[i], new_key_shape, new_value_shape),
+                 new_mask_shape)
+    result.append(new_shape)
+  return tuple(result)
+
+
+@base.layer(output_shape=_chunked_selector_output_shape)
+def ChunkedAttentionSelector(x, params, selector=None, **kwargs):
+  """Select which chunks to attend to in chunked attention.
+
+  Args:
+    x: inputs, a list of elements of the form (q, k, v), mask for each chunk.
+    params: parameters (unused).
+    selector: a function from chunk_number -> list of chunk numbers that says
+      which other chunks should be appended to the given one (previous if None).
+    **kwargs: unused other arguments.
+
+  Returns:
+    a list of elements of the form (q, k', v'), mask' where k', v' and mask' are
+    concatenations of k, v and identity-extended masks from selected chunks.
+  """
+  del params, kwargs
+  selector = selector or (lambda x: [] if x < 1 else [x-1])
+  triples, masks = zip(*x)
+  (queries, keys, values) = zip(*triples)
+  result = []
+  for i in range(len(x)):
+    selected = selector(i)
+    # Since keys and values are [batch, length, depth] we concatenate on axis=1.
+    # We also always include the current key or value at the end.
+    new_key_list = [keys[j] for j in selected]
+    new_key = np.concatenate(new_key_list + [keys[i]], axis=1)
+    new_value = np.concatenate(
+        [values[j] for j in selected] + [values[i]], axis=1)
+    # Masks are (1, query-len, key-len) so we concatenate on axis=2.
+    new_mask_shapes = [(1, queries[i].shape[1], key.shape[1])
+                       for key in new_key_list]
+    cur_mask = masks[i]
+    # Masks are all-1 for the added chunks (no masking).
+    new_mask_list = [np.ones(s, dtype=cur_mask.dtype) for s in new_mask_shapes]
+    # We still use the current (often causal) mask for the final chunk.
+    new_mask = np.concatenate(new_mask_list + [cur_mask], axis=2)
+    result.append(((queries[i], new_key, new_value), new_mask))
+  return tuple(result)
+
+
+def ChunkedCausalMultiHeadedAttention(
+    feature_depth, num_heads=8, dropout=0.0, chunk_selector=None, mode='train'):
+  """Transformer-style causal multi-headed attention operating on chunks.
+
+  Accepts inputs that are a list of chunks and applies causal attention.
+
+  Args:
+    feature_depth: int:  depth of embedding
+    num_heads: int: number of attention heads
+    dropout: float: dropout rate
+    chunk_selector: a function from chunk number to list of chunks to attend.
+    mode: str: 'train' or 'eval'
+
+  Returns:
+    Multi-headed self-attention layer.
+  """
+  prepare_attention_input = combinators.Serial(
+      combinators.Branch(),
+      combinators.Parallel(
+          combinators.Branch(num_branches=3),  # q = k = v = first input
+          CausalMask(axis=-2),  # pylint: disable=no-value-for-parameter
+      ),
+      combinators.Parallel(
+          combinators.Parallel(
+              core.Dense(feature_depth),
+              core.Dense(feature_depth),
+              core.Dense(feature_depth),
+          ),
+          combinators.Identity()
+      )
+  )
+  return combinators.Serial(
+      combinators.Map(prepare_attention_input),
+      ChunkedAttentionSelector(selector=chunk_selector),  # pylint: disable=no-value-for-parameter
+      combinators.Map(PureMultiHeadedAttention(  # pylint: disable=no-value-for-parameter
+          feature_depth=feature_depth, num_heads=num_heads,
+          dropout=dropout, mode=mode), check_shapes=False),
+      combinators.Map(core.Dense(feature_depth))
+  )
+
+
+@base.layer()
+def ShiftRight(x, **unused_kwargs):
+  """Layer to shift the tensor to the right by padding on axis 1."""
+  if not isinstance(x, (list, tuple)):  # non-chunked inputs
+    pad_widths = [(0, 0), (1, 0)]
+    padded = np.pad(x, pad_widths, mode='constant')
+    return padded[:, :-1]
+  # Handling chunked inputs. Recall that the list of chunks represents a big
+  # sequence (the concatenation of the chunks). We want to shift that sequence,
+  # so we put a 0 in the beginning of the first chunk and the last element of
+  # that chunk is used as the new first element of the next chunk, and so on.
+  padded = []
+  last_value = np.zeros_like(x[0][:, -1])
+  for chunk in x:
+    padded_chunk = np.concatenate([last_value[:, np.newaxis], chunk], axis=1)
+    last_value = chunk[:, -1]
+    padded.append(padded_chunk[:, :-1])
+  return padded

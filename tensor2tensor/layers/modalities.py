@@ -130,7 +130,7 @@ def audio_bottom(x, model_hparams, vocab_size):
 
   Args:
     x: A Tensor with shape [batch, ...]
-    model_hparams: tf.HParams, model hyperparmeters.
+    model_hparams: HParams, model hyperparmeters.
     vocab_size: int, vocabulary size.
 
   Returns:
@@ -178,7 +178,7 @@ def audio_spectral_bottom(x, model_hparams, vocab_size):
 
   Args:
     x: A Tensor with shape [batch, ...]
-    model_hparams: tf.HParams, model hyperparmeters.
+    model_hparams: HParams, model hyperparmeters.
     vocab_size: int, vocabulary size.
 
   Returns:
@@ -298,7 +298,7 @@ def _image_channel_compress_bottom(inputs, model_hparams, name="bottom"):
   Args:
     inputs: Tensor representing RGB pixel intensities as integers, of shape
       [batch, img_len, img_len, channels].
-    model_hparams: tf.HParams, model hyperparmeters.
+    model_hparams: HParams, model hyperparmeters.
     name: string, scope.
 
   Returns:
@@ -375,7 +375,7 @@ def speech_recognition_bottom(x, model_hparams, vocab_size):
 
   Args:
     x: float32 tensor with shape [batch_size, len, 1, freqs * channels]
-    model_hparams: tf.HParams, model hyperparmeters.
+    model_hparams: HParams, model hyperparmeters.
     vocab_size: int, vocabulary size.
 
   Returns:
@@ -456,7 +456,7 @@ def get_weights(model_hparams, vocab_size, hidden_dim=None):
   """Create or get concatenated embedding or softmax variable.
 
   Args:
-    model_hparams: tf.HParams, model hyperparmeters.
+    model_hparams: HParams, model hyperparmeters.
     vocab_size: int, vocabulary size.
     hidden_dim: dim of the variable. Defaults to _model_hparams' hidden_size
 
@@ -721,7 +721,7 @@ def one_hot_class_label_loss(top_out,
   Args:
     top_out: logits Tensor with shape [batch, ?, ?, num_classes]
     targets: one-hot encoding Tensor with shape [batch, ?, ?, num_classes]
-    model_hparams: tf.HParams, model hyperparmeters.
+    model_hparams: HParams, model hyperparmeters.
     vocab_size: int, vocabulary size.
     weights_fn:
 
@@ -932,7 +932,7 @@ def class_label_top(body_output, targets, model_hparams, vocab_size):
   Args:
     body_output: A Tensor with shape [batch, ?, ?, body_output_size].
     targets:
-    model_hparams: tf.HParams, model hyperparmeters.
+    model_hparams: HParams, model hyperparmeters.
     vocab_size: int, vocabulary size.
 
   Returns:
@@ -978,7 +978,7 @@ def image_channel_compress_top(body_output, targets, model_hparams, vocab_size):
   Args:
     body_output: Tensor of shape [batch, img_len, img_len, depth].
     targets:
-    model_hparams: tf.HParams, model hyperparmeters.
+    model_hparams: HParams, model hyperparmeters.
     vocab_size: int, vocabulary size.
 
   Returns:
@@ -1044,7 +1044,7 @@ def sigmoid_max_pooling_class_label_top(body_output,
   Args:
     body_output: A Tensor with shape [batch, timesteps, 1, body_output_size].
     targets:
-    model_hparams: tf.HParams, model hyperparmeters.
+    model_hparams: HParams, model hyperparmeters.
     vocab_size: int, vocabulary size.
 
   Returns:
@@ -1109,7 +1109,7 @@ def symbol_top(body_output, targets, model_hparams, vocab_size):
     body_output: A Tensor with shape
       [batch, p0, p1, model_hparams.hidden_size].
     targets: Unused.
-    model_hparams: tf.HParams, model hyperparmeters.
+    model_hparams: HParams, model hyperparmeters.
     vocab_size: int, vocabulary size.
 
   Returns:

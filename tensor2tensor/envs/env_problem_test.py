@@ -350,6 +350,33 @@ class EnvProblemTest(tf.test.TestCase):
     self.assertEqual(dev_trajectories, dev_trajectories_ds)
     self.assertEqual(dev_timesteps, dev_timesteps_ds)
 
+  def test_resets_properly(self):
+    base_env_name = "CartPole-v0"
+    batch_size = 5
+    reward_range = (-1, 1)
+    nsteps = 100
+
+    env = env_problem.EnvProblem(
+        base_env_name=base_env_name,
+        batch_size=batch_size,
+        reward_range=reward_range)
+    env.name = base_env_name
+
+    num_dones = 0
+    while num_dones == 0:
+      env, num_dones, _ = self.play_env(env=env,
+                                        nsteps=nsteps,
+                                        batch_size=batch_size,
+                                        reward_range=reward_range)
+
+    # Some completed trajectories have been generated.
+    self.assertGreater(env.trajectories.num_completed_trajectories, 0)
+
+    # This should clear the env completely of any state.
+    env.reset()
+
+    # Assert that there aren't any completed trajectories in the env now.
+    self.assertEqual(env.trajectories.num_completed_trajectories, 0)
 
 if __name__ == "__main__":
   tf.test.main()

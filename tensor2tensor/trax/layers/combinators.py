@@ -19,6 +19,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import operator
+import six
+
 from tensor2tensor.trax import backend
 from tensor2tensor.trax.layers import base
 
@@ -43,7 +46,16 @@ class Serial(base.Layer):
   def output_shape(self, input_shape):
     cur_shape = input_shape
     for layer in self._layers:
-      cur_shape = layer.output_shape(cur_shape)
+      try:
+        cur_shape = layer.output_shape(cur_shape)
+      except Exception:
+        # Since this is a widely used combinator, we improve errors here.
+        # Private methods are accessed as an exception for that reason.
+        name, trace = layer.__class__.__name__, base._short_traceback()  # pylint: disable=protected-access
+        raise base.LayerError(
+            name, 'output_shape',
+            layer._caller, input_shape, trace)  # pylint: disable=protected-access
+
     return cur_shape
 
   def new_parameters(self, input_shape, rng):
@@ -59,30 +71,170 @@ class Serial(base.Layer):
 
 @base.layer()
 def Identity(x, **unused_kwargs):
+  """Identity layer, return the inputs."""
   return x
 
 
-@base.layer(output_shape=lambda input_shape, size=2: [input_shape] * size)
-def FanOut(x, params, size=2, **kwargs):
+def Unnest(x):
+  """Helper: remove nesting in x, return a flat tuple."""
+  if not isinstance(x, (list, tuple)):
+    return (x,)
+  return tuple([z for y in x for z in Unnest(y)])  # pylint: disable=g-complex-comprehension
+
+
+def UnnestShape(shape):
+  """Unnest a nested structure of shapes."""
+
+  class Shape(object):
+    """Since shapes are tuples, make them a class to not unnest too far."""
+
+    def __init__(self, shape):
+      self.shape = shape
+
+  def MakeShape(nested_shape):
+    """Make all shape-tuples in the nested object shape-classes."""
+    if isinstance(nested_shape[0], int):  # Not nested.
+      return Shape(nested_shape)
+    return [MakeShape(shape) for shape in nested_shape]
+
+  # Unnest on the level of shape-classes and bring back shape-tuples.
+  return tuple([y.shape for y in Unnest(MakeShape(shape))])
+
+
+@base.layer(output_shape=UnnestShape)
+def UnnestBranches(x, **unused_kwargs):
+  return Unnest(x)
+
+
+# Re-ordering layer.
+def _reorder_shape(input_shape, output=None):  # pylint: disable=invalid-name
+  """Helper to determine the shape of reorder output."""
+  if output is None:
+    return input_shape
+  return base.nested_map(output, lambda i: input_shape[i])
+
+
+@base.layer(output_shape=_reorder_shape)
+def Reorder(x, params, output=None, **kwargs):
+  """Reorder a tuple into another tuple.
+
+  For example, we can re-order (x, y) into (y, x) or even (y, (x, y), y).
+  The output argument specifies how to re-order, using integers that refer
+  to indices in the input tuple. For example, if
+
+    input = (x, y, z)
+
+  then
+
+    Reorder(input, output=(1, 0, 2))   = (y, x, z)
+    Reorder(input, output=(0, 0))      = (x, x)
+    Reorder(input, output=(0, (1, 1))) = (x, (y, y))
+    Reorder(input, output=((2, 0), (1, 1))) = ((z, x), (y, y))
+
+  By default (if no output is given) Reorder does nothing (Identity).
+
+  Args:
+    x: the input tuple to re-order.
+    params: layer parameters (unused).
+    output: the specification of the output tuple: a nested tuple of ints.
+    **kwargs: other arguments (unused).
+
+  Returns:
+    The re-ordered tuple with the same shape as output.
+  """
   del params, kwargs
-  return [x] * size
+  if output is None:
+    return x
+  return base.nested_map(output, lambda i: x[i])
+
+
+@base.layer(output_shape=lambda shape, num_branches=2: [shape] * num_branches)
+def Branch(x, params, num_branches=2, **kwargs):
+  del params, kwargs
+  return [x] * num_branches
 
 
 @base.layer(output_shape=lambda input_shape_list: input_shape_list[0])
-def FanInSum(x, **unused_kwargs):
-  return sum(x)  # Here x is a list of tensors of the same shape, we add them.
+def FirstBranch(x, **unused_kwargs):
+  return x[0]  # Here x is a list of tensors, we select the first.
 
 
-def _fan_in_concat_shape(input_shape, axis=-1):  # pylint: disable=invalid-name
-  """Helper to determine the shape of FanInConcat output."""
+@base.layer(output_shape=lambda input_shape_list: input_shape_list[1])
+def SecondBranch(x, **unused_kwargs):
+  return x[1]  # Here x is a list of tensors, we select the second.
+
+
+@base.layer(output_shape=lambda input_shape_list: input_shape_list[2])
+def ThirdBranch(x, **unused_kwargs):
+  return x[2]  # Here x is a list of tensors, we select the third.
+
+
+def _nested_op(inputs, op):  # pylint: disable=invalid-name
+  """Helper: sum a list of arrays or nested arrays."""
+  # First the simple non-nested case.
+  if not isinstance(inputs[0], (list, tuple)):
+    return op(inputs)
+  # In the nested case, sum on each axis separately.
+  result_list = []
+  for i in range(len(inputs[0])):
+    result_list.append(_nested_op([x[i] for x in inputs], op=op))
+  if isinstance(inputs[0], list):
+    return result_list
+  return tuple(result_list)
+
+
+def _nested_sum(inputs):  # pylint: disable=invalid-name
+  return _nested_op(inputs=inputs, op=sum)
+
+
+def _nested_product(inputs):  # pylint: disable=invalid-name
+  return _nested_op(
+      inputs=inputs, op=lambda xs: six.moves.reduce(operator.mul, xs))
+
+
+@base.layer(output_shape=lambda input_shape_list: input_shape_list[0])
+def SumBranches(x, **unused_kwargs):
+  """Sum branches elementwise."""
+  # Here x is a list of tensors of the same shape, or nested structures.
+  return _nested_sum(x)
+
+
+@base.layer(output_shape=lambda input_shape_list: input_shape_list[0])
+def MultiplyBranches(x, **unused_kwargs):
+  """Multiply branches elementwise."""
+  return _nested_product(x)
+
+
+@base.layer(output_shape=lambda input_shape_list: input_shape_list[0])
+def GateBranches(x, **unused_kwargs):
+  """Implements a gating function on a (memory, gate, candidate) tuple.
+
+  Final update is memory * gate + (1-gate) * candidate
+
+  This gating equation may also be referred to as Highway Network.
+  Highway Networks: https://arxiv.org/abs/1505.00387
+
+  Args:
+    x: A tuple of (memory, gate, candidate)
+
+  Returns:
+    The result of applying gating.
+  """
+  assert len(x) == 3, x
+  state, gate, candidate = x
+  return gate * state + (1.0 - gate) * candidate
+
+
+def _concatenate_shape(input_shape, axis=-1):  # pylint: disable=invalid-name
+  """Helper to determine the shape of Concatenate output."""
   ax = axis % len(input_shape[0])
   concat_size = sum(shape[ax] for shape in input_shape)
   out_shape = input_shape[0][:ax] + (concat_size,) + input_shape[0][ax+1:]
   return out_shape
 
 
-@base.layer(output_shape=_fan_in_concat_shape)
-def FanInConcat(x, params, axis=-1, **kwargs):
+@base.layer(output_shape=_concatenate_shape)
+def Concatenate(x, params, axis=-1, **kwargs):
   del params, kwargs
   return backend.numpy.concatenate(x, axis)
 
@@ -90,16 +242,14 @@ def FanInConcat(x, params, axis=-1, **kwargs):
 class Parallel(base.Layer):
   """Combinator for composing layers in parallel.
 
-  The layer resulting from this combinator is often used with the FanOut and
-  FanInSum layers.
+  This layer is often used with the Branch and SumBranches layers.
 
   Args:
-    *layers: a sequence of layers, each an (init_fun, apply_fun) pair.
+    *layers: a sequence of layers.
 
   Returns:
-    A new layer, meaning an (init_fun, apply_fun) pair, representing the
-    parallel composition of the given sequence of layers. In particular, the
-    returned layer takes a sequence of inputs and returns a sequence of outputs
+    A new layer representing parallel composition of the given layers.
+    The new layer takes a sequence of inputs and returns a sequence of outputs
     with the same length as the argument `layers`.
   """
 
@@ -116,9 +266,19 @@ class Parallel(base.Layer):
     return [layer(x, params=p, rng=r, **kwargs)
             for layer, x, p, r in zip(self._layers, inputs, params, rngs)]
 
-  def output_shape(self, input_shapes):
-    return tuple([layer.output_shape(shape)
-                  for layer, shape in zip(self._layers, input_shapes)])
+  def output_shape(self, input_shape):
+    output_shapes = []
+    for i, layer in enumerate(self._layers):
+      try:
+        output_shapes.append(layer.output_shape(input_shape[i]))
+      except Exception:
+        # Since this is a widely used combinator, we improve errors here.
+        # Private methods are accessed as an exception for that reason.
+        name, trace = layer.__class__.__name__, base._short_traceback()  # pylint: disable=protected-access
+        raise base.LayerError(
+            name, 'output_shape',
+            layer._caller, input_shape[i], trace)  # pylint: disable=protected-access
+    return tuple(output_shapes)
 
   def new_parameters(self, input_shape, rng):
     rngs = backend.random.split(rng, self._nlayers)
@@ -128,18 +288,62 @@ class Parallel(base.Layer):
 
 def Residual(*layers, **kwargs):
   """Constructs a residual version of layers, summing input to layers output."""
-  res = kwargs.get('res', Identity())  # pylint: disable=no-value-for-parameter
+  shortcut = kwargs.get('shortcut', Identity())  # pylint: disable=no-value-for-parameter
   if len(layers) > 1:
     return Serial(
-        FanOut(),  # pylint: disable=no-value-for-parameter
-        Parallel(Serial(*layers), res),
-        FanInSum()  # pylint: disable=no-value-for-parameter
+        Branch(),  # pylint: disable=no-value-for-parameter
+        Parallel(Serial(*layers), shortcut),
+        SumBranches()  # pylint: disable=no-value-for-parameter
     )
   elif len(layers) == 1:
     return Serial(
-        FanOut(),  # pylint: disable=no-value-for-parameter
-        Parallel(layers[0], res),
-        FanInSum()  # pylint: disable=no-value-for-parameter
+        Branch(),  # pylint: disable=no-value-for-parameter
+        Parallel(layers[0], shortcut),
+        SumBranches()  # pylint: disable=no-value-for-parameter
     )
   else:
     raise ValueError('Empty residual combinator.')
+
+
+class Map(base.Layer):
+  """Combinator for applying a layer to a list or tuple.
+
+  Args:
+    layer: a layer to apply to each element.
+
+  Returns:
+    A new layer representing mapping layer to all elements of the input.
+  """
+
+  def __init__(self, layer, check_shapes=True):
+    super(Map, self).__init__()
+    self._layer = layer
+    # Generally a Map should be applied to lists where all elements have
+    # the same shape -- because self._layer will only be initialized once
+    # and it could have different parameters for different shapes. But there
+    # are valid cases -- e.g., when self._layer has no parameters -- where we
+    # can apply Map to different shapes -- set check_shapes=False in such cases.
+    self._check_shapes = check_shapes
+
+  def call(self, inputs, params=(), **kwargs):
+    rng = kwargs.pop('rng', None)
+    rngs = (None,) * len(inputs)
+    if rng is not None:
+      rngs = backend.random.split(rng, len(inputs))
+    result = [self._layer(x, params=params, rng=r, **kwargs)
+              for x, r in zip(inputs, rngs)]
+    if isinstance(inputs, list):
+      return result
+    return tuple(result)
+
+  def output_shape(self, input_shapes):
+    return tuple([self._layer.output_shape(shape) for shape in input_shapes])
+
+  def new_parameters(self, input_shape, rng):
+    first_shape = input_shape[0]
+    if self._check_shapes:
+      for shape in input_shape:
+        if shape != first_shape:
+          raise ValueError('Map layer can only be applied to list of elements '
+                           'with the same shapes. Shapes: %s' % str(shape))
+    return self._layer.initialize(first_shape, rng)

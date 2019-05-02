@@ -37,9 +37,9 @@ from tensor2tensor.models.research import rl  # pylint: disable=unused-import
 from tensor2tensor.rl import rl_utils
 from tensor2tensor.rl import trainer_model_based_params  # pylint: disable=unused-import
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
+from tensor2tensor.utils import hparam
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
-from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 
@@ -106,7 +106,7 @@ flags.DEFINE_integer("vizier_search_algorithm", 0, "Unused.")
 
 @registry.register_hparams
 def planner_tiny():
-  return HParams(
+  return hparam.HParams(
       num_rollouts=1,
       planning_horizon=2,
       rollout_agent_type="random",
@@ -119,7 +119,7 @@ def planner_tiny():
 
 @registry.register_hparams
 def planner_small():
-  return HParams(
+  return hparam.HParams(
       num_rollouts=64,
       planning_horizon=16,
       rollout_agent_type="policy",
@@ -132,7 +132,7 @@ def planner_small():
 
 @registry.register_hparams
 def planner_base():
-  return HParams(
+  return hparam.HParams(
       num_rollouts=96,
       batch_size=96,
       planning_horizon=8,

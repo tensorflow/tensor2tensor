@@ -56,8 +56,8 @@ def GlorotNormalInitializer(out_dim=0, in_dim=1, scale=onp.sqrt(2)):
   return init
 
 
-def XavierUniformInitializer(out_dim=0, in_dim=1):
-  """An initializer function for random uniform xavier-scaled coefficients."""
+def GlorotUniformInitializer(out_dim=0, in_dim=1):
+  """An initializer function for random uniform Glorot-scaled coefficients."""
   def init(shape, rng):
     fan_in, fan_out = shape[in_dim], shape[out_dim]
     std = np.sqrt(2.0 / (fan_in + fan_out))
@@ -75,13 +75,36 @@ def one_hot(x, size, dtype=np.float32):
 
 
 @base.layer()
+def AddConstant(x, params, constant=0.0, **unused_kwargs):
+  del params
+  return x + constant
+
+
+@base.layer()
 def Relu(x, **unused_kwargs):
-  return np.maximum(x, 0.)
+  return np.maximum(x, np.array(0, dtype=x.dtype))
+
+
+@base.layer()
+def Sigmoid(x, **unused_kwargs):
+  return 1. / (1. + np.exp(-x))
 
 
 @base.layer()
 def Tanh(x, **unused_kwargs):
   return np.tanh(x)
+
+
+@base.layer()
+def HardSigmoid(x, **unused_kwargs):
+  """Linear approximation to sigmoid."""
+  return np.maximum(0, np.minimum(1, (1 + x)))
+
+
+@base.layer()
+def HardTanh(x, **unused_kwargs):
+  """Linear approximation to tanh."""
+  return np.maximum(-1, np.minimum(1, x))
 
 
 @base.layer()
@@ -112,7 +135,7 @@ class Dense(base.Layer):
   """Layer constructor function for a dense (fully-connected) layer."""
 
   def __init__(self, units,
-               kernel_initializer=GlorotNormalInitializer(),
+               kernel_initializer=GlorotUniformInitializer(),
                bias_initializer=RandomNormalInitializer(1e-6)):
     super(Dense, self).__init__()
     self._units = units
@@ -137,7 +160,7 @@ class Embedding(base.Layer):
   """Layer constructor function for an embedding layer."""
 
   def __init__(self, feature_depth, vocab_size,
-               kernel_initializer=XavierUniformInitializer()):
+               kernel_initializer=GlorotUniformInitializer()):
     super(Embedding, self).__init__()
     self._feature_depth = feature_depth
     self._vocab_size = vocab_size
@@ -412,10 +435,15 @@ def Div(x, params, divisor=1.0, **kwargs):
   return x / divisor
 
 
-@base.layer()
-def ShiftRight(x, **unused_kwargs):
-  """Layer to shift the tensor to the right by padding on axis 1."""
-  pad_widths = [(0, 0), (1, 0)]
-  pad_widths += [(0, 0) for _ in range(len(x.shape) - 2)]
-  padded = np.pad(x, pad_widths, mode='constant')
-  return padded[:, :-1, ...]
+# Mean.
+def _mean_output_shape(input_shape, axis=-1, keepdims=False):
+  shape1 = list(input_shape)[:axis]  # Shape before axis.
+  shape2 = list(input_shape)[axis:][1:]  # Shape after axis.
+  mid_shape = [1] if keepdims else []
+  return tuple(shape1 + mid_shape + shape2)
+
+
+@base.layer(output_shape=_mean_output_shape)
+def Mean(x, params, axis=-1, keepdims=False, **kwargs):
+  del params, kwargs
+  return np.mean(x, axis=axis, keepdims=keepdims)

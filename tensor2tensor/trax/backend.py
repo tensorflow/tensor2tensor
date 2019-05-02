@@ -27,8 +27,6 @@ import jax.numpy as jnp
 import jax.scipy.special as jax_special
 import numpy as onp
 
-import tensorflow as tf
-
 
 
 _JAX_BACKEND = {
@@ -112,4 +110,3 @@ def backend(name="jax"):
   if name == "numpy":
     return _NUMPY_BACKEND
   return _JAX_BACKEND
-

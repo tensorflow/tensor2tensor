@@ -46,6 +46,22 @@ _DECODER_RIGHT_CONV_PADDING = 6
 _DECODER_FINAL_CONV_PADDING = 6
 
 
+def _capped_double_heads(num_heads, cap=16):
+  """Calculate the number of heads for the attention layers with more heads.
+
+  The number of heads will be twice the normal amount (num_heads), until it
+  reaches |cap| heads.
+
+  Args:
+    num_heads: the num_heads hparam for the model.
+    cap: the maximum number of heads |num_heads| will be doubled to.
+
+  Returns:
+    The number of heads for the attention layers that have more heads.
+  """
+  return max(min(num_heads * 2, cap), num_heads)
+
+
 @registry.register_model
 class EvolvedTransformer(transformer.Transformer):
   """The Evolved Transformer from arxiv.org/abs/1901.11117 ."""
@@ -289,7 +305,6 @@ def evolved_transformer_decoder(decoder_input,
           residual_state = hidden_state
           hidden_state = common_layers.layer_preprocess(hidden_state, hparams)
 
-          # Attention with at least 16 heads.
           attention_cache = layer_cache[
               _SIXTEEN_HEAD_ATTENTION_NAME] if layer_cache is not None else None
           left_state = common_attention.multihead_attention(
@@ -299,7 +314,7 @@ def evolved_transformer_decoder(decoder_input,
               hparams.attention_key_channels or hparams.hidden_size,
               hparams.attention_value_channels or hparams.hidden_size,
               hparams.hidden_size,
-              max(16, hparams.num_heads),
+              _capped_double_heads(hparams.num_heads),
               hparams.attention_dropout,
               attention_type=hparams.self_attention_type,
               max_relative_position=hparams.max_relative_position,
@@ -385,7 +400,8 @@ def evolved_transformer_decoder(decoder_input,
               tmp = tf.expand_dims(tmp, axis=1)
               tmp = inplace_ops.alias_inplace_update(
                   tmp,
-                  decode_loop_step * tf.shape(hidden_state)[1],
+                  decode_loop_step * tf.shape(hidden_state)[1] +
+                  _DECODER_LEFT_CONV_PADDING,
                   tf.transpose(hidden_state, perm=[1, 0, 2]))
               tmp = tf.squeeze(tmp, axis=1)
               hidden_state = layer_cache[
@@ -622,12 +638,12 @@ def _init_evolved_transformer_cache(cache, hparams, batch_size,
                   common_attention.split_heads(
                       tf.zeros(
                           [batch_size, attention_init_length, key_channels]),
-                      max(16, hparams.num_heads)),
+                      _capped_double_heads(hparams.num_heads)),
               "v":
                   common_attention.split_heads(
                       tf.zeros(
                           [batch_size, attention_init_length, value_channels]),
-                      max(16, hparams.num_heads)),
+                      _capped_double_heads(hparams.num_heads)),
           },
           _VANILLA_ATTENTION_NAME: {
               "k":

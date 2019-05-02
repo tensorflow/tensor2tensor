@@ -21,7 +21,7 @@ from __future__ import print_function
 
 from absl.testing import parameterized
 from tensor2tensor.data_generators import celeba
-from tensor2tensor.utils.hparam import HParams
+from tensor2tensor.utils import hparam
 
 import tensorflow as tf
 
@@ -35,7 +35,7 @@ class CelebaTest(parameterized.TestCase, tf.test.TestCase):
   def testCelebaMultiResolutionPreprocessExample(self, resize_method):
     example = {"inputs": tf.random_uniform([218, 178, 3], minval=-1.)}
     mode = tf.estimator.ModeKeys.TRAIN
-    hparams = HParams(resolutions=[8, 16, 32])
+    hparams = hparam.HParams(resolutions=[8, 16, 32])
     if resize_method is not None:
       hparams.resize_method = resize_method
 

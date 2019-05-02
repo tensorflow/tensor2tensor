@@ -477,15 +477,21 @@ class EnvProblem(Env, problem.Problem):
     Subclasses should override _reset to do the actual reset if something other
     than the default implementation is desired.
 
+    NOTE: With `indices` as None the recorded trajectories are also erased since
+        the expecation is that we want to re-use the whole env class from
+        scratch.
+
     Args:
-      indices: Indices of environments to reset. If None all envs are reset.
+      indices: Indices of environments to reset. If None all envs are reset as
+          well as trajectories are erased.
 
     Returns:
       Batch of initial observations of reset environments.
     """
 
     if indices is None:
-      indices = np.arange(self.trajectories.batch_size)
+      self.trajectories.reset_batch_trajectories()
+      indices = np.arange(self.batch_size)
 
     # If this is empty (not None) then don't do anything, no env was done.
     if indices.size == 0:
@@ -497,7 +503,7 @@ class EnvProblem(Env, problem.Problem):
     processed_observations = self.process_observations(observations)
 
     # Record history.
-    self.trajectories.reset(indices, observations)
+    self.trajectories.reset(indices, processed_observations)
 
     return processed_observations
 
@@ -731,7 +737,7 @@ class EnvProblem(Env, problem.Problem):
 
     # Write the completed data into these files
 
-    num_completed_trajectories = len(self.trajectories.completed_trajectories)
+    num_completed_trajectories = self.trajectories.num_completed_trajectories
     num_shards = len(files_list)
     if num_completed_trajectories < num_shards:
       tf.logging.warning(

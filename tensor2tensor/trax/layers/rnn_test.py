@@ -13,26 +13,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for base layer."""
+"""Tests for rnn layers."""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 from absl.testing import absltest
 from tensor2tensor.trax.layers import base
+from tensor2tensor.trax.layers import rnn
 
 
-class BaseLayerTest(absltest.TestCase):
+class RnnLayerTest(absltest.TestCase):
 
-  def test_layer_decorator_and_shape_agreement(self):
-    @base.layer()
-    def add_one(x, **unused_kwargs):
-      return x + 1
+  def _test_cell_runs(self, layer, input_shape, output_shape):
+    final_shape = base.check_shape_agreement(layer, input_shape)
+    self.assertEqual(output_shape, final_shape)
 
-    output_shape = base.check_shape_agreement(
-        add_one(), (12, 17))  # pylint: disable=no-value-for-parameter
-    self.assertEqual(output_shape, (12, 17))
+  def test_conv_gru_cell(self):
+    self._test_cell_runs(
+        rnn.ConvGRUCell(units=9, kernel_size=(3, 3)),
+        input_shape=(8, 1, 7, 9),
+        output_shape=(8, 1, 7, 9))
+
+  def test_gru_cell(self):
+    self._test_cell_runs(
+        rnn.GRUCell(units=9), input_shape=(8, 7, 9), output_shape=(8, 7, 9))
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
   absltest.main()

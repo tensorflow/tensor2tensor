@@ -19,8 +19,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from six.moves import zip  # pylint: disable=redefined-builtin
+from tensor2tensor.utils import hparam
 from tensor2tensor.utils import registry
-from tensor2tensor.utils.hparam import HParams
 
 import tensorflow as tf
 
@@ -28,7 +28,7 @@ import tensorflow as tf
 @registry.register_hparams("basic_1")
 def basic_params1():
   """A set of basic hyperparameters."""
-  return HParams(
+  return hparam.HParams(
       # If the problem consists of variable-length sequences
       # (see problem.batch_size_means_tokens()), then this is the number
       # of tokens per batch per GPU or per TPU core.  Otherwise, this is
@@ -70,7 +70,7 @@ def basic_params1():
       optimizer_adafactor_clipping_threshold=1.0,
       optimizer_adafactor_multiply_by_parameter_scale=True,
       # Number of accumulating steps for multi step optimizers.
-      optimizer_multistep_accumulate_steps=None,
+      optimizer_multistep_accumulate_steps=0,
       # Loss scaling used.
       # Generally only necessary with mixed precision training.
       # Mixed precision training only supports exponential scaling currently
@@ -242,12 +242,17 @@ def basic_params1():
       # will such additional step be run. It's turned off (0.0) by default.
       # This probability will exponentially warm up for the number of
       # steps determined by scheduled_sampling_warmup_steps.
-      # The tensor used for the second step will consist of outputs from
-      # the first step mixed with gold truth, with the proportion of gold
-      # determined by scheduled_sampling_gold_mixin_prob.
+      # The tensor used for the n-th pass will consist of outputs from
+      # the (n-1)-th pass mixed with gold truth, with the proportion of gold
+      # determined by scheduled_sampling_gold_mixin_prob. Control the number
+      # of passes with scheduled_sampling_num_passes.
       scheduled_sampling_prob=0.0,
       scheduled_sampling_warmup_steps=50000,
       scheduled_sampling_gold_mixin_prob=0.5,
+      # TODO(duckworthd): Uncomment when we can ascertain why adding an
+      # extra field to HParam causes test failures.
+      # scheduled_sampling_num_passes=1,
+
       # This setting controls whether to copy variables around in a daisy chain
       # (if true) or leave their placement to TensorFlow. It only affects multi
       # device training and mostly should be turned on for performance. One
@@ -334,7 +339,15 @@ def basic_params1():
       # Load weights from a second model. For instance, when using
       # pre-trained weights, you might want to initialize the encoder
       # and decoder by loading different models.
-      warm_start_from_second=""
+      warm_start_from_second="",
+      # Area attention hyper parameters
+      area_value_mode="none",
+      area_key_mode="none",
+      # Using area attention for the number of layers from the bottom
+      num_area_layers=0,
+      max_area_width=1,
+      max_area_height=1,
+      memory_height=1
   )
 
 

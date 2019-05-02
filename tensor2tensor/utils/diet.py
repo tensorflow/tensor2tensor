@@ -27,7 +27,7 @@ import copy
 import math
 
 from tensor2tensor.layers import common_layers
-from tensor2tensor.utils.hparam import HParams
+from tensor2tensor.utils import hparam
 import tensorflow as tf
 
 
@@ -37,7 +37,7 @@ def diet_adam_optimizer_params():
   Returns:
     a hyperparameters object.
   """
-  return HParams(
+  return hparam.HParams(
       quantize=True,  # use 16-bit fixed-point
       quantization_scale=10.0 / tf.int16.max,
       optimizer="DietAdam",

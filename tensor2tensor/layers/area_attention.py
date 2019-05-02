@@ -44,23 +44,24 @@ def lengths_to_area_mask(feature_length, length, max_area_size):
   return mask
 
 
-def _max_pool_one_shape(features_2d, area_width, area_height, batch_size,
-                        width, height, depth, name=None):
-  """Computes area max for features_2d.
+def _pool_one_shape(features_2d, area_width, area_height, batch_size,
+                    width, height, depth, fn=tf.reduce_max, name=None):
+  """Pools for an area in features_2d.
 
   Args:
-    features_2d: a Tensor in a shape of [batch_size, height * width, depth].
+    features_2d: a Tensor in a shape of [batch_size, height, width, depth].
     area_width: the max width allowed for an area.
     area_height: the max height allowed for an area.
     batch_size: the batch size.
     width: the width of the memory.
     height: the height of the memory.
     depth: the depth of the features.
+    fn: the TF function for the pooling.
     name: the op name.
   Returns:
-    max_tensor: A Tensor of shape [batch_size, num_areas, depth]
+    pool_tensor: A Tensor of shape [batch_size, num_areas, depth]
   """
-  with tf.name_scope(name, default_name="max_pool_one_shape"):
+  with tf.name_scope(name, default_name="pool_one_shape"):
     images = []
     for y_shift in range(area_height):
       image_height = tf.maximum(height - area_height + 1 + y_shift, 0)
@@ -70,26 +71,27 @@ def _max_pool_one_shape(features_2d, area_width, area_height, batch_size,
         flatten_area = tf.reshape(area, [batch_size, -1, depth, 1])
         images.append(flatten_area)
     image_tensor = tf.concat(images, axis=3)
-    max_tensor = tf.reduce_max(image_tensor, axis=3)
+    max_tensor = fn(image_tensor, axis=3)
   return max_tensor
 
 
-def max_pool(features, max_area_width, max_area_height=1, height=1,
-             name=None):
-  """Computes area max for features.
+def basic_pool(features, max_area_width, max_area_height=1, height=1,
+               fn=tf.reduce_max, name=None):
+  """Pools for each area based on a given pooling function (fn).
 
   Args:
     features: a Tensor in a shape of [batch_size, height * width, depth].
     max_area_width: the max width allowed for an area.
     max_area_height: the max height allowed for an area.
     height: the height of the image.
+    fn: the TF function for the pooling.
     name: the namescope.
   Returns:
-    max_results: A Tensor of shape [batch_size, num_areas, depth]
+    pool_results: A Tensor of shape [batch_size, num_areas, depth]
     area_heights: A Tensor of shape [batch_size, num_areas, 1]
     area_widths: A Tensor of shape [batch_size, num_areas, 1]
   """
-  with tf.name_scope(name, default_name="max_pool"):
+  with tf.name_scope(name, default_name="basic_pool"):
     feature_shape = common_layers.shape_list(features)
     batch_size = feature_shape[0]
     length = feature_shape[-2]
@@ -98,19 +100,20 @@ def max_pool(features, max_area_width, max_area_height=1, height=1,
     features_2d = tf.reshape(features, [batch_size, height, width, depth])
     height_list = []
     width_list = []
-    max_list = []
+    pool_list = []
     size_tensor = tf.ones_like(features_2d[:, :, :, 0], dtype=tf.int32)
     for area_height in range(max_area_height):
       for area_width in range(max_area_width):
-        max_tensor = _max_pool_one_shape(features_2d,
-                                         area_width=area_width + 1,
-                                         area_height=area_height + 1,
-                                         batch_size=batch_size,
-                                         width=width,
-                                         height=height,
-                                         depth=depth)
-        max_list.append(
-            tf.reshape(max_tensor, [batch_size, -1, depth]))
+        pool_tensor = _pool_one_shape(features_2d,
+                                      area_width=area_width + 1,
+                                      area_height=area_height + 1,
+                                      batch_size=batch_size,
+                                      width=width,
+                                      height=height,
+                                      depth=depth,
+                                      fn=fn)
+        pool_list.append(
+            tf.reshape(pool_tensor, [batch_size, -1, depth]))
         height_list.append(
             tf.reshape(
                 size_tensor[:, area_height:, area_width:] *\
@@ -119,10 +122,10 @@ def max_pool(features, max_area_width, max_area_height=1, height=1,
             tf.reshape(
                 size_tensor[:, area_height:, area_width:] *\
                 (area_width + 1), [batch_size, -1]))
-    max_results = tf.concat(max_list, axis=1)
+    pool_results = tf.concat(pool_list, axis=1)
     area_heights = tf.expand_dims(tf.concat(height_list, axis=1), 2)
     area_widths = tf.expand_dims(tf.concat(width_list, axis=1), 2)
-  return max_results, area_heights, area_widths
+  return pool_results, area_heights, area_widths
 
 
 def _compute_sum_image(features, max_area_width, max_area_height=1, height=1,
@@ -253,8 +256,8 @@ def compute_area_key(features, max_area_width, max_area_height=1, height=1,
   if mode == "mean":
     return area_mean
   elif mode == "max":
-    area_max, _, _ = max_pool(features, max_area_width=max_area_width,
-                              max_area_height=max_area_height, height=height)
+    area_max, _, _ = basic_pool(features, max_area_width=max_area_width,
+                                max_area_height=max_area_height, height=height)
     return area_max
   elif mode == "sample":
     if training:
@@ -276,8 +279,9 @@ def compute_area_key(features, max_area_width, max_area_height=1, height=1,
     if mode == "concat":
       feature_concat = tf.concat([area_mean, area_std, size_embed], -1)
     elif mode == "max_concat":
-      area_max, _, _ = max_pool(features, max_area_width=max_area_width,
-                                max_area_height=max_area_height, height=height)
+      area_max, _, _ = basic_pool(features, max_area_width=max_area_width,
+                                  max_area_height=max_area_height,
+                                  height=height)
       feature_concat = tf.concat([area_max, size_embed], -1)
     elif mode == "sum":
       feature_concat = size_embed + area_mean + area_std
@@ -352,10 +356,10 @@ def dot_product_area_attention(q,
   tf.logging.info("dot_product_area_attention: "
                   "area_h=%d, area_w=%d, mem_h=%d, "
                   "area_key_mode=%s, area_value_mode=%s, "
-                  "area_temperature=%f, top_k_areas=%d",
+                  "area_temperature=%f",
                   max_area_height, max_area_width, memory_height,
                   area_key_mode, area_value_mode,
-                  area_temperature, top_k_areas)
+                  area_temperature)
   with tf.variable_scope(
       name, default_name="dot_product_area_attention",
       values=[q, k, v]) as scope:
@@ -376,10 +380,11 @@ def dot_product_area_attention(q,
           tf.reshape(v, [-1, length, depth]), max_area_width=max_area_width,
           max_area_height=max_area_height, height=memory_height)
     elif area_value_mode == "max":
-      v_area, _, _ = max_pool(tf.reshape(v, [-1, length, depth]),
-                              max_area_width=max_area_width,
-                              max_area_height=max_area_height,
-                              height=memory_height)
+      v_area, _, _ = basic_pool(tf.reshape(v, [-1, length, depth]),
+                                max_area_width=max_area_width,
+                                max_area_height=max_area_height,
+                                height=memory_height,
+                                fn=tf.reduce_max)
     elif area_value_mode == "sum":
       _, _, v_area, _, _ = compute_area_features(
           tf.reshape(v, [-1, length, depth]), max_area_width=max_area_width,

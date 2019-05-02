@@ -19,6 +19,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import numpy as np
+
 from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
@@ -157,6 +159,32 @@ def local_attention_1d(x,
     if is_4d:
       y = tf.reshape(y, x_shape)
     return y
+
+
+def get_dilated_1d_attention_mask(
+    num_heads, block_size,
+    num_blocks, memory_size, gap_size,
+    name="dilated_mask"):
+  """Dilated attention with a masking strategy."""
+  mask = np.ones((num_heads, block_size, 2*block_size), np.bool)
+
+  # now going over every row to do the right assignment of
+  # memory blocks
+  for i in range(block_size):
+    visible = 2*block_size  - (block_size-i)
+    # You always attend to yourself, set the mask for that
+    mask[:, i, -(block_size - i)] = 0
+    # Maybe num_blocks can be automatically calculated?
+    for j in range(num_blocks):
+      for k in range(memory_size):
+        index = ((gap_size + memory_size)*j) + k
+        if index >= visible:
+          break
+        mask[:, i, -(index + block_size - i + 1)] = 0  # Verify
+
+  # adding a num blocks dimension
+  mask = np.expand_dims(mask, axis=1)
+  return tf.constant(mask, dtype=tf.int32, name=name)
 
 
 def dilated_attention_1d(x,

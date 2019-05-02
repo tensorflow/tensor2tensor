@@ -22,6 +22,9 @@ from __future__ import print_function
 import inspect
 import traceback
 
+import numpy as onp
+from tensor2tensor.trax.backend import random
+
 
 class Layer(object):
   """Layer object, base class. Handles parameter sharing."""
@@ -88,14 +91,18 @@ class Layer(object):
     Returns:
       Newly created parameters on the first call and () on all subsequent calls.
     """
-    # Re-using this layer, no new parameters.
-    if not self._first_init:
-      return ()
+    try:
+      # Re-using this layer, no new parameters.
+      if not self._first_init:
+        return ()
 
-    # First call of this layer, create parameters.
-    self._first_init = False
-    self._params = self.new_parameters(input_shape, rng)
-    return self._params
+      # First call of this layer, create parameters.
+      self._first_init = False
+      self._params = self.new_parameters(input_shape, rng)
+      return self._params
+    except Exception:
+      name, trace = self.__class__.__name__, _short_traceback()
+      raise LayerError(name, 'initialize', self._caller, input_shape, trace)
 
   def __call__(self, x, params=(), **kwargs):
     try:
@@ -110,7 +117,7 @@ class Layer(object):
       return self.call(x, params=params, **kwargs)
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback()
-      raise LayerError(name, self._caller, shapes(x), trace)
+      raise LayerError(name, 'call', self._caller, shapes(x), trace)
 
 
 class LayerError(Exception):
@@ -120,8 +127,10 @@ class LayerError(Exception):
     message: the message corresponding to this exception.
   """
 
-  def __init__(self, layer_name, caller, input_shapes, traceback_string):
+  def __init__(self, layer_name, function_name, caller,
+               input_shapes, traceback_string):
     self._layer_name = layer_name
+    self._function_name = function_name  # Is it call or initialize?
     self._caller = caller  # Python inspect object with init caller info.
     self._traceback = traceback_string
     self._input_shapes = input_shapes
@@ -129,7 +138,8 @@ class LayerError(Exception):
 
   @property
   def message(self):
-    prefix = 'Exception passing through layer %s:\n' % self._layer_name
+    prefix = 'Exception passing through layer '
+    prefix += '%s (in %s):\n' % (self._layer_name, self._function_name)
     short_path = '[...]/' + '/'.join(self._caller.filename.split('/')[-3:])
     caller = '  layer created in file %s, line %d\n' % (short_path,
                                                         self._caller.lineno)
@@ -148,14 +158,35 @@ def nested_map(x, f):
   return f(x)
 
 
+def nested_reduce(x, f):
+  """Fold the function f to the nested structure x (dicts, tuples, lists)."""
+  if isinstance(x, list):
+    return f([nested_reduce(y, f) for y in x])
+  if isinstance(x, tuple):
+    return f(tuple([nested_reduce(y, f) for y in x]))
+  if isinstance(x, dict):
+    return f({k: nested_reduce(x[k], f) for k in x})
+  return x
+
+
 def shapes(x):
   """Get a structure of shapes for a structure of nested arrays."""
   def shape(x):
     try:
-      return x.shape
+      return tuple([int(i) for i in x.shape])
     except Exception:  # pylint: disable=broad-except
       return []
   return nested_map(x, shape)
+
+
+def sizes(x):
+  """Get a structure of sizes for a structure of nested arrays."""
+  def size(x):
+    try:
+      return x.size
+    except Exception:  # pylint: disable=broad-except
+      return 0
+  return nested_map(x, size)
 
 
 def _find_frame(stack, start=0):
@@ -246,3 +277,29 @@ def layer(output_shape=None, new_parameters=None):
 
     return cls
   return layer_decorator
+
+
+def _random_inputs(input_shape, rng, integer_inputs=False):
+  """Create random floats of the given shape."""
+  if isinstance(input_shape[0], int):  # Non-nested shape.
+    if not integer_inputs:
+      return random.uniform(rng, input_shape, minval=-1.0, maxval=1.0)
+    return random.bernoulli(rng, 0.5, input_shape).astype(onp.int32)
+  elif isinstance(input_shape, (list, tuple)):  # Nested shape.
+    return [_random_inputs(shape, rng, integer_inputs) for shape in input_shape]
+  else:
+    raise TypeError(type(input_shape))
+
+
+def check_shape_agreement(layer_instance, input_shape, integer_inputs=False):
+  """Check if layer.output_shape agrees with the actual output shape."""
+  rng1, rng2, rng3 = random.split(random.get_prng(0), 3)
+  output_shape = layer_instance.output_shape(input_shape)
+  output_shape = nested_map(output_shape, int)  # Make non-numpy.
+  params = layer_instance.initialize(input_shape, rng1)
+  inputs = _random_inputs(input_shape, rng2, integer_inputs=integer_inputs)
+  result = layer_instance(inputs, params, rng=rng3)
+  result_shape = shapes(result)
+  msg = 'output shape %s != real result shape %s' % (output_shape, result_shape)
+  assert output_shape == result_shape, msg
+  return output_shape

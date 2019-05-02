@@ -93,6 +93,24 @@ class Trajectory(object):
         processed_rewards += ts.processed_reward
     return raw_rewards, processed_rewards
 
+  @property
+  def observations_np(self):
+    return np.stack([ts.observation for ts in self.time_steps])
+
+  @property
+  def actions_np(self):
+    # The last action is None, so let's skip it.
+    return np.stack([ts.action for ts in self.time_steps[:-1]])
+
+  @property
+  def rewards_np(self):
+    # The first reward is None, so let's skip it.
+    return np.stack([ts.processed_reward for ts in self.time_steps[1:]])
+
+  @property
+  def as_numpy(self):
+    return self.observations_np, self.actions_np, self.rewards_np
+
 
 class BatchTrajectory(object):
   """Basically a batch of active trajectories and a list of completed ones."""
@@ -261,15 +279,58 @@ class BatchTrajectory(object):
         # `reset` should be called on it.
         assert not self._trajectories[index].is_active
 
+  @staticmethod
+  def _trajectory_lengths(trajectories):
+    return np.array([t.num_time_steps for t in trajectories])
+
   @property
   def num_completed_time_steps(self):
     """Returns the number of time-steps in completed trajectories."""
 
-    return sum(t.num_time_steps for t in self.completed_trajectories)
+    return sum(BatchTrajectory._trajectory_lengths(self.completed_trajectories))
 
   @property
   def num_time_steps(self):
     """Returns the number of time-steps in completed and incomplete trajectories."""
 
-    num_time_steps = sum(t.num_time_steps for t in self.trajectories)
+    num_time_steps = sum(BatchTrajectory._trajectory_lengths(self.trajectories))
     return num_time_steps + self.num_completed_time_steps
+
+  @property
+  def trajectory_lengths(self):
+    return BatchTrajectory._trajectory_lengths(self.trajectories)
+
+  @property
+  def num_completed_trajectories(self):
+    """Returns the number of completed trajectories."""
+    return len(self.completed_trajectories)
+
+  # TODO(afrozm): Take in an already padded observation ndarray and just append
+  # the last time-step and adding more padding if needed.
+  def observations_np(self, boundary=20):
+    """Pads the observations in all the trajectories and returns them.
+
+    Args:
+      boundary: integer, Observations will be padded to (n * boundary) + 1 where
+          n is an integer.
+
+    Returns:
+      padded_observations: (self.batch_size, n * boundary + 1) + OBS
+    """
+    list_observations_np_ts = [t.observations_np for t in self.trajectories]
+    # Every element in `list_observations_np_ts` is shaped (t,) + OBS
+    OBS = list_observations_np_ts[0].shape[1:]  # pylint: disable=invalid-name
+
+    t_max = max(self.trajectory_lengths)
+    # t_max is rounded to the next multiple of `boundary`
+    boundary = int(boundary)
+    bucket_length = boundary * int(np.ceil(float(t_max) / boundary))
+
+    def padding_config(obs):
+      # We're padding the first axis only, since that is the time-step.
+      num_to_pad = bucket_length + 1 - obs.shape[0]
+      return [(0, num_to_pad)] + [(0, 0)] * len(OBS)
+
+    return np.stack([
+        np.pad(obs, padding_config(obs), "constant")
+        for obs in list_observations_np_ts])

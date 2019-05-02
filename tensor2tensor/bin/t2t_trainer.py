@@ -372,7 +372,8 @@ def main(argv):
   # Create HParams.
   if argv:
     set_hparams_from_args(argv[1:])
-  hparams = create_hparams()
+  if FLAGS.schedule != "run_std_server":
+    hparams = create_hparams()
 
   if FLAGS.schedule == "train" or FLAGS.schedule == "train_eval_and_decode":
     mlperf_log.transformer_print(key=mlperf_log.RUN_START, hparams=hparams)

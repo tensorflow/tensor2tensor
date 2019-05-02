@@ -84,9 +84,9 @@ class GymUtilsTest(tf.test.TestCase):
     self.assertTrue(env._max_episode_steps is None)
 
   def test_rendered_env(self):
-    env = gym_utils.RenderedEnv(SimpleEnv(), resize_to=(64, 64))
+    env = gym_utils.RenderedEnv(SimpleEnv(), resize_to=(64, 12))
     obs, _, _, _ = env.step(1)
-    self.assertTrue(np.allclose(np.zeros([64, 64, 3], np.uint8), obs))
+    self.assertTrue(np.allclose(np.zeros([64, 12, 3], np.uint8), obs))
 
   def test_gym_registration(self):
     reg_id, env = gym_utils.register_gym_env(

@@ -56,12 +56,8 @@ _ENDE_PARACRAWL_DATASETS = [
 
 
 @registry.register_problem
-class TranslateEndeWmt8k(translate.TranslateProblem):
-  """Problem spec for WMT En-De translation."""
-
-  @property
-  def approx_vocab_size(self):
-    return 2**13  # 8192
+class TranslateEndeWmt32k(translate.TranslateProblem):
+  """En-de translation trained on WMT corpus."""
 
   @property
   def additional_training_datasets(self):
@@ -72,15 +68,6 @@ class TranslateEndeWmt8k(translate.TranslateProblem):
     train = dataset_split == problem.DatasetSplit.TRAIN
     train_datasets = _ENDE_TRAIN_DATASETS + self.additional_training_datasets
     return train_datasets if train else _ENDE_EVAL_DATASETS
-
-
-@registry.register_problem
-class TranslateEndeWmt32k(TranslateEndeWmt8k):
-  """En-de translation trained on WMT corpus."""
-
-  @property
-  def approx_vocab_size(self):
-    return 2**15  # 32768
 
 
 @registry.register_problem
@@ -175,6 +162,15 @@ class TranslateEndeWmt32kPacked(TranslateEndeWmt32k):
   @property
   def use_vocab_from_other_problem(self):
     return TranslateEndeWmt32k()
+
+
+@registry.register_problem
+class TranslateEndeWmt8k(TranslateEndeWmt32k):
+  """Problem spec for WMT En-De translation."""
+
+  @property
+  def approx_vocab_size(self):
+    return 2**13  # 8192
 
 
 @registry.register_problem

@@ -27,6 +27,7 @@ import gin
 
 import numpy as np
 
+from tensor2tensor import problems_colab as t2t_problems
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
@@ -54,7 +55,8 @@ _MAX_SKIP_EXAMPLES = 1e5
 
 
 @gin.configurable(blacklist=["num_devices"])
-def inputs(num_devices, dataset_name, data_dir=None, input_name=None):
+def inputs(num_devices, dataset_name, data_dir=None, input_name=None,
+           num_chunks=0, append_targets=False):
   """Make Inputs for built-in datasets.
 
   Args:
@@ -63,6 +65,9 @@ def inputs(num_devices, dataset_name, data_dir=None, input_name=None):
       with "t2t_".
     data_dir: data directory.
     input_name: optional, name of the inputs from the dictionary.
+    num_chunks: optional, into how many pieces should we chunk (large inputs).
+    append_targets: optional, instead of inputs return a pair (inputs, targets)
+      which is useful for autoregressive models.
 
   Returns:
     trax.inputs.Inputs
@@ -74,18 +79,23 @@ def inputs(num_devices, dataset_name, data_dir=None, input_name=None):
    input_name, input_shape) = _train_and_eval_batches(
        dataset_name, data_dir, input_name, num_devices)
 
-  def train_input_fun():
-    return dataset_to_stream(train_batches, input_name)
+  def numpy_stream(dataset):
+    return dataset_to_stream(
+        dataset, input_name,
+        num_chunks=num_chunks, append_targets=append_targets)
 
-  def train_eval_input_fun():
-    return dataset_to_stream(train_eval_batches, input_name)
+  if num_chunks > 0:
+    length = input_shape[0]
+    input_shape = tuple(
+        [tuple([length // num_chunks] + list(input_shape)[1:])] * num_chunks)
+  if append_targets:
+    # TODO(lukaszkaiser): remove the assumption that input and target
+    # shapes are the same, which is used below for now.
+    input_shape = (input_shape, input_shape)
 
-  def eval_input_fun():
-    return dataset_to_stream(eval_batches, input_name)
-
-  return Inputs(train_stream=train_input_fun,
-                train_eval_stream=train_eval_input_fun,
-                eval_stream=eval_input_fun,
+  return Inputs(train_stream=lambda: numpy_stream(train_batches),
+                train_eval_stream=lambda: numpy_stream(train_eval_batches),
+                eval_stream=lambda: numpy_stream(eval_batches),
                 input_shape=input_shape)
 
 
@@ -137,12 +147,22 @@ def random_inputs(
                 input_shape=input_shape_without_batch)
 
 
-def dataset_to_stream(dataset, input_name):
+def dataset_to_stream(dataset, input_name, num_chunks=0, append_targets=False):
   """Takes a tf.Dataset and creates a numpy stream of ready batches."""
   for example in tfds.as_numpy(dataset):
     inp, out = example[0][input_name], example[1]
+    # Some accelerators don't handle uint8 well, cast to int.
+    if isinstance(inp, np.uint8):
+      inp = inp.astype(np.uint32)
+    if isinstance(out, np.uint8):
+      out = out.astype(np.uint32)
     if len(out.shape) > 1 and out.shape[-1] == 1:
       out = np.squeeze(out, axis=-1)
+    if num_chunks > 0:
+      inp = np.split(inp, num_chunks, axis=1)
+      out = np.split(out, num_chunks, axis=1)
+    if append_targets:
+      inp = (inp, out)
     yield inp, out
 
 
@@ -163,8 +183,8 @@ def train_and_eval_dataset(dataset_name, data_dir, train_shuffle_files=True,
 
   Returns:
     a 4-tuple consisting of:
-     * the train tf.Daataset
-     * the eval tf.Daataset
+     * the train tf.Dataset
+     * the eval tf.Dataset
      * information about features: a python dictionary with feature names
          as keys and an object as value that provides .shape and .num_classes.
      * supervised_keys: information what's the input and what's the target,
@@ -215,28 +235,39 @@ def _select_features(example, feature_list=None):
   return {f: example[f] for f in feature_list if f in example}
 
 
+def _eager_dataset_iterator(dataset):
+  for item in dataset:
+    flat = tf.nest.flatten(item)
+    flat = [el.numpy() for el in flat]
+    yield tf.nest.pack_sequence_as(item, flat)
+
+
 def _train_and_eval_dataset_v1(problem_name, data_dir):
   """Return train and evaluation datasets, feature info and supervised keys."""
-  from tensor2tensor import problems  # pylint: disable=g-import-not-at-top
-  assert not tf.executing_eagerly(), "tf.eager mode must be turned off."
-  problem = problems.problem(problem_name)
-  train_dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, data_dir)
-  train_dataset = train_dataset.map(_select_features)
-  eval_dataset = problem.dataset(tf.estimator.ModeKeys.EVAL, data_dir)
-  eval_dataset = eval_dataset.map(_select_features)
-  hparams = problem.get_hparams()
-  # We take a few training examples to guess the shapes.
-  input_shapes, target_shapes = [], []
-  example_tensor = train_dataset.make_one_shot_iterator().get_next()
-  sess = tf.Session()
-  example1 = sess.run(example_tensor)
-  example2 = sess.run(example_tensor)
-  example3 = sess.run(example_tensor)
+  with tf.device("cpu:0"):
+    problem = t2t_problems.problem(problem_name)
+    train_dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, data_dir)
+    train_dataset = train_dataset.map(_select_features)
+    eval_dataset = problem.dataset(tf.estimator.ModeKeys.EVAL, data_dir)
+    eval_dataset = eval_dataset.map(_select_features)
+    hparams = problem.get_hparams()
+    # We take a few training examples to guess the shapes.
+    input_shapes, target_shapes, examples = [], [], []
+    if tf.executing_eagerly():
+      for example in _eager_dataset_iterator(train_dataset.take(3)):
+        examples.append(example)
+    else:
+      example_tensor = train_dataset.make_one_shot_iterator().get_next()
+      sess = tf.Session()
+      example1 = sess.run(example_tensor)
+      example2 = sess.run(example_tensor)
+      example3 = sess.run(example_tensor)
+      examples = [example1, example2, example3]
   # We use "inputs" as input except for purely auto-regressive tasks like
   # language models where "targets" are used as input_key.
-  input_key = "inputs" if "inputs" in example1 else "targets"
+  input_key = "inputs" if "inputs" in examples[0] else "targets"
   supervised_keys = ([input_key], ["targets"])
-  for example in [example1, example2, example3]:
+  for example in examples:
     input_shapes.append(list(example[input_key].shape))
     target_shapes.append(list(example["targets"].shape))
   input_vocab_size = hparams.vocab_size[input_key]
@@ -252,6 +283,7 @@ def _train_and_eval_dataset_v1(problem_name, data_dir):
 def batch_fun(dataset, training, shapes, target_names, num_devices,
               batch_size_per_device=32, batch_size=None, eval_batch_size=32,
               bucket_length=32, buckets=None,
+              buckets_include_inputs_in_length=False,
               batch_shuffle_size=128, max_eval_length=None):
   """Batching function."""
   del target_names
@@ -293,8 +325,12 @@ def batch_fun(dataset, training, shapes, target_names, num_devices,
 
   if buckets:
     tf.logging.info("Bucketing with buckets %s." % str(buckets))
-    def example_length(_, target):
-      return tf.shape(target)[0]
+    def example_length(example_inputs, target):
+      """The length function used by bucket_by_sequence_length to bucket."""
+      other_length = 0
+      if buckets_include_inputs_in_length:
+        other_length = tf.shape(example_inputs["inputs"])[0]
+      return tf.maximum(tf.shape(target)[0], other_length)
     boundaries, batch_sizes = buckets
     dataset = dataset.apply(tf.data.experimental.bucket_by_sequence_length(
         example_length, boundaries, batch_sizes,
@@ -339,6 +375,28 @@ def lm1b_preprocess(dataset, training,
 
   if max_eval_target_length > 0 and not training:
     dataset = dataset.filter(eval_target_right_length)
+
+  return dataset
+
+
+# TODO(lukaszkaiser): find a single more abstract way of text pre-processing.
+@gin.configurable(blacklist=["dataset", "training"])
+def wmt_preprocess(dataset, training, max_length=-1, max_eval_length=-1):
+  """Preprocessing for LM1B: filter out targets exceeding maximum length."""
+
+  def train_right_length(example, target):
+    l = tf.maximum(tf.shape(example["inputs"])[0], tf.shape(target)[0])
+    return tf.less(l, max_length + 1)
+
+  def eval_right_length(example, target):
+    l = tf.maximum(tf.shape(example["inputs"])[0], tf.shape(target)[0])
+    return tf.less(l, max_eval_length + 1)
+
+  if max_length > 0 and training:
+    dataset = dataset.filter(train_right_length)
+
+  if max_eval_length > 0 and not training:
+    dataset = dataset.filter(eval_right_length)
 
   return dataset
 

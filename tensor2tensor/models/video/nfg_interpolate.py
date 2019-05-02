@@ -111,8 +111,8 @@ def interpolate(features, hparams, decode_hp):
 
   Args:
     features: dict of tensors
-    hparams: tf.contrib.training.HParams, training hparams.
-    decode_hp: tf.contrib.training.HParams, decode hparams.
+    hparams: HParams, training hparams.
+    decode_hp: HParams, decode hparams.
   Returns:
     images: interpolated images, 4-D Tensor, shape=(num_interp, H, W, C)
     first_frame: image, 3-D Tensor, shape=(1, H, W, C)
@@ -178,8 +178,8 @@ def interpolations_to_summary(sample_ind, interpolations, first_frame,
     interpolations: Numpy array, shape=(num_interp, H, W, 3)
     first_frame: Numpy array, shape=(HWC)
     last_frame: Numpy array, shape=(HWC)
-    hparams: tf.contrib.training.HParams, train hparams
-    decode_hp: tf.contrib.training.HParams, decode hparams
+    hparams: HParams, train hparams
+    decode_hp: HParams, decode hparams
   Returns:
     summaries: list of tf Summary Values.
   """
