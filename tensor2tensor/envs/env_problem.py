@@ -388,10 +388,10 @@ class EnvProblem(Env, problem.Problem):
     # Pre-conditions: reward range is finite.
     #               : processed rewards are discrete.
     if not self.is_reward_range_finite:
-      tf.logging.error("Infinite reward range, `num_rewards returning None`")
+      tf.logging.warn("Infinite reward range, `num_rewards returning None`")
       return None
     if not self.is_processed_rewards_discrete:
-      tf.logging.error(
+      tf.logging.warn(
           "Processed rewards are not discrete, `num_rewards` returning None")
       return None
 
