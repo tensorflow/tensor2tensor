@@ -41,18 +41,70 @@ flags.DEFINE_integer("boundary", 20,
 flags.DEFINE_integer("max_timestep", None,
                      "If set to an integer, maximum number of time-steps in a "
                      "trajectory.")
-flags.DEFINE_float("learning_rate", 1e-3, "Learning rate.")
+flags.DEFINE_float("policy_and_value_net_learning_rate", 1e-3, "Learning rate.")
+flags.DEFINE_float("policy_net_learning_rate", 3e-4,
+                   "Learning rate for the policy net only.")
+flags.DEFINE_float("value_net_learning_rate", 1e-3,
+                   "Learning rate for the value net only.")
 flags.DEFINE_boolean("jax_debug_nans", False,
                      "Setting to true will help to debug nans and disable jit.")
 flags.DEFINE_boolean("disable_jit", False, "Setting to true will disable jit.")
+flags.DEFINE_boolean("combined_policy_and_value_function", False,
+                     "If True there is a single network that determines policy"
+                     "and values.")
+flags.DEFINE_integer("flatten_non_batch_time_dims", False,
+                     "If true, we flatten except the first two dimensions.")
 
 
 def common_layers():
   cur_layers = []
-  if FLAGS.env_name == "Pong-v0":
+  if FLAGS.flatten_non_batch_time_dims:
     cur_layers = [layers.Div(divisor=255.0), layers.Flatten(num_axis_to_keep=2)]
   return cur_layers + [layers.Dense(16), layers.Relu(),
                        layers.Dense(4), layers.Relu()]
+
+
+def run_training_loop():
+  """Run the PPO training loop."""
+
+  policy_net_fun = None
+  value_net_fun = None
+  policy_and_value_net_fun = None
+  policy_optimizer_fun = None
+  value_optimizer_fun = None
+  policy_and_value_optimizer_fun = None
+
+  if FLAGS.combined_policy_and_value_function:
+    policy_and_value_net_fun = functools.partial(
+        ppo.policy_and_value_net, bottom_layers=common_layers())
+    policy_and_value_optimizer_fun = get_optimizer_fun(
+        FLAGS.policy_and_value_net_learning_rate)
+  else:
+    policy_net_fun = functools.partial(ppo.policy_net,
+                                       bottom_layers=common_layers())
+    value_net_fun = functools.partial(ppo.value_net,
+                                      bottom_layers=common_layers())
+    policy_optimizer_fun = get_optimizer_fun(FLAGS.policy_net_learning_rate)
+    value_optimizer_fun = get_optimizer_fun(FLAGS.value_net_learning_rate)
+
+  ppo.training_loop(
+      env_name=FLAGS.env_name,
+      epochs=FLAGS.epochs,
+      policy_net_fun=policy_net_fun,
+      value_net_fun=value_net_fun,
+      policy_and_value_net_fun=policy_and_value_net_fun,
+      policy_optimizer_fun=policy_optimizer_fun,
+      value_optimizer_fun=value_optimizer_fun,
+      policy_and_value_optimizer_fun=policy_and_value_optimizer_fun,
+      batch_size=FLAGS.batch_size,
+      num_optimizer_steps=FLAGS.num_optimizer_steps,
+      boundary=FLAGS.boundary,
+      max_timestep=FLAGS.max_timestep,
+      random_seed=FLAGS.random_seed)
+
+
+def get_optimizer_fun(learning_rate):
+  return functools.partial(ppo.optimizer_fun, step_size=learning_rate)
 
 
 def main(argv):
@@ -60,22 +112,6 @@ def main(argv):
 
   if FLAGS.jax_debug_nans:
     config.update("jax_debug_nans", True)
-
-  def run_training_loop():
-    optimizer_fun = functools.partial(
-        ppo.optimizer_fun, step_size=FLAGS.learning_rate)
-
-    ppo.training_loop(
-        env_name=FLAGS.env_name,
-        epochs=FLAGS.epochs,
-        policy_and_value_net_fun=functools.partial(
-            ppo.policy_and_value_net, bottom_layers=common_layers()),
-        policy_and_value_optimizer_fun=optimizer_fun,
-        batch_size=FLAGS.batch_size,
-        num_optimizer_steps=FLAGS.num_optimizer_steps,
-        boundary=FLAGS.boundary,
-        max_timestep=FLAGS.max_timestep,
-        random_seed=FLAGS.random_seed)
 
   if FLAGS.jax_debug_nans or FLAGS.disable_jit:
     with jax.disable_jit():
