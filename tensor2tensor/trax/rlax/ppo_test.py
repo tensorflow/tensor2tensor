@@ -453,14 +453,12 @@ class PpoTest(test.TestCase):
         [2.5, 2.0, 0.1, 1.0],
     ])
 
-    mask = np.array([[1, 1, 0, 0], [1, 1, 1, 0]])
-
-    clipped_probab_ratios = ppo.clipped_probab_ratios(probab_ratios, mask, 0.1)
+    clipped_probab_ratios = ppo.clipped_probab_ratios(probab_ratios, 0.1)
 
     self.assertAllClose(
         np.array([
-            [1.1, 1.0, 0, 0],
-            [1.1, 1.1, 0.9, 0],
+            [1.1, 1.0, 0.9, 0.9],
+            [1.1, 1.1, 0.9, 1.0],
         ]), clipped_probab_ratios)
 
   def test_clipped_objective(self):
@@ -470,32 +468,45 @@ class PpoTest(test.TestCase):
     ])
 
     advantages = np.array([
-        [0.1, 0.1, 0.5, 0.7],
-        [2.0, 2.0, 2.0, 2.0],
+        [0.1, -0.1, 0.5, 0.7],
+        [2.0, -2.0, 2.0, 2.0],
     ])
 
     mask = np.array([[1, 1, 0, 0], [1, 1, 1, 0]])
 
     epsilon = 0.1
 
-    unused_clipped_probab_ratios = np.array([
+    clipped_probab_ratios = np.array([
         [1.1, 1.1, 0.9, 0.9],
         [1.1, 1.1, 0.9, 1.0],
     ])
 
-    minimums = np.array([
-        [1.1, 1.1, 0.5, 0.7],
-        [1.1, 1.1, 0.1, 1.0],
+    unused_advantages_x_probab_ratios = np.array([
+        [0.15, -0.2, 0.25, 0.49],
+        [5.00, -4.0, 0.20, 2.00]
     ])
 
-    # advantages * minimums * mask
+    unused_advantages_x_clipped_probab_ratios = np.array([
+        [0.11, -0.11, 0.45, 0.63],
+        [2.20, -2.20, 1.80, 2.00]
+    ])
+
+    unused_minimums = np.array([
+        [0.11, -0.2, 0.25, 0.49],
+        [2.20, -4.0, 0.20, 2.00]
+    ])
+
+    # minimums * mask
     objective = np.array([
-        [0.11, 0.11, 0.0, 0.0],
-        [2.2, 2.2, 0.2, 0.0],
+        [0.11, -0.2, 0.0, 0.],
+        [2.20, -4.0, 0.2, 0.]
     ])
 
     # Assert that we computed things correctly in this test.
-    self.assertAllClose(advantages * mask * minimums, objective)
+    self.assertAllClose(
+        np.minimum(probab_ratios * advantages,
+                   clipped_probab_ratios * advantages) * mask,
+        objective)
 
     self.assertAllClose(
         objective,

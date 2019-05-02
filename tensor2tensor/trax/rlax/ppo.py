@@ -588,14 +588,15 @@ def compute_probab_ratios(p_new, p_old, actions, reward_mask):
   return probab_ratios
 
 
-def clipped_probab_ratios(probab_ratios, reward_mask, epsilon=0.2):
-  return reward_mask * np.clip(probab_ratios, 1 - epsilon, 1 + epsilon)
+def clipped_probab_ratios(probab_ratios, epsilon=0.2):
+  return np.clip(probab_ratios, 1 - epsilon, 1 + epsilon)
 
 
 def clipped_objective(probab_ratios, advantages, reward_mask, epsilon=0.2):
-  c1 = probab_ratios * reward_mask
-  c2 = clipped_probab_ratios(probab_ratios, reward_mask, epsilon=epsilon)
-  return np.minimum(c1, c2) * advantages
+  return np.minimum(
+      probab_ratios * advantages,
+      clipped_probab_ratios(probab_ratios, epsilon=epsilon) * advantages
+      ) * reward_mask
 
 
 @functools.partial(jit, static_argnums=(0, 3))
