@@ -562,8 +562,8 @@ class PpoTest(test.TestCase):
     mask = np.ones_like(rewards)
 
     # Just test that this computes at all.
-    new_log_probabs, value_predictions = net_apply(observations, new_params)
-    old_log_probabs, _ = net_apply(observations, old_params)
+    new_log_probabs, _ = net_apply(observations, new_params)
+    old_log_probabs, value_predictions = net_apply(observations, old_params)
 
     gamma = 0.99
     lambda_ = 0.95
