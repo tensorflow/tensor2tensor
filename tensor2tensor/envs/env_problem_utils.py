@@ -111,6 +111,15 @@ def play_env_problem_with_policy(env,
     # Convert to probs, since we need to do categorical sampling.
     probs = np.exp(log_probs)
 
+    # Sometimes log_probs contains a 0, it shouldn't. This makes the
+    # probabilities sum up to more than 1, since the addition happens
+    # in float64, so just add and subtract 1.0 to zero those probabilites
+    # out. Real example encountered probs = [1e-8, 1.0, 1e-22]
+    #
+    # Also testing for this is brittle.
+    probs += 1
+    probs -= 1
+
     # Now pick actions from this probs array.
     actions = np.apply_along_axis(multinomial_sample, 1, probs)
 
