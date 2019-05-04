@@ -24,8 +24,7 @@ BATCH_SIZE=32
 RANDOM_SEED=0
 BOUNDARY=100
 
-
-blaze run --config=cuda third_party/py/tensor2tensor/trax/rlax:ppo_main -- \
+python trax/rlax/ppo_main.py \
   --env_problem_name=${ENV_PROBLEM_NAME} \
   --combined_policy_and_value_function=${COMBINED_NETWORK} \
   --epochs=${EPOCHS} \
@@ -34,7 +33,6 @@ blaze run --config=cuda third_party/py/tensor2tensor/trax/rlax:ppo_main -- \
   --boundary=${BOUNDARY} \
   --vmodule=*/tensor2tensor/*=1 \
   --alsologtostderr \
-
 """
 
 from __future__ import absolute_import
