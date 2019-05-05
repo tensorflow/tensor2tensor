@@ -37,7 +37,7 @@ def GRUCell(units):
   """
   return GeneralGRUCell(
       candidate_transform=lambda: core.Dense(units=units),
-      memory_transform=combinators.Identity,
+      memory_transform=combinators.Copy,
       gate_nonlinearity=core.Sigmoid,
       candidate_nonlinearity=core.Tanh)
 
@@ -60,13 +60,13 @@ def ConvGRUCell(units, kernel_size=(3, 3)):
 
   return GeneralGRUCell(
       candidate_transform=BuildConv,
-      memory_transform=combinators.Identity,
+      memory_transform=combinators.Copy,
       gate_nonlinearity=core.Sigmoid,
       candidate_nonlinearity=core.Tanh)
 
 
 def GeneralGRUCell(candidate_transform,
-                   memory_transform=combinators.Identity,
+                   memory_transform=combinators.Copy,
                    gate_nonlinearity=core.Sigmoid,
                    candidate_nonlinearity=core.Tanh,
                    dropout_rate_c=0.1,
@@ -79,7 +79,7 @@ def GeneralGRUCell(candidate_transform,
   $$ Candidate memory: c_t = \tanh(U * (r_t \odot s_{t-1}) + B) $$
   $$ New State: s_t = u_t \odot s_{t-1} + (1 - u_t) \odot c_t $$
 
-  See combinators.GateBranches for details on the gating function.
+  See combinators.Gate for details on the gating function.
 
 
   Args:
@@ -99,8 +99,7 @@ def GeneralGRUCell(candidate_transform,
     A model representing a GRU cell with specified transforms.
   """
   return combinators.Serial(
-      combinators.Branch(num_branches=3),
-      combinators.Parallel(
+      combinators.Branch(
           # s_{t-1} branch - optionally transform
           # Typically is an identity.
           memory_transform(),
@@ -110,21 +109,23 @@ def GeneralGRUCell(candidate_transform,
               candidate_transform(),
               # Want bias to start out positive before sigmoids.
               core.AddConstant(constant=sigmoid_bias),
-              gate_nonlinearity()),
+              gate_nonlinearity()
+          ),
 
           # c_t (Candidate) branch
           combinators.Serial(
-              combinators.Branch(num_branches=2),
-              combinators.Parallel(
-                  combinators.Identity(),
+              combinators.Branch(
+                  combinators.Copy(),
                   # r_t (Reset) Branch
                   combinators.Serial(
                       candidate_transform(),
                       # Want bias to start out positive before sigmoids.
                       core.AddConstant(constant=sigmoid_bias),
-                      gate_nonlinearity())),
+                      gate_nonlinearity()
+                  )
+              ),
               ## Gate S{t-1} with sigmoid(candidate_transform(S{t-1}))
-              combinators.MultiplyBranches(),
+              combinators.Multiply(),
 
               # Final projection + tanh to get Ct
               candidate_transform(),
@@ -132,7 +133,8 @@ def GeneralGRUCell(candidate_transform,
 
               # Only apply dropout on the C gate.
               # Paper reports that 0.1 is a good default.
-              core.Dropout(rate=dropout_rate_c)),
+              core.Dropout(rate=dropout_rate_c)
+          ),
       ),
       # Gate memory and candidate
-      combinators.GateBranches())
+      combinators.Gate())

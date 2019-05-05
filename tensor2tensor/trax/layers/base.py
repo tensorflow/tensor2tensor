@@ -74,6 +74,14 @@ class Layer(object):
 
   # End of subclassing interface, all functions below are internal.
 
+  def output_shape_catch_errors(self, input_shape):
+    """Same as self.output_shape but with better error reporting."""
+    try:
+      return self.output_shape(input_shape)
+    except Exception:
+      name, trace = self.__class__.__name__, _short_traceback()
+      raise LayerError(name, 'output_shape', self._caller, input_shape, trace)
+
   def initialize(self, input_shape, rng):
     """Initialize the layer given an input shape and rng.
 
@@ -280,13 +288,34 @@ def layer(output_shape=None, new_parameters=None):
 
 
 def _random_inputs(input_shape, rng, integer_inputs=False):
-  """Create random floats of the given shape."""
-  if isinstance(input_shape[0], int):  # Non-nested shape.
+  """Create random floats of the given shape.
+
+  Args:
+    input_shape: Could be either:
+        list/tuple of ints, ex: (210, 160, 3) or
+        list/tuple of nested shapes, ex: [(210, 160, 3), (105, 80, 3)] or
+        dictionary of nested shapes, ex: {"obs": [(28, 28, 1), (4,)],
+                                          "sensors": [(3,4), (4, 9)]} or
+        any other combination of these, ex: list of dictionaries of tuples etc.
+    rng: random number generator.
+    integer_inputs: boolean, True if we want arrays of integers, otherwise we
+        produce float32s.
+
+  Returns:
+    Random values of the type and shape specified.
+  """
+  if not isinstance(input_shape, dict) and isinstance(input_shape[0], int):
+    # Non-nested shape, create a random tuple.
     if not integer_inputs:
       return random.uniform(rng, input_shape, minval=-1.0, maxval=1.0)
     return random.bernoulli(rng, 0.5, input_shape).astype(onp.int32)
-  elif isinstance(input_shape, (list, tuple)):  # Nested shape.
+  elif isinstance(input_shape, list):  # Nested shape: list.
     return [_random_inputs(shape, rng, integer_inputs) for shape in input_shape]
+  elif isinstance(input_shape, tuple):  # Nested shape: tuple.
+    return tuple(_random_inputs(list(input_shape), rng, integer_inputs))
+  elif isinstance(input_shape, dict):  # Nested shape: dict.
+    return {k: _random_inputs(input_shape[k], rng, integer_inputs)
+            for k in input_shape}
   else:
     raise TypeError(type(input_shape))
 

@@ -151,8 +151,9 @@ class Dense(base.Layer):
     return tuple(input_shape[:-1]) + (self._units,)
 
   def new_parameters(self, input_shape, rng):
-    w = self._kernel_initializer((input_shape[-1], self._units), rng)
-    b = self._bias_initializer((self._units,), rng)
+    rng1, rng2 = backend.random.split(rng, 2)
+    w = self._kernel_initializer((input_shape[-1], self._units), rng1)
+    b = self._bias_initializer((self._units,), rng2)
     return (w, b)
 
 

@@ -56,7 +56,7 @@ def EncoderDecoderMask(x, **unused_kwargs):
   padding_mask = np.reshape(
       padding_mask, (padding_mask.shape[0], 1, 1, padding_mask.shape[-1]))
   # Final mask shape is [batch, 1 for heads, decoder-len, encoder-len].
-  return padding_mask + np.ones((1, 1, decoder_input.shape[1], 1))
+  return padding_mask + np.zeros((1, 1, decoder_input.shape[1], 1))
 
 
 # Layer normalization.
@@ -170,7 +170,8 @@ def _multihead_attention_output_shape(  # pylint: disable=invalid-name
     input_shapes, **unused_kwargs):
   """Helper: calculate multihead attention output shape."""
   q_shape = input_shapes[0][0]  # Inputs are ((q, k, v), mask).
-  return q_shape
+  mask_shape = input_shapes[1]
+  return q_shape, mask_shape
 
 
 @base.layer(output_shape=_multihead_attention_output_shape)
@@ -187,7 +188,7 @@ def PureMultiHeadedAttention(x, params, num_heads=8, dropout=0.0,
     **kwargs: other arguments including the rng
 
   Returns:
-    Pure Multi-headed attention layer (no Dense transforms on input).
+    Pure Multi-headed attention result, and the mask.
   """
   del params
   rng = kwargs.get('rng', None)
@@ -205,10 +206,11 @@ def PureMultiHeadedAttention(x, params, num_heads=8, dropout=0.0,
     return np.reshape(
         np.transpose(x, (0, 2, 1, 3)), (nbatch, -1, num_heads*head_depth))
   # Split heads, dot-product attention, rejoin heads.
-  return JoinHeads(
+  res = JoinHeads(
       DotProductAttention(
           SplitHeads(q), SplitHeads(k), SplitHeads(v), mask,
           dropout=dropout, mode=mode, rng=rng))
+  return res, mask  # Keep the mask.
 
 
 def MultiHeadedAttentionQKV(
@@ -224,7 +226,7 @@ def MultiHeadedAttentionQKV(
     mode: str: 'train' or 'eval'
 
   Returns:
-    Multi-headed self-attention layer.
+    Multi-headed self-attention result and the mask.
   """
   return combinators.Serial(
       combinators.Parallel(
@@ -233,12 +235,12 @@ def MultiHeadedAttentionQKV(
               core.Dense(feature_depth),
               core.Dense(feature_depth),
           ),
-          combinators.Identity()
+          combinators.Copy()
       ),
       PureMultiHeadedAttention(  # pylint: disable=no-value-for-parameter
           feature_depth=feature_depth, num_heads=num_heads,
           dropout=dropout, mode=mode),
-      core.Dense(feature_depth),
+      combinators.Parallel(core.Dense(feature_depth), combinators.Copy())
   )
 
 
@@ -259,8 +261,10 @@ def MultiHeadedAttention(
   """
   return combinators.Serial(
       combinators.Parallel(
-          combinators.Branch(num_branches=3),  # q = k = v = first input
-          combinators.Identity()  # pass the mask
+          # q = k = v = first input
+          combinators.Branch(
+              combinators.Copy(), combinators.Copy(), combinators.Copy()),
+          combinators.Copy()  # pass the mask
       ),
       MultiHeadedAttentionQKV(  # pylint: disable=no-value-for-parameter
           feature_depth, num_heads=num_heads, dropout=dropout, mode=mode),
@@ -350,9 +354,9 @@ def ChunkedCausalMultiHeadedAttention(
     Multi-headed self-attention layer.
   """
   prepare_attention_input = combinators.Serial(
-      combinators.Branch(),
-      combinators.Parallel(
-          combinators.Branch(num_branches=3),  # q = k = v = first input
+      combinators.Branch(
+          combinators.Branch(  # q = k = v = first input
+              combinators.Copy(), combinators.Copy(), combinators.Copy()),
           CausalMask(axis=-2),  # pylint: disable=no-value-for-parameter
       ),
       combinators.Parallel(
@@ -361,7 +365,7 @@ def ChunkedCausalMultiHeadedAttention(
               core.Dense(feature_depth),
               core.Dense(feature_depth),
           ),
-          combinators.Identity()
+          combinators.Copy()
       )
   )
   return combinators.Serial(
@@ -370,6 +374,7 @@ def ChunkedCausalMultiHeadedAttention(
       combinators.Map(PureMultiHeadedAttention(  # pylint: disable=no-value-for-parameter
           feature_depth=feature_depth, num_heads=num_heads,
           dropout=dropout, mode=mode), check_shapes=False),
+      combinators.Map(combinators.Select(0), check_shapes=False),  # drop masks
       combinators.Map(core.Dense(feature_depth))
   )
 

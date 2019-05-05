@@ -20,7 +20,7 @@ from __future__ import division
 from __future__ import google_type_annotations
 from __future__ import print_function
 
-from tensor2tensor.trax import layers
+from tensor2tensor.trax import layers as tl
 from tensor2tensor.trax.backend import numpy as np
 
 
@@ -29,7 +29,7 @@ def SaturationCost(x, limit=0.9):
   return np.minimum(0, np.abs(x) - limit)
 
 
-@layers.layer(output_shape=lambda input_shape_list: input_shape_list)
+@tl.layer(output_shape=lambda input_shape_list: input_shape_list)
 def DiagonalGate(x, params, **kwargs):
   """Split channels in 3 parts. Shifts 1st and 3rd sections to left/right."""
   del params
@@ -51,13 +51,13 @@ def ConvDiagonalGRU(units, kernel_size=(3, 3)):
   """Build convolutional GRU with diagonal gating as in ImprovedNGPU."""
 
   def BuildConv():
-    return layers.Conv(filters=units, kernel_size=kernel_size, padding='SAME')
+    return tl.Conv(filters=units, kernel_size=kernel_size, padding='SAME')
 
-  return layers.GeneralGRUCell(
+  return tl.GeneralGRUCell(
       candidate_transform=BuildConv,
       memory_transform=DiagonalGate,
-      gate_nonlinearity=layers.HardSigmoid,
-      candidate_nonlinearity=layers.HardTanh)
+      gate_nonlinearity=tl.HardSigmoid,
+      candidate_nonlinearity=tl.HardTanh)
 
 
 def NeuralGPU(feature_depth=96, steps=16, vocab_size=2):
@@ -73,10 +73,10 @@ def NeuralGPU(feature_depth=96, steps=16, vocab_size=2):
   """
   xs = []
   xs.append(
-      layers.Embedding(feature_depth=feature_depth, vocab_size=vocab_size))
+      tl.Embedding(feature_depth=feature_depth, vocab_size=vocab_size))
   core = ConvDiagonalGRU(units=feature_depth)
   xs.extend([core] * steps)
-  xs.append(layers.Dense(vocab_size))
-  xs.append(layers.LogSoftmax())
+  xs.append(tl.Dense(vocab_size))
+  xs.append(tl.LogSoftmax())
 
-  return layers.Serial(*xs)
+  return tl.Serial(*xs)

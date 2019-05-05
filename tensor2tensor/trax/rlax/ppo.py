@@ -127,8 +127,7 @@ def policy_and_value_net(rng_key,
   # other computes the value function.
   # NOTE: The LogSoftmax instead of the Softmax because of numerical stability.
   cur_layers.extend([
-      layers.Branch(),
-      layers.Parallel(
+      layers.Branch(
           layers.Serial(layers.Dense(num_actions), layers.LogSoftmax()),
           layers.Dense(1))
   ])

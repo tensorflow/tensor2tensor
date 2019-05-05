@@ -46,16 +46,7 @@ class Serial(base.Layer):
   def output_shape(self, input_shape):
     cur_shape = input_shape
     for layer in self._layers:
-      try:
-        cur_shape = layer.output_shape(cur_shape)
-      except Exception:
-        # Since this is a widely used combinator, we improve errors here.
-        # Private methods are accessed as an exception for that reason.
-        name, trace = layer.__class__.__name__, base._short_traceback()  # pylint: disable=protected-access
-        raise base.LayerError(
-            name, 'output_shape',
-            layer._caller, input_shape, trace)  # pylint: disable=protected-access
-
+      cur_shape = layer.output_shape_catch_errors(cur_shape)
     return cur_shape
 
   def new_parameters(self, input_shape, rng):
@@ -70,8 +61,8 @@ class Serial(base.Layer):
 
 
 @base.layer()
-def Identity(x, **unused_kwargs):
-  """Identity layer, return the inputs."""
+def Copy(x, **unused_kwargs):
+  """Copy layer, return the inputs."""
   return x
 
 
@@ -107,16 +98,8 @@ def UnnestBranches(x, **unused_kwargs):
 
 
 # Re-ordering layer.
-def _reorder_shape(input_shape, output=None):  # pylint: disable=invalid-name
-  """Helper to determine the shape of reorder output."""
-  if output is None:
-    return input_shape
-  return base.nested_map(output, lambda i: input_shape[i])
-
-
-@base.layer(output_shape=_reorder_shape)
-def Reorder(x, params, output=None, **kwargs):
-  """Reorder a tuple into another tuple.
+class Select(base.Layer):
+  """Select elements from a tuple or create another tuple from them.
 
   For example, we can re-order (x, y) into (y, x) or even (y, (x, y), y).
   The output argument specifies how to re-order, using integers that refer
@@ -126,12 +109,13 @@ def Reorder(x, params, output=None, **kwargs):
 
   then
 
-    Reorder(input, output=(1, 0, 2))   = (y, x, z)
-    Reorder(input, output=(0, 0))      = (x, x)
-    Reorder(input, output=(0, (1, 1))) = (x, (y, y))
-    Reorder(input, output=((2, 0), (1, 1))) = ((z, x), (y, y))
+    Select(0)                = x
+    Select((1, 0, 2))        = (y, x, z)
+    Select((0, 0))           = (x, x)
+    Select((0, (1, 1)))      = (x, (y, y))
+    Select(((2, 0), (1, 1))) = ((z, x), (y, y))
 
-  By default (if no output is given) Reorder does nothing (Identity).
+  By default (if no output is given) Select does nothing (Copy).
 
   Args:
     x: the input tuple to re-order.
@@ -142,35 +126,102 @@ def Reorder(x, params, output=None, **kwargs):
   Returns:
     The re-ordered tuple with the same shape as output.
   """
-  del params, kwargs
-  if output is None:
-    return x
-  return base.nested_map(output, lambda i: x[i])
+
+  def __init__(self, output=None):
+    super(Select, self).__init__()
+    self._output = output
+
+  def call(self, x, params=(), **kwargs):
+    del params, kwargs
+    if self._output is None:
+      return x
+    return base.nested_map(self._output, lambda i: x[i])
+
+  def output_shape(self, input_shape):
+    if self._output is None:
+      return input_shape
+    return base.nested_map(self._output, lambda i: input_shape[i])
+
+  def new_parameters(self, input_shape, rng):
+    return ()
 
 
-@base.layer(output_shape=lambda shape, num_branches=2: [shape] * num_branches)
-def Branch(x, params, num_branches=2, **kwargs):
-  del params, kwargs
-  return [x] * num_branches
+class Branch(base.Layer):
+  """Combinator for applying layers to copies of the input.
 
+  This layer is often used to create parallel towers in neural networks:
+  * Branch(Copy(), Copy()) -- creates a pair with copied input
+  * Branch(main, shortcut) -- start a residual tower (see Residual below)
 
-@base.layer(output_shape=lambda input_shape_list: input_shape_list[0])
-def FirstBranch(x, **unused_kwargs):
-  return x[0]  # Here x is a list of tensors, we select the first.
+  Args:
+    *layers: a sequence of layers.
+    **kwlayers: a dictionary of layers.
 
+  Returns:
+    A new layer in which each of the given layers has been applied to
+    a copy of the input independently.
+  """
 
-@base.layer(output_shape=lambda input_shape_list: input_shape_list[1])
-def SecondBranch(x, **unused_kwargs):
-  return x[1]  # Here x is a list of tensors, we select the second.
+  def __init__(self, *layers, **kwlayers):
+    super(Branch, self).__init__()
+    if layers and kwlayers:
+      raise ValueError('Cannot specify a Branch with both a list and dict.')
+    layers = layers or kwlayers
+    self._nlayers = len(layers)
+    self._layers = layers
 
+  def call(self, x, params=(), **kwargs):
+    # Split the random number generators.
+    rng = kwargs.pop('rng', None)
+    rngs = (None,) * self._nlayers
+    if rng is not None:
+      rngs = backend.random.split(rng, self._nlayers)
+    # If layers are a list or a tuple, just apply them.
+    if isinstance(self._layers, (list, tuple)):
+      res = [layer(x, params=p, rng=r, **kwargs)
+             for layer, p, r in zip(self._layers, params, rngs)]
+      return tuple(res)
+    # If layers are a dictionary, apply to matching keys.
+    assert isinstance(self._layers, dict)
+    result, counter = {}, 0
+    for k in self._layers:
+      result[k] = self._layers[k](
+          x, params=params[k], rng=rngs[counter], **kwargs)
+      counter += 1
+    return result
 
-@base.layer(output_shape=lambda input_shape_list: input_shape_list[2])
-def ThirdBranch(x, **unused_kwargs):
-  return x[2]  # Here x is a list of tensors, we select the third.
+  def output_shape(self, input_shape):
+    output_shapes = []
+    # If the argument layers are a sequence, apply each to calculate shape.
+    if not isinstance(self._layers, dict):
+      for layer in self._layers:
+        output_shapes.append(layer.output_shape_catch_errors(input_shape))
+      return tuple(output_shapes)
+    # If layers are a dictionary, apply to the input shape.
+    result = {}
+    for k in self._layers:
+      result[k] = self._layers[k].output_shape_catch_errors(input_shape)
+    return result
+
+  def new_parameters(self, input_shape, rng):
+    rngs = backend.random.split(rng, self._nlayers)
+    # If the argument layers are a sequence, create parameters for each one.
+    if not isinstance(self._layers, dict):
+      return [layer.initialize(input_shape, rng) for layer, rng
+              in zip(self._layers, rngs)]
+    # If the argument layers are a dictionary, create a dictionary too.
+    result, counter = {}, 0
+    for k in self._layers:
+      result[k] = self._layers[k].initialize(input_shape, rngs[counter])
+      counter += 1
+    return result
 
 
 def _nested_op(inputs, op):  # pylint: disable=invalid-name
-  """Helper: sum a list of arrays or nested arrays."""
+  """Helper: apply op over a list of arrays or nested arrays."""
+  # If input is a dictionary, apply to the values (ignore keys).
+  if isinstance(inputs, dict):
+    return _nested_op(list(inputs.values()), op)
   # First the simple non-nested case.
   if not isinstance(inputs[0], (list, tuple)):
     return op(inputs)
@@ -192,21 +243,27 @@ def _nested_product(inputs):  # pylint: disable=invalid-name
       inputs=inputs, op=lambda xs: six.moves.reduce(operator.mul, xs))
 
 
-@base.layer(output_shape=lambda input_shape_list: input_shape_list[0])
-def SumBranches(x, **unused_kwargs):
-  """Sum branches elementwise."""
+def _first_from_tuple_or_dict(tuple_or_dict):  # pylint: disable=invalid-name
+  """Helper: return the first element from a tuple or dict."""
+  for x in tuple_or_dict:
+    return x
+
+
+@base.layer(output_shape=_first_from_tuple_or_dict)
+def Add(x, **unused_kwargs):
+  """Add branches elementwise."""
   # Here x is a list of tensors of the same shape, or nested structures.
   return _nested_sum(x)
 
 
-@base.layer(output_shape=lambda input_shape_list: input_shape_list[0])
-def MultiplyBranches(x, **unused_kwargs):
+@base.layer(output_shape=_first_from_tuple_or_dict)
+def Multiply(x, **unused_kwargs):
   """Multiply branches elementwise."""
   return _nested_product(x)
 
 
-@base.layer(output_shape=lambda input_shape_list: input_shape_list[0])
-def GateBranches(x, **unused_kwargs):
+@base.layer(output_shape=_first_from_tuple_or_dict)
+def Gate(x, **unused_kwargs):
   """Implements a gating function on a (memory, gate, candidate) tuple.
 
   Final update is memory * gate + (1-gate) * candidate
@@ -227,6 +284,8 @@ def GateBranches(x, **unused_kwargs):
 
 def _concatenate_shape(input_shape, axis=-1):  # pylint: disable=invalid-name
   """Helper to determine the shape of Concatenate output."""
+  if isinstance(input_shape, dict):  # For named tuples, just use the values.
+    input_shape = list(input_shape.values())
   ax = axis % len(input_shape[0])
   concat_size = sum(shape[ax] for shape in input_shape)
   out_shape = input_shape[0][:ax] + (concat_size,) + input_shape[0][ax+1:]
@@ -236,70 +295,100 @@ def _concatenate_shape(input_shape, axis=-1):  # pylint: disable=invalid-name
 @base.layer(output_shape=_concatenate_shape)
 def Concatenate(x, params, axis=-1, **kwargs):
   del params, kwargs
+  if isinstance(x, dict):  # For dictionaries, just use the values.
+    x = list(x.values())
   return backend.numpy.concatenate(x, axis)
 
 
 class Parallel(base.Layer):
-  """Combinator for composing layers in parallel.
+  """Combinator for applying layers to parts of a tuple.
 
-  This layer is often used with the Branch and SumBranches layers.
+  This layer is often used with the Branch and Add layers.
 
   Args:
     *layers: a sequence of layers.
+    **kwlayers: a dictionary of layers.
 
   Returns:
-    A new layer representing parallel composition of the given layers.
-    The new layer takes a sequence of inputs and returns a sequence of outputs
-    with the same length as the argument `layers`.
+    A new layer in which each of the given layers has been applied to
+    its corresponding argument in the input tuple or dictionary.
   """
 
-  def __init__(self, *layers):
+  def __init__(self, *layers, **kwlayers):
     super(Parallel, self).__init__()
+    if layers and kwlayers:
+      raise ValueError('Cannot specify a Parallel with both a list and dict.')
+    layers = layers or kwlayers
     self._nlayers = len(layers)
     self._layers = layers
 
   def call(self, inputs, params=(), **kwargs):
+    # Split the random number generators.
     rng = kwargs.pop('rng', None)
     rngs = (None,) * self._nlayers
     if rng is not None:
       rngs = backend.random.split(rng, self._nlayers)
-    return [layer(x, params=p, rng=r, **kwargs)
-            for layer, x, p, r in zip(self._layers, inputs, params, rngs)]
+    # If layers are a list or a tuple, just apply them.
+    if not isinstance(self._layers, dict):
+      res = [layer(x, params=p, rng=r, **kwargs)
+             for layer, x, p, r in zip(self._layers, inputs, params, rngs)]
+      # Return a list if inputs are a list and a tuple if inputs are a tuple.
+      if isinstance(inputs, list):
+        return res
+      return tuple(res)
+    # If layers are a dictionary, apply to matching keys.
+    result, counter = {}, 0
+    for k in inputs:
+      if k in self._layers:
+        result[k] = self._layers[k](
+            inputs[k], params=params[k], rng=rngs[counter], **kwargs)
+        counter += 1
+      else:
+        result[k] = inputs[k]
+    return result
 
   def output_shape(self, input_shape):
     output_shapes = []
-    for i, layer in enumerate(self._layers):
-      try:
-        output_shapes.append(layer.output_shape(input_shape[i]))
-      except Exception:
-        # Since this is a widely used combinator, we improve errors here.
-        # Private methods are accessed as an exception for that reason.
-        name, trace = layer.__class__.__name__, base._short_traceback()  # pylint: disable=protected-access
-        raise base.LayerError(
-            name, 'output_shape',
-            layer._caller, input_shape[i], trace)  # pylint: disable=protected-access
-    return tuple(output_shapes)
+    # If the argument layers are a sequence, apply each to calculate shape.
+    if not isinstance(self._layers, dict):
+      for i, layer in enumerate(self._layers):
+        output_shapes.append(layer.output_shape_catch_errors(input_shape[i]))
+      return tuple(output_shapes)
+    # If layers are a dictionary, apply to matching keys in the input shape.
+    result = {}
+    for k in input_shape:
+      if k in self._layers:
+        result[k] = self._layers[k].output_shape_catch_errors(input_shape[k])
+      else:
+        result[k] = input_shape[k]
+    return result
 
   def new_parameters(self, input_shape, rng):
     rngs = backend.random.split(rng, self._nlayers)
-    return [layer.initialize(shape, rng) for layer, shape, rng
-            in zip(self._layers, input_shape, rngs)]
+    # If the argument layers are a sequence, create parameters for each one.
+    if not isinstance(self._layers, dict):
+      return [layer.initialize(shape, rng) for layer, shape, rng
+              in zip(self._layers, input_shape, rngs)]
+    # If the argument layers are a dictionary, create a dictionary too.
+    result, counter = {}, 0
+    for k in self._layers:
+      result[k] = self._layers[k].initialize(input_shape[k], rngs[counter])
+      counter += 1
+    return result
 
 
 def Residual(*layers, **kwargs):
   """Constructs a residual version of layers, summing input to layers output."""
-  shortcut = kwargs.get('shortcut', Identity())  # pylint: disable=no-value-for-parameter
+  shortcut = kwargs.get('shortcut', Copy())  # pylint: disable=no-value-for-parameter
   if len(layers) > 1:
     return Serial(
-        Branch(),  # pylint: disable=no-value-for-parameter
-        Parallel(Serial(*layers), shortcut),
-        SumBranches()  # pylint: disable=no-value-for-parameter
+        Branch(Serial(*layers), shortcut),
+        Add()  # pylint: disable=no-value-for-parameter
     )
   elif len(layers) == 1:
     return Serial(
-        Branch(),  # pylint: disable=no-value-for-parameter
-        Parallel(layers[0], shortcut),
-        SumBranches()  # pylint: disable=no-value-for-parameter
+        Branch(layers[0], shortcut),
+        Add()  # pylint: disable=no-value-for-parameter
     )
   else:
     raise ValueError('Empty residual combinator.')

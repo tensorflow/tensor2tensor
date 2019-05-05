@@ -376,7 +376,8 @@ def train(output_dir,
           num_devices=None,
           random_seed=None,
           run_debug_step=False,
-          save_forward_graph=False):
+          save_graphs=True,
+          save_backward_graph=False):
   """Train the model on the inputs.
 
   Args:
@@ -400,8 +401,8 @@ def train(output_dir,
     random_seed: the random seed to use; time/os dependent if None (default).
     run_debug_step: bool, if True, will run the model and loss without @jit for
       one step.
-    save_forward_graph: bool, if True, save forward computation graph to file.
-
+    save_graphs: bool, if True, save computation graph to file.
+    save_backward_graph: bool, if True, save backward graph to file too.
   Returns:
     trax.State
   """
@@ -510,13 +511,22 @@ def train(output_dir,
         eval_sw=eval_sw,
         history=history)
 
-    # Save computation graph
-    if save_forward_graph and step == 1:
-      # Dump forward computation graph to file.
-      computation = jax.xla_computation(model_predict_eval)(
+    # Save computation graph (single-device only for now).
+    if save_graphs and step == 1 and num_devices == 1:
+      # Dump computation graphs to files.
+      forward_computation = jax.xla_computation(model_predict_eval)(
           next_train_batch[0], params=params, rng=rng)
-      with gfile.GFile(os.path.join(output_dir, "forward_graph.dot"), "w") as f:
-        f.write(computation.GetHloDotGraph())
+      with gfile.GFile(os.path.join(output_dir, "forward.txt"), "w") as f:
+        f.write(forward_computation.GetHloText())
+      with gfile.GFile(os.path.join(output_dir, "forward.dot"), "w") as f:
+        f.write(forward_computation.GetHloDotGraph())
+      backward_computation = jax.xla_computation(jit_update_fun)(
+          step, opt_state, next_train_batch, rngs)
+      with gfile.GFile(os.path.join(output_dir, "backward.txt"), "w") as f:
+        f.write(backward_computation.GetHloText())
+      if save_backward_graph:  # Backward graphs can be large so we guard it.
+        with gfile.GFile(os.path.join(output_dir, "backward.dot"), "w") as f:
+          f.write(backward_computation.GetHloDotGraph())
 
     # Save state
     save_state(State(params=params, step=step, history=history), output_dir)
