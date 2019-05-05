@@ -136,10 +136,10 @@ def policy_and_value_net(rng_key,
 
 
 def optimizer_fun(net_params, step_size=1e-3):
-  opt_init, opt_update = trax_opt.adam(
+  opt_init, opt_update, get_params = trax_opt.adam(
       step_size=step_size, b1=0.9, b2=0.999, eps=1e-08)
   opt_state = opt_init(net_params)
-  return opt_state, opt_update
+  return opt_state, opt_update, get_params
 
 
 def log_params(params, name="params"):
@@ -782,10 +782,11 @@ def combined_loss(new_params,
       epsilon=epsilon)
 
 
-@functools.partial(jit, static_argnums=(2, 3, 5))
+@functools.partial(jit, static_argnums=(2, 3, 4, 6))
 def ppo_opt_step(i,
                  opt_state,
                  ppo_opt_update,
+                 ppo_get_params,
                  policy_net_apply,
                  old_policy_params,
                  value_net_apply,
@@ -798,7 +799,7 @@ def ppo_opt_step(i,
                  lambda_=0.95,
                  epsilon=0.1):
   """PPO optimizer step."""
-  new_policy_params = trax_opt.get_params(opt_state)
+  new_policy_params = ppo_get_params(opt_state)
   g = grad(
       ppo_loss, argnums=1)(
           policy_net_apply,
@@ -816,17 +817,18 @@ def ppo_opt_step(i,
   return ppo_opt_update(i, g, opt_state)
 
 
-@functools.partial(jit, static_argnums=(2, 3))
+@functools.partial(jit, static_argnums=(2, 3, 4))
 def value_opt_step(i,
                    opt_state,
                    opt_update,
+                   get_params,
                    value_net_apply,
                    padded_observations,
                    padded_rewards,
                    reward_mask,
                    gamma=0.99):
   """Value optimizer step."""
-  value_params = trax_opt.get_params(opt_state)
+  value_params = get_params(opt_state)
   # Note this partial application here and argnums above in ppo_opt_step.
   g = grad(functools.partial(value_loss, value_net_apply))(
       value_params,
@@ -837,10 +839,11 @@ def value_opt_step(i,
   return opt_update(i, g, opt_state)
 
 
-@functools.partial(jit, static_argnums=(2, 3))
+@functools.partial(jit, static_argnums=(2, 3, 4))
 def policy_and_value_opt_step(i,
                               opt_state,
                               opt_update,
+                              get_params,
                               policy_and_value_net_apply,
                               old_params,
                               padded_observations,
@@ -872,7 +875,7 @@ def policy_and_value_opt_step(i,
         epsilon=epsilon)
     return loss
 
-  new_params = trax_opt.get_params(opt_state)
+  new_params = get_params(opt_state)
   g = grad(policy_and_value_loss)(new_params)
   return opt_update(i, g, opt_state)
 
@@ -934,8 +937,10 @@ def training_loop(
         policy_and_value_net_fun(subkey, batch_observations_shape, num_actions))
 
     # Initialize the optimizers.
-    policy_and_value_opt_state, policy_and_value_opt_update = (
+    policy_and_value_optimizer = (
         policy_and_value_optimizer_fun(policy_and_value_net_params))
+    (policy_and_value_opt_state, policy_and_value_opt_update,
+     policy_and_value_get_params) = policy_and_value_optimizer
 
     policy_and_value_net_apply = jit(policy_and_value_net_apply)
   else:
@@ -953,19 +958,21 @@ def training_loop(
     value_net_apply = jit(value_net_apply)
 
     # Initialize the optimizers.
-    ppo_opt_state, ppo_opt_update = policy_optimizer_fun(policy_net_params)
-    value_opt_state, value_opt_update = value_optimizer_fun(value_net_params)
+    ppo_opt_state, ppo_opt_update, ppo_get_params = (
+        policy_optimizer_fun(policy_net_params))
+    value_opt_state, value_opt_update, value_get_params = (
+        value_optimizer_fun(value_net_params))
 
   # A function that will call the appropriate policy function with parameters.
   def get_policy_output(observations):
     # Get the fresh params for collecting the policy.
     if policy_net_apply is not None:
-      return policy_net_apply(observations, trax_opt.get_params(ppo_opt_state))
+      return policy_net_apply(observations, ppo_get_params(ppo_opt_state))
 
     assert policy_and_value_net_apply
 
     policy_predictions, unused_value_predictions = policy_and_value_net_apply(
-        observations, trax_opt.get_params(policy_and_value_opt_state))
+        observations, policy_and_value_get_params(policy_and_value_opt_state))
     return policy_predictions
 
   for i in range(epochs):
@@ -985,11 +992,11 @@ def training_loop(
 
     # These were the params that were used to collect the trajectory.
     if policy_and_value_net_apply:
-      policy_and_value_net_params = trax_opt.get_params(
+      policy_and_value_net_params = policy_and_value_get_params(
           policy_and_value_opt_state)
     else:
-      policy_net_params = trax_opt.get_params(ppo_opt_state)
-      value_net_params = trax_opt.get_params(value_opt_state)
+      policy_net_params = ppo_get_params(ppo_opt_state)
+      value_net_params = value_get_params(value_opt_state)
 
     avg_reward = float(sum(np.sum(traj[2]) for traj in trajs)) / len(trajs)
     max_reward = max(np.sum(traj[2]) for traj in trajs)
@@ -1099,6 +1106,7 @@ def training_loop(
             j,
             policy_and_value_opt_state,
             policy_and_value_opt_update,
+            policy_and_value_get_params,
             policy_and_value_net_apply,
             # for the entirety of this loop, this should refer to params that
             # were used to collect the trajectory.
@@ -1117,7 +1125,7 @@ def training_loop(
             print_every_optimizer_steps == 0) or (j == num_optimizer_steps - 1):
           # Compute and log the loss.
           # Get the new params.
-          new_policy_and_value_net_params = trax_opt.get_params(
+          new_policy_and_value_net_params = policy_and_value_get_params(
               policy_and_value_opt_state)
           (loss_combined, loss_ppo, loss_value, unused_entropy_bonus) = (
               combined_loss(
@@ -1166,6 +1174,7 @@ def training_loop(
             j,
             ppo_opt_state,
             ppo_opt_update,
+            ppo_get_params,
             policy_net_apply,
             policy_net_params,
             value_net_apply,
@@ -1180,7 +1189,7 @@ def training_loop(
         )
         t2 = time.time()
         # Get the new params.
-        new_policy_net_params = trax_opt.get_params(ppo_opt_state)
+        new_policy_net_params = ppo_get_params(ppo_opt_state)
 
         # These are the "old" params - policy_net_params
 
@@ -1226,7 +1235,7 @@ def training_loop(
       # Update the params ONLY AND ONLY AFTER we complete all the optimization
       # iterations, till then `policy_net_params` should refer to the params
       # that were used in collecting the policy.
-      # policy_net_params = trax_opt.get_params(ppo_opt_state)
+      # policy_net_params = ppo_get_params(ppo_opt_state)
 
       logging.vlog(1, "Total PPO loss reduction [%0.2f]%%",
                    (100 * (cur_ppo_loss - new_ppo_loss) / np.abs(cur_ppo_loss)))
@@ -1239,13 +1248,14 @@ def training_loop(
             j,
             value_opt_state,
             value_opt_update,
+            value_get_params,
             value_net_apply,
             padded_observations,
             padded_rewards,
             reward_mask,
             gamma=gamma)
         t2 = time.time()
-        value_net_params = trax_opt.get_params(value_opt_state)
+        value_net_params = value_get_params(value_opt_state)
         if ((j + 1) %
             print_every_optimizer_steps == 0) or (j == num_optimizer_steps - 1):
           new_value_loss = value_loss(
@@ -1266,8 +1276,8 @@ def training_loop(
       logging.vlog(1, "Grad desc took %0.2f msec", get_time(t1))
 
       # Set the optimized params to new params.
-      policy_net_params = trax_opt.get_params(ppo_opt_state)
-      value_net_params = trax_opt.get_params(value_opt_state)
+      policy_net_params = ppo_get_params(ppo_opt_state)
+      value_net_params = value_get_params(value_opt_state)
 
       logging.info(
           "Epoch [% 6d], Reward[min, max, avg] [%10.2f,%10.2f,%10.2f], "

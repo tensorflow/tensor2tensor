@@ -159,13 +159,12 @@ def save_state(state, output_dir, keep=False):
   else:
     pkl_module = pickle
   params_file = os.path.join(output_dir, "model.pkl")
-  params = jax.unreplicate(state.params)
   with gfile.GFile(params_file, "wb") as f:
-    pkl_module.dump((params, state.step, state.history), f)
+    pkl_module.dump((state.params, state.step, state.history), f)
   if keep:
     params_file = os.path.join(output_dir, "model_{}.pkl".format(state.step))
     with gfile.GFile(params_file, "wb") as f:
-      pkl_module.dump((params, state.step, state.history), f)
+      pkl_module.dump((state.params, state.step, state.history), f)
   log("Model saved to %s" % params_file, stdout=False)
 
 
@@ -317,8 +316,8 @@ def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun, num_devices):
   if num_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
     def single_update(i, opt_state, batch, rng):
       rng, subrng = jax_random.split(rng[0])
-      _, opt_update = optimizer(lr_fun)
-      params = trax_opt.get_params(opt_state)
+      _, opt_update, get_params = optimizer(lr_fun)
+      params = get_params(opt_state)
       return opt_update(i, backend.grad(loss_fun)(
           params, batch, predict_fun, rng), opt_state), [subrng]
     return backend.jit(single_update)
@@ -328,15 +327,15 @@ def _jit_update_fun(predict_fun, loss_fun, optimizer, lr_fun, num_devices):
     """This is a multi-device version of the update function above."""
     # We assume all tensors have the first dimension = num_devices.
     rng, subrng = jax_random.split(rng)
-    _, opt_update = optimizer(lr_fun)
-    params = trax_opt.get_params(opt_state)
+    _, opt_update, get_params = optimizer(lr_fun)
+    params = get_params(opt_state)
     grads = backend.grad(loss_fun)(params, batch, predict_fun, rng)
     grads = jax.tree_util.tree_map(
         lambda g: lax.psum(g, "batch"), grads)
     return opt_update(i, grads, opt_state), subrng
 
   def update(i, opt_state, batch, rng):
-    return mapped_update(jax.replicate(i), opt_state, batch, rng)
+    return mapped_update(numpy.repeat(i, num_devices), opt_state, batch, rng)
 
   return update
 
@@ -421,7 +420,8 @@ def train(output_dir,
   state = restore_state(output_dir)
   history = state.history
   lr_fun = lr_schedule(history)
-  opt_init, _ = optimizer(lr_fun)
+  opt_init, _, get_rep_params, get_params = (
+      trax_opt.parallelize(optimizer)(lr_fun))
   model_train = model(mode="train")
   model_predict_eval = model(mode="eval")
 
@@ -438,8 +438,6 @@ def train(output_dir,
     model_input_shape = tuple([-1] + list(inputs.input_shape))
   params = state.params or model_train.initialize(model_input_shape, init_rng)
   opt_state = opt_init(params)
-  if num_devices > 1:  # TODO(lukaszkaiser): use everywhere when pmap is stable.
-    opt_state = jax.replicate(opt_state)
 
   # jit model_predict and update so they're fast
   jit_model_predict_eval = _jit_predict_fun(model_predict_eval, num_devices)
@@ -475,7 +473,7 @@ def train(output_dir,
       step += 1
 
       if step in save_steps:
-        params = trax_opt.get_params(opt_state)
+        params = get_params(opt_state)
         save_state(State(params=params, step=step, history=history),
                    output_dir,
                    keep=True)
@@ -494,17 +492,19 @@ def train(output_dir,
                       epoch_steps / epoch_time, step=step)
 
     # Print number of parameters
-    params = trax_opt.get_params(opt_state)
+    params = get_params(opt_state)
     if step == 1:
       sizes = layers.sizes(params)
       total_size = layers.nested_reduce(sizes, sum)
       step_log(step, "Total trainable parameters size: %d" % total_size)
 
-    # Evaluate
+    # Evaluate in parallel
+    replicated_params = get_rep_params(opt_state)
     evaluate_train_and_eval(
         step=step,
         inputs=inputs,
-        predict_fun=functools.partial(jit_model_predict_eval, params=params),
+        predict_fun=functools.partial(jit_model_predict_eval,
+                                      params=replicated_params),
         eval_steps=eval_steps,
         rng=rng,
         train_sw=train_sw,

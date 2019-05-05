@@ -21,7 +21,9 @@ from __future__ import print_function
 
 import gin
 
+import jax
 from jax.experimental import optimizers as opt
+import numpy as onp
 
 
 def opt_configure(*args, **kwargs):
@@ -40,5 +42,27 @@ exponential_decay = opt_configure(opt.exponential_decay)
 inverse_time_decay = opt_configure(opt.inverse_time_decay)
 piecewise_constant = opt_configure(opt.piecewise_constant)
 
-# Get params
-get_params = opt.get_params
+
+def parallelize(opt_maker):
+  """Transform an optimizer maker into a parallel one with replicated params."""
+
+  def parallel_opt_maker(*args, **kwargs):  # pylint:disable=missing-docstring
+    init_fun, update_fun, get_params = opt_maker(*args, **kwargs)
+
+    num_devices = jax.lib.xla_bridge.device_count()
+    replicate_array = lambda x: onp.broadcast_to(x, (num_devices,) + x.shape)
+    unreplicate_array = lambda x: x.mean(0)  # an alternative is x[0]
+
+    def init_replicated(params):
+      if num_devices > 1:
+        params = jax.tree_util.tree_map(replicate_array, params)
+      return init_fun(params)
+
+    def get_params_unreplicated(opt_state):
+      params = get_params(opt_state)
+      if num_devices > 1:
+        params = jax.tree_util.tree_map(unreplicate_array, params)
+      return params
+
+    return init_replicated, update_fun, get_params, get_params_unreplicated
+  return parallel_opt_maker
