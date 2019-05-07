@@ -383,7 +383,8 @@ def ChunkedCausalMultiHeadedAttention(
 def ShiftRight(x, **unused_kwargs):
   """Layer to shift the tensor to the right by padding on axis 1."""
   if not isinstance(x, (list, tuple)):  # non-chunked inputs
-    pad_widths = [(0, 0), (1, 0)]
+    pad_widths = [(0, 0)] * len(x.shape)
+    pad_widths[1] = (1, 0)  # Padding on axis=1
     padded = np.pad(x, pad_widths, mode='constant')
     return padded[:, :-1]
   # Handling chunked inputs. Recall that the list of chunks represents a big
