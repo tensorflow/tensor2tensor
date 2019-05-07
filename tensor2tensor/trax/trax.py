@@ -407,7 +407,12 @@ def train(output_dir,
   """
   if save_steps is None:
     save_steps = []
-  num_devices = num_devices or jax.lib.xla_bridge.device_count()
+  device_count = jax.lib.xla_bridge.device_count()
+  num_devices = num_devices or device_count
+  # TODO(lukaszkaiser): remove this restriction when possible.
+  if num_devices != device_count:
+    raise ValueError("Jax cannot work yet with num_devices != all devices: "
+                     "%d != %d" % (num_devices, device_count))
   rng = get_random_number_generator_and_set_seed(random_seed)
   gfile.makedirs(output_dir)
   # Create summary writers and history.
