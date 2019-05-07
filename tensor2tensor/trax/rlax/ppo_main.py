@@ -98,8 +98,8 @@ flags.DEFINE_integer("value_only_num_optimizer_steps", 80,
                      "Number of optimizer steps value only.")
 
 # Learning rate of the combined net, policy net and value net.
-flags.DEFINE_float("learning_rate", 5e-4, "Learning rate.")
-flags.DEFINE_float("policy_only_learning_rate", 1e-3,
+flags.DEFINE_float("learning_rate", 1e-3, "Learning rate.")
+flags.DEFINE_float("policy_only_learning_rate", 3e-4,
                    "Learning rate for policy network only.")
 flags.DEFINE_float("value_only_learning_rate", 1e-3,
                    "Learning rate for value network only.")
