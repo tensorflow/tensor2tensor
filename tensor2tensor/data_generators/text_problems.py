@@ -29,6 +29,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import re
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
@@ -611,11 +612,37 @@ def txt_line_iterator(txt_path):
       yield line.strip()
 
 
+def txt_and_label_iterator(txt_path):
+  """Iterate through lines of file."""
+  problem_pattern_without_vocab_size = re.compile("(.*)\tExtra_Label: (.*)")
+  with tf.gfile.Open(txt_path) as f:
+    for line in f:
+      results = problem_pattern_without_vocab_size.search(line.strip())
+      try:
+        line = results.group(1)
+        extra_label = int(results.group(2))
+      except AttributeError:
+        raise ValueError(
+            "Please provide the file in the right format, with each line having"
+            " the following format:\n<word_1 word_2 ... word_n>\\t"
+            "Extra_Label:\\s<int_label>"
+        )
+      yield [line, extra_label]
+
+
 def text2text_txt_iterator(source_txt_path, target_txt_path):
   """Yield dicts for Text2TextProblem.generate_samples from lines of files."""
   for inputs, targets in zip(
       txt_line_iterator(source_txt_path), txt_line_iterator(target_txt_path)):
     yield {"inputs": inputs, "targets": targets}
+
+
+def text2text_txt_iterator_with_label(source_txt_path, target_txt_path):
+  """Yield dicts for Text2TextProblem.generate_samples from lines of files."""
+  for inputs, (targets, extra_label) in zip(
+      txt_line_iterator(source_txt_path),
+      txt_and_label_iterator(target_txt_path)):
+    yield {"inputs": inputs, "targets": targets, "extra_label": [extra_label]}
 
 
 def text2text_distill_iterator(source_txt_path, target_txt_path,
