@@ -537,9 +537,12 @@ class PpoTest(test.TestCase):
     rewards = np.random.uniform(0, 1, size=(B, T))
     mask = np.ones_like(rewards)
 
+    log_probs_old = policy_apply(observations, old_policy_params)
+    value_predictions_old = value_apply(observations, value_params)
+
     # Just test that this computes at all.
-    _ = ppo.ppo_loss(policy_apply, new_policy_params, old_policy_params,
-                     value_apply, value_params, observations, actions, rewards,
+    _ = ppo.ppo_loss(policy_apply, new_policy_params, log_probs_old,
+                     value_predictions_old, observations, actions, rewards,
                      mask)
 
   def test_combined_loss(self):
@@ -586,7 +589,8 @@ class PpoTest(test.TestCase):
 
     (combined_loss, ppo_loss_2, value_loss_2, entropy_bonus) = (
         ppo.combined_loss(new_params,
-                          old_params,
+                          old_log_probabs,
+                          value_predictions,
                           net_apply,
                           observations,
                           actions,
@@ -600,11 +604,90 @@ class PpoTest(test.TestCase):
     )
 
     # Test that these compute at all and are self consistent.
-    self.assertEqual(0.0, entropy_bonus)
+    self.assertGreater(entropy_bonus, 0.0)
     self.assertNear(value_loss_1, value_loss_2, 1e-6)
     self.assertNear(ppo_loss_1, ppo_loss_2, 1e-6)
-    self.assertNear(combined_loss, ppo_loss_2 + (c1 * value_loss_2), 1e-6)
+    self.assertNear(combined_loss,
+                    ppo_loss_2 + (c1 * value_loss_2) - (c2 * entropy_bonus),
+                    1e-6)
 
+  def test_approximate_kl(self):
+    # (2, 4+1, 4)
+    p_old = np.array([[
+        [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
+        [np.log(0.4), np.log(0.1), np.log(0.4), np.log(0.1)],
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+        [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+    ], [
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+        [np.log(0.1), np.log(0.1), np.log(0.4), np.log(0.4)],
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+        [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+    ]])
+
+    # (2, 4+1, 4)
+    p_new = np.array([[
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+        [np.log(0.4), np.log(0.1), np.log(0.1), np.log(0.3)],
+        [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+        [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
+    ], [
+        [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
+        [np.log(0.1), np.log(0.1), np.log(0.2), np.log(0.6)],
+        [np.log(0.3), np.log(0.1), np.log(0.3), np.log(0.3)],
+        [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
+        [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
+    ]])
+
+    # (2, 4)
+    mask = np.array([
+        [1, 1, 0, 0],
+        [1, 1, 1, 0]
+    ])
+
+    self.assertNear(
+        ppo.approximate_kl(p_new, p_old, mask),
+        -ppo.approximate_entropy(p_old, mask) +
+        ppo.approximate_entropy(p_new, mask),
+        1e-6)
+
+  def test_get_approximate_entropy(self):
+    # (2, 4+1, 4)
+    log_probs = np.array([[
+        [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
+        [np.log(0.4), np.log(0.1), np.log(0.4), np.log(0.1)],
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+        [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+    ], [
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+        [np.log(0.1), np.log(0.1), np.log(0.4), np.log(0.4)],
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+        [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+    ]])
+
+    # (2, 4)
+    mask = np.array([
+        [1, 1, 0, 0],
+        [1, 1, 1, 0]
+    ])
+
+    # Removing the last time-step and the masked stuff, gets us this.
+    filtered_log_probs = np.array([[
+        [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
+        [np.log(0.4), np.log(0.1), np.log(0.4), np.log(0.1)],
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+        [np.log(0.1), np.log(0.1), np.log(0.4), np.log(0.4)],
+        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
+    ]])
+
+    self.assertNear(ppo.approximate_entropy(log_probs, mask),
+                    -np.sum(filtered_log_probs) / 5.0,
+                    1e-6)
 
 if __name__ == "__main__":
   test.main()
