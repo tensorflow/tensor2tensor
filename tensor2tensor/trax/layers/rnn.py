@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.trax.layers import combinators
+from tensor2tensor.trax.layers import convolution
 from tensor2tensor.trax.layers import core
 
 
@@ -56,7 +57,8 @@ def ConvGRUCell(units, kernel_size=(3, 3)):
   """
 
   def BuildConv():
-    return core.Conv(filters=units, kernel_size=kernel_size, padding='SAME')
+    return convolution.Conv(
+        filters=units, kernel_size=kernel_size, padding='SAME')
 
   return GeneralGRUCell(
       candidate_transform=BuildConv,

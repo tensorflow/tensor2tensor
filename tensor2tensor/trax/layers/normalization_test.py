@@ -13,20 +13,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Layers defined in trax."""
+"""Tests for normalization layers."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# We create a flat layers.* namespace for uniform calling conventions as we
-# upstream changes.
-# pylint: disable=wildcard-import
-from tensor2tensor.trax.layers.attention import *
-from tensor2tensor.trax.layers.base import *
-from tensor2tensor.trax.layers.combinators import *
-from tensor2tensor.trax.layers.convolution import *
-from tensor2tensor.trax.layers.core import *
-from tensor2tensor.trax.layers.initializers import *
-from tensor2tensor.trax.layers.normalization import *
-from tensor2tensor.trax.layers.pooling import *
-from tensor2tensor.trax.layers.rnn import *
+from absl.testing import absltest
+from tensor2tensor.trax.layers import base
+from tensor2tensor.trax.layers import normalization
+
+
+class NormalizationLayerTest(absltest.TestCase):
+
+  def test_batch_norm(self):
+    input_shape = (29, 5, 7, 20)
+    result_shape = base.check_shape_agreement(
+        normalization.BatchNorm(), input_shape)
+    self.assertEqual(result_shape, input_shape)
+
+  def test_layer_norm(self):
+    input_shape = (29, 5, 7, 20)
+    result_shape = base.check_shape_agreement(
+        normalization.LayerNorm(), input_shape)
+    self.assertEqual(result_shape, input_shape)
+
+
+if __name__ == "__main__":
+  absltest.main()
