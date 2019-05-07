@@ -106,7 +106,8 @@ def play_env_problem_with_policy(env,
     log_probs = log_prob_actions[np.arange(B)[:, None],
                                  index[:, None],
                                  np.arange(A)]
-    assert (B, A) == log_probs.shape
+    assert (B, A) == log_probs.shape, \
+        "B=%d, A=%d, log_probs.shape=%s" % (B, A, log_probs.shape)
 
     # Convert to probs, since we need to do categorical sampling.
     probs = np.exp(log_probs)
@@ -114,11 +115,16 @@ def play_env_problem_with_policy(env,
     # Sometimes log_probs contains a 0, it shouldn't. This makes the
     # probabilities sum up to more than 1, since the addition happens
     # in float64, so just add and subtract 1.0 to zero those probabilites
-    # out. Real example encountered probs = [1e-8, 1.0, 1e-22]
+    # out.
     #
     # Also testing for this is brittle.
     probs += 1
     probs -= 1
+
+    # For some reason, sometimes, this isn't the case.
+    probs_sum = np.sum(probs, axis=1, keepdims=True)
+    if not all(probs_sum == 1.0):
+      probs = probs / probs_sum
 
     # Now pick actions from this probs array.
     actions = np.apply_along_axis(multinomial_sample, 1, probs)
