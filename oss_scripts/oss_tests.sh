@@ -83,10 +83,12 @@ set_status
 # Travis Error:
 # ImportError: /usr/lib/x86_64-linux-gnu/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by /home/travis/virtualenv/python3.6.3/lib/python3.6/site-packages/jaxlib/_pywrap_xla.so)
 
+# TODO(trandustin): Re-enable bayes_test when we can.
+#  tensor2tensor/layers/bayes_test.py \
+
 # These tests enable eager, so are tested separately.
 pytest --disable-warnings \
   tensor2tensor/data_generators/problem_test.py \
-  tensor2tensor/layers/bayes_test.py \
   tensor2tensor/layers/common_attention_test.py \
   tensor2tensor/layers/common_layers_test.py \
   tensor2tensor/layers/common_video_test.py \
