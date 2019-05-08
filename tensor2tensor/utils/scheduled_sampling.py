@@ -193,12 +193,14 @@ def _update_timestep(x, timestep, values):
   return x
 
 
-def _inverse_exp_decay_mix_prob(p_max, num_warmup_steps):
-  """Exponentially increase to p_max over a warmup period."""
-  return (p_max *
-          common_layers.inverse_exp_decay(
-              num_warmup_steps,
-              min_value=0.001))
+def inverse_decay_mix_prob(warmup_schedule_name, p_max, num_warmup_steps):
+  """Interpolate from 0.001 to 'p_max' over 'num_warmup_steps'."""
+  warmup_schedule_fn = {
+      "exp": common_layers.inverse_exp_decay,
+      "linear": common_layers.inverse_lin_decay,
+      "sigmoid": common_layers.inverse_sigmoid_decay,
+  }[warmup_schedule_name]
+  return p_max * warmup_schedule_fn(num_warmup_steps, min_value=0.001)
 
 
 class ScheduledSamplingAdapter(object):
@@ -244,7 +246,8 @@ class ScheduledSamplingAdapter(object):
   def mix_fn(self, gold_tokens, sampled_tokens):
     """Mixes gold and sampled tokens randomly."""
     hparams = self._t2tmodel.hparams
-    p_sample = _inverse_exp_decay_mix_prob(
+    p_sample = inverse_decay_mix_prob(
+        hparams.scheduled_sampling_warmup_schedule,
         hparams.scheduled_sampling_gold_mixin_prob,
         hparams.scheduled_sampling_warmup_steps)
     return _mix_tokens(

@@ -251,6 +251,7 @@ def basic_params1():
       scheduled_sampling_warmup_steps=50000,
       scheduled_sampling_gold_mixin_prob=0.5,
       scheduled_sampling_num_passes=1,
+      scheduled_sampling_warmup_schedule="exp",  # exp, linear, or sigmoid.
 
       # This setting controls whether to copy variables around in a daisy chain
       # (if true) or leave their placement to TensorFlow. It only affects multi

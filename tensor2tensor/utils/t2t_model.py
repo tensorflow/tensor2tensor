@@ -1882,6 +1882,8 @@ class T2TModel(base.Layer):
       return new_logits, new_losses
 
     tf.logging.info("Using scheduled sampling.")
+    tf.logging.info("Warming scheduled sampling up with schedule: %s",
+                    hparams.scheduled_sampling_warmup_schedule)
     assert hparams.scheduled_sampling_prob == 1.0, (
         "hparams.scheduled_sampling_prob must be 0 or 1.")
 
@@ -1898,7 +1900,8 @@ class T2TModel(base.Layer):
 
       # Gradually increase over a warmup period. Lower numbers mean more gold
       # tokens.
-      mixin_prob = scheduled_sampling._inverse_exp_decay_mix_prob(  # pylint: disable=protected-access
+      mixin_prob = scheduled_sampling.inverse_decay_mix_prob(
+          hparams.scheduled_sampling_warmup_schedule,
           hparams.scheduled_sampling_gold_mixin_prob,
           hparams.scheduled_sampling_warmup_steps)
 
