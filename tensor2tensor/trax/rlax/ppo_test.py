@@ -565,8 +565,8 @@ class PpoTest(test.TestCase):
     mask = np.ones_like(rewards)
 
     # Just test that this computes at all.
-    new_log_probabs, _ = net_apply(observations, new_params)
-    old_log_probabs, value_predictions = net_apply(observations, old_params)
+    new_log_probabs, value_predictions_new = net_apply(observations, new_params)
+    old_log_probabs, value_predictions_old = net_apply(observations, old_params)
 
     gamma = 0.99
     lambda_ = 0.95
@@ -575,11 +575,12 @@ class PpoTest(test.TestCase):
     c2 = 0.01
 
     value_loss_1 = ppo.value_loss_given_predictions(
-        value_predictions, rewards, mask, gamma=gamma)
+        value_predictions_new, rewards, mask, gamma=gamma,
+        value_prediction_old=value_predictions_old, epsilon=epsilon)
     ppo_loss_1 = ppo.ppo_loss_given_predictions(
         new_log_probabs,
         old_log_probabs,
-        value_predictions,
+        value_predictions_old,
         actions,
         rewards,
         mask,
@@ -590,7 +591,7 @@ class PpoTest(test.TestCase):
     (combined_loss, ppo_loss_2, value_loss_2, entropy_bonus) = (
         ppo.combined_loss(new_params,
                           old_log_probabs,
-                          value_predictions,
+                          value_predictions_old,
                           net_apply,
                           observations,
                           actions,

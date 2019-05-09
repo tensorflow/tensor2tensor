@@ -106,18 +106,18 @@ flags.DEFINE_float("value_only_learning_rate", 1e-3,
 
 # Target KL is used for doing early stopping in the
 flags.DEFINE_float("target_kl", 0.01, "Policy iteration early stopping")
+flags.DEFINE_float("value_coef", 1.0,
+                   "Coefficient of Value Loss term in combined loss.")
+flags.DEFINE_float("entropy_coef", 0.01,
+                   "Coefficient of the Entropy Bonus term in combined loss.")
 
 
 def common_layers():
   cur_layers = []
   if FLAGS.flatten_non_batch_time_dims:
     cur_layers = [layers.Div(divisor=255.0), layers.Flatten(num_axis_to_keep=2)]
-  return cur_layers + [
-      layers.Dense(64),
-      layers.Tanh(),
-      layers.Dense(64),
-      layers.Tanh()
-  ]
+  body = [layers.Dense(64), layers.Tanh(), layers.Dense(64), layers.Tanh()]
+  return cur_layers + body
 
 
 def make_env():
@@ -194,14 +194,16 @@ def main(argv):
         policy_optimizer_fun=policy_optimizer_fun,
         value_optimizer_fun=value_optimizer_fun,
         policy_and_value_optimizer_fun=policy_and_value_optimizer_fun,
-        batch_size=FLAGS.batch_size,
         num_optimizer_steps=FLAGS.num_optimizer_steps,
         policy_only_num_optimizer_steps=FLAGS.policy_only_num_optimizer_steps,
         value_only_num_optimizer_steps=FLAGS.value_only_num_optimizer_steps,
+        batch_size=FLAGS.batch_size,
         target_kl=FLAGS.target_kl,
         boundary=FLAGS.boundary,
         max_timestep=FLAGS.max_timestep,
-        random_seed=FLAGS.random_seed)
+        random_seed=FLAGS.random_seed,
+        c1=FLAGS.value_coef,
+        c2=FLAGS.entropy_coef)
 
   if FLAGS.jax_debug_nans or FLAGS.disable_jit:
     with jax.disable_jit():
