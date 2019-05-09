@@ -258,7 +258,8 @@ def ShiftRight(x, **unused_kwargs):
   if not isinstance(x, (list, tuple)):  # non-chunked inputs
     pad_widths = [(0, 0)] * len(x.shape)
     pad_widths[1] = (1, 0)  # Padding on axis=1
-    padded = np.pad(x, pad_widths, mode='constant')
+    padded = np.pad(x, pad_widths, mode='constant',
+                    constant_values=x.dtype.type(0))
     return padded[:, :-1]
   # Handling chunked inputs. Recall that the list of chunks represents a big
   # sequence (the concatenation of the chunks). We want to shift that sequence,
