@@ -233,7 +233,8 @@ def main(_):
 
   hp = create_hparams()
   # Fathom
-  hp = update_hparams_for_inference(hp)
+  problem = registry.problem(tf.flags.FLAGS.problems)
+  hp = update_hparams_for_inference(hp, problem)
   decode_hp = create_decode_hparams()
 
   estimator = trainer_lib.create_estimator(
@@ -251,7 +252,8 @@ def main(_):
   # Decode, predict, and evaluate code should
   # converge to use the same fathom_t2t_model_setup.
   echo_yaml_for_xcom_ingest({'output-dir': os.path.dirname(checkpoint_path),
-                             'output-file': FLAGS.decode_output_file})
+                             'output-file': FLAGS.decode_output_file,
+                             'truncation-boundary': hp.max_input_seq_length})
 
 
 if __name__ == "__main__":
