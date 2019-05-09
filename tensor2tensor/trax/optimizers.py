@@ -32,6 +32,7 @@ def opt_configure(*args, **kwargs):
 
 # Optimizers
 sgd = opt_configure(opt.sgd)
+sm3 = opt_configure(opt.sm3)
 adam = opt_configure(opt.adam)
 momentum = opt_configure(opt.momentum)
 rmsprop = opt_configure(opt.rmsprop)
