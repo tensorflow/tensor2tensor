@@ -143,7 +143,6 @@ def default_model_hparams():
 def preprocess_example_common(example, hparams, mode):
   """Preprocessing steps common to all models."""
   if hparams.max_input_seq_length > 0:
-    print(f'@@@ preprocessing examples to length {hparams.max_input_seq_length}')
     example["inputs"] = example["inputs"][:hparams.max_input_seq_length]
   if hparams.prepend_mode != "none":
     if mode == tf.estimator.ModeKeys.PREDICT:
