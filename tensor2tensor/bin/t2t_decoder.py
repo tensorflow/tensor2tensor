@@ -36,7 +36,7 @@ import os
 
 # Fathom start
 import fathomt2t
-from fathomt2t.common_flags import setup_decoder_flags, decode_num_examples, dataset_to_t2t_mode
+from fathomt2t.common_flags import setup_decoder_flags, dataset_to_t2t_mode
 from fathomtf.services.model_management import fathom_t2t_model_setup
 from fathomairflow.dags.dag_management.xcom_manipulation import echo_yaml_for_xcom_ingest
 # Fathom end
@@ -89,11 +89,6 @@ def create_decode_hparams():
   decode_hp.shards = FLAGS.decode_shards
   decode_hp.shard_id = FLAGS.worker_id
   decode_hp.decode_in_memory = FLAGS.decode_in_memory
-
-  # Fathom
-  # TODO: rllin fix
-  decode_hp = decode_num_examples(decode_hp=decode_hp)
-
   decode_hp.decode_to_file = FLAGS.decode_to_file
   decode_hp.decode_reference = FLAGS.decode_reference
   return decode_hp
