@@ -47,7 +47,7 @@ class Layer(object):
     """The shape of the output of this layer given the shape of the input.
 
     Note that all arguments and return values can be tuples or dictionaries
-    or arbitraty nested structures composed of tuples and dictionaries.
+    or arbitrary nested structures composed of tuples and dictionaries.
 
     Args:
       input_shape: a tuple representing the shape of the input.
