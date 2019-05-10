@@ -115,23 +115,25 @@ def value_net(rng_key,
 def policy_and_value_net(rng_key,
                          batch_observations_shape,
                          num_actions,
-                         bottom_layers=None):
+                         bottom_layers_fn=None):
   """A policy and value net function."""
 
   # Layers.
-  cur_layers = []
-  if bottom_layers is not None:
-    cur_layers.extend(bottom_layers)
 
   # Now, with the current logits, one head computes action probabilities and the
   # other computes the value function.
   # NOTE: The LogSoftmax instead of the Softmax because of numerical stability.
-  cur_layers.extend([
-      layers.Branch(
-          layers.Serial(layers.Dense(num_actions), layers.LogSoftmax()),
-          layers.Dense(1))
-  ])
-  net = layers.Serial(*cur_layers)
+
+  tower1 = [] if bottom_layers_fn is None else bottom_layers_fn()
+  tower2 = [] if bottom_layers_fn is None else bottom_layers_fn()
+
+  tower1.extend([layers.Dense(num_actions), layers.LogSoftmax()])
+  tower2.extend([layers.Dense(1)])
+
+  net = layers.Branch(
+      layers.Serial(*tower1),
+      layers.Serial(*tower2),
+  )
   return net.initialize(batch_observations_shape, rng_key), net
 
 

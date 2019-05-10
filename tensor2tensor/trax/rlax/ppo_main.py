@@ -175,7 +175,7 @@ def main(argv):
 
     if FLAGS.combined_policy_and_value_function:
       policy_and_value_net_fun = functools.partial(
-          ppo.policy_and_value_net, bottom_layers=common_layers())
+          ppo.policy_and_value_net, bottom_layers_fn=common_layers)
       policy_and_value_optimizer_fun = get_optimizer_fun(FLAGS.learning_rate)
     else:
       policy_net_fun = functools.partial(

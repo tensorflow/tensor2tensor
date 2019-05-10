@@ -83,7 +83,7 @@ class PpoTest(test.TestCase):
     num_actions = 2
     pnv_params, pnv_apply = ppo.policy_and_value_net(
         self.rng_key, batch_observation_shape, num_actions,
-        [layers.Flatten(num_axis_to_keep=2)])
+        lambda: [layers.Flatten(num_axis_to_keep=2)])
     batch = 2
     time_steps = 10
     batch_of_observations = np.random.uniform(
@@ -132,7 +132,7 @@ class PpoTest(test.TestCase):
     # Test collect using a Policy and Value function.
     pnv_params, pnv_apply = ppo.policy_and_value_net(
         self.rng_key, (-1, -1) + observation_shape, num_actions,
-        [layers.Flatten(num_axis_to_keep=2)])
+        lambda: [layers.Flatten(num_axis_to_keep=2)])
 
     trajectories = ppo.collect_trajectories(
         env,
@@ -156,7 +156,7 @@ class PpoTest(test.TestCase):
     num_actions = 2
     pnv_params, pnv_apply = ppo.policy_and_value_net(
         self.rng_key, (-1, -1) + observation_shape, num_actions,
-        [layers.Flatten(num_axis_to_keep=2)])
+        lambda: [layers.Flatten(num_axis_to_keep=2)])
 
     # We'll get done at time-step #5, starting from 0, therefore in 6 steps.
     done_time_step = 5
@@ -552,10 +552,12 @@ class PpoTest(test.TestCase):
     batch_observation_shape = (-1, -1) + OBS
 
     old_params, _ = ppo.policy_and_value_net(
-        key1, batch_observation_shape, A, [layers.Flatten(num_axis_to_keep=2)])
+        key1, batch_observation_shape, A,
+        lambda: [layers.Flatten(num_axis_to_keep=2)])
 
     new_params, net_apply = ppo.policy_and_value_net(
-        key2, batch_observation_shape, A, [layers.Flatten(num_axis_to_keep=2)])
+        key2, batch_observation_shape, A,
+        lambda: [layers.Flatten(num_axis_to_keep=2)])
 
     # Generate a batch of observations.
 
