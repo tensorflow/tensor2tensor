@@ -23,6 +23,7 @@ import operator
 import six
 
 from tensor2tensor.trax import backend
+from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.layers import base
 
 
@@ -436,3 +437,56 @@ class Map(base.Layer):
           raise ValueError('Map layer can only be applied to list of elements '
                            'with the same shapes. Shapes: %s' % str(shape))
     return self._layer.initialize(first_shape, rng)
+
+
+class Rebatch(base.Layer):
+  """Combinator for treating the first `n` dims as batch.
+
+  Args:
+    layer: subclass of base.Layer, a layer to apply to the input.
+    num_batch_dims: int, the number of leading dimensions to consider as batch.
+
+  Returns:
+    A new layer that will reshape the input into a virtual batch, apply the
+    layer and unbatch the virtual batch.
+  """
+
+  def __init__(self, layer, num_batch_dims=1):
+    super(Rebatch, self).__init__()
+    self._layer = layer
+    self._num_batch_dims = num_batch_dims
+
+  def _modify_shape(self, input_shape):
+    input_shape = tuple(input_shape)
+    batch_dims, non_batch_dims = (input_shape[:self._num_batch_dims],
+                                  input_shape[self._num_batch_dims:])
+    new_batch_dim = six.moves.reduce(operator.mul, batch_dims)
+    return (new_batch_dim,) + non_batch_dims, batch_dims
+
+  def _unmodify_shape(self, input_shape, batch_dims):
+    return batch_dims + tuple(input_shape[1:])
+
+  def _modify(self, inp):
+    modified_shape, batch_dims = self._modify_shape(inp.shape)
+    return np.reshape(inp, modified_shape), batch_dims
+
+  def _unmodify(self, inp, batch_dims):
+    return np.reshape(inp, self._unmodify_shape(inp.shape, batch_dims))
+
+  def call(self, inp, params=(), **kwargs):
+    if isinstance(inp, (tuple, list)):
+      # TODO(afrozm): This should be easy to do though.
+      # Tip from Lukasz - base.nested_map(self._modify, inp)
+      raise ValueError("Rebatch doesn't support list/tuple inputs now.")
+    inp, batch_dims = self._modify(inp)
+    out = self._layer(inp, params=params, **kwargs)
+    return self._unmodify(out, batch_dims)
+
+  def output_shape(self, input_shape):
+    modified_shape, batch_dims = self._modify_shape(input_shape)
+    out = self._layer.output_shape(modified_shape)
+    return self._unmodify_shape(out, batch_dims)
+
+  def new_parameters(self, input_shape, rng):
+    modified_shape, _ = self._modify_shape(input_shape)
+    return self._layer.initialize(modified_shape, rng)
