@@ -233,8 +233,8 @@ def main(_):
 
   hp = create_hparams()
   # Fathom
-  problem = registry.problem(tf.flags.FLAGS.problems)
-  hp = update_hparams_for_inference(hp, problem)
+  prblm = registry.problem(tf.flags.FLAGS.problems)
+  hp = update_hparams_for_inference(hp, prblm)
   decode_hp = create_decode_hparams()
 
   estimator = trainer_lib.create_estimator(
