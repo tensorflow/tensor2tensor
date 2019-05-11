@@ -51,8 +51,12 @@ def main(_):
 
   estimator = trainer_lib.create_estimator(
       FLAGS.model, hparams, config, use_tpu=FLAGS.use_tpu)
-  predictions = estimator.evaluate(eval_input_fn, steps=FLAGS.eval_steps)
-  tf.logging.info(predictions)
+  ckpt_iter = trainer_lib.next_checkpoint(
+      hparams.model_dir, FLAGS.eval_timeout_mins)
+  for ckpt_path in ckpt_iter:
+    predictions = estimator.evaluate(
+        eval_input_fn, steps=FLAGS.eval_steps, checkpoint_path=ckpt_path)
+    tf.logging.info(predictions)
 
 
 if __name__ == "__main__":
