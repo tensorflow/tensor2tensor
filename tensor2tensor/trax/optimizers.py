@@ -44,25 +44,26 @@ inverse_time_decay = opt_configure(opt.inverse_time_decay)
 piecewise_constant = opt_configure(opt.piecewise_constant)
 
 
+# TODO(mattjj): upstream this to jax.experimental.optimizers.
 def parallelize(opt_maker):
-  """Transform an optimizer maker into a parallel one with replicated params."""
+  """Transform an optimizer maker into a parallel one with replicated state."""
+  num_devices = jax.lib.xla_bridge.device_count()
+  replicate_array = lambda x: onp.broadcast_to(x, (num_devices,) + x.shape)
+  unreplicate_array = lambda x: x.mean(0)  # an alternative is just x[0]
 
   def parallel_opt_maker(*args, **kwargs):  # pylint:disable=missing-docstring
     init_fun, update_fun, get_params = opt_maker(*args, **kwargs)
 
-    num_devices = jax.lib.xla_bridge.device_count()
-    replicate_array = lambda x: onp.broadcast_to(x, (num_devices,) + x.shape)
-    unreplicate_array = lambda x: x.mean(0)  # an alternative is x[0]
-
     def init_replicated(params):
+      opt_state = init_fun(params)
       if num_devices > 1:
-        params = jax.tree_util.tree_map(replicate_array, params)
-      return init_fun(params)
+        opt_state = jax.tree_util.tree_map(replicate_array, opt_state)
+      return opt_state
 
     def get_params_unreplicated(opt_state):
-      params = get_params(opt_state)
       if num_devices > 1:
-        params = jax.tree_util.tree_map(unreplicate_array, params)
+        opt_state = jax.tree_util.tree_map(unreplicate_array, opt_state)
+      params = get_params(opt_state)
       return params
 
     return init_replicated, update_fun, get_params, get_params_unreplicated
