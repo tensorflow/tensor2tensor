@@ -1251,6 +1251,21 @@ def length_from_embedding(emb):
   return tf.cast(tf.reduce_sum(mask_from_embedding(emb), [1, 2, 3]), tf.int32)
 
 
+def mask_pos_gt(source_length, target_length):
+  """A mask with 1.0 wherever source_pos > target_pos and 0.0 elsewhere.
+
+  Args:
+    source_length: an integer
+    target_length: an integer
+  Returns:
+    a Tensor with shape [1, target_length, source_length]
+  """
+  return tf.expand_dims(
+      tf.cast(tf.greater(tf.expand_dims(tf.range(target_length), axis=0),
+                         tf.expand_dims(tf.range(source_length), axis=1)),
+              dtype=tf.float32), axis=0)
+
+
 def mask_leq(target_length, source_length):
   """A mask with 1.0 wherever source_pos <= target_pos and 0.0 elsewhere.
 
@@ -1266,6 +1281,21 @@ def mask_leq(target_length, source_length):
       -1,
       0,
       out_shape=[1, target_length, source_length])
+
+
+def mask_pos_lt(source_length, target_length):
+  """A mask with 1.0 wherever source_pos < target_pos and 0.0 elsewhere.
+
+  Args:
+    source_length: an integer
+    target_length: an integer
+  Returns:
+    a Tensor with shape [1, target_length, source_length]
+  """
+  return tf.expand_dims(
+      tf.cast(tf.less(tf.expand_dims(tf.range(target_length), axis=0),
+                      tf.expand_dims(tf.range(source_length), axis=1)),
+              dtype=tf.float32), axis=0)
 
 
 def relu_density_logit(x, reduce_dims):
