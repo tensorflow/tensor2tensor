@@ -112,19 +112,12 @@ def play_env_problem_with_policy(env,
     # Convert to probs, since we need to do categorical sampling.
     probs = np.exp(log_probs)
 
-    # Sometimes log_probs contains a 0, it shouldn't. This makes the
-    # probabilities sum up to more than 1, since the addition happens
-    # in float64, so just add and subtract 1.0 to zero those probabilites
-    # out.
+    # Let's cast up to float64, because that's what numpy does when sampling
+    # and it leads to the sum(pvals[:-1]) > 1.0 error.
     #
-    # Also testing for this is brittle.
-    probs += 1
-    probs -= 1
-
-    # For some reason, sometimes, this isn't the case.
-    probs_sum = np.sum(probs, axis=1, keepdims=True)
-    if not all(probs_sum == 1.0):
-      probs = probs / probs_sum
+    # We also re-normalize when we do this.
+    probs = np.float64(probs)
+    probs /= np.sum(probs, axis=1, keepdims=True)
 
     # Now pick actions from this probs array.
     actions = np.apply_along_axis(multinomial_sample, 1, probs)
