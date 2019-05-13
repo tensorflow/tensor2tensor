@@ -56,6 +56,26 @@ class MetricsTest(tf.test.TestCase):
     self.assertAlmostEqual(actual1, expected)
     self.assertAlmostEqual(actual2, 1.0)
 
+  def testPrefixAccuracy(self):
+    vocab_size = 10
+    predictions = tf.one_hot(
+        tf.constant([[[1], [2], [3], [4], [9], [6], [7], [8]],
+                     [[1], [2], [3], [4], [5], [9], [7], [8]],
+                     [[1], [2], [3], [4], [5], [9], [7], [0]]]),
+        vocab_size)
+    labels = tf.expand_dims(
+        tf.constant([[[1], [2], [3], [4], [5], [6], [7], [8]],
+                     [[1], [2], [3], [4], [5], [6], [7], [8]],
+                     [[1], [2], [3], [4], [5], [6], [7], [0]]]),
+        axis=-1)
+    expected_accuracy = np.average([4.0 / 8.0,
+                                    5.0 / 8.0,
+                                    5.0 / 7.0])
+    accuracy, _ = metrics.prefix_accuracy(predictions, labels)
+    with self.test_session() as session:
+      accuracy_value = session.run(accuracy)
+      self.assertAlmostEqual(expected_accuracy, accuracy_value)
+
   def testSequenceAccuracyMetric(self):
     predictions = np.random.randint(4, size=(12, 12, 12, 1))
     targets = np.random.randint(4, size=(12, 12, 12, 1))
