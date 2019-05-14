@@ -41,7 +41,8 @@ import tensorflow as tf
 class UniversalTransformer(transformer.Transformer):
   """Universal Transformer: Depth-wise recurrent transformer model."""
 
-  def encode(self, inputs, target_space, hparams, features=None, losses=None):
+  def encode(self, inputs, target_space, hparams, features=None, losses=None,
+             **kwargs):
     """Encode Universal Transformer inputs.
 
     It is similar to "transformer.encode", but it uses
@@ -56,6 +57,7 @@ class UniversalTransformer(transformer.Transformer):
       features: optionally pass the entire features dictionary as well.
         This is needed now for "packed" datasets.
       losses: Unused.
+      **kwargs: additional arguments to pass to encoder_function
 
     Returns:
       Tuple of:
@@ -96,7 +98,8 @@ class UniversalTransformer(transformer.Transformer):
              cache=None,
              decode_loop_step=None,
              nonpadding=None,
-             losses=None):
+             losses=None,
+             ** kwargs):
     """Decode Universal Transformer outputs from encoder representation.
 
     It is similar to "transformer.decode", but it uses
@@ -117,6 +120,7 @@ class UniversalTransformer(transformer.Transformer):
       decode_loop_step: Unused.
       nonpadding: optional Tensor with shape [batch_size, decoder_length]
       losses: Unused.
+      **kwargs: additional arguments to pass to decoder_function
 
     Returns:
        Tuple of:
@@ -583,6 +587,14 @@ def adaptive_universal_transformer_tiny():
 
 
 @registry.register_hparams
+def adaptive_universal_transformer_sepconv_tiny():
+  hparams = universal_transformer_tiny()
+  hparams.recurrence_type = "act"
+  hparams.transformer_ffn_type = "sepconv"
+  return hparams
+
+
+@registry.register_hparams
 def adaptive_universal_transformer_global_base():
   hparams = universal_transformer_base()
   hparams.recurrence_type = "act"
@@ -780,6 +792,13 @@ def universal_transformer_sepconv_big():
 @registry.register_hparams
 def universal_transformer_sepconv_base():
   hparams = universal_transformer_base()
+  hparams.transformer_ffn_type = "sepconv"
+  return hparams
+
+
+@registry.register_hparams
+def universal_transformer_sepconv_tiny():
+  hparams = universal_transformer_tiny()
   hparams.transformer_ffn_type = "sepconv"
   return hparams
 
