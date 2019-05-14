@@ -22,9 +22,9 @@ EvalAdjustingSchedule.constant = 1.0
 MultifactorSchedule.factors = 'constant * linear_warmup'
 MultifactorSchedule.warmup_steps = 400
 
-# Parameters for momentum:
+# Parameters for Momentum:
 # ==============================================================================
-momentum.mass = 0.9
+Momentum.mass = 0.9
 
 # Parameters for preprocess_fun:
 # ==============================================================================
@@ -42,6 +42,6 @@ train.eval_frequency = 2000
 train.eval_steps = 20
 train.inputs = @trax.inputs.inputs
 train.model = @trax.models.WideResnet
-train.optimizer = @trax.optimizers.momentum
+train.optimizer = @trax.optimizers.Momentum
 train.train_steps = 1000000
 train.lr_schedule = @learning_rate.EvalAdjustingSchedule

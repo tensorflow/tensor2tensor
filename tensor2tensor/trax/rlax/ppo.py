@@ -138,8 +138,10 @@ def policy_and_value_net(rng_key,
 
 
 def optimizer_fun(net_params, step_size=1e-3):
-  opt_init, opt_update, get_params = trax_opt.adam(
-      step_size=step_size, b1=0.9, b2=0.999, eps=1e-08)
+  opt = trax_opt.Adam(step_size=step_size, b1=0.9, b2=0.999, eps=1e-08)
+  opt_init = lambda x: (x, opt.tree_init(x))
+  opt_update = lambda i, g, s: opt.tree_update(i, g, s[0], s[1])
+  get_params = lambda x: x[0]
   opt_state = opt_init(net_params)
   return opt_state, opt_update, get_params
 

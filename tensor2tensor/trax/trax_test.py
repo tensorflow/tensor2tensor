@@ -90,7 +90,7 @@ class TraxTest(test.TestCase):
 
       # Predict with final params
       inputs = inputs(1).train_stream()
-      model()(next(inputs)[0], state.params)
+      model()(next(inputs)[0], state.params[0])
 
   def test_train_eval_predict_sm3(self):
     with self.tmp_dir() as output_dir:
@@ -109,7 +109,7 @@ class TraxTest(test.TestCase):
                          inputs=inputs,
                          train_steps=train_steps,
                          eval_steps=eval_steps,
-                         optimizer=trax_opt.sm3)
+                         optimizer=trax_opt.SM3)
 
       # Assert total train steps
       self.assertEqual(train_steps, state.step)
@@ -122,7 +122,7 @@ class TraxTest(test.TestCase):
 
       # Predict with final params
       inputs = inputs(1).train_stream()
-      model()(next(inputs)[0], state.params)
+      model()(next(inputs)[0], state.params[0])
 
 
 if __name__ == "__main__":

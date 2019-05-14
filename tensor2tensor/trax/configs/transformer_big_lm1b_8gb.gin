@@ -37,7 +37,7 @@ train.eval_frequency = 1000
 train.eval_steps = 10
 train.inputs = @trax.inputs.inputs
 train.model = @trax.models.TransformerLM
-train.optimizer = @trax.optimizers.sm3
+train.optimizer = @trax.optimizers.SM3
 train.run_debug_step = False
 train.train_steps = 500000
 
