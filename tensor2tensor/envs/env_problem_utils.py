@@ -50,7 +50,8 @@ def play_env_problem_with_policy(env,
                                  policy_fun,
                                  num_trajectories=1,
                                  max_timestep=None,
-                                 boundary=20):
+                                 boundary=20,
+                                 rng=None):
   """Plays the given env with the policy function to collect trajectories.
 
   Args:
@@ -64,6 +65,7 @@ def play_env_problem_with_policy(env,
     boundary: this is the bucket length, we pad the observations to integer
         multiples of this + 1 and then feed the padded observations to the
         policy_fun.
+    rng: jax rng, splittable.
 
   Returns:
     Completed trajectories that is a list of triples of (observation, action,
@@ -96,7 +98,7 @@ def play_env_problem_with_policy(env,
     assert B == env.batch_size
     assert (B,) == lengths.shape
 
-    log_prob_actions = policy_fun(padded_observations)
+    log_prob_actions, _, rng = policy_fun(padded_observations, rng=rng)
     assert (B, T) == log_prob_actions.shape[:2]
     A = log_prob_actions.shape[2]  # pylint: disable=invalid-name
 

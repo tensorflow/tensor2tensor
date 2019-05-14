@@ -96,10 +96,11 @@ class PpoTest(test.TestCase):
     self.assertEqual((batch, time_steps, 1), pnv_output[1].shape)
 
   def test_collect_trajectories(self):
+    self.rng_key, key1, key2, key3, key4 = jax_random.split(self.rng_key, num=5)
     observation_shape = (2, 3, 4)
     num_actions = 2
     policy_params, policy_apply = ppo.policy_net(
-        self.rng_key,
+        key1,
         (-1, -1) + observation_shape,
         num_actions,
         # flatten except batch and time
@@ -111,12 +112,17 @@ class PpoTest(test.TestCase):
     env = fake_env.FakeEnv(
         observation_shape, num_actions, done_time_step=done_time_step)
 
+    def policy_fun(obs, rng=None):
+      rng, r = jax_random.split(rng)
+      return policy_apply(obs, policy_params, rng=r), (), rng
+
     num_trajectories = 5
     trajectories = ppo.collect_trajectories(
         env,
-        policy_fun=lambda obs: policy_apply(obs, policy_params),
+        policy_fun=policy_fun,
         num_trajectories=num_trajectories,
-        policy="categorical-sampling")
+        policy="categorical-sampling",
+        rng=key2)
 
     # Number of trajectories is as expected.
     self.assertEqual(num_trajectories, len(trajectories))
@@ -131,14 +137,20 @@ class PpoTest(test.TestCase):
 
     # Test collect using a Policy and Value function.
     pnv_params, pnv_apply = ppo.policy_and_value_net(
-        self.rng_key, (-1, -1) + observation_shape, num_actions,
+        key3, (-1, -1) + observation_shape, num_actions,
         lambda: [layers.Flatten(num_axis_to_keep=2)])
+
+    def pnv_fun(obs, rng=None):
+      rng, r = jax_random.split(rng)
+      lp, v = pnv_apply(obs, pnv_params, rng=r)
+      return lp, v, rng
 
     trajectories = ppo.collect_trajectories(
         env,
-        policy_fun=lambda obs: pnv_apply(obs, pnv_params)[0],
+        policy_fun=pnv_fun,
         num_trajectories=num_trajectories,
-        policy="categorical-sampling")
+        policy="categorical-sampling",
+        rng=key4)
 
     # Number of trajectories is as expected.
     self.assertEqual(num_trajectories, len(trajectories))
@@ -152,11 +164,17 @@ class PpoTest(test.TestCase):
       self.assertEqual((done_time_step + 1,), rewards.shape)
 
   def test_collect_trajectories_max_timestep(self):
+    self.rng_key, key1, key2 = jax_random.split(self.rng_key, num=3)
     observation_shape = (2, 3, 4)
     num_actions = 2
     pnv_params, pnv_apply = ppo.policy_and_value_net(
-        self.rng_key, (-1, -1) + observation_shape, num_actions,
+        key1, (-1, -1) + observation_shape, num_actions,
         lambda: [layers.Flatten(num_axis_to_keep=2)])
+
+    def pnv_fun(obs, rng=None):
+      rng, r = jax_random.split(rng)
+      lp, v = pnv_apply(obs, pnv_params, rng=r)
+      return lp, v, rng
 
     # We'll get done at time-step #5, starting from 0, therefore in 6 steps.
     done_time_step = 5
@@ -173,10 +191,11 @@ class PpoTest(test.TestCase):
 
     trajectories = ppo.collect_trajectories(
         env,
-        policy_fun=lambda obs: pnv_apply(obs, pnv_params)[0],
+        policy_fun=pnv_fun,
         num_trajectories=num_trajectories,
         policy="categorical-sampling",
-        max_timestep=max_timestep)
+        max_timestep=max_timestep,
+        rng=key2)
 
     # Number of trajectories is as expected.
     self.assertEqual(num_trajectories, len(trajectories))
@@ -291,6 +310,8 @@ class PpoTest(test.TestCase):
     self.assertAllClose(expected_r2g, actual_r2g)
 
   def test_value_loss(self):
+    self.rng_key, key = jax_random.split(self.rng_key, num=2)
+
     rewards = np.array([
         [1, 2, 4, 8, 16, 32, 64, 128],
         [1, 1, 1, 1, 1, 1, 1, 1],
@@ -309,8 +330,8 @@ class PpoTest(test.TestCase):
     observation_shape = (210, 160, 3)  # atari pong
     random_observations = np.random.uniform(size=(B, T + 1) + observation_shape)
 
-    def value_net_apply(observations, params):
-      del params
+    def value_net_apply(observations, params, rng=None):
+      del params, rng
       # pylint: disable=invalid-name
       B, T_p_1, OBS = (observations.shape[0], observations.shape[1],
                        observations.shape[2:])
@@ -324,7 +345,8 @@ class PpoTest(test.TestCase):
           random_observations,
           rewards,
           rewards_mask,
-          gamma=gamma)
+          gamma=gamma,
+          rng=key)
 
     self.assertNear(53.3637084961, value_loss, 1e-6)
 

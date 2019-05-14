@@ -83,11 +83,11 @@ flags.DEFINE_integer("resized_height", 105, "Resized height of the game frame.")
 flags.DEFINE_integer("resized_width", 80, "Resized width of the game frame.")
 
 flags.DEFINE_boolean(
-    "combined_policy_and_value_function", False,
+    "combined_network", False,
     "If True there is a single network that determines policy"
     "and values.")
 
-flags.DEFINE_boolean("flatten_non_batch_time_dims", False,
+flags.DEFINE_boolean("flatten_dims", False,
                      "If true, we flatten except the first two dimensions.")
 
 # Number of optimizer steps of the combined net, policy net and value net.
@@ -114,7 +114,7 @@ flags.DEFINE_float("entropy_coef", 0.01,
 
 def common_layers():
   cur_layers = []
-  if FLAGS.flatten_non_batch_time_dims:
+  if FLAGS.flatten_dims:
     cur_layers = [layers.Div(divisor=255.0), layers.Flatten(num_axis_to_keep=2)]
   body = [layers.Dense(64), layers.Tanh(), layers.Dense(64), layers.Tanh()]
   return cur_layers + body
@@ -173,7 +173,7 @@ def main(argv):
     value_optimizer_fun = None
     policy_and_value_optimizer_fun = None
 
-    if FLAGS.combined_policy_and_value_function:
+    if FLAGS.combined_network:
       policy_and_value_net_fun = functools.partial(
           ppo.policy_and_value_net, bottom_layers_fn=common_layers)
       policy_and_value_optimizer_fun = get_optimizer_fun(FLAGS.learning_rate)

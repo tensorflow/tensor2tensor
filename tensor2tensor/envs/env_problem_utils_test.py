@@ -52,13 +52,13 @@ class EnvProblemUtilsTest(tf.test.TestCase):
         batch_size=2,
         reward_range=(-1, 1))
 
-    def policy_fun(observations):
+    def policy_fun(observations, rng=None):
       b, t = observations.shape[:2]
       a = env.action_space.n
       p = np.random.uniform(size=(b, t, a))
       p = np.exp(p)
       p = p / np.sum(p, axis=-1, keepdims=True)
-      return np.log(p)
+      return np.log(p), (), rng
 
     max_timestep = 15
     num_trajectories = 2
