@@ -34,14 +34,12 @@ from __future__ import print_function
 
 import os
 
-# Fathom
+# Fathom start
 import fathomt2t
-from fathomt2t.common_flags import (
-    setup_decoder_flags,
-    decode_num_examples,
-    dataset_to_t2t_mode,
-    update_hparams_for_inference)
+from fathomt2t.common_flags import setup_decoder_flags, dataset_to_t2t_mode
+from fathomtf.services.model_management import fathom_t2t_model_setup
 from fathomairflow.dags.dag_management.xcom_manipulation import echo_yaml_for_xcom_ingest
+# Fathom end
 
 # Dependency imports
 
@@ -69,12 +67,12 @@ flags.DEFINE_bool("decode_interactive", False,
 flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 flags.DEFINE_string("score_file", "", "File to score. Each line in the file "
                     "must be in the format input \t target.")
-# Fathom
+# Fathom start
 setup_decoder_flags()
 flags.DEFINE_bool("fathom_output_predictions", False, "Output predictions based on problem?")
 flags.DEFINE_bool("use_original_input", False,
                   "Use the input that was used for validation during training?")
-from fathomtf.services.model_management import fathom_t2t_model_setup
+# Fathom end
 flags.DEFINE_bool("decode_in_memory", False, "Decode in memory.")
 
 
@@ -91,11 +89,6 @@ def create_decode_hparams():
   decode_hp.shards = FLAGS.decode_shards
   decode_hp.shard_id = FLAGS.worker_id
   decode_hp.decode_in_memory = FLAGS.decode_in_memory
-
-  # Fathom
-  # TODO: rllin fix
-  decode_hp = decode_num_examples(decode_hp=decode_hp)
-
   decode_hp.decode_to_file = FLAGS.decode_to_file
   decode_hp.decode_reference = FLAGS.decode_reference
   return decode_hp
@@ -211,10 +204,9 @@ def score_file(filename):
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
-
-  # Fathom
+  # Fathom start
   checkpoint_path = fathom_t2t_model_setup()
-
+  # Fathom end
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
 
@@ -232,8 +224,6 @@ def main(_):
     return
 
   hp = create_hparams()
-  # Fathom
-  hp = update_hparams_for_inference(hp)
   decode_hp = create_decode_hparams()
 
   estimator = trainer_lib.create_estimator(
@@ -250,8 +240,12 @@ def main(_):
   # downloaded model. Train does this same xcom echo.
   # Decode, predict, and evaluate code should
   # converge to use the same fathom_t2t_model_setup.
+  # TODO: since the truncation-boundary xcom value should be available in
+  #  the hparams_set, we should probably have consumers access this via a
+  #  SavedModel.hparams property rather than XCOM
   echo_yaml_for_xcom_ingest({'output-dir': os.path.dirname(checkpoint_path),
-                             'output-file': FLAGS.decode_output_file})
+                             'output-file': FLAGS.decode_output_file,
+                             'truncation-boundary': hp.max_input_seq_length})
 
 
 if __name__ == "__main__":
