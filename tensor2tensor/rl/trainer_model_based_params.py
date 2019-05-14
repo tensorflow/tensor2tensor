@@ -211,6 +211,33 @@ def rlmb_dqn_base():
 
 
 @registry.register_hparams
+def rlmb_dqn_guess1():
+  """rlmb_dqn guess1 params"""
+  hparams = rlmb_dqn_base()
+  hparams.set_hparam("base_algo_params", "dqn_guess1_params")
+  # At the moment no other option for evaluation, so we want long rollouts to
+  # not bias scores.
+  hparams.set_hparam("eval_rl_env_max_episode_steps", 5000)
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_dqn_guess1_2m_replay_buffer():
+  """rlmb_dqn guess1 params"""
+  hparams = rlmb_dqn_guess1()
+  hparams.set_hparam("base_algo_params", "dqn_2m_replay_buffer_params")
+  return hparams
+
+
+@registry.register_hparams
+def rlmb_dqn_guess1_10m_replay_buffer():
+  """rlmb_dqn guess1 params"""
+  hparams = rlmb_dqn_guess1()
+  hparams.set_hparam("base_algo_params", "dqn_10m_replay_buffer_params")
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_basetest():
   """Base setting but quicker with only 2 epochs."""
   hparams = rlmb_base()
@@ -617,6 +644,7 @@ def rlmb_dqn_tiny():
   hparams = rlmb_dqn_base()
   hparams = hparams.override_from_dict(_rlmb_tiny_overrides())
   update_hparams(hparams, dict(
+      base_algo_params="dqn_guess1_params",
       simulated_rollout_length=2,
       dqn_time_limit=2,
       dqn_num_frames=128,
