@@ -20,7 +20,6 @@ from __future__ import division
 from __future__ import print_function
 
 import jax.numpy as np
-from six.moves import reduce
 
 from tensor2tensor.trax.layers import base as layers
 
@@ -222,22 +221,52 @@ class SM3(Optimizer):
     vs = [np.zeros(sz, dtype=x.dtype) for sz in x.shape]
     return (np.zeros_like(x), vs)
 
+  def _update_diagonal(self, step, g, x, m, v):
+    v[0] += g * g
+    preconditioner = np.where(v[0] > 0, 1.0 / np.sqrt(v[0]),
+                              np.zeros_like(v[0]))
+    preconditioned_g = preconditioner * g
+    m = (1 - self._momentum) * preconditioned_g + self._momentum * m
+    x = x - self.step_size(step) * m
+    return x, (m, v)
+
+  def _expanded_shape(self, shape, axis):
+    # Replaces a `shape` of [M, N, K] with 1 in all dimensions except for i.
+    # For eg: i = 1 returns [1, N, 1].
+    rank = len(shape)
+    return [1] * axis + [shape[axis]] + [1] * (rank - axis - 1)
+
+  def _minimum(self, tensor_list):
+    minimum = tensor_list[0]
+    for i in range(1, len(tensor_list)):
+      minimum = np.minimum(minimum, tensor_list[i])
+    return minimum
+
+  def _update_sketched(self, step, g, x, m, v):
+    """Update for higher-rank parameters."""
+    shape = x.shape
+    rank = len(shape)
+    reshaped_accumulators = [np.reshape(v[i], self._expanded_shape(shape, i))
+                             for i in range(rank)]
+    current_accumulator = self._minimum(reshaped_accumulators)
+    current_accumulator += g * g
+    accumulator_inv_sqrt = np.where(current_accumulator > 0.0,
+                                    1.0 / np.sqrt(current_accumulator),
+                                    np.zeros_like(current_accumulator))
+    preconditioned_gradient = g * accumulator_inv_sqrt
+    m = (1.0 - self._momentum) * preconditioned_gradient + self._momentum * m
+    x = x - self.step_size(step) * m
+    for i in range(len(v)):
+      axes = list(range(int(i))) + list(range(int(i) + 1, rank))
+      dim_accumulator = np.amax(current_accumulator, axis=axes)
+      v[i] = dim_accumulator
+    return x, (m, v)
+
   def update(self, i, g, x, state):
-    m, vs = state
-
-    def splice(seq, i, x):
-      lst = list(seq)
-      lst[i:i+1] = x
-      return lst
-
-    def broadcast_into(ndim, x, axis):
-      idx = splice([None] * ndim, axis, [slice(None)])
-      return x[tuple(idx)]
-
-    vs = [broadcast_into(g.ndim, v, i) for i, v in enumerate(vs)]
-    accum = reduce(np.minimum, vs) + g ** 2
-    accum_inv_sqrt = np.where(accum > 0, 1. / np.sqrt(accum), 0)
-    m = (1. - self._momentum) * (g * accum_inv_sqrt) + self._momentum * m
-    x = x - self._step_size(i) * m
-    vs = [accum.max(splice(range(x.ndim), j, [])) for j in range(x.ndim)]
-    return x, (m, vs)
+    m, v = state
+    shape = x.shape
+    rank = len(shape)
+    if rank > 1:
+      return self._update_sketched(i, g, x, m, v)
+    else:
+      return self._update_diagonal(i, g, x, m, v)
