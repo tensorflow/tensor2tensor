@@ -46,6 +46,8 @@ def to_example(dictionary):
   for (k, v) in six.iteritems(dictionary):
     if not v:
       raise ValueError("Empty generated field: %s" % str((k, v)))
+    if str(type(v)) == "<class 'tensorflow.core.example.example_pb2.Example'>":
+      return v
     if isinstance(v[0], six.integer_types):
       features[k] = tf.train.Feature(int64_list=tf.train.Int64List(value=v))
     elif isinstance(v[0], float):
