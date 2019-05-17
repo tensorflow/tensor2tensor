@@ -90,7 +90,10 @@ def train(hparams, output_dir, env_problem_name, report_fn=None):
                   misc_utils.pprint_hparams(hparams))
   tf.logging.vlog(1, "Using hparams.base_algo: %s", hparams.base_algo)
   learner = rl_utils.LEARNERS[hparams.base_algo](
-      hparams.frame_stack_size, output_dir, output_dir, total_num_epochs=1
+      hparams.frame_stack_size, output_dir, output_dir, total_num_epochs=1,
+      distributional_size=hparams.get("distributional_size", 1),
+      distributional_subscale=hparams.get("distributional_subscale", 0.04),
+      distributional_threshold=hparams.get("distributional_threshold", 0.0),
   )
 
   policy_hparams = trainer_lib.create_hparams(hparams.base_algo_params)

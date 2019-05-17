@@ -30,7 +30,8 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 
 
-def define_ppo_step(data_points, hparams, action_space, lr):
+def define_ppo_step(data_points, hparams, action_space, lr,
+                    distributional_size=1, distributional_subscale=0.04):
   """Define ppo step."""
   observation, action, discounted_reward, norm_advantage, old_pdf = data_points
 
@@ -38,9 +39,9 @@ def define_ppo_step(data_points, hparams, action_space, lr):
   observation = tf.reshape(
       observation, [obs_shape[0] * obs_shape[1]] + obs_shape[2:]
   )
-  (logits, new_value) = get_policy(observation, hparams, action_space)
+  (logits, new_value) = get_policy(observation, hparams, action_space,
+                                   distributional_size=distributional_size)
   logits = tf.reshape(logits, obs_shape[:2] + [action_space.n])
-  new_value = tf.reshape(new_value, obs_shape[:2])
   new_policy_dist = tfp.distributions.Categorical(logits=logits)
 
   new_pdf = new_policy_dist.prob(action)
@@ -53,8 +54,22 @@ def define_ppo_step(data_points, hparams, action_space, lr):
                                    ratio * norm_advantage)
   policy_loss = -tf.reduce_mean(surrogate_objective)
 
-  value_error = new_value - discounted_reward
-  value_loss = hparams.value_loss_coef * tf.reduce_mean(value_error ** 2)
+  if distributional_size > 1:
+    new_value = tf.reshape(new_value, obs_shape[:2] + [distributional_size])
+    new_value = tf.nn.log_softmax(new_value, axis=-1)
+    # We assume the values range from (-half, half) -- set subscale accordingly.
+    half = (distributional_size // 2) * distributional_subscale
+    # To make values integers, we add half (to move range to (0, 2*half) and
+    # then multiply by subscale after which we floor to get nearest int.
+    quantized_dr = tf.floor(
+        (discounted_reward + half) / distributional_subscale)
+    hot_dr = tf.one_hot(tf.cast(quantized_dr, tf.int32), distributional_size)
+    value_loss = - tf.reduce_sum(new_value * hot_dr, axis=-1)
+    value_loss = hparams.value_loss_coef * tf.reduce_mean(value_loss)
+  else:
+    new_value = tf.reshape(new_value, obs_shape[:2])
+    value_error = new_value - discounted_reward
+    value_loss = hparams.value_loss_coef * tf.reduce_mean(value_error ** 2)
 
   entropy = new_policy_dist.entropy()
   entropy_loss = -hparams.entropy_loss_coef * tf.reduce_mean(entropy)
@@ -68,9 +83,29 @@ def define_ppo_step(data_points, hparams, action_space, lr):
     return [tf.identity(x) for x in losses]
 
 
-def define_ppo_epoch(memory, hparams, action_space, batch_size):
+def _distributional_to_value(value_d, size, subscale, threshold):
+  """Get a scalar value out of a value distribution in distributional RL."""
+  half = size // 2
+  value_range = (tf.to_float(tf.range(-half, half)) + 0.5) * subscale
+  probs = tf.nn.softmax(value_d)
+
+  if threshold == 0.0:
+    return tf.reduce_sum(probs * value_range, axis=-1)
+
+  # accumulated_probs[..., i] is the sum of probabilities in buckets upto i
+  # so it is the probability that value <= i'th bucket value
+  accumulated_probs = tf.cumsum(probs, axis=-1)
+  # New probs are 0 on all lower buckets, until the threshold
+  probs = tf.where(accumulated_probs < threshold, tf.zeros_like(probs), probs)
+  probs /= tf.reduce_sum(probs, axis=-1, keepdims=True)  # Re-normalize.
+  return tf.reduce_sum(probs * value_range, axis=-1)
+
+
+def define_ppo_epoch(memory, hparams, action_space, batch_size,
+                     distributional_size=1, distributional_subscale=0.04,
+                     distributional_threshold=0.0):
   """PPO epoch."""
-  observation, reward, done, action, old_pdf, value = memory
+  observation, reward, done, action, old_pdf, value_sm = memory
 
   # This is to avoid propagating gradients through simulated environment.
   observation = tf.stop_gradient(observation)
@@ -79,8 +114,14 @@ def define_ppo_epoch(memory, hparams, action_space, batch_size):
   if hasattr(hparams, "rewards_preprocessing_fun"):
     reward = hparams.rewards_preprocessing_fun(reward)
   done = tf.stop_gradient(done)
-  value = tf.stop_gradient(value)
+  value_sm = tf.stop_gradient(value_sm)
   old_pdf = tf.stop_gradient(old_pdf)
+
+  value = value_sm
+  if distributional_size > 1:
+    value = _distributional_to_value(
+        value_sm, distributional_size, distributional_subscale,
+        distributional_threshold)
 
   advantage = calculate_generalized_advantage_estimator(
       reward, value, done, hparams.gae_gamma, hparams.gae_lambda)
@@ -117,10 +158,12 @@ def define_ppo_epoch(memory, hparams, action_space, batch_size):
 
   ppo_step_rets = tf.scan(
       lambda a, i: add_lists_elementwise(  # pylint: disable=g-long-lambda
-          a, define_ppo_step([tf.gather(t, indices_of_batches[i, :])
-                              for t in input_tensors],
-                             hparams, action_space, lr
-                            )),
+          a, define_ppo_step(
+              [tf.gather(t, indices_of_batches[i, :]) for t in input_tensors],
+              hparams, action_space, lr,
+              distributional_size=distributional_size,
+              distributional_subscale=distributional_subscale
+          )),
       tf.range(number_of_batches),
       [0., 0., 0.],
       parallel_iterations=1)
