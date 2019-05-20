@@ -286,9 +286,10 @@ class NeuralStackCell(tf.nn.rnn_cell.RNNCell):
     ], axis=1)
 
     # Call the controller and get controller interface values.
-    (push_strengths, pop_strengths,
-     write_values, outputs, controller_state) = self.call_controller(
-         controller_inputs, controller_state, batch_size)
+    with tf.control_dependencies([read_strengths]):
+      (push_strengths, pop_strengths,
+       write_values, outputs, controller_state) = self.call_controller(
+           controller_inputs, controller_state, batch_size)
 
     # Always write input values to memory regardless of push strength.
     # See Equation-1 in Grefenstette et al., 2015.
