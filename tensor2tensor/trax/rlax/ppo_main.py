@@ -140,7 +140,8 @@ def make_env():
           "maxskip_env": True,
           "rendered_env": True,
           "rendered_env_resize_to": (FLAGS.resized_height, FLAGS.resized_width),
-          "sticky_actions": False
+          "sticky_actions": False,
+          "output_dtype": None,
       })
 
   return rendered_env_problem.RenderedEnvProblem(
