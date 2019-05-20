@@ -471,6 +471,14 @@ class EnvProblem(Env, problem.Problem):
     # rest being the dimensionality of the observation.
     return np.stack([self._envs[index].reset() for index in indices])
 
+  def truncate(self, indices=None):
+    """Truncates trajectories at the specified indices."""
+
+    if indices is None:
+      indices = np.arange(self.batch_size)
+
+    self.trajectories.truncate_trajectories(indices)
+
   def reset(self, indices=None):
     """Resets environments at given indices.
 

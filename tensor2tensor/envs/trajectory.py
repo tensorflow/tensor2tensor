@@ -144,6 +144,13 @@ class BatchTrajectory(object):
   def completed_trajectories(self):
     return self._completed_trajectories
 
+  def clear_completed_trajectories(self, num=None):
+    """Clear the first `num` completed trajectories, or all if num is None."""
+    if num is None:
+      self._completed_trajectories = []
+    else:
+      self._completed_trajectories = self._completed_trajectories[num:]
+
   def _complete_trajectory(self, trajectory, index):
     """Completes the given trajectory at the given index."""
 
@@ -157,6 +164,31 @@ class BatchTrajectory(object):
 
     # Make a new one to replace it.
     self._trajectories[index] = Trajectory()
+
+  def truncate_trajectories(self, indices):
+    """Truncate trajectories at specified indices.
+
+     This puts the truncated trajectories in the completed list and makes new
+     trajectories with the observation from the trajectory that was truncated at
+     the same index.
+
+    Args:
+        indices: iterable with the indices to truncate.
+    """
+    observations = []
+    for index in indices:
+      trajectory = self._trajectories[index]
+      assert trajectory.is_active, "Trajectory to truncate can't be inactive."
+
+      # NOTE: We don't mark the last time-step as done.
+
+      # Collect the observations.
+      observations.append(trajectory.last_time_step.observation)
+
+    # Call reset on these indices, this will make new trajectories with the same
+    # observation as the existing ones, but in new trajectories. The existing
+    # trajectories are marked as completed.
+    self.reset(indices, np.stack(observations))
 
   def reset(self, indices, observations):
     """Resets trajectories at given indices and populates observations.

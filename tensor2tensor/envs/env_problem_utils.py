@@ -51,6 +51,7 @@ def play_env_problem_with_policy(env,
                                  num_trajectories=1,
                                  max_timestep=None,
                                  boundary=20,
+                                 idx=0,
                                  rng=None):
   """Plays the given env with the policy function to collect trajectories.
 
@@ -60,11 +61,13 @@ def play_env_problem_with_policy(env,
         back log-probabilities (B, T, A).
     num_trajectories: int, number of trajectories to collect.
     max_timestep: int or None, if not None or a negative number, we cut any
-        trajectory that exceeds this time and mark that as completed by
-        resetting that trajectory.
+        trajectory that exceeds this time put it in the completed bin, and
+        *dont* reset the env.
     boundary: this is the bucket length, we pad the observations to integer
         multiples of this + 1 and then feed the padded observations to the
         policy_fun.
+    idx: int, index on the number of times this function is being called, we may
+        want to reset only when idx == 0 for instance.
     rng: jax rng, splittable.
 
   Returns:
@@ -84,10 +87,14 @@ def play_env_problem_with_policy(env,
     """
     return int(np.argwhere(np.random.multinomial(1, probs) == 1))
 
-  # We need to reset all environments.
-  env.reset()
+  # We need to reset all environments, if we're coming here the first time.
+  if idx == 0 or max_timestep is None or max_timestep <= 0:
+    env.reset()
+  else:
+    # Clear completed trajectories held internally.
+    env.trajectories.clear_completed_trajectories()
 
-  while True:
+  while env.trajectories.num_completed_trajectories < num_trajectories:
     # Get all the observations for all the active trajectories.
     # Shape is (B, T) + OBS
     padded_observations = env.trajectories.observations_np(boundary=boundary)
@@ -147,7 +154,10 @@ def play_env_problem_with_policy(env,
 
     # If so, reset these as well.
     if exceeded_time_limit_idxs.size:
-      env.reset(indices=exceeded_time_limit_idxs)
+      # This just cuts the trajectory, doesn't reset the env, so it continues
+      # from where it left off.
+      env.truncate(indices=exceeded_time_limit_idxs)
+
     # Do we have enough trajectories right now?
     if env.trajectories.num_completed_trajectories >= num_trajectories:
       break
@@ -157,5 +167,8 @@ def play_env_problem_with_policy(env,
   completed_trajectories = []
   for trajectory in env.trajectories.completed_trajectories[:num_trajectories]:
     completed_trajectories.append(trajectory.as_numpy)
+
+  # Keep the rest of the trajectories, if any, in our kitty.
+  env.trajectories.clear_completed_trajectories(num=num_trajectories)
 
   return completed_trajectories
