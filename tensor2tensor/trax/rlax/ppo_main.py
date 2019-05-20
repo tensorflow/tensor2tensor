@@ -46,10 +46,12 @@ from absl import flags
 import gym
 import jax
 from jax.config import config
+import numpy as onp
 from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import rendered_env_problem
 from tensor2tensor.rl import gym_utils
 from tensor2tensor.trax import layers
+from tensor2tensor.trax.models import atari_cnn
 from tensor2tensor.trax.rlax import ppo
 
 FLAGS = flags.FLAGS
@@ -58,7 +60,7 @@ flags.DEFINE_string("env_name", None, "Name of the environment to make.")
 flags.DEFINE_string("env_problem_name", None, "Name of the EnvProblem to make.")
 
 flags.DEFINE_integer("epochs", 100, "Number of epochs to run for.")
-flags.DEFINE_integer("random_seed", 0, "Random seed.")
+flags.DEFINE_string("random_seed", None, "Random seed.")
 flags.DEFINE_integer("batch_size", 32, "Batch of trajectories needed.")
 
 flags.DEFINE_integer(
@@ -69,7 +71,14 @@ flags.DEFINE_integer(
 flags.DEFINE_integer(
     "max_timestep", None,
     "If set to an integer, maximum number of time-steps in a "
-    "trajectory.")
+    "trajectory. The bare env is wrapped with TimeLimit wrapper.")
+
+# This is different from max_timestep is that in the above, the env is wrapped
+# in a TimeLimit wrapper, vs here we use this in the collect function.
+flags.DEFINE_integer(
+    "truncation_timestep", None,
+    "If set to an integer, maximum number of time-steps in a "
+    "trajectory. Used in the collect procedure.")
 
 flags.DEFINE_boolean(
     "jax_debug_nans", False,
@@ -87,6 +96,11 @@ flags.DEFINE_boolean(
     "If True there is a single network that determines policy"
     "and values.")
 
+flags.DEFINE_bool(
+    "two_towers", True,
+    "In the combined network case should we make one tower or"
+    "two.")
+
 flags.DEFINE_boolean("flatten_dims", False,
                      "If true, we flatten except the first two dimensions.")
 
@@ -96,6 +110,9 @@ flags.DEFINE_integer("policy_only_num_optimizer_steps", 80,
                      "Number of optimizer steps policy only.")
 flags.DEFINE_integer("value_only_num_optimizer_steps", 80,
                      "Number of optimizer steps value only.")
+flags.DEFINE_integer(
+    "print_every_optimizer_steps", 1,
+    "How often to log during the policy optimization process.")
 
 # Learning rate of the combined net, policy net and value net.
 flags.DEFINE_float("learning_rate", 1e-3, "Learning rate.")
@@ -110,9 +127,24 @@ flags.DEFINE_float("value_coef", 1.0,
                    "Coefficient of Value Loss term in combined loss.")
 flags.DEFINE_float("entropy_coef", 0.01,
                    "Coefficient of the Entropy Bonus term in combined loss.")
+flags.DEFINE_float("gamma", 0.99, "Policy iteration early stopping")
+flags.DEFINE_float("lambda_", 0.95, "Policy iteration early stopping")
+flags.DEFINE_float("epsilon", 0.1, "Policy iteration early stopping")
+
+flags.DEFINE_string("output_dir", "", "Output dir.")
+flags.DEFINE_bool("use_tpu", False, "Whether we're running on TPU.")
+flags.DEFINE_bool("enable_early_stopping", True,
+                  "Whether to enable early stopping.")
+flags.DEFINE_bool("xm", False, "Are we running on borg?.")
+flags.DEFINE_integer("eval_every_n", 100, "How frequently to eval the policy.")
+flags.DEFINE_integer("eval_batch_size", 4, "Batch size for evaluation.")
 
 
 def common_layers():
+  # TODO(afrozm): Refactor.
+  if "Pong" in FLAGS.env_problem_name:
+    return atari_layers()
+
   cur_layers = []
   if FLAGS.flatten_dims:
     cur_layers = [layers.Div(divisor=255.0), layers.Flatten(num_axis_to_keep=2)]
@@ -120,7 +152,11 @@ def common_layers():
   return cur_layers + body
 
 
-def make_env():
+def atari_layers():
+  return [atari_cnn.AtariCnn()]
+
+
+def make_env(batch_size=8):
   """Creates the env."""
   if FLAGS.env_name:
     return gym.make(FLAGS.env_name)
@@ -131,7 +167,7 @@ def make_env():
   if not FLAGS.resize:  # None or False
     return env_problem.EnvProblem(
         base_env_name=FLAGS.env_problem_name,
-        batch_size=FLAGS.batch_size,
+        batch_size=batch_size,
         reward_range=(-1, 1))
 
   wrapper_fn = functools.partial(
@@ -141,12 +177,12 @@ def make_env():
           "rendered_env": True,
           "rendered_env_resize_to": (FLAGS.resized_height, FLAGS.resized_width),
           "sticky_actions": False,
-          "output_dtype": None,
+          "output_dtype": onp.int32 if FLAGS.use_tpu else None,
       })
 
   return rendered_env_problem.RenderedEnvProblem(
       base_env_name=FLAGS.env_problem_name,
-      batch_size=FLAGS.batch_size,
+      batch_size=batch_size,
       env_wrapper_fn=wrapper_fn,
       reward_range=(-1, 1))
 
@@ -160,10 +196,21 @@ def main(argv):
 
   if FLAGS.jax_debug_nans:
     config.update("jax_debug_nans", True)
+  if FLAGS.use_tpu:
+    config.update("jax_platform_name", "tpu")
+
+  # TODO(afrozm): Refactor.
+  if "Pong" in FLAGS.env_problem_name and FLAGS.xm:
+    from tensor2tensor.rl.google import atari_utils  # pylint: disable=g-import-not-at-top
+    FLAGS.atari_roms_path = "local_ram_fs_tmp"
+    atari_utils.copy_roms()
 
   # Make an env here.
-  env = make_env()
+  env = make_env(batch_size=FLAGS.batch_size)
   assert env
+
+  eval_env = make_env(batch_size=FLAGS.eval_batch_size)
+  assert eval_env
 
   def run_training_loop():
     """Runs the training loop."""
@@ -176,7 +223,9 @@ def main(argv):
 
     if FLAGS.combined_network:
       policy_and_value_net_fun = functools.partial(
-          ppo.policy_and_value_net, bottom_layers_fn=common_layers)
+          ppo.policy_and_value_net,
+          bottom_layers_fn=common_layers,
+          two_towers=FLAGS.two_towers)
       policy_and_value_optimizer_fun = get_optimizer_fun(FLAGS.learning_rate)
     else:
       policy_net_fun = functools.partial(
@@ -185,6 +234,12 @@ def main(argv):
           ppo.value_net, bottom_layers=common_layers())
       policy_optimizer_fun = get_optimizer_fun(FLAGS.policy_only_learning_rate)
       value_optimizer_fun = get_optimizer_fun(FLAGS.value_only_learning_rate)
+
+    random_seed = None
+    try:
+      random_seed = int(FLAGS.random_seed)
+    except Exception:  # pylint: disable=broad-except
+      pass
 
     ppo.training_loop(
         env=env,
@@ -198,13 +253,21 @@ def main(argv):
         num_optimizer_steps=FLAGS.num_optimizer_steps,
         policy_only_num_optimizer_steps=FLAGS.policy_only_num_optimizer_steps,
         value_only_num_optimizer_steps=FLAGS.value_only_num_optimizer_steps,
+        print_every_optimizer_steps=FLAGS.print_every_optimizer_steps,
         batch_size=FLAGS.batch_size,
         target_kl=FLAGS.target_kl,
         boundary=FLAGS.boundary,
-        max_timestep=FLAGS.max_timestep,
-        random_seed=FLAGS.random_seed,
+        max_timestep=FLAGS.truncation_timestep,
+        random_seed=random_seed,
         c1=FLAGS.value_coef,
-        c2=FLAGS.entropy_coef)
+        c2=FLAGS.entropy_coef,
+        gamma=FLAGS.gamma,
+        lambda_=FLAGS.lambda_,
+        epsilon=FLAGS.epsilon,
+        enable_early_stopping=FLAGS.enable_early_stopping,
+        output_dir=FLAGS.output_dir,
+        eval_every_n=FLAGS.eval_every_n,
+        eval_env=eval_env)
 
   if FLAGS.jax_debug_nans or FLAGS.disable_jit:
     with jax.disable_jit():
