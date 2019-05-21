@@ -18,8 +18,45 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import numpy as onp
+
 from tensor2tensor.trax import layers as tl
 from tensor2tensor.trax.backend import numpy as np
+
+
+# Chunked positional encoding.
+def _chunked_positional_encoding_new_params(input_shape, rng, max_len=2048):  # pylint: disable=invalid-name
+  """Helper: create positional encoding parameters."""
+  del rng
+  # Check if we are operating on chunked inputs by checking if the first
+  # shape is a list/tuple of shapes (otherwise it's an int or numpy array).
+  is_chunked = isinstance(input_shape[0], (list, tuple))
+  feature_depth = input_shape[0][-1] if is_chunked else input_shape[-1]
+  pe = onp.zeros((max_len, feature_depth), dtype=onp.float32)
+  position = onp.arange(0, max_len)[:, onp.newaxis]
+  div_term = onp.exp(
+      onp.arange(0, feature_depth, 2) * -(onp.log(10000.0) / feature_depth))
+  pe[:, 0::2] = onp.sin(position * div_term)
+  pe[:, 1::2] = onp.cos(position * div_term)
+  pe = pe[onp.newaxis, :, :]  # [1, max_len, feature_depth]
+  return np.array(pe)  # These are trainable parameters, initialized as above.
+
+
+@tl.layer(new_parameters=_chunked_positional_encoding_new_params,
+          stack_items_to_pass=0)
+def ChunkedPositionalEncoding(x, params, **unused_kwargs):
+  """Implements bare positional encoding."""
+  if not isinstance(x, (list, tuple)):  # non-chunked inputs
+    symbol_size = np.shape(x)[1]
+    return x + params[:, :symbol_size, :]
+  # Chunked case: apply to all chunks selecting as much as needed.
+  offset = 0
+  results = []
+  for chunk in x:
+    symbol_size = np.shape(chunk)[1]
+    results.append(chunk + params[:, offset:offset + symbol_size, :])
+    offset += symbol_size
+  return results
 
 
 # Chunked attention.
@@ -42,13 +79,13 @@ def _chunked_selector_output_shape(  # pylint: disable=invalid-name
     new_value_shape = (cur_value_shape[0], new_value_len, cur_value_shape[2])
     # Masks are (1, query-len, key-len).
     new_mask_shape = (1, query_shapes[i][1], new_key_len)
-    new_shape = ((query_shapes[i], new_key_shape, new_value_shape),
+    new_shape = (query_shapes[i], new_key_shape, new_value_shape,
                  new_mask_shape)
     result.append(new_shape)
   return tuple(result)
 
 
-@tl.layer(output_shape=_chunked_selector_output_shape)
+@tl.layer(output_shape=_chunked_selector_output_shape, stack_items_to_pass=0)
 def ChunkedAttentionSelector(x, params, selector=None, **kwargs):
   """Select which chunks to attend to in chunked attention.
 
@@ -60,7 +97,7 @@ def ChunkedAttentionSelector(x, params, selector=None, **kwargs):
     **kwargs: unused other arguments.
 
   Returns:
-    a list of elements of the form (q, k', v'), mask' where k', v' and mask' are
+    a list of elements of the form (q, k', v', mask') where k', v' and mask' are
     concatenations of k, v and identity-extended masks from selected chunks.
   """
   del params, kwargs
@@ -84,7 +121,7 @@ def ChunkedAttentionSelector(x, params, selector=None, **kwargs):
     new_mask_list = [np.ones(s, dtype=cur_mask.dtype) for s in new_mask_shapes]
     # We still use the current (often causal) mask for the final chunk.
     new_mask = np.concatenate(new_mask_list + [cur_mask], axis=2)
-    result.append(((queries[i], new_key, new_value), new_mask))
+    result.append((queries[i], new_key, new_value, new_mask))
   return tuple(result)
 
 
@@ -107,7 +144,7 @@ def ChunkedCausalMultiHeadedAttention(
   prepare_attention_input = tl.Serial(
       tl.Branch(
           tl.Branch(  # q = k = v = first input
-              tl.Copy(), tl.Copy(), tl.Copy()),
+              tl.NoOp(), tl.NoOp(), tl.NoOp()),
           tl.CausalMask(axis=-2),
       ),
       tl.Parallel(
@@ -116,7 +153,7 @@ def ChunkedCausalMultiHeadedAttention(
               tl.Dense(feature_depth),
               tl.Dense(feature_depth),
           ),
-          tl.Copy()
+          tl.NoOp()
       )
   )
   return tl.Serial(
@@ -222,7 +259,7 @@ def ChunkedTransformerLM(vocab_size,
       tl.ShiftRight(),
       tl.Map(tl.Embedding(feature_depth, vocab_size)),
       tl.Map(tl.Dropout(rate=dropout, mode=mode)),
-      tl.PositionalEncoding(max_len=max_len),
+      ChunkedPositionalEncoding(max_len=max_len),  # pylint: disable=no-value-for-parameter
       tl.Serial(*stack),
       tl.Map(tl.LayerNorm()),
       tl.Map(tl.Dense(vocab_size)),

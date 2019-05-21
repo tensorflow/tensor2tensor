@@ -89,6 +89,9 @@ class Dense(base.Layer):
     self._kernel_initializer = kernel_initializer
     self._bias_initializer = bias_initializer
 
+  def stack_items_to_pass(self):
+    return 1
+
   def call(self, x, params, **kwargs):
     del kwargs
     w, b = params
@@ -113,6 +116,9 @@ class Embedding(base.Layer):
     self._feature_depth = feature_depth
     self._vocab_size = vocab_size
     self._kernel_initializer = kernel_initializer
+
+  def stack_items_to_pass(self):
+    return 1
 
   def call(self, x, params, **kwargs):
     del kwargs

@@ -59,10 +59,10 @@ def EncoderLayer(feature_depth,
   """
   return tl.Serial(
       tl.Residual(  # Attention block here.
-          tl.Parallel(tl.LayerNorm(), tl.Copy()),
+          tl.Parallel(tl.LayerNorm(), tl.NoOp()),
           tl.MultiHeadedAttention(feature_depth, num_heads=num_heads,
                                   dropout=dropout, mode=mode),
-          tl.Parallel(tl.Dropout(rate=dropout, mode=mode), tl.Copy())
+          tl.Parallel(tl.Dropout(rate=dropout, mode=mode), tl.NoOp())
       ),
       tl.Parallel(
           ResidualFeedForward(
@@ -135,7 +135,7 @@ def DecoderLayer(feature_depth,
   return tl.Serial(
       tl.Residual(  # Self-attention block.
           tl.LayerNorm(),
-          tl.Branch(tl.Copy(), tl.CausalMask(axis=-2)),  # Create mask.
+          tl.Branch(tl.NoOp(), tl.CausalMask(axis=-2)),  # Create mask.
           tl.MultiHeadedAttention(feature_depth, num_heads=num_heads,
                                   dropout=dropout, mode=mode),
           tl.Select(0),  # Drop the mask.
@@ -206,7 +206,7 @@ def EncoderDecoderLayer(feature_depth,
   # Decoder self-attending to decoder.
   self_attention = tl.Residual(
       tl.LayerNorm(),
-      tl.Branch(tl.Copy(), tl.CausalMask(axis=-2)),  # create mask
+      tl.Branch(tl.NoOp(), tl.CausalMask(axis=-2)),  # create mask
       tl.MultiHeadedAttention(feature_depth, num_heads=num_heads,
                               dropout=dropout, mode=mode),
       tl.Select(0),  # drop mask
@@ -214,21 +214,21 @@ def EncoderDecoderLayer(feature_depth,
   )
   # Decoder attending to encoder.
   encoder_decoder_attention = tl.Serial(
-      tl.Select(((2, 0, 0), 1)),  # ((dec, enc, enc), mask)
-      tl.MultiHeadedAttentionQKV(  # ((q, k, v), mask) --> new, mask
+      tl.Select((2, 0, 0, 1)),  # (dec, enc, enc, mask)
+      tl.MultiHeadedAttentionQKV(  # (q, k, v, mask) --> new, mask
           feature_depth, num_heads=num_heads, dropout=dropout, mode=mode),
       tl.Select(0),  # drop the mask
       tl.Dropout(rate=dropout, mode=mode),
   )
   return tl.Serial(
-      tl.Parallel(tl.Copy(), tl.Copy(), self_attention),
-      tl.Branch(tl.Copy(), encoder_decoder_attention),
-      tl.UnnestBranches(),   # (encoder, mask, old_act, new_act)
-      tl.Select((0, 1, (2, 3))),
+      tl.Parallel(tl.NoOp(), tl.NoOp(), self_attention),
+      tl.Branch(tl.NoOp(), encoder_decoder_attention),
+      tl.Select(inputs=(('encoder', 'mask', 'old_act'), 'new_act'),
+                output=('encoder', 'mask', ('old_act', 'new_act'))),
       tl.Parallel(  # Residual after encoder-decoder attention.
-          tl.Copy(), tl.Copy(), tl.Add()),
+          tl.NoOp(), tl.NoOp(), tl.Add()),
       tl.Parallel(  # Feed-forward on the third component (decoder).
-          tl.Copy(), tl.Copy(), ResidualFeedForward(
+          tl.NoOp(), tl.NoOp(), ResidualFeedForward(
               feature_depth, feedforward_depth, dropout, mode=mode)
       )
   )
@@ -270,18 +270,18 @@ def Transformer(vocab_size,
       tl.Serial(*[EncoderLayer(feature_depth, feedforward_depth, num_heads,
                                dropout, mode)
                   for _ in range(num_layers)]),
-      tl.Parallel(tl.LayerNorm(), tl.Copy())
+      tl.Parallel(tl.LayerNorm(), tl.NoOp())
   )
   stack = [EncoderDecoderLayer(feature_depth, feedforward_depth, num_heads,
                                dropout, mode)
            for _ in range(num_layers)]
   return tl.Serial(
-      tl.Parallel(tl.Copy(), tl.ShiftRight()),
+      tl.Parallel(tl.NoOp(), tl.ShiftRight()),
       tl.Parallel(encoder, embedding),
-      tl.UnnestBranches(),  # (encoder, encoder_mask, decoder_input)
-      tl.Select((0, (1, 2), 2)),
+      tl.Select(inputs=(('encoder', 'mask'), 'decoder'),
+                output=('encoder', ('mask', 'decoder'), 'decoder')),
       tl.Parallel(  # (encoder_mask, decoder_input) -> encoder-decoder mask
-          tl.Copy(), tl.EncoderDecoderMask(), tl.Copy()),
+          tl.NoOp(), tl.EncoderDecoderMask(), tl.NoOp()),
       tl.Serial(*stack),
       tl.Select(2),  # Drop encoder and mask.
       tl.LayerNorm(),

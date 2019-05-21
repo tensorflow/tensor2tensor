@@ -30,14 +30,14 @@ class CombinatorLayerTest(absltest.TestCase):
     input_shape = (2, 3)
     expected_shape = ((2, 3), (2, 3))
     output_shape = base.check_shape_agreement(
-        combinators.Branch(combinators.Copy(), combinators.Copy()), input_shape)
+        combinators.Branch(combinators.NoOp(), combinators.NoOp()), input_shape)
     self.assertEqual(output_shape, expected_shape)
 
   def test_branch_named(self):
     input_shape = (2, 3)
     expected_shape = {'a': (2, 3), 'b': (2, 3)}
     output_shape = base.check_shape_agreement(
-        combinators.Branch(a=combinators.Copy(), b=combinators.Copy()),
+        combinators.Branch(a=combinators.NoOp(), b=combinators.NoOp()),
         input_shape)
     self.assertEqual(output_shape, expected_shape)
 
@@ -45,7 +45,7 @@ class CombinatorLayerTest(absltest.TestCase):
     input_shape = ((2, 3), (2, 3))
     expected_shape = ((2, 3), (2, 3))
     output_shape = base.check_shape_agreement(
-        combinators.Parallel(combinators.Copy(), combinators.Copy()),
+        combinators.Parallel(combinators.NoOp(), combinators.NoOp()),
         input_shape)
     self.assertEqual(output_shape, expected_shape)
 
@@ -53,7 +53,7 @@ class CombinatorLayerTest(absltest.TestCase):
     input_shape = {'a': (2, 3), 'b': (2, 3)}
     expected_shape = {'a': (2, 3), 'b': (2, 3)}
     output_shape = base.check_shape_agreement(
-        combinators.Parallel(a=combinators.Copy()), input_shape)
+        combinators.Parallel(a=combinators.NoOp()), input_shape)
     self.assertEqual(output_shape, expected_shape)
 
   def test_select(self):
@@ -68,13 +68,6 @@ class CombinatorLayerTest(absltest.TestCase):
     expected_shape = (3, 4)
     output_shape = base.check_shape_agreement(
         combinators.Select('b'), input_shape)
-    self.assertEqual(output_shape, expected_shape)
-
-  def test_unnest_branches(self):
-    input_shape = ((2, 3), [(4, 5), (6, 7)], (8, 9, 10))
-    expected_shape = ((2, 3), (4, 5), (6, 7), (8, 9, 10))
-    output_shape = base.check_shape_agreement(
-        combinators.UnnestBranches(), input_shape)
     self.assertEqual(output_shape, expected_shape)
 
   def test_rebatch(self):

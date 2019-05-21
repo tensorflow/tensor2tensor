@@ -43,7 +43,7 @@ class Layer(object):
     """Call this layer in input x using the given parameters."""
     raise NotImplementedError
 
-  def output_shape(self, input_shape):
+  def output_shape_fun(self, input_shape):
     """The shape of the output of this layer given the shape of the input.
 
     Note that all arguments and return values can be tuples or dictionaries
@@ -72,12 +72,19 @@ class Layer(object):
     """
     raise NotImplementedError
 
+  def stack_items_to_pass(self):
+    """How many of the top stack items do we process."""
+    return 0
+
   # End of subclassing interface, all functions below are internal.
 
-  def output_shape_catch_errors(self, input_shape):
+  def output_shape(self, input_shape):
     """Same as self.output_shape but with better error reporting."""
     try:
-      return self.output_shape(input_shape)
+      is_list = isinstance(input_shape, (list, tuple))
+      is_list = is_list and isinstance(input_shape[0], (list, tuple))
+      n = self.stack_items_to_pass() if is_list else 0
+      return _apply_to_first_n(self.output_shape_fun, input_shape, n)
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback()
       raise LayerError(name, 'output_shape', self._caller, input_shape, trace)
@@ -106,10 +113,16 @@ class Layer(object):
 
       # First call of this layer, create parameters.
       self._first_init = False
+      is_list = isinstance(input_shape, (list, tuple))
+      is_list = is_list and isinstance(input_shape[0], (list, tuple))
+      if is_list and self.stack_items_to_pass() > 0:
+        input_shape = input_shape[:self.stack_items_to_pass()]
+        if len(input_shape) == 1:
+          input_shape = input_shape[0]
       self._params = self.new_parameters(input_shape, rng)
       return self._params
     except Exception:
-      name, trace = self.__class__.__name__, _short_traceback()
+      name, trace = self.__class__.__name__, _short_traceback(skip=3)
       raise LayerError(name, 'initialize', self._caller, input_shape, trace)
 
   def __call__(self, x, params=(), **kwargs):
@@ -119,10 +132,12 @@ class Layer(object):
       # Note: to make sure jit tracers can decide this branch in python we
       #   use "params is ()" instead of, e.g., "not params" or "params == ()".
       if params is ():  # pylint: disable=literal-comparison
-        return self.call(x, params=self._params, **kwargs)
+        params = self._params
       # In this case, we're called for the first time: cache parameters.
       self._params = params
-      return self.call(x, params=params, **kwargs)
+      f = lambda y: self.call(y, params=params, **kwargs)
+      n = self.stack_items_to_pass() if isinstance(x, (list, tuple)) else 0
+      return _apply_to_first_n(f, x, n)
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback()
       raise LayerError(name, 'call', self._caller, shapes(x), trace)
@@ -155,6 +170,22 @@ class LayerError(Exception):
     return prefix + caller + shapes_str + self._traceback
 
 
+def _apply_to_first_n(f, x, n):
+  """Helper: apply f to first n elements on the stack x if n > 0."""
+  if n < 1:
+    return f(x)
+  argument, rest = x[:n], x[n:]
+  if n == 1:
+    argument = argument[0]
+  result = f(argument)
+  if n == 1:
+    result = [result]
+  result = list(result) + list(rest)
+  if isinstance(x, tuple):
+    result = tuple(result)
+  return result
+
+
 def nested_map(x, f):
   """Map the function f to the nested structure x (dicts, tuples, lists)."""
   if isinstance(x, list):
@@ -171,9 +202,9 @@ def nested_reduce(x, f):
   if isinstance(x, list):
     return f([nested_reduce(y, f) for y in x])
   if isinstance(x, tuple):
-    return f(tuple([nested_reduce(y, f) for y in x]))
-  if isinstance(x, dict):
-    return f({k: nested_reduce(x[k], f) for k in x})
+    return f([nested_reduce(y, f) for y in x])
+  if isinstance(x, dict):  # We apply f only to values in the dicts.
+    return f([nested_reduce(v, f) for v in x.values()])
   return x
 
 
@@ -224,7 +255,7 @@ def _shorten_file_path(line):
   return line[:first_quote] + '[...]/' + new_path + line[second_quote + 1:]
 
 
-def _short_traceback(skip=3):
+def _short_traceback(skip=7):
   """Cleaned-up form of traceback."""
   counter, res = 0, []
   # Skipping 3 lines by default: the top (useless) and self-call.
@@ -246,10 +277,15 @@ def _short_traceback(skip=3):
 # Decorator for making layers from functions.
 
 
-def layer(output_shape=None, new_parameters=None):
+def layer(output_shape=None, new_parameters=None, stack_items_to_pass=1):
   """Create a layer class from a function."""
   def layer_decorator(call):
     """Decorating the call function."""
+
+    def stack_items_to_pass_fun(self):
+      del self
+      return stack_items_to_pass
+
     def output_shape_fun(self, input_shape):
       if output_shape is None:
         return input_shape
@@ -280,8 +316,9 @@ def layer(output_shape=None, new_parameters=None):
     # Create the class.
     cls = type(call.__name__, (Layer,),
                {'call': call_fun,
-                'output_shape': output_shape_fun,
-                'new_parameters': new_parameters_fun})
+                'output_shape_fun': output_shape_fun,
+                'new_parameters': new_parameters_fun,
+                'stack_items_to_pass': stack_items_to_pass_fun})
 
     return cls
   return layer_decorator
