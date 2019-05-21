@@ -1868,6 +1868,39 @@ def padded_cross_entropy(logits,
     return tf.reduce_sum(xent * weights), tf.reduce_sum(weights)
 
 
+def gather_tensor_by_mixture_index(value,
+                                   mixture_indices,
+                                   batch_size,
+                                   num_mixtures,
+                                   reshape=True):
+  """Gather the elements of a tensor, based on the mixture element id provided.
+
+  The tensor should be shaped as (num_mixtures * batch_size, dim2, dim3...),
+  and the mixture indices should be (batch_size), holding one mixture_id for
+  each element in the batch
+
+  Args:
+    value: a `Tensor` with shape `[num_mixtures * batch, dim2, dim3 ...]`. If
+    reshape is false, it should be [num_mixtures, batch, dim3, dim4 ..]
+    mixture_indices: `[batch_size]`.
+    batch_size: an int `Scalar`.
+    num_mixtures: an int `Scalar`.
+    reshape: bool
+
+  Returns:
+    selected_values: a `Tensor`.  Selected values from original tensor
+
+  """
+  original_shape = shape_list(value)
+  individual_element_indices = tf.range(batch_size)
+  stacked_mixture_element_indices = tf.stack(
+      (mixture_indices, individual_element_indices), -1)
+  if reshape:
+    value = tf.reshape(value, [num_mixtures, -1] + original_shape[1:])
+  selected_values = tf.gather_nd(value, stacked_mixture_element_indices)
+  return selected_values
+
+
 def padded_cross_entropy_mixture(logits,
                                  labels,
                                  label_smoothing,
@@ -1905,15 +1938,17 @@ def padded_cross_entropy_mixture(logits,
   Raises:
     ValueError: in case of unsupported argument types.
   """
+
+  (logits, mixture_labels, supervised_mode) = logits
+
   logit_shapes = shape_list(
       logits)  # batch_size * num_mixtures, timesteps, 1, 1, vocab_size
   batch_size = tf.cast(logit_shapes[0] / num_mixtures, dtype=tf.int32)
-  timesteps = logit_shapes[1]
-  vocab_size = logit_shapes[4]
 
   new_shape_for_xent = [num_mixtures] + shape_list(labels)
   labels = tf.tile(labels, [num_mixtures, 1, 1, 1])
 
+  # get xent loss for all mixtures
   xent, weights = padded_cross_entropy(logits, labels, label_smoothing,
                                        weights_fn, reduce_sum, cutoff, gaussian)
 
@@ -1926,38 +1961,56 @@ def padded_cross_entropy_mixture(logits,
 
   # if we need to compute the best logits
   if return_best_logits:
-    best_mixture_indices = tf.cast(tf.argmin(xent, 0), dtype=tf.int32)
-    individual_element_indices = tf.range(batch_size)
-    stacked_mixture_element_indices = tf.stack((tf.squeeze(
-        best_mixture_indices, axis=[1, 2]), individual_element_indices), -1)
-    best_logits = tf.reshape(logits,
-                             [num_mixtures, -1, timesteps, 1, 1, vocab_size])
-    best_logits = tf.gather_nd(best_logits, stacked_mixture_element_indices)
-    best_logits = tf.reshape(best_logits,
-                             [batch_size, timesteps, 1, 1, vocab_size])
+    if supervised_mode:
+      return_mixture_indices = tf.squeeze(
+          tf.cast(tf.argmin(xent, 0), dtype=tf.int32), axis=[1, 2])
+    else:
+      return_mixture_indices = mixture_labels
+    best_logits = gather_tensor_by_mixture_index(logits, return_mixture_indices,
+                                                 batch_size, num_mixtures)
 
   with tf.control_dependencies([
       tf.assert_equal(
           tf.shape(xent)[:3], [num_mixtures, batch_size, 1],
-          message="Each batch element should have a probability value for each mixture element"
+          message="Each batch element should have a probability value for "
+          "each mixture element"
       )
   ]):
-    xent_min = tf.reduce_min(xent, axis=0)
+    best_mixtures = tf.squeeze(
+        tf.cast(tf.argmin(xent, 0), dtype=tf.int32), axis=[1, 2])
+    if mixture_labels is not None:
+      mixture_accuracy = tf.metrics.accuracy(
+          mixture_labels, best_mixtures, name="mixture_accuracy")
+      tf.summary.scalar("mixture_acc_plot", mixture_accuracy[1])
+    if supervised_mode:
+      xent_min = gather_tensor_by_mixture_index(
+          xent, mixture_labels, batch_size, num_mixtures, reshape=False)
+    else:
+      xent_min = tf.reduce_min(xent, axis=0)
     xent_max = tf.reduce_max(xent, axis=0)
     weights = tf.reduce_mean(weights, axis=0)
 
   with tf.control_dependencies([
       tf.assert_equal(
           tf.shape(xent_min)[0], [batch_size],
-          message="There should be batch_size elements after selecting best mixture probabilities"
+          message="There should be batch_size elements after selecting best "
+          "mixture probabilities"
       )
   ]):
     summed_xent_min = tf.reduce_sum(xent_min)
     summed_xent_max = tf.reduce_sum(xent_max)
     summed_weights = tf.reduce_sum(weights)
 
-    tf.summary.scalar("mixture_xents_min", summed_xent_min / summed_weights)
-    tf.summary.scalar("mixture_xents_max", summed_xent_max / summed_weights)
+    for mixture in range(num_mixtures):
+      num_assigned_mixtures = tf.reduce_sum(
+          tf.cast(tf.equal(best_mixtures, mixture), tf.int32))
+      tf.summary.scalar("assigned_mixture_%d" % (mixture),
+                        num_assigned_mixtures / batch_size)
+
+    tf.summary.scalar("selected_mixture_xents_value",
+                      summed_xent_min / summed_weights)
+    tf.summary.scalar("max_mixture_xents_value",
+                      summed_xent_max / summed_weights)
 
   if return_best_logits:
     return summed_xent_min, summed_weights, best_logits
