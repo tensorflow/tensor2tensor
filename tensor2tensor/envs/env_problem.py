@@ -471,6 +471,14 @@ class EnvProblem(Env, problem.Problem):
     # rest being the dimensionality of the observation.
     return np.stack([self._envs[index].reset() for index in indices])
 
+  def truncate(self, indices=None):
+    """Truncates trajectories at the specified indices."""
+
+    if indices is None:
+      indices = np.arange(self.batch_size)
+
+    self.trajectories.truncate_trajectories(indices)
+
   def reset(self, indices=None):
     """Resets environments at given indices.
 
@@ -506,6 +514,24 @@ class EnvProblem(Env, problem.Problem):
     self.trajectories.reset(indices, processed_observations)
 
     return processed_observations
+
+  def render(self, mode="human", indices=None):
+    """Calls render with the given mode on the specified indices.
+
+    Args:
+      mode: rendering mode.
+      indices: array of indices, calls render on everything if indices is None.
+
+    Returns:
+      a list of return values from the environments rendered.
+    """
+
+    if indices is None:
+      indices = np.arange(self.batch_size)
+    ret_vals = []
+    for index in indices:
+      ret_vals.append(self._envs[index].render(mode=mode))
+    return ret_vals
 
   def _step(self, actions):
     """Takes a step in all environments, shouldn't pre-process or record.

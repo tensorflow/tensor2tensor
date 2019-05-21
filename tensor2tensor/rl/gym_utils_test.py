@@ -88,6 +88,11 @@ class GymUtilsTest(tf.test.TestCase):
     obs, _, _, _ = env.step(1)
     self.assertTrue(np.allclose(np.zeros([64, 12, 3], np.uint8), obs))
 
+    env = gym_utils.RenderedEnv(SimpleEnv(), resize_to=(64, 12),
+                                output_dtype=np.float32)
+    obs, _, _, _ = env.step(1)
+    self.assertTrue(np.allclose(np.zeros([64, 12, 3], np.float32), obs))
+
   def test_gym_registration(self):
     reg_id, env = gym_utils.register_gym_env(
         "tensor2tensor.rl.gym_utils_test:SimpleEnv")
