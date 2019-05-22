@@ -986,7 +986,7 @@ def masked_entropy(log_probs, mask):
 def evaluate_policy(eval_env,
                     get_predictions,
                     boundary,
-                    max_timestep=10000,
+                    max_timestep=20000,
                     rng=None):
   """Evaluate the policy."""
 
