@@ -50,6 +50,7 @@ import numpy as onp
 from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import rendered_env_problem
 from tensor2tensor.rl import gym_utils
+from tensor2tensor.rl.google import atari_utils
 from tensor2tensor.trax import layers
 from tensor2tensor.trax.models import atari_cnn
 from tensor2tensor.trax.rlax import ppo
@@ -78,6 +79,10 @@ flags.DEFINE_integer(
 flags.DEFINE_integer(
     "truncation_timestep", None,
     "If set to an integer, maximum number of time-steps in a "
+    "trajectory. Used in the collect procedure.")
+flags.DEFINE_integer(
+    "truncation_timestep_eval", 20000,
+    "If set to an integer, maximum number of time-steps in an evaluation "
     "trajectory. Used in the collect procedure.")
 
 flags.DEFINE_boolean(
@@ -142,7 +147,7 @@ flags.DEFINE_integer("eval_batch_size", 4, "Batch size for evaluation.")
 
 def common_layers():
   # TODO(afrozm): Refactor.
-  if "Pong" in FLAGS.env_problem_name:
+  if "NoFrameskip" in FLAGS.env_problem_name:
     return atari_layers()
 
   cur_layers = []
@@ -200,8 +205,7 @@ def main(argv):
     config.update("jax_platform_name", "tpu")
 
   # TODO(afrozm): Refactor.
-  if "Pong" in FLAGS.env_problem_name and FLAGS.xm:
-    from tensor2tensor.rl.google import atari_utils  # pylint: disable=g-import-not-at-top
+  if "NoFrameskip" in FLAGS.env_problem_name and FLAGS.xm:
     FLAGS.atari_roms_path = "local_ram_fs_tmp"
     atari_utils.copy_roms()
 
@@ -258,6 +262,7 @@ def main(argv):
         target_kl=FLAGS.target_kl,
         boundary=FLAGS.boundary,
         max_timestep=FLAGS.truncation_timestep,
+        max_timestep_eval=FLAGS.truncation_timestep_eval,
         random_seed=random_seed,
         c1=FLAGS.value_coef,
         c2=FLAGS.entropy_coef,

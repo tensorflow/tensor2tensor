@@ -983,15 +983,28 @@ def masked_entropy(log_probs, mask):
   return -(np.sum(lp * p) / np.sum(mask))
 
 
-def evaluate_policy(eval_env, get_predictions, boundary, rng=None):
-  trajs = env_problem_utils.play_env_problem_with_policy(
-      eval_env,
-      get_predictions,
-      boundary=boundary,
-      idx=0,  # reset always
-      rng=rng)
-  avg_reward = float(sum(np.sum(traj[2]) for traj in trajs)) / len(trajs)
-  return avg_reward
+def evaluate_policy(eval_env,
+                    get_predictions,
+                    boundary,
+                    max_timestep=10000,
+                    rng=None):
+  """Evaluate the policy."""
+
+  avg_rewards = []
+  for policy in [env_problem_utils.CATEGORICAL_SAMPLING,
+                 env_problem_utils.GUMBEL_SAMPLING,
+                 env_problem_utils.EPSILON_GREEDY]:
+    trajs = env_problem_utils.play_env_problem_with_policy(
+        eval_env,
+        get_predictions,
+        boundary=boundary,
+        max_timestep=max_timestep,
+        idx=0,  # reset always
+        policy_sampling=policy,
+        rng=rng)
+    avg_rewards.append(
+        float(sum(np.sum(traj[2]) for traj in trajs)) / len(trajs))
+  return tuple(avg_rewards)
 
 
 def training_loop(
@@ -1011,6 +1024,7 @@ def training_loop(
     target_kl=0.01,
     boundary=20,
     max_timestep=None,
+    max_timestep_eval=20000,
     random_seed=None,
     gamma=GAMMA,
     lambda_=LAMBDA,
@@ -1120,9 +1134,11 @@ def training_loop(
           pickle.dump((policy_net_params, value_net_params), f)
 
       # TODO(afrozm): Dump in jaxboard or somewhere?
-      avg_reward = evaluate_policy(eval_env, get_predictions, boundary, rng=key)
+      avg_reward = evaluate_policy(eval_env, get_predictions, boundary,
+                                   max_timestep=max_timestep_eval, rng=key)
       eval_average_rewards.append(avg_reward)
-      logging.info("Epoch [% 6d] Policy Evaluation = %10.2f", i, avg_reward)
+      logging.info("Epoch [% 6d] Policy Evaluation = (%10.2f, %10.2f, %10.2f)",
+                   i, avg_reward[0], avg_reward[1], avg_reward[2])
       with gfile.GFile(eval_rewards_file, "w") as f:
         f.write(", ".join([str(r) for r in eval_average_rewards]) + "\n")
 
