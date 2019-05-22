@@ -167,12 +167,21 @@ def ChunkedCausalMultiHeadedAttention(
   )
 
 
+# Chunked residual.
+def Residual(*layers, **unused_kwargs):
+  """Constructs a residual version of layers, summing input to layers output."""
+  return tl.Serial(
+      tl.Branch(tl.Serial(*layers), tl.NoOp()),
+      tl.AddAll()
+  )
+
+
 def ResidualFeedForward(feature_depth,
                         feedforward_depth,
                         dropout,
                         mode):
   """Residual feed-forward layer with normalization at start."""
-  return tl.Residual(
+  return Residual(
       tl.LayerNorm(),
       tl.Dense(feedforward_depth),
       tl.Relu(),
@@ -202,7 +211,7 @@ def ChunkedDecoderLayer(feature_depth,
     the layer.
   """
   return tl.Serial(
-      tl.Residual(  # Self-attention block.
+      Residual(  # Self-attention block.
           tl.Map(tl.LayerNorm()),
           ChunkedCausalMultiHeadedAttention(
               feature_depth, num_heads=num_heads, dropout=dropout,

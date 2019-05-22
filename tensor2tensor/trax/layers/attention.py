@@ -210,7 +210,7 @@ def MultiHeadedAttentionQKV(
       PureMultiHeadedAttention(  # pylint: disable=no-value-for-parameter
           feature_depth=feature_depth, num_heads=num_heads,
           dropout=dropout, mode=mode),
-      combinators.Parallel(core.Dense(feature_depth), combinators.NoOp())
+      core.Dense(feature_depth),
   )
 
 

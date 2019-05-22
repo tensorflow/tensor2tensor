@@ -67,6 +67,18 @@ def NoOp(x, **unused_kwargs):
   return x
 
 
+def _print_shape(x, message='PrintShape'):  # pylint: disable=invalid-name
+  print(message + ' ; stack shape = ' + str(x))
+  return x
+
+
+@base.layer(output_shape=_print_shape, stack_items_to_pass=0)
+def PrintShape(x, message='PrintShape', **unused_kwargs):
+  """NoOp layer that prints the shape of the stack."""
+  _print_shape(base.shapes(x), message=message)
+  return x
+
+
 def _dup(x):  # pylint: disable=invalid-name
   """Helper: copy the top element of a list or a tuple."""
   if isinstance(x, list):
@@ -79,6 +91,72 @@ def _dup(x):  # pylint: disable=invalid-name
 def Dup(x, **unused_kwargs):
   """Duplicate (copy) the first element on the stack."""
   return _dup(x)
+
+
+def _swap(x):  # pylint: disable=invalid-name
+  """Helper: swap the top two elements of a list or a tuple."""
+  if isinstance(x, list):
+    return [x[1], x[0]] + x[2:]
+  assert isinstance(x, tuple)
+  return tuple([x[1], x[0]] + list(x[2:]))
+
+
+@base.layer(output_shape=_swap, stack_items_to_pass=0)
+def Swap(x, **unused_kwargs):
+  """Swap the first two element on the stack."""
+  return _swap(x)
+
+
+def _top_shape(x_shape):  # pylint: disable=invalid-name
+  """Helper: shape of top element of a stack."""
+  if isinstance(x_shape[0], (list, tuple)):
+    return x_shape[0]
+  return x_shape
+
+
+@base.layer(output_shape=_top_shape, stack_items_to_pass=0)
+def _Top(x, **unused_kwargs):
+  """Top element from the stack."""
+  if isinstance(x, (list, tuple)):
+    return x[0]
+  return x
+
+
+def _drop(x):  # pylint: disable=invalid-name
+  """Helper: pop top element of a stack (make it a non-list if length is 1)."""
+  result = x[1:]
+  if len(result) == 1:
+    return result[0]
+  return result
+
+
+@base.layer(output_shape=_drop, stack_items_to_pass=0)
+def Drop(x, **unused_kwargs):
+  """Drop first element from the stack."""
+  return _drop(x)
+
+
+def _flatten_shape(x_shape):  # pylint: disable=invalid-name
+  """Helper: shape of the flatten operation."""
+  shapes = []
+  for shape in x_shape:
+    if isinstance(shape[0], (list, tuple)):
+      shapes.extend(shape)
+    else:
+      shapes.append(shape)
+  return tuple(shapes)
+
+
+@base.layer(output_shape=_flatten_shape, stack_items_to_pass=0)
+def Flatten(xs, **unused_kwargs):
+  """Flatten lists."""
+  res = []
+  for x in xs:
+    if isinstance(x, (list, tuple)):
+      res.extend(list(x))
+    else:
+      res.append(x)
+  return tuple(res)
 
 
 # Re-ordering layer.
@@ -242,13 +320,43 @@ def _nested_op(inputs, op):  # pylint: disable=invalid-name
   return tuple(result_list)
 
 
+def _binary_op(inputs, op):  # pylint: disable=invalid-name
+  """Helper: apply op to the first 2 elements."""
+  xs, rest = inputs[:2], inputs[2:]
+  s = _nested_op(xs, op)
+  if not rest:
+    return s
+  if not isinstance(s, (list, tuple)):
+    s = [s]
+  res = list(s) + list(rest)
+  # TODO(lukaszkaiser): should we drop this tuple/list distinction?
+  if isinstance(s, tuple):
+    res = tuple(res)
+  return res
+
+
+def _binary_op_shape(stack_shape):  # pylint: disable=invalid-name
+  """Helper: shape for the top-two operation above (shape-preserving op)."""
+  if len(stack_shape) == 2:
+    return stack_shape[0]
+  return tuple([stack_shape[0]] + list(stack_shape[2:]))
+
+
+@base.layer(output_shape=_binary_op_shape, stack_items_to_pass=0)
+def Add(x, **unused_kwargs):
+  """Add first and second element on the stack."""
+  # Here x is a list of tensors of the same shape, or nested structures.
+  return _binary_op(x, op=sum)
+
+
+@base.layer(output_shape=_binary_op_shape, stack_items_to_pass=0)
+def Multiply(x, **unused_kwargs):
+  """Multiply first and second element on the stack."""
+  return _binary_op(x, op=lambda xs: six.moves.reduce(operator.mul, xs))
+
+
 def _nested_sum(inputs):  # pylint: disable=invalid-name
   return _nested_op(inputs=inputs, op=sum)
-
-
-def _nested_product(inputs):  # pylint: disable=invalid-name
-  return _nested_op(
-      inputs=inputs, op=lambda xs: six.moves.reduce(operator.mul, xs))
 
 
 def _first_from_tuple_or_dict(tuple_or_dict):  # pylint: disable=invalid-name
@@ -258,16 +366,10 @@ def _first_from_tuple_or_dict(tuple_or_dict):  # pylint: disable=invalid-name
 
 
 @base.layer(output_shape=_first_from_tuple_or_dict, stack_items_to_pass=0)
-def Add(x, **unused_kwargs):
+def AddAll(x, **unused_kwargs):
   """Add branches elementwise."""
   # Here x is a list of tensors of the same shape, or nested structures.
   return _nested_sum(x)
-
-
-@base.layer(output_shape=_first_from_tuple_or_dict, stack_items_to_pass=0)
-def Multiply(x, **unused_kwargs):
-  """Multiply branches elementwise."""
-  return _nested_product(x)
 
 
 @base.layer(output_shape=_first_from_tuple_or_dict, stack_items_to_pass=0)
@@ -390,15 +492,17 @@ class Parallel(base.Layer):
 
 def Residual(*layers, **kwargs):
   """Constructs a residual version of layers, summing input to layers output."""
-  shortcut = kwargs.get('shortcut', NoOp())  # pylint: disable=no-value-for-parameter
+  shortcut = kwargs.get('shortcut', _Top())  # pylint: disable=no-value-for-parameter
   if len(layers) > 1:
     return Serial(
-        Branch(Serial(*layers), shortcut),
+        Branch(shortcut, Serial(*layers)),
+        Flatten(),  # pylint: disable=no-value-for-parameter
         Add()  # pylint: disable=no-value-for-parameter
     )
   elif len(layers) == 1:
     return Serial(
-        Branch(layers[0], shortcut),
+        Branch(shortcut, layers[0]),
+        Flatten(),  # pylint: disable=no-value-for-parameter
         Add()  # pylint: disable=no-value-for-parameter
     )
   else:

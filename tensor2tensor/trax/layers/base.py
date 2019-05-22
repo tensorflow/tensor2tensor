@@ -178,6 +178,8 @@ def _apply_to_first_n(f, x, n):
   if n == 1:
     argument = argument[0]
   result = f(argument)
+  if not rest:
+    return result
   if n == 1:
     result = [result]
   result = list(result) + list(rest)

@@ -97,7 +97,7 @@ class Dense(base.Layer):
     w, b = params
     return np.dot(x, w) + b
 
-  def output_shape(self, input_shape):
+  def output_shape_fun(self, input_shape):
     return tuple(input_shape[:-1]) + (self._units,)
 
   def new_parameters(self, input_shape, rng):
@@ -124,7 +124,7 @@ class Embedding(base.Layer):
     del kwargs
     return np.take(params, x, axis=0)
 
-  def output_shape(self, input_shape):
+  def output_shape_fun(self, input_shape):
     return tuple(input_shape) + (self._feature_depth,)
 
   def new_parameters(self, input_shape, rng):
