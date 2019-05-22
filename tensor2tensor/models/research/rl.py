@@ -532,15 +532,33 @@ def rlmf_dqn_tiny():
 def rlmf_eval():
   """Eval set of hparams for model-free PPO."""
   hparams = rlmf_original()
-  hparams.batch_size = 8
+  hparams.batch_size = 16
   hparams.eval_sampling_temps = [0.0, 0.5, 1.0]
-  hparams.eval_rl_env_max_episode_steps = -1
+  hparams.eval_rl_env_max_episode_steps = 20000
   hparams.add_hparam("ppo_epoch_length", 128)
   hparams.add_hparam("ppo_optimization_batch_size", 32)
   hparams.add_hparam("ppo_epochs_num", 10000)
   hparams.add_hparam("ppo_eval_every_epochs", 500)
   hparams.add_hparam("attempt", 0)
   hparams.add_hparam("moe_loss_coef", 0)
+  return hparams
+
+
+@registry.register_hparams
+def rlmf_eval_dist():
+  """Distributional set of hparams for model-free PPO."""
+  hparams = rlmf_eval()
+  hparams.distributional_size = 4096
+  hparams.distributional_subscale = 0.08
+  hparams.base_algo_params = "ppo_dist_params"
+  return hparams
+
+
+@registry.register_hparams
+def rlmf_eval_dist_threshold():
+  """Distributional set of hparams for model-free PPO."""
+  hparams = rlmf_eval_dist()
+  hparams.distributional_threshold = 0.2
   return hparams
 
 

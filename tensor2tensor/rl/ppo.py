@@ -122,11 +122,19 @@ def define_ppo_epoch(memory, hparams, action_space, batch_size,
     value = _distributional_to_value(
         value_sm, distributional_size, distributional_subscale,
         distributional_threshold)
+  plain_value = value
+  if distributional_threshold > 1:
+    plain_value = _distributional_to_value(
+        value_sm, distributional_size, distributional_subscale, 0.0)
 
   advantage = calculate_generalized_advantage_estimator(
       reward, value, done, hparams.gae_gamma, hparams.gae_lambda)
 
   discounted_reward = tf.stop_gradient(advantage + value[:-1])
+  if distributional_size > 1:
+    end_values = plain_value[-1]
+    discounted_reward = tf.stop_gradient(discounted_rewards(
+        reward, done, hparams.gae_gamma, end_values))
 
   advantage_mean, advantage_variance = tf.nn.moments(advantage, axes=[0, 1],
                                                      keep_dims=True)
@@ -206,4 +214,18 @@ def calculate_generalized_advantage_estimator(
       [tf.reverse(delta, [0]), tf.reverse(next_not_done, [0])],
       tf.zeros_like(delta[0, :]),
       parallel_iterations=1), [0])
+  return tf.check_numerics(return_, "return")
+
+
+def discounted_rewards(reward, done, gae_gamma, end_values):
+  """Discounted rewards."""
+  not_done = 1 - tf.cast(done, tf.float32)
+  end_values = end_values * not_done[-1, :]
+  return_ = tf.scan(
+      lambda agg, cur: cur + gae_gamma * agg,
+      reward * not_done,
+      initializer=end_values,
+      reverse=True,
+      back_prop=False,
+      parallel_iterations=2)
   return tf.check_numerics(return_, "return")
