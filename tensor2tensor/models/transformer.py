@@ -1404,6 +1404,7 @@ def transformer_decoder_layer(decoder_input,
           recurrent_memory=recurrent_memory,
           chunk_number=chunk_number,
           hard_attention_k=hparams.get("hard_attention_k", 0),
+          gumbel_noise_weight=hparams.get("gumbel_noise_weight", 0.0),
           max_area_width=max_area_width,
           max_area_height=max_area_height,
           memory_height=memory_height,
@@ -1439,6 +1440,7 @@ def transformer_decoder_layer(decoder_input,
             weight_dtype=hparams.get("weight_dtype", "float32"),
             layer_collection=layer_collection,
             hard_attention_k=hparams.get("hard_attention_k", 0),
+            gumbel_noise_weight=hparams.get("gumbel_noise_weight", 0.0),
             max_area_width=max_area_width,
             max_area_height=max_area_height,
             memory_height=memory_height,
@@ -1673,6 +1675,7 @@ def transformer_base_v1():
   hparams.add_hparam("unidirectional_encoder", False)
   # For hard attention.
   hparams.add_hparam("hard_attention_k", 0)
+  hparams.add_hparam("gumbel_noise_weight", 0.0)
   return hparams
 
 

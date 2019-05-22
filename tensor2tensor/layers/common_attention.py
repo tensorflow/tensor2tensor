@@ -1472,12 +1472,18 @@ def grouped_attention_multihead(query_antecedent,
     return o, extra_loss
 
 
-def harden_attention_weights(weights, hard_attention_k):
-  """Make attention weights non-0 only on the top-hard_attention_k ones."""
+def harden_attention_weights(weights, k, gumbel_noise_weight):
+  """Make attention weights non-0 only on the top k ones."""
+  if gumbel_noise_weight > 0.:
+    gumbel_noise = -tf.log(-tf.log(tf.random_uniform(tf.shape(weights),
+                                                     minval=1e-5,
+                                                     maxval=1 - 1e-5)))
+    weights += gumbel_noise * gumbel_noise_weight
+
   # Subtract the top-kth weight and zero-out all lower ones.
   # Note that currently in case of numerical ties it will retain more
   # than k elements. In the future, we may want to avoid this.
-  weights -= common_layers.top_kth_iterative(weights, hard_attention_k)
+  weights -= common_layers.top_kth_iterative(weights, k)
   weights = tf.nn.relu(weights)
   # Re-normalize the weights.
   weights_sum = tf.reduce_sum(weights, axis=-1, keep_dims=True)
@@ -1498,7 +1504,8 @@ def dot_product_attention(q,
                           dropout_broadcast_dims=None,
                           activation_dtype=None,
                           weight_dtype=None,
-                          hard_attention_k=0):
+                          hard_attention_k=0,
+                          gumbel_noise_weight=0.0):
   """Dot-product attention.
 
   Args:
@@ -1522,6 +1529,9 @@ def dot_product_attention(q,
       mixed precision.
     weight_dtype: The dtype weights are stored in when using mixed precision
     hard_attention_k: integer, if > 0 triggers hard attention (picking top-k)
+    gumbel_noise_weight: if > 0, apply Gumbel noise with weight
+      `gumbel_noise_weight` before picking top-k. This is a no op if
+      hard_attention_k <= 0.
 
   Returns:
     Tensor with shape [..., length_q, depth_v].
@@ -1536,7 +1546,8 @@ def dot_product_attention(q,
     logits = maybe_upcast(logits, activation_dtype, weight_dtype)
     weights = tf.nn.softmax(logits, name="attention_weights")
     if hard_attention_k > 0:
-      weights = harden_attention_weights(weights, hard_attention_k)
+      weights = harden_attention_weights(weights, hard_attention_k,
+                                         gumbel_noise_weight)
     weights = common_layers.cast_like(weights, q)
     if save_weights_to is not None:
       save_weights_to[scope.name] = weights
@@ -1630,7 +1641,8 @@ def dot_product_attention_relative(q,
                                    make_image_summary=True,
                                    cache=False,
                                    allow_memory=False,
-                                   hard_attention_k=0):
+                                   hard_attention_k=0,
+                                   gumbel_noise_weight=0.0):
   """Calculate relative position-aware dot-product self-attention.
 
   The attention calculation is augmented with learned representations for the
@@ -1655,6 +1667,9 @@ def dot_product_attention_relative(q,
       the length dimension of k/v/bias may be longer than the queries, and it is
       assumed that the extra memory entries precede the non-memory entries.
     hard_attention_k: integer, if > 0 triggers hard attention (picking top-k)
+    gumbel_noise_weight: if > 0, apply Gumbel noise with weight
+      `gumbel_noise_weight` before picking top-k. This is a no op if
+      hard_attention_k <= 0.
 
   Returns:
     A Tensor.
@@ -1692,7 +1707,8 @@ def dot_product_attention_relative(q,
       logits += bias
     weights = tf.nn.softmax(logits, name="attention_weights")
     if hard_attention_k > 0:
-      weights = harden_attention_weights(weights, hard_attention_k)
+      weights = harden_attention_weights(weights, hard_attention_k,
+                                         gumbel_noise_weight)
     if save_weights_to is not None:
       save_weights_to[scope.name] = weights
       save_weights_to[scope.name + "/logits"] = logits
@@ -3992,6 +4008,7 @@ def multihead_attention(query_antecedent,
                         recurrent_memory=None,
                         chunk_number=None,
                         hard_attention_k=0,
+                        gumbel_noise_weight=0.0,
                         max_area_width=1,
                         max_area_height=1,
                         memory_height=1,
@@ -4056,6 +4073,9 @@ def multihead_attention(query_antecedent,
     chunk_number: an optional integer Tensor with shape [batch] used to operate
       the recurrent_memory.
     hard_attention_k: integer, if > 0 triggers hard attention (picking top-k).
+    gumbel_noise_weight: if > 0, apply Gumbel noise with weight
+      `gumbel_noise_weight` before picking top-k. This is a no op if
+      hard_attention_k <= 0.
     max_area_width: the max width allowed for an area.
     max_area_height: the max height allowed for an area.
     memory_height: the height of the memory.
@@ -4198,13 +4218,14 @@ def multihead_attention(query_antecedent,
             area_value_mode=area_value_mode,
             training=training)
       else:
-        x = dot_product_attention(q, k, v, bias, dropout_rate, image_shapes,
-                                  save_weights_to=save_weights_to,
-                                  make_image_summary=make_image_summary,
-                                  dropout_broadcast_dims=dropout_broadcast_dims,
-                                  activation_dtype=kwargs.get(
-                                      "activation_dtype"),
-                                  hard_attention_k=hard_attention_k)
+        x = dot_product_attention(
+            q, k, v, bias, dropout_rate, image_shapes,
+            save_weights_to=save_weights_to,
+            make_image_summary=make_image_summary,
+            dropout_broadcast_dims=dropout_broadcast_dims,
+            activation_dtype=kwargs.get("activation_dtype"),
+            hard_attention_k=hard_attention_k,
+            gumbel_noise_weight=gumbel_noise_weight)
     elif attention_type == "dot_product_relative":
       x = dot_product_attention_relative(
           q,
@@ -4218,7 +4239,8 @@ def multihead_attention(query_antecedent,
           make_image_summary=make_image_summary,
           cache=cache is not None,
           allow_memory=recurrent_memory is not None,
-          hard_attention_k=hard_attention_k)
+          hard_attention_k=hard_attention_k,
+          gumbel_noise_weight=gumbel_noise_weight)
     elif attention_type == "dot_product_unmasked_relative_v2":
       x = dot_product_unmasked_self_attention_relative_v2(
           q,

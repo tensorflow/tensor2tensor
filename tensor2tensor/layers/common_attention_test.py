@@ -44,22 +44,32 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 3, 12))
 
+  @parameterized.named_parameters(
+      ("hard_top_k", 0.0),
+      ("sampled_top_k_default", 1.0),
+      ("sampled_top_k_2", 2.0),
+  )
   @test_utils.run_in_graph_and_eager_modes()
-  def testHardenAttentionWeights(self):
+  def testHardenAttentionWeights(self, gumbel_noise_weight):
     x = np.random.rand(5, 3, 12)
     y = common_attention.harden_attention_weights(
-        tf.nn.softmax(tf.constant(x, dtype=tf.float32)), 3)
+        tf.nn.softmax(tf.constant(x, dtype=tf.float32)), 3, gumbel_noise_weight)
     res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 3, 12))
 
+  @parameterized.named_parameters(
+      ("hard_top_k", -0.5),
+      ("sampled_top_k", 0.5),
+  )
   @test_utils.run_in_graph_and_eager_modes()
-  def testHardenAttentionAllZeros(self):
+  def testHardenAttentionAllZeros(self, gumbel_noise_weight):
     """Check if the hardening code does not divide by zero for all zeros."""
     x = np.zeros((5, 3, 12), dtype=np.float32)
     y = common_attention.harden_attention_weights(
-        tf.constant(x, dtype=tf.float32), 3)
+        tf.constant(x, dtype=tf.float32), 3, gumbel_noise_weight)
     res = self.evaluate(y)
-    self.assertAllClose(res, x)
+    if gumbel_noise_weight <= 0.0:
+      self.assertAllClose(res, x)
 
   @parameterized.parameters(
       {"input_shape": (5, 3, 12)},
