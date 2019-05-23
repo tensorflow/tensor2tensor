@@ -62,7 +62,7 @@ class PpoTrainingLoopTest(test.TestCase):
       num_epochs = 2
       batch_size = 2
       # Run the training loop.
-      rewards, val_losses, ppo_objectives = ppo.training_loop(
+      ppo.training_loop(
           env=env,
           eval_env=eval_env,
           epochs=num_epochs,
@@ -74,9 +74,6 @@ class PpoTrainingLoopTest(test.TestCase):
           num_optimizer_steps=1,
           output_dir=output_dir,
           random_seed=0)
-      self.assertLen(rewards, num_epochs)
-      self.assertLen(val_losses, num_epochs)
-      self.assertLen(ppo_objectives, num_epochs)
 
 
 if __name__ == "__main__":

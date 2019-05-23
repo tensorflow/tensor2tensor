@@ -755,11 +755,6 @@ def training_loop(
 
   jax_rng_key = trax.get_random_number_generator_and_set_seed(random_seed)
 
-  value_losses = []
-  ppo_objective = []
-  combined_losses = []
-  average_rewards = []
-
   # Batch Observations Shape = [-1, -1] + OBS, because we will eventually call
   # policy and value networks on shape [B, T] +_OBS
   batch_observations_shape = (-1, -1) + env.observation_space.shape
@@ -833,19 +828,12 @@ def training_loop(
     avg_reward = float(sum(np.sum(traj[2]) for traj in trajs)) / len(trajs)
     max_reward = max(np.sum(traj[2]) for traj in trajs)
     min_reward = min(np.sum(traj[2]) for traj in trajs)
-    average_rewards.append(avg_reward)
 
     train_sw.scalar("train/mean_reward", avg_reward, step=i)
 
     logging.vlog(1, "Rewards avg=[%0.2f], max=[%0.2f], min=[%0.2f], all=%s",
                  avg_reward, max_reward, min_reward,
                  [float(np.sum(traj[2])) for traj in trajs])
-    logging.vlog(1, "Average Rewards:\n%s", average_rewards)
-
-    # TODO(afrozm): Dump in jaxboard or somewhere?
-    if output_dir:
-      with gfile.GFile(os.path.join(output_dir, "average_rewards"), "w") as f:
-        f.write(", ".join([str(r) for r in average_rewards]) + "\n")
 
     logging.vlog(1,
                  "Trajectory Length average=[%0.2f], max=[%0.2f], min=[%0.2f]",
@@ -919,10 +907,6 @@ def training_loop(
         "Calculating P&V loss [%10.2f(%10.2f, %10.2f, %10.2f)] took %0.2f msec.",
         cur_combined_loss, cur_value_loss, cur_ppo_loss, entropy_bonus,
         get_time(t))
-
-    value_losses.append(cur_value_loss)
-    ppo_objective.append(-1.0 * cur_ppo_loss)
-    combined_losses.append(cur_combined_loss)
 
     jax_rng_key, key1 = jax_random.split(jax_rng_key, num=2)
     if policy_and_value_net_apply:
@@ -1008,14 +992,7 @@ def training_loop(
       logging.info(
           "Epoch [% 6d], Reward[min, max, avg] [%5.2f,%5.2f,%5.2f], Combined"
           " Loss(value, ppo, entropy) [%2.5f(%2.5f,%2.5f,%2.5f)], took "
-          "[%2.5f msec], Average Rewards(last 10):%s",
+          "[%2.5f msec].",
           i, min_reward, max_reward,
           avg_reward, loss_combined, loss_value, loss_ppo, entropy_bonus,
-          get_time(t1), ", ".join([str(a) for a in average_rewards[-10:]]))
-
-  logging.vlog(1, "value_losses: %s", np.stack(value_losses))
-  logging.vlog(1, "ppo_objective:\n%s", np.stack(ppo_objective))
-  logging.vlog(1, "combined_losses:\n%s", np.stack(combined_losses))
-  logging.vlog(1, "average_rewards:\n%s", average_rewards)
-
-  return (average_rewards, np.stack(value_losses), np.stack(ppo_objective))
+          get_time(t1))

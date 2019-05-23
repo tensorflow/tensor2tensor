@@ -101,9 +101,6 @@ flags.DEFINE_bool(
     "In the combined network case should we make one tower or"
     "two.")
 
-flags.DEFINE_boolean("flatten_dims", False,
-                     "If true, we flatten except the first two dimensions.")
-
 # Number of optimizer steps of the combined net, policy net and value net.
 flags.DEFINE_integer("num_optimizer_steps", 100, "Number of optimizer steps.")
 flags.DEFINE_integer(
@@ -137,11 +134,7 @@ def common_layers():
   if "NoFrameskip" in FLAGS.env_problem_name:
     return atari_layers()
 
-  cur_layers = []
-  if FLAGS.flatten_dims:
-    cur_layers = [layers.Div(divisor=255.0), layers.Flatten(num_axis_to_keep=2)]
-  body = [layers.Dense(64), layers.Tanh(), layers.Dense(64), layers.Tanh()]
-  return cur_layers + body
+  return [layers.Dense(64), layers.Tanh(), layers.Dense(64), layers.Tanh()]
 
 
 def atari_layers():
