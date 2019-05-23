@@ -268,7 +268,6 @@ class Transformer(t2t_model.T2TModel):
           recurrent_memory_by_layer=self.recurrent_memory_by_layer,
           chunk_number=chunk_number_each_example,
           )
-
     decoder_output = self.decode(
         decoder_input,
         encoder_output,
@@ -279,7 +278,6 @@ class Transformer(t2t_model.T2TModel):
         losses=losses,
         **decode_kwargs
         )
-
     expected_attentions = features.get("expected_attentions")
     if expected_attentions is not None:
       attention_loss = common_attention.encoder_decoder_attention_loss(
@@ -608,6 +606,17 @@ class Transformer(t2t_model.T2TModel):
         ret["outputs"] = ret["outputs"][:, :, partial_targets_length:]
     return ret
 
+  def get_decode_start_id(self):
+    """Returns the id of the first decoder input symbol.
+
+    The default case maps None to a vector of 0's for transformer. This method
+    can be overridden to return a different id by a model wanting to use a
+    different decoder start symbol. The id returned by this method is used to
+    index the embedding matrix, and retrieve the vector that will be used as the
+    first input to the decoder
+    """
+    return None
+
   def _fast_decode(self,
                    features,
                    decode_length,
@@ -751,8 +760,9 @@ class Transformer(t2t_model.T2TModel):
       # Shifts the targets along by one for the input which pads with zeros.
       # If the modality already maps GO to the zero embeddings this is not
       # needed.
-      targets = tf.cond(
-          tf.equal(i, 0), lambda: tf.zeros_like(targets), lambda: targets)
+      if not self.get_decode_start_id():
+        targets = tf.cond(
+            tf.equal(i, 0), lambda: tf.zeros_like(targets), lambda: targets)
 
       if positional_encoding is not None:
         targets += positional_encoding[:, i:i + 1]
@@ -771,7 +781,6 @@ class Transformer(t2t_model.T2TModel):
       targets = preprocess_targets(targets, i)
 
       bias = decoder_self_attention_bias[:, :, i:i + 1, :i + 1]
-
       with tf.variable_scope("body"):
         body_outputs = dp(
             self.decode,
@@ -808,6 +817,8 @@ class Transformer(t2t_model.T2TModel):
             tf.less(i, partial_targets_length), forced_logits, lambda: ret)
       return ret, cache
 
+    sos_id = self.get_decode_start_id() or 0
+
     ret = fast_decode(
         encoder_output=encoder_output,
         encoder_decoder_attention_bias=encoder_decoder_attention_bias,
@@ -820,7 +831,8 @@ class Transformer(t2t_model.T2TModel):
         top_beams=top_beams,
         alpha=alpha,
         batch_size=batch_size,
-        force_decode_length=self._decode_hparams.force_decode_length)
+        force_decode_length=self._decode_hparams.force_decode_length,
+        sos_id=sos_id)
     if partial_targets is not None:
       if beam_size <= 1 or top_beams <= 1:
         ret["outputs"] = ret["outputs"][:, partial_targets_length:]
@@ -1278,7 +1290,7 @@ def features_to_nonpadding(features, inputs_or_targets="inputs"):
   return None
 
 
-def transformer_prepare_decoder(targets, hparams, features=None):
+def transformer_prepare_decoder(targets, hparams, features=None, pad=None):
   """Prepare one shard of the model for the decoder.
 
   Args:
@@ -1286,6 +1298,7 @@ def transformer_prepare_decoder(targets, hparams, features=None):
     hparams: run hyperparameters
     features: optionally pass the entire features dictionary as well. This is
       needed now for "packed" datasets.
+    pad: vector to use for padding when shifting targets right
 
   Returns:
     decoder_input: a Tensor, bottom of decoder stack
@@ -1318,7 +1331,7 @@ def transformer_prepare_decoder(targets, hparams, features=None):
   if hparams.proximity_bias:
     decoder_self_attention_bias += common_attention.attention_bias_proximal(
         common_layers.shape_list(targets)[1])
-  decoder_input = common_layers.shift_right_3d(targets)
+  decoder_input = common_layers.shift_right_3d(targets, pad)
   if hparams.pos == "timing":
     if targets_position is not None:
       decoder_input = common_attention.add_timing_signal_1d_given_position(
@@ -1552,8 +1565,8 @@ def transformer_decoder(decoder_input,
           losses=losses,
           layer_collection=layer_collection,
           recurrent_memory_by_layer=recurrent_memory_by_layer,
-          chunk_number=chunk_number,
-      )
+          chunk_number=chunk_number
+          )
 
     # if normalization is done in layer_preprocess, then it should also be done
     # on the output, since the output can grow very large, being the sum of
