@@ -21,6 +21,10 @@ from __future__ import print_function
 
 import numpy as np
 
+CATEGORICAL_SAMPLING = "categorical"
+EPSILON_GREEDY = "epsilon-greedy"
+GUMBEL_SAMPLING = "gumbel"
+
 
 def done_indices(dones):
   """Calculates the indices where dones has True."""
@@ -52,7 +56,10 @@ def play_env_problem_with_policy(env,
                                  max_timestep=None,
                                  boundary=20,
                                  idx=0,
-                                 rng=None):
+                                 rng=None,
+                                 policy_sampling=CATEGORICAL_SAMPLING,
+                                 temperature=0.5,
+                                 eps=0.1):
   """Plays the given env with the policy function to collect trajectories.
 
   Args:
@@ -69,23 +76,64 @@ def play_env_problem_with_policy(env,
     idx: int, index on the number of times this function is being called, we may
         want to reset only when idx == 0 for instance.
     rng: jax rng, splittable.
+    policy_sampling: string, how to select an action given a policy, one of:
+        CATEGORICAL_SAMPLING, GREEDY, GUMBEL_SAMPLING
+    temperature: float, temperature used in gumbel sampling.
+    eps: float, epsilon to use in epsilon greedy.
+
 
   Returns:
     Completed trajectories that is a list of triples of (observation, action,
     reward) ndarrays.
   """
 
-  def multinomial_sample(probs):
-    """Sample from this vector of probabilities.
+  def categorical_sample(log_probs):
+    """Categorical sampling."""
 
-    Args:
-      probs: numpy array of shape (A,) where A is the number of actions, these
-        must sum up to 1.0
+    def multinomial_sample(probs):
+      """Sample from this vector of probabilities.
 
-    Returns:
-      an integer of which action to pick.
-    """
-    return int(np.argwhere(np.random.multinomial(1, probs) == 1))
+      Args:
+        probs: numpy array of shape (A,) where A is the number of actions, these
+          must sum up to 1.0
+
+      Returns:
+        an integer of which action to pick.
+      """
+
+      return int(np.argwhere(np.random.multinomial(1, probs) == 1))
+
+    # Convert to probs, since we need to do categorical sampling.
+    probs = np.exp(log_probs)
+
+    # Let's cast up to float64, because that's what numpy does when sampling
+    # and it leads to the sum(pvals[:-1]) > 1.0 error.
+    #
+    # We also re-normalize when we do this.
+    probs = np.float64(probs)
+    probs /= np.sum(probs, axis=1, keepdims=True)
+
+    # Now pick actions from this probs array.
+    return np.apply_along_axis(multinomial_sample, 1, probs)
+
+  def gumbel_sample(log_probs):
+    """Gumbel sampling."""
+    u = np.random.uniform(low=1e-6, high=1.0 - 1e-6, size=log_probs.shape)
+    g = -np.log(-np.log(u))
+    return np.argmax((log_probs / temperature) + g, axis=1)
+
+  def epsilon_greedy(log_probs):
+    """Epsilon greedy sampling."""
+    _, A = log_probs.shape  # pylint: disable=invalid-name
+    actions = []
+    for log_prob in log_probs:
+      # Pick the argmax action.
+      action = np.argmax(log_prob)
+      if np.random.uniform() < eps:
+        # Pick an action at random.
+        action = np.random.choice(range(A))
+      actions.append(action)
+    return np.stack(actions)
 
   # We need to reset all environments, if we're coming here the first time.
   if idx == 0 or max_timestep is None or max_timestep <= 0:
@@ -118,18 +166,15 @@ def play_env_problem_with_policy(env,
     assert (B, A) == log_probs.shape, \
         "B=%d, A=%d, log_probs.shape=%s" % (B, A, log_probs.shape)
 
-    # Convert to probs, since we need to do categorical sampling.
-    probs = np.exp(log_probs)
-
-    # Let's cast up to float64, because that's what numpy does when sampling
-    # and it leads to the sum(pvals[:-1]) > 1.0 error.
-    #
-    # We also re-normalize when we do this.
-    probs = np.float64(probs)
-    probs /= np.sum(probs, axis=1, keepdims=True)
-
-    # Now pick actions from this probs array.
-    actions = np.apply_along_axis(multinomial_sample, 1, probs)
+    actions = None
+    if policy_sampling == CATEGORICAL_SAMPLING:
+      actions = categorical_sample(log_probs)
+    elif policy_sampling == GUMBEL_SAMPLING:
+      actions = gumbel_sample(log_probs)
+    elif policy_sampling == EPSILON_GREEDY:
+      actions = epsilon_greedy(log_probs)
+    else:
+      raise ValueError("Unknown sampling policy [%s]" % policy_sampling)
 
     # Step through the env.
     _, _, dones, _ = env.step(actions)

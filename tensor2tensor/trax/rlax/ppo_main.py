@@ -96,11 +96,6 @@ flags.DEFINE_boolean("resize", False, "If true, resize the game frame")
 flags.DEFINE_integer("resized_height", 105, "Resized height of the game frame.")
 flags.DEFINE_integer("resized_width", 80, "Resized width of the game frame.")
 
-flags.DEFINE_boolean(
-    "combined_network", False,
-    "If True there is a single network that determines policy"
-    "and values.")
-
 flags.DEFINE_bool(
     "two_towers", True,
     "In the combined network case should we make one tower or"
@@ -111,20 +106,12 @@ flags.DEFINE_boolean("flatten_dims", False,
 
 # Number of optimizer steps of the combined net, policy net and value net.
 flags.DEFINE_integer("num_optimizer_steps", 100, "Number of optimizer steps.")
-flags.DEFINE_integer("policy_only_num_optimizer_steps", 80,
-                     "Number of optimizer steps policy only.")
-flags.DEFINE_integer("value_only_num_optimizer_steps", 80,
-                     "Number of optimizer steps value only.")
 flags.DEFINE_integer(
     "print_every_optimizer_steps", 1,
     "How often to log during the policy optimization process.")
 
 # Learning rate of the combined net, policy net and value net.
 flags.DEFINE_float("learning_rate", 1e-3, "Learning rate.")
-flags.DEFINE_float("policy_only_learning_rate", 3e-4,
-                   "Learning rate for policy network only.")
-flags.DEFINE_float("value_only_learning_rate", 1e-3,
-                   "Learning rate for value network only.")
 
 # Target KL is used for doing early stopping in the
 flags.DEFINE_float("target_kl", 0.01, "Policy iteration early stopping")
@@ -218,26 +205,12 @@ def main(argv):
 
   def run_training_loop():
     """Runs the training loop."""
-    policy_net_fun = None
-    value_net_fun = None
-    policy_and_value_net_fun = None
-    policy_optimizer_fun = None
-    value_optimizer_fun = None
-    policy_and_value_optimizer_fun = None
 
-    if FLAGS.combined_network:
-      policy_and_value_net_fun = functools.partial(
-          ppo.policy_and_value_net,
-          bottom_layers_fn=common_layers,
-          two_towers=FLAGS.two_towers)
-      policy_and_value_optimizer_fun = get_optimizer_fun(FLAGS.learning_rate)
-    else:
-      policy_net_fun = functools.partial(
-          ppo.policy_net, bottom_layers=common_layers())
-      value_net_fun = functools.partial(
-          ppo.value_net, bottom_layers=common_layers())
-      policy_optimizer_fun = get_optimizer_fun(FLAGS.policy_only_learning_rate)
-      value_optimizer_fun = get_optimizer_fun(FLAGS.value_only_learning_rate)
+    policy_and_value_net_fun = functools.partial(
+        ppo.policy_and_value_net,
+        bottom_layers_fn=common_layers,
+        two_towers=FLAGS.two_towers)
+    policy_and_value_optimizer_fun = get_optimizer_fun(FLAGS.learning_rate)
 
     random_seed = None
     try:
@@ -248,15 +221,9 @@ def main(argv):
     ppo.training_loop(
         env=env,
         epochs=FLAGS.epochs,
-        policy_net_fun=policy_net_fun,
-        value_net_fun=value_net_fun,
         policy_and_value_net_fun=policy_and_value_net_fun,
-        policy_optimizer_fun=policy_optimizer_fun,
-        value_optimizer_fun=value_optimizer_fun,
         policy_and_value_optimizer_fun=policy_and_value_optimizer_fun,
         num_optimizer_steps=FLAGS.num_optimizer_steps,
-        policy_only_num_optimizer_steps=FLAGS.policy_only_num_optimizer_steps,
-        value_only_num_optimizer_steps=FLAGS.value_only_num_optimizer_steps,
         print_every_optimizer_steps=FLAGS.print_every_optimizer_steps,
         batch_size=FLAGS.batch_size,
         target_kl=FLAGS.target_kl,
