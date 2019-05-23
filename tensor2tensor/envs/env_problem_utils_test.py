@@ -62,7 +62,7 @@ class EnvProblemUtilsTest(tf.test.TestCase):
 
     max_timestep = 15
     num_trajectories = 2
-    trajectories = env_problem_utils.play_env_problem_with_policy(
+    trajectories, _ = env_problem_utils.play_env_problem_with_policy(
         env, policy_fun, num_trajectories=num_trajectories,
         max_timestep=max_timestep, boundary=20)
 

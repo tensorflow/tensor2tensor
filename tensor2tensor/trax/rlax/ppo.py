@@ -137,7 +137,7 @@ def collect_trajectories(env,
                          max_timestep=None,
                          boundary=20,
                          epsilon=0.1,
-                         idx=0,
+                         reset=True,
                          rng=None):
   """Collect trajectories with the given policy net and behaviour.
 
@@ -152,10 +152,12 @@ def collect_trajectories(env,
       done.
     boundary: int, boundary for padding, used in EnvProblem envs.
     epsilon: float, the epsilon for `epsilon-greedy` policy.
-    idx: int, index on the number of times this function is being called
+    reset: bool, true if we want to reset the envs. The envs are also reset if
+      max_max_timestep is None or < 0
     rng: jax rng, splittable.
 
   Returns:
+    A tuple (trajectory, number of trajectories that are done)
     trajectory: list of (observation, action, reward) tuples, where each element
     `i` is a tuple of numpy arrays with shapes as follows:
     observation[i] = (B, T_i + 1)
@@ -173,7 +175,7 @@ def collect_trajectories(env,
       boundary=boundary,
       policy_sampling=policy,
       eps=epsilon,
-      idx=idx,
+      reset=reset,
       rng=rng)
 
 
@@ -708,17 +710,40 @@ def evaluate_policy(eval_env,
   for policy in [env_problem_utils.CATEGORICAL_SAMPLING,
                  env_problem_utils.GUMBEL_SAMPLING,
                  env_problem_utils.EPSILON_GREEDY]:
-    trajs = env_problem_utils.play_env_problem_with_policy(
+    trajs, _ = env_problem_utils.play_env_problem_with_policy(
         eval_env,
         get_predictions,
         boundary=boundary,
         max_timestep=max_timestep,
-        idx=0,  # reset always
+        reset=True,
         policy_sampling=policy,
         rng=rng)
     avg_rewards[policy] = float(
         sum(np.sum(traj[2]) for traj in trajs)) / len(trajs)
   return avg_rewards
+
+
+def maybe_restore_params(output_dir, policy_and_value_net_params):
+  """Maybe restore the params from the checkpoint dir.
+
+  Args:
+    output_dir: Directory where saved model checkpoints are stored.
+    policy_and_value_net_params: Default params, returned if model is'nt found.
+
+  Returns:
+    triple (restore (bool), params, iter(int)) where iter is the epoch from
+    which we restored the params, 0 is restore = False.
+  """
+  model_files = gfile.glob(os.path.join(output_dir, "model-??????.pkl"))
+  if not model_files:
+    return False, policy_and_value_net_params, 0
+
+  model_file = sorted(model_files)[-1]
+  model_file_basename = os.path.basename(model_file)  # model-??????.pkl
+  i = int(filter(str.isdigit, model_file_basename))
+  with gfile.GFile(model_file, "rb") as f:
+    policy_and_value_net_params = pickle.load(f)
+  return True, policy_and_value_net_params, i
 
 
 def training_loop(
@@ -742,12 +767,13 @@ def training_loop(
     output_dir=None,
     eval_every_n=1000,
     eval_env=None,
+    done_frac_for_policy_save=0.5,
     enable_early_stopping=True):
   """Runs the training loop for PPO, with fixed policy and value nets."""
   assert env
+  assert output_dir
 
-  if output_dir:
-    gfile.makedirs(output_dir)
+  gfile.makedirs(output_dir)
 
   # Create summary writers and history.
   train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
@@ -762,14 +788,21 @@ def training_loop(
   assert isinstance(env.action_space, gym.spaces.Discrete)
   num_actions = env.action_space.n
 
-  policy_and_value_net_params, policy_and_value_net_apply = None, None
-  policy_and_value_opt_state, policy_and_value_opt_update = None, None
-
   jax_rng_key, key1 = jax_random.split(jax_rng_key, num=2)
 
   # Initialize the policy and value network.
   policy_and_value_net_params, policy_and_value_net_apply = (
       policy_and_value_net_fun(key1, batch_observations_shape, num_actions))
+
+  # Maybe restore the policy params. If there is nothing to restore, then
+  # iteration = 0 and policy_and_value_net_params are returned as is.
+  restore, policy_and_value_net_params, iteration = (
+      maybe_restore_params(output_dir, policy_and_value_net_params))
+
+  if restore:
+    logging.info("Restored parameters from iteration [%d]", iteration)
+    # We should start from the next iteration.
+    iteration += 1
 
   policy_and_value_net_apply = jit(policy_and_value_net_apply)
 
@@ -779,7 +812,9 @@ def training_loop(
   (policy_and_value_opt_state, policy_and_value_opt_update,
    policy_and_value_get_params) = policy_and_value_optimizer
 
-  for i in range(epochs):
+  num_trajectories_done = 0
+
+  for i in range(iteration, epochs):
 
     # Params we'll use to collect the trajectories.
     policy_and_value_net_params = policy_and_value_get_params(
@@ -795,14 +830,11 @@ def training_loop(
 
       return log_probs, value_preds, key
 
-    # Save params and evaluate the policy.
-    if output_dir and (i % eval_every_n == 0):
+    # Evaluate the policy.
+    if (i % eval_every_n == 0) or (i == epochs - 1):
       jax_rng_key, key = jax_random.split(jax_rng_key, num=2)
 
-      logging.vlog(1, "Epoch [% 6d] saving model and evaluating policy.", i)
-      params_file = os.path.join(output_dir, "model-%06d.pkl" % i)
-      with gfile.GFile(params_file, "wb") as f:
-        pickle.dump(policy_and_value_net_params, f)
+      logging.vlog(1, "Epoch [% 6d] evaluating policy.", i)
 
       avg_reward = evaluate_policy(eval_env, get_predictions, boundary,
                                    max_timestep=max_timestep_eval, rng=key)
@@ -813,15 +845,29 @@ def training_loop(
     t = time.time()
     logging.vlog(1, "Epoch [% 6d] collecting trajectories.", i)
     jax_rng_key, key = jax_random.split(jax_rng_key)
-    trajs = collect_trajectories(
+    trajs, num_done = collect_trajectories(
         env,
         policy_fun=get_predictions,
         num_trajectories=batch_size,
         max_timestep=max_timestep,
         boundary=boundary,
         rng=key,
-        idx=i,
+        reset=(i == 0) or restore,
         epsilon=(10.0 / (i + 10.0)))  # this is a different epsilon.
+
+    # Save parameters every time we see the end of atleast a fraction of batch
+    # number of trajectories that are done (not completed -- completed includes
+    # truncated and done).
+    # Or if this is the last iteration.
+    num_trajectories_done += num_done
+    if ((num_trajectories_done >= done_frac_for_policy_save * batch_size) or
+        (i == epochs - 1)):
+      logging.vlog(1, "Epoch [% 6d] saving model.", i)
+      params_file = os.path.join(output_dir, "model-%06d.pkl" % i)
+      with gfile.GFile(params_file, "wb") as f:
+        pickle.dump(policy_and_value_net_params, f)
+      # Reset this number.
+      num_trajectories_done = 0
 
     logging.vlog(1, "Collecting trajectories took %0.2f msec.", get_time(t))
 
@@ -996,3 +1042,5 @@ def training_loop(
           i, min_reward, max_reward,
           avg_reward, loss_combined, loss_value, loss_ppo, entropy_bonus,
           get_time(t1))
+
+      restore = False

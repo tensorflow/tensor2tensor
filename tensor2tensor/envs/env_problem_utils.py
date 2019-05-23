@@ -55,7 +55,7 @@ def play_env_problem_with_policy(env,
                                  num_trajectories=1,
                                  max_timestep=None,
                                  boundary=20,
-                                 idx=0,
+                                 reset=True,
                                  rng=None,
                                  policy_sampling=CATEGORICAL_SAMPLING,
                                  temperature=0.5,
@@ -73,8 +73,8 @@ def play_env_problem_with_policy(env,
     boundary: this is the bucket length, we pad the observations to integer
         multiples of this + 1 and then feed the padded observations to the
         policy_fun.
-    idx: int, index on the number of times this function is being called, we may
-        want to reset only when idx == 0 for instance.
+    reset: bool, true if we want to reset the envs. The envs are also reset if
+        max_max_timestep is None or < 0
     rng: jax rng, splittable.
     policy_sampling: string, how to select an action given a policy, one of:
         CATEGORICAL_SAMPLING, GREEDY, GUMBEL_SAMPLING
@@ -83,8 +83,8 @@ def play_env_problem_with_policy(env,
 
 
   Returns:
-    Completed trajectories that is a list of triples of (observation, action,
-    reward) ndarrays.
+    A tuple, (trajectories, number of completed trajectories). Where
+    trajectories is a list of triples of (observation, action, reward) ndarrays.
   """
 
   def categorical_sample(log_probs):
@@ -136,11 +136,13 @@ def play_env_problem_with_policy(env,
     return np.stack(actions)
 
   # We need to reset all environments, if we're coming here the first time.
-  if idx == 0 or max_timestep is None or max_timestep <= 0:
+  if reset or max_timestep is None or max_timestep <= 0:
     env.reset()
   else:
     # Clear completed trajectories held internally.
     env.trajectories.clear_completed_trajectories()
+
+  num_done_trajectories = 0
 
   while env.trajectories.num_completed_trajectories < num_trajectories:
     # Get all the observations for all the active trajectories.
@@ -179,6 +181,10 @@ def play_env_problem_with_policy(env,
     # Step through the env.
     _, _, dones, _ = env.step(actions)
 
+    # Count the number of done trajectories, the others could just have been
+    # truncated.
+    num_done_trajectories += np.sum(dones)
+
     # Get the indices where we are done ...
     done_idxs = done_indices(dones)
 
@@ -216,4 +222,4 @@ def play_env_problem_with_policy(env,
   # Keep the rest of the trajectories, if any, in our kitty.
   env.trajectories.clear_completed_trajectories(num=num_trajectories)
 
-  return completed_trajectories
+  return completed_trajectories, num_done_trajectories

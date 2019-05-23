@@ -69,7 +69,7 @@ flags.DEFINE_integer(
 # -1: returns env as is.
 # None: unwraps and returns without TimeLimit wrapper.
 # Any other number: imposes this restriction.
-flags.DEFINE_integer(
+flags.DEFINE_string(
     "max_timestep", None,
     "If set to an integer, maximum number of time-steps in a "
     "trajectory. The bare env is wrapped with TimeLimit wrapper.")
@@ -127,6 +127,9 @@ flags.DEFINE_bool("enable_early_stopping", True,
 flags.DEFINE_bool("xm", False, "Are we running on borg?.")
 flags.DEFINE_integer("eval_every_n", 100, "How frequently to eval the policy.")
 flags.DEFINE_integer("eval_batch_size", 4, "Batch size for evaluation.")
+flags.DEFINE_float("done_frac_for_policy_save", 0.5,
+                   "Fraction of the trajectories that should be done to "
+                   "checkpoint the policy.")
 
 
 def common_layers():
@@ -155,9 +158,15 @@ def make_env(batch_size=8):
         batch_size=batch_size,
         reward_range=(-1, 1))
 
+  max_timestep = None
+  try:
+    max_timestep = int(FLAGS.max_timestep)
+  except Exception:  # pylint: disable=broad-except
+    pass
+
   wrapper_fn = functools.partial(
       gym_utils.gym_env_wrapper, **{
-          "rl_env_max_episode_steps": FLAGS.max_timestep,
+          "rl_env_max_episode_steps": max_timestep,
           "maxskip_env": True,
           "rendered_env": True,
           "rendered_env_resize_to": (FLAGS.resized_height, FLAGS.resized_width),
@@ -232,6 +241,7 @@ def main(argv):
         enable_early_stopping=FLAGS.enable_early_stopping,
         output_dir=FLAGS.output_dir,
         eval_every_n=FLAGS.eval_every_n,
+        done_frac_for_policy_save=FLAGS.done_frac_for_policy_save,
         eval_env=eval_env)
 
   if FLAGS.jax_debug_nans or FLAGS.disable_jit:
