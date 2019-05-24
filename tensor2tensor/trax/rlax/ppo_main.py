@@ -55,6 +55,7 @@ from tensor2tensor.trax import layers
 from tensor2tensor.trax.models import atari_cnn
 from tensor2tensor.trax.rlax import ppo
 
+
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("env_problem_name", None, "Name of the EnvProblem to make.")
@@ -183,6 +184,7 @@ def get_optimizer_fun(learning_rate):
 
 def main(argv):
   del argv
+  logging.info("Starting PPO Main.")
 
   if FLAGS.jax_debug_nans:
     config.update("jax_debug_nans", True)
