@@ -43,7 +43,7 @@ import functools
 
 from absl import app
 from absl import flags
-import gym
+from absl import logging
 import jax
 from jax.config import config
 import numpy as onp
@@ -57,7 +57,6 @@ from tensor2tensor.trax.rlax import ppo
 
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("env_name", None, "Name of the environment to make.")
 flags.DEFINE_string("env_problem_name", None, "Name of the EnvProblem to make.")
 
 flags.DEFINE_integer("epochs", 100, "Number of epochs to run for.")
@@ -124,12 +123,13 @@ flags.DEFINE_string("output_dir", "", "Output dir.")
 flags.DEFINE_bool("use_tpu", False, "Whether we're running on TPU.")
 flags.DEFINE_bool("enable_early_stopping", True,
                   "Whether to enable early stopping.")
-flags.DEFINE_bool("xm", False, "Are we running on borg?.")
+flags.DEFINE_bool("xm", False, "Copy atari roms?")
 flags.DEFINE_integer("eval_every_n", 100, "How frequently to eval the policy.")
 flags.DEFINE_integer("eval_batch_size", 4, "Batch size for evaluation.")
-flags.DEFINE_float("done_frac_for_policy_save", 0.5,
-                   "Fraction of the trajectories that should be done to "
-                   "checkpoint the policy.")
+flags.DEFINE_float(
+    "done_frac_for_policy_save", 0.5,
+    "Fraction of the trajectories that should be done to "
+    "checkpoint the policy.")
 
 
 def common_layers():
@@ -146,10 +146,6 @@ def atari_layers():
 
 def make_env(batch_size=8):
   """Creates the env."""
-  if FLAGS.env_name:
-    return gym.make(FLAGS.env_name)
-
-  assert FLAGS.env_problem_name
 
   # No resizing needed, so let's be on the normal EnvProblem.
   if not FLAGS.resize:  # None or False
@@ -190,8 +186,11 @@ def main(argv):
 
   if FLAGS.jax_debug_nans:
     config.update("jax_debug_nans", True)
+
   if FLAGS.use_tpu:
     config.update("jax_platform_name", "tpu")
+  else:
+    config.update("jax_platform_name", "gpu")
 
   # TODO(afrozm): Refactor.
   if "NoFrameskip" in FLAGS.env_problem_name and FLAGS.xm:
@@ -207,6 +206,7 @@ def main(argv):
 
   def run_training_loop():
     """Runs the training loop."""
+    logging.info("Starting the training loop.")
 
     policy_and_value_net_fun = functools.partial(
         ppo.policy_and_value_net,
@@ -242,7 +242,9 @@ def main(argv):
         output_dir=FLAGS.output_dir,
         eval_every_n=FLAGS.eval_every_n,
         done_frac_for_policy_save=FLAGS.done_frac_for_policy_save,
-        eval_env=eval_env)
+        eval_env=eval_env,
+        env_name=str(FLAGS.env_problem_name),
+    )
 
   if FLAGS.jax_debug_nans or FLAGS.disable_jit:
     with jax.disable_jit():

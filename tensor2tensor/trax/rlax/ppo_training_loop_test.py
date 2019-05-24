@@ -73,6 +73,7 @@ class PpoTrainingLoopTest(test.TestCase):
           batch_size=batch_size,
           num_optimizer_steps=1,
           output_dir=output_dir,
+          env_name="CartPole-v0",
           random_seed=0)
 
 
