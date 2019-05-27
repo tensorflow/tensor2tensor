@@ -19,62 +19,62 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import contextlib
 import functools
-import gym
+import tempfile
+from tensor2tensor.envs import env_problem
 from tensor2tensor.rl import gym_utils
 from tensor2tensor.trax import layers
 from tensor2tensor.trax.rlax import ppo
 from tensorflow import test
+from tensorflow.io import gfile
 
 
 class PpoTrainingLoopTest(test.TestCase):
 
   def get_wrapped_env(self, name="CartPole-v0", max_episode_steps=2):
-    env = gym.make(name)
-    # Usually gym envs are wrapped in TimeLimit wrapper.
-    env = gym_utils.remove_time_limit_wrapper(env)
-    # Limit this to a small number for tests.
-    return gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
+    wrapper_fn = functools.partial(
+        gym_utils.gym_env_wrapper,
+        **{
+            "rl_env_max_episode_steps": max_episode_steps,
+            "maxskip_env": False,
+            "rendered_env": False,
+            "rendered_env_resize_to": None,  # Do not resize frames
+            "sticky_actions": False,
+            "output_dtype": None,
+        })
+
+    return env_problem.EnvProblem(base_env_name=name,
+                                  batch_size=1,
+                                  env_wrapper_fn=wrapper_fn,
+                                  reward_range=(-1, 1))
+
+  @contextlib.contextmanager
+  def tmp_dir(self):
+    tmp = tempfile.mkdtemp(dir=self.get_temp_dir())
+    yield tmp
+    gfile.rmtree(tmp)
 
   def test_training_loop(self):
-    env = self.get_wrapped_env("CartPole-v0", 2)
-    num_epochs = 2
-    batch_size = 2
-    # Run the training loop.
-    _, rewards, val_losses, ppo_objectives = ppo.training_loop(
-        env=env,
-        epochs=num_epochs,
-        policy_net_fun=functools.partial(
-            ppo.policy_net, bottom_layers=[layers.Dense(1)]),
-        value_net_fun=functools.partial(
-            ppo.value_net, bottom_layers=[layers.Dense(1)]),
-        policy_optimizer_fun=ppo.optimizer_fun,
-        value_optimizer_fun=ppo.optimizer_fun,
-        batch_size=batch_size,
-        num_optimizer_steps=1,
-        random_seed=0)
-    self.assertLen(rewards, num_epochs)
-    self.assertLen(val_losses, num_epochs)
-    self.assertLen(ppo_objectives, num_epochs)
-
-  def test_training_loop_policy_and_value_function(self):
-    env = self.get_wrapped_env("CartPole-v0", 2)
-    num_epochs = 2
-    batch_size = 2
-    # Run the training loop.
-    _, rewards, val_losses, ppo_objectives = ppo.training_loop(
-        env=env,
-        epochs=num_epochs,
-        policy_and_value_net_fun=functools.partial(
-            ppo.policy_and_value_net,
-            bottom_layers_fn=lambda: [layers.Dense(1)]),
-        policy_and_value_optimizer_fun=ppo.optimizer_fun,
-        batch_size=batch_size,
-        num_optimizer_steps=1,
-        random_seed=0)
-    self.assertLen(rewards, num_epochs)
-    self.assertLen(val_losses, num_epochs)
-    self.assertLen(ppo_objectives, num_epochs)
+    with self.tmp_dir() as output_dir:
+      env = self.get_wrapped_env("CartPole-v0", 2)
+      eval_env = self.get_wrapped_env("CartPole-v0", 2)
+      num_epochs = 2
+      batch_size = 2
+      # Run the training loop.
+      ppo.training_loop(
+          env=env,
+          eval_env=eval_env,
+          epochs=num_epochs,
+          policy_and_value_net_fun=functools.partial(
+              ppo.policy_and_value_net,
+              bottom_layers_fn=lambda: [layers.Dense(1)]),
+          policy_and_value_optimizer_fun=ppo.optimizer_fun,
+          batch_size=batch_size,
+          num_optimizer_steps=1,
+          output_dir=output_dir,
+          env_name="CartPole-v0",
+          random_seed=0)
 
 
 if __name__ == "__main__":

@@ -49,7 +49,7 @@ def EncoderDecoderMaskShape(inputs):
   return (batch_size, 1, target_length, input_length)
 
 
-@base.layer(output_shape=EncoderDecoderMaskShape)
+@base.layer(output_shape=EncoderDecoderMaskShape, stack_items_to_pass=0)
 def EncoderDecoderMask(x, **unused_kwargs):
   """Make encoder-decoder mask from a padding mask and decoder input."""
   (padding_mask, decoder_input) = x
@@ -63,10 +63,7 @@ def EncoderDecoderMask(x, **unused_kwargs):
 def _positional_encoding_new_params(input_shape, rng, max_len=2048):  # pylint: disable=invalid-name
   """Helper: create positional encoding parameters."""
   del rng
-  # Check if we are operating on chunked inputs by checking if the first
-  # shape is a list/tuple of shapes (otherwise it's an int or numpy array).
-  is_chunked = isinstance(input_shape[0], (list, tuple))
-  feature_depth = input_shape[0][-1] if is_chunked else input_shape[-1]
+  feature_depth = input_shape[-1]
   pe = onp.zeros((max_len, feature_depth), dtype=onp.float32)
   position = onp.arange(0, max_len)[:, onp.newaxis]
   div_term = onp.exp(
@@ -80,17 +77,8 @@ def _positional_encoding_new_params(input_shape, rng, max_len=2048):  # pylint: 
 @base.layer(new_parameters=_positional_encoding_new_params)
 def PositionalEncoding(x, params, **unused_kwargs):
   """Implements bare positional encoding."""
-  if not isinstance(x, (list, tuple)):  # non-chunked inputs
-    symbol_size = np.shape(x)[1]
-    return x + params[:, :symbol_size, :]
-  # Chunked case: apply to all chunks selecting as much as needed.
-  offset = 0
-  results = []
-  for chunk in x:
-    symbol_size = np.shape(chunk)[1]
-    results.append(chunk + params[:, offset:offset + symbol_size, :])
-    offset += symbol_size
-  return results
+  symbol_size = np.shape(x)[1]
+  return x + params[:, :symbol_size, :]
 
 
 def DotProductAttention(query, key, value, mask, dropout, mode, rng):
@@ -150,12 +138,15 @@ def PureDotProductAttention(dropout=0.0, mode='train'):
 def _multihead_attention_output_shape(  # pylint: disable=invalid-name
     input_shapes, **unused_kwargs):
   """Helper: calculate multihead attention output shape."""
-  q_shape = input_shapes[0][0]  # Inputs are ((q, k, v), mask).
-  mask_shape = input_shapes[1]
-  return q_shape, mask_shape
+  q_shape = input_shapes[0]  # Inputs are (q, k, v, mask).
+  v_shape = input_shapes[2]  # Inputs are (q, k, v, mask).
+  mask_shape = input_shapes[3]
+  res_shape = list(q_shape[:-1]) + [v_shape[-1]]
+  return tuple(res_shape), mask_shape
 
 
-@base.layer(output_shape=_multihead_attention_output_shape)
+@base.layer(output_shape=_multihead_attention_output_shape,
+            stack_items_to_pass=4)
 def PureMultiHeadedAttention(x, params, num_heads=8, dropout=0.0,
                              mode='train', **kwargs):
   """Pure transformer-style multi-headed attention.
@@ -173,7 +164,7 @@ def PureMultiHeadedAttention(x, params, num_heads=8, dropout=0.0,
   """
   del params
   rng = kwargs.get('rng', None)
-  (q, k, v), mask = x
+  q, k, v, mask = x
   feature_depth = q.shape[-1]
   assert feature_depth % num_heads == 0
   head_depth = feature_depth // num_heads
@@ -211,17 +202,15 @@ def MultiHeadedAttentionQKV(
   """
   return combinators.Serial(
       combinators.Parallel(
-          combinators.Parallel(
-              core.Dense(feature_depth),
-              core.Dense(feature_depth),
-              core.Dense(feature_depth),
-          ),
-          combinators.Copy()
+          core.Dense(feature_depth),
+          core.Dense(feature_depth),
+          core.Dense(feature_depth),
+          combinators.NoOp()
       ),
       PureMultiHeadedAttention(  # pylint: disable=no-value-for-parameter
           feature_depth=feature_depth, num_heads=num_heads,
           dropout=dropout, mode=mode),
-      combinators.Parallel(core.Dense(feature_depth), combinators.Copy())
+      core.Dense(feature_depth),
   )
 
 
@@ -241,12 +230,8 @@ def MultiHeadedAttention(
     Multi-headed self-attention layer.
   """
   return combinators.Serial(
-      combinators.Parallel(
-          # q = k = v = first input
-          combinators.Branch(
-              combinators.Copy(), combinators.Copy(), combinators.Copy()),
-          combinators.Copy()  # pass the mask
-      ),
+      combinators.Dup(),
+      combinators.Dup(),
       MultiHeadedAttentionQKV(  # pylint: disable=no-value-for-parameter
           feature_depth, num_heads=num_heads, dropout=dropout, mode=mode),
   )

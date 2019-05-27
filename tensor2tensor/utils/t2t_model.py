@@ -1838,22 +1838,50 @@ class T2TModel(base.Layer):
       return tf.to_int32(reshaped_samples)
 
     # TODO(duckworthd): Move to scheduled_sampling.py.
-    def mix_gold_sampled(gold_targets, sampled_targets, mixin_prob):
+    def mix_gold_sampled(gold_targets,
+                         sampled_targets,
+                         mixin_prob,
+                         i,
+                         prev_new_targets):
       """Interleave sampled and gold tokens randomly."""
-      return tf.where(
-          tf.less(
-              tf.random_uniform(common_layers.shape_list(sampled_targets)),
-              mixin_prob),
+      # Resample each location iid.
+      should_use_sampled_targets = tf.less(
+          tf.random_uniform(common_layers.shape_list(sampled_targets)),
+          mixin_prob)
+      mixed_targets = tf.where(
+          should_use_sampled_targets,
           sampled_targets,
           gold_targets)
 
+      # Reuse sample tokens for earlier timesteps.
+      new_targets = tf.where(
+          is_later_timestep(gold_targets, i),
+          mixed_targets,
+          prev_new_targets)
+      return new_targets
+
     # TODO(duckworthd): Move to scheduled_sampling.py.
-    def parallel_scheduled_sampling_pass(features, logits, mixin_prob):
+    def is_later_timestep(x, pass_idx):
+      """Constructs mask based on timestep."""
+      assert x.shape.ndims == 4, x.shape
+      x_shape = tf.shape(x)
+      batch_size = x_shape[0]
+      num_timesteps = x_shape[1]
+      timesteps = tf.range(num_timesteps)
+      timesteps = tf.reshape(timesteps, [1, num_timesteps, 1, 1])
+      timesteps = tf.tile(timesteps, [batch_size, 1, 1, 1])
+      return tf.greater_equal(timesteps, pass_idx)
+
+    # TODO(duckworthd): Move to scheduled_sampling.py.
+    def parallel_scheduled_sampling_pass(
+        i, prev_new_targets, features, logits, mixin_prob):
       """Generate scheduled sampling results."""
       sampled_targets = sample(logits)
       new_targets = mix_gold_sampled(features["targets"],
                                      sampled_targets,
-                                     mixin_prob)
+                                     mixin_prob,
+                                     i,
+                                     prev_new_targets)
       new_targets = tf.stop_gradient(new_targets)  # Treat new_targets as given.
       new_features = copy.copy(features)
       new_features["targets"] = new_targets
@@ -1879,7 +1907,7 @@ class T2TModel(base.Layer):
         else:
           new_losses["training"] = 0.0
 
-      return new_logits, new_losses
+      return new_targets, new_logits, new_losses
 
     tf.logging.info("Using scheduled sampling.")
     tf.logging.info("Warming scheduled sampling up with schedule: %s",
@@ -1912,9 +1940,10 @@ class T2TModel(base.Layer):
           "hparams.scheduled_sampling_prob > 0.0")
       new_logits = logits
       new_losses = losses
-      for _ in range(hparams.scheduled_sampling_num_passes):
-        new_logits, new_losses = parallel_scheduled_sampling_pass(
-            features, new_logits, mixin_prob)
+      prev_new_targets = features["targets"]
+      for i in range(hparams.scheduled_sampling_num_passes):
+        prev_new_targets, new_logits, new_losses = parallel_scheduled_sampling_pass(
+            i, prev_new_targets, features, new_logits, mixin_prob)
       return new_logits, new_losses
     else:
       raise ValueError(

@@ -59,16 +59,13 @@ def EncoderLayer(feature_depth,
   """
   return tl.Serial(
       tl.Residual(  # Attention block here.
-          tl.Parallel(tl.LayerNorm(), tl.Copy()),
+          tl.LayerNorm(),
           tl.MultiHeadedAttention(feature_depth, num_heads=num_heads,
                                   dropout=dropout, mode=mode),
-          tl.Parallel(tl.Dropout(rate=dropout, mode=mode), tl.Copy())
+          tl.Dropout(rate=dropout, mode=mode)
       ),
-      tl.Parallel(
-          ResidualFeedForward(
-              feature_depth, feedforward_depth, dropout, mode=mode),
-          tl.Div(divisor=2.0)  # Mask added to itself in the residual, divide.
-      )
+      ResidualFeedForward(
+          feature_depth, feedforward_depth, dropout, mode=mode),
   )
 
 
@@ -135,7 +132,7 @@ def DecoderLayer(feature_depth,
   return tl.Serial(
       tl.Residual(  # Self-attention block.
           tl.LayerNorm(),
-          tl.Branch(tl.Copy(), tl.CausalMask(axis=-2)),  # Create mask.
+          tl.Branch(tl.NoOp(), tl.CausalMask(axis=-2)),  # Create mask.
           tl.MultiHeadedAttention(feature_depth, num_heads=num_heads,
                                   dropout=dropout, mode=mode),
           tl.Select(0),  # Drop the mask.
@@ -189,7 +186,7 @@ def EncoderDecoderLayer(feature_depth,
                         mode):
   """Transformer encoder-decoder layer.
 
-  The input is a triple pair (encoder, mask, decoder_input) where
+  The input is a triple pair (decoder_input, mask, encoder) where
   the mask is created from the original source to prevent attending
   to the padding part of the encoder.
 
@@ -201,36 +198,31 @@ def EncoderDecoderLayer(feature_depth,
     mode: str: 'train' or 'eval'
 
   Returns:
-    the layer, returning a triple (encoder, mask, decoder_activations).
+    the layer, returning a triple (decoder_activations, mask, encoder).
   """
   # Decoder self-attending to decoder.
   self_attention = tl.Residual(
       tl.LayerNorm(),
-      tl.Branch(tl.Copy(), tl.CausalMask(axis=-2)),  # create mask
+      tl.Dup(),
+      tl.CausalMask(axis=-2),  # Create the self-attention mask.
+      tl.Swap(),  # Put mask behind the activations.
       tl.MultiHeadedAttention(feature_depth, num_heads=num_heads,
                               dropout=dropout, mode=mode),
-      tl.Select(0),  # drop mask
+      tl.Swap(),  # Put self-attention mask on top.
+      tl.Drop(),   # Drop self-attention mask.
       tl.Dropout(rate=dropout, mode=mode)
   )
   # Decoder attending to encoder.
   encoder_decoder_attention = tl.Serial(
-      tl.Select(((2, 0, 0), 1)),  # ((dec, enc, enc), mask)
-      tl.MultiHeadedAttentionQKV(  # ((q, k, v), mask) --> new, mask
+      tl.Select((0, 2, 2, 1, 2)),  # (dec, enc, enc, mask, enc-copy)
+      tl.MultiHeadedAttentionQKV(  # (q, k, v, mask, ...) --> (new, mask, ...)
           feature_depth, num_heads=num_heads, dropout=dropout, mode=mode),
-      tl.Select(0),  # drop the mask
       tl.Dropout(rate=dropout, mode=mode),
   )
   return tl.Serial(
-      tl.Parallel(tl.Copy(), tl.Copy(), self_attention),
-      tl.Branch(tl.Copy(), encoder_decoder_attention),
-      tl.UnnestBranches(),   # (encoder, mask, old_act, new_act)
-      tl.Select((0, 1, (2, 3))),
-      tl.Parallel(  # Residual after encoder-decoder attention.
-          tl.Copy(), tl.Copy(), tl.Add()),
-      tl.Parallel(  # Feed-forward on the third component (decoder).
-          tl.Copy(), tl.Copy(), ResidualFeedForward(
-              feature_depth, feedforward_depth, dropout, mode=mode)
-      )
+      self_attention,
+      tl.Residual(encoder_decoder_attention),
+      ResidualFeedForward(feature_depth, feedforward_depth, dropout, mode=mode)
   )
 
 
@@ -270,20 +262,20 @@ def Transformer(vocab_size,
       tl.Serial(*[EncoderLayer(feature_depth, feedforward_depth, num_heads,
                                dropout, mode)
                   for _ in range(num_layers)]),
-      tl.Parallel(tl.LayerNorm(), tl.Copy())
+      tl.LayerNorm()
   )
   stack = [EncoderDecoderLayer(feature_depth, feedforward_depth, num_heads,
                                dropout, mode)
            for _ in range(num_layers)]
   return tl.Serial(
-      tl.Parallel(tl.Copy(), tl.ShiftRight()),
+      tl.Parallel(tl.NoOp(), tl.ShiftRight()),
       tl.Parallel(encoder, embedding),
-      tl.UnnestBranches(),  # (encoder, encoder_mask, decoder_input)
-      tl.Select((0, (1, 2), 2)),
+      tl.Select(inputs=(('encoder', 'mask'), 'decoder'),
+                output=('decoder', ('mask', 'decoder'), 'encoder')),
       tl.Parallel(  # (encoder_mask, decoder_input) -> encoder-decoder mask
-          tl.Copy(), tl.EncoderDecoderMask(), tl.Copy()),
+          tl.NoOp(), tl.EncoderDecoderMask(), tl.NoOp()),
       tl.Serial(*stack),
-      tl.Select(2),  # Drop encoder and mask.
+      tl.Select(0),  # Drop mask and encoder.
       tl.LayerNorm(),
       tl.Dense(vocab_size),
       tl.LogSoftmax()

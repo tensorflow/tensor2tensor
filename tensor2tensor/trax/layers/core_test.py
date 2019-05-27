@@ -47,10 +47,10 @@ class CoreLayerTest(absltest.TestCase):
     self.assertEqual(actual_shape, (29, 87, 10, 20, 30))
 
     # Not enough dimensions.
-    with self.assertRaises(ValueError):
+    with self.assertRaises(base.LayerError):
       base.check_shape_agreement(core.Flatten(num_axis_to_keep=5), input_shape)
 
-    with self.assertRaises(ValueError):
+    with self.assertRaises(base.LayerError):
       base.check_shape_agreement(core.Flatten(num_axis_to_keep=6), input_shape)
 
   def test_div(self):

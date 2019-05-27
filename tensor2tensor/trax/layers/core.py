@@ -89,12 +89,15 @@ class Dense(base.Layer):
     self._kernel_initializer = kernel_initializer
     self._bias_initializer = bias_initializer
 
+  def stack_items_to_pass(self):
+    return 1
+
   def call(self, x, params, **kwargs):
     del kwargs
     w, b = params
     return np.dot(x, w) + b
 
-  def output_shape(self, input_shape):
+  def output_shape_fun(self, input_shape):
     return tuple(input_shape[:-1]) + (self._units,)
 
   def new_parameters(self, input_shape, rng):
@@ -114,11 +117,14 @@ class Embedding(base.Layer):
     self._vocab_size = vocab_size
     self._kernel_initializer = kernel_initializer
 
+  def stack_items_to_pass(self):
+    return 1
+
   def call(self, x, params, **kwargs):
     del kwargs
     return np.take(params, x, axis=0)
 
-  def output_shape(self, input_shape):
+  def output_shape_fun(self, input_shape):
     return tuple(input_shape) + (self._feature_depth,)
 
   def new_parameters(self, input_shape, rng):

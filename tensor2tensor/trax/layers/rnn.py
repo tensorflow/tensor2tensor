@@ -38,7 +38,7 @@ def GRUCell(units):
   """
   return GeneralGRUCell(
       candidate_transform=lambda: core.Dense(units=units),
-      memory_transform=combinators.Copy,
+      memory_transform=combinators.NoOp,
       gate_nonlinearity=core.Sigmoid,
       candidate_nonlinearity=core.Tanh)
 
@@ -62,13 +62,13 @@ def ConvGRUCell(units, kernel_size=(3, 3)):
 
   return GeneralGRUCell(
       candidate_transform=BuildConv,
-      memory_transform=combinators.Copy,
+      memory_transform=combinators.NoOp,
       gate_nonlinearity=core.Sigmoid,
       candidate_nonlinearity=core.Tanh)
 
 
 def GeneralGRUCell(candidate_transform,
-                   memory_transform=combinators.Copy,
+                   memory_transform=combinators.NoOp,
                    gate_nonlinearity=core.Sigmoid,
                    candidate_nonlinearity=core.Tanh,
                    dropout_rate_c=0.1,
@@ -117,7 +117,7 @@ def GeneralGRUCell(candidate_transform,
           # c_t (Candidate) branch
           combinators.Serial(
               combinators.Branch(
-                  combinators.Copy(),
+                  combinators.NoOp(),
                   # r_t (Reset) Branch
                   combinators.Serial(
                       candidate_transform(),

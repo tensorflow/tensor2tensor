@@ -68,6 +68,9 @@ class Conv(base.Layer):
       self._kernel_initializer = init.GlorotNormalInitializer(
           rhs_spec.index('O'), rhs_spec.index('I'))
 
+  def stack_items_to_pass(self):
+    return 1
+
   def call(self, x, params=(), **kwargs):
     del kwargs
     w, b = params
@@ -137,7 +140,7 @@ class Conv(base.Layer):
         lhs_trans, rhs_trans, window_strides, padding)
     return tuple(onp.take(out_trans, onp.argsort(out_perm)))
 
-  def output_shape(self, input_shape):
+  def output_shape_fun(self, input_shape):
     kernel_shape = self._kernel_shape(input_shape)
     return self._conv_general_shape_tuple(
         input_shape, kernel_shape,

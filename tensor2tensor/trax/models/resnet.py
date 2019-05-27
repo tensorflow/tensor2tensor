@@ -114,7 +114,7 @@ def WideResnetBlock(channels, strides=(1, 1), channel_mismatch=False):
       tl.BatchNorm(),
       tl.Relu(),
       tl.Conv(channels, (3, 3), padding='SAME'))
-  shortcut = tl.Copy() if not channel_mismatch else tl.Conv(
+  shortcut = tl.NoOp() if not channel_mismatch else tl.Conv(
       channels, (3, 3), strides, padding='SAME')
   return tl.Residual(main, shortcut=shortcut)
 
