@@ -51,10 +51,10 @@ from __future__ import print_function
 
 import functools
 import os
-import pickle
 import time
 
 from absl import logging
+import cloudpickle as pickle
 import gym
 from jax import grad
 from jax import jit
@@ -1052,12 +1052,19 @@ def training_loop(
     # Or if this is the last iteration.
     policy_save_start_time = time.time()
     num_trajectories_done += num_done
+    # TODO(afrozm): Refactor to trax.save_state.
     if (((num_trajectories_done >= done_frac_for_policy_save * batch_size)
-         and (i - last_saved_at > eval_every_n)) or (i == epochs - 1)):
+         and (i - last_saved_at > eval_every_n)
+         and (((i + 1) % eval_every_n == 0)))
+        or (i == epochs - 1)):
       logging.vlog(1, "Epoch [% 6d] saving model.", i)
+      old_model_files = gfile.glob(os.path.join(output_dir, "model-??????.pkl"))
       params_file = os.path.join(output_dir, "model-%06d.pkl" % i)
       with gfile.GFile(params_file, "wb") as f:
         pickle.dump(policy_and_value_net_params, f)
+      # Remove the old model files.
+      for path in old_model_files:
+        gfile.remove(path)
       # Reset this number.
       num_trajectories_done = 0
       last_saved_at = i
