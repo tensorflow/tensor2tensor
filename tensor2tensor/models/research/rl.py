@@ -72,6 +72,7 @@ def ppo_base_v1():
   hparams.add_hparam("logits_clip", 0.0)
   hparams.add_hparam("dropout_ppo", 0.1)
   hparams.add_hparam("effective_num_agents", None)
+  hparams.add_hparam("use_epochs", True)
   # TODO(afrozm): Clean this up, this is used in PPO learner to get modalities.
   hparams.add_hparam("policy_problem_name", "dummy_policy_problem")
   return hparams
@@ -286,7 +287,8 @@ def make_simulated_env_fn_from_hparams(real_env, hparams, **extra_kwargs):
   )
 
 
-def get_policy(observations, hparams, action_space, distributional_size=1):
+def get_policy(observations, hparams, action_space,
+               distributional_size=1, epoch=-1):
   """Get a policy network.
 
   Args:
@@ -294,6 +296,7 @@ def get_policy(observations, hparams, action_space, distributional_size=1):
     hparams: parameters
     action_space: action space
     distributional_size: optional number of buckets for distributional RL
+    epoch: optional epoch number
 
   Returns:
     Tuple (action logits, value).
@@ -327,6 +330,7 @@ def get_policy(observations, hparams, action_space, distributional_size=1):
     target_value_shape_suffix = [num_target_frames, distributional_size]
   features = {
       "inputs": observations,
+      "epoch": tf.constant(epoch + 1),
       "input_action": tf.zeros(obs_shape[:2] + [1], dtype=tf.int32),
       "input_reward": tf.zeros(obs_shape[:2] + [1], dtype=tf.int32),
       "targets": tf.zeros(obs_shape[:1] + [num_target_frames] + obs_shape[2:]),
@@ -340,6 +344,7 @@ def get_policy(observations, hparams, action_space, distributional_size=1):
           obs_shape[:1] + target_value_shape_suffix)
   }
   model.distributional_value_size = max(distributional_size, 1)
+  model.use_epochs = hparams.use_epochs
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
     t2t_model.create_dummy_vars()
     (targets, _) = model(features)
@@ -567,6 +572,7 @@ class PolicyBase(t2t_model.T2TModel):
   def __init__(self, *args, **kwargs):
     super(PolicyBase, self).__init__(*args, **kwargs)
     self.distributional_value_size = 1
+    self.use_epochs = False
 
   def loss(self, *args, **kwargs):
     return 0.0
@@ -721,6 +727,14 @@ class FeedForwardCnnSmallCategoricalPolicy(PolicyBase):
                            activation=tf.nn.relu, padding="same")
 
       flat_x = tf.layers.flatten(x)
+      if self.use_epochs:
+        epoch = features["epoch"] + tf.zeros([x_shape[0]], dtype=tf.int32)
+        # Randomly set epoch to 0 in some cases as that's the inference value.
+        rand = tf.random.uniform([x_shape[0]])
+        epoch = tf.where(rand < 0.1, tf.zeros_like(epoch), epoch)
+        # Embed the epoch number.
+        emb_epoch = common_layers.embedding(epoch, 32, 32)  # [batch, 32]
+        flat_x = tf.concat([flat_x, emb_epoch], axis=1)
       flat_x = tf.layers.dropout(flat_x, rate=dropout)
       x = tf.layers.dense(flat_x, 128, activation=tf.nn.relu)
 

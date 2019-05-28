@@ -30,7 +30,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 
 
-def define_ppo_step(data_points, hparams, action_space, lr,
+def define_ppo_step(data_points, hparams, action_space, lr, epoch=-1,
                     distributional_size=1, distributional_subscale=0.04):
   """Define ppo step."""
   observation, action, discounted_reward, norm_advantage, old_pdf = data_points
@@ -40,6 +40,7 @@ def define_ppo_step(data_points, hparams, action_space, lr,
       observation, [obs_shape[0] * obs_shape[1]] + obs_shape[2:]
   )
   (logits, new_value) = get_policy(observation, hparams, action_space,
+                                   epoch=epoch,
                                    distributional_size=distributional_size)
   logits = tf.reshape(logits, obs_shape[:2] + [action_space.n])
   new_policy_dist = tfp.distributions.Categorical(logits=logits)
@@ -103,7 +104,7 @@ def _distributional_to_value(value_d, size, subscale, threshold):
 
 def define_ppo_epoch(memory, hparams, action_space, batch_size,
                      distributional_size=1, distributional_subscale=0.04,
-                     distributional_threshold=0.0):
+                     distributional_threshold=0.0, epoch=-1):
   """PPO epoch."""
   observation, reward, done, action, old_pdf, value_sm = memory
 
@@ -169,6 +170,7 @@ def define_ppo_epoch(memory, hparams, action_space, batch_size,
           a, define_ppo_step(
               [tf.gather(t, indices_of_batches[i, :]) for t in input_tensors],
               hparams, action_space, lr,
+              epoch=epoch,
               distributional_size=distributional_size,
               distributional_subscale=distributional_subscale
           )),
