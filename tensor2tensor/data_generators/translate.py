@@ -22,6 +22,7 @@ from __future__ import print_function
 import gzip
 import os
 import tarfile
+import zipfile
 from tensor2tensor.data_generators import cleaner_en_xx
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
@@ -178,6 +179,9 @@ def compile_data(tmp_dir, datasets, filename, datatypes_to_clean=None):
         compressed_filepath = os.path.join(tmp_dir, compressed_filename)
         if url.startswith("http"):
           generator_utils.maybe_download(tmp_dir, compressed_filename, url)
+        if compressed_filename.endswith(".zip"):
+          zipfile.ZipFile(os.path.join(compressed_filepath),
+                          "r").extractall(tmp_dir)
 
         if dataset[1][0] == "tmx":
           cleaning_requested = "tmx" in datatypes_to_clean
