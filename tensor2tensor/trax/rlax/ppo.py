@@ -167,7 +167,7 @@ def collect_trajectories(env,
 
   assert isinstance(env, env_problem.EnvProblem)
   # This is an env_problem, run its collect function.
-  return env_problem_utils.play_env_problem_with_policy(
+  trajs, num_done = env_problem_utils.play_env_problem_with_policy(
       env,
       policy_fun,
       num_trajectories=num_trajectories,
@@ -177,6 +177,8 @@ def collect_trajectories(env,
       eps=epsilon,
       reset=reset,
       rng=rng)
+  # Skip returning raw_rewards here, since they aren't used.
+  return [(t[0], t[1], t[2]) for t in trajs], num_done
 
 
 # This function can probably be simplified, ask how?
@@ -707,6 +709,7 @@ def evaluate_policy(eval_env,
   """Evaluate the policy."""
 
   avg_rewards = {}
+  avg_rewards_unclipped = {}
   for policy in [
       env_problem_utils.CATEGORICAL_SAMPLING, env_problem_utils.GUMBEL_SAMPLING,
       env_problem_utils.EPSILON_GREEDY
@@ -721,7 +724,9 @@ def evaluate_policy(eval_env,
         rng=rng)
     avg_rewards[policy] = float(sum(
         np.sum(traj[2]) for traj in trajs)) / len(trajs)
-  return avg_rewards
+    avg_rewards_unclipped[policy] = float(sum(
+        np.sum(traj[3]) for traj in trajs)) / len(trajs)
+  return avg_rewards, avg_rewards_unclipped
 
 
 def maybe_restore_params(output_dir, policy_and_value_net_params):
@@ -849,7 +854,7 @@ def training_loop(
 
       logging.vlog(1, "Epoch [% 6d] evaluating policy.", i)
 
-      avg_reward = evaluate_policy(
+      avg_reward, avg_reward_unclipped = evaluate_policy(
           eval_env,
           get_predictions,
           boundary,
@@ -857,7 +862,12 @@ def training_loop(
           rng=key)
       for k, v in avg_reward.items():
         eval_sw.scalar("eval/mean_reward/%s" % k, v, step=i)
-        logging.info("Epoch [% 6d] Policy Evaluation [%s] = %10.2f", i, k, v)
+        logging.info("Epoch [% 6d] Policy Evaluation (clipped) [%s] = %10.2f",
+                     i, k, v)
+      for k, v in avg_reward_unclipped.items():
+        eval_sw.scalar("eval/mean_reward_unclipped/%s" % k, v, step=i)
+        logging.info("Epoch [% 6d] Policy Evaluation (unclipped) [%s] = %10.2f",
+                     i, k, v)
     policy_eval_time = get_time(policy_eval_start_time)
 
     trajectory_collection_start_time = time.time()

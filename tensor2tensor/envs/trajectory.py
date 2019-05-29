@@ -108,8 +108,13 @@ class Trajectory(object):
     return np.stack([ts.processed_reward for ts in self.time_steps[1:]])
 
   @property
+  def raw_rewards_np(self):
+    return np.stack([ts.raw_reward for ts in self.time_steps[1:]])
+
+  @property
   def as_numpy(self):
-    return self.observations_np, self.actions_np, self.rewards_np
+    return (self.observations_np, self.actions_np, self.rewards_np,
+            self.raw_rewards_np)
 
 
 class BatchTrajectory(object):
