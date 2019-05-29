@@ -60,6 +60,7 @@ def define_ppo_step(data_points, hparams, action_space, lr, epoch=-1,
   if distributional_size > 1:
     new_value = tf.reshape(new_value, obs_shape[:2] + [distributional_size])
     new_value = tf.nn.log_softmax(new_value, axis=-1)
+    value_shape = common_layers.shape_list(new_value)
     # The above is the new value distribution. We are also given as discounted
     # reward the value distribution and the corresponding probabilities.
     # The given discounted reward is already rounded to integers but in range
@@ -68,7 +69,7 @@ def define_ppo_step(data_points, hparams, action_space, lr, epoch=-1,
     new_value_mean = (new_value + new_value_shifted) / 2
     new_value = tf.concat([tf.expand_dims(new_value, axis=-1),
                            tf.expand_dims(new_value_mean, axis=-1)], -1)
-    new_value = tf.reshape(new_value, tf.shape(new_value_mean))
+    new_value = tf.reshape(new_value, value_shape[:-1] + [2 * value_shape[-1]])
     # Cast discounted reward to integers and gather the new log-probs for them.
     discounted_reward = tf.cast(discounted_reward, tf.int32)
     value_loss = tf.batch_gather(new_value, discounted_reward)
