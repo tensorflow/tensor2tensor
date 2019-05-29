@@ -50,7 +50,6 @@ import numpy as onp
 from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import rendered_env_problem
 from tensor2tensor.rl import gym_utils
-from tensor2tensor.rl.google import atari_utils
 from tensor2tensor.trax import layers
 from tensor2tensor.trax.models import atari_cnn
 from tensor2tensor.trax.rlax import ppo
@@ -194,10 +193,6 @@ def main(argv):
   else:
     config.update("jax_platform_name", "gpu")
 
-  # TODO(afrozm): Refactor.
-  if "NoFrameskip" in FLAGS.env_problem_name and FLAGS.xm:
-    FLAGS.atari_roms_path = "local_ram_fs_tmp"
-    atari_utils.copy_roms()
 
   # Make an env here.
   env = make_env(batch_size=FLAGS.batch_size)
