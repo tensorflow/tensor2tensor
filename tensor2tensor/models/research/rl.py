@@ -140,7 +140,7 @@ def ppo_original_params():
 def ppo_dist_params():
   """Parameters based on the original paper modified for distributional RL."""
   hparams = ppo_original_params()
-  hparams.learning_rate_constant = 5e-4
+  hparams.learning_rate_constant = 1e-3
   return hparams
 
 
@@ -563,7 +563,7 @@ def rlmf_eval_dist():
 def rlmf_eval_dist_threshold():
   """Distributional set of hparams for model-free PPO."""
   hparams = rlmf_eval_dist()
-  hparams.distributional_threshold = 0.2
+  hparams.distributional_threshold = 0.5
   return hparams
 
 
