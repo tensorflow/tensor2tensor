@@ -31,7 +31,7 @@ from tensor2tensor.trax.layers import core
 def CausalMask(x, params, axis=-1, **kwargs):
   del params, kwargs
   size = x.shape[axis]
-  return onp.tril(onp.ones((1, size, size), dtype=x.dtype), k=0)
+  return onp.tril(onp.ones((1, size, size), dtype=onp.bool_), k=0)
 
 
 @base.layer(output_shape=lambda shape, pad=0: (shape[0], 1, 1, shape[-1]))

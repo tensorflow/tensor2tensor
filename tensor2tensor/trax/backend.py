@@ -30,6 +30,7 @@ import numpy as onp
 
 
 _JAX_BACKEND = {
+    "name": "jax",
     "np": jnp,
     "logsumexp": jax_special.logsumexp,
     "jit": jax.jit,
@@ -44,9 +45,14 @@ _JAX_BACKEND = {
 
 
 _NUMPY_BACKEND = {
+    "name": "numpy",
     "np": onp,
     "jit": (lambda f: f),
 }
+
+
+def get_name():
+  return backend()["name"]
 
 
 def logsumexp(*args, **kwargs):

@@ -293,8 +293,15 @@ def epochs(steps=None, epoch_steps=1):
       break
 
 
-def _jit_predict_fn(model_predict, n_devices):
+@gin.configurable
+def _jit_predict_fn(model_predict, n_devices, jit=True):
   """Use jit on model_predict if required."""
+
+  if n_devices == 1:
+    if jit:
+      return backend.jit(model_predict)
+    else:
+      return model_predict
 
   # Multi-devices, pmap and run.
   @functools.partial(backend.pmap, axis_name="batch")
@@ -304,9 +311,6 @@ def _jit_predict_fn(model_predict, n_devices):
   def predict(x, params=(), rng=None):
     """Predict function jited and parallelized as requested."""
     # On one device, jit and run.
-    if n_devices == 1:
-      return backend.jit(model_predict)(x, params, rng=rng)
-
     pred = mapped_predict(
         reshape_by_device(x, n_devices),
         params,
@@ -322,7 +326,8 @@ def _jit_predict_fn(model_predict, n_devices):
   return predict
 
 
-def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices):
+@gin.configurable
+def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices, jit=True):
   """Get jit-ed update function for loss, optimizer, learning rate function."""
   if n_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
     def single_update(i, opt_state, batch, rng):
@@ -330,7 +335,10 @@ def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices):
       params, opt_slots = opt_state
       return optimizer.tree_update(i, backend.grad(loss_fn)(
           params, batch, predict_fn, rng), params, opt_slots), [subrng]
-    return backend.jit(single_update)
+    if jit:
+      return backend.jit(single_update)
+    else:
+      return single_update
 
   @functools.partial(backend.pmap, axis_name="batch")
   def mapped_update(i, opt_state, batch, rng):
@@ -530,7 +538,8 @@ def train(output_dir,
         history=history)
 
     # Save computation graph (single-device only for now).
-    if save_graphs and step == 1 and n_devices == 1:
+    if (save_graphs and backend.get_name() == "jax" and step == 1 and
+        n_devices == 1):
       params = opt_state[0]
       # Dump computation graphs to files.
       forward_computation = jax.xla_computation(model_predict_eval)(
