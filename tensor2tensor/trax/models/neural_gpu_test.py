@@ -29,8 +29,7 @@ class NeuralGPUTest(absltest.TestCase):
   def test_ngpu(self):
     vocab_size = 2
     input_shape = [3, 5, 7]
-    model = neural_gpu.NeuralGPU(
-        feature_depth=30, steps=4, vocab_size=vocab_size)
+    model = neural_gpu.NeuralGPU(d_feature=30, steps=4, vocab_size=vocab_size)
     final_shape = base.check_shape_agreement(
         model, tuple(input_shape), integer_inputs=True)
     self.assertEqual(tuple(input_shape + [vocab_size]), final_shape)

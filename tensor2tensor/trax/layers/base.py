@@ -43,7 +43,7 @@ class Layer(object):
     """Call this layer in input x using the given parameters."""
     raise NotImplementedError
 
-  def output_shape_fun(self, input_shape):
+  def output_shape_fn(self, input_shape):
     """The shape of the output of this layer given the shape of the input.
 
     Note that all arguments and return values can be tuples or dictionaries
@@ -84,7 +84,7 @@ class Layer(object):
       is_list = isinstance(input_shape, (list, tuple))
       is_list = is_list and isinstance(input_shape[0], (list, tuple))
       n = self.stack_items_to_pass() if is_list else 0
-      return _apply_to_first_n(self.output_shape_fun, input_shape, n)
+      return _apply_to_first_n(self.output_shape_fn, input_shape, n)
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback()
       raise LayerError(name, 'output_shape', self._caller, input_shape, trace)
@@ -284,23 +284,23 @@ def layer(output_shape=None, new_parameters=None, stack_items_to_pass=1):
   def layer_decorator(call):
     """Decorating the call function."""
 
-    def stack_items_to_pass_fun(self):
+    def stack_items_to_pass_fn(self):
       del self
       return stack_items_to_pass
 
-    def output_shape_fun(self, input_shape):
+    def output_shape_fn(self, input_shape):
       if output_shape is None:
         return input_shape
       kwargs = self._init_kwargs  # pylint: disable=protected-access
       return output_shape(input_shape, **kwargs)
 
-    def new_parameters_fun(self, input_shape, rng):
+    def new_parameters_fn(self, input_shape, rng):
       if new_parameters is None:
         return ()
       kwargs = self._init_kwargs  # pylint: disable=protected-access
       return new_parameters(input_shape, rng, **kwargs)
 
-    def call_fun(self, x, params=(), **kwargs):
+    def call_fn(self, x, params=(), **kwargs):
       """The call function of the created class, derived from call."""
       # Merge on-call kwargs with class-kwargs.
       call_kwargs = kwargs.copy()
@@ -309,18 +309,18 @@ def layer(output_shape=None, new_parameters=None, stack_items_to_pass=1):
       return call(x, params=params, **call_kwargs)
 
     # Set doc for python help.
-    call_fun.__doc__ = call.__doc__
+    call_fn.__doc__ = call.__doc__
     if output_shape is None:
-      output_shape_fun.__doc__ = output_shape.__doc__
+      output_shape_fn.__doc__ = output_shape.__doc__
     if new_parameters is None:
-      new_parameters_fun.__doc__ = new_parameters.__doc__
+      new_parameters_fn.__doc__ = new_parameters.__doc__
 
     # Create the class.
     cls = type(call.__name__, (Layer,),
-               {'call': call_fun,
-                'output_shape_fun': output_shape_fun,
-                'new_parameters': new_parameters_fun,
-                'stack_items_to_pass': stack_items_to_pass_fun})
+               {'call': call_fn,
+                'output_shape_fn': output_shape_fn,
+                'new_parameters': new_parameters_fn,
+                'stack_items_to_pass': stack_items_to_pass_fn})
 
     return cls
   return layer_decorator

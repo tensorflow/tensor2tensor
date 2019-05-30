@@ -31,14 +31,14 @@ def _chunked_positional_encoding_new_params(input_shape, rng, max_len=2048):  # 
   # Check if we are operating on chunked inputs by checking if the first
   # shape is a list/tuple of shapes (otherwise it's an int or numpy array).
   is_chunked = isinstance(input_shape[0], (list, tuple))
-  feature_depth = input_shape[0][-1] if is_chunked else input_shape[-1]
-  pe = onp.zeros((max_len, feature_depth), dtype=onp.float32)
+  d_feature = input_shape[0][-1] if is_chunked else input_shape[-1]
+  pe = onp.zeros((max_len, d_feature), dtype=onp.float32)
   position = onp.arange(0, max_len)[:, onp.newaxis]
   div_term = onp.exp(
-      onp.arange(0, feature_depth, 2) * -(onp.log(10000.0) / feature_depth))
+      onp.arange(0, d_feature, 2) * -(onp.log(10000.0) / d_feature))
   pe[:, 0::2] = onp.sin(position * div_term)
   pe[:, 1::2] = onp.cos(position * div_term)
-  pe = pe[onp.newaxis, :, :]  # [1, max_len, feature_depth]
+  pe = pe[onp.newaxis, :, :]  # [1, max_len, d_feature]
   return np.array(pe)  # These are trainable parameters, initialized as above.
 
 
@@ -126,14 +126,14 @@ def ChunkedAttentionSelector(x, params, selector=None, **kwargs):
 
 
 def ChunkedCausalMultiHeadedAttention(
-    feature_depth, num_heads=8, dropout=0.0, chunk_selector=None, mode='train'):
+    d_feature, n_heads=8, dropout=0.0, chunk_selector=None, mode='train'):
   """Transformer-style causal multi-headed attention operating on chunks.
 
   Accepts inputs that are a list of chunks and applies causal attention.
 
   Args:
-    feature_depth: int:  depth of embedding
-    num_heads: int: number of attention heads
+    d_feature: int:  depth of embedding
+    n_heads: int: number of attention heads
     dropout: float: dropout rate
     chunk_selector: a function from chunk number to list of chunks to attend.
     mode: str: 'train' or 'eval'
@@ -149,9 +149,9 @@ def ChunkedCausalMultiHeadedAttention(
       ),
       tl.Parallel(
           tl.Parallel(
-              tl.Dense(feature_depth),
-              tl.Dense(feature_depth),
-              tl.Dense(feature_depth),
+              tl.Dense(d_feature),
+              tl.Dense(d_feature),
+              tl.Dense(d_feature),
           ),
           tl.NoOp()
       )
@@ -160,10 +160,10 @@ def ChunkedCausalMultiHeadedAttention(
       tl.Map(prepare_attention_input),
       ChunkedAttentionSelector(selector=chunk_selector),  # pylint: disable=no-value-for-parameter
       tl.Map(tl.PureMultiHeadedAttention(
-          feature_depth=feature_depth, num_heads=num_heads,
+          d_feature=d_feature, n_heads=n_heads,
           dropout=dropout, mode=mode), check_shapes=False),
       tl.Map(tl.Select(0), check_shapes=False),  # drop masks
-      tl.Map(tl.Dense(feature_depth))
+      tl.Map(tl.Dense(d_feature))
   )
 
 
@@ -176,33 +176,30 @@ def Residual(*layers, **unused_kwargs):
   )
 
 
-def ResidualFeedForward(feature_depth,
-                        feedforward_depth,
-                        dropout,
-                        mode):
+def ResidualFeedForward(d_feature, d_feedforward, dropout, mode):
   """Residual feed-forward layer with normalization at start."""
   return Residual(
       tl.LayerNorm(),
-      tl.Dense(feedforward_depth),
+      tl.Dense(d_feedforward),
       tl.Relu(),
       tl.Dropout(rate=dropout, mode=mode),
-      tl.Dense(feature_depth),
+      tl.Dense(d_feature),
       tl.Dropout(rate=dropout, mode=mode)
   )
 
 
-def ChunkedDecoderLayer(feature_depth,
-                        feedforward_depth,
-                        num_heads,
+def ChunkedDecoderLayer(d_feature,
+                        d_feedforward,
+                        n_heads,
                         dropout,
                         chunk_selector,
                         mode):
   """Transformer decoder layer operating on chunks.
 
   Args:
-    feature_depth: int:  depth of embedding
-    feedforward_depth: int: depth of feed-forward layer
-    num_heads: int: number of attention heads
+    d_feature: int:  depth of embedding
+    d_feedforward: int: depth of feed-forward layer
+    n_heads: int: number of attention heads
     dropout: float: dropout rate (how much to drop out)
     chunk_selector: a function from chunk number to list of chunks to attend.
     mode: str: 'train' or 'eval'
@@ -214,20 +211,20 @@ def ChunkedDecoderLayer(feature_depth,
       Residual(  # Self-attention block.
           tl.Map(tl.LayerNorm()),
           ChunkedCausalMultiHeadedAttention(
-              feature_depth, num_heads=num_heads, dropout=dropout,
+              d_feature, n_heads=n_heads, dropout=dropout,
               chunk_selector=chunk_selector, mode=mode),
           tl.Map(tl.Dropout(rate=dropout, mode=mode)),
       ),
       tl.Map(ResidualFeedForward(
-          feature_depth, feedforward_depth, dropout, mode=mode))
+          d_feature, d_feedforward, dropout, mode=mode))
   )
 
 
 def ChunkedTransformerLM(vocab_size,
-                         feature_depth=512,
-                         feedforward_depth=2048,
-                         num_layers=6,
-                         num_heads=8,
+                         d_feature=512,
+                         d_feedforward=2048,
+                         n_layers=6,
+                         n_heads=8,
                          dropout=0.1,
                          chunk_selector=None,
                          max_len=2048,
@@ -245,10 +242,10 @@ def ChunkedTransformerLM(vocab_size,
 
   Args:
     vocab_size: int: vocab size
-    feature_depth: int:  depth of embedding
-    feedforward_depth: int: depth of feed-forward layer
-    num_layers: int: number of encoder/decoder layers
-    num_heads: int: number of attention heads
+    d_feature: int:  depth of embedding
+    d_feedforward: int: depth of feed-forward layer
+    n_layers: int: number of encoder/decoder layers
+    n_heads: int: number of attention heads
     dropout: float: dropout rate (how much to drop out)
     chunk_selector: a function from chunk number to list of chunks to attend
       (if None, attends to the previous chunks which is equivalent to setting
@@ -260,13 +257,13 @@ def ChunkedTransformerLM(vocab_size,
   Returns:
     the layer.
   """
-  stack = [ChunkedDecoderLayer(feature_depth, feedforward_depth, num_heads,
+  stack = [ChunkedDecoderLayer(d_feature, d_feedforward, n_heads,
                                dropout, chunk_selector, mode)
-           for _ in range(num_layers)]
+           for _ in range(n_layers)]
   # Below each Map(L) applies the layer L to each chunk independently.
   return tl.Serial(
       tl.ShiftRight(),
-      tl.Map(tl.Embedding(feature_depth, vocab_size)),
+      tl.Map(tl.Embedding(d_feature, vocab_size)),
       tl.Map(tl.Dropout(rate=dropout, mode=mode)),
       ChunkedPositionalEncoding(max_len=max_len),  # pylint: disable=no-value-for-parameter
       tl.Serial(*stack),

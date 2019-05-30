@@ -66,10 +66,10 @@ class PpoTrainingLoopTest(test.TestCase):
           env=env,
           eval_env=eval_env,
           epochs=num_epochs,
-          policy_and_value_net_fun=functools.partial(
+          policy_and_value_net_fn=functools.partial(
               ppo.policy_and_value_net,
               bottom_layers_fn=lambda: [layers.Dense(1)]),
-          policy_and_value_optimizer_fun=ppo.optimizer_fun,
+          policy_and_value_optimizer_fn=ppo.optimizer_fn,
           batch_size=batch_size,
           num_optimizer_steps=1,
           output_dir=output_dir,

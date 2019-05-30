@@ -22,15 +22,17 @@ from __future__ import print_function
 from tensor2tensor.trax import layers as tl
 
 
-def MLP(num_hidden_layers=2,
-        hidden_size=512,
+def MLP(n_hidden_layers=2,
+        d_hidden=512,
         activation_fn=tl.Relu,
-        num_output_classes=10,
+        n_output_classes=10,
         mode="train"):
   """Multi-layer feed-forward neural network with non-linear activations."""
   del mode
-  cur_layers = [tl.Flatten()]
-  for _ in range(num_hidden_layers):
-    cur_layers += [tl.Dense(hidden_size), activation_fn()]
-  cur_layers += [tl.Dense(num_output_classes), tl.LogSoftmax()]
-  return tl.Serial(*cur_layers)
+
+  return [
+      tl.Flatten(),
+      [[tl.Dense(d_hidden), activation_fn()] for _ in range(n_hidden_layers)],
+      tl.Dense(n_output_classes),
+      tl.LogSoftmax(),
+  ]

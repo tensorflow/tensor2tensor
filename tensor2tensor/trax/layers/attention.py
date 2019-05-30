@@ -63,14 +63,14 @@ def EncoderDecoderMask(x, **unused_kwargs):
 def _positional_encoding_new_params(input_shape, rng, max_len=2048):  # pylint: disable=invalid-name
   """Helper: create positional encoding parameters."""
   del rng
-  feature_depth = input_shape[-1]
-  pe = onp.zeros((max_len, feature_depth), dtype=onp.float32)
+  d_feature = input_shape[-1]
+  pe = onp.zeros((max_len, d_feature), dtype=onp.float32)
   position = onp.arange(0, max_len)[:, onp.newaxis]
   div_term = onp.exp(
-      onp.arange(0, feature_depth, 2) * -(onp.log(10000.0) / feature_depth))
+      onp.arange(0, d_feature, 2) * -(onp.log(10000.0) / d_feature))
   pe[:, 0::2] = onp.sin(position * div_term)
   pe[:, 1::2] = onp.cos(position * div_term)
-  pe = pe[onp.newaxis, :, :]  # [1, max_len, feature_depth]
+  pe = pe[onp.newaxis, :, :]  # [1, max_len, d_feature]
   return np.array(pe)  # These are trainable parameters, initialized as above.
 
 
@@ -122,17 +122,17 @@ def PureDotProductAttention(dropout=0.0, mode='train'):
   Returns:
     Pure single-headed attention layer. (No Dense transforms on input.)
   """
-  def init_fun(_, input_shapes):  # pylint: disable=invalid-name
+  def init_fn(_, input_shapes):  # pylint: disable=invalid-name
     q_shape, _, v_shape, _ = input_shapes
     output_shape = q_shape[:-1] + (v_shape[-1],)
     return output_shape, ()
-  def apply_fun(params, inputs, **kwargs):  # pylint: disable=invalid-name
+  def apply_fn(params, inputs, **kwargs):  # pylint: disable=invalid-name
     del params
     q, k, v, mask = inputs
     rng = kwargs.get('rng', None)
     return DotProductAttention(q, k, v, mask,
                                dropout=dropout, mode=mode, rng=rng)
-  return init_fun, apply_fun
+  return init_fn, apply_fn
 
 
 def _multihead_attention_output_shape(  # pylint: disable=invalid-name
@@ -147,14 +147,14 @@ def _multihead_attention_output_shape(  # pylint: disable=invalid-name
 
 @base.layer(output_shape=_multihead_attention_output_shape,
             stack_items_to_pass=4)
-def PureMultiHeadedAttention(x, params, num_heads=8, dropout=0.0,
-                             mode='train', **kwargs):
+def PureMultiHeadedAttention(x, params, n_heads=8, dropout=0.0, mode='train',
+                             **kwargs):
   """Pure transformer-style multi-headed attention.
 
   Args:
     x: inputs ((q, k, v), mask)
     params: parameters (none)
-    num_heads: int: number of attention heads
+    n_heads: int: number of attention heads
     dropout: float: dropout rate
     mode: str: 'train' or 'eval'
     **kwargs: other arguments including the rng
@@ -165,18 +165,18 @@ def PureMultiHeadedAttention(x, params, num_heads=8, dropout=0.0,
   del params
   rng = kwargs.get('rng', None)
   q, k, v, mask = x
-  feature_depth = q.shape[-1]
-  assert feature_depth % num_heads == 0
-  head_depth = feature_depth // num_heads
+  d_feature = q.shape[-1]
+  assert d_feature % n_heads == 0
+  d_head = d_feature // n_heads
   nbatch = np.shape(q)[0]
-  # nbatch, seqlen, feature_depth --> nbatch, num_heads, seqlen, head_depth
+  # nbatch, seqlen, d_feature --> nbatch, n_heads, seqlen, d_head
   def SplitHeads(x):
     return np.transpose(
-        np.reshape(x, (nbatch, -1, num_heads, head_depth)), (0, 2, 1, 3))
-  # nbatch, num_heads, seqlen, head_depth --> nbatch, seqlen, feature_depth
+        np.reshape(x, (nbatch, -1, n_heads, d_head)), (0, 2, 1, 3))
+  # nbatch, n_heads, seqlen, d_head --> nbatch, seqlen, d_feature
   def JoinHeads(x):  # pylint: disable=invalid-name
     return np.reshape(
-        np.transpose(x, (0, 2, 1, 3)), (nbatch, -1, num_heads*head_depth))
+        np.transpose(x, (0, 2, 1, 3)), (nbatch, -1, n_heads * d_head))
   # Split heads, dot-product attention, rejoin heads.
   res = JoinHeads(
       DotProductAttention(
@@ -185,56 +185,53 @@ def PureMultiHeadedAttention(x, params, num_heads=8, dropout=0.0,
   return res, mask  # Keep the mask.
 
 
-def MultiHeadedAttentionQKV(
-    feature_depth, num_heads=8, dropout=0.0, mode='train'):
+def MultiHeadedAttentionQKV(d_feature, n_heads=8, dropout=0.0, mode='train'):
   """Transformer-style multi-headed attention.
 
   Accepts inputs of the form (q, k, v), mask.
 
   Args:
-    feature_depth: int:  depth of embedding
-    num_heads: int: number of attention heads
+    d_feature: int:  dimensionality of feature embedding
+    n_heads: int: number of attention heads
     dropout: float: dropout rate
     mode: str: 'train' or 'eval'
 
   Returns:
     Multi-headed self-attention result and the mask.
   """
-  return combinators.Serial(
+  return [
       combinators.Parallel(
-          core.Dense(feature_depth),
-          core.Dense(feature_depth),
-          core.Dense(feature_depth),
-          combinators.NoOp()
+          core.Dense(d_feature),
+          core.Dense(d_feature),
+          core.Dense(d_feature),
       ),
       PureMultiHeadedAttention(  # pylint: disable=no-value-for-parameter
-          feature_depth=feature_depth, num_heads=num_heads,
-          dropout=dropout, mode=mode),
-      core.Dense(feature_depth),
-  )
+          d_feature=d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
+      core.Dense(d_feature),
+  ]
 
 
 def MultiHeadedAttention(
-    feature_depth, num_heads=8, dropout=0.0, mode='train'):
+    d_feature, n_heads=8, dropout=0.0, mode='train'):
   """Transformer-style multi-headed attention.
 
   Accepts inputs of the form (x, mask) and constructs (q, k, v) from x.
 
   Args:
-    feature_depth: int:  depth of embedding
-    num_heads: int: number of attention heads
+    d_feature: int:  dimensionality of feature embedding
+    n_heads: int: number of attention heads
     dropout: float: dropout rate
     mode: str: 'train' or 'eval'
 
   Returns:
     Multi-headed self-attention layer.
   """
-  return combinators.Serial(
+  return [
       combinators.Dup(),
       combinators.Dup(),
       MultiHeadedAttentionQKV(  # pylint: disable=no-value-for-parameter
-          feature_depth, num_heads=num_heads, dropout=dropout, mode=mode),
-  )
+          d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
+  ]
 
 
 @base.layer()

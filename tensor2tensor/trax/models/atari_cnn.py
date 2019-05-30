@@ -24,18 +24,15 @@ from tensor2tensor.trax import layers as tl
 
 def AtariCnn(hidden_sizes=(32, 32), output_size=128):
   # Input's shape = (B, T, H, W, C)
-  return tl.Serial(
+  return tl.Serial([
       tl.Div(divisor=255.0),
       # Have 4 copies of the input, each one shifted to the right by one.
-      tl.Branch(tl.NoOp(), tl.ShiftRight(),
-                tl.Serial(
-                    tl.ShiftRight(),
-                    tl.ShiftRight(),
-                ), tl.Serial(
-                    tl.ShiftRight(),
-                    tl.ShiftRight(),
-                    tl.ShiftRight(),
-                )),
+      tl.Branch(
+          [],
+          [tl.ShiftRight()],
+          [tl.ShiftRight(), tl.ShiftRight()],
+          [tl.ShiftRight(), tl.ShiftRight(), tl.ShiftRight()]
+      ),
       # Concatenated on the last axis.
       tl.Concatenate(axis=-1),  # (B, T, H, W, 4C)
       tl.Rebatch(tl.Conv(hidden_sizes[0], (5, 5), (2, 2), 'SAME'), 2),
@@ -46,4 +43,4 @@ def AtariCnn(hidden_sizes=(32, 32), output_size=128):
       tl.Dense(output_size),
       tl.Relu(),
       # Eventually this is shaped (B, T, output_size)
-  )
+  ])

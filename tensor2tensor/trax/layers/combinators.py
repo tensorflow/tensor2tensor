@@ -27,13 +27,35 @@ from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.layers import base
 
 
+def _DeepFlatten(xs):  # pylint: disable=invalid-name
+  for x in xs:
+    if isinstance(x, (list, tuple)):
+      for y in _DeepFlatten(x):
+        yield y
+    else:
+      yield x
+
+
+def _EnsureSublayers(layers):
+  # TODO(jonni): Implement for dict if dicts remain important.
+  if isinstance(layers, dict):
+    return layers
+  sublayers_not_lists = []
+  for layer in layers:
+    sublayers_not_lists.append(
+        Serial(layer) if isinstance(layer, list) else layer)
+  return sublayers_not_lists
+
+
 class Serial(base.Layer):
   """Layer composing a number of sub-layers in a serial way.."""
 
   def __init__(self, *layers):
     super(Serial, self).__init__()
-    self._nlayers = len(layers)
+    layers = list(_DeepFlatten(layers))
+    # TODO(jonni): Consider flattening (unpacking) also embedded Serial layers.
     self._layers = layers
+    self._nlayers = len(layers)
 
   def call(self, x, params=(), **kwargs):
     rng = kwargs.pop('rng', None)
@@ -44,7 +66,7 @@ class Serial(base.Layer):
       x = layer(x, p, rng=rng, **kwargs)
     return x
 
-  def output_shape_fun(self, input_shape):
+  def output_shape_fn(self, input_shape):
     cur_shape = input_shape
     for layer in self._layers:
       cur_shape = layer.output_shape(cur_shape)
@@ -150,13 +172,7 @@ def _flatten_shape(x_shape):  # pylint: disable=invalid-name
 @base.layer(output_shape=_flatten_shape, stack_items_to_pass=0)
 def Flatten(xs, **unused_kwargs):
   """Flatten lists."""
-  res = []
-  for x in xs:
-    if isinstance(x, (list, tuple)):
-      res.extend(list(x))
-    else:
-      res.append(x)
-  return tuple(res)
+  return tuple(_DeepFlatten(xs))
 
 
 # Re-ordering layer.
@@ -223,7 +239,7 @@ class Select(base.Layer):
       return x
     return base.nested_map(self._output, lambda i: self._map(x, i))
 
-  def output_shape_fun(self, input_shape):
+  def output_shape_fn(self, input_shape):
     if self._output is None:
       return input_shape
     return base.nested_map(self._output, lambda i: self._map(input_shape, i))
@@ -253,6 +269,7 @@ class Branch(base.Layer):
     if layers and kwlayers:
       raise ValueError('Cannot specify a Branch with both a list and dict.')
     layers = layers or kwlayers
+    layers = _EnsureSublayers(layers)
     self._nlayers = len(layers)
     self._layers = layers
 
@@ -276,7 +293,7 @@ class Branch(base.Layer):
       counter += 1
     return result
 
-  def output_shape_fun(self, input_shape):
+  def output_shape_fn(self, input_shape):
     output_shapes = []
     # If the argument layers are a sequence, apply each to calculate shape.
     if not isinstance(self._layers, dict):
@@ -429,6 +446,7 @@ class Parallel(base.Layer):
     if layers and kwlayers:
       raise ValueError('Cannot specify a Parallel with both a list and dict.')
     layers = layers or kwlayers
+    layers = _EnsureSublayers(layers)
     self._nlayers = len(layers)
     self._layers = layers
 
@@ -460,7 +478,7 @@ class Parallel(base.Layer):
         result[k] = inputs[k]
     return result
 
-  def output_shape_fun(self, input_shape):
+  def output_shape_fn(self, input_shape):
     output_shapes = []
     # If the argument layers are a sequence, apply each to calculate shape.
     if not isinstance(self._layers, dict):
@@ -493,20 +511,11 @@ class Parallel(base.Layer):
 def Residual(*layers, **kwargs):
   """Constructs a residual version of layers, summing input to layers output."""
   shortcut = kwargs.get('shortcut', _Top())  # pylint: disable=no-value-for-parameter
-  if len(layers) > 1:
-    return Serial(
-        Branch(shortcut, Serial(*layers)),
-        Flatten(),  # pylint: disable=no-value-for-parameter
-        Add()  # pylint: disable=no-value-for-parameter
-    )
-  elif len(layers) == 1:
-    return Serial(
-        Branch(shortcut, layers[0]),
-        Flatten(),  # pylint: disable=no-value-for-parameter
-        Add()  # pylint: disable=no-value-for-parameter
-    )
-  else:
-    raise ValueError('Empty residual combinator.')
+  return [
+      Branch(shortcut, Serial(layers)),  # Use Serial here to flatten layers.
+      Flatten(),  # pylint: disable=no-value-for-parameter
+      Add(),  # pylint: disable=no-value-for-parameter
+  ]
 
 
 class Map(base.Layer):
@@ -540,7 +549,7 @@ class Map(base.Layer):
       return result
     return tuple(result)
 
-  def output_shape_fun(self, input_shapes):
+  def output_shape_fn(self, input_shapes):
     return tuple([self._layer.output_shape(shape) for shape in input_shapes])
 
   def new_parameters(self, input_shape, rng):
@@ -558,22 +567,22 @@ class Rebatch(base.Layer):
 
   Args:
     layer: subclass of base.Layer, a layer to apply to the input.
-    num_batch_dims: int, the number of leading dimensions to consider as batch.
+    n_batch_dims: int, the number of leading dimensions to consider as batch.
 
   Returns:
     A new layer that will reshape the input into a virtual batch, apply the
     layer and unbatch the virtual batch.
   """
 
-  def __init__(self, layer, num_batch_dims=1):
+  def __init__(self, layer, n_batch_dims=1):
     super(Rebatch, self).__init__()
     self._layer = layer
-    self._num_batch_dims = num_batch_dims
+    self._n_batch_dims = n_batch_dims
 
   def _modify_shape(self, input_shape):
     input_shape = tuple(input_shape)
-    batch_dims, non_batch_dims = (input_shape[:self._num_batch_dims],
-                                  input_shape[self._num_batch_dims:])
+    batch_dims, non_batch_dims = (input_shape[:self._n_batch_dims],
+                                  input_shape[self._n_batch_dims:])
     new_batch_dim = six.moves.reduce(operator.mul, batch_dims)
     return (new_batch_dim,) + non_batch_dims, batch_dims
 
@@ -596,7 +605,7 @@ class Rebatch(base.Layer):
     out = self._layer(inp, params=params, **kwargs)
     return self._unmodify(out, batch_dims)
 
-  def output_shape_fun(self, input_shape):
+  def output_shape_fn(self, input_shape):
     modified_shape, batch_dims = self._modify_shape(input_shape)
     out = self._layer.output_shape(modified_shape)
     return self._unmodify_shape(out, batch_dims)

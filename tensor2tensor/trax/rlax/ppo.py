@@ -65,7 +65,7 @@ import numpy as onp
 from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import env_problem_utils
 from tensor2tensor.trax import jaxboard
-from tensor2tensor.trax import layers
+from tensor2tensor.trax import layers as tl
 from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax import trax
 from tensorflow.io import gfile
@@ -82,8 +82,8 @@ BATCH_TRAJECTORIES = 32
 
 def policy_and_value_net(rng_key,
                          batch_observations_shape,
-                         num_actions,
-                         bottom_layers_fn=None,
+                         n_actions,
+                         bottom_layers_fn=(),
                          two_towers=True):
   """A policy and value net function."""
 
@@ -93,31 +93,23 @@ def policy_and_value_net(rng_key,
   # other computes the value function.
   # NOTE: The LogSoftmax instead of the Softmax because of numerical stability.
 
-  net = None
-  if not two_towers:
-    tower = [] if bottom_layers_fn is None else bottom_layers_fn()
-    tower.extend([
-        layers.Branch(
-            layers.Serial(layers.Dense(num_actions), layers.LogSoftmax()),
-            layers.Dense(1))
-    ])
-    net = layers.Serial(*tower)
-  else:
-    tower1 = [] if bottom_layers_fn is None else bottom_layers_fn()
-    tower2 = [] if bottom_layers_fn is None else bottom_layers_fn()
-
-    tower1.extend([layers.Dense(num_actions), layers.LogSoftmax()])
-    tower2.extend([layers.Dense(1)])
-
-    net = layers.Branch(
-        layers.Serial(*tower1),
-        layers.Serial(*tower2),
+  if two_towers:
+    net = tl.Branch(
+        [bottom_layers_fn(), tl.Dense(n_actions), tl.LogSoftmax()],
+        [bottom_layers_fn(), tl.Dense(1)]
     )
-  assert net
+  else:
+    net = tl.Serial(
+        bottom_layers_fn(),
+        tl.Branch(
+            [tl.Dense(n_actions), tl.LogSoftmax()],
+            [tl.Dense(1)]
+        )
+    )
   return net.initialize(batch_observations_shape, rng_key), net
 
 
-def optimizer_fun(net_params, step_size=1e-3):
+def optimizer_fn(net_params, step_size=1e-3):
   opt = trax_opt.Adam(step_size=step_size, b1=0.9, b2=0.999, eps=1e-08)
   opt_init = lambda x: (x, opt.tree_init(x))
   opt_update = lambda i, g, s: opt.tree_update(i, g, s[0], s[1])
@@ -130,7 +122,7 @@ def optimizer_fun(net_params, step_size=1e-3):
 # Run the env for 'n' steps and take completed trajectories, or
 # Any other option?
 def collect_trajectories(env,
-                         policy_fun,
+                         policy_fn,
                          num_trajectories=1,
                          policy=env_problem_utils.CATEGORICAL_SAMPLING,
                          max_timestep=None,
@@ -142,10 +134,10 @@ def collect_trajectories(env,
 
   Args:
     env: A gym env interface, for now this is not-batched.
-    policy_fun: observations(B,T+1) -> log-probabs(B,T+1, A) callable.
+    policy_fn: observations(B,T+1) -> log-probabs(B,T+1, A) callable.
     num_trajectories: int, number of trajectories.
     policy: string, "greedy", "epsilon-greedy", or "categorical-sampling" i.e.
-      how to use the policy_fun to return an action.
+      how to use the policy_fn to return an action.
     max_timestep: int or None, the index of the maximum time-step at which we
       return the trajectory, None for ending a trajectory only when env returns
       done.
@@ -168,7 +160,7 @@ def collect_trajectories(env,
   # This is an env_problem, run its collect function.
   trajs, num_done = env_problem_utils.play_env_problem_with_policy(
       env,
-      policy_fun,
+      policy_fn,
       num_trajectories=num_trajectories,
       max_timestep=max_timestep,
       boundary=boundary,
@@ -740,8 +732,8 @@ def maybe_restore_params(output_dir, policy_and_value_net_params):
 def training_loop(
     env=None,
     epochs=EPOCHS,
-    policy_and_value_net_fun=None,
-    policy_and_value_optimizer_fun=None,
+    policy_and_value_net_fn=None,
+    policy_and_value_optimizer_fn=None,
     batch_size=BATCH_TRAJECTORIES,
     num_optimizer_steps=NUM_OPTIMIZER_STEPS,
     print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
@@ -785,13 +777,13 @@ def training_loop(
   batch_observations_shape = (-1, -1) + env.observation_space.shape
 
   assert isinstance(env.action_space, gym.spaces.Discrete)
-  num_actions = env.action_space.n
+  n_actions = env.action_space.n
 
   jax_rng_key, key1 = jax_random.split(jax_rng_key, num=2)
 
   # Initialize the policy and value network.
   policy_and_value_net_params, policy_and_value_net_apply = (
-      policy_and_value_net_fun(key1, batch_observations_shape, num_actions))
+      policy_and_value_net_fn(key1, batch_observations_shape, n_actions))
 
   # Maybe restore the policy params. If there is nothing to restore, then
   # iteration = 0 and policy_and_value_net_params are returned as is.
@@ -807,7 +799,7 @@ def training_loop(
 
   # Initialize the optimizers.
   policy_and_value_optimizer = (
-      policy_and_value_optimizer_fun(policy_and_value_net_params))
+      policy_and_value_optimizer_fn(policy_and_value_net_params))
   (policy_and_value_opt_state, policy_and_value_opt_update,
    policy_and_value_get_params) = policy_and_value_optimizer
 
@@ -860,7 +852,7 @@ def training_loop(
     jax_rng_key, key = jax_random.split(jax_rng_key)
     trajs, num_done = collect_trajectories(
         env,
-        policy_fun=get_predictions,
+        policy_fn=get_predictions,
         num_trajectories=batch_size,
         max_timestep=max_timestep,
         boundary=boundary,

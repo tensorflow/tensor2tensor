@@ -28,6 +28,7 @@ from jax.config import config
 import numpy as np
 
 from tensor2tensor.trax import inputs as inputs_lib
+from tensor2tensor.trax import layers
 from tensor2tensor.trax import models
 from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax import trax
@@ -36,7 +37,7 @@ from tensorflow import test
 from tensorflow.io import gfile
 
 
-def test_inputs(num_classes):
+def test_inputs(n_classes):
   """Make trax.inputs.Inputs."""
   batch_size = 2
   input_shape = (6, 6, 3)
@@ -44,7 +45,7 @@ def test_inputs(num_classes):
   def input_stream():
     while True:
       yield (np.random.rand(*([batch_size] + list(input_shape))),
-             np.random.randint(num_classes, size=batch_size))
+             np.random.randint(n_classes, size=batch_size))
 
   return inputs_lib.Inputs(
       train_stream=input_stream,
@@ -64,17 +65,17 @@ class TraxTest(test.TestCase):
   def test_train_eval_predict(self):
     with self.tmp_dir() as output_dir:
       # Prepare model and inputs
-      num_classes = 4
+      n_classes = 4
       train_steps = 2
       eval_steps = 2
-      model = functools.partial(models.MLP,
-                                hidden_size=16,
-                                num_output_classes=num_classes)
-      inputs = lambda _: test_inputs(num_classes)
+      model_fn = functools.partial(models.MLP,
+                                   d_hidden=16,
+                                   n_output_classes=n_classes)
+      inputs = lambda _: test_inputs(n_classes)
 
       # Train and evaluate
       state = trax.train(output_dir,
-                         model=model,
+                         model=model_fn,
                          inputs=inputs,
                          train_steps=train_steps,
                          eval_steps=eval_steps)
@@ -90,22 +91,23 @@ class TraxTest(test.TestCase):
 
       # Predict with final params
       inputs = inputs(1).train_stream()
-      model()(next(inputs)[0], state.params[0])
+      model = layers.Serial(model_fn())
+      model(next(inputs)[0], state.params[0])
 
   def test_train_eval_predict_sm3(self):
     with self.tmp_dir() as output_dir:
       # Prepare model and inputs
-      num_classes = 4
+      n_classes = 4
       train_steps = 2
       eval_steps = 2
-      model = functools.partial(models.MLP,
-                                hidden_size=16,
-                                num_output_classes=num_classes)
-      inputs = lambda _: test_inputs(num_classes)
+      model_fn = functools.partial(models.MLP,
+                                   d_hidden=16,
+                                   n_output_classes=n_classes)
+      inputs = lambda _: test_inputs(n_classes)
 
       # Train and evaluate
       state = trax.train(output_dir,
-                         model=model,
+                         model=model_fn,
                          inputs=inputs,
                          train_steps=train_steps,
                          eval_steps=eval_steps,
@@ -122,7 +124,8 @@ class TraxTest(test.TestCase):
 
       # Predict with final params
       inputs = inputs(1).train_stream()
-      model()(next(inputs)[0], state.params[0])
+      model = layers.Serial(model_fn())
+      model(next(inputs)[0], state.params[0])
 
 
 if __name__ == "__main__":

@@ -140,7 +140,7 @@ class Conv(base.Layer):
         lhs_trans, rhs_trans, window_strides, padding)
     return tuple(onp.take(out_trans, onp.argsort(out_perm)))
 
-  def output_shape_fun(self, input_shape):
+  def output_shape_fn(self, input_shape):
     kernel_shape = self._kernel_shape(input_shape)
     return self._conv_general_shape_tuple(
         input_shape, kernel_shape,

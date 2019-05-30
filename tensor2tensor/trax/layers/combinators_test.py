@@ -78,15 +78,13 @@ class CombinatorLayerTest(absltest.TestCase):
 
     input_shape = (29, 5, 5, 20)
     result_shape = base.check_shape_agreement(
-        combinators.Rebatch(
-            convolution.Conv(30, (3, 3)), num_batch_dims=1),
+        combinators.Rebatch(convolution.Conv(30, (3, 3)), n_batch_dims=1),
         input_shape)
     self.assertEqual(result_shape, (29, 3, 3, 30))
 
     input_shape = (19, 29, 5, 5, 20)
     result_shape = base.check_shape_agreement(
-        combinators.Rebatch(
-            convolution.Conv(30, (3, 3)), num_batch_dims=2),
+        combinators.Rebatch(convolution.Conv(30, (3, 3)), n_batch_dims=2),
         input_shape)
     self.assertEqual(result_shape, (19, 29, 3, 3, 30))
 

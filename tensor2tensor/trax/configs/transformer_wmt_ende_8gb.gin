@@ -43,11 +43,11 @@ train.train_steps = 500000
 
 # Parameters for Transformer:
 # ==============================================================================
+Transformer.d_feature= 512
+Transformer.d_feedforward = 2048
 Transformer.dropout = 0.1
-Transformer.feature_depth = 512
-Transformer.feedforward_depth = 2048
 Transformer.max_len = 2048
 Transformer.mode = 'train'
-Transformer.num_heads = 8
-Transformer.num_layers = 6
+Transformer.n_heads = 8
+Transformer.n_layers = 6
 Transformer.vocab_size = 33300

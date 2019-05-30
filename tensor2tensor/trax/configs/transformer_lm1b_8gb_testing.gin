@@ -43,11 +43,11 @@ train.train_steps = 100000
 
 # Parameters for TransformerLM:
 # ==============================================================================
+TransformerLM.d_feature = 512
+TransformerLM.d_feedforward = 2048
 TransformerLM.dropout = 0.1
-TransformerLM.feature_depth = 512
-TransformerLM.feedforward_depth = 2048
 TransformerLM.max_len = 2048
 TransformerLM.mode = 'train'
-TransformerLM.num_heads = 8
-TransformerLM.num_layers = 6
+TransformerLM.n_heads = 8
+TransformerLM.n_layers = 6
 TransformerLM.vocab_size = 32000

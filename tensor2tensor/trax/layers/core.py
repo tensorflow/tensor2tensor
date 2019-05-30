@@ -97,7 +97,7 @@ class Dense(base.Layer):
     w, b = params
     return np.dot(x, w) + b
 
-  def output_shape_fun(self, input_shape):
+  def output_shape_fn(self, input_shape):
     return tuple(input_shape[:-1]) + (self._units,)
 
   def new_parameters(self, input_shape, rng):
@@ -110,10 +110,10 @@ class Dense(base.Layer):
 class Embedding(base.Layer):
   """Layer constructor function for an embedding layer."""
 
-  def __init__(self, feature_depth, vocab_size,
+  def __init__(self, d_feature, vocab_size,
                kernel_initializer=init.GlorotUniformInitializer()):
     super(Embedding, self).__init__()
-    self._feature_depth = feature_depth
+    self._d_feature = d_feature  # feature dimensionality
     self._vocab_size = vocab_size
     self._kernel_initializer = kernel_initializer
 
@@ -124,12 +124,12 @@ class Embedding(base.Layer):
     del kwargs
     return np.take(params, x, axis=0)
 
-  def output_shape_fun(self, input_shape):
-    return tuple(input_shape) + (self._feature_depth,)
+  def output_shape_fn(self, input_shape):
+    return tuple(input_shape) + (self._d_feature,)
 
   def new_parameters(self, input_shape, rng):
     return self._kernel_initializer(
-        (self._vocab_size, self._feature_depth), rng)
+        (self._vocab_size, self._d_feature), rng)
 
 
 # Flatten.
@@ -154,7 +154,7 @@ def Dropout(x, params, rate=0.0, mode='train', rng=None, **kwargs):
   """Layer construction function for a dropout layer with given rate."""
   del params, kwargs
   if rng is None:
-    msg = ('Dropout layer requires apply_fun to be called with a rng keyword '
+    msg = ('Dropout layer requires apply_fn to be called with a rng keyword '
            'argument. That is, instead of `Dropout(params, inputs)`, call '
            'it like `Dropout(params, inputs, rng=key)`.')
     raise ValueError(msg)

@@ -29,8 +29,8 @@ Momentum.mass = 0.9
 
 # Parameters for Resnet50:
 # ==============================================================================
-Resnet50.hidden_size = 64
-Resnet50.num_output_classes = 1001
+Resnet50.d_hidden = 64
+Resnet50.n_output_classes = 1001
 
 # Parameters for train:
 # ==============================================================================
