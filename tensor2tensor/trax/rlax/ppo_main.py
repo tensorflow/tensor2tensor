@@ -178,8 +178,8 @@ def make_env(batch_size=8):
       reward_range=(-1, 1))
 
 
-def get_optimizer_fun(learning_rate):
-  return functools.partial(ppo.optimizer_fun, step_size=learning_rate)
+def get_optimizer_fn(learning_rate):
+  return functools.partial(ppo.optimizer_fn, step_size=learning_rate)
 
 
 def main(argv):
@@ -206,11 +206,11 @@ def main(argv):
     """Runs the training loop."""
     logging.info("Starting the training loop.")
 
-    policy_and_value_net_fun = functools.partial(
+    policy_and_value_net_fn = functools.partial(
         ppo.policy_and_value_net,
         bottom_layers_fn=common_layers,
         two_towers=FLAGS.two_towers)
-    policy_and_value_optimizer_fun = get_optimizer_fun(FLAGS.learning_rate)
+    policy_and_value_optimizer_fn = get_optimizer_fn(FLAGS.learning_rate)
 
     random_seed = None
     try:
@@ -221,8 +221,8 @@ def main(argv):
     ppo.training_loop(
         env=env,
         epochs=FLAGS.epochs,
-        policy_and_value_net_fun=policy_and_value_net_fun,
-        policy_and_value_optimizer_fun=policy_and_value_optimizer_fun,
+        policy_and_value_net_fn=policy_and_value_net_fn,
+        policy_and_value_optimizer_fn=policy_and_value_optimizer_fn,
         num_optimizer_steps=FLAGS.num_optimizer_steps,
         print_every_optimizer_steps=FLAGS.print_every_optimizer_steps,
         batch_size=FLAGS.batch_size,
