@@ -538,8 +538,10 @@ def rlmf_eval():
   """Eval set of hparams for model-free PPO."""
   hparams = rlmf_original()
   hparams.batch_size = 16
-  hparams.eval_sampling_temps = [0.0, 0.5, 1.0]
-  hparams.eval_rl_env_max_episode_steps = 20000
+  hparams.eval_batch_size = 32
+  hparams.eval_episodes_num = 2
+  hparams.eval_sampling_temps = [0.5, 0.0, 1.0]
+  hparams.eval_rl_env_max_episode_steps = 40000
   hparams.add_hparam("ppo_epoch_length", 128)
   hparams.add_hparam("ppo_optimization_batch_size", 32)
   hparams.add_hparam("ppo_epochs_num", 10000)
