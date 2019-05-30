@@ -366,18 +366,13 @@ def deltas(predicted_values, rewards, mask, gamma=0.99):
     ndarray of shape (B, T) of one-step TD-residuals.
   """
 
-  v0 = np.transpose(predicted_values)[0]        # (B,) just V_{b, 1}
-  v1 = np.transpose(predicted_values)[:-1]      # (T, B) without V_{b, T+1}
-  rt = rewards.astype(np.float32).T   # (T, B)
-
-  def td_residual(carry, inps):
-    r, v_next = inps
-    v = carry
-    return v_next, (r + gamma * v_next - v)
-
-  _, d = lax.scan(td_residual, v0, [rt, v1])
-
-  return np.transpose(d) * mask
+  # Predicted values at time t, cutting off the last to have shape (B, T).
+  predicted_values_bt = predicted_values[:, :-1]
+  # Predicted values at time t+1, by cutting off the first to have shape (B, T)
+  predicted_values_btplus1 = predicted_values[:, 1:]
+  # Return the deltas as defined above.
+  return (
+      rewards + (gamma * predicted_values_btplus1) - predicted_values_bt) * mask
 
 
 def gae_advantages(td_deltas, mask, lambda_=0.95, gamma=0.99):
