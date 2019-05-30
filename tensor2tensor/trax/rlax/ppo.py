@@ -49,6 +49,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import functools
 import os
 import time
@@ -682,27 +683,36 @@ def evaluate_policy(eval_env,
                     get_predictions,
                     boundary,
                     max_timestep=20000,
+                    num_evals=1,
                     rng=None):
   """Evaluate the policy."""
 
-  avg_rewards = {}
-  avg_rewards_unclipped = {}
-  for policy in [
-      env_problem_utils.CATEGORICAL_SAMPLING, env_problem_utils.GUMBEL_SAMPLING,
-      env_problem_utils.EPSILON_GREEDY
-  ]:
-    trajs, _ = env_problem_utils.play_env_problem_with_policy(
-        eval_env,
-        get_predictions,
-        boundary=boundary,
-        max_timestep=max_timestep,
-        reset=True,
-        policy_sampling=policy,
-        rng=rng)
-    avg_rewards[policy] = float(sum(
-        np.sum(traj[2]) for traj in trajs)) / len(trajs)
-    avg_rewards_unclipped[policy] = float(sum(
-        np.sum(traj[3]) for traj in trajs)) / len(trajs)
+  avg_rewards = collections.defaultdict(float)
+  avg_rewards_unclipped = collections.defaultdict(float)
+  for _ in range(num_evals):
+    for policy in [
+        env_problem_utils.CATEGORICAL_SAMPLING,
+        env_problem_utils.GUMBEL_SAMPLING,
+        env_problem_utils.EPSILON_GREEDY
+    ]:
+      trajs, _ = env_problem_utils.play_env_problem_with_policy(
+          eval_env,
+          get_predictions,
+          boundary=boundary,
+          max_timestep=max_timestep,
+          reset=True,
+          policy_sampling=policy,
+          rng=rng)
+      avg_rewards[policy] += float(sum(
+          np.sum(traj[2]) for traj in trajs)) / len(trajs)
+      avg_rewards_unclipped[policy] += float(sum(
+          np.sum(traj[3]) for traj in trajs)) / len(trajs)
+
+  # Now average these out.
+  for k in avg_rewards:
+    avg_rewards[k] /= num_evals
+    avg_rewards_unclipped[k] /= num_evals
+
   return avg_rewards, avg_rewards_unclipped
 
 
@@ -753,6 +763,7 @@ def training_loop(
     done_frac_for_policy_save=0.5,
     enable_early_stopping=True,
     env_name=None,
+    num_evals=1,
 ):
   """Runs the training loop for PPO, with fixed policy and value nets."""
   assert env
@@ -836,6 +847,7 @@ def training_loop(
           get_predictions,
           boundary,
           max_timestep=max_timestep_eval,
+          num_evals=num_evals,
           rng=key)
       for k, v in avg_reward.items():
         eval_sw.scalar("eval/mean_reward/%s" % k, v, step=i)

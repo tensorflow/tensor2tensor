@@ -126,6 +126,7 @@ flags.DEFINE_bool("enable_early_stopping", True,
 flags.DEFINE_bool("xm", False, "Copy atari roms?")
 flags.DEFINE_integer("eval_every_n", 100, "How frequently to eval the policy.")
 flags.DEFINE_integer("eval_batch_size", 4, "Batch size for evaluation.")
+flags.DEFINE_integer("num_evals", 1, "Number of times to evaluate.")
 flags.DEFINE_float(
     "done_frac_for_policy_save", 0.5,
     "Fraction of the trajectories that should be done to "
@@ -240,6 +241,7 @@ def main(argv):
         eval_every_n=FLAGS.eval_every_n,
         done_frac_for_policy_save=FLAGS.done_frac_for_policy_save,
         eval_env=eval_env,
+        num_evals=FLAGS.num_evals,
         env_name=str(FLAGS.env_problem_name),
     )
 
