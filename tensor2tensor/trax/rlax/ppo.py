@@ -283,23 +283,55 @@ def rewards_to_go(rewards, mask, gamma=0.99):
   Returns:
     rewards to go, np.ndarray of shape (B, T).
   """
-  # B, T = rewards.shape
+  B, T = rewards.shape  # pylint: disable=invalid-name,unused-variable
 
   masked_rewards = rewards * mask  # (B, T)
 
-  reversed_rewards = np.flip(masked_rewards, axis=1)  # (B, T) flipped on time.
-  rrt = np.transpose(reversed_rewards)  # (T, B) transpose to scan over time.
+  # The lax.scan version of this is slow, but we still show it here for
+  # completeness.
+  #   rewards_rev = np.flip(masked_rewards, axis=1)  # (B, T) flipped on time.
+  #   rrt = np.transpose(rewards_rev)  # (T, B) transpose to scan over time.
+  #
+  #   def discounting_add(carry, reward):
+  #     x = reward + (gamma * carry)
+  #     return x, x
+  #
+  #   _, ys = lax.scan(discounting_add,
+  #                    np.zeros_like(rrt[0], dtype=np.float32),
+  #                    rrt.astype(np.float32))
+  #
+  #   # ys is (T, B) and T is in reverse order.
+  #   return np.flip(np.transpose(ys), axis=1)
 
-  def discounting_add(carry, reward):
-    x = reward + (gamma * carry)
-    return x, x
+  # We use the following recurrence relation, derived from the equation above:
+  #
+  # r2g[t+1] = (r2g[t] - r[t]) / gamma
+  #
+  # This means we'll need to calculate r2g[0] first and then r2g[1] and so on ..
+  #
+  # **However** this leads to overflows for long sequences: r2g[t] - r[t] > 0
+  # and gamma < 1.0, so the division keeps increasing.
+  #
+  # So we just run the recurrence in reverse, i.e.
+  #
+  # r2g[t] = r[t] + (gamma*r2g[t+1])
+  #
+  # This is much better, but might have lost updates since the (small) rewards
+  # at earlier time-steps may get added to a (very?) large sum.
 
-  _, ys = lax.scan(discounting_add,
-                   np.zeros_like(rrt[0], dtype=np.float32),
-                   rrt.astype(np.float32))
+  # Compute r2g_{T-1} at the start and then compute backwards in time.
+  r2gs = [masked_rewards[:, -1]]
 
-  # ys is (T, B) and T is in reverse order.
-  return np.flip(np.transpose(ys), axis=1)
+  # Go from T-2 down to 0.
+  for t in reversed(range(T - 1)):
+    r2gs.append(masked_rewards[:, t] + (gamma * r2gs[-1]))
+
+  # The list should have length T.
+  assert T == len(r2gs)
+
+  # First we stack them in the correct way to make it (B, T), but these are
+  # still from newest (T-1) to oldest (0), so then we flip it on time axis.
+  return np.flip(np.stack(r2gs, axis=1), axis=1)
 
 
 @jit
