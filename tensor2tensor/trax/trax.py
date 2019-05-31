@@ -171,10 +171,10 @@ def save_state(state, output_dir, keep=False):
 def _save_replicated(opt_state, step, history, n_devices, output_dir, keep):
   """Save state but given a possibly replicated opt_state."""
   if n_devices > 1:
-    unreplicate = lambda x: x.mean(0)
-    opt_state = layers.nested_map(opt_state, unreplicate)
-    save_state(State(params=opt_state, step=step, history=history),
-               output_dir, keep=keep)
+    first_replica = lambda x: x[0]
+    opt_state = layers.nested_map(opt_state, first_replica)
+  save_state(State(params=opt_state, step=step, history=history),
+             output_dir, keep=keep)
 
 
 # Metrics to calculate and report.
