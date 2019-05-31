@@ -11,10 +11,10 @@ batch_fun.max_eval_length = 12288  # 64 * 64 * 3
 
 # Parameters for inputs:
 # ==============================================================================
-inputs.num_chunks = 64
 inputs.data_dir = None
 inputs.dataset_name = 't2t_image_imagenet64_gen_flat_rev'
 inputs.input_name = 'targets'
+inputs.n_chunks = 64
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================

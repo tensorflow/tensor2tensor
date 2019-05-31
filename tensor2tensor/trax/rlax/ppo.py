@@ -76,7 +76,7 @@ GAMMA = 0.99
 LAMBDA = 0.95
 EPSILON = 0.1
 EPOCHS = 50  # 100
-NUM_OPTIMIZER_STEPS = 100
+N_OPTIMIZER_STEPS = 100
 PRINT_EVERY_OPTIMIZER_STEP = 20
 BATCH_TRAJECTORIES = 32
 
@@ -124,7 +124,7 @@ def optimizer_fn(net_params, step_size=1e-3):
 # Any other option?
 def collect_trajectories(env,
                          policy_fn,
-                         num_trajectories=1,
+                         n_trajectories=1,
                          policy=env_problem_utils.CATEGORICAL_SAMPLING,
                          max_timestep=None,
                          boundary=20,
@@ -136,7 +136,7 @@ def collect_trajectories(env,
   Args:
     env: A gym env interface, for now this is not-batched.
     policy_fn: observations(B,T+1) -> log-probabs(B,T+1, A) callable.
-    num_trajectories: int, number of trajectories.
+    n_trajectories: int, number of trajectories.
     policy: string, "greedy", "epsilon-greedy", or "categorical-sampling" i.e.
       how to use the policy_fn to return an action.
     max_timestep: int or None, the index of the maximum time-step at which we
@@ -159,10 +159,10 @@ def collect_trajectories(env,
 
   assert isinstance(env, env_problem.EnvProblem)
   # This is an env_problem, run its collect function.
-  trajs, num_done = env_problem_utils.play_env_problem_with_policy(
+  trajs, n_done = env_problem_utils.play_env_problem_with_policy(
       env,
       policy_fn,
-      num_trajectories=num_trajectories,
+      num_trajectories=n_trajectories,
       max_timestep=max_timestep,
       boundary=boundary,
       policy_sampling=policy,
@@ -170,7 +170,7 @@ def collect_trajectories(env,
       reset=reset,
       rng=rng)
   # Skip returning raw_rewards here, since they aren't used.
-  return [(t[0], t[1], t[2]) for t in trajs], num_done
+  return [(t[0], t[1], t[2]) for t in trajs], n_done
 
 
 # This function can probably be simplified, ask how?
@@ -710,13 +710,13 @@ def evaluate_policy(eval_env,
                     get_predictions,
                     boundary,
                     max_timestep=20000,
-                    num_evals=1,
+                    n_evals=1,
                     rng=None):
   """Evaluate the policy."""
 
   avg_rewards = collections.defaultdict(float)
   avg_rewards_unclipped = collections.defaultdict(float)
-  for _ in range(num_evals):
+  for _ in range(n_evals):
     for policy in [
         env_problem_utils.CATEGORICAL_SAMPLING,
         env_problem_utils.GUMBEL_SAMPLING,
@@ -737,8 +737,8 @@ def evaluate_policy(eval_env,
 
   # Now average these out.
   for k in avg_rewards:
-    avg_rewards[k] /= num_evals
-    avg_rewards_unclipped[k] /= num_evals
+    avg_rewards[k] /= n_evals
+    avg_rewards_unclipped[k] /= n_evals
 
   return avg_rewards, avg_rewards_unclipped
 
@@ -772,7 +772,7 @@ def training_loop(
     policy_and_value_net_fn=None,
     policy_and_value_optimizer_fn=None,
     batch_size=BATCH_TRAJECTORIES,
-    num_optimizer_steps=NUM_OPTIMIZER_STEPS,
+    n_optimizer_steps=N_OPTIMIZER_STEPS,
     print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
     target_kl=0.01,
     boundary=20,
@@ -790,7 +790,7 @@ def training_loop(
     done_frac_for_policy_save=0.5,
     enable_early_stopping=True,
     env_name=None,
-    num_evals=1,
+    n_evals=1,
 ):
   """Runs the training loop for PPO, with fixed policy and value nets."""
   assert env
@@ -841,7 +841,7 @@ def training_loop(
   (policy_and_value_opt_state, policy_and_value_opt_update,
    policy_and_value_get_params) = policy_and_value_optimizer
 
-  num_trajectories_done = 0
+  n_trajectories_done = 0
   last_saved_at = 0
 
   logging.info("Starting the PPO training loop.")
@@ -874,7 +874,7 @@ def training_loop(
           get_predictions,
           boundary,
           max_timestep=max_timestep_eval,
-          num_evals=num_evals,
+          n_evals=n_evals,
           rng=key)
       for k, v in avg_reward.items():
         eval_sw.scalar("eval/mean_reward/%s" % k, v, step=i)
@@ -889,10 +889,10 @@ def training_loop(
     trajectory_collection_start_time = time.time()
     logging.vlog(1, "Epoch [% 6d] collecting trajectories.", i)
     jax_rng_key, key = jax_random.split(jax_rng_key)
-    trajs, num_done = collect_trajectories(
+    trajs, n_done = collect_trajectories(
         env,
         policy_fn=get_predictions,
-        num_trajectories=batch_size,
+        n_trajectories=batch_size,
         max_timestep=max_timestep,
         boundary=boundary,
         rng=key,
@@ -993,8 +993,8 @@ def training_loop(
     jax_rng_key, key1 = jax_random.split(jax_rng_key, num=2)
     logging.vlog(1, "Policy and Value Optimization")
     optimization_start_time = time.time()
-    keys = jax_random.split(key1, num=num_optimizer_steps)
-    for j in range(num_optimizer_steps):
+    keys = jax_random.split(key1, num=n_optimizer_steps)
+    for j in range(n_optimizer_steps):
       k1, k2, k3 = jax_random.split(keys[j], num=3)
       t = time.time()
       # Update the optimizer state.
@@ -1037,7 +1037,7 @@ def training_loop(
 
       t2 = time.time()
       if (((j + 1) % print_every_optimizer_steps == 0) or
-          (j == num_optimizer_steps - 1) or early_stopping):
+          (j == n_optimizer_steps - 1) or early_stopping):
         # Compute and log the loss.
         (loss_combined, loss_ppo, loss_value, entropy_bonus) = (
             combined_loss(
@@ -1077,9 +1077,9 @@ def training_loop(
     # Also don't save too frequently, enforce a minimum gap.
     # Or if this is the last iteration.
     policy_save_start_time = time.time()
-    num_trajectories_done += num_done
+    n_trajectories_done += n_done
     # TODO(afrozm): Refactor to trax.save_state.
-    if (((num_trajectories_done >= done_frac_for_policy_save * batch_size)
+    if (((n_trajectories_done >= done_frac_for_policy_save * batch_size)
          and (i - last_saved_at > eval_every_n)
          and (((i + 1) % eval_every_n == 0)))
         or (i == epochs - 1)):
@@ -1092,7 +1092,7 @@ def training_loop(
       for path in old_model_files:
         gfile.remove(path)
       # Reset this number.
-      num_trajectories_done = 0
+      n_trajectories_done = 0
       last_saved_at = i
     policy_save_time = get_time(policy_save_start_time)
 

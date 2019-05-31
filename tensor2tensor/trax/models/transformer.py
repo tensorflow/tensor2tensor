@@ -66,7 +66,7 @@ def EncoderBlock(d_feature, d_feedforward, n_heads, dropout, mode):
 
 
 def TransformerEncoder(vocab_size,
-                       num_classes=10,
+                       n_classes=10,
                        d_feature=512,
                        d_feedforward=2048,
                        n_layers=6,
@@ -78,7 +78,7 @@ def TransformerEncoder(vocab_size,
 
   Args:
     vocab_size: int: vocab size
-    num_classes: how many classes on output
+    n_classes: how many classes on output
     d_feature: int:  depth of embedding
     d_feedforward: int: depth of feed-forward layer
     n_layers: int: number of encoder/decoder layers
@@ -102,7 +102,7 @@ def TransformerEncoder(vocab_size,
       tl.Select(0),  # Drop mask.
       tl.LayerNorm(),
       tl.Mean(axis=1),  # Average on length.
-      tl.Dense(num_classes),
+      tl.Dense(n_classes),
       tl.LogSoftmax(),
   ]
 

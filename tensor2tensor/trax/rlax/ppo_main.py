@@ -101,7 +101,7 @@ flags.DEFINE_bool(
     "two.")
 
 # Number of optimizer steps of the combined net, policy net and value net.
-flags.DEFINE_integer("num_optimizer_steps", 100, "Number of optimizer steps.")
+flags.DEFINE_integer("n_optimizer_steps", 100, "Number of optimizer steps.")
 flags.DEFINE_integer(
     "print_every_optimizer_steps", 1,
     "How often to log during the policy optimization process.")
@@ -126,7 +126,7 @@ flags.DEFINE_bool("enable_early_stopping", True,
 flags.DEFINE_bool("xm", False, "Copy atari roms?")
 flags.DEFINE_integer("eval_every_n", 100, "How frequently to eval the policy.")
 flags.DEFINE_integer("eval_batch_size", 4, "Batch size for evaluation.")
-flags.DEFINE_integer("num_evals", 1, "Number of times to evaluate.")
+flags.DEFINE_integer("n_evals", 1, "Number of times to evaluate.")
 flags.DEFINE_float(
     "done_frac_for_policy_save", 0.5,
     "Fraction of the trajectories that should be done to "
@@ -223,7 +223,7 @@ def main(argv):
         epochs=FLAGS.epochs,
         policy_and_value_net_fn=policy_and_value_net_fn,
         policy_and_value_optimizer_fn=policy_and_value_optimizer_fn,
-        num_optimizer_steps=FLAGS.num_optimizer_steps,
+        n_optimizer_steps=FLAGS.n_optimizer_steps,
         print_every_optimizer_steps=FLAGS.print_every_optimizer_steps,
         batch_size=FLAGS.batch_size,
         target_kl=FLAGS.target_kl,
@@ -241,7 +241,7 @@ def main(argv):
         eval_every_n=FLAGS.eval_every_n,
         done_frac_for_policy_save=FLAGS.done_frac_for_policy_save,
         eval_env=eval_env,
-        num_evals=FLAGS.num_evals,
+        n_evals=FLAGS.n_evals,
         env_name=str(FLAGS.env_problem_name),
     )
 

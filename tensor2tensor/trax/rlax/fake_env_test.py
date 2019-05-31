@@ -27,7 +27,7 @@ class FakeEnvTest(test.TestCase):
 
   def test_done_action(self):
     env = fake_env.FakeEnv(input_shape=(2, 3),
-                           num_actions=10,
+                           n_actions=10,
                            done_time_step=None,
                            done_action=9)
     env.reset()
@@ -44,7 +44,7 @@ class FakeEnvTest(test.TestCase):
 
   def test_done_time_step(self):
     env = fake_env.FakeEnv(input_shape=(2, 3),
-                           num_actions=10,
+                           n_actions=10,
                            done_time_step=10,
                            done_action=None)
     env.reset()

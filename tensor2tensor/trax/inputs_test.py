@@ -55,7 +55,7 @@ class InputsTest(tf.test.TestCase):
       self.assertEqual(example[0].shape[0], 10)  # Batch size = 10.
     self.assertEqual(count, 1)  # Just one batch here.
 
-  def test_batch_fun_num_devices(self):
+  def test_batch_fun_n_devices(self):
     dataset = test_dataset_ints([32])
     dataset = dataset.repeat(9)
     batches = inputs.batch_fun(
@@ -63,7 +63,7 @@ class InputsTest(tf.test.TestCase):
     count = 0
     for example in tfds.as_numpy(batches):
       count += 1
-      # Batch size adjusted to be divisible by num_devices.
+      # Batch size adjusted to be divisible by n_devices.
       self.assertEqual(example[0].shape[0], 9)
     self.assertEqual(count, 1)  # Just one batch here.
 

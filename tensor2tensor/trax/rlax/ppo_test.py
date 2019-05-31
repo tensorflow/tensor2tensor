@@ -36,9 +36,9 @@ class PpoTest(test.TestCase):
   def test_policy_and_value_net(self):
     observation_shape = (3, 4, 5)
     batch_observation_shape = (-1, -1) + observation_shape
-    num_actions = 2
+    n_actions = 2
     pnv_params, pnv_apply = ppo.policy_and_value_net(
-        self.rng_key, batch_observation_shape, num_actions,
+        self.rng_key, batch_observation_shape, n_actions,
         lambda: [layers.Flatten(num_axis_to_keep=2)])
     batch = 2
     time_steps = 10
@@ -48,14 +48,14 @@ class PpoTest(test.TestCase):
 
     # Output is a list, first is probab of actions and the next is value output.
     self.assertEqual(2, len(pnv_output))
-    self.assertEqual((batch, time_steps, num_actions), pnv_output[0].shape)
+    self.assertEqual((batch, time_steps, n_actions), pnv_output[0].shape)
     self.assertEqual((batch, time_steps, 1), pnv_output[1].shape)
 
   def test_pad_trajectories(self):
     observation_shape = (2, 3, 4)
     trajectories = []
-    num_trajectories = 7
-    num_actions = 10
+    n_trajectories = 7
+    n_actions = 10
 
     # Time-steps are between [min_allowable_time_step, max_allowable_time_step]
     max_allowable_time_step = 19
@@ -67,8 +67,8 @@ class PpoTest(test.TestCase):
     # Bucket length.
     bucket_length = 15
 
-    # Make `num_trajectories` random trajectories.
-    for i in range(num_trajectories):
+    # Make `n_trajectories` random trajectories.
+    for i in range(n_trajectories):
       time_steps = np.random.randint(min_allowable_time_step,
                                      max_allowable_time_step + 1)
       if time_steps > max_time_step:
@@ -77,7 +77,7 @@ class PpoTest(test.TestCase):
           0, 255, size=(time_steps + 1,) + observation_shape).astype(np.uint8)
       rewards = np.random.uniform(size=(time_steps,)).astype(np.float32)
       actions = np.random.randint(
-          0, num_actions, size=(time_steps,)).astype(np.int32)
+          0, n_actions, size=(time_steps,)).astype(np.int32)
       trajectories.append((observations, rewards, actions))
 
     # Now pad these trajectories.
@@ -96,16 +96,16 @@ class PpoTest(test.TestCase):
 
     # Expectations on the padded shapes.
     self.assertEqual(padded_observations.shape, (
-        num_trajectories,
+        n_trajectories,
         expected_padding + 1,
     ) + observation_shape)
-    self.assertEqual(padded_actions.shape, (num_trajectories, expected_padding))
-    self.assertEqual(padded_rewards.shape, (num_trajectories, expected_padding))
-    self.assertEqual(reward_mask.shape, (num_trajectories, expected_padding))
+    self.assertEqual(padded_actions.shape, (n_trajectories, expected_padding))
+    self.assertEqual(padded_rewards.shape, (n_trajectories, expected_padding))
+    self.assertEqual(reward_mask.shape, (n_trajectories, expected_padding))
 
     # Assert that the padding lengths and reward mask are consistent.
     self.assertAllEqual(
-        np.full((num_trajectories,), expected_padding),
+        np.full((n_trajectories,), expected_padding),
         np.array(np.sum(reward_mask, axis=1)) + pad_lengths)
 
   def test_rewards_to_go(self):

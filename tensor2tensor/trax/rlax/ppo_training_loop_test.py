@@ -59,19 +59,19 @@ class PpoTrainingLoopTest(test.TestCase):
     with self.tmp_dir() as output_dir:
       env = self.get_wrapped_env("CartPole-v0", 2)
       eval_env = self.get_wrapped_env("CartPole-v0", 2)
-      num_epochs = 2
+      n_epochs = 2
       batch_size = 2
       # Run the training loop.
       ppo.training_loop(
           env=env,
           eval_env=eval_env,
-          epochs=num_epochs,
+          epochs=n_epochs,
           policy_and_value_net_fn=functools.partial(
               ppo.policy_and_value_net,
               bottom_layers_fn=lambda: [layers.Dense(1)]),
           policy_and_value_optimizer_fn=ppo.optimizer_fn,
           batch_size=batch_size,
-          num_optimizer_steps=1,
+          n_optimizer_steps=1,
           output_dir=output_dir,
           env_name="CartPole-v0",
           random_seed=0)
