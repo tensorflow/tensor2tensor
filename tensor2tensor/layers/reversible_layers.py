@@ -39,6 +39,649 @@ class Reverse(tf.keras.layers.Layer):
     self.reverse = reversible_layer.call
 
 
+class DiscreteAutoregressiveFlow(tf.keras.layers.Layer):
+  """A discrete reversible layer.
+
+  The flow takes as input a one-hot Tensor of shape `[..., length, vocab_size]`.
+  The flow returns a Tensor of same shape and dtype. (To enable gradients, the
+  input must have float dtype.)
+
+  For the forward pass, the flow computes in serial:
+
+  ```none
+  outputs = []
+  for t in range(length):
+    new_inputs = [outputs, inputs[..., t, :]]
+    net = layer(new_inputs)
+    loc, scale = tf.split(net, 2, axis=-1)
+    loc = tf.argmax(loc, axis=-1)
+    scale = tf.argmax(scale, axis=-1)
+    new_outputs = (((inputs - loc) * inverse(scale)) % vocab_size)[..., -1, :]
+    outputs.append(new_outputs)
+  ```
+
+  For the reverse pass, the flow computes in parallel:
+
+  ```none
+  net = layer(inputs)
+  loc, scale = tf.split(net, 2, axis=-1)
+  loc = tf.argmax(loc, axis=-1)
+  scale = tf.argmax(scale, axis=-1)
+  outputs = (loc + scale * inputs) % vocab_size
+  ```
+
+  The modular arithmetic happens in one-hot space.
+
+  If `x` is a discrete random variable, the induced probability mass function on
+  the outputs `y = flow(x)` is
+
+  ```none
+  p(y) = p(flow.reverse(y)).
+  ```
+
+  The location-only transform is always invertible ([integers modulo
+  `vocab_size` form an additive group](
+  https://en.wikipedia.org/wiki/Modular_arithmetic)). The transform with a scale
+  is invertible if the scale and `vocab_size` are coprime (see
+  [prime fields](https://en.wikipedia.org/wiki/Finite_field)).
+  """
+
+  def __init__(self, layer, temperature, **kwargs):
+    """Constructs flow.
+
+    Args:
+      layer: Two-headed masked network taking the inputs and returning a
+        real-valued Tensor of shape `[..., length, 2*vocab_size]`.
+        Alternatively, `layer` may return a Tensor of shape
+        `[..., length, vocab_size]` to be used as the location transform; the
+        scale transform will be hard-coded to 1.
+      temperature: Positive value determining bias of gradient estimator.
+      **kwargs: kwargs of parent class.
+    """
+    super(DiscreteAutoregressiveFlow, self).__init__(**kwargs)
+    self.layer = layer
+    self.temperature = temperature
+
+  def build(self, input_shape):
+    input_shape = tf.TensorShape(input_shape)
+    self.vocab_size = input_shape[-1]
+    if isinstance(self.vocab_size, tf.Dimension):
+      self.vocab_size = self.vocab_size.value
+    if self.vocab_size is None:
+      raise ValueError('The last dimension of the inputs to '
+                       '`DiscreteAutoregressiveFlow` should be defined. Found '
+                       '`None`.')
+    self.built = True
+
+  def __call__(self, inputs, *args, **kwargs):
+    if not isinstance(inputs, ed.RandomVariable):
+      return super(DiscreteAutoregressiveFlow, self).__call__(
+          inputs, *args, **kwargs)
+    return TransformedRandomVariable(inputs, self)
+
+  def call(self, inputs, **kwargs):
+    """Forward pass for left-to-right autoregressive generation."""
+    inputs = tf.convert_to_tensor(inputs)
+    length = inputs.shape[-2].value
+    if length is None:
+      raise NotImplementedError('length dimension must be known.')
+    # Form initial sequence tensor of shape [..., 1, vocab_size]. In a loop, we
+    # incrementally build a Tensor of shape [..., t, vocab_size] as t grows.
+    outputs = self._initial_call(inputs[..., 0, :], length, **kwargs)
+    # TODO(trandustin): Use tf.while_loop. Unrolling is memory-expensive for big
+    # models and not valid for variable lengths.
+    for t in range(1, length):
+      outputs = self._per_timestep_call(outputs,
+                                        inputs[..., t, :],
+                                        length,
+                                        t,
+                                        **kwargs)
+    return outputs
+
+  def _initial_call(self, new_inputs, length, **kwargs):
+    """Returns Tensor of shape [..., 1, vocab_size].
+
+    Args:
+      new_inputs: Tensor of shape [..., vocab_size], the new input to generate
+        its output.
+      length: Length of final desired sequence.
+      **kwargs: Optional keyword arguments to layer.
+    """
+    inputs = new_inputs[..., tf.newaxis, :]
+    # TODO(trandustin): To handle variable lengths, extend MADE to subset its
+    # input and output layer weights rather than pad inputs.
+    batch_ndims = inputs.shape.ndims - 2
+    padded_inputs = tf.pad(
+        inputs, [[0, 0]] * batch_ndims + [[0, length - 1], [0, 0]])
+    net = self.layer(padded_inputs, **kwargs)
+    if net.shape[-1] == 2 * self.vocab_size:
+      raise NotImplementedError()
+      # TODO(trandustin): Enable scale.
+      # loc, scale = tf.split(net, 2, axis=-1)
+      # scale = scale[..., 0, :][..., tf.newaxis, :]
+      # scale = tf.cast(one_hot_argmax(scale, self.temperature), inputs.dtype)
+      # inverse_scale = multiplicative_inverse(scale, self.vocab_size)
+    elif net.shape[-1] == self.vocab_size:
+      loc = net
+      # inverse_scale = tf.ones_like(inputs)
+    else:
+      raise ValueError('Output of layer does not have compatible dimensions.')
+    loc = loc[..., 0, :][..., tf.newaxis, :]
+    loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
+    # scaled_inputs = one_hot_multiply(inputs, inverse_scale)
+    scaled_inputs = inputs
+    outputs = one_hot_minus(scaled_inputs, loc)
+    return outputs
+
+  def _per_timestep_call(self,
+                         current_outputs,
+                         new_inputs,
+                         length,
+                         timestep,
+                         **kwargs):
+    """Returns Tensor of shape [..., timestep+1, vocab_size].
+
+    Args:
+      current_outputs: Tensor of shape [..., timestep, vocab_size], the so-far
+        generated sequence Tensor.
+      new_inputs: Tensor of shape [..., vocab_size], the new input to generate
+        its output given current_outputs.
+      length: Length of final desired sequence.
+      timestep: Current timestep.
+      **kwargs: Optional keyword arguments to layer.
+    """
+    inputs = tf.concat([current_outputs,
+                        new_inputs[..., tf.newaxis, :]], axis=-2)
+    # TODO(trandustin): To handle variable lengths, extend MADE to subset its
+    # input and output layer weights rather than pad inputs.
+    batch_ndims = inputs.shape.ndims - 2
+    padded_inputs = tf.pad(
+        inputs, [[0, 0]] * batch_ndims + [[0, length - timestep - 1], [0, 0]])
+    net = self.layer(padded_inputs, **kwargs)
+    if net.shape[-1] == 2 * self.vocab_size:
+      raise NotImplementedError()
+      # TODO(trandustin): Enable scale.
+      # loc, scale = tf.split(net, 2, axis=-1)
+      # scale = scale[..., :(timestep+1), :]
+      # scale = tf.cast(one_hot_argmax(scale, self.temperature), inputs.dtype)
+      # inverse_scale = multiplicative_inverse(scale, self.vocab_size)
+    elif net.shape[-1] == self.vocab_size:
+      loc = net
+      # inverse_scale = tf.ones_like(inputs)
+    else:
+      raise ValueError('Output of layer does not have compatible dimensions.')
+    loc = loc[..., :(timestep+1), :]
+    loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
+    # scaled_inputs = one_hot_multiply(inputs, inverse_scale)
+    scaled_inputs = inputs
+    new_outputs = one_hot_minus(scaled_inputs, loc)
+    outputs = tf.concat([current_outputs,
+                         new_outputs[..., -1, :][..., tf.newaxis, :]], axis=-2)
+    if not tf.executing_eagerly():
+      outputs.set_shape([None] * batch_ndims + [timestep+1, self.vocab_size])
+    return outputs
+
+  def reverse(self, inputs, **kwargs):
+    """Reverse pass returning the inverse autoregressive transformation."""
+    if not self.built:
+      self._maybe_build(inputs)
+
+    net = self.layer(inputs, **kwargs)
+    if net.shape[-1] == 2 * self.vocab_size:
+      raise NotImplementedError()
+      # TODO(trandustin): Enable scale.
+      # loc, scale = tf.split(net, 2, axis=-2)
+      # scale = tf.cast(one_hot_argmax(scale, self.temperature), inputs.dtype)
+    elif net.shape[-1] == self.vocab_size:
+      loc = net
+      # scale = tf.ones_like(inputs)
+    else:
+      raise ValueError('Output of layer does not have compatible dimensions.')
+    loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
+    # scaled_inputs = one_hot_multiply(inputs, scale)
+    scaled_inputs = inputs
+    outputs = one_hot_add(loc, scaled_inputs)
+    return outputs
+
+  def log_det_jacobian(self, inputs):
+    return tf.cast(0, inputs.dtype)
+
+
+class DiscreteBipartiteFlow(tf.keras.layers.Layer):
+  """A discrete reversible layer.
+
+  The flow takes as input a one-hot Tensor of shape `[..., length, vocab_size]`.
+  The flow returns a Tensor of same shape and dtype. (To enable gradients, the
+  input must have float dtype.)
+
+  For the forward pass, the flow computes:
+
+  ```none
+  net = layer(mask * inputs)
+  loc, scale = tf.split(net, 2, axis=-1)
+  loc = tf.argmax(loc, axis=-1)
+  scale = tf.argmax(scale, axis=-1)
+  outputs = ((inputs - (1-mask) * loc) * (1-mask) * inverse(scale)) % vocab_size
+  ```
+
+  For the reverse pass, the flow computes:
+
+  ```none
+  net = layer(mask * inputs)
+  loc, scale = tf.split(net, 2, axis=-1)
+  loc = tf.argmax(loc, axis=-1)
+  scale = tf.argmax(scale, axis=-1)
+  outputs = ((1-mask) * loc + (1-mask) * scale * inputs) % vocab_size
+  ```
+
+  The modular arithmetic happens in one-hot space.
+
+  If `x` is a discrete random variable, the induced probability mass function on
+  the outputs `y = flow(x)` is
+
+  ```none
+  p(y) = p(flow.reverse(y)).
+  ```
+
+  The location-only transform is always invertible ([integers modulo
+  `vocab_size` form an additive group](
+  https://en.wikipedia.org/wiki/Modular_arithmetic)). The transform with a scale
+  is invertible if the scale and `vocab_size` are coprime (see
+  [prime fields](https://en.wikipedia.org/wiki/Finite_field)).
+  """
+
+  def __init__(self, layer, mask, temperature, **kwargs):
+    """Constructs flow.
+
+    Args:
+      layer: Two-headed masked network taking the inputs and returning a
+        real-valued Tensor of shape `[..., length, 2*vocab_size]`.
+        Alternatively, `layer` may return a Tensor of shape
+        `[..., length, vocab_size]` to be used as the location transform; the
+        scale transform will be hard-coded to 1.
+      mask: binary Tensor of shape `[length]` forming the bipartite assignment.
+      temperature: Positive value determining bias of gradient estimator.
+      **kwargs: kwargs of parent class.
+    """
+    super(DiscreteBipartiteFlow, self).__init__(**kwargs)
+    self.layer = layer
+    self.mask = mask
+    self.temperature = temperature
+
+  def build(self, input_shape):
+    input_shape = tf.TensorShape(input_shape)
+    self.vocab_size = input_shape[-1]
+    if isinstance(self.vocab_size, tf.Dimension):
+      self.vocab_size = self.vocab_size.value
+    if self.vocab_size is None:
+      raise ValueError('The last dimension of the inputs to '
+                       '`DiscreteBipartiteFlow` should be defined. Found '
+                       '`None`.')
+    self.built = True
+
+  def __call__(self, inputs, *args, **kwargs):
+    if not isinstance(inputs, ed.RandomVariable):
+      return super(DiscreteBipartiteFlow, self).__call__(
+          inputs, *args, **kwargs)
+    return TransformedRandomVariable(inputs, self)
+
+  def call(self, inputs, **kwargs):
+    """Forward pass for bipartite generation."""
+    inputs = tf.convert_to_tensor(inputs)
+    batch_ndims = inputs.shape.ndims - 2
+    mask = tf.reshape(tf.cast(self.mask, inputs.dtype),
+                      [1] * batch_ndims + [-1, 1])
+    masked_inputs = mask * inputs
+    net = self.layer(masked_inputs, **kwargs)
+    if net.shape[-1] == 2 * self.vocab_size:
+      raise NotImplementedError()
+    elif net.shape[-1] == self.vocab_size:
+      loc = net
+    else:
+      raise ValueError('Output of layer does not have compatible dimensions.')
+    loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
+    masked_outputs = (1. - mask) * one_hot_minus(inputs, loc)
+    outputs = masked_inputs + masked_outputs
+    return outputs
+
+  def reverse(self, inputs, **kwargs):
+    """Reverse pass for the inverse bipartite transformation."""
+    if not self.built:
+      self._maybe_build(inputs)
+
+    inputs = tf.convert_to_tensor(inputs)
+    batch_ndims = inputs.shape.ndims - 2
+    mask = tf.reshape(tf.cast(self.mask, inputs.dtype),
+                      [1] * batch_ndims + [-1, 1])
+    masked_inputs = mask * inputs
+    net = self.layer(masked_inputs, **kwargs)
+    if net.shape[-1] == 2 * self.vocab_size:
+      raise NotImplementedError()
+    elif net.shape[-1] == self.vocab_size:
+      loc = net
+    else:
+      raise ValueError('Output of layer does not have compatible dimensions.')
+    loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
+    masked_outputs = (1. - mask) * one_hot_add(loc, inputs)
+    outputs = masked_inputs + masked_outputs
+    return outputs
+
+  def log_det_jacobian(self, inputs):
+    return tf.cast(0, inputs.dtype)
+
+
+class SinkhornAutoregressiveFlow(tf.keras.layers.Layer):
+  """A discrete reversible layer using Sinkhorn normalization for permutations.
+
+  The flow takes as input a one-hot Tensor of shape `[..., length, vocab_size]`.
+  The flow returns a Tensor of same shape and dtype. (To enable gradients, the
+  input must have float dtype.)
+  """
+
+  def __init__(self, layer, temperature, **kwargs):
+    """Constructs flow.
+
+    Args:
+      layer: Masked network taking inputs with shape `[..., length, vocab_size]`
+        and returning a real-valued Tensor of shape
+        `[..., length, vocab_size ** 2]`. Sinkhorn iterations are applied to
+        each `layer` output to produce permutation matrices.
+      temperature: Positive value determining bias of gradient estimator.
+      **kwargs: kwargs of parent class.
+    """
+    super(SinkhornAutoregressiveFlow, self).__init__(**kwargs)
+    self.layer = layer
+    self.temperature = temperature
+
+  def build(self, input_shape):
+    input_shape = tf.TensorShape(input_shape)
+    self.vocab_size = input_shape[-1]
+    if isinstance(self.vocab_size, tf.Dimension):
+      self.vocab_size = self.vocab_size.value
+    if self.vocab_size is None:
+      raise ValueError('The last dimension of the inputs to '
+                       '`DiscreteAutoregressiveFlow` should be defined. Found '
+                       '`None`.')
+    self.built = True
+
+  def __call__(self, inputs, *args, **kwargs):
+    if not isinstance(inputs, ed.RandomVariable):
+      return super(SinkhornAutoregressiveFlow, self).__call__(
+          inputs, *args, **kwargs)
+    return TransformedRandomVariable(inputs, self)
+
+  def call(self, inputs, **kwargs):
+    """Forward pass for left-to-right autoregressive generation."""
+    inputs = tf.convert_to_tensor(inputs)
+    length = inputs.shape[-2].value
+    if length is None:
+      raise NotImplementedError('length dimension must be known.')
+    # Form initial sequence tensor of shape [..., 1, vocab_size]. In a loop, we
+    # incrementally build a Tensor of shape [..., t, vocab_size] as t grows.
+    outputs = self._initial_call(inputs[..., 0, :], length, **kwargs)
+    for t in range(1, length):
+      outputs = self._per_timestep_call(outputs,
+                                        inputs[..., t, :],
+                                        length,
+                                        t,
+                                        **kwargs)
+    return outputs
+
+  def _initial_call(self, new_inputs, length, **kwargs):
+    """Returns Tensor of shape [..., 1, vocab_size].
+
+    Args:
+      new_inputs: Tensor of shape [..., vocab_size], the new input to generate
+        its output.
+      length: Length of final desired sequence.
+      **kwargs: Optional keyword arguments to layer.
+    """
+    inputs = new_inputs[..., tf.newaxis, :]
+    # TODO(trandustin): To handle variable lengths, extend MADE to subset its
+    # input and output layer weights rather than pad inputs.
+    batch_ndims = inputs.shape.ndims - 2
+    padded_inputs = tf.pad(
+        inputs, [[0, 0]] * batch_ndims + [[0, length - 1], [0, 0]])
+    temperature = 1.
+    logits = self.layer(padded_inputs / temperature, **kwargs)
+    logits = logits[..., 0, :][..., tf.newaxis, :]
+    logits = tf.reshape(
+        logits,
+        logits.shape[:-1].concatenate([self.vocab_size, self.vocab_size]))
+    soft = sinkhorn(logits)
+    hard = tf.cast(soft_to_hard_permutation(soft), inputs.dtype)
+    hard = tf.reshape(hard, logits.shape)
+    # Inverse of permutation matrix is its transpose.
+    # inputs is [batch_size, timestep + 1, vocab_size].
+    # hard is [batch_size, timestep + 1, vocab_size, vocab_size].
+    outputs = tf.matmul(inputs[..., tf.newaxis, :],
+                        hard,
+                        transpose_b=True)[..., 0, :]
+    return outputs
+
+  def _per_timestep_call(self,
+                         current_outputs,
+                         new_inputs,
+                         length,
+                         timestep,
+                         **kwargs):
+    """Returns Tensor of shape [..., timestep+1, vocab_size].
+
+    Args:
+      current_outputs: Tensor of shape [..., timestep, vocab_size], the so-far
+        generated sequence Tensor.
+      new_inputs: Tensor of shape [..., vocab_size], the new input to generate
+        its output given current_outputs.
+      length: Length of final desired sequence.
+      timestep: Current timestep.
+      **kwargs: Optional keyword arguments to layer.
+    """
+    inputs = tf.concat([current_outputs,
+                        new_inputs[..., tf.newaxis, :]], axis=-2)
+    # TODO(trandustin): To handle variable lengths, extend MADE to subset its
+    # input and output layer weights rather than pad inputs.
+    batch_ndims = inputs.shape.ndims - 2
+    padded_inputs = tf.pad(
+        inputs, [[0, 0]] * batch_ndims + [[0, length - timestep - 1], [0, 0]])
+    logits = self.layer(padded_inputs, **kwargs)
+    logits = logits[..., :(timestep+1), :]
+    logits = tf.reshape(
+        logits,
+        logits.shape[:-1].concatenate([self.vocab_size, self.vocab_size]))
+    soft = sinkhorn(logits / self.temperature)
+    hard = tf.cast(soft_to_hard_permutation(soft), inputs.dtype)
+    hard = tf.reshape(hard, logits.shape)
+    # Inverse of permutation matrix is its transpose.
+    # inputs is [batch_size, timestep + 1, vocab_size].
+    # hard is [batch_size, timestep + 1, vocab_size, vocab_size].
+    new_outputs = tf.matmul(inputs[..., tf.newaxis, :],
+                            hard,
+                            transpose_b=True)[..., 0, :]
+    outputs = tf.concat([current_outputs,
+                         new_outputs[..., -1, :][..., tf.newaxis, :]], axis=-2)
+    if not tf.executing_eagerly():
+      outputs.set_shape([None] * batch_ndims + [timestep+1, self.vocab_size])
+    return outputs
+
+  def reverse(self, inputs, **kwargs):
+    """Reverse pass returning the inverse autoregressive transformation."""
+    if not self.built:
+      self._maybe_build(inputs)
+
+    logits = self.layer(inputs, **kwargs)
+    logits = tf.reshape(
+        logits,
+        logits.shape[:-1].concatenate([self.vocab_size, self.vocab_size]))
+    soft = sinkhorn(logits / self.temperature, n_iters=20)
+    hard = soft_to_hard_permutation(soft)
+    hard = tf.reshape(hard, logits.shape)
+    # Recover the permutation by right-multiplying by the permutation matrix.
+    outputs = tf.matmul(inputs[..., tf.newaxis, :], hard)[..., 0, :]
+    return outputs
+
+  def log_det_jacobian(self, inputs):
+    return tf.cast(0, inputs.dtype)
+
+
+def soft_to_hard_permutation(inputs):
+  """Returns permutation matrices by solving a matching problem.
+
+  Solves linear sum assignment to convert doubly-stochastic matrices to
+  permutation matrices. It uses scipy.optimize.linear_sum_assignment to solve
+  the optimization problem max_P sum_i,j M_i,j P_i,j with P a permutation
+  matrix. Notice the negative sign; the reason, the original function solves a
+  minimization problem.
+
+  Code is adapted from Mena et al. [1].
+
+  [1] Gonzalo Mena, David Belanger, Scott Linderman, Jasper Snoek.
+  Learning latent permutations with Gumbel-Sinkhorn networks. International
+  Conference on Learning Representations, 2018.
+
+  Args:
+    inputs: A `Tensor` with shape `[:, vocab_size, vocab_size]` that is
+      doubly-stochastic in its last two dimensions.
+
+  Returns:
+    outputs: A hard permutation `Tensor` with the same shape as `inputs` (in
+      other words the last two dimensions are doubly-stochastic and each element
+      is 0 or 1).
+  """
+
+  def hungarian(x):
+    if x.ndim == 2:
+      x = np.reshape(x, [1, x.shape[0], x.shape[1]])
+    sol = np.zeros((x.shape[0], x.shape[1]), dtype=np.int32)
+    for i in range(x.shape[0]):
+      sol[i, :] = linear_sum_assignment(-x[i, :])[1].astype(np.int32)
+    return sol
+
+  vocab_size = inputs.shape[-1]
+  # Note: tf.py_func isn't currently supported on headless GPUs.
+  # TODO(vafa): Fix tf.py_func headless GPU bug.
+  permutation_lists = tf.py_func(hungarian, [inputs], tf.int32)
+  hard = tf.one_hot(permutation_lists, depth=vocab_size)
+  outputs = tf.stop_gradient(hard - inputs) + inputs
+  return outputs
+
+
+def one_hot_argmax(inputs, temperature, axis=-1):
+  """Returns one-hot of argmax with backward pass set to softmax-temperature."""
+  vocab_size = inputs.shape[-1]
+  hard = tf.one_hot(tf.argmax(inputs, axis=axis),
+                    depth=vocab_size,
+                    axis=axis,
+                    dtype=inputs.dtype)
+  soft = tf.nn.softmax(inputs / temperature, axis=axis)
+  outputs = soft + tf.stop_gradient(hard - soft)
+  return outputs
+
+
+def one_hot_add(inputs, shift):
+  """Performs (inputs + shift) % vocab_size in the one-hot space.
+
+  Args:
+    inputs: Tensor of shape `[..., vocab_size]`. Typically a soft/hard one-hot
+      Tensor.
+    shift: Tensor of shape `[..., vocab_size]`. Typically a soft/hard one-hot
+      Tensor specifying how much to shift the corresponding one-hot vector in
+      inputs. Soft values perform a "weighted shift": for example,
+      shift=[0.2, 0.3, 0.5] performs a linear combination of 0.2 * shifting by
+      zero; 0.3 * shifting by one; and 0.5 * shifting by two.
+
+  Returns:
+    Tensor of same shape and dtype as inputs.
+  """
+  # Compute circular 1-D convolution with shift as the kernel.
+  inputs = tf.cast(inputs, tf.complex64)
+  shift = tf.cast(shift, tf.complex64)
+  return tf.real(tf.signal.ifft(tf.signal.fft(inputs) * tf.signal.fft(shift)))
+
+
+def one_hot_minus(inputs, shift):
+  """Performs (inputs - shift) % vocab_size in the one-hot space.
+
+  Args:
+    inputs: Tensor of shape `[..., vocab_size]`. Typically a soft/hard one-hot
+      Tensor.
+    shift: Tensor of shape `[..., vocab_size]`. Typically a soft/hard one-hot
+      Tensor specifying how much to shift the corresponding one-hot vector in
+      inputs. Soft values perform a "weighted shift": for example,
+      shift=[0.2, 0.3, 0.5] performs a linear combination of 0.2 * shifting by
+      zero; 0.3 * shifting by one; and 0.5 * shifting by two.
+
+  Returns:
+    Tensor of same shape and dtype as inputs.
+  """
+  # TODO(trandustin): Implement with circular conv1d.
+  inputs = tf.convert_to_tensor(inputs)
+  shift = tf.cast(shift, inputs.dtype)
+  vocab_size = inputs.shape[-1].value
+  # Form a [..., vocab_size, vocab_size] matrix. Each batch element of
+  # inputs will vector-matrix multiply the vocab_size x vocab_size matrix. This
+  # "shifts" the inputs batch element by the corresponding shift batch element.
+  shift_matrix = tf.stack([tf.roll(shift, i, axis=-1)
+                           for i in range(vocab_size)], axis=-2)
+  outputs = tf.einsum('...v,...uv->...u', inputs, shift_matrix)
+  return outputs
+
+
+def py_multiplicative_inverse(a, n):
+  """Multiplicative inverse of a modulo n (in Python).
+
+  Implements extended Euclidean algorithm.
+
+  Args:
+    a: int-like np.ndarray.
+    n: int.
+
+  Returns:
+    Multiplicative inverse as an int32 np.ndarray with same shape as a.
+  """
+  batched_a = np.asarray(a, dtype=np.int32)
+  batched_inverse = []
+  for a in np.nditer(batched_a):
+    inverse = 0
+    new_inverse = 1
+    remainder = n
+    new_remainder = a
+    while new_remainder != 0:
+      quotient = remainder // new_remainder
+      (inverse, new_inverse) = (new_inverse, inverse - quotient * new_inverse)
+      (remainder, new_remainder) = (new_remainder,
+                                    remainder - quotient * new_remainder)
+    if remainder > 1:
+      return ValueError(
+          'Inverse for {} modulo {} does not exist.'.format(a, n))
+    if inverse < 0:
+      inverse += n
+    batched_inverse.append(inverse)
+  return np.asarray(batched_inverse, dtype=np.int32).reshape(batched_a.shape)
+
+
+def multiplicative_inverse(a, n):
+  """Multiplicative inverse of a modulo n.
+
+  Args:
+    a: Tensor of shape [..., vocab_size]. It denotes an integer in the one-hot
+      space.
+    n: int Tensor of shape [...].
+
+  Returns:
+    Tensor of same shape and dtype as a.
+  """
+  a = tf.convert_to_tensor(a)
+  n = tf.convert_to_tensor(n)
+  vocab_size = a.shape[-1].value
+  a_dtype = a.dtype
+  sparse_a = tf.argmax(a, axis=-1)
+  sparse_outputs = tf.py_func(
+      py_multiplicative_inverse, [sparse_a, n], tf.int32)
+  sparse_outputs.set_shape(sparse_a.shape)
+  outputs = tf.one_hot(sparse_outputs, depth=vocab_size, dtype=a_dtype)
+  return outputs
+
+
 class ActNorm(tf.keras.layers.Layer):
   """Actnorm, an affine reversible layer (Prafulla and Kingma, 2018).
 
