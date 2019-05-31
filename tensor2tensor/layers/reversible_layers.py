@@ -155,21 +155,18 @@ class DiscreteAutoregressiveFlow(tf.keras.layers.Layer):
         inputs, [[0, 0]] * batch_ndims + [[0, length - 1], [0, 0]])
     net = self.layer(padded_inputs, **kwargs)
     if net.shape[-1] == 2 * self.vocab_size:
-      raise NotImplementedError()
-      # TODO(trandustin): Enable scale.
-      # loc, scale = tf.split(net, 2, axis=-1)
-      # scale = scale[..., 0, :][..., tf.newaxis, :]
-      # scale = tf.cast(one_hot_argmax(scale, self.temperature), inputs.dtype)
-      # inverse_scale = multiplicative_inverse(scale, self.vocab_size)
+      loc, scale = tf.split(net, 2, axis=-1)
+      scale = scale[..., 0:1, :]
+      scale = tf.cast(one_hot_argmax(scale, self.temperature), inputs.dtype)
+      inverse_scale = multiplicative_inverse(scale, self.vocab_size)
+      scaled_inputs = one_hot_multiply(inputs, inverse_scale)
     elif net.shape[-1] == self.vocab_size:
       loc = net
-      # inverse_scale = tf.ones_like(inputs)
+      scaled_inputs = inputs
     else:
       raise ValueError('Output of layer does not have compatible dimensions.')
     loc = loc[..., 0, :][..., tf.newaxis, :]
     loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
-    # scaled_inputs = one_hot_multiply(inputs, inverse_scale)
-    scaled_inputs = inputs
     outputs = one_hot_minus(scaled_inputs, loc)
     return outputs
 
@@ -199,21 +196,18 @@ class DiscreteAutoregressiveFlow(tf.keras.layers.Layer):
         inputs, [[0, 0]] * batch_ndims + [[0, length - timestep - 1], [0, 0]])
     net = self.layer(padded_inputs, **kwargs)
     if net.shape[-1] == 2 * self.vocab_size:
-      raise NotImplementedError()
-      # TODO(trandustin): Enable scale.
-      # loc, scale = tf.split(net, 2, axis=-1)
-      # scale = scale[..., :(timestep+1), :]
-      # scale = tf.cast(one_hot_argmax(scale, self.temperature), inputs.dtype)
-      # inverse_scale = multiplicative_inverse(scale, self.vocab_size)
+      loc, scale = tf.split(net, 2, axis=-1)
+      scale = scale[..., :(timestep+1), :]
+      scale = tf.cast(one_hot_argmax(scale, self.temperature), inputs.dtype)
+      inverse_scale = multiplicative_inverse(scale, self.vocab_size)
+      scaled_inputs = one_hot_multiply(inputs, inverse_scale)
     elif net.shape[-1] == self.vocab_size:
       loc = net
-      # inverse_scale = tf.ones_like(inputs)
+      scaled_inputs = inputs
     else:
       raise ValueError('Output of layer does not have compatible dimensions.')
     loc = loc[..., :(timestep+1), :]
     loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
-    # scaled_inputs = one_hot_multiply(inputs, inverse_scale)
-    scaled_inputs = inputs
     new_outputs = one_hot_minus(scaled_inputs, loc)
     outputs = tf.concat([current_outputs,
                          new_outputs[..., -1, :][..., tf.newaxis, :]], axis=-2)
@@ -228,18 +222,15 @@ class DiscreteAutoregressiveFlow(tf.keras.layers.Layer):
 
     net = self.layer(inputs, **kwargs)
     if net.shape[-1] == 2 * self.vocab_size:
-      raise NotImplementedError()
-      # TODO(trandustin): Enable scale.
-      # loc, scale = tf.split(net, 2, axis=-2)
-      # scale = tf.cast(one_hot_argmax(scale, self.temperature), inputs.dtype)
+      loc, scale = tf.split(net, 2, axis=-2)
+      scale = tf.cast(one_hot_argmax(scale, self.temperature), inputs.dtype)
+      scaled_inputs = one_hot_multiply(inputs, scale)
     elif net.shape[-1] == self.vocab_size:
       loc = net
-      # scale = tf.ones_like(inputs)
+      scaled_inputs = inputs
     else:
       raise ValueError('Output of layer does not have compatible dimensions.')
     loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
-    # scaled_inputs = one_hot_multiply(inputs, scale)
-    scaled_inputs = inputs
     outputs = one_hot_add(loc, scaled_inputs)
     return outputs
 
@@ -334,13 +325,17 @@ class DiscreteBipartiteFlow(tf.keras.layers.Layer):
     masked_inputs = mask * inputs
     net = self.layer(masked_inputs, **kwargs)
     if net.shape[-1] == 2 * self.vocab_size:
-      raise NotImplementedError()
+      loc, scale = tf.split(net, 2, axis=-1)
+      scale = tf.cast(one_hot_argmax(scale, self.temperature), inputs.dtype)
+      inverse_scale = multiplicative_inverse(scale, self.vocab_size)
+      scaled_inputs = one_hot_multiply(inputs, inverse_scale)
     elif net.shape[-1] == self.vocab_size:
       loc = net
+      scaled_inputs = inputs
     else:
       raise ValueError('Output of layer does not have compatible dimensions.')
     loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
-    masked_outputs = (1. - mask) * one_hot_minus(inputs, loc)
+    masked_outputs = (1. - mask) * one_hot_minus(scaled_inputs, loc)
     outputs = masked_inputs + masked_outputs
     return outputs
 
@@ -356,13 +351,16 @@ class DiscreteBipartiteFlow(tf.keras.layers.Layer):
     masked_inputs = mask * inputs
     net = self.layer(masked_inputs, **kwargs)
     if net.shape[-1] == 2 * self.vocab_size:
-      raise NotImplementedError()
+      loc, scale = tf.split(net, 2, axis=-2)
+      scale = tf.cast(one_hot_argmax(scale, self.temperature), inputs.dtype)
+      scaled_inputs = one_hot_multiply(inputs, scale)
     elif net.shape[-1] == self.vocab_size:
       loc = net
+      scaled_inputs = inputs
     else:
       raise ValueError('Output of layer does not have compatible dimensions.')
     loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
-    masked_outputs = (1. - mask) * one_hot_add(loc, inputs)
+    masked_outputs = (1. - mask) * one_hot_add(loc, scaled_inputs)
     outputs = masked_inputs + masked_outputs
     return outputs
 
@@ -623,6 +621,42 @@ def one_hot_minus(inputs, shift):
   shift_matrix = tf.stack([tf.roll(shift, i, axis=-1)
                            for i in range(vocab_size)], axis=-2)
   outputs = tf.einsum('...v,...uv->...u', inputs, shift_matrix)
+  return outputs
+
+
+def one_hot_multiply(inputs, scale):
+  """Performs (inputs * scale) % vocab_size in the one-hot space.
+
+  Args:
+    inputs: Tensor of shape `[..., vocab_size]`. Typically a soft/hard one-hot
+      Tensor.
+    scale: Tensor of shape `[..., vocab_size]`. Typically a soft/hard one-hot
+      Tensor specifying how much to scale the corresponding one-hot vector in
+      inputs. Soft values perform a "weighted scale": for example,
+      scale=[0.2, 0.3, 0.5] performs a linear combination of
+      0.2 * scaling by zero; 0.3 * scaling by one; and 0.5 * scaling by two.
+
+  Returns:
+    Tensor of same shape and dtype as inputs.
+  """
+  # TODO(trandustin): Implement with circular conv1d.
+  inputs = tf.convert_to_tensor(inputs)
+  scale = tf.cast(scale, inputs.dtype)
+  batch_shape = inputs.shape[:-1].as_list()
+  vocab_size = inputs.shape[-1].value
+  # Form a [..., vocab_size, vocab_size] tensor. The ith row of the
+  # batched vocab_size x vocab_size matrix represents scaling inputs by i.
+  permutation_matrix = tf.floormod(
+      tf.tile(tf.range(vocab_size)[:, tf.newaxis], [1, vocab_size]) *
+      tf.range(vocab_size)[tf.newaxis], vocab_size)
+  permutation_matrix = tf.one_hot(permutation_matrix, depth=vocab_size, axis=-1)
+  # Scale the inputs according to the permutation matrix of all possible scales.
+  scaled_inputs = tf.einsum('...v,avu->...au', inputs, permutation_matrix)
+  scaled_inputs = tf.concat([tf.zeros(batch_shape + [1, vocab_size]),
+                             scaled_inputs[..., 1:, :]], axis=-2)
+  # Reduce rows of the scaled inputs by the scale values. This forms a
+  # weighted linear combination of scaling by zero, scaling by one, and so on.
+  outputs = tf.einsum('...v,...vu->...u', scale, scaled_inputs)
   return outputs
 
 

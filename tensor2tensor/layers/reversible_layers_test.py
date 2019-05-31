@@ -226,6 +226,18 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
                                                [0., 0., 1.]]))
 
   @test_utils.run_in_graph_and_eager_modes()
+  def testOneHotMultiplyExactHard(self):
+    inputs = tf.constant([[0., 1., 0.],
+                          [0., 0., 1.]])
+    scale = tf.constant([[0., 1., 0.],
+                         [0., 0., 1.]])
+
+    outputs = reversible.one_hot_multiply(inputs, scale)
+    outputs_val = self.evaluate(outputs)
+    self.assertAllEqual(outputs_val, np.array([[0., 1., 0.],
+                                               [0., 1., 0.]]))
+
+  @test_utils.run_in_graph_and_eager_modes()
   def testOneHotAddExactSoft(self):
     inputs = tf.constant([[0., 1., 0.],
                           [0., 0., 1.]])
@@ -264,6 +276,28 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
     expected_outputs = (shift[..., 0][..., tf.newaxis] * shift_zero +
                         shift[..., 1][..., tf.newaxis] * shift_one +
                         shift[..., 2][..., tf.newaxis] * shift_two)
+
+    actual_outputs_val, expected_outputs_val = self.evaluate([
+        outputs, expected_outputs])
+    self.assertAllEqual(actual_outputs_val, expected_outputs_val)
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testOneHotMultiplyExactSoft(self):
+    inputs = tf.constant([[0., 1., 0.],
+                          [0., 0., 1.]])
+    scale = tf.constant([[0.1, 0.6, 0.3],
+                         [0.2, 0.4, 0.4]])
+
+    outputs = reversible.one_hot_multiply(inputs, scale)
+
+    scale_zero = np.array([[0., 0., 0.],
+                           [0., 0., 0.]])
+    scale_one = inputs
+    scale_two = np.array([[0., 0., 1.],
+                          [0., 1., 0.]])
+    expected_outputs = (scale[..., 0][..., tf.newaxis] * scale_zero +
+                        scale[..., 1][..., tf.newaxis] * scale_one +
+                        scale[..., 2][..., tf.newaxis] * scale_two)
 
     actual_outputs_val, expected_outputs_val = self.evaluate([
         outputs, expected_outputs])
