@@ -152,7 +152,7 @@ def PureMultiHeadedAttention(x, params, n_heads=8, dropout=0.0, mode='train',
   """Pure transformer-style multi-headed attention.
 
   Args:
-    x: inputs ((q, k, v), mask)
+    x: inputs (q, k, v, mask)
     params: parameters (none)
     n_heads: int: number of attention heads
     dropout: float: dropout rate
@@ -188,7 +188,7 @@ def PureMultiHeadedAttention(x, params, n_heads=8, dropout=0.0, mode='train',
 def MultiHeadedAttentionQKV(d_feature, n_heads=8, dropout=0.0, mode='train'):
   """Transformer-style multi-headed attention.
 
-  Accepts inputs of the form (q, k, v), mask.
+  Accepts inputs of the form q, k, v, mask.
 
   Args:
     d_feature: int:  dimensionality of feature embedding
