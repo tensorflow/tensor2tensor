@@ -20,13 +20,15 @@ from __future__ import division
 from __future__ import print_function
 
 from absl.testing import absltest
+from tensor2tensor.trax import backend
 from tensor2tensor.trax import layers as tl
 from tensor2tensor.trax.models import transformer
 
 
 class TransformerTest(absltest.TestCase):
 
-  def test_transformer_lm(self):
+  def test_transformer_lm_forward_shape(self):
+    """Run the Transformer LM forward and check output shape."""
     vocab_size = 16
     input_shape = [3, 5]
     model = transformer.TransformerLM(
@@ -35,7 +37,8 @@ class TransformerTest(absltest.TestCase):
         tl.Serial(model), tuple(input_shape), integer_inputs=True)
     self.assertEqual(tuple(input_shape + [vocab_size]), final_shape)
 
-  def test_transformer(self):
+  def test_transformer_forward_shape(self):
+    """Run the Transformer forward and check output shape."""
     vocab_size = 16
     single_input_shape = [3, 5]
     input_shape = (tuple(single_input_shape), tuple(single_input_shape))

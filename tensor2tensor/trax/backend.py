@@ -111,8 +111,12 @@ numpy = NumpyBackend()
 
 
 
+default_backend_name = "jax"
+
+
 @gin.configurable()
-def backend(name="jax"):
+def backend(name=None):
+  name = name or default_backend_name
   if name == "numpy":
     return _NUMPY_BACKEND
   return _JAX_BACKEND

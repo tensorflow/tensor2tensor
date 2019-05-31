@@ -20,13 +20,15 @@ from __future__ import division
 from __future__ import print_function
 
 from absl.testing import absltest
+from tensor2tensor.trax import backend
 from tensor2tensor.trax import layers as tl
 from tensor2tensor.trax.models import mlp
 
 
 class MLPTest(absltest.TestCase):
 
-  def test_mlp(self):
+  def test_mlp_forward_shape(self):
+    """Run the MLP model forward and check output shape."""
     input_shape = (3, 28, 28, 1)
     model = mlp.MLP(d_hidden=32, n_output_classes=10)
     final_shape = tl.check_shape_agreement(tl.Serial(model), input_shape)
