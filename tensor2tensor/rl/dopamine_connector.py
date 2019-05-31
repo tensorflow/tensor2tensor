@@ -500,8 +500,10 @@ def _get_optimizer(params):
 class DQNLearner(PolicyLearner):
   """Interface for learning dqn implemented in dopamine."""
 
-  def __init__(self, *args, **kwargs):
-    super(DQNLearner, self).__init__(*args, **kwargs)
+  def __init__(self, frame_stack_size, base_event_dir, agent_model_dir,
+               total_num_epochs, **kwargs):
+    super(DQNLearner, self).__init__(
+        frame_stack_size, base_event_dir, agent_model_dir, total_num_epochs)
     self.completed_iterations = 0
 
   def _target_iteractions_and_steps(self, num_env_steps, save_continuously,
