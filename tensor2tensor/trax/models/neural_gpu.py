@@ -54,7 +54,7 @@ def ConvDiagonalGRU(units, kernel_size=(3, 3)):
 
   return tl.GeneralGRUCell(
       candidate_transform=BuildConv,
-      memory_transform=DiagonalGate,
+      memory_transform_fn=DiagonalGate,
       gate_nonlinearity=tl.HardSigmoid,
       candidate_nonlinearity=tl.HardTanh)
 
@@ -71,9 +71,9 @@ def NeuralGPU(d_feature=96, steps=16, vocab_size=2):
     A NeuralGPU Stax model.
   """
   core = ConvDiagonalGRU(units=d_feature)
-  return tl.Serial([
+  return tl.Model(
       tl.Embedding(d_feature=d_feature, vocab_size=vocab_size),
       [core] * steps,
       tl.Dense(vocab_size),
       tl.LogSoftmax(),
-  ])
+  )

@@ -31,7 +31,7 @@ class MLPTest(absltest.TestCase):
     """Run the MLP model forward and check output shape."""
     input_shape = (3, 28, 28, 1)
     model = mlp.MLP(d_hidden=32, n_output_classes=10)
-    final_shape = tl.check_shape_agreement(tl.Serial(model), input_shape)
+    final_shape = tl.check_shape_agreement(model, input_shape)
     self.assertEqual((3, 10), final_shape)
 
 

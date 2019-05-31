@@ -122,7 +122,7 @@ def DecoderBlock(d_feature, d_feedforward, n_heads, dropout, mode):
   """
   self_attention = [
       tl.LayerNorm(),
-      tl.Branch(tl.NoOp(), tl.CausalMask(axis=-2)),  # Create mask.
+      tl.Branch([], tl.CausalMask(axis=-2)),  # Create mask.
       tl.MultiHeadedAttention(
           d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
       tl.Select(0),  # Drop mask.
@@ -165,7 +165,7 @@ def TransformerLM(vocab_size,
       tl.Dropout(rate=dropout, mode=mode),
       tl.PositionalEncoding(max_len=max_len),
   ]
-  return [
+  return tl.Model(
       tl.ShiftRight(),
       positional_embedder,
       [DecoderBlock(d_feature, d_feedforward, n_heads, dropout, mode)
@@ -173,7 +173,7 @@ def TransformerLM(vocab_size,
       tl.LayerNorm(),
       tl.Dense(vocab_size),
       tl.LogSoftmax(),
-  ]
+  )
 
 
 def EncoderDecoder(d_feature, d_feedforward, n_heads, dropout, mode):
@@ -258,17 +258,17 @@ def Transformer(vocab_size,
        for _ in range(n_layers)],
       tl.LayerNorm(),
   ]
-  return [
-      tl.Parallel(tl.NoOp(), tl.ShiftRight()),
+  return tl.Model(
+      tl.Parallel([], tl.ShiftRight()),
       tl.Parallel(encoder, positional_embedder),
       tl.Select(inputs=(('encoder', 'mask'), 'decoder'),
                 output=('decoder', ('mask', 'decoder'), 'encoder')),
       # (encoder_mask, decoder_input) -> encoder-decoder mask
-      tl.Parallel(tl.NoOp(), tl.EncoderDecoderMask(), tl.NoOp()),
+      tl.Parallel([], tl.EncoderDecoderMask(), []),
       [EncoderDecoder(d_feature, d_feedforward, n_heads, dropout, mode)
        for _ in range(n_layers)],
       tl.Select(0),  # Drop mask and encoder.
       tl.LayerNorm(),
       tl.Dense(vocab_size),
       tl.LogSoftmax(),
-  ]
+  )

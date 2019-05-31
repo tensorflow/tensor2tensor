@@ -29,13 +29,13 @@ class ResnetTest(absltest.TestCase):
   def test_resnet(self):
     input_shape = (3, 256, 256, 3)
     model = resnet.Resnet50(d_hidden=8, n_output_classes=10)
-    final_shape = tl.check_shape_agreement(tl.Serial(model), input_shape)
+    final_shape = tl.check_shape_agreement(model, input_shape)
     self.assertEqual((3, 10), final_shape)
 
   def test_wide_resnet(self):
     input_shape = (3, 32, 32, 3)
     model = resnet.WideResnet(n_blocks=1, n_output_classes=10)
-    final_shape = tl.check_shape_agreement(tl.Serial(model), input_shape)
+    final_shape = tl.check_shape_agreement(model, input_shape)
     self.assertEqual((3, 10), final_shape)
 
 

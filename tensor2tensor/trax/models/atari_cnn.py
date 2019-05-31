@@ -23,8 +23,9 @@ from tensor2tensor.trax import layers as tl
 
 
 def AtariCnn(hidden_sizes=(32, 32), output_size=128):
+  """An Atari CNN."""
   # Input's shape = (B, T, H, W, C)
-  return tl.Serial([
+  return tl.Model(
       tl.Div(divisor=255.0),
       # Have 4 copies of the input, each one shifted to the right by one.
       tl.Branch(
@@ -43,4 +44,4 @@ def AtariCnn(hidden_sizes=(32, 32), output_size=128):
       tl.Dense(output_size),
       tl.Relu(),
       # Eventually this is shaped (B, T, output_size)
-  ])
+  )

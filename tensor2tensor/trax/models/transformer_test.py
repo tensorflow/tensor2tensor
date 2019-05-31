@@ -34,7 +34,7 @@ class TransformerTest(absltest.TestCase):
     model = transformer.TransformerLM(
         vocab_size, d_feature=32, d_feedforward=64, n_layers=2, n_heads=2)
     final_shape = tl.check_shape_agreement(
-        tl.Serial(model), tuple(input_shape), integer_inputs=True)
+        model, tuple(input_shape), integer_inputs=True)
     self.assertEqual(tuple(input_shape + [vocab_size]), final_shape)
 
   def test_transformer_forward_shape(self):
@@ -45,7 +45,7 @@ class TransformerTest(absltest.TestCase):
     model = transformer.Transformer(
         vocab_size, d_feature=32, d_feedforward=64, n_layers=2, n_heads=2)
     final_shape = tl.check_shape_agreement(
-        tl.Serial(model), input_shape, integer_inputs=True)
+        model, input_shape, integer_inputs=True)
     self.assertEqual(tuple(single_input_shape + [vocab_size]), final_shape)
 
 

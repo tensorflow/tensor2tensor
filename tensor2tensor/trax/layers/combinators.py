@@ -27,24 +27,53 @@ from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.layers import base
 
 
-def _DeepFlatten(xs):  # pylint: disable=invalid-name
+def Model(*layers):
+  """Ensures that a layer or list of layers can be treated as a model.
+
+  Currently, any subclass of base.Layer can be treated as a model.
+
+  Args:
+    *layers: One or more layer objects. In fuller detail, the list may contain
+        nested sublists, and the top-level list can also be a tuple.
+
+  Returns:
+    A single object that treated as a model, e.g., trained or evaluated.
+  """
+  return Serial(*layers)
+
+
+def _deep_flatten(xs):  # pylint: disable=invalid-name
   for x in xs:
     if isinstance(x, (list, tuple)):
-      for y in _DeepFlatten(x):
+      for y in _deep_flatten(x):
         yield y
     else:
       yield x
 
 
-def _EnsureSublayers(layers):
-  # TODO(jonni): Implement for dict if dicts remain important.
-  if isinstance(layers, dict):
-    return layers
-  sublayers_not_lists = []
-  for layer in layers:
-    sublayers_not_lists.append(
-        Serial(layer) if isinstance(layer, list) else layer)
-  return sublayers_not_lists
+def _ensure_sublayers(layers):  # pylint: disable=invalid-name
+  """Ensures that elements in a layer list (or dict) are layers.
+
+  Args:
+    layers: A list or dict whose elements/values can each be a layer, a list,
+        or a dict, and so on recursively.
+
+  Returns:
+    An analogous collection of layers in which embedded layer lists are
+    wrapped in Serial layer instances.
+  """
+  if not layers:  # None or an empty list can signal a no-op.
+    return Serial([])  # no-op, but still handles shapes and initialization
+  elif isinstance(layers, dict):
+    return {k: _ensure_sublayers(v) for k, v in layers.items()}
+  elif isinstance(layers, (list, tuple)):
+    sublayers_not_lists = []
+    for layer in layers:
+      sublayers_not_lists.append(
+          Serial(layer) if isinstance(layer, (list, tuple)) else layer)
+    return sublayers_not_lists
+  else:
+    raise TypeError(type(layers))
 
 
 class Serial(base.Layer):
@@ -52,7 +81,7 @@ class Serial(base.Layer):
 
   def __init__(self, *layers):
     super(Serial, self).__init__()
-    layers = list(_DeepFlatten(layers))
+    layers = list(_deep_flatten(layers))
     # TODO(jonni): Consider flattening (unpacking) also embedded Serial layers.
     self._layers = layers
     self._nlayers = len(layers)
@@ -83,12 +112,6 @@ class Serial(base.Layer):
     return params
 
 
-@base.layer()
-def NoOp(x, **unused_kwargs):
-  """NoOp layer, return the inputs."""
-  return x
-
-
 def _print_shape(x, message='PrintShape'):  # pylint: disable=invalid-name
   print(message + ' ; stack shape = ' + str(x))
   return x
@@ -96,7 +119,7 @@ def _print_shape(x, message='PrintShape'):  # pylint: disable=invalid-name
 
 @base.layer(output_shape=_print_shape, stack_items_to_pass=0)
 def PrintShape(x, message='PrintShape', **unused_kwargs):
-  """NoOp layer that prints the shape of the stack."""
+  """No-op layer that prints the shape of the stack."""
   _print_shape(base.shapes(x), message=message)
   return x
 
@@ -172,7 +195,7 @@ def _flatten_shape(x_shape):  # pylint: disable=invalid-name
 @base.layer(output_shape=_flatten_shape, stack_items_to_pass=0)
 def Flatten(xs, **unused_kwargs):
   """Flatten lists."""
-  return tuple(_DeepFlatten(xs))
+  return tuple(_deep_flatten(xs))
 
 
 # Re-ordering layer.
@@ -193,8 +216,8 @@ class Select(base.Layer):
     Select((0, (1, 1)))      = (x, (y, y))
     Select(((2, 0), (1, 1))) = ((z, x), (y, y))
 
-  By default (if no output is given) Select does nothing (NoOp).
-  It is also possible to name the inputs to access tuple elements, e.g.:
+  By default (if no output is given) Select does nothing. It is also possible
+  to name the inputs to access tuple elements, e.g.:
 
   Select(inputs=('encoder', ('decoder', 'mask')), output='decoder')
 
@@ -269,7 +292,7 @@ class Branch(base.Layer):
     if layers and kwlayers:
       raise ValueError('Cannot specify a Branch with both a list and dict.')
     layers = layers or kwlayers
-    layers = _EnsureSublayers(layers)
+    layers = _ensure_sublayers(layers)
     self._nlayers = len(layers)
     self._layers = layers
 
@@ -446,7 +469,7 @@ class Parallel(base.Layer):
     if layers and kwlayers:
       raise ValueError('Cannot specify a Parallel with both a list and dict.')
     layers = layers or kwlayers
-    layers = _EnsureSublayers(layers)
+    layers = _ensure_sublayers(layers)
     self._nlayers = len(layers)
     self._layers = layers
 
@@ -530,6 +553,8 @@ class Map(base.Layer):
 
   def __init__(self, layer, check_shapes=True):
     super(Map, self).__init__()
+    if layer is None or isinstance(layer, (list, tuple)):
+      layer = Serial(layer)
     self._layer = layer
     # Generally a Map should be applied to lists where all elements have
     # the same shape -- because self._layer will only be initialized once

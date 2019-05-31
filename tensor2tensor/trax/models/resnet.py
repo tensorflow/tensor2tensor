@@ -80,7 +80,7 @@ def Resnet50(d_hidden=64, n_output_classes=1001, mode='train'):
     The list of layers comprising a ResNet model with the given parameters.
   """
   del mode
-  return [
+  return tl.Model(
       tl.Conv(d_hidden, (7, 7), (2, 2), 'SAME'),
       tl.BatchNorm(),
       tl.Relu(),
@@ -105,7 +105,7 @@ def Resnet50(d_hidden=64, n_output_classes=1001, mode='train'):
       tl.Flatten(),
       tl.Dense(n_output_classes),
       tl.LogSoftmax(),
-  ]
+  )
 
 
 def WideResnetBlock(channels, strides=(1, 1)):
@@ -145,7 +145,7 @@ def WideResnet(n_blocks=3, d_hidden=64, n_output_classes=10,
     The list of layers comprising a WideResnet model with the given parameters.
   """
   del mode
-  return [
+  return tl.Model(
       tl.Conv(d_hidden, (3, 3), padding='SAME'),
       WideResnetGroup(n_blocks, d_hidden),
       WideResnetGroup(n_blocks, d_hidden * 2, (2, 2)),
@@ -156,4 +156,4 @@ def WideResnet(n_blocks=3, d_hidden=64, n_output_classes=10,
       tl.Flatten(),
       tl.Dense(n_output_classes),
       tl.LogSoftmax(),
-  ]
+  )

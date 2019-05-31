@@ -30,30 +30,28 @@ class CombinatorLayerTest(absltest.TestCase):
     input_shape = (2, 3)
     expected_shape = ((2, 3), (2, 3))
     output_shape = base.check_shape_agreement(
-        combinators.Branch(combinators.NoOp(), combinators.NoOp()), input_shape)
+        combinators.Branch([], []), input_shape)
     self.assertEqual(output_shape, expected_shape)
 
   def test_branch_named(self):
     input_shape = (2, 3)
     expected_shape = {'a': (2, 3), 'b': (2, 3)}
     output_shape = base.check_shape_agreement(
-        combinators.Branch(a=combinators.NoOp(), b=combinators.NoOp()),
-        input_shape)
+        combinators.Branch(a=[], b=[]), input_shape)
     self.assertEqual(output_shape, expected_shape)
 
   def test_parallel(self):
     input_shape = ((2, 3), (2, 3))
     expected_shape = ((2, 3), (2, 3))
     output_shape = base.check_shape_agreement(
-        combinators.Parallel(combinators.NoOp(), combinators.NoOp()),
-        input_shape)
+        combinators.Parallel([], []), input_shape)
     self.assertEqual(output_shape, expected_shape)
 
   def test_parallel_named(self):
     input_shape = {'a': (2, 3), 'b': (2, 3)}
     expected_shape = {'a': (2, 3), 'b': (2, 3)}
     output_shape = base.check_shape_agreement(
-        combinators.Parallel(a=combinators.NoOp()), input_shape)
+        combinators.Parallel(a=[]), input_shape)
     self.assertEqual(output_shape, expected_shape)
 
   def test_select(self):

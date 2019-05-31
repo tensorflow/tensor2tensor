@@ -443,8 +443,8 @@ def train(output_dir,
   lr_fn = lr_schedule(history)
   opt = optimizer(lr_fn)
 
-  model_train = layers.Serial(model(mode="train"))
-  model_predict_eval = layers.Serial(model(mode="eval"))
+  model_train = model(mode="train")
+  model_predict_eval = model(mode="eval")
 
   # Setup state
   step = state.step or 0

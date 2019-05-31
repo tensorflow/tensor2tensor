@@ -141,39 +141,38 @@ def ChunkedCausalMultiHeadedAttention(
   Returns:
     Multi-headed self-attention layer.
   """
-  prepare_attention_input = tl.Serial(
+  prepare_attention_input = [
       tl.Branch(
-          tl.Branch(  # q = k = v = first input
-              tl.NoOp(), tl.NoOp(), tl.NoOp()),
-          tl.CausalMask(axis=-2),
+          tl.Branch([], [], []),  # q = k = v = first input
+          tl.CausalMask(axis=-2)
       ),
       tl.Parallel(
           tl.Parallel(
               tl.Dense(d_feature),
               tl.Dense(d_feature),
-              tl.Dense(d_feature),
+              tl.Dense(d_feature)
           ),
-          tl.NoOp()
+          []
       )
-  )
-  return tl.Serial(
+  ]
+  return [
       tl.Map(prepare_attention_input),
       ChunkedAttentionSelector(selector=chunk_selector),  # pylint: disable=no-value-for-parameter
-      tl.Map(tl.PureMultiHeadedAttention(
-          d_feature=d_feature, n_heads=n_heads,
-          dropout=dropout, mode=mode), check_shapes=False),
+      tl.Map(tl.PureMultiHeadedAttention(d_feature=d_feature, n_heads=n_heads,
+                                         dropout=dropout, mode=mode),
+             check_shapes=False),
       tl.Map(tl.Select(0), check_shapes=False),  # drop masks
       tl.Map(tl.Dense(d_feature))
-  )
+  ]
 
 
 # Chunked residual.
 def Residual(*layers, **unused_kwargs):
   """Constructs a residual version of layers, summing input to layers output."""
-  return tl.Serial(
-      tl.Branch(tl.Serial(*layers), tl.NoOp()),
+  return [
+      tl.Branch(layers, []),
       tl.AddAll()
-  )
+  ]
 
 
 def ResidualFeedForward(d_feature, d_feedforward, dropout, mode):
@@ -205,9 +204,9 @@ def ChunkedDecoderLayer(d_feature,
     mode: str: 'train' or 'eval'
 
   Returns:
-    the layer.
+    The layers comprising a chunked decoder.
   """
-  return tl.Serial(
+  return [
       Residual(  # Self-attention block.
           tl.Map(tl.LayerNorm()),
           ChunkedCausalMultiHeadedAttention(
@@ -217,7 +216,7 @@ def ChunkedDecoderLayer(d_feature,
       ),
       tl.Map(ResidualFeedForward(
           d_feature, d_feedforward, dropout, mode=mode))
-  )
+  ]
 
 
 def ChunkedTransformerLM(vocab_size,
@@ -257,16 +256,16 @@ def ChunkedTransformerLM(vocab_size,
   Returns:
     the layer.
   """
-  stack = [ChunkedDecoderLayer(d_feature, d_feedforward, n_heads,
-                               dropout, chunk_selector, mode)
-           for _ in range(n_layers)]
+  decoder_stack = [ChunkedDecoderLayer(d_feature, d_feedforward, n_heads,
+                                       dropout, chunk_selector, mode)
+                   for _ in range(n_layers)]
   # Below each Map(L) applies the layer L to each chunk independently.
-  return tl.Serial(
+  return tl.Model(
       tl.ShiftRight(),
       tl.Map(tl.Embedding(d_feature, vocab_size)),
       tl.Map(tl.Dropout(rate=dropout, mode=mode)),
       ChunkedPositionalEncoding(max_len=max_len),  # pylint: disable=no-value-for-parameter
-      tl.Serial(*stack),
+      decoder_stack,
       tl.Map(tl.LayerNorm()),
       tl.Map(tl.Dense(vocab_size)),
       tl.Map(tl.LogSoftmax()),

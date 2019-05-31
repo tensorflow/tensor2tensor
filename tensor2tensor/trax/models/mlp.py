@@ -27,12 +27,12 @@ def MLP(n_hidden_layers=2,
         activation_fn=tl.Relu,
         n_output_classes=10,
         mode="train"):
-  """Multi-layer feed-forward neural network with non-linear activations."""
+  """A multi-layer feedforward (perceptron) network."""
   del mode
 
-  return [
+  return tl.Model(
       tl.Flatten(),
       [[tl.Dense(d_hidden), activation_fn()] for _ in range(n_hidden_layers)],
       tl.Dense(n_output_classes),
       tl.LogSoftmax(),
-  ]
+  )
