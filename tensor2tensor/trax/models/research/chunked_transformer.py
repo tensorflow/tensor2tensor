@@ -60,32 +60,7 @@ def ChunkedPositionalEncoding(x, params, **unused_kwargs):
 
 
 # Chunked attention.
-def _chunked_selector_output_shape(  # pylint: disable=invalid-name
-    input_shapes, selector=None, **unused_kwargs):
-  """Helper: calculate output shape for chunked key selector (see below)."""
-  # Read the main function below first, the shape logic just follows the ops.
-  selector = selector or (lambda x: [] if x < 1 else [x-1])
-  triples, _ = zip(*input_shapes)
-  (query_shapes, key_shapes, value_shapes) = zip(*triples)
-  result = []
-  for i in range(len(input_shapes)):
-    selected = selector(i)
-    cur_key_shape, cur_value_shape = key_shapes[i], value_shapes[i]
-    # Since keys and values are [batch, length, depth] we concatenate on axis=1.
-    new_key_len = sum([key_shapes[j][1] for j in selected]) + cur_key_shape[1]
-    new_key_shape = (cur_key_shape[0], new_key_len, cur_key_shape[2])
-    new_value_len = sum(
-        [value_shapes[j][1] for j in selected]) + cur_value_shape[1]
-    new_value_shape = (cur_value_shape[0], new_value_len, cur_value_shape[2])
-    # Masks are (1, query-len, key-len).
-    new_mask_shape = (1, query_shapes[i][1], new_key_len)
-    new_shape = (query_shapes[i], new_key_shape, new_value_shape,
-                 new_mask_shape)
-    result.append(new_shape)
-  return tuple(result)
-
-
-@tl.layer(output_shape=_chunked_selector_output_shape, stack_items_to_pass=0)
+@tl.layer(stack_items_to_pass=0)
 def ChunkedAttentionSelector(x, params, selector=None, **kwargs):
   """Select which chunks to attend to in chunked attention.
 

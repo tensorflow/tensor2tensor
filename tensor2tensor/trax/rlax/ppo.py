@@ -810,9 +810,9 @@ def training_loop(
 
   jax_rng_key = trax.get_random_number_generator_and_set_seed(random_seed)
 
-  # Batch Observations Shape = [-1, -1] + OBS, because we will eventually call
+  # Batch Observations Shape = [1, 1] + OBS, because we will eventually call
   # policy and value networks on shape [B, T] +_OBS
-  batch_observations_shape = (-1, -1) + env.observation_space.shape
+  batch_observations_shape = (1, 1) + env.observation_space.shape
 
   assert isinstance(env.action_space, gym.spaces.Discrete)
   n_actions = env.action_space.n

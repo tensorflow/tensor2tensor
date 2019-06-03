@@ -95,7 +95,7 @@ def TransformerEncoder(vocab_size,
       tl.Dropout(rate=dropout, mode=mode),
       tl.PositionalEncoding(max_len=max_len),
   ]
-  return [
+  return tl.Model([
       tl.Branch(positional_embedder, tl.PaddingMask()),  # Create mask.
       [EncoderBlock(d_feature, d_feedforward, n_heads, dropout, mode)
        for _ in range(n_layers)],
@@ -104,7 +104,7 @@ def TransformerEncoder(vocab_size,
       tl.Mean(axis=1),  # Average on length.
       tl.Dense(n_classes),
       tl.LogSoftmax(),
-  ]
+  ])
 
 
 def DecoderBlock(d_feature, d_feedforward, n_heads, dropout, mode):

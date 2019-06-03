@@ -22,8 +22,11 @@ from __future__ import print_function
 import inspect
 import traceback
 
+import jax
+from jax.interpreters import partial_eval as pe
+
 import numpy as onp
-from tensor2tensor.trax.backend import random
+from tensor2tensor.trax import backend
 
 
 class Layer(object):
@@ -43,20 +46,6 @@ class Layer(object):
     """Call this layer in input x using the given parameters."""
     raise NotImplementedError
 
-  def output_shape_fn(self, input_shape):
-    """The shape of the output of this layer given the shape of the input.
-
-    Note that all arguments and return values can be tuples or dictionaries
-    or arbitrary nested structures composed of tuples and dictionaries.
-
-    Args:
-      input_shape: a tuple representing the shape of the input.
-
-    Returns:
-      The shape of the output.
-    """
-    raise NotImplementedError
-
   def new_parameters(self, input_shape, rng):
     """Create new parameters for the layer given an input shape and rng.
 
@@ -72,22 +61,45 @@ class Layer(object):
     """
     raise NotImplementedError
 
+  # TODO(lukaszkaiser): re-visit the 2 items below in the future.
   def stack_items_to_pass(self):
     """How many of the top stack items do we process."""
     return 0
 
+  def default_input_is_int(self):
+    """Whether the default inputs are ints or floats."""
+    return False
+
   # End of subclassing interface, all functions below are internal.
 
-  def output_shape(self, input_shape):
-    """Same as self.output_shape but with better error reporting."""
+  def output_shape(self, input_shape_and_type, params):
+    """Output shape and type for this layer given input shape and type.
+
+    Note that all arguments and return values can be tuples or dictionaries
+    or arbitrary nested structures composed of tuples and dictionaries.
+
+    Args:
+      input_shape_and_type: a ShapeType with shape and type of the input.
+      params: parameters for this layer.
+
+    Returns:
+      The shape and type of the output.
+    """
     try:
-      is_list = isinstance(input_shape, (list, tuple))
-      is_list = is_list and isinstance(input_shape[0], (list, tuple))
-      n = self.stack_items_to_pass() if is_list else 0
-      return _apply_to_first_n(self.output_shape_fn, input_shape, n)
+      with backend.use_backend('jax'):
+        rng = backend.random.get_prng(0)
+        def call_on_input(x, params):
+          f = lambda y: self.call(y, params=params, rng=rng)
+          n = self.stack_items_to_pass() if isinstance(x, (list, tuple)) else 0
+          return _apply_to_first_n(f, x, n)
+        params_shapes = nested_map(
+            params, lambda x: ShapeType(shape=x.shape, tp=x.dtype))
+        s = _eval_on_shapes(call_on_input, input_shape_and_type, params_shapes)
+      return s
     except Exception:
-      name, trace = self.__class__.__name__, _short_traceback()
-      raise LayerError(name, 'output_shape', self._caller, input_shape, trace)
+      name, trace = self.__class__.__name__, _short_traceback(skip=3)
+      raise LayerError(name, 'output_shape', self._caller,
+                       input_shape_and_type, trace)
 
   def initialize(self, input_shape, rng):
     """Initialize the layer given an input shape and rng.
@@ -143,6 +155,17 @@ class Layer(object):
       raise LayerError(name, 'call', self._caller, shapes(x), trace)
 
 
+class ShapeType(object):
+  """Store shape and type."""
+
+  def __init__(self, shape, tp):
+    self.shape = shape
+    self.tp = tp
+
+  def __repr__(self):
+    return '[shape:' + str(self.shape) + ', type:' + str(self.tp) + ']'
+
+
 class LayerError(Exception):
   """Exception raised in the layer stack.
 
@@ -168,6 +191,39 @@ class LayerError(Exception):
                                                         self._caller.lineno)
     shapes_str = '  layer input shapes: %s\n\n' % str(self._input_shapes)
     return prefix + caller + shapes_str + self._traceback
+
+
+# TODO(lukaszkaiser): remove this function once JAX has an analogue.
+def _eval_on_shapes(f, *args):
+  """Evaluate f given only shapes and types."""
+  def abstractify(x):
+    return jax.abstract_arrays.raise_to_shaped(jax.core.get_aval(x))
+
+  def make_array(arg):
+    return backend.numpy.zeros(shape=arg.shape, dtype=arg.tp)
+
+  def turn_back_into_pytree(x):
+    if isinstance(x, jax.core.JaxTuple):
+      return tuple([turn_back_into_pytree(y) for y in x])
+    return x
+
+  def get_shapes_and_types(x):
+    if isinstance(x, jax.core.AbstractTuple):
+      return tuple([get_shapes_and_types(y) for y in x])
+    return ShapeType(x.shape, x.dtype)
+
+  def f_jaxtuple(*jaxtuple_args):
+    args = map(turn_back_into_pytree, jaxtuple_args)
+    out = f(*args)
+    res, _ = jax.api_util.pytree_to_jaxtupletree(out)
+    return res
+
+  args_arrays = nested_map(args, make_array)
+  jaxtuple_args, _ = jax.util.unzip2(
+      map(jax.api_util.pytree_to_jaxtupletree, args_arrays))
+  res = pe.abstract_eval_fun(f_jaxtuple, *map(abstractify, jaxtuple_args))
+
+  return get_shapes_and_types(res)
 
 
 def _apply_to_first_n(f, x, n):
@@ -279,7 +335,7 @@ def _short_traceback(skip=7):
 # Decorator for making layers from functions.
 
 
-def layer(output_shape=None, new_parameters=None, stack_items_to_pass=1):
+def layer(new_parameters=None, stack_items_to_pass=1, input_is_int=False):
   """Create a layer class from a function."""
   def layer_decorator(call):
     """Decorating the call function."""
@@ -288,11 +344,9 @@ def layer(output_shape=None, new_parameters=None, stack_items_to_pass=1):
       del self
       return stack_items_to_pass
 
-    def output_shape_fn(self, input_shape):
-      if output_shape is None:
-        return input_shape
-      kwargs = self._init_kwargs  # pylint: disable=protected-access
-      return output_shape(input_shape, **kwargs)
+    def default_input_is_int_fn(self):
+      del self
+      return input_is_int
 
     def new_parameters_fn(self, input_shape, rng):
       if new_parameters is None:
@@ -310,15 +364,13 @@ def layer(output_shape=None, new_parameters=None, stack_items_to_pass=1):
 
     # Set doc for python help.
     call_fn.__doc__ = call.__doc__
-    if output_shape is None:
-      output_shape_fn.__doc__ = output_shape.__doc__
     if new_parameters is None:
       new_parameters_fn.__doc__ = new_parameters.__doc__
 
     # Create the class.
     cls = type(call.__name__, (Layer,),
                {'call': call_fn,
-                'output_shape_fn': output_shape_fn,
+                'default_input_is_int': default_input_is_int_fn,
                 'new_parameters': new_parameters_fn,
                 'stack_items_to_pass': stack_items_to_pass_fn})
 
@@ -346,8 +398,8 @@ def _random_inputs(input_shape, rng, integer_inputs=False):
   if not isinstance(input_shape, dict) and isinstance(input_shape[0], int):
     # Non-nested shape, create a random tuple.
     if not integer_inputs:
-      return random.uniform(rng, input_shape, minval=-1.0, maxval=1.0)
-    return random.bernoulli(rng, 0.5, input_shape).astype(onp.int32)
+      return backend.random.uniform(rng, input_shape, minval=-1.0, maxval=1.0)
+    return backend.random.bernoulli(rng, 0.5, input_shape).astype(onp.int32)
   elif isinstance(input_shape, list):  # Nested shape: list.
     return [_random_inputs(shape, rng, integer_inputs) for shape in input_shape]
   elif isinstance(input_shape, tuple):  # Nested shape: tuple.
@@ -359,12 +411,32 @@ def _random_inputs(input_shape, rng, integer_inputs=False):
     raise TypeError(type(input_shape))
 
 
+def to_shape_and_type(x_shapes, integers):
+  """Make a shape-and-type tuple from shapes."""
+  if isinstance(x_shapes, dict):  # Nested shape: dict.
+    return {k: to_shape_and_type(x_shapes[k], integers) for k in x_shapes}
+  if isinstance(x_shapes, onp.ndarray):  # Numpy array shape
+    return ShapeType(shape=x_shapes.tolist(),
+                     tp=onp.int32 if integers else onp.float32)
+  if isinstance(x_shapes[0], (int, onp.int32, onp.int64)):
+    return ShapeType(shape=x_shapes,
+                     tp=onp.int32 if integers else onp.float32)
+  if isinstance(x_shapes, list):  # Nested shape: list.
+    return [to_shape_and_type(s, integers) for s in x_shapes]
+  if isinstance(x_shapes, tuple):  # Nested shape: tuple.
+    return tuple([to_shape_and_type(s, integers) for s in x_shapes])
+  assert False  # Should never get here.
+
+
 def check_shape_agreement(layer_instance, input_shape, integer_inputs=False):
   """Check if layer.output_shape agrees with the actual output shape."""
-  rng1, rng2, rng3 = random.split(random.get_prng(0), 3)
-  output_shape = layer_instance.output_shape(input_shape)
-  output_shape = nested_map(output_shape, int)  # Make non-numpy.
+  rng1, rng2, rng3 = backend.random.split(backend.random.get_prng(0), 3)
   params = layer_instance.initialize(input_shape, rng1)
+  input_shape_and_type = to_shape_and_type(input_shape, integer_inputs)
+  output_shape_and_type = layer_instance.output_shape(
+      input_shape_and_type, params)
+  output_shape = nested_map(output_shape_and_type, lambda x: x.shape)
+  output_shape = nested_map(output_shape, int)  # Make non-numpy.
   inputs = _random_inputs(input_shape, rng2, integer_inputs=integer_inputs)
   result = layer_instance(inputs, params, rng=rng3)
   result_shape = shapes(result)
