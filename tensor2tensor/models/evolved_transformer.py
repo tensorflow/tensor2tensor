@@ -408,17 +408,18 @@ def evolved_transformer_decoder(decoder_input,
                   _CONV_BRANCHES_FIRST_LAYER_NAME] = tf.transpose(
                       tmp, perm=[1, 0, 2])
 
-              left_state_indexes = [
-                  decode_loop_step + i
-                  for i in range(_DECODER_LEFT_CONV_PADDING + 1)
-              ]
-              left_state = tf.gather(hidden_state, left_state_indexes, axis=1)
-              right_state_indexes = [
-                  decode_loop_step + i +
-                  (_DECODER_LEFT_CONV_PADDING - _DECODER_RIGHT_CONV_PADDING)
-                  for i in range(_DECODER_RIGHT_CONV_PADDING + 1)
-              ]
-              right_state = tf.gather(hidden_state, right_state_indexes, axis=1)
+              batch_size = hidden_state.shape.as_list()[0]
+              left_state = tf.slice(hidden_state, [0, decode_loop_step, 0], [
+                  batch_size, _DECODER_LEFT_CONV_PADDING + 1,
+                  hparams.hidden_size
+              ])
+              right_state = tf.slice(hidden_state, [
+                  0, decode_loop_step + _DECODER_LEFT_CONV_PADDING -
+                  _DECODER_RIGHT_CONV_PADDING, 0
+              ], [
+                  batch_size, _DECODER_RIGHT_CONV_PADDING + 1,
+                  hparams.hidden_size
+              ])
 
           else:  # No caching.
             left_state = tf.pad(
@@ -484,12 +485,11 @@ def evolved_transformer_decoder(decoder_input,
                   _CONV_BRANCHES_SECOND_LAYER_NAME] = tf.transpose(
                       tmp, perm=[1, 0, 2])
 
-              hidden_state_indexes = [
-                  decode_loop_step + i
-                  for i in range(_DECODER_FINAL_CONV_PADDING + 1)
-              ]
-              hidden_state = tf.gather(
-                  hidden_state, hidden_state_indexes, axis=1)
+              batch_size = hidden_state.shape.as_list()[0]
+              hidden_state = tf.slice(hidden_state, [0, decode_loop_step, 0], [
+                  batch_size, _DECODER_FINAL_CONV_PADDING + 1,
+                  hparams.hidden_size * 2
+              ])
           else:
             hidden_state = tf.pad(
                 hidden_state,

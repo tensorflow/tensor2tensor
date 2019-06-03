@@ -41,6 +41,7 @@ set_status
 # test_utils.py is not a test, but pytest thinks it is.
 # subword_text_encoder_ops_test, pack_sequences_ops_test: interface with C++ ops
 # trax tests need C++
+# TODO(davidso): Re-enable EvolvedTransformer when possible.
 # others (see below) enable eager, so can't be tested along with the others in
 # pytest
 pytest --disable-warnings \
@@ -61,6 +62,7 @@ pytest --disable-warnings \
   --ignore=tensor2tensor/layers/modalities_test.py \
   --ignore=tensor2tensor/layers/ngram_test.py \
   --ignore=tensor2tensor/layers/reversible_layers_test.py \
+  --ignore=tensor2tensor/models/evolved_transformer_test.py \
   --ignore=tensor2tensor/models/research \
   --ignore=tensor2tensor/models/video/nfg_conv3d_test.py \
   --ignore=tensor2tensor/models/video/nfg_conv_lstm_test.py \

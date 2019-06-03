@@ -57,8 +57,8 @@ def real_env_step_increment(hparams):
   ))
 
 
-def world_model_step_increment(hparams, is_initial_epoch):
-  if is_initial_epoch:
+def world_model_step_increment(hparams, epoch):
+  if epoch in [0, 1, 4, 9, 14]:
     multiplier = hparams.initial_epoch_train_steps_multiplier
   else:
     multiplier = 1
@@ -162,6 +162,7 @@ def train_agent(real_env, learner, world_model_dir, hparams, epoch):
 
   final_epoch = hparams.epochs - 1
   is_special_epoch = (epoch + 3) == final_epoch or (epoch + 7) == final_epoch
+  is_special_epoch = is_special_epoch or (epoch == 1)  # Make 1 special too.
   is_final_epoch = epoch == final_epoch
   env_step_multiplier = 3 if is_final_epoch else 2 if is_special_epoch else 1
   learner.train(
@@ -200,9 +201,7 @@ def train_world_model(
     env, data_dir, output_dir, hparams, world_model_steps_num, epoch
 ):
   """Train the world model on problem_name."""
-  world_model_steps_num += world_model_step_increment(
-      hparams, is_initial_epoch=(epoch == 0)
-  )
+  world_model_steps_num += world_model_step_increment(hparams, epoch)
   model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
   model_hparams.learning_rate = model_hparams.learning_rate_constant
   if epoch > 0:

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Lint as: python2, python3
 """Tests for tensor2tensor.models.research.glow_ops."""
 
 from __future__ import absolute_import
@@ -23,6 +24,8 @@ import os
 import tempfile
 from absl.testing import parameterized
 import numpy as np
+from six.moves import range
+from six.moves import zip
 from tensor2tensor.models.research import glow
 from tensor2tensor.models.research import glow_ops
 from tensor2tensor.utils import hparam

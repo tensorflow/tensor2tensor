@@ -21,6 +21,10 @@ from __future__ import print_function
 
 import numpy as np
 
+CATEGORICAL_SAMPLING = "categorical"
+EPSILON_GREEDY = "epsilon-greedy"
+GUMBEL_SAMPLING = "gumbel"
+
 
 def done_indices(dones):
   """Calculates the indices where dones has True."""
@@ -50,7 +54,12 @@ def play_env_problem_with_policy(env,
                                  policy_fun,
                                  num_trajectories=1,
                                  max_timestep=None,
-                                 boundary=20):
+                                 boundary=20,
+                                 reset=True,
+                                 rng=None,
+                                 policy_sampling=CATEGORICAL_SAMPLING,
+                                 temperature=0.5,
+                                 eps=0.1):
   """Plays the given env with the policy function to collect trajectories.
 
   Args:
@@ -59,33 +68,83 @@ def play_env_problem_with_policy(env,
         back log-probabilities (B, T, A).
     num_trajectories: int, number of trajectories to collect.
     max_timestep: int or None, if not None or a negative number, we cut any
-        trajectory that exceeds this time and mark that as completed by
-        resetting that trajectory.
+        trajectory that exceeds this time put it in the completed bin, and
+        *dont* reset the env.
     boundary: this is the bucket length, we pad the observations to integer
         multiples of this + 1 and then feed the padded observations to the
         policy_fun.
+    reset: bool, true if we want to reset the envs. The envs are also reset if
+        max_max_timestep is None or < 0
+    rng: jax rng, splittable.
+    policy_sampling: string, how to select an action given a policy, one of:
+        CATEGORICAL_SAMPLING, GREEDY, GUMBEL_SAMPLING
+    temperature: float, temperature used in gumbel sampling.
+    eps: float, epsilon to use in epsilon greedy.
+
 
   Returns:
-    Completed trajectories that is a list of triples of (observation, action,
-    reward) ndarrays.
+    A tuple, (trajectories, number of completed trajectories). Where
+    trajectories is a list of triples of (observation, action, reward) ndarrays.
   """
 
-  def multinomial_sample(probs):
-    """Sample from this vector of probabilities.
+  def categorical_sample(log_probs):
+    """Categorical sampling."""
 
-    Args:
-      probs: numpy array of shape (A,) where A is the number of actions, these
-        must sum up to 1.0
+    def multinomial_sample(probs):
+      """Sample from this vector of probabilities.
 
-    Returns:
-      an integer of which action to pick.
-    """
-    return int(np.argwhere(np.random.multinomial(1, probs) == 1))
+      Args:
+        probs: numpy array of shape (A,) where A is the number of actions, these
+          must sum up to 1.0
 
-  # We need to reset all environments.
-  env.reset()
+      Returns:
+        an integer of which action to pick.
+      """
 
-  while True:
+      return int(np.argwhere(np.random.multinomial(1, probs) == 1))
+
+    # Convert to probs, since we need to do categorical sampling.
+    probs = np.exp(log_probs)
+
+    # Let's cast up to float64, because that's what numpy does when sampling
+    # and it leads to the sum(pvals[:-1]) > 1.0 error.
+    #
+    # We also re-normalize when we do this.
+    probs = np.float64(probs)
+    probs /= np.sum(probs, axis=1, keepdims=True)
+
+    # Now pick actions from this probs array.
+    return np.apply_along_axis(multinomial_sample, 1, probs)
+
+  def gumbel_sample(log_probs):
+    """Gumbel sampling."""
+    u = np.random.uniform(low=1e-6, high=1.0 - 1e-6, size=log_probs.shape)
+    g = -np.log(-np.log(u))
+    return np.argmax((log_probs / temperature) + g, axis=1)
+
+  def epsilon_greedy(log_probs):
+    """Epsilon greedy sampling."""
+    _, A = log_probs.shape  # pylint: disable=invalid-name
+    actions = []
+    for log_prob in log_probs:
+      # Pick the argmax action.
+      action = np.argmax(log_prob)
+      if np.random.uniform() < eps:
+        # Pick an action at random.
+        action = np.random.choice(range(A))
+      actions.append(action)
+    return np.stack(actions)
+
+  # We need to reset all environments, if we're coming here the first time.
+  if reset or max_timestep is None or max_timestep <= 0:
+    env.reset()
+  else:
+    # Clear completed trajectories held internally.
+    env.trajectories.clear_completed_trajectories()
+
+  num_done_trajectories = 0
+
+  while env.trajectories.num_completed_trajectories < num_trajectories:
     # Get all the observations for all the active trajectories.
     # Shape is (B, T) + OBS
     padded_observations = env.trajectories.observations_np(boundary=boundary)
@@ -96,7 +155,7 @@ def play_env_problem_with_policy(env,
     assert B == env.batch_size
     assert (B,) == lengths.shape
 
-    log_prob_actions = policy_fun(padded_observations)
+    log_prob_actions, _, rng = policy_fun(padded_observations, rng=rng)
     assert (B, T) == log_prob_actions.shape[:2]
     A = log_prob_actions.shape[2]  # pylint: disable=invalid-name
 
@@ -106,16 +165,25 @@ def play_env_problem_with_policy(env,
     log_probs = log_prob_actions[np.arange(B)[:, None],
                                  index[:, None],
                                  np.arange(A)]
-    assert (B, A) == log_probs.shape
+    assert (B, A) == log_probs.shape, \
+        "B=%d, A=%d, log_probs.shape=%s" % (B, A, log_probs.shape)
 
-    # Convert to probs, since we need to do categorical sampling.
-    probs = np.exp(log_probs)
-
-    # Now pick actions from this probs array.
-    actions = np.apply_along_axis(multinomial_sample, 1, probs)
+    actions = None
+    if policy_sampling == CATEGORICAL_SAMPLING:
+      actions = categorical_sample(log_probs)
+    elif policy_sampling == GUMBEL_SAMPLING:
+      actions = gumbel_sample(log_probs)
+    elif policy_sampling == EPSILON_GREEDY:
+      actions = epsilon_greedy(log_probs)
+    else:
+      raise ValueError("Unknown sampling policy [%s]" % policy_sampling)
 
     # Step through the env.
     _, _, dones, _ = env.step(actions)
+
+    # Count the number of done trajectories, the others could just have been
+    # truncated.
+    num_done_trajectories += np.sum(dones)
 
     # Get the indices where we are done ...
     done_idxs = done_indices(dones)
@@ -137,7 +205,10 @@ def play_env_problem_with_policy(env,
 
     # If so, reset these as well.
     if exceeded_time_limit_idxs.size:
-      env.reset(indices=exceeded_time_limit_idxs)
+      # This just cuts the trajectory, doesn't reset the env, so it continues
+      # from where it left off.
+      env.truncate(indices=exceeded_time_limit_idxs)
+
     # Do we have enough trajectories right now?
     if env.trajectories.num_completed_trajectories >= num_trajectories:
       break
@@ -148,4 +219,7 @@ def play_env_problem_with_policy(env,
   for trajectory in env.trajectories.completed_trajectories[:num_trajectories]:
     completed_trajectories.append(trajectory.as_numpy)
 
-  return completed_trajectories
+  # Keep the rest of the trajectories, if any, in our kitty.
+  env.trajectories.clear_completed_trajectories(num=num_trajectories)
+
+  return completed_trajectories, num_done_trajectories

@@ -21,8 +21,8 @@ masked_mean.mask_id = 0
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================
-MultifactorSchedule.constant = 0.1
-MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
+MultifactorSchedule.constant = 0.3
+MultifactorSchedule.factors = 'constant * linear_warmup'
 MultifactorSchedule.warmup_steps = 8000
 
 # Parameters for preprocess_fun:
@@ -37,16 +37,17 @@ train.eval_frequency = 1000
 train.eval_steps = 10
 train.inputs = @trax.inputs.inputs
 train.model = @trax.models.TransformerLM
+train.optimizer = @trax.optimizers.SM3
 train.run_debug_step = False
 train.train_steps = 500000
 
 # Parameters for TransformerLM:
 # ==============================================================================
+TransformerLM.d_feature = 512
+TransformerLM.d_feedforward = 2048
 TransformerLM.dropout = 0.1
-TransformerLM.feature_depth = 512
-TransformerLM.feedforward_depth = 2048
 TransformerLM.max_len = 2048
 TransformerLM.mode = 'train'
-TransformerLM.num_heads = 8
-TransformerLM.num_layers = 6
+TransformerLM.n_heads = 8
+TransformerLM.n_layers = 6
 TransformerLM.vocab_size = 32000

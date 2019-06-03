@@ -22,6 +22,11 @@ the best parts into core JAX.
 
 ### Examples
 
+#### Example Colab
+
+See our example constructing language models from scratch in a GPU-backed colab notebook at
+[Trax Demo](https://colab.research.google.com/github/tensorflow/tensor2tensor/blob/master/tensor2tensor/trax/notebooks/trax_demo_iclr2019.ipynb)
+
 #### MLP on MNIST
 
 

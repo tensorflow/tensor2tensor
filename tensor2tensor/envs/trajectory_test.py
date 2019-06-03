@@ -194,6 +194,31 @@ class BatchTrajectoryTest(tf.test.TestCase):
     # Nothing is done anyways.
     self.assertEqual(0, bt.num_completed_trajectories)
 
+  def test_truncate(self):
+    batch_size = 1
+    bt = trajectory.BatchTrajectory(batch_size=batch_size)
+
+    indices = np.arange(batch_size)
+    observations, _, _, _ = (
+        self.get_random_observations_rewards_actions_dones(
+            batch_size=batch_size))
+
+    # Have to call reset first.
+    bt.reset(indices, observations)
+
+    self.assertEqual(0, bt.num_completed_trajectories)
+
+    bt.truncate_trajectories(indices)
+
+    self.assertEqual(batch_size, bt.num_completed_trajectories)
+
+    # Assert they are all active, since the last observation was duplicated.
+    self.assertTrue(all(t.is_active for t in bt.trajectories))
+
+    # Test that the observation is the same.
+    self.assertAllEqual(bt.trajectories[0].last_time_step.observation,
+                        bt.completed_trajectories[0].last_time_step.observation)
+
   def test_step(self):
     bt = trajectory.BatchTrajectory(batch_size=self.BATCH_SIZE)
 

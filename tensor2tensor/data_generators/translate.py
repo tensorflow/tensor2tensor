@@ -22,6 +22,7 @@ from __future__ import print_function
 import gzip
 import os
 import tarfile
+import zipfile
 from tensor2tensor.data_generators import cleaner_en_xx
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
@@ -58,7 +59,12 @@ class TranslateProblem(text_problems.Text2TextProblem):
     """Files to be passed to get_or_generate_vocab."""
     return self.source_data_files(problem.DatasetSplit.TRAIN)
 
-  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+  def generate_samples(
+      self,
+      data_dir,
+      tmp_dir,
+      dataset_split,
+      custom_iterator=text_problems.text2text_txt_iterator):
     datasets = self.source_data_files(dataset_split)
     tag = "dev"
     datatypes_to_clean = None
@@ -68,8 +74,8 @@ class TranslateProblem(text_problems.Text2TextProblem):
     data_path = compile_data(
         tmp_dir, datasets, "%s-compiled-%s" % (self.name, tag),
         datatypes_to_clean=datatypes_to_clean)
-    return text_problems.text2text_txt_iterator(data_path + ".lang1",
-                                                data_path + ".lang2")
+
+    return custom_iterator(data_path + ".lang1", data_path + ".lang2")
 
   def generate_text_for_vocab(self, data_dir, tmp_dir):
     return generator_utils.generate_lines_for_vocab(tmp_dir,
@@ -173,6 +179,9 @@ def compile_data(tmp_dir, datasets, filename, datatypes_to_clean=None):
         compressed_filepath = os.path.join(tmp_dir, compressed_filename)
         if url.startswith("http"):
           generator_utils.maybe_download(tmp_dir, compressed_filename, url)
+        if compressed_filename.endswith(".zip"):
+          zipfile.ZipFile(os.path.join(compressed_filepath),
+                          "r").extractall(tmp_dir)
 
         if dataset[1][0] == "tmx":
           cleaning_requested = "tmx" in datatypes_to_clean

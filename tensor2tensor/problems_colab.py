@@ -13,32 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""gin-configurable optimizers and learning rate functions."""
-
+"""Access T2T Problems."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import gin
+from tensor2tensor.data_generators import all_problems
+from tensor2tensor.utils import registry
 
-from jax.experimental import optimizers as opt
+
+def problem(name):
+  return registry.problem(name)
 
 
-def opt_configure(*args, **kwargs):
-  kwargs["module"] = "trax.optimizers"
-  return gin.external_configurable(*args, **kwargs)
+def available():
+  return sorted(registry.list_problems())
 
-# Optimizers
-sgd = opt_configure(opt.sgd)
-adam = opt_configure(opt.adam)
-momentum = opt_configure(opt.momentum)
-rmsprop = opt_configure(opt.rmsprop)
 
-# Learning rates
-constant = opt_configure(opt.constant)
-exponential_decay = opt_configure(opt.exponential_decay)
-inverse_time_decay = opt_configure(opt.inverse_time_decay)
-piecewise_constant = opt_configure(opt.piecewise_constant)
+# Import problem modules
+_modules = list(all_problems.MODULES)
 
-# Get params
-get_params = opt.get_params
+all_problems.import_modules(_modules)

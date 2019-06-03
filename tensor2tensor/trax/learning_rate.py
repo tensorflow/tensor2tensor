@@ -40,9 +40,9 @@ _memoized_multifactor_schedules = {}
 
 @gin.configurable(blacklist=["history"])
 def MultifactorSchedule(history=None,
-                        factors="constant * linear_warmup * rsqrt_decay",
+                        factors="constant * linear_warmup",
                         constant=0.1,
-                        warmup_steps=100,
+                        warmup_steps=400,
                         decay_factor=0.5,
                         steps_per_decay=20000):
   """Factor-based learning rate schedule.

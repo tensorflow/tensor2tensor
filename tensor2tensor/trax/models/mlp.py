@@ -19,18 +19,20 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.trax import layers
+from tensor2tensor.trax import layers as tl
 
 
-def MLP(num_hidden_layers=2,
-        hidden_size=512,
-        activation_fn=layers.Relu,
-        num_output_classes=10,
+def MLP(n_hidden_layers=2,
+        d_hidden=512,
+        activation_fn=tl.Relu,
+        n_output_classes=10,
         mode="train"):
-  """Multi-layer feed-forward neural network with non-linear activations."""
+  """A multi-layer feedforward (perceptron) network."""
   del mode
-  cur_layers = [layers.Flatten()]
-  for _ in range(num_hidden_layers):
-    cur_layers += [layers.Dense(hidden_size), activation_fn()]
-  cur_layers += [layers.Dense(num_output_classes), layers.LogSoftmax()]
-  return layers.Serial(*cur_layers)
+
+  return tl.Model(
+      tl.Flatten(),
+      [[tl.Dense(d_hidden), activation_fn()] for _ in range(n_hidden_layers)],
+      tl.Dense(n_output_classes),
+      tl.LogSoftmax(),
+  )

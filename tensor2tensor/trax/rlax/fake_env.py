@@ -33,14 +33,14 @@ class FakeEnv(object):
 
   def __init__(self,
                input_shape=(4,),
-               num_actions=2,
+               n_actions=2,
                done_time_step=None,
                done_action=None):
     self._input_shape = input_shape
     self._done_time_step = done_time_step
     self._done_action = done_action
     self._t = 0
-    self.action_space = gym.spaces.Discrete(num_actions)
+    self.action_space = gym.spaces.Discrete(n_actions)
     self.observation_space = gym.spaces.Box(
         low=-1.0, high=1.0, shape=input_shape)
 

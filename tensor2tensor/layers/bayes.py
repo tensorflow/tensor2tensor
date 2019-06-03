@@ -213,7 +213,7 @@ class Conv2DVariationalDropout(tf.keras.layers.Conv2D):
 
     # Following tf.keras.Dropout, only apply variational dropout if training
     # flag is True. The kernel must also be a random variable.
-    training_value = tf.contrib.util.constant_value(training)
+    training_value = smart_constant_value(training)
     if training_value is not None:
       if training_value and isinstance(self.kernel, ed.RandomVariable):
         return dropped_inputs()
@@ -224,6 +224,31 @@ class Conv2DVariationalDropout(tf.keras.layers.Conv2D):
                                     isinstance(self.kernel, ed.RandomVariable)),
                      dropped_inputs,
                      lambda: super(Conv2DVariationalDropout, self).call(inputs))
+
+
+# From `tensorflow/python/framework/smart_cond.py`
+def smart_constant_value(pred):
+  """Return the bool value for `pred`, or None if `pred` had a dynamic value.
+
+  Arguments:
+    pred: A scalar, either a Python bool or tensor.
+
+  Returns:
+    True or False if `pred` has a constant boolean value, None otherwise.
+
+  Raises:
+    TypeError: If `pred` is not a Tensor or bool.
+  """
+  if pred in {0, 1}:  # Accept 1/0 as valid boolean values
+    pred_value = bool(pred)
+  elif isinstance(pred, bool):
+    pred_value = pred
+  elif isinstance(pred, tf.Tensor):
+    pred_value = tf.contrib.util.constant_value(pred)
+  else:
+    raise TypeError('`pred` must be a Tensor, or a Python bool, or 1 or 0. '
+                    'Found instead: %s' % pred)
+  return pred_value
 
 
 @add_weight
@@ -518,7 +543,7 @@ class DenseVariationalDropout(tf.keras.layers.Dense):
 
     # Following tf.keras.Dropout, only apply variational dropout if training
     # flag is True. The kernel must also be a random variable.
-    training_value = tf.contrib.util.constant_value(training)
+    training_value = smart_constant_value(training)
     if training_value is not None:
       if training_value and isinstance(self.kernel, ed.RandomVariable):
         return dropped_inputs()

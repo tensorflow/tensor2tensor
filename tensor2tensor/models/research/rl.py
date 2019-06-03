@@ -21,6 +21,7 @@ import operator
 import gym
 import six
 
+from tensor2tensor.data_generators import gym_env
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.envs import tic_tac_toe_env
@@ -71,6 +72,7 @@ def ppo_base_v1():
   hparams.add_hparam("logits_clip", 0.0)
   hparams.add_hparam("dropout_ppo", 0.1)
   hparams.add_hparam("effective_num_agents", None)
+  hparams.add_hparam("use_epochs", True)
   # TODO(afrozm): Clean this up, this is used in PPO learner to get modalities.
   hparams.add_hparam("policy_problem_name", "dummy_policy_problem")
   return hparams
@@ -131,6 +133,14 @@ def ppo_original_params():
   # is needed for model based rollouts).
   hparams.epoch_length = 50
   hparams.optimization_batch_size = 20
+  return hparams
+
+
+@registry.register_hparams
+def ppo_dist_params():
+  """Parameters based on the original paper modified for distributional RL."""
+  hparams = ppo_original_params()
+  hparams.learning_rate_constant = 1e-3
   return hparams
 
 
@@ -277,13 +287,16 @@ def make_simulated_env_fn_from_hparams(real_env, hparams, **extra_kwargs):
   )
 
 
-def get_policy(observations, hparams, action_space):
+def get_policy(observations, hparams, action_space,
+               distributional_size=1, epoch=-1):
   """Get a policy network.
 
   Args:
     observations: observations
     hparams: parameters
     action_space: action space
+    distributional_size: optional number of buckets for distributional RL
+    epoch: optional epoch number
 
   Returns:
     Tuple (action logits, value).
@@ -312,8 +325,12 @@ def get_policy(observations, hparams, action_space):
     num_target_frames = hparams.video_num_target_frames
   except AttributeError:
     num_target_frames = 1
+  target_value_shape_suffix = [num_target_frames]
+  if distributional_size > 1:
+    target_value_shape_suffix = [num_target_frames, distributional_size]
   features = {
       "inputs": observations,
+      "epoch": tf.constant(epoch + 1),
       "input_action": tf.zeros(obs_shape[:2] + [1], dtype=tf.int32),
       "input_reward": tf.zeros(obs_shape[:2] + [1], dtype=tf.int32),
       "targets": tf.zeros(obs_shape[:1] + [num_target_frames] + obs_shape[2:]),
@@ -324,12 +341,17 @@ def get_policy(observations, hparams, action_space):
       "target_policy": tf.zeros(
           obs_shape[:1] + [num_target_frames] + [action_space.n]),
       "target_value": tf.zeros(
-          obs_shape[:1] + [num_target_frames])
+          obs_shape[:1] + target_value_shape_suffix)
   }
+  model.distributional_value_size = max(distributional_size, 1)
+  model.use_epochs = hparams.use_epochs
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
     t2t_model.create_dummy_vars()
     (targets, _) = model(features)
-  return (targets["target_policy"][:, 0, :], targets["target_value"][:, 0])
+  target_values = targets["target_value"][:, 0]
+  if distributional_size > 1:
+    target_values = targets["target_value"][:, :]
+  return (targets["target_policy"][:, 0, :], target_values)
 
 
 @registry.register_hparams
@@ -413,6 +435,9 @@ def rlmf_original():
       eval_rl_env_max_episode_steps=1000,
       resize_height_factor=2,
       resize_width_factor=2,
+      distributional_size=1,  # In distributional RL, number of buckets.
+      distributional_subscale=0.04,  # How to scale values to buckets.
+      distributional_threshold=0.0,  # Optimism threshold for experiments.
       grayscale=0,
       rl_env_max_episode_steps=-1,
       # If set, use this as the gym env name, instead of changing game mode etc.
@@ -420,6 +445,7 @@ def rlmf_original():
       # Controls whether we should derive observation space, do some
       # pre-processing etc. See T2TGymEnv._derive_observation_space.
       rl_should_derive_observation_space=True,
+      aunused=0,  # unused param for multi-run settings.
   )
 
 
@@ -449,6 +475,34 @@ def rlmf_base():
   hparams = rlmf_original()
   hparams.add_hparam("ppo_epochs_num", 3000)
   hparams.add_hparam("ppo_eval_every_epochs", 100)
+  return hparams
+
+
+@registry.register_ranged_hparams
+def rlmf_5runs(rhp):
+  rhp.set_discrete("aunused", list(range(5)))
+
+
+@registry.register_ranged_hparams
+def rlmf_5runs_atari(rhp):
+  rhp.set_categorical("game", gym_env.ATARI_GAMES_WITH_HUMAN_SCORE_NICE)
+  rhp.set_discrete("aunused", list(range(5)))
+
+
+@registry.register_hparams
+def rlmf_dist():
+  """Distributional set of hparams for model-free PPO."""
+  hparams = rlmf_original()
+  hparams.distributional_size = 1024
+  hparams.base_algo_params = "ppo_dist_params"
+  return hparams
+
+
+@registry.register_hparams
+def rlmf_dist_threshold():
+  """Distributional set of hparams for model-free PPO."""
+  hparams = rlmf_dist()
+  hparams.distributional_threshold = 0.5
   return hparams
 
 
@@ -483,9 +537,11 @@ def rlmf_dqn_tiny():
 def rlmf_eval():
   """Eval set of hparams for model-free PPO."""
   hparams = rlmf_original()
-  hparams.batch_size = 8
-  hparams.eval_sampling_temps = [0.0, 0.5, 1.0]
-  hparams.eval_rl_env_max_episode_steps = -1
+  hparams.batch_size = 16
+  hparams.eval_batch_size = 32
+  hparams.eval_episodes_num = 2
+  hparams.eval_sampling_temps = [0.5, 0.0, 1.0]
+  hparams.eval_rl_env_max_episode_steps = 40000
   hparams.add_hparam("ppo_epoch_length", 128)
   hparams.add_hparam("ppo_optimization_batch_size", 32)
   hparams.add_hparam("ppo_epochs_num", 10000)
@@ -495,7 +551,30 @@ def rlmf_eval():
   return hparams
 
 
+@registry.register_hparams
+def rlmf_eval_dist():
+  """Distributional set of hparams for model-free PPO."""
+  hparams = rlmf_eval()
+  hparams.distributional_size = 4096
+  hparams.distributional_subscale = 0.08
+  hparams.base_algo_params = "ppo_dist_params"
+  return hparams
+
+
+@registry.register_hparams
+def rlmf_eval_dist_threshold():
+  """Distributional set of hparams for model-free PPO."""
+  hparams = rlmf_eval_dist()
+  hparams.distributional_threshold = 0.5
+  return hparams
+
+
 class PolicyBase(t2t_model.T2TModel):
+
+  def __init__(self, *args, **kwargs):
+    super(PolicyBase, self).__init__(*args, **kwargs)
+    self.distributional_value_size = 1
+    self.use_epochs = False
 
   def loss(self, *args, **kwargs):
     return 0.0
@@ -650,6 +729,14 @@ class FeedForwardCnnSmallCategoricalPolicy(PolicyBase):
                            activation=tf.nn.relu, padding="same")
 
       flat_x = tf.layers.flatten(x)
+      if self.use_epochs:
+        epoch = features["epoch"] + tf.zeros([x_shape[0]], dtype=tf.int32)
+        # Randomly set epoch to 0 in some cases as that's the inference value.
+        rand = tf.random.uniform([x_shape[0]])
+        epoch = tf.where(rand < 0.1, tf.zeros_like(epoch), epoch)
+        # Embed the epoch number.
+        emb_epoch = common_layers.embedding(epoch, 32, 32)  # [batch, 32]
+        flat_x = tf.concat([flat_x, emb_epoch], axis=1)
       flat_x = tf.layers.dropout(flat_x, rate=dropout)
       x = tf.layers.dense(flat_x, 128, activation=tf.nn.relu)
 
@@ -658,8 +745,7 @@ class FeedForwardCnnSmallCategoricalPolicy(PolicyBase):
       )
       logits = clip_logits(logits, self.hparams)
       logits = tf.expand_dims(logits, axis=1)
-
-      value = tf.layers.dense(x, 1)
+      value = tf.layers.dense(x, self.distributional_value_size)
     return {"target_policy": logits, "target_value": value}
 
 

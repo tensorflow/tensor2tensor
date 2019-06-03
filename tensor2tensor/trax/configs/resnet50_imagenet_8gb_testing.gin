@@ -1,0 +1,44 @@
+import tensor2tensor.trax.inputs
+import tensor2tensor.trax.learning_rate
+import tensor2tensor.trax.models
+import tensor2tensor.trax.optimizers
+import tensor2tensor.trax.trax
+
+# Parameters for batch_fun:
+# ==============================================================================
+batch_fun.batch_size_per_device = 32
+batch_fun.bucket_length = 32
+batch_fun.buckets = None
+batch_fun.eval_batch_size = 32
+
+# Parameters for inputs:
+# ==============================================================================
+inputs.data_dir = None
+inputs.dataset_name = 't2t_image_imagenet224'
+
+# Parameters for MultifactorSchedule:
+# ==============================================================================
+EvalAdjustingSchedule.constant = 1.0
+MultifactorSchedule.factors = 'constant * linear_warmup'
+MultifactorSchedule.warmup_steps = 400
+
+# Parameters for Momentum:
+# ==============================================================================
+Momentum.mass = 0.9
+
+
+# Parameters for Resnet50:
+# ==============================================================================
+Resnet50.d_hidden = 64
+Resnet50.n_output_classes = 1001
+
+# Parameters for train:
+# ==============================================================================
+train.eval_frequency = 2000
+train.eval_steps = 20
+train.inputs = @trax.inputs.inputs
+train.model = @trax.models.Resnet50
+train.optimizer = @trax.optimizers.Momentum
+train.train_steps = 100000
+train.lr_schedule = @learning_rate.EvalAdjustingSchedule
+

@@ -49,10 +49,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import functools
+import os
 import time
 
 from absl import logging
+import cloudpickle as pickle
 import gym
 from jax import grad
 from jax import jit
@@ -60,219 +63,114 @@ from jax import lax
 from jax import numpy as np
 from jax import random as jax_random
 import numpy as onp
-from tensor2tensor.trax import layers
+from tensor2tensor.envs import env_problem
+from tensor2tensor.envs import env_problem_utils
+from tensor2tensor.trax import jaxboard
+from tensor2tensor.trax import layers as tl
 from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax import trax
+from tensorflow.io import gfile
 
 DEBUG_LOGGING = False
 GAMMA = 0.99
 LAMBDA = 0.95
 EPSILON = 0.1
 EPOCHS = 50  # 100
-NUM_OPTIMIZER_STEPS = 100
+N_OPTIMIZER_STEPS = 100
 PRINT_EVERY_OPTIMIZER_STEP = 20
 BATCH_TRAJECTORIES = 32
-POLICY = "categorical-sampling"
-
-
-def policy_net(rng_key,
-               batch_observations_shape,
-               num_actions,
-               bottom_layers=None):
-  """A policy net function."""
-  # Use the bottom_layers as the bottom part of the network and just add the
-  # required layers on top of it.
-  if bottom_layers is None:
-    bottom_layers = []
-
-  # NOTE: The LogSoftmax instead of the Softmax.
-  bottom_layers.extend([layers.Dense(num_actions), layers.LogSoftmax()])
-  net = layers.Serial(*bottom_layers)
-
-  return net.initialize(batch_observations_shape, rng_key), net
-
-
-def value_net(rng_key,
-              batch_observations_shape,
-              num_actions,
-              bottom_layers=None):
-  """A value net function."""
-  del num_actions
-
-  if bottom_layers is None:
-    bottom_layers = []
-  bottom_layers.extend([
-      layers.Dense(1),
-  ])
-  net = layers.Serial(*bottom_layers)
-  return net.initialize(batch_observations_shape, rng_key), net
 
 
 def policy_and_value_net(rng_key,
                          batch_observations_shape,
-                         num_actions,
-                         bottom_layers=None):
+                         n_actions,
+                         bottom_layers_fn=(),
+                         two_towers=True):
   """A policy and value net function."""
 
   # Layers.
-  cur_layers = []
-  if bottom_layers is not None:
-    cur_layers.extend(bottom_layers)
 
   # Now, with the current logits, one head computes action probabilities and the
   # other computes the value function.
   # NOTE: The LogSoftmax instead of the Softmax because of numerical stability.
-  cur_layers.extend([layers.Branch(), layers.Parallel(
-      layers.Serial(layers.Dense(num_actions), layers.LogSoftmax()),
-      layers.Dense(1)
-  )])
-  net = layers.Serial(*cur_layers)
+
+  if two_towers:
+    net = tl.Branch(
+        [bottom_layers_fn(), tl.Dense(n_actions), tl.LogSoftmax()],
+        [bottom_layers_fn(), tl.Dense(1)]
+    )
+  else:
+    net = tl.Serial(
+        bottom_layers_fn(),
+        tl.Branch(
+            [tl.Dense(n_actions), tl.LogSoftmax()],
+            [tl.Dense(1)]
+        )
+    )
   return net.initialize(batch_observations_shape, rng_key), net
 
 
-def optimizer_fun(net_params, step_size=1e-3):
-  opt_init, opt_update = trax_opt.adam(
-      step_size=step_size, b1=0.9, b2=0.999, eps=1e-08)
+def optimizer_fn(net_params, step_size=1e-3):
+  opt = trax_opt.Adam(step_size=step_size, b1=0.9, b2=0.999, eps=1e-08)
+  opt_init = lambda x: (x, opt.tree_init(x))
+  opt_update = lambda i, g, s: opt.tree_update(i, g, s[0], s[1])
+  get_params = lambda x: x[0]
   opt_state = opt_init(net_params)
-  return opt_state, opt_update
-
-
-def log_params(params, name="params"):
-  """Dumps the params with `logging.error`."""
-  for i, param in enumerate(params):
-    if not param:
-      # Empty tuple.
-      continue
-    if not isinstance(param, (list, tuple)):
-      logging.error(
-          "%s[%d] : (%s) = [%s]", name, i, param.shape, onp.array(param))
-    else:
-      for j, p in enumerate(param):
-        logging.error(
-            "\t%s[%d, %d] = [%s]", name, i, j, onp.array(p))
+  return opt_state, opt_update, get_params
 
 
 # Should this be collect 'n' trajectories, or
 # Run the env for 'n' steps and take completed trajectories, or
 # Any other option?
-# TODO(afrozm): Replace this with EnvProblem?
 def collect_trajectories(env,
-                         policy_fun,
-                         num_trajectories=1,
-                         policy="greedy",
+                         policy_fn,
+                         n_trajectories=1,
+                         policy=env_problem_utils.CATEGORICAL_SAMPLING,
                          max_timestep=None,
-                         epsilon=0.1):
+                         boundary=20,
+                         epsilon=0.1,
+                         reset=True,
+                         rng=None):
   """Collect trajectories with the given policy net and behaviour.
 
   Args:
     env: A gym env interface, for now this is not-batched.
-    policy_fun: observations(B,T+1) -> log-probabs(B,T+1, A) callable.
-    num_trajectories: int, number of trajectories.
+    policy_fn: observations(B,T+1) -> log-probabs(B,T+1, A) callable.
+    n_trajectories: int, number of trajectories.
     policy: string, "greedy", "epsilon-greedy", or "categorical-sampling" i.e.
-        how to use the policy_fun to return an action.
+      how to use the policy_fn to return an action.
     max_timestep: int or None, the index of the maximum time-step at which we
-        return the trajectory, None for ending a trajectory only when env
-        returns done.
+      return the trajectory, None for ending a trajectory only when env returns
+      done.
+    boundary: int, boundary for padding, used in EnvProblem envs.
     epsilon: float, the epsilon for `epsilon-greedy` policy.
+    reset: bool, true if we want to reset the envs. The envs are also reset if
+      max_max_timestep is None or < 0
+    rng: jax rng, splittable.
 
   Returns:
+    A tuple (trajectory, number of trajectories that are done)
     trajectory: list of (observation, action, reward) tuples, where each element
     `i` is a tuple of numpy arrays with shapes as follows:
     observation[i] = (B, T_i + 1)
     action[i] = (B, T_i)
     reward[i] = (B, T_i)
   """
-  trajectories = []
 
-  for t in range(num_trajectories):
-    t_start = time.time()
-    rewards = []
-    actions = []
-    done = False
-
-    observation = env.reset()
-
-    # This is currently shaped (1, 1) + OBS, but new observations will keep
-    # getting added to it, making it eventually (1, T+1) + OBS
-    observation_history = observation[np.newaxis, np.newaxis, :]
-
-    # Run either till we're done OR if max_timestep is defined only till that
-    # timestep.
-    ts = 0
-    while ((not done) and
-           (not max_timestep or observation_history.shape[1] < max_timestep)):
-      ts_start = time.time()
-      # Run the policy, to pick an action, shape is (1, t, A) because
-      # observation_history is shaped (1, t) + OBS
-      predictions = policy_fun(observation_history)
-
-      # We need the predictions for the last time-step, so squeeze the batch
-      # dimension and take the last time-step.
-      predictions = np.squeeze(predictions, axis=0)[-1]
-
-      # Policy can be run in one of the following ways:
-      #  - Greedy
-      #  - Epsilon-Greedy
-      #  - Categorical-Sampling
-      action = None
-      if policy == "greedy":
-        action = np.argmax(predictions)
-      elif policy == "epsilon-greedy":
-        # A schedule for epsilon is 1/k where k is the episode number sampled.
-        if onp.random.random() < epsilon:
-          # Choose an action at random.
-          action = onp.random.randint(0, high=len(predictions))
-        else:
-          # Return the best action.
-          action = np.argmax(predictions)
-      elif policy == "categorical-sampling":
-        # NOTE: The predictions aren't probabilities but log-probabilities
-        # instead, since they were computed with LogSoftmax.
-        # So just np.exp them to make them probabilities.
-        predictions = np.exp(predictions)
-        action = onp.argwhere(onp.random.multinomial(1, predictions) == 1)
-      else:
-        raise ValueError("Unknown policy: %s" % policy)
-
-      # NOTE: Assumption, single batch.
-      try:
-        action = int(action)
-      except TypeError as err:
-        # Let's dump some information before we die off.
-        logging.error("Cannot convert action into an integer: [%s]", err)
-        logging.error("action.shape: [%s]", action.shape)
-        logging.error("action: [%s]", action)
-        logging.error("predictions.shape: [%s]", predictions.shape)
-        logging.error("predictions: [%s]", predictions)
-        logging.error("observation_history: [%s]", observation_history)
-        raise err
-
-      observation, reward, done, _ = env.step(action)
-
-      # observation is of shape OBS, so add extra dims and concatenate on the
-      # time dimension.
-      observation_history = np.concatenate(
-          [observation_history, observation[np.newaxis, np.newaxis, :]], axis=1)
-
-      rewards.append(reward)
-      actions.append(action)
-
-      ts += 1
-      logging.vlog(
-          2, "  Collected time-step[ %5d] of trajectory[ %5d] in [%0.2f] msec.",
-          ts, t, get_time(ts_start))
-    logging.vlog(
-        2, " Collected trajectory[ %5d] in [%0.2f] msec.", t, get_time(t_start))
-
-    # This means we are done we're been terminated early.
-    assert done or (
-        max_timestep and max_timestep >= observation_history.shape[1])
-    # observation_history is (1, T+1) + OBS, lets squeeze out the batch dim.
-    observation_history = np.squeeze(observation_history, axis=0)
-    trajectories.append(
-        (observation_history, np.stack(actions), np.stack(rewards)))
-
-  return trajectories
+  assert isinstance(env, env_problem.EnvProblem)
+  # This is an env_problem, run its collect function.
+  trajs, n_done = env_problem_utils.play_env_problem_with_policy(
+      env,
+      policy_fn,
+      num_trajectories=n_trajectories,
+      max_timestep=max_timestep,
+      boundary=boundary,
+      policy_sampling=policy,
+      eps=epsilon,
+      reset=reset,
+      rng=rng)
+  # Skip returning raw_rewards here, since they aren't used.
+  return [(t[0], t[1], t[2]) for t in trajs], n_done
 
 
 # This function can probably be simplified, ask how?
@@ -287,7 +185,7 @@ def get_padding_value(dtype):
     padding_value = np.uint8(0)
   elif dtype == np.uint16:
     padding_value = np.uint16(0)
-  elif dtype == np.float32:
+  elif dtype == np.float32 or dtype == np.float64:
     padding_value = 0.0
   else:
     padding_value = 0
@@ -369,7 +267,6 @@ def pad_trajectories(trajectories, boundary=20):
       padded_observations), np.stack(padded_actions), np.stack(padded_rewards)
 
 
-# TODO(afrozm): JAX-ify this, this is too slow for pong.
 def rewards_to_go(rewards, mask, gamma=0.99):
   r"""Computes rewards to go.
 
@@ -389,6 +286,22 @@ def rewards_to_go(rewards, mask, gamma=0.99):
   B, T = rewards.shape  # pylint: disable=invalid-name,unused-variable
 
   masked_rewards = rewards * mask  # (B, T)
+
+  # The lax.scan version of this is slow, but we still show it here for
+  # completeness.
+  #   rewards_rev = np.flip(masked_rewards, axis=1)  # (B, T) flipped on time.
+  #   rrt = np.transpose(rewards_rev)  # (T, B) transpose to scan over time.
+  #
+  #   def discounting_add(carry, reward):
+  #     x = reward + (gamma * carry)
+  #     return x, x
+  #
+  #   _, ys = lax.scan(discounting_add,
+  #                    np.zeros_like(rrt[0], dtype=np.float32),
+  #                    rrt.astype(np.float32))
+  #
+  #   # ys is (T, B) and T is in reverse order.
+  #   return np.flip(np.transpose(ys), axis=1)
 
   # We use the following recurrence relation, derived from the equation above:
   #
@@ -421,44 +334,13 @@ def rewards_to_go(rewards, mask, gamma=0.99):
   return np.flip(np.stack(r2gs, axis=1), axis=1)
 
 
-@functools.partial(jit, static_argnums=(0,))
-def value_loss(value_net_apply,
-               value_net_params,
-               observations,
-               rewards,
-               reward_mask,
-               gamma=0.99):
-  """Computes the value loss.
-
-  Args:
-    value_net_apply: value net apply function with signature (params, ndarray of
-      shape (B, T+1) + OBS) -> ndarray(B, T+1, 1)
-    value_net_params: params of value_net_apply.
-    observations: np.ndarray of shape (B, T+1) + OBS
-    rewards: np.ndarray of shape (B, T) of rewards.
-    reward_mask: np.ndarray of shape (B, T), the mask over rewards.
-    gamma: float, discount factor.
-
-  Returns:
-    The average L2 value loss, averaged over instances where reward_mask is 1.
-  """
-
-  B, T = rewards.shape  # pylint: disable=invalid-name
-  assert (B, T + 1) == observations.shape[:2]
-
-  # NOTE: observations is (B, T+1) + OBS, value_prediction is (B, T+1, 1)
-  value_prediction = value_net_apply(observations, value_net_params)
-  assert (B, T + 1, 1) == value_prediction.shape
-
-  return value_loss_given_predictions(value_prediction, rewards, reward_mask,
-                                      gamma)
-
-
 @jit
 def value_loss_given_predictions(value_prediction,
                                  rewards,
                                  reward_mask,
-                                 gamma=0.99):
+                                 gamma=0.99,
+                                 epsilon=0.2,
+                                 value_prediction_old=None):
   """Computes the value loss given the prediction of the value function.
 
   Args:
@@ -466,6 +348,10 @@ def value_loss_given_predictions(value_prediction,
     rewards: np.ndarray of shape (B, T) of rewards.
     reward_mask: np.ndarray of shape (B, T), the mask over rewards.
     gamma: float, discount factor.
+    epsilon: float, clip-fraction, used if value_value_prediction_old isn't None
+    value_prediction_old: np.ndarray of shape (B, T+1, 1) of value predictions
+      using the old parameters. If provided, we incorporate this in the loss as
+      well. This is from the OpenAI baselines implementation.
 
   Returns:
     The average L2 value loss, averaged over instances where reward_mask is 1.
@@ -480,11 +366,20 @@ def value_loss_given_predictions(value_prediction,
   r2g = rewards_to_go(rewards, reward_mask, gamma=gamma)  # (B, T)
   loss = (value_prediction - r2g)**2
 
+  # From the baselines implementation.
+  if value_prediction_old is not None:
+    value_prediction_old = np.squeeze(value_prediction_old, axis=2)  # (B, T+1)
+    value_prediction_old = value_prediction_old[:, :-1] * reward_mask  # (B, T)
+
+    v_clipped = value_prediction_old + np.clip(
+        value_prediction - value_prediction_old, -epsilon, epsilon)
+    v_clipped_loss = (v_clipped - r2g)**2
+    loss = np.maximum(v_clipped_loss, loss)
+
   # Take an average on only the points where mask != 0.
   return np.sum(loss) / np.sum(reward_mask)
 
 
-# TODO(afrozm): JAX-ify this, this is too slow for pong.
 def deltas(predicted_values, rewards, mask, gamma=0.99):
   r"""Computes TD-residuals from V(s) and rewards.
 
@@ -503,14 +398,13 @@ def deltas(predicted_values, rewards, mask, gamma=0.99):
     ndarray of shape (B, T) of one-step TD-residuals.
   """
 
-  # `d`s are basically one-step TD residuals.
-  d = []
-  _, T = rewards.shape  # pylint: disable=invalid-name
-  for t in range(T):
-    d.append(rewards[:, t] + (gamma * predicted_values[:, t + 1]) -
-             predicted_values[:, t])
-
-  return np.array(d).T * mask
+  # Predicted values at time t, cutting off the last to have shape (B, T).
+  predicted_values_bt = predicted_values[:, :-1]
+  # Predicted values at time t+1, by cutting off the first to have shape (B, T)
+  predicted_values_btplus1 = predicted_values[:, 1:]
+  # Return the deltas as defined above.
+  return (
+      rewards + (gamma * predicted_values_btplus1) - predicted_values_bt) * mask
 
 
 def gae_advantages(td_deltas, mask, lambda_=0.95, gamma=0.99):
@@ -588,67 +482,21 @@ def compute_probab_ratios(p_new, p_old, actions, reward_mask):
   return probab_ratios
 
 
-def clipped_probab_ratios(probab_ratios, reward_mask, epsilon=0.2):
-  return reward_mask * np.clip(probab_ratios, 1 - epsilon, 1 + epsilon)
+def clipped_probab_ratios(probab_ratios, epsilon=0.2):
+  return np.clip(probab_ratios, 1 - epsilon, 1 + epsilon)
 
 
 def clipped_objective(probab_ratios, advantages, reward_mask, epsilon=0.2):
-  c1 = probab_ratios * reward_mask
-  c2 = clipped_probab_ratios(probab_ratios, reward_mask, epsilon=epsilon)
-  return np.minimum(c1, c2) * advantages
-
-
-@functools.partial(jit, static_argnums=(0, 3))
-def ppo_loss(policy_net_apply,
-             new_policy_params,
-             old_policy_params,
-             value_net_apply,
-             value_net_params,
-             padded_observations,
-             padded_actions,
-             padded_rewards,
-             reward_mask,
-             gamma=0.99,
-             lambda_=0.95,
-             epsilon=0.2):
-  """PPO objective, with an eventual minus sign, given observations."""
-  B, T = padded_rewards.shape  # pylint: disable=invalid-name
-  assert (B, T + 1) == padded_observations.shape[:2]
-  assert (B, T) == padded_actions.shape
-  assert (B, T) == padded_rewards.shape
-  assert (B, T) == reward_mask.shape
-
-  # Compute predicted values and predicted log-probs and hand it over to
-  # `ppo_loss_given_predictions`.
-
-  # (B, T+1, 1)
-  predicted_values = value_net_apply(padded_observations, value_net_params)
-  assert (B, T + 1, 1) == predicted_values.shape
-
-  # log_probab_actions_{old,new} are both (B, T+1, A)
-  log_probab_actions_old = policy_net_apply(padded_observations,
-                                            old_policy_params)
-  log_probab_actions_new = policy_net_apply(padded_observations,
-                                            new_policy_params)
-  assert (B, T + 1) == log_probab_actions_old.shape[:2]
-  assert (B, T + 1) == log_probab_actions_new.shape[:2]
-  assert log_probab_actions_old.shape[-1] == log_probab_actions_new.shape[-1]
-
-  return ppo_loss_given_predictions(log_probab_actions_new,
-                                    log_probab_actions_old,
-                                    predicted_values,
-                                    padded_actions,
-                                    padded_rewards,
-                                    reward_mask,
-                                    gamma=gamma,
-                                    lambda_=lambda_,
-                                    epsilon=epsilon)
+  return np.minimum(
+      probab_ratios * advantages,
+      clipped_probab_ratios(probab_ratios, epsilon=epsilon) *
+      advantages) * reward_mask
 
 
 @jit
 def ppo_loss_given_predictions(log_probab_actions_new,
                                log_probab_actions_old,
-                               predicted_values,
+                               value_predictions_old,
                                padded_actions,
                                padded_rewards,
                                reward_mask,
@@ -661,13 +509,13 @@ def ppo_loss_given_predictions(log_probab_actions_new,
   assert (B, T) == reward_mask.shape
 
   _, _, A = log_probab_actions_old.shape  # pylint: disable=invalid-name
-  assert (B, T + 1, 1) == predicted_values.shape
+  assert (B, T + 1, 1) == value_predictions_old.shape
   assert (B, T + 1, A) == log_probab_actions_old.shape
   assert (B, T + 1, A) == log_probab_actions_new.shape
 
   # (B, T)
   td_deltas = deltas(
-      np.squeeze(predicted_values, axis=2),  # (B, T+1)
+      np.squeeze(value_predictions_old, axis=2),  # (B, T+1)
       padded_rewards,
       reward_mask,
       gamma=gamma)
@@ -676,11 +524,12 @@ def ppo_loss_given_predictions(log_probab_actions_new,
   advantages = gae_advantages(
       td_deltas, reward_mask, lambda_=lambda_, gamma=gamma)
 
+  # Normalize the advantages.
+  advantages = (advantages - np.mean(advantages)) / np.std(advantages)
+
   # (B, T)
-  ratios = compute_probab_ratios(log_probab_actions_new,
-                                 log_probab_actions_old,
-                                 padded_actions,
-                                 reward_mask)
+  ratios = compute_probab_ratios(log_probab_actions_new, log_probab_actions_old,
+                                 padded_actions, reward_mask)
   assert (B, T) == ratios.shape
 
   # (B, T)
@@ -698,7 +547,8 @@ def ppo_loss_given_predictions(log_probab_actions_new,
 @jit
 def combined_loss_given_predictions(log_probab_actions_new,
                                     log_probab_actions_old,
-                                    value_prediction,
+                                    value_prediction_new,
+                                    value_prediction_old,
                                     padded_actions,
                                     padded_rewards,
                                     reward_mask,
@@ -709,27 +559,31 @@ def combined_loss_given_predictions(log_probab_actions_new,
                                     c2=0.01):
   """Computes the combined (clipped loss + value loss) given predictions."""
   loss_value = value_loss_given_predictions(
-      value_prediction, padded_rewards, reward_mask, gamma=gamma)
-  loss_ppo = ppo_loss_given_predictions(log_probab_actions_new,
-                                        log_probab_actions_old,
-                                        value_prediction,
-                                        padded_actions,
-                                        padded_rewards,
-                                        reward_mask,
-                                        gamma=gamma,
-                                        lambda_=lambda_,
-                                        epsilon=epsilon)
-  # TODO(afrozm): Add the entropy bonus, but since we don't do that in T2T
-  # we'll skip if for now.
-  entropy_bonus = 0.0
+      value_prediction_new,
+      padded_rewards,
+      reward_mask,
+      gamma=gamma,
+      value_prediction_old=value_prediction_old,
+      epsilon=epsilon)
+  loss_ppo = ppo_loss_given_predictions(
+      log_probab_actions_new,
+      log_probab_actions_old,
+      value_prediction_old,
+      padded_actions,
+      padded_rewards,
+      reward_mask,
+      gamma=gamma,
+      lambda_=lambda_,
+      epsilon=epsilon)
+  entropy_bonus = masked_entropy(log_probab_actions_new, reward_mask)
   return (loss_ppo + (c1 * loss_value) - (c2 * entropy_bonus), loss_ppo,
           loss_value, entropy_bonus)
 
 
-# TODO(afrozm): Pass in `log_probab_actions_old` instead of re=computing it.
-@functools.partial(jit, static_argnums=(2,))
+@functools.partial(jit, static_argnums=(3,))
 def combined_loss(new_params,
-                  old_params,
+                  log_probab_actions_old,
+                  value_predictions_old,
                   policy_and_value_net_apply,
                   padded_observations,
                   padded_actions,
@@ -739,89 +593,36 @@ def combined_loss(new_params,
                   lambda_=0.95,
                   epsilon=0.2,
                   c1=1.0,
-                  c2=0.01):
+                  c2=0.01,
+                  rng=None):
   """Computes the combined (clipped loss + value loss) given observations."""
-  log_probab_actions_new, value_predictions = policy_and_value_net_apply(
-      padded_observations, new_params)
-
-  log_probab_actions_old, _ = policy_and_value_net_apply(
-      padded_observations, old_params)
+  log_probab_actions_new, value_predictions_new = policy_and_value_net_apply(
+      padded_observations, new_params, rng=rng)
 
   # (combined_loss, ppo_loss, value_loss, entropy_bonus)
-  return combined_loss_given_predictions(log_probab_actions_new,
-                                         log_probab_actions_old,
-                                         value_predictions,
-                                         padded_actions,
-                                         padded_rewards,
-                                         reward_mask,
-                                         c1=c1,
-                                         c2=c2,
-                                         gamma=gamma,
-                                         lambda_=lambda_,
-                                         epsilon=epsilon)
-
-
-@functools.partial(jit, static_argnums=(2, 3, 5))
-def ppo_opt_step(i,
-                 opt_state,
-                 ppo_opt_update,
-                 policy_net_apply,
-                 old_policy_params,
-                 value_net_apply,
-                 value_net_params,
-                 padded_observations,
-                 padded_actions,
-                 padded_rewards,
-                 reward_mask,
-                 gamma=0.99,
-                 lambda_=0.95,
-                 epsilon=0.1):
-  """PPO optimizer step."""
-  new_policy_params = trax_opt.get_params(opt_state)
-  g = grad(
-      ppo_loss, argnums=1)(
-          policy_net_apply,
-          new_policy_params,
-          old_policy_params,
-          value_net_apply,
-          value_net_params,
-          padded_observations,
-          padded_actions,
-          padded_rewards,
-          reward_mask,
-          gamma=gamma,
-          lambda_=lambda_,
-          epsilon=epsilon)
-  return ppo_opt_update(i, g, opt_state)
-
-
-@functools.partial(jit, static_argnums=(2, 3))
-def value_opt_step(i,
-                   opt_state,
-                   opt_update,
-                   value_net_apply,
-                   padded_observations,
-                   padded_rewards,
-                   reward_mask,
-                   gamma=0.99):
-  """Value optimizer step."""
-  value_params = trax_opt.get_params(opt_state)
-  # Note this partial application here and argnums above in ppo_opt_step.
-  g = grad(functools.partial(value_loss, value_net_apply))(
-      value_params,
-      padded_observations,
+  return combined_loss_given_predictions(
+      log_probab_actions_new,
+      log_probab_actions_old,
+      value_predictions_new,
+      value_predictions_old,
+      padded_actions,
       padded_rewards,
       reward_mask,
-      gamma=gamma)
-  return opt_update(i, g, opt_state)
+      gamma=gamma,
+      lambda_=lambda_,
+      epsilon=epsilon,
+      c1=c1,
+      c2=c2)
 
 
-@functools.partial(jit, static_argnums=(2, 3))
+@functools.partial(jit, static_argnums=(2, 3, 4))
 def policy_and_value_opt_step(i,
                               opt_state,
                               opt_update,
+                              get_params,
                               policy_and_value_net_apply,
-                              old_params,
+                              log_probab_actions_old,
+                              value_predictions_old,
                               padded_observations,
                               padded_actions,
                               padded_rewards,
@@ -830,14 +631,17 @@ def policy_and_value_opt_step(i,
                               c2=0.01,
                               gamma=0.99,
                               lambda_=0.95,
-                              epsilon=0.1):
+                              epsilon=0.1,
+                              rng=None):
   """Policy and Value optimizer step."""
+
   # Combined loss function given the new params.
   def policy_and_value_loss(params):
     """Returns the combined loss given just parameters."""
     (loss, _, _, _) = combined_loss(
         params,
-        old_params,
+        log_probab_actions_old,
+        value_predictions_old,
         policy_and_value_net_apply,
         padded_observations,
         padded_actions,
@@ -847,11 +651,13 @@ def policy_and_value_opt_step(i,
         c2=c2,
         gamma=gamma,
         lambda_=lambda_,
-        epsilon=epsilon)
+        epsilon=epsilon,
+        rng=rng)
     return loss
 
-  new_params = trax_opt.get_params(opt_state)
+  new_params = get_params(opt_state)
   g = grad(policy_and_value_loss)(new_params)
+  # TODO(afrozm): Maybe clip gradients?
   return opt_update(i, g, opt_state)
 
 
@@ -861,118 +667,286 @@ def get_time(t1, t2=None):
   return round((t2 - t1) * 1000, 2)
 
 
-def training_loop(env=None,
-                  env_name="CartPole-v0",
-                  epochs=EPOCHS,
-                  policy_net_fun=None,
-                  value_net_fun=None,
-                  policy_and_value_net_fun=None,
-                  policy_optimizer_fun=None,
-                  value_optimizer_fun=None,
-                  policy_and_value_optimizer_fun=None,
-                  batch_size=BATCH_TRAJECTORIES,
-                  num_optimizer_steps=NUM_OPTIMIZER_STEPS,
-                  print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
-                  boundary=20,
-                  max_timestep=None,
-                  random_seed=None,
-                  gamma=GAMMA,
-                  lambda_=LAMBDA,
-                  epsilon=EPSILON,
-                  c1=1.0,
-                  c2=0.01):
+def approximate_kl(log_prob_new, log_prob_old, mask):
+  """Computes the approximate KL divergence between the old and new log-probs.
+
+  Args:
+    log_prob_new: (B, T+1, A) log probs new
+    log_prob_old: (B, T+1, A) log probs old
+    mask: (B, T)
+
+  Returns:
+    Approximate KL.
+  """
+  diff = log_prob_old - log_prob_new
+  # Cut the last time-step out.
+  diff = diff[:, :-1]
+  # Mask out the irrelevant part.
+  diff *= mask[:, :, np.newaxis]  # make mask (B, T, 1)
+  # Average on non-masked part.
+  return np.sum(diff) / np.sum(mask)
+
+
+def masked_entropy(log_probs, mask):
+  """Computes the entropy for the given log-probs.
+
+  Args:
+    log_probs: (B, T+1, A) log probs
+    mask: (B, T) mask.
+
+  Returns:
+    Entropy.
+  """
+  # Cut the last time-step out.
+  lp = log_probs[:, :-1]
+  # Mask out the irrelevant part.
+  lp *= mask[:, :, np.newaxis]  # make mask (B, T, 1)
+  p = np.exp(lp) * mask[:, :, np.newaxis]  # (B, T, 1)
+  # Average on non-masked part and take negative.
+  return -(np.sum(lp * p) / np.sum(mask))
+
+
+def evaluate_policy(eval_env,
+                    get_predictions,
+                    boundary,
+                    max_timestep=20000,
+                    n_evals=1,
+                    rng=None):
+  """Evaluate the policy."""
+
+  avg_rewards = collections.defaultdict(float)
+  avg_rewards_unclipped = collections.defaultdict(float)
+  for _ in range(n_evals):
+    for policy in [
+        env_problem_utils.CATEGORICAL_SAMPLING,
+        env_problem_utils.GUMBEL_SAMPLING,
+        env_problem_utils.EPSILON_GREEDY
+    ]:
+      trajs, _ = env_problem_utils.play_env_problem_with_policy(
+          eval_env,
+          get_predictions,
+          boundary=boundary,
+          max_timestep=max_timestep,
+          reset=True,
+          policy_sampling=policy,
+          rng=rng)
+      avg_rewards[policy] += float(sum(
+          np.sum(traj[2]) for traj in trajs)) / len(trajs)
+      avg_rewards_unclipped[policy] += float(sum(
+          np.sum(traj[3]) for traj in trajs)) / len(trajs)
+
+  # Now average these out.
+  for k in avg_rewards:
+    avg_rewards[k] /= n_evals
+    avg_rewards_unclipped[k] /= n_evals
+
+  return avg_rewards, avg_rewards_unclipped
+
+
+def maybe_restore_params(output_dir, policy_and_value_net_params):
+  """Maybe restore the params from the checkpoint dir.
+
+  Args:
+    output_dir: Directory where saved model checkpoints are stored.
+    policy_and_value_net_params: Default params, returned if model is'nt found.
+
+  Returns:
+    triple (restore (bool), params, iter(int)) where iter is the epoch from
+    which we restored the params, 0 is restore = False.
+  """
+  model_files = gfile.glob(os.path.join(output_dir, "model-??????.pkl"))
+  if not model_files:
+    return False, policy_and_value_net_params, 0
+
+  model_file = sorted(model_files)[-1]
+  model_file_basename = os.path.basename(model_file)  # model-??????.pkl
+  i = int(filter(str.isdigit, model_file_basename))
+  with gfile.GFile(model_file, "rb") as f:
+    policy_and_value_net_params = pickle.load(f)
+  return True, policy_and_value_net_params, i
+
+
+def training_loop(
+    env=None,
+    epochs=EPOCHS,
+    policy_and_value_net_fn=None,
+    policy_and_value_optimizer_fn=None,
+    batch_size=BATCH_TRAJECTORIES,
+    n_optimizer_steps=N_OPTIMIZER_STEPS,
+    print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
+    target_kl=0.01,
+    boundary=20,
+    max_timestep=None,
+    max_timestep_eval=20000,
+    random_seed=None,
+    gamma=GAMMA,
+    lambda_=LAMBDA,
+    epsilon=EPSILON,
+    c1=1.0,
+    c2=0.01,
+    output_dir=None,
+    eval_every_n=1000,
+    eval_env=None,
+    done_frac_for_policy_save=0.5,
+    enable_early_stopping=True,
+    env_name=None,
+    n_evals=1,
+):
   """Runs the training loop for PPO, with fixed policy and value nets."""
+  assert env
+  assert output_dir
+  assert env_name
+
+  gfile.makedirs(output_dir)
+
+  # Create summary writers and history.
+  train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
+  timing_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "timing"))
+  eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
+
+  train_sw.text("env_name", env_name)
+  timing_sw.text("env_name", env_name)
+  eval_sw.text("env_name", env_name)
+
   jax_rng_key = trax.get_random_number_generator_and_set_seed(random_seed)
-
-  value_losses = []
-  ppo_objective = []
-  combined_losses = []
-  average_rewards = []
-
-  env = env if env is not None else gym.make(env_name)
 
   # Batch Observations Shape = [-1, -1] + OBS, because we will eventually call
   # policy and value networks on shape [B, T] +_OBS
   batch_observations_shape = (-1, -1) + env.observation_space.shape
 
   assert isinstance(env.action_space, gym.spaces.Discrete)
-  num_actions = env.action_space.n
+  n_actions = env.action_space.n
 
-  policy_and_value_net_params, policy_and_value_net_apply = None, None
-  policy_and_value_opt_state, policy_and_value_opt_update = None, None
-  policy_net_params, policy_net_apply = None, None
-  value_net_params, value_net_apply = None, None
-  if policy_and_value_net_fun is not None:
-    jax_rng_key, subkey = jax_random.split(jax_rng_key)
+  jax_rng_key, key1 = jax_random.split(jax_rng_key, num=2)
 
-    # Initialize the policy and value network.
-    policy_and_value_net_params, policy_and_value_net_apply = (
-        policy_and_value_net_fun(subkey, batch_observations_shape, num_actions))
+  # Initialize the policy and value network.
+  policy_and_value_net_params, policy_and_value_net_apply = (
+      policy_and_value_net_fn(key1, batch_observations_shape, n_actions))
 
-    # Initialize the optimizers.
-    policy_and_value_opt_state, policy_and_value_opt_update = (
-        policy_and_value_optimizer_fun(policy_and_value_net_params))
-  else:
-    # Initialize the policy and value functions.
-    assert policy_net_fun and value_net_fun
-    jax_rng_key, key1, key2 = jax_random.split(jax_rng_key, num=3)
+  # Maybe restore the policy params. If there is nothing to restore, then
+  # iteration = 0 and policy_and_value_net_params are returned as is.
+  restore, policy_and_value_net_params, iteration = (
+      maybe_restore_params(output_dir, policy_and_value_net_params))
 
-    policy_net_params, policy_net_apply = policy_net_fun(
-        key1, batch_observations_shape, num_actions)
-    value_net_params, value_net_apply = value_net_fun(key2,
-                                                      batch_observations_shape,
-                                                      num_actions)
+  if restore:
+    logging.info("Restored parameters from iteration [%d]", iteration)
+    # We should start from the next iteration.
+    iteration += 1
 
-    # Initialize the optimizers.
-    ppo_opt_state, ppo_opt_update = policy_optimizer_fun(policy_net_params)
-    value_opt_state, value_opt_update = value_optimizer_fun(value_net_params)
+  policy_and_value_net_apply = jit(policy_and_value_net_apply)
 
-  # A function that will call the appropriate policy function with parameters.
-  def get_policy_output(observations):
-    if policy_net_apply is not None:
-      assert policy_net_params
-      return policy_net_apply(observations, policy_net_params)
+  # Initialize the optimizers.
+  policy_and_value_optimizer = (
+      policy_and_value_optimizer_fn(policy_and_value_net_params))
+  (policy_and_value_opt_state, policy_and_value_opt_update,
+   policy_and_value_get_params) = policy_and_value_optimizer
 
-    assert policy_and_value_net_apply and policy_and_value_net_params
-    policy_predictions, unused_value_predictions = policy_and_value_net_apply(
-        observations, policy_and_value_net_params)
-    return policy_predictions
+  n_trajectories_done = 0
+  last_saved_at = 0
 
-  for i in range(epochs):
-    t = time.time()
-    t0 = t
+  logging.info("Starting the PPO training loop.")
+  for i in range(iteration, epochs):
+    epoch_start_time = time.time()
+
+    # Params we'll use to collect the trajectories.
+    policy_and_value_net_params = policy_and_value_get_params(
+        policy_and_value_opt_state)
+
+    # A function to get the policy and value predictions.
+    def get_predictions(observations, rng=None):
+      """Returns log-probs, value predictions and key back."""
+      key, key1 = jax_random.split(rng, num=2)
+
+      log_probs, value_preds = policy_and_value_net_apply(
+          observations, policy_and_value_net_params, rng=key1)
+
+      return log_probs, value_preds, key
+
+    # Evaluate the policy.
+    policy_eval_start_time = time.time()
+    if ((i + 1) % eval_every_n == 0) or (i == epochs - 1):
+      jax_rng_key, key = jax_random.split(jax_rng_key, num=2)
+
+      logging.vlog(1, "Epoch [% 6d] evaluating policy.", i)
+
+      avg_reward, avg_reward_unclipped = evaluate_policy(
+          eval_env,
+          get_predictions,
+          boundary,
+          max_timestep=max_timestep_eval,
+          n_evals=n_evals,
+          rng=key)
+      for k, v in avg_reward.items():
+        eval_sw.scalar("eval/mean_reward/%s" % k, v, step=i)
+        logging.info("Epoch [% 6d] Policy Evaluation (clipped) [%s] = %10.2f",
+                     i, k, v)
+      for k, v in avg_reward_unclipped.items():
+        eval_sw.scalar("eval/mean_reward_unclipped/%s" % k, v, step=i)
+        logging.info("Epoch [% 6d] Policy Evaluation (unclipped) [%s] = %10.2f",
+                     i, k, v)
+    policy_eval_time = get_time(policy_eval_start_time)
+
+    trajectory_collection_start_time = time.time()
     logging.vlog(1, "Epoch [% 6d] collecting trajectories.", i)
-    trajs = collect_trajectories(
+    jax_rng_key, key = jax_random.split(jax_rng_key)
+    trajs, n_done = collect_trajectories(
         env,
-        policy_fun=get_policy_output,
-        num_trajectories=batch_size,
-        policy=POLICY,
+        policy_fn=get_predictions,
+        n_trajectories=batch_size,
         max_timestep=max_timestep,
+        boundary=boundary,
+        rng=key,
+        reset=(i == 0) or restore,
         epsilon=(10.0 / (i + 10.0)))  # this is a different epsilon.
+    trajectory_collection_time = get_time(trajectory_collection_start_time)
+
+    logging.vlog(1, "Collecting trajectories took %0.2f msec.",
+                 trajectory_collection_time)
 
     avg_reward = float(sum(np.sum(traj[2]) for traj in trajs)) / len(trajs)
     max_reward = max(np.sum(traj[2]) for traj in trajs)
     min_reward = min(np.sum(traj[2]) for traj in trajs)
-    average_rewards.append(avg_reward)
 
-    logging.vlog(1, "Rewards average=[%0.2f], max=[%0.2f], min=[%0.2f]",
-                 avg_reward, max_reward, min_reward)
-    logging.vlog(1, "Collecting trajectories took %0.2f msec.", get_time(t))
+    train_sw.scalar("train/mean_reward", avg_reward, step=i)
+
+    logging.vlog(1, "Rewards avg=[%0.2f], max=[%0.2f], min=[%0.2f], all=%s",
+                 avg_reward, max_reward, min_reward,
+                 [float(np.sum(traj[2])) for traj in trajs])
+
     logging.vlog(1,
                  "Trajectory Length average=[%0.2f], max=[%0.2f], min=[%0.2f]",
                  float(sum(len(traj[0]) for traj in trajs)) / len(trajs),
                  max(len(traj[0]) for traj in trajs),
                  min(len(traj[0]) for traj in trajs))
+    logging.vlog(2, "Trajectory Lengths: %s", [len(traj[0]) for traj in trajs])
 
-    t = time.time()
+    padding_start_time = time.time()
     (_, reward_mask, padded_observations, padded_actions,
-     padded_rewards) = pad_trajectories(trajs, boundary=boundary)
+     padded_rewards) = pad_trajectories(
+         trajs, boundary=boundary)
+    padding_time = get_time(padding_start_time)
 
-    logging.vlog(1, "Padding trajectories took %0.2f msec.", get_time(t))
+    logging.vlog(1, "Padding trajectories took %0.2f msec.",
+                 get_time(padding_start_time))
     logging.vlog(1, "Padded Observations' shape [%s]",
                  str(padded_observations.shape))
     logging.vlog(1, "Padded Actions' shape [%s]", str(padded_actions.shape))
     logging.vlog(1, "Padded Rewards' shape [%s]", str(padded_rewards.shape))
+
+    # Calculate log-probabilities and value predictions of the trajectories.
+    # We'll pass these to the loss functions so as to not get recomputed.
+
+    # NOTE:
+    # There is a slight problem here, if the policy network contains
+    # stochasticity in the log-probabilities (ex: dropout), then calculating
+    # these again here is not going to be correct and should be done in the
+    # collect function.
+
+    log_prob_recompute_start_time = time.time()
+    jax_rng_key, key = jax_random.split(jax_rng_key)
+    log_probabs_traj, value_predictions_traj, _ = get_predictions(
+        padded_observations, rng=key)
+    log_prob_recompute_time = get_time(log_prob_recompute_start_time)
 
     # Some assertions.
     B, T = padded_actions.shape  # pylint: disable=invalid-name
@@ -982,140 +956,23 @@ def training_loop(env=None,
     assert (B, T + 1) + env.observation_space.shape == padded_observations.shape
 
     # Linear annealing from 0.1 to 0.0
-    epsilon_schedule = epsilon if epochs == 1 else epsilon * (1.0 -
-                                                              (i /
-                                                               (epochs - 1)))
+    # epsilon_schedule = epsilon if epochs == 1 else epsilon * (1.0 -
+    #                                                           (i /
+    #                                                            (epochs - 1)))
+
+    # Constant epsilon.
+    epsilon_schedule = epsilon
 
     # Compute value and ppo losses.
-    cur_value_loss, cur_ppo_loss, cur_combined_loss = None, None, None
-    if policy_and_value_net_apply is not None:
-      t = time.time()
-      cur_combined_loss, cur_ppo_loss, cur_value_loss, _ = (
-          combined_loss(
-              policy_and_value_net_params,
-              policy_and_value_net_params,
-              policy_and_value_net_apply,
-              padded_observations,
-              padded_actions,
-              padded_rewards,
-              reward_mask,
-              gamma=gamma,
-              lambda_=lambda_,
-              epsilon=epsilon_schedule,
-              c1=c1,
-              c2=c2))
-      logging.vlog(
-          1, "Calculating P&V loss [%10.2f(%10.2f, %10.2f)] took %0.2f msec.",
-          cur_combined_loss, cur_value_loss, cur_ppo_loss, get_time(t))
-    else:
-      t = time.time()
-      cur_value_loss = value_loss(
-          value_net_apply,
-          value_net_params,
-          padded_observations,
-          padded_rewards,
-          reward_mask,
-          gamma=gamma)
-
-      logging.vlog(1, "Calculating value loss took %0.2f msec.", get_time(t))
-
-      t = time.time()
-      cur_ppo_loss = ppo_loss(
-          policy_net_apply,
-          policy_net_params,
-          policy_net_params,
-          value_net_apply,
-          value_net_params,
-          padded_observations,
-          padded_actions,
-          padded_rewards,
-          reward_mask,
-          gamma=gamma,
-          lambda_=lambda_,
-          epsilon=epsilon_schedule)
-      logging.vlog(1, "Calculating PPO loss took %0.2f msec.", get_time(t))
-
-    value_losses.append(cur_value_loss)
-    ppo_objective.append(-1.0 * cur_ppo_loss)
-    combined_losses.append(cur_combined_loss)
-
-    if policy_and_value_net_apply:
-      logging.vlog(1, "Policy and Value Optimization")
-      t1 = time.time()
-      for j in range(num_optimizer_steps):
-        t = time.time()
-        # Update the optimizer state.
-        policy_and_value_opt_state = policy_and_value_opt_step(
-            j,
-            policy_and_value_opt_state,
-            policy_and_value_opt_update,
-            policy_and_value_net_apply,
+    jax_rng_key, key1 = jax_random.split(jax_rng_key, num=2)
+    logging.vlog(2, "Starting to compute P&V loss.")
+    loss_compute_start_time = time.time()
+    cur_combined_loss, cur_ppo_loss, cur_value_loss, entropy_bonus = (
+        combined_loss(
             policy_and_value_net_params,
-            padded_observations,
-            padded_actions,
-            padded_rewards,
-            reward_mask,
-            c1=c1,
-            c2=c2,
-            gamma=gamma,
-            lambda_=lambda_,
-            epsilon=epsilon_schedule)
-        t2 = time.time()
-        # Get the new params.
-        new_policy_and_value_net_params = trax_opt.get_params(
-            policy_and_value_opt_state)
-        if ((j + 1) %
-            print_every_optimizer_steps == 0) or (j == num_optimizer_steps - 1):
-          # Compute and log the loss.
-          (loss_combined, loss_ppo, loss_value, unused_entropy_bonus) = (
-              combined_loss(
-                  new_policy_and_value_net_params,
-                  policy_and_value_net_params,  # old params
-                  policy_and_value_net_apply,
-                  padded_observations,
-                  padded_actions,
-                  padded_rewards,
-                  reward_mask,
-                  gamma=gamma,
-                  lambda_=lambda_,
-                  epsilon=epsilon_schedule,
-                  c1=c1,
-                  c2=c2))
-          logging.vlog(1, "One Policy and Value grad desc took: %0.2f msec",
-                       get_time(t, t2))
-          logging.vlog(
-              1,
-              "Combined Loss(value, ppo) [%10.2f] -> [%10.2f(%10.2f,%10.2f)]",
-              cur_combined_loss, loss_combined, loss_value, loss_ppo)
-        # Update the params.
-        policy_and_value_net_params = new_policy_and_value_net_params
-
-      logging.vlog(
-          1, "Total PPO loss reduction [%0.2f]%%",
-          (100 *
-           (cur_combined_loss - loss_combined) / np.abs(cur_combined_loss)))
-
-      logging.info(
-          "Epoch [% 6d], Reward[min, max, avg] [%10.2f,%10.2f,%10.2f], Combined"
-          " Loss(value, ppo) [%10.2f(%10.2f,%10.2f)], took [%10.2f msec]",
-          i, min_reward, max_reward, avg_reward, loss_combined, loss_value,
-          loss_ppo, get_time(t1))
-    else:
-      # Run optimizers.
-      logging.vlog(1, "PPO Optimization")
-      t1 = time.time()
-
-      for j in range(num_optimizer_steps):
-        t = time.time()
-        # Update the optimizer state.
-        ppo_opt_state = ppo_opt_step(
-            j,
-            ppo_opt_state,
-            ppo_opt_update,
-            policy_net_apply,
-            policy_net_params,
-            value_net_apply,
-            value_net_params,
+            log_probabs_traj,
+            value_predictions_traj,
+            policy_and_value_net_apply,
             padded_observations,
             padded_actions,
             padded_rewards,
@@ -1123,93 +980,156 @@ def training_loop(env=None,
             gamma=gamma,
             lambda_=lambda_,
             epsilon=epsilon_schedule,
-        )
-        t2 = time.time()
-        # Get the new params.
-        new_policy_net_params = trax_opt.get_params(ppo_opt_state)
-        if ((j + 1) %
-            print_every_optimizer_steps == 0) or (j == num_optimizer_steps - 1):
-          new_ppo_loss = ppo_loss(
-              policy_net_apply,
-              new_policy_net_params,
-              policy_net_params,
-              value_net_apply,
-              value_net_params,
-              padded_observations,
-              padded_actions,
-              padded_rewards,
-              reward_mask,
-              gamma=gamma,
-              lambda_=lambda_,
-              epsilon=epsilon_schedule,
-          )
-          logging.vlog(1, "One PPO grad desc took: %0.2f msec", get_time(t, t2))
-          logging.vlog(1, "PPO loss [%10.2f] -> [%10.2f]", cur_ppo_loss,
-                       new_ppo_loss)
-        # Update the params.
-        policy_net_params = new_policy_net_params
+            c1=c1,
+            c2=c2,
+            rng=key1))
+    loss_compute_time = get_time(loss_compute_start_time)
+    logging.vlog(
+        1,
+        "Calculating P&V loss [%10.2f(%10.2f, %10.2f, %10.2f)] took %0.2f msec.",
+        cur_combined_loss, cur_value_loss, cur_ppo_loss, entropy_bonus,
+        get_time(loss_compute_start_time))
 
-      logging.vlog(1, "Total PPO loss reduction [%0.2f]%%",
-                   (100 * (cur_ppo_loss - new_ppo_loss) / np.abs(cur_ppo_loss)))
+    jax_rng_key, key1 = jax_random.split(jax_rng_key, num=2)
+    logging.vlog(1, "Policy and Value Optimization")
+    optimization_start_time = time.time()
+    keys = jax_random.split(key1, num=n_optimizer_steps)
+    for j in range(n_optimizer_steps):
+      k1, k2, k3 = jax_random.split(keys[j], num=3)
+      t = time.time()
+      # Update the optimizer state.
+      policy_and_value_opt_state = policy_and_value_opt_step(
+          j,
+          policy_and_value_opt_state,
+          policy_and_value_opt_update,
+          policy_and_value_get_params,
+          policy_and_value_net_apply,
+          log_probabs_traj,
+          value_predictions_traj,
+          padded_observations,
+          padded_actions,
+          padded_rewards,
+          reward_mask,
+          c1=c1,
+          c2=c2,
+          gamma=gamma,
+          lambda_=lambda_,
+          epsilon=epsilon_schedule,
+          rng=k1)
 
-      logging.vlog(1, "Value Optimization")
+      # Compute the approx KL for early stopping.
+      new_policy_and_value_net_params = policy_and_value_get_params(
+          policy_and_value_opt_state)
 
-      for j in range(num_optimizer_steps):
-        t = time.time()
-        value_opt_state = value_opt_step(
-            j,
-            value_opt_state,
-            value_opt_update,
-            value_net_apply,
-            padded_observations,
-            padded_rewards,
-            reward_mask,
-            gamma=gamma)
-        t2 = time.time()
-        value_net_params = trax_opt.get_params(value_opt_state)
-        if ((j + 1) %
-            print_every_optimizer_steps == 0) or (j == num_optimizer_steps - 1):
-          new_value_loss = value_loss(
-              value_net_apply,
-              value_net_params,
-              padded_observations,
-              padded_rewards,
-              reward_mask,
-              gamma=gamma)
-          logging.vlog(1, "One value grad desc took: %0.2f msec",
-                       get_time(t, t2))
-          logging.vlog(1, "Value loss [%10.2f] -> [%10.2f]", cur_value_loss,
-                       new_value_loss)
-      logging.vlog(1, "Total value loss reduction [%0.2f]%%",
-                   (100 *
-                    (cur_value_loss - new_value_loss) / np.abs(cur_value_loss)))
+      log_probab_actions_new, _ = policy_and_value_net_apply(
+          padded_observations, new_policy_and_value_net_params, rng=k2)
 
-      logging.vlog(1, "Grad desc took %0.2f msec", get_time(t1))
+      approx_kl = approximate_kl(log_probab_actions_new, log_probabs_traj,
+                                 reward_mask)
 
-      # Set the optimized params to new params.
-      policy_net_params = trax_opt.get_params(ppo_opt_state)
-      value_net_params = trax_opt.get_params(value_opt_state)
+      early_stopping = enable_early_stopping and approx_kl > 1.5 * target_kl
+      if early_stopping:
+        logging.vlog(
+            1, "Early stopping policy and value optimization at iter: %d, "
+            "with approx_kl: %0.2f", j, approx_kl)
+        # We don't return right-away, we want the below to execute on the last
+        # iteration.
 
-      logging.info(
-          "Epoch [% 6d], Reward[min, max, avg] [%10.2f,%10.2f,%10.2f], "
-          "ppo loss [%10.2f], value loss [%10.2f], took [%10.2f msec]", i,
-          min_reward, max_reward, avg_reward, new_ppo_loss, new_value_loss,
-          get_time(t0))
+      t2 = time.time()
+      if (((j + 1) % print_every_optimizer_steps == 0) or
+          (j == n_optimizer_steps - 1) or early_stopping):
+        # Compute and log the loss.
+        (loss_combined, loss_ppo, loss_value, entropy_bonus) = (
+            combined_loss(
+                new_policy_and_value_net_params,
+                log_probabs_traj,
+                value_predictions_traj,
+                policy_and_value_net_apply,
+                padded_observations,
+                padded_actions,
+                padded_rewards,
+                reward_mask,
+                gamma=gamma,
+                lambda_=lambda_,
+                epsilon=epsilon_schedule,
+                c1=c1,
+                c2=c2,
+                rng=k3))
+        logging.vlog(1, "One Policy and Value grad desc took: %0.2f msec",
+                     get_time(t, t2))
+        logging.vlog(
+            1, "Combined Loss(value, ppo, entropy_bonus) [%10.2f] ->"
+            " [%10.2f(%10.2f,%10.2f,%10.2f)]", cur_combined_loss, loss_combined,
+            loss_value, loss_ppo, entropy_bonus)
 
-  # Log the parameters, just for the sake of it.
-  if policy_net_params:
-    log_params(policy_net_params, "policy_net_params")
-  if value_net_params:
-    log_params(value_net_params, "value_net_params")
-  if policy_and_value_net_params:
-    log_params(policy_and_value_net_params, "policy_and_value_net_params")
+      if early_stopping:
+        break
 
-  if value_losses:
-    logging.vlog(1, "value_losses: %s", np.stack(value_losses))
-  if ppo_objective:
-    logging.vlog(1, "ppo_objective: %s", np.stack(ppo_objective))
-  if average_rewards:
-    logging.vlog(1, "average_rewards: %s", average_rewards)
+    optimization_time = get_time(optimization_start_time)
 
-  return ((policy_net_params, value_net_params), average_rewards,
-          np.stack(value_losses), np.stack(ppo_objective))
+    logging.vlog(
+        1, "Total Combined Loss reduction [%0.2f]%%",
+        (100 * (cur_combined_loss - loss_combined) / np.abs(cur_combined_loss)))
+
+    # Save parameters every time we see the end of at least a fraction of batch
+    # number of trajectories that are done (not completed -- completed includes
+    # truncated and done).
+    # Also don't save too frequently, enforce a minimum gap.
+    # Or if this is the last iteration.
+    policy_save_start_time = time.time()
+    n_trajectories_done += n_done
+    # TODO(afrozm): Refactor to trax.save_state.
+    if (((n_trajectories_done >= done_frac_for_policy_save * batch_size)
+         and (i - last_saved_at > eval_every_n)
+         and (((i + 1) % eval_every_n == 0)))
+        or (i == epochs - 1)):
+      logging.vlog(1, "Epoch [% 6d] saving model.", i)
+      old_model_files = gfile.glob(os.path.join(output_dir, "model-??????.pkl"))
+      params_file = os.path.join(output_dir, "model-%06d.pkl" % i)
+      with gfile.GFile(params_file, "wb") as f:
+        pickle.dump(policy_and_value_net_params, f)
+      # Remove the old model files.
+      for path in old_model_files:
+        gfile.remove(path)
+      # Reset this number.
+      n_trajectories_done = 0
+      last_saved_at = i
+    policy_save_time = get_time(policy_save_start_time)
+
+    epoch_time = get_time(epoch_start_time)
+
+    logging.info(
+        "Epoch [% 6d], Reward[min, max, avg] [%5.2f,%5.2f,%5.2f], Combined"
+        " Loss(value, ppo, entropy) [%2.5f(%2.5f,%2.5f,%2.5f)]", i, min_reward,
+        max_reward, avg_reward, loss_combined, loss_value, loss_ppo,
+        entropy_bonus)
+
+    timing_dict = {
+        "epoch": epoch_time,
+        "policy_eval": policy_eval_time,
+        "trajectory_collection": trajectory_collection_time,
+        "padding": padding_time,
+        "log_prob_recompute": log_prob_recompute_time,
+        "loss_compute": loss_compute_time,
+        "optimization": optimization_time,
+        "policy_save": policy_save_time,
+    }
+
+    for k, v in timing_dict.items():
+      timing_sw.scalar("timing/%s" % k, v, step=i)
+
+    max_key_len = max(len(k) for k in timing_dict)
+    timing_info_list = [
+        "%s : % 10.2f" % (k.rjust(max_key_len + 1), v)
+        for k, v in sorted(timing_dict.items())
+    ]
+    logging.info("Epoch [% 6d], Timings: \n%s", i, "\n".join(timing_info_list))
+
+    # Reset restore.
+    restore = False
+
+    # Flush summary writers once in a while.
+    if (i+1) % 1000 == 0 or i == epochs - 1:
+      train_sw.flush()
+      timing_sw.flush()
+      eval_sw.flush()

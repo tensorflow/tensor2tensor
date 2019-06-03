@@ -37,7 +37,7 @@ around each of these function blocks and apply dropout and layer normalization.
 The recurrent transition function in fact controls how steps communicate with
 each other in depth. For instance, the recurrent transition, can be a simple
 identity function which passes the output of a step as the input to next step.
-Or it can be an LSTM (filliped vertically) next to the transformer which
+Or it can be an LSTM (flipped vertically) next to the transformer which
 controls how state of the model changes in depth.
 
 """
@@ -598,7 +598,7 @@ def universal_transformer_highway(layer_inputs,
   """Universal Transformer with highway connection.
 
 
-  It transforms the state using a block contaaining sel-attention and transition
+  It transforms the state using a block containing self-attention and transition
   function  and wrap the whole block with a highway connection.
   (the new state is a combination of the state and the transformed-state
   based on cary/transform gates.)
@@ -653,8 +653,7 @@ def universal_transformer_highway(layer_inputs,
       bias_initializer=tf.constant_initializer(hparams.transform_bias_init),
       activation=tf.sigmoid,
       pad_remover=pad_remover,
-      preprocess=True,
-      postprocess=True)
+      preprocess=True)
 
   if hparams.couple_carry_transform_gates:
     carry_gate = tf.subtract(1.0, transform_gate, name="carry")
@@ -668,8 +667,7 @@ def universal_transformer_highway(layer_inputs,
         bias_initializer=tf.constant_initializer(-hparams.transform_bias_init),
         activation=tf.sigmoid,
         pad_remover=pad_remover,
-        preprocess=True,
-        postprocess=True)
+        preprocess=True)
 
   new_state = state * carry_gate + transformed_state * transform_gate
 
@@ -747,8 +745,7 @@ def universal_transformer_skip(layer_inputs,
       bias_initializer=tf.constant_initializer(hparams.transform_bias_init),
       activation=tf.sigmoid,
       pad_remover=pad_remover,
-      preprocess=True,
-      postprocess=True)
+      preprocess=True)
 
   if hparams.couple_carry_transform_gates:
     carry_gate = tf.subtract(1.0, transform_gate, name="carry")
@@ -762,8 +759,7 @@ def universal_transformer_skip(layer_inputs,
         bias_initializer=tf.constant_initializer(-hparams.transform_bias_init),
         activation=tf.sigmoid,
         pad_remover=pad_remover,
-        preprocess=True,
-        postprocess=True)
+        preprocess=True)
 
   tf.contrib.summary.scalar("skip_transform_gate_layer",
                             tf.reduce_mean(transform_gate))
@@ -881,9 +877,7 @@ def universal_transformer_with_gru_as_transition_function(
         name="update",
         bias_initializer=tf.constant_initializer(1.0),
         activation=tf.sigmoid,
-        pad_remover=pad_remover,
-        preprocess=False,
-        postprocess=False)
+        pad_remover=pad_remover)
 
     tf.contrib.summary.scalar("gru_update_gate",
                               tf.reduce_mean(transition_function_update_gate))
@@ -895,9 +889,7 @@ def universal_transformer_with_gru_as_transition_function(
         name="reset",
         bias_initializer=tf.constant_initializer(1.0),
         activation=tf.sigmoid,
-        pad_remover=pad_remover,
-        preprocess=False,
-        postprocess=False)
+        pad_remover=pad_remover)
 
     tf.contrib.summary.scalar("gru_reset_gate",
                               tf.reduce_mean(transition_function_reset_gate))
@@ -910,9 +902,7 @@ def universal_transformer_with_gru_as_transition_function(
         name="candidate",
         bias_initializer=tf.zeros_initializer(),
         activation=tf.tanh,
-        pad_remover=pad_remover,
-        preprocess=False,
-        postprocess=False)
+        pad_remover=pad_remover)
 
     transition_function_output = (
         (1 - transition_function_update_gate) * transition_function_input +
@@ -975,9 +965,7 @@ def universal_transformer_with_lstm_as_transition_function(
         name="input",
         bias_initializer=tf.zeros_initializer(),
         activation=tf.sigmoid,
-        pad_remover=pad_remover,
-        preprocess=False,
-        postprocess=False)
+        pad_remover=pad_remover)
 
     tf.contrib.summary.scalar("lstm_input_gate",
                               tf.reduce_mean(transition_function_input_gate))
@@ -989,9 +977,7 @@ def universal_transformer_with_lstm_as_transition_function(
         name="forget",
         bias_initializer=tf.zeros_initializer(),
         activation=None,
-        pad_remover=pad_remover,
-        preprocess=False,
-        postprocess=False)
+        pad_remover=pad_remover)
     forget_bias_tensor = tf.constant(hparams.lstm_forget_bias)
     transition_function_forget_gate = tf.sigmoid(
         transition_function_forget_gate + forget_bias_tensor)
@@ -1006,9 +992,7 @@ def universal_transformer_with_lstm_as_transition_function(
         name="output",
         bias_initializer=tf.zeros_initializer(),
         activation=tf.sigmoid,
-        pad_remover=pad_remover,
-        preprocess=False,
-        postprocess=False)
+        pad_remover=pad_remover)
 
     tf.contrib.summary.scalar("lstm_output_gate",
                               tf.reduce_mean(transition_function_output_gate))
@@ -1020,9 +1004,7 @@ def universal_transformer_with_lstm_as_transition_function(
         name="input_modulation",
         bias_initializer=tf.zeros_initializer(),
         activation=tf.tanh,
-        pad_remover=pad_remover,
-        preprocess=False,
-        postprocess=False)
+        pad_remover=pad_remover)
 
     transition_function_memory = (
         memory * transition_function_forget_gate +
@@ -1214,6 +1196,7 @@ def universal_transformer_act(x, hparams, ffn_unit, attention_unit):
 
 def _ffn_layer_multi_inputs(inputs_list,
                             hparams,
+                            output_size=None,
                             ffn_layer_type="dense",
                             name="ffn",
                             kernel_initializer=None,
@@ -1227,14 +1210,15 @@ def _ffn_layer_multi_inputs(inputs_list,
   Args:
     inputs_list: list of input tensors
     hparams: hyper-parameters
+    output_size: dimentionality of the output
     ffn_layer_type: dense / dense_dropconnect/ dense_relu_dense
     name: name
     kernel_initializer: kernel initializer
     bias_initializer: bias initializer
     activation: activation function
     pad_remover: pad remover
-    preprocess: if preprocess the input
-    postprocess: if postprocess the output
+    preprocess: if preprocess the input --> default: layer-norm
+    postprocess: if postprocess the output --> default: drop-out and residual
 
   Returns:
     a tensor
@@ -1247,10 +1231,14 @@ def _ffn_layer_multi_inputs(inputs_list,
   num_inputs = len(inputs_list)
   assert num_inputs > 0
 
-  if preprocess and num_inputs == 1:
-    inputs_list[0] = common_layers.layer_preprocess(inputs_list[0], hparams)
+  if preprocess:
+    # In case of having more than one input to the ffn,
+    # we just apply layer norm on them independently as preprocessing
+    for i, inputs in enumerate(inputs_list):
+      inputs_list[i] = common_layers.layer_preprocess(inputs_list[i], hparams)
 
-  if postprocess:
+  # for the residual connection
+  if postprocess and num_inputs == 1:
     original_inputs = inputs_list[0]
 
   # the output size is the hidden size of the main inputs
@@ -1280,7 +1268,7 @@ def _ffn_layer_multi_inputs(inputs_list,
   if ffn_layer_type == "dense":
     output = common_layers.dense(
         ffn_inputs,
-        hparams.hidden_size,
+        hparams.hidden_size if output_size is None else output_size,
         name=name,
         activation=activation,
         use_bias=True,
@@ -1290,7 +1278,7 @@ def _ffn_layer_multi_inputs(inputs_list,
   elif ffn_layer_type == "dense_dropconnect":
     output = common_layers.dense_dropconnect(
         ffn_inputs,
-        hparams.hidden_size,
+        hparams.hidden_size if output_size is None else output_size,
         name=name,
         dropconnect_dropout=hparams.dropconnect_dropout,
         output_activation=activation)
@@ -1300,7 +1288,7 @@ def _ffn_layer_multi_inputs(inputs_list,
     output = common_layers.dense_relu_dense(
         ffn_inputs,
         hparams.filter_size,
-        hparams.hidden_size,
+        hparams.hidden_size if output_size is None else output_size,
         name=name,
         dropout=hparams.relu_dropout,
         output_activation=activation,
@@ -1317,11 +1305,11 @@ def _ffn_layer_multi_inputs(inputs_list,
   if postprocess:
     if num_inputs == 1:
       output = common_layers.layer_postprocess(original_inputs, output, hparams)
-    else:  # only dropout (no residual)x
+    else:  # only dropout (no residual)
       hp = copy.copy(hparams)
       hp.layer_postprocess_sequence = hp.layer_postprocess_sequence.replace(
           "a", "")
-      output = common_layers.layer_postprocess(original_inputs, output, hp)
+      output = common_layers.layer_postprocess(None, output, hp)
 
   return output
 

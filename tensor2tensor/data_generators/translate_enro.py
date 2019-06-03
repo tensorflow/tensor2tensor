@@ -32,6 +32,10 @@ _ENRO_TRAIN_DATASETS = [
     [
         "http://www.statmt.org/europarl/v7/ro-en.tgz",
         ("europarl-v7.ro-en.en", "europarl-v7.ro-en.ro")
+    ],
+    [
+        "http://opus.nlpl.eu/download.php?f=SETIMES/v2/moses/en-ro.txt.zip",
+        ("SETIMES.en-ro.en", "SETIMES.en-ro.ro")
     ]
 ]
 _ENRO_TEST_DATASETS = [

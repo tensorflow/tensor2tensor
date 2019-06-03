@@ -24,5 +24,9 @@ from __future__ import print_function
 from tensor2tensor.trax.layers.attention import *
 from tensor2tensor.trax.layers.base import *
 from tensor2tensor.trax.layers.combinators import *
+from tensor2tensor.trax.layers.convolution import *
 from tensor2tensor.trax.layers.core import *
+from tensor2tensor.trax.layers.initializers import *
+from tensor2tensor.trax.layers.normalization import *
+from tensor2tensor.trax.layers.pooling import *
 from tensor2tensor.trax.layers.rnn import *
