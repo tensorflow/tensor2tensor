@@ -43,6 +43,11 @@ tf.flags.DEFINE_string(
     "If None, we will use the latest checkpoint stored in the directory "
     "specified by --output_dir")
 
+tf.flags.DEFINE_bool(
+    "as_text", True,
+    "Whether to write the SavedModel proto in text format. Defaults to `False`."
+)
+
 
 def _get_hparams_path():
   """Get hyper-parameters file path."""
@@ -186,7 +191,7 @@ def main(_):
   exporter = tf.estimator.FinalExporter(
       "exporter",
       lambda: problem.serving_input_fn(hparams, decode_hparams, FLAGS.use_tpu),
-      as_text=True)
+      as_text=FLAGS.as_text)
 
   exporter.export(
       estimator,
