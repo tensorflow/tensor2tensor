@@ -156,18 +156,20 @@ class DiscreteAutoregressiveFlow(tf.keras.layers.Layer):
     net = self.layer(padded_inputs, **kwargs)
     if net.shape[-1] == 2 * self.vocab_size:
       loc, scale = tf.split(net, 2, axis=-1)
+      loc = loc[..., 0:1, :]
+      loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
       scale = scale[..., 0:1, :]
       scale = tf.cast(one_hot_argmax(scale, self.temperature), inputs.dtype)
       inverse_scale = multiplicative_inverse(scale, self.vocab_size)
-      scaled_inputs = one_hot_multiply(inputs, inverse_scale)
+      shifted_inputs = one_hot_minus(inputs, loc)
+      outputs = one_hot_multiply(shifted_inputs, inverse_scale)
     elif net.shape[-1] == self.vocab_size:
       loc = net
-      scaled_inputs = inputs
+      loc = loc[..., 0:1, :]
+      loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
+      outputs = one_hot_minus(inputs, loc)
     else:
       raise ValueError('Output of layer does not have compatible dimensions.')
-    loc = loc[..., 0, :][..., tf.newaxis, :]
-    loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
-    outputs = one_hot_minus(scaled_inputs, loc)
     return outputs
 
   def _per_timestep_call(self,
@@ -197,20 +199,21 @@ class DiscreteAutoregressiveFlow(tf.keras.layers.Layer):
     net = self.layer(padded_inputs, **kwargs)
     if net.shape[-1] == 2 * self.vocab_size:
       loc, scale = tf.split(net, 2, axis=-1)
+      loc = loc[..., :(timestep+1), :]
+      loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
       scale = scale[..., :(timestep+1), :]
       scale = tf.cast(one_hot_argmax(scale, self.temperature), inputs.dtype)
       inverse_scale = multiplicative_inverse(scale, self.vocab_size)
-      scaled_inputs = one_hot_multiply(inputs, inverse_scale)
+      shifted_inputs = one_hot_minus(inputs, loc)
+      new_outputs = one_hot_multiply(shifted_inputs, inverse_scale)
     elif net.shape[-1] == self.vocab_size:
       loc = net
-      scaled_inputs = inputs
+      loc = loc[..., :(timestep+1), :]
+      loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
+      new_outputs = one_hot_minus(inputs, loc)
     else:
       raise ValueError('Output of layer does not have compatible dimensions.')
-    loc = loc[..., :(timestep+1), :]
-    loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
-    new_outputs = one_hot_minus(scaled_inputs, loc)
-    outputs = tf.concat([current_outputs,
-                         new_outputs[..., -1, :][..., tf.newaxis, :]], axis=-2)
+    outputs = tf.concat([current_outputs, new_outputs[..., -1:, :]], axis=-2)
     if not tf.executing_eagerly():
       outputs.set_shape([None] * batch_ndims + [timestep+1, self.vocab_size])
     return outputs
@@ -222,7 +225,7 @@ class DiscreteAutoregressiveFlow(tf.keras.layers.Layer):
 
     net = self.layer(inputs, **kwargs)
     if net.shape[-1] == 2 * self.vocab_size:
-      loc, scale = tf.split(net, 2, axis=-2)
+      loc, scale = tf.split(net, 2, axis=-1)
       scale = tf.cast(one_hot_argmax(scale, self.temperature), inputs.dtype)
       scaled_inputs = one_hot_multiply(inputs, scale)
     elif net.shape[-1] == self.vocab_size:
@@ -326,16 +329,18 @@ class DiscreteBipartiteFlow(tf.keras.layers.Layer):
     net = self.layer(masked_inputs, **kwargs)
     if net.shape[-1] == 2 * self.vocab_size:
       loc, scale = tf.split(net, 2, axis=-1)
+      loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
       scale = tf.cast(one_hot_argmax(scale, self.temperature), inputs.dtype)
       inverse_scale = multiplicative_inverse(scale, self.vocab_size)
-      scaled_inputs = one_hot_multiply(inputs, inverse_scale)
+      shifted_inputs = one_hot_minus(inputs, loc)
+      masked_outputs = (1. - mask) * one_hot_multiply(shifted_inputs,
+                                                      inverse_scale)
     elif net.shape[-1] == self.vocab_size:
       loc = net
-      scaled_inputs = inputs
+      loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
+      masked_outputs = (1. - mask) * one_hot_minus(inputs, loc)
     else:
       raise ValueError('Output of layer does not have compatible dimensions.')
-    loc = tf.cast(one_hot_argmax(loc, self.temperature), inputs.dtype)
-    masked_outputs = (1. - mask) * one_hot_minus(scaled_inputs, loc)
     outputs = masked_inputs + masked_outputs
     return outputs
 
@@ -351,7 +356,7 @@ class DiscreteBipartiteFlow(tf.keras.layers.Layer):
     masked_inputs = mask * inputs
     net = self.layer(masked_inputs, **kwargs)
     if net.shape[-1] == 2 * self.vocab_size:
-      loc, scale = tf.split(net, 2, axis=-2)
+      loc, scale = tf.split(net, 2, axis=-1)
       scale = tf.cast(one_hot_argmax(scale, self.temperature), inputs.dtype)
       scaled_inputs = one_hot_multiply(inputs, scale)
     elif net.shape[-1] == self.vocab_size:
@@ -442,7 +447,7 @@ class SinkhornAutoregressiveFlow(tf.keras.layers.Layer):
         inputs, [[0, 0]] * batch_ndims + [[0, length - 1], [0, 0]])
     temperature = 1.
     logits = self.layer(padded_inputs / temperature, **kwargs)
-    logits = logits[..., 0, :][..., tf.newaxis, :]
+    logits = logits[..., 0:1, :]
     logits = tf.reshape(
         logits,
         logits.shape[:-1].concatenate([self.vocab_size, self.vocab_size]))
@@ -495,8 +500,7 @@ class SinkhornAutoregressiveFlow(tf.keras.layers.Layer):
     new_outputs = tf.matmul(inputs[..., tf.newaxis, :],
                             hard,
                             transpose_b=True)[..., 0, :]
-    outputs = tf.concat([current_outputs,
-                         new_outputs[..., -1, :][..., tf.newaxis, :]], axis=-2)
+    outputs = tf.concat([current_outputs, new_outputs[..., -1:, :]], axis=-2)
     if not tf.executing_eagerly():
       outputs.set_shape([None] * batch_ndims + [timestep+1, self.vocab_size])
     return outputs

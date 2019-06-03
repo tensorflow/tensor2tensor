@@ -54,8 +54,7 @@ tfp.distributions.OneHotCategorical._log_prob = _log_prob  # monkey patch
 class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
-      # TODO(trandustin): Enable test.
-      # (False,),
+      (False,),
       (True,),
   )
   @test_utils.run_in_graph_and_eager_modes()
@@ -65,12 +64,16 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
     length = 5
     if loc_only:
       units = vocab_size
+      network = reversible.MADE(units, [])
     else:
       units = 2 * vocab_size
+      mask = tf.reshape([0] * vocab_size + [-1e10] + [0] * (vocab_size - 1),
+                        [1, 1, 2 * vocab_size])
+      network_ = reversible.MADE(units, [])
+      network = lambda inputs: mask + network_(inputs)
     inputs = np.random.randint(0, vocab_size - 1, size=(batch_size, length))
     inputs = tf.one_hot(inputs, depth=vocab_size, dtype=tf.float32)
-    layer = reversible.DiscreteAutoregressiveFlow(
-        reversible.MADE(units, []), 1.)
+    layer = reversible.DiscreteAutoregressiveFlow(network, 1.)
     outputs = layer(inputs)
     self.evaluate(tf.global_variables_initializer())
     outputs_val = self.evaluate(outputs)
@@ -79,8 +82,7 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllLessEqual(outputs_val, vocab_size - 1)
 
   @parameterized.parameters(
-      # TODO(trandustin): Enable test.
-      # (False,),
+      (False,),
       (True,),
   )
   @test_utils.run_in_graph_and_eager_modes()
@@ -90,10 +92,14 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
     vocab_size = 2
     if loc_only:
       units = vocab_size
+      network = reversible.MADE(units, [])
     else:
       units = 2 * vocab_size
-    layer = reversible.DiscreteAutoregressiveFlow(
-        reversible.MADE(units, []), 1.)
+      mask = tf.reshape([0] * vocab_size + [-1e10] + [0] * (vocab_size - 1),
+                        [1, 1, 2 * vocab_size])
+      network_ = reversible.MADE(units, [])
+      network = lambda inputs: mask + network_(inputs)
+    layer = reversible.DiscreteAutoregressiveFlow(network, 1.)
     logits = tf.tile(tf.random_normal([length, vocab_size])[tf.newaxis],
                      [batch_size, 1, 1])
     base = tfp.edward2.OneHotCategorical(logits=logits, dtype=tf.float32)
@@ -106,8 +112,7 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllLessEqual(res, vocab_size - 1)
 
   @parameterized.parameters(
-      # TODO(trandustin): Enable test.
-      # (False,),
+      (False,),
       (True,),
   )
   @test_utils.run_in_graph_and_eager_modes()
@@ -117,12 +122,16 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
     length = 5
     if loc_only:
       units = vocab_size
+      network = reversible.MADE(units, [])
     else:
       units = 2 * vocab_size
+      mask = tf.reshape([0] * vocab_size + [-1e10] + [0] * (vocab_size - 1),
+                        [1, 1, 2 * vocab_size])
+      network_ = reversible.MADE(units, [])
+      network = lambda inputs: mask + network_(inputs)
     inputs = np.random.randint(0, vocab_size - 1, size=(batch_size, length))
     inputs = tf.one_hot(inputs, depth=vocab_size, dtype=tf.float32)
-    layer = reversible.DiscreteAutoregressiveFlow(
-        reversible.MADE(units, []), 1.)
+    layer = reversible.DiscreteAutoregressiveFlow(network, 1.)
     rev_fwd_inputs = layer.reverse(layer(inputs))
     fwd_rev_inputs = layer(layer.reverse(inputs))
     self.evaluate(tf.global_variables_initializer())
@@ -132,8 +141,7 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(inputs_val, fwd_rev_inputs_val)
 
   @parameterized.parameters(
-      # TODO(trandustin): Enable test.
-      # (False,),
+      (False,),
       (True,),
   )
   @test_utils.run_in_graph_and_eager_modes()
@@ -143,14 +151,18 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
     vocab_size = 5
     if loc_only:
       units = vocab_size
+      network = reversible.MADE(units, [])
     else:
       units = 2 * vocab_size
+      mask = tf.reshape([0] * vocab_size + [-1e10] + [0] * (vocab_size - 1),
+                        [1, 1, 2 * vocab_size])
+      network_ = reversible.MADE(units, [])
+      network = lambda inputs: mask + network_(inputs)
     base = tfp.edward2.OneHotCategorical(logits=tf.random_normal([batch_size,
                                                                   length,
                                                                   vocab_size]),
                                          dtype=tf.float32)
-    flow = reversible.DiscreteAutoregressiveFlow(
-        reversible.MADE(units, [16, 16]), 1.)
+    flow = reversible.DiscreteAutoregressiveFlow(network, 1.)
     flow_rv = flow(base)
     self.assertEqual(flow_rv.dtype, tf.float32)
 
@@ -174,8 +186,7 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(res1, res2)
 
   @parameterized.parameters(
-      # TODO(trandustin): Enable test.
-      # (False,),
+      (False,),
       (True,),
   )
   @test_utils.run_in_graph_mode_only()
@@ -185,17 +196,21 @@ class ReversibleLayersTest(parameterized.TestCase, tf.test.TestCase):
     vocab_size = 2
     if loc_only:
       units = vocab_size
+      network = reversible.MADE(units, [16, 16])
     else:
       units = 2 * vocab_size
+      mask = tf.reshape([0] * vocab_size + [-1e10] + [0] * (vocab_size - 1),
+                        [1, 1, 2 * vocab_size])
+      network_ = reversible.MADE(units, [16, 16])
+      network = lambda inputs: mask + network_(inputs)
     base = tfp.edward2.OneHotCategorical(
         logits=tf.random_normal([batch_size, length, vocab_size]))
-    flow = reversible.DiscreteAutoregressiveFlow(
-        reversible.MADE(units, [16, 16]), 1.)
+    flow = reversible.DiscreteAutoregressiveFlow(network, 1.)
     flow_rv = flow(base)
     features = np.random.randint(0, vocab_size - 1, size=(batch_size, length))
     features = tf.one_hot(features, depth=vocab_size, dtype=tf.float32)
     loss = -tf.reduce_sum(flow_rv.distribution.log_prob(features))
-    grads = tf.gradients(loss, flow.layer.weights)
+    grads = tf.gradients(loss, tf.trainable_variables())
     self.evaluate(tf.global_variables_initializer())
     _ = self.evaluate(grads)
     for grad in grads:
