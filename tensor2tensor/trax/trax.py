@@ -173,6 +173,10 @@ def _save_replicated(opt_state, step, history, n_devices, output_dir, keep):
   if n_devices > 1:
     first_replica = lambda x: x[0]
     opt_state = layers.nested_map(opt_state, first_replica)
+  # This line, while optional, allows JAX to transfer arrays from the device to
+  # the host in parallel, which is particularly important for cloud TPU.
+  if backend.get_name() == "jax":
+    opt_state = jax.device_get(opt_state)
   save_state(State(params=opt_state, step=step, history=history),
              output_dir, keep=keep)
 
