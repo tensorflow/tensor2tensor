@@ -1023,11 +1023,14 @@ def fast_decode_tpu(encoder_output,
       next_id = common_layers.sample_with_temperature(
           logits, temperature, keep_top)
 
-      hit_eos |= tf.equal(next_id, eos_id)
-
       log_prob_indices = tf.stack([tf.range(tf.to_int64(batch_size)), next_id],
                                   axis=1)
-      log_prob += tf.gather_nd(log_probs, log_prob_indices)
+      log_prob += tf.gather_nd(
+          log_probs, log_prob_indices) * (1 - tf.to_float(hit_eos))
+      # Note(thangluong): we purposely update hit_eos after aggregating log_prob
+      # There is a subtle detail here that we want to include log_probs up to
+      # (and inclusive of) the first eos generated, but not subsequent tokens.
+      hit_eos |= tf.equal(next_id, eos_id)
 
       next_id = tf.expand_dims(next_id, axis=1)
       decoded_ids = tf.transpose(decoded_ids)
@@ -1167,14 +1170,19 @@ def fast_decode(encoder_output,
         temperature = 0.0
       next_id = common_layers.sample_with_temperature(
           logits, temperature, keep_top)
-      hit_eos |= tf.equal(next_id, eos_id)
 
       log_prob_indices = tf.stack([tf.range(tf.to_int64(batch_size)), next_id],
                                   axis=1)
-      log_prob += tf.gather_nd(log_probs, log_prob_indices)
+      log_prob += tf.gather_nd(
+          log_probs, log_prob_indices) * (1 - tf.to_float(hit_eos))
+      # Note(thangluong): we purposely update hit_eos after aggregating log_prob
+      # There is a subtle detail here that we want to include log_probs up to
+      # (and inclusive of) the first eos generated, but not subsequent tokens.
+      hit_eos |= tf.equal(next_id, eos_id)
 
       next_id = tf.expand_dims(next_id, axis=1)
       decoded_ids = tf.concat([decoded_ids, next_id], axis=1)
+
       return i + 1, hit_eos, next_id, decoded_ids, cache, log_prob
 
     def is_not_finished(i, hit_eos, *_):
