@@ -36,9 +36,9 @@ def AtariCnn(hidden_sizes=(32, 32), output_size=128):
       ),
       # Concatenated on the last axis.
       tl.Concatenate(axis=-1),  # (B, T, H, W, 4C)
-      tl.Rebatch(tl.Conv(hidden_sizes[0], (5, 5), (2, 2), 'SAME'), 2),
+      tl.Conv(hidden_sizes[0], (5, 5), (2, 2), 'SAME'),
       tl.Relu(),
-      tl.Rebatch(tl.Conv(hidden_sizes[1], (5, 5), (2, 2), 'SAME'), 2),
+      tl.Conv(hidden_sizes[1], (5, 5), (2, 2), 'SAME'),
       tl.Relu(),
       tl.Flatten(num_axis_to_keep=2),  # B, T and rest.
       tl.Dense(output_size),

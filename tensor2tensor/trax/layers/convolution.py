@@ -20,9 +20,12 @@ from __future__ import division
 from __future__ import print_function
 
 import itertools
+import operator
 
 from jax import lax
+import six
 
+from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.layers import base
 from tensor2tensor.trax.layers import initializers as init
 
@@ -52,12 +55,24 @@ class Conv(base.Layer):
   def stack_items_to_pass(self):
     return 1
 
+  def _check_nhwc(self):
+    msg = 'Convolutions on more than 4 dimensions only supported in NHWC.'
+    assert self._lhs_spec == self._out_spec == 'NHWC', msg
+
   def call(self, x, params=(), **kwargs):
     del kwargs
     w, b = params
-    return lax.conv_general_dilated(
+    x_shape = list(x.shape)
+    if len(x_shape) > 4:
+      self._check_nhwc()
+      new_batch_dim = six.moves.reduce(operator.mul, x_shape[:-3])
+      x = np.reshape(x, [new_batch_dim] + x_shape[-3:])
+    res = lax.conv_general_dilated(
         x, w, self._strides, self._padding, self._one, self._one,
         self._dimension_numbers) + b
+    if len(x_shape) > 4:
+      res = np.reshape(res, x_shape[:-3] + list(res.shape[-3:]))
+    return res
 
   def _kernel_shape(self, input_shape):
     """Helper to calculate the kernel shape."""
@@ -67,6 +82,10 @@ class Conv(base.Layer):
             next(kernel_size_iter) for c in self._rhs_spec]
 
   def new_parameters(self, input_shape, rng):
+    if len(input_shape) > 4:
+      self._check_nhwc()
+      new_batch_dim = six.moves.reduce(operator.mul, input_shape[:-3])
+      input_shape = [new_batch_dim] + list(input_shape[-3:])
     kernel_shape = self._kernel_shape(input_shape)
     bias_shape = [self._filters if c == 'C' else 1 for c in self._out_spec]
     bias_shape = tuple(itertools.dropwhile(lambda x: x == 1, bias_shape))
