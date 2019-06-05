@@ -23,8 +23,9 @@ and call functions to be used as follows.
 ```python
 layer = MyLayer()
 x = np.zeros(10)
-params = layer.initialize(x.shape)
-output = layer(x, params)
+rng = random.get_prng(0)
+params = layer.initialize(x.shape, x.dtype, rng)
+output = layer(x, params, rng=rng)
 ```
 
 ## Decorator

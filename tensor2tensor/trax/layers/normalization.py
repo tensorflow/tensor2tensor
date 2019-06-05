@@ -24,10 +24,10 @@ from tensor2tensor.trax.layers import base
 
 
 # Batch normalization.
-def BatchNormParams(input_shape, rng, axis=(0, 1, 2),
+def BatchNormParams(input_shape, input_dtype, rng, axis=(0, 1, 2),
                     center=True, scale=True, **kwargs):
   """Helper to initialize batch norm params."""
-  del rng, kwargs
+  del input_dtype, rng, kwargs
   axis = (axis,) if np.isscalar(axis) else axis
   shape = tuple(d for i, d in enumerate(input_shape) if i not in axis)
   beta = np.zeros(shape, dtype='float32') if center else ()
@@ -64,9 +64,9 @@ def BatchNorm(x, params, axis=(0, 1, 2), epsilon=1e-5,
 
 
 # Layer normalization.
-def LayerNormParams(input_shape, rng, epsilon=1e-6):
+def LayerNormParams(input_shape, input_dtype, rng, epsilon=1e-6):
   """Helper: create layer norm parameters."""
-  del rng, epsilon
+  del input_dtype, rng, epsilon
   features = input_shape[-1]
   scale = np.ones(features)
   bias = np.zeros(features)

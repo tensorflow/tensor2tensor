@@ -19,6 +19,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import numpy as onp
+
 from tensor2tensor.trax import backend
 from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.layers import base
@@ -76,6 +78,11 @@ def Softplus(x, **unused_kwargs):
   return np.logaddexp(x, 0.)
 
 
+@base.layer()
+def ToFloat(x, **unused_kwargs):
+  return x.astype(onp.float32)
+
+
 class Dense(base.Layer):
   """Layer constructor function for a dense (fully-connected) layer."""
 
@@ -95,7 +102,8 @@ class Dense(base.Layer):
     w, b = params
     return np.dot(x, w) + b
 
-  def new_parameters(self, input_shape, rng):
+  def new_parameters(self, input_shape, input_dtype, rng):
+    del input_dtype
     rng1, rng2 = backend.random.split(rng, 2)
     w = self._kernel_initializer((input_shape[-1], self._units), rng1)
     b = self._bias_initializer((self._units,), rng2)
@@ -115,14 +123,12 @@ class Embedding(base.Layer):
   def stack_items_to_pass(self):
     return 1
 
-  def default_input_is_int(self):
-    return True
-
   def call(self, x, params, **kwargs):
     del kwargs
     return np.take(params, x, axis=0)
 
-  def new_parameters(self, input_shape, rng):
+  def new_parameters(self, input_shape, input_dtype, rng):
+    del input_dtype
     return self._kernel_initializer(
         (self._vocab_size, self._d_feature), rng)
 

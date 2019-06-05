@@ -26,6 +26,7 @@ def AtariCnn(hidden_sizes=(32, 32), output_size=128):
   """An Atari CNN."""
   # Input's shape = (B, T, H, W, C)
   return tl.Model(
+      tl.ToFloat(),
       tl.Div(divisor=255.0),
       # Have 4 copies of the input, each one shifted to the right by one.
       tl.Branch(

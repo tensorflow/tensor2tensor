@@ -468,7 +468,8 @@ def train(output_dir,
     params = state.params[0]
     opt_state = state.params
   else:
-    params = model_train.initialize(model_input_shape, init_rng)
+    params = model_train.initialize(
+        model_input_shape, inputs.input_dtype, init_rng)
     opt_state = (params, opt.tree_init(params))
   if n_devices > 1:
     replicate = lambda x: numpy.broadcast_to(x, (n_devices,) + x.shape)

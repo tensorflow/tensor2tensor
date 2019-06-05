@@ -51,9 +51,10 @@ def EncoderDecoderMask(x, **unused_kwargs):
 
 
 # Positional encoding.
-def _positional_encoding_new_params(input_shape, rng, max_len=2048):  # pylint: disable=invalid-name
+def _positional_encoding_new_params(  # pylint: disable=invalid-name
+    input_shape, input_dtype, rng, max_len=2048):
   """Helper: create positional encoding parameters."""
-  del rng
+  del input_dtype, rng
   d_feature = input_shape[-1]
   pe = onp.zeros((max_len, d_feature), dtype=onp.float32)
   position = onp.arange(0, max_len)[:, onp.newaxis]
@@ -190,7 +191,7 @@ def MultiHeadedAttention(
   ]
 
 
-@base.layer(input_is_int=True, stack_items_to_pass=0)
+@base.layer(stack_items_to_pass=0)
 def ShiftRight(x, **unused_kwargs):
   """Layer to shift the tensor to the right by padding on axis 1."""
   if not isinstance(x, (list, tuple)):  # non-chunked inputs

@@ -25,9 +25,10 @@ from tensor2tensor.trax.backend import numpy as np
 
 
 # Chunked positional encoding.
-def _chunked_positional_encoding_new_params(input_shape, rng, max_len=2048):  # pylint: disable=invalid-name
+def _chunked_positional_encoding_new_params(  # pylint: disable=invalid-name
+    input_shape, input_dtype, rng, max_len=2048):
   """Helper: create positional encoding parameters."""
-  del rng
+  del input_dtype, rng
   # Check if we are operating on chunked inputs by checking if the first
   # shape is a list/tuple of shapes (otherwise it's an int or numpy array).
   is_chunked = isinstance(input_shape[0], (list, tuple))

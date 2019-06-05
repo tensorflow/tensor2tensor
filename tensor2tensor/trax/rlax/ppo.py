@@ -83,6 +83,7 @@ BATCH_TRAJECTORIES = 32
 
 def policy_and_value_net(rng_key,
                          batch_observations_shape,
+                         observations_dtype,
                          n_actions,
                          bottom_layers_fn=(),
                          two_towers=True):
@@ -107,7 +108,8 @@ def policy_and_value_net(rng_key,
             [tl.Dense(1)]
         )
     )
-  return net.initialize(batch_observations_shape, rng_key), net
+  params = net.initialize(batch_observations_shape, observations_dtype, rng_key)
+  return params, net
 
 
 def optimizer_fn(net_params, step_size=1e-3):
@@ -813,6 +815,7 @@ def training_loop(
   # Batch Observations Shape = [1, 1] + OBS, because we will eventually call
   # policy and value networks on shape [B, T] +_OBS
   batch_observations_shape = (1, 1) + env.observation_space.shape
+  observations_dtype = env.observation_space.dtype
 
   assert isinstance(env.action_space, gym.spaces.Discrete)
   n_actions = env.action_space.n
@@ -821,7 +824,8 @@ def training_loop(
 
   # Initialize the policy and value network.
   policy_and_value_net_params, policy_and_value_net_apply = (
-      policy_and_value_net_fn(key1, batch_observations_shape, n_actions))
+      policy_and_value_net_fn(key1, batch_observations_shape,
+                              observations_dtype, n_actions))
 
   # Maybe restore the policy params. If there is nothing to restore, then
   # iteration = 0 and policy_and_value_net_params are returned as is.

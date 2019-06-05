@@ -81,7 +81,8 @@ class Conv(base.Layer):
             input_shape[self._lhs_spec.index('C')] if c == 'I' else
             next(kernel_size_iter) for c in self._rhs_spec]
 
-  def new_parameters(self, input_shape, rng):
+  def new_parameters(self, input_shape, input_dtype, rng):
+    del input_dtype
     if len(input_shape) > 4:
       self._check_nhwc()
       new_batch_dim = six.moves.reduce(operator.mul, input_shape[:-3])
