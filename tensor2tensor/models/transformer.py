@@ -699,7 +699,10 @@ class Transformer(t2t_model.T2TModel):
             features=features)
       encoder_output = encoder_output[0]
       encoder_decoder_attention_bias = encoder_decoder_attention_bias[0]
-      partial_targets = None
+      if 'partial_targets' in features:
+        partial_targets = features['partial_targets']
+      else:
+        partial_targets = None
     else:
       # The problem has no inputs.
       encoder_output = None
@@ -712,6 +715,8 @@ class Transformer(t2t_model.T2TModel):
       if partial_targets is None:
         partial_targets = features["targets"]
       assert partial_targets is not None
+
+    if partial_targets is not None:
       partial_targets = common_layers.expand_squeeze_to_nd(partial_targets, 2)
       partial_targets = tf.to_int64(partial_targets)
       partial_targets_shape = common_layers.shape_list(partial_targets)
