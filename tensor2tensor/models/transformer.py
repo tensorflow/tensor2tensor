@@ -586,6 +586,7 @@ class Transformer(t2t_model.T2TModel):
             tf.less(i, partial_targets_length), forced_logits, lambda: ret)
       return ret, cache
 
+    eos_id = self.get_decode_end_id() or beam_search.EOS_ID
     ret = fast_decode_tpu(
         encoder_output=encoder_output,
         encoder_decoder_attention_bias=encoder_decoder_attention_bias,
@@ -598,7 +599,8 @@ class Transformer(t2t_model.T2TModel):
         top_beams=top_beams,
         alpha=alpha,
         batch_size=batch_size,
-        force_decode_length=self._decode_hparams.force_decode_length)
+        force_decode_length=self._decode_hparams.force_decode_length,
+        eos_id=eos_id)
     if partial_targets is not None:
       if beam_size <= 1 or top_beams <= 1:
         ret["outputs"] = ret["outputs"][:, partial_targets_length:]
@@ -614,6 +616,14 @@ class Transformer(t2t_model.T2TModel):
     different decoder start symbol. The id returned by this method is used to
     index the embedding matrix, and retrieve the vector that will be used as the
     first input to the decoder
+    """
+    return None
+
+  def get_decode_end_id(self):
+    """Returns the id of the output symbol that terminates decoding.
+
+    This method can be overridden by a different model. The id returned by this
+    method is used to check if the generation is complete during decoding.
     """
     return None
 
@@ -818,6 +828,7 @@ class Transformer(t2t_model.T2TModel):
       return ret, cache
 
     sos_id = self.get_decode_start_id() or 0
+    eos_id = self.get_decode_end_id() or beam_search.EOS_ID
 
     ret = fast_decode(
         encoder_output=encoder_output,
@@ -832,7 +843,8 @@ class Transformer(t2t_model.T2TModel):
         alpha=alpha,
         batch_size=batch_size,
         force_decode_length=self._decode_hparams.force_decode_length,
-        sos_id=sos_id)
+        sos_id=sos_id,
+        eos_id=eos_id)
     if partial_targets is not None:
       if beam_size <= 1 or top_beams <= 1:
         ret["outputs"] = ret["outputs"][:, partial_targets_length:]
