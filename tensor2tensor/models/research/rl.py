@@ -422,7 +422,7 @@ def dqn_guess1_params():
 
 @registry.register_hparams
 def dqn_2m_replay_buffer_params():
-  """Guess 1 for DQN params, 2 milions transitions in replay buffer"""
+  """Guess 1 for DQN params, 2 milions transitions in replay buffer."""
   hparams = dqn_guess1_params()
   hparams.set_hparam("replay_buffer_replay_capacity", int(2e6) + int(1e5))
   return hparams
@@ -430,7 +430,7 @@ def dqn_2m_replay_buffer_params():
 
 @registry.register_hparams
 def dqn_10m_replay_buffer_params():
-  """Guess 1 for DQN params, 10 milions transitions in replay buffer"""
+  """Guess 1 for DQN params, 10 milions transitions in replay buffer."""
   hparams = dqn_guess1_params()
   hparams.set_hparam("replay_buffer_replay_capacity", int(10e6))
   return hparams

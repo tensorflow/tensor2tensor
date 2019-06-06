@@ -212,7 +212,7 @@ def rlmb_dqn_base():
 
 @registry.register_hparams
 def rlmb_dqn_guess1():
-  """rlmb_dqn guess1 params"""
+  """DQN guess1 params."""
   hparams = rlmb_dqn_base()
   hparams.set_hparam("base_algo_params", "dqn_guess1_params")
   # At the moment no other option for evaluation, so we want long rollouts to
@@ -223,7 +223,7 @@ def rlmb_dqn_guess1():
 
 @registry.register_hparams
 def rlmb_dqn_guess1_2m_replay_buffer():
-  """rlmb_dqn guess1 params"""
+  """DQN guess1 params, 2M replay buffer."""
   hparams = rlmb_dqn_guess1()
   hparams.set_hparam("base_algo_params", "dqn_2m_replay_buffer_params")
   return hparams
@@ -231,7 +231,7 @@ def rlmb_dqn_guess1_2m_replay_buffer():
 
 @registry.register_hparams
 def rlmb_dqn_guess1_10m_replay_buffer():
-  """rlmb_dqn guess1 params"""
+  """DQN guess1 params, 10M replay buffer."""
   hparams = rlmb_dqn_guess1()
   hparams.set_hparam("base_algo_params", "dqn_10m_replay_buffer_params")
   return hparams
