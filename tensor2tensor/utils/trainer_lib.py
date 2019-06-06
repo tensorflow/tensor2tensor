@@ -314,8 +314,7 @@ def create_estimator(model_name,
         use_tpu=use_tpu,
         train_batch_size=batch_size,
         eval_batch_size=batch_size if "eval" in schedule else None,
-        predict_batch_size=predict_batch_size,
-        experimental_export_device_assignment=True)
+        predict_batch_size=predict_batch_size)
   else:
     estimator = tf.estimator.Estimator(
         model_fn=model_fn,
