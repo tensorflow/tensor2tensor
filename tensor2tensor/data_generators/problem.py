@@ -858,8 +858,6 @@ class Problem(object):
     else:
       num_shards = 1
 
-    num_shards = 8
-
     max_length = self.max_length(hparams)
 
     def tpu_valid_size(example):
