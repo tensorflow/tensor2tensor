@@ -33,7 +33,7 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
-_URL = "https://storage.googleapis.com/mathematics-dataset/v1.0.tar.gz"
+_URL = "https://storage.cloud.google.com/mathematics-dataset/mathematics_dataset-v1.0.tar.gz"
 
 
 @registry.register_problem
