@@ -658,8 +658,8 @@ class Problem(object):
 
     if len(data_files) < num_partitions:
       raise ValueError(
-          "number of data files (%d) must be at least the number of hosts (%d)"
-          % (len(data_files), num_partitions))
+          "number of data files (%d, %s) must be at least the number of hosts (%d)"
+          % (len(data_files), data_files, num_partitions))
     data_files = [f for (i, f) in enumerate(data_files)
                   if i % num_partitions == partition_id]
     tf.logging.info(
