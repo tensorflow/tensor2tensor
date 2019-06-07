@@ -147,6 +147,7 @@ def play_env_problem_with_policy(env,
   num_done_trajectories = 0
 
   policy_application_total_time = 0
+  env_actions_total_time = 0
   while env.trajectories.num_completed_trajectories < num_trajectories:
     # Get all the observations for all the active trajectories.
     # Shape is (B, T) + OBS
@@ -186,7 +187,9 @@ def play_env_problem_with_policy(env,
       raise ValueError("Unknown sampling policy [%s]" % policy_sampling)
 
     # Step through the env.
+    t1 = time.time()
     _, _, dones, _ = env.step(actions)
+    env_actions_total_time += (time.time() - t1)
 
     # Count the number of done trajectories, the others could just have been
     # truncated.
@@ -196,8 +199,10 @@ def play_env_problem_with_policy(env,
     done_idxs = done_indices(dones)
 
     # ... and reset those.
+    t1 = time.time()
     if done_idxs.size:
       env.reset(indices=done_idxs)
+    env_actions_total_time += (time.time() - t1)
 
     if max_timestep is None or max_timestep < 1:
       continue
@@ -207,10 +212,12 @@ def play_env_problem_with_policy(env,
     exceeded_time_limit_idxs = done_indices(lengths > max_timestep)
 
     # If so, reset these as well.
+    t1 = time.time()
     if exceeded_time_limit_idxs.size:
       # This just cuts the trajectory, doesn't reset the env, so it continues
       # from where it left off.
       env.truncate(indices=exceeded_time_limit_idxs, num_to_keep=num_to_keep)
+    env_actions_total_time += (time.time() - t1)
 
   # We have the trajectories we need, return a list of triples:
   # (observations, actions, rewards)
@@ -218,11 +225,12 @@ def play_env_problem_with_policy(env,
   for trajectory in env.trajectories.completed_trajectories[:num_trajectories]:
     completed_trajectories.append(trajectory.as_numpy)
 
-  policy_application_time = round(1000 * policy_application_total_time, 2)
-  misc_time = round(1000 * (time.time() - t0), 2) - policy_application_time
+  misc_time = (time.time() - t0) - policy_application_total_time
   timing_info = {
-      "trajectory_collection/policy_application": policy_application_time,
+      "trajectory_collection/policy_application": policy_application_total_time,
       "trajectory_collection/misc": misc_time,
+      "trajectory_collection/env_actions": env_actions_total_time,
   }
+  timing_info = {k: round(1000 * v, 2) for k, v in timing_info.items()}
 
   return completed_trajectories, num_done_trajectories, timing_info
