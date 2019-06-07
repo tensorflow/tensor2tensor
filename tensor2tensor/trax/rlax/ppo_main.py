@@ -131,6 +131,8 @@ flags.DEFINE_float(
     "done_frac_for_policy_save", 0.5,
     "Fraction of the trajectories that should be done to "
     "checkpoint the policy.")
+flags.DEFINE_integer("len_history_for_policy", 4,
+                     "How much of history to give to the policy.")
 
 
 def common_layers():
@@ -243,6 +245,7 @@ def main(argv):
         eval_env=eval_env,
         n_evals=FLAGS.n_evals,
         env_name=str(FLAGS.env_problem_name),
+        len_history_for_policy=int(FLAGS.len_history_for_policy),
     )
 
   if FLAGS.jax_debug_nans or FLAGS.disable_jit:

@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import time
 import numpy as np
 
 CATEGORICAL_SAMPLING = "categorical"
@@ -54,38 +55,39 @@ def play_env_problem_with_policy(env,
                                  policy_fun,
                                  num_trajectories=1,
                                  max_timestep=None,
-                                 boundary=20,
                                  reset=True,
                                  rng=None,
                                  policy_sampling=CATEGORICAL_SAMPLING,
                                  temperature=0.5,
-                                 eps=0.1):
+                                 eps=0.1,
+                                 len_history_for_policy=32,
+                                 num_to_keep=1):
   """Plays the given env with the policy function to collect trajectories.
 
   Args:
     env: environment object, should be a subclass of env_problem.EnvProblem.
     policy_fun: callable, taking in observations((B, T) + OBS) and returning
-        back log-probabilities (B, T, A).
+      back log-probabilities (B, T, A).
     num_trajectories: int, number of trajectories to collect.
     max_timestep: int or None, if not None or a negative number, we cut any
-        trajectory that exceeds this time put it in the completed bin, and
-        *dont* reset the env.
-    boundary: this is the bucket length, we pad the observations to integer
-        multiples of this + 1 and then feed the padded observations to the
-        policy_fun.
+      trajectory that exceeds this time put it in the completed bin, and *dont*
+      reset the env.
     reset: bool, true if we want to reset the envs. The envs are also reset if
-        max_max_timestep is None or < 0
+      max_max_timestep is None or < 0
     rng: jax rng, splittable.
     policy_sampling: string, how to select an action given a policy, one of:
-        CATEGORICAL_SAMPLING, GREEDY, GUMBEL_SAMPLING
+      CATEGORICAL_SAMPLING, GREEDY, GUMBEL_SAMPLING
     temperature: float, temperature used in gumbel sampling.
     eps: float, epsilon to use in epsilon greedy.
-
+    len_history_for_policy: int, the maximum history to keep for applying the
+      policy on. We also bucket observations on this number.
+    num_to_keep: int, while truncating trajectory how many time-steps to keep.
 
   Returns:
     A tuple, (trajectories, number of completed trajectories). Where
     trajectories is a list of triples of (observation, action, reward) ndarrays.
   """
+  t0 = time.time()
 
   def categorical_sample(log_probs):
     """Categorical sampling."""
@@ -144,26 +146,31 @@ def play_env_problem_with_policy(env,
 
   num_done_trajectories = 0
 
+  policy_application_total_time = 0
   while env.trajectories.num_completed_trajectories < num_trajectories:
     # Get all the observations for all the active trajectories.
     # Shape is (B, T) + OBS
-    padded_observations = env.trajectories.observations_np(boundary=boundary)
-    lengths = env.trajectories.trajectory_lengths
+    # Bucket on whatever length is needed.
+    padded_observations, lengths = env.trajectories.observations_np(
+        boundary=len_history_for_policy,
+        len_history_for_policy=len_history_for_policy)
 
     B, T = padded_observations.shape[:2]  # pylint: disable=invalid-name
 
     assert B == env.batch_size
     assert (B,) == lengths.shape
 
+    t1 = time.time()
     log_prob_actions, _, rng = policy_fun(padded_observations, rng=rng)
+    policy_application_total_time += (time.time() - t1)
+
     assert (B, T) == log_prob_actions.shape[:2]
     A = log_prob_actions.shape[2]  # pylint: disable=invalid-name
 
     # We need the log_probs of those actions that correspond to the last actual
     # time-step.
     index = lengths - 1  # Since we want to index using lengths.
-    log_probs = log_prob_actions[np.arange(B)[:, None],
-                                 index[:, None],
+    log_probs = log_prob_actions[np.arange(B)[:, None], index[:, None],
                                  np.arange(A)]
     assert (B, A) == log_probs.shape, \
         "B=%d, A=%d, log_probs.shape=%s" % (B, A, log_probs.shape)
@@ -192,10 +199,6 @@ def play_env_problem_with_policy(env,
     if done_idxs.size:
       env.reset(indices=done_idxs)
 
-    # Do we have enough trajectories right now?
-    if env.trajectories.num_completed_trajectories >= num_trajectories:
-      break
-
     if max_timestep is None or max_timestep < 1:
       continue
 
@@ -207,11 +210,7 @@ def play_env_problem_with_policy(env,
     if exceeded_time_limit_idxs.size:
       # This just cuts the trajectory, doesn't reset the env, so it continues
       # from where it left off.
-      env.truncate(indices=exceeded_time_limit_idxs)
-
-    # Do we have enough trajectories right now?
-    if env.trajectories.num_completed_trajectories >= num_trajectories:
-      break
+      env.truncate(indices=exceeded_time_limit_idxs, num_to_keep=num_to_keep)
 
   # We have the trajectories we need, return a list of triples:
   # (observations, actions, rewards)
@@ -219,7 +218,11 @@ def play_env_problem_with_policy(env,
   for trajectory in env.trajectories.completed_trajectories[:num_trajectories]:
     completed_trajectories.append(trajectory.as_numpy)
 
-  # Keep the rest of the trajectories, if any, in our kitty.
-  env.trajectories.clear_completed_trajectories(num=num_trajectories)
+  policy_application_time = round(1000 * policy_application_total_time, 2)
+  misc_time = round(1000 * (time.time() - t0), 2) - policy_application_time
+  timing_info = {
+      "trajectory_collection/policy_application": policy_application_time,
+      "trajectory_collection/misc": misc_time,
+  }
 
-  return completed_trajectories, num_done_trajectories
+  return completed_trajectories, num_done_trajectories, timing_info
