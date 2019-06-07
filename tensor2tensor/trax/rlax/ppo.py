@@ -727,6 +727,7 @@ def evaluate_policy(eval_env,
       trajs, _ = env_problem_utils.play_env_problem_with_policy(
           eval_env,
           get_predictions,
+          num_trajectories=eval_env.batch_size,
           boundary=boundary,
           max_timestep=max_timestep,
           reset=True,
