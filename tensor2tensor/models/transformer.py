@@ -709,10 +709,7 @@ class Transformer(t2t_model.T2TModel):
             features=features)
       encoder_output = encoder_output[0]
       encoder_decoder_attention_bias = encoder_decoder_attention_bias[0]
-      if 'partial_targets' in features:
-        partial_targets = features['partial_targets']
-      else:
-        partial_targets = None
+      partial_targets = features.get("partial_targets")
     else:
       # The problem has no inputs.
       encoder_output = None
