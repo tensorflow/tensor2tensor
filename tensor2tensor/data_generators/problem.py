@@ -764,6 +764,7 @@ class Problem(object):
   def make_estimator_input_fn(self,
                               mode,
                               hparams,
+                              hvd=None,
                               data_dir=None,
                               force_repeat=False,
                               prevent_repeat=False,
@@ -774,6 +775,7 @@ class Problem(object):
       return self.input_fn(
           mode,
           hparams,
+          hvd=hvd,
           data_dir=data_dir,
           params=params,
           config=config,
@@ -820,6 +822,7 @@ class Problem(object):
   def input_fn(self,
                mode,
                hparams,
+               hvd=None,
                data_dir=None,
                params=None,
                config=None,
@@ -844,7 +847,10 @@ class Problem(object):
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
-    partition_id, num_partitions = self._dataset_partition(mode, config)
+    #partition_id, num_partitions = self._dataset_partition(mode, config)
+    partition_id = hvd.rank()
+    num_partitions = hvd.size()
+    print('!------partition_id', partition_id, num_partitions)
 
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     #if config and config.use_tpu:
