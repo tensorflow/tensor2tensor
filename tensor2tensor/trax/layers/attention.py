@@ -27,29 +27,20 @@ from tensor2tensor.trax.layers import combinators
 from tensor2tensor.trax.layers import core
 
 
-@base.layer(output_shape=lambda shape, axis=-1: (1, shape[axis], shape[axis]))
+@base.layer()
 def CausalMask(x, params, axis=-1, **kwargs):
   del params, kwargs
   size = x.shape[axis]
   return onp.tril(onp.ones((1, size, size), dtype=onp.bool_), k=0)
 
 
-@base.layer(output_shape=lambda shape, pad=0: (shape[0], 1, 1, shape[-1]))
+@base.layer()
 def PaddingMask(x, params, pad=0, **kwargs):
   del params, kwargs
   return np.reshape(x != pad, (x.shape[0], 1, 1, x.shape[-1]))
 
 
-def EncoderDecoderMaskShape(inputs):
-  """Helper: shape for encoder-decoder mask."""
-  (padding_mask_shape, decoder_input_shape) = inputs
-  batch_size = padding_mask_shape[0]
-  input_length = padding_mask_shape[-1]
-  target_length = decoder_input_shape[1]
-  return (batch_size, 1, target_length, input_length)
-
-
-@base.layer(output_shape=EncoderDecoderMaskShape, stack_items_to_pass=0)
+@base.layer(stack_items_to_pass=0)
 def EncoderDecoderMask(x, **unused_kwargs):
   """Make encoder-decoder mask from a padding mask and decoder input."""
   (padding_mask, decoder_input) = x
@@ -60,9 +51,10 @@ def EncoderDecoderMask(x, **unused_kwargs):
 
 
 # Positional encoding.
-def _positional_encoding_new_params(input_shape, rng, max_len=2048):  # pylint: disable=invalid-name
+def _positional_encoding_new_params(  # pylint: disable=invalid-name
+    input_shape, input_dtype, rng, max_len=2048):
   """Helper: create positional encoding parameters."""
-  del rng
+  del input_dtype, rng
   d_feature = input_shape[-1]
   pe = onp.zeros((max_len, d_feature), dtype=onp.float32)
   position = onp.arange(0, max_len)[:, onp.newaxis]
@@ -111,42 +103,7 @@ def DotProductAttention(query, key, value, mask, dropout, mode, rng):
   return out
 
 
-# TODO(lukaszkaiser): make this a layer.
-def PureDotProductAttention(dropout=0.0, mode='train'):
-  """Pure single-headed self-attention.
-
-  Args:
-    dropout: float: dropout rate
-    mode: str: 'train' or 'eval'
-
-  Returns:
-    Pure single-headed attention layer. (No Dense transforms on input.)
-  """
-  def init_fn(_, input_shapes):  # pylint: disable=invalid-name
-    q_shape, _, v_shape, _ = input_shapes
-    output_shape = q_shape[:-1] + (v_shape[-1],)
-    return output_shape, ()
-  def apply_fn(params, inputs, **kwargs):  # pylint: disable=invalid-name
-    del params
-    q, k, v, mask = inputs
-    rng = kwargs.get('rng', None)
-    return DotProductAttention(q, k, v, mask,
-                               dropout=dropout, mode=mode, rng=rng)
-  return init_fn, apply_fn
-
-
-def _multihead_attention_output_shape(  # pylint: disable=invalid-name
-    input_shapes, **unused_kwargs):
-  """Helper: calculate multihead attention output shape."""
-  q_shape = input_shapes[0]  # Inputs are (q, k, v, mask).
-  v_shape = input_shapes[2]  # Inputs are (q, k, v, mask).
-  mask_shape = input_shapes[3]
-  res_shape = list(q_shape[:-1]) + [v_shape[-1]]
-  return tuple(res_shape), mask_shape
-
-
-@base.layer(output_shape=_multihead_attention_output_shape,
-            stack_items_to_pass=4)
+@base.layer(stack_items_to_pass=4)
 def PureMultiHeadedAttention(x, params, n_heads=8, dropout=0.0, mode='train',
                              **kwargs):
   """Pure transformer-style multi-headed attention.
@@ -234,7 +191,7 @@ def MultiHeadedAttention(
   ]
 
 
-@base.layer()
+@base.layer(stack_items_to_pass=0)
 def ShiftRight(x, **unused_kwargs):
   """Layer to shift the tensor to the right by padding on axis 1."""
   if not isinstance(x, (list, tuple)):  # non-chunked inputs

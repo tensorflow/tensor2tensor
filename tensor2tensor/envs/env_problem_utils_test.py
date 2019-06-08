@@ -48,12 +48,19 @@ class EnvProblemUtilsTest(tf.test.TestCase):
 
   def test_play_env_problem_with_policy(self):
     env = env_problem.EnvProblem(
-        base_env_name="CartPole-v0",
-        batch_size=2,
-        reward_range=(-1, 1))
+        base_env_name="CartPole-v0", batch_size=2, reward_range=(-1, 1))
+
+    # Let's make sure that at-most 4 observations come to the policy function.
+    len_history_for_policy = 4
 
     def policy_fun(observations, rng=None):
       b, t = observations.shape[:2]
+      # Assert that observations from time-step len_history_for_policy onwards
+      # are zeros.
+      self.assertTrue(
+          np.all(observations[:, len_history_for_policy:, ...] == 0))
+      self.assertFalse(
+          np.all(observations[:, :len_history_for_policy, ...] == 0))
       a = env.action_space.n
       p = np.random.uniform(size=(b, t, a))
       p = np.exp(p)
@@ -62,22 +69,25 @@ class EnvProblemUtilsTest(tf.test.TestCase):
 
     max_timestep = 15
     num_trajectories = 2
-    trajectories, _ = env_problem_utils.play_env_problem_with_policy(
-        env, policy_fun, num_trajectories=num_trajectories,
-        max_timestep=max_timestep, boundary=20)
+    trajectories, _, _ = env_problem_utils.play_env_problem_with_policy(
+        env,
+        policy_fun,
+        num_trajectories=num_trajectories,
+        max_timestep=max_timestep,
+        len_history_for_policy=len_history_for_policy)
 
     self.assertEqual(num_trajectories, len(trajectories))
 
     # Check shapes within trajectories.
     traj = trajectories[0]
     T = traj[1].shape[0]  # pylint: disable=invalid-name
-    self.assertEqual((T+1, 4), traj[0].shape)  # (4,) is OBS
+    self.assertEqual((T + 1, 4), traj[0].shape)  # (4,) is OBS
     self.assertEqual((T,), traj[2].shape)
     self.assertLessEqual(T, max_timestep)
 
     traj = trajectories[1]
     T = traj[1].shape[0]  # pylint: disable=invalid-name
-    self.assertEqual((T+1, 4), traj[0].shape)
+    self.assertEqual((T + 1, 4), traj[0].shape)
     self.assertEqual((T,), traj[2].shape)
     self.assertLessEqual(T, max_timestep)
 

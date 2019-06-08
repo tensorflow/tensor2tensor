@@ -309,6 +309,8 @@ def embed(x,
       h1a = tf.layers.dense(c, filter_size, name="vch1a")
       h1b = tf.layers.dense(1.0 - c, filter_size, name="vch1b")
       h1 = h1a + h1b
+      h1 = tf.layers.dense(h1, hidden_size, name="vch_final_linear")
+
     elif bottleneck_kind == "gumbel-softmax":
       hot = tf.one_hot(x, 2**z_size)
       h1 = tf.layers.dense(hot, hidden_size, name="dae_dense")
@@ -773,6 +775,9 @@ def discrete_bottleneck(inputs,
       outputs_dense_a = tf.layers.dense(c, filter_size, name="vch1a")
       outputs_dense_b = tf.layers.dense(1.0 - c, filter_size, name="vch1b")
       outputs_dense = outputs_dense_a + outputs_dense_b
+      outputs_dense = tf.layers.dense(outputs_dense, hidden_size,
+                                      name="vch_final_linear")
+
       dx = tf.to_int32(tf.stop_gradient(d))
       outputs_discrete = bit_to_int(dx, z_size)
       extra_loss = tf.constant(0.0)

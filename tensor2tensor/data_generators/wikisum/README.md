@@ -211,3 +211,102 @@ t2t-trainer \
   --data_dir=$DATA_DIR \
   --output_dir=$TRAIN_DIR
 ```
+
+
+## Dataset Metadata
+The following table is necessary for this dataset to be indexed by search
+engines such as <a href="https://g.co/datasetsearch">Google Dataset Search</a>.
+<div itemscope itemtype="http://schema.org/Dataset">
+<table>
+  <tr>
+    <th>property</th>
+    <th>value</th>
+  </tr>
+  <tr>
+    <td>name</td>
+    <td><code itemprop="name">wikisum</code></td>
+  </tr>
+  <tr>
+    <td>alternateName</td>
+    <td><code itemprop="alternateName">WikisumCommonCrawl</code></td>
+  </tr>
+  <tr>
+    <td>alternateName</td>
+    <td><code itemprop="alternateName">WikisumWeb</code></td>
+  </tr>
+  <tr>
+    <td>alternateName</td>
+    <td><code itemprop="alternateName">wkisum_commoncrawl</code></td>
+  </tr>
+  <tr>
+    <td>alternateName</td>
+    <td><code itemprop="alternateName">wikisum_web</code></td>
+  </tr>
+  <tr>
+    <td>url</td>
+    <td><code itemprop="url">https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/wikisum</code></td>
+  </tr>
+  <tr>
+    <td>sameAs</td>
+    <td><code itemprop="sameAs">https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/wikisum</code></td>
+  </tr>
+  <tr>
+    <td>description</td>
+    <td><code itemprop="description">The dataset from the
+paper [Generating Wikipedia by Summarizing Long
+Sequences](https://arxiv.org/abs/1801.10198). The task is to generate a
+Wikipedia article based on the contents of the cited references in that article
+and the top 10 Google search results for the article's title.\n
+\n
+There are 2 sources for the reference URLs used:
+\n
+1. [CommonCrawl](http://commoncrawl.org/), an open-source crawl of the web. The
+   advantage of using CommonCrawl is that the dataset is perfectly reproducible.
+   However, there is limited coverage of the reference URLs.
+1. Live web fetches. Coverage is considerably increased, but the content is
+   subject to change.\n
+\n
+The dataset includes:\n
+\n
+**URLs:** The dataset contains ~90M URLs total (~2.3M Wikipedia articles, each
+with ~40 reference URLs). The URLs in the dataset are available in sharded JSON
+files.\n
+\n
+**Wikipedia Articles:** We have processed the Wikipedia articles slightly to
+extract the title, section breaks, and section headings. The processed Wikipedia
+content is available in sharded `TFRecord` files containing serialized
+`tensorflow.Example` protocol buffers.\n
+\n
+**CommonCrawl References Index:** To enable efficiently extracting the reference
+URLs from CommonCrawl, we provide a JSON file per CommonCrawl file which maps a
+reference URL contained in that CommonCrawl file to a list of shard ids.
+These shards are the ones that contain one or more Wikipedia articles that cite
+this reference.</code></td>
+  </tr>
+  <tr>
+    <td>citation</td>
+    <td><code itemprop="citation">https://identifiers.org/arxiv:1801.10198</code></td>
+  </tr>
+  <tr>
+    <td>provider</td>
+    <td>
+      <div itemscope itemtype="http://schema.org/Organization" itemprop="provider">
+        <table>
+          <tr>
+            <th>property</th>
+            <th>value</th>
+          </tr>
+          <tr>
+            <td>name</td>
+            <td><code itemprop="name">Google</code></td>
+          </tr>
+          <tr>
+            <td>sameAs</td>
+            <td><code itemprop="sameAs">https://en.wikipedia.org/wiki/Google</code></td>
+          </tr>
+        </table>
+      </div>
+    </td>
+  </tr>
+</table>
+</div>

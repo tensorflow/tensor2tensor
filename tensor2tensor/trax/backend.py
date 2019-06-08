@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import contextlib
 import gin
 
 import jax
@@ -111,12 +112,21 @@ numpy = NumpyBackend()
 
 
 
-default_backend_name = "jax"
+override_backend_name = None
 
 
 @gin.configurable()
-def backend(name=None):
-  name = name or default_backend_name
+def backend(name="jax"):
+  name = name if not override_backend_name else override_backend_name
   if name == "numpy":
     return _NUMPY_BACKEND
   return _JAX_BACKEND
+
+
+@contextlib.contextmanager
+def use_backend(name):
+  global override_backend_name
+  prev_name = override_backend_name
+  override_backend_name = name
+  yield
+  override_backend_name = prev_name

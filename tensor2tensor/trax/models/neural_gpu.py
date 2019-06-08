@@ -28,7 +28,7 @@ def SaturationCost(x, limit=0.9):
   return np.minimum(0, np.abs(x) - limit)
 
 
-@tl.layer(output_shape=lambda input_shape_list: input_shape_list)
+@tl.layer()
 def DiagonalGate(x, params, **kwargs):
   """Split channels in 3 parts. Shifts 1st and 3rd sections to left/right."""
   del params

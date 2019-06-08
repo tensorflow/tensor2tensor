@@ -47,6 +47,7 @@ flags.DEFINE_multi_string("config", None,
 flags.DEFINE_integer("log_level", logging.INFO, "Log level.")
 flags.DEFINE_bool("use_tpu", False, "Whether we're running on TPU.")
 flags.DEFINE_bool("tf_eager", False, "Whether we're running TF in eager mode.")
+flags.DEFINE_bool("tf_xla", False, "Whether to turn on XLA for TF.")
 
 
 def _default_output_dir():
@@ -90,6 +91,9 @@ def main(_):
 
   if FLAGS.tf_eager:
     tf.enable_eager_execution()
+
+  if FLAGS.tf_xla:
+    tf.config.optimizer.set_jit(True)
 
   _setup_gin()
 

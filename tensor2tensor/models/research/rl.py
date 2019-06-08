@@ -408,6 +408,34 @@ def dqn_original_params():
   return hparams
 
 
+@registry.register_hparams
+def dqn_guess1_params():
+  """Guess 1 for DQN params."""
+  hparams = dqn_atari_base()
+  hparams.set_hparam("num_frames", int(1e6))
+  hparams.set_hparam("agent_update_period", 1)
+  hparams.set_hparam("agent_target_update_period", 400)
+  # Small replay buffer size was set for mistake, but it seems to work
+  hparams.set_hparam("replay_buffer_replay_capacity", 10000)
+  return hparams
+
+
+@registry.register_hparams
+def dqn_2m_replay_buffer_params():
+  """Guess 1 for DQN params, 2 milions transitions in replay buffer."""
+  hparams = dqn_guess1_params()
+  hparams.set_hparam("replay_buffer_replay_capacity", int(2e6) + int(1e5))
+  return hparams
+
+
+@registry.register_hparams
+def dqn_10m_replay_buffer_params():
+  """Guess 1 for DQN params, 10 milions transitions in replay buffer."""
+  hparams = dqn_guess1_params()
+  hparams.set_hparam("replay_buffer_replay_capacity", int(10e6))
+  return hparams
+
+
 def rlmf_tiny_overrides():
   """Parameters to override for tiny setting excluding agent-related hparams."""
   return dict(

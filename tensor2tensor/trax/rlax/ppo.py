@@ -83,6 +83,7 @@ BATCH_TRAJECTORIES = 32
 
 def policy_and_value_net(rng_key,
                          batch_observations_shape,
+                         observations_dtype,
                          n_actions,
                          bottom_layers_fn=(),
                          two_towers=True):
@@ -95,19 +96,16 @@ def policy_and_value_net(rng_key,
   # NOTE: The LogSoftmax instead of the Softmax because of numerical stability.
 
   if two_towers:
-    net = tl.Branch(
-        [bottom_layers_fn(), tl.Dense(n_actions), tl.LogSoftmax()],
-        [bottom_layers_fn(), tl.Dense(1)]
-    )
+    net = tl.Branch([bottom_layers_fn(),
+                     tl.Dense(n_actions),
+                     tl.LogSoftmax()],
+                    [bottom_layers_fn(), tl.Dense(1)])
   else:
     net = tl.Serial(
         bottom_layers_fn(),
-        tl.Branch(
-            [tl.Dense(n_actions), tl.LogSoftmax()],
-            [tl.Dense(1)]
-        )
-    )
-  return net.initialize(batch_observations_shape, rng_key), net
+        tl.Branch([tl.Dense(n_actions), tl.LogSoftmax()], [tl.Dense(1)]))
+  params = net.initialize(batch_observations_shape, observations_dtype, rng_key)
+  return params, net
 
 
 def optimizer_fn(net_params, step_size=1e-3):
@@ -127,9 +125,9 @@ def collect_trajectories(env,
                          n_trajectories=1,
                          policy=env_problem_utils.CATEGORICAL_SAMPLING,
                          max_timestep=None,
-                         boundary=20,
                          epsilon=0.1,
                          reset=True,
+                         len_history_for_policy=32,
                          rng=None):
   """Collect trajectories with the given policy net and behaviour.
 
@@ -142,10 +140,11 @@ def collect_trajectories(env,
     max_timestep: int or None, the index of the maximum time-step at which we
       return the trajectory, None for ending a trajectory only when env returns
       done.
-    boundary: int, boundary for padding, used in EnvProblem envs.
     epsilon: float, the epsilon for `epsilon-greedy` policy.
     reset: bool, true if we want to reset the envs. The envs are also reset if
       max_max_timestep is None or < 0
+    len_history_for_policy: int, the maximum history to keep for applying the
+      policy on.
     rng: jax rng, splittable.
 
   Returns:
@@ -159,18 +158,18 @@ def collect_trajectories(env,
 
   assert isinstance(env, env_problem.EnvProblem)
   # This is an env_problem, run its collect function.
-  trajs, n_done = env_problem_utils.play_env_problem_with_policy(
+  trajs, n_done, timing_info = env_problem_utils.play_env_problem_with_policy(
       env,
       policy_fn,
       num_trajectories=n_trajectories,
       max_timestep=max_timestep,
-      boundary=boundary,
       policy_sampling=policy,
       eps=epsilon,
       reset=reset,
+      len_history_for_policy=len_history_for_policy,
       rng=rng)
   # Skip returning raw_rewards here, since they aren't used.
-  return [(t[0], t[1], t[2]) for t in trajs], n_done
+  return [(t[0], t[1], t[2]) for t in trajs], n_done, timing_info
 
 
 # This function can probably be simplified, ask how?
@@ -403,8 +402,8 @@ def deltas(predicted_values, rewards, mask, gamma=0.99):
   # Predicted values at time t+1, by cutting off the first to have shape (B, T)
   predicted_values_btplus1 = predicted_values[:, 1:]
   # Return the deltas as defined above.
-  return (
-      rewards + (gamma * predicted_values_btplus1) - predicted_values_bt) * mask
+  return (rewards +
+          (gamma * predicted_values_btplus1) - predicted_values_bt) * mask
 
 
 def gae_advantages(td_deltas, mask, lambda_=0.95, gamma=0.99):
@@ -708,9 +707,9 @@ def masked_entropy(log_probs, mask):
 
 def evaluate_policy(eval_env,
                     get_predictions,
-                    boundary,
                     max_timestep=20000,
                     n_evals=1,
+                    len_history_for_policy=32,
                     rng=None):
   """Evaluate the policy."""
 
@@ -720,20 +719,20 @@ def evaluate_policy(eval_env,
     for policy in [
         env_problem_utils.CATEGORICAL_SAMPLING,
         env_problem_utils.GUMBEL_SAMPLING,
-        env_problem_utils.EPSILON_GREEDY
     ]:
-      trajs, _ = env_problem_utils.play_env_problem_with_policy(
+      trajs, _, _ = env_problem_utils.play_env_problem_with_policy(
           eval_env,
           get_predictions,
-          boundary=boundary,
+          num_trajectories=eval_env.batch_size,
           max_timestep=max_timestep,
           reset=True,
           policy_sampling=policy,
-          rng=rng)
+          rng=rng,
+          len_history_for_policy=len_history_for_policy)
       avg_rewards[policy] += float(sum(
           np.sum(traj[2]) for traj in trajs)) / len(trajs)
-      avg_rewards_unclipped[policy] += float(sum(
-          np.sum(traj[3]) for traj in trajs)) / len(trajs)
+      avg_rewards_unclipped[policy] += float(
+          sum(np.sum(traj[3]) for traj in trajs)) / len(trajs)
 
   # Now average these out.
   for k in avg_rewards:
@@ -791,6 +790,7 @@ def training_loop(
     enable_early_stopping=True,
     env_name=None,
     n_evals=1,
+    len_history_for_policy=4,
 ):
   """Runs the training loop for PPO, with fixed policy and value nets."""
   assert env
@@ -810,9 +810,10 @@ def training_loop(
 
   jax_rng_key = trax.get_random_number_generator_and_set_seed(random_seed)
 
-  # Batch Observations Shape = [-1, -1] + OBS, because we will eventually call
+  # Batch Observations Shape = [1, 1] + OBS, because we will eventually call
   # policy and value networks on shape [B, T] +_OBS
-  batch_observations_shape = (-1, -1) + env.observation_space.shape
+  batch_observations_shape = (1, 1) + env.observation_space.shape
+  observations_dtype = env.observation_space.dtype
 
   assert isinstance(env.action_space, gym.spaces.Discrete)
   n_actions = env.action_space.n
@@ -821,7 +822,8 @@ def training_loop(
 
   # Initialize the policy and value network.
   policy_and_value_net_params, policy_and_value_net_apply = (
-      policy_and_value_net_fn(key1, batch_observations_shape, n_actions))
+      policy_and_value_net_fn(key1, batch_observations_shape,
+                              observations_dtype, n_actions))
 
   # Maybe restore the policy params. If there is nothing to restore, then
   # iteration = 0 and policy_and_value_net_params are returned as is.
@@ -872,9 +874,9 @@ def training_loop(
       avg_reward, avg_reward_unclipped = evaluate_policy(
           eval_env,
           get_predictions,
-          boundary,
           max_timestep=max_timestep_eval,
           n_evals=n_evals,
+          len_history_for_policy=len_history_for_policy,
           rng=key)
       for k, v in avg_reward.items():
         eval_sw.scalar("eval/mean_reward/%s" % k, v, step=i)
@@ -889,13 +891,13 @@ def training_loop(
     trajectory_collection_start_time = time.time()
     logging.vlog(1, "Epoch [% 6d] collecting trajectories.", i)
     jax_rng_key, key = jax_random.split(jax_rng_key)
-    trajs, n_done = collect_trajectories(
+    trajs, n_done, timing_info = collect_trajectories(
         env,
         policy_fn=get_predictions,
         n_trajectories=batch_size,
         max_timestep=max_timestep,
-        boundary=boundary,
         rng=key,
+        len_history_for_policy=len_history_for_policy,
         reset=(i == 0) or restore,
         epsilon=(10.0 / (i + 10.0)))  # this is a different epsilon.
     trajectory_collection_time = get_time(trajectory_collection_start_time)
@@ -1079,10 +1081,9 @@ def training_loop(
     policy_save_start_time = time.time()
     n_trajectories_done += n_done
     # TODO(afrozm): Refactor to trax.save_state.
-    if (((n_trajectories_done >= done_frac_for_policy_save * batch_size)
-         and (i - last_saved_at > eval_every_n)
-         and (((i + 1) % eval_every_n == 0)))
-        or (i == epochs - 1)):
+    if (((n_trajectories_done >= done_frac_for_policy_save * batch_size) and
+         (i - last_saved_at > eval_every_n) and
+         (((i + 1) % eval_every_n == 0))) or (i == epochs - 1)):
       logging.vlog(1, "Epoch [% 6d] saving model.", i)
       old_model_files = gfile.glob(os.path.join(output_dir, "model-??????.pkl"))
       params_file = os.path.join(output_dir, "model-%06d.pkl" % i)
@@ -1115,6 +1116,8 @@ def training_loop(
         "policy_save": policy_save_time,
     }
 
+    timing_dict.update(timing_info)
+
     for k, v in timing_dict.items():
       timing_sw.scalar("timing/%s" % k, v, step=i)
 
@@ -1129,7 +1132,7 @@ def training_loop(
     restore = False
 
     # Flush summary writers once in a while.
-    if (i+1) % 1000 == 0 or i == epochs - 1:
+    if (i + 1) % 1000 == 0 or i == epochs - 1:
       train_sw.flush()
       timing_sw.flush()
       eval_sw.flush()

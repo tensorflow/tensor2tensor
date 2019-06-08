@@ -21,22 +21,8 @@ from __future__ import print_function
 
 from jax import lax
 
-import numpy as onp
 from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.layers import base
-from tensor2tensor.trax.layers import convolution
-
-
-def PoolingOutputShape(input_shape, pool_size=(2, 2),
-                       strides=None, padding='VALID'):
-  """Helper: compute the output shape for the pooling layer."""
-  dims = (1,) + pool_size + (1,)  # NHWC
-  spatial_strides = strides or (1,) * len(pool_size)
-  strides = (1,) + spatial_strides + (1,)
-  pads = convolution.PadtypeToPads(input_shape, dims, strides, padding)
-  operand_padded = onp.add(input_shape, onp.add(*zip(*pads)))
-  t = onp.floor_divide(onp.subtract(operand_padded, dims), strides) + 1
-  return tuple(t)
 
 
 def PoolingGeneral(inputs, reducer, init_val, rescaler=None,
@@ -50,14 +36,14 @@ def PoolingGeneral(inputs, reducer, init_val, rescaler=None,
   return rescale(out, inputs) if rescale else out
 
 
-@base.layer(output_shape=PoolingOutputShape)
+@base.layer()
 def MaxPool(x, params, pool_size=(2, 2), strides=None, padding='VALID', **kw):
   del params, kw
   return PoolingGeneral(x, lax.max, -np.inf, pool_size=pool_size,
                         strides=strides, padding=padding)
 
 
-@base.layer(output_shape=PoolingOutputShape)
+@base.layer()
 def SumPool(x, params, pool_size=(2, 2), strides=None, padding='VALID', **kw):
   del params, kw
   return PoolingGeneral(x, lax.add, 0., pool_size=pool_size,
@@ -73,7 +59,7 @@ def _normalize_by_window_size(dims, spatial_strides, padding):  # pylint: disabl
   return Rescale
 
 
-@base.layer(output_shape=PoolingOutputShape)
+@base.layer()
 def AvgPool(x, params, pool_size=(2, 2), strides=None, padding='VALID', **kw):
   del params, kw
   return PoolingGeneral(x, lax.add, 0., _normalize_by_window_size,

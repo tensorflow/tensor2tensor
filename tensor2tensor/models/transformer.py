@@ -586,6 +586,7 @@ class Transformer(t2t_model.T2TModel):
             tf.less(i, partial_targets_length), forced_logits, lambda: ret)
       return ret, cache
 
+    eos_id = self.get_decode_end_id() or beam_search.EOS_ID
     ret = fast_decode_tpu(
         encoder_output=encoder_output,
         encoder_decoder_attention_bias=encoder_decoder_attention_bias,
@@ -598,7 +599,8 @@ class Transformer(t2t_model.T2TModel):
         top_beams=top_beams,
         alpha=alpha,
         batch_size=batch_size,
-        force_decode_length=self._decode_hparams.force_decode_length)
+        force_decode_length=self._decode_hparams.force_decode_length,
+        eos_id=eos_id)
     if partial_targets is not None:
       if beam_size <= 1 or top_beams <= 1:
         ret["outputs"] = ret["outputs"][:, partial_targets_length:]
@@ -614,6 +616,14 @@ class Transformer(t2t_model.T2TModel):
     different decoder start symbol. The id returned by this method is used to
     index the embedding matrix, and retrieve the vector that will be used as the
     first input to the decoder
+    """
+    return None
+
+  def get_decode_end_id(self):
+    """Returns the id of the output symbol that terminates decoding.
+
+    This method can be overridden by a different model. The id returned by this
+    method is used to check if the generation is complete during decoding.
     """
     return None
 
@@ -699,7 +709,7 @@ class Transformer(t2t_model.T2TModel):
             features=features)
       encoder_output = encoder_output[0]
       encoder_decoder_attention_bias = encoder_decoder_attention_bias[0]
-      partial_targets = None
+      partial_targets = features.get("partial_targets")
     else:
       # The problem has no inputs.
       encoder_output = None
@@ -712,6 +722,8 @@ class Transformer(t2t_model.T2TModel):
       if partial_targets is None:
         partial_targets = features["targets"]
       assert partial_targets is not None
+
+    if partial_targets is not None:
       partial_targets = common_layers.expand_squeeze_to_nd(partial_targets, 2)
       partial_targets = tf.to_int64(partial_targets)
       partial_targets_shape = common_layers.shape_list(partial_targets)
@@ -818,6 +830,7 @@ class Transformer(t2t_model.T2TModel):
       return ret, cache
 
     sos_id = self.get_decode_start_id() or 0
+    eos_id = self.get_decode_end_id() or beam_search.EOS_ID
 
     ret = fast_decode(
         encoder_output=encoder_output,
@@ -832,7 +845,8 @@ class Transformer(t2t_model.T2TModel):
         alpha=alpha,
         batch_size=batch_size,
         force_decode_length=self._decode_hparams.force_decode_length,
-        sos_id=sos_id)
+        sos_id=sos_id,
+        eos_id=eos_id)
     if partial_targets is not None:
       if beam_size <= 1 or top_beams <= 1:
         ret["outputs"] = ret["outputs"][:, partial_targets_length:]
@@ -1011,11 +1025,14 @@ def fast_decode_tpu(encoder_output,
       next_id = common_layers.sample_with_temperature(
           logits, temperature, keep_top)
 
-      hit_eos |= tf.equal(next_id, eos_id)
-
       log_prob_indices = tf.stack([tf.range(tf.to_int64(batch_size)), next_id],
                                   axis=1)
-      log_prob += tf.gather_nd(log_probs, log_prob_indices)
+      log_prob += tf.gather_nd(
+          log_probs, log_prob_indices) * (1 - tf.to_float(hit_eos))
+      # Note(thangluong): we purposely update hit_eos after aggregating log_prob
+      # There is a subtle detail here that we want to include log_probs up to
+      # (and inclusive of) the first eos generated, but not subsequent tokens.
+      hit_eos |= tf.equal(next_id, eos_id)
 
       next_id = tf.expand_dims(next_id, axis=1)
       decoded_ids = tf.transpose(decoded_ids)
@@ -1155,14 +1172,19 @@ def fast_decode(encoder_output,
         temperature = 0.0
       next_id = common_layers.sample_with_temperature(
           logits, temperature, keep_top)
-      hit_eos |= tf.equal(next_id, eos_id)
 
       log_prob_indices = tf.stack([tf.range(tf.to_int64(batch_size)), next_id],
                                   axis=1)
-      log_prob += tf.gather_nd(log_probs, log_prob_indices)
+      log_prob += tf.gather_nd(
+          log_probs, log_prob_indices) * (1 - tf.to_float(hit_eos))
+      # Note(thangluong): we purposely update hit_eos after aggregating log_prob
+      # There is a subtle detail here that we want to include log_probs up to
+      # (and inclusive of) the first eos generated, but not subsequent tokens.
+      hit_eos |= tf.equal(next_id, eos_id)
 
       next_id = tf.expand_dims(next_id, axis=1)
       decoded_ids = tf.concat([decoded_ids, next_id], axis=1)
+
       return i + 1, hit_eos, next_id, decoded_ids, cache, log_prob
 
     def is_not_finished(i, hit_eos, *_):

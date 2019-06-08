@@ -43,10 +43,14 @@ import tensorflow_datasets as tfds
 #     the shape of examples is [batch_fun.eval_batch_size, ...]
 # * input_shape: the shape of inputs
 #     the [...] above, without batch size
+# * input_dtype: the data type of inputs
+
 
 Inputs = collections.namedtuple(
     "_Inputs",
-    ["train_stream", "train_eval_stream", "eval_stream", "input_shape"])
+    ["train_stream", "train_eval_stream", "eval_stream",
+     "input_shape", "input_dtype"]
+)
 
 # How many examples from the stream to skip at random during training.
 # For now, we skip at most 100K examples for efficiency.
@@ -76,8 +80,11 @@ def inputs(n_devices, dataset_name, data_dir=None, input_name=None,
   data_dir = os.path.expanduser(data_dir)
 
   (train_batches, train_eval_batches, eval_batches,
-   input_name, input_shape) = _train_and_eval_batches(
+   input_name, input_shape, input_dtype) = _train_and_eval_batches(
        dataset_name, data_dir, input_name, n_devices)
+
+  if input_dtype == np.uint8:  # TPUs don't like uint8s, we cast to ints.
+    input_dtype = np.int32
 
   def numpy_stream(dataset):
     return dataset_to_stream(
@@ -88,15 +95,17 @@ def inputs(n_devices, dataset_name, data_dir=None, input_name=None,
     length = input_shape[0]
     input_shape = tuple(
         [tuple([length // n_chunks] + list(input_shape)[1:])] * n_chunks)
+    input_dtype = tuple([input_dtype] * n_chunks)
   if append_targets:
     # TODO(lukaszkaiser): remove the assumption that input and target
     # shapes are the same, which is used below for now.
     input_shape = (input_shape, input_shape)
+    input_dtype = (input_dtype, input_dtype)
 
   return Inputs(train_stream=lambda: numpy_stream(train_batches),
                 train_eval_stream=lambda: numpy_stream(train_eval_batches),
                 eval_stream=lambda: numpy_stream(eval_batches),
-                input_shape=input_shape)
+                input_shape=input_shape, input_dtype=input_dtype)
 
 
 @gin.configurable(blacklist=["n_devices"])
@@ -144,7 +153,8 @@ def random_inputs(
   return Inputs(train_stream=random_minibatches,
                 train_eval_stream=random_minibatches,
                 eval_stream=random_minibatches,
-                input_shape=input_shape_without_batch)
+                input_shape=input_shape_without_batch,
+                input_dtype=input_dtype)
 
 
 def dataset_to_stream(dataset, input_name, n_chunks=0, append_targets=False):
@@ -153,9 +163,9 @@ def dataset_to_stream(dataset, input_name, n_chunks=0, append_targets=False):
     inp, out = example[0][input_name], example[1]
     # Some accelerators don't handle uint8 well, cast to int.
     if isinstance(inp, np.uint8):
-      inp = inp.astype(np.uint32)
+      inp = inp.astype(np.int32)
     if isinstance(out, np.uint8):
-      out = out.astype(np.uint32)
+      out = out.astype(np.int32)
     if len(out.shape) > 1 and out.shape[-1] == 1:
       out = np.squeeze(out, axis=-1)
     if n_chunks > 0:
@@ -214,9 +224,10 @@ def train_and_eval_dataset(dataset_name, data_dir, train_shuffle_files=True,
   return train, valid, info.features, keys
 
 
-def _make_info(shape_list, n_classes):
+def _make_info(shape_list, n_classes, dtype):
   """Create an info-like tuple for feature given some shapes and vocab size."""
-  feature_info = collections.namedtuple("FeatureInfo", ["shape", "n_classes"])
+  feature_info = collections.namedtuple(
+      "FeatureInfo", ["shape", "n_classes", "dtype"])
   cur_shape = list(shape_list[0])
   # We need to merge the provided shapes, put None where they disagree.
   for shape in shape_list:
@@ -226,7 +237,7 @@ def _make_info(shape_list, n_classes):
       if cur_shape[i] is not None:
         if shape[i] != cur_shape[i]:
           cur_shape[i] = None
-  return feature_info(cur_shape, n_classes)
+  return feature_info(cur_shape, n_classes, dtype)
 
 
 def _select_features(example, feature_list=None):
@@ -272,8 +283,10 @@ def _train_and_eval_dataset_v1(problem_name, data_dir):
     target_shapes.append(list(example["targets"].shape))
   input_vocab_size = hparams.vocab_size[input_key]
   target_vocab_size = hparams.vocab_size["targets"]
-  input_info = _make_info(input_shapes, input_vocab_size)
-  target_info = _make_info(target_shapes, target_vocab_size)
+  input_dtype = examples[0][input_key].dtype
+  target_dtype = examples[0]["targets"].dtype
+  input_info = _make_info(input_shapes, input_vocab_size, input_dtype)
+  target_info = _make_info(target_shapes, target_vocab_size, target_dtype)
   info = {input_key: input_info, "targets": target_info}
   return train_dataset, eval_dataset, info, supervised_keys
 
@@ -449,5 +462,6 @@ def _train_and_eval_batches(dataset, data_dir, input_name, n_devices):
       n_devices=n_devices)
   input_name = input_name or input_names[0]
   input_shape = features_info[input_name].shape
+  input_dtype = features_info[input_name].dtype
   return (train_batches, train_eval_batches, eval_batches,
-          input_name, list(input_shape))
+          input_name, list(input_shape), input_dtype)

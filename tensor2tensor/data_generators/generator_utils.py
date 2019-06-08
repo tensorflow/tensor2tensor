@@ -19,8 +19,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import gzip
 import math
+import multiprocessing
 import os
 import random
 import stat
@@ -695,10 +697,6 @@ def pack_dataset(dataset, length, keys=None, use_custom_ops=False):
   Sequences in the incoming examples are truncated to length "length", and the
   sequences in the output examples all have fixed (padded) length "length".
 
-  TODO(noam): This code is slow - the use_custom_ops option is faster, but
-  requiers a custom-built binary.  Resolve this so that it is easy to get
-  good perfomrance.
-
   Args:
     dataset: a tf.data.Dataset
     length: an integer
@@ -711,6 +709,7 @@ def pack_dataset(dataset, length, keys=None, use_custom_ops=False):
   shapes = dataset.output_shapes
   if keys is None:
     keys = shapes.keys()
+
   for k in keys:
     if k not in shapes:
       raise ValueError("Key %s not found in dataset.  Available keys are %s"
@@ -718,19 +717,11 @@ def pack_dataset(dataset, length, keys=None, use_custom_ops=False):
     if not shapes[k].is_compatible_with(tf.TensorShape([None])):
       raise ValueError("Tensors to be packed must be one-dimensional.")
 
-  # trim to length
-  dataset = dataset.map(lambda x: {k: x[k][:length] for k in keys})
-  # Setting batch_size=length ensures that the concatenated sequences (if they
-  # have length >=1) are sufficient to fill at least one packed example.
-  batch_size = length
-  dataset = dataset.padded_batch(
-      batch_size, padded_shapes={k: [-1] for k in keys})
-  if use_custom_ops and len(keys) == 2:
-    # custom op only handles 2 keys.
-    # TODO(noam): support other numbers of keys.
+  if use_custom_ops:
     return _pack_with_custom_ops(dataset, keys, length)
   else:
-    return _pack_with_tf_ops(dataset, keys, length)
+    packer = SequenceDatasetPacker(length, spacing=0, queue_size=10)
+    return packer(dataset, cycle_length=10, keys=keys)
 
 
 def _pack_with_custom_ops(dataset, keys, length):
@@ -750,7 +741,16 @@ def _pack_with_custom_ops(dataset, keys, length):
     a dataset.
   """
   from tensor2tensor.data_generators.ops import pack_sequences_ops  # pylint: disable=g-import-not-at-top
-  # faster and better packing but requires custom-built binary.
+
+  # trim to length
+  dataset = dataset.map(lambda x: {k: x[k][:length] for k in keys})
+  # Setting batch_size=length ensures that the concatenated sequences (if they
+  # have length >=1) are sufficient to fill at least one packed example.
+  batch_size = length
+  dataset = dataset.padded_batch(
+      batch_size, padded_shapes={k: [-1] for k in keys})
+
+  # better packing (may be faster) but requires custom-built binary.
   k1, k2 = keys
   def map_fn_custom(x):
     """Map-function."""
@@ -770,114 +770,381 @@ def _pack_with_custom_ops(dataset, keys, length):
   return dataset
 
 
-def _pack_with_tf_ops(dataset, keys, length):
-  """Helper-function for packing a dataset which has already been batched.
+INDEX_DTYPE = tf.int32
 
-  See pack_dataset()
 
-  Uses tf.while_loop.  Slow.
+class SequenceDatasetPacker(object):
+  """Helper class for packing a dataset of sequences in an online fashon.
+
+  The input sequence is expected to be a tuple of 1D Tensors which will be
+  converted to a dataset which produces a dict of packed examples, example
+  positions, and segment ids.
+
+  If `window_size` or `cycle_length` is specified multiple packing operations
+  will be performed in parallel to increase throughput. A value of None will
+  select default parallelism parameters. If this dataset will be run on a TPU,
+  specifying a cycle_length > 10 is recommended.
+  """
+
+  def __init__(self, packed_length=256, spacing=0, queue_size=10,
+               chop_long_sequences=False):
+    self._packed_length = packed_length
+    self._spacing = spacing
+    self._queue_size = queue_size
+    self._chop_long_sequences = chop_long_sequences
+    self._num_sequences = None
+    self._token_dtype = None
+
+  def __call__(self, dataset, **kwargs):
+    if {"window_size", "cycle_length"}.intersection(kwargs):
+      return self._concurrent_pack(dataset, **kwargs)
+    return self._pack(dataset, **kwargs)
+
+  def _concurrent_pack(self, dataset, window_size=None, cycle_length=None,
+                       keys=None):
+    """Selects sensible default parallelism parameters based for a task."""
+
+    if window_size is None:
+      # This is a heuristic to fill all of the queues 10 times, and should do a
+      # reasonable job balancing parallelism (which benefits from lower window
+      # size) with packing efficiency (which suffers from edge effects when the
+      # window size is too low.)
+      window_size = int(self._packed_length / 8 * self._queue_size * 10)
+
+    if cycle_length is None:
+      # Typically binning one stream will saturate about 3 cores.
+
+      # Note on TPUs:
+      # cycle_length should still be explicitly set when training on TPUs,
+      # since the cpu count will be the local CPU count (which could be quite
+      # small), wereas the transforms will actually run on the TPU host
+      # controller which has a very robust CPU.
+      cycle_length = max([int(multiprocessing.cpu_count() / 3), 1])
+    return self._pack(dataset, window_size=window_size,
+                      cycle_length=cycle_length, keys=keys)
+
+  def _pack(self, dataset, window_size=None, cycle_length=None,
+            deterministic=False, keys=None):
+    """Main method for chaining together packing transformation steps."""
+    (dataset, self._num_sequences, self._token_dtype, keys
+    ) = self._standardize(dataset, keys)
+    if window_size is None:
+      dataset = self._scanning_pack(dataset)
+    else:
+      # Dataset.window splits nested Tensors.
+      re_zip = lambda *x: tf.data.Dataset.zip(x)
+      dataset = dataset.window(window_size).map(re_zip).interleave(
+          self._scanning_pack, cycle_length=cycle_length,
+          block_length=window_size,
+          num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
+      if not deterministic:
+        # Sloppy interleave offers a marginal performance improvement.
+        options = tf.data.Options()
+        options.experimental_deterministic = False
+        dataset = dataset.with_options(options)
+
+    dataset = dataset.map(
+        self._finalize, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    self._num_sequences, self._token_dtype = None, None
+
+    if keys:
+      def dict_pack(example):
+        output = {}
+        for i, key in enumerate(keys):
+          output[key] = example["contents"][:, i]
+          output[key + "_segmentation"] = example["segment"][:, i]
+          output[key + "_position"] = example["position"][:, i]
+        return output
+      dataset = dataset.map(dict_pack)
+    return dataset
+
+  def _standardize(self, dataset, keys):
+    """Force dataset structure into a tuple of Tensors."""
+    shapes = tf.compat.v1.data.get_output_shapes(dataset)
+
+    if isinstance(shapes, dict):
+      keys = tuple(shapes.keys())
+      dataset = dataset.map(lambda x: tuple(x[k] for k in keys))
+      shapes = tf.compat.v1.data.get_output_shapes(dataset)
+
+    if not all(isinstance(i, tf.TensorShape) for i in shapes):
+      # Internally this class expects tuples of Tensors, even for the degenerate
+      # case of a single sequence.
+      dataset = dataset.map(lambda x: (x,))
+      shapes = tf.compat.v1.data.get_output_shapes(dataset)
+
+    for s in shapes:
+      if not s.is_compatible_with(tf.TensorShape([None])):
+        raise ValueError("Tensors to be packed must be one-dimensional.")
+
+    if not shapes:
+      raise ValueError("Expected sequence dataset.")
+
+    if self._chop_long_sequences and len(shapes) != 1:
+      raise ValueError("chop_long_sequences expects a single sequence dataset.")
+
+    token_types = tf.compat.v1.data.get_output_types(dataset)
+    if len(set(token_types)) > 1:
+      raise ValueError("Inconsistent dtypes: {}".format(token_types))
+
+    return dataset, len(shapes), token_types[0], keys
+
+  def _eviction_fn(self, _):
+    return tuple(-tf.ones((self._packed_length,), dtype=self._token_dtype)
+                 for _ in range(self._num_sequences))
+
+  def _scan_initial_state(self):
+    """Create TensorArrays and indices to track bin assignment.
+
+    availability: TensorArray[queue_size, num_sequences]
+      This represents the number of tokens available in the ith bin.
+      See implementation note below.
+
+    contents: TensorArray[queue_size, num_sequences * 2]
+      This holds the actual contents of the packed strings as well as a bit
+      mask indicating where sequences begin. It is stored in a flat vector and
+      is accessed in offsets of packed_length.
+
+    top_index: scalar [0, queue_size)
+      Integer tensor indicating which index is the "top" bin. See implementation
+      note below.
+
+    IMPLEMENTATION_NOTE:
+      The FFD algorithm periodically pops the topmost queue and pushes a new
+      one to replace it. In order to replicate those semantics with a fixed size
+      TensorArray, indexing operations are shifted by top_index. For example,
+      instead of:
+        `queue_available.read(i)`
+
+      a read is instead performed as:
+        `queue_available.read((i - top_index) % queue_size)`
+
+      to account for the fact that the "ith" logical FFD queue is stored at
+      position j. This means that the pop / push update can be performed by
+      simply incrementing top_index. (And zeroing the old top_index position.)
+
+    Returns:
+      The state for the binning scan.
+    """
+
+    all_available = tf.ones((self._queue_size, self._num_sequences),
+                            dtype=INDEX_DTYPE) * self._packed_length
+    total_size = self._packed_length * self._queue_size
+    total_size_range = tf.range(total_size, dtype=INDEX_DTYPE)
+    empty = tf.zeros((total_size, self._num_sequences * 2),
+                     dtype=self._token_dtype)
+
+    availability = tf.TensorArray(
+        dtype=INDEX_DTYPE, size=self._queue_size, dynamic_size=False,
+        clear_after_read=False, element_shape=(self._num_sequences,)
+        ).scatter(tf.range(self._queue_size, dtype=INDEX_DTYPE), all_available)
+
+    contents = tf.TensorArray(
+        dtype=self._token_dtype, size=total_size, dynamic_size=False,
+        clear_after_read=False, element_shape=(self._num_sequences * 2,)
+        ).scatter(total_size_range, empty)
+
+    # Which index should be considered the "top" bucket for the purpose of
+    # the first-fit descending algorithm.
+    top_index = tf.zeros((), dtype=INDEX_DTYPE)
+
+    return availability, contents, top_index
+
+  def _scanning_pack(self, dataset):
+    """Apply scan based pack to a dataset."""
+    if self._chop_long_sequences:
+      dataset = dataset.map(lambda x: (x[:self._packed_length],))
+    else:
+      dataset = dataset.filter(lambda *x: tf.reduce_max(  # pylint: disable=g-long-lambda
+          tf.stack([tf.shape(i)[0] for i in x]), axis=0) <= self._packed_length)
+
+    # In order to retrieve the sequences which are still in the queue when the
+    # dataset is exhausted, we feed dummy sequences which are guaranteed to
+    # displace the remaining elements.
+    dataset = dataset.concatenate(
+        tf.data.Dataset.range(self._queue_size).map(self._eviction_fn))
+
+    initial_state = self._scan_initial_state()
+    step_fn = functools.partial(
+        _scan_step_fn, packed_length=self._packed_length,
+        queue_size=self._queue_size, spacing=self._spacing,
+        num_sequences=self._num_sequences, token_dtype=self._token_dtype)
+
+    dataset = dataset.apply(tf.data.experimental.scan(initial_state, step_fn))
+
+    is_real_sample = lambda valid_sample, _: valid_sample
+    return dataset.filter(is_real_sample)
+
+  def _compute_auxiliary_structure(self, contents_and_mask):
+    """Compute segment and position metadata."""
+    contents = contents_and_mask[:, :self._num_sequences]
+    start_mask = tf.cast(contents_and_mask[:, self._num_sequences:],
+                         dtype=INDEX_DTYPE)
+
+    segment = tf.cumsum(start_mask, axis=0)
+    uniform_count = tf.ones_like(segment[:, 0])
+    position = []
+    for i in range(self._num_sequences):
+      segment_slice = segment[:, i]
+      counts = tf.math.segment_sum(uniform_count, segment[:, i])
+      position.append(tf.range(self._packed_length) -  tf.cumsum(
+          tf.gather(counts, segment_slice - 1) * start_mask[:, i]))
+    position = tf.concat([i[:, tf.newaxis] for i in position], axis=1)
+
+    # Correct for padding tokens.
+    pad_mask = tf.cast(tf.not_equal(contents, 0), dtype=INDEX_DTYPE)
+    segment *= pad_mask
+    position *= pad_mask
+
+    return segment, position
+
+  def _finalize(self, _, contents):
+    """Structure output and compute segment and position metadata."""
+
+    # The output shape information is lost during the filter; however we can
+    # guarantee the shape. (That's the point of this exercise, after all!)
+    contents.set_shape((self._packed_length, self._num_sequences * 2))
+
+    # Both the dummy branch of the scan step function and the eviction dataset
+    # use vectors of minus one. The cost of this check is negligible and the
+    # leakage of such dummy sequences would be difficult to debug downstream.
+    check_leaks = tf.assert_none_equal(contents, -tf.ones_like(contents))
+    with tf.control_dependencies([check_leaks]):
+      contents = tf.identity(contents)
+
+    segment, position = self._compute_auxiliary_structure(contents)
+    return {"contents": contents[:, :self._num_sequences],
+            "segment": segment, "position": position}
+
+
+@tf.autograph.to_graph
+def _scan_step_fn(state, example, packed_length, queue_size, spacing,
+                  num_sequences, token_dtype):  # pylint: disable=g-doc-args
+  """Transform function used by tf.data.experimental.scan to process an example.
+
+  This is written as a stateless function rather than a class method because we
+  trace it with AutoGraph (in order to simplify the conditional), and this way
+  we don't have to worry about handling re-tracing semantics.
 
   Args:
-    dataset: a dataset containing padded batches of examples.
-    keys: a list of strings
-    length: an integer
+    See the SequenceDatasetPacker class.
 
   Returns:
-    a dataset.
+    The updated queue state, and either a packed example or a dummy sequence
+    which will be filtered out downstream.
   """
-  empty_example = {}
-  for k in keys:
-    empty_example[k] = tf.zeros([0], dtype=tf.int64)
-    empty_example[k + "_position"] = tf.zeros([0], dtype=tf.int32)
-  keys_etc = empty_example.keys()
 
-  def write_packed_example(partial, outputs):
-    new_partial = empty_example.copy()
-    new_outputs = {}
-    for k in keys_etc:
-      new_outputs[k] = outputs[k].write(
-          outputs[k].size(),
-          tf.pad(partial[k], [[0, length - tf.size(partial[k])]]))
-    return new_partial, new_outputs
+  # Convert TensorArray tuples to lists since we'll need to replace them.
+  availability, contents, top_index = state
 
-  def map_fn(x):
-    """Internal function to flat_map over.
+  lengths = tf.concat([tf.shape(i) for i in example], axis=0)
+  start_availability = availability.stack()
+  can_fit = tf.reduce_all(tf.greater_equal(start_availability, lengths), axis=1)
+  any_can_fit = tf.reduce_any(can_fit, axis=0)
 
-    Consumes a batch of input examples and produces a variable number of output
-    examples.
+  # AutoGraph will convert this block to a tf.cond
+  if any_can_fit:
+    # This indicates where in the FFD queue rotation a given index sits
+    shifted_range = (
+        tf.range(queue_size, dtype=INDEX_DTYPE) - top_index) % queue_size
 
-    Args:
-      x: a single example
-    Returns:
-      a tf.data.Dataset
-    """
-    partial = empty_example.copy()
-    i = tf.zeros([], dtype=tf.int32)
-    dynamic_batch_size = tf.shape(x[keys[0]])[0]
-    outputs = {}
-    for k in keys:
-      outputs[k] = tf.TensorArray(
-          tf.int64, size=0, dynamic_size=True, element_shape=[length])
-      outputs[k + "_position"] = tf.TensorArray(
-          tf.int32, size=0, dynamic_size=True, element_shape=[length])
-    def cond_fn(i, partial, outputs):
-      del partial, outputs
-      return i < dynamic_batch_size
-    def body_fn(i, partial, outputs):
-      """Body function for while_loop.
+    # Mark any indices which cannot accommodate the current example.
+    exclusion_mask = tf.cast(tf.logical_not(can_fit), INDEX_DTYPE) * queue_size
 
-      Args:
-        i: integer scalar
-        partial: dictionary of Tensor (partially-constructed example)
-        outputs: dictionary of TensorArray
-      Returns:
-        A triple containing the new values of the inputs.
-      """
-      can_append = True
-      one_example = {}
-      for k in keys:
-        val = x[k][i]
-        val = val[:tf.reduce_sum(tf.to_int32(tf.not_equal(val, 0)))]
-        one_example[k] = val
-      for k in keys:
-        can_append = tf.logical_and(
-            can_append,
-            tf.less_equal(
-                tf.size(partial[k]) + tf.size(one_example[k]), length))
-      def false_fn():
-        return write_packed_example(partial, outputs)
-      def true_fn():
-        return partial, outputs
-      partial, outputs = tf.cond(can_append, true_fn, false_fn)
-      new_partial = {}
-      for k in keys:
-        new_seq = one_example[k][:length]
-        new_seq_len = tf.size(new_seq)
-        new_partial[k] = tf.concat([partial[k], new_seq], 0)
-        new_partial[k + "_position"] = tf.concat(
-            [partial[k + "_position"],
-             tf.range(new_seq_len, dtype=tf.int32)], 0)
-      partial = new_partial
-      return i+1, partial, outputs
+    # Index in [0, queue_size) in which to place the sample. Note, this index
+    # is the position in the actual TensorArray, not the index of the FFD queue.
+    queue_index = (tf.reduce_min(shifted_range + exclusion_mask) +
+                   top_index) % queue_size
 
-    i, partial, outputs = tf.while_loop(
-        cond_fn, body_fn, (i, partial, outputs),
-        back_prop=False,
-        shape_invariants=(
-            tf.TensorShape([]),
-            {k: tf.TensorShape([None]) for k in keys_etc},
-            {k: tf.TensorShape(None) for k in keys_etc},
-            ))
-    partial, outputs = write_packed_example(partial, outputs)
-    packed = {k: outputs[k].stack() for k in keys_etc}
-    for k in keys:
-      packed[k + "_segmentation"] = (
-          tf.cumsum(tf.to_int32(tf.equal(packed[k + "_position"], 0)), axis=1) *
-          tf.to_int32(tf.not_equal(packed[k], 0)))
+    # NOTE(taylorrobie): We emit a non-empty Tensor for downstream checks.
+    output_contents = -tf.ones((1, num_sequences), dtype=token_dtype)
 
-    return tf.data.Dataset.from_tensor_slices(packed)
-  dataset = dataset.flat_map(map_fn)
-  return dataset
+  else:
+    index_range = top_index * packed_length + tf.range(packed_length)
+    output_contents = contents.gather(index_range)
+
+    # Reset the queue state.
+    availability = availability.write(
+        top_index, packed_length * tf.ones((num_sequences,), dtype=INDEX_DTYPE))
+    empty_contents = tf.zeros((packed_length, num_sequences * 2),
+                              dtype=token_dtype)
+    contents = contents.scatter(index_range, empty_contents)
+
+    queue_index = top_index
+    top_index = (top_index + 1) % queue_size
+
+  pre_assign_availability = availability.read(queue_index)
+  space_left = pre_assign_availability - lengths - spacing
+  availability = availability.write(queue_index, space_left)
+
+  # ============================================================================
+  # == Update contents =========================================================
+  # ============================================================================
+  # Consider the following case for a seq-to-seq packing:
+  #   (padding is represented as underscores)
+  #
+  #   Queue starting state:
+  #     [1, 3, 2, 4, 6, 1, _, _, _, _, _, ...]
+  #     [5, 9, _, _, _, _, _, _, _, _, _, ...]
+  #
+  #   Examples:
+  #     [4, 2, 4], [3]
+  #
+  #   Desired new queue state:
+  #     [1, 3, 2, 4, 6, 1, _, _, 4, 2, 4, _, _, ...]
+  #     [5, 9, _, _, 3, _, _, _, _, _, _, _, _, ...]
+  #
+  # This could be acomplished by creating a TensorArray for each of the two
+  # sequences, and scattering into the respective arrays. However TensorArray
+  # writes are extremely expensive relative to other operations. So instead we
+  # store the contents in a single TensorArray of shape (packed_length, 2), and
+  # we pad and concatenate the examples such that they can be added in a single
+  # assign:
+  #
+  #              [_, _, _, _, 4, 2, 4]
+  #              [3, _, _, _, _, _, _]
+  #                        +
+  #  [1, 3, 2, 4, 6, 1, _, _, _, _, _, ...]
+  #  [5, 9, _, _, _, _, _, _, _, _, _, ...]
+  #
+  # And in practice, the extra work of padding is neglidgable compared to
+  # the gain from vectorizing the TensorArray assign. We also store a bit mask
+  # denoting where sequences start which is used to compute segment and
+  # position metadata:
+  #
+  #              [_, _, _, _, 1, _, _]
+  #              [1, _, _, _, _, _, _]
+  #                        +
+  #  [1, _, _, _, _, _, _, _, _, _, _, ...]
+  #  [1, _, _, _, _, _, _, _, _, _, _, ...]
+  #
+  # Both the contents and the mask are concatenated in the same TensorArray
+  # for performance.
+
+  start_index = packed_length - pre_assign_availability
+  end_index = start_index + lengths
+  leftmost = tf.reduce_min(start_index, axis=0)
+  rightmost = tf.reduce_max(end_index, axis=0)
+  delta = rightmost - leftmost
+  pad_indices = [tf.stack((start_index[i] - leftmost, rightmost - end_index[i]))
+                 for i in range(num_sequences)]
+
+  padded_examples = [tf.pad(ex, padding[tf.newaxis, :])
+                     for ex, padding in zip(example, pad_indices)]
+  padded_examples = tf.transpose(tf.stack(padded_examples))
+  mask_update = tf.one_hot(start_index - leftmost, delta,
+                           dtype=contents.dtype, axis=0)
+
+  content_update = tf.concat([padded_examples, mask_update], axis=1)
+
+  index_range = (queue_index * packed_length +  # Offset into the right section.
+                 tf.range(delta, dtype=INDEX_DTYPE) + leftmost)
+  contents = contents.scatter(index_range, contents.gather(index_range) +
+                              content_update)
+
+  state = (availability, contents, top_index)
+  return state, (tf.logical_not(any_can_fit), output_contents)
 
 
 def make_tmp_dir(suffix="", prefix="tmp", dir=None):  # pylint: disable=redefined-builtin

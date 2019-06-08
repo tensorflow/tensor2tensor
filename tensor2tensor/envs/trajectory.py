@@ -30,9 +30,12 @@ from tensor2tensor.envs import time_step
 class Trajectory(object):
   """Basically a list of TimeSteps with convenience methods."""
 
-  def __init__(self):
+  def __init__(self, time_steps=None):
     # Contains a list of time steps.
-    self._time_steps = []
+    if time_steps is None:
+      self._time_steps = []
+    else:
+      self._time_steps = time_steps
 
   def __str__(self):
     if not self.time_steps:
@@ -57,6 +60,22 @@ class Trajectory(object):
     assert self._time_steps
     self._time_steps[-1] = self._time_steps[-1].replace(
         **replace_time_step_kwargs)
+
+  def truncate(self, num_to_keep=1):
+    """Truncate trajectories, keeping the last `num_to_keep` time-steps."""
+
+    # We return `ts_copy` back to the truncator.
+    ts_copy = self._time_steps[:]
+
+    # We keep the last few observations.
+    self._time_steps = self._time_steps[-num_to_keep:]
+
+    # NOTE: We will need to set the rewards to 0, to eliminate double counting.
+    for i in range(self.num_time_steps):
+      self._time_steps[i] = self._time_steps[i].replace(
+          raw_reward=0, processed_reward=0)
+
+    return Trajectory(time_steps=ts_copy)
 
   @property
   def last_time_step(self):
@@ -96,6 +115,11 @@ class Trajectory(object):
   @property
   def observations_np(self):
     return np.stack([ts.observation for ts in self.time_steps])
+
+  def last_n_observations_np(self, n=None):
+    if n is not None:
+      n = -n  # pylint: disable=invalid-unary-operand-type
+    return np.stack([ts.observation for ts in self.time_steps[n:]])
 
   @property
   def actions_np(self):
@@ -170,7 +194,7 @@ class BatchTrajectory(object):
     # Make a new one to replace it.
     self._trajectories[index] = Trajectory()
 
-  def truncate_trajectories(self, indices):
+  def truncate_trajectories(self, indices, num_to_keep=1):
     """Truncate trajectories at specified indices.
 
      This puts the truncated trajectories in the completed list and makes new
@@ -179,21 +203,19 @@ class BatchTrajectory(object):
 
     Args:
         indices: iterable with the indices to truncate.
+        num_to_keep: int, number of last time-steps to keep while truncating.
     """
-    observations = []
     for index in indices:
       trajectory = self._trajectories[index]
       assert trajectory.is_active, "Trajectory to truncate can't be inactive."
 
-      # NOTE: We don't mark the last time-step as done.
+      # Now `trajectory` just consists of the last `num_to_keep` observations
+      # and actions. Rewards are zeroed out.
+      # The old data is placed in `old_trajectory`.
+      old_trajectory = trajectory.truncate(num_to_keep=num_to_keep)
 
-      # Collect the observations.
-      observations.append(trajectory.last_time_step.observation)
-
-    # Call reset on these indices, this will make new trajectories with the same
-    # observation as the existing ones, but in new trajectories. The existing
-    # trajectories are marked as completed.
-    self.reset(indices, np.stack(observations))
+      # We put the old data in _completed_trajectories.
+      self._completed_trajectories.append(old_trajectory)
 
   def reset(self, indices, observations):
     """Resets trajectories at given indices and populates observations.
@@ -344,21 +366,30 @@ class BatchTrajectory(object):
 
   # TODO(afrozm): Take in an already padded observation ndarray and just append
   # the last time-step and adding more padding if needed.
-  def observations_np(self, boundary=20):
+  def observations_np(self, boundary=20, len_history_for_policy=20):
     """Pads the observations in all the trajectories and returns them.
 
     Args:
       boundary: integer, Observations will be padded to (n * boundary) + 1 where
-          n is an integer.
+        n is an integer.
+      len_history_for_policy: int, For each trajectory return only the last
+        `len_history_for_policy` observations. Set to None for all the
+        observations.
 
     Returns:
       padded_observations: (self.batch_size, n * boundary + 1) + OBS
     """
-    list_observations_np_ts = [t.observations_np for t in self.trajectories]
+    list_observations_np_ts = [
+        t.last_n_observations_np(n=len_history_for_policy)
+        for t in self.trajectories
+    ]
     # Every element in `list_observations_np_ts` is shaped (t,) + OBS
     OBS = list_observations_np_ts[0].shape[1:]  # pylint: disable=invalid-name
 
-    t_max = max(self.trajectory_lengths)
+    trajectory_lengths = np.stack(
+        [obs.shape[0] for obs in list_observations_np_ts])
+
+    t_max = max(trajectory_lengths)
     # t_max is rounded to the next multiple of `boundary`
     boundary = int(boundary)
     bucket_length = boundary * int(np.ceil(float(t_max) / boundary))
@@ -370,4 +401,5 @@ class BatchTrajectory(object):
 
     return np.stack([
         np.pad(obs, padding_config(obs), "constant")
-        for obs in list_observations_np_ts])
+        for obs in list_observations_np_ts
+    ]), trajectory_lengths

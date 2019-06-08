@@ -1961,7 +1961,7 @@ def padded_cross_entropy_mixture(logits,
 
   # if we need to compute the best logits
   if return_best_logits:
-    if supervised_mode:
+    if not supervised_mode:
       return_mixture_indices = tf.squeeze(
           tf.cast(tf.argmin(xent, 0), dtype=tf.int32), axis=[1, 2])
     else:

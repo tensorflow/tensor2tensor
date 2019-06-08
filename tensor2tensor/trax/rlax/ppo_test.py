@@ -35,10 +35,10 @@ class PpoTest(test.TestCase):
 
   def test_policy_and_value_net(self):
     observation_shape = (3, 4, 5)
-    batch_observation_shape = (-1, -1) + observation_shape
+    batch_observation_shape = (1, 1) + observation_shape
     n_actions = 2
     pnv_params, pnv_apply = ppo.policy_and_value_net(
-        self.rng_key, batch_observation_shape, n_actions,
+        self.rng_key, batch_observation_shape, np.float32, n_actions,
         lambda: [layers.Flatten(num_axis_to_keep=2)])
     batch = 2
     time_steps = 10
@@ -380,14 +380,14 @@ class PpoTest(test.TestCase):
     self.rng_key, key1, key2 = jax_random.split(self.rng_key, num=3)
 
     B, T, A, OBS = 2, 10, 2, (28, 28, 3)  # pylint: disable=invalid-name
-    batch_observation_shape = (-1, -1) + OBS
+    batch_observation_shape = (1, 1) + OBS
 
     old_params, _ = ppo.policy_and_value_net(
-        key1, batch_observation_shape, A,
+        key1, batch_observation_shape, np.float32, A,
         lambda: [layers.Flatten(num_axis_to_keep=2)])
 
     new_params, net_apply = ppo.policy_and_value_net(
-        key2, batch_observation_shape, A,
+        key2, batch_observation_shape, np.float32, A,
         lambda: [layers.Flatten(num_axis_to_keep=2)])
 
     # Generate a batch of observations.

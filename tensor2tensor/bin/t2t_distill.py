@@ -17,6 +17,13 @@ r"""Perform distillation for a teacher to student.
 
 This script is intended to be used with --model=distillation. See the model for
 example hyperparameters and usage.
+
+If only output_dir is specified, then teacher_dir is `output_dir/teacher`, and
+the student_dir is `output_dir/student`. Logs are written inside `output_dir`.
+If teacher_dir is also specified explicitly, the student_dir is still
+`output_dir/student` and the logs are written into `output_dir`. If student_dir
+is further specified, the logs are written into student_dir unless output_dir is
+explicitly specified, which only contains the logs in this case.
 """
 from __future__ import absolute_import
 from __future__ import division
@@ -35,6 +42,18 @@ import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
+
+flags.DEFINE_bool(
+    "skip_teacher_training", False,
+    "By default, we train teacher model. If set to True, skip the training.")
+flags.DEFINE_string(
+    "teacher_dir", None,
+    "Directory to teacher network. If not specified, `output_dir/teacher` is "
+    "used instead.")
+flags.DEFINE_string(
+    "student_dir", None,
+    "Directory to student network. If not specified, `output_dir/student` is "
+    "used instead.")
 
 
 def main(argv):
@@ -58,24 +77,35 @@ def main(argv):
 
   root_output_dir = FLAGS.output_dir
 
-  # Train Teacher ============
-  hparams = t2t_trainer.create_hparams()
-  hparams.distill_phase = "train"
-  teacher_dir = os.path.join(root_output_dir, "teacher")
-  FLAGS.output_dir = teacher_dir
+  if FLAGS.teacher_dir:
+    teacher_dir = FLAGS.teacher_dir
+  else:
+    teacher_dir = os.path.join(root_output_dir, "teacher")
 
-  exp_fn = t2t_trainer.create_experiment_fn()
-  run_config = t2t_trainer.create_run_config(hparams)
-  exp = exp_fn(run_config, hparams)
-  if t2t_trainer.is_chief():
-    t2t_trainer.save_metadata(hparams)
-  t2t_trainer.execute_schedule(exp)
+  # Train Teacher ============
+  if FLAGS.skip_teacher_training:
+    tf.logging.info("training teacher skipped")
+  else:
+    hparams = t2t_trainer.create_hparams()
+    hparams.distill_phase = "train"
+    FLAGS.output_dir = teacher_dir
+
+    exp_fn = t2t_trainer.create_experiment_fn()
+    run_config = t2t_trainer.create_run_config(hparams)
+    exp = exp_fn(run_config, hparams)
+    if t2t_trainer.is_chief():
+      t2t_trainer.save_metadata(hparams)
+    t2t_trainer.execute_schedule(exp)
+
   # ==========================
   # Train Student ============
   hparams = t2t_trainer.create_hparams()
   hparams.add_hparam("teacher_dir", teacher_dir)
   hparams.distill_phase = "distill"
-  student_dir = os.path.join(root_output_dir, "student")
+  if FLAGS.student_dir:
+    student_dir = FLAGS.student_dir
+  else:
+    student_dir = os.path.join(root_output_dir, "student")
   FLAGS.output_dir = student_dir
 
   exp_fn = t2t_trainer.create_experiment_fn()

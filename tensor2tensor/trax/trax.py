@@ -173,6 +173,10 @@ def _save_replicated(opt_state, step, history, n_devices, output_dir, keep):
   if n_devices > 1:
     first_replica = lambda x: x[0]
     opt_state = layers.nested_map(opt_state, first_replica)
+  # This line, while optional, allows JAX to transfer arrays from the device to
+  # the host in parallel, which is particularly important for cloud TPU.
+  if backend.get_name() == "jax":
+    opt_state = jax.device_get(opt_state)
   save_state(State(params=opt_state, step=step, history=history),
              output_dir, keep=keep)
 
@@ -451,17 +455,21 @@ def train(output_dir,
   rng, init_rng = jax_random.split(rng)
   rngs = jax_random.split(rng, n_devices)
   first_shape = inputs.input_shape[0]
-  # If the inputs are a tuple/list, add [-1] (batch) to each element.
+  # If the inputs are a tuple/list, add [None] (batch) to each element.
   if isinstance(first_shape, (list, tuple)):
     model_input_shape = tuple(
-        [tuple([-1] + list(shape)) for shape in inputs.input_shape])
-  else:  # Otherwise just add [-1] to the input shape.
-    model_input_shape = tuple([-1] + list(inputs.input_shape))
+        tuple([None] + list(shape)) for shape in inputs.input_shape)
+  else:  # Otherwise just add [None] to the input shape.
+    model_input_shape = tuple([None] + list(inputs.input_shape))
+  # Change all None to 1 in input shape.
+  model_input_shape = layers.nested_map(
+      model_input_shape, lambda x: x if x else 1)
   if state.params:
     params = state.params[0]
     opt_state = state.params
   else:
-    params = model_train.initialize(model_input_shape, init_rng)
+    params = model_train.initialize(
+        model_input_shape, inputs.input_dtype, init_rng)
     opt_state = (params, opt.tree_init(params))
   if n_devices > 1:
     replicate = lambda x: numpy.broadcast_to(x, (n_devices,) + x.shape)

@@ -19,8 +19,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import operator as op
-from six.moves import reduce
+import numpy as onp
+
 from tensor2tensor.trax import backend
 from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.layers import base
@@ -78,6 +78,11 @@ def Softplus(x, **unused_kwargs):
   return np.logaddexp(x, 0.)
 
 
+@base.layer()
+def ToFloat(x, **unused_kwargs):
+  return x.astype(onp.float32)
+
+
 class Dense(base.Layer):
   """Layer constructor function for a dense (fully-connected) layer."""
 
@@ -97,10 +102,8 @@ class Dense(base.Layer):
     w, b = params
     return np.dot(x, w) + b
 
-  def output_shape_fn(self, input_shape):
-    return tuple(input_shape[:-1]) + (self._units,)
-
-  def new_parameters(self, input_shape, rng):
+  def new_parameters(self, input_shape, input_dtype, rng):
+    del input_dtype
     rng1, rng2 = backend.random.split(rng, 2)
     w = self._kernel_initializer((input_shape[-1], self._units), rng1)
     b = self._bias_initializer((self._units,), rng2)
@@ -124,28 +127,20 @@ class Embedding(base.Layer):
     del kwargs
     return np.take(params, x, axis=0)
 
-  def output_shape_fn(self, input_shape):
-    return tuple(input_shape) + (self._d_feature,)
-
-  def new_parameters(self, input_shape, rng):
+  def new_parameters(self, input_shape, input_dtype, rng):
+    del input_dtype
     return self._kernel_initializer(
         (self._vocab_size, self._d_feature), rng)
 
 
 # Flatten.
-def _flatten_output_shape(input_shape, num_axis_to_keep=1):  # pylint: disable=invalid-name
-  """Output shape of a flatten layer."""
-  if num_axis_to_keep >= len(input_shape):
-    raise ValueError(
-        "num_axis_to_keep[%d] should be less than input's rank[%d]" %
-        (num_axis_to_keep, len(input_shape)))
-  return tuple(input_shape[:num_axis_to_keep]) + (
-      reduce(op.mul, input_shape[num_axis_to_keep:], 1),)
-
-
-@base.layer(output_shape=_flatten_output_shape)
+@base.layer()
 def Flatten(x, params, num_axis_to_keep=1, **kwargs):
   del params, kwargs
+  if num_axis_to_keep >= len(x.shape):
+    raise ValueError(
+        "num_axis_to_keep[%d] should be less than input's rank[%d]" %
+        (num_axis_to_keep, len(x.shape)))
   return np.reshape(x, (x.shape[:num_axis_to_keep] + (-1,)))
 
 
@@ -185,14 +180,7 @@ def one_hot(x, size, dtype=np.float32):  # pylint: disable=invalid-name
 
 
 # Mean.
-def _mean_output_shape(input_shape, axis=-1, keepdims=False):  # pylint: disable=invalid-name
-  shape1 = list(input_shape)[:axis]  # Shape before axis.
-  shape2 = list(input_shape)[axis:][1:]  # Shape after axis.
-  mid_shape = [1] if keepdims else []
-  return tuple(shape1 + mid_shape + shape2)
-
-
-@base.layer(output_shape=_mean_output_shape)
+@base.layer()
 def Mean(x, params, axis=-1, keepdims=False, **kwargs):
   del params, kwargs
   return np.mean(x, axis=axis, keepdims=keepdims)

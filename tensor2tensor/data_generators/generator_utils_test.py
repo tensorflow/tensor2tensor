@@ -30,6 +30,67 @@ from tensor2tensor.data_generators import generator_utils
 import tensorflow as tf
 
 
+INPUTS = (
+    (1, 2, 3),
+    (4, 5,),
+    (6,),
+)
+TARGETS = (
+    (10,),
+    (20, 30, 40),
+    (50, 60,),
+)
+INPUTS_PACKED = (
+    (1, 2, 3, 4, 5),
+    (6, 0, 0, 0, 0),
+)
+INPUTS_SEGMENTATION = (
+    (1, 1, 1, 2, 2),
+    (1, 0, 0, 0, 0),
+)
+INPUTS_POSITION = (
+    (0, 1, 2, 0, 1),
+    (0, 0, 0, 0, 0),
+)
+TARGETS_PACKED = (
+    (10, 20, 30, 40, 0),
+    (50, 60, 0, 0, 0),
+)
+TARGETS_SEGMENTATION = (
+    (1, 2, 2, 2, 0),
+    (1, 1, 0, 0, 0),
+)
+TARGETS_POSITION = (
+    (0, 0, 1, 2, 0),
+    (0, 1, 0, 0, 0),
+)
+
+
+def example_generator():
+  for i, t in zip(INPUTS, TARGETS):
+    yield {"inputs": list(i), "targets": list(t)}
+
+
+def trim_right(x):
+  x = {k: list(v) for k, v in x.items()}
+  while all(x.values()) and not any(i[-1] for i in x.values()):
+    _ = [i.pop() for i in x.values()]
+  return x
+
+
+def reference_packing(trim_fn=None):
+  no_trim = lambda x: {k: list(v) for k, v in x.items()}
+  trim_fn = trim_fn or no_trim
+  outputs = [INPUTS_PACKED, INPUTS_POSITION, INPUTS_SEGMENTATION,
+             TARGETS_PACKED, TARGETS_POSITION, TARGETS_SEGMENTATION]
+  for i, i_pos, i_seg, t, t_pos, t_seg in zip(*outputs):
+    output = trim_fn({"inputs": i, "inputs_position": i_pos,
+                      "inputs_segmentation": i_seg})
+    output.update(trim_fn({"targets": t, "targets_position": t_pos,
+                           "targets_segmentation": t_seg}))
+    yield output
+
+
 class GeneratorUtilsTest(tf.test.TestCase):
 
   def testGenerateFiles(self):
@@ -119,6 +180,34 @@ class GeneratorUtilsTest(tf.test.TestCase):
     self.assertTrue(tf.gfile.Exists(os.path.join(data_dir, "test.voc")))
     self.assertIsNotNone(vocab2)
     self.assertEqual(vocab1.dump(), vocab2.dump())
+
+  def testPacking(self):
+    packed = generator_utils.pack_examples(
+        example_generator(), has_inputs=True, packed_length=5, queue_size=2,
+        spacing=0)
+    for example, reference in zip(packed, reference_packing(trim_right)):
+      self.assertAllEqual(set(example.keys()), set(reference.keys()))
+      for k in reference:
+        self.assertAllEqual(example[k], reference[k])
+
+  def testDatasetPacking(self):
+    dataset = tf.data.Dataset.from_generator(
+        example_generator,
+        output_types={"inputs": tf.int64, "targets": tf.int64},
+        output_shapes={"inputs": tf.TensorShape((None,)),
+                       "targets": tf.TensorShape((None,))}
+    )
+    dataset = generator_utils.pack_dataset(
+        dataset, length=5, keys=("inputs", "targets"), use_custom_ops=False)
+
+    with tf.Session().as_default() as sess:
+      batch = dataset.make_one_shot_iterator().get_next()
+      for reference in reference_packing():
+        example = sess.run(batch)
+        self.assertAllEqual(set(example.keys()), set(reference.keys()))
+        for k in reference:
+          self.assertAllEqual(example[k], reference[k])
+
 
 if __name__ == "__main__":
   tf.test.main()
