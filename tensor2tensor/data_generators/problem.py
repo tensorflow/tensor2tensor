@@ -848,8 +848,8 @@ class Problem(object):
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
     #partition_id, num_partitions = self._dataset_partition(mode, config)
-    partition_id = hvd.rank()
-    num_partitions = hvd.size()
+    partition_id = hvd.rank() if hvd else 0
+    num_partitions = hvd.size() if hvd else 1
     print('!------partition_id', partition_id, num_partitions)
 
     is_training = mode == tf.estimator.ModeKeys.TRAIN
