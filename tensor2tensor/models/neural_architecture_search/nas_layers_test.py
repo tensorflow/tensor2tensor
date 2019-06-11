@@ -33,8 +33,8 @@ import tensorflow as tf
 _BATCH_SIZE = 32
 _TOTAL_SEQUENCE_LENGTH = 20
 _INPUT_DEPTH = 256
-_NUM_BLOCKS = 6
-_BLOCK_NUMBER = 3
+_NUM_CELLS = 6
+_CELL_NUMBER = 3
 
 # The list of prefixes for layers that will not be tested for resizing outputs.
 _RESIZE_EXEMPT_LAYER_PREFIXES = [
@@ -75,7 +75,7 @@ def _apply_decoder_layer(translation_layer, input_tensor, output_depth,
   encoder_output_values = np.random.rand(
       *[_BATCH_SIZE, _TOTAL_SEQUENCE_LENGTH, encoder_depth]) - .5
   encoder_output = tf.constant(encoder_output_values, dtype=tf.float32)
-  encoder_block_outputs = [encoder_output] * _NUM_BLOCKS
+  encoder_cell_outputs = [encoder_output] * _NUM_CELLS
   hparams = transformer.transformer_base()
   hparams.attention_dropout = 0
   decoder_self_attention_bias = (
@@ -94,8 +94,8 @@ def _apply_decoder_layer(translation_layer, input_tensor, output_depth,
       postprocess_dropout=False,
       decoder_self_attention_bias=decoder_self_attention_bias,
       encoder_decoder_attention_bias=None,
-      encoder_block_outputs=encoder_block_outputs,
-      block_number=_BLOCK_NUMBER)
+      encoder_cell_outputs=encoder_cell_outputs,
+      cell_number=_CELL_NUMBER)
 
   return output_tensor
 
