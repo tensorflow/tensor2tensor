@@ -75,6 +75,13 @@ def _ensure_sublayers(layers):  # pylint: disable=invalid-name
     raise TypeError(type(layers))
 
 
+def _pop_rng_and_split(args_dict, n_copies):  # pylint: disable=invalid-name
+  rng = args_dict.pop('rng', None)
+  if rng is None:
+    return (None,) * n_copies
+  return backend.random.split(rng, n_copies)
+
+
 class Serial(base.Layer):
   """Layer composing a number of sub-layers in a serial way.."""
 
@@ -86,10 +93,7 @@ class Serial(base.Layer):
     self._nlayers = len(layers)
 
   def call(self, x, params=(), **kwargs):
-    rng = kwargs.pop('rng', None)
-    rngs = (None,) * self._nlayers
-    if rng is not None:
-      rngs = backend.random.split(rng, self._nlayers)
+    rngs = _pop_rng_and_split(kwargs, self._nlayers)
     for layer, p, rng in zip(self._layers, params, rngs):
       x = layer(x, p, rng=rng, **kwargs)
     return x
@@ -255,11 +259,7 @@ class Branch(base.Layer):
     self._layers = layers
 
   def call(self, x, params=(), **kwargs):
-    # Split the random number generators.
-    rng = kwargs.pop('rng', None)
-    rngs = (None,) * self._nlayers
-    if rng is not None:
-      rngs = backend.random.split(rng, self._nlayers)
+    rngs = _pop_rng_and_split(kwargs, self._nlayers)
     if isinstance(self._layers, (list, tuple)):
       res = [layer(x, params=p, rng=r, **kwargs)
              for layer, p, r in zip(self._layers, params, rngs)]
@@ -386,11 +386,7 @@ class Parallel(base.Layer):
     return self._nlayers
 
   def call(self, inputs, params=(), **kwargs):
-    # Split the random number generators.
-    rng = kwargs.pop('rng', None)
-    rngs = (None,) * self._nlayers
-    if rng is not None:
-      rngs = backend.random.split(rng, self._nlayers)
+    rngs = _pop_rng_and_split(kwargs, self._nlayers)
     # If layers are a list or a tuple, just apply them.
     if not isinstance(self._layers, dict):
       res = [layer(x, params=p, rng=r, **kwargs)
@@ -457,10 +453,7 @@ class Map(base.Layer):
     self._check_shapes = check_shapes
 
   def call(self, inputs, params=(), **kwargs):
-    rng = kwargs.pop('rng', None)
-    rngs = (None,) * len(inputs)
-    if rng is not None:
-      rngs = backend.random.split(rng, len(inputs))
+    rngs = _pop_rng_and_split(kwargs, len(inputs))
     result = [self._layer(x, params=params, rng=r, **kwargs)
               for x, r in zip(inputs, rngs)]
     if isinstance(inputs, list):
