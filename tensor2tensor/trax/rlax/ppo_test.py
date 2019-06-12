@@ -39,7 +39,7 @@ class PpoTest(test.TestCase):
     n_actions = 2
     pnv_params, pnv_apply = ppo.policy_and_value_net(
         self.rng_key, batch_observation_shape, np.float32, n_actions,
-        lambda: [layers.Flatten(num_axis_to_keep=2)])
+        lambda: [layers.Flatten(n_axes_to_keep=2)])
     batch = 2
     time_steps = 10
     batch_of_observations = np.random.uniform(
@@ -384,11 +384,11 @@ class PpoTest(test.TestCase):
 
     old_params, _ = ppo.policy_and_value_net(
         key1, batch_observation_shape, np.float32, A,
-        lambda: [layers.Flatten(num_axis_to_keep=2)])
+        lambda: [layers.Flatten(n_axes_to_keep=2)])
 
     new_params, net_apply = ppo.policy_and_value_net(
         key2, batch_observation_shape, np.float32, A,
-        lambda: [layers.Flatten(num_axis_to_keep=2)])
+        lambda: [layers.Flatten(n_axes_to_keep=2)])
 
     # Generate a batch of observations.
 

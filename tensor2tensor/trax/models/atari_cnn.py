@@ -41,7 +41,7 @@ def AtariCnn(hidden_sizes=(32, 32), output_size=128):
       tl.Relu(),
       tl.Conv(hidden_sizes[1], (5, 5), (2, 2), 'SAME'),
       tl.Relu(),
-      tl.Flatten(num_axis_to_keep=2),  # B, T and rest.
+      tl.Flatten(n_axes_to_keep=2),  # B, T and rest.
       tl.Dense(output_size),
       tl.Relu(),
       # Eventually this is shaped (B, T, output_size)

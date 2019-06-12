@@ -135,13 +135,13 @@ class Embedding(base.Layer):
 
 # Flatten.
 @base.layer()
-def Flatten(x, params, num_axis_to_keep=1, **kwargs):
+def Flatten(x, params, n_axes_to_keep=1, **kwargs):
   del params, kwargs
-  if num_axis_to_keep >= len(x.shape):
+  if n_axes_to_keep >= len(x.shape):
     raise ValueError(
-        "num_axis_to_keep[%d] should be less than input's rank[%d]" %
-        (num_axis_to_keep, len(x.shape)))
-  return np.reshape(x, (x.shape[:num_axis_to_keep] + (-1,)))
+        "n_axes_to_keep[%d] should be less than input's rank[%d]" %
+        (n_axes_to_keep, len(x.shape)))
+  return np.reshape(x, (x.shape[:n_axes_to_keep] + (-1,)))
 
 
 @base.layer()
