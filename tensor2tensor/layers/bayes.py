@@ -129,6 +129,7 @@ class Conv2DReparameterization(tf.keras.layers.Conv2D):
 
   def call(self, *args, **kwargs):
     self.call_weights()
+    kwargs.pop('training', None)
     return super(Conv2DReparameterization, self).call(*args, **kwargs)
 
 
@@ -467,6 +468,7 @@ class DenseReparameterization(tf.keras.layers.Dense):
 
   def call(self, *args, **kwargs):
     self.call_weights()
+    kwargs.pop('training', None)
     return super(DenseReparameterization, self).call(*args, **kwargs)
 
 

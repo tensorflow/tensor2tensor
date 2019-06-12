@@ -45,8 +45,13 @@ def learning_rate_factor(name, step_num, hparams):
     # "cosdecay" because it starts at 1 when the warmup steps end.
     x = tf.maximum(step_num, hparams.learning_rate_warmup_steps)
     step = x - hparams.learning_rate_warmup_steps
+    if hparams.train_steps <= hparams.learning_rate_warmup_steps:
+      raise ValueError("single_cycle_cos_decay cannot be used unless "
+                       "hparams.train_steps > "
+                       "hparams.learning_rate_warmup_steps")
     return tf.math.cos(
-        step * np.pi / hparams.learning_rate_decay_steps) / 2.0 + 0.5
+        step * np.pi /
+        (hparams.train_steps - hparams.learning_rate_warmup_steps)) / 2.0 + 0.5
   elif name == "rsqrt_decay":
     return tf.rsqrt(tf.maximum(step_num, hparams.learning_rate_warmup_steps))
   elif name == "rsqrt_normalized_decay":

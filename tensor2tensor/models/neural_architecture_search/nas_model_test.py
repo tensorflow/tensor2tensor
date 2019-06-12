@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for Translation NasNets."""
+"""Tests for NasSeq2Seq."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -45,7 +45,7 @@ def _list_product(num_list):
 
 def _get_transformer_branching_encoder_config():
   """Returns config for the Transformer encoder."""
-  num_blocks = 2
+  num_cells = 2
   left_inputs = [0, 1, 2, 3]
   left_layers = [
       layers.STANDARD_ATTENTION_REGISTRY_KEY,
@@ -71,7 +71,7 @@ def _get_transformer_branching_encoder_config():
   is_decoder = False
   final_combiner_function = translation_nas_net.CONCAT_COMBINER_FUNC_KEY
 
-  return (num_blocks, left_inputs, left_layers, left_output_dims, right_inputs,
+  return (num_cells, left_inputs, left_layers, left_output_dims, right_inputs,
           right_layers, right_output_dims, combiner_functions,
           final_combiner_function, dummy_activations, dummy_norms,
           layer_registry, is_decoder)
@@ -79,7 +79,7 @@ def _get_transformer_branching_encoder_config():
 
 def _get_transformer_branching_decoder_config():
   """Returns config for the Transformer decoder."""
-  num_blocks = 2
+  num_cells = 2
   left_inputs = [0, 1, 2, 3, 4]
   left_layers = [
       layers.STANDARD_ATTENTION_REGISTRY_KEY,
@@ -108,14 +108,14 @@ def _get_transformer_branching_decoder_config():
   is_decoder = True
   final_combiner_function = translation_nas_net.CONCAT_COMBINER_FUNC_KEY
 
-  return (num_blocks, left_inputs, left_layers, left_output_dims, right_inputs,
+  return (num_cells, left_inputs, left_layers, left_output_dims, right_inputs,
           right_layers, right_output_dims, combiner_functions,
           final_combiner_function, dummy_activations, dummy_norms,
           layer_registry, is_decoder)
 
 
 def _add_transformer_branching_hparams(hparams):
-  (encoder_num_blocks, encoder_left_inputs, encoder_left_layers,
+  (encoder_num_cells, encoder_left_inputs, encoder_left_layers,
    encoder_left_output_dims, encoder_right_inputs, encoder_right_layers,
    encoder_right_output_dims, encoder_combiner_functions,
    encoder_final_combiner_function, encoder_dummy_activations,
@@ -133,11 +133,11 @@ def _add_transformer_branching_hparams(hparams):
   hparams.add_hparam("encoder_right_output_dims", encoder_right_output_dims)
   hparams.add_hparam("encoder_right_norms", encoder_dummy_norms)
   hparams.add_hparam("encoder_combiner_functions", encoder_combiner_functions)
-  hparams.add_hparam("encoder_num_blocks", encoder_num_blocks)
+  hparams.add_hparam("encoder_num_cells", encoder_num_cells)
   hparams.add_hparam("encoder_final_combiner_function",
                      encoder_final_combiner_function)
 
-  (decoder_num_blocks, decoder_left_inputs, decoder_left_layers,
+  (decoder_num_cells, decoder_left_inputs, decoder_left_layers,
    decoder_left_output_dims, decoder_right_inputs, decoder_right_layers,
    decoder_right_output_dims, decoder_combiner_functions,
    decoder_final_combiner_function, decoder_dummy_activations,
@@ -155,12 +155,12 @@ def _add_transformer_branching_hparams(hparams):
   hparams.add_hparam("decoder_right_output_dims", decoder_right_output_dims)
   hparams.add_hparam("decoder_right_norms", decoder_dummy_norms)
   hparams.add_hparam("decoder_combiner_functions", decoder_combiner_functions)
-  hparams.add_hparam("decoder_num_blocks", decoder_num_blocks)
+  hparams.add_hparam("decoder_num_cells", decoder_num_cells)
   hparams.add_hparam("decoder_final_combiner_function",
                      decoder_final_combiner_function)
 
 
-class TranslationNasNetTest(parameterized.TestCase, tf.test.TestCase):
+class NasSeq2SeqTest(parameterized.TestCase, tf.test.TestCase):
 
   def _test_model(self, model_cls, hparams):
     """Test a Translation Nas Net model."""
@@ -233,7 +233,7 @@ class TranslationNasNetTest(parameterized.TestCase, tf.test.TestCase):
     with tf.variable_scope("wrong"):
       wrong_size_decoder_output = translation_nas_net.nas_decoder(
           decoder_input=input_tensor,
-          encoder_block_outputs=[input_tensor] * hparams.encoder_num_blocks,
+          encoder_cell_outputs=[input_tensor] * hparams.encoder_num_cells,
           decoder_self_attention_bias=decoder_self_attention_bias,
           encoder_decoder_attention_bias=None,
           hparams=hparams)
@@ -243,7 +243,7 @@ class TranslationNasNetTest(parameterized.TestCase, tf.test.TestCase):
     with tf.variable_scope("correct"):
       correct_size_decoder_output = translation_nas_net.nas_decoder(
           decoder_input=input_tensor,
-          encoder_block_outputs=[input_tensor] * hparams.encoder_num_blocks,
+          encoder_cell_outputs=[input_tensor] * hparams.encoder_num_cells,
           decoder_self_attention_bias=decoder_self_attention_bias,
           encoder_decoder_attention_bias=None,
           hparams=hparams)
@@ -265,7 +265,7 @@ class TranslationNasNetTest(parameterized.TestCase, tf.test.TestCase):
       self, get_config, expected_hidden_depths):
     tf.reset_default_graph()
 
-    (num_blocks, left_inputs, left_layers, left_output_dims, right_inputs,
+    (num_cells, left_inputs, left_layers, left_output_dims, right_inputs,
      right_layers, right_output_dims, combiner_functions,
      final_combiner_function, dummy_activations, dummy_norms, layer_registry,
      is_decoder) = get_config()
@@ -283,7 +283,7 @@ class TranslationNasNetTest(parameterized.TestCase, tf.test.TestCase):
          combiner_functions=combiner_functions,
          final_combiner_function=final_combiner_function,
          layer_registry=layer_registry,
-         num_blocks=num_blocks,
+         num_cells=num_cells,
          encoder_depth=_EMBEDDING_DEPTH)
 
     # Create model graph.
@@ -295,12 +295,12 @@ class TranslationNasNetTest(parameterized.TestCase, tf.test.TestCase):
       mask_future = True
       decoder_self_attention_bias = (
           common_attention.attention_bias_lower_triangle(_INPUT_LENGTH))
-      encoder_block_outputs = [input_tensor] * 6
+      encoder_cell_outputs = [input_tensor] * 6
     else:
       nonpadding = tf.ones([32, _INPUT_LENGTH])
       mask_future = False
       decoder_self_attention_bias = None
-      encoder_block_outputs = None
+      encoder_cell_outputs = None
 
     translation_nas_net.apply_nas_layers(
         input_tensor=input_tensor,
@@ -316,14 +316,14 @@ class TranslationNasNetTest(parameterized.TestCase, tf.test.TestCase):
         right_norms=dummy_norms,
         combiner_functions=combiner_functions,
         final_combiner_function=final_combiner_function,
-        num_blocks=num_blocks,
+        num_cells=num_cells,
         nonpadding=nonpadding,
         layer_registry=layer_registry,
         mask_future=mask_future,
         hparams=hparams,
         var_scope="test",
         encoder_decoder_attention_bias=None,
-        encoder_block_outputs=encoder_block_outputs,
+        encoder_cell_outputs=encoder_cell_outputs,
         decoder_self_attention_bias=decoder_self_attention_bias,
         final_layer_norm=False)
 
@@ -361,7 +361,7 @@ class TranslationNasNetTest(parameterized.TestCase, tf.test.TestCase):
          combiner_functions=hparams.decoder_combiner_functions,
          final_combiner_function=hparams.decoder_final_combiner_function,
          layer_registry=layers.DECODER_LAYERS,
-         num_blocks=hparams.decoder_num_blocks,
+         num_cells=hparams.decoder_num_cells,
          encoder_depth=_EMBEDDING_DEPTH,
          enforce_output_size=enforce_output_size)
 
@@ -371,7 +371,7 @@ class TranslationNasNetTest(parameterized.TestCase, tf.test.TestCase):
         common_attention.attention_bias_lower_triangle(_INPUT_LENGTH))
     _ = translation_nas_net.nas_decoder(
         decoder_input=input_tensor,
-        encoder_block_outputs=[input_tensor] * hparams.encoder_num_blocks,
+        encoder_cell_outputs=[input_tensor] * hparams.encoder_num_cells,
         decoder_self_attention_bias=decoder_self_attention_bias,
         encoder_decoder_attention_bias=None,
         hparams=hparams,
@@ -399,7 +399,7 @@ class TranslationNasNetTest(parameterized.TestCase, tf.test.TestCase):
         translation_nas_net.CONCAT_COMBINER_FUNC_KEY
     ]
 
-    (num_blocks, _, left_layers, _, _, _, _, _, final_combiner_function,
+    (num_cells, _, left_layers, _, _, _, _, _, final_combiner_function,
      dummy_activations, dummy_norms, layer_registry,
      _) = _get_transformer_branching_encoder_config()
 
@@ -416,7 +416,7 @@ class TranslationNasNetTest(parameterized.TestCase, tf.test.TestCase):
          combiner_functions=combiner_functions,
          final_combiner_function=final_combiner_function,
          layer_registry=layer_registry,
-         num_blocks=num_blocks,
+         num_cells=num_cells,
          encoder_depth=_EMBEDDING_DEPTH,
          enforce_output_size=False,
          enforce_fixed_output_sizes=False)
@@ -439,7 +439,7 @@ class TranslationNasNetTest(parameterized.TestCase, tf.test.TestCase):
         translation_nas_net.CONCAT_COMBINER_FUNC_KEY
     ]
 
-    (num_blocks, _, left_layers, _, _, _, _, _, final_combiner_function,
+    (num_cells, _, left_layers, _, _, _, _, _, final_combiner_function,
      dummy_activations, dummy_norms, layer_registry,
      _) = _get_transformer_branching_encoder_config()
 
@@ -456,7 +456,7 @@ class TranslationNasNetTest(parameterized.TestCase, tf.test.TestCase):
          combiner_functions=combiner_functions,
          final_combiner_function=final_combiner_function,
          layer_registry=layer_registry,
-         num_blocks=num_blocks,
+         num_cells=num_cells,
          encoder_depth=_EMBEDDING_DEPTH,
          enforce_output_size=False,
          enforce_fixed_output_sizes=False)

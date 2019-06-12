@@ -23,7 +23,6 @@ import operator
 import six
 
 from tensor2tensor.trax import backend
-from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.layers import base
 
 
@@ -101,19 +100,18 @@ class Serial(base.Layer):
       cur_shape_and_type = layer.output_shape(cur_shape_and_type, param)
     return cur_shape_and_type
 
-  def default_input_is_int(self):
-    if self._nlayers == 0:
-      return False
-    return self._layers[0].default_input_is_int()
-
-  def new_parameters(self, input_shape, rng):
+  def new_parameters(self, input_shape, input_dtype, rng):
+    def MakeShapeType(shape, dtype):
+      if isinstance(dtype, (list, tuple)):
+        return tuple(MakeShapeType(s, t) for s, t in zip(shape, dtype))
+      return base.ShapeType(shape=shape, dtype=dtype)
     params = []
-    cur_shape_and_type = base.to_shape_and_type(
-        input_shape, self.default_input_is_int())
+    cur_shape_and_type = MakeShapeType(input_shape, input_dtype)
     for layer in self._layers:
       rng, layer_rng = backend.random.split(rng)
       cur_shape = base.nested_map(cur_shape_and_type, lambda x: x.shape)
-      param = layer.initialize(cur_shape, layer_rng)
+      cur_dtype = base.nested_map(cur_shape_and_type, lambda x: x.dtype)
+      param = layer.initialize(cur_shape, cur_dtype, layer_rng)
       pparam = layer._params   # pylint: disable=protected-access
       cur_shape_and_type = layer.output_shape(cur_shape_and_type, pparam)
       params.append(param)
@@ -232,7 +230,7 @@ class Select(base.Layer):
       return x
     return base.nested_map(self._output, lambda i: self._map(x, i))
 
-  def new_parameters(self, input_shape, rng):
+  def new_parameters(self, input_shape, input_dtype, rng):
     return ()
 
 
@@ -267,13 +265,10 @@ class Branch(base.Layer):
              for layer, p, r in zip(self._layers, params, rngs)]
       return tuple(res)
 
-  def default_input_is_int(self):
-    return self._layers[0].default_input_is_int()
-
-  def new_parameters(self, input_shape, rng):
+  def new_parameters(self, input_shape, input_dtype, rng):
     rngs = backend.random.split(rng, self._nlayers)
     if not isinstance(self._layers, dict):
-      return [layer.initialize(input_shape, rng)
+      return [layer.initialize(input_shape, input_dtype, rng)
               for layer, rng in zip(self._layers, rngs)]
 
   def output_shape(self, input_shape, params):
@@ -390,9 +385,6 @@ class Parallel(base.Layer):
   def stack_items_to_pass(self):
     return self._nlayers
 
-  def default_input_is_int(self):
-    return any([layer.default_input_is_int() for layer in self._layers])
-
   def call(self, inputs, params=(), **kwargs):
     # Split the random number generators.
     rng = kwargs.pop('rng', None)
@@ -418,12 +410,12 @@ class Parallel(base.Layer):
         result[k] = inputs[k]
     return result
 
-  def new_parameters(self, input_shape, rng):
+  def new_parameters(self, input_shape, input_dtype, rng):
     rngs = backend.random.split(rng, self._nlayers)
     # If the argument layers are a sequence, create parameters for each one.
     if not isinstance(self._layers, dict):
-      return [layer.initialize(shape, rng) for layer, shape, rng
-              in zip(self._layers, input_shape, rngs)]
+      return [layer.initialize(shape, dtype, rng) for layer, shape, dtype, rng
+              in zip(self._layers, input_shape, input_dtype, rngs)]
     # If the argument layers are a dictionary, create a dictionary too.
     result, counter = {}, 0
     for k in self._layers:
@@ -475,59 +467,11 @@ class Map(base.Layer):
       return result
     return tuple(result)
 
-  def new_parameters(self, input_shape, rng):
+  def new_parameters(self, input_shape, input_dtype, rng):
     first_shape = input_shape[0]
     if self._check_shapes:
       for shape in input_shape:
         if shape != first_shape:
           raise ValueError('Map layer can only be applied to list of elements '
                            'with the same shapes. Shapes: %s' % str(shape))
-    return self._layer.initialize(first_shape, rng)
-
-
-class Rebatch(base.Layer):
-  """Combinator for treating the first `n` dims as batch.
-
-  Args:
-    layer: subclass of base.Layer, a layer to apply to the input.
-    n_batch_dims: int, the number of leading dimensions to consider as batch.
-
-  Returns:
-    A new layer that will reshape the input into a virtual batch, apply the
-    layer and unbatch the virtual batch.
-  """
-
-  def __init__(self, layer, n_batch_dims=1):
-    super(Rebatch, self).__init__()
-    self._layer = layer
-    self._n_batch_dims = n_batch_dims
-
-  def _modify_shape(self, input_shape):
-    input_shape = tuple(input_shape)
-    batch_dims, non_batch_dims = (input_shape[:self._n_batch_dims],
-                                  input_shape[self._n_batch_dims:])
-    new_batch_dim = six.moves.reduce(operator.mul, batch_dims)
-    return (new_batch_dim,) + non_batch_dims, batch_dims
-
-  def _unmodify_shape(self, input_shape, batch_dims):
-    return batch_dims + tuple(input_shape[1:])
-
-  def _modify(self, inp):
-    modified_shape, batch_dims = self._modify_shape(inp.shape)
-    return np.reshape(inp, modified_shape), batch_dims
-
-  def _unmodify(self, inp, batch_dims):
-    return np.reshape(inp, self._unmodify_shape(inp.shape, batch_dims))
-
-  def call(self, inp, params=(), **kwargs):
-    if isinstance(inp, (tuple, list)):
-      # TODO(afrozm): This should be easy to do though.
-      # Tip from Lukasz - base.nested_map(self._modify, inp)
-      raise ValueError("Rebatch doesn't support list/tuple inputs now.")
-    inp, batch_dims = self._modify(inp)
-    out = self._layer(inp, params=params, **kwargs)
-    return self._unmodify(out, batch_dims)
-
-  def new_parameters(self, input_shape, rng):
-    modified_shape, _ = self._modify_shape(input_shape)
-    return self._layer.initialize(modified_shape, rng)
+    return self._layer.initialize(first_shape, input_dtype[0], rng)

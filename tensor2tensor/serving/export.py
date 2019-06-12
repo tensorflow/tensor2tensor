@@ -54,11 +54,25 @@ def _get_hparams_path():
   hparams_path = None
   if FLAGS.output_dir:
     hparams_path = os.path.join(FLAGS.output_dir, "hparams.json")
-  else:
+  elif FLAGS.checkpoint_path:  # Infer hparams.json from checkpoint path
+    hparams_path = os.path.join(
+        os.path.dirname(FLAGS.checkpoint_path), "hparams.json")
+
+  # Check if hparams_path really exists
+  if hparams_path:
+    if tf.gfile.Exists(hparams_path):
+      tf.logging.info("hparams file %s exists", hparams_path)
+    else:
+      tf.logging.info("hparams file %s does not exist", hparams_path)
+      hparams_path = None
+
+  # Can't find hparams_path
+  if not hparams_path:
     tf.logging.warning(
-        "--output_dir not specified. Hyper-parameters will be infered from"
-        "--hparams_set and --hparams only. These may not match training time"
-        "hyper-parameters.")
+        "--output_dir not specified or file hparams.json does not exists. "
+        "Hyper-parameters will be infered from --hparams_set and "
+        "--hparams only. These may not match training time hyper-parameters.")
+
   return hparams_path
 
 

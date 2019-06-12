@@ -95,6 +95,10 @@ flags.DEFINE_integer(
     "random_starts_step_limit", 10000,
     "Number of frames to choose from for random starts of the simulated env."
 )
+flags.DEFINE_bool(
+    "all_epochs", False,
+    "Whether to run the evaluator on policy checkpoints from all epochs."
+)
 
 # Unused flags needed to pass for multi-run infrastructure.
 flags.DEFINE_bool("autotune", False, "Unused here.")
@@ -477,6 +481,21 @@ def get_game_for_worker(map_name, directory_id):
   return games[game_id]
 
 
+def evaluate_all_epochs(
+    loop_hparams, planner_hparams, policy_dir, model_dir, eval_metrics_dir,
+    *args, **kwargs
+):
+  epoch_policy_dirs = tf.gfile.Glob(os.path.join(policy_dir, "epoch_*"))
+  for epoch_policy_dir in epoch_policy_dirs:
+    epoch_metrics_dir = os.path.join(eval_metrics_dir, "epoch_{}".format(
+        epoch_policy_dir.split("_")[-1]
+    ))
+    evaluate(
+        loop_hparams, planner_hparams, epoch_policy_dir, model_dir,
+        epoch_metrics_dir, *args, **kwargs
+    )
+
+
 def main(_):
   now = datetime.datetime.now()
   now_tag = now.strftime("%Y_%m_%d_%H_%M")
@@ -496,6 +515,7 @@ def main(_):
   model_dir = FLAGS.model_dir
   eval_metrics_dir = FLAGS.eval_metrics_dir
   debug_video_path = FLAGS.debug_video_path
+  evaluate_fn = evaluate
   if FLAGS.output_dir:
     cur_dir = FLAGS.output_dir
     if FLAGS.total_num_workers > 1:
@@ -510,7 +530,9 @@ def main(_):
     tf.logging.info("Writing metrics to %s." % eval_metrics_dir)
     if not tf.gfile.Exists(eval_metrics_dir):
       tf.gfile.MkDir(eval_metrics_dir)
-  evaluate(
+    if FLAGS.all_epochs:
+      evaluate_fn = evaluate_all_epochs
+  evaluate_fn(
       loop_hparams, planner_hparams, policy_dir, model_dir,
       eval_metrics_dir, FLAGS.agent, FLAGS.mode, FLAGS.eval_with_learner,
       FLAGS.log_every_steps if FLAGS.log_every_steps > 0 else None,

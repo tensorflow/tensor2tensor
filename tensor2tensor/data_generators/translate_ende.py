@@ -41,12 +41,23 @@ _ENDE_TRAIN_DATASETS = [
         ("training/europarl-v7.de-en.en", "training/europarl-v7.de-en.de")
     ],
 ]
+
 _ENDE_EVAL_DATASETS = [
     [
         "http://data.statmt.org/wmt17/translation-task/dev.tgz",
         ("dev/newstest2013.en", "dev/newstest2013.de")
     ],
 ]
+
+_ENDE_RAPID_TRAIN_DATASET = [
+    # additional training data available for WMT 18 news task training data
+    # as defined by http://www.statmt.org/wmt18/translation-task.html
+    [
+        "http://data.statmt.org/wmt18/translation-task/rapid2016.tgz",
+        ("rapid2016.de-en.en", "rapid2016.de-en.de"),
+    ],
+]
+
 _ENDE_PARACRAWL_DATASETS = [
     [
         "https://s3.amazonaws.com/web-language-models/paracrawl/release4/en-de.bicleaner07.tmx.gz",  # pylint: disable=line-too-long
@@ -68,6 +79,20 @@ class TranslateEndeWmt32k(translate.TranslateProblem):
     train = dataset_split == problem.DatasetSplit.TRAIN
     train_datasets = _ENDE_TRAIN_DATASETS + self.additional_training_datasets
     return train_datasets if train else _ENDE_EVAL_DATASETS
+
+
+@registry.register_problem
+class TranslateEnde2018Wmt32k(translate.TranslateProblem):
+  """En-de translation trained on WMT18 corpus."""
+
+  @property
+  def use_vocab_from_other_problem(self):
+    return TranslateEndeWmt32k()
+
+  @property
+  def additional_training_datasets(self):
+    """WMT18 adds rapid data."""
+    return _ENDE_RAPID_TRAIN_DATASET
 
 
 @registry.register_problem

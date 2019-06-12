@@ -31,6 +31,12 @@ class ConvolutionLayerTest(absltest.TestCase):
         convolution.Conv(30, (3, 3)), input_shape)
     self.assertEqual(result_shape, (29, 3, 3, 30))
 
+  def test_conv_rebatch(self):
+    input_shape = (3, 29, 5, 5, 20)
+    result_shape = base.check_shape_agreement(
+        convolution.Conv(30, (3, 3)), input_shape)
+    self.assertEqual(result_shape, (3, 29, 3, 3, 30))
+
 
 if __name__ == "__main__":
   absltest.main()

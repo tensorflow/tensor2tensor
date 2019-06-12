@@ -724,12 +724,6 @@ def add_evolved_transformer_hparams(hparams):
   hparams.learning_rate_constant /= hparams.learning_rate_warmup_steps ** 0.5
   hparams.learning_rate_schedule = (
       "constant*linear_warmup*single_cycle_cos_decay*rsqrt_hidden_size")
-  # The current infrastructure does not support exposing
-  # `train_steps` to the decay functions, and so we are hard coding the decay
-  # steps here to match the default number of train steps used in `t2t_trainer`.
-  # TODO(davidso): Thread `train_steps` through to decay functions so we do not
-  # have to worry about a `learning_rate_decay_steps` mismatch.
-  hparams.learning_rate_decay_steps = 250000
   return hparams
 
 
@@ -743,6 +737,16 @@ def evolved_transformer_base():
 def evolved_transformer_big():
   """Big parameters for Evolved Transformer model on WMT."""
   return add_evolved_transformer_hparams(transformer.transformer_big())
+
+
+@registry.register_hparams
+def evolved_transformer_deep():
+  """Deep parameters for Evolved Transformer model on WMT."""
+  hparams = add_evolved_transformer_hparams(transformer.transformer_big())
+  hparams.num_encoder_layers = 9
+  hparams.num_decoder_layers = 10
+  hparams.hidden_size = 640
+  return hparams
 
 
 @registry.register_hparams

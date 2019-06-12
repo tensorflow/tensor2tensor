@@ -46,14 +46,15 @@ class Layer(object):
     """Call this layer in input x using the given parameters."""
     raise NotImplementedError
 
-  def new_parameters(self, input_shape, rng):
-    """Create new parameters for the layer given an input shape and rng.
+  def new_parameters(self, input_shape, input_dtype, rng):
+    """Create new parameters for the layer given an input shape, dtype and rng.
 
     Note that all arguments and return values can be tuples or dictionaries
     or arbitraty nested structures composed of tuples and dictionaries.
 
     Args:
       input_shape: a tuple representing the shape of the input.
+      input_dtype: numpy dtype of the input.
       rng: random number generator.
 
     Returns:
@@ -65,10 +66,6 @@ class Layer(object):
   def stack_items_to_pass(self):
     """How many of the top stack items do we process."""
     return 0
-
-  def default_input_is_int(self):
-    """Whether the default inputs are ints or floats."""
-    return False
 
   # End of subclassing interface, all functions below are internal.
 
@@ -93,7 +90,7 @@ class Layer(object):
           n = self.stack_items_to_pass() if isinstance(x, (list, tuple)) else 0
           return _apply_to_first_n(f, x, n)
         params_shapes = nested_map(
-            params, lambda x: ShapeType(shape=x.shape, tp=x.dtype))
+            params, lambda x: ShapeType(shape=x.shape, dtype=x.dtype))
         s = _eval_on_shapes(call_on_input, input_shape_and_type, params_shapes)
       return s
     except Exception:
@@ -101,8 +98,8 @@ class Layer(object):
       raise LayerError(name, 'output_shape', self._caller,
                        input_shape_and_type, trace)
 
-  def initialize(self, input_shape, rng):
-    """Initialize the layer given an input shape and rng.
+  def initialize(self, input_shape, input_dtype, rng):
+    """Initialize the layer given an input shape, dtype and rng.
 
     Returns new_parameters(input_shape, rng) on the first call and () on any
     subsequent call, as the layer is already initialized. This is used for
@@ -113,6 +110,7 @@ class Layer(object):
 
     Args:
       input_shape: a tuple representing the shape of the input.
+      input_dtype: numpy dtype of the input.
       rng: random number generator.
 
     Returns:
@@ -131,7 +129,7 @@ class Layer(object):
         input_shape = input_shape[:self.stack_items_to_pass()]
         if len(input_shape) == 1:
           input_shape = input_shape[0]
-      self._params = self.new_parameters(input_shape, rng)
+      self._params = self.new_parameters(input_shape, input_dtype, rng)
       return self._params
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback(skip=3)
@@ -158,12 +156,12 @@ class Layer(object):
 class ShapeType(object):
   """Store shape and type."""
 
-  def __init__(self, shape, tp):
+  def __init__(self, shape, dtype):
     self.shape = shape
-    self.tp = tp
+    self.dtype = dtype
 
   def __repr__(self):
-    return '[shape:' + str(self.shape) + ', type:' + str(self.tp) + ']'
+    return '[shape:' + str(self.shape) + ', dtype:' + str(self.dtype) + ']'
 
 
 class LayerError(Exception):
@@ -200,7 +198,7 @@ def _eval_on_shapes(f, *args):
     return jax.abstract_arrays.raise_to_shaped(jax.core.get_aval(x))
 
   def make_array(arg):
-    return backend.numpy.zeros(shape=arg.shape, dtype=arg.tp)
+    return backend.numpy.zeros(shape=arg.shape, dtype=arg.dtype)
 
   def turn_back_into_pytree(x):
     if isinstance(x, jax.core.JaxTuple):
@@ -335,7 +333,7 @@ def _short_traceback(skip=7):
 # Decorator for making layers from functions.
 
 
-def layer(new_parameters=None, stack_items_to_pass=1, input_is_int=False):
+def layer(new_parameters=None, stack_items_to_pass=1):
   """Create a layer class from a function."""
   def layer_decorator(call):
     """Decorating the call function."""
@@ -344,15 +342,11 @@ def layer(new_parameters=None, stack_items_to_pass=1, input_is_int=False):
       del self
       return stack_items_to_pass
 
-    def default_input_is_int_fn(self):
-      del self
-      return input_is_int
-
-    def new_parameters_fn(self, input_shape, rng):
+    def new_parameters_fn(self, input_shape, input_dtype, rng):
       if new_parameters is None:
         return ()
       kwargs = self._init_kwargs  # pylint: disable=protected-access
-      return new_parameters(input_shape, rng, **kwargs)
+      return new_parameters(input_shape, input_dtype, rng, **kwargs)
 
     def call_fn(self, x, params=(), **kwargs):
       """The call function of the created class, derived from call."""
@@ -370,7 +364,6 @@ def layer(new_parameters=None, stack_items_to_pass=1, input_is_int=False):
     # Create the class.
     cls = type(call.__name__, (Layer,),
                {'call': call_fn,
-                'default_input_is_int': default_input_is_int_fn,
                 'new_parameters': new_parameters_fn,
                 'stack_items_to_pass': stack_items_to_pass_fn})
 
@@ -417,10 +410,10 @@ def to_shape_and_type(x_shapes, integers):
     return {k: to_shape_and_type(x_shapes[k], integers) for k in x_shapes}
   if isinstance(x_shapes, onp.ndarray):  # Numpy array shape
     return ShapeType(shape=x_shapes.tolist(),
-                     tp=onp.int32 if integers else onp.float32)
+                     dtype=onp.int32 if integers else onp.float32)
   if isinstance(x_shapes[0], (int, onp.int32, onp.int64)):
     return ShapeType(shape=x_shapes,
-                     tp=onp.int32 if integers else onp.float32)
+                     dtype=onp.int32 if integers else onp.float32)
   if isinstance(x_shapes, list):  # Nested shape: list.
     return [to_shape_and_type(s, integers) for s in x_shapes]
   if isinstance(x_shapes, tuple):  # Nested shape: tuple.
@@ -431,8 +424,9 @@ def to_shape_and_type(x_shapes, integers):
 def check_shape_agreement(layer_instance, input_shape, integer_inputs=False):
   """Check if layer.output_shape agrees with the actual output shape."""
   rng1, rng2, rng3 = backend.random.split(backend.random.get_prng(0), 3)
-  params = layer_instance.initialize(input_shape, rng1)
   input_shape_and_type = to_shape_and_type(input_shape, integer_inputs)
+  input_dtype = nested_map(input_shape_and_type, lambda x: x.dtype)
+  params = layer_instance.initialize(input_shape, input_dtype, rng1)
   output_shape_and_type = layer_instance.output_shape(
       input_shape_and_type, params)
   output_shape = nested_map(output_shape_and_type, lambda x: x.shape)
