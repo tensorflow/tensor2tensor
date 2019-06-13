@@ -134,8 +134,9 @@ def Dup(x, **unused_kwargs):
   """Duplicate (copy) the first element on the stack."""
   if isinstance(x, list):
     return [x[0]] + x
-  assert isinstance(x, tuple)
-  return tuple([x[0]] + list(x))
+  if isinstance(x, tuple):
+    return tuple([x[0]] + list(x))
+  return [x, x]
 
 
 @base.layer(stack_items_to_pass=0)

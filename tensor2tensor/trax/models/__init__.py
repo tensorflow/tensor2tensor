@@ -25,6 +25,7 @@ from tensor2tensor.trax.models import neural_gpu
 from tensor2tensor.trax.models import resnet
 from tensor2tensor.trax.models import transformer
 from tensor2tensor.trax.models.research import chunked_transformer
+from tensor2tensor.trax.models.research import position_lookup_transformer
 
 
 # Ginify
@@ -37,6 +38,8 @@ def model_configure(*args, **kwargs):
 ChunkedTransformerLM = model_configure(chunked_transformer.ChunkedTransformerLM)
 MLP = model_configure(mlp.MLP)
 NeuralGPU = model_configure(neural_gpu.NeuralGPU)
+PositionLookupTransformerLM = model_configure(
+    position_lookup_transformer.PositionLookupTransformerLM)
 Resnet50 = model_configure(resnet.Resnet50)
 Transformer = model_configure(transformer.Transformer)
 TransformerEncoder = model_configure(transformer.TransformerEncoder)
