@@ -33,7 +33,7 @@ class ReacherEnvProblemTest(tf.test.TestCase):
     # This ensures that registration has occurred.
     ep = registry.env_problem("reacher_env_problem", batch_size=batch_size)
     ep.reset()
-    num_done, num_lost, num_won, num_draw = 0, 0, 0, 0
+    num_done = 0
     nsteps = 100
     for _ in range(nsteps):
       actions = np.stack([ep.action_space.sample() for _ in range(batch_size)])
@@ -48,24 +48,9 @@ class ReacherEnvProblemTest(tf.test.TestCase):
       done_indices = env_problem_utils.done_indices(dones)
       ep.reset(done_indices)
       num_done += sum(dones)
-      for r, d in zip(rewards, dones):
-        if not d:
-          continue
-        if r == -1:
-          num_lost += 1
-        elif r == 0:
-          num_draw += 1
-        elif r == 1:
-          num_won += 1
-        else:
-          raise ValueError("reward should be -1, 0, 1 but is {}".format(r))
 
-    # Assert that something got done atleast, without that the next assert is
-    # meaningless.
+    # Assert that something got done atleast,
     self.assertGreater(num_done, 0)
-
-    # Assert that things are consistent.
-    self.assertEqual(num_done, num_won + num_lost + num_draw)
 
 
 if __name__ == "__main__":
