@@ -51,11 +51,11 @@ def _deep_flatten(xs):  # pylint: disable=invalid-name
 
 
 def _ensure_sublayers(layers):  # pylint: disable=invalid-name
-  """Ensures that elements in a layer list (or dict) are layers.
+  """Ensures that elements in a layer list are layers.
 
   Args:
-    layers: A list or dict whose elements/values can each be a layer, a list,
-        or a dict, and so on recursively.
+    layers: A tuple or list whose elements can each be a layer, tuple, or list,
+        and so on recursively.
 
   Returns:
     An analogous collection of layers in which embedded layer lists are
@@ -63,8 +63,6 @@ def _ensure_sublayers(layers):  # pylint: disable=invalid-name
   """
   if not layers:  # None or an empty list can signal a no-op.
     return Serial([])  # no-op, but still handles shapes and initialization
-  elif isinstance(layers, dict):
-    return {k: _ensure_sublayers(v) for k, v in layers.items()}
   elif isinstance(layers, (list, tuple)):
     sublayers_not_lists = []
     for layer in layers:
@@ -98,26 +96,20 @@ class Serial(base.Layer):
       x = layer(x, p, rng=rng, **kwargs)
     return x
 
-  def output_shape(self, input_shape_and_type, params):
-    cur_shape_and_type = input_shape_and_type
-    for layer, param in zip(self._layers, params):
-      cur_shape_and_type = layer.output_shape(cur_shape_and_type, param)
-    return cur_shape_and_type
-
   def new_parameters(self, input_shape, input_dtype, rng):
     def MakeShapeType(shape, dtype):
       if isinstance(dtype, (list, tuple)):
         return tuple(MakeShapeType(s, t) for s, t in zip(shape, dtype))
       return base.ShapeType(shape=shape, dtype=dtype)
     params = []
-    cur_shape_and_type = MakeShapeType(input_shape, input_dtype)
+    pseudo_data = MakeShapeType(input_shape, input_dtype)
     for layer in self._layers:
       rng, layer_rng = backend.random.split(rng)
-      cur_shape = base.nested_map(cur_shape_and_type, lambda x: x.shape)
-      cur_dtype = base.nested_map(cur_shape_and_type, lambda x: x.dtype)
+      cur_shape = base.nested_map(pseudo_data, lambda x: x.shape)
+      cur_dtype = base.nested_map(pseudo_data, lambda x: x.dtype)
       param = layer.initialize(cur_shape, cur_dtype, layer_rng)
       pparam = layer._params   # pylint: disable=protected-access
-      cur_shape_and_type = layer.output_shape(cur_shape_and_type, pparam)
+      pseudo_data = layer.pseudo_call(pseudo_data, pparam)
       params.append(param)
     return params
 
@@ -268,16 +260,8 @@ class Branch(base.Layer):
 
   def new_parameters(self, input_shape, input_dtype, rng):
     rngs = backend.random.split(rng, self._nlayers)
-    if not isinstance(self._layers, dict):
-      return [layer.initialize(input_shape, input_dtype, rng)
-              for layer, rng in zip(self._layers, rngs)]
-
-  def output_shape(self, input_shape, params):
-    output_shapes = []
-    if not isinstance(self._layers, dict):
-      for layer, param in zip(self._layers, params):
-        output_shapes.append(layer.output_shape(input_shape, param))
-      return tuple(output_shapes)
+    return [layer.initialize(input_shape, input_dtype, rng)
+            for layer, rng in zip(self._layers, rngs)]
 
 
 def _nested_op(inputs, op):  # pylint: disable=invalid-name
@@ -388,37 +372,13 @@ class Parallel(base.Layer):
 
   def call(self, inputs, params=(), **kwargs):
     rngs = _pop_rng_and_split(kwargs, self._nlayers)
-    # If layers are a list or a tuple, just apply them.
-    if not isinstance(self._layers, dict):
-      res = [layer(x, params=p, rng=r, **kwargs)
-             for layer, x, p, r in zip(self._layers, inputs, params, rngs)]
-      # Return a list if inputs are a list and a tuple if inputs are a tuple.
-      if isinstance(inputs, list):
-        return res
-      return tuple(res)
-    # If layers are a dictionary, apply to matching keys.
-    result, counter = {}, 0
-    for k in inputs:
-      if k in self._layers:
-        result[k] = self._layers[k](
-            inputs[k], params=params[k], rng=rngs[counter], **kwargs)
-        counter += 1
-      else:
-        result[k] = inputs[k]
-    return result
+    return tuple(layer(x, params=p, rng=r, **kwargs)
+                 for layer, x, p, r in zip(self._layers, inputs, params, rngs))
 
   def new_parameters(self, input_shape, input_dtype, rng):
     rngs = backend.random.split(rng, self._nlayers)
-    # If the argument layers are a sequence, create parameters for each one.
-    if not isinstance(self._layers, dict):
-      return [layer.initialize(shape, dtype, rng) for layer, shape, dtype, rng
-              in zip(self._layers, input_shape, input_dtype, rngs)]
-    # If the argument layers are a dictionary, create a dictionary too.
-    result, counter = {}, 0
-    for k in self._layers:
-      result[k] = self._layers[k].initialize(input_shape[k], rngs[counter])
-      counter += 1
-    return result
+    return [layer.initialize(shape, dtype, rng) for layer, shape, dtype, rng
+            in zip(self._layers, input_shape, input_dtype, rngs)]
 
 
 def Residual(*layers, **kwargs):
