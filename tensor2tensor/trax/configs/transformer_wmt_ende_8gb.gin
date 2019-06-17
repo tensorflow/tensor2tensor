@@ -38,7 +38,6 @@ train.eval_frequency = 1000
 train.eval_steps = 10
 train.inputs = @trax.inputs.inputs
 train.model = @trax.models.Transformer
-train.run_debug_step = False
 train.train_steps = 500000
 
 # Parameters for Transformer:
