@@ -185,7 +185,7 @@ def _print_n_params(opt_state, n_devices, step):
   """Print out the number of parameters."""
   sizes = layers.sizes(opt_state[0])
   if n_devices > 1:
-    unreplicate = lambda x: x.mean(0)
+    unreplicate = lambda x: x[0]
     single_params = layers.nested_map(opt_state[0], unreplicate)
     sizes = layers.sizes(single_params)
   total_size = layers.nested_reduce(sizes, sum)
@@ -244,6 +244,30 @@ def evaluate(inputs_stream, predict_fn, metric_fns, rng):
     for m, f in six.iteritems(metric_fns):
       metrics[m] += f(inp, preds)
   return {m: v / count for (m, v) in six.iteritems(metrics)}
+
+
+def evaluate_loss_train_and_eval(step, inputs, compute_loss_fn, eval_steps,
+                                 rngs,
+                                 train_sw=None, eval_sw=None, history=None):
+  """More efficient evaluation that logs only the loss on train & eval data."""
+  step_log(step, "Evaluation")
+  train_eval_metrics = []
+  for input_stream in [inputs.train_eval_stream, inputs.eval_stream]:
+    total = 0.0
+    count = 0.0
+    for inp in itertools.islice(input_stream(), eval_steps):
+      loss_values, rngs = compute_loss_fn(inp, rngs)
+      total += float(numpy.mean(loss_values))
+      count += 1.0
+    metrics = {"loss": total / count}
+    train_eval_metrics.append(metrics)
+  train_metrics, eval_metrics = train_eval_metrics  # pylint: disable=unbalanced-tuple-unpacking
+  if train_sw:
+    log_metrics(train_metrics, train_sw, "train", step, history=history)
+  if eval_sw:
+    log_metrics(eval_metrics, eval_sw, "eval", step, history=history)
+  step_log(step, "Finished evaluation")
+  return train_metrics, eval_metrics
 
 
 def log_metrics(metrics, summ_writer, log_prefix, step, history=None):
@@ -372,6 +396,33 @@ def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices, jit=True):
   return update
 
 
+@gin.configurable
+def _jit_compute_loss_fn(predict_fn, loss_fn, n_devices, jit=True):
+  """Get jit-ed function that computes the loss."""
+  if n_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
+    def single_compute_loss(opt_state, batch, rng):
+      rng, subrng = jax_random.split(rng[0])
+      return loss_fn(opt_state[0], batch, predict_fn, rng), [subrng]
+    if jit:
+      return backend.jit(single_compute_loss)
+    else:
+      return single_compute_loss
+
+  @functools.partial(backend.pmap, axis_name="batch")
+  def mapped_compute_loss(opt_state, batch, rng):
+    """This is a multi-device version of the update function above."""
+    # We assume all tensors have the first dimension = n_devices.
+    rng, subrng = jax_random.split(rng)
+    loss_val = loss_fn(opt_state[0], batch, predict_fn, rng)
+    return loss_val, subrng
+
+  def compute_loss(opt_state, batch, rng):
+    return mapped_compute_loss(
+        opt_state, reshape_by_device(batch, n_devices), rng)
+
+  return compute_loss
+
+
 def _reshape_by_device_single(x, n_devices):
   """Reshape x into a shape [n_devices, ...]."""
   x_shape = list(x.shape)
@@ -393,6 +444,7 @@ def reshape_by_device(x, n_devices):
       x, lambda x: _reshape_by_device_single(x, n_devices))
 
 
+@gin.configurable(whitelist=[])
 class Trainer(object):
   """Trax trainer.
 
@@ -448,12 +500,15 @@ class Trainer(object):
     model_input_shape = layers.nested_map(
         model_input_shape, lambda x: x if x else 1)
     if state.params:
-      params = state.params[0]
       opt_state = state.params
     else:
-      params = model_train.initialize(
-          model_input_shape, inputs.input_dtype, init_rng)
-      opt_state = (params, opt.tree_init(params))
+      # JIT parameter initialization to avoid memory fragmentation
+      def initialize(input_shape, input_dtype, init_rng):
+        params = model_train.initialize(input_shape, input_dtype, init_rng)
+        opt_state = (params, opt.tree_init(params))
+        return opt_state
+      initialize = backend.jit(initialize, static_argnums=(0, 1))
+      opt_state = initialize(model_input_shape, inputs.input_dtype, init_rng)
     if n_devices > 1:
       replicate = lambda x: numpy.broadcast_to(x, (n_devices,) + x.shape)
       opt_state = layers.nested_map(opt_state, replicate)
@@ -513,8 +568,12 @@ class Trainer(object):
 
       # LR log
       if self._step == 1 or self._step % 10 == 0:
-        self._train_sw.scalar("training/learning rate",
-                              self._lr_fn(self._step), step=self._step)
+        # TODO(lukaszkaiser): it makes no sense to use an accelerator (e.g. TPU)
+        # in op-by-op mode just to compute the learning rate. However, there
+        # should be a cleaner approach that forceably swapping out the backend.
+        with backend.use_backend("numpy"):
+          self._train_sw.scalar("training/learning rate",
+                                self._lr_fn(self._step), step=self._step)
 
     # Timer
     epoch_time = time.time() - start_time
@@ -525,6 +584,17 @@ class Trainer(object):
                             epoch_steps / epoch_time, step=self._step)
 
     # Evaluate in parallel
+    self.evaluate(eval_steps)
+
+    # Save state
+    _save_replicated(self._opt_state, self._step, self._history,
+                     self._n_devices, self._output_dir, False)
+
+    # Flush summary writers
+    self._train_sw.flush()
+    self._eval_sw.flush()
+
+  def evaluate(self, eval_steps):
     _, rng = jax_random.split(self._rngs[0])
     evaluate_train_and_eval(
         step=self._step,
@@ -536,14 +606,6 @@ class Trainer(object):
         train_sw=self._train_sw,
         eval_sw=self._eval_sw,
         history=self._history)
-
-    # Save state
-    _save_replicated(self._opt_state, self._step, self._history,
-                     self._n_devices, self._output_dir, False)
-
-    # Flush summary writers
-    self._train_sw.flush()
-    self._eval_sw.flush()
 
   def update_learning_rate(self):
     old_lr_fn = self._lr_fn
@@ -577,6 +639,51 @@ class Trainer(object):
         f.write(backward_computation.GetHloDotGraph())
 
 
+@gin.configurable(whitelist=[])
+class MemoryEfficientTrainer(Trainer):
+  """Trax trainer that aims to minimize memory usage.
+  """
+  # TODO(kitaev): memory efficiency should be a feature of the main Trainer
+  # class, but there's a separate class for now because this trainer only
+  # supports evaluating the loss (and not any other metrics).
+
+  def __init__(self, *args, **kwargs):
+    super(MemoryEfficientTrainer, self).__init__(*args, **kwargs)
+    # Model predictions can use large amounts of memory. The memory-efficient
+    # approach is to compute metrics on each replica and then aggregate. For now
+    # we only implement computing the loss, and not any other metrics.
+    self._jit_compute_loss = _jit_compute_loss_fn(
+        self._model_predict_eval, self._loss_fn, self._n_devices)
+
+  def evaluate(self, eval_steps):
+    # Evaluate only the loss function (a more efficient, jitted, implementation)
+    evaluate_loss_train_and_eval(
+        step=self._step,
+        inputs=self._inputs,
+        compute_loss_fn=functools.partial(self._jit_compute_loss,
+                                          self._opt_state),
+        eval_steps=eval_steps,
+        rngs=self._rngs,
+        train_sw=self._train_sw,
+        eval_sw=self._eval_sw,
+        history=self._history)
+
+  def update_learning_rate(self):
+    old_lr_fn = self._lr_fn
+    self._lr_fn = self._lr_schedule(self._history)
+    if self._lr_fn != old_lr_fn:
+      raise NotImplementedError(
+          "Loss function changed. Garbage collection for jitted functions is "
+          "not implemented in jax, so global accelerator memory allocated by "
+          "the jitted update function with the old loss cannot be reclaimed.")
+
+  def save_computation_graphs(self, save_backward_graph):
+    # TODO(kitaev): implement saving graphs while making sure that no op-by-op
+    # execution happens in the process.
+    del save_backward_graph
+    return
+
+
 @gin.configurable(blacklist=["output_dir"])
 def train(output_dir,
           model=gin.REQUIRED,
@@ -584,6 +691,7 @@ def train(output_dir,
           inputs=trax_inputs.inputs,
           optimizer=trax_opt.SM3,
           lr_schedule=lr.MultifactorSchedule,
+          trainer_class=Trainer,
           train_steps=1000,
           save_steps=None,
           eval_steps=10,
@@ -604,6 +712,7 @@ def train(output_dir,
     optimizer: The optimizer (see optimizers/base.py for signature).
     lr_schedule: A learning rate schedule as a function that takes history and
       returns a function from step to learning rate (a float).
+    trainer_class: The trainer class to use.
     train_steps: int, total number of training steps.
     save_steps: list of integers. Keep a model file at each of the supplied save
       steps.
@@ -617,9 +726,10 @@ def train(output_dir,
   Returns:
     trax.State
   """
-  trainer = Trainer(model, loss_fn, optimizer, lr_schedule, inputs, output_dir,
-                    random_seed=random_seed, n_devices=n_devices,
-                    save_steps=save_steps)
+  trainer = trainer_class(model, loss_fn, optimizer, lr_schedule, inputs,
+                          output_dir,
+                          random_seed=random_seed, n_devices=n_devices,
+                          save_steps=save_steps)
 
   epoch_steps = [train_steps]  # Only training if eval_frequency is 0 or None
   if eval_frequency and eval_steps > 0:
