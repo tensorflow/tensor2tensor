@@ -326,45 +326,39 @@ def _short_traceback(skip=7):
   return '\n'.join(res)
 
 
-# Decorator for making layers from functions.
-
-
 def layer(new_parameters=None, stack_items_to_pass=1):
-  """Create a layer class from a function."""
-  def layer_decorator(call):
-    """Decorating the call function."""
+  """Decorates a function to make it the call method of a new Layer class."""
+  # TODO(jonni): Consider renaming new_parameters to new_parameters_fn.
 
-    def stack_items_to_pass_fn(self):
+  def _build_layer_class(raw_call_fn):
+    """Returns a Layer class built around the given call function."""
+
+    def _stack_items_to_pass(self):
       del self
       return stack_items_to_pass
 
-    def new_parameters_fn(self, input_shape, input_dtype, rng):
+    def _new_parameters(self, input_shape, input_dtype, rng):
       if new_parameters is None:
         return ()
       kwargs = self._init_kwargs  # pylint: disable=protected-access
       return new_parameters(input_shape, input_dtype, rng, **kwargs)
 
-    def call_fn(self, x, params=(), **kwargs):
-      """The call function of the created class, derived from call."""
-      # Merge on-call kwargs with class-kwargs.
-      call_kwargs = kwargs.copy()
-      call_kwargs.update(self._init_kwargs)  # pylint: disable=protected-access
-      # Call with the merged kwargs.
-      return call(x, params=params, **call_kwargs)
+    def _call_with_context(self, x, params=(), **kwargs):
+      """Calls raw_call_fn with extra keyword args from Layer.__init__."""
+      merged_kwargs = kwargs.copy()
+      merged_kwargs.update(self._init_kwargs)  # pylint: disable=protected-access
+      return raw_call_fn(x, params=params, **merged_kwargs)
 
-    # Set doc for python help.
-    call_fn.__doc__ = call.__doc__
-    if new_parameters is None:
-      new_parameters_fn.__doc__ = new_parameters.__doc__
-
-    # Create the class.
-    cls = type(call.__name__, (Layer,),
-               {'call': call_fn,
-                'new_parameters': new_parameters_fn,
-                'stack_items_to_pass': stack_items_to_pass_fn})
-
+    # Set docstrings and create the class.
+    _call_with_context.__doc__ = raw_call_fn.__doc__
+    _new_parameters.__doc__ = new_parameters.__doc__  # None.__doc__ is None
+    cls = type(raw_call_fn.__name__, (Layer,),
+               {'call': _call_with_context,
+                'new_parameters': _new_parameters,
+                'stack_items_to_pass': _stack_items_to_pass})
     return cls
-  return layer_decorator
+
+  return _build_layer_class
 
 
 def _random_inputs(input_shape, rng, integer_inputs=False):
