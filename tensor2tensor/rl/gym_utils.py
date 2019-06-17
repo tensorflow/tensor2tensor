@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import gym
+import gym.wrappers
 import numpy as np
 from PIL import Image
 import tensorflow as tf
@@ -179,7 +180,7 @@ def gym_env_wrapper(env, rl_env_max_episode_steps, maxskip_env, rendered_env,
     env = RenderedEnv(
         env, resize_to=rendered_env_resize_to, output_dtype=output_dtype)
 
-  if wrap_with_time_limit:
+  if wrap_with_time_limit and rl_env_max_episode_steps is not None:
     env = gym.wrappers.TimeLimit(
         env, max_episode_steps=rl_env_max_episode_steps)
   return env
