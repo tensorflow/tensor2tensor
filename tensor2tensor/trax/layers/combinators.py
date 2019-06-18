@@ -304,6 +304,13 @@ def Add(x, **unused_kwargs):
 
 
 @base.layer(stack_items_to_pass=0)
+def SubtractTop(x, **unused_kwargs):
+  """Subtract the first element on the stack from the second element."""
+  # Here x is a list of tensors of the same shape, or nested structures.
+  return _binary_op(x, op=lambda xs: xs[1] - xs[0])
+
+
+@base.layer(stack_items_to_pass=0)
 def Multiply(x, **unused_kwargs):
   """Multiply first and second element on the stack."""
   return _binary_op(x, op=lambda xs: six.moves.reduce(operator.mul, xs))
@@ -372,6 +379,10 @@ class Parallel(base.Layer):
 
   def call(self, inputs, params=(), **kwargs):
     rngs = _pop_rng_and_split(kwargs, self._nlayers)
+    # Note that zip silently truncates its result if lengths don't match.
+    assert len(inputs) == self._nlayers
+    assert len(params) == self._nlayers
+    assert len(rngs) == self._nlayers
     return tuple(layer(x, params=p, rng=r, **kwargs)
                  for layer, x, p, r in zip(self._layers, inputs, params, rngs))
 

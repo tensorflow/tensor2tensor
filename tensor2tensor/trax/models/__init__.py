@@ -25,6 +25,7 @@ from tensor2tensor.trax.models import neural_gpu
 from tensor2tensor.trax.models import resnet
 from tensor2tensor.trax.models import transformer
 from tensor2tensor.trax.models.research import position_lookup_transformer
+from tensor2tensor.trax.models.research import transformer_revnet
 
 
 # Ginify
@@ -42,4 +43,5 @@ Resnet50 = model_configure(resnet.Resnet50)
 Transformer = model_configure(transformer.Transformer)
 TransformerEncoder = model_configure(transformer.TransformerEncoder)
 TransformerLM = model_configure(transformer.TransformerLM)
+TransformerRevnetLM = model_configure(transformer_revnet.TransformerRevnetLM)
 WideResnet = model_configure(resnet.WideResnet)
