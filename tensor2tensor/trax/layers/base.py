@@ -83,7 +83,8 @@ class Layer(object):
     """
     try:
       with backend.use_backend('jax'):
-        rng = backend.random.get_prng(0)
+        # Same as backend.random.get_prng(0), but no op-by-op execution.
+        rng = onp.zeros(2, onp.uint32)
         def call_on_input(x, params):
           f = lambda y: self.call(y, params=params, rng=rng)
           n = self.stack_items_to_pass() if isinstance(x, (list, tuple)) else 0

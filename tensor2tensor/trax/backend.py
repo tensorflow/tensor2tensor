@@ -40,7 +40,7 @@ _JAX_BACKEND = {
     "random_uniform": jax_random.uniform,
     "random_normal": jax_random.normal,
     "random_bernoulli": jax_random.bernoulli,
-    "random_get_prng": jax_random.PRNGKey,
+    "random_get_prng": jax.jit(jax_random.PRNGKey),
     "random_split": jax_random.split,
 }
 
