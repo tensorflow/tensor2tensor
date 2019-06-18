@@ -51,11 +51,13 @@ class VqaAttentionBaseline(t2t_model.T2TModel):
 
   def body(self, features):
     hp = self.hparams
-    # pylint: disable=eval-used
+    model_fn = resnet_v1_152
+    if hp.image_model_fn != "resnet_v1_152":
+      model_fn = eval(hp.image_model_fn)  # pylint: disable=eval-used
     if hp.image_input_type == "image":
       image_feat = vqa_layers.image_embedding(
           features["inputs"],
-          model_fn=eval(hp.image_model_fn),
+          model_fn=model_fn,
           trainable=hp.train_resnet,
           is_training=hp.mode == tf.estimator.ModeKeys.TRAIN)
     else:
