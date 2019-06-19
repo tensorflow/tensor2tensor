@@ -56,7 +56,7 @@ transformer_ffn_layer = transformer_layers.transformer_ffn_layer
 
 def transformer_encode(encoder_function, inputs, target_space, hparams,
                        attention_weights=None, features=None, losses=None,
-                       **kwargs):
+                       prepare_encoder_fn=None, **kwargs):
   """Encode transformer inputs.
 
   Args:
@@ -69,6 +69,7 @@ def transformer_encode(encoder_function, inputs, target_space, hparams,
     features: optionally pass the entire features dictionary as well. This is
       needed now for "packed" datasets.
     losses: optional list onto which to append extra training losses
+    prepare_encoder_fn: optional, alternative to transformer_prepare_encoder.
     **kwargs: additional arguments to pass to encoder_function
 
   Returns:
@@ -80,8 +81,10 @@ def transformer_encode(encoder_function, inputs, target_space, hparams,
   """
   inputs = common_layers.flatten4d3d(inputs)
 
+  if not prepare_encoder_fn:
+    prepare_encoder_fn = transformer_prepare_encoder
   encoder_input, self_attention_bias, encoder_decoder_attention_bias = (
-      transformer_prepare_encoder(
+      prepare_encoder_fn(
           inputs, target_space, hparams, features=features))
 
   mlperf_log.transformer_print(
@@ -189,13 +192,16 @@ class Transformer(t2t_model.T2TModel):
     self._encoder_function = transformer_encoder
     self._decoder_function = transformer_decoder
     self._init_cache_fn = _init_transformer_cache
+    self._prepare_encoder_fn = transformer_prepare_encoder
+    self._prepare_decoder_fn = transformer_prepare_decoder
 
   def encode(self, inputs, target_space, hparams, features=None, losses=None):
     """Encode transformer inputs, see transformer_encode."""
     return transformer_encode(
         self._encoder_function, inputs, target_space, hparams,
         attention_weights=self.attention_weights,
-        features=features, losses=losses)
+        features=features, losses=losses,
+        prepare_encoder_fn=self._prepare_encoder_fn)
 
   def decode(self,
              decoder_input,
@@ -245,7 +251,7 @@ class Transformer(t2t_model.T2TModel):
     targets = features["targets"]
     targets_shape = common_layers.shape_list(targets)
     targets = common_layers.flatten4d3d(targets)
-    decoder_input, decoder_self_attention_bias = transformer_prepare_decoder(
+    decoder_input, decoder_self_attention_bias = self._prepare_decoder_fn(
         targets, hparams, features=features)
 
     # Not all subclasses of Transformer support keyword arguments related to
