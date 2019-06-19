@@ -26,10 +26,10 @@ import sys
 from dopamine.agents.dqn import dqn_agent
 from dopamine.agents.rainbow import rainbow_agent
 from dopamine.replay_memory import circular_replay_buffer
-from dopamine.replay_memory.circular_replay_buffer import \
-    OutOfGraphReplayBuffer, ReplayElement
-from dopamine.replay_memory.prioritized_replay_buffer import \
-  OutOfGraphPrioritizedReplayBuffer, WrappedPrioritizedReplayBuffer
+from dopamine.replay_memory.circular_replay_buffer import OutOfGraphReplayBuffer
+from dopamine.replay_memory.circular_replay_buffer import ReplayElement
+from dopamine.replay_memory.prioritized_replay_buffer import OutOfGraphPrioritizedReplayBuffer
+from dopamine.replay_memory.prioritized_replay_buffer import WrappedPrioritizedReplayBuffer
 import numpy as np
 
 from tensor2tensor.rl.policy_learner import PolicyLearner
@@ -41,14 +41,16 @@ try:
   import cv2
 except ImportError:
   cv2 = None
+
 try:
   from dopamine.discrete_domains import run_experiment
 except ImportError:
   run_experiment = None
+
 # pylint: enable=g-import-not-at-top
 # pylint: enable=ungrouped-imports
 
-# TODO: Vanilla DQN and Rainbow have a lot of common code. Most likely we want
+# TODO(rlmb): Vanilla DQN and Rainbow have a lot of common code. We will want
 #  to remove Vanilla DQN and only have Rainbow. To do so one needs to remove
 #  following:
 #    * _DQNAgent
@@ -58,6 +60,7 @@ except ImportError:
 #    * parameter "agent_type" from dqn_atari_base() hparams and possibly other
 #      rlmb dqn hparams sets
 #  If we want to keep both Vanilla DQN and Rainbow, larger refactor is required.
+
 
 class _DQNAgent(dqn_agent.DQNAgent):
   """Modify dopamine DQNAgent to match our needs.
@@ -243,10 +246,8 @@ class _OutOfGraphReplayBuffer(OutOfGraphReplayBuffer):
 
 
 class _WrappedPrioritizedReplayBuffer(WrappedPrioritizedReplayBuffer):
-  """
+  """Allows to pass out-of-graph-replay-buffer via wrapped_memory."""
 
-  Allows to pass out-of-graph-replay-buffer via wrapped_memory.
-  """
   def __init__(self, wrapped_memory, batch_size, use_staging):
     self.batch_size = batch_size
     self.memory = wrapped_memory
@@ -451,17 +452,16 @@ class _OutOfGraphPrioritizedReplayBuffer(OutOfGraphPrioritizedReplayBuffer):
 
   def __init__(self, artificial_done, **kwargs):
     extra_storage_types = kwargs.pop("extra_storage_types", None) or []
-    assert not extra_storage_types, "Other extra_storage_types are " \
-                                    "currently not supported for this " \
-                                    "class."
+    msg = "Other extra_storage_types aren't currently supported for this class."
+    assert not extra_storage_types, msg
     extra_storage_types.append(ReplayElement("artificial_done", (), np.uint8))
     super(_OutOfGraphPrioritizedReplayBuffer, self).__init__(
         extra_storage_types=extra_storage_types, **kwargs)
     self._artificial_done = artificial_done
 
   def is_valid_transition(self, index):
-    valid = super(_OutOfGraphPrioritizedReplayBuffer, self).\
-        is_valid_transition(index)
+    valid = super(_OutOfGraphPrioritizedReplayBuffer,
+                  self).is_valid_transition(index)
     if valid:
       valid = not self.get_artificial_done_stack(index).any()
     return valid
@@ -471,13 +471,7 @@ class _OutOfGraphPrioritizedReplayBuffer(OutOfGraphPrioritizedReplayBuffer):
                           index - self._stack_size + 1, index + 1)
 
   def add(self, observation, action, reward, terminal, priority):
-    """Infer artificial_done and call parent method.
-
-    Note that OutOfGraphPrioritizedReplayBuffer (implicitly) assumes that
-    priority would be last argument in add. Here we write it explicitly.
-    Passing *args to this method is disabled on purpose, code start to gets to
-    convoluted with it.
-    """
+    """Infer artificial_done and call parent method."""
     # If this will be a problem for maintenance, we could probably override
     # DQNAgent.add() method instead.
     if not isinstance(priority, (float, np.floating)):

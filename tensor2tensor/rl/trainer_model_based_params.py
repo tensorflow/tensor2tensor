@@ -223,7 +223,7 @@ def rlmb_dqn_guess1():
 
 @registry.register_hparams
 def rlmb_dqn_guess1_rainbow():
-  """rlmb_dqn guess1 params"""
+  """Rainbow rlmb_dqn guess1 params."""
   hparams = rlmb_dqn_guess1()
   hparams.set_hparam("base_algo_params", "dqn_guess1_rainbow_params")
   return hparams
