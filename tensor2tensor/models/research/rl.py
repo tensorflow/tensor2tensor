@@ -377,6 +377,7 @@ def dqn_atari_base():
       agent_epsilon_eval=0.001,
       agent_epsilon_decay_period=250000,  # agent steps
       agent_generates_trainable_dones=True,
+      agent_type="VanillaDQN",  # one of ["Rainbow", "VanillaDQN"]
 
       optimizer_class="RMSProp",
       optimizer_learning_rate=0.00025,
@@ -417,6 +418,14 @@ def dqn_guess1_params():
   hparams.set_hparam("agent_target_update_period", 400)
   # Small replay buffer size was set for mistake, but it seems to work
   hparams.set_hparam("replay_buffer_replay_capacity", 10000)
+  return hparams
+
+
+@registry.register_hparams
+def dqn_guess1_rainbow_params():
+  """Guess 1 for DQN params."""
+  hparams = dqn_guess1_params()
+  hparams.set_hparam("agent_type", "Rainbow")
   return hparams
 
 
