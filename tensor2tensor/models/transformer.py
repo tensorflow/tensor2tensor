@@ -2428,8 +2428,9 @@ def update_hparams_for_tpu(hparams):
   # this hyperparameter is ignored.
   hparams.max_length = 64
 
-  # TPUs have less memory than GPUs, so decrease the batch size
-  hparams.batch_size = 2048
+  # TPUs have less memory than GPUs, so decrease the batch size if it's too high
+  if hparams.batch_size > 2048:
+    hparams.batch_size = 2048
 
   # Using noise broadcast in the dropout layers saves memory during training.
   hparams.attention_dropout_broadcast_dims = "0,1"  # batch, heads
