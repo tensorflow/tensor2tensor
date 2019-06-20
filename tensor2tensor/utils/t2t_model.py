@@ -1989,6 +1989,18 @@ TPU_METRIC_BLACKLIST = set([
 def create_tpu_eval_metrics_fn(problem, model_hparams):
   """Create the metrics_fn that TPUEstimatorSpec expects."""
 
+  def reduce_dimensions(predictions, labels):
+    """Reduce dimensions for high-dimensional predictions and labels."""
+    if len(predictions.get_shape()) > 5:
+      predictions_shape = common_layers.shape_list(predictions)
+      predictions = tf.reshape(
+          predictions, [predictions_shape[0], predictions_shape[1], -1,
+                        predictions_shape[-1]])
+      labels_shape = common_layers.shape_list(labels)
+      labels = tf.reshape(
+          labels, [labels_shape[0], labels_shape[1], -1])
+    return predictions, labels
+
   metric_fns = []
   eval_metrics = problem.eval_metric_fns(model_hparams)
 
@@ -1998,11 +2010,14 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
       weights_fn = modalities.get_weights_fn(v)
 
       def make_metric_fn(metric_fn):
+        """returns a metric_fn."""
         def wrapped_metric_fn(logits, labels, features, weights_fn=weights_fn):
           kwargs = {}
           args, _, keywords, _ = inspect.getargspec(metric_fn)
           if ("features" in args) or keywords:
             kwargs["features"] = features
+
+          logits, labels = reduce_dimensions(logits, labels)
           num, den = metric_fn(logits, labels, weights_fn=weights_fn, **kwargs)
           return tf.metrics.mean(num, den)
 
@@ -2018,11 +2033,14 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
     weights_fn = modalities.get_weights_fn(tm)
 
     def make_metric_fn(metric_fn):
+      """returns a metric fn."""
       def wrapped_metric_fn(logits, labels, features):
         kwargs = {}
         args, _, keywords, _ = inspect.getargspec(metric_fn)
         if ("features" in args) or keywords:
           kwargs["features"] = features
+
+        logits, labels = reduce_dimensions(logits, labels)
         num, den = metric_fn(logits, labels, weights_fn=weights_fn, **kwargs)
         return tf.metrics.mean(num, den)
 
