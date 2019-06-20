@@ -96,14 +96,23 @@ def policy_and_value_net(rng_key,
   # NOTE: The LogSoftmax instead of the Softmax because of numerical stability.
 
   if two_towers:
-    net = tl.Branch([bottom_layers_fn(),
-                     tl.Dense(n_actions),
-                     tl.LogSoftmax()],
-                    [bottom_layers_fn(), tl.Dense(1)])
+    layers = [
+        tl.Dup(),
+        tl.Parallel(
+            [bottom_layers_fn(), tl.Dense(n_actions), tl.LogSoftmax()],
+            [bottom_layers_fn(), tl.Dense(1)],
+        )
+    ]
   else:
-    net = tl.Serial(
+    layers = [
         bottom_layers_fn(),
-        tl.Branch([tl.Dense(n_actions), tl.LogSoftmax()], [tl.Dense(1)]))
+        tl.Dup(),
+        tl.Parallel(
+            [tl.Dense(n_actions), tl.LogSoftmax()],
+            [tl.Dense(1)],
+        )
+    ]
+  net = tl.Model(layers)
   params = net.initialize(batch_observations_shape, observations_dtype, rng_key)
   return params, net
 

@@ -52,9 +52,6 @@ class Conv(base.Layer):
       self._kernel_initializer = init.GlorotNormalInitializer(
           rhs_spec.index('O'), rhs_spec.index('I'))
 
-  def stack_items_to_pass(self):
-    return 1
-
   def _check_nhwc(self):
     msg = 'Convolutions on more than 4 dimensions only supported in NHWC.'
     assert self._lhs_spec == self._out_spec == 'NHWC', msg

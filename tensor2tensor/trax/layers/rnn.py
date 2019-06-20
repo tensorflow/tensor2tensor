@@ -24,32 +24,32 @@ from tensor2tensor.trax.layers import convolution
 from tensor2tensor.trax.layers import core
 
 
-def GRUCell(units):
+def GRUCell(n_units):
   """Builds a traditional GRU cell with dense internal transformations.
 
   Gated Recurrent Unit paper: https://arxiv.org/abs/1412.3555
 
 
   Args:
-    units: Number of hidden units.
+    n_units: Number of hidden units.
 
   Returns:
     A Stax model representing a traditional GRU RNN cell.
   """
   return GeneralGRUCell(
-      candidate_transform=lambda: core.Dense(units=units),
+      candidate_transform=lambda: core.Dense(n_units),
       memory_transform_fn=None,
       gate_nonlinearity=core.Sigmoid,
       candidate_nonlinearity=core.Tanh)
 
 
-def ConvGRUCell(units, kernel_size=(3, 3)):
+def ConvGRUCell(n_units, kernel_size=(3, 3)):
   """Builds a convolutional GRU.
 
   Paper: https://arxiv.org/abs/1511.06432.
 
   Args:
-    units: Number of hidden units
+    n_units: Number of hidden units
     kernel_size: Kernel size for convolution
 
   Returns:
@@ -58,7 +58,7 @@ def ConvGRUCell(units, kernel_size=(3, 3)):
 
   def BuildConv():
     return convolution.Conv(
-        filters=units, kernel_size=kernel_size, padding='SAME')
+        filters=n_units, kernel_size=kernel_size, padding='SAME')
 
   return GeneralGRUCell(
       candidate_transform=BuildConv,
@@ -111,7 +111,8 @@ def GeneralGRUCell(candidate_transform,
       gate_nonlinearity(),
   ]
   candidate_block = [
-      cb.Branch([], reset_block),
+      cb.Dup(),
+      reset_block,
       cb.Multiply(),  # Gate S{t-1} with sigmoid(candidate_transform(S{t-1}))
       candidate_transform(),  # Final projection + tanh to get Ct
       candidate_nonlinearity(),  # Candidate gate
@@ -120,7 +121,8 @@ def GeneralGRUCell(candidate_transform,
       core.Dropout(rate=dropout_rate_c)
   ]
   memory_transform = memory_transform_fn() if memory_transform_fn else []
-  return cb.Serial([
-      cb.Branch(memory_transform, gate_block, candidate_block),
+  return cb.Model(
+      cb.Dup(), cb.Dup(),
+      cb.Parallel(memory_transform, gate_block, candidate_block),
       cb.Gate(),
-  ])
+  )

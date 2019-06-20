@@ -24,33 +24,19 @@ from tensor2tensor.trax.layers import combinators as cb
 from tensor2tensor.trax.layers import core
 
 
-_EMPTY_STACK = ()
-_REST_OF_STACK = ((1, 5), (4,))
-
-
 class CombinatorLayerTest(absltest.TestCase):
 
   def test_drop(self):
     layer = cb.Drop()
-    input_shape = ((3, 2),)
-    expected_shape = _EMPTY_STACK
-    output_shape = base.check_shape_agreement(layer, input_shape)
-    self.assertEqual(output_shape, expected_shape)
-
-    input_shape = ((3, 2),) + _REST_OF_STACK
-    expected_shape = _REST_OF_STACK
+    input_shape = (3, 2)
+    expected_shape = ()
     output_shape = base.check_shape_agreement(layer, input_shape)
     self.assertEqual(output_shape, expected_shape)
 
   def test_dup(self):
     layer = cb.Dup()
-    input_shape = ((3, 2),)
+    input_shape = (3, 2)
     expected_shape = ((3, 2), (3, 2))
-    output_shape = base.check_shape_agreement(layer, input_shape)
-    self.assertEqual(output_shape, expected_shape)
-
-    input_shape = ((3, 2),) + _REST_OF_STACK
-    expected_shape = ((3, 2), (3, 2)) + _REST_OF_STACK
     output_shape = base.check_shape_agreement(layer, input_shape)
     self.assertEqual(output_shape, expected_shape)
 
@@ -61,8 +47,10 @@ class CombinatorLayerTest(absltest.TestCase):
     output_shape = base.check_shape_agreement(layer, input_shape)
     self.assertEqual(output_shape, expected_shape)
 
-    input_shape = ((3, 2), (4, 7)) + _REST_OF_STACK
-    expected_shape = ((4, 7), (3, 2)) + _REST_OF_STACK
+  def test_serial_no_op(self):
+    layer = cb.Serial(None)
+    input_shape = ((3, 2), (4, 7))
+    expected_shape = ((3, 2), (4, 7))
     output_shape = base.check_shape_agreement(layer, input_shape)
     self.assertEqual(output_shape, expected_shape)
 
@@ -73,43 +61,56 @@ class CombinatorLayerTest(absltest.TestCase):
     output_shape = base.check_shape_agreement(layer, input_shape)
     self.assertEqual(output_shape, expected_shape)
 
-    input_shape = ((3, 2), (4, 7)) + _REST_OF_STACK
-    expected_shape = ((3, 2), (4, 7)) + _REST_OF_STACK
-    output_shape = base.check_shape_agreement(layer, input_shape)
-    self.assertEqual(output_shape, expected_shape)
-
   def test_serial_one_in_one_out(self):
     layer = cb.Serial(core.Div(divisor=2.0))
-    input_shape = ((3, 2), (4, 7))
-    expected_shape = ((3, 2), (4, 7))
+    input_shape = (3, 2)
+    expected_shape = (3, 2)
     output_shape = base.check_shape_agreement(layer, input_shape)
     self.assertEqual(output_shape, expected_shape)
 
   def test_serial_div_div(self):
     layer = cb.Serial(core.Div(divisor=2.0), core.Div(divisor=5.0))
+    input_shape = (3, 2)
+    expected_shape = (3, 2)
+    output_shape = base.check_shape_agreement(layer, input_shape)
+    self.assertEqual(output_shape, expected_shape)
+
+  def test_serial_dup_dup(self):
+    layer = cb.Serial(cb.Dup(), cb.Dup())
+    input_shape = (3, 2)
+    expected_shape = ((3, 2), (3, 2), (3, 2))
+    output_shape = base.check_shape_agreement(layer, input_shape)
+    self.assertEqual(output_shape, expected_shape)
+
+  def test_parallel_dup_dup(self):
+    layer = cb.Parallel(cb.Dup(), cb.Dup())
+    input_shape = ((3, 2), (4, 7))
+    expected_shape = ((3, 2), (3, 2), (4, 7), (4, 7))
+    output_shape = base.check_shape_agreement(layer, input_shape)
+    self.assertEqual(output_shape, expected_shape)
+
+  def test_parallel_div_div(self):
+    layer = cb.Parallel(core.Div(divisor=0.5), core.Div(divisor=3.0))
     input_shape = ((3, 2), (4, 7))
     expected_shape = ((3, 2), (4, 7))
     output_shape = base.check_shape_agreement(layer, input_shape)
     self.assertEqual(output_shape, expected_shape)
 
-  def test_branch(self):
-    input_shape = (2, 3)
-    expected_shape = ((2, 3), (2, 3))
-    output_shape = base.check_shape_agreement(cb.Branch([], []), input_shape)
+  def test_parallel_no_ops(self):
+    layer = cb.Parallel([], None)
+    input_shape = ((3, 2), (4, 7))
+    expected_shape = ((3, 2), (4, 7))
+    output_shape = base.check_shape_agreement(layer, input_shape)
     self.assertEqual(output_shape, expected_shape)
 
-  def test_parallel(self):
-    input_shape = ((2, 3), (2, 3))
-    expected_shape = ((2, 3), (2, 3))
-    output_shape = base.check_shape_agreement(cb.Parallel([], []), input_shape)
-    self.assertEqual(output_shape, expected_shape)
+  def test_branch_op_not_defined(self):
+    with self.assertRaises(AttributeError):
+      cb.Branch([], [])
 
-  def test_select(self):
-    input_shape = ((2, 3), (3, 4))
-    expected_shape = (3, 4)
-    output_shape = base.check_shape_agreement(cb.Select(1), input_shape)
-    self.assertEqual(output_shape, expected_shape)
-
+  def test_select_op_not_defined(self):
+    input_shape = ((3, 2), (4, 7))
+    with self.assertRaises(AttributeError):
+      cb.Select(1, input_shape)
 
 if __name__ == '__main__':
   absltest.main()

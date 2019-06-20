@@ -87,16 +87,13 @@ def ToFloat(x, **unused_kwargs):
 class Dense(base.Layer):
   """Layer constructor function for a dense (fully-connected) layer."""
 
-  def __init__(self, units,
+  def __init__(self, n_units,
                kernel_initializer=init.GlorotUniformInitializer(),
                bias_initializer=init.RandomNormalInitializer(1e-6)):
     super(Dense, self).__init__()
-    self._units = units
+    self._n_units = n_units
     self._kernel_initializer = kernel_initializer
     self._bias_initializer = bias_initializer
-
-  def stack_items_to_pass(self):
-    return 1
 
   def call(self, x, params, **kwargs):
     del kwargs
@@ -106,8 +103,8 @@ class Dense(base.Layer):
   def new_parameters(self, input_shape, input_dtype, rng):
     del input_dtype
     rng1, rng2 = backend.random.split(rng, 2)
-    w = self._kernel_initializer((input_shape[-1], self._units), rng1)
-    b = self._bias_initializer((self._units,), rng2)
+    w = self._kernel_initializer((input_shape[-1], self._n_units), rng1)
+    b = self._bias_initializer((self._n_units,), rng2)
     return (w, b)
 
 
@@ -120,9 +117,6 @@ class Embedding(base.Layer):
     self._d_feature = d_feature  # feature dimensionality
     self._vocab_size = vocab_size
     self._kernel_initializer = kernel_initializer
-
-  def stack_items_to_pass(self):
-    return 1
 
   def call(self, x, params, **kwargs):
     del kwargs

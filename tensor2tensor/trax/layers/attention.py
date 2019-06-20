@@ -24,7 +24,7 @@ import numpy as onp
 from tensor2tensor.trax import backend
 from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.layers import base
-from tensor2tensor.trax.layers import combinators
+from tensor2tensor.trax.layers import combinators as cb
 from tensor2tensor.trax.layers import core
 
 
@@ -41,10 +41,10 @@ def PaddingMask(x, params, pad=0, **kwargs):
   return np.reshape(x != pad, (x.shape[0], 1, 1, x.shape[-1]))
 
 
-@base.layer(stack_items_to_pass=0)
+@base.layer(n_inputs=2)
 def EncoderDecoderMask(x, **unused_kwargs):
-  """Make encoder-decoder mask from a padding mask and decoder input."""
-  (padding_mask, decoder_input) = x
+  """Makes encoder-decoder mask from decoder input and a padding mask."""
+  decoder_input, padding_mask = x
   padding_mask = np.reshape(
       padding_mask, (padding_mask.shape[0], 1, 1, padding_mask.shape[-1]))
   # Final mask shape is [batch, 1 for heads, decoder-len, encoder-len].
@@ -110,7 +110,7 @@ def DotProductAttention(query, key, value, mask, dropout, mode, rng):
   return out
 
 
-@base.layer(stack_items_to_pass=4)
+@base.layer(n_inputs=4, n_outputs=2)
 def PureMultiHeadedAttention(x, params, n_heads=8, dropout=0.0, mode='train',
                              **kwargs):
   """Pure transformer-style multi-headed attention.
@@ -164,7 +164,7 @@ def MultiHeadedAttentionQKV(d_feature, n_heads=8, dropout=0.0, mode='train'):
     Multi-headed self-attention result and the mask.
   """
   return [
-      combinators.Parallel(
+      cb.Parallel(
           core.Dense(d_feature),
           core.Dense(d_feature),
           core.Dense(d_feature),
@@ -191,30 +191,17 @@ def MultiHeadedAttention(
     Multi-headed self-attention layer.
   """
   return [
-      combinators.Dup(),
-      combinators.Dup(),
+      cb.Dup(), cb.Dup(),
       MultiHeadedAttentionQKV(  # pylint: disable=no-value-for-parameter
           d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
   ]
 
 
-@base.layer(stack_items_to_pass=0)
+@base.layer()
 def ShiftRight(x, **unused_kwargs):
   """Layer to shift the tensor to the right by padding on axis 1."""
-  if not isinstance(x, (list, tuple)):  # non-chunked inputs
-    pad_widths = [(0, 0)] * len(x.shape)
-    pad_widths[1] = (1, 0)  # Padding on axis=1
-    padded = np.pad(x, pad_widths, mode='constant',
-                    constant_values=x.dtype.type(0))
-    return padded[:, :-1]
-  # Handling chunked inputs. Recall that the list of chunks represents a big
-  # sequence (the concatenation of the chunks). We want to shift that sequence,
-  # so we put a 0 in the beginning of the first chunk and the last element of
-  # that chunk is used as the new first element of the next chunk, and so on.
-  padded = []
-  last_value = np.zeros_like(x[0][:, -1])
-  for chunk in x:
-    padded_chunk = np.concatenate([last_value[:, np.newaxis], chunk], axis=1)
-    last_value = chunk[:, -1]
-    padded.append(padded_chunk[:, :-1])
-  return padded
+  pad_widths = [(0, 0)] * len(x.shape)
+  pad_widths[1] = (1, 0)  # Padding on axis=1
+  padded = np.pad(x, pad_widths, mode='constant',
+                  constant_values=x.dtype.type(0))
+  return padded[:, :-1]

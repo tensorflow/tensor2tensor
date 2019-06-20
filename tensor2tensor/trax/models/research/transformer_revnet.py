@@ -146,13 +146,13 @@ class ReversibleLayerMixin(object):
     return do_call(x, params, kwargs)
 
 
-@tl.layer(stack_items_to_pass=1)
+@tl.layer()
 def Split(x, params, sections=2, axis=-1, **kwargs):
   del params, kwargs
   return list(backend.numpy.split(x, sections, axis))
 
 
-@tl.layer(stack_items_to_pass=1)
+@tl.layer()
 def Duplicate(x, params, sections=2, **kwargs):
   del params, kwargs
   return [x for _ in range(sections)]
@@ -163,6 +163,7 @@ class ReversibleHalfResidual(ReversibleLayerMixin, tl.Serial):
 
   def __init__(self, residual_layers):
     self.compute_residual = tl.Serial([
+        # TODO(jonni): Rewrite without using Select.
         tl.Select(inputs=('x1_or_y1', 'x2'), output=('x2', 'x1_or_y1', 'x2')),
         tl.Parallel(residual_layers, [], []),
     ])
@@ -288,10 +289,11 @@ def DecoderBlock(d_feature, d_feedforward, n_heads, n_attention_chunks,
   """
   self_attention = [
       tl.LayerNorm(),
-      tl.Branch([], tl.CausalMask(axis=-2)),  # Create mask.
+      tl.Dup(),
+      tl.Parallel([], tl.CausalMask(axis=-2)),  # Create mask.
       tl.MultiHeadedAttention(
           d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
-      tl.Select(0),  # Drop mask.
+      tl.Parallel([], tl.Drop()),  # Drop mask.
       tl.Dropout(rate=dropout, mode=mode),
   ]
 

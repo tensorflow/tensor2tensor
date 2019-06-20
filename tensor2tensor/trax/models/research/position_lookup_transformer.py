@@ -43,7 +43,8 @@ def NewPositionalEncoding(x, positions=None, **kwargs):
   return res
 
 
-@tl.layer(stack_items_to_pass=0)
+# TODO(lukaszkaiser): This used to have stack_items_to_pass=0; fix as needed.
+@tl.layer()
 def CutPosition(xs, **unused_kwargs):
   """Splits x into a pair (x[:position], position)."""
   if not isinstance(xs, (list, tuple)):
@@ -113,12 +114,14 @@ def DeepFlatten(xs):
       yield x
 
 
-@tl.layer(stack_items_to_pass=0)
+# TODO(lukaszkaiser): This used to have stack_items_to_pass=0; fix as needed.
+@tl.layer()
 def Unnest(xs, **unused_kwargs):
   return [x for x in DeepFlatten(xs)]
 
 
-@tl.layer(stack_items_to_pass=0)
+# TODO(lukaszkaiser): This used to have stack_items_to_pass=0; fix as needed.
+@tl.layer()
 def ConcatenateN(xs, params, n=2, axis=-1, **kwargs):
   """Concatenate first N inputs (and output remainder as is if non-empty)."""
   del params, kwargs
@@ -156,6 +159,7 @@ def ApplyAndQueryPositions(layer, pos):
   return tl.Serial(
       tl.Dup(),
       CutPosition(),
+      # TODO(lukaszkaiser): Rewrite without using Select.
       tl.Select(tuple([0] + [(2, 1)]*n_heads)),
       tl.Parallel(*([layer] + pos)),
       Unnest(),
@@ -184,7 +188,8 @@ def LearnedQP(keys=None, values=None, binary=False):
   )
 
 
-@tl.layer(stack_items_to_pass=0)
+# TODO(lukaszkaiser): This used to have stack_items_to_pass=0; fix as needed.
+@tl.layer()
 def SoftmaxBranches(x_list_in, n_branches=2, **unused_kwargs):
   """Softmax xs.
 
@@ -228,7 +233,8 @@ def SumLearnedPick(positions):
   sub_values = np.array([positions[max(i - j, 0), :]
                          for j in range(l) for i in range(l)])
   return tl.Serial(
-      tl.Branch(
+      tl.Dup(), tl.Dup(), tl.Dup(), tl.Dup(),
+      tl.Parallel(
           LearnedQP(),
           LearnedQP(keys=succ_keys, values=succ_values),
           LearnedQP(keys=subtract_1_keys, values=subtract_1_values),
@@ -261,7 +267,7 @@ def MultiHeadedAttentionPosition(
       tl.PureMultiHeadedAttention(
           d_feature=d_feature, n_heads=n_heads,
           dropout=dropout, mode=mode),
-      tl.Select(0),  # Drop the mask.
+      tl.Parallel([], tl.Drop()),  # Drop the mask.
       CombineHeadsPos(h=n_heads),
       PreservePosition(tl.Dense(d_feature)),
   )
@@ -305,8 +311,9 @@ def DecoderLayer(positions,
   return [
       tl.Residual(  # Self-attention block.
           PreservePosition(tl.LayerNorm()),
-          tl.Branch([],  # activation for (q, k, v)
-                    tl.CausalMask(axis=-2)),  # attention mask
+          tl.Dup(),
+          tl.Parallel([],  # activation for (q, k, v)
+                      tl.CausalMask(axis=-2)),  # attention mask
           MultiHeadedAttentionPosition(positions,
                                        d_feature, n_heads=n_heads,
                                        dropout=dropout, mode=mode),

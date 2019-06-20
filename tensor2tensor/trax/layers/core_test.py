@@ -31,20 +31,25 @@ class CoreLayerTest(absltest.TestCase):
   def test_flatten_n(self):
     input_shape = (29, 87, 10, 20, 30)
 
-    actual_shape = base.check_shape_agreement(core.Flatten(), input_shape)
-    self.assertEqual(actual_shape, (29, 87 * 10 * 20 * 30))
+    layer = core.Flatten()
+    expected_shape = (29, 87 * 10 * 20 * 30)
+    actual_shape = base.check_shape_agreement(layer, input_shape)
+    self.assertEqual(actual_shape, expected_shape)
 
-    actual_shape = base.check_shape_agreement(
-        core.Flatten(n_axes_to_keep=2), input_shape)
-    self.assertEqual(actual_shape, (29, 87, 10 * 20 * 30))
+    layer = core.Flatten(n_axes_to_keep=2)
+    expected_shape = (29, 87, 10 * 20 * 30)
+    actual_shape = base.check_shape_agreement(layer, input_shape)
+    self.assertEqual(actual_shape, expected_shape)
 
-    actual_shape = base.check_shape_agreement(
-        core.Flatten(n_axes_to_keep=3), input_shape)
-    self.assertEqual(actual_shape, (29, 87, 10, 20 * 30))
+    layer = core.Flatten(n_axes_to_keep=3)
+    expected_shape = (29, 87, 10, 20 * 30)
+    actual_shape = base.check_shape_agreement(layer, input_shape)
+    self.assertEqual(actual_shape, expected_shape)
 
-    actual_shape = base.check_shape_agreement(
-        core.Flatten(n_axes_to_keep=4), input_shape)
-    self.assertEqual(actual_shape, (29, 87, 10, 20, 30))
+    layer = core.Flatten(n_axes_to_keep=4)
+    expected_shape = (29, 87, 10, 20, 30)
+    actual_shape = base.check_shape_agreement(layer, input_shape)
+    self.assertEqual(actual_shape, expected_shape)
 
     # Not enough dimensions.
     with self.assertRaises(base.LayerError):
@@ -63,6 +68,13 @@ class CoreLayerTest(absltest.TestCase):
         0.0,
         onp.sum((output_np - expected_output_np) ** 2),
         delta=1e-6)
+
+  def test_div_shapes(self):
+    layer = core.Div(divisor=2.0)
+    input_shape = (3, 2)
+    expected_shape = (3, 2)
+    output_shape = base.check_shape_agreement(layer, input_shape)
+    self.assertEqual(output_shape, expected_shape)
 
   def test_dense_param_sharing(self):
     model1 = combinators.Serial(core.Dense(32), core.Dense(32))

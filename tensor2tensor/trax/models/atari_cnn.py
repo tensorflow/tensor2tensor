@@ -24,19 +24,18 @@ from tensor2tensor.trax import layers as tl
 
 def AtariCnn(hidden_sizes=(32, 32), output_size=128):
   """An Atari CNN."""
-  # Input's shape = (B, T, H, W, C)
+  # TODO(jonni): Include link to paper?
+  # Input shape: (B, T, H, W, C)
+  # Output shape: (B, T, output_size)
   return tl.Model(
       tl.ToFloat(),
       tl.Div(divisor=255.0),
-      # Have 4 copies of the input, each one shifted to the right by one.
-      tl.Branch(
-          [],
-          [tl.ShiftRight()],
-          [tl.ShiftRight(), tl.ShiftRight()],
-          [tl.ShiftRight(), tl.ShiftRight(), tl.ShiftRight()]
-      ),
-      # Concatenated on the last axis.
-      tl.Concatenate(axis=-1),  # (B, T, H, W, 4C)
+
+      # Set up 4 successive game frames, concatenated on the last axis.
+      tl.Dup(), tl.Dup(), tl.Dup(),
+      tl.Parallel(None, _shift_right(1), _shift_right(2), _shift_right(3)),
+      tl.Concatenate(n_items=4, axis=-1),  # (B, T, H, W, 4C)
+
       tl.Conv(hidden_sizes[0], (5, 5), (2, 2), 'SAME'),
       tl.Relu(),
       tl.Conv(hidden_sizes[1], (5, 5), (2, 2), 'SAME'),
@@ -44,5 +43,8 @@ def AtariCnn(hidden_sizes=(32, 32), output_size=128):
       tl.Flatten(n_axes_to_keep=2),  # B, T and rest.
       tl.Dense(output_size),
       tl.Relu(),
-      # Eventually this is shaped (B, T, output_size)
   )
+
+
+def _shift_right(n):  # pylint: disable=invalid-name
+  return [tl.ShiftRight()] * n
