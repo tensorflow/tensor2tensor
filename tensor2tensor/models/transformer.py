@@ -27,7 +27,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from six.moves import range  # pylint: disable=redefined-builtin
-import re
 
 from tensor2tensor.data_generators import librispeech
 from tensor2tensor.layers import common_attention
@@ -796,19 +795,31 @@ class Transformer(t2t_model.T2TModel):
     # Create tensors for encoder-decoder attention history
     att_cache = {"attention_history": {}}
     num_layers = hparams.num_decoder_layers or hparams.num_hidden_layers
-    att_batch_size, enc_seq_length = common_layers.shape_list(encoder_output)[0:2]
-    for layer in range(num_layers):
-      att_cache["attention_history"]["layer_%d" % layer] = tf.zeros(
-        [att_batch_size, hparams.num_heads, 0, enc_seq_length])
+    if encoder_output is not None:
+      att_batch_size, enc_seq_length = common_layers.shape_list(
+          encoder_output)[0:2]
+      for layer in range(num_layers):
+        att_cache["attention_history"]["layer_%d" % layer] = tf.zeros(
+            [att_batch_size, hparams.num_heads, 0, enc_seq_length])
 
     def update_decoder_attention_history(cache):
-      for k in filter(lambda x: "decoder" in x and not "self" in x and not "logits" in x,
-        self.attention_weights.keys()):
-        m = re.search(r"(layer_\d+)", k)
-        if m is None:
+      """Save attention weights in cache, e.g., for vizualization."""
+      for k in [x for x in self.attention_weights
+                if "decoder" in x and "self" not in x and "logits" not in x]:
+        idx = k.find("layer_")
+        if idx < 0:
           continue
-        cache["attention_history"][m[0]] = tf.concat(
-            [cache["attention_history"][m[0]], self.attention_weights[k]], axis=2)
+        # Get layer number from the string name.
+        layer_nbr = k[idx + 6:]
+        idx = 0
+        while idx + 1 < len(layer_nbr) and layer_nbr[:idx + 1].isdigit():
+          idx += 1
+        layer_nbr = "layer_%d" % int(layer_nbr[:idx])
+        if layer_nbr in cache["attention_history"]:
+          cache["attention_history"][layer_nbr] = tf.concat(
+              [cache["attention_history"][layer_nbr],
+               self.attention_weights[k]],
+              axis=2)
 
     def symbols_to_logits_fn(ids, i, cache):
       """Go from ids to logits for next symbol."""
