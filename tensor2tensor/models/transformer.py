@@ -27,6 +27,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from six.moves import range  # pylint: disable=redefined-builtin
+import re
 
 from tensor2tensor.data_generators import librispeech
 from tensor2tensor.layers import common_attention
@@ -792,6 +793,23 @@ class Transformer(t2t_model.T2TModel):
       decoder_self_attention_bias += common_attention.attention_bias_proximal(
           decode_length)
 
+    # Create tensors for encoder-decoder attention history
+    att_cache = {"attention_history": {}}
+    num_layers = hparams.num_decoder_layers or hparams.num_hidden_layers
+    att_batch_size, enc_seq_length = common_layers.shape_list(encoder_output)[0:2]
+    for layer in range(num_layers):
+      att_cache["attention_history"]["layer_%d" % layer] = tf.zeros(
+        [att_batch_size, hparams.num_heads, 0, enc_seq_length])
+
+    def update_decoder_attention_history(cache):
+      for k in filter(lambda x: "decoder" in x and not "self" in x and not "logits" in x,
+        self.attention_weights.keys()):
+        m = re.search(r"(layer_\d+)", k)
+        if m is None:
+          continue
+        cache["attention_history"][m[0]] = tf.concat(
+            [cache["attention_history"][m[0]], self.attention_weights[k]], axis=2)
+
     def symbols_to_logits_fn(ids, i, cache):
       """Go from ids to logits for next symbol."""
       ids = ids[:, -1:]
@@ -809,6 +827,8 @@ class Transformer(t2t_model.T2TModel):
             hparams,
             cache,
             nonpadding=features_to_nonpadding(features, "targets"))
+
+      update_decoder_attention_history(cache)
 
       modality_name = hparams.name.get(
           "targets",
@@ -852,7 +872,8 @@ class Transformer(t2t_model.T2TModel):
         batch_size=batch_size,
         force_decode_length=self._decode_hparams.force_decode_length,
         sos_id=sos_id,
-        eos_id=eos_id)
+        eos_id=eos_id,
+        cache=att_cache)
     if partial_targets is not None:
       if beam_size <= 1 or top_beams <= 1:
         ret["outputs"] = ret["outputs"][:, partial_targets_length:]
