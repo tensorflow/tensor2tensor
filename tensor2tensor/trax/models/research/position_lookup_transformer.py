@@ -246,8 +246,8 @@ def SumLearnedPick(positions):
   )
 
 
-def MultiHeadedAttentionPosition(
-    positions, d_feature, n_heads=8, dropout=0.0, mode='train'):
+def AttentionPosition(positions, d_feature, n_heads=8, dropout=0.0,
+                      mode='train'):
   """Transformer-style multi-headed attention."""
   return tl.Serial(
       tl.Dup(),
@@ -264,9 +264,8 @@ def MultiHeadedAttentionPosition(
           MixHeadsPos(h=n_heads),
           MixHeadsPos(h=n_heads),
       ),
-      tl.PureMultiHeadedAttention(
-          d_feature=d_feature, n_heads=n_heads,
-          dropout=dropout, mode=mode),
+      tl.PureAttention(d_feature=d_feature, n_heads=n_heads, dropout=dropout,
+                       mode=mode),
       tl.Parallel([], tl.Drop()),  # Drop the mask.
       CombineHeadsPos(h=n_heads),
       PreservePosition(tl.Dense(d_feature)),
@@ -314,9 +313,8 @@ def DecoderLayer(positions,
           tl.Dup(),
           tl.Parallel([],  # activation for (q, k, v)
                       tl.CausalMask(axis=-2)),  # attention mask
-          MultiHeadedAttentionPosition(positions,
-                                       d_feature, n_heads=n_heads,
-                                       dropout=dropout, mode=mode),
+          AttentionPosition(positions, d_feature, n_heads=n_heads,
+                            dropout=dropout, mode=mode),
           PreservePosition(tl.Dropout(rate=dropout, mode=mode))
       ),
       ResidualFeedForward(d_feature, d_feedforward, dropout, mode=mode)

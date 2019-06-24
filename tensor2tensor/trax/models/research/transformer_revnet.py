@@ -291,8 +291,7 @@ def DecoderBlock(d_feature, d_feedforward, n_heads, n_attention_chunks,
       tl.LayerNorm(),
       tl.Dup(),
       tl.Parallel([], tl.CausalMask(axis=-2)),  # Create mask.
-      tl.MultiHeadedAttention(
-          d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
+      tl.Attention(d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
       tl.Parallel([], tl.Drop()),  # Drop mask.
       tl.Dropout(rate=dropout, mode=mode),
   ]

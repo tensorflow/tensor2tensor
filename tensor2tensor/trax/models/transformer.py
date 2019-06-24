@@ -53,8 +53,7 @@ def EncoderBlock(d_feature, d_feedforward, n_heads, dropout, mode):
   """
   attention = [
       tl.LayerNorm(),
-      tl.MultiHeadedAttention(
-          d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
+      tl.Attention(d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
       tl.Dropout(rate=dropout, mode=mode),
   ]
   feed_forward = [
@@ -131,8 +130,7 @@ def DecoderBlock(d_feature, d_feedforward, n_heads, dropout, mode):
       tl.LayerNorm(),  # vec
       tl.Dup(),  # vec vec
       tl.Parallel([], tl.CausalMask(axis=-2)),  # vec mask
-      tl.MultiHeadedAttention(
-          d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
+      tl.Attention(d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
       tl.Parallel([], tl.Drop()),  # vec
       tl.Dropout(rate=dropout, mode=mode),  # vec
   ]
@@ -209,8 +207,7 @@ def EncoderDecoder(d_feature, d_feedforward, n_heads, dropout, mode):
       tl.LayerNorm(),                           #        vecs_d   ..... ......
       tl.Dup(),                                 # vecs_d vecs_d   ..... ......
       tl.Parallel([], tl.CausalMask(axis=-2)),  # ______ masks    ..... ......
-      tl.MultiHeadedAttention(d_feature, n_heads=n_heads,
-                              dropout=dropout, mode=mode),
+      tl.Attention(d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
       tl.Parallel([], tl.Drop()),               # ______   0      ..... ......
       tl.Dropout(rate=dropout, mode=mode),      # vecs_d          ..... ......
   ]
@@ -218,7 +215,7 @@ def EncoderDecoder(d_feature, d_feedforward, n_heads, dropout, mode):
       tl.Parallel([], [], tl.Dup()),      # ______        _____  vecs_e vecs_e
       tl.Parallel([], tl.Swap()),         # ______        vecs_e masks  ......
       tl.Parallel([], tl.Dup()),          # ______ vecs_e vecs_e .....  ......
-      tl.MultiHeadedAttentionQKV(  # (q k v masks ... --> vecs_d masks ...)
+      tl.AttentionQKV(  # (q k v masks ... --> vecs_d masks ...)
           d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
       tl.Dropout(rate=dropout, mode=mode),  # vecs_d mask vecs_e
   ]

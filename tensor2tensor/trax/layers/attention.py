@@ -111,8 +111,7 @@ def DotProductAttention(query, key, value, mask, dropout, mode, rng):
 
 
 @base.layer(n_inputs=4, n_outputs=2)
-def PureMultiHeadedAttention(x, params, n_heads=8, dropout=0.0, mode='train',
-                             **kwargs):
+def PureAttention(x, params, n_heads=1, dropout=0.0, mode='train', **kwargs):
   """Pure transformer-style multi-headed attention.
 
   Args:
@@ -149,7 +148,7 @@ def PureMultiHeadedAttention(x, params, n_heads=8, dropout=0.0, mode='train',
   return res, mask  # Keep the mask.
 
 
-def MultiHeadedAttentionQKV(d_feature, n_heads=8, dropout=0.0, mode='train'):
+def AttentionQKV(d_feature, n_heads=1, dropout=0.0, mode='train'):
   """Transformer-style multi-headed attention.
 
   Accepts inputs of the form q, k, v, mask.
@@ -169,14 +168,13 @@ def MultiHeadedAttentionQKV(d_feature, n_heads=8, dropout=0.0, mode='train'):
           core.Dense(d_feature),
           core.Dense(d_feature),
       ),
-      PureMultiHeadedAttention(  # pylint: disable=no-value-for-parameter
+      PureAttention(  # pylint: disable=no-value-for-parameter
           d_feature=d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
       core.Dense(d_feature),
   ]
 
 
-def MultiHeadedAttention(
-    d_feature, n_heads=8, dropout=0.0, mode='train'):
+def Attention(d_feature, n_heads=1, dropout=0.0, mode='train'):
   """Transformer-style multi-headed attention.
 
   Accepts inputs of the form (x, mask) and constructs (q, k, v) from x.
@@ -192,8 +190,7 @@ def MultiHeadedAttention(
   """
   return [
       cb.Dup(), cb.Dup(),
-      MultiHeadedAttentionQKV(  # pylint: disable=no-value-for-parameter
-          d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
+      AttentionQKV(d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
   ]
 
 
