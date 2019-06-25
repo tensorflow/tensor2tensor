@@ -92,6 +92,22 @@ def imagetransformer_latent_tiny():
 class LatentLayersTest(tf.test.TestCase):
 
   @test_utils.run_in_graph_and_eager_modes()
+  def testComputeBitsAndNats(self):
+    reconstruction_loss = tf.random_uniform(())
+    prior_loss = tf.random_uniform(())
+    data_dim = tf.random_uniform((), maxval=1000, dtype=tf.int32)
+    latent_dim = tf.random_uniform((), maxval=1000, dtype=tf.int32)
+    nats_per_dim, bits_per_dim = latent_layers.compute_nats_and_bits_per_dim(
+        data_dim,
+        latent_dim,
+        reconstruction_loss,
+        prior_loss)
+
+    nats_per_dim_py, bits_per_dim_conv_py = self.evaluate(
+        [nats_per_dim, bits_per_dim * tf.log(2.)])
+    self.assertAllClose(nats_per_dim_py, bits_per_dim_conv_py)
+
+  @test_utils.run_in_graph_and_eager_modes()
   def testTransformerAutoencoder(self):
     hparams = imagetransformer_latent_tiny()
     hparams.mode = tf.estimator.ModeKeys.TRAIN
