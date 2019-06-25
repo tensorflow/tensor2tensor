@@ -422,6 +422,14 @@ def dqn_guess1_params():
 
 
 @registry.register_hparams
+def dqn_guess1_params_eval():
+  """Params for dqn_guess1 evaluation (with evaluator.py)."""
+  hparams = dqn_guess1_params()
+  hparams.set_hparam("eval_episodes_num", 64)
+  return hparams
+
+
+@registry.register_hparams
 def dqn_guess1_rainbow_params():
   """Guess 1 for DQN params."""
   hparams = dqn_guess1_params()
