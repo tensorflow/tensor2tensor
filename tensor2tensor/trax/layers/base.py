@@ -156,13 +156,15 @@ class Layer(object):
     """
     try:
       with backend.use_backend('jax'):
-        # Same as backend.random.get_prng(0), but no op-by-op execution.
-        rng = onp.zeros(2, onp.uint32)
-        def call_on_input(x, params):
+        # Beware: using an actual RNG (as opposed to this ShapeType stub) would
+        # cause a large number of dropout masks to be computed and permanently
+        # stored in global memory.
+        rng = ShapeType(shape=(2,), dtype=onp.uint32)
+        def call_on_input(x, params, rng):
           return self.call(x, params=params, rng=rng)
         params_shapes = nested_map(
             params, lambda x: ShapeType(shape=x.shape, dtype=x.dtype))
-        s = _eval_on_shapes(call_on_input, pseudo_inputs, params_shapes)
+        s = _eval_on_shapes(call_on_input, pseudo_inputs, params_shapes, rng)
       return s
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback(skip=3)
