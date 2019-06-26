@@ -39,7 +39,7 @@ class Map(tl.Layer):
     A new layer representing mapping layer to all elements of the input.
   """
 
-  def __init__(self, layer, check_shapes=True):
+  def __init__(self, layer, sections=1, check_shapes=True):
     super(Map, self).__init__()
     if layer is None or isinstance(layer, (list, tuple)):
       layer = tl.Serial(layer)
@@ -50,13 +50,20 @@ class Map(tl.Layer):
     # are valid cases -- e.g., when self._layer has no parameters -- where we
     # can apply Map to different shapes -- set check_shapes=False in such cases.
     self._check_shapes = check_shapes
+    self._sections = sections
+
+  def n_inputs(self):
+    """Specifies how many data tensors this layer expects as input."""
+    return self._sections
+
+  def n_outputs(self):
+    """Specifies how many data tensors this layer promises as output."""
+    return self._sections
 
   def call(self, inputs, params=(), **kwargs):
     rngs = _pop_rng_and_split(kwargs, len(inputs))
     result = [self._layer(x, params=params, rng=r, **kwargs)
               for x, r in zip(inputs, rngs)]
-    if isinstance(inputs, list):
-      return result
     return tuple(result)
 
   def new_parameters(self, input_shape, input_dtype, rng):
@@ -90,7 +97,7 @@ class ReversibleLayerMixin(object):
     """Backward pass: computes the inverse of a layer and propagates gradients.
 
     Args:
-      output: Output activations; can be a (possibly nested) tuple or list.
+      output: Output activations; can be a (possibly nested) tuple.
       ct: gradient signal (cotangent) computed based on subsequent layers. If
           None, no gradients are propagated. Otherwise the structure and shape
           must match the output.
@@ -146,16 +153,48 @@ class ReversibleLayerMixin(object):
     return do_call(x, params, kwargs)
 
 
-@tl.layer()
-def Split(x, params, sections=2, axis=-1, **kwargs):
-  del params, kwargs
-  return list(backend.numpy.split(x, sections, axis))
+class Split(tl.Layer):
+  """Splits the input into sections along an axis."""
+
+  def __init__(self, sections=2, axis=-1):
+    super(Split, self).__init__()
+    self._sections = sections
+    self._axis = axis
+
+  def call(self, inputs, params=(), **kwargs):
+    del params, kwargs
+    return tuple(backend.numpy.split(inputs, self._sections, self._axis))
+
+  def new_parameters(self, input_shapes, input_dtype, rng):
+    return ()
+
+  def n_inputs(self):
+    """Specifies how many data tensors this layer expects as input."""
+    return 1
+
+  def n_outputs(self):
+    """Specifies how many data tensors this layer promises as output."""
+    return self._sections
 
 
 @tl.layer()
-def Duplicate(x, params, sections=2, **kwargs):
+def Chunk(x, params, sections=2, **kwargs):
   del params, kwargs
-  return [x for _ in range(sections)]
+  assert x.shape[1] % sections == 0
+  return backend.numpy.reshape(x, (
+      x.shape[0] * sections,
+      x.shape[1] // sections,
+      ) + x.shape[2:])
+
+
+@tl.layer()
+def Unchunk(x, params, sections=2, **kwargs):
+  del params, kwargs
+  assert x.shape[0] % sections == 0
+  return backend.numpy.reshape(x, (
+      x.shape[0] // sections,
+      x.shape[1] * sections,
+      ) + x.shape[2:])
 
 
 class ReversibleHalfResidual(ReversibleLayerMixin, tl.Serial):
@@ -163,27 +202,31 @@ class ReversibleHalfResidual(ReversibleLayerMixin, tl.Serial):
 
   def __init__(self, residual_layers):
     self.compute_residual = tl.Serial([
-        # TODO(jonni): Rewrite without using Select.
-        tl.Select(inputs=('x1_or_y1', 'x2'), output=('x2', 'x1_or_y1', 'x2')),
+        # (x1_or_y1, x2) -> (x2, x1_or_y1, x2)
+        tl.Parallel([], tl.Dup()),
+        tl.Swap(),
         tl.Parallel(residual_layers, [], []),
     ])
 
-    layers = [self.compute_residual, tl.Add()]
+    layers = [
+        self.compute_residual,
+        tl.Parallel(tl.Add(), [])
+    ]
     super(ReversibleHalfResidual, self).__init__(layers)
 
-    self.subtract_top = tl.SubtractTop()
+    self.subtract_top = tl.Parallel(tl.SubtractTop(), [])
     self.reverse_layers = [self.compute_residual, self.subtract_top]
 
   def inverse_and_vjp(self, output, ct, params=(), **kwargs):
     rng = kwargs.pop('rng', None)
-    rngs = (None,) * self._nlayers
+    rngs = (None,) * self._n_layers
     if rng is not None:
-      rngs = backend.random.split(rng, self._nlayers)
+      rngs = backend.random.split(rng, self._n_layers)
 
     if ct is None:
       reconstructed_x = output
-      # Note that self._layers aligns exactly with self.reverse_layers in terms
-      # of parameter and rng usage, so no re-ordering is required.
+      # Note that self.sublayers() aligns exactly with self.reverse_layers in
+      # terms of parameter and rng usage, so no re-ordering is required.
       for layer, p, rng in zip(self.reverse_layers, params, rngs):
         reconstructed_x = layer(reconstructed_x, p, rng=rng, **kwargs)
       return reconstructed_x, None
@@ -234,8 +277,8 @@ class ReversibleSerial(ReversibleLayerMixin, tl.Serial):
   def __init__(self, *layers):
     super(ReversibleSerial, self).__init__(*layers)
 
-    # Note that self._layers has already been flattened to remove nested lists.
-    for i, layer in enumerate(self._layers):
+    # Note that sublayers has already been flattened to remove nested lists.
+    for i, layer in enumerate(self.sublayers()):
       if not isinstance(layer, ReversibleLayerMixin):
         raise ValueError(
             'Sub-layer {} of ReversibleSerial is not reversible: {}'.format(
@@ -243,15 +286,15 @@ class ReversibleSerial(ReversibleLayerMixin, tl.Serial):
 
   def inverse_and_vjp(self, output, ct, params=(), **kwargs):
     rng = kwargs.pop('rng', None)
-    rngs = (None,) * self._nlayers
+    rngs = (None,) * self._n_layers
     if rng is not None:
-      rngs = backend.random.split(rng, self._nlayers)
+      rngs = backend.random.split(rng, self._n_layers)
 
     layer_val = output
     if ct is not None:
       layer_ct = ct
       params_ct = []
-    for layer, p, rng in reversed(zip(self._layers, params, rngs)):
+    for layer, p, rng in reversed(zip(self.sublayers(), params, rngs)):
       layer_val, layer_ct = layer.inverse_and_vjp(
           layer_val, layer_ct, p, rng=rng, **kwargs)
       if ct is not None:
@@ -298,9 +341,9 @@ def DecoderBlock(d_feature, d_feedforward, n_heads, n_attention_chunks,
 
   # TODO(kitaev): Memory-efficient attention. This chunking is temporary.
   self_attention = [
-      Split(sections=n_attention_chunks, axis=-2),  # pylint: disable=no-value-for-parameter
-      Map(self_attention),
-      tl.Concatenate(axis=-2),
+      Chunk(sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
+      self_attention,
+      Unchunk(sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
   ]
 
   feed_forward = [
@@ -345,10 +388,10 @@ def TransformerRevnetLM(vocab_size,
       tl.PositionalEncoding(max_len=max_len),
   ]
   return tl.Model(
-      tl.Concatenate(),
+      tl.Concatenate(n_items=n_chunks),
       tl.ShiftRight(),
       positional_embedder,
-      Duplicate(),  # pylint: disable=no-value-for-parameter
+      tl.Dup(),
       ReversibleSerial([
           DecoderBlock(d_feature, d_feedforward, n_heads, n_attention_chunks,
                        dropout, mode)
@@ -360,6 +403,6 @@ def TransformerRevnetLM(vocab_size,
       Map([
           tl.Dense(vocab_size),
           tl.LogSoftmax(),
-      ]),
+      ], sections=n_chunks),
   )
 
