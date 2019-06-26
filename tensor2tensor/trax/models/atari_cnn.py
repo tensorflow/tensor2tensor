@@ -22,8 +22,10 @@ from __future__ import print_function
 from tensor2tensor.trax import layers as tl
 
 
-def AtariCnn(hidden_sizes=(32, 32), output_size=128):
+def AtariCnn(hidden_sizes=(32, 32), output_size=128, mode='train'):
   """An Atari CNN."""
+  del mode
+
   # TODO(jonni): Include link to paper?
   # Input shape: (B, T, H, W, C)
   # Output shape: (B, T, output_size)
