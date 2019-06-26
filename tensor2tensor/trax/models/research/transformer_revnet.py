@@ -78,15 +78,15 @@ class Map(tl.Layer):
 
 def FeedForward(d_feature, d_feedforward, dropout, mode):
   """Feed-forward block with layer normalization at start."""
-  # TODO(kitaev): dropout is disabled to save memory
+  # TODO(kitaev): add dropout. Dropout is typically performed by adding noise to
+  # the activations, but when the size of the activations is very large it is
+  # more efficient to add noise to the *parameters* instead.
   del dropout, mode
   return [
       tl.LayerNorm(),
       tl.Dense(d_feedforward),
       tl.Relu(),
-      # tl.Dropout(rate=dropout, mode=mode),
       tl.Dense(d_feature),
-      # tl.Dropout(rate=dropout, mode=mode),
   ]
 
 
@@ -334,9 +334,9 @@ def DecoderBlock(d_feature, d_feedforward, n_heads, n_attention_chunks,
       tl.LayerNorm(),
       tl.Dup(),
       tl.Parallel([], tl.CausalMask(axis=-2)),  # Create mask.
-      tl.Attention(d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
+      # TODO(kitaev): add dropout
+      tl.Attention(d_feature, n_heads=n_heads, dropout=None, mode=mode),
       tl.Parallel([], tl.Drop()),  # Drop mask.
-      tl.Dropout(rate=dropout, mode=mode),
   ]
 
   # TODO(kitaev): Memory-efficient attention. This chunking is temporary.
@@ -383,8 +383,7 @@ def TransformerRevnetLM(vocab_size,
   """
   positional_embedder = [
       tl.Embedding(d_feature, vocab_size),
-      # TODO(kitaev): dropout is disabled to save memory
-      # tl.Dropout(rate=dropout, mode=mode),
+      # TODO(kitaev): add dropout
       tl.PositionalEncoding(max_len=max_len),
   ]
   return tl.Model(
