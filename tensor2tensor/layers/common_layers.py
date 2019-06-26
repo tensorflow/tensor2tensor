@@ -1938,7 +1938,7 @@ def padded_cross_entropy_mixture(logits,
   Raises:
     ValueError: in case of unsupported argument types.
   """
-
+  # TODO(karishmamalkan): Fix documentation and refactor name
   (logits, mixture_labels, supervised_mode) = logits
 
   logit_shapes = shape_list(
@@ -1982,6 +1982,15 @@ def padded_cross_entropy_mixture(logits,
       mixture_accuracy = tf.metrics.accuracy(
           mixture_labels, best_mixtures, name="mixture_accuracy")
       tf.summary.scalar("mixture_acc_plot", mixture_accuracy[1])
+
+    # plot a summary for the difference between the top 2 losses
+    if num_mixtures > 1:
+      xent_reshaped = tf.transpose(tf.squeeze(xent), perm=[1, 0])
+      top_2_mixtures = tf.reduce_mean(
+          -tf.math.top_k(-xent_reshaped, k=2)[0], axis=0)
+      tf.summary.scalar("difference_top_2",
+                        top_2_mixtures[0] - top_2_mixtures[1])
+
     if supervised_mode:
       xent_min = gather_tensor_by_mixture_index(
           xent, mixture_labels, batch_size, num_mixtures, reshape=False)
@@ -2013,7 +2022,7 @@ def padded_cross_entropy_mixture(logits,
                       summed_xent_max / summed_weights)
 
   if return_best_logits:
-    return summed_xent_min, summed_weights, best_logits
+    return summed_xent_min, summed_weights, best_logits, return_mixture_indices
   else:
     return summed_xent_min, summed_weights
 
