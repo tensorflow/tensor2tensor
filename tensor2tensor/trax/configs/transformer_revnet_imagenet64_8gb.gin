@@ -5,7 +5,7 @@ import tensor2tensor.trax.trax
 
 # Parameters for batch_fun:
 # ==============================================================================
-batch_fun.batch_size_per_device = 32
+batch_fun.batch_size_per_device = 16
 batch_fun.eval_batch_size = 8
 batch_fun.max_eval_length = 12288  # 64 * 64 * 3
 
@@ -24,7 +24,7 @@ MultifactorSchedule.warmup_steps = 8000
 
 # Parameters for train:
 # ==============================================================================
-train.eval_frequency = 100
+train.eval_frequency = 25
 train.eval_steps = 10
 train.inputs = @trax.inputs.inputs
 train.model = @trax.models.TransformerRevnetLM
@@ -43,4 +43,5 @@ TransformerRevnetLM.n_heads = 8
 TransformerRevnetLM.n_layers = 6
 TransformerRevnetLM.vocab_size = 256
 TransformerRevnetLM.n_chunks = 64
-TransformerRevnetLM.n_attention_chunks = 64
+TransformerRevnetLM.n_attention_chunks = 1
+TransformerRevnetLM.attention_loop_stride = 512

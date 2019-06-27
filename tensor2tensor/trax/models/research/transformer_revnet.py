@@ -19,9 +19,11 @@ from __future__ import division
 from __future__ import print_function
 
 import jax
+import numpy as onp
 
 from tensor2tensor.trax import backend
 from tensor2tensor.trax import layers as tl
+from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.layers.combinators import _pop_rng_and_split
 
 
@@ -129,8 +131,6 @@ class ReversibleLayerMixin(object):
     assert backend.get_name() == 'jax', (
         'Reversible layers are only supported in JAX')
 
-    # Retrieve shared parameters (cf. tl.Layer.__call__)
-    super(ReversibleLayerMixin, self).__call__(x, params, **kwargs)
     if params is () and self._params:  # pylint: disable=literal-comparison
       # TODO(kitaev): Figure out why parameter sharing doesn't work (if this
       # explicit error isn't thrown, a jax tracer error occurs instead)
@@ -249,6 +249,332 @@ class ReversibleHalfResidual(ReversibleLayerMixin, tl.Serial):
       return reconstructed_x, (x_ct, (residual_params_ct, ()), kwargs_ct)
 
 
+@tl.layer(n_inputs=1, n_outputs=1)
+def SplitHeads(x, params, n_heads=1, **kwargs):
+  del params, kwargs
+  d_feature = x.shape[-1]
+  assert d_feature % n_heads == 0
+  d_head = d_feature // n_heads
+  n_batch = np.shape(x)[0]
+  # n_batch, seqlen, d_feature --> n_batch, n_heads, seqlen, d_head
+  return np.transpose(
+      np.reshape(x, (n_batch, -1, n_heads, d_head)), (0, 2, 1, 3))
+
+
+@tl.layer(n_inputs=1, n_outputs=1)
+def JoinHeads(x, params, **kwargs):
+  del params, kwargs
+  n_batch = np.shape(x)[0]
+  seqlen = np.shape(x)[2]
+  # n_batch, n_heads, seqlen, d_head --> n_batch, seqlen, d_feature
+  return np.reshape(np.transpose(x, (0, 2, 1, 3)), (n_batch, seqlen, -1))
+
+
+class ApplyAttentionWrapper(tl.Parallel):
+  """Same as tl.Parallel(attention, [], []), but implements forward_and_vjp.
+
+  See MemoryEfficientDotProductAttention for why this is needed.
+  """
+
+  def __init__(self, attention):
+    assert hasattr(attention, 'forward_and_vjp')
+    super(ApplyAttentionWrapper, self).__init__(attention, [], [])
+    self.attention = attention
+
+  def forward_and_vjp(self, inputs, ct, params=(), **kwargs):
+    # Simultaneous forward pass and backprop through the attention mechanism.
+    qkv = inputs[:3]
+    passthrough = inputs[3:]
+    out_ct = ct[0]
+    passthrough_ct = ct[1:]
+
+    out, qkv_ct = self.attention.forward_and_vjp(
+        qkv, out_ct, params=(), **kwargs)
+    return (out,) + passthrough, qkv_ct + passthrough_ct
+
+
+class DotProductAttention(tl.Layer):
+  """A standard (non-memory-efficient) dot product attention implementation.
+
+  This class sets up the API that is required to implement
+  MemoryEfficientDotProductAttention.
+  """
+
+  def __init__(self, dropout, mode):
+    super(DotProductAttention, self).__init__()
+    self._dropout = dropout
+    self._mode = mode
+
+  def call(self, inputs, params=(), rng=None, **kwargs):
+    del params
+    q, k, v = inputs
+    mask_size = q.shape[-2]
+    mask = np.tril(np.ones((1, mask_size, mask_size), dtype=onp.bool_), k=0)
+    res = tl.DotProductAttention(
+        q, k, v, mask, dropout=self._dropout, mode=self._mode, rng=rng)
+    return res
+
+  def forward_and_vjp(self, inputs, ct, params=(), **kwargs):
+    # Simultaneous forward pass and backprop through the attention mechanism.
+    def do_call(x):
+      return self.call(x, params, **kwargs)
+    output, vjpfun = jax.vjp(do_call, inputs)
+    return output, vjpfun(ct)[0]
+
+  def new_parameters(self, input_shapes, input_dtype, rng):
+    return ()
+
+  def n_inputs(self):
+    return 3
+
+  def n_outputs(self):
+    return 1
+
+
+class MemoryEfficientDotProductAttention(DotProductAttention):
+  """Memory-efficient dot product attention."""
+
+  def __init__(self, loop_stride, dropout, mode):
+    super(MemoryEfficientDotProductAttention, self).__init__(dropout, mode)
+    self._loop_stride = loop_stride
+
+  def call(self, inputs, params=(), **kwargs):
+    output, _ = self.forward_and_vjp(inputs, None, params=params, **kwargs)
+    return output
+
+  def forward_and_vjp(self, inputs, ct, params=(), **kwargs):
+    # This is the core of the memory-efficient attention implementation, where
+    # we use the jax.lax.while_loop primitive to compute attention for a small
+    # set of query positions at a time. Note how in the backwards pass, we
+    # compute both the forward direction (to recover the previous layer's
+    # activations) and the backward direction simultaneously. This allows us to
+    # only use a single loop, where the inner portion of the loop does a slice
+    # of the forward+backward joint computation. Unfortunately we have had to
+    # introduce a large number of wrapper classes (including
+    # ReversibleAttentionHalfResidual and ApplyAttentionWrapper) for the sole
+    # purpose of connecting this implementation of forward_and_vjp with the core
+    # backprop implementation.
+
+    query, key, value = inputs
+    depth = np.shape(query)[-1]
+    do_backprop = ct is not None
+
+    def make_mask(N, M, k):
+      x = np.arange(N, dtype=np.int32)
+      y = np.arange(M, dtype=np.int32)
+      mask = jax.lax.lt(
+          (jax.lax.broadcast_in_dim(
+              x, shape=(N, M), broadcast_dimensions=(0,)) + k),
+          jax.lax.broadcast(y, [N]))
+      mask = jax.lax.convert_element_type(mask, np.float32)
+      return mask
+
+    def forward_slice(query_slice, q_loop_idx, key, value):
+      """Forward pass for a subset of the query vectors."""
+      dots = np.matmul(
+          query_slice, np.swapaxes(key, -1, -2)) / np.sqrt(depth)
+
+      # Causal masking
+      mask = make_mask(dots.shape[-2], dots.shape[-1], q_loop_idx)
+      dots = dots - 1e9 * mask
+
+      # Softmax.
+      dots = np.exp(dots - dots.max(axis=-1, keepdims=True))
+      dots = dots / dots.sum(axis=-1, keepdims=True)
+      out_slice = np.matmul(dots, value)
+      return out_slice
+
+    def forward_and_vjp_slice(query_slice, q_loop_idx, key, value, ct_slice):
+      output_slice, vjpfun = jax.vjp(
+          forward_slice, query_slice, q_loop_idx, key, value)
+      return output_slice, vjpfun(ct_slice)
+
+    q_loop_idx = np.zeros((), dtype=np.int32)
+    q_loop_max = query.shape[2]
+    q_loop_stride = self._loop_stride
+    assert q_loop_max % q_loop_stride == 0, (
+        'Stride must evenly divide the number of query elements.')
+
+    out_accum = np.zeros_like(query)
+    if do_backprop:
+      query_ct_accum = np.zeros_like(query)
+      key_ct_accum = np.zeros_like(key)
+      value_ct_accum = np.zeros_like(value)
+      init_vals = (
+          q_loop_idx, out_accum,
+          query_ct_accum, key_ct_accum, value_ct_accum)
+    else:
+      init_vals = (q_loop_idx, out_accum)
+
+    def cond_fun(vals):
+      q_loop_idx = vals[0]
+      return jax.lax.lt(q_loop_idx, q_loop_max)
+
+    def body_fun(vals):
+      """Compute a slice of the attention mechanism."""
+      if do_backprop:
+        (q_loop_idx, out_accum,
+         query_ct_accum, key_ct_accum, value_ct_accum) = vals
+      else:
+        q_loop_idx, out_accum = vals
+
+      query_slice = jax.lax.dynamic_slice_in_dim(
+          query, q_loop_idx, q_loop_stride, axis=2)
+
+      if do_backprop:
+        ct_slice = jax.lax.dynamic_slice_in_dim(
+            ct, q_loop_idx, q_loop_stride, axis=2)
+        out_slice, partial_ct = forward_and_vjp_slice(
+            query_slice, q_loop_idx, key, value, ct_slice)
+        query_ct_accum = jax.lax.dynamic_update_slice_in_dim(
+            query_ct_accum, partial_ct[0], q_loop_idx, axis=2)
+        # ignore partial_ct[1], which is wrt the loop idx
+        key_ct_accum = key_ct_accum + partial_ct[2]
+        value_ct_accum = value_ct_accum + partial_ct[3]
+      else:
+        out_slice = forward_slice(query_slice, q_loop_idx, key, value)
+
+      out_accum = jax.lax.dynamic_update_slice_in_dim(
+          out_accum, out_slice, q_loop_idx, axis=2)
+      q_loop_idx = q_loop_idx + q_loop_stride
+
+      if do_backprop:
+        return (q_loop_idx, out_accum,
+                query_ct_accum, key_ct_accum, value_ct_accum)
+      else:
+        return (q_loop_idx, out_accum)
+
+    final_vals = jax.lax.while_loop(cond_fun, body_fun, init_vals)
+
+    if not do_backprop:
+      return final_vals[1], None
+    else:
+      return final_vals[1], final_vals[2:]
+
+
+class ReversibleAttentionHalfResidual(ReversibleLayerMixin, tl.Serial):
+  """Half of a RevNet-style residual that performs attention.
+
+  If inputs are (x1, x2), then outputs are (x1 + z, x2) where:
+  z = post_attention(attention(pre_attention(x1)))
+
+  The post_attention layers must be linear in their input (typically they will
+  consists of reshaping and dense linear layers). This allows back-propagating
+  the gradient signal from the output of ReversibleAttentionHalfResidual to the
+  output of the "attention" portion based only on the network parameters.
+
+  The forward pass is equivalent to using
+  ReversibleHalfResidual([pre_attention, attention, post_attention]), but the
+  backward pass uses attention.forward_and_vjp. See
+  MemoryEfficientDotProductAttention for why forward_and_vjp is helpful.
+  """
+
+  def __init__(self, pre_attention, attention, post_attention):
+    self.pre_attention = tl.Serial([
+        # (x1_or_y1, x2) -> (x2, x1_or_y1, x2)
+        tl.Parallel([], tl.Dup()),
+        tl.Swap(),
+        tl.Parallel(pre_attention, [], []),
+    ])
+    assert hasattr(attention, 'forward_and_vjp')
+    self.attention = ApplyAttentionWrapper(attention)
+    self.post_attention = tl.Parallel(post_attention, [], [])
+
+    layers = [
+        self.pre_attention,
+        self.attention,
+        self.post_attention,
+        tl.Parallel(tl.Add(), []),
+    ]
+    super(ReversibleAttentionHalfResidual, self).__init__(layers)
+
+    self.subtract_top = tl.Parallel(tl.SubtractTop(), [])
+    self.reverse_layers = [
+        self.pre_attention,
+        self.attention,
+        self.post_attention,
+        self.subtract_top,
+    ]
+
+  def inverse_and_vjp(self, output, ct, params=(), **kwargs):
+    rng = kwargs.pop('rng', None)
+    rngs = (None,) * self._n_layers
+    if rng is not None:
+      rngs = backend.random.split(rng, self._n_layers)
+
+    if ct is None:
+      reconstructed_x = output
+      # Note that self.sublayers() aligns exactly with self.reverse_layers in
+      # terms of parameter and rng usage, so no re-ordering is required.
+      for layer, p, rng in zip(self.reverse_layers, params, rngs):
+        reconstructed_x = layer(reconstructed_x, p, rng=rng, **kwargs)
+      return reconstructed_x, None
+    else:
+      # Forward pass through self.pre_attention, while preparing for
+      # later backprop.
+      # Note: jax.vjp does not allow us to use **kwargs in the signature here.
+      def call_pre_attention(x, params, kwargs):
+        return self.pre_attention(x, params, **kwargs)
+      pre_attention_kwargs = kwargs.copy()
+      pre_attention_kwargs['rng'] = rngs[0]
+      stack, pre_attention_vjpfun = jax.vjp(
+          call_pre_attention, output, params[0], pre_attention_kwargs)
+
+      # Backprop through adding the residual
+      assert len(ct) == 2
+      ct = saved_ct = (ct[0], ct[0], ct[1])
+
+      # Backprop through self.post_attention with respect to the inputs only
+      call_post_attention_kwargs = kwargs.copy()
+      call_post_attention_kwargs['rng'] = rngs[2]
+      def call_post_attention(x):
+        return self.post_attention(x, params[2], **call_post_attention_kwargs)
+      # Note: these are *not* the actual inputs to self.post_attention.
+      # If self.post_attention is not linear, we will get incorrect gradients.
+      dummy_inputs = (stack[-3], stack[-2], stack[-1])
+      _, post_attention_vjpfun = jax.vjp(call_post_attention, dummy_inputs)
+      (ct,) = post_attention_vjpfun(ct)
+
+      # Simultaneous forward pass and backprop through the attention mechanism
+      attention_kwargs = kwargs.copy()
+      attention_kwargs['rng'] = rngs[1]
+      stack, ct = self.attention.forward_and_vjp(
+          stack, ct, **attention_kwargs)
+      attention_params_ct = ()
+
+      # Backprop through self.pre_attention
+      (x_ct,
+       pre_attention_params_ct,
+       pre_attention_kwargs_ct) = pre_attention_vjpfun(ct)
+
+      # Forward pass for self.post_attention, and backprop with respect to the
+      # parameters only
+      def call_post_attention2(params, kwargs):
+        return self.post_attention(stack, params, **kwargs)
+      stack, post_attention_vjpfun = jax.vjp(
+          call_post_attention2, params[2], call_post_attention_kwargs)
+      (post_attention_params_ct,
+       post_attention_kwargs_ct) = post_attention_vjpfun(saved_ct)
+
+      # Forward pass through subtracting the residual
+      reconstructed_x = self.subtract_top(
+          stack, params[-1], rng=rngs[-1], **kwargs)
+
+      params_ct = (
+          pre_attention_params_ct,
+          attention_params_ct,
+          post_attention_params_ct,
+          (),
+          )
+
+      # We don't actually backprop through the kwargs, but the API requires that
+      # we provide a value for kwargs_ct.
+      kwargs_ct = pre_attention_kwargs_ct
+      del post_attention_kwargs_ct
+
+      return reconstructed_x, (x_ct, params_ct, kwargs_ct)
+
+
 class ReversibleSwap(ReversibleLayerMixin, tl.Swap):
   """Swap the first two element on the stack."""
 
@@ -259,16 +585,6 @@ class ReversibleSwap(ReversibleLayerMixin, tl.Swap):
     else:
       return super(ReversibleSwap, self).inverse_and_vjp(
           output, ct, params, **kwargs)
-
-
-def ReversibleResidual(layers_a, layers_b):
-  """RevNet-style reversible residual layer."""
-  return [
-      ReversibleHalfResidual(layers_a),  # (x1, x2) -> (z1, x2)
-      ReversibleSwap(),  # (z1, x2) -> (x2, z1)
-      ReversibleHalfResidual(layers_b),  # (x2, z1) -> (y2, z1)
-      ReversibleSwap(),  # (y2, z1) -> (z1, y2); where y1 := z1
-  ]
 
 
 class ReversibleSerial(ReversibleLayerMixin, tl.Serial):
@@ -316,33 +632,47 @@ class ReversibleSerial(ReversibleLayerMixin, tl.Serial):
 
 
 def DecoderBlock(d_feature, d_feedforward, n_heads, n_attention_chunks,
-                 dropout, mode):
+                 attention_loop_stride, dropout, mode):
   """Reversible transformer decoder layer.
 
   Args:
     d_feature: int:  depth of embedding
     d_feedforward: int: depth of feed-forward layer
     n_heads: int: number of attention heads
-    n_attention_chunks: int: number of chunks for memory-efficient attention
+    n_attention_chunks: int: number of chunks for attention
+    attention_loop_stride: int: number of query elements to compute attention
+      for in parallel. Set to 0 to disable memory-efficient attention.
     dropout: float: dropout rate (how much to drop out)
     mode: str: 'train' or 'eval'
 
   Returns:
     the layer.
   """
-  self_attention = [
+
+  pre_attention = [
+      Chunk(sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
       tl.LayerNorm(),
-      tl.Dup(),
-      tl.Parallel([], tl.CausalMask(axis=-2)),  # Create mask.
-      # TODO(kitaev): add dropout
-      tl.Attention(d_feature, n_heads=n_heads, dropout=None, mode=mode),
-      tl.Parallel([], tl.Drop()),  # Drop mask.
+      tl.Dup(), tl.Dup(),
+      tl.Parallel(
+          [tl.Dense(d_feature), SplitHeads(n_heads=n_heads)],  # pylint: disable=no-value-for-parameter
+          [tl.Dense(d_feature), SplitHeads(n_heads=n_heads)],  # pylint: disable=no-value-for-parameter
+          [tl.Dense(d_feature), SplitHeads(n_heads=n_heads)],  # pylint: disable=no-value-for-parameter
+      ),
   ]
 
-  # TODO(kitaev): Memory-efficient attention. This chunking is temporary.
-  self_attention = [
-      Chunk(sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
-      self_attention,
+  # TODO(kitaev): add dropout
+  if attention_loop_stride < 1:
+    # Use the standard implementation if no loop_stride is provided.
+    attention = DotProductAttention(dropout=None, mode=mode)
+  else:
+    attention = MemoryEfficientDotProductAttention(
+        loop_stride=attention_loop_stride, dropout=None, mode=mode)
+
+  # ReversibleAttentionHalfResidual requires that post_attention be linear in
+  # its input (so the backward pass can be computed without knowing the input)
+  post_attention = [
+      JoinHeads(),  # pylint: disable=no-value-for-parameter
+      tl.Dense(d_feature),
       Unchunk(sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
   ]
 
@@ -350,7 +680,10 @@ def DecoderBlock(d_feature, d_feedforward, n_heads, n_attention_chunks,
       FeedForward(d_feature, d_feedforward, dropout, mode=mode),
   ]
   return [
-      ReversibleResidual([self_attention], [feed_forward]),
+      ReversibleAttentionHalfResidual(pre_attention, attention, post_attention),
+      ReversibleSwap(),
+      ReversibleHalfResidual(feed_forward),
+      ReversibleSwap(),
   ]
 
 
@@ -363,6 +696,7 @@ def TransformerRevnetLM(vocab_size,
                         max_len=2048,
                         n_chunks=32,
                         n_attention_chunks=8,
+                        attention_loop_stride=0,
                         mode='train'):
   """Reversible transformer language model (only uses a decoder, no encoder).
 
@@ -375,7 +709,9 @@ def TransformerRevnetLM(vocab_size,
     dropout: float: dropout rate (how much to drop out)
     max_len: int: maximum symbol length for positional encoding
     n_chunks: int: number of chunks (must match input pipeline)
-    n_attention_chunks: int: number of chunks for memory-efficient attention
+    n_attention_chunks: int: number of chunks for attention
+    attention_loop_stride: int: number of query elements to compute attention
+      for in parallel. Set to 0 to disable memory-efficient attention.
     mode: str: 'train' or 'eval'
 
   Returns:
@@ -393,7 +729,7 @@ def TransformerRevnetLM(vocab_size,
       tl.Dup(),
       ReversibleSerial([
           DecoderBlock(d_feature, d_feedforward, n_heads, n_attention_chunks,
-                       dropout, mode)
+                       attention_loop_stride, dropout, mode)
           for _ in range(n_layers)
       ]),
       tl.Parallel(tl.LayerNorm(), tl.LayerNorm()),
