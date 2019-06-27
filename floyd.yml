@@ -1,0 +1,2 @@
+env: tensorflow-1.12
+machine: gpu

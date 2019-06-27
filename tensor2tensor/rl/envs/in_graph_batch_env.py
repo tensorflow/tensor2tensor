@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,47 +22,21 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# Dependency imports
-
 import gym
 
 import tensorflow as tf
 
 
 class InGraphBatchEnv(object):
-  """Batch of environments inside the TensorFlow graph.
-
-  The batch of environments will be stepped and reset inside of the graph using
-  a tf.py_func(). The current batch of observations, actions, rewards, and done
-  flags are held in according variables.
+  """Abstract class for batch of environments inside the TensorFlow graph.
   """
 
-  def __init__(self, batch_env):
-    """Batch of environments inside the TensorFlow graph.
+  def __init__(self, observ_space, action_space):
+    self.observ_space = observ_space
+    self.action_space = action_space
 
-    Args:
-      batch_env: Batch environment.
-    """
-    self._batch_env = batch_env
-    observ_shape = self._parse_shape(self._batch_env.observation_space)
-    observ_dtype = self._parse_dtype(self._batch_env.observation_space)
-    self.action_shape = list(self._parse_shape(self._batch_env.action_space))
-    self.action_dtype = self._parse_dtype(self._batch_env.action_space)
-    with tf.variable_scope('env_temporary'):
-      self._observ = tf.Variable(
-          tf.zeros((len(self._batch_env),) + observ_shape, observ_dtype),
-          name='observ', trainable=False)
-
-  def __getattr__(self, name):
-    """Forward unimplemented attributes to one of the original environments.
-
-    Args:
-      name: Attribute that was accessed.
-
-    Returns:
-      Value behind the attribute name in one of the original environments.
-    """
-    return getattr(self._batch_env, name)
+  def __str__(self):
+    return "InGraphEnv(%s)" % str(self._batch_env)
 
   def __len__(self):
     """Number of combined environments."""
@@ -83,17 +57,7 @@ class InGraphBatchEnv(object):
     Returns:
       Operation.
     """
-    with tf.name_scope('environment/simulate'):
-      if action.dtype in (tf.float16, tf.float32, tf.float64):
-        action = tf.check_numerics(action, 'action')
-      observ_dtype = self._parse_dtype(self._batch_env.observation_space)
-      observ, reward, done = tf.py_func(
-          lambda a: self._batch_env.step(a)[:3], [action],
-          [observ_dtype, tf.float32, tf.bool], name='step')
-      observ = tf.check_numerics(observ, 'observ')
-      reward = tf.check_numerics(reward, 'reward')
-      with tf.control_dependencies([self._observ.assign(observ)]):
-        return tf.identity(reward), tf.identity(done)
+    raise NotImplementedError
 
   def reset(self, indices=None):
     """Reset the batch of environments.
@@ -105,61 +69,39 @@ class InGraphBatchEnv(object):
       Batch tensor of the new observations.
     """
     return tf.cond(
-        tf.cast(tf.shape(indices)[0], tf.bool),
-        lambda: self._reset_non_empty(indices), lambda: 0.0)
+        tf.cast(tf.reduce_sum(indices + 1), tf.bool),
+        lambda: self._reset_non_empty(indices),
+        lambda: tf.cast(0, self.observ_dtype))
 
-  def _reset_non_empty(self, indices):
-    """Reset the batch of environments.
+  @staticmethod
+  def _get_tf_dtype(space):
+    if isinstance(space, gym.spaces.Discrete):
+      return tf.int32
+    if isinstance(space, gym.spaces.Box):
+      return tf.as_dtype(space.dtype)
+    raise NotImplementedError()
 
-    Args:
-      indices: The batch indices of the environments to reset; defaults to all.
+  @property
+  def observ_dtype(self):
+    return self._get_tf_dtype(self.observ_space)
 
-    Returns:
-      Batch tensor of the new observations.
-    """
-    observ_dtype = self._parse_dtype(self._batch_env.observation_space)
-    observ = tf.py_func(
-        self._batch_env.reset, [indices], observ_dtype, name='reset')
-    observ = tf.check_numerics(observ, 'observ')
-    with tf.control_dependencies([
-        tf.scatter_update(self._observ, indices, observ)]):
-      return tf.identity(observ)
+  @property
+  def observ_shape(self):
+    return self.observ_space.shape
+
+  @property
+  def action_dtype(self):
+    return self._get_tf_dtype(self.action_space)
+
+  @property
+  def action_shape(self):
+    return self.action_space.shape
 
   @property
   def observ(self):
     """Access the variable holding the current observation."""
-    return self._observ
+    return self._observ.read_value()
 
   def close(self):
     """Send close messages to the external process and join them."""
     self._batch_env.close()
-
-  def _parse_shape(self, space):
-    """Get a tensor shape from a OpenAI Gym space.
-
-    Args:
-      space: Gym space.
-
-    Returns:
-      Shape tuple.
-    """
-    if isinstance(space, gym.spaces.Discrete):
-      return ()
-    if isinstance(space, gym.spaces.Box):
-      return space.shape
-    raise NotImplementedError()
-
-  def _parse_dtype(self, space):
-    """Get a tensor dtype from a OpenAI Gym space.
-
-    Args:
-      space: Gym space.
-
-    Returns:
-      TensorFlow data type.
-    """
-    if isinstance(space, gym.spaces.Discrete):
-      return tf.int32
-    if isinstance(space, gym.spaces.Box):
-      return tf.float32
-    raise NotImplementedError()

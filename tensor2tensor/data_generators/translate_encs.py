@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,9 +18,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
@@ -39,9 +36,9 @@ _ENCS_TRAIN_DATASETS = [
       "11234/1-1458/data-plaintext-format.tar"),
      ("tsv", 3, 2, "data.plaintext-format/*train.gz")],
     [
-        "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v12.tgz",  # pylint: disable=line-too-long
-        ("training/news-commentary-v12.cs-en.en",
-         "training/news-commentary-v12.cs-en.cs")
+        "http://data.statmt.org/wmt18/translation-task/training-parallel-nc-v13.tgz",  # pylint: disable=line-too-long
+        ("training-parallel-nc-v13/news-commentary-v13.cs-en.en",
+         "training-parallel-nc-v13/news-commentary-v13.cs-en.cs")
     ],
     [
         "http://www.statmt.org/wmt13/training-parallel-commoncrawl.tgz",
@@ -67,10 +64,6 @@ class TranslateEncsWmt32k(translate.TranslateProblem):
   @property
   def approx_vocab_size(self):
     return 2**15  # 32768
-
-  @property
-  def vocab_filename(self):
-    return "vocab.encs.%d" % self.approx_vocab_size
 
   def source_data_files(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN

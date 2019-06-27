@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,9 +18,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.data_generators import celeba  # pylint: disable=unused-import
@@ -33,13 +30,13 @@ import tensorflow as tf
 
 class Img2imgTransformerTest(tf.test.TestCase):
 
-  def _testImg2imgTransformer(self, net):
+  def _test_img2img_transformer(self, net):
     batch_size = 3
     hparams = image_transformer_2d.img2img_transformer2d_tiny()
     hparams.data_dir = ""
     p_hparams = registry.problem("image_celeba").get_hparams(hparams)
-    inputs = np.random.random_integers(0, high=255, size=(3, 4, 4, 3))
-    targets = np.random.random_integers(0, high=255, size=(3, 8, 8, 3))
+    inputs = np.random.randint(256, size=(3, 4, 4, 3))
+    targets = np.random.randint(256, size=(3, 8, 8, 3))
     with self.test_session() as session:
       features = {
           "inputs": tf.constant(inputs, dtype=tf.int32),
@@ -53,20 +50,22 @@ class Img2imgTransformerTest(tf.test.TestCase):
     self.assertEqual(res.shape, (batch_size, 8, 8, 3, 256))
 
   def testImg2imgTransformer(self):
-    self._testImg2imgTransformer(image_transformer_2d.Img2imgTransformer)
+    self._test_img2img_transformer(image_transformer_2d.Img2imgTransformer)
 
 
 class Imagetransformer2dTest(tf.test.TestCase):
 
-  def _testImagetransformer2d(self, net):
+  def _test_imagetransformer_2d(self, net):
     batch_size = 3
     size = 7
     vocab_size = 256
     hparams = image_transformer_2d.imagetransformer2d_tiny()
-    p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
-    inputs = -1 + np.random.random_integers(
+    p_hparams = problem_hparams.test_problem_hparams(vocab_size,
+                                                     vocab_size,
+                                                     hparams)
+    inputs = np.random.randint(
         vocab_size, size=(batch_size, 1, 1, 1))
-    targets = -1 + np.random.random_integers(
+    targets = np.random.randint(
         vocab_size, size=(batch_size, size, size, 3))
     with self.test_session() as session:
       features = {
@@ -81,7 +80,7 @@ class Imagetransformer2dTest(tf.test.TestCase):
     self.assertEqual(res.shape, (batch_size, size, size, 3, vocab_size))
 
   def testImagetransformer2d(self):
-    self._testImagetransformer2d(image_transformer_2d.Imagetransformer2d)
+    self._test_imagetransformer_2d(image_transformer_2d.Imagetransformer2d)
 
 
 if __name__ == "__main__":

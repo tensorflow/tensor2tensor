@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ from six.moves import input  # pylint: disable=redefined-builtin
 
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.serving import serving_utils
+from tensor2tensor.utils import hparam
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir
 import tensorflow as tf
@@ -32,12 +33,6 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("cloud_mlengine_model_name", None,
-                    "Name of model deployed on Cloud ML Engine.")
-flags.DEFINE_string(
-    "cloud_mlengine_model_version", None,
-    "Version of the model to use. If None, requests will be "
-    "sent to the default version.")
 flags.DEFINE_string("server", None, "Address to Tensorflow Serving server.")
 flags.DEFINE_string("servable_name", None, "Name of served model.")
 flags.DEFINE_string("problem", None, "Problem name.")
@@ -45,6 +40,14 @@ flags.DEFINE_string("data_dir", None, "Data directory, for vocab files.")
 flags.DEFINE_string("t2t_usr_dir", None, "Usr dir for registrations.")
 flags.DEFINE_string("inputs_once", None, "Query once with this input.")
 flags.DEFINE_integer("timeout_secs", 10, "Timeout for query.")
+
+# For Cloud ML Engine predictions.
+flags.DEFINE_string("cloud_mlengine_model_name", None,
+                    "Name of model deployed on Cloud ML Engine.")
+flags.DEFINE_string(
+    "cloud_mlengine_model_version", None,
+    "Version of the model to use. If None, requests will be "
+    "sent to the default version.")
 
 
 def validate_flags():
@@ -57,35 +60,56 @@ def validate_flags():
     assert FLAGS.servable_name
 
 
-def main(_):
-  tf.logging.set_verbosity(tf.logging.INFO)
-  validate_flags()
-  usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-  problem = registry.problem(FLAGS.problem)
-  hparams = tf.contrib.training.HParams(
-      data_dir=os.path.expanduser(FLAGS.data_dir))
-  problem.get_hparams(hparams)
+def make_request_fn():
+  """Returns a request function."""
   if FLAGS.cloud_mlengine_model_name:
     request_fn = serving_utils.make_cloud_mlengine_request_fn(
         credentials=GoogleCredentials.get_application_default(),
         model_name=FLAGS.cloud_mlengine_model_name,
         version=FLAGS.cloud_mlengine_model_version)
   else:
+
     request_fn = serving_utils.make_grpc_request_fn(
         servable_name=FLAGS.servable_name,
         server=FLAGS.server,
         timeout_secs=FLAGS.timeout_secs)
+  return request_fn
+
+
+def main(_):
+  tf.logging.set_verbosity(tf.logging.INFO)
+  validate_flags()
+  usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
+  problem = registry.problem(FLAGS.problem)
+  hparams = hparam.HParams(
+      data_dir=os.path.expanduser(FLAGS.data_dir))
+  problem.get_hparams(hparams)
+  request_fn = make_request_fn()
   while True:
     inputs = FLAGS.inputs_once if FLAGS.inputs_once else input(">> ")
     outputs = serving_utils.predict([inputs], problem, request_fn)
-    print_str = """
+    outputs, = outputs
+    output, score = outputs
+    if len(score.shape) > 0:  # pylint: disable=g-explicit-length-test
+      print_str = """
 Input:
 {inputs}
 
-Output:
-{outputs}
-    """
-    print(print_str.format(inputs=inputs, outputs=outputs[0]))
+Output (Scores [{score}]):
+{output}
+        """
+      score_text = ",".join(["{:.3f}".format(s) for s in score])
+      print(print_str.format(inputs=inputs, output=output, score=score_text))
+    else:
+      print_str = """
+Input:
+{inputs}
+
+Output (Score {score:.3f}):
+{output}
+        """
+      print(print_str.format(inputs=inputs, output=output, score=score))
+
     if FLAGS.inputs_once:
       break
 

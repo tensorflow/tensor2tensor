@@ -1,0 +1,47 @@
+import tensor2tensor.trax.inputs
+import tensor2tensor.trax.learning_rate
+import tensor2tensor.trax.models
+import tensor2tensor.trax.optimizers
+import tensor2tensor.trax.trax
+
+# Parameters for batch_fun:
+# ==============================================================================
+batch_fun.batch_size = 32
+batch_fun.bucket_length = 32
+batch_fun.buckets = None
+batch_fun.eval_batch_size = 32
+
+# Parameters for inputs:
+# ==============================================================================
+inputs.data_dir = None
+inputs.dataset_name = 'cifar10'
+
+# Parameters for MultifactorSchedule:
+# ==============================================================================
+EvalAdjustingSchedule.constant = 1.0
+MultifactorSchedule.factors = 'constant * linear_warmup'
+MultifactorSchedule.warmup_steps = 400
+
+# Parameters for Momentum:
+# ==============================================================================
+Momentum.mass = 0.9
+
+# Parameters for preprocess_fun:
+# ==============================================================================
+shuffle_and_batch_data.preprocess_fun=@trax.inputs.cifar10_no_augmentation_preprocess
+
+# Parameters for WideResnet:
+# ==============================================================================
+WideResnet.d_hidden = 64
+WideResnet.n_blocks = 3
+WideResnet.n_output_classes = 10
+
+# Parameters for train:
+# ==============================================================================
+train.eval_frequency = 2000
+train.eval_steps = 20
+train.inputs = @trax.inputs.inputs
+train.model = @trax.models.WideResnet
+train.optimizer = @trax.optimizers.Momentum
+train.train_steps = 1000000
+train.lr_schedule = @learning_rate.EvalAdjustingSchedule

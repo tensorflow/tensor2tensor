@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,9 +21,6 @@ from __future__ import print_function
 
 import os
 import subprocess
-
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.data_generators import generator_utils
@@ -88,10 +85,6 @@ class LanguagemodelWikiXmlV8kL1k(text_problems.ChoppedTextProblem):
   def corpus_url(self):
     return ("https://archive.org/download/enwiki-20171201/"
             "enwiki-20171201-pages-articles.xml.bz2")
-
-  @property
-  def vocab_filename(self):
-    return "vocab.wiki_xml.%d" % self.approx_vocab_size
 
   @property
   def approx_vocab_size(self):
@@ -177,7 +170,7 @@ class LanguagemodelWikiScramble(LanguagemodelWikiXmlV8kL1k):
 
 @registry.register_problem
 class LanguagemodelWikiScrambleL128(LanguagemodelWikiScramble):
-  """Sequence length 128, 50% scrambed."""
+  """Sequence length 128, 50% scrambled."""
 
   @property
   def sequence_length(self):
@@ -190,7 +183,7 @@ class LanguagemodelWikiScrambleL128(LanguagemodelWikiScramble):
 
 @registry.register_problem
 class LanguagemodelWikiScrambleL1k(LanguagemodelWikiScramble):
-  """Sequence length 1024, 50% scrambed."""
+  """Sequence length 1024, 50% scrambled."""
 
   @property
   def sequence_length(self):
@@ -209,7 +202,7 @@ class LanguagemodelWikiNorefV8kL1k(LanguagemodelWikiXmlV8kL1k):
 
   Special pages (non-articles) are dropped.
 
-  This more closely resemples plain text, though there are still some xml
+  This more closely resembles plain text, though there are still some xml
   elements, like tables.
 
   Each article is prefixed by a line containing the title and length in
@@ -223,12 +216,8 @@ class LanguagemodelWikiNorefV8kL1k(LanguagemodelWikiXmlV8kL1k):
   without regard to article boundaries.
   """
 
-  @property
-  def vocab_filename(self):
-    return "vocab.wiki_noref.%d" % self.approx_vocab_size
-
   def filepath_to_unicode_strings(self, filepath):
-    """Overriddes the base class to clean up the xml dump before tokenizing."""
+    """Overrides the base class to clean up the xml dump before tokenizing."""
     dump = text_encoder.to_unicode_ignore_errors(tf.gfile.Open(filepath).read())
     pages = _dump_to_pages(dump)
     ret = u""
@@ -404,6 +393,19 @@ class LanguagemodelWikiNorefV32kL1k(LanguagemodelWikiNorefV8kL1k):
   @property
   def max_chars_for_vocab(self):
     return 100 * (10 ** 6)
+
+
+@registry.register_problem
+class LanguagemodelWikiNorefV32kL16k(LanguagemodelWikiNorefV32kL1k):
+  """A language model on English Wikipedia.
+
+  References removed.  Chopped into segments of 16k tokens.
+  """
+
+  @property
+  def sequence_length(self):
+    """Length of each example (in tokens)."""
+    return 2**14
 
 
 @registry.register_problem

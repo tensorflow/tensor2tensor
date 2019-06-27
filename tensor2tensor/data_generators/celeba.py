@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,11 +21,9 @@ from __future__ import print_function
 
 import os
 import zipfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -58,8 +56,10 @@ class ImageCeleba(image_utils.ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("image:identity", 256)}
-    p.target_modality = ("image:identity", 256)
+    p.modality = {"inputs": modalities.ModalityType.IDENTITY,
+                  "targets": modalities.ModalityType.IDENTITY}
+    p.vocab_size = {"inputs": 256,
+                    "targets": 256}
     p.batch_size_multiplier = 256
     p.input_space_id = 1
     p.target_space_id = 1
@@ -118,13 +118,13 @@ class ImageCeleba(image_utils.ImageProblem):
     img_landmarks, _ = process_landmarks(landmarks_raw)
     img_attrs, _ = process_attrs(attr_raw)
 
-    image_files = tf.gfile.Glob(unzipped_folder + "/*.jpg")
+    image_files = list(sorted(tf.gfile.Glob(unzipped_folder + "/*.jpg")))
     for filename in image_files[start_from:start_from + how_many]:
       img_name = os.path.basename(filename)
       landmarks = img_landmarks[img_name]
       attrs = img_attrs[img_name]
 
-      with tf.gfile.Open(filename, "r") as f:
+      with tf.gfile.Open(filename, "rb") as f:
         encoded_image_data = f.read()
         yield {
             "image/encoded": [encoded_image_data],
@@ -141,12 +141,25 @@ class ImageCeleba(image_utils.ImageProblem):
   def dev_shards(self):
     return 10
 
+  @property
+  def test_shards(self):
+    return 10
+
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
-    generator_utils.generate_dataset_and_shuffle(
-        self.generator(tmp_dir, 162770),  # train
-        self.training_filepaths(data_dir, self.train_shards, shuffled=False),
-        self.generator(tmp_dir, 19867, 162770),  # dev
-        self.dev_filepaths(data_dir, self.dev_shards, shuffled=False))
+    train_gen = self.generator(tmp_dir, 162770)
+    train_paths = self.training_filepaths(
+        data_dir, self.train_shards, shuffled=False)
+    generator_utils.generate_files(train_gen, train_paths)
+
+    dev_gen = self.generator(tmp_dir, 19867, 162770)
+    dev_paths = self.dev_filepaths(data_dir, self.dev_shards, shuffled=False)
+    generator_utils.generate_files(dev_gen, dev_paths)
+
+    test_gen = self.generator(tmp_dir, 19962, 162770+19867)
+    test_paths = self.test_filepaths(data_dir, self.test_shards, shuffled=False)
+    generator_utils.generate_files(test_gen, test_paths)
+
+    generator_utils.shuffle_dataset(train_paths + dev_paths + test_paths)
 
 
 @registry.register_problem
@@ -161,22 +174,28 @@ class ImageCelebaMultiResolution(ImageCeleba):
 
   def preprocess_example(self, example, mode, hparams):
     image = example["inputs"]
-    if hasattr(hparams, "resize_method"):
-      method = getattr(tf.image.ResizeMethod, hparams.resize_method)
-    else:  # default
-      method = tf.image.ResizeMethod.BICUBIC
+    # Get resize method. Include a default if not specified, or if it's not in
+    # TensorFlow's collection of pre-implemented resize methods.
+    resize_method = getattr(hparams, "resize_method", "BICUBIC")
+    resize_method = getattr(tf.image.ResizeMethod, resize_method, resize_method)
 
     # Remove boundaries in CelebA images. Remove 40 pixels each side
     # vertically and 20 pixels each side horizontally.
     image = tf.image.crop_to_bounding_box(image, 40, 20, 218 - 80, 178 - 40)
 
-    scaled_images = image_utils.make_multiscale(
-        image, hparams.resolutions,
-        resize_method=method, num_channels=self.num_channels)
+    highest_res = hparams.resolutions[-1]
+    if resize_method == "DILATED":
+      # Resize image so that dilated subsampling is properly divisible.
+      scaled_image = image_utils.resize_by_area(image, highest_res)
+      scaled_images = image_utils.make_multiscale_dilated(
+          scaled_image, hparams.resolutions, num_channels=self.num_channels)
+    else:
+      scaled_images = image_utils.make_multiscale(
+          image, hparams.resolutions,
+          resize_method=resize_method, num_channels=self.num_channels)
 
     # Pack tuple of scaled images into one tensor. We do this by enforcing the
     # columns to match for every resolution.
-    highest_res = hparams.resolutions[-1]
     example["inputs"] = image
     example["targets"] = tf.concat([
         tf.reshape(scaled_image,
@@ -221,3 +240,37 @@ class Img2imgCeleba64(Img2imgCeleba):
     example["inputs"] = image_8
     example["targets"] = image_64
     return example
+
+
+@registry.register_problem
+class ImageCeleba32(Img2imgCeleba):
+  """CelebA resized to spatial dims [32, 32]."""
+
+  def preprocess_example(self, example, unused_mode, unused_hparams):
+    image = example["inputs"]
+    # Remove boundaries in CelebA images. Remove 40 pixels each side
+    # vertically and 20 pixels each side horizontally.
+    image = tf.image.crop_to_bounding_box(image, 40, 20, 218 - 80, 178 - 40)
+    image = image_utils.resize_by_area(image, 32)
+
+    example["inputs"] = image
+    example["targets"] = image
+    return example
+
+
+@registry.register_problem
+class ImageCeleba64(Img2imgCeleba):
+  """CelebA resized to spatial dims [64, 64]."""
+
+  def preprocess_example(self, example, unused_mode, unused_hparams):
+    image = example["inputs"]
+    # Remove boundaries in CelebA images. Remove 40 pixels each side
+    # vertically and 20 pixels each side horizontally.
+    image = tf.image.crop_to_bounding_box(image, 40, 20, 218 - 80, 178 - 40)
+    image = image_utils.resize_by_area(image, 64)
+
+    example["inputs"] = image
+    example["targets"] = image
+    return example
+
+

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,18 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Access T2T Problems.
-
-See problems_test.py for basic usage.
-"""
-
+"""Access T2T Problems."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# Dependency imports
-
-from tensor2tensor.data_generators import all_problems  # pylint: disable=unused-import
+from tensor2tensor.data_generators import all_problems
 from tensor2tensor.utils import registry
 
 
@@ -33,4 +27,7 @@ def problem(name):
 
 
 def available():
-  return sorted(registry.list_problems())
+  return registry.list_base_problems()
+
+
+all_problems.import_modules(all_problems.ALL_MODULES)

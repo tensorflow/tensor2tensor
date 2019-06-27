@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 # coding=utf-8
 """ROUGE metric implementation.
 
-This is a modified and slightly extended verison of
+This is a modified and slightly extended version of
 https://github.com/miso-belica/sumy/blob/dev/sumy/evaluation/rouge.py.
 """
 
@@ -62,7 +62,7 @@ def _lcs(x, y):
     Table of dictionary of coord and len lcs
   """
   n, m = len(x), len(y)
-  table = dict()
+  table = {}
   for i in range(n + 1):
     for j in range(m + 1):
       if i == 0 or j == 0:
@@ -116,7 +116,7 @@ def rouge_l_sentence_level(eval_sentences, ref_sentences):
 
   Args:
     eval_sentences: The sentences that have been picked by the summarizer
-    ref_sentences: The sentences from the referene set
+    ref_sentences: The sentences from the reference set
 
   Returns:
     A float: F_lcs
@@ -138,7 +138,7 @@ def rouge_l_fscore(predictions, labels, **unused_kwargs):
   or decode the ids and tokenize the output.
 
   Args:
-    predictions: tensor, model predicitons
+    predictions: tensor, model predictions
     labels: tensor, gold output.
 
   Returns:
@@ -221,7 +221,7 @@ def rouge_2_fscore(predictions, labels, **unused_kwargs):
   or decode the ids and tokenize the output.
 
   Args:
-    predictions: tensor, model predicitons
+    predictions: tensor, model predictions
     labels: tensor, gold output.
 
   Returns:

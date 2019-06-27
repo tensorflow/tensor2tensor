@@ -1,0 +1,28 @@
+#!/usr/bin/env python
+"""Run t2t-eval from a trained checkpoint.
+
+This script is used to run evaluation from a trained checkpoint. Example
+to run evaluation on the test set when trained checkpoint is in /output_dir.
+
+t2t-eval \
+  --problem=image_mnist \
+  --model=imagetransformer \
+  --data_dir=~/t2t
+  --output_dir=/output_dir \
+  --eval_use_test_set=True \
+"""
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+from tensor2tensor.bin import t2t_eval
+
+import tensorflow as tf
+
+def main(argv):
+  t2t_eval.main(argv)
+
+
+if __name__ == "__main__":
+  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.app.run()

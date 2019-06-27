@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,14 +24,12 @@ import json
 import os
 import random
 import zipfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import imagenet
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import translate_ende
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -97,7 +95,7 @@ def mscoco_generator(data_dir,
         vocab_symbolizer = text_encoder.SubwordTextEncoder(vocab_filepath)
         return vocab_symbolizer
       else:
-        raise ValueError("Vocab file does not exist: %s", vocab_filepath)
+        raise ValueError("Vocab file does not exist: %s" % vocab_filepath)
     return None
 
   vocab_symbolizer = get_vocab()
@@ -109,7 +107,7 @@ def mscoco_generator(data_dir,
   caption_file = io.open(caption_filepath)
   caption_json = json.load(caption_file)
   # Dictionary from image_id to ((filename, height, width), captions).
-  image_dict = dict()
+  image_dict = {}
   for image in caption_json["images"]:
     image_dict[image["id"]] = [(image["file_name"], image["height"],
                                 image["width"]), []]
@@ -127,7 +125,7 @@ def mscoco_generator(data_dir,
   for image_info, labels in data:
     image_filename = image_info[0]
     image_filepath = os.path.join(tmp_dir, prefix, image_filename)
-    with tf.gfile.Open(image_filepath, "r") as f:
+    with tf.gfile.Open(image_filepath, "rb") as f:
       encoded_image_data = f.read()
       height, width = image_info[1], image_info[2]
       for label in labels:
@@ -184,8 +182,8 @@ class ImageMsCocoTokens32k(ImageMsCocoCharacters):
     return False
 
   @property
-  def targeted_vocab_size(self):
-    return 2**15  # 32768
+  def vocab_problem(self):
+    return translate_ende.TranslateEndeWmt32k()
 
   @property
   def target_space_id(self):
@@ -203,7 +201,7 @@ class ImageMsCocoTokens32k(ImageMsCocoCharacters):
     # We use the translate vocab file as the vocabulary for captions.
     # This requires having the vocab file present in the data_dir for the
     # generation pipeline to succeed.
-    vocab_filename = "vocab.ende.%d" % self.targeted_vocab_size
+    vocab_filename = self.vocab_problem.vocab_filename
     if is_training:
       return mscoco_generator(
           data_dir,
@@ -229,12 +227,24 @@ class ImageTextMsCocoMultiResolution(ImageMsCocoTokens32k):
 
   def preprocess_example(self, example, mode, hparams):
     image = example["inputs"]
-    scaled_images = image_utils.make_multiscale(
-        image, hparams.resolutions, num_channels=self.num_channels)
+    # Get resize method. Include a default if not specified, or if it's not in
+    # TensorFlow's collection of pre-implemented resize methods.
+    resize_method = getattr(hparams, "resize_method", "BICUBIC")
+    resize_method = getattr(tf.image.ResizeMethod, resize_method, resize_method)
+
+    highest_res = hparams.resolutions[-1]
+    if resize_method == "DILATED":
+      # Resize image so that dilated subsampling is properly divisible.
+      scaled_image = image_utils.resize_by_area(image, highest_res)
+      scaled_images = image_utils.make_multiscale_dilated(
+          scaled_image, hparams.resolutions, num_channels=self.num_channels)
+    else:
+      scaled_images = image_utils.make_multiscale(
+          image, hparams.resolutions,
+          resize_method=resize_method, num_channels=self.num_channels)
 
     # Pack tuple of scaled images into one tensor. We do this by enforcing the
     # columns to match for every resolution.
-    highest_res = hparams.resolutions[-1]
     example["inputs"] = tf.concat([
         tf.reshape(scaled_image,
                    [res**2 // highest_res, highest_res, self.num_channels])

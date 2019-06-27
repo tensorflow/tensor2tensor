@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,9 +18,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
@@ -46,11 +43,13 @@ class TransformerRevnetTest(tf.test.TestCase):
     target_length = 7
     vocab_size = 9
     hparams = transformer_revnet_test()
-    p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
-    hparams.problems = [p_hparams]
-    inputs = -1 + np.random.random_integers(
+    p_hparams = problem_hparams.test_problem_hparams(vocab_size,
+                                                     vocab_size,
+                                                     hparams)
+    hparams.problem_hparams = p_hparams
+    inputs = np.random.randint(
         vocab_size, size=(batch_size, input_length, 1, 1))
-    targets = -1 + np.random.random_integers(
+    targets = np.random.randint(
         vocab_size, size=(batch_size, target_length, 1, 1))
     features = {
         "inputs": tf.constant(inputs, dtype=tf.int32),

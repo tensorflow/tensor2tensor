@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,9 +18,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
 # To register the hparams set
@@ -54,26 +51,26 @@ class AttentionVisualizer(object):
 
   def encode(self, input_str):
     """Input str to features dict, ready for inference."""
-    inputs = self.encoders['inputs'].encode(input_str) + [EOS_ID]
+    inputs = self.encoders["inputs"].encode(input_str) + [EOS_ID]
     batch_inputs = np.reshape(inputs, [1, -1, 1, 1])  # Make it 3D.
     return batch_inputs
 
   def decode(self, integers):
     """List of ints to str."""
     integers = list(np.squeeze(integers))
-    return self.encoders['inputs'].decode(integers)
+    return self.encoders["inputs"].decode(integers)
 
   def decode_list(self, integers):
     """List of ints to list of str."""
     integers = list(np.squeeze(integers))
-    return self.encoders['inputs'].decode_list(integers)
+    return self.encoders["inputs"].decode_list(integers)
 
   def get_vis_data_from_string(self, sess, input_string):
     """Constructs the data needed for visualizing attentions.
 
     Args:
       sess: A tf.Session object.
-      input_string: The input setence to be translated and visulized.
+      input_string: The input sentence to be translated and visualized.
 
     Returns:
       Tuple of (
@@ -114,14 +111,14 @@ class AttentionVisualizer(object):
 
 
 def build_model(hparams_set, model_name, data_dir, problem_name, beam_size=1):
-  """Build the graph required to featch the attention weights.
+  """Build the graph required to fetch the attention weights.
 
   Args:
     hparams_set: HParams set to build the model with.
     model_name: Name of model.
-    data_dir: Path to directory contatining training data.
+    data_dir: Path to directory containing training data.
     problem_name: Name of problem.
-    beam_size: (Optional) Number of beams to use when decoding a traslation.
+    beam_size: (Optional) Number of beams to use when decoding a translation.
         If set to 1 (default) then greedy decoding is used.
 
   Returns:
@@ -138,23 +135,23 @@ def build_model(hparams_set, model_name, data_dir, problem_name, beam_size=1):
   translate_model = registry.model(model_name)(
       hparams, tf.estimator.ModeKeys.EVAL)
 
-  inputs = tf.placeholder(tf.int32, shape=(1, None, 1, 1), name='inputs')
-  targets = tf.placeholder(tf.int32, shape=(1, None, 1, 1), name='targets')
+  inputs = tf.placeholder(tf.int32, shape=(1, None, 1, 1), name="inputs")
+  targets = tf.placeholder(tf.int32, shape=(1, None, 1, 1), name="targets")
   translate_model({
-      'inputs': inputs,
-      'targets': targets,
+      "inputs": inputs,
+      "targets": targets,
   })
 
   # Must be called after building the training graph, so that the dict will
   # have been filled with the attention tensors. BUT before creating the
-  # interence graph otherwise the dict will be filled with tensors from
+  # inference graph otherwise the dict will be filled with tensors from
   # inside a tf.while_loop from decoding and are marked unfetchable.
   att_mats = get_att_mats(translate_model)
 
   with tf.variable_scope(tf.get_variable_scope(), reuse=True):
     samples = translate_model.infer({
-        'inputs': inputs,
-    }, beam_size=beam_size)['outputs']
+        "inputs": inputs,
+    }, beam_size=beam_size)["outputs"]
 
   return inputs, targets, samples, att_mats
 
@@ -185,16 +182,22 @@ def get_att_mats(translate_model):
   dec_atts = []
   encdec_atts = []
 
-  prefix = 'transformer/body/'
-  postfix = '/multihead_attention/dot_product_attention'
+  prefix = "transformer/body/"
+  postfix_self_attention = "/multihead_attention/dot_product_attention"
+  if translate_model.hparams.self_attention_type == "dot_product_relative":
+    postfix_self_attention = ("/multihead_attention/"
+                              "dot_product_attention_relative")
+  postfix_encdec = "/multihead_attention/dot_product_attention"
 
   for i in range(translate_model.hparams.num_hidden_layers):
     enc_att = translate_model.attention_weights[
-        '%sencoder/layer_%i/self_attention%s' % (prefix, i, postfix)]
+        "%sencoder/layer_%i/self_attention%s"
+        % (prefix, i, postfix_self_attention)]
     dec_att = translate_model.attention_weights[
-        '%sdecoder/layer_%i/self_attention%s' % (prefix, i, postfix)]
+        "%sdecoder/layer_%i/self_attention%s"
+        % (prefix, i, postfix_self_attention)]
     encdec_att = translate_model.attention_weights[
-        '%sdecoder/layer_%i/encdec_attention%s' % (prefix, i, postfix)]
+        "%sdecoder/layer_%i/encdec_attention%s" % (prefix, i, postfix_encdec)]
     enc_atts.append(enc_att)
     dec_atts.append(dec_att)
     encdec_atts.append(encdec_att)

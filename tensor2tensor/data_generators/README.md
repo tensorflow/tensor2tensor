@@ -47,7 +47,7 @@ with an integer denoting the length of the input list.
 
 ```
 def length_generator(nbr_cases):
-  for _ in xrange(nbr_cases):
+  for _ in range(nbr_cases):
     length = np.random.randint(100) + 1
     yield {"inputs": [2] * length, "targets": [length]}
 ```
@@ -66,5 +66,5 @@ Some examples:
 
 *   [Algorithmic problems](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/algorithmic.py)
     and their [unit tests](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/algorithmic_test.py)
-*   [WMT En-De problems](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/translate_ende.py)
-    and their [unit tests](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/wmt_test.py)
+*   [Translation problems (En-De)](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/translate_ende.py)
+    and their [unit tests](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/translate_test.py)

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,166 +13,211 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Data generators for MultiNLI (https://www.nyu.edu/projects/bowman/multinli/).
-"""
+"""Data generators for MultiNLI."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import json
 import os
 import zipfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.data_generators import lm1b
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.utils import metrics
+from tensor2tensor.data_generators import text_problems
+from tensor2tensor.data_generators import wiki_lm
 from tensor2tensor.utils import registry
-
 import tensorflow as tf
 
-EOS = text_encoder.EOS_ID
+EOS = text_encoder.EOS
+
+# Link to data from GLUE: https://gluebenchmark.com/tasks
+_MNLI_URL = ("https://firebasestorage.googleapis.com/v0/b/"
+             "mtl-sentence-representations.appspot.com/o/"
+             "data%2FMNLI.zip?alt=media&token=50329ea1-e339-"
+             "40e2-809c-10c40afff3ce")
 
 
-class MultinliProblem(problem.Problem):
-  """Base class for MultiNLI classification problems."""
+def _maybe_download_corpora(tmp_dir):
+  """Download corpora for multinli.
 
-  _ZIP = 'multinli_1.0.zip'
-  _URL = 'https://www.nyu.edu/projects/bowman/multinli/' + _ZIP
-  _LABEL_DICT = {'contradiction': 0,
-                 'entailment': 1,
-                 'neutral': 2}
-  _LABELS = {'contradiction', 'entailment', 'neutral'}
-
-  @property
-  def num_shards(self):
-    return 10
-
-  @property
-  def vocab_file(self):
-    if self._matched:
-      return 'multinli_matched.vocab'
-    else:
-      return 'multinli_mismatched.vocab'
-
-  @property
-  def targeted_vocab_size(self):
-    return 2**14
-
-  @property
-  def _matched(self):
-    raise NotImplementedError()
-
-  @property
-  def _train_file(self):
-    return 'multinli_1.0/multinli_1.0_train.jsonl'
-
-  @property
-  def _dev_file(self):
-    if self._matched:
-      return 'multinli_1.0/multinli_1.0_dev_matched.jsonl'
-    else:
-      return 'multinli_1.0/multinli_1.0_dev_mismatched.jsonl'
-
-  def _examples(self, data_dir, tmp_dir, train):
-    file_path = generator_utils.maybe_download(tmp_dir, self._ZIP, self._URL)
-    zip_ref = zipfile.ZipFile(file_path, 'r')
+  Args:
+    tmp_dir: a string
+  Returns:
+    a string
+  """
+  mnli_filename = "MNLI.zip"
+  mnli_finalpath = os.path.join(tmp_dir, "MNLI")
+  if not tf.gfile.Exists(mnli_finalpath):
+    zip_filepath = generator_utils.maybe_download(
+        tmp_dir, mnli_filename, _MNLI_URL)
+    zip_ref = zipfile.ZipFile(zip_filepath, "r")
     zip_ref.extractall(tmp_dir)
     zip_ref.close()
 
-    data_file = self._train_file if train else self._dev_file
-    examples = []
-    with tf.gfile.GFile(os.path.join(tmp_dir, data_file), mode='r') as f:
-      for line in f:
-        record = json.loads(line)
-        try:
-          label_str = record['gold_label'].encode('ascii')
-          if label_str != '-':
-            label = self._LABEL_DICT[label_str]
-            sentence1 = record['sentence1'].encode('ascii')
-            sentence2 = record['sentence2'].encode('ascii')
-            examples.append({'sentence1': sentence1,
-                             'sentence2': sentence2,
-                             'label': label})
-        except UnicodeEncodeError:
-          pass
+  return mnli_finalpath
 
-    return examples
 
-  def _inputs_and_targets(self, encoder, examples):
-    for e in examples:
-      enc_s1 = encoder.encode(e['sentence1'])
-      enc_s2 = encoder.encode(e['sentence2'])
+def _example_generator(filename):
+  """Generate mnli examples.
 
-      yield {
-          'inputs': enc_s1 + [EOS] + enc_s2 + [EOS],
-          'targets': [e['label']]
-      }
-
-  def generate_data(self, data_dir, tmp_dir, task_id=-1):
-    train_paths = self.training_filepaths(
-        data_dir, self.num_shards, shuffled=False)
-    dev_paths = self.dev_filepaths(data_dir, 1, shuffled=False)
-
-    train_examples = self._examples(data_dir, tmp_dir, train=True)
-    dev_examples = self._examples(data_dir, tmp_dir, train=False)
-
-    encoder = generator_utils.get_or_generate_vocab_inner(
-        data_dir, self.vocab_file, self.targeted_vocab_size,
-        (e['sentence1'] + ' ' + e['sentence2']
-         for e in train_examples + dev_examples)
-        )
-
-    generator_utils.generate_dataset_and_shuffle(
-        self._inputs_and_targets(encoder, train_examples), train_paths,
-        self._inputs_and_targets(encoder, dev_examples), dev_paths)
-
-  def hparams(self, defaults, unused_model_hparams):
-    p = defaults
-    source_vocab_size = self._encoders['inputs'].vocab_size
-    p.input_modality = {
-        'inputs': (registry.Modalities.SYMBOL, source_vocab_size)
+  Args:
+    filename: a string
+  Yields:
+    dictionaries containing "premise", "hypothesis" and "label" strings
+  """
+  for idx, line in enumerate(tf.gfile.Open(filename, "rb")):
+    if idx == 0: continue  # skip header
+    line = text_encoder.to_unicode_utf8(line.strip())
+    split_line = line.split("\t")
+    # Works for both splits even though dev has some extra human labels.
+    yield {
+        "premise": split_line[8],
+        "hypothesis": split_line[9],
+        "label": split_line[-1]
     }
-    p.target_modality = (registry.Modalities.CLASS_LABEL, 3)
-    p.input_space_id = problem.SpaceID.EN_TOK
-    p.target_space_id = problem.SpaceID.GENERIC
-
-  def feature_encoders(self, data_dir):
-    vocab_filename = os.path.join(data_dir, self.vocab_file)
-    encoder = text_encoder.SubwordTextEncoder(vocab_filename)
-    return {
-        'inputs': encoder,
-        'targets': text_encoder.ClassLabelEncoder(self._LABELS),
-    }
-
-  def example_reading_spec(self):
-    data_fields = {
-        'inputs': tf.VarLenFeature(tf.int64),
-        'targets': tf.FixedLenFeature([1], tf.int64),
-    }
-    data_items_to_decoders = None
-    return (data_fields, data_items_to_decoders)
-
-  def eval_metrics(self):
-    return [metrics.Metrics.ACC]
 
 
 @registry.register_problem
-class MultinliMatched(MultinliProblem):
-  """MultiNLI with matched dev set."""
+class MultiNLI(text_problems.TextConcat2ClassProblem):
+  """MultiNLI classification problems."""
 
   @property
-  def _matched(self):
+  def is_generate_per_split(self):
     return True
 
-
-@registry.register_problem
-class MultinliMismatched(MultinliProblem):
-  """MultiNLI with mismatched dev set."""
+  @property
+  def dataset_splits(self):
+    return [{
+        "split": problem.DatasetSplit.TRAIN,
+        "shards": 100,
+    }, {
+        "split": problem.DatasetSplit.EVAL,
+        "shards": 1,
+    }]
 
   @property
-  def _matched(self):
-    return False
+  def approx_vocab_size(self):
+    return 2**15
+
+  @property
+  def num_classes(self):
+    return 3
+
+  def class_labels(self, data_dir):
+    del data_dir
+    # Note this binary classification is different from usual MNLI.
+    return ["contradiction", "entailment", "neutral"]
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    mnli_dir = _maybe_download_corpora(tmp_dir)
+    if dataset_split == problem.DatasetSplit.TRAIN:
+      filesplit = ["train.tsv"]
+    else:
+      # Using dev matched as the default for eval. Can also switch this to
+      # dev_mismatched.tsv
+      filesplit = ["dev_matched.tsv"]
+    label_list = self.class_labels(data_dir=None)
+    for fs in filesplit:
+      filename = os.path.join(mnli_dir, fs)
+      for example in _example_generator(filename):
+        yield {
+            "inputs": [example["premise"], example["hypothesis"]],
+            "label": label_list.index(example["label"])
+        }
+
+
+@registry.register_problem
+class MultiNLIText2text(text_problems.Text2TextProblem):
+  """MultiNLI classification problems."""
+
+  @property
+  def is_generate_per_split(self):
+    return True
+
+  @property
+  def approx_vocab_size(self):
+    return 2**15
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    mnli_dir = _maybe_download_corpora(tmp_dir)
+    if dataset_split == problem.DatasetSplit.TRAIN:
+      filesplit = ["train.tsv"]
+    else:
+      # Using dev matched as the default for eval. Can also switch this to
+      # dev_mismatched.tsv
+      filesplit = ["dev_matched.tsv"]
+    for fs in filesplit:
+      filename = os.path.join(mnli_dir, fs)
+      for example in _example_generator(filename):
+        yield {
+            "inputs": "multinli premise: %s hypothesis: %s" % (
+                example["premise"], example["hypothesis"]),
+            "targets": example["label"]
+        }
+
+
+@registry.register_problem
+class MultiNLIText2textMulti64kPacked1k(MultiNLIText2text):
+  """MultiNLI classification problems with the multi-lingual vocabulary."""
+
+  @property
+  def packed_length(self):
+    return 1024
+
+  @property
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k()
+
+  @property
+  def num_training_examples(self):
+    return 18300
+
+
+@registry.register_problem
+class MultiNLICharacters(MultiNLI):
+  """MultiNLI classification problems, character level."""
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.CHARACTER
+
+  def global_task_id(self):
+    return problem.TaskID.THREE_CL_NLI
+
+
+@registry.register_problem
+class MultiNLISharedVocab(MultiNLI):
+  """MultiNLI classification problems with the LM1b vocabulary."""
+
+  @property
+  def use_vocab_from_other_problem(self):
+    return lm1b.LanguagemodelLm1b32k()
+
+
+@registry.register_problem
+class MultiNLIWikiLMSharedVocab(MultiNLI):
+  """MultiNLI classification problems with the Wiki vocabulary."""
+
+  @property
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelEnWiki32k()
+
+
+@registry.register_problem
+class MultiNLIWikiLMSharedVocab64k(MultiNLIWikiLMSharedVocab):
+  """MultiNLI classification problems with the Wiki vocabulary."""
+
+  @property
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelEnWiki64k()
+
+
+@registry.register_problem
+class MultiNLIWikiLMMultiVocab64k(MultiNLIWikiLMSharedVocab):
+  """MultiNLI classification problems with the multi-lingual vocabulary."""
+
+  @property
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k()

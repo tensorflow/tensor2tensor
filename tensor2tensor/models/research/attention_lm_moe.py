@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,15 +26,11 @@ from __future__ import division
 from __future__ import print_function
 
 import functools
-
-# Dependency imports
-
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
-from tensor2tensor.utils import diet
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -84,8 +80,8 @@ LAYER_SYMBOLS = {
 class AttentionLmMoe(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
 
-  @property
-  def use_body_sharded(self):
+  @staticmethod
+  def use_body_sharded():
     return True
 
   def body_sharded(self, sharded_features):
@@ -110,17 +106,6 @@ class AttentionLmMoe(t2t_model.T2TModel):
     x = dp(tf.nn.dropout, decoder_input,
            1.0 - hparams.layer_prepostprocess_dropout)
     extra_loss = 0.0
-    moe_hidden_sizes = [int(s) for s in hparams.moe_hidden_sizes.split(",")]
-    if hparams.diet_experts:
-      hsize, = moe_hidden_sizes
-
-      def _diet_expert(x):
-        return diet.diet_expert(x, hsize, diet.diet_adam_optimizer_params())
-
-      expert_fn = _diet_expert
-    else:
-      expert_fn = expert_utils.ffn_expert_fn(
-          hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
 
     if not hparams.use_inputs:
       # As preprocess and postprocess are called with batch of size one (all
@@ -163,7 +148,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
     def print_shape(x, suffix, debug=False):
       # To help debugging, print the input/output shapes at inference and eval
       # Inference for long sequences can take a long time, so that's help to
-      # see the progession of the generation
+      # see the progression of the generation
       if not debug and hparams.mode == ModeKeys.TRAIN:
         return x
       return tf.Print(x, [tf.shape(x)], "shape_x_{}".format(suffix))
@@ -182,7 +167,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
 
     num_hidden_layers = (
         len(hparams.attention_layers) or hparams.num_hidden_layers)
-    for layer in xrange(num_hidden_layers):
+    for layer in range(num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
 
         # Use the layer type defined in attention_layers
@@ -316,26 +301,14 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 AttentionType.get_choices()))
           x = postprocess(x, y)
         with tf.variable_scope("ffn"):
-          if str(layer) in hparams.moe_layers.split(","):
-            y, loss = expert_utils.distributed_moe(
-                dp,
-                self._ps_devices,
-                preprocess(x),
-                hparams.mode == ModeKeys.TRAIN,
-                input_size=hparams.hidden_size,
-                expert_fn=expert_fn,
-                num_experts=hparams.moe_num_experts,
-                k=hparams.moe_k,
-                loss_coef=hparams.moe_loss_coef)
-            extra_loss += loss
-          elif hparams.memory_efficient_ffn:
+          if hparams.memory_efficient_ffn:
             assert hparams.layer_preprocess_sequence == "n"
             y = dp(
                 common_layers.conv_hidden_relu_memory_efficient,
                 x,
                 hparams.filter_size)
           else:
-            additional_conv_params = dict()
+            additional_conv_params = {}
             if hparams.use_sepconv:
               additional_conv_params = dict(
                   padding="LEFT",
@@ -368,7 +341,7 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
   Returns:
     decoder_input: a Tensor, bottom of decoder stack
     decoder_self_attention_bias: a Tensor, containing large negative values
-    to implement masked attention and possibly baises for diagonal alignments
+    to implement masked attention and possibly biases for diagonal alignments
     pad_remover (expert_utils.PadRemover): an util object to remove padding
   """
   targets_pad_mask = common_attention.embedding_to_padding(targets)
@@ -454,7 +427,7 @@ def restore_pad(x, ref_x, pad_remover, mode):
   x = tf.squeeze(x, axis=0)
   if mode != ModeKeys.PREDICT:
     x = pad_remover.restore(x)
-  x = expert_utils.reshape_like(x, ref_x)
+  x = common_layers.reshape_like(x, ref_x)
   return x
 
 

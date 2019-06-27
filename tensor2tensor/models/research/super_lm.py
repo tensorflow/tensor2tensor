@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,14 +27,12 @@ Example problem: languagemodel_lm1b8k_packed
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import diet
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
@@ -56,7 +54,7 @@ class SuperLM(t2t_model.T2TModel):
     assert hparams.num_model_shards % len(ps_devices) == 0
     shards_per_device = hparams.num_model_shards // len(ps_devices)
     model_devices = [ps_devices[i // shards_per_device]
-                     for i in xrange(hparams.num_model_shards)]
+                     for i in range(hparams.num_model_shards)]
     print("model_devices = %s" % model_devices)
     mp = expert_utils.Parallelism(model_devices, reuse=False)
     vocab_size = self._problem_hparams.vocabulary["targets"].vocab_size
@@ -101,7 +99,7 @@ class SuperLM(t2t_model.T2TModel):
     # Bypass the symbol modality and compute logits directly.
     # We compute a different set of logits on each shard, and sum them.
     logits = mp(tf.layers.dense, decoder_output, vocab_size, name="logits")
-    logits = common_layers.all_reduce_ring(logits, mp)
+    logits = expert_utils.all_reduce_ring(logits, mp)
     logits = mp(tf.multiply, logits, mp.n ** -0.5)
     # We now have identical logits on all shards.
     # Shard 0 gets returned to the estimator.
@@ -110,7 +108,7 @@ class SuperLM(t2t_model.T2TModel):
     logits_shard_0 = tf.expand_dims(logits_shard_0, 3)
     # On each device, we compute the loss for a part of the batch.
     # This is faster than computing the whole loss on one shard.
-    mp, logits = common_layers.reduce_by_device(mp, logits, lambda l: l[0])
+    mp, logits = expert_utils.reduce_by_device(mp, logits, lambda l: l[0])
     def _loss_for_shard(logits, targets, shard):
       if mp.n > 1:
         logits = common_layers.approximate_split(logits, mp.n, 0)[shard]
@@ -181,7 +179,7 @@ def _super_stack(inputs,
           return tuple(tf.split(
               t, [mix_size, hparams.hidden_size - mix_size], 2))
         to_mix, to_keep = mp(_split, x)
-        mixed = common_layers.all_reduce_ring(to_mix, mp)
+        mixed = expert_utils.all_reduce_ring(to_mix, mp)
         mixed = mp(tf.multiply, mixed, mp.n ** -0.5)
         x = mp(lambda a, b: tf.concat([a, b], 2), mixed, to_keep)
       elif layer_type == "att":
@@ -267,7 +265,13 @@ def super_lm_base():
   # we only want one data shard.
   hparams.no_data_parallelism = True
   # bypass the symbol modality so that we can use model parallelism.
-  hparams.target_modality = "symbol:identity"
+  hparams.bottom = {
+      "inputs": modalities.identity_bottom,
+      "targets": modalities.identity_bottom,
+  }
+  hparams.top = {
+      "targets": modalities.identity_top,
+  }
   hparams.add_hparam("filter_size", 512)
   hparams.add_hparam("mix_fraction", 0.5)
   # attention-related flags

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,10 +21,7 @@ from __future__ import print_function
 
 import os
 import tarfile
-
-# Dependency imports
-
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
@@ -79,7 +76,7 @@ def _train_data_filenames(tmp_dir):
       os.path.join(tmp_dir,
                    "1-billion-word-language-modeling-benchmark-r13output",
                    "training-monolingual.tokenized.shuffled",
-                   "news.en-%05d-of-00100" % i) for i in xrange(1, 100)
+                   "news.en-%05d-of-00100" % i) for i in range(1, 100)
   ]
 
 
@@ -111,12 +108,8 @@ class LanguagemodelLm1b32k(text_problems.Text2SelfProblem):
   """A language model on the 1B words corpus.
 
   Ratio of dev tokens (including eos) to dev words (including eos)
-  176884 / 159658 = 1.107893; multiply log_ppl by this to compare results.
+  176923 / 159658 = 1.108137; multiply log_ppl by this to compare results.
   """
-
-  @property
-  def vocab_filename(self):
-    return "vocab.lm1b.en.%d" % self.approx_vocab_size
 
   @property
   def approx_vocab_size(self):
@@ -146,6 +139,14 @@ class LanguagemodelLm1b32k(text_problems.Text2SelfProblem):
 
 
 @registry.register_problem
+class LanguagemodelLm1b8k(LanguagemodelLm1b32k):
+
+  @property
+  def approx_vocab_size(self):
+    return 2**13  # 8192
+
+
+@registry.register_problem
 class LanguagemodelLm1b32kPacked(LanguagemodelLm1b32k):
   """Packed version for TPU training."""
 
@@ -153,9 +154,13 @@ class LanguagemodelLm1b32kPacked(LanguagemodelLm1b32k):
   def packed_length(self):
     return 256
 
+  @property
+  def vocab_filename(self):
+    return LanguagemodelLm1b32k().vocab_filename
+
 
 @registry.register_problem
-class LanguagemodelLm1b8kPacked(LanguagemodelLm1b32kPacked):
+class LanguagemodelLm1b8kPacked(LanguagemodelLm1b8k):
   """Packed version, 8k vocabulary.
 
   Ratio of dev tokens (including eos) to dev words (including eos)
@@ -163,8 +168,12 @@ class LanguagemodelLm1b8kPacked(LanguagemodelLm1b32kPacked):
   """
 
   @property
-  def approx_vocab_size(self):
-    return 2**13  # 8192
+  def packed_length(self):
+    return 256
+
+  @property
+  def vocab_filename(self):
+    return LanguagemodelLm1b8k().vocab_filename
 
 
 @registry.register_problem
@@ -178,6 +187,9 @@ class LanguagemodelLm1bCharacters(LanguagemodelLm1b32k):
   @property
   def vocab_type(self):
     return text_problems.VocabType.CHARACTER
+
+  def global_task_id(self):
+    return problem.TaskID.EN_CHR
 
 
 @registry.register_problem

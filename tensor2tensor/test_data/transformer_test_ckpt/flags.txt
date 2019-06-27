@@ -27,7 +27,7 @@
 --ps_job=/job:ps
 --tmp_dir=/tmp/t2t_datagen
 --schedule=continuous_train_and_eval
---problems=translate_ende_wmt8k
+--problem=translate_ende_wmt8k
 --hparams=
 --use_tpu=False
 --eval_early_stopping_metric_delta=0.1

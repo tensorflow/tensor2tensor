@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,12 +14,10 @@
 # limitations under the License.
 
 """Tests for tensor2tensor.utils.expert_utils."""
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# Dependency imports
 from tensor2tensor.layers import common_attention
 from tensor2tensor.utils import expert_utils
 import tensorflow as tf

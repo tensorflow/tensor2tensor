@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,9 +22,6 @@ from __future__ import print_function
 import os
 import shutil
 import tarfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import translate
 

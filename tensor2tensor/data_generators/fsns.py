@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,13 +20,11 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -64,9 +62,10 @@ class ImageFSNS(image_utils.ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
-    vocab_size = self._encoders["targets"].vocab_size
-    p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
+    p.modality = {"inputs": modalities.ModalityType.IMAGE,
+                  "targets": modalities.ModalityType.SYMBOL}
+    p.vocab_size = {"inputs": 256,
+                    "targets": self._encoders["targets"].vocab_size}
     p.batch_size_multiplier = 256
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.EN_TOK

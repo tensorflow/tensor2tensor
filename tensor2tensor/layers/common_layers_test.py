@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,387 +19,419 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# Dependency imports
-
+from absl.testing import parameterized
+import kfac
 import numpy as np
+
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import test_utils
 
 import tensorflow as tf
 
+tf.compat.v1.enable_eager_execution()
 
-class CommonLayersTest(tf.test.TestCase):
 
+class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testIndexLastDimWithIndices(self):
+    x = np.array([[2., 3., 4., 5.],
+                  [6., 7., 8., 9.]])
+    indices = np.array([2, 0])
+    x_idx = common_layers.index_last_dim_with_indices(x, indices)
+
+    expected = np.array([4., 6.])
+    self.assertAllEqual(expected, self.evaluate(x_idx))
+
+  @test_utils.run_in_graph_and_eager_modes()
   def testSaturatingSigmoid(self):
     x = np.array([-120.0, -100.0, 0.0, 100.0, 120.0], dtype=np.float32)
-    with self.test_session() as session:
-      y = common_layers.saturating_sigmoid(tf.constant(x))
-      res = session.run(y)
+    y = common_layers.saturating_sigmoid(tf.constant(x))
+    res = self.evaluate(y)
     self.assertAllClose(res, [0.0, 0.0, 0.5, 1.0, 1.0])
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testFlatten4D3D(self):
-    x = np.random.random_integers(1, high=8, size=(3, 5, 2))
-    with self.test_session() as session:
-      y = common_layers.flatten4d3d(common_layers.embedding(x, 10, 7))
-      session.run(tf.global_variables_initializer())
-      res = session.run(y)
+    x = np.random.randint(1, high=9, size=(3, 5, 2))
+    y = common_layers.flatten4d3d(common_layers.embedding(x, 10, 7))
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(y)
     self.assertEqual(res.shape, (3, 5 * 2, 7))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testEmbedding(self):
-    x = np.random.random_integers(1, high=8, size=(3, 5))
-    with self.test_session() as session:
-      y = common_layers.embedding(x, 10, 16)
-      session.run(tf.global_variables_initializer())
-      res = session.run(y)
+    x = np.random.randint(1, high=9, size=(3, 5))
+    y = common_layers.embedding(x, 10, 16)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(y)
     self.assertEqual(res.shape, (3, 5, 16))
 
+  @test_utils.run_in_graph_mode_only()
   def testShakeShake(self):
     x = np.random.rand(5, 7)
     with self.test_session() as session:
       x = tf.constant(x, dtype=tf.float32)
       y = common_layers.shakeshake([x, x, x, x, x])
-      session.run(tf.global_variables_initializer())
       inp, res = session.run([x, y])
     self.assertAllClose(res, inp)
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testConv(self):
     x = np.random.rand(5, 7, 1, 11)
-    with self.test_session() as session:
-      y = common_layers.conv(tf.constant(x, dtype=tf.float32), 13, (3, 1))
-      session.run(tf.global_variables_initializer())
-      res = session.run(y)
+    y = common_layers.conv(tf.constant(x, dtype=tf.float32), 13, (3, 1))
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 5, 1, 13))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testConv1d(self):
     x = np.random.rand(5, 7, 11)
-    with self.test_session() as session:
-      y = common_layers.conv1d(tf.constant(x, dtype=tf.float32), 13, 1)
-      session.run(tf.global_variables_initializer())
-      res = session.run(y)
+    y = common_layers.conv1d(tf.constant(x, dtype=tf.float32), 13, 1)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 7, 13))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testSeparableConv(self):
     x = np.random.rand(5, 7, 1, 11)
-    with self.test_session() as session:
-      y = common_layers.separable_conv(
-          tf.constant(x, dtype=tf.float32), 13, (3, 1))
-      session.run(tf.global_variables_initializer())
-      res = session.run(y)
+    y = common_layers.separable_conv(
+        tf.constant(x, dtype=tf.float32), 13, (3, 1))
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 5, 1, 13))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testSubSeparableConv(self):
     for sep in [0, 1, 2, 4]:
       x = np.random.rand(5, 7, 1, 12)
-      with self.test_session() as session:
-        with tf.variable_scope("sep_%d" % sep):
-          y = common_layers.subseparable_conv(
-              tf.constant(x, dtype=tf.float32), 16, (3, 1), separability=sep)
-        session.run(tf.global_variables_initializer())
-        res = session.run(y)
+      with tf.variable_scope("sep_%d" % sep):
+        y = common_layers.subseparable_conv(
+            tf.constant(x, dtype=tf.float32), 16, (3, 1), separability=sep)
+      self.evaluate(tf.global_variables_initializer())
+      res = self.evaluate(y)
       self.assertEqual(res.shape, (5, 5, 1, 16))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testConvBlock(self):
     x = np.random.rand(5, 7, 1, 11)
-    with self.test_session() as session:
-      y = common_layers.conv_block(
-          tf.constant(x, dtype=tf.float32),
-          13, [(1, (3, 3)), (1, (3, 3))],
-          padding="SAME",
-          normalizer_fn=common_layers.noam_norm)
-      session.run(tf.global_variables_initializer())
-      res = session.run(y)
+    y = common_layers.conv_block(
+        tf.constant(x, dtype=tf.float32),
+        13, [(1, (3, 3)), (1, (3, 3))],
+        padding="SAME",
+        normalizer_fn=common_layers.noam_norm)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 7, 1, 13))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testSeparableConvBlock(self):
     x = np.random.rand(5, 7, 1, 11)
-    with self.test_session() as session:
-      y = common_layers.separable_conv_block(
-          tf.constant(x, dtype=tf.float32),
-          13, [(1, (3, 3)), (1, (3, 3))],
-          padding="SAME")
-      session.run(tf.global_variables_initializer())
-      res = session.run(y)
+    y = common_layers.separable_conv_block(
+        tf.constant(x, dtype=tf.float32),
+        13, [(1, (3, 3)), (1, (3, 3))],
+        padding="SAME")
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 7, 1, 13))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testSubSeparableConvBlock(self):
     for sep in [0, 1, 2, 4]:
       x = np.random.rand(5, 7, 1, 12)
-      with self.test_session() as session:
-        with tf.variable_scope("sep_%d" % sep):
-          y = common_layers.subseparable_conv_block(
-              tf.constant(x, dtype=tf.float32),
-              16, [(1, (3, 3)), (1, (3, 3))],
-              padding="SAME",
-              separability=sep)
-        session.run(tf.global_variables_initializer())
-        res = session.run(y)
+      with tf.variable_scope("sep_%d" % sep):
+        y = common_layers.subseparable_conv_block(
+            tf.constant(x, dtype=tf.float32),
+            16, [(1, (3, 3)), (1, (3, 3))],
+            padding="SAME",
+            separability=sep)
+      self.evaluate(tf.global_variables_initializer())
+      res = self.evaluate(y)
       self.assertEqual(res.shape, (5, 7, 1, 16))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testPool(self):
     x = np.random.rand(5, 8, 1, 11)
-    with self.test_session() as session:
-      y = common_layers.pool(
-          tf.constant(x, dtype=tf.float32), (2, 2), "AVG", "SAME")
-      session.run(tf.global_variables_initializer())
-      res = session.run(y)
+    y = common_layers.pool(
+        tf.constant(x, dtype=tf.float32), (2, 2), "AVG", "SAME")
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 8, 1, 11))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testConvBlockDownsample(self):
     x = np.random.rand(5, 7, 1, 11)
-    with self.test_session() as session:
-      y = common_layers.conv_block_downsample(
-          tf.constant(x, dtype=tf.float32), (3, 1), (2, 1), "SAME")
-      session.run(tf.global_variables_initializer())
-      res = session.run(y)
+    y = common_layers.conv_block_downsample(
+        tf.constant(x, dtype=tf.float32), (3, 1), (2, 1), "SAME")
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 4, 1, 27))
 
-  def testSimpleAttention(self):
-    x = np.random.rand(5, 7, 1, 11)
-    y = np.random.rand(5, 9, 1, 11)
-    with self.test_session() as session:
-      a = common_layers.simple_attention(
-          tf.constant(x, dtype=tf.float32), tf.constant(y, dtype=tf.float32))
-      session.run(tf.global_variables_initializer())
-      res = session.run(a)
-    self.assertEqual(res.shape, (5, 7, 1, 11))
-
+  @test_utils.run_in_graph_and_eager_modes()
   def testGetTimingSignal(self):
     length = 7
     num_timescales = 10
-    with self.test_session() as session:
-      a = common_layers.get_timing_signal(length, num_timescales=num_timescales)
-      session.run(tf.global_variables_initializer())
-      res = session.run(a)
+    a = common_layers.get_timing_signal(length, num_timescales=num_timescales)
+    res = self.evaluate(a)
     self.assertEqual(res.shape, (length, 2 * num_timescales))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testAddTimingSignal(self):
     batch = 5
     length = 7
     height = 3
     depth = 35
     x = np.random.rand(batch, length, height, depth)
-    with self.test_session() as session:
-      a = common_layers.add_timing_signal(tf.constant(x, dtype=tf.float32))
-      session.run(tf.global_variables_initializer())
-      res = session.run(a)
+    a = common_layers.add_timing_signal(tf.constant(x, dtype=tf.float32))
+    res = self.evaluate(a)
     self.assertEqual(res.shape, (batch, length, height, depth))
 
-  def testAttention1D(self):
-    batch = 5
-    target_length = 7
-    source_length = 13
-    source_depth = 9
-    target_depth = 11
-    attention_size = 21
-    output_size = 15
-    num_heads = 7
-    source = np.random.rand(batch, source_length, source_depth)
-    target = np.random.rand(batch, target_length, target_depth)
-    mask = np.random.rand(batch, target_length, source_length)
-    with self.test_session() as session:
-      a = common_layers.attention_1d_v0(
-          tf.constant(source, dtype=tf.float32),
-          tf.constant(target, dtype=tf.float32), attention_size, output_size,
-          num_heads, tf.constant(mask, dtype=tf.float32))
-      session.run(tf.global_variables_initializer())
-      res = session.run(a)
-    self.assertEqual(res.shape, (batch, target_length, output_size))
-
-  def testMultiscaleConvSum(self):
-    x = np.random.rand(5, 9, 1, 11)
-    with self.test_session() as session:
-      y = common_layers.multiscale_conv_sum(
-          tf.constant(x, dtype=tf.float32),
-          13, [((1, 1), (5, 5)), ((2, 2), (3, 3))],
-          "AVG",
-          padding="SAME")
-      session.run(tf.global_variables_initializer())
-      res = session.run(y)
-    self.assertEqual(res.shape, (5, 9, 1, 13))
-
+  @test_utils.run_in_graph_and_eager_modes()
   def testConvGRU(self):
     x = np.random.rand(5, 7, 3, 11)
-    with self.test_session() as session:
-      y = common_layers.conv_gru(tf.constant(x, dtype=tf.float32), (1, 3), 11)
-      z = common_layers.conv_gru(
-          tf.constant(x, dtype=tf.float32), (1, 3), 11, padding="LEFT")
-      session.run(tf.global_variables_initializer())
-      res1 = session.run(y)
-      res2 = session.run(z)
+    y = common_layers.conv_gru(tf.constant(x, dtype=tf.float32), (1, 3), 11)
+    z = common_layers.conv_gru(
+        tf.constant(x, dtype=tf.float32), (1, 3), 11, padding="LEFT")
+    self.evaluate(tf.global_variables_initializer())
+    res1 = self.evaluate(y)
+    res2 = self.evaluate(z)
     self.assertEqual(res1.shape, (5, 7, 3, 11))
     self.assertEqual(res2.shape, (5, 7, 3, 11))
 
+  @test_utils.run_in_graph_mode_only
+  def testSRU(self):
+    x = np.random.rand(5, 7, 3, 11)
+    with self.test_session() as session:
+      y = common_layers.sru(tf.constant(x, dtype=tf.float32))
+      session.run(tf.global_variables_initializer())
+      res = session.run(y)
+    self.assertEqual(res.shape, (5, 7, 3, 11))
+
+  @test_utils.run_in_graph_and_eager_modes()
   def testLayerNorm(self):
     x = np.random.rand(5, 7, 11)
-    with self.test_session() as session:
-      y = common_layers.layer_norm(tf.constant(x, dtype=tf.float32), 11)
-      session.run(tf.global_variables_initializer())
-      res = session.run(y)
+    y = common_layers.layer_norm(tf.constant(x, dtype=tf.float32), 11)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 7, 11))
 
+
+  @test_utils.run_in_graph_and_eager_modes()
   def testGroupNorm(self):
     x = np.random.rand(5, 7, 3, 16)
-    with self.test_session() as session:
-      y = common_layers.group_norm(tf.constant(x, dtype=tf.float32))
-      session.run(tf.global_variables_initializer())
-      res = session.run(y)
+    y = common_layers.group_norm(tf.constant(x, dtype=tf.float32))
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 7, 3, 16))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testConvLSTM(self):
     x = np.random.rand(5, 7, 11, 13)
-    with self.test_session() as session:
-      y = common_layers.conv_lstm(tf.constant(x, dtype=tf.float32), (1, 3), 13)
-      session.run(tf.global_variables_initializer())
-      res = session.run(y)
+    y = common_layers.conv_lstm(tf.constant(x, dtype=tf.float32), (1, 3), 13)
+    self.evaluate(tf.global_variables_initializer())
+    res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 7, 11, 13))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testPadToSameLength(self):
     x1 = np.random.rand(5, 7, 11)
     x2 = np.random.rand(5, 9, 11)
-    with self.test_session() as session:
-      a, b = common_layers.pad_to_same_length(
-          tf.constant(x1, dtype=tf.float32), tf.constant(x2, dtype=tf.float32))
-      c, d = common_layers.pad_to_same_length(
-          tf.constant(x1, dtype=tf.float32),
-          tf.constant(x2, dtype=tf.float32),
-          final_length_divisible_by=4)
-      res1, res2 = session.run([a, b])
-      res1a, res2a = session.run([c, d])
+    a, b = common_layers.pad_to_same_length(
+        tf.constant(x1, dtype=tf.float32), tf.constant(x2, dtype=tf.float32))
+    c, d = common_layers.pad_to_same_length(
+        tf.constant(x1, dtype=tf.float32),
+        tf.constant(x2, dtype=tf.float32),
+        final_length_divisible_by=4)
+    res1, res2 = self.evaluate([a, b])
+    res1a, res2a = self.evaluate([c, d])
     self.assertEqual(res1.shape, (5, 9, 11))
     self.assertEqual(res2.shape, (5, 9, 11))
     self.assertEqual(res1a.shape, (5, 12, 11))
     self.assertEqual(res2a.shape, (5, 12, 11))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testShiftLeft(self):
     x1 = np.zeros((5, 7, 1, 11))
     x1[:, 0, :] = np.ones_like(x1[:, 0, :])
     expected = np.zeros((5, 7, 1, 11))
     expected[:, 1, :] = np.ones_like(expected[:, 1, :])
-    with self.test_session() as session:
-      a = common_layers.shift_right(tf.constant(x1, dtype=tf.float32))
-      actual = session.run(a)
+    a = common_layers.shift_right(tf.constant(x1, dtype=tf.float32))
+    actual = self.evaluate(a)
     self.assertAllEqual(actual, expected)
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testConvStride2MultiStep(self):
     x1 = np.random.rand(5, 32, 16, 11)
-    with self.test_session() as session:
-      a = common_layers.conv_stride2_multistep(
-          tf.constant(x1, dtype=tf.float32), 4, 16)
-      session.run(tf.global_variables_initializer())
-      actual = session.run(a[0])
+    a = common_layers.conv_stride2_multistep(
+        tf.constant(x1, dtype=tf.float32), 4, 16)
+    self.evaluate(tf.global_variables_initializer())
+    actual = self.evaluate(a[0])
     self.assertEqual(actual.shape, (5, 2, 1, 16))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testDeconvStride2MultiStep(self):
     x1 = np.random.rand(5, 2, 1, 11)
-    with self.test_session() as session:
-      a = common_layers.deconv_stride2_multistep(
-          tf.constant(x1, dtype=tf.float32), 4, 16)
-      session.run(tf.global_variables_initializer())
-      actual = session.run(a)
+    a = common_layers.deconv_stride2_multistep(
+        tf.constant(x1, dtype=tf.float32), 4, 16)
+    self.evaluate(tf.global_variables_initializer())
+    actual = self.evaluate(a)
     self.assertEqual(actual.shape, (5, 32, 1, 16))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testApplyNormLayer(self):
-    with self.test_session() as session:
-      x1 = np.random.rand(5, 2, 1, 11)
-      x2 = common_layers.apply_norm(
-          tf.constant(x1, dtype=tf.float32), "layer", depth=11, epsilon=1e-6)
-      session.run(tf.global_variables_initializer())
-      actual = session.run(x2)
+    x1 = np.random.rand(5, 2, 1, 11)
+    x2 = common_layers.apply_norm(
+        tf.constant(x1, dtype=tf.float32), "layer", depth=11, epsilon=1e-6)
+    self.evaluate(tf.global_variables_initializer())
+    actual = self.evaluate(x2)
     self.assertEqual(actual.shape, (5, 2, 1, 11))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testApplyNormNoam(self):
-    with self.test_session() as session:
-      x1 = np.random.rand(5, 2, 1, 11)
-      x2 = common_layers.apply_norm(
-          tf.constant(x1, dtype=tf.float32), "noam", depth=11, epsilon=1e-6)
-      session.run(tf.global_variables_initializer())
-      actual = session.run(x2)
+    x1 = np.random.rand(5, 2, 1, 11)
+    x2 = common_layers.apply_norm(
+        tf.constant(x1, dtype=tf.float32), "noam", depth=11, epsilon=1e-6)
+    self.evaluate(tf.global_variables_initializer())
+    actual = self.evaluate(x2)
     self.assertEqual(actual.shape, (5, 2, 1, 11))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testApplyNormBatch(self):
-    with self.test_session() as session:
-      x1 = np.random.rand(5, 2, 1, 11)
-      x2 = common_layers.apply_norm(
-          tf.constant(x1, dtype=tf.float32), "batch", depth=11, epsilon=1e-6)
-      session.run(tf.global_variables_initializer())
-      actual = session.run(x2)
+    x1 = np.random.rand(5, 2, 1, 11)
+    x2 = common_layers.apply_norm(
+        tf.constant(x1, dtype=tf.float32), "batch", depth=11, epsilon=1e-6)
+    self.evaluate(tf.global_variables_initializer())
+    actual = self.evaluate(x2)
     self.assertEqual(actual.shape, (5, 2, 1, 11))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testApplyNormNone(self):
-    with self.test_session() as session:
-      x1 = np.random.rand(5, 2, 1, 11)
-      x2 = common_layers.apply_norm(
-          tf.constant(x1, dtype=tf.float32), "none", depth=11, epsilon=1e-6)
-      session.run(tf.global_variables_initializer())
-      actual = session.run(x2)
+    x1 = np.random.rand(5, 2, 1, 11)
+    x2 = common_layers.apply_norm(
+        tf.constant(x1, dtype=tf.float32), "none", depth=11, epsilon=1e-6)
+    self.evaluate(tf.global_variables_initializer())
+    actual = self.evaluate(x2)
     self.assertEqual(actual.shape, (5, 2, 1, 11))
     self.assertAllClose(actual, x1, atol=1e-03)
+
+
+  @test_utils.run_in_graph_mode_only()
+  def testDenseWithLayerCollection(self):
+    with tf.variable_scope("test_layer_collection"):
+      x1 = tf.zeros([3, 4], tf.float32)
+      layer_collection = kfac.LayerCollection()
+      common_layers.dense(
+          x1, units=10, layer_collection=layer_collection, name="y1")
+      self.assertLen(layer_collection.get_blocks(), 1)
+
+      # 3D inputs.
+      x2 = tf.zeros([3, 4, 5], tf.float32)
+      common_layers.dense(
+          x2, units=10, layer_collection=layer_collection, name="y2")
+      self.assertLen(layer_collection.get_blocks(), 2)
 
   def testGlobalPool1d(self):
     x1 = np.random.rand(5, 4, 11)
     no_mask = np.ones((5, 4))
     full_mask = np.zeros((5, 4))
 
-    with self.test_session() as session:
-      x1_ = tf.Variable(x1, dtype=tf.float32)
-      no_mask_ = tf.Variable(no_mask, dtype=tf.float32)
-      full_mask_ = tf.Variable(full_mask, dtype=tf.float32)
+    x1_ = tf.Variable(x1, dtype=tf.float32)
+    no_mask_ = tf.Variable(no_mask, dtype=tf.float32)
+    full_mask_ = tf.Variable(full_mask, dtype=tf.float32)
 
-      none_mask_max = common_layers.global_pool_1d(x1_)
-      no_mask_max = common_layers.global_pool_1d(x1_, mask=no_mask_)
-      result1 = tf.reduce_sum(none_mask_max - no_mask_max)
+    none_mask_max = common_layers.global_pool_1d(x1_)
+    no_mask_max = common_layers.global_pool_1d(x1_, mask=no_mask_)
+    result1 = tf.reduce_sum(none_mask_max - no_mask_max)
 
-      full_mask_max = common_layers.global_pool_1d(x1_, mask=full_mask_)
-      result2 = tf.reduce_sum(full_mask_max)
+    full_mask_max = common_layers.global_pool_1d(x1_, mask=full_mask_)
+    result2 = tf.reduce_sum(full_mask_max)
 
-      none_mask_avr = common_layers.global_pool_1d(x1_, "AVR")
-      no_mask_avr = common_layers.global_pool_1d(x1_, "AVR", no_mask_)
-      result3 = tf.reduce_sum(none_mask_avr - no_mask_avr)
+    none_mask_avr = common_layers.global_pool_1d(x1_, "AVR")
+    no_mask_avr = common_layers.global_pool_1d(x1_, "AVR", no_mask_)
+    result3 = tf.reduce_sum(none_mask_avr - no_mask_avr)
 
-      full_mask_avr = common_layers.global_pool_1d(x1_, "AVR", full_mask_)
-      result4 = tf.reduce_sum(full_mask_avr)
+    full_mask_avr = common_layers.global_pool_1d(x1_, "AVR", full_mask_)
+    result4 = tf.reduce_sum(full_mask_avr)
 
-      session.run(tf.global_variables_initializer())
-      actual = session.run([result1, result2, result3, result4])
+    self.evaluate(tf.global_variables_initializer())
+    actual = self.evaluate([result1, result2, result3, result4])
     self.assertAllEqual(actual[:3], [0.0, 0.0, 0.0])
 
   def testLinearSetLayer(self):
     x1 = np.random.rand(5, 4, 11)
     cont = np.random.rand(5, 13)
-    with self.test_session() as session:
-      x1_ = tf.Variable(x1, dtype=tf.float32)
-      cont_ = tf.Variable(cont, dtype=tf.float32)
+    x1_ = tf.Variable(x1, dtype=tf.float32)
+    cont_ = tf.Variable(cont, dtype=tf.float32)
 
-      simple_ff = common_layers.linear_set_layer(32, x1_)
-      cont_ff = common_layers.linear_set_layer(32, x1_, context=cont_)
+    simple_ff = common_layers.linear_set_layer(32, x1_)
+    cont_ff = common_layers.linear_set_layer(32, x1_, context=cont_)
 
-      session.run(tf.global_variables_initializer())
-      actual = session.run([simple_ff, cont_ff])
+    self.evaluate(tf.global_variables_initializer())
+    actual = self.evaluate([simple_ff, cont_ff])
     self.assertEqual(actual[0].shape, (5, 4, 32))
     self.assertEqual(actual[1].shape, (5, 4, 32))
 
   def testRavanbakhshSetLayer(self):
     x1 = np.random.rand(5, 4, 11)
-    with self.test_session() as session:
-      x1_ = tf.Variable(x1, dtype=tf.float32)
-      layer = common_layers.ravanbakhsh_set_layer(32, x1_)
-      session.run(tf.global_variables_initializer())
-      actual = session.run(layer)
+    x1_ = tf.Variable(x1, dtype=tf.float32)
+    layer = common_layers.ravanbakhsh_set_layer(32, x1_)
+    self.evaluate(tf.global_variables_initializer())
+    actual = self.evaluate(layer)
     self.assertEqual(actual.shape, (5, 4, 32))
 
+  @test_utils.run_in_graph_and_eager_modes()
+  def testTopKthIterativeShape(self):
+    x = np.random.rand(5, 2, 1, 12)
+    y = common_layers.top_kth_iterative(tf.constant(x, dtype=tf.float32), 3)
+    actual = self.evaluate(y)
+    self.assertEqual(actual.shape, (5, 2, 1, 1))
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testTopKthIterativeValue(self):
+    x = [1.0, 2.0, 3.0, 4.0]
+    y = common_layers.top_kth_iterative(tf.constant(x, dtype=tf.float32), 3)
+    actual = self.evaluate(y)
+    self.assertEqual(int(actual[0]), 2.0)
+
+  @test_utils.run_in_graph_and_eager_modes()
   def testBReLU(self):
-    with self.test_session() as session:
-      x = np.random.rand(5, 2, 1, 12)
-      y = common_layers.brelu(tf.constant(x, dtype=tf.float32))
-      actual = session.run(y)
+    x = np.random.rand(5, 2, 1, 12)
+    y = common_layers.brelu(tf.constant(x, dtype=tf.float32))
+    actual = self.evaluate(y)
     self.assertEqual(actual.shape, (5, 2, 1, 12))
 
+  @test_utils.run_in_graph_and_eager_modes()
   def testBELU(self):
-    with self.test_session() as session:
-      x = np.random.rand(5, 2, 1, 12)
-      y = common_layers.belu(tf.constant(x, dtype=tf.float32))
-      actual = session.run(y)
+    x = np.random.rand(5, 2, 1, 12)
+    y = common_layers.belu(tf.constant(x, dtype=tf.float32))
+    actual = self.evaluate(y)
     self.assertEqual(actual.shape, (5, 2, 1, 12))
 
+  @test_utils.run_in_graph_and_eager_modes()
+  def testNAC(self):
+    x = np.random.rand(5, 2, 1, 12)
+    y = common_layers.nac(tf.constant(x, dtype=tf.float32), 14)
+    self.evaluate(tf.global_variables_initializer())
+    actual = self.evaluate(y)
+    self.assertEqual(actual.shape, (5, 2, 1, 14))
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testNALU(self):
+    x = np.random.rand(5, 2, 1, 12)
+    y = common_layers.nalu(tf.constant(x, dtype=tf.float32), 14)
+    self.evaluate(tf.global_variables_initializer())
+    actual = self.evaluate(y)
+    self.assertEqual(actual.shape, (5, 2, 1, 14))
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testNALUzeros(self):
+    x = np.random.rand(5, 2, 1, 12)
+    y = common_layers.nalu(tf.zeros_like(x, dtype=tf.float32), 14)
+    self.evaluate(tf.global_variables_initializer())
+    actual = self.evaluate(y)
+    self.assertTrue(np.all(np.isfinite(actual)))
+    self.assertEqual(actual.shape, (5, 2, 1, 14))
+
+  @test_utils.run_in_graph_mode_only
   def testPaddingCrossEntropyFactored(self):
     vocab_size = 19
     rows = 5
@@ -433,6 +465,7 @@ class CommonLayersTest(tf.test.TestCase):
     self.assertAllClose(num, num_f)
     self.assertAllClose(den, den_f)
 
+  @test_utils.run_in_graph_mode_only
   def testPaddingCrossEntropyFactoredGrad(self):
     vocab_size = 19
     rows = 5
@@ -470,18 +503,143 @@ class CommonLayersTest(tf.test.TestCase):
     self.assertAllClose(actual_df, actual_df_factored)
     self.assertAllClose(actual_dw, actual_dw_factored)
 
+  @parameterized.parameters(
+      (2, 4, 4, 5, True),
+      (2, 4, 4, 5, False),
+      (1, 16, 16, 1, True),
+      (1, 16, 16, 1, False),
+  )
+  def testDmlLoss(self, batch, height, width, num_mixtures, reduce_sum):
+    channels = 3
+    pred = tf.random_normal([batch, height, width, num_mixtures * 10])
+    labels = tf.random_uniform([batch, height, width, channels],
+                               minval=0, maxval=256, dtype=tf.int32)
+    actual_loss_num, actual_loss_den = common_layers.dml_loss(
+        pred=pred, labels=labels, reduce_sum=reduce_sum)
+    actual_loss = actual_loss_num / actual_loss_den
+
+    real_labels = common_layers.convert_rgb_to_symmetric_real(labels)
+    expected_loss = common_layers.discretized_mix_logistic_loss(
+        pred=pred, labels=real_labels) / channels
+    if reduce_sum:
+      expected_loss = tf.reduce_mean(expected_loss)
+
+    actual_loss_val, expected_loss_val = self.evaluate(
+        [actual_loss, expected_loss])
+    self.assertAllClose(actual_loss_val, expected_loss_val)
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testWeightsMultiProblemAll(self):
+    labels = tf.constant(np.array([[12, 15, 1, 20, 100],
+                                   [67, 1, 34, 45, 124],
+                                   [78, 2, 34, 18, 29],
+                                   [78, 123, 55, 1, 33],
+                                   [1, 18, 22, 36, 59]]), dtype=tf.int32)
+    taskid = 1
+    expected_mask = np.array([[1, 1, 1, 1, 1],
+                              [1, 1, 1, 1, 1],
+                              [0, 0, 0, 0, 0],
+                              [1, 1, 1, 1, 1],
+                              [1, 1, 1, 1, 1]])
+    actual_mask = common_layers.weights_multi_problem_all(labels, taskid)
+    actual_mask_eval = self.evaluate(actual_mask)
+    self.assertAllClose(expected_mask, actual_mask_eval)
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testWeightsMultiProblem(self):
+    labels = tf.constant(np.array([[12, 15, 1, 20, 100],
+                                   [67, 1, 34, 45, 124],
+                                   [78, 2, 34, 18, 29],
+                                   [78, 123, 55, 1, 33],
+                                   [1, 18, 22, 36, 59]]), dtype=tf.int32)
+    taskid = 1
+    expected_mask = np.array([[0, 0, 0, 1, 1],
+                              [0, 0, 1, 1, 1],
+                              [0, 0, 0, 0, 0],
+                              [0, 0, 0, 0, 1],
+                              [0, 1, 1, 1, 1]])
+    actual_mask = common_layers.weights_multi_problem(labels, taskid)
+    actual_mask_eval = self.evaluate(actual_mask)
+    self.assertAllClose(expected_mask, actual_mask_eval)
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testDiscretizedMixLogisticLoss(self):
+    batch = 2
+    height = 4
+    width = 4
+    channels = 3
+    num_mixtures = 5
+    logits = tf.concat(  # assign all probability mass to first component
+        [tf.ones([batch, height, width, 1]) * 1e8,
+         tf.zeros([batch, height, width, num_mixtures - 1])],
+        axis=-1)
+    locs = tf.random_uniform([batch, height, width, num_mixtures * 3],
+                             minval=-.9, maxval=.9)
+    log_scales = tf.random_uniform([batch, height, width, num_mixtures * 3],
+                                   minval=-1., maxval=1.)
+    coeffs = tf.atanh(tf.zeros([batch, height, width, num_mixtures * 3]))
+    pred = tf.concat([logits, locs, log_scales, coeffs], axis=-1)
+
+    # Test labels that don't satisfy edge cases where 8-bit value is 0 or 255.
+    labels = tf.random_uniform([batch, height, width, channels],
+                               minval=-.9, maxval=.9)
+    locs_0 = locs[..., :3]
+    log_scales_0 = log_scales[..., :3]
+    centered_labels = labels - locs_0
+    inv_stdv = tf.exp(-log_scales_0)
+    plus_in = inv_stdv * (centered_labels + 1. / 255.)
+    min_in = inv_stdv * (centered_labels - 1. / 255.)
+    cdf_plus = tf.nn.sigmoid(plus_in)
+    cdf_min = tf.nn.sigmoid(min_in)
+    expected_loss = -tf.reduce_sum(tf.log(cdf_plus - cdf_min), axis=-1)
+
+    actual_loss = common_layers.discretized_mix_logistic_loss(
+        pred=pred, labels=labels)
+    actual_loss_val, expected_loss_val = self.evaluate(
+        [actual_loss, expected_loss])
+    self.assertAllClose(actual_loss_val, expected_loss_val, rtol=1e-5)
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testSampleFromDiscretizedMixLogistic(self):
+    batch = 2
+    height = 4
+    width = 4
+    num_mixtures = 5
+    seed = 42
+    logits = tf.concat(  # assign all probability mass to first component
+        [tf.ones([batch, height, width, 1]) * 1e8,
+         tf.zeros([batch, height, width, num_mixtures - 1])],
+        axis=-1)
+    locs = tf.random_uniform([batch, height, width, num_mixtures * 3],
+                             minval=-.9, maxval=.9)
+    log_scales = tf.ones([batch, height, width, num_mixtures * 3]) * -1e8
+    coeffs = tf.atanh(tf.zeros([batch, height, width, num_mixtures * 3]))
+    pred = tf.concat([logits, locs, log_scales, coeffs], axis=-1)
+
+    locs_0 = locs[..., :3]
+    expected_sample = tf.clip_by_value(locs_0, -1., 1.)
+
+    actual_sample = common_layers.sample_from_discretized_mix_logistic(
+        pred, seed=seed)
+    actual_sample_val, expected_sample_val = self.evaluate(
+        [actual_sample, expected_sample])
+    # Use a low tolerance: samples numerically differ, as the actual
+    # implementation clips log-scales so they always contribute to sampling.
+    self.assertAllClose(actual_sample_val, expected_sample_val, atol=1e-2)
+
+  @test_utils.run_in_graph_and_eager_modes()
   def testFactoredTensorImplicitConversion(self):
     a = np.random.rand(3, 4, 5)
     b = np.random.rand(6, 5)
     c = np.random.rand(3, 4, 6)
-    with self.test_session() as session:
-      # a factored representation of a Tensor of shape (3, 4, 6)
-      factored = common_layers.FactoredTensor(tf.to_float(a), tf.to_float(b))
-      # implicitly converts factored to a Tensor (performing the matmul)
-      d = factored + tf.to_float(c)
-      out = session.run(d)
+    # a factored representation of a Tensor of shape (3, 4, 6)
+    factored = common_layers.FactoredTensor(tf.to_float(a), tf.to_float(b))
+    # implicitly converts factored to a Tensor (performing the matmul)
+    d = factored + tf.to_float(c)
+    out = self.evaluate(d)
     self.assertEqual(out.shape, (3, 4, 6))
 
+  @test_utils.run_in_graph_mode_only()
   def testConvHiddenReluMemoryEfficient(self):
     batch = 3
     length = 23
@@ -513,15 +671,100 @@ class CommonLayersTest(tf.test.TestCase):
             dx, df1, df2, dnorm_scale, dnorm_bias,
             dx_f, df1_f, df2_f, dnorm_scale_f, dnorm_bias_f])
     self.assertAllClose(y, y_forget)
-    self.assertAllClose(df2, df2_f)
-    self.assertAllClose(df1, df1_f)
+    self.assertAllClose(df2, df2_f, rtol=2e-6, atol=2e-6)
+    self.assertAllClose(df1, df1_f, rtol=2e-6, atol=2e-6)
     self.assertAllClose(dnorm_scale, dnorm_scale_f)
     self.assertAllClose(dnorm_bias, dnorm_bias_f)
     self.assertAllClose(dx, dx_f)
 
+  @test_utils.run_in_graph_and_eager_modes()
+  def testCycleGANUpsampleNnUpsampleConv(self):
+    batch = 8
+    height = 32
+    width = 32
+    num_channels = 3
+    output_filters = 10
+    stride = [2, 3]  # we want height to be x2 and width to be x3
+    random_input = np.random.rand(batch, height, width, num_channels).astype(
+        np.float32)
+
+    # nn_upsample_conv gives exactly the shapes we'd expect.
+    upsampled_output = common_layers.cyclegan_upsample(
+        random_input, output_filters, stride, "nn_upsample_conv")
+    upsampled_output_shape = tf.shape(upsampled_output)
+    self.evaluate(tf.global_variables_initializer())
+    self.assertAllEqual(
+        [batch, height * stride[0], width * stride[1], output_filters],
+        self.evaluate(upsampled_output_shape))
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testCycleGANUpsampleBilinearUpsampleConv(self):
+    batch = 8
+    height = 32
+    width = 32
+    num_channels = 3
+    output_filters = 10
+    stride = [2, 3]  # we want height to be x2 and width to be x3
+    random_input = np.random.rand(batch, height, width, num_channels).astype(
+        np.float32)
+
+    # bilinear_upsample_conv gives exactly the shapes we'd expect.
+    upsampled_output = common_layers.cyclegan_upsample(
+        random_input, output_filters, stride, "bilinear_upsample_conv")
+    upsampled_output_shape = tf.shape(upsampled_output)
+    self.evaluate(tf.global_variables_initializer())
+    self.assertAllEqual(
+        [batch, height * stride[0], width * stride[1], output_filters],
+        self.evaluate(upsampled_output_shape))
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testCycleGANUpsampleConv2dTranspose(self):
+    batch = 8
+    height = 32
+    width = 32
+    num_channels = 3
+    output_filters = 10
+    stride = [2, 3]  # we want height to be x2 and width to be x3
+    random_input = tf.convert_to_tensor(
+        np.random.rand(batch, height, width, num_channels), dtype=tf.float32)
+
+    # conv2d_transpose is a little tricky.
+    # height_new = (height_old - 1) * stride + kernel - 2*padding - correction
+    # here kernel = 3, padding = 0, correction = 1
+    upsampled_height = (height - 1) * stride[0] + 3 - 2*0 - 1
+    upsampled_width = (width - 1) * stride[1] + 3 - 2*0 - 1
+    upsampled_output = common_layers.cyclegan_upsample(random_input,
+                                                       output_filters, stride,
+                                                       "conv2d_transpose")
+    upsampled_output_shape = tf.shape(upsampled_output)
+    self.evaluate(tf.global_variables_initializer())
+    self.assertAllEqual(
+        [batch, upsampled_height, upsampled_width, output_filters],
+        self.evaluate(upsampled_output_shape))
+
+  def testSpectralNorm(self):
+    # Test that after 20 calls to apply_spectral_norm, the spectral
+    # norm of the normalized matrix is close to 1.0
+    with tf.Graph().as_default():
+      weights = tf.get_variable("w", dtype=tf.float32, shape=[2, 3, 50, 100])
+      weights = tf.multiply(weights, 10.0)
+      normed_weight, assign_op = common_layers.apply_spectral_norm(weights)
+
+      with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+
+        for _ in range(20):
+          sess.run(assign_op)
+          normed_weight, assign_op = common_layers.apply_spectral_norm(
+              weights)
+        normed_weight = sess.run(normed_weight).reshape(-1, 100)
+        _, s, _ = np.linalg.svd(normed_weight)
+        self.assertTrue(np.allclose(s[0], 1.0, rtol=0.1))
+
 
 class FnWithCustomGradTest(tf.test.TestCase):
 
+  @test_utils.run_in_graph_mode_only()
   def testCorrectness(self):
 
     w = tf.random_uniform([6, 10])
@@ -567,6 +810,7 @@ class FnWithCustomGradTest(tf.test.TestCase):
       for g1, g2 in zip(grads_val, custom_grads_val):
         self.assertAllClose(g1, g2)
 
+  @test_utils.run_in_graph_mode_only()
   def testCustomGrad(self):
 
     def fn(a, b, c):
@@ -599,6 +843,7 @@ class FnWithCustomGradTest(tf.test.TestCase):
 
 class RecomputeTest(tf.test.TestCase):
 
+  @test_utils.run_in_graph_mode_only()
   def testRecompute(self):
 
     def layer(x, name=None):

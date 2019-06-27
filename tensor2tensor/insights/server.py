@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,15 +16,15 @@
 """A GUnicorn + Flask Debug Frontend for Transformer models."""
 
 import json
-
 from flask import Flask
 from flask import jsonify
 from flask import request
 from flask import send_from_directory
+from flask.json import JSONEncoder
 from gunicorn.app.base import BaseApplication
 from gunicorn.six import iteritems
+import numpy as np
 from tensor2tensor.insights import transformer_model
-
 import tensorflow as tf
 
 flags = tf.flags
@@ -35,6 +35,26 @@ flags.DEFINE_string("configuration", "",
                     "models to run in the insight frontend.")
 flags.DEFINE_string("static_path", "",
                     "Path to static javascript and html files to serve.")
+
+
+_NUMPY_INT_DTYPES = [
+    np.int8, np.int16, np.int32, np.int64
+]
+_NUMPY_FP_DTYPES = [
+    np.float16, np.float32, np.float64
+]
+
+
+class NumpySerializationFix(JSONEncoder):
+  """json module cannot serialize numpy datatypes, reinterpret them first"""
+
+  def default(self, obj):
+    obj_type = type(obj)
+    if obj_type in _NUMPY_INT_DTYPES:
+      return int(obj)
+    if obj_type in _NUMPY_FP_DTYPES:
+      return float(obj)
+    return json.JSONEncoder.default(self, obj)
 
 
 class DebugFrontendApplication(BaseApplication):
@@ -101,6 +121,7 @@ def main(_):
       __name__.split(".")[0],
       static_url_path="/polymer",
       static_folder=FLAGS.static_path)
+  app.json_encoder = NumpySerializationFix
 
   # Disable static file caching.
   app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
@@ -113,7 +134,7 @@ def main(_):
       JSON for the languages.
     """
     return jsonify({
-        "language": languages.values()
+        "language": list(languages.values())
     })
 
   @app.route("/api/list_models/")
@@ -124,13 +145,12 @@ def main(_):
     Returns:
       JSON for the supported models.
     """
-    configuration_list = []
-    for source_code, target_code, label in processors:
-      configuration_list.append({
-          "id": label,
-          "source_language": languages[source_code],
-          "target_language": languages[target_code],
-      })
+    # pylint: disable=g-complex-comprehension
+    configuration_list = [{
+        "id": label,
+        "source_language": languages[source_code],
+        "target_language": languages[target_code],
+        } for source_code, target_code, label in processors]
     return jsonify({
         "configuration": configuration_list
     })
@@ -164,7 +184,6 @@ def main(_):
       The landing page html text.
     """
     if (path == "index.js" or
-        path == "webcomponentsjs/custom-elements-es5-adapter.js" or
         path == "webcomponentsjs/webcomponents-lite.js"):
       # Some vulcanizing methods bundle the javascript into a index.js file
       # paired with index.html but leave two important webcomponents js files

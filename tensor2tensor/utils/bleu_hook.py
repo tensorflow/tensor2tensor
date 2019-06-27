@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,21 +25,20 @@ import re
 import sys
 import time
 import unicodedata
-
-# Dependency imports
-
 import numpy as np
 import six
 # pylint: disable=redefined-builtin
-from six.moves import xrange
+from six.moves import range
 from six.moves import zip
 # pylint: enable=redefined-builtin
+
+from tensor2tensor.data_generators import text_encoder
 
 import tensorflow as tf
 
 
 def _get_ngrams(segment, max_order):
-  """Extracts all n-grams upto a given maximum order from an input segment.
+  """Extracts all n-grams up to a given maximum order from an input segment.
 
   Args:
     segment: text segment from which n-grams will be extracted.
@@ -47,12 +46,12 @@ def _get_ngrams(segment, max_order):
         methods.
 
   Returns:
-    The Counter containing all n-grams upto max_order in segment
+    The Counter containing all n-grams up to max_order in segment
     with a count of how many times each n-gram occurred.
   """
   ngram_counts = collections.Counter()
-  for order in xrange(1, max_order + 1):
-    for i in xrange(0, len(segment) - order + 1):
+  for order in range(1, max_order + 1):
+    for i in range(0, len(segment) - order + 1):
       ngram = tuple(segment[i:i + order])
       ngram_counts[ngram] += 1
   return ngram_counts
@@ -100,7 +99,7 @@ def compute_bleu(reference_corpus,
       possible_matches_by_order[len(ngram)-1] += translation_ngram_counts[ngram]
   precisions = [0] * max_order
   smooth = 1.0
-  for i in xrange(0, max_order):
+  for i in range(0, max_order):
     if possible_matches_by_order[i] > 0:
       precisions[i] = matches_by_order[i] / possible_matches_by_order[i]
       if matches_by_order[i] > 0:
@@ -116,8 +115,16 @@ def compute_bleu(reference_corpus,
     geo_mean = math.exp(p_log_sum/max_order)
 
   if use_bp:
-    ratio = translation_length / reference_length
-    bp = math.exp(1 - 1. / ratio) if ratio < 1.0 else 1.0
+    if not reference_length:
+      bp = 1.0
+    else:
+      ratio = translation_length / reference_length
+      if ratio <= 0.0:
+        bp = 0.0
+      elif ratio >= 1.0:
+        bp = 1.0
+      else:
+        bp = math.exp(1 - 1. / ratio)
   bleu = geo_mean * bp
   return np.float32(bleu)
 
@@ -130,7 +137,7 @@ def bleu_score(predictions, labels, **unused_kwargs):
   and use brevity penalty. Also, this does not have beam search.
 
   Args:
-    predictions: tensor, model predicitons
+    predictions: tensor, model predictions
     labels: tensor, gold output.
 
   Returns:
@@ -194,9 +201,12 @@ def bleu_tokenize(string):
 
 def bleu_wrapper(ref_filename, hyp_filename, case_sensitive=False):
   """Compute BLEU for two files (reference and hypothesis translation)."""
-  ref_lines = open(ref_filename).read().splitlines()
-  hyp_lines = open(hyp_filename).read().splitlines()
-  assert len(ref_lines) == len(hyp_lines)
+  ref_lines = text_encoder.native_to_unicode(
+      tf.gfile.Open(ref_filename, "r").read()).split("\n")
+  hyp_lines = text_encoder.native_to_unicode(
+      tf.gfile.Open(hyp_filename, "r").read()).split("\n")
+  assert len(ref_lines) == len(hyp_lines), ("{} != {}".format(
+      len(ref_lines), len(hyp_lines)))
   if not case_sensitive:
     ref_lines = [x.lower() for x in ref_lines]
     hyp_lines = [x.lower() for x in hyp_lines]
@@ -239,7 +249,7 @@ def _read_stepfiles_list(path_prefix, path_suffix=".index", min_steps=0):
   """Return list of StepFiles sorted by step from files at path_prefix."""
   stepfiles = []
   for filename in _try_twice_tf_glob(path_prefix + "*-[0-9]*" + path_suffix):
-    basename = filename[:-len(path_suffix)] if len(path_suffix) else filename
+    basename = filename[:-len(path_suffix)] if path_suffix else filename
     try:
       steps = int(basename.rsplit("-")[-1])
     except ValueError:  # The -[0-9]* part is not an integer.

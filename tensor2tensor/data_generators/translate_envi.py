@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,9 +18,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import translate
@@ -55,10 +52,6 @@ class TranslateEnviIwslt32k(translate.TranslateProblem):
   @property
   def approx_vocab_size(self):
     return 2**15  # 32768
-
-  @property
-  def vocab_filename(self):
-    return "vocab.envi.%d" % self.approx_vocab_size
 
   def source_data_files(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN

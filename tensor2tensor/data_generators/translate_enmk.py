@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,9 +18,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
@@ -32,22 +29,22 @@ EOS = text_encoder.EOS_ID
 
 # For English-Macedonian the SETimes corpus
 # from http://nlp.ffzg.hr/resources/corpora/setimes/ is used.
-# The original dataset has 207,777 parallel sentences.
-# For training the first 205,777 sentences are used.
 _ENMK_TRAIN_DATASETS = [[
-    "https://github.com/stefan-it/nmt-mk-en/raw/master/data/setimes.mk-en.train.tgz",  # pylint: disable=line-too-long
-    ("train.en", "train.mk")
+    "http://nlp.ffzg.hr/data/corpora/setimes/setimes.en-mk.txt.tgz",
+    ("setimes.en-mk.en.txt", "setimes.en-mk.mk.txt")
 ]]
 
-# For development 1000 parallel sentences are used.
-_ENMK_TEST_DATASETS = [[
-    "https://github.com/stefan-it/nmt-mk-en/raw/master/data/setimes.mk-en.dev.tgz",  # pylint: disable=line-too-long
-    ("dev.en", "dev.mk")
+# For development the MULTEXT-East "1984" corpus from
+# https://www.clarin.si/repository/xmlui/handle/11356/1043 is used.
+# 4,986 parallel sentences are used for evaluation.
+_ENMK_DEV_DATASETS = [[
+    "https://github.com/stefan-it/nmt-en-mk/raw/master/data/MTE-1984-dev.enmk.tgz",  # pylint: disable=line-too-long
+    ("MTE1984-dev.en", "MTE1984-dev.mk")
 ]]
 
 
 # See this PR on github for some results with Transformer on these Problems.
-# https://github.com/tensorflow/tensor2tensor/pull/626
+# https://github.com/tensorflow/tensor2tensor/pull/738
 
 
 @registry.register_problem
@@ -58,13 +55,9 @@ class TranslateEnmkSetimes32k(translate.TranslateProblem):
   def approx_vocab_size(self):
     return 2**15  # 32768
 
-  @property
-  def vocab_filename(self):
-    return "vocab.enmk.%d" % self.approx_vocab_size
-
   def source_data_files(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN
-    return _ENMK_TRAIN_DATASETS if train else _ENMK_TEST_DATASETS
+    return _ENMK_TRAIN_DATASETS if train else _ENMK_DEV_DATASETS
 
 
 @registry.register_problem
@@ -77,4 +70,4 @@ class TranslateEnmkSetimesCharacters(translate.TranslateProblem):
 
   def source_data_files(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN
-    return _ENMK_TRAIN_DATASETS if train else _ENMK_TEST_DATASETS
+    return _ENMK_TRAIN_DATASETS if train else _ENMK_DEV_DATASETS

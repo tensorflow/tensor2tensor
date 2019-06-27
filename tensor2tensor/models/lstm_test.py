@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,9 +18,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
@@ -33,10 +30,12 @@ class LSTMTest(tf.test.TestCase):
 
   def testLSTMSeq2Seq(self):
     vocab_size = 9
-    x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
-    y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
+    x = np.random.randint(1, high=vocab_size, size=(3, 5, 1, 1))
+    y = np.random.randint(1, high=vocab_size, size=(3, 6, 1, 1))
     hparams = lstm.lstm_seq2seq()
-    p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
+    p_hparams = problem_hparams.test_problem_hparams(vocab_size,
+                                                     vocab_size,
+                                                     hparams)
     with self.test_session() as session:
       features = {
           "inputs": tf.constant(x, dtype=tf.int32),
@@ -51,11 +50,13 @@ class LSTMTest(tf.test.TestCase):
 
   def testLSTMSeq2SeqAttention(self):
     vocab_size = 9
-    x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
-    y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
+    x = np.random.randint(1, high=vocab_size, size=(3, 5, 1, 1))
+    y = np.random.randint(1, high=vocab_size, size=(3, 6, 1, 1))
     hparams = lstm.lstm_attention()
 
-    p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
+    p_hparams = problem_hparams.test_problem_hparams(vocab_size,
+                                                     vocab_size,
+                                                     hparams)
     x = tf.constant(x, dtype=tf.int32)
     x = tf.placeholder_with_default(x, shape=[None, None, 1, 1])
 
@@ -73,10 +74,12 @@ class LSTMTest(tf.test.TestCase):
 
   def testLSTMSeq2seqBidirectionalEncoder(self):
     vocab_size = 9
-    x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
-    y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
+    x = np.random.randint(1, high=vocab_size, size=(3, 5, 1, 1))
+    y = np.random.randint(1, high=vocab_size, size=(3, 6, 1, 1))
     hparams = lstm.lstm_seq2seq()
-    p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
+    p_hparams = problem_hparams.test_problem_hparams(vocab_size,
+                                                     vocab_size,
+                                                     hparams)
     with self.test_session() as session:
       features = {
           "inputs": tf.constant(x, dtype=tf.int32),
@@ -91,8 +94,8 @@ class LSTMTest(tf.test.TestCase):
 
   def testLSTMSeq2seqAttentionBidirectionalEncoder(self):
     vocab_size = 9
-    x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
-    y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
+    x = np.random.randint(1, high=vocab_size, size=(3, 5, 1, 1))
+    y = np.random.randint(1, high=vocab_size, size=(3, 6, 1, 1))
     hparams = lstm.lstm_attention()
 
     p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)

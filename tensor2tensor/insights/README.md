@@ -41,15 +41,15 @@ Start guide, a sample configuration would be:
         "data_dir": "/tmp/t2t/data",
         "hparams": "",
         "hparams_set": "transformer_base_single_gpu",
-        "problems": "translate_ende_wmt32k"
-      },
-    }]
+        "problem": "translate_ende_wmt32k"
+      }
+    }],
     "language": [{
       "code": "en",
-      "name": "English",
+      "name": "English"
     },{
       "code": "de",
-      "name": "German",
+      "name": "German"
     }]
   }
 ```

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,10 +22,7 @@ import os
 from subprocess import call
 import tarfile
 import wave
-
-# Dependency imports
-
-from tensor2tensor.data_generators import generator_utils
+# from tensor2tensor.data_generators import generator_utils
 
 import tensorflow as tf
 
@@ -63,7 +60,7 @@ def _collect_data(directory, input_ext, target_ext):
   #   if the datafile was "/path/to/datafile.wav" then the key would be
   #   "/path/to/datafile"
   # value: a pair of strings (input_filepath, target_filepath)
-  data_files = dict()
+  data_files = {}
   for root, _, filenames in os.walk(directory):
     input_files = [filename for filename in filenames if input_ext in filename]
     for input_filename in input_files:
@@ -128,16 +125,22 @@ def timit_generator(data_dir,
     * audio/sample_width: an integer
     * targets: an integer sequence representing the encoded sentence
   """
+  del data_dir
   eos_list = [1] if eos_list is None else eos_list
   if vocab_filename is not None:
-    vocab_symbolizer = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, vocab_filename, vocab_size)
+    # TODO(lukaszkaiser): Correct this call to generate a vocabulary. No data
+    # sources are being passed.
+    # vocab_symbolizer = generator_utils.get_or_generate_vocab(
+    #     data_dir, tmp_dir, vocab_filename, vocab_size)
+    del vocab_size
+    vocab_symbolizer = None
+    assert False
   _get_timit(tmp_dir)
   datasets = (_TIMIT_TRAIN_DATASETS if training else _TIMIT_TEST_DATASETS)
   i = 0
-  for data_dir, (audio_ext, transcription_ext) in datasets:
-    data_dir = os.path.join(tmp_dir, data_dir)
-    data_files = _collect_data(data_dir, audio_ext, transcription_ext)
+  for timit_data_dir, (audio_ext, transcription_ext) in datasets:
+    timit_data_dir = os.path.join(tmp_dir, timit_data_dir)
+    data_files = _collect_data(timit_data_dir, audio_ext, transcription_ext)
     data_pairs = data_files.values()
     for input_file, target_file in sorted(data_pairs)[start_from:]:
       if i == how_many:

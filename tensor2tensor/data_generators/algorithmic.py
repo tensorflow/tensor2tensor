@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,16 +18,17 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# Dependency imports
-
+import os
+import shutil
 import numpy as np
-
-from six.moves import xrange  # pylint: disable=redefined-builtin
-
+from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import generator_utils as utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.layers import modalities
+from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
+import tensorflow as tf
 
 
 class AlgorithmicProblem(problem.Problem):
@@ -83,8 +84,10 @@ class AlgorithmicProblem(problem.Problem):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     vocab_size = self.num_symbols + text_encoder.NUM_RESERVED_TOKENS
-    p.input_modality = {"inputs": (registry.Modalities.SYMBOL, vocab_size)}
-    p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
+    p.modality = {"inputs": modalities.ModalityType.SYMBOL,
+                  "targets": modalities.ModalityType.SYMBOL}
+    p.vocab_size = {"inputs": vocab_size,
+                    "targets": vocab_size}
     p.input_space_id = problem.SpaceID.DIGIT_0
     p.target_space_id = problem.SpaceID.DIGIT_1
 
@@ -113,9 +116,9 @@ class AlgorithmicIdentityBinary40(AlgorithmicProblem):
       A dictionary {"inputs": input-list, "targets": target-list} where
       input-list and target-list are the same.
     """
-    for _ in xrange(nbr_cases):
+    for _ in range(nbr_cases):
       l = np.random.randint(max_length) + 1
-      inputs = [np.random.randint(nbr_symbols) for _ in xrange(l)]
+      inputs = [np.random.randint(nbr_symbols) for _ in range(l)]
       yield {"inputs": inputs, "targets": inputs}
 
 
@@ -126,6 +129,27 @@ class AlgorithmicIdentityDecimal40(AlgorithmicIdentityBinary40):
   @property
   def num_symbols(self):
     return 10
+
+
+@registry.register_problem
+class AlgorithmicIdentityVocab95Train20Eval30(AlgorithmicIdentityBinary40):
+  """Problem spec for algorithmic decimal identity task."""
+
+  @property
+  def num_symbols(self):
+    return 95
+
+  @property
+  def train_length(self):
+    return 20
+
+  @property
+  def dev_length(self):
+    return 30
+
+  @property
+  def train_size(self):
+    return 1000000
 
 
 @registry.register_problem
@@ -153,9 +177,9 @@ class AlgorithmicShiftDecimal40(AlgorithmicProblem):
       target-list[i] = input-list[i] + shift.
     """
     shift = 10
-    for _ in xrange(nbr_cases):
+    for _ in range(nbr_cases):
       l = np.random.randint(max_length) + 1
-      inputs = [np.random.randint(nbr_symbols - shift) for _ in xrange(l)]
+      inputs = [np.random.randint(nbr_symbols - shift) for _ in range(l)]
       yield {"inputs": inputs, "targets": [i + shift for i in inputs]}
 
   @property
@@ -187,9 +211,9 @@ class AlgorithmicReverseBinary40(AlgorithmicProblem):
       A dictionary {"inputs": input-list, "targets": target-list} where
       target-list is input-list reversed.
     """
-    for _ in xrange(nbr_cases):
+    for _ in range(nbr_cases):
       l = np.random.randint(max_length) + 1
-      inputs = [np.random.randint(nbr_symbols) for _ in xrange(l)]
+      inputs = [np.random.randint(nbr_symbols) for _ in range(l)]
       yield {"inputs": inputs, "targets": list(reversed(inputs))}
 
 
@@ -265,7 +289,7 @@ def reverse_generator_nlplike(nbr_symbols,
   """
   std_dev = max_length / scale_std_dev
   distr_map = zipf_distribution(nbr_symbols, alpha)
-  for _ in xrange(nbr_cases):
+  for _ in range(nbr_cases):
     l = int(abs(np.random.normal(loc=max_length / 2, scale=std_dev)) + 1)
     inputs = zipf_random_sample(distr_map, l)
     yield {"inputs": inputs, "targets": list(reversed(inputs))}
@@ -321,7 +345,7 @@ def random_number_lower_endian(length, base):
   """Helper function: generate a random number as a lower-endian digits list."""
   if length == 1:  # Last digit can be 0 only if length is 1.
     return [np.random.randint(base)]
-  prefix = [np.random.randint(base) for _ in xrange(length - 1)]
+  prefix = [np.random.randint(base) for _ in range(length - 1)]
   return prefix + [np.random.randint(base - 1) + 1]  # Last digit is not 0.
 
 
@@ -333,7 +357,7 @@ class AlgorithmicAdditionBinary40(AlgorithmicProblem):
   def num_symbols(self):
     return 2
 
-  def generator(self, base, max_length, nbr_cases):
+  def generator(self, base, max_length, nbr_cases):  # pylint: disable=arguments-differ
     """Generator for the addition task.
 
     The length of each number is drawn uniformly at random in [1, max_length/2]
@@ -354,7 +378,7 @@ class AlgorithmicAdditionBinary40(AlgorithmicProblem):
     """
     if max_length < 3:
       raise ValueError("Maximum length must be at least 3.")
-    for _ in xrange(nbr_cases):
+    for _ in range(nbr_cases):
       l1 = np.random.randint(max_length // 2) + 1
       l2 = np.random.randint(max_length - l1 - 1) + 1
       n1 = random_number_lower_endian(l1, base)
@@ -383,7 +407,7 @@ class AlgorithmicMultiplicationBinary40(AlgorithmicProblem):
   def num_symbols(self):
     return 2
 
-  def generator(self, base, max_length, nbr_cases):
+  def generator(self, base, max_length, nbr_cases):  # pylint: disable=arguments-differ
     """Generator for the multiplication task.
 
     The length of each number is drawn uniformly at random in [1, max_length/2]
@@ -405,7 +429,7 @@ class AlgorithmicMultiplicationBinary40(AlgorithmicProblem):
     """
     if max_length < 3:
       raise ValueError("Maximum length must be at least 3.")
-    for _ in xrange(nbr_cases):
+    for _ in range(nbr_cases):
       l1 = np.random.randint(max_length // 2) + 1
       l2 = np.random.randint(max_length - l1 - 1) + 1
       n1 = random_number_lower_endian(l1, base)
@@ -449,3 +473,94 @@ class AlgorithmicReverseBinary40Test(AlgorithmicReverseBinary40):
   @property
   def num_shards(self):
     return 1
+
+
+@registry.register_problem
+class AlgorithmicSortProblem(AlgorithmicProblem):
+  """Problem spec for sorting numbers."""
+
+  @property
+  def num_symbols(self):
+    return max(self.train_length, self.dev_length)
+
+  @property
+  def train_length(self):
+    return 10
+
+  @property
+  def dev_length(self):
+    return self.train_length * 2
+
+  @property
+  def unique(self):
+    """Unique numbers wo/ replacement or w/ replacement in sorting task."""
+    return False
+
+  def generator(self, nbr_symbols, max_length, nbr_cases):
+    """Generating for sorting task on sequence of symbols.
+
+    The length of the sequence is drawn uniformly at random from [1, max_length]
+    and then symbols are drawn (uniquely w/ or w/o replacement) uniformly at
+    random from [0, nbr_symbols) until nbr_cases sequences have been produced.
+
+    Args:
+      nbr_symbols: number of symbols to use in each sequence.
+      max_length: integer, maximum length of sequences to generate.
+      nbr_cases: the number of cases to generate.
+
+    Yields:
+      A dictionary {"inputs": input-list, "targets": target-list} where
+      target-list is input-list sorted.
+    """
+    for _ in range(nbr_cases):
+      # Sample the sequence length.
+      length = np.random.randint(max_length) + 1
+
+      if self.unique:
+        # Sample our inputs w/o replacement.
+        inputs = np.arange(nbr_symbols)
+        np.random.shuffle(inputs)
+
+        # Truncate to the desired length.
+        inputs = inputs[:length]
+        inputs = list(inputs)
+      else:
+        inputs = list(np.random.randint(nbr_symbols, size=length))
+
+      # Targets are simply the sorted inputs.
+      targets = list(sorted(inputs))
+
+      yield {"inputs": inputs, "targets": targets}
+
+  def eval_metrics(self):
+    defaults = super(AlgorithmicSortProblem, self).eval_metrics()
+    return defaults + [metrics.Metrics.EDIT_DISTANCE]
+
+
+@registry.register_problem
+class TinyAlgo(AlgorithmicIdentityBinary40):
+  """A small algorthmic problem for testing."""
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    """Ganerate data for this problem."""
+
+    del tmp_dir, task_id
+    identity_problem = AlgorithmicIdentityBinary40()
+    utils.generate_files(
+        identity_problem.generator(self.num_symbols, 40, 100000),
+        self.training_filepaths(data_dir, 1, shuffled=True), 100)
+    utils.generate_files(
+        identity_problem.generator(self.num_symbols, 400, 10000),
+        self.dev_filepaths(data_dir, 1, shuffled=True), 100)
+
+  @classmethod
+  def setup_for_test(cls):
+    """Setup directories and files required to run the problem."""
+
+    tmp_dir = tf.test.get_temp_dir()
+    shutil.rmtree(tmp_dir)
+    os.mkdir(tmp_dir)
+    cls.data_dir = tmp_dir
+
+    # Generate a small test dataset
+    cls().generate_data(TinyAlgo.data_dir, None)

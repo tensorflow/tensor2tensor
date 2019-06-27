@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,9 +18,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.utils import trainer_lib_test
 
@@ -36,7 +33,7 @@ class TrainerTest(tf.test.TestCase):
     trainer_lib_test.TrainerLibTest.setUpClass()
 
   def testTrain(self):
-    FLAGS.problems = "tiny_algo"
+    FLAGS.problem = "tiny_algo"
     FLAGS.model = "transformer"
     FLAGS.hparams_set = "transformer_tiny"
     FLAGS.train_steps = 1

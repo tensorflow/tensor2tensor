@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,9 +23,6 @@ import collections
 import os
 import sys
 import tarfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -58,7 +55,7 @@ def _build_vocab(filename, vocab_path, vocab_size):
   Args:
     filename: file to read list of words from.
     vocab_path: path where to save the vocabulary.
-    vocab_size: size of the vocablulary to generate.
+    vocab_size: size of the vocabulary to generate.
   """
   data = _read_words(filename)
   counter = collections.Counter(data)

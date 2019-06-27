@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,13 +19,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
+from tensor2tensor.layers import modalities
 from tensor2tensor.models import resnet
-from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -39,16 +37,19 @@ def resnet_tiny_cpu():
 
 class ResnetTest(tf.test.TestCase):
 
-  def _testResnet(self, img_size, output_size):
+  def _test_resnet(self, img_size, output_size):
     vocab_size = 9
     batch_size = 2
-    x = np.random.random_integers(
-        0, high=255, size=(batch_size, img_size, img_size, 3))
-    y = np.random.random_integers(
-        1, high=vocab_size - 1, size=(batch_size, 1, 1, 1))
+    x = np.random.randint(
+        256, size=(batch_size, img_size, img_size, 3))
+    y = np.random.randint(
+        1, high=vocab_size, size=(batch_size, 1, 1, 1))
     hparams = resnet_tiny_cpu()
-    p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
-    p_hparams.input_modality["inputs"] = (registry.Modalities.IMAGE, None)
+    p_hparams = problem_hparams.test_problem_hparams(vocab_size,
+                                                     vocab_size,
+                                                     hparams)
+    p_hparams.modality["inputs"] = modalities.ModalityType.IMAGE
+    p_hparams.modality["targets"] = modalities.ModalityType.CLASS_LABEL
     with self.test_session() as session:
       features = {
           "inputs": tf.constant(x, dtype=tf.int32),
@@ -61,7 +62,7 @@ class ResnetTest(tf.test.TestCase):
     self.assertEqual(res.shape, (batch_size,) + output_size + (1, vocab_size))
 
   def testResnetLarge(self):
-    self._testResnet(img_size=224, output_size=(1, 1))
+    self._test_resnet(img_size=224, output_size=(1, 1))
 
 
 if __name__ == "__main__":

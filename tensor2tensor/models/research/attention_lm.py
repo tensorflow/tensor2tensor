@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
 
 """Self-attention based language model.
 
+DEPRECATED. Use Transformer which supports running the decoder only.
+
 Like transformer.py, but no encoder
 
 decoder: [Self-Attention, Feed-forward] x n
@@ -24,10 +26,7 @@ decoder: [Self-Attention, Feed-forward] x n
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
@@ -38,6 +37,10 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
+@tf.contrib.framework.deprecated(
+    "2018-09-15",
+    "Use Transformer, which supports decoder-only mode when "
+    "Transformer.has_input=False.")
 @registry.register_model
 class AttentionLM(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
@@ -70,7 +73,7 @@ def attention_lm_prepare_decoder(targets, hparams):
   Returns:
     decoder_input: a Tensor, bottom of decoder stack
     decoder_self_attention_bias: a Tensor, containing large negative values
-    to implement masked attention and possibly baises for diagonal alignments
+    to implement masked attention and possibly biases for diagonal alignments
   """
   if hparams.prepend_mode == "prepend_inputs_full_attention":
     decoder_self_attention_bias = (
@@ -104,7 +107,7 @@ def attention_lm_decoder(decoder_input,
   """
   x = decoder_input
   with tf.variable_scope(name):
-    for layer in xrange(hparams.num_hidden_layers):
+    for layer in range(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(

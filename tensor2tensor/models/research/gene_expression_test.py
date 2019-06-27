@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.data_generators import gene_expression as gene_data
@@ -38,15 +35,15 @@ def gene_expression_conv_test():
 
 class GeneExpressionModelsTest(tf.test.TestCase):
 
-  def _testModel(self, hparams, model_cls):
+  def _test_model(self, hparams, model_cls):
     batch_size = 3
     target_length = 6
     target_out = 10  # GeneExpressionProblem.num_output_predictions
     input_length = target_length * 128 // 4  # chunk_size=4
     input_vocab_size = 5
 
-    inputs = np.random.random_integers(
-        input_vocab_size, size=(batch_size, input_length, 1, 1))
+    inputs = np.random.randint(
+        1, input_vocab_size + 1, size=(batch_size, input_length, 1, 1))
     targets = np.random.random_sample((batch_size, target_length, 1,
                                        target_out))
 
@@ -54,7 +51,7 @@ class GeneExpressionModelsTest(tf.test.TestCase):
         "inputs": tf.constant(inputs, dtype=tf.int32),
         "targets": tf.constant(targets, dtype=tf.float32),
     }
-    p_hparams, = hparams.problems
+    p_hparams = hparams.problem_hparams
     logits, _ = model_cls(
         hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)(features)
 
@@ -70,8 +67,8 @@ class GeneExpressionModelsTest(tf.test.TestCase):
     for model_cls, hparams in models_hparams:
       hparams.add_hparam("data_dir", None)
       p_hparams = gene_data.GenomicsExpressionCage10().get_hparams(hparams)
-      hparams.problems = [p_hparams]
-      self._testModel(hparams, model_cls)
+      hparams.problem_hparams = p_hparams
+      self._test_model(hparams, model_cls)
 
 
 if __name__ == "__main__":

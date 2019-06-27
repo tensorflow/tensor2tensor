@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,16 +30,16 @@ def mimic_adam_with_adafactor(hparams):
   Some minor things may be different, like epsilon and beta1 correction.
 
   Args:
-    hparams: model hyperparameters where "Adam" in hparams.optimizer
+    hparams: model hyperparameters where "adam" in hparams.optimizer
   """
-  assert "Adam" in hparams.optimizer
-  hparams.optimizer = "Adafactor"
+  assert "adam" in hparams.optimizer
+  hparams.optimizer = "adafactor"
   hparams.optimizer_adafactor_beta1 = hparams.optimizer_adam_beta1
   hparams.optimizer_adafactor_beta2 = hparams.optimizer_adam_beta2
   hparams.optimizer_adafactor_multiply_by_parameter_scale = False
   hparams.optimizer_adafactor_factored = False
   hparams.optimizer_adafactor_clipping_threshold = None
-  hparams.optimizer_adafactor_decay_type = "Adam"
+  hparams.optimizer_adafactor_decay_type = "adam"
 
 
 @registry.register_hparams
@@ -50,7 +50,7 @@ def afx_adam():
   hparams.optimizer_adam_beta2 = 0.999
   hparams.symbol_modality_num_shards = 1
   hparams.batch_size = 2048
-  hparams.optimizer = "Adam"
+  hparams.optimizer = "adam"
   hparams.learning_rate_schedule = (
       "constant*rsqrt_decay*linear_warmup*rsqrt_hidden_size")
   hparams.learning_rate_constant = 2.0
@@ -217,4 +217,13 @@ def afx_small_p10():
 def afx_small_p8():
   hparams = afx_small()
   hparams.add_hparam("simulated_parameter_quantize_bits", 8)
+  return hparams
+
+
+@registry.register_hparams
+def afx_small_bfloat16():
+  """Small transformer model with small batch size for fast step times."""
+  hparams = afx_small()
+  hparams.weight_dtype = "bfloat16"
+  hparams.activation_dtype = "bfloat16"
   return hparams

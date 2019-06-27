@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,9 +24,8 @@ from __future__ import division
 from __future__ import print_function
 
 import itertools
-# Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import text_encoder
 
 
@@ -77,7 +76,7 @@ class DNAEncoder(text_encoder.TextEncoder):
     assert (len(bases) % self._chunk_size) == 0
     num_chunks = len(bases) // self._chunk_size
     ids = []
-    for chunk_idx in xrange(num_chunks):
+    for chunk_idx in range(num_chunks):
       start_idx = chunk_idx * self._chunk_size
       end_idx = start_idx + self._chunk_size
       chunk = tuple(bases[start_idx:end_idx])
@@ -86,7 +85,7 @@ class DNAEncoder(text_encoder.TextEncoder):
       ids.append(self._tokens_to_ids[chunk])
     return ids
 
-  def decode(self, ids):
+  def decode(self, ids, strip_extraneous=False):
     bases = []
     for idx in ids:
       if idx >= self._num_reserved_ids:
@@ -94,6 +93,8 @@ class DNAEncoder(text_encoder.TextEncoder):
         if self.PAD in chunk:
           chunk = chunk[:chunk.index(self.PAD)]
       else:
+        if strip_extraneous:
+          continue
         chunk = [text_encoder.RESERVED_TOKENS[idx]]
       bases.extend(chunk)
     return "".join(bases)
@@ -117,9 +118,10 @@ class DelimitedDNAEncoder(DNAEncoder):
   def _tokens(self):
     return super(DelimitedDNAEncoder, self)._tokens() + [self._delimiter_key]
 
-  def encode(self, delimited_string):
+  def encode(self, s):
+    delimited_string = s
     ids = []
-    for s in delimited_string.split(self.delimiter):
-      ids.extend(super(DelimitedDNAEncoder, self).encode(s))
+    for part in delimited_string.split(self.delimiter):
+      ids.extend(super(DelimitedDNAEncoder, self).encode(part))
       ids.append(self._tokens_to_ids[self._delimiter_key])
     return ids[:-1]

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -47,11 +47,9 @@ from __future__ import print_function
 import collections
 import sys
 import unicodedata
-
-# Dependency imports
-
 import six
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
+from tensor2tensor.utils import mlperf_log
 import tensorflow as tf
 
 # Conversion between Unicode and UTF-8, if required (on Python2)
@@ -60,7 +58,7 @@ _native_to_unicode = (lambda s: s.decode("utf-8")) if six.PY2 else (lambda s: s)
 
 # This set contains all letter and number characters.
 _ALPHANUMERIC_CHAR_SET = set(
-    six.unichr(i) for i in xrange(sys.maxunicode)
+    six.unichr(i) for i in range(sys.maxunicode)
     if (unicodedata.category(six.unichr(i)).startswith("L") or
         unicodedata.category(six.unichr(i)).startswith("N")))
 
@@ -79,7 +77,7 @@ def encode(text):
   token_start = 0
   # Classify each character in the input string
   is_alnum = [c in _ALPHANUMERIC_CHAR_SET for c in text]
-  for pos in xrange(1, len(text)):
+  for pos in range(1, len(text)):
     if is_alnum[pos] != is_alnum[pos - 1]:
       token = text[token_start:pos]
       if token != u" " or token_start == 0:
@@ -168,6 +166,8 @@ def corpus_token_counts(
       split_on_newlines=split_on_newlines):
     counts.update(encode(_native_to_unicode(doc)))
 
+  mlperf_log.transformer_print(
+      key=mlperf_log.PREPROC_VOCAB_SIZE, value=len(counts))
   return counts
 
 

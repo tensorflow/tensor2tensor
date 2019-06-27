@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,10 +20,11 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-# Dependency imports
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
+from tensor2tensor.data_generators import problem
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -97,16 +98,19 @@ def imagenet_pixelrnn_generator(tmp_dir,
       }
 
 
-def imagenet_preprocess_example(example, mode, resize_size=None):
+def imagenet_preprocess_example(example, mode, resize_size=None,
+                                normalize=True):
   """Preprocessing used for Imagenet and similar problems."""
   resize_size = resize_size or [299, 299]
   assert resize_size[0] == resize_size[1]
 
   image = example["inputs"]
   if mode == tf.estimator.ModeKeys.TRAIN:
-    image = preprocess_for_train(image, image_size=resize_size[0])
+    image = preprocess_for_train(image, image_size=resize_size[0],
+                                 normalize=normalize)
   else:
-    image = preprocess_for_eval(image, image_size=resize_size[0])
+    image = preprocess_for_eval(image, image_size=resize_size[0],
+                                normalize=normalize)
 
   example["inputs"] = image
   return example
@@ -127,8 +131,8 @@ class ImageImagenet(image_utils.Image2ClassProblem):
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     # TODO(lukaszkaiser): find a better way than printing this.
     print("To generate the ImageNet dataset in the proper format, follow "
-          "instructions at https://github.com/tensorflow/models/blob/master"
-          "/inception/README.md#getting-started")
+          "instructions at https://github.com/tensorflow/models/tree/master"
+          "/research/inception/README.md#getting-started")
 
   def preprocess_example(self, example, mode, _):
     return imagenet_preprocess_example(example, mode)
@@ -142,6 +146,11 @@ class ImageImagenetRescaled(ImageImagenet):
     # return [224, 224]
     raise NotImplementedError()
 
+  @property
+  def normalize_image(self):
+    """Whether the image should be normalized in preprocessing."""
+    return True
+
   def dataset_filename(self):
     return "image_imagenet"  # Reuse Imagenet data.
 
@@ -151,7 +160,8 @@ class ImageImagenetRescaled(ImageImagenet):
 
   def preprocess_example(self, example, mode, _):
     return imagenet_preprocess_example(
-        example, mode, resize_size=self.rescale_size)
+        example, mode, resize_size=self.rescale_size,
+        normalize=self.normalize_image)
 
 
 @registry.register_problem
@@ -161,6 +171,25 @@ class ImageImagenet224(ImageImagenetRescaled):
   @property
   def rescale_size(self):
     return [224, 224]
+
+
+@registry.register_problem
+class ImageImagenet224NoNormalization(ImageImagenet224):
+  """Imagenet rescaled to 224x224 without normalization."""
+
+  @property
+  def normalize_image(self):
+    """Whether the image should be normalized in preprocessing."""
+    return False
+
+
+@registry.register_problem
+class ImageImagenet256(ImageImagenetRescaled):
+  """Imagenet rescaled to 256x256."""
+
+  @property
+  def rescale_size(self):
+    return [256, 256]
 
 
 @registry.register_problem
@@ -189,8 +218,42 @@ class ImageImagenet32(ImageImagenetRescaled):
 
 
 @registry.register_problem
+class ImageImagenet32Gen(ImageImagenet):
+  """Imagenet 32 from the pixen cnn paper."""
+
+  @property
+  def train_shards(self):
+    return 1024
+
+  @property
+  def dev_shards(self):
+    return 10
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    generator_utils.generate_dataset_and_shuffle(
+        self.generator(data_dir, tmp_dir, True),
+        self.training_filepaths(data_dir, self.train_shards, shuffled=True),
+        self.generator(data_dir, tmp_dir, False),
+        self.dev_filepaths(data_dir, self.dev_shards, shuffled=True))
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    if is_training:
+      return imagenet_pixelrnn_generator(
+          tmp_dir, int(True), size=_IMAGENET_SMALL_IMAGE_SIZE)
+    else:
+      return imagenet_pixelrnn_generator(
+          tmp_dir, int(is_training), size=_IMAGENET_SMALL_IMAGE_SIZE)
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_IMAGENET_SMALL_IMAGE_SIZE,
+                                 _IMAGENET_SMALL_IMAGE_SIZE, 3])
+    example["inputs"] = tf.to_int64(example["inputs"])
+    return example
+
+
+@registry.register_problem
 class ImageImagenet64Gen(ImageImagenet):
-  """Cifar-10 Tune."""
+  """Imagenet 64 from the pixen cnn paper."""
 
   @property
   def train_shards(self):
@@ -242,26 +305,81 @@ class ImageImagenetMultiResolutionGen(ImageImagenet64Gen):
 
   def preprocess_example(self, example, mode, hparams):
     image = example["inputs"]
+    # Get resize method. Include a default if not specified, or if it's not in
+    # TensorFlow's collection of pre-implemented resize methods.
+    resize_method = getattr(hparams, "resize_method", "BICUBIC")
+    resize_method = getattr(tf.image.ResizeMethod, resize_method, resize_method)
 
-    if hasattr(hparams, "resize_method"):
-      method = getattr(tf.image.ResizeMethod, hparams.resize_method)
-    else:  # default
-      method = tf.image.ResizeMethod.BICUBIC
+    if resize_method == "DILATED":
+      scaled_images = image_utils.make_multiscale_dilated(
+          image, hparams.resolutions, num_channels=self.num_channels)
+    else:
+      scaled_images = image_utils.make_multiscale(
+          image, hparams.resolutions,
+          resize_method=resize_method, num_channels=self.num_channels)
 
-    scaled_images = image_utils.make_multiscale(
-        image, hparams.resolutions,
-        resize_method=method, num_channels=self.num_channels)
-
-    highest_res = hparams.resolutions[-1]
     # Pack tuple of scaled images into one tensor. We do this by enforcing the
     # columns to match for every resolution.
     # TODO(avaswani, trandustin): We should create tuples because this will not
     # work if height*width of low res < width of high res
+    highest_res = hparams.resolutions[-1]
     example["inputs"] = tf.concat([
         tf.reshape(scaled_image,
                    [res**2 // highest_res, highest_res, self.num_channels])
         for scaled_image, res in zip(scaled_images, hparams.resolutions)],
                                   axis=0)
+    return example
+
+
+@registry.register_problem
+class ImageImagenet64GenFlat(ImageImagenet64Gen):
+  """Imagenet 64 from the pixen cnn paper, as a flat array."""
+
+  def dataset_filename(self):
+    return "image_imagenet64_gen"  # Reuse data.
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape(
+        [_IMAGENET_MEDIUM_IMAGE_SIZE, _IMAGENET_MEDIUM_IMAGE_SIZE, 3])
+    example["inputs"] = tf.to_int64(example["inputs"])
+    example["inputs"] = tf.reshape(example["inputs"], (-1,))
+
+    del example["targets"]  # Ensure unconditional generation
+
+    return example
+
+  def hparams(self, defaults, model_hparams):
+    super(ImageImagenet64GenFlat, self).hparams(defaults, model_hparams)
+    # Switch to symbol modality
+    p = defaults
+    p.modality["inputs"] = modalities.ModalityType.SYMBOL_WEIGHTS_ALL
+    p.input_space_id = problem.SpaceID.GENERIC
+
+
+@registry.register_problem
+class ImageImagenet32Small(ImageImagenet):
+  """Imagenet small from the pixel cnn paper."""
+
+  @property
+  def is_small(self):
+    return False  # Modalities like for CIFAR.
+
+  @property
+  def num_classes(self):
+    return 1000
+
+  @property
+  def train_shards(self):
+    return 1024
+
+  @property
+  def dev_shards(self):
+    return 10
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_IMAGENET_SMALL_IMAGE_SIZE,
+                                 _IMAGENET_SMALL_IMAGE_SIZE, 3])
+    example["inputs"] = tf.to_int64(example["inputs"])
     return example
 
 
@@ -294,8 +412,10 @@ class Img2imgImagenet(image_utils.ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("image:identity", 256)}
-    p.target_modality = ("image:identity", 256)
+    p.modality = {"inputs": modalities.ModalityType.IDENTITY,
+                  "targets": modalities.ModalityType.IDENTITY}
+    p.vocab_size = {"inputs": 256,
+                    "targets": 256}
     p.batch_size_multiplier = 256
     p.input_space_id = 1
     p.target_space_id = 1
@@ -468,38 +588,39 @@ def _normalize(image):
   return image
 
 
-def preprocess_for_train(image, image_size=224):
+def preprocess_for_train(image, image_size=224, normalize=True):
   """Preprocesses the given image for evaluation.
 
   Args:
     image: `Tensor` representing an image of arbitrary size.
     image_size: int, how large the output image should be.
+    normalize: bool, if True the image is normalized.
 
   Returns:
     A preprocessed image `Tensor`.
   """
+  if normalize: image = tf.to_float(image) / 255.0
   image = _random_crop(image, image_size)
-  image = _normalize(image)
+  if normalize: image = _normalize(image)
   image = _flip(image)
   image = tf.reshape(image, [image_size, image_size, 3])
   return image
 
 
-def preprocess_for_eval(image, image_size=224):
+def preprocess_for_eval(image, image_size=224, normalize=True):
   """Preprocesses the given image for evaluation.
 
   Args:
     image: `Tensor` representing an image of arbitrary size.
     image_size: int, how large the output image should be.
+    normalize: bool, if True the image is normalized.
 
   Returns:
     A preprocessed image `Tensor`.
   """
+  if normalize: image = tf.to_float(image) / 255.0
   image = _do_scale(image, image_size + 32)
-  image = _normalize(image)
+  if normalize: image = _normalize(image)
   image = _center_crop(image, image_size)
   image = tf.reshape(image, [image_size, image_size, 3])
   return image
-
-
-# ==============================================================================

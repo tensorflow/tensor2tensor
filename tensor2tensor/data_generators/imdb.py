@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,9 +21,6 @@ from __future__ import print_function
 
 import os
 import tarfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
@@ -50,10 +47,6 @@ class SentimentIMDB(text_problems.Text2ClassProblem):
         "split": problem.DatasetSplit.EVAL,
         "shards": 1,
     }]
-
-  @property
-  def vocab_filename(self):
-    return "sentiment_imdb.vocab.%d" % self.approx_vocab_size
 
   @property
   def approx_vocab_size(self):
@@ -99,3 +92,15 @@ class SentimentIMDB(text_problems.Text2ClassProblem):
           "inputs": doc,
           "label": int(label),
       }
+
+
+@registry.register_problem
+class SentimentIMDBCharacters(SentimentIMDB):
+  """IMDB sentiment classification, character level."""
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.CHARACTER
+
+  def global_task_id(self):
+    return problem.TaskID.EN_CHR_SENT

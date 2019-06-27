@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -36,27 +36,30 @@ https://arxiv.org/pdf/1707.04585.pdf
 """
 
 import functools
-
-# Dependency imports
-
 from tensor2tensor.layers import common_hparams
-from tensor2tensor.layers import rev_block
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
-conv_initializer = tf.contrib.layers.variance_scaling_initializer(
-    factor=2.0, mode='FAN_OUT')
 
-CONFIG = {'2d': {'conv': functools.partial(
+def wrapped_partial(fn, *args, **kwargs):
+  partial = functools.partial(fn, *args, **kwargs)
+  wrapped = functools.update_wrapper(partial, fn)
+  return wrapped
+
+
+conv_initializer = tf.initializers.variance_scaling(
+    scale=2.0, mode='fan_out')
+
+CONFIG = {'2d': {'conv': wrapped_partial(
     tf.layers.conv2d, kernel_initializer=conv_initializer),
                  'max_pool': tf.layers.max_pooling2d,
                  'avg_pool': tf.layers.average_pooling2d,
                  'split_axis': 3,
                  'reduction_dimensions': [1, 2]
                 },
-          '3d': {'conv': functools.partial(
+          '3d': {'conv': wrapped_partial(
               tf.layers.conv3d, kernel_initializer=conv_initializer),
                  'max_pool': tf.layers.max_pooling3d,
                  'avg_pool': tf.layers.average_pooling2d,
@@ -88,7 +91,7 @@ def f(x, depth1, depth2, dim='2d', first_batch_norm=True, stride=1,
     Output tensor after applying residual function for RevNet.
   """
   conv = CONFIG[dim]['conv']
-  with tf.variable_scope('f'):
+  with tf.variable_scope('f', reuse=tf.AUTO_REUSE):
     if first_batch_norm:
       net = tf.layers.batch_normalization(x, training=training)
       net = tf.nn.relu(net)
@@ -229,9 +232,9 @@ def unit(x1, x2, block_num, depth, num_layers, dim='2d',
   else:
     depth1 = depth2 = depth
 
-  residual = functools.partial(f,
-                               depth1=depth1, depth2=depth2, dim=dim,
-                               training=training, bottleneck=bottleneck)
+  residual = wrapped_partial(f,
+                             depth1=depth1, depth2=depth2, dim=dim,
+                             training=training, bottleneck=bottleneck)
 
   with tf.variable_scope(scope_name):
     downsample = downsample_bottleneck if bottleneck else downsample_residual
@@ -248,10 +251,10 @@ def unit(x1, x2, block_num, depth, num_layers, dim='2d',
 
     # Full block using memory-efficient rev_block implementation.
     with tf.variable_scope('full_block'):
-      x1, x2 = rev_block.rev_block(x1, x2,
-                                   residual,
-                                   residual,
-                                   num_layers=num_layers)
+      x1, x2 = tf.contrib.layers.rev_block(x1, x2,
+                                           residual,
+                                           residual,
+                                           num_layers=num_layers)
       return x1, x2
 
 

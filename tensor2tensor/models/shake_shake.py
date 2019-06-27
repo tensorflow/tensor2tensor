@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,11 +18,9 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import hparam
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -37,15 +35,15 @@ def shake_shake_skip_connection(x, output_filters, stride, is_training):
   stride_spec = [1, stride, stride, 1]
   # Skip path 1.
   path1 = tf.nn.avg_pool(x, [1, 1, 1, 1], stride_spec, "VALID")
-  path1 = tf.layers.conv2d(path1, int(output_filters / 2), (1, 1),
-                           padding="SAME", name="path1_conv")
+  path1 = tf.layers.conv2d(
+      path1, int(output_filters / 2), (1, 1), padding="SAME", name="path1_conv")
 
   # Skip path 2.
   pad_arr = [[0, 0], [0, 1], [0, 1], [0, 0]]  # First pad with 0's then crop.
   path2 = tf.pad(x, pad_arr)[:, 1:, 1:, :]
   path2 = tf.nn.avg_pool(path2, [1, 1, 1, 1], stride_spec, "VALID")
-  path2 = tf.layers.conv2d(path2, int(output_filters / 2), (1, 1),
-                           padding="SAME", name="path2_conv")
+  path2 = tf.layers.conv2d(
+      path2, int(output_filters / 2), (1, 1), padding="SAME", name="path2_conv")
 
   # Concat and apply BN.
   final_path = tf.concat(values=[path1, path2], axis=-1)
@@ -57,10 +55,14 @@ def shake_shake_skip_connection(x, output_filters, stride, is_training):
 def shake_shake_branch(x, output_filters, stride, rand_forward, rand_backward,
                        hparams):
   """Building a 2 branching convnet."""
-  is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
+  is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
   x = tf.nn.relu(x)
-  x = tf.layers.conv2d(x, output_filters, (3, 3), strides=(stride, stride),
-                       padding="SAME", name="conv1")
+  x = tf.layers.conv2d(
+      x,
+      output_filters, (3, 3),
+      strides=(stride, stride),
+      padding="SAME",
+      name="conv1")
   x = tf.layers.batch_normalization(x, training=is_training, name="bn1")
   x = tf.nn.relu(x)
   x = tf.layers.conv2d(x, output_filters, (3, 3), padding="SAME", name="conv2")
@@ -75,7 +77,7 @@ def shake_shake_branch(x, output_filters, stride, rand_forward, rand_backward,
 
 def shake_shake_block(x, output_filters, stride, hparams):
   """Builds a full shake-shake sub layer."""
-  is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
+  is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
   batch_size = common_layers.shape_list(x)[0]
 
   # Generate random numbers for scaling the branches.
@@ -137,7 +139,7 @@ class ShakeShake(t2t_model.T2TModel):
 
   def body(self, features):
     hparams = self._hparams
-    is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
+    is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
     inputs = features["inputs"]
     assert (hparams.num_hidden_layers - 2) % 6 == 0
     assert hparams.hidden_size % 16 == 0
@@ -188,7 +190,7 @@ def shakeshake_small():
 @registry.register_hparams
 def shake_shake_quick():
   hparams = shakeshake_small()
-  hparams.optimizer = "Adam"
+  hparams.optimizer = "adam"
   hparams.learning_rate_cosine_cycle_steps = 1000
   hparams.learning_rate = 0.5
   hparams.batch_size = 100
@@ -209,3 +211,13 @@ def shakeshake_tpu():
   hparams.learning_rate_cosine_cycle_steps = 180000
   hparams.learning_rate = 0.6
   return hparams
+
+
+@registry.register_attack_params
+def shake_shake_fgsm():
+  aparams = hparam.HParams()
+  aparams.attack = "fgsm"
+  aparams.attack_epsilons = [(i+1) * 0.1 for i in range(12)]
+  aparams.add_hparam("clip_min", 0.0)
+  aparams.add_hparam("clip_max", 255.0)
+  return aparams

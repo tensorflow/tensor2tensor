@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,10 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import math
-
-# Dependency imports
-
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
@@ -36,7 +33,7 @@ import tensorflow as tf
 def residual_block(x, hparams):
   """A stack of convolution blocks with residual connection."""
   k = (hparams.kernel_height, hparams.kernel_width)
-  dilations_and_kernels = [((1, 1), k) for _ in xrange(3)]
+  dilations_and_kernels = [((1, 1), k) for _ in range(3)]
   y = common_layers.subseparable_conv_block(
       x,
       hparams.hidden_size,
@@ -66,7 +63,7 @@ def xception_internal(inputs, hparams):
           force2d=True,
           name="small_image_conv")
 
-    for i in xrange(hparams.num_hidden_layers):
+    for i in range(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % i):
         cur = residual_block(cur, hparams)
 
@@ -74,9 +71,11 @@ def xception_internal(inputs, hparams):
 
 
 def xception_entry(inputs, hidden_dim):
+  """Xception entry flow."""
   with tf.variable_scope("xception_entry"):
 
     def xnet_resblock(x, filters, res_relu, name):
+      """Resblock."""
       with tf.variable_scope(name):
         y = common_layers.separable_conv_block(
             x,
@@ -112,6 +111,7 @@ def xception_entry(inputs, hidden_dim):
 
 
 def xception_exit(inputs):
+  """Xception exit flow."""
   with tf.variable_scope("xception_exit"):
     x = inputs
     x_shape = x.get_shape().as_list()
@@ -182,5 +182,5 @@ def xception_tiny_tpu():
   hparams.batch_size = 2
   hparams.num_hidden_layers = 2
   hparams.hidden_size = 128
-  hparams.optimizer = "TrueAdam"
+  hparams.optimizer = "true_adam"
   return hparams

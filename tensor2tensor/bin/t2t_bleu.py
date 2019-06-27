@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -58,9 +58,6 @@ from __future__ import print_function
 
 import os
 import time
-
-# Dependency imports
-
 from tensor2tensor.utils import bleu_hook
 import tensorflow as tf
 
@@ -74,7 +71,7 @@ flags.DEFINE_string("reference", None, "Path to the reference translation file")
 flags.DEFINE_string("translation", None,
                     "Path to the MT system translation file")
 flags.DEFINE_string("translations_dir", None,
-                    "Directory with translated files to be evaulated.")
+                    "Directory with translated files to be evaluated.")
 flags.DEFINE_string("event_dir", None, "Where to store the event file.")
 
 flags.DEFINE_string("bleu_variant", "both",
@@ -174,4 +171,5 @@ def main(_):
 
 
 if __name__ == "__main__":
+  tf.logging.set_verbosity(tf.logging.INFO)
   tf.app.run()

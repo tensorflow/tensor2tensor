@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,10 +27,9 @@ import random
 import shutil
 import string
 
-# Dependency imports
 import mock
 import six
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import text_encoder
 import tensorflow as tf
@@ -71,7 +70,7 @@ class TokenTextEncoderTest(tf.test.TestCase):
     """Make sure the test dir exists and is empty."""
     cls.test_temp_dir = os.path.join(tf.test.get_temp_dir(), "encoder_test")
     shutil.rmtree(cls.test_temp_dir, ignore_errors=True)
-    os.mkdir(cls.test_temp_dir)
+    tf.gfile.MakeDirs(cls.test_temp_dir)
 
   def test_save_and_reload(self):
     """Test that saving and reloading doesn't change the vocab.
@@ -115,7 +114,7 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     """Make sure the test dir exists and is empty."""
     cls.test_temp_dir = os.path.join(tf.test.get_temp_dir(), "encoder_test")
     shutil.rmtree(cls.test_temp_dir, ignore_errors=True)
-    os.mkdir(cls.test_temp_dir)
+    tf.gfile.MakeDirs(cls.test_temp_dir)
 
   def test_encode_decode(self):
     corpus = (
@@ -193,7 +192,7 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     long_tokens = []
     for _ in range(num_tokens):
       long_token = "".join([random.choice(string.ascii_uppercase)
-                            for _ in xrange(token_length)])
+                            for _ in range(token_length)])
       long_tokens.append(long_token)
 
     corpus = " ".join(long_tokens)
@@ -224,10 +223,8 @@ class SubwordTextEncoderTest(tf.test.TestCase):
         10, token_counts, 2, 10, reserved_tokens=reserved_tokens)
 
     # Make sure that reserved tokens appear in the right places.
-    start_id = encoder._subtoken_string_to_id[start_symbol]
-    end_id = encoder._subtoken_string_to_id[end_symbol]
-    self.assertEqual(start_id, 2)
-    self.assertEqual(end_id, 3)
+    self.assertEqual(encoder.decode([2]), start_symbol)
+    self.assertEqual(encoder.decode([3]), end_symbol)
 
     # Make sure that we haven't messed up the ability to reconstruct.
     reconstructed_corpus = encoder.decode(encoder.encode(corpus))
@@ -356,10 +353,8 @@ class SubwordTextEncoderTest(tf.test.TestCase):
         gen(), 10, reserved_tokens=reserved_tokens)
 
     # Make sure that reserved tokens appear in the right places.
-    start_id = encoder._subtoken_string_to_id[start_symbol]
-    end_id = encoder._subtoken_string_to_id[end_symbol]
-    self.assertEqual(start_id, 2)
-    self.assertEqual(end_id, 3)
+    self.assertEqual(encoder.decode([2]), start_symbol)
+    self.assertEqual(encoder.decode([3]), end_symbol)
 
     self.assertEqual("hi%s" % start_symbol,
                      encoder.decode(encoder.encode("hi") + [2]))
@@ -367,6 +362,23 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     # Make sure that we haven't messed up the ability to reconstruct.
     reconstructed_corpus = encoder.decode(encoder.encode(corpus))
     self.assertEqual(corpus, reconstructed_corpus)
+
+
+class OneHotClassLabelEncoderTest(tf.test.TestCase):
+
+  def test_one_hot_encode(self):
+    encoder = text_encoder.OneHotClassLabelEncoder(
+        class_labels=["zero", "one", "two"])
+    self.assertEqual(encoder.encode("zero"), [1, 0, 0])
+    self.assertEqual(encoder.encode("one"), [0, 1, 0])
+    self.assertEqual(encoder.encode("two"), [0, 0, 1])
+
+  def test_one_hot_decode(self):
+    encoder = text_encoder.OneHotClassLabelEncoder(
+        class_labels=["zero", "one", "two"])
+    self.assertEqual(encoder.decode([1, 0, 0]), "zero")
+    self.assertEqual(encoder.decode([0, 1, 0]), "one")
+    self.assertEqual(encoder.decode([0, 0, 1]), "two")
 
 
 if __name__ == "__main__":
