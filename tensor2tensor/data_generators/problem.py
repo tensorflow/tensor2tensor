@@ -981,8 +981,8 @@ class Problem(object):
                 #data_reader.example_length, batching_scheme["boundaries"],
                 #batching_scheme["batch_sizes"]))
                 data_reader.example_length,
-                bucket_boundaries=list(range(64, 64 * 256, 64)),
-                bucket_batch_sizes=[256 // i for i in range(1, 256)] + [1]))
+                bucket_boundaries=list(range(64, 64 * 128, 64)),
+                bucket_batch_sizes=[128 // i for i in range(1, 128)] + [1]))
 
         if not is_training:
           batch_multiple = num_shards
