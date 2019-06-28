@@ -978,8 +978,11 @@ class Problem(object):
           batching_scheme["boundaries"] = []
         dataset = dataset.apply(
             tf.contrib.data.bucket_by_sequence_length(
-                data_reader.example_length, batching_scheme["boundaries"],
-                batching_scheme["batch_sizes"]))
+                #data_reader.example_length, batching_scheme["boundaries"],
+                #batching_scheme["batch_sizes"]))
+                data_reader.example_length,
+                bucket_boundaries=list(range(64, 64 * 256, 64)),
+                bucket_batch_sizes=[256 // i for i in range(1, 256)] + [1]))
 
         if not is_training:
           batch_multiple = num_shards
