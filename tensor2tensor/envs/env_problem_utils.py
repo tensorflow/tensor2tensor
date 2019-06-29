@@ -87,7 +87,6 @@ def play_env_problem_with_policy(env,
     A tuple, (trajectories, number of completed trajectories). Where
     trajectories is a list of triples of (observation, action, reward) ndarrays.
   """
-  t0 = time.time()
 
   def categorical_sample(log_probs):
     """Categorical sampling."""
@@ -225,10 +224,8 @@ def play_env_problem_with_policy(env,
   for trajectory in env.trajectories.completed_trajectories[:num_trajectories]:
     completed_trajectories.append(trajectory.as_numpy)
 
-  misc_time = (time.time() - t0) - policy_application_total_time
   timing_info = {
       "trajectory_collection/policy_application": policy_application_total_time,
-      "trajectory_collection/misc": misc_time,
       "trajectory_collection/env_actions": env_actions_total_time,
   }
   timing_info = {k: round(1000 * v, 2) for k, v in timing_info.items()}
