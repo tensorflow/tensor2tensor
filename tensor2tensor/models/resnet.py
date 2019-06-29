@@ -197,7 +197,8 @@ def residual_block(inputs,
                    data_format="channels_first",
                    use_td=False,
                    targeting_rate=None,
-                   keep_prob=None):
+                   keep_prob=None,
+                   bottleneck_ratio=None):
   """Standard building block for residual networks with BN before convolutions.
 
   Args:
@@ -220,11 +221,14 @@ def residual_block(inputs,
     targeting_rate: `float` proportion of weights to target with targeted
       dropout.
     keep_prob: `float` keep probability for targeted dropout.
+    bottleneck_ratio: unused parameter to keep the same function signature as
+        `bottleneck_block`.
 
   Returns:
     The output `Tensor` of the block.
   """
   del final_block
+  del bottleneck_ratio
   shortcut = inputs
   inputs = batch_norm_relu(inputs, is_training, data_format=data_format)
 
@@ -266,7 +270,8 @@ def bottleneck_block(inputs,
                      data_format="channels_first",
                      use_td=False,
                      targeting_rate=None,
-                     keep_prob=None):
+                     keep_prob=None,
+                     bottleneck_ratio=4):
   """Bottleneck block variant for residual networks with BN after convolutions.
 
   Args:
@@ -290,6 +295,8 @@ def bottleneck_block(inputs,
     targeting_rate: `float` proportion of weights to target with targeted
       dropout.
     keep_prob: `float` keep probability for targeted dropout.
+    bottleneck_ratio: `int`, how much we scale up filters.
+
 
   Returns:
     The output `Tensor` of the block.
@@ -327,7 +334,7 @@ def bottleneck_block(inputs,
   inputs = batch_norm_relu(inputs, is_training, data_format=data_format)
   inputs = conv2d_fixed_padding(
       inputs=inputs,
-      filters=4 * filters,
+      filters=bottleneck_ratio * filters,
       kernel_size=1,
       strides=1,
       data_format=data_format,
@@ -355,7 +362,8 @@ def block_layer(inputs,
                 data_format="channels_first",
                 use_td=False,
                 targeting_rate=None,
-                keep_prob=None):
+                keep_prob=None,
+                bottleneck_ratio=4):
   """Creates one layer of blocks for the ResNet model.
 
   Args:
@@ -374,12 +382,15 @@ def block_layer(inputs,
     targeting_rate: `float` proportion of weights to target with targeted
       dropout.
     keep_prob: `float` keep probability for targeted dropout.
+    bottleneck_ratio: `int`, how much we scale up filters in bottleneck block.
 
   Returns:
     The output `Tensor` of the block layer.
   """
-  # Bottleneck blocks end with 4x the number of filters as they start with
-  filters_out = 4 * filters if block_fn is bottleneck_block else filters
+  # Bottleneck blocks end with bottleneck_ratio x the number of filters
+  filters_out = filters
+  if block_fn is bottleneck_block:
+    filters_out = bottleneck_ratio * filters
 
   def projection_shortcut(inputs):
     """Project identity branch."""
@@ -407,7 +418,8 @@ def block_layer(inputs,
       data_format,
       use_td=use_td,
       targeting_rate=targeting_rate,
-      keep_prob=keep_prob)
+      keep_prob=keep_prob,
+      bottleneck_ratio=bottleneck_ratio)
 
   for i in range(1, blocks):
     inputs = block_fn(
@@ -419,7 +431,8 @@ def block_layer(inputs,
         data_format,
         use_td=use_td,
         targeting_rate=targeting_rate,
-        keep_prob=keep_prob)
+        keep_prob=keep_prob,
+        bottleneck_ratio=bottleneck_ratio)
 
   return tf.identity(inputs, name)
 
@@ -433,7 +446,8 @@ def resnet_v2(inputs,
               is_cifar=False,
               use_td=False,
               targeting_rate=None,
-              keep_prob=None):
+              keep_prob=None,
+              bottleneck_ratios=None):
   """Resnet model.
 
   Args:
@@ -454,6 +468,8 @@ def resnet_v2(inputs,
     targeting_rate: `float` proportion of weights to target with targeted
       dropout.
     keep_prob: `float` keep probability for targeted dropout.
+    bottleneck_ratios: list of `int`s, how much we scale up filters in
+      bottleneck blocks.
 
   Returns:
     Pre-logit activations.
@@ -469,7 +485,8 @@ def resnet_v2(inputs,
       data_format=data_format,
       use_td=use_td,
       targeting_rate=targeting_rate,
-      keep_prob=keep_prob)
+      keep_prob=keep_prob,
+      bottleneck_ratio=bottleneck_ratios[0])
   inputs = block_layer(
       inputs=inputs,
       filters=filters[2],
@@ -481,7 +498,8 @@ def resnet_v2(inputs,
       data_format=data_format,
       use_td=use_td,
       targeting_rate=targeting_rate,
-      keep_prob=keep_prob)
+      keep_prob=keep_prob,
+      bottleneck_ratio=bottleneck_ratios[1])
   inputs = block_layer(
       inputs=inputs,
       filters=filters[3],
@@ -493,7 +511,8 @@ def resnet_v2(inputs,
       data_format=data_format,
       use_td=use_td,
       targeting_rate=targeting_rate,
-      keep_prob=keep_prob)
+      keep_prob=keep_prob,
+      bottleneck_ratio=bottleneck_ratios[2])
   if not is_cifar:
     inputs = block_layer(
         inputs=inputs,
@@ -506,7 +525,8 @@ def resnet_v2(inputs,
         data_format=data_format,
         use_td=use_td,
         targeting_rate=targeting_rate,
-        keep_prob=keep_prob)
+        keep_prob=keep_prob,
+        bottleneck_ratio=bottleneck_ratios[3])
 
   return inputs
 
@@ -562,7 +582,8 @@ class Resnet(t2t_model.T2TModel):
         is_cifar=hp.is_cifar,
         use_td=hp.use_td,
         targeting_rate=hp.targeting_rate,
-        keep_prob=hp.keep_prob)
+        keep_prob=hp.keep_prob,
+        bottleneck_ratios=hp.bottleneck_ratios)
 
     if hp.use_nchw:
       out = tf.transpose(out, [0, 2, 3, 1])
@@ -620,6 +641,7 @@ def resnet_base():
 
   # Model-specific parameters
   hparams.add_hparam("layer_sizes", [3, 4, 6, 3])
+  hparams.add_hparam("bottleneck_ratios", [4, 4, 4, 4])
   hparams.add_hparam("filter_sizes", [64, 64, 128, 256, 512])
   hparams.add_hparam("block_fn", "bottleneck")
   hparams.add_hparam("use_nchw", True)
