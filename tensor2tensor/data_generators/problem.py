@@ -968,21 +968,24 @@ class Problem(object):
       else:
         # On GPU, bucket by length
         dataset = dataset.filter(gpu_valid_size)
-        batching_scheme = data_reader.hparams_to_batching_scheme(
-            hparams,
-            shard_multiplier=num_shards,
-            length_multiplier=self.get_hparams().batch_size_multiplier)
+        if hparams.bert_max_length:
+          tf.logging.warn('Splitting sequence into chunks for BERT.')
+          batching_scheme = (
+                data_reader.hparams_to_bert_batching_scheme(hparams))
+        else:
+          batching_scheme = data_reader.hparams_to_batching_scheme(
+              hparams,
+              shard_multiplier=num_shards,
+              length_multiplier=self.get_hparams().batch_size_multiplier)
         if hparams.use_fixed_batch_size:
           # Here  batch_size really means examples per datashard.
           batching_scheme["batch_sizes"] = [hparams.batch_size]
           batching_scheme["boundaries"] = []
+
         dataset = dataset.apply(
             tf.contrib.data.bucket_by_sequence_length(
-                #data_reader.example_length, batching_scheme["boundaries"],
-                #batching_scheme["batch_sizes"]))
-                data_reader.example_length,
-                bucket_boundaries=list(range(64, 64 * 128, 64)),
-                bucket_batch_sizes=[128 // i for i in range(1, 128)] + [1]))
+                data_reader.example_length, batching_scheme["boundaries"],
+                batching_scheme["batch_sizes"]))
 
         if not is_training:
           batch_multiple = num_shards
