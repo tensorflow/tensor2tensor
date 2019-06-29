@@ -32,6 +32,14 @@ _ABSOLUTE_MAX_LEN = 10000
 _POSITIONS = onp.random.uniform(size=[_ABSOLUTE_MAX_LEN, POS_VECTOR_SIZE])
 
 
+def Dup2():
+  """Copy first 2 elements of the stack: (a, b, ...) -> (a, b, a, b, ...)."""
+  return [                              # Stack is (a, b, ...)
+      tl.Parallel(tl.Dup(), tl.Dup()),  # Stack is (a, a, b, b, ...)
+      tl.Parallel([], tl.Swap())        # Stack is (a, b, a, b, ...)
+  ]
+
+
 @tl.layer()
 def NewPositionalEncoding(x, positions=None, **kwargs):
   """Implements new positional encoding."""
@@ -43,15 +51,10 @@ def NewPositionalEncoding(x, positions=None, **kwargs):
   return res
 
 
-# TODO(lukaszkaiser): This used to have stack_items_to_pass=0; fix as needed.
-@tl.layer()
-def CutPosition(xs, **unused_kwargs):
+@tl.layer(n_inputs=1, n_outputs=2)
+def CutAtPosition(x, **unused_kwargs):
   """Splits x into a pair (x[:position], position)."""
-  if not isinstance(xs, (list, tuple)):
-    xs = [xs]
-  x = xs[0]
-  res = [x[:, :, :-POS_VECTOR_SIZE], x[:, :, -POS_VECTOR_SIZE:]]
-  return tuple(res + list(xs[1:]))
+  return tuple([x[:, :, :-POS_VECTOR_SIZE], x[:, :, -POS_VECTOR_SIZE:]])
 
 
 @tl.layer()
@@ -114,30 +117,12 @@ def DeepFlatten(xs):
       yield x
 
 
-# TODO(lukaszkaiser): This used to have stack_items_to_pass=0; fix as needed.
-@tl.layer()
-def Unnest(xs, **unused_kwargs):
-  return [x for x in DeepFlatten(xs)]
-
-
-# TODO(lukaszkaiser): This used to have stack_items_to_pass=0; fix as needed.
-@tl.layer()
-def ConcatenateN(xs, params, n=2, axis=-1, **kwargs):
-  """Concatenate first N inputs (and output remainder as is if non-empty)."""
-  del params, kwargs
-  res = np.concatenate(xs[:n], axis)
-  rest = list(xs[n:])
-  if rest:
-    return tuple([res] + rest)
-  return res
-
-
 def PreservePosition(layer):
   """Execute layer without position but preserve it in parallel."""
   return tl.Serial(
-      CutPosition(),
+      CutAtPosition(),
       layer,
-      ConcatenateN()
+      tl.Concatenate(n_items=2)
   )
 
 
@@ -157,13 +142,13 @@ def ApplyAndQueryPositions(layer, pos):
   """
   n_heads = len(pos)
   return tl.Serial(
-      tl.Dup(),
-      CutPosition(),
-      # TODO(lukaszkaiser): Rewrite without using Select.
-      tl.Select(tuple([0] + [(2, 1)]*n_heads)),
+      tl.Dup(),                    # (x, x)
+      CutAtPosition(),          # (x_content, x_position, x)
+      tl.Parallel([], tl.Swap()),  # (x_content, x, x_position)
+      [tl.Parallel([], Dup2()) for _ in range(n_heads - 1)],
+      # Now the stack is x_content, (x, x_position) * n_heads.
       tl.Parallel(*([layer] + pos)),
-      Unnest(),
-      ConcatenateN(n=n_heads + 1)
+      tl.Concatenate(n_items=n_heads + 1)
   )
 
 
@@ -188,22 +173,21 @@ def LearnedQP(keys=None, values=None, binary=False):
   )
 
 
-# TODO(lukaszkaiser): This used to have stack_items_to_pass=0; fix as needed.
-@tl.layer()
-def SoftmaxBranches(x_list_in, n_branches=2, **unused_kwargs):
+@tl.layer(n_inputs=10, n_outputs=1)
+def Softmax5Branches(x_list, n_branches=2, **unused_kwargs):
   """Softmax xs.
 
   The input xs is a list of embeddings and weights of the form
   w_1 e_1 .... w_n e_n (followed by optional rest that is preserved).
 
   Args:
-    x_list_in: the input weights and embeddings.
+    x_list: the input weights and embeddings.
     n_branches: what part of the list to use.
 
   Returns:
     softmax(w) * e for the joint weights w and embeddings e.
   """
-  x_list, x_list_rest = x_list_in[:2*n_branches], x_list_in[2*n_branches:]
+  assert n_branches == 5
   softmax_activations = [x_list[2*i] for i in range(n_branches)]
   max_sa = softmax_activations[0]
   for x in softmax_activations:
@@ -213,7 +197,7 @@ def SoftmaxBranches(x_list_in, n_branches=2, **unused_kwargs):
   sum_sa = sum(softmax_activations)
   softmax_activations = [x / sum_sa for x in softmax_activations]
   res = sum([x_list[2*i+1] * softmax_activations[i] for i in range(n_branches)])
-  return tuple([res] + list(x_list_rest))
+  return res
 
 
 def SumLearnedPick(positions):
@@ -233,7 +217,7 @@ def SumLearnedPick(positions):
   sub_values = np.array([positions[max(i - j, 0), :]
                          for j in range(l) for i in range(l)])
   return tl.Serial(
-      tl.Dup(), tl.Dup(), tl.Dup(), tl.Dup(),
+      Dup2(), Dup2(), Dup2(), Dup2(),
       tl.Parallel(
           LearnedQP(),
           LearnedQP(keys=succ_keys, values=succ_values),
@@ -241,8 +225,7 @@ def SumLearnedPick(positions):
           LearnedQP(keys=add_keys, values=add_values, binary=True),
           LearnedQP(keys=sub_keys, values=sub_values, binary=True),
       ),
-      Unnest(),
-      SoftmaxBranches(n_branches=5)
+      Softmax5Branches(n_branches=5)
   )
 
 
@@ -345,7 +328,7 @@ def PositionLookupTransformerLM(vocab_size=128,
     the layer.
   """
   positions = _POSITIONS[:max_len, :]
-  return tl.Serial([
+  return tl.Serial(
       tl.ShiftRight(),
       tl.Embedding(d_feature, vocab_size),
       tl.Dropout(rate=dropout, mode=mode),
@@ -355,4 +338,4 @@ def PositionLookupTransformerLM(vocab_size=128,
       PreservePosition(tl.LayerNorm()),
       tl.Dense(vocab_size),
       tl.LogSoftmax()
-  ])
+  )
