@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import contextlib
 import json
 import os
 import random
@@ -35,6 +36,7 @@ from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
+from tensorflow.contrib.tpu.python.tpu import tpu_estimator
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
 
@@ -285,7 +287,9 @@ def create_estimator(model_name,
                      decode_hparams=None,
                      use_tpu=False,
                      use_tpu_estimator=False,
-                     use_xla=False):
+                     use_xla=False,
+                     export_saved_model_api_version=1,
+                     use_guarantee_const_getter=False):
   """Create a T2T Estimator."""
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
       model_name, hparams, decode_hparams=decode_hparams, use_tpu=use_tpu)
@@ -307,14 +311,66 @@ def create_estimator(model_name,
     if decode_hparams and run_config.tpu_config:
       decode_hparams.add_hparam("iterations_per_loop",
                                 run_config.tpu_config.iterations_per_loop)
+    if export_saved_model_api_version == 1:
+      api_version_enum_name = tpu_estimator.ExportSavedModelApiVersion.V1
+      estimator_model_fn = model_fn
+    elif export_saved_model_api_version == 2:
+      api_version_enum_name = tpu_estimator.ExportSavedModelApiVersion.V2
+
+      def maybe_use_guarantee_const_getter_model_fn(features, labels, mode,
+                                                    params):
+        """Wrapper model_fn with guarantee_const getter."""
+        if not use_guarantee_const_getter:
+          return model_fn(features, labels, mode, params)
+
+        # It marks all weights as constant, which may improves TPU inference
+        # performance because it prevents the weights being transferred to the
+        # TPU. It will increase HBM "program" usage and reduce HBM "arguments"
+        # usage during TPU model serving.
+        def guarantee_const_getter(getter, name, *args, **kwargs):
+          with tf.control_dependencies(None):
+            return tf.guarantee_const(
+                getter(name, *args, **kwargs), name=name + "/GuaranteeConst")
+
+        @contextlib.contextmanager
+        def guarantee_const_scope():
+          var_scope = tf.get_variable_scope()
+          prev_custom_getter = var_scope.custom_getter
+          prev_caching_device = var_scope.caching_device
+          var_scope.set_custom_getter(guarantee_const_getter)
+          var_scope.set_caching_device(lambda op: op.device)
+          yield
+          var_scope.set_custom_getter(prev_custom_getter)
+          var_scope.set_caching_device(prev_caching_device)
+
+        with guarantee_const_scope():
+          return model_fn(features, labels, mode, params)
+
+      def tpu_model_fn(features, labels, mode, params):
+        """Wrapper model_fn with tpu.rewrite / TPUPartitionedCall."""
+        if mode == tf.estimator.ModeKeys.PREDICT and params["use_tpu"]:
+          return tpu_estimator.model_fn_inference_on_tpu(
+              maybe_use_guarantee_const_getter_model_fn,
+              features=features,
+              labels=labels,
+              config=None,
+              params=params,
+              batch_config=None)
+        else:
+          return model_fn(features, labels, mode, params)
+
+      estimator_model_fn = tpu_model_fn
+    else:
+      raise ValueError("Flag export_saved_model_api_version must be 1 or 2.")
     estimator = tf.contrib.tpu.TPUEstimator(
-        model_fn=model_fn,
+        model_fn=estimator_model_fn,
         model_dir=run_config.model_dir,
         config=run_config,
         use_tpu=use_tpu,
         train_batch_size=batch_size,
         eval_batch_size=batch_size if "eval" in schedule else None,
-        predict_batch_size=predict_batch_size)
+        predict_batch_size=predict_batch_size,
+        export_saved_model_api_version=api_version_enum_name)
   else:
     estimator = tf.estimator.Estimator(
         model_fn=model_fn,
@@ -633,6 +689,8 @@ def create_experiment(
     use_tpu=False,
     use_tpu_estimator=False,
     use_xla=False,
+    export_saved_model_api_version=1,
+    use_guarantee_const_getter=False,
     additional_train_hooks=None,
     additional_eval_hooks=None,
     warm_start_from=None,
@@ -668,7 +726,9 @@ def create_experiment(
       decode_hparams=decode_hparams,
       use_tpu=use_tpu,
       use_tpu_estimator=use_tpu_estimator,
-      use_xla=use_xla)
+      use_xla=use_xla,
+      export_saved_model_api_version=export_saved_model_api_version,
+      use_guarantee_const_getter=use_guarantee_const_getter)
 
   # Input fns from Problem
   problem = hparams.problem
