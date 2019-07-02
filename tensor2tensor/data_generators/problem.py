@@ -968,7 +968,7 @@ class Problem(object):
       else:
         # On GPU, bucket by length
         dataset = dataset.filter(gpu_valid_size)
-        if hparams.bert_max_length:
+        if hasattr(hparams, 'bert_max_length'):
           tf.logging.warn('Splitting sequence into chunks for BERT.')
           batching_scheme = (
                 data_reader.hparams_to_bert_batching_scheme(hparams))

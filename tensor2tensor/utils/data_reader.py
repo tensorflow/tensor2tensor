@@ -159,6 +159,7 @@ def _batching_scheme(batch_size,
 
 
 def hparams_to_bert_batching_scheme(hparams):
+    # TODO: break out batch size part into another function.
     # use bert batch size and seq len mappings on 12 GB fp32 for BOE
     # to get batch size given seq len for 16 GB fp16
     bs_lookup = {
