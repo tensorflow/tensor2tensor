@@ -67,11 +67,12 @@ def create_hparams_from_json(json_path, hparams=None):
     # Prevent certain keys from overwriting the passed-in hparams.
     # TODO(trandustin): Remove this hack after registries are available to avoid
     # saving them as functions.
-    hparams_values.pop("bottom", None)
-    hparams_values.pop("loss", None)
-    hparams_values.pop("name", None)
-    hparams_values.pop("top", None)
-    hparams_values.pop("weights_fn", None)
+    if hparams:
+      hparams_values.pop("bottom", None)
+      hparams_values.pop("loss", None)
+      hparams_values.pop("name", None)
+      hparams_values.pop("top", None)
+      hparams_values.pop("weights_fn", None)
     new_hparams = hparam.HParams(**hparams_values)
     # Some keys are in new_hparams but not hparams, so we need to be more
     #   careful than simply using parse_json() from HParams
