@@ -1985,7 +1985,7 @@ def padded_cross_entropy_mixture(logits,
 
     # plot a summary for the difference between the top 2 losses
     if num_mixtures > 1:
-      xent_reshaped = tf.transpose(tf.squeeze(xent), perm=[1, 0])
+      xent_reshaped = tf.transpose(tf.squeeze(xent, axis=[2, 3]), perm=[1, 0])
       top_2_mixtures = tf.reduce_mean(
           -tf.math.top_k(-xent_reshaped, k=2)[0], axis=0)
       tf.summary.scalar("difference_top_2",
