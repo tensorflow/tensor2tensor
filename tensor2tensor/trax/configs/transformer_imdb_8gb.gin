@@ -34,7 +34,6 @@ train.eval_frequency = 100
 train.eval_steps = 10
 train.inputs = @trax.inputs.inputs
 train.model = @trax.models.TransformerEncoder
-train.run_debug_step = False
 train.train_steps = 1000
 
 # Parameters for TransformerLM:

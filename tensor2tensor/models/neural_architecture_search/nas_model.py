@@ -13,7 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""TranslationNasNet class which can be modified and still used with t2t."""
+"""NasSeq2Seq class which can be configured to produce a variety of models.
+
+This was the class used in the Evolved Transformer paper
+(https://arxiv.org/abs/1901.11117) to create configurable models. It can be used
+to train models in the search space as was done in the paper.
+
+To use NasSeq2Seq:
+  - set model=nas_seq2_seq.
+  - set hparams_set=nas_seq2seq_base.
+  - use hparams to specify the configuration you want to run. See
+    nas_seq2seq_base() for an example.
+"""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -25,6 +36,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
 from tensor2tensor.models.neural_architecture_search import nas_layers as layers
 from tensor2tensor.utils import metrics
+from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
@@ -217,10 +229,42 @@ COMBINER_FUNCTIONS = {
 }
 
 
+@registry.register_model
 class NasSeq2Seq(transformer.Transformer):
-  """Configurable seq2seq model that uses NAS-like branching.
+  """Configurable seq2seq model used for Neural Architecture Search.
 
-  Builds a directed graph of operations with arbitrary branching.
+  Models are defined by 26 hparam fields. They are:
+    - <encoder/decoder>_num_cells: The number of cells in the <encoder/decoder>.
+    - <encoder/decoder>_<left/right>_layers: List of layers used the
+                                             <encoder/decoder> <left/right>
+                                             branch. For available layers, see
+                                             the nas_layers.py file.
+    - <encoder/decoder>_<left/right_inputs>: List of inputs to the
+                                             <encoder/decoder> <left/right>
+                                             layers. Each index i specifies the
+                                             i_th layer's output with 0
+                                             representing the cell input
+                                             tensor.
+    - <encoder/decoder>_<left/right>_output_dims: List of absolute output
+                                                  dimensions for each layer.
+    - <encoder/decoder>_<left/right>_activation: List of activations applied
+                                                 after each layer.
+                                                 ACTIVATION_MAP holds the valid
+                                                 activations.
+    - <encoder/decoder>_<left/right>_norms: List of norms applied before each
+                                            layer. Must be either "layer_norm"
+                                            or "none".
+    - <encoder/decoder>_combiner_functions: List of functions used to combine
+                                            each left/right branch pair.
+                                            Options are listed in
+                                            COMBINER_FUNCTIONS.
+    - <encoder/decoder>_final_combiner_function: Function applied to combine
+                                                 all the block outputs that are
+                                                 not used as inputs to other
+                                                 blocks. Options are listed in
+                                                 COMBINER_FUNCTIONS.
+
+  For an example of how to set these hparams, please see nas_seq2seq_base().
   """
   __metaclass__ = abc.ABCMeta
 
@@ -326,9 +370,9 @@ class NasSeq2Seq(transformer.Transformer):
                hparams,
                nonpadding=None,
                save_weights_to=None):
-    encoder_output, encoder_block_outputs = nas_encoder(
+    encoder_output, encoder_cell_outputs = nas_encoder(
         encoder_input, encoder_self_attention_bias, hparams, nonpadding)
-    self._encoder_block_outputs = encoder_block_outputs
+    self._encoder_cell_outputs = encoder_cell_outputs
     return encoder_output
 
   def _decoder(self,
@@ -340,8 +384,8 @@ class NasSeq2Seq(transformer.Transformer):
                cache=None,
                nonpadding=None,
                save_weights_to=None):
-    assert self._encoder_block_outputs
-    return nas_decoder(decoder_input, self._encoder_block_outputs,
+    assert self._encoder_cell_outputs
+    return nas_decoder(decoder_input, self._encoder_cell_outputs,
                        decoder_self_attention_bias,
                        encoder_decoder_attention_bias, hparams)
 
@@ -364,7 +408,7 @@ class NasSeq2Seq(transformer.Transformer):
 
     if not hasattr(hparams, "problem"):
       raise NotImplementedError(
-          "hparams is missing attribute `problem`. Seq2SeqNasNet must "
+          "hparams is missing attribute `problem`. NasSeq2Seq must "
           "be used with a problem.")
 
     # TPU is not supported.
@@ -390,7 +434,7 @@ class NasSeq2Seq(transformer.Transformer):
 
     if not hasattr(hparams, "problem"):
       raise NotImplementedError(
-          "hparams is missing attribute `problem`. Seq2SeqNasNet must "
+          "hparams is missing attribute `problem`. NasSeq2Seq must "
           "be used with a problem.")
 
     problem = hparams.problem
@@ -451,11 +495,12 @@ def _apply_layer_norm(input_tensor, nonpadding, hparams):
   return output_tensor
 
 
-def _apply_nas_branch(
-    norm, layer_norm_dict, hidden_states, nonpadding, hparams, input_index,
-    layer_name, activation_name, layer_registry, output_dim, branch_scope_name,
-    mask_future, dropout_broadcast_dims, encoder_decoder_attention_bias,
-    encoder_block_outputs, decoder_self_attention_bias, block_number):
+def _apply_nas_branch(norm, layer_norm_dict, hidden_states, nonpadding, hparams,
+                      input_index, layer_name, activation_name, layer_registry,
+                      output_dim, branch_scope_name, mask_future,
+                      dropout_broadcast_dims, encoder_decoder_attention_bias,
+                      encoder_cell_outputs, decoder_self_attention_bias,
+                      cell_number):
   """Applies a single NAS branch."""
   with tf.variable_scope(branch_scope_name):
     # Apply layer norm to an individual layer at most one time.
@@ -489,8 +534,8 @@ def _apply_nas_branch(
         nonpadding=nonpadding,
         attention_dropout_broadcast_dims=dropout_broadcast_dims,
         encoder_decoder_attention_bias=encoder_decoder_attention_bias,
-        encoder_block_outputs=encoder_block_outputs,
-        block_number=block_number,
+        encoder_cell_outputs=encoder_cell_outputs,
+        cell_number=cell_number,
         decoder_self_attention_bias=decoder_self_attention_bias)
 
     return output_tensor
@@ -509,18 +554,18 @@ def apply_nas_layers(input_tensor,
                      right_norms,
                      combiner_functions,
                      final_combiner_function,
-                     num_blocks,
+                     num_cells,
                      nonpadding,
                      layer_registry,
                      mask_future,
                      hparams,
                      var_scope,
                      encoder_decoder_attention_bias=None,
-                     encoder_block_outputs=None,
+                     encoder_cell_outputs=None,
                      decoder_self_attention_bias=None,
                      final_layer_norm=True,
                      enforce_fixed_output_sizes=True):
-  """Applies layers with NAS-like branching.
+  """Applies layers with NasNet search space style branching.
 
   Args:
     input_tensor: Input [batch_size, input_length, hidden_dim] sequence tensor.
@@ -536,8 +581,8 @@ def apply_nas_layers(input_tensor,
     right_norms: String list of right branch norms.
     combiner_functions: String list of branch combining functions.
     final_combiner_function: String. The final combiner function that combines
-      all the unused hidden layers in a block.
-    num_blocks: The number of blocks. This is the number of times the given
+      all the unused hidden layers in a cell.
+    num_cells: The number of cells. This is the number of times the given
       layers will be repeated.
     nonpadding: Tensor with 1s at all nonpadding time step positions and 0s
       everywhere else.
@@ -547,7 +592,7 @@ def apply_nas_layers(input_tensor,
     var_scope: The variable scope name.
     encoder_decoder_attention_bias: The attention bias for decoder attending to
       `encoder_output`.
-    encoder_block_outputs: List of tensors. The encoder block outputs, listed in
+    encoder_cell_outputs: List of tensors. The encoder cell outputs, listed in
       order.
     decoder_self_attention_bias: The self attention bias for decoders. This
       needs to be set for decoders.
@@ -563,7 +608,7 @@ def apply_nas_layers(input_tensor,
     ValueError: If item in right_norms is not LAYER_NORM_KEY or NO_NORM_KEY.
 
   Returns:
-    Output of applied layers and list of each block's outputs in order.
+    Output of applied layers and list of each cell's outputs in order.
   """
 
   if not (len(left_inputs) == len(left_layers) == len(left_activations) ==
@@ -572,7 +617,7 @@ def apply_nas_layers(input_tensor,
           == len(right_norms) == len(combiner_functions)):
     raise ValueError("All branching inputs must be of the same length.")
 
-  block_output = None
+  cell_output = None
   modified_left_inputs = [
       left_inputs[i]
       for i in range(len(left_inputs))
@@ -583,29 +628,29 @@ def apply_nas_layers(input_tensor,
       for i in range(len(right_inputs))
       if right_layers[i] != DEAD_BRANCH_KEY
   ]
-  unused_block_hidden_states = [
+  unused_cell_hidden_states = [
       i for i in range(len(left_inputs) + 1)
       if i not in modified_left_inputs and i not in modified_right_inputs
   ]
-  assert unused_block_hidden_states
+  assert unused_cell_hidden_states
 
-  block_outputs = []
+  cell_outputs = []
 
   with tf.variable_scope(var_scope):
     dropout_broadcast_dims = (
         common_layers.comma_separated_string_to_integer_list(
             getattr(hparams, "attention_dropout_broadcast_dims", "")))
 
-    for block_num in range(num_blocks):
+    for cell_num in range(num_cells):
       # h_0 is the input tensor.
       # Keep a dict for layer norm states.
-      if block_output is not None:
-        block_hidden_states = [block_output]
+      if cell_output is not None:
+        cell_hidden_states = [cell_output]
       else:
-        block_hidden_states = [input_tensor]
+        cell_hidden_states = [input_tensor]
       layer_norm_dict = {}
 
-      with tf.variable_scope("block_%d" % block_num):
+      with tf.variable_scope("cell_%d" % cell_num):
 
         for i, (left_input, left_layer_name, left_activation_name,
                 left_output_dim, left_norm, right_input, right_layer_name,
@@ -625,7 +670,7 @@ def apply_nas_layers(input_tensor,
 
             if left_layer_name != DEAD_BRANCH_KEY:
 
-              left_raw_input_tensor = block_hidden_states[left_input]
+              left_raw_input_tensor = cell_hidden_states[left_input]
               left_input_dim = left_raw_input_tensor.shape.as_list()[-1]
               if should_alter_output_dim(left_layer_name,
                                          enforce_fixed_output_sizes,
@@ -636,7 +681,7 @@ def apply_nas_layers(input_tensor,
               left_tensor = _apply_nas_branch(
                   norm=left_norm,
                   layer_norm_dict=layer_norm_dict,
-                  hidden_states=block_hidden_states,
+                  hidden_states=cell_hidden_states,
                   nonpadding=nonpadding,
                   hparams=hparams,
                   input_index=left_input,
@@ -648,12 +693,12 @@ def apply_nas_layers(input_tensor,
                   mask_future=mask_future,
                   dropout_broadcast_dims=dropout_broadcast_dims,
                   encoder_decoder_attention_bias=encoder_decoder_attention_bias,
-                  encoder_block_outputs=encoder_block_outputs,
+                  encoder_cell_outputs=encoder_cell_outputs,
                   decoder_self_attention_bias=decoder_self_attention_bias,
-                  block_number=block_num)
+                  cell_number=cell_num)
 
             if right_layer_name != DEAD_BRANCH_KEY:
-              right_raw_input_tensor = block_hidden_states[right_input]
+              right_raw_input_tensor = cell_hidden_states[right_input]
               right_input_dim = right_raw_input_tensor.shape.as_list()[-1]
               if should_alter_output_dim(right_layer_name,
                                          enforce_fixed_output_sizes,
@@ -663,7 +708,7 @@ def apply_nas_layers(input_tensor,
               right_tensor = _apply_nas_branch(
                   norm=right_norm,
                   layer_norm_dict=layer_norm_dict,
-                  hidden_states=block_hidden_states,
+                  hidden_states=cell_hidden_states,
                   nonpadding=nonpadding,
                   hparams=hparams,
                   input_index=right_input,
@@ -675,9 +720,9 @@ def apply_nas_layers(input_tensor,
                   mask_future=mask_future,
                   dropout_broadcast_dims=dropout_broadcast_dims,
                   encoder_decoder_attention_bias=encoder_decoder_attention_bias,
-                  encoder_block_outputs=encoder_block_outputs,
+                  encoder_cell_outputs=encoder_cell_outputs,
                   decoder_self_attention_bias=decoder_self_attention_bias,
-                  block_number=block_num)
+                  cell_number=cell_num)
 
             # Combine the branches.
             if left_layer_name == DEAD_BRANCH_KEY:
@@ -687,24 +732,24 @@ def apply_nas_layers(input_tensor,
             else:
               hidden_tensor = COMBINER_FUNCTIONS[combiner]().combine_tensors(
                   [left_tensor, right_tensor])
-            block_hidden_states.append(hidden_tensor)
+            cell_hidden_states.append(hidden_tensor)
 
       states_to_combine = [
-          block_hidden_states[j] for j in unused_block_hidden_states
+          cell_hidden_states[j] for j in unused_cell_hidden_states
       ]
-      block_output = COMBINER_FUNCTIONS[final_combiner_function](
+      cell_output = COMBINER_FUNCTIONS[final_combiner_function](
       ).combine_tensors(states_to_combine)
-      block_outputs.append(block_output)
+      cell_outputs.append(cell_output)
 
   if final_layer_norm:
-    final_output = common_layers.layer_preprocess(block_output, hparams)
-    block_outputs = [
-        common_layers.layer_preprocess(block_output, hparams)
-        for block_output in block_outputs
+    final_output = common_layers.layer_preprocess(cell_output, hparams)
+    cell_outputs = [
+        common_layers.layer_preprocess(cell_output, hparams)
+        for cell_output in cell_outputs
     ]
-    return final_output, block_outputs
+    return final_output, cell_outputs
   else:
-    return block_output, block_outputs
+    return cell_output, cell_outputs
 
 
 def nas_encoder(encoder_input,
@@ -712,7 +757,7 @@ def nas_encoder(encoder_input,
                 hparams,
                 nonpadding=None,
                 final_layer_norm=True):
-  """Encoder for NAS-style model.
+  """Encoder for configurable NAS model.
 
   Args:
     encoder_input: Input tensor.
@@ -731,7 +776,7 @@ def nas_encoder(encoder_input,
       + encoder_<left|right>_norms: String list of norms to apply to the
         <left|right> layer branches. Each item must be either LAYER_NORM_KEY or
         NO_NORM_KEY.
-      + encoder_num_blocks: The number of blocks in the encoder. This determines
+      + encoder_num_cells: The number of cells in the encoder. This determines
         how many times the given layers will be repeated.
       + encoder_combiner_functions: String list of functions used to combine
         left and right branches. Must be a COMBINER_FUNCTION key.
@@ -742,7 +787,7 @@ def nas_encoder(encoder_input,
       of the encoder.
 
   Returns:
-    Encoder output and list of each encoder block's output in order.
+    Encoder output and list of each encoder cell's output in order.
   """
   if nonpadding is None:
     padding = common_attention.attention_bias_to_padding(
@@ -760,7 +805,7 @@ def nas_encoder(encoder_input,
       right_activations=hparams.encoder_right_activations,
       right_output_dims=hparams.encoder_right_output_dims,
       right_norms=hparams.encoder_right_norms,
-      num_blocks=hparams.encoder_num_blocks,
+      num_cells=hparams.encoder_num_cells,
       combiner_functions=hparams.encoder_combiner_functions,
       final_combiner_function=hparams.encoder_final_combiner_function,
       nonpadding=nonpadding,
@@ -772,16 +817,16 @@ def nas_encoder(encoder_input,
 
 
 def nas_decoder(decoder_input,
-                encoder_block_outputs,
+                encoder_cell_outputs,
                 decoder_self_attention_bias,
                 encoder_decoder_attention_bias,
                 hparams,
                 final_layer_norm=True):
-  """Decoder for NAS-style model.
+  """Decoder for configurable model.
 
   Args:
     decoder_input: Input tensor.
-    encoder_block_outputs: List of tensors. The encoder block outputs, listed in
+    encoder_cell_outputs: List of tensors. The encoder cell outputs, listed in
       order.
     decoder_self_attention_bias: Attention bias that the decoder uses when
       attending to itself. This should have 0s for all valid positions and large
@@ -802,7 +847,7 @@ def nas_decoder(decoder_input,
       + decoder_<left|right>_norms: String list of norms to apply to the
         <left|right> layer branches. Each item must be either LAYER_NORM_KEY or
         NO_NORM_KEY.
-      + decoder_num_blocks: The number of blocks in the decoder. This determines
+      + decoder_num_cells: The number of cells in the decoder. This determines
         how many times the given layers will be repeated.
       + decoder_combiner_functions: String list of functions used to combine
         left and right branches. Must be a COMBINER_FUNCTION key.
@@ -818,8 +863,6 @@ def nas_decoder(decoder_input,
   Returns:
     Decoder output tensor.
   """
-  # encoder_depth is wrong because it doesn't matter here.
-
   # Enforce that the output tensor depth is equal to the depth of the encoding.
   (_, output_depth, _, _) = calculate_branching_model_parameters(
       encoding_depth=hparams.hidden_size,
@@ -832,7 +875,7 @@ def nas_decoder(decoder_input,
       combiner_functions=hparams.decoder_combiner_functions,
       final_combiner_function=hparams.decoder_final_combiner_function,
       layer_registry=layers.DECODER_LAYERS,
-      num_blocks=hparams.decoder_num_blocks,
+      num_cells=hparams.decoder_num_cells,
       encoder_depth=hparams.hidden_size)
   improper_output_size = output_depth != hparams.hidden_size
 
@@ -842,7 +885,7 @@ def nas_decoder(decoder_input,
     enforce_output_size = True
   resize_output = enforce_output_size and improper_output_size
 
-  decoder_blocks_output, _ = apply_nas_layers(
+  decoder_cells_output, _ = apply_nas_layers(
       input_tensor=decoder_input,
       left_inputs=hparams.decoder_left_inputs,
       left_layers=hparams.decoder_left_layers,
@@ -854,7 +897,7 @@ def nas_decoder(decoder_input,
       right_activations=hparams.decoder_right_activations,
       right_output_dims=hparams.decoder_right_output_dims,
       right_norms=hparams.decoder_right_norms,
-      num_blocks=hparams.decoder_num_blocks,
+      num_cells=hparams.decoder_num_cells,
       combiner_functions=hparams.decoder_combiner_functions,
       final_combiner_function=hparams.decoder_final_combiner_function,
       nonpadding=None,
@@ -864,16 +907,16 @@ def nas_decoder(decoder_input,
       var_scope="decoder",
       decoder_self_attention_bias=decoder_self_attention_bias,
       encoder_decoder_attention_bias=encoder_decoder_attention_bias,
-      encoder_block_outputs=encoder_block_outputs,
+      encoder_cell_outputs=encoder_cell_outputs,
       final_layer_norm=final_layer_norm)
 
   if not resize_output:
-    return decoder_blocks_output
+    return decoder_cells_output
 
   # Resize output if necessary.
   dense_layer = layers.DECODER_LAYERS.get(layers.STANDARD_CONV_1X1_REGISTRY_KEY)
   output = dense_layer.apply_layer(
-      decoder_blocks_output,
+      decoder_cells_output,
       None,
       hparams.hidden_size,
       None,
@@ -885,7 +928,7 @@ def nas_decoder(decoder_input,
       nonpadding=None,
       attention_dropout_broadcast_dims=None,
       encoder_decoder_attention_bias=None,
-      encoder_block_outputs=None,
+      encoder_cell_outputs=None,
       decoder_self_attention_bias=None,
   )
   if final_layer_norm:
@@ -903,7 +946,7 @@ def calculate_branching_model_parameters(encoding_depth,
                                          right_output_dims,
                                          combiner_functions,
                                          layer_registry,
-                                         num_blocks,
+                                         num_cells,
                                          final_combiner_function,
                                          encoder_depth=None,
                                          enforce_output_size=False,
@@ -926,7 +969,7 @@ def calculate_branching_model_parameters(encoding_depth,
       right branch tensors.
     layer_registry: layers.LayerRegistry. The LayerRegistry that contains the
       layers.TranslationLayers needed to construct the model.
-    num_blocks: Integer. The number of times the given layers are repeated to
+    num_cells: Integer. The number of times the given layers are repeated to
       produce the model.
     final_combiner_function: String. The COMBINER_FUNCTIONS key for the combiner
       used to combine the unused hidden dimensions.
@@ -944,11 +987,11 @@ def calculate_branching_model_parameters(encoding_depth,
 
   Returns:
     total_parameters: The total number of parameters in the model, accounting
-      for repeated blocks.
-    output_depth: The depth of the block output tensor.
+      for repeated cells.
+    output_depth: The depth of the cell output tensor.
     hidden_depths: The depths of the hidden layers.
     unused_outputs: List of integer indexes of the hidden layers that are not
-      used as input, and therefore are concatenated to produce the block
+      used as input, and therefore are concatenated to produce the cell
       output.
   """
   if not (len(left_inputs) == len(left_layers) == len(left_output_dims) ==
@@ -958,7 +1001,7 @@ def calculate_branching_model_parameters(encoding_depth,
 
   total_parameters = 0
   output_depth = encoding_depth
-  for _ in range(num_blocks):
+  for _ in range(num_cells):
     hidden_depths = [output_depth]
     unused_outputs = set(range(len(left_inputs) + 1))
 
@@ -1028,3 +1071,61 @@ def calculate_branching_model_parameters(encoding_depth,
             output_depth, encoding_depth, encoder_depth=encoder_depth)
 
   return (total_parameters, output_depth, hidden_depths, unused_outputs)
+
+
+@registry.register_hparams
+def nas_seq2seq_base():
+  """Base parameters for Nas Seq2Seq model.
+
+  The default parameters are set to create the Transformer.
+
+  Returns:
+    Hyperparameters for Nas Seq2Seq model.
+  """
+  hparams = transformer.transformer_base()
+
+  hparams.add_hparam("encoder_num_cells", 6)
+  hparams.add_hparam("encoder_left_inputs", [0, 1, 2, 3])
+  hparams.add_hparam("encoder_left_layers", [
+      "standard_attention", "standard_conv_1x1", "standard_conv_1x1", "identity"
+  ])
+  hparams.add_hparam("encoder_left_output_dims", [512, 2048, 512, 512])
+  hparams.add_hparam("encoder_left_activations",
+                     ["none", "relu", "none", "none"])
+  hparams.add_hparam("encoder_left_norms",
+                     ["layer_norm", "layer_norm", "none", "none"])
+  hparams.add_hparam("encoder_right_inputs", [0, 1, 1, 1])
+  hparams.add_hparam("encoder_right_layers",
+                     ["identity", "dead_branch", "identity", "dead_branch"])
+  hparams.add_hparam("encoder_right_activations",
+                     ["none", "none", "none", "none"])
+  hparams.add_hparam("encoder_right_output_dims", [512, 512, 512, 512])
+  hparams.add_hparam("encoder_right_norms", ["none", "none", "none", "none"])
+  hparams.add_hparam("encoder_combiner_functions", ["add", "add", "add", "add"])
+  hparams.add_hparam("encoder_final_combiner_function", "add")
+
+  hparams.add_hparam("decoder_num_cells", 6)
+  hparams.add_hparam("decoder_left_inputs", [0, 1, 2, 3, 4])
+  hparams.add_hparam("decoder_left_layers", [
+      "standard_attention", "attend_to_encoder", "standard_conv_1x1",
+      "standard_conv_1x1", "identity"
+  ])
+  hparams.add_hparam("decoder_left_activations",
+                     ["none", "none", "relu", "none", "none"])
+  hparams.add_hparam("decoder_left_output_dims", [512, 512, 2048, 512, 512])
+  hparams.add_hparam("decoder_left_norms",
+                     ["layer_norm", "layer_norm", "layer_norm", "none", "none"])
+  hparams.add_hparam("decoder_right_inputs", [0, 1, 2, 2, 4])
+  hparams.add_hparam(
+      "decoder_right_layers",
+      ["identity", "identity", "dead_branch", "identity", "dead_branch"])
+  hparams.add_hparam("decoder_right_activations",
+                     ["none", "none", "none", "none", "none"])
+  hparams.add_hparam("decoder_right_output_dims", [512, 512, 512, 512, 512])
+  hparams.add_hparam("decoder_right_norms",
+                     ["none", "none", "none", "none", "none"])
+  hparams.add_hparam("decoder_combiner_functions",
+                     ["add", "add", "add", "add", "add"])
+  hparams.add_hparam("decoder_final_combiner_function", "add")
+
+  return hparams

@@ -169,8 +169,8 @@ def dataset_to_stream(dataset, input_name, n_chunks=0, append_targets=False):
     if len(out.shape) > 1 and out.shape[-1] == 1:
       out = np.squeeze(out, axis=-1)
     if n_chunks > 0:
-      inp = np.split(inp, n_chunks, axis=1)
-      out = np.split(out, n_chunks, axis=1)
+      inp = tuple(np.split(inp, n_chunks, axis=1))
+      out = tuple(np.split(out, n_chunks, axis=1))
     if append_targets:
       inp = (inp, out)
     yield inp, out
@@ -355,9 +355,9 @@ def batch_fun(dataset, training, shapes, target_names, n_devices,
   return dataset
 
 
-# pylint: disable=unused-argument
 @gin.configurable(blacklist=["dataset", "training"])
 def cifar10_no_augmentation_preprocess(dataset, training):
+  del training
 
   def cast_image(features, targets):
     features["image"] = tf.cast(features["image"], tf.float32) / 255.0
@@ -367,8 +367,26 @@ def cifar10_no_augmentation_preprocess(dataset, training):
   return dataset
 
 
-# pylint: disable=unused-argument
 def no_preprocess(dataset, training):
+  del training
+  return dataset
+
+
+@gin.configurable(blacklist=["dataset", "training"])
+def concat_preprocess(dataset, training, pad_symbol=0):
+  """Pre-processing function that concatenates input and target for LM."""
+  del training
+
+  def concat(features, targets):
+    inp = features["inputs"]
+    pad = tf.expand_dims(tf.zeros_like(inp[0]) + pad_symbol, axis=0)
+    concat = tf.concat([pad, inp, pad, targets], axis=0)
+    # Note: we're updating existing features dictionary here, so make sure
+    # it is not re-used in some other ways outside of this function.
+    features["inputs"] = concat
+    return features, concat
+
+  dataset = dataset.map(concat)
   return dataset
 
 

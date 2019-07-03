@@ -19,7 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.trax.rlax import fake_env
+from tensor2tensor.trax.rlax.envs import fake_env
 from tensorflow import test
 
 

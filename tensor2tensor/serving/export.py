@@ -82,7 +82,9 @@ def create_estimator(run_config, hparams):
       hparams,
       run_config,
       decode_hparams=decoding.decode_hparams(FLAGS.decode_hparams),
-      use_tpu=FLAGS.use_tpu)
+      use_tpu=FLAGS.use_tpu,
+      export_saved_model_api_version=FLAGS.export_saved_model_api_version,
+      use_guarantee_const_getter=FLAGS.use_guarantee_const_getter)
 
 
 def create_hparams():

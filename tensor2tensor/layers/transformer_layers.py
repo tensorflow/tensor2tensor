@@ -32,7 +32,8 @@ def layers():
   return common_layers.layers()
 
 
-def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
+def transformer_prepare_encoder(inputs, target_space, hparams, features=None,
+                                type_ids=None, num_types=None):
   """Prepare one shard of the model for the encoder.
 
   Args:
@@ -41,6 +42,9 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
     hparams: run hyperparameters
     features: optionally pass the entire features dictionary as well.
       This is needed now for "packed" datasets.
+    type_ids: optional, an int64 Tensor of shape [batch, length] that allows
+      for adding type embeddings, similar to positional embeddings.
+    num_types: optional, an int that decides the number of types in type_ids.
 
   Returns:
     encoder_input: a Tensor, bottom of encoder stack
@@ -107,6 +111,13 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
     encoder_input = common_attention.add_positional_embedding(
         encoder_input, hparams.max_length, "inputs_positional_embedding",
         inputs_position)
+
+  # Add type embeddings
+  if type_ids is not None:
+    if not num_types:
+      raise ValueError("Need to set num_types as well.")
+    encoder_input = common_attention.add_positional_embedding(
+        encoder_input, num_types, "inputs_type_embedding", type_ids)
 
   encoder_self_attention_bias = common_layers.cast_like(
       encoder_self_attention_bias, encoder_input)

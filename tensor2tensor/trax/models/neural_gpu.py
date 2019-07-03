@@ -59,17 +59,20 @@ def ConvDiagonalGRU(units, kernel_size=(3, 3)):
       candidate_nonlinearity=tl.HardTanh)
 
 
-def NeuralGPU(d_feature=96, steps=16, vocab_size=2):
+def NeuralGPU(d_feature=96, steps=16, vocab_size=2, mode='train'):
   """Implementation of Neural GPU: https://arxiv.org/abs/1702.08727.
 
   Args:
     d_feature: Number of memory channels (dimensionality of feature embedding).
     steps: Number of times depthwise recurrence steps.
     vocab_size: Vocabulary size.
+    mode: Whether we are training or evaluating or doing inference.
 
   Returns:
     A NeuralGPU Stax model.
   """
+  del mode
+
   core = ConvDiagonalGRU(units=d_feature)
   return tl.Model(
       tl.Embedding(d_feature=d_feature, vocab_size=vocab_size),

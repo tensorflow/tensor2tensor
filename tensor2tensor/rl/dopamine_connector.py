@@ -24,23 +24,42 @@ import random
 import sys
 
 from dopamine.agents.dqn import dqn_agent
+from dopamine.agents.rainbow import rainbow_agent
 from dopamine.replay_memory import circular_replay_buffer
 from dopamine.replay_memory.circular_replay_buffer import OutOfGraphReplayBuffer
 from dopamine.replay_memory.circular_replay_buffer import ReplayElement
+from dopamine.replay_memory.prioritized_replay_buffer import OutOfGraphPrioritizedReplayBuffer
+from dopamine.replay_memory.prioritized_replay_buffer import WrappedPrioritizedReplayBuffer
 import numpy as np
+
 from tensor2tensor.rl.policy_learner import PolicyLearner
 import tensorflow as tf
 
 # pylint: disable=g-import-not-at-top
+# pylint: disable=ungrouped-imports
 try:
   import cv2
 except ImportError:
   cv2 = None
+
 try:
   from dopamine.discrete_domains import run_experiment
 except ImportError:
   run_experiment = None
+
 # pylint: enable=g-import-not-at-top
+# pylint: enable=ungrouped-imports
+
+# TODO(rlmb): Vanilla DQN and Rainbow have a lot of common code. We will want
+#  to remove Vanilla DQN and only have Rainbow. To do so one needs to remove
+#  following:
+#    * _DQNAgent
+#    * BatchDQNAgent
+#    * _OutOfGraphReplayBuffer
+#    * "if" clause in create_agent()
+#    * parameter "agent_type" from dqn_atari_base() hparams and possibly other
+#      rlmb dqn hparams sets
+#  If we want to keep both Vanilla DQN and Rainbow, larger refactor is required.
 
 
 class _DQNAgent(dqn_agent.DQNAgent):
@@ -178,51 +197,6 @@ class BatchDQNAgent(_DQNAgent):
     return np.array([choose_action(ix) for ix in range(self.env_batch_size)])
 
 
-class BatchRunner(run_experiment.Runner):
-  """Run a batch of environments.
-
-  Assumes that all environments would end at the same moment.
-  """
-
-  def __init__(self, base_dir, create_agent_fn, **kwargs):
-    super(BatchRunner, self).__init__(base_dir, create_agent_fn, **kwargs)
-    self.batch_size = self._environment.batch_size
-
-  def _run_one_episode(self):
-    # This assumes that everything inside _run_one_episode works on batches,
-    # which is risky for future.
-    steps_number, total_rewards = super(BatchRunner, self)._run_one_episode()
-    return steps_number * self.batch_size, total_rewards
-
-  def _run_one_phase(self, min_steps, statistics, run_mode_str):
-    # Mostly copy of parent method.
-    step_count = 0
-    num_episodes = 0
-    sum_returns = 0.
-
-    while step_count < min_steps:
-      num_steps, episode_returns = self._run_one_episode()
-      for episode_return in episode_returns:
-        statistics.append({
-            "{}_episode_lengths".format(run_mode_str):
-                num_steps / self.batch_size,
-            "{}_episode_returns".format(run_mode_str): episode_return
-        })
-      step_count += num_steps
-      sum_returns += sum(episode_returns)
-      num_episodes += self.batch_size
-      # We use sys.stdout.write instead of tf.logging so as to flush frequently
-      # without generating a line break.
-      sys.stdout.write("Steps executed: {} ".format(step_count) +
-                       "Batch episodes steps: {} ".format(num_steps) +
-                       "Returns: {}\r".format(episode_returns))
-      sys.stdout.flush()
-    return step_count, sum_returns, num_episodes
-
-  def close(self):
-    self._environment.close()
-
-
 class _OutOfGraphReplayBuffer(OutOfGraphReplayBuffer):
   """Replay not sampling artificial_terminal transition.
 
@@ -271,6 +245,250 @@ class _OutOfGraphReplayBuffer(OutOfGraphReplayBuffer):
     assert self._artificial_done == are_terminal_valid
 
 
+class _WrappedPrioritizedReplayBuffer(WrappedPrioritizedReplayBuffer):
+  """Allows to pass out-of-graph-replay-buffer via wrapped_memory."""
+
+  def __init__(self, wrapped_memory, batch_size, use_staging):
+    self.batch_size = batch_size
+    self.memory = wrapped_memory
+    self.create_sampling_ops(use_staging)
+
+
+class _RainbowAgent(rainbow_agent.RainbowAgent):
+  """Modify dopamine DQNAgent to match our needs.
+
+  Allow passing batch_size and replay_capacity to ReplayBuffer, allow not using
+  (some of) terminal episode transitions in training.
+  """
+
+  def __init__(self, replay_capacity, buffer_batch_size,
+               generates_trainable_dones, **kwargs):
+    self._replay_capacity = replay_capacity
+    self._buffer_batch_size = buffer_batch_size
+    self._generates_trainable_dones = generates_trainable_dones
+    super(_RainbowAgent, self).__init__(**kwargs)
+
+  def _build_replay_buffer(self, use_staging):
+    """Build WrappedReplayBuffer with custom OutOfGraphReplayBuffer."""
+    replay_buffer_kwargs = dict(
+        observation_shape=dqn_agent.NATURE_DQN_OBSERVATION_SHAPE,
+        stack_size=dqn_agent.NATURE_DQN_STACK_SIZE,
+        replay_capacity=self._replay_capacity,
+        batch_size=self._buffer_batch_size,
+        update_horizon=self.update_horizon,
+        gamma=self.gamma,
+        extra_storage_types=None,
+        observation_dtype=np.uint8,
+    )
+
+    replay_memory = _OutOfGraphPrioritizedReplayBuffer(
+        artificial_done=not self._generates_trainable_dones,
+        **replay_buffer_kwargs)
+
+    return _WrappedPrioritizedReplayBuffer(
+        wrapped_memory=replay_memory,
+        use_staging=use_staging, batch_size=self._buffer_batch_size)
+    # **replay_buffer_kwargs)
+
+
+class BatchRainbowAgent(_RainbowAgent):
+  """Batch agent for DQN.
+
+  Episodes are stored on done.
+
+  Assumes that all rollouts in batch would end at the same moment.
+  """
+
+  def __init__(self, env_batch_size, *args, **kwargs):
+    super(BatchRainbowAgent, self).__init__(*args, **kwargs)
+    self.env_batch_size = env_batch_size
+    obs_size = dqn_agent.NATURE_DQN_OBSERVATION_SHAPE
+    state_shape = [self.env_batch_size, obs_size[0], obs_size[1],
+                   dqn_agent.NATURE_DQN_STACK_SIZE]
+    self.state_batch = np.zeros(state_shape)
+    self.state = None  # assure it will be not used
+    self._observation = None  # assure it will be not used
+    self.reset_current_rollouts()
+
+  def reset_current_rollouts(self):
+    self._current_rollouts = [[] for _ in range(self.env_batch_size)]
+
+  def _record_observation(self, observation_batch):
+    # Set current observation. Represents an (batch_size x 84 x 84 x 1) image
+    # frame.
+    observation_batch = np.array(observation_batch)
+    self._observation_batch = observation_batch[:, :, :, 0]
+    # Swap out the oldest frames with the current frames.
+    self.state_batch = np.roll(self.state_batch, -1, axis=3)
+    self.state_batch[:, :, :, -1] = self._observation_batch
+
+  def _reset_state(self):
+    self.state_batch.fill(0)
+
+  def begin_episode(self, observation):
+    self._reset_state()
+    self._record_observation(observation)
+
+    if not self.eval_mode:
+      self._train_step()
+
+    self.action = self._select_action()
+    return self.action
+
+  def _update_current_rollouts(self, last_observation, action, reward,
+                               are_terminal):
+    transitions = zip(last_observation, action, reward, are_terminal)
+    for transition, rollout in zip(transitions, self._current_rollouts):
+      rollout.append(transition)
+
+  def _store_current_rollouts(self):
+    for rollout in self._current_rollouts:
+      for transition in rollout:
+        self._store_transition(*transition)
+    self.reset_current_rollouts()
+
+  def step(self, reward, observation):
+    self._last_observation = self._observation_batch
+    self._record_observation(observation)
+
+    if not self.eval_mode:
+      self._update_current_rollouts(self._last_observation, self.action, reward,
+                                    [False] * self.env_batch_size)
+      # We want to have the same train_step:env_step ratio not depending on
+      # batch size.
+      for _ in range(self.env_batch_size):
+        self._train_step()
+
+    self.action = self._select_action()
+    return self.action
+
+  def end_episode(self, reward):
+    if not self.eval_mode:
+      self._update_current_rollouts(
+          self._observation_batch, self.action, reward,
+          [True] * self.env_batch_size)
+      self._store_current_rollouts()
+
+  def _select_action(self):
+    epsilon = self.epsilon_eval
+    if not self.eval_mode:
+      epsilon = self.epsilon_fn(
+          self.epsilon_decay_period,
+          self.training_steps,
+          self.min_replay_history,
+          self.epsilon_train)
+
+    def choose_action(ix):
+      if random.random() <= epsilon:
+        # Choose a random action with probability epsilon.
+        return random.randint(0, self.num_actions - 1)
+      else:
+        # Choose the action with highest Q-value at the current state.
+        return self._sess.run(self._q_argmax,
+                              {self.state_ph: self.state_batch[ix:ix+1]})
+
+    return np.array([choose_action(ix) for ix in range(self.env_batch_size)])
+
+
+class BatchRunner(run_experiment.Runner):
+  """Run a batch of environments.
+
+  Assumes that all environments would end at the same moment.
+  """
+
+  def __init__(self, base_dir, create_agent_fn, **kwargs):
+    super(BatchRunner, self).__init__(base_dir, create_agent_fn, **kwargs)
+    self.batch_size = self._environment.batch_size
+
+  def _run_one_episode(self):
+    # This assumes that everything inside _run_one_episode works on batches,
+    # which is risky for future.
+    steps_number, total_rewards = super(BatchRunner, self)._run_one_episode()
+    return steps_number * self.batch_size, total_rewards
+
+  def _run_one_phase(self, min_steps, statistics, run_mode_str):
+    # Mostly copy of parent method.
+    step_count = 0
+    num_episodes = 0
+    sum_returns = 0.
+
+    while step_count < min_steps:
+      num_steps, episode_returns = self._run_one_episode()
+      for episode_return in episode_returns:
+        statistics.append({
+            "{}_episode_lengths".format(run_mode_str):
+                num_steps / self.batch_size,
+            "{}_episode_returns".format(run_mode_str): episode_return
+        })
+      step_count += num_steps
+      sum_returns += sum(episode_returns)
+      num_episodes += self.batch_size
+      # We use sys.stdout.write instead of tf.logging so as to flush frequently
+      # without generating a line break.
+      sys.stdout.write("Steps executed: {} ".format(step_count) +
+                       "Batch episodes steps: {} ".format(num_steps) +
+                       "Returns: {}\r".format(episode_returns))
+      sys.stdout.flush()
+    return step_count, sum_returns, num_episodes
+
+  def close(self):
+    self._environment.close()
+
+
+class _OutOfGraphPrioritizedReplayBuffer(OutOfGraphPrioritizedReplayBuffer):
+  """Replay not sampling artificial_terminal transition.
+
+  Adds to stored tuples "artificial_done" field (as last ReplayElement).
+  When sampling, ignores tuples for which artificial_done is True.
+
+  When adding new attributes check if there are loaded from disk, when using
+  load() method.
+
+  Attributes:
+      are_terminal_valid: A boolean indicating if newly added terminal
+        transitions should be marked as artificially done. Replay data loaded
+        from disk will not be overridden.
+  """
+
+  def __init__(self, artificial_done, **kwargs):
+    extra_storage_types = kwargs.pop("extra_storage_types", None) or []
+    msg = "Other extra_storage_types aren't currently supported for this class."
+    assert not extra_storage_types, msg
+    extra_storage_types.append(ReplayElement("artificial_done", (), np.uint8))
+    super(_OutOfGraphPrioritizedReplayBuffer, self).__init__(
+        extra_storage_types=extra_storage_types, **kwargs)
+    self._artificial_done = artificial_done
+
+  def is_valid_transition(self, index):
+    valid = super(_OutOfGraphPrioritizedReplayBuffer,
+                  self).is_valid_transition(index)
+    if valid:
+      valid = not self.get_artificial_done_stack(index).any()
+    return valid
+
+  def get_artificial_done_stack(self, index):
+    return self.get_range(self._store["artificial_done"],
+                          index - self._stack_size + 1, index + 1)
+
+  def add(self, observation, action, reward, terminal, priority):
+    """Infer artificial_done and call parent method."""
+    # If this will be a problem for maintenance, we could probably override
+    # DQNAgent.add() method instead.
+    if not isinstance(priority, (float, np.floating)):
+      raise ValueError("priority should be float, got type {}"
+                       .format(type(priority)))
+    artificial_done = self._artificial_done and terminal
+    return super(_OutOfGraphPrioritizedReplayBuffer, self).add(
+        observation, action, reward, terminal, artificial_done, priority
+    )
+
+  def load(self, *args, **kwargs):
+    # Check that appropriate attributes are not overridden
+    are_terminal_valid = self._artificial_done
+    super(_OutOfGraphPrioritizedReplayBuffer, self).load(*args, **kwargs)
+    assert self._artificial_done == are_terminal_valid
+
+
 def get_create_agent(agent_kwargs):
   """Factory for dopamine agent initialization.
 
@@ -280,6 +498,8 @@ def get_create_agent(agent_kwargs):
   Returns:
     Function(sess, environment, summary_writer) -> BatchDQNAgent instance.
   """
+  agent_kwargs = copy.deepcopy(agent_kwargs)
+  agent_type = agent_kwargs.pop("type")
 
   def create_agent(sess, environment, summary_writer=None):
     """Creates a DQN agent.
@@ -294,13 +514,24 @@ def get_create_agent(agent_kwargs):
     Returns:
       a DQN agent.
     """
-    return BatchDQNAgent(
-        env_batch_size=environment.batch_size,
-        sess=sess,
-        num_actions=environment.action_space.n,
-        summary_writer=summary_writer,
-        tf_device="/gpu:*",
-        **agent_kwargs)
+    if agent_type == "Rainbow":
+      return BatchRainbowAgent(
+          env_batch_size=environment.batch_size,
+          sess=sess,
+          num_actions=environment.action_space.n,
+          summary_writer=summary_writer,
+          tf_device="/gpu:*",
+          **agent_kwargs)
+    elif agent_type == "VanillaDQN":
+      return BatchDQNAgent(
+          env_batch_size=environment.batch_size,
+          sess=sess,
+          num_actions=environment.action_space.n,
+          summary_writer=summary_writer,
+          tf_device="/gpu:*",
+          **agent_kwargs)
+    else:
+      raise ValueError("Unknown agent_type {}".format(agent_type))
 
   return create_agent
 

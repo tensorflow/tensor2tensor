@@ -58,6 +58,8 @@ flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 flags.DEFINE_string("score_file", "", "File to score. Each line in the file "
                     "must be in the format input \t target.")
 flags.DEFINE_bool("decode_in_memory", False, "Decode in memory.")
+flags.DEFINE_bool("disable_grappler_optimizations", False,
+                  "Disable Grappler if need be to avoid tensor format errors.")
 
 
 def create_hparams():
@@ -185,11 +187,14 @@ def main(_):
 
   hp = create_hparams()
   decode_hp = create_decode_hparams()
+  run_config = t2t_trainer.create_run_config(hp)
+  if FLAGS.disable_grappler_optimizations:
+    run_config.session_config.graph_options.rewrite_options.disable_meta_optimizer = True
 
   estimator = trainer_lib.create_estimator(
       FLAGS.model,
       hp,
-      t2t_trainer.create_run_config(hp),
+      run_config,
       decode_hparams=decode_hp,
       use_tpu=FLAGS.use_tpu)
 

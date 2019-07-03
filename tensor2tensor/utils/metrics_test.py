@@ -225,6 +225,22 @@ class MetricsTest(tf.test.TestCase):
       s = session.run(score)
     self.assertEqual(s, 0.5)
 
+  def testSigmoidAccuracy(self):
+    logits = np.array([
+        [-1., 1.],
+        [1., -1.],
+        [-1., 1.],
+        [1., -1.]
+    ])
+    labels = np.array([1, 0, 0, 1])
+
+    with self.test_session() as session:
+      score, _ = metrics.sigmoid_accuracy(logits, labels)
+      session.run(tf.global_variables_initializer())
+      session.run(tf.local_variables_initializer())
+      s = session.run(score)
+    self.assertEqual(s, 0.5)
+
   def testSigmoidPrecisionOneHot(self):
     logits = np.array([
         [-1., 1.],

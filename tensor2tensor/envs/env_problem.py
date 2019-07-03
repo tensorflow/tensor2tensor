@@ -23,6 +23,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import time
 import gym
 from gym.core import Env
 import numpy as np
@@ -558,7 +559,9 @@ class EnvProblem(Env, problem.Problem):
 
     # Take steps in all environments.
     for env, action in zip(self._envs, actions):
+      t1 = time.time()
       observation, reward, done, info = env.step(action)
+      info["__bare_env_run_time__"] = time.time() - t1
 
       observations.append(observation)
       rewards.append(reward)

@@ -30,110 +30,174 @@ from tensor2tensor.trax import backend
 
 
 class Layer(object):
-  """Layer object, base class. Handles parameter sharing."""
+  """Base class for composable layers in a deep learning network.
+
+  A layer is a function from zero or more inputs to zero or more outputs,
+  possibly with trainable parameters. A layer is either atomic or composed
+  of sublayers. All layers provide accessor methods for these aspects:
+
+    - n_inputs()
+    - n_outputs()
+    - sublayers()
+
+  The inputs to a layer are activation tensors, packaged according to how many
+  there are:
+
+    - n_inputs = 0: an empty tuple ()
+    _ n_inputs = 1: the activation tensor (NOT wrapped in a tuple)
+    _ n_inputs > 1: a tuple of activation tensors
+
+  (The special treatment for the single-input case is intended as a
+  simplification for layer writers; this design choice may be revisited in the
+  future.)
+
+  The outputs from a layer are also activations tensors, packaged the same as
+  layer inputs:
+
+    - n_outputs = 0: an empty tuple ()
+    _ n_outputs = 1: the activation tensor (NOT wrapped in a tuple)
+    _ n_outputs > 1: a tuple of activation tensors
+
+  The runtime maintains a data stack with which layer calls are composed. One
+  can therefore view each layer as a function from stack state to stack state,
+  where the function's inputs are a slice from the stack, and the function's
+  outputs are spliced back into the stack.
+  """
 
   def __init__(self, **kwargs):
-    # We store kwargs by default, used below in creating a generic decorator.
-    self._init_kwargs = kwargs
-    # This field says if this layer's init has already been called or not.
-    self._first_init = True
-    # Cache parameters here, defaults empty params (we use () for that).
+    self._init_kwargs = kwargs  # can be used in creating a generic decorator
+    self._needs_init = True
     self._params = ()  # cached parameters
-    # Caller field storing info on where the caller class was created.
-    self._caller = _find_frame(inspect.stack())
+    self._caller = _find_frame(inspect.stack())  # for custom error messages
 
-  def call(self, x, params=(), **kwargs):
-    """Call this layer in input x using the given parameters."""
-    raise NotImplementedError
+  def __repr__(self):
+    class_str = self.__class__.__name__
+    fields_str = 'in={},out={}'.format(self.n_inputs(), self.n_outputs())
+    objs = self.sublayers()
+    if objs:
+      objs_str = ', '.join(str(x) for x in objs)
+      return '{}[{},layers=[{}]]'.format(class_str, fields_str, objs_str)
+    else:
+      return '{}[{}]'.format(class_str, fields_str)
 
-  def new_parameters(self, input_shape, input_dtype, rng):
-    """Create new parameters for the layer given an input shape, dtype and rng.
-
-    Note that all arguments and return values can be tuples or dictionaries
-    or arbitraty nested structures composed of tuples and dictionaries.
+  def call(self, inputs, params=(), **kwargs):
+    """Applies this layer to given activation tensors, using trainable params.
 
     Args:
-      input_shape: a tuple representing the shape of the input.
+      inputs: Data tensors, matching the number (n_inputs) expected by this
+          layer. Specifically:
+            - n_inputs = 0: an empty tuple ()
+            - n_inputs = 1: a data tensor (NOT wrapped in a tuple)
+            - n_inputs > 1: a tuple of data tensors, with n_inputs items
+      params: A tuple of trainable parameters, with one element for this layer
+          and one for each of this layer's sublayers. If a layer (or sublayer)
+          has no trainable parameters, the corresponding params element is an
+          empty tuple.
+      **kwargs: Layer-specific keyword args.
+
+    Returns:
+      Data tensors, matching the number (n_outputs) promised by this layer.
+      Specifically:
+        - n_outputs = 0: an empty tuple
+        - n_outputs = 1: a data tensor (NOT wrapped in a tuple)
+        - n_outputs > 1: a tuple of data tensors, with n_outputs items
+      A tuple of activation tensors, one for each output.
+    """
+    raise NotImplementedError
+
+  def new_parameters(self, input_shapes, input_dtype, rng):
+    """Creates layer-specific parameters based on data shape, dtype and rng.
+
+    Args:
+      input_shapes: A tuple, depending on the number of inputs (n_inputs)
+          expected by this layer:
+            - n_inputs = 0: an empty tuple ()
+            - n_inputs = 1: a tuple representing the shape of the input
+            - n_inputs > 1: a tuple of shape tuples, one for each input
+          For example:
+            - 0 inputs: ()
+            - 1 input: (210, 160, 3) [NOTE: no tuple wrapping the shape]
+            - 2 inputs: ((210, 160, 3), (105, 80, 3))
       input_dtype: numpy dtype of the input.
-      rng: random number generator.
+      rng: A random number generator.
 
     Returns:
       The newly created parameters for this layer.
     """
     raise NotImplementedError
 
-  # TODO(lukaszkaiser): re-visit the 2 items below in the future.
-  def stack_items_to_pass(self):
-    """How many of the top stack items do we process."""
-    return 0
+  def n_inputs(self):
+    """Specifies how many data tensors this layer expects as input."""
+    return 1  # Default is one input; subclasses can override.
+
+  def n_outputs(self):
+    """Specifies how many data tensors this layer promises as output."""
+    return 1  # Default is one output: subclasses can override.
+
+  def sublayers(self):
+    """Returns the sublayers contained in / managed by this layer."""
+    return ()  # Default is no sublayers; subclasses can override.
 
   # End of subclassing interface, all functions below are internal.
 
-  def output_shape(self, input_shape_and_type, params):
-    """Output shape and type for this layer given input shape and type.
-
-    Note that all arguments and return values can be tuples or dictionaries
-    or arbitrary nested structures composed of tuples and dictionaries.
+  def pseudo_call(self, pseudo_inputs, params):
+    """Computes shapes and types this layer would produce for the given inputs.
 
     Args:
-      input_shape_and_type: a ShapeType with shape and type of the input.
-      params: parameters for this layer.
+      pseudo_inputs: A ShapeType instance (input data minus the actual values)
+          or a tuple of ShapeType instances, following the same conventions as
+          Layer.call's input arg.
+      params: Parameters for this layer.
 
     Returns:
-      The shape and type of the output.
+      A ShapeType instance representing the shape and type of the output (if
+      this layer has one output) or a tuple of ShapeType instances (if this
+      layer has more than one output).
     """
     try:
       with backend.use_backend('jax'):
-        rng = backend.random.get_prng(0)
-        def call_on_input(x, params):
-          f = lambda y: self.call(y, params=params, rng=rng)
-          n = self.stack_items_to_pass() if isinstance(x, (list, tuple)) else 0
-          return _apply_to_first_n(f, x, n)
+        # Beware: using an actual RNG (as opposed to this ShapeType stub) would
+        # cause a large number of dropout masks to be computed and permanently
+        # stored in global memory.
+        rng = ShapeType(shape=(2,), dtype=onp.uint32)
+        def call_on_input(x, params, rng):
+          return self.call(x, params=params, rng=rng)
         params_shapes = nested_map(
             params, lambda x: ShapeType(shape=x.shape, dtype=x.dtype))
-        s = _eval_on_shapes(call_on_input, input_shape_and_type, params_shapes)
+        s = _eval_on_shapes(call_on_input, pseudo_inputs, params_shapes, rng)
       return s
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback(skip=3)
-      raise LayerError(name, 'output_shape', self._caller,
-                       input_shape_and_type, trace)
+      raise LayerError(name, 'pseudo_call', self._caller, pseudo_inputs, trace)
 
-  def initialize(self, input_shape, input_dtype, rng):
+  def initialize(self, input_shapes, input_dtype, rng):
     """Initialize the layer given an input shape, dtype and rng.
 
-    Returns new_parameters(input_shape, rng) on the first call and () on any
+    Returns new_parameters(input_shapes, rng) on the first call and () on any
     subsequent call, as the layer is already initialized. This is used for
     networks that share parameters, so the layer only produces them once.
 
-    Note that all arguments and return values can be tuples or dictionaries
-    or arbitraty nested structures composed of tuples and dictionaries.
-
     Args:
-      input_shape: a tuple representing the shape of the input.
+      input_shapes: A tuple representing a shape (if this layer takes one input)
+          or a tuple of shapes (if this layer takes more than one input).
+          For example: (210, 160, 3) or ((210, 160, 3), (105, 80, 3)).
       input_dtype: numpy dtype of the input.
-      rng: random number generator.
+      rng: A random number generator.
 
     Returns:
       Newly created parameters on the first call and () on all subsequent calls.
     """
     try:
-      # Re-using this layer, no new parameters.
-      if not self._first_init:
+      # Initialize params once; store them for use when this layer is called.
+      if self._needs_init:
+        self._params = self.new_parameters(input_shapes, input_dtype, rng)
+        self._needs_init = False
+        return self._params
+      else:
         return ()
-
-      # First call of this layer, create parameters.
-      self._first_init = False
-      is_list = isinstance(input_shape, (list, tuple))
-      is_list = is_list and isinstance(input_shape[0], (list, tuple))
-      if is_list and self.stack_items_to_pass() > 0:
-        input_shape = input_shape[:self.stack_items_to_pass()]
-        if len(input_shape) == 1:
-          input_shape = input_shape[0]
-      self._params = self.new_parameters(input_shape, input_dtype, rng)
-      return self._params
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback(skip=3)
-      raise LayerError(name, 'initialize', self._caller, input_shape, trace)
+      raise LayerError(name, 'initialize', self._caller, input_shapes, trace)
 
   def __call__(self, x, params=(), **kwargs):
     try:
@@ -146,8 +210,7 @@ class Layer(object):
       # In this case, we're called for the first time: cache parameters.
       self._params = params
       f = lambda y: self.call(y, params=params, **kwargs)
-      n = self.stack_items_to_pass() if isinstance(x, (list, tuple)) else 0
-      return _apply_to_first_n(f, x, n)
+      return f(x)
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback()
       raise LayerError(name, 'call', self._caller, shapes(x), trace)
@@ -193,7 +256,7 @@ class LayerError(Exception):
 
 # TODO(lukaszkaiser): remove this function once JAX has an analogue.
 def _eval_on_shapes(f, *args):
-  """Evaluate f given only shapes and types."""
+  """Evaluates f given only shapes and types."""
   def abstractify(x):
     return jax.abstract_arrays.raise_to_shaped(jax.core.get_aval(x))
 
@@ -248,8 +311,6 @@ def nested_map(x, f):
     return [nested_map(y, f) for y in x]
   if isinstance(x, tuple):
     return tuple([nested_map(y, f) for y in x])
-  if isinstance(x, dict):
-    return {k: nested_map(x[k], f) for k in x}
   return f(x)
 
 
@@ -259,8 +320,6 @@ def nested_reduce(x, f):
     return f([nested_reduce(y, f) for y in x])
   if isinstance(x, tuple):
     return f([nested_reduce(y, f) for y in x])
-  if isinstance(x, dict):  # We apply f only to values in the dicts.
-    return f([nested_reduce(v, f) for v in x.values()])
   return x
 
 
@@ -330,110 +389,135 @@ def _short_traceback(skip=7):
   return '\n'.join(res)
 
 
-# Decorator for making layers from functions.
+def _validate_call_input(x, n_inputs):
+  if n_inputs != 1:
+    if not isinstance(x, tuple):
+      raise TypeError(
+          'expected input to be a tuple; instead received {}'.format(type(x)))
+    if len(x) != n_inputs:
+      raise ValueError(
+          'input tuple length ({}) does not equal required number of inputs'
+          ' ({})'.format(len(x), n_inputs))
 
 
-def layer(new_parameters=None, stack_items_to_pass=1):
-  """Create a layer class from a function."""
-  def layer_decorator(call):
-    """Decorating the call function."""
+def layer(new_parameters=None, n_inputs=1, n_outputs=1):
+  """Decorates a function to make it the call method of a new Layer class."""
+  # TODO(jonni): Consider renaming new_parameters to new_parameters_fn.
 
-    def stack_items_to_pass_fn(self):
+  def _build_layer_class(raw_call_fn):
+    """Returns a Layer class built around the given call function."""
+
+    def _n_inputs(self):
       del self
-      return stack_items_to_pass
+      return n_inputs
 
-    def new_parameters_fn(self, input_shape, input_dtype, rng):
+    def _n_outputs(self):
+      del self
+      return n_outputs
+
+    def _new_parameters(self, input_shapes, input_dtype, rng):
       if new_parameters is None:
         return ()
       kwargs = self._init_kwargs  # pylint: disable=protected-access
-      return new_parameters(input_shape, input_dtype, rng, **kwargs)
+      return new_parameters(input_shapes, input_dtype, rng, **kwargs)
 
-    def call_fn(self, x, params=(), **kwargs):
-      """The call function of the created class, derived from call."""
-      # Merge on-call kwargs with class-kwargs.
-      call_kwargs = kwargs.copy()
-      call_kwargs.update(self._init_kwargs)  # pylint: disable=protected-access
-      # Call with the merged kwargs.
-      return call(x, params=params, **call_kwargs)
+    def _is_empty(raw_output):
+      return raw_output is None or (isinstance(raw_output, (list, tuple))
+                                    and len(raw_output) == 0)  # pylint: disable=g-explicit-length-test
 
-    # Set doc for python help.
-    call_fn.__doc__ = call.__doc__
-    if new_parameters is None:
-      new_parameters_fn.__doc__ = new_parameters.__doc__
+    def _call_with_context(self, x, params=(), **kwargs):
+      """Calls raw_call_fn with extra keyword args from Layer.__init__."""
+      merged_kwargs = kwargs.copy()
+      merged_kwargs.update(self._init_kwargs)  # pylint: disable=protected-access
 
-    # Create the class.
-    cls = type(call.__name__, (Layer,),
-               {'call': call_fn,
-                'new_parameters': new_parameters_fn,
-                'stack_items_to_pass': stack_items_to_pass_fn})
+      _validate_call_input(x, n_inputs)
+      raw_output = raw_call_fn(x, params=params, **merged_kwargs)
+      return () if _is_empty(raw_output) else raw_output
 
+    # Set docstrings and create the class.
+    _call_with_context.__doc__ = raw_call_fn.__doc__
+    _new_parameters.__doc__ = new_parameters.__doc__  # None.__doc__ is None
+    cls = type(raw_call_fn.__name__, (Layer,),
+               {'call': _call_with_context,
+                'new_parameters': _new_parameters,
+                'n_inputs': _n_inputs,
+                'n_outputs': _n_outputs})
     return cls
-  return layer_decorator
+
+  return _build_layer_class
 
 
-def _random_inputs(input_shape, rng, integer_inputs=False):
-  """Create random floats of the given shape.
+def _random_values(input_shapes, rng, integer_inputs=False):
+  """Creates random floats or ints of the given shape.
 
   Args:
-    input_shape: Could be either:
-        list/tuple of ints, ex: (210, 160, 3) or
-        list/tuple of nested shapes, ex: [(210, 160, 3), (105, 80, 3)] or
-        dictionary of nested shapes, ex: {"obs": [(28, 28, 1), (4,)],
-                                          "sensors": [(3,4), (4, 9)]} or
-        any other combination of these, ex: list of dictionaries of tuples etc.
-    rng: random number generator.
-    integer_inputs: boolean, True if we want arrays of integers, otherwise we
-        produce float32s.
+    input_shapes: A tuple representing a shape (if the layer takes one input)
+        or a tuple of shapes (if this layer takes more than one input).
+        For example: (210, 160, 3) or ((210, 160, 3), (105, 80, 3)).
+    rng: A random number generator.
+    integer_inputs: If True, use numpy int32 to produce the random data, else
+        use float32.
 
   Returns:
-    Random values of the type and shape specified.
+    Random values with the shape and type specified.
   """
-  if not isinstance(input_shape, dict) and isinstance(input_shape[0], int):
+  if isinstance(input_shapes[0], int):
     # Non-nested shape, create a random tuple.
     if not integer_inputs:
-      return backend.random.uniform(rng, input_shape, minval=-1.0, maxval=1.0)
-    return backend.random.bernoulli(rng, 0.5, input_shape).astype(onp.int32)
-  elif isinstance(input_shape, list):  # Nested shape: list.
-    return [_random_inputs(shape, rng, integer_inputs) for shape in input_shape]
-  elif isinstance(input_shape, tuple):  # Nested shape: tuple.
-    return tuple(_random_inputs(list(input_shape), rng, integer_inputs))
-  elif isinstance(input_shape, dict):  # Nested shape: dict.
-    return {k: _random_inputs(input_shape[k], rng, integer_inputs)
-            for k in input_shape}
+      return backend.random.uniform(rng, input_shapes, minval=-1.0, maxval=1.0)
+    return backend.random.bernoulli(rng, 0.5, input_shapes).astype(onp.int32)
+  elif isinstance(input_shapes, tuple):  # Nested shape: tuple.
+    return tuple(_random_values(x, rng, integer_inputs) for x in input_shapes)
   else:
-    raise TypeError(type(input_shape))
+    raise TypeError(type(input_shapes))
 
 
-def to_shape_and_type(x_shapes, integers):
-  """Make a shape-and-type tuple from shapes."""
-  if isinstance(x_shapes, dict):  # Nested shape: dict.
-    return {k: to_shape_and_type(x_shapes[k], integers) for k in x_shapes}
-  if isinstance(x_shapes, onp.ndarray):  # Numpy array shape
-    return ShapeType(shape=x_shapes.tolist(),
-                     dtype=onp.int32 if integers else onp.float32)
-  if isinstance(x_shapes[0], (int, onp.int32, onp.int64)):
-    return ShapeType(shape=x_shapes,
-                     dtype=onp.int32 if integers else onp.float32)
-  if isinstance(x_shapes, list):  # Nested shape: list.
-    return [to_shape_and_type(s, integers) for s in x_shapes]
-  if isinstance(x_shapes, tuple):  # Nested shape: tuple.
-    return tuple([to_shape_and_type(s, integers) for s in x_shapes])
-  assert False  # Should never get here.
+def _is_tuple_of_shapes(shape):
+  # TODO(jonni): Find better way to distinguish a shape from a tuple of shapes.
+  if not isinstance(shape, tuple):
+    raise TypeError('shape must be a tuple or tuple of tuples, instead got:'
+                    ' {}'.format(shape))
+  return isinstance(shape, tuple) and isinstance(shape[0], tuple)
 
 
-def check_shape_agreement(layer_instance, input_shape, integer_inputs=False):
-  """Check if layer.output_shape agrees with the actual output shape."""
+def check_shape_agreement(layer_fn, input_shapes, integer_inputs=False):
+  """Checks if the layer's call output agrees its pseudo_call predictions.
+
+  This function helps test layer mechanics and inter-layer connections that
+  aren't dependent on specific data values.
+
+  Args:
+    layer_fn: A Layer instance, viewed as a function from input shapes to
+        output shapes.
+    input_shapes: A tuple representing a shape (if the layer takes one input)
+        or a tuple of shapes (if this layer takes more than one input).
+        For example: (210, 160, 3) or ((210, 160, 3), (105, 80, 3)).
+    integer_inputs: If True, use numpy int32 as the type for the pseudo-data,
+        else use float32.
+
+  Returns:
+    A tuple representing either a single shape (if the layer has one output) or
+    a tuple of shape tuples (if the layer has more than one output).
+  """
   rng1, rng2, rng3 = backend.random.split(backend.random.get_prng(0), 3)
-  input_shape_and_type = to_shape_and_type(input_shape, integer_inputs)
-  input_dtype = nested_map(input_shape_and_type, lambda x: x.dtype)
-  params = layer_instance.initialize(input_shape, input_dtype, rng1)
-  output_shape_and_type = layer_instance.output_shape(
-      input_shape_and_type, params)
-  output_shape = nested_map(output_shape_and_type, lambda x: x.shape)
-  output_shape = nested_map(output_shape, int)  # Make non-numpy.
-  inputs = _random_inputs(input_shape, rng2, integer_inputs=integer_inputs)
-  result = layer_instance(inputs, params, rng=rng3)
-  result_shape = shapes(result)
+  input_dtype = onp.int32 if integer_inputs else onp.float32
+  if _is_tuple_of_shapes(input_shapes):
+    pseudo_data = tuple(ShapeType(x, input_dtype) for x in input_shapes)
+    input_dtype = tuple(input_dtype for _ in input_shapes)
+  else:
+    pseudo_data = ShapeType(input_shapes, input_dtype)
+  params = layer_fn.initialize(input_shapes, input_dtype, rng1)
+  pseudo_output = layer_fn.pseudo_call(pseudo_data, params)
+  if isinstance(pseudo_output, tuple):
+    output_shape = tuple(x.shape for x in pseudo_output)
+  else:
+    output_shape = pseudo_output.shape
+
+  random_input = _random_values(input_shapes, rng2, integer_inputs)
+  real_output = layer_fn(random_input, params, rng=rng3)
+  result_shape = shapes(real_output)
+
   msg = 'output shape %s != real result shape %s' % (output_shape, result_shape)
   assert output_shape == result_shape, msg
+  # TODO(jonni): Remove this assert? It makes test logs harder to read.
   return output_shape

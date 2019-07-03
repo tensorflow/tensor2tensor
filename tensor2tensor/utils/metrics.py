@@ -57,6 +57,7 @@ class Metrics(object):
   SET_RECALL = "set_recall"
   SOFTMAX_CROSS_ENTROPY_ONE_HOT = "softmax_cross_entropy_one_hot"
   SIGMOID_ACCURACY_ONE_HOT = "sigmoid_accuracy_one_hot"
+  SIGMOID_ACCURACY = "sigmoid_accuracy"
   SIGMOID_RECALL_ONE_HOT = "sigmoid_recall_one_hot"
   SIGMOID_PRECISION_ONE_HOT = "sigmoid_precision_one_hot"
   SIGMOID_CROSS_ENTROPY_ONE_HOT = "sigmoid_cross_entropy_one_hot"
@@ -487,6 +488,24 @@ def sigmoid_accuracy_one_hot(logits, labels, weights_fn=None):
     return accuracy, tf.constant(1.0)
 
 
+def sigmoid_accuracy(logits, labels, weights_fn=None):
+  """Calculate accuracy for a set, given integer labels and logits.
+
+  Args:
+    logits: Tensor of size [batch-size, o=1, p=1, num-classes]
+    labels: Tensor of size [batch-size, o=1, p=1]
+    weights_fn: Function that takes in labels and weighs examples (unused)
+  Returns:
+    accuracy (scalar), weights
+  """
+  with tf.variable_scope("sigmoid_accuracy", values=[logits, labels]):
+    del weights_fn
+    predictions = tf.nn.sigmoid(logits)
+    predictions = tf.argmax(predictions, -1)
+    _, accuracy = tf.metrics.accuracy(labels=labels, predictions=predictions)
+    return accuracy, tf.constant(1.0)
+
+
 def sigmoid_precision_one_hot(logits, labels, weights_fn=None):
   """Calculate precision for a set, given one-hot labels and logits.
 
@@ -835,6 +854,7 @@ METRICS_FNS = {
     Metrics.ROUGE_L_F: rouge.rouge_l_fscore,
     Metrics.EDIT_DISTANCE: sequence_edit_distance,
     Metrics.SOFTMAX_CROSS_ENTROPY_ONE_HOT: softmax_cross_entropy_one_hot,
+    Metrics.SIGMOID_ACCURACY: sigmoid_accuracy,
     Metrics.SIGMOID_ACCURACY_ONE_HOT: sigmoid_accuracy_one_hot,
     Metrics.SIGMOID_RECALL_ONE_HOT: sigmoid_recall_one_hot,
     Metrics.SIGMOID_PRECISION_ONE_HOT: sigmoid_precision_one_hot,

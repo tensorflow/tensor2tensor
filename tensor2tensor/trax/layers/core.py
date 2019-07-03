@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import jax
 import numpy as onp
 
 from tensor2tensor.trax import backend
@@ -29,7 +30,7 @@ from tensor2tensor.trax.layers import initializers as init
 
 @base.layer()
 def Relu(x, **unused_kwargs):
-  return np.maximum(x, np.array(0, dtype=x.dtype))
+  return np.maximum(x, np.zeros_like(x))
 
 
 @base.layer()
@@ -86,16 +87,13 @@ def ToFloat(x, **unused_kwargs):
 class Dense(base.Layer):
   """Layer constructor function for a dense (fully-connected) layer."""
 
-  def __init__(self, units,
+  def __init__(self, n_units,
                kernel_initializer=init.GlorotUniformInitializer(),
                bias_initializer=init.RandomNormalInitializer(1e-6)):
     super(Dense, self).__init__()
-    self._units = units
+    self._n_units = n_units
     self._kernel_initializer = kernel_initializer
     self._bias_initializer = bias_initializer
-
-  def stack_items_to_pass(self):
-    return 1
 
   def call(self, x, params, **kwargs):
     del kwargs
@@ -105,8 +103,8 @@ class Dense(base.Layer):
   def new_parameters(self, input_shape, input_dtype, rng):
     del input_dtype
     rng1, rng2 = backend.random.split(rng, 2)
-    w = self._kernel_initializer((input_shape[-1], self._units), rng1)
-    b = self._bias_initializer((self._units,), rng2)
+    w = self._kernel_initializer((input_shape[-1], self._n_units), rng1)
+    b = self._bias_initializer((self._n_units,), rng2)
     return (w, b)
 
 
@@ -120,9 +118,6 @@ class Embedding(base.Layer):
     self._vocab_size = vocab_size
     self._kernel_initializer = kernel_initializer
 
-  def stack_items_to_pass(self):
-    return 1
-
   def call(self, x, params, **kwargs):
     del kwargs
     return np.take(params, x, axis=0)
@@ -135,13 +130,13 @@ class Embedding(base.Layer):
 
 # Flatten.
 @base.layer()
-def Flatten(x, params, num_axis_to_keep=1, **kwargs):
+def Flatten(x, params, n_axes_to_keep=1, **kwargs):
   del params, kwargs
-  if num_axis_to_keep >= len(x.shape):
+  if n_axes_to_keep >= len(x.shape):
     raise ValueError(
-        "num_axis_to_keep[%d] should be less than input's rank[%d]" %
-        (num_axis_to_keep, len(x.shape)))
-  return np.reshape(x, (x.shape[:num_axis_to_keep] + (-1,)))
+        "n_axes_to_keep[%d] should be less than input's rank[%d]" %
+        (n_axes_to_keep, len(x.shape)))
+  return np.reshape(x, (x.shape[:n_axes_to_keep] + (-1,)))
 
 
 @base.layer()
@@ -157,7 +152,7 @@ def Dropout(x, params, rate=0.0, mode='train', rng=None, **kwargs):
     raise ValueError('Dropout rate (%f) must be lower than 1.' % rate)
   if mode == 'train' and rate > 0.0:
     keep = backend.random.bernoulli(rng, 1.0 - rate, x.shape)
-    return np.where(keep, x / (1.0 - rate), 0)
+    return np.where(keep, x / (1.0 - rate), np.zeros_like(x))
   else:
     return x
 
@@ -176,7 +171,11 @@ def AddConstant(x, params, constant=0.0, **unused_kwargs):
 
 def one_hot(x, size, dtype=np.float32):  # pylint: disable=invalid-name
   """Make a n+1 dim one-hot array from n dim int-categorical array."""
-  return np.array(x[..., np.newaxis] == np.arange(size), dtype)
+  arange_size = np.arange(size)
+  if backend.get_name() == 'jax':
+    # Work around a jax broadcasting issue.
+    arange_size = jax.lax.tie_in(x, arange_size)
+  return np.array(x[..., np.newaxis] == arange_size, dtype)
 
 
 # Mean.

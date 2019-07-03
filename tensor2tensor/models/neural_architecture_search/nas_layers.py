@@ -464,8 +464,8 @@ class AttentionLayer(TranslationLayer):
 class AttendToEncoderLayerBase(TranslationLayer):
   """Attend to encoder base, with configurable encoder attend points."""
 
-  def _determine_encoder_block_index(self, block_number, num_encoder_blocks):
-    """Determine the encoder block index to attend to."""
+  def _determine_encoder_cell_index(self, cell_number, num_encoder_cells):
+    """Determine the encoder cell index to attend to."""
     raise NotImplementedError()
 
   def _apply_logic(self,
@@ -476,17 +476,17 @@ class AttendToEncoderLayerBase(TranslationLayer):
                    nonpadding,
                    mask_future,
                    encoder_decoder_attention_bias,
-                   encoder_block_outputs,
-                   block_number,
+                   encoder_cell_outputs,
+                   cell_number,
                    attention_dropout_broadcast_dims=None,
                    **unused_kwargs):
     """Applies attention logic to `input_tensor`."""
     with tf.variable_scope("attend_to_encoder_layer_" + var_scope_suffix):
       hidden_depth = int(input_tensor.shape.as_list()[-1])
-      num_encoder_blocks = len(encoder_block_outputs)
-      encoder_block_index = self._determine_encoder_block_index(
-          block_number, num_encoder_blocks)
-      encoder_layer = encoder_block_outputs[encoder_block_index]
+      num_encoder_cells = len(encoder_cell_outputs)
+      encoder_cell_index = self._determine_encoder_cell_index(
+          cell_number, num_encoder_cells)
+      encoder_layer = encoder_cell_outputs[encoder_cell_index]
 
       # TODO(davidso): This dropout rate differs from the other layers. This
       #                should be fixed so that they all use the same dropout
@@ -534,11 +534,11 @@ class AttendToEncoderTopDownLayer(AttendToEncoderLayerBase):
     self.delay = delay
     self.increment_step = increment_step
 
-  def _determine_encoder_block_index(self, block_number, num_encoder_blocks):
-    """Attend to final encoder block output first, then move down."""
+  def _determine_encoder_cell_index(self, cell_number, num_encoder_cells):
+    """Attend to final encoder cell output first, then move down."""
     return max(
-        0, num_encoder_blocks - max(
-            0, (block_number - self.delay) * self.increment_step) - 1)
+        0, num_encoder_cells -
+        max(0, (cell_number - self.delay) * self.increment_step) - 1)
 
 
 class GatedLinearUnitLayer(TranslationLayer):

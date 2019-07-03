@@ -129,7 +129,73 @@ class Conv2DReparameterization(tf.keras.layers.Conv2D):
 
   def call(self, *args, **kwargs):
     self.call_weights()
+    kwargs.pop('training', None)
     return super(Conv2DReparameterization, self).call(*args, **kwargs)
+
+
+class Conv2DFlipout(Conv2DReparameterization):
+  """2D convolution layer (e.g. spatial convolution over images).
+
+  The layer computes a variational Bayesian approximation to the distribution
+  over convolutional layers,
+
+  ```
+  p(outputs | inputs) = int conv2d(inputs; weights, bias) p(weights, bias)
+    dweights dbias.
+  ```
+
+  It does this with a stochastic forward pass, sampling from learnable
+  distributions on the kernel and bias. Gradients with respect to the
+  distributions' learnable parameters backpropagate via reparameterization.
+  Minimizing cross-entropy plus the layer's losses performs variational
+  minimum description length, i.e., it minimizes an upper bound to the negative
+  marginal likelihood.
+
+  This layer uses the Flipout estimator (Wen et al., 2018) for integrating with
+  respect to the `kernel`. Namely, it applies
+  pseudo-independent weight perturbations via independent sign flips for each
+  example, enabling variance reduction over independent weight perturbations.
+  For this estimator to work, the `kernel` random variable must be able
+  to decompose as a sum of its mean and a perturbation distribution; the
+  perturbation distribution must be independent across weight elements and
+  symmetric around zero (for example, a fully factorized Gaussian).
+  """
+
+  def call(self, inputs):
+    self.call_weights()
+    if not isinstance(self.kernel, ed.RandomVariable):
+      return super(Conv2DFlipout, self).call(inputs)
+    input_shape = tf.shape(inputs)
+    batch_dim = input_shape[0]
+    if self.data_format == 'channels_first':
+      channels = input_shape[1]
+      sign_input_shape = [batch_dim, channels, 1, 1]
+      sign_output_shape = [batch_dim, self.filters, 1, 1]
+    else:
+      channels = input_shape[-1]
+      sign_input_shape = [batch_dim, 1, 1, channels]
+      sign_output_shape = [batch_dim, 1, 1, self.filters]
+    sign_input = 2 * tf.random.uniform(sign_input_shape,
+                                       minval=0,
+                                       maxval=2,
+                                       dtype=inputs.dtype) - 1
+    sign_output = 2 * tf.random.uniform(sign_output_shape,
+                                        minval=0,
+                                        maxval=2,
+                                        dtype=inputs.dtype) - 1
+    kernel_mean = self.kernel.distribution.mean()
+    perturbation = self.kernel - kernel_mean
+    outputs = self._convolution_op(inputs, kernel_mean)
+    outputs += self._convolution_op(inputs * sign_input,
+                                    perturbation) * sign_output
+    if self.use_bias:
+      if self.data_format == 'channels_first':
+        outputs = tf.nn.bias_add(outputs, self.bias, data_format='NCHW')
+      else:
+        outputs = tf.nn.bias_add(outputs, self.bias, data_format='NHWC')
+    if self.activation is not None:
+      outputs = self.activation(outputs)
+    return outputs
 
 
 @add_weight
@@ -206,7 +272,10 @@ class Conv2DVariationalDropout(tf.keras.layers.Conv2D):
           tf.keras.backend.epsilon())
       outputs = means + stddevs * tf.random_normal(tf.shape(stddevs))
       if self.use_bias:
-        outputs = tf.nn.bias_add(outputs, self.bias)
+        if self.data_format == 'channels_first':
+          outputs = tf.nn.bias_add(outputs, self.bias, data_format='NCHW')
+        else:
+          outputs = tf.nn.bias_add(outputs, self.bias, data_format='NHWC')
       if self.activation is not None:
         outputs = self.activation(outputs)
       return outputs
@@ -467,7 +536,67 @@ class DenseReparameterization(tf.keras.layers.Dense):
 
   def call(self, *args, **kwargs):
     self.call_weights()
+    kwargs.pop('training', None)
     return super(DenseReparameterization, self).call(*args, **kwargs)
+
+
+class DenseFlipout(DenseReparameterization):
+  """Bayesian densely-connected layer estimated via Flipout (Wen et al., 2018).
+
+  The layer computes a variational Bayesian approximation to the distribution
+  over densely-connected layers,
+
+  ```
+  p(outputs | inputs) = int dense(inputs; weights, bias) p(weights, bias)
+    dweights dbias.
+  ```
+
+  It does this with a stochastic forward pass, sampling from learnable
+  distributions on the kernel and bias. Gradients with respect to the
+  distributions' learnable parameters backpropagate via reparameterization.
+  Minimizing cross-entropy plus the layer's losses performs variational
+  minimum description length, i.e., it minimizes an upper bound to the negative
+  marginal likelihood.
+
+  This layer uses the Flipout estimator (Wen et al., 2018) for integrating with
+  respect to the `kernel`. Namely, it applies
+  pseudo-independent weight perturbations via independent sign flips for each
+  example, enabling variance reduction over independent weight perturbations.
+  For this estimator to work, the `kernel` random variable must be able
+  to decompose as a sum of its mean and a perturbation distribution; the
+  perturbation distribution must be independent across weight elements and
+  symmetric around zero (for example, a fully factorized Gaussian).
+  """
+
+  def call(self, inputs):
+    self.call_weights()
+    if not isinstance(self.kernel, ed.RandomVariable):
+      return super(DenseFlipout, self).call(inputs)
+    input_shape = tf.shape(inputs)
+    sign_input = 2 * tf.random.uniform(input_shape,
+                                       minval=0,
+                                       maxval=2,
+                                       dtype=inputs.dtype) - 1
+    sign_output = 2 * tf.random.uniform(tf.concat([input_shape[:-1],
+                                                   [self.units]], 0),
+                                        minval=0,
+                                        maxval=2,
+                                        dtype=inputs.dtype) - 1
+    kernel_mean = self.kernel.distribution.mean()
+    perturbation = self.kernel - kernel_mean
+    if inputs.shape.ndims <= 2:
+      outputs = tf.matmul(inputs, kernel_mean)
+      outputs += tf.matmul(inputs * sign_input, perturbation) * sign_output
+    else:
+      outputs = tf.tensordot(inputs, kernel_mean, [[-1], [0]])
+      outputs += tf.tensordot(inputs * sign_input,
+                              perturbation,
+                              [[-1], [0]]) * sign_output
+    if self.use_bias:
+      outputs = tf.nn.bias_add(outputs, self.bias)
+    if self.activation is not None:
+      outputs = self.activation(outputs)
+    return outputs
 
 
 @add_weight
@@ -678,13 +807,186 @@ class LSTMCellReparameterization(tf.keras.layers.LSTMCell):
     if isinstance(self.bias_initializer, tf.keras.layers.Layer):
       self.bias = self.bias_initializer(self.bias.shape, self.dtype)
 
-  # NOTE: This will not be called in TF < 1.11.
   def get_initial_state(self, inputs=None, batch_size=None, dtype=None):
     """Get the initial state and side-effect sampling of stochastic weights."""
     if self.built:
       self.call_weights()
     return super(LSTMCellReparameterization, self).get_initial_state(
         inputs=inputs, batch_size=batch_size, dtype=dtype)
+
+
+class LSTMCellFlipout(LSTMCellReparameterization):
+  """Bayesian LSTM cell class estimated via Flipout (Wen et al., 2018).
+
+  The layer computes a variational Bayesian approximation to the distribution
+  over LSTM cell functions,
+
+  ```
+  p(outputs | inputs) = int lstm_cell(inputs; weights, bias) p(weights, bias)
+    dweights dbias,
+  ```
+
+  where the weights consist of both input and recurrent weights.
+
+  It does this with a stochastic forward pass, sampling from learnable
+  distributions on the kernel, recurrent kernel, and bias. Gradients with
+  respect to the distributions' learnable parameters backpropagate via
+  reparameterization.  Minimizing cross-entropy plus the layer's losses performs
+  variational minimum description length, i.e., it minimizes an upper bound to
+  the negative marginal likelihood.
+
+  This layer uses the Flipout estimator (Wen et al., 2018) for integrating with
+  respect to the `kernel` and `recurrent_kernel`. Namely, it applies
+  pseudo-independent weight perturbations via independent sign flips for each
+  example, enabling variance reduction over independent weight perturbations.
+  For this estimator to work, the `kernel` and `recurrent_kernel` random
+  variable must be able to decompose as a sum of its mean and a perturbation
+  distribution; the perturbation distribution must be independent across weight
+  elements and symmetric around zero (for example, a fully factorized Gaussian).
+  """
+
+  def _call_sign_flips(self, inputs=None, batch_size=None, dtype=None):
+    """Builds per-example sign flips for pseudo-independent perturbations."""
+    # TODO(trandustin): We add and call this method separately from build().
+    # This is because build() operates on a static input_shape. We need dynamic
+    # input shapes as we operate on the batch size which is often dynamic.
+    if inputs is not None:
+      batch_size = tf.shape(inputs)[0]
+      dtype = inputs.dtype
+    input_dim = tf.shape(self.kernel)[0]
+    self.sign_input = 2 * tf.random.uniform(
+        [batch_size, 4 * input_dim], minval=0, maxval=2, dtype=dtype) - 1
+    self.sign_output = 2 * tf.random.uniform(
+        [batch_size, 4 * self.units], minval=0, maxval=2, dtype=dtype) - 1
+    self.recurrent_sign_input = 2 * tf.random.uniform(
+        [batch_size, 4 * self.units], minval=0, maxval=2, dtype=dtype) - 1
+    self.recurrent_sign_output = 2 * tf.random.uniform(
+        [batch_size, 4 * self.units], minval=0, maxval=2, dtype=dtype) - 1
+
+  def get_initial_state(self, inputs=None, batch_size=None, dtype=None):
+    """Get the initial state and side-effect sampling of stochastic weights."""
+    if self.built:
+      self._call_sign_flips(inputs, batch_size, dtype)
+    return super(LSTMCellFlipout, self).get_initial_state(
+        inputs=inputs, batch_size=batch_size, dtype=dtype)
+
+  def _compute_carry_and_output(self, x, h_tm1, c_tm1):
+    """Computes carry and output using split kernels."""
+    if not isinstance(self.recurrent_kernel, ed.RandomVariable):
+      return super(LSTMCellFlipout, self)._compute_carry_and_output(x,
+                                                                    h_tm1,
+                                                                    c_tm1)
+    x_i, x_f, x_c, x_o = x
+    h_tm1_i, h_tm1_f, h_tm1_c, h_tm1_o = h_tm1
+    kernel_mean = self.recurrent_kernel.distribution.mean()
+    perturbation = self.recurrent_kernel - kernel_mean
+    k_i, k_f, k_c, k_o = tf.split(kernel_mean, num_or_size_splits=4, axis=1)
+    p_i, p_f, p_c, p_o = tf.split(perturbation, num_or_size_splits=4, axis=1)
+    si_i, si_f, si_c, si_o = tf.split(self.recurrent_sign_input,
+                                      num_or_size_splits=4, axis=1)
+    so_i, so_f, so_c, so_o = tf.split(self.recurrent_sign_output,
+                                      num_or_size_splits=4, axis=1)
+    z0 = (x_i + tf.keras.backend.dot(h_tm1_i, k_i) +
+          tf.keras.backend.dot(h_tm1_i * si_i, p_i) * so_i)
+    z1 = (x_f + tf.keras.backend.dot(h_tm1_f, k_f) +
+          tf.keras.backend.dot(h_tm1_f * si_f, p_f) * so_f)
+    z2 = (x_c + tf.keras.backend.dot(h_tm1_c, k_c) +
+          tf.keras.backend.dot(h_tm1_c * si_c, p_c) * so_c)
+    z3 = (x_o + tf.keras.backend.dot(h_tm1_o, k_o) +
+          tf.keras.backend.dot(h_tm1_o * si_o, p_o) * so_o)
+    i = self.recurrent_activation(z0)
+    f = self.recurrent_activation(z1)
+    c = f * c_tm1 + i * self.activation(z2)
+    o = self.recurrent_activation(z3)
+    return c, o
+
+  def call(self, inputs, states, training=None):
+    # TODO(trandustin): Enable option for Flipout on only the kernel or
+    # recurrent_kernel. If only one is a random variable, we currently default
+    # to weight reparameterization.
+    if (not isinstance(self.kernel, ed.RandomVariable) or
+        not isinstance(self.recurrent_kernel, ed.RandomVariable)):
+      return super(LSTMCellFlipout, self).call(inputs, states, training)
+    if not hasattr(self, 'sign_input'):
+      self._call_sign_flips(inputs)
+    h_tm1 = states[0]  # previous memory state
+    c_tm1 = states[1]  # previous carry state
+
+    dp_mask = self.get_dropout_mask_for_cell(inputs, training, count=4)
+    rec_dp_mask = self.get_recurrent_dropout_mask_for_cell(
+        h_tm1, training, count=4)
+
+    if self.implementation == 1:
+      if 0 < self.dropout < 1.:
+        inputs_i = inputs * dp_mask[0]
+        inputs_f = inputs * dp_mask[1]
+        inputs_c = inputs * dp_mask[2]
+        inputs_o = inputs * dp_mask[3]
+      else:
+        inputs_i = inputs
+        inputs_f = inputs
+        inputs_c = inputs
+        inputs_o = inputs
+      kernel_mean = self.kernel.distribution.mean()
+      perturbation = self.kernel - kernel_mean
+      k_i, k_f, k_c, k_o = tf.split(kernel_mean, num_or_size_splits=4, axis=1)
+      p_i, p_f, p_c, p_o = tf.split(perturbation, num_or_size_splits=4, axis=1)
+      si_i, si_f, si_c, si_o = tf.split(self.sign_input,
+                                        num_or_size_splits=4, axis=1)
+      so_i, so_f, so_c, so_o = tf.split(self.sign_output,
+                                        num_or_size_splits=4, axis=1)
+      x_i = (tf.keras.backend.dot(inputs_i, k_i) +
+             tf.keras.backend.dot(inputs_i * si_i, p_i) * so_i)
+      x_f = (tf.keras.backend.dot(inputs_f, k_f) +
+             tf.keras.backend.dot(inputs_f * si_f, p_f) * so_f)
+      x_c = (tf.keras.backend.dot(inputs_c, k_c) +
+             tf.keras.backend.dot(inputs_c * si_c, p_c) * so_c)
+      x_o = (tf.keras.backend.dot(inputs_o, k_o) +
+             tf.keras.backend.dot(inputs_o * si_o, p_o) * so_o)
+      if self.use_bias:
+        b_i, b_f, b_c, b_o = tf.split(
+            self.bias, num_or_size_splits=4, axis=0)
+        x_i = tf.keras.backend.bias_add(x_i, b_i)
+        x_f = tf.keras.backend.bias_add(x_f, b_f)
+        x_c = tf.keras.backend.bias_add(x_c, b_c)
+        x_o = tf.keras.backend.bias_add(x_o, b_o)
+
+      if 0 < self.recurrent_dropout < 1.:
+        h_tm1_i = h_tm1 * rec_dp_mask[0]
+        h_tm1_f = h_tm1 * rec_dp_mask[1]
+        h_tm1_c = h_tm1 * rec_dp_mask[2]
+        h_tm1_o = h_tm1 * rec_dp_mask[3]
+      else:
+        h_tm1_i = h_tm1
+        h_tm1_f = h_tm1
+        h_tm1_c = h_tm1
+        h_tm1_o = h_tm1
+      x = (x_i, x_f, x_c, x_o)
+      h_tm1 = (h_tm1_i, h_tm1_f, h_tm1_c, h_tm1_o)
+      c, o = self._compute_carry_and_output(x, h_tm1, c_tm1)
+    else:
+      if 0. < self.dropout < 1.:
+        inputs = inputs * dp_mask[0]
+      kernel_mean = self.kernel.distribution.mean()
+      perturbation = self.kernel - kernel_mean
+      z = tf.keras.backend.dot(inputs, kernel_mean)
+      z += tf.keras.backend.dot(inputs * self.sign_input,
+                                perturbation) * self.sign_output
+      if 0. < self.recurrent_dropout < 1.:
+        h_tm1 = h_tm1 * rec_dp_mask[0]
+      recurrent_kernel_mean = self.recurrent_kernel.distribution.mean()
+      perturbation = self.recurrent_kernel - recurrent_kernel_mean
+      z += tf.keras.backend.dot(h_tm1, recurrent_kernel_mean)
+      z += tf.keras.backend.dot(h_tm1 * self.recurrent_sign_input,
+                                perturbation) * self.recurrent_sign_output
+      if self.use_bias:
+        z = tf.keras.backend.bias_add(z, self.bias)
+
+      z = tf.split(z, num_or_size_splits=4, axis=1)
+      c, o = self._compute_carry_and_output_fused(z, c_tm1)
+
+    h = o * self.activation(c)
+    return h, [h, c]
 
 
 class Zeros(object):

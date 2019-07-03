@@ -37,10 +37,12 @@ class SimilarityTransformer(t2t_model.T2TModel):
     return body_output
 
   def body(self, features):
-    with tf.variable_scope('string_embedding'):
-      string_embedding = self.encode(features, 'inputs')
+    if self.hparams.mode != tf.estimator.ModeKeys.PREDICT:
+      # In training mode we need to embed both the queries and the code
+      # using the inputs and targets respectively.
+      with tf.variable_scope('string_embedding'):
+        string_embedding = self.encode(features, 'inputs')
 
-    if 'targets' in features:
       with tf.variable_scope('code_embedding'):
         code_embedding = self.encode(features, 'targets')
 
@@ -61,10 +63,34 @@ class SimilarityTransformer(t2t_model.T2TModel):
 
       loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=labels,
                                                      logits=logits)
+      return string_embedding_norm, {'training': loss}
 
-      return string_embedding, {'training': loss}
+    # In predict mode we conditionally embed either the string query
+    # or the code based on the embed_code feature. In both cases the
+    # input will be in the inputs feature but the variable scope will
+    # be different
+    # Define predicates to be used with tf.cond
+    def embed_string():
+      with tf.variable_scope('string_embedding'):
+        string_embedding = self.encode(features, 'inputs')
+      return string_embedding
 
-    return string_embedding
+    def embed_code():
+      with tf.variable_scope('code_embedding'):
+        code_embedding = self.encode(features, 'inputs')
+      return code_embedding
+
+    embed_code_feature = features.get('embed_code')
+
+    # embed_code_feature will be a tensor because inputs will be a batch
+    # of inputs. We need to reduce that down to a single value for use
+    # with tf.cond; so we simply take the max of all the elements.
+    # This implicitly assume all inputs have the same value.
+    is_embed_code = tf.reduce_max(embed_code_feature)
+    result = tf.cond(is_embed_code > 0, embed_code, embed_string)
+
+    result = tf.nn.l2_normalize(result)
+    return result
 
   def encode(self, features, input_key):
     hparams = self._hparams

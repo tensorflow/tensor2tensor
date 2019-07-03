@@ -222,6 +222,14 @@ def rlmb_dqn_guess1():
 
 
 @registry.register_hparams
+def rlmb_dqn_guess1_rainbow():
+  """Rainbow rlmb_dqn guess1 params."""
+  hparams = rlmb_dqn_guess1()
+  hparams.set_hparam("base_algo_params", "dqn_guess1_rainbow_params")
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_dqn_guess1_2m_replay_buffer():
   """DQN guess1 params, 2M replay buffer."""
   hparams = rlmb_dqn_guess1()

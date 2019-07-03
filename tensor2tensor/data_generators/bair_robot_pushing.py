@@ -79,9 +79,6 @@ class VideoBairRobotPushing(video_utils.VideoProblem):
   def random_skip(self):
     return False
 
-  def eval_metrics(self):
-    return []
-
   @property
   def only_keep_videos_from_0th_frame(self):
     return True

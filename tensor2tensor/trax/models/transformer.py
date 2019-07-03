@@ -34,11 +34,11 @@ def FeedForward(d_feature, d_feedforward, dropout, mode):
 
 
 def EncoderBlock(d_feature, d_feedforward, n_heads, dropout, mode):
-  """Transformer encoder block.
+  """Returns a layer sequence that implements a Transformer encoder block.
 
-  The input to the encoder is a pair (embedded source, mask) where
-  the mask is created from the original source to prevent attending
-  to the padding part of the input.
+  The input to the layer sequence is a pair, (activations, mask), where the
+  mask was created from the original source tokens to prevent attending to the
+  padding part of the input.
 
   Args:
     d_feature: int:  depth of embedding
@@ -48,12 +48,12 @@ def EncoderBlock(d_feature, d_feedforward, n_heads, dropout, mode):
     mode: str: 'train' or 'eval'
 
   Returns:
-    the layer, returning a pair (activations, mask).
+    A sequence of layers that maps an (activations, mask) pair to an
+    (activations, mask) pair.
   """
   attention = [
       tl.LayerNorm(),
-      tl.MultiHeadedAttention(
-          d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
+      tl.Attention(d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
       tl.Dropout(rate=dropout, mode=mode),
   ]
   feed_forward = [
@@ -74,7 +74,9 @@ def TransformerEncoder(vocab_size,
                        dropout=0.1,
                        max_len=2048,
                        mode='train'):
-  """Transformer encoder.
+  """Returns a Transformer encoder model.
+
+  The input to the model is a tensor of tokens.
 
   Args:
     vocab_size: int: vocab size
@@ -88,27 +90,31 @@ def TransformerEncoder(vocab_size,
     mode: str: 'train' or 'eval'
 
   Returns:
-    the Transformer encoder layer.
+    A Transformer model as a layer that maps from a tensor of tokens to
+    activations over a set of output classes.
   """
-  positional_embedder = [
+  embedder = [
       tl.Embedding(d_feature, vocab_size),
       tl.Dropout(rate=dropout, mode=mode),
       tl.PositionalEncoding(max_len=max_len),
   ]
-  return tl.Model([
-      tl.Branch(positional_embedder, tl.PaddingMask()),  # Create mask.
+  return tl.Model([                             #      tokens
+      tl.Dup(),                                 # toks toks
+      tl.Parallel(embedder, tl.PaddingMask()),  # vecs mask
       [EncoderBlock(d_feature, d_feedforward, n_heads, dropout, mode)
-       for _ in range(n_layers)],
-      tl.Select(0),  # Drop mask.
-      tl.LayerNorm(),
-      tl.Mean(axis=1),  # Average on length.
-      tl.Dense(n_classes),
-      tl.LogSoftmax(),
+       for _ in range(n_layers)],               # vecs mask
+      tl.Parallel([], tl.Drop()),               # ____  0
+      tl.LayerNorm(),                           # vecs
+      tl.Mean(axis=1),  # Average on length.    # vecs
+      tl.Dense(n_classes),                      # vecs
+      tl.LogSoftmax(),                          # vecs
   ])
 
 
 def DecoderBlock(d_feature, d_feedforward, n_heads, dropout, mode):
-  """Transformer decoder layer.
+  """Returns a layer sequence that implements a Transformer decoder block.
+
+  The input to the layer sequence is an activation tensor.
 
   Args:
     d_feature: int:  depth of embedding
@@ -118,15 +124,15 @@ def DecoderBlock(d_feature, d_feedforward, n_heads, dropout, mode):
     mode: str: 'train' or 'eval'
 
   Returns:
-    the layer.
+    A sequence of layers that maps an activation tensor to an activation tensor.
   """
   self_attention = [
-      tl.LayerNorm(),
-      tl.Branch([], tl.CausalMask(axis=-2)),  # Create mask.
-      tl.MultiHeadedAttention(
-          d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
-      tl.Select(0),  # Drop mask.
-      tl.Dropout(rate=dropout, mode=mode),
+      tl.LayerNorm(),  # vec
+      tl.Dup(),  # vec vec
+      tl.Parallel([], tl.CausalMask(axis=-2)),  # vec mask
+      tl.Attention(d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
+      tl.Parallel([], tl.Drop()),  # vec
+      tl.Dropout(rate=dropout, mode=mode),  # vec
   ]
   feed_forward = [
       FeedForward(d_feature, d_feedforward, dropout, mode=mode),
@@ -145,7 +151,10 @@ def TransformerLM(vocab_size,
                   dropout=0.1,
                   max_len=2048,
                   mode='train'):
-  """Transformer language model (only uses the decoder part of Transformer).
+  """Returns a Transformer language model.
+
+  The input to the model is a tensor of tokens. (This model uses only the
+  decoder part of the overall Transformer.)
 
   Args:
     vocab_size: int: vocab size
@@ -158,30 +167,31 @@ def TransformerLM(vocab_size,
     mode: str: 'train' or 'eval'
 
   Returns:
-    the layer.
+    A Transformer language model as a layer that maps from a tensor of tokens
+    to activations over a vocab set.
   """
-  positional_embedder = [
+  embedder = [
       tl.Embedding(d_feature, vocab_size),
       tl.Dropout(rate=dropout, mode=mode),
       tl.PositionalEncoding(max_len=max_len),
   ]
-  return tl.Model(
-      tl.ShiftRight(),
-      positional_embedder,
+  return tl.Model(                  # tokens
+      tl.ShiftRight(),              # toks
+      embedder,                     # vecs
       [DecoderBlock(d_feature, d_feedforward, n_heads, dropout, mode)
-       for _ in range(n_layers)],
-      tl.LayerNorm(),
-      tl.Dense(vocab_size),
-      tl.LogSoftmax(),
+       for _ in range(n_layers)],   # vecs
+      tl.LayerNorm(),               # vecs
+      tl.Dense(vocab_size),         # vecs
+      tl.LogSoftmax(),              # vecs
   )
 
 
 def EncoderDecoder(d_feature, d_feedforward, n_heads, dropout, mode):
   """Transformer encoder-decoder layer.
 
-  The input is a triple pair (decoder_input, mask, encoder) where
-  the mask is created from the original source to prevent attending
-  to the padding part of the encoder.
+  The input is a triple (decoder_input, mask, encoder) where the mask is
+  created from the original source to prevent attending to the padding part
+  of the encoder.
 
   Args:
     d_feature: int:  depth of embedding
@@ -193,31 +203,29 @@ def EncoderDecoder(d_feature, d_feedforward, n_heads, dropout, mode):
   Returns:
     the layer, returning a triple (decoder_activations, mask, encoder).
   """
-  decoder_self_attention = [
-      # TODO(jonni): Work on combinators so that this flow is cleaner/clearer.
-      tl.LayerNorm(),
-      tl.Dup(),
-      tl.CausalMask(axis=-2),  # Create the self-attention mask.
-      tl.Swap(),  # Put mask behind the activations.
-      tl.MultiHeadedAttention(d_feature, n_heads=n_heads,
-                              dropout=dropout, mode=mode),
-      tl.Swap(),  # Put self-attention mask on top.
-      tl.Drop(),   # Drop self-attention mask.
-      tl.Dropout(rate=dropout, mode=mode),
+  decoder_self_attention = [                    #        vecs_d   pmask vecs_e
+      tl.LayerNorm(),                           #        vecs_d   ..... ......
+      tl.Dup(),                                 # vecs_d vecs_d   ..... ......
+      tl.Parallel([], tl.CausalMask(axis=-2)),  # ______ masks    ..... ......
+      tl.Attention(d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
+      tl.Parallel([], tl.Drop()),               # ______   0      ..... ......
+      tl.Dropout(rate=dropout, mode=mode),      # vecs_d          ..... ......
   ]
-  decoder_to_encoder_attention = [
-      tl.Select((0, 2, 2, 1, 2)),  # (dec, enc, enc, mask, enc-copy)
-      tl.MultiHeadedAttentionQKV(  # (q, k, v, mask, ...) --> (new, mask, ...)
+  decoder_to_encoder_attention = [        # vecs_d        masks         vecs_e
+      tl.Parallel([], [], tl.Dup()),      # ______        _____  vecs_e vecs_e
+      tl.Parallel([], tl.Swap()),         # ______        vecs_e masks  ......
+      tl.Parallel([], tl.Dup()),          # ______ vecs_e vecs_e .....  ......
+      tl.AttentionQKV(  # (q k v masks ... --> vecs_d masks ...)
           d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
-      tl.Dropout(rate=dropout, mode=mode),
+      tl.Dropout(rate=dropout, mode=mode),  # vecs_d mask vecs_e
   ]
   feed_forward = [
       FeedForward(d_feature, d_feedforward, dropout, mode=mode),
   ]
-  return [
-      tl.Residual(decoder_self_attention),
-      tl.Residual(decoder_to_encoder_attention),
-      tl.Residual(feed_forward),
+  return [                                        # vecs_d masks vecs_e
+      tl.Residual(decoder_self_attention),        # vecs_d masks vecs_e
+      tl.Residual(decoder_to_encoder_attention),  # vecs_d masks vecs_e
+      tl.Residual(feed_forward),                  # vecs_d masks vecs_e
   ]
 
 
@@ -230,9 +238,9 @@ def Transformer(vocab_size,
                 dropout=0.1,
                 max_len=2048,
                 mode='train'):
-  """Transformer.
+  """Returns a Transformer model.
 
-  This model expects on input a pair (source, target).
+  This model expects an input pair: target, source.
 
   Args:
     vocab_size: int: vocab size (shared source and target).
@@ -245,30 +253,43 @@ def Transformer(vocab_size,
     mode: str: 'train' or 'eval'
 
   Returns:
-    the Transformer model.
+    A Transformer model as a layer that maps from a target, source pair to
+    activations over a vocab set.
   """
-  positional_embedder = [
-      tl.Embedding(d_feature, vocab_size),
-      tl.Dropout(rate=dropout, mode=mode),
-      tl.PositionalEncoding(max_len=max_len),
+  embed = [                                    # tokens
+      tl.Embedding(d_feature, vocab_size),     # vecs
+      tl.Dropout(rate=dropout, mode=mode),     # vecs
+      tl.PositionalEncoding(max_len=max_len),  # vecs
   ]
-  encoder = [
-      tl.Branch(positional_embedder, tl.PaddingMask()),
+
+  encoder_stack = (  # masks vectors --> masks vectors
       [EncoderBlock(d_feature, d_feedforward, n_heads, dropout, mode)
-       for _ in range(n_layers)],
-      tl.LayerNorm(),
-  ]
-  return tl.Model(
-      tl.Parallel([], tl.ShiftRight()),
-      tl.Parallel(encoder, positional_embedder),
-      tl.Select(inputs=(('encoder', 'mask'), 'decoder'),
-                output=('decoder', ('mask', 'decoder'), 'encoder')),
-      # (encoder_mask, decoder_input) -> encoder-decoder mask
-      tl.Parallel([], tl.EncoderDecoderMask(), []),
+       for _ in range(n_layers)])
+
+  encoder_decoder_stack = (  # vecs_d masks vecs_e --> vecs_d masks vecs_e
       [EncoderDecoder(d_feature, d_feedforward, n_heads, dropout, mode)
-       for _ in range(n_layers)],
-      tl.Select(0),  # Drop mask and encoder.
-      tl.LayerNorm(),
-      tl.Dense(vocab_size),
-      tl.LogSoftmax(),
+       for _ in range(n_layers)])
+
+  # Input: encoder_side_tokens, decoder_side_tokens
+  return tl.Model(  # tokens_e tokens_d
+      tl.Swap(),    # toks_d toks_e
+
+      # Encode.
+      tl.Parallel(                                    # toks_d        toks_e
+          [], [tl.Dup(),                              # ______ toks_e toks_e
+               tl.Parallel(embed, tl.PaddingMask()),  # ______ vecs_e masks
+               encoder_stack,                         # ______ vecs_e masks
+               tl.LayerNorm(),                        # ______ vecs_e .....
+               tl.Swap()]),                           # ______ masks vecs_e
+
+      # Decode.                                  #        toks_d masks vecs_e
+      tl.ShiftRight(),                           #        toks_d ..... ......
+      embed,                                     #        vecs_d ..... ......
+      tl.Dup(),                                  # vecs_d vecs_d ..... ......
+      tl.Parallel([], tl.EncoderDecoderMask()),  # ______    masks     ......
+      encoder_decoder_stack,                     # vecs_d    masks     vecs_e
+      tl.Parallel([], tl.Drop(), tl.Drop()),     # vecs_d
+      tl.LayerNorm(),                            # vecs_d
+      tl.Dense(vocab_size),                      # vecs_d
+      tl.LogSoftmax(),                           # vecs_d
   )

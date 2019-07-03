@@ -33,6 +33,18 @@ tf.compat.v1.enable_eager_execution()
 class BayesTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
+      {"layer": bayes.Conv2DFlipout,
+       "kernel_initializer": "zeros",
+       "bias_initializer": "zeros",
+       "all_close": True},
+      {"layer": bayes.Conv2DFlipout,
+       "kernel_initializer": "trainable_normal",
+       "bias_initializer": "zeros",
+       "all_close": False},
+      {"layer": bayes.Conv2DFlipout,
+       "kernel_initializer": "zeros",
+       "bias_initializer": "trainable_normal",
+       "all_close": False},
       {"layer": bayes.Conv2DReparameterization,
        "kernel_initializer": "zeros",
        "bias_initializer": "zeros",
@@ -84,6 +96,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     model.get_config()
 
   @parameterized.parameters(
+      {"layer": bayes.Conv2DFlipout},
       {"layer": bayes.Conv2DReparameterization},
       {"layer": bayes.Conv2DVariationalDropout},
   )
@@ -122,6 +135,18 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
        "bias_initializer": "zeros",
        "all_close": False},
       {"layer": bayes.DenseDVI,
+       "kernel_initializer": "zeros",
+       "bias_initializer": "trainable_normal",
+       "all_close": False},
+      {"layer": bayes.DenseFlipout,
+       "kernel_initializer": "zeros",
+       "bias_initializer": "zeros",
+       "all_close": True},
+      {"layer": bayes.DenseFlipout,
+       "kernel_initializer": "trainable_normal",
+       "bias_initializer": "zeros",
+       "all_close": False},
+      {"layer": bayes.DenseFlipout,
        "kernel_initializer": "zeros",
        "bias_initializer": "trainable_normal",
        "all_close": False},
@@ -177,6 +202,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
       {"layer": bayes.DenseDVI},
+      {"layer": bayes.DenseFlipout},
       {"layer": bayes.DenseReparameterization},
       {"layer": bayes.DenseVariationalDropout},
   )
@@ -203,6 +229,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
       {"layer": bayes.DenseDVI},
+      {"layer": bayes.DenseFlipout},
       {"layer": bayes.DenseReparameterization},
       {"layer": bayes.DenseVariationalDropout},
   )
@@ -255,6 +282,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
       {"layer": bayes.DenseDVI},
+      {"layer": bayes.DenseFlipout},
       {"layer": bayes.DenseReparameterization},
       {"layer": bayes.DenseVariationalDropout},
   )
@@ -277,6 +305,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
       {"layer": bayes.DenseDVI},
+      {"layer": bayes.DenseFlipout},
       {"layer": bayes.DenseReparameterization},
       {"layer": bayes.DenseVariationalDropout},
   )
@@ -394,39 +423,57 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     self.assertLessEqual(log_prob_val, 0.)
     self.assertEqual(outputs_val.shape, (batch_size, output_dim))
 
-  @parameterized.named_parameters(
-      {"testcase_name": "_no_uncertainty",
+  @parameterized.parameters(
+      {"lstm_cell": bayes.LSTMCellFlipout,
        "kernel_initializer": "zeros",
        "recurrent_initializer": "orthogonal",
        "bias_initializer": "zeros",
        "all_close": True},
-      {"testcase_name": "_kernel_uncertainty",
+      {"lstm_cell": bayes.LSTMCellFlipout,
        "kernel_initializer": "trainable_normal",
        "recurrent_initializer": "orthogonal",
        "bias_initializer": "zeros",
        "all_close": False},
-      {"testcase_name": "_recurrent_uncertainty",
+      {"lstm_cell": bayes.LSTMCellFlipout,
+       "kernel_initializer": "zeros",
+       "recurrent_initializer": "orthogonal",
+       "bias_initializer": "trainable_normal",
+       "all_close": False},
+      {"lstm_cell": bayes.LSTMCellReparameterization,
+       "kernel_initializer": "zeros",
+       "recurrent_initializer": "orthogonal",
+       "bias_initializer": "zeros",
+       "all_close": True},
+      {"lstm_cell": bayes.LSTMCellReparameterization,
+       "kernel_initializer": "trainable_normal",
+       "recurrent_initializer": "orthogonal",
+       "bias_initializer": "zeros",
+       "all_close": False},
+      {"lstm_cell": bayes.LSTMCellReparameterization,
        "kernel_initializer": "zeros",
        "recurrent_initializer": "trainable_normal",
        "bias_initializer": "zeros",
        "all_close": False},
-      {"testcase_name": "_bias_uncertainty",
+      {"lstm_cell": bayes.LSTMCellReparameterization,
        "kernel_initializer": "zeros",
        "recurrent_initializer": "orthogonal",
        "bias_initializer": "trainable_normal",
        "all_close": False},
   )
   @test_utils.run_in_graph_and_eager_modes
-  def testLSTMCellReparameterization(
-      self, kernel_initializer, recurrent_initializer, bias_initializer,
-      all_close):
+  def testLSTMCell(self,
+                   lstm_cell,
+                   kernel_initializer,
+                   recurrent_initializer,
+                   bias_initializer,
+                   all_close):
     batch_size, timesteps, dim = 5, 3, 12
     hidden_size = 10
     inputs = tf.to_float(np.random.rand(batch_size, timesteps, dim))
-    cell = bayes.LSTMCellReparameterization(
-        hidden_size, kernel_initializer=kernel_initializer,
-        recurrent_initializer=recurrent_initializer,
-        bias_initializer=bias_initializer)
+    cell = lstm_cell(hidden_size,
+                     kernel_initializer=kernel_initializer,
+                     recurrent_initializer=recurrent_initializer,
+                     bias_initializer=bias_initializer)
     noise = tf.to_float(np.random.rand(1, hidden_size))
     h0, c0 = cell.get_initial_state(inputs)
     state = (h0 + noise, c0)
@@ -444,11 +491,15 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
       self.assertNotAllClose(res1, res3)
     cell.get_config()
 
+  @parameterized.parameters(
+      {"lstm_cell": bayes.LSTMCellFlipout},
+      {"lstm_cell": bayes.LSTMCellReparameterization},
+  )
   @test_utils.run_in_graph_and_eager_modes()
-  def testLSTMCellReparameterizationLoss(self):
+  def testLSTMCellLoss(self, lstm_cell):
     features = tf.to_float(np.random.rand(5, 1, 12))
     labels = tf.to_float(np.random.rand(5, 10))
-    cell = bayes.LSTMCellReparameterization(10)
+    cell = lstm_cell(10)
     state = (tf.zeros([1, 10]), tf.zeros([1, 10]))
 
     # Imagine this is the 1st epoch.
@@ -500,12 +551,16 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     for grad in grads:
       self.assertIsNotNone(grad)
 
+  @parameterized.parameters(
+      {"lstm_cell": bayes.LSTMCellFlipout},
+      {"lstm_cell": bayes.LSTMCellReparameterization},
+  )
   @test_utils.run_in_graph_and_eager_modes()
-  def testLSTMCellReparameterizationModel(self):
+  def testLSTMCellModel(self, lstm_cell):
     batch_size, timesteps, dim = 5, 3, 12
     hidden_size = 10
     inputs = tf.to_float(np.random.rand(batch_size, timesteps, dim))
-    cell = bayes.LSTMCellReparameterization(hidden_size)
+    cell = lstm_cell(hidden_size)
     model = tf.keras.Sequential([
         tf.keras.layers.RNN(cell, return_sequences=True)
     ])
@@ -525,8 +580,9 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     # each call, so these should be different.
     self.assertNotAllClose(res1, res2)
     # NOTE: We didn't call `cell.call_weights` again before computing
-    # `outputs3`, so the cell should have had the same weights as it did during
-    # computation of `outputs2`, and thus yielded the same output tensor.
+    # `outputs3`, so the cell should have had the same weights as it did
+    # during computation of `outputs2`, and thus yielded the same output
+    # tensor.
     self.assertAllClose(res2, res3)
     self.assertLen(model.losses, 2)
 

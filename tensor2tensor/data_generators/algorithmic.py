@@ -132,6 +132,27 @@ class AlgorithmicIdentityDecimal40(AlgorithmicIdentityBinary40):
 
 
 @registry.register_problem
+class AlgorithmicIdentityVocab95Train20Eval30(AlgorithmicIdentityBinary40):
+  """Problem spec for algorithmic decimal identity task."""
+
+  @property
+  def num_symbols(self):
+    return 95
+
+  @property
+  def train_length(self):
+    return 20
+
+  @property
+  def dev_length(self):
+    return 30
+
+  @property
+  def train_size(self):
+    return 1000000
+
+
+@registry.register_problem
 class AlgorithmicShiftDecimal40(AlgorithmicProblem):
   """Problem spec for algorithmic decimal shift task."""
 

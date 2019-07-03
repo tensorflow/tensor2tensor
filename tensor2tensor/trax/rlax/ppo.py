@@ -96,14 +96,23 @@ def policy_and_value_net(rng_key,
   # NOTE: The LogSoftmax instead of the Softmax because of numerical stability.
 
   if two_towers:
-    net = tl.Branch([bottom_layers_fn(),
-                     tl.Dense(n_actions),
-                     tl.LogSoftmax()],
-                    [bottom_layers_fn(), tl.Dense(1)])
+    layers = [
+        tl.Dup(),
+        tl.Parallel(
+            [bottom_layers_fn(), tl.Dense(n_actions), tl.LogSoftmax()],
+            [bottom_layers_fn(), tl.Dense(1)],
+        )
+    ]
   else:
-    net = tl.Serial(
+    layers = [
         bottom_layers_fn(),
-        tl.Branch([tl.Dense(n_actions), tl.LogSoftmax()], [tl.Dense(1)]))
+        tl.Dup(),
+        tl.Parallel(
+            [tl.Dense(n_actions), tl.LogSoftmax()],
+            [tl.Dense(1)],
+        )
+    ]
+  net = tl.Model(layers)
   params = net.initialize(batch_observations_shape, observations_dtype, rng_key)
   return params, net
 
@@ -754,15 +763,20 @@ def maybe_restore_params(output_dir, policy_and_value_net_params):
     which we restored the params, 0 is restore = False.
   """
   model_files = gfile.glob(os.path.join(output_dir, "model-??????.pkl"))
-  if not model_files:
-    return False, policy_and_value_net_params, 0
-
-  model_file = sorted(model_files)[-1]
-  model_file_basename = os.path.basename(model_file)  # model-??????.pkl
-  i = int(filter(str.isdigit, model_file_basename))
-  with gfile.GFile(model_file, "rb") as f:
-    policy_and_value_net_params = pickle.load(f)
-  return True, policy_and_value_net_params, i
+  for model_file in reversed(sorted(model_files)):
+    logging.info("Trying to restore model from %s", model_file)
+    try:
+      with gfile.GFile(model_file, "rb") as f:
+        loaded_policy_and_value_net_params = pickle.load(f)
+        policy_and_value_net_params = loaded_policy_and_value_net_params
+      model_file_basename = os.path.basename(model_file)  # model-??????.pkl
+      i = int(filter(str.isdigit, model_file_basename))
+      return True, policy_and_value_net_params, i
+    except EOFError as e:
+      logging.error("Unable to load model from: %s with %s", model_file, e)
+      # Try an older version.
+      continue
+  return False, policy_and_value_net_params, 0
 
 
 def training_loop(

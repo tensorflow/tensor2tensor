@@ -79,9 +79,6 @@ class VideoMovingMnist(video_utils.VideoProblem):
   def random_skip(self):
     return False
 
-  def eval_metrics(self):
-    return []
-
   @property
   def dataset_splits(self):
     """Splits of data to produce and number of output shards for each."""

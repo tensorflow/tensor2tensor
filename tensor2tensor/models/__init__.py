@@ -44,6 +44,8 @@ from tensor2tensor.models import transformer
 from tensor2tensor.models import vanilla_gan
 from tensor2tensor.models import xception
 
+from tensor2tensor.models.neural_architecture_search import nas_model
+
 from tensor2tensor.models.research import adafactor_experiments
 from tensor2tensor.models.research import aligned
 from tensor2tensor.models.research import attention_lm

@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import gin
 # We create a flat layers.* namespace for uniform calling conventions as we
 # upstream changes.
 # pylint: disable=wildcard-import
@@ -30,3 +31,21 @@ from tensor2tensor.trax.layers.initializers import *
 from tensor2tensor.trax.layers.normalization import *
 from tensor2tensor.trax.layers.pooling import *
 from tensor2tensor.trax.layers.rnn import *
+
+
+# Ginify
+def layer_configure(*args, **kwargs):
+  kwargs["module"] = "trax.layers"
+  return gin.external_configurable(*args, **kwargs)
+
+# pylint: disable=used-before-assignment
+# pylint: disable=invalid-name
+Relu = layer_configure(Relu)
+Sigmoid = layer_configure(Sigmoid)
+Tanh = layer_configure(Tanh)
+HardSigmoid = layer_configure(HardSigmoid)
+HardTanh = layer_configure(HardTanh)
+Exp = layer_configure(Exp)
+LogSoftmax = layer_configure(LogSoftmax)
+Softmax = layer_configure(Softmax)
+Softplus = layer_configure(Softplus)

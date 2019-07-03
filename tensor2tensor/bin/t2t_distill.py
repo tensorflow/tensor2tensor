@@ -107,6 +107,7 @@ def main(argv):
   else:
     student_dir = os.path.join(root_output_dir, "student")
   FLAGS.output_dir = student_dir
+  hparams.add_hparam("student_dir", student_dir)
 
   exp_fn = t2t_trainer.create_experiment_fn()
   run_config = t2t_trainer.create_run_config(hparams)
@@ -165,6 +166,7 @@ def create_student_experiment(run_config, hparams, argv):
     t2t_trainer.set_hparams_from_args(argv[1:])
 
   hparams.add_hparam("teacher_dir", FLAGS.teacher_dir)
+  hparams.add_hparam("student_dir", FLAGS.student_dir)
   hparams.distill_phase = "distill"
   exp_fn = t2t_trainer.create_experiment_fn()
   exp = exp_fn(run_config, hparams)

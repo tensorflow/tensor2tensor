@@ -338,7 +338,7 @@ class Problem(object):
   def preprocess_example(self, example, mode, hparams):
     """Runtime preprocessing.
 
-    Return a dict or a tf.Data.Datset.from_tensor_slices (if you want each
+    Return a dict or a tf.data.Dataset.from_tensor_slices (if you want each
     example to turn into multiple).
 
     Args:

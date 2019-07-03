@@ -32,13 +32,13 @@ class RnnLayerTest(absltest.TestCase):
 
   def test_conv_gru_cell(self):
     self._test_cell_runs(
-        rnn.ConvGRUCell(units=9, kernel_size=(3, 3)),
+        rnn.ConvGRUCell(9, kernel_size=(3, 3)),
         input_shape=(8, 1, 7, 9),
         output_shape=(8, 1, 7, 9))
 
   def test_gru_cell(self):
     self._test_cell_runs(
-        rnn.GRUCell(units=9), input_shape=(8, 7, 9), output_shape=(8, 7, 9))
+        rnn.GRUCell(9), input_shape=(8, 7, 9), output_shape=(8, 7, 9))
 
 
 if __name__ == '__main__':
