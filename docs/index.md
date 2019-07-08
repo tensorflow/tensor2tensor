@@ -111,6 +111,7 @@ There are a number of translation data-sets in T2T:
 * English-Czech: `--problem=translate_encs_wmt32k`
 * English-Chinese: `--problem=translate_enzh_wmt32k`
 * English-Vietnamese: `--problem=translate_envi_iwslt32k`
+* English-Spanish: `--problem=translate_enes_wmt32k`
 
 You can get translations in the other direction by appending `_rev` to
 the problem name, e.g., for German-English use
