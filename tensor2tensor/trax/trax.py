@@ -539,6 +539,14 @@ class Trainer(object):
   def state(self):
     return State(params=self._opt_state, step=self._step, history=self._history)
 
+  @property
+  def learning_rate(self):
+    # TODO(lukaszkaiser): it makes no sense to use an accelerator (e.g. TPU)
+    # in op-by-op mode just to compute the learning rate. However, there
+    # should be a cleaner approach that forceably swapping out the backend.
+    with backend.use_backend("numpy"):
+      return self._lr_fn(self._step)
+
   def save_gin(self):
     _save_gin(self._output_dir, self._train_sw)
 
@@ -572,8 +580,7 @@ class Trainer(object):
         # in op-by-op mode just to compute the learning rate. However, there
         # should be a cleaner approach that forceably swapping out the backend.
         with backend.use_backend("numpy"):
-          self._train_sw.scalar("training/learning rate",
-                                self._lr_fn(self._step), step=self._step)
+          self._train_sw.scalar("training/learning rate", self.learning_rate)
 
     # Timer
     epoch_time = time.time() - start_time
@@ -607,10 +614,11 @@ class Trainer(object):
         eval_sw=self._eval_sw,
         history=self._history)
 
-  def update_learning_rate(self):
+  def update_learning_rate(self, force_jit=False):
     old_lr_fn = self._lr_fn
     self._lr_fn = self._lr_schedule(self._history)
-    if self._lr_fn != old_lr_fn:  # For performance only jit if it's changed.
+    # For performance only jit if it's changed or we force it.
+    if self._lr_fn != old_lr_fn or force_jit:
       opt = self._optimizer(self._lr_fn)
       self._jit_update_fn = _jit_update_fn(
           self._model_train, self._loss_fn, opt, self._n_devices)
@@ -668,14 +676,15 @@ class MemoryEfficientTrainer(Trainer):
         eval_sw=self._eval_sw,
         history=self._history)
 
-  def update_learning_rate(self):
+  def update_learning_rate(self, force_jit=False):
     old_lr_fn = self._lr_fn
     self._lr_fn = self._lr_schedule(self._history)
-    if self._lr_fn != old_lr_fn:
+    if self._lr_fn != old_lr_fn or force_jit:
       raise NotImplementedError(
-          "Loss function changed. Garbage collection for jitted functions is "
-          "not implemented in jax, so global accelerator memory allocated by "
-          "the jitted update function with the old loss cannot be reclaimed.")
+          "Loss function changed or jitting was requested. Garbage collection "
+          "for jitted functions is not implemented in jax, so global "
+          "accelerator memory allocated by the jitted update function with the "
+          "old loss cannot be reclaimed.")
 
   def save_computation_graphs(self, save_backward_graph):
     # TODO(kitaev): implement saving graphs while making sure that no op-by-op
