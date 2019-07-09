@@ -424,6 +424,31 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     self.assertLessEqual(log_prob_val, 0.)
     self.assertEqual(outputs_val.shape, (batch_size, output_dim))
 
+  @test_utils.run_in_graph_and_eager_modes()
+  def testSparseGaussianProcess(self):
+    dataset_size = 10
+    batch_size = 3
+    input_dim = 4
+    output_dim = 5
+    features = tf.to_float(np.random.rand(batch_size, input_dim))
+    labels = tf.to_float(np.random.rand(batch_size, output_dim))
+    model = bayes.SparseGaussianProcess(output_dim, num_inducing=2)
+    with tf.GradientTape() as tape:
+      predictions = model(features)
+      nll = -tf.reduce_mean(predictions.distribution.log_prob(labels))
+      kl = sum(model.losses) / dataset_size
+      loss = nll + kl
+
+    self.evaluate(tf.global_variables_initializer())
+    grads = tape.gradient(nll, model.variables)
+    for grad in grads:
+      self.assertIsNotNone(grad)
+
+    loss_val, predictions_val = self.evaluate([loss, predictions])
+    self.assertEqual(loss_val.shape, ())
+    self.assertGreaterEqual(loss_val, 0.)
+    self.assertEqual(predictions_val.shape, (batch_size, output_dim))
+
   @parameterized.parameters(
       {"lstm_cell": bayes.LSTMCellFlipout,
        "kernel_initializer": "zeros",

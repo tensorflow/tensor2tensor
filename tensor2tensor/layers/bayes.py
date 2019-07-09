@@ -1225,6 +1225,146 @@ class GaussianProcess(tf.keras.layers.Layer):
     return dict(list(base_config.items()) + list(config.items()))
 
 
+@add_weight
+class SparseGaussianProcess(GaussianProcess):
+  r"""Gaussian process layer with inducing input and output variables.
+
+  The layer represents a distribution over functions, where a
+  stochastic forward pass appears as
+
+  ```none
+  f ~ GP(f | inducing_inputs, inducing_outputs; mean_fn, covariance_fn)
+  outputs = f(inputs)
+  ```
+
+  The arguments `inducing_inputs` and `inducing_outputs`
+  capture data that the GP "memorizes", i.e., it forms a posterior predictive
+  distribution. Typically in a variational inference scheme (and by default),
+  the inducing outputs are normally distributed with learnable location and
+  scale parameters, and the inducing inputs are learnable parameters.
+
+  Given a call to `inputs` with these defaults, an equivalent formulation in
+  terms of function outputs is
+
+  ```none
+  inducing_outputs ~ Normal(inducing_outputs | mean, stddev)
+  outputs ~ \prod_{unit=1}^{units} MultivariateNormal(output[:, unit] |
+      mean = mean_fn(inputs) + Knm Kmm^{-1} (inducing_outputs[:, unit]-mean),
+      covariance = Knn - Knm Kmm^{-1} Kmn)
+  ```
+
+  where Knm is the covariance function evaluated between all `inputs` and
+  `inducing_inputs`; Knn is between all `inputs`; Kmm is between all
+  `inducing_inputs`; and mean is the mean function evaluated on
+  `inducing_inputs`. The multivariate normal is correlated across input
+  dimensions and is independent across output dimensions.
+
+  #### Examples
+
+  We demonstrate a three-layer deep GP with variational inference (Salimbeni and
+  Deisenroth, 2017; Damianou and Lawrence, 2013). The code snippet mirrors
+  Figure 5 of Bayesian Layers. We apply it for regression given batches of
+  spatial inputs and vector-valued outputs. We flatten inputs to use the
+  default squared exponential kernel; this naturally extends to pass in a
+  more sophisticated kernel function.
+
+  ```python
+  from tensor2tensor.layers import bayes
+
+  batch_size = 256
+  dataset_size = 10000
+  features, labels = load_spatial_data(batch_size)
+
+  model = tf.keras.Sequential([
+    tf.keras.layers.Flatten(),
+    layers.SparseGaussianProcess(256, num_inducing=512),
+    layers.SparseGaussianProcess(256, num_inducing=512),
+    layers.SparseGaussianProcess(10, num_inducing=512),
+  ])
+  predictions = model(features)
+  nll = tf.losses.mean_squared_error(labels=labels, predictions=predictions)
+  kl = sum(model.losses) / dataset_size
+  loss = nll + kl
+  train_op = tf.train.AdamOptimizer().minimize(loss)
+  ```
+  """
+
+  def __init__(
+      self,
+      units,
+      num_inducing,
+      mean_fn=Zeros(),
+      covariance_fn=ExponentiatedQuadratic(variance=1., lengthscale=1.),
+      inducing_inputs_initializer='random_normal',
+      inducing_outputs_initializer='trainable_normal',
+      inducing_inputs_regularizer=None,
+      inducing_outputs_regularizer='normal_kl_divergence',
+      inducing_inputs_constraint=None,
+      inducing_outputs_constraint=None,
+      **kwargs):
+    """Constructs layer.
+
+    Args:
+      units: integer, dimensionality of layer.
+      num_inducing: integer, number of inducing points for the approximation.
+      mean_fn: Mean function, a callable taking an inputs Tensor of shape
+        [batch, ...] and returning a Tensor of shape [batch].
+      covariance_fn: Covariance function, a callable taking two input Tensors
+        of shape [batch_x1, ...] and [batch_x2, ...] respectively, and returning
+        a positive semi-definite matrix of shape [batch_x1, batch_x2].
+      inducing_inputs_initializer: Initializer for the inducing inputs.
+      inducing_outputs_initializer: Initializer for the inducing outputs.
+      inducing_inputs_regularizer: Regularizer function applied to the inducing
+        inputs.
+      inducing_outputs_regularizer: Regularizer function applied to the inducing
+        outputs.
+      inducing_inputs_constraint: Constraint function applied to the inducing
+        inputs.
+      inducing_outputs_constraint: Constraint function applied to the inducing
+        outputs.
+      **kwargs: kwargs passed to parent class.
+    """
+    super(SparseGaussianProcess, self).__init__(
+        units=units,
+        mean_fn=mean_fn,
+        covariance_fn=covariance_fn,
+        conditional_inputs=None,
+        conditional_outputs=None,
+        **kwargs)
+    self.num_inducing = num_inducing
+    self.inducing_inputs_initializer = initializers.get(
+        inducing_inputs_initializer)
+    self.inducing_outputs_initializer = initializers.get(
+        inducing_outputs_initializer)
+    self.inducing_inputs_regularizer = regularizers.get(
+        inducing_inputs_regularizer)
+    self.inducing_outputs_regularizer = regularizers.get(
+        inducing_outputs_regularizer)
+    self.inducing_inputs_constraint = constraints.get(
+        inducing_inputs_constraint)
+    self.inducing_outputs_constraint = constraints.get(
+        inducing_outputs_constraint)
+
+  def build(self, input_shape=None):
+    input_shape = tf.TensorShape(input_shape)
+    input_dim = input_shape[-1]
+    if isinstance(input_dim, tf.Dimension):
+      input_dim = input_dim.value
+    self.conditional_inputs = self.add_weight(
+        shape=(self.num_inducing, input_dim),
+        name='inducing_inputs',
+        initializer=self.inducing_inputs_initializer,
+        regularizer=self.inducing_inputs_regularizer,
+        constraint=self.inducing_inputs_constraint)
+    self.conditional_outputs = self.add_weight(
+        shape=(self.num_inducing, self.units),
+        name='inducing_outputs',
+        initializer=self.inducing_outputs_initializer,
+        regularizer=self.inducing_outputs_regularizer,
+        constraint=self.inducing_outputs_constraint)
+    super(SparseGaussianProcess, self).build(input_shape)
+
+
 class BayesianLinearModel(tf.keras.Model):
   r"""Bayesian linear model with standard normal prior over its coefficients.
 
