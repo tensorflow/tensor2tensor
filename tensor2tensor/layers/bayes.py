@@ -198,8 +198,7 @@ class Conv2DFlipout(Conv2DReparameterization):
     return outputs
 
 
-@add_weight
-class Conv2DVariationalDropout(tf.keras.layers.Conv2D):
+class Conv2DVariationalDropout(Conv2DReparameterization):
   """2D convolution layer with variational dropout (Kingma et al., 2015).
 
   Implementation follows the additive parameterization of
@@ -240,13 +239,6 @@ class Conv2DVariationalDropout(tf.keras.layers.Conv2D):
         kernel_constraint=constraints.get(kernel_constraint),
         bias_constraint=constraints.get(bias_constraint),
         **kwargs)
-
-  def call_weights(self):
-    """Calls any weights if the initializer is itself a layer."""
-    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
-      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
-    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
-      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
 
   def call(self, inputs, training=None):
     self.call_weights()
@@ -321,7 +313,60 @@ def smart_constant_value(pred):
 
 
 @add_weight
-class DenseDVI(tf.keras.layers.Dense):
+class DenseReparameterization(tf.keras.layers.Dense):
+  """Bayesian densely-connected layer estimated via reparameterization.
+
+  The layer computes a variational Bayesian approximation to the distribution
+  over densely-connected layers,
+
+  ```
+  p(outputs | inputs) = int dense(inputs; weights, bias) p(weights, bias)
+    dweights dbias.
+  ```
+
+  It does this with a stochastic forward pass, sampling from learnable
+  distributions on the kernel and bias. Gradients with respect to the
+  distributions' learnable parameters backpropagate via reparameterization.
+  Minimizing cross-entropy plus the layer's losses performs variational
+  minimum description length, i.e., it minimizes an upper bound to the negative
+  marginal likelihood.
+  """
+
+  def __init__(self,
+               units,
+               activation=None,
+               use_bias=True,
+               kernel_initializer='trainable_normal',
+               bias_initializer='zero',
+               kernel_regularizer='normal_kl_divergence',
+               bias_regularizer=None,
+               activity_regularizer=None,
+               **kwargs):
+    super(DenseReparameterization, self).__init__(
+        units=units,
+        activation=activation,
+        use_bias=use_bias,
+        kernel_initializer=initializers.get(kernel_initializer),
+        bias_initializer=initializers.get(bias_initializer),
+        kernel_regularizer=regularizers.get(kernel_regularizer),
+        bias_regularizer=regularizers.get(bias_regularizer),
+        activity_regularizer=regularizers.get(activity_regularizer),
+        **kwargs)
+
+  def call_weights(self):
+    """Calls any weights if the initializer is itself a layer."""
+    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
+      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
+    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
+      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
+
+  def call(self, *args, **kwargs):
+    self.call_weights()
+    kwargs.pop('training', None)
+    return super(DenseReparameterization, self).call(*args, **kwargs)
+
+
+class DenseDVI(DenseReparameterization):
   """Densely-connected layer with deterministic VI (Wu et al., 2018).
 
   This layer computes a variational inference approximation via first and second
@@ -364,34 +409,6 @@ class DenseDVI(tf.keras.layers.Dense):
                           scale=locs.distribution.variance() + 1.)
   ```
   """
-
-  def __init__(self,
-               units,
-               activation=None,
-               use_bias=True,
-               kernel_initializer='trainable_normal',
-               bias_initializer='zero',
-               kernel_regularizer='normal_kl_divergence',
-               bias_regularizer=None,
-               activity_regularizer=None,
-               **kwargs):
-    super(DenseDVI, self).__init__(
-        units=units,
-        activation=activation,
-        use_bias=use_bias,
-        kernel_initializer=initializers.get(kernel_initializer),
-        bias_initializer=initializers.get(bias_initializer),
-        kernel_regularizer=regularizers.get(kernel_regularizer),
-        bias_regularizer=regularizers.get(bias_regularizer),
-        activity_regularizer=regularizers.get(activity_regularizer),
-        **kwargs)
-
-  def call_weights(self):
-    """Calls any weights if the initializer is itself a layer."""
-    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
-      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
-    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
-      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
 
   def call(self, inputs):
     self.call_weights()
@@ -486,60 +503,6 @@ def soft_relu(x):
           x * tfp.distributions.Normal(0., 1.).cdf(x))
 
 
-@add_weight
-class DenseReparameterization(tf.keras.layers.Dense):
-  """Bayesian densely-connected layer estimated via reparameterization.
-
-  The layer computes a variational Bayesian approximation to the distribution
-  over densely-connected layers,
-
-  ```
-  p(outputs | inputs) = int dense(inputs; weights, bias) p(weights, bias)
-    dweights dbias.
-  ```
-
-  It does this with a stochastic forward pass, sampling from learnable
-  distributions on the kernel and bias. Gradients with respect to the
-  distributions' learnable parameters backpropagate via reparameterization.
-  Minimizing cross-entropy plus the layer's losses performs variational
-  minimum description length, i.e., it minimizes an upper bound to the negative
-  marginal likelihood.
-  """
-
-  def __init__(self,
-               units,
-               activation=None,
-               use_bias=True,
-               kernel_initializer='trainable_normal',
-               bias_initializer='zero',
-               kernel_regularizer='normal_kl_divergence',
-               bias_regularizer=None,
-               activity_regularizer=None,
-               **kwargs):
-    super(DenseReparameterization, self).__init__(
-        units=units,
-        activation=activation,
-        use_bias=use_bias,
-        kernel_initializer=initializers.get(kernel_initializer),
-        bias_initializer=initializers.get(bias_initializer),
-        kernel_regularizer=regularizers.get(kernel_regularizer),
-        bias_regularizer=regularizers.get(bias_regularizer),
-        activity_regularizer=regularizers.get(activity_regularizer),
-        **kwargs)
-
-  def call_weights(self):
-    """Calls any weights if the initializer is itself a layer."""
-    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
-      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
-    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
-      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
-
-  def call(self, *args, **kwargs):
-    self.call_weights()
-    kwargs.pop('training', None)
-    return super(DenseReparameterization, self).call(*args, **kwargs)
-
-
 class DenseFlipout(DenseReparameterization):
   """Bayesian densely-connected layer estimated via Flipout (Wen et al., 2018).
 
@@ -599,8 +562,7 @@ class DenseFlipout(DenseReparameterization):
     return outputs
 
 
-@add_weight
-class DenseVariationalDropout(tf.keras.layers.Dense):
+class DenseVariationalDropout(DenseReparameterization):
   """Densely-connected layer with variational dropout (Kingma et al., 2015).
 
   Implementation follows the additive parameterization of
@@ -627,13 +589,6 @@ class DenseVariationalDropout(tf.keras.layers.Dense):
         bias_regularizer=regularizers.get(bias_regularizer),
         activity_regularizer=regularizers.get(activity_regularizer),
         **kwargs)
-
-  def call_weights(self):
-    """Calls any weights if the initializer is itself a layer."""
-    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
-      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
-    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
-      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
 
   def call(self, inputs, training=None):
     self.call_weights()
