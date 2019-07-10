@@ -48,14 +48,9 @@ class RenderedEnvProblem(env_problem.EnvProblem, video_utils.VideoProblem):
   `RenderedEnvProblem`, `EnvProblem`, `Env`, `VideoProblem`, `Problem`
   """
 
-  def __init__(self,
-               base_env_name=None,
-               batch_size=None,
-               env_wrapper_fn=None,
-               reward_range=(-np.inf, np.inf)):
+  def __init__(self, *args, **kwargs):
     """Initialize by calling both parents' constructors."""
-    env_problem.EnvProblem.__init__(self, base_env_name, batch_size,
-                                    env_wrapper_fn, reward_range)
+    env_problem.EnvProblem.__init__(self, *args, **kwargs)
     video_utils.VideoProblem.__init__(self)
 
   def initialize_environments(self, batch_size=1):

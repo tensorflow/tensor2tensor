@@ -13,22 +13,3 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Environments defined in RLAX."""
-
-import gin
-from gym.envs.registration import register
-
-from tensor2tensor.trax.rlax.envs import online_tune_env
-
-
-# Ginify and register in gym.
-def configure_and_register_env(env_class):
-  register(
-      id="{}-v0".format(env_class.__name__),
-      entry_point="tensor2tensor.trax.rlax.envs:{}".format(env_class.__name__),
-  )
-  return gin.external_configurable(env_class, module="trax.rlax.envs")
-
-
-# pylint: disable=invalid-name
-OnlineTuneEnv = configure_and_register_env(online_tune_env.OnlineTuneEnv)

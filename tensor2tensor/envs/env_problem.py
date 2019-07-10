@@ -129,7 +129,9 @@ class EnvProblem(Env, problem.Problem):
                base_env_name=None,
                batch_size=None,
                env_wrapper_fn=None,
-               reward_range=(-np.inf, np.inf)):
+               reward_range=(-np.inf, np.inf),
+               discrete_rewards=True,
+               **env_kwargs):
     """Initializes this class by creating the envs and managing trajectories.
 
     Args:
@@ -142,6 +144,9 @@ class EnvProblem(Env, problem.Problem):
       reward_range: (tuple(number, number)) the first element is the minimum
         reward and the second is the maximum reward, used to clip and process
         the raw reward in `process_rewards`.
+      discrete_rewards: (bool) whether to round the rewards to the nearest
+        integer.
+      **env_kwargs: (dict) Additional kwargs to pass to the environments.
     """
 
     # Call the super's ctor.
@@ -162,6 +167,9 @@ class EnvProblem(Env, problem.Problem):
     # in `process_rewards`.
     self._reward_range = reward_range
 
+    # If set, we discretize the rewards and treat them as integers.
+    self._discrete_rewards = discrete_rewards
+
     # Initialize the environment(s).
 
     # This can either be a list of environments of len `batch_size` or this can
@@ -181,7 +189,7 @@ class EnvProblem(Env, problem.Problem):
     self._env_wrapper_fn = env_wrapper_fn
 
     if batch_size is not None:
-      self.initialize(batch_size=batch_size)
+      self.initialize(batch_size=batch_size, **env_kwargs)
 
   @property
   def batch_size(self):
@@ -246,7 +254,7 @@ class EnvProblem(Env, problem.Problem):
     assert self._reward_range is not None
     assert self._trajectories is not None
 
-  def initialize_environments(self, batch_size=1):
+  def initialize_environments(self, batch_size=1, **env_kwargs):
     """Initializes the environments and trajectories.
 
     Subclasses can override this if they don't want a default implementation
@@ -255,11 +263,14 @@ class EnvProblem(Env, problem.Problem):
 
     Args:
       batch_size: (int) Number of `self.base_env_name` envs to initialize.
+      **env_kwargs: (dict) Kwargs to pass to gym.make.
     """
     assert batch_size >= 1
     self._batch_size = batch_size
 
-    self._envs = [gym.make(self.base_env_name) for _ in range(batch_size)]
+    self._envs = [
+        gym.make(self.base_env_name, **env_kwargs) for _ in range(batch_size)
+    ]
     if self._env_wrapper_fn is not None:
       self._envs = list(map(self._env_wrapper_fn, self._envs))
 
@@ -351,7 +362,7 @@ class EnvProblem(Env, problem.Problem):
     return (min_reward != -np.inf) and (max_reward != np.inf)
 
   def process_rewards(self, rewards):
-    """Clips, rounds, and changes to integer type.
+    """Clips the rewards, optionally rounds them and casts to integer.
 
     Args:
       rewards: numpy array of raw (float) rewards.
@@ -364,8 +375,10 @@ class EnvProblem(Env, problem.Problem):
 
     # Clips at min and max reward.
     rewards = np.clip(rewards, min_reward, max_reward)
-    # Round to (nearest) int and convert to integral type.
-    rewards = np.around(rewards, decimals=0).astype(np.int64)
+
+    if self._discrete_rewards:
+      # Round to (nearest) int and convert to integral type.
+      rewards = np.around(rewards, decimals=0).astype(np.int64)
     return rewards
 
   @property

@@ -1,0 +1,40 @@
+import tensor2tensor.trax.inputs
+import tensor2tensor.trax.models
+import tensor2tensor.trax.optimizers
+import tensor2tensor.trax.rlax.envs
+
+# Parameters for batch_fun:
+# ==============================================================================
+batch_fun.batch_size = 32
+batch_fun.bucket_length = 32
+batch_fun.buckets = None
+batch_fun.eval_batch_size = 32
+
+# Parameters for inputs:
+# ==============================================================================
+inputs.data_dir = None
+inputs.dataset_name = 'cifar10'
+
+# Parameters for Momentum:
+# ==============================================================================
+Momentum.mass = 0.9
+
+# Parameters for shuffle_and_batch_data:
+# ==============================================================================
+shuffle_and_batch_data.preprocess_fun = @trax.inputs.cifar10_no_augmentation_preprocess
+
+# Parameters for WideResnet:
+# ==============================================================================
+WideResnet.d_hidden = 64
+WideResnet.n_blocks = 3
+WideResnet.n_output_classes = 10
+
+# Parameters for OnlineTune:
+# ==============================================================================
+OnlineTuneEnv.inputs = @trax.inputs.inputs
+OnlineTuneEnv.model = @trax.models.WideResnet
+OnlineTuneEnv.optimizer = @trax.optimizers.Momentum
+OnlineTuneEnv.start_lr = 0.01
+OnlineTuneEnv.train_steps = 500
+OnlineTuneEnv.eval_steps = 100
+OnlineTuneEnv.env_steps = 100

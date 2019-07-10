@@ -20,6 +20,7 @@ from __future__ import print_function
 
 import gin
 
+from tensor2tensor.trax.models import atari_cnn
 from tensor2tensor.trax.models import mlp
 from tensor2tensor.trax.models import neural_gpu
 from tensor2tensor.trax.models import resnet
@@ -35,6 +36,7 @@ def model_configure(*args, **kwargs):
 
 
 # pylint: disable=invalid-name
+AtariCnn = model_configure(atari_cnn.AtariCnn)
 MLP = model_configure(mlp.MLP)
 NeuralGPU = model_configure(neural_gpu.NeuralGPU)
 PositionLookupTransformerLM = model_configure(

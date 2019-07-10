@@ -20,8 +20,10 @@ from __future__ import division
 from __future__ import print_function
 
 import functools
+import os
 
 import gym
+import numpy as np
 
 from tensor2tensor.trax import inputs as trax_inputs
 from tensor2tensor.trax import optimizers as trax_opt
@@ -29,7 +31,7 @@ from tensor2tensor.trax import trax
 from tensorflow.io import gfile
 
 
-class OnlineTune(object):
+class OnlineTuneEnv(gym.Env):
   """An environment for tuning model hyperparameters during training.
 
   A rollout is one instance of training a specific model on a specific problem.
@@ -77,16 +79,40 @@ class OnlineTune(object):
     self._start_lr = start_lr
     self._trainer = None
 
-    self.output_dir = output_dir
+    self._output_dir = output_dir
+    gfile.makedirs(self._output_dir)
     # Action is an index in self._action_multipliers.
     self.action_space = gym.spaces.Discrete(len(self._action_multipliers))
-    # Observation is the value of the metric specified in self._metric.
+    # Observation is a singleton vector with the value of the metric specified
+    # in self._metric.
     self.observation_space = gym.spaces.Box(
-        low=float("-inf"), high=float("+inf"), shape=())
+        low=float("-inf"), high=float("+inf"), shape=(1,))
 
-  def _remove_output_dir(self):
-    if gfile.exists(self.output_dir):
-      gfile.rmtree(self.output_dir)
+  @property
+  def _next_trajectory_dir(self):
+    """Assigns a new output dir for a trajectory under self._output_dir.
+
+    Directory names are consecutive integers starting from zero. New directory
+    index is assigned as the maximum of past indices plus one. Directories that
+    are not integers are ignored.
+
+    Returns:
+      A path of the new directory.
+    """
+    trajectory_dirs = gfile.listdir(self._output_dir)
+
+    def int_or_none(s):
+      try:
+        return int(s)
+      except TypeError:
+        return None
+
+    past_trajectory_ids = [
+        trajectory_id for trajectory_id in map(int_or_none, trajectory_dirs)
+        if trajectory_id is not None]
+    next_trajectory_id = max([-1] + past_trajectory_ids) + 1
+
+    return os.path.join(self._output_dir, str(next_trajectory_id))
 
   @property
   def _current_metric_value(self):
@@ -103,15 +129,11 @@ class OnlineTune(object):
     return self._trainer
 
   def reset(self):
-    # TODO(pkozakowski): Don't erase the data. Will be done in the next CL.
-    self._remove_output_dir()
-    gfile.makedirs(self.output_dir)
-
     self._current_lr = self._start_lr
     self._step = 0
-    self._trainer = self._trainer_fn(output_dir=self.output_dir)
+    self._trainer = self._trainer_fn(output_dir=self._next_trajectory_dir)
     self._trainer.evaluate(self._eval_steps)
-    return self._current_metric_value
+    return np.array([self._current_metric_value])
 
   def step(self, action):
     """Step the environment.
@@ -133,10 +155,7 @@ class OnlineTune(object):
     self._trainer.train_epoch(self._train_steps, self._eval_steps)
     self._step += 1
     current_metric_value = self._current_metric_value
-    observation = current_metric_value
+    observation = np.array([current_metric_value])
     reward = current_metric_value - last_metric_value
     done = self._step == self._env_steps
     return (observation, reward, done, {})
-
-  def close(self):
-    self._remove_output_dir()

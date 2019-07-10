@@ -40,10 +40,12 @@ from __future__ import division
 from __future__ import print_function
 
 import functools
+import os
 
 from absl import app
 from absl import flags
 from absl import logging
+import gin
 import jax
 from jax.config import config
 import numpy as onp
@@ -51,7 +53,8 @@ from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import rendered_env_problem
 from tensor2tensor.rl import gym_utils
 from tensor2tensor.trax import layers
-from tensor2tensor.trax.models import atari_cnn
+from tensor2tensor.trax import models
+from tensor2tensor.trax.rlax import envs  # pylint: disable=unused-import
 from tensor2tensor.trax.rlax import ppo
 
 
@@ -120,6 +123,10 @@ flags.DEFINE_float("lambda_", 0.95, "Policy iteration early stopping")
 flags.DEFINE_float("epsilon", 0.1, "Policy iteration early stopping")
 
 flags.DEFINE_string("output_dir", "", "Output dir.")
+flags.DEFINE_multi_string("config_file", None,
+                          "Configuration file with parameters (.gin).")
+flags.DEFINE_multi_string("config", None,
+                          "Configuration parameters (gin string).")
 flags.DEFINE_bool("use_tpu", False, "Whether we're running on TPU.")
 flags.DEFINE_bool("enable_early_stopping", True,
                   "Whether to enable early stopping.")
@@ -133,6 +140,8 @@ flags.DEFINE_float(
     "checkpoint the policy.")
 flags.DEFINE_integer("len_history_for_policy", 4,
                      "How much of history to give to the policy.")
+flags.DEFINE_bool("clip_rewards", True,
+                  "Whether to clip and discretize the rewards.")
 
 
 def common_layers():
@@ -144,18 +153,23 @@ def common_layers():
 
 
 def atari_layers():
-  return [atari_cnn.AtariCnn()]
+  return [models.AtariCnn()]
 
 
-def make_env(batch_size=8):
+def make_env(batch_size=8, **env_kwargs):
   """Creates the env."""
+
+  if FLAGS.clip_rewards:
+    env_kwargs.update({"reward_range": (-1, 1), "discrete_rewards": True})
+  else:
+    env_kwargs.update({"discrete_rewards": False})
 
   # No resizing needed, so let's be on the normal EnvProblem.
   if not FLAGS.resize:  # None or False
     return env_problem.EnvProblem(
         base_env_name=FLAGS.env_problem_name,
         batch_size=batch_size,
-        reward_range=(-1, 1))
+        **env_kwargs)
 
   max_timestep = None
   try:
@@ -177,7 +191,7 @@ def make_env(batch_size=8):
       base_env_name=FLAGS.env_problem_name,
       batch_size=batch_size,
       env_wrapper_fn=wrapper_fn,
-      reward_range=(-1, 1))
+      **env_kwargs)
 
 
 def get_optimizer_fn(learning_rate):
@@ -197,11 +211,21 @@ def main(argv):
     config.update("jax_platform_name", "gpu")
 
 
+  gin_configs = FLAGS.config or []
+  gin.parse_config_files_and_bindings(FLAGS.config_file, gin_configs)
+
+  # TODO(pkozakowski): Find a better way to determine this.
+  if "OnlineTuneEnv" in FLAGS.env_problem_name:
+    # TODO(pkozakowski): Separate env output dirs by train/eval and epoch.
+    env_kwargs = {"output_dir": os.path.join(FLAGS.output_dir, "envs")}
+  else:
+    env_kwargs = {}
+
   # Make an env here.
-  env = make_env(batch_size=FLAGS.batch_size)
+  env = make_env(batch_size=FLAGS.batch_size, **env_kwargs)
   assert env
 
-  eval_env = make_env(batch_size=FLAGS.eval_batch_size)
+  eval_env = make_env(batch_size=FLAGS.eval_batch_size, **env_kwargs)
   assert eval_env
 
   def run_training_loop():
