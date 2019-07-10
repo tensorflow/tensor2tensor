@@ -132,7 +132,7 @@ def optimizer_fn(net_params, step_size=1e-3):
 def collect_trajectories(env,
                          policy_fn,
                          n_trajectories=1,
-                         policy=env_problem_utils.CATEGORICAL_SAMPLING,
+                         policy=env_problem_utils.GUMBEL_SAMPLING,
                          max_timestep=None,
                          epsilon=0.1,
                          reset=True,
@@ -716,6 +716,7 @@ def masked_entropy(log_probs, mask):
 
 def evaluate_policy(eval_env,
                     get_predictions,
+                    temperatures,
                     max_timestep=20000,
                     n_evals=1,
                     len_history_for_policy=32,
@@ -725,22 +726,20 @@ def evaluate_policy(eval_env,
   avg_rewards = collections.defaultdict(float)
   avg_rewards_unclipped = collections.defaultdict(float)
   for _ in range(n_evals):
-    for policy in [
-        env_problem_utils.CATEGORICAL_SAMPLING,
-        env_problem_utils.GUMBEL_SAMPLING,
-    ]:
+    for temperature in temperatures:
       trajs, _, _ = env_problem_utils.play_env_problem_with_policy(
           eval_env,
           get_predictions,
           num_trajectories=eval_env.batch_size,
           max_timestep=max_timestep,
           reset=True,
-          policy_sampling=policy,
+          policy_sampling=env_problem_utils.GUMBEL_SAMPLING,
+          temperature=temperature,
           rng=rng,
           len_history_for_policy=len_history_for_policy)
-      avg_rewards[policy] += float(sum(
+      avg_rewards[temperature] += float(sum(
           np.sum(traj[2]) for traj in trajs)) / len(trajs)
-      avg_rewards_unclipped[policy] += float(
+      avg_rewards_unclipped[temperature] += float(
           sum(np.sum(traj[3]) for traj in trajs)) / len(trajs)
 
   # Now average these out.
@@ -805,6 +804,7 @@ def training_loop(
     env_name=None,
     n_evals=1,
     len_history_for_policy=4,
+    eval_temperatures=(1.0, 0.5),
 ):
   """Runs the training loop for PPO, with fixed policy and value nets."""
   assert env
@@ -888,17 +888,20 @@ def training_loop(
       avg_reward, avg_reward_unclipped = evaluate_policy(
           eval_env,
           get_predictions,
+          temperatures=eval_temperatures,
           max_timestep=max_timestep_eval,
           n_evals=n_evals,
           len_history_for_policy=len_history_for_policy,
           rng=key)
       for k, v in avg_reward.items():
         eval_sw.scalar("eval/mean_reward/%s" % k, v, step=i)
-        logging.info("Epoch [% 6d] Policy Evaluation (clipped) [%s] = %10.2f",
+        logging.info("Epoch [% 6d] Policy Evaluation (clipped) "
+                     "[temperature %s] = %10.2f",
                      i, k, v)
       for k, v in avg_reward_unclipped.items():
         eval_sw.scalar("eval/mean_reward_unclipped/%s" % k, v, step=i)
-        logging.info("Epoch [% 6d] Policy Evaluation (unclipped) [%s] = %10.2f",
+        logging.info("Epoch [% 6d] Policy Evaluation (unclipped) "
+                     "[temperature %s] = %10.2f",
                      i, k, v)
     policy_eval_time = get_time(policy_eval_start_time)
 
