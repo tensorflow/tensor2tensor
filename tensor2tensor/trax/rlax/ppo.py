@@ -723,8 +723,8 @@ def evaluate_policy(eval_env,
                     rng=None):
   """Evaluate the policy."""
 
-  avg_rewards = collections.defaultdict(float)
-  avg_rewards_unclipped = collections.defaultdict(float)
+  processed_reward_sums = collections.defaultdict(list)
+  raw_reward_sums = collections.defaultdict(list)
   for _ in range(n_evals):
     for temperature in temperatures:
       trajs, _, _ = env_problem_utils.play_env_problem_with_policy(
@@ -737,17 +737,19 @@ def evaluate_policy(eval_env,
           temperature=temperature,
           rng=rng,
           len_history_for_policy=len_history_for_policy)
-      avg_rewards[temperature] += float(sum(
-          np.sum(traj[2]) for traj in trajs)) / len(trajs)
-      avg_rewards_unclipped[temperature] += float(
-          sum(np.sum(traj[3]) for traj in trajs)) / len(trajs)
+      processed_reward_sums[temperature].extend(sum(traj[2]) for traj in trajs)
+      raw_reward_sums[temperature].extend(sum(traj[3]) for traj in trajs)
 
-  # Now average these out.
-  for k in avg_rewards:
-    avg_rewards[k] /= n_evals
-    avg_rewards_unclipped[k] /= n_evals
-
-  return avg_rewards, avg_rewards_unclipped
+  # Return the mean and standard deviation for each temperature.
+  def compute_stats(reward_dict):
+    return {
+        temperature: {"mean": onp.mean(rewards), "std": onp.std(rewards)}
+        for (temperature, rewards) in reward_dict.items()
+    }
+  return {
+      "processed": compute_stats(processed_reward_sums),
+      "raw": compute_stats(raw_reward_sums),
+  }
 
 
 def maybe_restore_params(output_dir, policy_and_value_net_params):
@@ -776,6 +778,39 @@ def maybe_restore_params(output_dir, policy_and_value_net_params):
       # Try an older version.
       continue
   return False, policy_and_value_net_params, 0
+
+
+def write_eval_reward_summaries(reward_stats_by_mode, summary_writer, epoch):
+  """Writes evaluation reward statistics to summary and logs them.
+
+  Args:
+    reward_stats_by_mode: Nested dict of structure:
+      {
+          "raw": {
+              <temperature 1>: {
+                  "mean": <reward mean>,
+                  "std": <reward std>,
+              },
+              <temperature 2>: ...
+          },
+          "processed": ...
+      }
+    summary_writer: jaxboard.SummaryWriter.
+    epoch: Current epoch number.
+  """
+  for (reward_mode, reward_stats_by_temp) in reward_stats_by_mode.items():
+    for (temperature, reward_stats) in reward_stats_by_temp.items():
+      for (stat_name, stat) in reward_stats.items():
+        summary_writer.scalar(
+            "eval/{reward_mode}_reward_{stat_name}/"
+            "temperature_{temperature}".format(reward_mode=reward_mode,
+                                               stat_name=stat_name,
+                                               temperature=temperature),
+            stat, step=epoch)
+      logging.info("Epoch [% 6d] Policy Evaluation (%s reward) "
+                   "[temperature %.2f] = %10.2f (+/- %.2f)",
+                   epoch, reward_mode, temperature,
+                   reward_stats["mean"], reward_stats["std"])
 
 
 def training_loop(
@@ -885,7 +920,7 @@ def training_loop(
 
       logging.vlog(1, "Epoch [% 6d] evaluating policy.", i)
 
-      avg_reward, avg_reward_unclipped = evaluate_policy(
+      reward_stats = evaluate_policy(
           eval_env,
           get_predictions,
           temperatures=eval_temperatures,
@@ -893,16 +928,7 @@ def training_loop(
           n_evals=n_evals,
           len_history_for_policy=len_history_for_policy,
           rng=key)
-      for k, v in avg_reward.items():
-        eval_sw.scalar("eval/mean_reward/%s" % k, v, step=i)
-        logging.info("Epoch [% 6d] Policy Evaluation (clipped) "
-                     "[temperature %s] = %10.2f",
-                     i, k, v)
-      for k, v in avg_reward_unclipped.items():
-        eval_sw.scalar("eval/mean_reward_unclipped/%s" % k, v, step=i)
-        logging.info("Epoch [% 6d] Policy Evaluation (unclipped) "
-                     "[temperature %s] = %10.2f",
-                     i, k, v)
+      write_eval_reward_summaries(reward_stats, eval_sw, epoch=i)
     policy_eval_time = get_time(policy_eval_start_time)
 
     trajectory_collection_start_time = time.time()
@@ -926,7 +952,7 @@ def training_loop(
     max_reward = max(np.sum(traj[2]) for traj in trajs)
     min_reward = min(np.sum(traj[2]) for traj in trajs)
 
-    train_sw.scalar("train/mean_reward", avg_reward, step=i)
+    train_sw.scalar("train/reward_mean_truncated", avg_reward, step=i)
 
     logging.vlog(1, "Rewards avg=[%0.2f], max=[%0.2f], min=[%0.2f], all=%s",
                  avg_reward, max_reward, min_reward,
