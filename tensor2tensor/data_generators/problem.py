@@ -35,6 +35,7 @@ from tensor2tensor.utils import metrics
 import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
+import models.pretrained.bert.utilities as bert_utilities
 
 
 class DatasetSplit(object):
@@ -962,7 +963,7 @@ class Problem(object):
         if hasattr(hparams, 'bert_max_length'):
           tf.logging.warn('Splitting sequence into chunks for BERT.')
           batching_scheme = (
-                data_reader.hparams_to_bert_batching_scheme(hparams))
+                bert_utilities.hparams_to_bert_batching_scheme(hparams))
         else:
           batching_scheme = data_reader.hparams_to_batching_scheme(
               hparams,

@@ -36,8 +36,7 @@ def cast_ints_to_int32(features):
 def example_length(example):
   length = 0
   # Length of the example is the maximum length of the feature lengths
-  #for _, v in sorted(six.iteritems(example)):
-  for k, v in sorted(six.iteritems(example)):
+  for _, v in sorted(six.iteritems(example)):
     # For images the sequence length is the size of the spatial dimensions.
     feature_length = (tf.shape(v)[0] if len(v.get_shape()) < 3 else
                       tf.shape(v)[0] * tf.shape(v)[1])
@@ -156,36 +155,6 @@ def _batching_scheme(batch_size,
       "shuffle_queue_size": shuffle_queue_size,
   }
   return ret
-
-
-def hparams_to_bert_batching_scheme(hparams):
-    # TODO: break out batch size part into another function.
-    # use bert batch size and seq len mappings on 12 GB fp32 for BOE
-    # to get batch size given seq len for 16 GB fp16
-    bs_lookup = {
-        64: 64,
-        128: 32,
-        256: 16,
-        320: 14,
-        384: 12,
-        512: 6,
-    }
-    bert_chunk_len = hparams.bert_max_length
-    # to account for the above numbers being for 12 GB and fp32
-    batch_scale_factor = 16 / 12 * 2
-    # round down so we don't oom (we might want to fine tune this better)
-    batch_size = int(
-        batch_scale_factor * bs_lookup[bert_chunk_len])
-
-    bucket_boundaries = list(
-        range(bert_chunk_len, bert_chunk_len * batch_size, bert_chunk_len))
-    bucket_batch_sizes = list(
-        batch_size // i for i in range(1, batch_size)) + [1]
-
-    return {
-        'boundaries': bucket_boundaries,
-        'batch_sizes': bucket_batch_sizes,
-    }
 
 
 def hparams_to_batching_scheme(hparams,
