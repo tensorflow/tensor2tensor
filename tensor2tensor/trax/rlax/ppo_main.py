@@ -40,6 +40,7 @@ from __future__ import division
 from __future__ import print_function
 
 import functools
+import multiprocessing
 import os
 
 from absl import app
@@ -142,6 +143,8 @@ flags.DEFINE_integer("len_history_for_policy", 4,
                      "How much of history to give to the policy.")
 flags.DEFINE_bool("clip_rewards", True,
                   "Whether to clip and discretize the rewards.")
+flags.DEFINE_boolean("parallelize_envs", False,
+                     "If true, sets parallelism to number of cpu cores.")
 
 
 def common_layers():
@@ -164,11 +167,15 @@ def make_env(batch_size=8, **env_kwargs):
   else:
     env_kwargs.update({"discrete_rewards": False})
 
+  # TODO(afrozm): Should we leave out some cores?
+  parallelism = multiprocessing.cpu_count() if FLAGS.parallelize_envs else 1
+
   # No resizing needed, so let's be on the normal EnvProblem.
   if not FLAGS.resize:  # None or False
     return env_problem.EnvProblem(
         base_env_name=FLAGS.env_problem_name,
         batch_size=batch_size,
+        parallelism=parallelism,
         **env_kwargs)
 
   max_timestep = None
@@ -190,6 +197,7 @@ def make_env(batch_size=8, **env_kwargs):
   return rendered_env_problem.RenderedEnvProblem(
       base_env_name=FLAGS.env_problem_name,
       batch_size=batch_size,
+      parallelism=parallelism,
       env_wrapper_fn=wrapper_fn,
       **env_kwargs)
 

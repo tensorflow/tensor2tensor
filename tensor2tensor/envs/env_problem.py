@@ -23,7 +23,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import multiprocessing.pool
 import time
+
 import gym
 from gym.core import Env
 import numpy as np
@@ -131,6 +133,7 @@ class EnvProblem(Env, problem.Problem):
                env_wrapper_fn=None,
                reward_range=(-np.inf, np.inf),
                discrete_rewards=True,
+               parallelism=1,
                **env_kwargs):
     """Initializes this class by creating the envs and managing trajectories.
 
@@ -146,6 +149,8 @@ class EnvProblem(Env, problem.Problem):
         the raw reward in `process_rewards`.
       discrete_rewards: (bool) whether to round the rewards to the nearest
         integer.
+      parallelism: (int) If this is greater than one then we run the envs in
+        parallel using multi-threading.
       **env_kwargs: (dict) Additional kwargs to pass to the environments.
     """
 
@@ -176,6 +181,8 @@ class EnvProblem(Env, problem.Problem):
     # be a Neural Network, in which case it will be fed input with first
     # dimension = `batch_size`.
     self._envs = None
+    self._pool = None
+    self._parallelism = parallelism
 
     self._observation_space = None
     self._action_space = None
@@ -254,7 +261,7 @@ class EnvProblem(Env, problem.Problem):
     assert self._reward_range is not None
     assert self._trajectories is not None
 
-  def initialize_environments(self, batch_size=1, **env_kwargs):
+  def initialize_environments(self, batch_size=1, parallelism=1, **env_kwargs):
     """Initializes the environments and trajectories.
 
     Subclasses can override this if they don't want a default implementation
@@ -263,6 +270,8 @@ class EnvProblem(Env, problem.Problem):
 
     Args:
       batch_size: (int) Number of `self.base_env_name` envs to initialize.
+      parallelism: (int) If this is greater than one then we run the envs in
+        parallel using multi-threading.
       **env_kwargs: (dict) Kwargs to pass to gym.make.
     """
     assert batch_size >= 1
@@ -271,6 +280,8 @@ class EnvProblem(Env, problem.Problem):
     self._envs = [
         gym.make(self.base_env_name, **env_kwargs) for _ in range(batch_size)
     ]
+    self._parallelism = parallelism
+    self._pool = multiprocessing.pool.ThreadPool(self._parallelism)
     if self._env_wrapper_fn is not None:
       self._envs = list(map(self._env_wrapper_fn, self._envs))
 
@@ -564,22 +575,25 @@ class EnvProblem(Env, problem.Problem):
     #               : len(actions) == len(self._envs)
     self.assert_common_preconditions()
     assert len(actions) == len(self._envs)
+    assert self.batch_size == len(actions)
 
-    observations = []
-    rewards = []
-    dones = []
-    infos = []
+    observations = [None] * self.batch_size
+    rewards = [None] * self.batch_size
+    dones = [None] * self.batch_size
+    infos = [{} for _ in range(self.batch_size)]
 
-    # Take steps in all environments.
-    for env, action in zip(self._envs, actions):
+    def apply_step(i):
       t1 = time.time()
-      observation, reward, done, info = env.step(action)
-      info["__bare_env_run_time__"] = time.time() - t1
+      observations[i], rewards[i], dones[i], infos[i] = self._envs[i].step(
+          actions[i])
+      t2 = time.time()
+      infos[i]["__bare_env_run_time__"] = t2 - t1
 
-      observations.append(observation)
-      rewards.append(reward)
-      dones.append(done)
-      infos.append(info)
+    if self._parallelism > 1:
+      self._pool.map(apply_step, range(self.batch_size))
+    else:
+      for i in range(self.batch_size):
+        apply_step(i)
 
     # Convert each list (observations, rewards, ...) into np.array and return a
     # tuple.
