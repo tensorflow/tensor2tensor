@@ -805,7 +805,7 @@ class Problem(object):
     Args:
       mode: tf.estimator.ModeKeys
       config: RunConfig
-      hvd: horovod module if horovod is bing used for multi gpu
+      hvd: horovod module if horovod is being used for multi gpu
     Returns:
       partition_id: an integer
       num_partitions: an integer
