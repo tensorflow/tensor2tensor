@@ -229,8 +229,8 @@ def EncoderDecoder(d_feature, d_feedforward, n_heads, dropout, mode):
   ]
 
 
-# TODO(lukaszkaiser): allow different source and target vocabularies.
-def Transformer(vocab_size,
+def Transformer(input_vocab_size,
+                output_vocab_size=None,
                 d_feature=512,
                 d_feedforward=2048,
                 n_layers=6,
@@ -243,7 +243,9 @@ def Transformer(vocab_size,
   This model expects an input pair: target, source.
 
   Args:
-    vocab_size: int: vocab size (shared source and target).
+    input_vocab_size: int: vocab size of the source.
+    output_vocab_size: int (optional): vocab size of the target. If None, the
+      source and target are assumed to have the same vocab.
     d_feature: int:  depth of embedding
     d_feedforward: int: depth of feed-forward layer
     n_layers: int: number of encoder/decoder layers
@@ -256,11 +258,21 @@ def Transformer(vocab_size,
     A Transformer model as a layer that maps from a target, source pair to
     activations over a vocab set.
   """
-  embed = [                                    # tokens
-      tl.Embedding(d_feature, vocab_size),     # vecs
-      tl.Dropout(rate=dropout, mode=mode),     # vecs
-      tl.PositionalEncoding(max_len=max_len),  # vecs
+  in_embed = [                                    # tokens
+      tl.Embedding(d_feature, input_vocab_size),  # vecs
+      tl.Dropout(rate=dropout, mode=mode),        # vecs
+      tl.PositionalEncoding(max_len=max_len),     # vecs
   ]
+
+  if output_vocab_size is None:
+    output_vocab_size = input_vocab_size
+    out_embed = in_embed
+  else:
+    out_embed = [                                    # tokens
+        tl.Embedding(d_feature, output_vocab_size),  # vecs
+        tl.Dropout(rate=dropout, mode=mode),         # vecs
+        tl.PositionalEncoding(max_len=max_len),      # vecs
+    ]
 
   encoder_stack = (  # masks vectors --> masks vectors
       [EncoderBlock(d_feature, d_feedforward, n_heads, dropout, mode)
@@ -275,21 +287,21 @@ def Transformer(vocab_size,
       tl.Swap(),    # toks_d toks_e
 
       # Encode.
-      tl.Parallel(                                    # toks_d        toks_e
-          [], [tl.Dup(),                              # ______ toks_e toks_e
-               tl.Parallel(embed, tl.PaddingMask()),  # ______ vecs_e masks
-               encoder_stack,                         # ______ vecs_e masks
-               tl.LayerNorm(),                        # ______ vecs_e .....
-               tl.Swap()]),                           # ______ masks vecs_e
+      tl.Parallel(                                       # toks_d        toks_e
+          [], [tl.Dup(),                                 # ______ toks_e toks_e
+               tl.Parallel(in_embed, tl.PaddingMask()),  # ______ vecs_e masks
+               encoder_stack,                            # ______ vecs_e masks
+               tl.LayerNorm(),                           # ______ vecs_e .....
+               tl.Swap()]),                              # ______ masks  vecs_e
 
       # Decode.                                  #        toks_d masks vecs_e
       tl.ShiftRight(),                           #        toks_d ..... ......
-      embed,                                     #        vecs_d ..... ......
+      out_embed,                                 #        vecs_d ..... ......
       tl.Dup(),                                  # vecs_d vecs_d ..... ......
       tl.Parallel([], tl.EncoderDecoderMask()),  # ______    masks     ......
       encoder_decoder_stack,                     # vecs_d    masks     vecs_e
       tl.Parallel([], tl.Drop(), tl.Drop()),     # vecs_d
       tl.LayerNorm(),                            # vecs_d
-      tl.Dense(vocab_size),                      # vecs_d
+      tl.Dense(output_vocab_size),               # vecs_d
       tl.LogSoftmax(),                           # vecs_d
   )

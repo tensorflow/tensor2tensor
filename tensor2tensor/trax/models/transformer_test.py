@@ -20,12 +20,13 @@ from __future__ import division
 from __future__ import print_function
 
 from absl.testing import absltest
+from absl.testing import parameterized
 from tensor2tensor.trax import backend
 from tensor2tensor.trax import layers as tl
 from tensor2tensor.trax.models import transformer
 
 
-class TransformerTest(absltest.TestCase):
+class TransformerTest(parameterized.TestCase):
 
   def test_transformer_lm_forward_shape(self):
     """Run the Transformer LM forward and check output shape."""
@@ -37,16 +38,28 @@ class TransformerTest(absltest.TestCase):
         model, tuple(input_shape), integer_inputs=True)
     self.assertEqual(tuple(input_shape + [vocab_size]), final_shape)
 
-  def test_transformer_forward_shape(self):
+  def _test_transformer_forward_shape(self, input_vocab_size,
+                                      output_vocab_size):
     """Run the Transformer forward and check output shape."""
-    vocab_size = 16
     single_input_shape = [3, 5]
     input_shape = (tuple(single_input_shape), tuple(single_input_shape))
     model = transformer.Transformer(
-        vocab_size, d_feature=32, d_feedforward=64, n_layers=2, n_heads=2)
+        input_vocab_size, output_vocab_size,
+        d_feature=32, d_feedforward=64, n_layers=2, n_heads=2)
     final_shape = tl.check_shape_agreement(
         model, input_shape, integer_inputs=True)
-    self.assertEqual(tuple(single_input_shape + [vocab_size]), final_shape)
+    expected_shape = (tuple(single_input_shape +
+                            [output_vocab_size if output_vocab_size is not None
+                             else input_vocab_size]))
+    self.assertEqual(expected_shape, final_shape)
+
+  @parameterized.named_parameters(
+      ('same_vocab', 16, None),
+      ('same_size', 16, 16),
+      ('different_size', 16, 50))
+  def test_transformer_forward_shape(self, input_vocab_size, output_vocab_size):
+    """Run the Transformer forward and check output shape."""
+    self._test_transformer_forward_shape(input_vocab_size, output_vocab_size)
 
 
 if __name__ == '__main__':
