@@ -148,8 +148,8 @@ def _batching_scheme(batch_size,
   shuffle_queue_size = max_batches_per_window * 3
 
   ret = {
-      "boundaries": boundaries,
-      "batch_sizes": batch_sizes,
+      "bucket_boundaries": boundaries,
+      "bucket_batch_sizes": batch_sizes,
       "min_length": min_length,
       "max_length": (max_length if drop_long_sequences else 10**9),
       "shuffle_queue_size": shuffle_queue_size,

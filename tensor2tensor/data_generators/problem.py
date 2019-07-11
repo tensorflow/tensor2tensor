@@ -35,6 +35,7 @@ from tensor2tensor.utils import metrics
 import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
+import models.pretrained.bert.utilities as bert_utilities
 
 
 class DatasetSplit(object):
@@ -658,8 +659,8 @@ class Problem(object):
 
     if len(data_files) < num_partitions:
       raise ValueError(
-          "number of data files (%d) must be at least the number of hosts (%d)"
-          % (len(data_files), num_partitions))
+          "number of data files (%d, %s) must be at least the number of hosts (%d)"
+          % (len(data_files), data_files, num_partitions))
     data_files = [f for (i, f) in enumerate(data_files)
                   if i % num_partitions == partition_id]
     tf.logging.info(
@@ -764,16 +765,21 @@ class Problem(object):
   def make_estimator_input_fn(self,
                               mode,
                               hparams,
+                              hvd=None,
                               data_dir=None,
                               force_repeat=False,
                               prevent_repeat=False,
                               dataset_kwargs=None):
-    """Return input_fn wrapped for Estimator."""
+    """Return input_fn wrapped for Estimator.
 
+        See docstring of input_fn.
+
+    """
     def estimator_input_fn(params, config):
       return self.input_fn(
           mode,
           hparams,
+          hvd=hvd,
           data_dir=data_dir,
           params=params,
           config=config,
@@ -783,20 +789,32 @@ class Problem(object):
 
     return estimator_input_fn
 
-  def _dataset_partition(self, mode, config):
+  def _dataset_partition(self, mode, config, hvd=None):
     """Which part of the training data to read.
 
     If there are multiple parallel calls to input_fn (multiple TPU hosts),
     then we want each one to read from a separate partition of the training
     data.
 
+    if we use horovod, we use hvd.rank and hvd.size to determine which dataset
+    partition to use so that each gpu does not get a redundant tfproto.
+
+    See self.dataset to see that gpu_0 can get every partition_n for which
+    n % num_gpus == 0.
+
     Args:
       mode: tf.estimator.ModeKeys
       config: RunConfig
+      hvd: horovod module if horovod is being used for multi gpu
     Returns:
       partition_id: an integer
       num_partitions: an integer
     """
+    if hvd:
+        if mode == tf.estimator.ModeKeys.TRAIN:
+            return hvd.rank(), hvd.size()
+        return 0, 1
+
     if mode != tf.estimator.ModeKeys.TRAIN or not hasattr(config, "tpu_config"):
       # Reset in the case when using TPU but alternating TRAIN and EVAL.
       self._next_partition_id = 0
@@ -820,6 +838,7 @@ class Problem(object):
   def input_fn(self,
                mode,
                hparams,
+               hvd=None,
                data_dir=None,
                params=None,
                config=None,
@@ -827,10 +846,11 @@ class Problem(object):
                prevent_repeat=False,
                dataset_kwargs=None):
     """Builds input pipeline for problem.
-    
+
     Args:
       mode: tf.estimator.ModeKeys
       hparams: HParams, model hparams
+      hvd: horovod module if we are using horovod for multi gpu
       data_dir: str, data directory; if None, will use hparams.data_dir
       params: dict, may include "batch_size"
       config: RunConfig; should have the data_parallelism attribute if not using
@@ -840,11 +860,11 @@ class Problem(object):
         Overrides force_repeat.
       dataset_kwargs: dict, if passed, will pass as kwargs to self.dataset
         method when called
-    
+
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
-    partition_id, num_partitions = self._dataset_partition(mode, config)
+    partition_id, num_partitions = self._dataset_partition(mode, config, hvd)
 
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     if config and config.use_tpu:
@@ -951,18 +971,13 @@ class Problem(object):
       else:
         # On GPU, bucket by length
         dataset = dataset.filter(gpu_valid_size)
-        batching_scheme = data_reader.hparams_to_batching_scheme(
-            hparams,
-            shard_multiplier=num_shards,
-            length_multiplier=self.get_hparams().batch_size_multiplier)
-        if hparams.use_fixed_batch_size:
-          # Here  batch_size really means examples per datashard.
-          batching_scheme["batch_sizes"] = [hparams.batch_size]
-          batching_scheme["boundaries"] = []
+        batching_scheme = self._get_batching_scheme(hparams, num_shards)
+
         dataset = dataset.apply(
             tf.contrib.data.bucket_by_sequence_length(
-                data_reader.example_length, batching_scheme["boundaries"],
-                batching_scheme["batch_sizes"]))
+                element_length_func=data_reader.example_length,
+                bucket_boundaries=batching_scheme['bucket_boundaries'],
+                bucket_batch_sizes=batching_scheme['bucket_batch_sizes']))
 
         if not is_training:
           batch_multiple = num_shards
@@ -1001,6 +1016,37 @@ class Problem(object):
                            data_reader.DummyQueueRunner())
 
     return dataset
+
+  def _get_batching_scheme(self, hparams, num_shards):
+    """Prepares batching scheme for bucketing by seq length.
+
+    If hparams.bert_max_length, see docstring of
+        hparams_to_bert_batching_scheme
+    else uses hparams_to_batching_scheme
+
+    if hparams.use_fixed_batch_size is also set, we override
+    the batching scheme.
+
+    """
+    if hasattr(hparams, 'bert_max_length'):
+      tf.logging.warn('Splitting sequence into chunks for BERT.')
+      batching_scheme = (
+        bert_utilities.hparams_to_bert_batching_scheme(hparams))
+    else:
+      batching_scheme = data_reader.hparams_to_batching_scheme(
+        hparams,
+        shard_multiplier=num_shards,
+        length_multiplier=self.get_hparams().batch_size_multiplier)
+
+    assert 'bucket_boundaries' in batching_scheme
+    assert 'bucket_batch_sizes' in batching_scheme
+
+    if hparams.use_fixed_batch_size:
+        # Here  batch_size really means examples per datashard.
+        batching_scheme["bucket_batch_sizes"] = [hparams.batch_size]
+        batching_scheme["bucket_boundaries"] = []
+
+    return batching_scheme
 
   @property
   def export_assets(self):

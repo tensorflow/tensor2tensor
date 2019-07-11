@@ -176,7 +176,7 @@ class DataReaderTest(tf.test.TestCase):
         max_length=0,
         min_length_bucket=8,
         length_bucket_step=1.1)
-    boundaries, batch_sizes = scheme["boundaries"], scheme["batch_sizes"]
+    boundaries, batch_sizes = scheme["bucket_boundaries"], scheme["bucket_batch_sizes"]
     self.assertEqual(len(boundaries), len(batch_sizes) - 1)
     expected_boundaries = [
         8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 24, 26, 28, 30,
@@ -195,7 +195,7 @@ class DataReaderTest(tf.test.TestCase):
         min_length_bucket=8,
         length_bucket_step=1.1,
         shard_multiplier=2)
-    boundaries, batch_sizes = scheme["boundaries"], scheme["batch_sizes"]
+    boundaries, batch_sizes = scheme["bucket_boundaries"], scheme["bucket_batch_sizes"]
     self.assertAllEqual([bs * 2 for bs in expected_batch_sizes], batch_sizes)
     self.assertEqual(expected_boundaries, boundaries)
 
@@ -205,7 +205,7 @@ class DataReaderTest(tf.test.TestCase):
         min_length_bucket=8,
         length_bucket_step=1.1,
         length_multiplier=2)
-    boundaries, batch_sizes = scheme["boundaries"], scheme["batch_sizes"]
+    boundaries, batch_sizes = scheme["bucket_boundaries"], scheme["bucket_batch_sizes"]
     self.assertAllEqual([b * 2 for b in expected_boundaries], boundaries)
     self.assertEqual([max(1, bs // 2)
                       for bs in expected_batch_sizes], batch_sizes)
