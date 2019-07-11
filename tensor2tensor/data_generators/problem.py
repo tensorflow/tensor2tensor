@@ -804,7 +804,6 @@ class Problem(object):
             return hvd.rank(), hvd.size()
         return 0, 1
 
-    print('!------partition_id', partition_id, num_partitions)
     if mode != tf.estimator.ModeKeys.TRAIN or not hasattr(config, "tpu_config"):
       # Reset in the case when using TPU but alternating TRAIN and EVAL.
       self._next_partition_id = 0
