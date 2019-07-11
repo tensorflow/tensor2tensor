@@ -725,7 +725,7 @@ def evaluate_policy(eval_env,
 
   processed_reward_sums = collections.defaultdict(list)
   raw_reward_sums = collections.defaultdict(list)
-  for _ in range(n_evals):
+  for eval_rng in jax_random.split(rng, num=n_evals):
     for temperature in temperatures:
       trajs, _, _ = env_problem_utils.play_env_problem_with_policy(
           eval_env,
@@ -735,7 +735,7 @@ def evaluate_policy(eval_env,
           reset=True,
           policy_sampling=env_problem_utils.GUMBEL_SAMPLING,
           temperature=temperature,
-          rng=rng,
+          rng=eval_rng,
           len_history_for_policy=len_history_for_policy)
       processed_reward_sums[temperature].extend(sum(traj[2]) for traj in trajs)
       raw_reward_sums[temperature].extend(sum(traj[3]) for traj in trajs)
