@@ -785,7 +785,7 @@ class Problem(object):
 
     return estimator_input_fn
 
-  def _dataset_partition(self, mode, config):
+  def _dataset_partition(self, mode, config, hvd=None):
     """Which part of the training data to read.
 
     If there are multiple parallel calls to input_fn (multiple TPU hosts),
@@ -799,6 +799,12 @@ class Problem(object):
       partition_id: an integer
       num_partitions: an integer
     """
+    if hvd:
+        if mode == tf.estimator.ModeKeys.TRAIN:
+            return hvd.rank(), hvd.size()
+        return 0, 1
+
+    print('!------partition_id', partition_id, num_partitions)
     if mode != tf.estimator.ModeKeys.TRAIN or not hasattr(config, "tpu_config"):
       # Reset in the case when using TPU but alternating TRAIN and EVAL.
       self._next_partition_id = 0
@@ -847,22 +853,13 @@ class Problem(object):
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
-    if not hvd:
-        partition_id, num_partitions = self._dataset_partition(mode, config)
-    else:
-        if mode == tf.estimator.ModeKeys.TRAIN:
-            partition_id = hvd.rank()
-            num_partitions = hvd.size()
-        else:
-            partition_id = 0
-            num_partitions = 1
-    print('!------partition_id', partition_id, num_partitions)
+    partition_id, num_partitions = self._dataset_partition(mode, config, hvd)
 
     is_training = mode == tf.estimator.ModeKeys.TRAIN
-    #if config and config.use_tpu:
-      #num_threads = 64
-    #else:
-    num_threads = cpu_count() if is_training else 1
+    if config and config.use_tpu:
+      num_threads = 64
+    else:
+      num_threads = cpu_count() if is_training else 1
 
     if config and hasattr(config,
                           "data_parallelism") and config.data_parallelism:
@@ -883,8 +880,7 @@ class Problem(object):
                                             if drop_long_sequences else 10**9)
 
     def define_shapes(example):
-      #batch_size = config and config.use_tpu and params["batch_size"]
-      batch_size = False
+      batch_size = config and config.use_tpu and params["batch_size"]
       return standardize_shapes(example, batch_size=batch_size)
 
     # Read and preprocess
@@ -941,7 +937,6 @@ class Problem(object):
         dataset = dataset.batch(batch_size)
     else:
       # batch_size means tokens per datashard
-      '''
       if config and config.use_tpu:
         dataset = dataset.filter(tpu_valid_size)
         padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
@@ -962,9 +957,6 @@ class Problem(object):
         else:
           dataset = dataset.padded_batch(
               batch_size, padded_shapes, drop_remainder=True)
-      '''
-      if False:
-          raise
       else:
         # On GPU, bucket by length
         dataset = dataset.filter(gpu_valid_size)
@@ -1005,8 +997,7 @@ class Problem(object):
     dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
 
     def prepare_for_output(example):
-      #if not config or not config.use_tpu:
-      if False:
+      if not config or not config.use_tpu:
         _summarize_features(example, num_shards)
       if mode == tf.estimator.ModeKeys.PREDICT:
         example["infer_targets"] = example.pop("targets")
