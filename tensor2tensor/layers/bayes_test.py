@@ -27,6 +27,7 @@ from tensor2tensor.utils import test_utils
 
 import tensorflow as tf
 import tensorflow_probability as tfp
+ed = tfp.edward2
 tf.compat.v1.enable_eager_execution()
 
 
@@ -546,6 +547,38 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     # tensor.
     self.assertAllClose(res2, res3)
     self.assertLen(model.losses, 2)
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testNCPNormalPerturb(self):
+    batch_size = 3
+    inputs = tf.to_float(np.random.rand(batch_size, 4))
+    model = bayes.NCPNormalPerturb()
+    outputs = model(inputs)
+    inputs_val, outputs_val = self.evaluate([inputs, outputs])
+    self.assertEqual(outputs_val.shape, (2 * batch_size, 4))
+    self.assertAllEqual(inputs_val, outputs_val[:batch_size])
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testNCPCategoricalPerturb(self):
+    input_dim = 5
+    batch_size = 3
+    inputs = tf.to_float(np.random.choice(input_dim, size=(batch_size, 4)))
+    model = bayes.NCPCategoricalPerturb(input_dim)
+    outputs = model(inputs)
+    inputs_val, outputs_val = self.evaluate([inputs, outputs])
+    self.assertEqual(outputs_val.shape, (2 * batch_size, 4))
+    self.assertAllEqual(inputs_val, outputs_val[:batch_size])
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testNCPNormalOutput(self):
+    batch_size = 3
+    features = ed.Normal(loc=tf.random.normal([2 * batch_size, 1]), scale=1.)
+    labels = tf.to_float(np.random.rand(batch_size))
+    model = bayes.NCPNormalOutput(mean=labels)
+    predictions = model(features)
+    features_val, predictions_val = self.evaluate([features, predictions])
+    self.assertLen(model.losses, 1)
+    self.assertAllEqual(features_val[:batch_size], predictions_val)
 
   @test_utils.run_in_graph_and_eager_modes()
   def testMixtureLogistic(self):
