@@ -56,6 +56,7 @@ import time
 
 from absl import logging
 import cloudpickle as pickle
+import gin
 import gym
 from jax import grad
 from jax import jit
@@ -813,12 +814,15 @@ def write_eval_reward_summaries(reward_stats_by_mode, summary_writer, epoch):
                    reward_stats["mean"], reward_stats["std"])
 
 
+@gin.configurable(blacklist=["output_dir"])
 def training_loop(
-    env=None,
+    env,
+    eval_env,
+    env_name,
+    policy_and_value_net_fn,
+    policy_and_value_optimizer_fn,
+    output_dir,
     epochs=EPOCHS,
-    policy_and_value_net_fn=None,
-    policy_and_value_optimizer_fn=None,
-    batch_size=BATCH_TRAJECTORIES,
     n_optimizer_steps=N_OPTIMIZER_STEPS,
     print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
     target_kl=0.01,
@@ -831,21 +835,47 @@ def training_loop(
     epsilon=EPSILON,
     c1=1.0,
     c2=0.01,
-    output_dir=None,
     eval_every_n=1000,
-    eval_env=None,
     done_frac_for_policy_save=0.5,
     enable_early_stopping=True,
-    env_name=None,
     n_evals=1,
     len_history_for_policy=4,
     eval_temperatures=(1.0, 0.5),
 ):
-  """Runs the training loop for PPO, with fixed policy and value nets."""
-  assert env
-  assert output_dir
-  assert env_name
+  """Runs the training loop for PPO, with fixed policy and value nets.
 
+  Args:
+    env: gym.Env to use for training.
+    eval_env: gym.Env to use for evaluation.
+    env_name: Name of the environment.
+    policy_and_value_net_fn: Function defining the policy and value network.
+    policy_and_value_optimizer_fn: Function defining the optimizer.
+    output_dir: Output dir.
+    epochs: Number of epochs to run for.
+    n_optimizer_steps: Number of optimizer steps.
+    print_every_optimizer_steps: How often to log during the policy optimization
+      process.
+    target_kl: Policy iteration early stopping.
+    boundary: We pad trajectories at integer multiples of this number.
+    max_timestep: If set to an integer, maximum number of time-steps in
+      a trajectory. Used in the collect procedure.
+    max_timestep_eval: If set to an integer, maximum number of time-steps in an
+      evaluation trajectory. Used in the collect procedure.
+    random_seed: Random seed.
+    gamma: Reward discount factor.
+    lambda_: N-step TD-error discount factor in GAE.
+    epsilon: Random action probability in epsilon-greedy sampling.
+    c1: Value loss coefficient.
+    c2: Entropy loss coefficient.
+    eval_every_n: How frequently to eval the policy.
+    done_frac_for_policy_save: Fraction of the trajectories that should be done
+      to checkpoint the policy.
+    enable_early_stopping: Whether to enable early stopping.
+    n_evals: Number of times to evaluate.
+    len_history_for_policy: How much of history to give to the policy.
+    eval_temperatures: Sequence of temperatures to try for categorical sampling
+      during evaluation.
+  """
   gfile.makedirs(output_dir)
 
   # Create summary writers and history.
@@ -937,7 +967,7 @@ def training_loop(
     trajs, n_done, timing_info = collect_trajectories(
         env,
         policy_fn=get_predictions,
-        n_trajectories=batch_size,
+        n_trajectories=env.batch_size,
         max_timestep=max_timestep,
         rng=key,
         len_history_for_policy=len_history_for_policy,
@@ -1124,7 +1154,7 @@ def training_loop(
     policy_save_start_time = time.time()
     n_trajectories_done += n_done
     # TODO(afrozm): Refactor to trax.save_state.
-    if (((n_trajectories_done >= done_frac_for_policy_save * batch_size) and
+    if (((n_trajectories_done >= done_frac_for_policy_save * env.batch_size) and
          (i - last_saved_at > eval_every_n) and
          (((i + 1) % eval_every_n == 0))) or (i == epochs - 1)):
       logging.vlog(1, "Epoch [% 6d] saving model.", i)

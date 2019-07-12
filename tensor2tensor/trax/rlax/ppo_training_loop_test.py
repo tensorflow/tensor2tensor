@@ -68,7 +68,6 @@ class PpoTrainingLoopTest(test.TestCase):
     env = self.get_wrapped_env(env_name, 2)
     eval_env = self.get_wrapped_env(env_name, 2)
     n_epochs = 2
-    batch_size = 2
     # Run the training loop.
     ppo.training_loop(
         env=env,
@@ -78,7 +77,6 @@ class PpoTrainingLoopTest(test.TestCase):
             ppo.policy_and_value_net,
             bottom_layers_fn=lambda: [layers.Dense(1)]),
         policy_and_value_optimizer_fn=ppo.optimizer_fn,
-        batch_size=batch_size,
         n_optimizer_steps=1,
         output_dir=output_dir,
         env_name=env_name,
