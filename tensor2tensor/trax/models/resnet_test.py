@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 from absl.testing import absltest
+from tensor2tensor.trax import backend
 from tensor2tensor.trax import layers as tl
 from tensor2tensor.trax.models import resnet
 
@@ -37,6 +38,7 @@ class ResnetTest(absltest.TestCase):
     model = resnet.WideResnet(n_blocks=1, n_output_classes=10)
     final_shape = tl.check_shape_agreement(model, input_shape)
     self.assertEqual((3, 10), final_shape)
+
 
 
 if __name__ == '__main__':

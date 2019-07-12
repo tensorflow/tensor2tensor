@@ -423,6 +423,11 @@ def _jit_compute_loss_fn(predict_fn, loss_fn, n_devices, jit=True):
   return compute_loss
 
 
+@gin.configurable
+def _is_jit_init(value=True):
+  return value
+
+
 def _reshape_by_device_single(x, n_devices):
   """Reshape x into a shape [n_devices, ...]."""
   x_shape = list(x.shape)
@@ -502,12 +507,13 @@ class Trainer(object):
     if state.params:
       opt_state = state.params
     else:
-      # JIT parameter initialization to avoid memory fragmentation
       def initialize(input_shape, input_dtype, init_rng):
         params = model_train.initialize(input_shape, input_dtype, init_rng)
         opt_state = (params, opt.tree_init(params))
         return opt_state
-      initialize = backend.jit(initialize, static_argnums=(0, 1))
+      if _is_jit_init():
+        # JIT parameter initialization to avoid memory fragmentation
+        initialize = backend.jit(initialize, static_argnums=(0, 1))
       opt_state = initialize(model_input_shape, inputs.input_dtype, init_rng)
     if n_devices > 1:
       replicate = lambda x: numpy.broadcast_to(x, (n_devices,) + x.shape)

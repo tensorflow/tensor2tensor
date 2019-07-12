@@ -20,7 +20,6 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.trax.backend import numpy as np
-
 from tensor2tensor.trax.layers import base as layers
 
 
@@ -89,10 +88,21 @@ class Optimizer(object):
   def tree_init(self, x_tree):
     return [self.init(x) for x in tree_flatten(x_tree)]
 
+  def _update_and_check(self, i, g, x, s):
+    new_x, new_s = self.update(i, g, x, s)
+    if isinstance(x, np.ndarray):
+      assert isinstance(new_x, np.ndarray), ("The type of the new parameter "
+                                             "values should be np.ndarray; "
+                                             "got %s" % type(new_x))
+      assert new_x.dtype == x.dtype, ("The dtype of the new parameter values "
+                                      "(%s) is not the same as the old one (%s)"
+                                      % (new_x.dtype, x.dtype))
+    return new_x, new_s
+
   def tree_update(self, i, grad_tree, x_tree, opt_state):
     grad_flat = tree_flatten(grad_tree)
     x_flat = tree_flatten(x_tree)
-    updated_pairs = [self.update(i, g, x, s)
+    updated_pairs = [self._update_and_check(i, g, x, s)
                      for (g, x, s) in zip(grad_flat, x_flat, opt_state)]
     new_x_flat, new_opt_state = zip(*updated_pairs)
     new_x, _ = tree_unflatten(new_x_flat, x_tree)
@@ -126,7 +136,7 @@ class SGD(Optimizer):
 
   def update(self, i, g, x, state):
     del state
-    return x - self.step_size(i) * g, None
+    return x - (self.step_size(i) * g).astype(x.dtype), None
 
 
 class Momentum(Optimizer):
@@ -142,7 +152,7 @@ class Momentum(Optimizer):
 
   def update(self, i, g, x, velocity):
     new_velocity = self._mass * velocity - (1. - self._mass) * g
-    return x + self.step_size(i) * new_velocity, new_velocity
+    return x + (self.step_size(i) * new_velocity).astype(x.dtype), new_velocity
 
 
 class RMSProp(Optimizer):
@@ -159,7 +169,8 @@ class RMSProp(Optimizer):
 
   def update(self, i, g, x, avg_sq_grad):
     avg_sq_grad = avg_sq_grad * self._gamma + g**2 * (1. - self._gamma)
-    x = x - self.step_size(i) * g / (np.sqrt(avg_sq_grad) + self._epsilon)
+    x = x - (self.step_size(i) * g /
+             (np.sqrt(avg_sq_grad) + self._epsilon)).astype(x.dtype)
     return x, avg_sq_grad
 
 
@@ -196,7 +207,7 @@ class Adam(Optimizer):
     v = (1 - b2) * (g ** 2) + b2 * v  # Second moment estimate.
     mhat = m / (1 - b1 ** (i + 1))  # Bias correction.
     vhat = v / (1 - b2 ** (i + 1))
-    x = x - self.step_size(i) * mhat / (np.sqrt(vhat) + eps)
+    x = x - (self.step_size(i) * mhat / (np.sqrt(vhat) + eps)).astype(x.dtype)
     return x, (m, v)
 
 
@@ -227,7 +238,7 @@ class SM3(Optimizer):
                               np.zeros_like(v[0]))
     preconditioned_g = preconditioner * g
     m = (1 - self._momentum) * preconditioned_g + self._momentum * m
-    x = x - self.step_size(step) * m
+    x = x - (self.step_size(step) * m).astype(x.dtype)
     return x, (m, v)
 
   def _expanded_shape(self, shape, axis):
@@ -255,7 +266,7 @@ class SM3(Optimizer):
                                     np.zeros_like(current_accumulator))
     preconditioned_gradient = g * accumulator_inv_sqrt
     m = (1.0 - self._momentum) * preconditioned_gradient + self._momentum * m
-    x = x - self.step_size(step) * m
+    x = x - (self.step_size(step) * m).astype(x.dtype)
     for i in range(len(v)):
       axes = list(range(int(i))) + list(range(int(i) + 1, rank))
       dim_accumulator = np.amax(current_accumulator, axis=axes)

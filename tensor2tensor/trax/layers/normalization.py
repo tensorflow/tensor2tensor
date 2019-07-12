@@ -43,7 +43,9 @@ def BatchNorm(x, params, axis=(0, 1, 2), epsilon=1e-5,
   # Fast but less numerically-stable variance calculation than np.var.
   m1 = np.mean(x**2, axis, keepdims=True)
   var = m1 - mean**2
-  z = (x - mean) / np.sqrt(var + epsilon)
+  # x mustn't be onp.ndarray here; otherwise `x-mean` will call mean.__rsub__
+  # with each element of x, resulting in an onp.ndarray with dtype `object`.
+  z = (x - mean) / np.sqrt(var + epsilon).astype(x.dtype)
 
   # Expand the parameters to have the right axes.
   beta, gamma = params
@@ -55,12 +57,18 @@ def BatchNorm(x, params, axis=(0, 1, 2), epsilon=1e-5,
 
   # Return the z rescaled by the parameters if requested.
   if center and scale:
-    return gamma * z + beta
-  if center:
-    return z + beta
-  if scale:
-    return gamma * z
-  return z
+    ret = gamma * z + beta
+  elif center:
+    ret = z + beta
+  elif scale:
+    ret = gamma * z
+  else:
+    ret = z
+  assert ret.dtype == x.dtype, ('The dtype of the output (%s) of batch norm is '
+                                'not the same as the input (%s). Batch norm '
+                                'should not change the dtype' %
+                                (ret.dtype, x.dtype))
+  return ret
 
 
 # Layer normalization.
