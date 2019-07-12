@@ -631,13 +631,16 @@ class ReversibleSerial(ReversibleLayerMixin, tl.Serial):
       return layer_val, None
 
 
-def DecoderBlock(d_feature, d_feedforward, n_heads, n_attention_chunks,
-                 attention_loop_stride, dropout, mode):
+def DecoderBlock(d_feature, d_feedforward, d_attention_key, d_attention_value,
+                 n_heads, n_attention_chunks, attention_loop_stride,
+                 dropout, mode):
   """Reversible transformer decoder layer.
 
   Args:
     d_feature: int:  depth of embedding
     d_feedforward: int: depth of feed-forward layer
+    d_attention_key: int: depth of key vector for each attention head
+    d_attention_value: int: depth of value vector for each attention head
     n_heads: int: number of attention heads
     n_attention_chunks: int: number of chunks for attention
     attention_loop_stride: int: number of query elements to compute attention
@@ -654,9 +657,9 @@ def DecoderBlock(d_feature, d_feedforward, n_heads, n_attention_chunks,
       tl.LayerNorm(),
       tl.Dup(), tl.Dup(),
       tl.Parallel(
-          [tl.Dense(d_feature), SplitHeads(n_heads=n_heads)],  # pylint: disable=no-value-for-parameter
-          [tl.Dense(d_feature), SplitHeads(n_heads=n_heads)],  # pylint: disable=no-value-for-parameter
-          [tl.Dense(d_feature), SplitHeads(n_heads=n_heads)],  # pylint: disable=no-value-for-parameter
+          [tl.Dense(d_attention_key * n_heads), SplitHeads(n_heads=n_heads)],  # pylint: disable=no-value-for-parameter
+          [tl.Dense(d_attention_key * n_heads), SplitHeads(n_heads=n_heads)],  # pylint: disable=no-value-for-parameter
+          [tl.Dense(d_attention_value * n_heads), SplitHeads(n_heads=n_heads)],  # pylint: disable=no-value-for-parameter
       ),
   ]
 
@@ -690,6 +693,8 @@ def DecoderBlock(d_feature, d_feedforward, n_heads, n_attention_chunks,
 def TransformerRevnetLM(vocab_size,
                         d_feature=512,
                         d_feedforward=2048,
+                        d_attention_key=64,
+                        d_attention_value=64,
                         n_layers=6,
                         n_heads=8,
                         dropout=0.1,
@@ -704,6 +709,8 @@ def TransformerRevnetLM(vocab_size,
     vocab_size: int: vocab size
     d_feature: int:  depth of *each half* of the two-part features
     d_feedforward: int: depth of feed-forward layer
+    d_attention_key: int: depth of key vector for each attention head
+    d_attention_value: int: depth of value vector for each attention head
     n_layers: int: number of decoder layers
     n_heads: int: number of attention heads
     dropout: float: dropout rate (how much to drop out)
@@ -728,8 +735,11 @@ def TransformerRevnetLM(vocab_size,
       positional_embedder,
       tl.Dup(),
       ReversibleSerial([
-          DecoderBlock(d_feature, d_feedforward, n_heads, n_attention_chunks,
-                       attention_loop_stride, dropout, mode)
+          # pylint: disable=g-complex-comprehension
+          DecoderBlock(d_feature, d_feedforward,
+                       d_attention_key, d_attention_value, n_heads,
+                       n_attention_chunks, attention_loop_stride,
+                       dropout, mode)
           for _ in range(n_layers)
       ]),
       tl.Parallel(tl.LayerNorm(), tl.LayerNorm()),
