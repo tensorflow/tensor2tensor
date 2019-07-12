@@ -179,7 +179,10 @@ def collect_trajectories(env,
       len_history_for_policy=len_history_for_policy,
       rng=rng)
   # Skip returning raw_rewards here, since they aren't used.
-  return [(t[0], t[1], t[2]) for t in trajs], n_done, timing_info
+
+  # t is the return value of Trajectory.as_numpy, so:
+  # (observation, action, processed_reward, raw_reward, infos)
+  return [(t[0], t[1], t[2], t[4]) for t in trajs], n_done, timing_info
 
 
 # This function can probably be simplified, ask how?
@@ -223,7 +226,7 @@ def pad_trajectories(trajectories, boundary=20):
   """
 
   # Let's compute max(t) over all trajectories.
-  t_max = max(r.shape[0] for (_, _, r) in trajectories)
+  t_max = max(r.shape[0] for (_, _, r, _) in trajectories)
 
   # t_max is rounded to the next multiple of `boundary`
   boundary = int(boundary)
@@ -233,9 +236,11 @@ def pad_trajectories(trajectories, boundary=20):
   padded_observations = []
   padded_actions = []
   padded_rewards = []
+  padded_infos = collections.defaultdict(list)
   padded_lengths = []
   reward_masks = []
-  for (o, a, r) in trajectories:
+
+  for (o, a, r, i) in trajectories:
     # Determine the amount to pad, this holds true for obs, actions and rewards.
     num_to_pad = bucket_length + 1 - o.shape[0]
     padded_lengths.append(num_to_pad)
@@ -244,13 +249,13 @@ def pad_trajectories(trajectories, boundary=20):
       padded_actions.append(a)
       padded_rewards.append(r)
       reward_masks.append(onp.ones_like(r, dtype=np.int32))
+      if i:
+        for k, v in i.items():
+          padded_infos[k].append(v)
       continue
 
     # First pad observations.
-    padding_config = [(0, num_to_pad, 0)]
-    for _ in range(o.ndim - 1):
-      padding_config.append((0, 0, 0))
-    padding_config = tuple(padding_config)
+    padding_config = tuple([(0, num_to_pad, 0)] + [(0, 0, 0)] * (o.ndim - 1))
 
     padding_value = get_padding_value(o.dtype)
     action_padding_value = get_padding_value(a.dtype)
@@ -272,8 +277,20 @@ def pad_trajectories(trajectories, boundary=20):
     reward_mask = onp.ones_like(r, dtype=np.int32)
     reward_masks.append(lax.pad(reward_mask, 0, padding_config))
 
+    if i:
+      for k, v in i.items():
+        # Create a padding configuration for this value.
+        padding_config = [(0, num_to_pad, 0)] + [(0, 0, 0)] * (v.ndim - 1)
+        padded_infos[k].append(lax.pad(v, 0.0, tuple(padding_config)))
+
+  # Now stack these padded_infos if they exist.
+  stacked_padded_infos = None
+  if padded_infos:
+    stacked_padded_infos = {k: np.stack(v) for k, v in padded_infos.items()}
+
   return padded_lengths, np.stack(reward_masks), np.stack(
-      padded_observations), np.stack(padded_actions), np.stack(padded_rewards)
+      padded_observations), np.stack(padded_actions), np.stack(
+          padded_rewards), stacked_padded_infos
 
 
 def rewards_to_go(rewards, mask, gamma=0.99):
@@ -997,7 +1014,7 @@ def training_loop(
 
     padding_start_time = time.time()
     (_, reward_mask, padded_observations, padded_actions,
-     padded_rewards) = pad_trajectories(
+     padded_rewards, padded_infos) = pad_trajectories(
          trajs, boundary=boundary)
     padding_time = get_time(padding_start_time)
 
@@ -1008,27 +1025,47 @@ def training_loop(
     logging.vlog(1, "Padded Actions' shape [%s]", str(padded_actions.shape))
     logging.vlog(1, "Padded Rewards' shape [%s]", str(padded_rewards.shape))
 
-    # Calculate log-probabilities and value predictions of the trajectories.
-    # We'll pass these to the loss functions so as to not get recomputed.
-
-    # NOTE:
-    # There is a slight problem here, if the policy network contains
-    # stochasticity in the log-probabilities (ex: dropout), then calculating
-    # these again here is not going to be correct and should be done in the
-    # collect function.
-
-    log_prob_recompute_start_time = time.time()
-    jax_rng_key, key = jax_random.split(jax_rng_key)
-    log_probabs_traj, value_predictions_traj, _ = get_predictions(
-        padded_observations, rng=key)
-    log_prob_recompute_time = get_time(log_prob_recompute_start_time)
-
     # Some assertions.
     B, T = padded_actions.shape  # pylint: disable=invalid-name
     assert (B, T) == padded_rewards.shape
     assert (B, T) == reward_mask.shape
     assert (B, T + 1) == padded_observations.shape[:2]
     assert (B, T + 1) + env.observation_space.shape == padded_observations.shape
+
+    log_prob_recompute_start_time = time.time()
+    assert ("log_prob_actions" in padded_infos and
+            "value_predictions" in padded_infos)
+    # These are the actual log-probabs and value predictions seen while picking
+    # the actions.
+    actual_log_probabs_traj = padded_infos["log_prob_actions"]
+    actual_value_predictions_traj = padded_infos["value_predictions"]
+
+    assert (B, T) == actual_log_probabs_traj.shape[:2]
+    A = actual_log_probabs_traj.shape[2]  # pylint: disable=invalid-name
+    assert (B, T, 1) == actual_value_predictions_traj.shape
+
+    # TODO(afrozm): log-probabs doesn't need to be (B, T+1, A) it can do with
+    # (B, T, A), so make that change throughout.
+
+    # NOTE: We don't have the log-probabs and value-predictions for the last
+    # observation, so we re-calculate for everything, but use the original ones
+    # for all but the last time-step.
+    jax_rng_key, key = jax_random.split(jax_rng_key)
+    log_probabs_traj, value_predictions_traj, _ = get_predictions(
+        padded_observations, rng=key)
+
+    assert (B, T + 1, A) == log_probabs_traj.shape
+    assert (B, T + 1, 1) == value_predictions_traj.shape
+
+    # Concatenate the last time-step's log-probabs and value predictions to the
+    # actual log-probabs and value predictions and use those going forward.
+    log_probabs_traj = np.concatenate(
+        (actual_log_probabs_traj, log_probabs_traj[:, -1:, :]), axis=1)
+    value_predictions_traj = np.concatenate(
+        (actual_value_predictions_traj, value_predictions_traj[:, -1:, :]),
+        axis=1)
+
+    log_prob_recompute_time = get_time(log_prob_recompute_start_time)
 
     # Linear annealing from 0.1 to 0.0
     # epsilon_schedule = epsilon if epochs == 1 else epsilon * (1.0 -

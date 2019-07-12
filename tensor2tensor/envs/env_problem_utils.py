@@ -132,7 +132,8 @@ def play_env_problem_with_policy(env,
     assert (B,) == lengths.shape
 
     t1 = time.time()
-    log_prob_actions, _, rng = policy_fun(padded_observations, rng=rng)
+    log_prob_actions, value_predictions, rng = policy_fun(
+        padded_observations, rng=rng)
     policy_application_total_time += (time.time() - t1)
 
     assert (B, T) == log_prob_actions.shape[:2]
@@ -143,8 +144,12 @@ def play_env_problem_with_policy(env,
     index = lengths - 1  # Since we want to index using lengths.
     log_probs = log_prob_actions[np.arange(B)[:, None], index[:, None],
                                  np.arange(A)]
+    value_preds = value_predictions[np.arange(B)[:, None], index[:, None],
+                                    np.arange(1)]
     assert (B, A) == log_probs.shape, \
         "B=%d, A=%d, log_probs.shape=%s" % (B, A, log_probs.shape)
+    assert (B, 1) == value_preds.shape, \
+        "B=%d, value_preds.shape=%s" % (B, value_preds.shape)
 
     actions = None
     if policy_sampling == GUMBEL_SAMPLING:
@@ -156,9 +161,12 @@ def play_env_problem_with_policy(env,
 
     # Step through the env.
     t1 = time.time()
-    _, _, dones, infos = env.step(actions)
+    _, _, dones, env_infos = env.step(
+        actions, infos={"log_prob_actions": log_probs,
+                        "value_predictions": value_preds})
     env_actions_total_time += (time.time() - t1)
-    bare_env_run_time += sum(info["__bare_env_run_time__"] for info in infos)
+    bare_env_run_time += sum(
+        info["__bare_env_run_time__"] for info in env_infos)
 
     # Count the number of done trajectories, the others could just have been
     # truncated.

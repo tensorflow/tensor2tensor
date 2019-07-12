@@ -599,7 +599,7 @@ class EnvProblem(Env, problem.Problem):
     # tuple.
     return tuple(map(np.stack, [observations, rewards, dones, infos]))
 
-  def step(self, actions):
+  def step(self, actions, infos=None):
     """Takes a step in all environments.
 
     Subclasses should override _step to do the actual reset if something other
@@ -607,12 +607,14 @@ class EnvProblem(Env, problem.Problem):
 
     Args:
       actions: Batch of actions.
+      infos: (optional) a dictionary of keys and values, where all the values
+        have the first dimension as batch_size.
 
     Returns:
-      (preprocessed_observations, processed_rewards, dones, infos).
+      (preprocessed_observations, processed_rewards, dones, env_infos).
     """
 
-    observations, raw_rewards, dones, infos = self._step(actions)
+    observations, raw_rewards, dones, env_infos = self._step(actions)
 
     # Process rewards.
     raw_rewards = raw_rewards.astype(np.float32)
@@ -623,9 +625,10 @@ class EnvProblem(Env, problem.Problem):
 
     # Record history.
     self.trajectories.step(processed_observations, raw_rewards,
-                           processed_rewards, dones, actions)
+                           processed_rewards, dones, actions,
+                           infos=infos)
 
-    return processed_observations, processed_rewards, dones, infos
+    return processed_observations, processed_rewards, dones, env_infos
 
   def example_reading_spec(self):
     """Data fields to store on disk and their decoders."""

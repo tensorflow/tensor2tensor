@@ -65,7 +65,7 @@ class EnvProblemUtilsTest(tf.test.TestCase):
       p = np.random.uniform(size=(b, t, a))
       p = np.exp(p)
       p = p / np.sum(p, axis=-1, keepdims=True)
-      return np.log(p), (), rng
+      return np.log(p), np.log(p), rng
 
     max_timestep = 15
     num_trajectories = 2
@@ -83,12 +83,16 @@ class EnvProblemUtilsTest(tf.test.TestCase):
     T = traj[1].shape[0]  # pylint: disable=invalid-name
     self.assertEqual((T + 1, 4), traj[0].shape)  # (4,) is OBS
     self.assertEqual((T,), traj[2].shape)
+    self.assertEqual(T, len(traj[4]["log_prob_actions"]))
+    self.assertEqual(T, len(traj[4]["value_predictions"]))
     self.assertLessEqual(T, max_timestep)
 
     traj = trajectories[1]
     T = traj[1].shape[0]  # pylint: disable=invalid-name
     self.assertEqual((T + 1, 4), traj[0].shape)
     self.assertEqual((T,), traj[2].shape)
+    self.assertEqual(T, len(traj[4]["log_prob_actions"]))
+    self.assertEqual(T, len(traj[4]["value_predictions"]))
     self.assertLessEqual(T, max_timestep)
 
 
