@@ -27,7 +27,7 @@ import tempfile
 import gin
 import numpy as np
 
-from tensor2tensor.envs import env_problem
+from tensor2tensor.envs import gym_env_problem
 from tensor2tensor.rl import gym_utils
 from tensor2tensor.trax import inputs as trax_inputs
 from tensor2tensor.trax import layers
@@ -52,11 +52,11 @@ class PpoTrainingLoopTest(test.TestCase):
             "output_dtype": None,
         })
 
-    return env_problem.EnvProblem(base_env_name=name,
-                                  batch_size=1,
-                                  env_wrapper_fn=wrapper_fn,
-                                  reward_range=(-1, 1),
-                                  discrete_rewards=False)
+    return gym_env_problem.GymEnvProblem(base_env_name=name,
+                                         batch_size=1,
+                                         env_wrapper_fn=wrapper_fn,
+                                         reward_range=(-1, 1),
+                                         discrete_rewards=False)
 
   @contextlib.contextmanager
   def tmp_dir(self):

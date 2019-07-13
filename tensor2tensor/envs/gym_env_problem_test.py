@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for tensor2tensor.envs.env_problem."""
+"""Tests for tensor2tensor.envs.gym_env_problem."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -27,11 +27,12 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import env_problem_utils
+from tensor2tensor.envs import gym_env_problem
 from tensor2tensor.layers import modalities
 import tensorflow as tf
 
 
-class EnvProblemTest(tf.test.TestCase):
+class GymEnvProblemTest(tf.test.TestCase):
 
   def setUp(self):
     self.tmp_dir = os.path.join(tf.test.get_temp_dir(), "tmp_dir")
@@ -41,7 +42,8 @@ class EnvProblemTest(tf.test.TestCase):
     tf.gfile.DeleteRecursively(self.tmp_dir)
 
   def test_setup(self):
-    ep = env_problem.EnvProblem(base_env_name="CartPole-v0", batch_size=5)
+    ep = gym_env_problem.GymEnvProblem(
+        base_env_name="CartPole-v0", batch_size=5)
     # Checks that environments were created and they are `batch_size` in number.
     ep.assert_common_preconditions()
 
@@ -64,7 +66,7 @@ class EnvProblemTest(tf.test.TestCase):
   def test_reward_range(self):
     # Passing reward_range=None means take the reward range of the underlying
     # environment as the reward range.
-    ep = env_problem.EnvProblem(
+    ep = gym_env_problem.GymEnvProblem(
         base_env_name="FrozenLake-v0", batch_size=5, reward_range=None)
     ep.assert_common_preconditions()
 
@@ -77,7 +79,7 @@ class EnvProblemTest(tf.test.TestCase):
 
   def test_default_processed_rewards_discrete(self):
     # This differs in the above because it has a Tuple observation space.
-    ep = env_problem.EnvProblem(
+    ep = gym_env_problem.GymEnvProblem(
         base_env_name="KellyCoinflip-v0", batch_size=5, reward_range=None)
     ep.assert_common_preconditions()
 
@@ -103,7 +105,7 @@ class EnvProblemTest(tf.test.TestCase):
   def test_interaction_with_env(self):
     batch_size = 5
     reward_range = (-1, 1)
-    ep = env_problem.EnvProblem(
+    ep = gym_env_problem.GymEnvProblem(
         base_env_name="KellyCoinflip-v0",
         batch_size=batch_size,
         reward_range=reward_range)
@@ -185,22 +187,22 @@ class EnvProblemTest(tf.test.TestCase):
                base_env_name=None,
                batch_size=5,
                reward_range=None):
-    """Creates `EnvProblem` with the given arguments and plays it randomly.
+    """Creates `GymEnvProblem` with the given arguments and plays it randomly.
 
     Args:
       env: optional env.
       nsteps: plays the env randomly for nsteps.
-      base_env_name: passed to EnvProblem's init.
-      batch_size: passed to EnvProblem's init.
-      reward_range: passed to EnvProblem's init.
+      base_env_name: passed to GymEnvProblem's init.
+      batch_size: passed to GymEnvProblem's init.
+      reward_range: passed to GymEnvProblem's init.
 
     Returns:
-      tuple of env_problem, number of trajectories done, number of trajectories
-      done in the last step.
+      tuple of gym_env_problem, number of trajectories done,
+      number of trajectories done in the last step.
     """
 
     if env is None:
-      env = env_problem.EnvProblem(
+      env = gym_env_problem.GymEnvProblem(
           base_env_name=base_env_name,
           batch_size=batch_size,
           reward_range=reward_range)
@@ -272,7 +274,7 @@ class EnvProblemTest(tf.test.TestCase):
   def test_problem_dataset_works(self):
 
     # We need to derive this class to set the required methods.
-    class TestEnv(env_problem.EnvProblem):
+    class TestEnv(gym_env_problem.GymEnvProblem):
       name = "TestEnv"
 
       @property
@@ -356,7 +358,7 @@ class EnvProblemTest(tf.test.TestCase):
     reward_range = (-1, 1)
     nsteps = 100
 
-    env = env_problem.EnvProblem(
+    env = gym_env_problem.GymEnvProblem(
         base_env_name=base_env_name,
         batch_size=batch_size,
         reward_range=reward_range)

@@ -19,13 +19,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.envs import env_problem
+from tensor2tensor.envs import gym_env_problem
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
 
 @registry.register_env_problem
-class TicTacToeEnvProblem(env_problem.EnvProblem):
+class TicTacToeEnvProblem(gym_env_problem.GymEnvProblem):
   """Plays `batch_size` games of tic-tac-toe."""
 
   def __init__(self):

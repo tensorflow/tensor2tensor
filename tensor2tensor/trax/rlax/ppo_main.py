@@ -49,7 +49,7 @@ import gin
 import jax
 from jax.config import config
 import numpy as onp
-from tensor2tensor.envs import env_problem
+from tensor2tensor.envs import gym_env_problem
 from tensor2tensor.envs import rendered_env_problem
 from tensor2tensor.rl import gym_utils
 from tensor2tensor.trax import layers
@@ -130,7 +130,7 @@ def make_env(batch_size=8, **env_kwargs):
 
   # No resizing needed, so let's be on the normal EnvProblem.
   if not FLAGS.resize:  # None or False
-    return env_problem.EnvProblem(
+    return gym_env_problem.GymEnvProblem(
         base_env_name=FLAGS.env_problem_name,
         batch_size=batch_size,
         parallelism=parallelism,

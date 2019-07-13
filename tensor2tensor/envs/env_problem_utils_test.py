@@ -21,8 +21,8 @@ from __future__ import print_function
 
 import numpy as np
 
-from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import env_problem_utils
+from tensor2tensor.envs import gym_env_problem
 from tensor2tensor.envs import tic_tac_toe_env  # pylint: disable=unused-import
 from tensor2tensor.envs import tic_tac_toe_env_problem
 
@@ -47,7 +47,7 @@ class EnvProblemUtilsTest(tf.test.TestCase):
         batch_size, ep.trajectories.num_time_steps)
 
   def test_play_env_problem_with_policy(self):
-    env = env_problem.EnvProblem(
+    env = gym_env_problem.GymEnvProblem(
         base_env_name="CartPole-v0", batch_size=2, reward_range=(-1, 1))
 
     # Let's make sure that at-most 4 observations come to the policy function.
