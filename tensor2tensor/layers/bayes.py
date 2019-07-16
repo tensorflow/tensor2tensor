@@ -162,9 +162,9 @@ class Conv2DFlipout(Conv2DReparameterization):
   """
 
   def call(self, inputs):
-    self.call_weights()
     if not isinstance(self.kernel, ed.RandomVariable):
       return super(Conv2DFlipout, self).call(inputs)
+    self.call_weights()
     input_shape = tf.shape(inputs)
     batch_dim = input_shape[0]
     if self.data_format == 'channels_first':
@@ -360,6 +360,8 @@ class Conv2DVariationalDropout(Conv2DReparameterization):
         **kwargs)
 
   def call(self, inputs, training=None):
+    if not isinstance(self.kernel, ed.RandomVariable):
+      return super(Conv2DVariationalDropout, self).call(inputs)
     self.call_weights()
     if training is None:
       training = tf.keras.backend.learning_phase()
@@ -392,18 +394,16 @@ class Conv2DVariationalDropout(Conv2DReparameterization):
       return outputs
 
     # Following tf.keras.Dropout, only apply variational dropout if training
-    # flag is True. The kernel must also be a random variable.
+    # flag is True.
     training_value = smart_constant_value(training)
     if training_value is not None:
-      if training_value and isinstance(self.kernel, ed.RandomVariable):
+      if training_value:
         return dropped_inputs()
       else:
         return super(Conv2DVariationalDropout, self).call(inputs)
-    else:
-      return tf.cond(tf.logical_and(training,
-                                    isinstance(self.kernel, ed.RandomVariable)),
-                     dropped_inputs,
-                     lambda: super(Conv2DVariationalDropout, self).call(inputs))
+    return tf.cond(training,
+                   dropped_inputs,
+                   lambda: super(Conv2DVariationalDropout, self).call(inputs))
 
 
 # From `tensorflow/python/framework/smart_cond.py`
@@ -530,11 +530,11 @@ class DenseDVI(DenseReparameterization):
   """
 
   def call(self, inputs):
-    self.call_weights()
     if (not isinstance(inputs, ed.RandomVariable) and
         not isinstance(self.kernel, ed.RandomVariable) and
         not isinstance(self.bias, ed.RandomVariable)):
       return super(DenseDVI, self).call(inputs)
+    self.call_weights()
     inputs_mean, inputs_variance, inputs_covariance = get_moments(inputs)
     kernel_mean, kernel_variance, _ = get_moments(self.kernel)
     if self.use_bias:
@@ -651,9 +651,9 @@ class DenseFlipout(DenseReparameterization):
   """
 
   def call(self, inputs):
-    self.call_weights()
     if not isinstance(self.kernel, ed.RandomVariable):
       return super(DenseFlipout, self).call(inputs)
+    self.call_weights()
     input_shape = tf.shape(inputs)
     sign_input = 2 * tf.random.uniform(input_shape,
                                        minval=0,
@@ -710,6 +710,8 @@ class DenseVariationalDropout(DenseReparameterization):
         **kwargs)
 
   def call(self, inputs, training=None):
+    if not isinstance(self.kernel, ed.RandomVariable):
+      return super(DenseVariationalDropout, self).call(inputs)
     self.call_weights()
     if training is None:
       training = tf.keras.backend.learning_phase()
@@ -745,18 +747,16 @@ class DenseVariationalDropout(DenseReparameterization):
       return outputs
 
     # Following tf.keras.Dropout, only apply variational dropout if training
-    # flag is True. The kernel must also be a random variable.
+    # flag is True.
     training_value = smart_constant_value(training)
     if training_value is not None:
-      if training_value and isinstance(self.kernel, ed.RandomVariable):
+      if training_value:
         return dropped_inputs()
       else:
         return super(DenseVariationalDropout, self).call(inputs)
-    else:
-      return tf.cond(tf.logical_and(training,
-                                    isinstance(self.kernel, ed.RandomVariable)),
-                     dropped_inputs,
-                     lambda: super(DenseVariationalDropout, self).call(inputs))
+    return tf.cond(training,
+                   dropped_inputs,
+                   lambda: super(DenseVariationalDropout, self).call(inputs))
 
 
 class DenseHierarchical(DenseVariationalDropout):
