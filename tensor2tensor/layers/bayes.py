@@ -198,6 +198,125 @@ class Conv2DFlipout(Conv2DReparameterization):
     return outputs
 
 
+class Conv2DHierarchical(Conv2DFlipout):
+  """2D convolution layer with hierarchical distributions.
+
+  The layer computes a variational Bayesian approximation to the distribution
+  over convolutional layers, and where the distribution over weights
+  involves a hierarchical distribution with hidden unit noise coupling vectors
+  of the kernel weight matrix (Louizos et al., 2017),
+
+  ```
+  p(outputs | inputs) = int conv2d(inputs; new_kernel, bias) p(kernel,
+    local_scales, global_scale, bias) dkernel dlocal_scales dglobal_scale dbias.
+  ```
+
+  It does this with a stochastic forward pass, sampling from learnable
+  distributions on the kernel and bias. The kernel is written in non-centered
+  parameterization where
+
+  ```
+  new_kernel[i, j] = kernel[i, j] * local_scale[j] * global_scale.
+  ```
+
+  That is, there is "local" multiplicative noise which couples weights for each
+  output filter. There is also a "global" multiplicative noise which couples the
+  entire weight matrix. By default, the weights are normally distributed and the
+  local and global noises are half-Cauchy distributed; this makes the kernel a
+  horseshoe distribution (Carvalho et al., 2009; Polson and Scott, 2012).
+
+  The estimation uses Flipout for variance reduction with respect to sampling
+  the full weights. Gradients with respect to the distributions' learnable
+  parameters backpropagate via reparameterization. Minimizing cross-entropy
+  plus the layer's losses performs variational minimum description length,
+  i.e., it minimizes an upper bound to the negative marginal likelihood.
+  """
+
+  def __init__(self,
+               filters,
+               kernel_size,
+               strides=(1, 1),
+               padding='valid',
+               data_format=None,
+               dilation_rate=(1, 1),
+               activation=None,
+               use_bias=True,
+               kernel_initializer='trainable_normal',
+               bias_initializer='zeros',
+               local_scale_initializer='trainable_half_cauchy',
+               global_scale_initializer='trainable_half_cauchy',
+               kernel_regularizer='normal_kl_divergence',
+               bias_regularizer=None,
+               local_scale_regularizer='half_cauchy_kl_divergence',
+               global_scale_regularizer=regularizers.HalfCauchyKLDivergence(
+                   scale=1e-5),
+               activity_regularizer=None,
+               kernel_constraint=None,
+               bias_constraint=None,
+               local_scale_constraint='positive',
+               global_scale_constraint='positive',
+               **kwargs):
+    self.local_scale_initializer = initializers.get(local_scale_initializer)
+    self.global_scale_initializer = initializers.get(global_scale_initializer)
+    self.local_scale_regularizer = regularizers.get(local_scale_regularizer)
+    self.global_scale_regularizer = regularizers.get(global_scale_regularizer)
+    self.local_scale_constraint = constraints.get(local_scale_constraint)
+    self.global_scale_constraint = constraints.get(global_scale_constraint)
+    super(Conv2DHierarchical, self).__init__(
+        filters=filters,
+        kernel_size=kernel_size,
+        strides=strides,
+        padding=padding,
+        data_format=data_format,
+        dilation_rate=dilation_rate,
+        activation=activation,
+        use_bias=use_bias,
+        kernel_initializer=initializers.get(kernel_initializer),
+        bias_initializer=initializers.get(bias_initializer),
+        kernel_regularizer=regularizers.get(kernel_regularizer),
+        bias_regularizer=regularizers.get(bias_regularizer),
+        activity_regularizer=regularizers.get(activity_regularizer),
+        kernel_constraint=constraints.get(kernel_constraint),
+        bias_constraint=constraints.get(bias_constraint),
+        **kwargs)
+
+  def build(self, input_shape):
+    self.local_scale = self.add_weight(
+        shape=(self.filters,),
+        name='local_scale',
+        initializer=self.local_scale_initializer,
+        regularizer=self.local_scale_regularizer,
+        constraint=self.local_scale_constraint)
+    self.global_scale = self.add_weight(
+        shape=(),
+        name='global_scale',
+        initializer=self.global_scale_initializer,
+        regularizer=self.global_scale_regularizer,
+        constraint=self.global_scale_constraint)
+    super(Conv2DHierarchical, self).build(input_shape)
+
+  def call_weights(self):
+    """Calls any weights if the initializer is itself a layer."""
+    if isinstance(self.local_scale_initializer, tf.keras.layers.Layer):
+      self.local_scale = self.local_scale_initializer(self.local_scale.shape,
+                                                      self.dtype)
+    if isinstance(self.global_scale_initializer, tf.keras.layers.Layer):
+      self.global_scale = self.global_scale_initializer(self.global_scale.shape,
+                                                        self.dtype)
+    super(Conv2DHierarchical, self).call_weights()
+
+  def call(self, inputs, training=None):
+    self.call_weights()
+    if self.data_format == 'channels_first':
+      local_scale = tf.reshape(self.local_scale, [1, -1, 1, 1])
+    else:
+      local_scale = tf.reshape(self.local_scale, [1, 1, 1, -1])
+    # TODO(trandustin): Figure out what to set local/global scales to at test
+    # time. Means don't exist for Half-Cauchy approximate posteriors.
+    inputs *= local_scale * self.global_scale
+    return super(Conv2DHierarchical, self).call(inputs, training=training)
+
+
 class Conv2DVariationalDropout(Conv2DReparameterization):
   """2D convolution layer with variational dropout (Kingma et al., 2015).
 
@@ -638,6 +757,111 @@ class DenseVariationalDropout(DenseReparameterization):
                                     isinstance(self.kernel, ed.RandomVariable)),
                      dropped_inputs,
                      lambda: super(DenseVariationalDropout, self).call(inputs))
+
+
+class DenseHierarchical(DenseVariationalDropout):
+  """Bayesian densely-connected layer with hierarchical distributions.
+
+  The layer computes a variational Bayesian approximation to the distribution
+  over densely-connected layers, and where the distribution over weights
+  involves a hierarchical distribution with hidden unit noise coupling vectors
+  of the kernel weight matrix (Louizos et al., 2017),
+
+  ```
+  p(outputs | inputs) = int dense(inputs; new_kernel, bias) p(kernel,
+    local_scales, global_scale, bias) dkernel dlocal_scales dglobal_scale dbias.
+  ```
+
+  It does this with a stochastic forward pass, sampling from learnable
+  distributions on the kernel and bias. The kernel is written in non-centered
+  parameterization where
+
+  ```
+  new_kernel[i, j] = kernel[i, j] * local_scale[i] * global_scale.
+  ```
+
+  That is, there is "local" multiplicative noise which couples weights for each
+  input neuron. There is also a "global" multiplicative noise which couples the
+  entire weight matrix. By default, the weights are normally distributed and the
+  local and global noises are half-Cauchy distributed; this makes the kernel a
+  horseshoe distribution (Carvalho et al., 2009; Polson and Scott, 2012).
+
+  The estimation uses local reparameterization to avoid sampling the full
+  weights. Gradients with respect to the distributions' learnable parameters
+  backpropagate via reparameterization. Minimizing cross-entropy plus the
+  layer's losses performs variational minimum description length, i.e., it
+  minimizes an upper bound to the negative marginal likelihood.
+  """
+
+  def __init__(self,
+               units,
+               activation=None,
+               use_bias=True,
+               kernel_initializer='trainable_normal',
+               bias_initializer='zero',
+               local_scale_initializer='trainable_half_cauchy',
+               global_scale_initializer='trainable_half_cauchy',
+               kernel_regularizer='normal_kl_divergence',
+               bias_regularizer=None,
+               local_scale_regularizer='half_cauchy_kl_divergence',
+               global_scale_regularizer=regularizers.HalfCauchyKLDivergence(
+                   scale=1e-5),
+               activity_regularizer=None,
+               local_scale_constraint='positive',
+               global_scale_constraint='positive',
+               **kwargs):
+    self.local_scale_initializer = initializers.get(local_scale_initializer)
+    self.global_scale_initializer = initializers.get(global_scale_initializer)
+    self.local_scale_regularizer = regularizers.get(local_scale_regularizer)
+    self.global_scale_regularizer = regularizers.get(global_scale_regularizer)
+    self.local_scale_constraint = constraints.get(local_scale_constraint)
+    self.global_scale_constraint = constraints.get(global_scale_constraint)
+    super(DenseHierarchical, self).__init__(
+        units=units,
+        activation=activation,
+        use_bias=use_bias,
+        kernel_initializer=initializers.get(kernel_initializer),
+        bias_initializer=initializers.get(bias_initializer),
+        kernel_regularizer=regularizers.get(kernel_regularizer),
+        bias_regularizer=regularizers.get(bias_regularizer),
+        activity_regularizer=regularizers.get(activity_regularizer),
+        **kwargs)
+
+  def build(self, input_shape):
+    input_shape = tf.TensorShape(input_shape)
+    input_dim = input_shape[-1]
+    if isinstance(input_dim, tf.Dimension):
+      input_dim = input_dim.value
+    self.local_scale = self.add_weight(
+        shape=(input_dim,),
+        name='local_scale',
+        initializer=self.local_scale_initializer,
+        regularizer=self.local_scale_regularizer,
+        constraint=self.local_scale_constraint)
+    self.global_scale = self.add_weight(
+        shape=(),
+        name='global_scale',
+        initializer=self.global_scale_initializer,
+        regularizer=self.global_scale_regularizer,
+        constraint=self.global_scale_constraint)
+    super(DenseHierarchical, self).build(input_shape)
+
+  def call_weights(self):
+    """Calls any weights if the initializer is itself a layer."""
+    if isinstance(self.local_scale_initializer, tf.keras.layers.Layer):
+      self.local_scale = self.local_scale_initializer(self.local_scale.shape,
+                                                      self.dtype)
+    if isinstance(self.global_scale_initializer, tf.keras.layers.Layer):
+      self.global_scale = self.global_scale_initializer(self.global_scale.shape,
+                                                        self.dtype)
+    super(DenseHierarchical, self).call_weights()
+
+  def call(self, inputs, training=None):
+    self.call_weights()
+    # TODO(trandustin): Figure out what to set local/global scales to at test
+    # time. Means don't exist for Half-Cauchy approximate posteriors.
+    inputs *= self.local_scale[tf.newaxis, :] * self.global_scale
+    return super(DenseHierarchical, self).call(inputs, training=training)
 
 
 @add_weight

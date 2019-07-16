@@ -47,6 +47,18 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
 #        "kernel_initializer": "zeros",
 #        "bias_initializer": "trainable_normal",
 #        "all_close": False},
+#       {"layer": bayes.Conv2DHierarchical,
+#        "kernel_initializer": "zeros",
+#        "bias_initializer": "zeros",
+#        "all_close": True},
+#       {"layer": bayes.Conv2DHierarchical,
+#        "kernel_initializer": "trainable_normal",
+#        "bias_initializer": "zeros",
+#        "all_close": False},
+#       {"layer": bayes.Conv2DHierarchical,
+#        "kernel_initializer": "zeros",
+#        "bias_initializer": "trainable_normal",
+#        "all_close": False},
 #       {"layer": bayes.Conv2DReparameterization,
 #        "kernel_initializer": "zeros",
 #        "bias_initializer": "zeros",
@@ -99,6 +111,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
 #
 #   @parameterized.parameters(
 #       {"layer": bayes.Conv2DFlipout},
+#       {"layer": bayes.Conv2DHierarchical},
 #       {"layer": bayes.Conv2DReparameterization},
 #       {"layer": bayes.Conv2DVariationalDropout},
 #   )
@@ -114,7 +127,10 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
 #     self.evaluate(tf.global_variables_initializer())
 #     res = self.evaluate(outputs)
 #     self.assertEqual(res.shape, (3, 2))
-#     self.assertLen(model.losses, 1)
+#     if layer == bayes.Conv2DHierarchical:
+#       self.assertLen(model.losses, 3)
+#     else:
+#       self.assertLen(model.losses, 1)
 
   @test_utils.run_in_graph_and_eager_modes
   def testTrainableNormalStddevConstraint(self):
@@ -234,6 +250,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
       {"layer": bayes.DenseFlipout},
       {"layer": bayes.DenseReparameterization},
       {"layer": bayes.DenseVariationalDropout},
+      {"layer": bayes.DenseHierarchical},
   )
   @test_utils.run_in_graph_and_eager_modes()
   def testDenseLoss(self, layer):
@@ -287,6 +304,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
       {"layer": bayes.DenseFlipout},
       {"layer": bayes.DenseReparameterization},
       {"layer": bayes.DenseVariationalDropout},
+      {"layer": bayes.DenseHierarchical},
   )
   @test_utils.run_in_graph_and_eager_modes()
   def testDenseModel(self, layer):
@@ -303,13 +321,17 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     self.evaluate(tf.global_variables_initializer())
     res = self.evaluate(outputs)
     self.assertEqual(res.shape, (3, 2))
-    self.assertLen(model.losses, 1)
+    if layer == bayes.DenseHierarchical:
+      self.assertLen(model.losses, 3)
+    else:
+      self.assertLen(model.losses, 1)
 
   @parameterized.parameters(
       {"layer": bayes.DenseDVI},
       {"layer": bayes.DenseFlipout},
       {"layer": bayes.DenseReparameterization},
       {"layer": bayes.DenseVariationalDropout},
+      {"layer": bayes.DenseHierarchical},
   )
   @test_utils.run_in_graph_and_eager_modes()
   def testDenseSubclass(self, layer):
@@ -329,7 +351,10 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     self.evaluate(tf.global_variables_initializer())
     res = self.evaluate(outputs)
     self.assertEqual(res.shape, (3, 2))
-    self.assertLen(model.losses, 1)
+    if layer == bayes.DenseHierarchical:
+      self.assertLen(model.losses, 3)
+    else:
+      self.assertLen(model.losses, 1)
 
   @test_utils.run_in_graph_and_eager_modes()
   def testDenseDVIIsDeterministic(self):

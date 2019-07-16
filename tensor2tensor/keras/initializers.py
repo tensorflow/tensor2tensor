@@ -125,6 +125,80 @@ class ScaledNormalStdDev(tf.keras.initializers.VarianceScaling):
                                       dtype=dtype)
 
 
+class TrainableHalfCauchy(tf.keras.layers.Layer):
+  """Half-Cauchy distribution initializer with trainable parameters."""
+
+  def __init__(self,
+               loc_initializer=tf.keras.initializers.truncated_normal(
+                   stddev=1e-5),
+               scale_initializer=tf.keras.initializers.truncated_normal(
+                   mean=1., stddev=1e-5),
+               loc_regularizer=None,
+               scale_regularizer=None,
+               loc_constraint=None,
+               scale_constraint='positive',
+               seed=None,
+               dtype=tf.float32,
+               **kwargs):
+    """Constructs the initializer."""
+    super(TrainableHalfCauchy, self).__init__(dtype=dtype, **kwargs)
+    self.loc_initializer = get(loc_initializer)
+    self.scale_initializer = get(scale_initializer)
+    self.loc_regularizer = regularizers.get(loc_regularizer)
+    self.scale_regularizer = regularizers.get(scale_regularizer)
+    self.loc_constraint = constraints.get(loc_constraint)
+    self.scale_constraint = constraints.get(scale_constraint)
+    self.seed = seed
+
+  def build(self, shape, dtype=None):
+    if dtype is None:
+      dtype = self.dtype
+
+    self.loc = self.add_weight(
+        'loc',
+        shape=shape,
+        initializer=self.loc_initializer,
+        regularizer=self.loc_regularizer,
+        constraint=self.loc_constraint,
+        dtype=dtype,
+        trainable=True)
+    self.scale = self.add_weight(
+        'scale',
+        shape=shape,
+        initializer=self.scale_initializer,
+        regularizer=self.scale_regularizer,
+        constraint=self.scale_constraint,
+        dtype=dtype,
+        trainable=True)
+    self.built = True
+
+  def __call__(self, shape, dtype=None, partition_info=None):
+    del partition_info  # unused arg
+    if not self.built:
+      self.build(shape, dtype)
+    return ed.Independent(
+        ed.HalfCauchy(loc=self.loc, scale=self.scale).distribution,
+        reinterpreted_batch_ndims=len(shape))
+
+  def get_config(self):
+    return {
+        'loc_initializer':
+            tf.keras.initializers.serialize(self.loc_initializer),
+        'scale_initializer':
+            tf.keras.initializers.serialize(self.scale_initializer),
+        'loc_regularizer':
+            tf.keras.regularizers.serialize(self.loc_regularizer),
+        'scale_regularizer':
+            tf.keras.regularizers.serialize(self.scale_regularizer),
+        'loc_constraint':
+            tf.keras.constraints.serialize(self.loc_constraint),
+        'scale_constraint':
+            tf.keras.constraints.serialize(self.scale_constraint),
+        'seed': self.seed,
+        'dtype': self.dtype,
+    }
+
+
 class TrainableNormal(tf.keras.layers.Layer):
   """Random normal op as an initializer with trainable mean and stddev."""
 
@@ -256,6 +330,7 @@ class TrainableGlorotNormal(TrainableNormal):
 
 # pylint: disable=invalid-name
 scaled_normal_std_dev = ScaledNormalStdDev
+trainable_half_cauchy = TrainableHalfCauchy
 trainable_normal = TrainableNormal
 trainable_he_normal = TrainableHeNormal
 trainable_glorot_normal = TrainableGlorotNormal
