@@ -165,8 +165,32 @@ class Conv2DFlipout(Conv2DReparameterization):
     if not isinstance(self.kernel, ed.RandomVariable):
       return super(Conv2DFlipout, self).call(inputs)
     self.call_weights()
+    outputs = self._apply_kernel(inputs)
+    if self.use_bias:
+      if self.data_format == 'channels_first':
+        outputs = tf.nn.bias_add(outputs, self.bias, data_format='NCHW')
+      else:
+        outputs = tf.nn.bias_add(outputs, self.bias, data_format='NHWC')
+    if self.activation is not None:
+      outputs = self.activation(outputs)
+    return outputs
+
+  def _apply_kernel(self, inputs):
     input_shape = tf.shape(inputs)
     batch_dim = input_shape[0]
+    if self._convolution_op is None:
+      padding = self.padding
+      if self.padding == 'causal':
+        padding = 'valid'
+      if not isinstance(padding, (list, tuple)):
+        padding = padding.upper()
+      self._convolution_op = functools.partial(
+          tf.nn.convolution,
+          strides=self.strides,
+          padding=padding,
+          data_format='NHWC' if self.data_format == 'channels_last' else 'NCHW',
+          dilations=self.dilation_rate)
+
     if self.data_format == 'channels_first':
       channels = input_shape[1]
       sign_input_shape = [batch_dim, channels, 1, 1]
@@ -188,13 +212,6 @@ class Conv2DFlipout(Conv2DReparameterization):
     outputs = self._convolution_op(inputs, kernel_mean)
     outputs += self._convolution_op(inputs * sign_input,
                                     perturbation) * sign_output
-    if self.use_bias:
-      if self.data_format == 'channels_first':
-        outputs = tf.nn.bias_add(outputs, self.bias, data_format='NCHW')
-      else:
-        outputs = tf.nn.bias_add(outputs, self.bias, data_format='NHWC')
-    if self.activation is not None:
-      outputs = self.activation(outputs)
     return outputs
 
 
@@ -305,16 +322,16 @@ class Conv2DHierarchical(Conv2DFlipout):
                                                         self.dtype)
     super(Conv2DHierarchical, self).call_weights()
 
-  def call(self, inputs, training=None):
-    self.call_weights()
+  def _apply_kernel(self, inputs):
+    outputs = super(Conv2DHierarchical, self)._apply_kernel(inputs)
     if self.data_format == 'channels_first':
       local_scale = tf.reshape(self.local_scale, [1, -1, 1, 1])
     else:
       local_scale = tf.reshape(self.local_scale, [1, 1, 1, -1])
     # TODO(trandustin): Figure out what to set local/global scales to at test
     # time. Means don't exist for Half-Cauchy approximate posteriors.
-    inputs *= local_scale * self.global_scale
-    return super(Conv2DHierarchical, self).call(inputs, training=training)
+    outputs *= local_scale * self.global_scale
+    return outputs
 
 
 class Conv2DVariationalDropout(Conv2DReparameterization):
@@ -365,6 +382,18 @@ class Conv2DVariationalDropout(Conv2DReparameterization):
     self.call_weights()
     if training is None:
       training = tf.keras.backend.learning_phase()
+    if self._convolution_op is None:
+      padding = self.padding
+      if self.padding == 'causal':
+        padding = 'valid'
+      if not isinstance(padding, (list, tuple)):
+        padding = padding.upper()
+      self._convolution_op = functools.partial(
+          tf.nn.convolution,
+          strides=self.strides,
+          padding=padding,
+          data_format='NHWC' if self.data_format == 'channels_last' else 'NCHW',
+          dilations=self.dilation_rate)
 
     def dropped_inputs():
       """Forward pass with dropout."""
