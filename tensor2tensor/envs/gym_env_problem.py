@@ -75,7 +75,8 @@ class GymEnvProblem(env_problem.EnvProblem):
   the following properties: observation_space, action_space, reward_range.
   """
 
-  def __init__(self, base_env_name=None, env_wrapper_fn=None, **kwargs):
+  def __init__(self, base_env_name=None, env_wrapper_fn=None, reward_range=None,
+               **kwargs):
     """Initializes this class by creating the envs and managing trajectories.
 
     Args:
@@ -83,6 +84,10 @@ class GymEnvProblem(env_problem.EnvProblem):
         environment.
       env_wrapper_fn: (callable(env): env) Applies gym wrappers to the base
         environment.
+      reward_range: (tuple(number, number) or None) the first element is the
+        minimum reward and the second is the maximum reward, used to clip and
+        process the raw reward in `process_rewards`. If None, this is inferred
+        from the inner environments.
       **kwargs: (dict) Arguments passed to the base class.
     """
     # Name for the base environment, will be used in `gym.make` in
@@ -95,6 +100,10 @@ class GymEnvProblem(env_problem.EnvProblem):
     # In practice, this is used only to store (and possibly retrieve) history
     # to an appropriate directory.
     self._agent_id = "default"
+
+    # We clip rewards to this range before processing them further, as described
+    # in `process_rewards`.
+    self._reward_range = reward_range
 
     # Initialize the environment(s).
 
@@ -171,25 +180,6 @@ class GymEnvProblem(env_problem.EnvProblem):
     if self._env_wrapper_fn is not None:
       self._envs = list(map(self._env_wrapper_fn, self._envs))
 
-    # If self.observation_space and self.action_space aren't None, then it means
-    # that this is a re-initialization of this class, in that case make sure
-    # that this matches our previous behaviour.
-    if self._observation_space:
-      assert str(self._observation_space) == str(
-          self._envs[0].observation_space)
-    else:
-      # This means that we are initializing this class for the first time.
-      #
-      # We set this equal to the first env's observation space, later on we'll
-      # verify that all envs have the same observation space.
-      self._observation_space = self._envs[0].observation_space
-
-    # Similarly for action_space
-    if self._action_space:
-      assert str(self._action_space) == str(self._envs[0].action_space)
-    else:
-      self._action_space = self._envs[0].action_space
-
     self._verify_same_spaces()
 
     # If self.reward_range is None, i.e. this means that we should take the
@@ -202,6 +192,25 @@ class GymEnvProblem(env_problem.EnvProblem):
     # NOTE: Even if the env is a NN and can step in all batches concurrently, it
     # is still valuable to store the trajectories separately.
     self._trajectories = trajectory.BatchTrajectory(batch_size=batch_size)
+
+  def assert_common_preconditions(self):
+    # Asserts on the common pre-conditions of:
+    #  - self._envs is initialized.
+    #  - self._envs is a list.
+    assert self._envs
+    assert isinstance(self._envs, list)
+
+  @property
+  def observation_space(self):
+    return self._envs[0].observation_space
+
+  @property
+  def action_space(self):
+    return self._envs[0].action_space
+
+  @property
+  def reward_range(self):
+    return self._reward_range
 
   def seed(self, seed=None):
     if not self._envs:

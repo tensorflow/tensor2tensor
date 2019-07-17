@@ -118,6 +118,8 @@ _NUMPY_BACKEND = {
     "name": "numpy",
     "np": onp,
     "jit": (lambda f: f),
+    "random_get_prng": lambda seed: None,
+    "random_split": lambda prng, num=2: (None,) * num,
 }
 
 
