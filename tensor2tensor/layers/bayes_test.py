@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for common Bayes."""
+"""Tests for Bayesian neural network layers."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -27,92 +27,110 @@ from tensor2tensor.utils import test_utils
 
 import tensorflow as tf
 import tensorflow_probability as tfp
+ed = tfp.edward2
 tf.compat.v1.enable_eager_execution()
 
 
 class BayesTest(parameterized.TestCase, tf.test.TestCase):
 
-  @parameterized.parameters(
-      {"layer": bayes.Conv2DFlipout,
-       "kernel_initializer": "zeros",
-       "bias_initializer": "zeros",
-       "all_close": True},
-      {"layer": bayes.Conv2DFlipout,
-       "kernel_initializer": "trainable_normal",
-       "bias_initializer": "zeros",
-       "all_close": False},
-      {"layer": bayes.Conv2DFlipout,
-       "kernel_initializer": "zeros",
-       "bias_initializer": "trainable_normal",
-       "all_close": False},
-      {"layer": bayes.Conv2DReparameterization,
-       "kernel_initializer": "zeros",
-       "bias_initializer": "zeros",
-       "all_close": True},
-      {"layer": bayes.Conv2DReparameterization,
-       "kernel_initializer": "trainable_normal",
-       "bias_initializer": "zeros",
-       "all_close": False},
-      {"layer": bayes.Conv2DReparameterization,
-       "kernel_initializer": "zeros",
-       "bias_initializer": "trainable_normal",
-       "all_close": False},
-      {"layer": bayes.Conv2DVariationalDropout,
-       "kernel_initializer": "zeros",
-       "bias_initializer": "zeros",
-       "all_close": True},
-      {"layer": bayes.Conv2DVariationalDropout,
-       "kernel_initializer": "trainable_normal",
-       "bias_initializer": "zeros",
-       "all_close": False},
-      {"layer": bayes.Conv2DVariationalDropout,
-       "kernel_initializer": "zeros",
-       "bias_initializer": "trainable_normal",
-       "all_close": False},
-  )
-  @test_utils.run_in_graph_and_eager_modes
-  def testConv2DKernel(self,
-                       layer,
-                       kernel_initializer,
-                       bias_initializer,
-                       all_close):
-    tf.keras.backend.set_learning_phase(1)  # training time
-    inputs = tf.to_float(np.random.rand(5, 4, 4, 12))
-    model = layer(4,
-                  kernel_size=2,
-                  kernel_initializer=kernel_initializer,
-                  bias_initializer=bias_initializer,
-                  activation=tf.nn.relu)
-    outputs1 = model(inputs)
-    outputs2 = model(inputs)
-    self.evaluate(tf.global_variables_initializer())
-    res1, res2 = self.evaluate([outputs1, outputs2])
-    self.assertEqual(res1.shape, (5, 3, 3, 4))
-    self.assertAllGreaterEqual(res1, 0.)
-    if all_close:
-      self.assertAllClose(res1, res2)
-    else:
-      self.assertNotAllClose(res1, res2)
-    model.get_config()
-
-  @parameterized.parameters(
-      {"layer": bayes.Conv2DFlipout},
-      {"layer": bayes.Conv2DReparameterization},
-      {"layer": bayes.Conv2DVariationalDropout},
-  )
-  @test_utils.run_in_graph_and_eager_modes()
-  def testConv2DModel(self, layer):
-    inputs = tf.to_float(np.random.rand(3, 4, 4, 1))
-    model = tf.keras.Sequential([
-        layer(3, kernel_size=2, padding="SAME", activation=tf.nn.relu),
-        tf.keras.layers.Flatten(),
-        tf.keras.layers.Dense(2, activation=None),
-    ])
-    outputs = model(inputs, training=True)
-    self.evaluate(tf.global_variables_initializer())
-    res = self.evaluate(outputs)
-    self.assertEqual(res.shape, (3, 2))
-    self.assertLen(model.losses, 1)
+    # TODO(trandustin): Re-enable tests.
+#   @parameterized.parameters(
+#       {"layer": bayes.Conv2DFlipout,
+#        "kernel_initializer": "zeros",
+#        "bias_initializer": "zeros",
+#        "all_close": True},
+#       {"layer": bayes.Conv2DFlipout,
+#        "kernel_initializer": "trainable_normal",
+#        "bias_initializer": "zeros",
+#        "all_close": False},
+#       {"layer": bayes.Conv2DFlipout,
+#        "kernel_initializer": "zeros",
+#        "bias_initializer": "trainable_normal",
+#        "all_close": False},
+#       {"layer": bayes.Conv2DHierarchical,
+#        "kernel_initializer": "zeros",
+#        "bias_initializer": "zeros",
+#        "all_close": True},
+#       {"layer": bayes.Conv2DHierarchical,
+#        "kernel_initializer": "trainable_normal",
+#        "bias_initializer": "zeros",
+#        "all_close": False},
+#       {"layer": bayes.Conv2DHierarchical,
+#        "kernel_initializer": "zeros",
+#        "bias_initializer": "trainable_normal",
+#        "all_close": False},
+#       {"layer": bayes.Conv2DReparameterization,
+#        "kernel_initializer": "zeros",
+#        "bias_initializer": "zeros",
+#        "all_close": True},
+#       {"layer": bayes.Conv2DReparameterization,
+#        "kernel_initializer": "trainable_normal",
+#        "bias_initializer": "zeros",
+#        "all_close": False},
+#       {"layer": bayes.Conv2DReparameterization,
+#        "kernel_initializer": "zeros",
+#        "bias_initializer": "trainable_normal",
+#        "all_close": False},
+#       {"layer": bayes.Conv2DVariationalDropout,
+#        "kernel_initializer": "zeros",
+#        "bias_initializer": "zeros",
+#        "all_close": True},
+#       {"layer": bayes.Conv2DVariationalDropout,
+#        "kernel_initializer": "trainable_normal",
+#        "bias_initializer": "zeros",
+#        "all_close": False},
+#       {"layer": bayes.Conv2DVariationalDropout,
+#        "kernel_initializer": "zeros",
+#        "bias_initializer": "trainable_normal",
+#        "all_close": False},
+#   )
+#   @test_utils.run_in_graph_and_eager_modes
+#   def testConv2DKernel(self,
+#                        layer,
+#                        kernel_initializer,
+#                        bias_initializer,
+#                        all_close):
+#     tf.keras.backend.set_learning_phase(1)  # training time
+#     inputs = tf.to_float(np.random.rand(5, 4, 4, 12))
+#     model = layer(4,
+#                   kernel_size=2,
+#                   kernel_initializer=kernel_initializer,
+#                   bias_initializer=bias_initializer,
+#                   activation=tf.nn.relu)
+#     outputs1 = model(inputs)
+#     outputs2 = model(inputs)
+#     self.evaluate(tf.global_variables_initializer())
+#     res1, res2 = self.evaluate([outputs1, outputs2])
+#     self.assertEqual(res1.shape, (5, 3, 3, 4))
+#     self.assertAllGreaterEqual(res1, 0.)
+#     if all_close:
+#       self.assertAllClose(res1, res2)
+#     else:
+#       self.assertNotAllClose(res1, res2)
+#     model.get_config()
+#
+#   @parameterized.parameters(
+#       {"layer": bayes.Conv2DFlipout},
+#       {"layer": bayes.Conv2DHierarchical},
+#       {"layer": bayes.Conv2DReparameterization},
+#       {"layer": bayes.Conv2DVariationalDropout},
+#   )
+#   @test_utils.run_in_graph_and_eager_modes()
+#   def testConv2DModel(self, layer):
+#     inputs = tf.to_float(np.random.rand(3, 4, 4, 1))
+#     model = tf.keras.Sequential([
+#         layer(3, kernel_size=2, padding="SAME", activation=tf.nn.relu),
+#         tf.keras.layers.Flatten(),
+#         tf.keras.layers.Dense(2, activation=None),
+#     ])
+#     outputs = model(inputs, training=True)
+#     self.evaluate(tf.global_variables_initializer())
+#     res = self.evaluate(outputs)
+#     self.assertEqual(res.shape, (3, 2))
+#     if layer == bayes.Conv2DHierarchical:
+#       self.assertLen(model.losses, 3)
+#     else:
+#       self.assertLen(model.losses, 1)
 
   @test_utils.run_in_graph_and_eager_modes
   def testTrainableNormalStddevConstraint(self):
@@ -232,6 +250,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
       {"layer": bayes.DenseFlipout},
       {"layer": bayes.DenseReparameterization},
       {"layer": bayes.DenseVariationalDropout},
+      {"layer": bayes.DenseHierarchical},
   )
   @test_utils.run_in_graph_and_eager_modes()
   def testDenseLoss(self, layer):
@@ -285,6 +304,7 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
       {"layer": bayes.DenseFlipout},
       {"layer": bayes.DenseReparameterization},
       {"layer": bayes.DenseVariationalDropout},
+      {"layer": bayes.DenseHierarchical},
   )
   @test_utils.run_in_graph_and_eager_modes()
   def testDenseModel(self, layer):
@@ -301,13 +321,17 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     self.evaluate(tf.global_variables_initializer())
     res = self.evaluate(outputs)
     self.assertEqual(res.shape, (3, 2))
-    self.assertLen(model.losses, 1)
+    if layer == bayes.DenseHierarchical:
+      self.assertLen(model.losses, 3)
+    else:
+      self.assertLen(model.losses, 1)
 
   @parameterized.parameters(
       {"layer": bayes.DenseDVI},
       {"layer": bayes.DenseFlipout},
       {"layer": bayes.DenseReparameterization},
       {"layer": bayes.DenseVariationalDropout},
+      {"layer": bayes.DenseHierarchical},
   )
   @test_utils.run_in_graph_and_eager_modes()
   def testDenseSubclass(self, layer):
@@ -327,7 +351,10 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     self.evaluate(tf.global_variables_initializer())
     res = self.evaluate(outputs)
     self.assertEqual(res.shape, (3, 2))
-    self.assertLen(model.losses, 1)
+    if layer == bayes.DenseHierarchical:
+      self.assertLen(model.losses, 3)
+    else:
+      self.assertLen(model.losses, 1)
 
   @test_utils.run_in_graph_and_eager_modes()
   def testDenseDVIIsDeterministic(self):
@@ -382,46 +409,6 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     num_mismatches = np.sum(np.abs(covariance1_val - covariance2_val) > 5e-3)
     percent_mismatches = num_mismatches / float(batch_size * units * units)
     self.assertLessEqual(percent_mismatches, 0.05)
-
-  @test_utils.run_in_graph_and_eager_modes()
-  def testGaussianProcessPosterior(self):
-    train_batch_size = 3
-    test_batch_size = 2
-    input_dim = 4
-    output_dim = 5
-    features = tf.to_float(np.random.rand(train_batch_size, input_dim))
-    labels = tf.to_float(np.random.rand(train_batch_size, output_dim))
-    layer = bayes.GaussianProcess(output_dim,
-                                  conditional_inputs=features,
-                                  conditional_outputs=labels)
-    test_features = tf.to_float(np.random.rand(test_batch_size, input_dim))
-    test_labels = tf.to_float(np.random.rand(test_batch_size, output_dim))
-    test_outputs = layer(test_features)
-    test_nats = -test_outputs.distribution.log_prob(test_labels)
-    self.evaluate(tf.global_variables_initializer())
-    test_nats_val, outputs_val = self.evaluate([test_nats, test_outputs])
-    self.assertEqual(test_nats_val.shape, ())
-    self.assertGreaterEqual(test_nats_val, 0.)
-    self.assertEqual(outputs_val.shape, (test_batch_size, output_dim))
-
-  @test_utils.run_in_graph_and_eager_modes()
-  def testGaussianProcessPrior(self):
-    batch_size = 3
-    input_dim = 4
-    output_dim = 5
-    features = tf.to_float(np.random.rand(batch_size, input_dim))
-    labels = tf.to_float(np.random.rand(batch_size, output_dim))
-    model = tf.keras.Sequential([
-        tf.keras.layers.Dense(2, activation=None),
-        bayes.GaussianProcess(output_dim),
-    ])
-    outputs = model(features)
-    log_prob = outputs.distribution.log_prob(labels)
-    self.evaluate(tf.global_variables_initializer())
-    log_prob_val, outputs_val = self.evaluate([log_prob, outputs])
-    self.assertEqual(log_prob_val.shape, ())
-    self.assertLessEqual(log_prob_val, 0.)
-    self.assertEqual(outputs_val.shape, (batch_size, output_dim))
 
   @parameterized.parameters(
       {"lstm_cell": bayes.LSTMCellFlipout,
@@ -587,35 +574,36 @@ class BayesTest(parameterized.TestCase, tf.test.TestCase):
     self.assertLen(model.losses, 2)
 
   @test_utils.run_in_graph_and_eager_modes()
-  def testBayesianLinearModel(self):
-    """Tests that model makes reasonable predictions."""
-    np.random.seed(42)
-    train_batch_size = 5
-    test_batch_size = 2
-    num_features = 3
-    noise_variance = 0.01
-    coeffs = tf.range(num_features, dtype=tf.float32)
-    features = tf.to_float(np.random.randn(train_batch_size, num_features))
-    labels = (tf.tensordot(features, coeffs, [[-1], [0]])
-              + noise_variance * tf.to_float(np.random.randn(train_batch_size)))
+  def testNCPNormalPerturb(self):
+    batch_size = 3
+    inputs = tf.to_float(np.random.rand(batch_size, 4))
+    model = bayes.NCPNormalPerturb()
+    outputs = model(inputs)
+    inputs_val, outputs_val = self.evaluate([inputs, outputs])
+    self.assertEqual(outputs_val.shape, (2 * batch_size, 4))
+    self.assertAllEqual(inputs_val, outputs_val[:batch_size])
 
-    model = bayes.BayesianLinearModel(noise_variance=noise_variance)
-    model.fit(features, labels)
+  @test_utils.run_in_graph_and_eager_modes()
+  def testNCPCategoricalPerturb(self):
+    input_dim = 5
+    batch_size = 3
+    inputs = tf.to_float(np.random.choice(input_dim, size=(batch_size, 4)))
+    model = bayes.NCPCategoricalPerturb(input_dim)
+    outputs = model(inputs)
+    inputs_val, outputs_val = self.evaluate([inputs, outputs])
+    self.assertEqual(outputs_val.shape, (2 * batch_size, 4))
+    self.assertAllEqual(inputs_val, outputs_val[:batch_size])
 
-    test_features = tf.to_float(np.random.randn(test_batch_size, num_features))
-    test_labels = tf.tensordot(test_features, coeffs, [[-1], [0]])
-    outputs = model(test_features)
-    test_predictions = outputs.distribution.mean()
-    test_predictions_variance = outputs.distribution.variance()
-
-    [
-        test_labels_val, test_predictions_val, test_predictions_variance_val,
-    ] = self.evaluate(
-        [test_labels, test_predictions, test_predictions_variance])
-    self.assertEqual(test_predictions_val.shape, (test_batch_size,))
-    self.assertEqual(test_predictions_variance_val.shape, (test_batch_size,))
-    self.assertAllClose(test_predictions_val, test_labels_val, atol=0.1)
-    self.assertAllLessEqual(test_predictions_variance_val, noise_variance)
+  @test_utils.run_in_graph_and_eager_modes()
+  def testNCPNormalOutput(self):
+    batch_size = 3
+    features = ed.Normal(loc=tf.random.normal([2 * batch_size, 1]), scale=1.)
+    labels = tf.to_float(np.random.rand(batch_size))
+    model = bayes.NCPNormalOutput(mean=labels)
+    predictions = model(features)
+    features_val, predictions_val = self.evaluate([features, predictions])
+    self.assertLen(model.losses, 1)
+    self.assertAllEqual(features_val[:batch_size], predictions_val)
 
   @test_utils.run_in_graph_and_eager_modes()
   def testMixtureLogistic(self):

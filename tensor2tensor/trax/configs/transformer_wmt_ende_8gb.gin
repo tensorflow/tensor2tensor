@@ -22,7 +22,8 @@ masked_mean.mask_id = 0
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================
-MultifactorSchedule.constant = 0.1
+# 0.044 ~= 512^-0.5 = feature_depth^-0.5
+MultifactorSchedule.constant = 0.044
 MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
 MultifactorSchedule.warmup_steps = 8000
 
@@ -39,6 +40,13 @@ train.eval_steps = 10
 train.inputs = @trax.inputs.inputs
 train.model = @trax.models.Transformer
 train.train_steps = 500000
+train.optimizer = @trax.optimizers.Adam
+
+# Parameters for Adam:
+# ==============================================================================
+Adam.b1 = 0.9
+Adam.b2 = 0.98
+Adam.eps = 1e-9
 
 # Parameters for Transformer:
 # ==============================================================================

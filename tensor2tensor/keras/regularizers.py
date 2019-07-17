@@ -25,6 +25,33 @@ import tensorflow as tf
 from tensorflow_probability import edward2 as ed
 
 
+class HalfCauchyKLDivergence(tf.keras.regularizers.Regularizer):
+  """KL divergence regularizer from an input to the half-Cauchy distribution."""
+
+  def __init__(self, loc=0., scale=1.):
+    """Constructs regularizer where default uses the standard half-Cauchy."""
+    self.loc = loc
+    self.scale = scale
+
+  def __call__(self, x):
+    """Computes regularization using an unbiased Monte Carlo estimate."""
+    prior = ed.Independent(
+        ed.HalfCauchy(
+            loc=tf.broadcast_to(self.loc, x.distribution.event_shape),
+            scale=tf.broadcast_to(self.scale, x.distribution.event_shape)
+        ).distribution,
+        reinterpreted_batch_ndims=len(x.distribution.event_shape))
+    negative_entropy = x.distribution.log_prob(x)
+    cross_entropy = -prior.distribution.log_prob(x)
+    return negative_entropy + cross_entropy
+
+  def get_config(self):
+    return {
+        'loc': self.loc,
+        'scale': self.scale,
+    }
+
+
 class LogUniformKLDivergence(tf.keras.regularizers.Regularizer):
   """KL divergence regularizer from an input to the log-uniform distribution."""
 
@@ -85,6 +112,7 @@ class NormalKLDivergence(tf.keras.regularizers.Regularizer):
 # Compatibility aliases, following tf.keras
 
 # pylint: disable=invalid-name
+half_cauchy_kl_divergence = HalfCauchyKLDivergence
 log_uniform_kl_divergence = LogUniformKLDivergence
 normal_kl_divergence = NormalKLDivergence
 # pylint: enable=invalid-name

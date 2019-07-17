@@ -241,7 +241,7 @@ class Transformer(t2t_model.T2TModel):
     losses = []
 
     if self.has_input:
-      inputs = features["inputs"]
+      inputs = self._prepare_inputs_for_body(features)
       target_space = features["target_space_id"]
       encoder_output, encoder_decoder_attention_bias = self.encode(
           inputs, target_space, hparams, features=features, losses=losses)
@@ -297,6 +297,20 @@ class Transformer(t2t_model.T2TModel):
       return ret, {"extra_loss": tf.add_n(losses)}
     else:
       return ret
+
+  def _prepare_inputs_for_body(self, features):
+    """Prepare inputs for body.
+
+    Args:
+      features: Map of string to model features. Should contain
+          "inputs": Transformer inputs. [batch_size, input_length, 1,
+            hidden_dim].
+
+    Returns:
+      Inputs which will be passed to the model. [batch_size, input_length, 1,
+          hidden_dim]
+    """
+    return features["inputs"]
 
   def _greedy_infer(self, features, decode_length, use_tpu=False):
     """Fast version of greedy decoding.
@@ -370,6 +384,39 @@ class Transformer(t2t_model.T2TModel):
       return self._fast_decode(features, decode_length, beam_size, top_beams,
                                alpha)
 
+  def _prepare_inputs_for_decode(self, features):
+    """Prepare inputs for decoding.
+
+    Args:
+      features: A map of string to model features.
+
+    Returns:
+      Inputs after fixing shape and applying modality.
+    """
+    dp = self._data_parallelism
+    hparams = self._hparams
+    inputs = features["inputs"]
+    # TODO(llion): Clean up this reshaping logic.
+    inputs = tf.expand_dims(inputs, axis=1)
+    if len(inputs.shape) < 5:
+      inputs = tf.expand_dims(inputs, axis=4)
+    s = common_layers.shape_list(inputs)
+    inputs = tf.reshape(inputs, [s[0] * s[1], s[2], s[3], s[4]])
+    # _shard_features called to ensure that the variable names match
+    inputs = self._shard_features({"inputs": inputs})["inputs"]
+    input_modality = self._problem_hparams.modality["inputs"]
+    input_vocab_size = self._problem_hparams.vocab_size["inputs"]
+    if input_vocab_size is not None and hasattr(hparams, "vocab_divisor"):
+      input_vocab_size += (-input_vocab_size) % hparams.vocab_divisor
+    modality_name = hparams.name.get("inputs",
+                                     modalities.get_name(input_modality))(
+                                         hparams, input_vocab_size)
+    with tf.variable_scope(modality_name):
+      bottom = hparams.bottom.get("inputs",
+                                  modalities.get_bottom(input_modality))
+      inputs = dp(bottom, inputs, hparams, input_vocab_size)
+    return inputs
+
   def _fast_decode_tpu(self,
                        features,
                        decode_length,
@@ -416,34 +463,14 @@ class Transformer(t2t_model.T2TModel):
       target_vocab_size += (-target_vocab_size) % hparams.vocab_divisor
 
     if self.has_input:
-      inputs = features["inputs"]
+      inputs_shape = common_layers.shape_list(features["inputs"])
       if target_modality == modalities.ModalityType.CLASS_LABEL:
         decode_length = 1
       else:
         decode_length = (
-            common_layers.shape_list(inputs)[1] + features.get(
-                "decode_length", decode_length))
-
-      # TODO(llion): Clean up this reshaping logic.
-      inputs = tf.expand_dims(inputs, axis=1)
-      if len(inputs.shape) < 5:
-        inputs = tf.expand_dims(inputs, axis=4)
-      s = common_layers.shape_list(inputs)
-      batch_size = s[0]
-      inputs = tf.reshape(inputs, [s[0] * s[1], s[2], s[3], s[4]])
-      # _shard_features called to ensure that the variable names match
-      inputs = self._shard_features({"inputs": inputs})["inputs"]
-      input_modality = self._problem_hparams.modality["inputs"]
-      input_vocab_size = self._problem_hparams.vocab_size["inputs"]
-      if input_vocab_size is not None and hasattr(hparams, "vocab_divisor"):
-        input_vocab_size += (-input_vocab_size) % hparams.vocab_divisor
-      modality_name = hparams.name.get(
-          "inputs",
-          modalities.get_name(input_modality))(hparams, input_vocab_size)
-      with tf.variable_scope(modality_name):
-        bottom = hparams.bottom.get("inputs",
-                                    modalities.get_bottom(input_modality))
-        inputs = dp(bottom, inputs, hparams, input_vocab_size)
+            inputs_shape[1] + features.get("decode_length", decode_length))
+      batch_size = inputs_shape[0]
+      inputs = self._prepare_inputs_for_decode(features)
       with tf.variable_scope("body"):
         encoder_output, encoder_decoder_attention_bias = dp(
             self.encode,
@@ -678,34 +705,14 @@ class Transformer(t2t_model.T2TModel):
           " If you want to decode from a dataset, use the non-packed version"
           " of the dataset when decoding.")
     if self.has_input:
-      inputs = features["inputs"]
+      inputs_shape = common_layers.shape_list(features["inputs"])
       if target_modality == modalities.ModalityType.CLASS_LABEL:
         decode_length = 1
       else:
         decode_length = (
-            common_layers.shape_list(inputs)[1] + features.get(
-                "decode_length", decode_length))
-
-      # TODO(llion): Clean up this reshaping logic.
-      inputs = tf.expand_dims(inputs, axis=1)
-      if len(inputs.shape) < 5:
-        inputs = tf.expand_dims(inputs, axis=4)
-      s = common_layers.shape_list(inputs)
-      batch_size = s[0]
-      inputs = tf.reshape(inputs, [s[0] * s[1], s[2], s[3], s[4]])
-      # _shard_features called to ensure that the variable names match
-      inputs = self._shard_features({"inputs": inputs})["inputs"]
-      input_modality = self._problem_hparams.modality["inputs"]
-      input_vocab_size = self._problem_hparams.vocab_size["inputs"]
-      if input_vocab_size is not None and hasattr(hparams, "vocab_divisor"):
-        input_vocab_size += (-input_vocab_size) % hparams.vocab_divisor
-      modality_name = hparams.name.get(
-          "inputs",
-          modalities.get_name(input_modality))(hparams, input_vocab_size)
-      with tf.variable_scope(modality_name):
-        bottom = hparams.bottom.get("inputs",
-                                    modalities.get_bottom(input_modality))
-        inputs = dp(bottom, inputs, hparams, input_vocab_size)
+            inputs_shape[1] + features.get("decode_length", decode_length))
+      batch_size = inputs_shape[0]
+      inputs = self._prepare_inputs_for_decode(features)
       with tf.variable_scope("body"):
         encoder_output, encoder_decoder_attention_bias = dp(
             self.encode,

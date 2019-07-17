@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.trax import backend
+from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.layers import base
 
 
@@ -161,7 +162,8 @@ class Serial(base.Layer):
     if not isinstance(xs, tuple) and self._n_inputs != 1:
       raise TypeError(
           'Serial.call input must be a tuple; instead got {}'.format(xs))
-    if len(xs) < self.n_inputs():
+    len_xs = 1 if isinstance(xs, np.ndarray) else len(xs)
+    if len_xs < self.n_inputs():
       raise ValueError(
           'number of inputs ({}) to Serial.call less than n_inputs'
           ' ({})'.format(len(xs), self.n_inputs()))
@@ -361,16 +363,18 @@ class Parallel(base.Layer):
 
   creates a layer that passes its first input unchanged and applies F to the
   following input(s).
-
-  Args:
-    *layers: A list of layers.
-
-  Returns:
-    A new layer in which each of the given layers applies to its corresponding
-    span of elements in the dataflow stack.
   """
 
   def __init__(self, *layers):
+    """The constructor.
+
+    Args:
+      *layers: A list of layers.
+
+    Returns:
+      A new layer in which each of the given layers applies to its corresponding
+      span of elements in the dataflow stack.
+    """
     super(Parallel, self).__init__()
     layers = self._validate(layers)
     self._n_layers = len(layers)

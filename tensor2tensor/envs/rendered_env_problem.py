@@ -23,6 +23,7 @@ import png
 import six
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.envs import env_problem
+from tensor2tensor.envs import gym_env_problem
 import tensorflow as tf
 
 _IMAGE_ENCODED_FIELD = "image/encoded"
@@ -34,7 +35,8 @@ _FRAME_NUMBER_FIELD = "frame_number"
 _FORMAT = "png"
 
 
-class RenderedEnvProblem(env_problem.EnvProblem, video_utils.VideoProblem):
+class RenderedEnvProblem(gym_env_problem.GymEnvProblem,
+                         video_utils.VideoProblem):
   """An `EnvProblem` when observations are RGB arrays.
 
   This takes care of wrapping a rendered gym environment to behave like a
@@ -48,18 +50,13 @@ class RenderedEnvProblem(env_problem.EnvProblem, video_utils.VideoProblem):
   `RenderedEnvProblem`, `EnvProblem`, `Env`, `VideoProblem`, `Problem`
   """
 
-  def __init__(self,
-               base_env_name=None,
-               batch_size=None,
-               env_wrapper_fn=None,
-               reward_range=(-np.inf, np.inf)):
+  def __init__(self, *args, **kwargs):
     """Initialize by calling both parents' constructors."""
-    env_problem.EnvProblem.__init__(self, base_env_name, batch_size,
-                                    env_wrapper_fn, reward_range)
+    gym_env_problem.GymEnvProblem.__init__(self, *args, **kwargs)
     video_utils.VideoProblem.__init__(self)
 
   def initialize_environments(self, batch_size=1):
-    env_problem.EnvProblem.initialize_environments(self, batch_size)
+    gym_env_problem.GymEnvProblem.initialize_environments(self, batch_size)
     # Assert the underlying gym environment has correct observation space
     assert len(self.observation_spec.shape) == 3
 
@@ -67,7 +64,8 @@ class RenderedEnvProblem(env_problem.EnvProblem, video_utils.VideoProblem):
     """Return a mix of env and video data fields and decoders."""
     video_fields, video_decoders = (
         video_utils.VideoProblem.example_reading_spec(self))
-    env_fields, env_decoders = env_problem.EnvProblem.example_reading_spec(self)
+    env_fields, env_decoders = (
+        gym_env_problem.GymEnvProblem.example_reading_spec(self))
 
     # Remove raw observations field since we want to capture them as videos.
     env_fields.pop(env_problem.OBSERVATION_FIELD)
@@ -86,7 +84,7 @@ class RenderedEnvProblem(env_problem.EnvProblem, video_utils.VideoProblem):
 
   def _generate_time_steps(self, trajectory_list):
     """Transforms time step observations to frames of a video."""
-    for time_step in env_problem.EnvProblem._generate_time_steps(
+    for time_step in gym_env_problem.GymEnvProblem._generate_time_steps(
         self, trajectory_list):
       # Convert the rendered observations from numpy to png format.
       frame_np = np.array(time_step.pop(env_problem.OBSERVATION_FIELD))

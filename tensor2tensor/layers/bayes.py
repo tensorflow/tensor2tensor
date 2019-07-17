@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Bayesian layers."""
+"""Bayesian neural network layers."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -162,9 +162,9 @@ class Conv2DFlipout(Conv2DReparameterization):
   """
 
   def call(self, inputs):
-    self.call_weights()
     if not isinstance(self.kernel, ed.RandomVariable):
       return super(Conv2DFlipout, self).call(inputs)
+    self.call_weights()
     input_shape = tf.shape(inputs)
     batch_dim = input_shape[0]
     if self.data_format == 'channels_first':
@@ -198,8 +198,126 @@ class Conv2DFlipout(Conv2DReparameterization):
     return outputs
 
 
-@add_weight
-class Conv2DVariationalDropout(tf.keras.layers.Conv2D):
+class Conv2DHierarchical(Conv2DFlipout):
+  """2D convolution layer with hierarchical distributions.
+
+  The layer computes a variational Bayesian approximation to the distribution
+  over convolutional layers, and where the distribution over weights
+  involves a hierarchical distribution with hidden unit noise coupling vectors
+  of the kernel weight matrix (Louizos et al., 2017),
+
+  ```
+  p(outputs | inputs) = int conv2d(inputs; new_kernel, bias) p(kernel,
+    local_scales, global_scale, bias) dkernel dlocal_scales dglobal_scale dbias.
+  ```
+
+  It does this with a stochastic forward pass, sampling from learnable
+  distributions on the kernel and bias. The kernel is written in non-centered
+  parameterization where
+
+  ```
+  new_kernel[i, j] = kernel[i, j] * local_scale[j] * global_scale.
+  ```
+
+  That is, there is "local" multiplicative noise which couples weights for each
+  output filter. There is also a "global" multiplicative noise which couples the
+  entire weight matrix. By default, the weights are normally distributed and the
+  local and global noises are half-Cauchy distributed; this makes the kernel a
+  horseshoe distribution (Carvalho et al., 2009; Polson and Scott, 2012).
+
+  The estimation uses Flipout for variance reduction with respect to sampling
+  the full weights. Gradients with respect to the distributions' learnable
+  parameters backpropagate via reparameterization. Minimizing cross-entropy
+  plus the layer's losses performs variational minimum description length,
+  i.e., it minimizes an upper bound to the negative marginal likelihood.
+  """
+
+  def __init__(self,
+               filters,
+               kernel_size,
+               strides=(1, 1),
+               padding='valid',
+               data_format=None,
+               dilation_rate=(1, 1),
+               activation=None,
+               use_bias=True,
+               kernel_initializer='trainable_normal',
+               bias_initializer='zeros',
+               local_scale_initializer='trainable_half_cauchy',
+               global_scale_initializer='trainable_half_cauchy',
+               kernel_regularizer='normal_kl_divergence',
+               bias_regularizer=None,
+               local_scale_regularizer='half_cauchy_kl_divergence',
+               global_scale_regularizer=regularizers.HalfCauchyKLDivergence(
+                   scale=1e-5),
+               activity_regularizer=None,
+               kernel_constraint=None,
+               bias_constraint=None,
+               local_scale_constraint='positive',
+               global_scale_constraint='positive',
+               **kwargs):
+    self.local_scale_initializer = initializers.get(local_scale_initializer)
+    self.global_scale_initializer = initializers.get(global_scale_initializer)
+    self.local_scale_regularizer = regularizers.get(local_scale_regularizer)
+    self.global_scale_regularizer = regularizers.get(global_scale_regularizer)
+    self.local_scale_constraint = constraints.get(local_scale_constraint)
+    self.global_scale_constraint = constraints.get(global_scale_constraint)
+    super(Conv2DHierarchical, self).__init__(
+        filters=filters,
+        kernel_size=kernel_size,
+        strides=strides,
+        padding=padding,
+        data_format=data_format,
+        dilation_rate=dilation_rate,
+        activation=activation,
+        use_bias=use_bias,
+        kernel_initializer=initializers.get(kernel_initializer),
+        bias_initializer=initializers.get(bias_initializer),
+        kernel_regularizer=regularizers.get(kernel_regularizer),
+        bias_regularizer=regularizers.get(bias_regularizer),
+        activity_regularizer=regularizers.get(activity_regularizer),
+        kernel_constraint=constraints.get(kernel_constraint),
+        bias_constraint=constraints.get(bias_constraint),
+        **kwargs)
+
+  def build(self, input_shape):
+    self.local_scale = self.add_weight(
+        shape=(self.filters,),
+        name='local_scale',
+        initializer=self.local_scale_initializer,
+        regularizer=self.local_scale_regularizer,
+        constraint=self.local_scale_constraint)
+    self.global_scale = self.add_weight(
+        shape=(),
+        name='global_scale',
+        initializer=self.global_scale_initializer,
+        regularizer=self.global_scale_regularizer,
+        constraint=self.global_scale_constraint)
+    super(Conv2DHierarchical, self).build(input_shape)
+
+  def call_weights(self):
+    """Calls any weights if the initializer is itself a layer."""
+    if isinstance(self.local_scale_initializer, tf.keras.layers.Layer):
+      self.local_scale = self.local_scale_initializer(self.local_scale.shape,
+                                                      self.dtype)
+    if isinstance(self.global_scale_initializer, tf.keras.layers.Layer):
+      self.global_scale = self.global_scale_initializer(self.global_scale.shape,
+                                                        self.dtype)
+    super(Conv2DHierarchical, self).call_weights()
+
+  def call(self, inputs, training=None):
+    self.call_weights()
+    if self.data_format == 'channels_first':
+      local_scale = tf.reshape(self.local_scale, [1, -1, 1, 1])
+    else:
+      local_scale = tf.reshape(self.local_scale, [1, 1, 1, -1])
+    # TODO(trandustin): Figure out what to set local/global scales to at test
+    # time. Means don't exist for Half-Cauchy approximate posteriors.
+    inputs *= local_scale * self.global_scale
+    return super(Conv2DHierarchical, self).call(inputs, training=training)
+
+
+class Conv2DVariationalDropout(Conv2DReparameterization):
   """2D convolution layer with variational dropout (Kingma et al., 2015).
 
   Implementation follows the additive parameterization of
@@ -241,14 +359,9 @@ class Conv2DVariationalDropout(tf.keras.layers.Conv2D):
         bias_constraint=constraints.get(bias_constraint),
         **kwargs)
 
-  def call_weights(self):
-    """Calls any weights if the initializer is itself a layer."""
-    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
-      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
-    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
-      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
-
   def call(self, inputs, training=None):
+    if not isinstance(self.kernel, ed.RandomVariable):
+      return super(Conv2DVariationalDropout, self).call(inputs)
     self.call_weights()
     if training is None:
       training = tf.keras.backend.learning_phase()
@@ -270,29 +383,27 @@ class Conv2DVariationalDropout(tf.keras.layers.Conv2D):
       stddevs = tf.sqrt(
           self._convolution_op(tf.square(inputs), tf.exp(log_variance)) +
           tf.keras.backend.epsilon())
-      outputs = means + stddevs * tf.random_normal(tf.shape(stddevs))
       if self.use_bias:
         if self.data_format == 'channels_first':
-          outputs = tf.nn.bias_add(outputs, self.bias, data_format='NCHW')
+          means = tf.nn.bias_add(means, self.bias, data_format='NCHW')
         else:
-          outputs = tf.nn.bias_add(outputs, self.bias, data_format='NHWC')
+          means = tf.nn.bias_add(means, self.bias, data_format='NHWC')
+      outputs = ed.Normal(loc=means, scale=stddevs)
       if self.activation is not None:
         outputs = self.activation(outputs)
       return outputs
 
     # Following tf.keras.Dropout, only apply variational dropout if training
-    # flag is True. The kernel must also be a random variable.
+    # flag is True.
     training_value = smart_constant_value(training)
     if training_value is not None:
-      if training_value and isinstance(self.kernel, ed.RandomVariable):
+      if training_value:
         return dropped_inputs()
       else:
         return super(Conv2DVariationalDropout, self).call(inputs)
-    else:
-      return tf.cond(tf.logical_and(training,
-                                    isinstance(self.kernel, ed.RandomVariable)),
-                     dropped_inputs,
-                     lambda: super(Conv2DVariationalDropout, self).call(inputs))
+    return tf.cond(training,
+                   dropped_inputs,
+                   lambda: super(Conv2DVariationalDropout, self).call(inputs))
 
 
 # From `tensorflow/python/framework/smart_cond.py`
@@ -321,7 +432,60 @@ def smart_constant_value(pred):
 
 
 @add_weight
-class DenseDVI(tf.keras.layers.Dense):
+class DenseReparameterization(tf.keras.layers.Dense):
+  """Bayesian densely-connected layer estimated via reparameterization.
+
+  The layer computes a variational Bayesian approximation to the distribution
+  over densely-connected layers,
+
+  ```
+  p(outputs | inputs) = int dense(inputs; weights, bias) p(weights, bias)
+    dweights dbias.
+  ```
+
+  It does this with a stochastic forward pass, sampling from learnable
+  distributions on the kernel and bias. Gradients with respect to the
+  distributions' learnable parameters backpropagate via reparameterization.
+  Minimizing cross-entropy plus the layer's losses performs variational
+  minimum description length, i.e., it minimizes an upper bound to the negative
+  marginal likelihood.
+  """
+
+  def __init__(self,
+               units,
+               activation=None,
+               use_bias=True,
+               kernel_initializer='trainable_normal',
+               bias_initializer='zero',
+               kernel_regularizer='normal_kl_divergence',
+               bias_regularizer=None,
+               activity_regularizer=None,
+               **kwargs):
+    super(DenseReparameterization, self).__init__(
+        units=units,
+        activation=activation,
+        use_bias=use_bias,
+        kernel_initializer=initializers.get(kernel_initializer),
+        bias_initializer=initializers.get(bias_initializer),
+        kernel_regularizer=regularizers.get(kernel_regularizer),
+        bias_regularizer=regularizers.get(bias_regularizer),
+        activity_regularizer=regularizers.get(activity_regularizer),
+        **kwargs)
+
+  def call_weights(self):
+    """Calls any weights if the initializer is itself a layer."""
+    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
+      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
+    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
+      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
+
+  def call(self, *args, **kwargs):
+    self.call_weights()
+    kwargs.pop('training', None)
+    return super(DenseReparameterization, self).call(*args, **kwargs)
+
+
+class DenseDVI(DenseReparameterization):
   """Densely-connected layer with deterministic VI (Wu et al., 2018).
 
   This layer computes a variational inference approximation via first and second
@@ -365,40 +529,12 @@ class DenseDVI(tf.keras.layers.Dense):
   ```
   """
 
-  def __init__(self,
-               units,
-               activation=None,
-               use_bias=True,
-               kernel_initializer='trainable_normal',
-               bias_initializer='zero',
-               kernel_regularizer='normal_kl_divergence',
-               bias_regularizer=None,
-               activity_regularizer=None,
-               **kwargs):
-    super(DenseDVI, self).__init__(
-        units=units,
-        activation=activation,
-        use_bias=use_bias,
-        kernel_initializer=initializers.get(kernel_initializer),
-        bias_initializer=initializers.get(bias_initializer),
-        kernel_regularizer=regularizers.get(kernel_regularizer),
-        bias_regularizer=regularizers.get(bias_regularizer),
-        activity_regularizer=regularizers.get(activity_regularizer),
-        **kwargs)
-
-  def call_weights(self):
-    """Calls any weights if the initializer is itself a layer."""
-    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
-      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
-    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
-      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
-
   def call(self, inputs):
-    self.call_weights()
     if (not isinstance(inputs, ed.RandomVariable) and
         not isinstance(self.kernel, ed.RandomVariable) and
         not isinstance(self.bias, ed.RandomVariable)):
       return super(DenseDVI, self).call(inputs)
+    self.call_weights()
     inputs_mean, inputs_variance, inputs_covariance = get_moments(inputs)
     kernel_mean, kernel_variance, _ = get_moments(self.kernel)
     if self.use_bias:
@@ -486,60 +622,6 @@ def soft_relu(x):
           x * tfp.distributions.Normal(0., 1.).cdf(x))
 
 
-@add_weight
-class DenseReparameterization(tf.keras.layers.Dense):
-  """Bayesian densely-connected layer estimated via reparameterization.
-
-  The layer computes a variational Bayesian approximation to the distribution
-  over densely-connected layers,
-
-  ```
-  p(outputs | inputs) = int dense(inputs; weights, bias) p(weights, bias)
-    dweights dbias.
-  ```
-
-  It does this with a stochastic forward pass, sampling from learnable
-  distributions on the kernel and bias. Gradients with respect to the
-  distributions' learnable parameters backpropagate via reparameterization.
-  Minimizing cross-entropy plus the layer's losses performs variational
-  minimum description length, i.e., it minimizes an upper bound to the negative
-  marginal likelihood.
-  """
-
-  def __init__(self,
-               units,
-               activation=None,
-               use_bias=True,
-               kernel_initializer='trainable_normal',
-               bias_initializer='zero',
-               kernel_regularizer='normal_kl_divergence',
-               bias_regularizer=None,
-               activity_regularizer=None,
-               **kwargs):
-    super(DenseReparameterization, self).__init__(
-        units=units,
-        activation=activation,
-        use_bias=use_bias,
-        kernel_initializer=initializers.get(kernel_initializer),
-        bias_initializer=initializers.get(bias_initializer),
-        kernel_regularizer=regularizers.get(kernel_regularizer),
-        bias_regularizer=regularizers.get(bias_regularizer),
-        activity_regularizer=regularizers.get(activity_regularizer),
-        **kwargs)
-
-  def call_weights(self):
-    """Calls any weights if the initializer is itself a layer."""
-    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
-      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
-    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
-      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
-
-  def call(self, *args, **kwargs):
-    self.call_weights()
-    kwargs.pop('training', None)
-    return super(DenseReparameterization, self).call(*args, **kwargs)
-
-
 class DenseFlipout(DenseReparameterization):
   """Bayesian densely-connected layer estimated via Flipout (Wen et al., 2018).
 
@@ -569,9 +651,9 @@ class DenseFlipout(DenseReparameterization):
   """
 
   def call(self, inputs):
-    self.call_weights()
     if not isinstance(self.kernel, ed.RandomVariable):
       return super(DenseFlipout, self).call(inputs)
+    self.call_weights()
     input_shape = tf.shape(inputs)
     sign_input = 2 * tf.random.uniform(input_shape,
                                        minval=0,
@@ -599,8 +681,7 @@ class DenseFlipout(DenseReparameterization):
     return outputs
 
 
-@add_weight
-class DenseVariationalDropout(tf.keras.layers.Dense):
+class DenseVariationalDropout(DenseReparameterization):
   """Densely-connected layer with variational dropout (Kingma et al., 2015).
 
   Implementation follows the additive parameterization of
@@ -628,14 +709,9 @@ class DenseVariationalDropout(tf.keras.layers.Dense):
         activity_regularizer=regularizers.get(activity_regularizer),
         **kwargs)
 
-  def call_weights(self):
-    """Calls any weights if the initializer is itself a layer."""
-    if isinstance(self.kernel_initializer, tf.keras.layers.Layer):
-      self.kernel = self.kernel_initializer(self.kernel.shape, self.dtype)
-    if isinstance(self.bias_initializer, tf.keras.layers.Layer):
-      self.bias = self.bias_initializer(self.bias.shape, self.dtype)
-
   def call(self, inputs, training=None):
+    if not isinstance(self.kernel, ed.RandomVariable):
+      return super(DenseVariationalDropout, self).call(inputs)
     self.call_weights()
     if training is None:
       training = tf.keras.backend.learning_phase()
@@ -663,26 +739,129 @@ class DenseVariationalDropout(tf.keras.layers.Dense):
         stddevs = tf.sqrt(
             tf.tensordot(tf.square(inputs), tf.exp(log_variance), [[-1], [0]]) +
             tf.keras.backend.epsilon())
-      outputs = means + stddevs * tf.random_normal(tf.shape(stddevs))
       if self.use_bias:
-        outputs = tf.nn.bias_add(outputs, self.bias)
+        means = tf.nn.bias_add(means, self.bias)
+      outputs = ed.Normal(loc=means, scale=stddevs)
       if self.activation is not None:
         outputs = self.activation(outputs)
       return outputs
 
     # Following tf.keras.Dropout, only apply variational dropout if training
-    # flag is True. The kernel must also be a random variable.
+    # flag is True.
     training_value = smart_constant_value(training)
     if training_value is not None:
-      if training_value and isinstance(self.kernel, ed.RandomVariable):
+      if training_value:
         return dropped_inputs()
       else:
         return super(DenseVariationalDropout, self).call(inputs)
-    else:
-      return tf.cond(tf.logical_and(training,
-                                    isinstance(self.kernel, ed.RandomVariable)),
-                     dropped_inputs,
-                     lambda: super(DenseVariationalDropout, self).call(inputs))
+    return tf.cond(training,
+                   dropped_inputs,
+                   lambda: super(DenseVariationalDropout, self).call(inputs))
+
+
+class DenseHierarchical(DenseVariationalDropout):
+  """Bayesian densely-connected layer with hierarchical distributions.
+
+  The layer computes a variational Bayesian approximation to the distribution
+  over densely-connected layers, and where the distribution over weights
+  involves a hierarchical distribution with hidden unit noise coupling vectors
+  of the kernel weight matrix (Louizos et al., 2017),
+
+  ```
+  p(outputs | inputs) = int dense(inputs; new_kernel, bias) p(kernel,
+    local_scales, global_scale, bias) dkernel dlocal_scales dglobal_scale dbias.
+  ```
+
+  It does this with a stochastic forward pass, sampling from learnable
+  distributions on the kernel and bias. The kernel is written in non-centered
+  parameterization where
+
+  ```
+  new_kernel[i, j] = kernel[i, j] * local_scale[i] * global_scale.
+  ```
+
+  That is, there is "local" multiplicative noise which couples weights for each
+  input neuron. There is also a "global" multiplicative noise which couples the
+  entire weight matrix. By default, the weights are normally distributed and the
+  local and global noises are half-Cauchy distributed; this makes the kernel a
+  horseshoe distribution (Carvalho et al., 2009; Polson and Scott, 2012).
+
+  The estimation uses local reparameterization to avoid sampling the full
+  weights. Gradients with respect to the distributions' learnable parameters
+  backpropagate via reparameterization. Minimizing cross-entropy plus the
+  layer's losses performs variational minimum description length, i.e., it
+  minimizes an upper bound to the negative marginal likelihood.
+  """
+
+  def __init__(self,
+               units,
+               activation=None,
+               use_bias=True,
+               kernel_initializer='trainable_normal',
+               bias_initializer='zero',
+               local_scale_initializer='trainable_half_cauchy',
+               global_scale_initializer='trainable_half_cauchy',
+               kernel_regularizer='normal_kl_divergence',
+               bias_regularizer=None,
+               local_scale_regularizer='half_cauchy_kl_divergence',
+               global_scale_regularizer=regularizers.HalfCauchyKLDivergence(
+                   scale=1e-5),
+               activity_regularizer=None,
+               local_scale_constraint='positive',
+               global_scale_constraint='positive',
+               **kwargs):
+    self.local_scale_initializer = initializers.get(local_scale_initializer)
+    self.global_scale_initializer = initializers.get(global_scale_initializer)
+    self.local_scale_regularizer = regularizers.get(local_scale_regularizer)
+    self.global_scale_regularizer = regularizers.get(global_scale_regularizer)
+    self.local_scale_constraint = constraints.get(local_scale_constraint)
+    self.global_scale_constraint = constraints.get(global_scale_constraint)
+    super(DenseHierarchical, self).__init__(
+        units=units,
+        activation=activation,
+        use_bias=use_bias,
+        kernel_initializer=initializers.get(kernel_initializer),
+        bias_initializer=initializers.get(bias_initializer),
+        kernel_regularizer=regularizers.get(kernel_regularizer),
+        bias_regularizer=regularizers.get(bias_regularizer),
+        activity_regularizer=regularizers.get(activity_regularizer),
+        **kwargs)
+
+  def build(self, input_shape):
+    input_shape = tf.TensorShape(input_shape)
+    input_dim = input_shape[-1]
+    if isinstance(input_dim, tf.Dimension):
+      input_dim = input_dim.value
+    self.local_scale = self.add_weight(
+        shape=(input_dim,),
+        name='local_scale',
+        initializer=self.local_scale_initializer,
+        regularizer=self.local_scale_regularizer,
+        constraint=self.local_scale_constraint)
+    self.global_scale = self.add_weight(
+        shape=(),
+        name='global_scale',
+        initializer=self.global_scale_initializer,
+        regularizer=self.global_scale_regularizer,
+        constraint=self.global_scale_constraint)
+    super(DenseHierarchical, self).build(input_shape)
+
+  def call_weights(self):
+    """Calls any weights if the initializer is itself a layer."""
+    if isinstance(self.local_scale_initializer, tf.keras.layers.Layer):
+      self.local_scale = self.local_scale_initializer(self.local_scale.shape,
+                                                      self.dtype)
+    if isinstance(self.global_scale_initializer, tf.keras.layers.Layer):
+      self.global_scale = self.global_scale_initializer(self.global_scale.shape,
+                                                        self.dtype)
+    super(DenseHierarchical, self).call_weights()
+
+  def call(self, inputs, training=None):
+    self.call_weights()
+    # TODO(trandustin): Figure out what to set local/global scales to at test
+    # time. Means don't exist for Half-Cauchy approximate posteriors.
+    inputs *= self.local_scale[tf.newaxis, :] * self.global_scale
+    return super(DenseHierarchical, self).call(inputs, training=training)
 
 
 @add_weight
@@ -989,299 +1168,217 @@ class LSTMCellFlipout(LSTMCellReparameterization):
     return h, [h, c]
 
 
-class Zeros(object):
-  """Function returning zeros tensor of same shape excluding the last dim."""
+class NCPNormalPerturb(tf.keras.layers.Layer):
+  """Noise contrastive prior for continuous inputs (Hafner et al., 2018).
 
-  def __call__(self, inputs):
-    return tf.zeros(tf.shape(inputs)[:-1], inputs.dtype)
+  The layer doubles the inputs' batch size and adds a random normal perturbation
+  to the concatenated second batch. This acts an input prior to be used in
+  combination with an output prior. The output prior reduces the second batch
+  (reverting to the inputs' original shape) and computes a regularizer that
+  matches the second batch towards some output (e.g., uniform distribution).
+  This layer implementation is inspired by the Aboleth library.
 
-  def get_config(self):
-    return {}
+  #### Examples
 
+  Below implements neural network regression with heteroskedastic noise,
+  noise contrastive priors, and being Bayesian only at the mean's output layer.
 
-class ExponentiatedQuadratic(object):
-  """Exponentiated quadratic kernel."""
+  ```python
+  from tensor2tensor.layers import bayes
 
-  def __init__(self, variance, lengthscale):
-    self.variance = variance
-    self.lengthscale = lengthscale
+  batch_size, dataset_size = 128, 1000
+  features, labels = get_some_dataset()
 
-  def __call__(self, x1, x2):
-    """Computes exponentiated quadratic over all pairs of inputs.
+  inputs = keras.Input(shape=(25,))
+  x = bayes.NCPNormalPerturb()(inputs)  # double input batch
+  x = layers.Dense(64, activation='relu')(x)
+  x = layers.Dense(64, activation='relu')(x)
+  means = bayes.DenseVariationalDropout(1, activation=None)(x)  # get mean dist.
+  means = bayes.NCPNormalOutput(labels)(means)  # halve input batch
+  stddevs = tf.keras.layers.Dense(1, activation='softplus')(x[:batch_size])
+  outputs = tf.keras.layers.Lambda(lambda x: ed.Normal(x[0], x[1]))([means,
+                                                                     stddevs])
+  model = tf.keras.Model(inputs=inputs, outputs=outputs)
 
-    Args:
-      x1: Tensor of shape [batch_x1, ...]. Slices along the batch axis denote an
-        individual input to be passed to the kernel. It is computed pairwise
-        with each input sliced from x2.
-      x2: Tensor of shape [batch_x2, ...]. Slices along the batch axis denote an
-        individual input passed to the kernel function. It is computed pairwise
-        with each input sliced from x1.
-
-    Returns:
-      Tensor of shape [batch_x1, batch_x2].
-    """
-    size = tf.convert_to_tensor(x1).shape.ndims
-    if size > 2:
-      raise NotImplementedError('Multiple feature dimensions is not yet '
-                                'supported.')
-    x1 = x1 / self.lengthscale
-    x2 = x2 / self.lengthscale
-    x1_squared = tf.reduce_sum(tf.square(x1), list(range(1, len(x1.shape))))
-    x2_squared = tf.reduce_sum(tf.square(x2), list(range(1, len(x2.shape))))
-    square = (x1_squared[:, tf.newaxis] +
-              x2_squared[tf.newaxis, :] -
-              2 * tf.matmul(x1, x2, transpose_b=True))
-    return self.variance * tf.exp(-square / 2)
-
-  def get_config(self):
-    return {'variance': self.variance, 'lengthscale': self.lengthscale}
-
-
-class LinearKernel(object):
-  """Linear kernel, optionally on top of a feature extractor (e.g., encoder)."""
-
-  def __init__(self, variance, bias, encoder=tf.identity):
-    self.variance = variance
-    self.bias = bias
-    self.encoder = encoder
-
-  def __call__(self, x1, x2):
-    """Computes scaled dot product of over all pairs of encoded inputs.
-
-    Args:
-      x1: Tensor of shape [batch_x1] + encoder domain. Slices along the batch
-        axis denote an individual input to be passed to the kernel. It is
-        computed pairwise with each input sliced from x2.
-      x2: Tensor of shape [batch_x2] + encoder domain. Slices along the batch
-        axis denote an individual input to be passed to the kernel. It is
-        computed pairwise with each input sliced from x1.
-
-    Returns:
-      Tensor of shape [batch_x1, batch_x2].
-    """
-    encoded_x1 = self.encoder(x1)
-    encoded_x2 = self.encoder(x2)
-    dot_product = tf.matmul(encoded_x1, encoded_x2, transpose_b=True)
-    return self.variance * dot_product + self.bias
-
-  def get_config(self):
-    return {
-        'variance': self.variance,
-        'bias': self.bias,
-        'encoder': tf.keras.utils.serialize_keras_object(self.encoder),
-    }
-
-
-class GaussianProcess(tf.keras.layers.Layer):
-  r"""Gaussian process layer.
-
-  The layer represents a distribution over functions, where a
-  stochastic forward pass appears as
-
-  ```none
-  f ~ GP(f | conditional_inputs, conditional_outputs; mean_fn, covariance_fn)
-  outputs = f(inputs)
+  predictions = model(features)
+  loss = tf.reduce_mean(predictions.distribution.log_prob(labels))
+  loss += model.losses[0] / dataset_size  # KL regularizer for output layer
+  loss += model.losses[-1]
+  train_op = tf.train.AdamOptimizer(0.1).minimize(loss)
   ```
 
-  The optional arguments `conditional_inputs` and `conditional_outputs`
-  capture data that the GP "memorizes", i.e., it forms a posterior predictive
-  distribution. If left unspecified, the GP posits a prior predictive.
-
-  Given a call to `inputs`, an equivalent formulation in terms of function
-  outputs is
-
-  ```none
-  outputs ~ \prod_{unit=1}^{units} MultivariateNormal(output[:, unit] |
-      mean = mean_fn(inputs) + Knm Kmm^{-1} (conditional_outputs[:, unit]-mean),
-      covariance = Knn - Knm Kmm^{-1} Kmn)
-  ```
-
-  where Knm is the covariance function evaluated between all `inputs` and
-  `conditional_inputs`; Knn is between all `inputs`; Kmm is between all
-  `conditional_inputs`; and mean is the mean function evaluated on
-  `conditional_inputs`. The multivariate normal is correlated across input
-  dimensions and is independent across output dimensions.
+  The network applies `bayes.NCPNormalPerturb()` to double the input batch
+  size and add Gaussian noise to the second half; then feedforward layers; then
+  `bayes.DenseVariational` to be Bayesian about the output density's mean; then
+  `bayes.NCPNormalOutput` centered at the labels to revert to the batch size
+  and compute a loss on the second half; then parameterize the output density's
+  standard deviations; then compute the total loss function as the sum of the
+  model's negative log-likelihood, KL divergence for the Bayesian mean layer,
+  and NCP loss.
   """
 
-  def __init__(
-      self,
-      units,
-      mean_fn=Zeros(),
-      covariance_fn=ExponentiatedQuadratic(variance=1., lengthscale=1.),
-      conditional_inputs=None,
-      conditional_outputs=None,
-      **kwargs):
-    """Constructs layer.
-
-    Args:
-      units: integer, dimensionality of layer.
-      mean_fn: Mean function, a callable taking an inputs Tensor of shape
-        [batch, ...] and returning a Tensor of shape [batch].
-      covariance_fn: Covariance function, a callable taking two input Tensors
-        of shape [batch_x1, ...] and [batch_x2, ...] respectively, and returning
-        a positive semi-definite matrix of shape [batch_x1, batch_x2].
-      conditional_inputs: Tensor of shape [batch, ...], where batch must be the
-        same as conditional_outputs', and ellipses must match layer inputs.
-      conditional_outputs: Tensor of shape [batch, units], where batch must be
-        the same as conditional_inputs' and units is the layer's units size.
-      **kwargs: kwargs passed to parent class.
-    """
-    super(GaussianProcess, self).__init__(**kwargs)
-    self.units = int(units)
-    self.mean_fn = mean_fn
-    self.covariance_fn = covariance_fn
-    self.conditional_inputs = conditional_inputs
-    self.conditional_outputs = conditional_outputs
-
-    self.supports_masking = True
-    self.input_spec = tf.keras.layers.InputSpec(min_ndim=2)
-
-  def build(self, input_shape=None):
-    # Don't track trainable variables such as in the kernel. The user should
-    # refer to any via, e.g., self.covariance_fn or the user environment.
-    self.built = True
+  def __init__(self, mean=0., stddev=1., seed=None, **kwargs):
+    self.mean = mean
+    self.stddev = stddev
+    self.seed = seed
+    super(NCPNormalPerturb, self).__init__(**kwargs)
 
   def call(self, inputs):
-    if self.conditional_inputs is None and self.conditional_outputs is None:
-      covariance_matrix = self.covariance_fn(inputs, inputs)
-      # Tile locations so output has shape [units, batch_size]. Covariance will
-      # broadcast to [units, batch_size, batch_size], and we perform
-      # shape manipulations to get a random variable over [batch_size, units].
-      loc = self.mean_fn(inputs)
-      loc = tf.tile(loc[tf.newaxis], [self.units] + [1] * len(loc.shape))
-    else:
-      knn = self.covariance_fn(inputs, inputs)
-      knm = self.covariance_fn(inputs, self.conditional_inputs)
-      kmm = self.covariance_fn(self.conditional_inputs, self.conditional_inputs)
-      kmm = tf.matrix_set_diag(
-          kmm, tf.matrix_diag_part(kmm) + tf.keras.backend.epsilon())
-      kmm_tril = tf.linalg.cholesky(kmm)
-      kmm_tril_operator = tf.linalg.LinearOperatorLowerTriangular(kmm_tril)
-      knm_operator = tf.linalg.LinearOperatorFullMatrix(knm)
-
-      # TODO(trandustin): Vectorize linear algebra for multiple outputs. For
-      # now, we do each separately and stack to obtain a locations Tensor of
-      # shape [units, batch_size].
-      loc = []
-      for conditional_outputs_unit in tf.unstack(self.conditional_outputs,
-                                                 axis=-1):
-        center = conditional_outputs_unit - self.mean_fn(
-            self.conditional_inputs)
-        loc_unit = knm_operator.matvec(
-            kmm_tril_operator.solvevec(kmm_tril_operator.solvevec(center),
-                                       adjoint=True))
-        loc.append(loc_unit)
-      loc = tf.stack(loc) + self.mean_fn(inputs)[tf.newaxis]
-
-      covariance_matrix = knn
-      covariance_matrix -= knm_operator.matmul(
-          kmm_tril_operator.solve(
-              kmm_tril_operator.solve(knm, adjoint_arg=True), adjoint=True))
-
-    covariance_matrix = tf.matrix_set_diag(
-        covariance_matrix,
-        tf.matrix_diag_part(covariance_matrix) + tf.keras.backend.epsilon())
-
-    # Form a multivariate normal random variable with batch_shape units and
-    # event_shape batch_size. Then make it be independent across the units
-    # dimension. Then transpose its dimensions so it is [batch_size, units].
-    random_variable = ed.MultivariateNormalFullCovariance(
-        loc=loc, covariance_matrix=covariance_matrix)
-    random_variable = ed.Independent(random_variable.distribution,
-                                     reinterpreted_batch_ndims=1)
-    bijector = tfp.bijectors.Inline(
-        forward_fn=lambda x: tf.transpose(x, [1, 0]),
-        inverse_fn=lambda y: tf.transpose(y, [1, 0]),
-        forward_event_shape_fn=lambda input_shape: input_shape[::-1],
-        forward_event_shape_tensor_fn=lambda input_shape: input_shape[::-1],
-        inverse_log_det_jacobian_fn=lambda y: tf.cast(0, y.dtype),
-        forward_min_event_ndims=2)
-    random_variable = ed.TransformedDistribution(random_variable.distribution,
-                                                 bijector=bijector)
-    return random_variable
-
-  def compute_output_shape(self, input_shape):
-    input_shape = tf.TensorShape(input_shape)
-    input_shape = input_shape.with_rank_at_least(2)
-    input_dim = input_shape[-1]
-    if isinstance(input_dim, tf.Dimension):
-      input_dim = input_dim.value
-    if input_dim is None:
-      raise ValueError(
-          'The innermost dimension of input_shape must be defined, but saw: %s'
-          % input_shape)
-    return input_shape[:-1].concatenate(self.units)
-
-  def get_config(self):
-    config = {
-        'units': self.units,
-        'mean_fn': tf.keras.utils.serialize_keras_object(self.mean_fn),
-        'covariance_fn': tf.keras.utils.serialize_keras_object(
-            self.covariance_fn),
-        'conditional_inputs': None,  # don't serialize as it can be large
-        'conditional_outputs': None,  # don't serialize as it can be large
-    }
-    base_config = super(GaussianProcess, self).get_config()
-    return dict(list(base_config.items()) + list(config.items()))
+    noise = tf.random.normal(tf.shape(inputs),
+                             mean=self.mean,
+                             stddev=self.stddev,
+                             dtype=inputs.dtype,
+                             seed=self.seed)
+    perturbed_inputs = inputs + noise
+    return tf.concat([inputs, perturbed_inputs], 0)
 
 
-class BayesianLinearModel(tf.keras.Model):
-  r"""Bayesian linear model with standard normal prior over its coefficients.
+class NCPCategoricalPerturb(tf.keras.layers.Layer):
+  """Noise contrastive prior for discrete inputs (Hafner et al., 2018).
 
-  A forward pass computes the mean of the exact predictive distribution
+  The layer doubles the inputs' batch size and randomly flips categories
+  for the concatenated second batch (all features must be integer-valued). This
+  acts an input prior to be used in combination with an output prior. The output
+  prior reduces the second batch (reverting to the inputs' original shape) and
+  computes a regularizer that matches the second batch towards some output
+  (e.g., uniform distribution). This layer implementation is inspired by the
+  Aboleth library.
 
-  ```none
-  p(outputs | inputs) = \int Normal(outputs | coeffs * inputs, noise_variance)
-                             Normal(coeffs | 0, 1) dweights dbias.
+  #### Examples
+
+  Below implements neural network regression with heteroskedastic noise,
+  noise contrastive priors, and being Bayesian only at the mean's output layer.
+
+  ```python
+  from tensor2tensor.layers import bayes
+
+  batch_size, dataset_size = 128, 1000
+  features, labels = get_some_dataset()
+
+  inputs = keras.Input(shape=(25,))
+  x = bayes.NCPCategoricalPerturb(10)(inputs)  # double input batch
+  x = layers.Dense(64, activation='relu')(x)
+  x = layers.Dense(64, activation='relu')(x)
+  means = bayes.DenseVariationalDropout(1, activation=None)(x)  # get mean dist.
+  means = bayes.NCPNormalOutput(labels)(means)  # halve input batch
+  stddevs = tf.keras.layers.Dense(1, activation='softplus')(x[:batch_size])
+  outputs = tf.keras.layers.Lambda(lambda x: ed.Normal(x[0], x[1]))([means,
+                                                                     stddevs])
+  model = tf.keras.Model(inputs=inputs, outputs=outputs)
+
+  predictions = model(features)
+  loss = tf.reduce_mean(predictions.distribution.log_prob(labels))
+  loss += model.losses[0] / dataset_size  # KL regularizer for output layer
+  loss += model.losses[-1]
+  train_op = tf.train.AdamOptimizer(0.1).minimize(loss)
   ```
 
-  It takes a Tensor of shape [batch_size, input_dim] as input and returns a
-  Normal random variable of shape [batch_size] representing its outputs.
-  After `fit()`, the forward pass computes the exact posterior predictive
-  distribution.
+  The network applies `bayes.NCPCategoricalPerturb()` to double the input batch
+  size and flip categories for the second half; then feedforward layers; then
+  `bayes.DenseVariational` to be Bayesian about the output density's mean; then
+  `bayes.NCPNormalOutput` centered at the labels to revert to the batch size
+  and compute a loss on the second half; then parameterize the output density's
+  standard deviations; then compute the total loss function as the sum of the
+  model's negative log-likelihood, KL divergence for the Bayesian mean layer,
+  and NCP loss.
   """
 
-  def __init__(self, noise_variance, **kwargs):
-    super(BayesianLinearModel, self).__init__(**kwargs)
-    self.noise_variance = noise_variance
-    self.coeffs_precision_tril_op = None
-    self.coeffs_mean = None
+  def __init__(self, input_dim, probs=0.1, **kwargs):
+    """Creates layer.
+
+    Args:
+      input_dim: int > 0. Size of the category, i.e. maximum integer index + 1.
+      probs: Probability that a category is randomly flipped.
+      **kwargs: kwargs to parent class.
+    """
+    self.input_dim = input_dim
+    self.probs = probs
+    super(NCPCategoricalPerturb, self).__init__(**kwargs)
 
   def call(self, inputs):
-    if self.coeffs_mean is None and self.coeffs_precision_tril_op is None:
-      # p(mean(ynew) | xnew) = Normal(ynew | mean = 0, variance = xnew xnew^T)
-      predictive_mean = 0.
-      predictive_variance = tf.reduce_sum(tf.square(inputs), -1)
-    else:
-      # p(mean(ynew) | xnew, x, y) = Normal(ynew |
-      #   mean = xnew (1/noise_variance) (1/noise_variance x^T x + I)^{-1}x^T y,
-      #   variance = xnew (1/noise_variance x^T x + I)^{-1} xnew^T)
-      predictive_mean = tf.einsum('nm,m->n', inputs, self.coeffs_mean)
-      predictive_covariance = tf.matmul(
-          inputs,
-          self.coeffs_precision_tril_op.solve(
-              self.coeffs_precision_tril_op.solve(inputs, adjoint_arg=True),
-              adjoint=True))
-      predictive_variance = tf.diag_part(predictive_covariance)
-    return ed.Normal(loc=predictive_mean, scale=tf.sqrt(predictive_variance))
+    mask = tf.cast(tf.random.uniform(tf.shape(inputs)) <= self.probs,
+                   inputs.dtype)
+    flips = tf.random.uniform(
+        tf.shape(inputs), minval=0, maxval=self.input_dim, dtype=inputs.dtype)
+    flipped_inputs = mask * flips + (1 - mask) * inputs
+    return tf.concat([inputs, flipped_inputs], 0)
 
-  def fit(self, x=None, y=None):
-    # p(coeffs | x, y) = Normal(coeffs |
-    #   mean = (1/noise_variance) (1/noise_variance x^T x + I)^{-1} x^T y,
-    #   covariance = (1/noise_variance x^T x + I)^{-1})
-    # TODO(trandustin): We newly fit the data at each call. Extend to do
-    # Bayesian updating.
-    kernel_matrix = tf.matmul(x, x, transpose_a=True) / self.noise_variance
-    coeffs_precision = tf.matrix_set_diag(
-        kernel_matrix, tf.matrix_diag_part(kernel_matrix) + 1.)
-    coeffs_precision_tril = tf.linalg.cholesky(coeffs_precision)
-    self.coeffs_precision_tril_op = tf.linalg.LinearOperatorLowerTriangular(
-        coeffs_precision_tril)
-    self.coeffs_mean = self.coeffs_precision_tril_op.solvevec(
-        self.coeffs_precision_tril_op.solvevec(tf.einsum('nm,n->m', x, y)),
-        adjoint=True) / self.noise_variance
-    # TODO(trandustin): To be fully Keras-compatible, return History object.
-    return
+
+class NCPNormalOutput(tf.keras.layers.Layer):
+  """Noise contrastive prior for continuous outputs (Hafner et al., 2018).
+
+  The layer returns the first half of the inputs' batch. It computes a KL
+  regularizer as a side-effect, which matches the inputs' second half towards a
+  normal distribution (the output prior), and averaged over the number of inputs
+  in the second half. This layer is typically in combination with an input prior
+  which doubles the batch. This layer implementation is inspired by the Aboleth
+  library.
+
+  The layer computes the exact KL divergence from a normal distribution to
+  the input RandomVariable. It is an unbiased estimate if the input
+  RandomVariable has random parameters. If the input is a Tensor, then it
+  assumes its density is `ed.Normal(input, 1.)`, i.e., mean squared error loss.
+
+  #### Examples
+
+  Below implements neural network regression with heteroskedastic noise,
+  noise contrastive priors, and being Bayesian only at the mean's output layer.
+
+  ```python
+  from tensor2tensor.layers import bayes
+
+  batch_size, dataset_size = 128, 1000
+  features, labels = get_some_dataset()
+
+  inputs = keras.Input(shape=(25,))
+  x = bayes.NCPNormalPerturb()(inputs)  # double input batch
+  x = layers.Dense(64, activation='relu')(x)
+  x = layers.Dense(64, activation='relu')(x)
+  means = bayes.DenseVariationalDropout(1, activation=None)(x)  # get mean dist.
+  means = bayes.NCPNormalOutput(labels)(means)  # halve input batch
+  stddevs = tf.keras.layers.Dense(1, activation='softplus')(x[:batch_size])
+  outputs = tf.keras.layers.Lambda(lambda x: ed.Normal(x[0], x[1]))([means,
+                                                                     stddevs])
+  model = tf.keras.Model(inputs=inputs, outputs=outputs)
+
+  predictions = model(features)
+  loss = tf.reduce_mean(predictions.distribution.log_prob(labels))
+  loss += model.losses[0] / dataset_size  # KL regularizer for output layer
+  loss += model.losses[-1]
+  train_op = tf.train.AdamOptimizer(0.1).minimize(loss)
+  ```
+
+  The network applies `bayes.NCPNormalPerturb()` to double the input batch
+  size and add Gaussian noise to the second half; then feedforward layers; then
+  `bayes.DenseVariational` to be Bayesian about the output density's mean; then
+  `bayes.NCPNormalOutput` centered at the labels to revert to the batch size
+  and compute a loss on the second half; then parameterize the output density's
+  standard deviations; then compute the total loss function as the sum of the
+  model's negative log-likelihood, KL divergence for the Bayesian mean layer,
+  and NCP loss.
+  """
+
+  def __init__(self, mean=0., stddev=1., **kwargs):
+    self.mean = mean
+    self.stddev = stddev
+    super(NCPNormalOutput, self).__init__(**kwargs)
+
+  def call(self, inputs):
+    if not isinstance(inputs, ed.RandomVariable):
+      # Default to a unit normal, i.e., derived from mean squared error loss.
+      inputs = ed.Normal(loc=inputs, scale=1.)
+    batch_size = tf.shape(inputs)[0] // 2
+    # TODO(trandustin): Depend on github's ed2 for indexing RVs. This is a hack.
+    # _, _ = inputs[:batch_size], inputs[batch_size:]
+    original_inputs = ed.RandomVariable(inputs.distribution[:batch_size],
+                                        value=inputs.value[:batch_size])
+    perturbed_inputs = ed.RandomVariable(inputs.distribution[batch_size:],
+                                         value=inputs.value[batch_size:])
+    loss = tf.reduce_sum(
+        tfp.distributions.Normal(self.mean, self.stddev).kl_divergence(
+            perturbed_inputs.distribution)) / tf.to_float(batch_size)
+    self.add_loss(loss)
+    return original_inputs
 
 
 class MixtureLogistic(tf.keras.layers.Layer):

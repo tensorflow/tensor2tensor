@@ -31,6 +31,7 @@ from tensorflow import test
 class PpoTest(test.TestCase):
 
   def setUp(self):
+    super(PpoTest, self).setUp()
     self.rng_key = trax.get_random_number_generator_and_set_seed(0)
 
   def test_policy_and_value_net(self):
@@ -78,7 +79,11 @@ class PpoTest(test.TestCase):
       rewards = np.random.uniform(size=(time_steps,)).astype(np.float32)
       actions = np.random.randint(
           0, n_actions, size=(time_steps,)).astype(np.int32)
-      trajectories.append((observations, rewards, actions))
+      infos = {
+          "a": np.random.uniform(size=(time_steps,)).astype(np.float32),
+          "b": np.random.uniform(size=(time_steps,)).astype(np.float32)
+      }
+      trajectories.append((observations, rewards, actions, infos))
 
     # Now pad these trajectories.
     padded_trajectories = ppo.pad_trajectories(
@@ -92,7 +97,7 @@ class PpoTest(test.TestCase):
 
     # Get the padded objects.
     (pad_lengths, reward_mask, padded_observations, padded_actions,
-     padded_rewards) = padded_trajectories
+     padded_rewards, padded_infos) = padded_trajectories
 
     # Expectations on the padded shapes.
     self.assertEqual(padded_observations.shape, (
@@ -102,6 +107,11 @@ class PpoTest(test.TestCase):
     self.assertEqual(padded_actions.shape, (n_trajectories, expected_padding))
     self.assertEqual(padded_rewards.shape, (n_trajectories, expected_padding))
     self.assertEqual(reward_mask.shape, (n_trajectories, expected_padding))
+
+    self.assertEqual(padded_infos["a"].shape,
+                     (n_trajectories, expected_padding))
+    self.assertEqual(padded_infos["b"].shape,
+                     (n_trajectories, expected_padding))
 
     # Assert that the padding lengths and reward mask are consistent.
     self.assertAllEqual(

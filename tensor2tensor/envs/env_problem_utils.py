@@ -22,7 +22,6 @@ from __future__ import print_function
 import time
 import numpy as np
 
-CATEGORICAL_SAMPLING = "categorical"
 EPSILON_GREEDY = "epsilon-greedy"
 GUMBEL_SAMPLING = "gumbel"
 
@@ -57,8 +56,8 @@ def play_env_problem_with_policy(env,
                                  max_timestep=None,
                                  reset=True,
                                  rng=None,
-                                 policy_sampling=CATEGORICAL_SAMPLING,
-                                 temperature=0.5,
+                                 policy_sampling=GUMBEL_SAMPLING,
+                                 temperature=1.0,
                                  eps=0.1,
                                  len_history_for_policy=32,
                                  num_to_keep=1):
@@ -76,8 +75,8 @@ def play_env_problem_with_policy(env,
       max_max_timestep is None or < 0
     rng: jax rng, splittable.
     policy_sampling: string, how to select an action given a policy, one of:
-      CATEGORICAL_SAMPLING, GREEDY, GUMBEL_SAMPLING
-    temperature: float, temperature used in gumbel sampling.
+      EPSILON_GREEDY, GUMBEL_SAMPLING
+    temperature: float, temperature used in Gumbel sampling.
     eps: float, epsilon to use in epsilon greedy.
     len_history_for_policy: int, the maximum history to keep for applying the
       policy on. We also bucket observations on this number.
@@ -87,35 +86,6 @@ def play_env_problem_with_policy(env,
     A tuple, (trajectories, number of completed trajectories). Where
     trajectories is a list of triples of (observation, action, reward) ndarrays.
   """
-
-  def categorical_sample(log_probs):
-    """Categorical sampling."""
-
-    def multinomial_sample(probs):
-      """Sample from this vector of probabilities.
-
-      Args:
-        probs: numpy array of shape (A,) where A is the number of actions, these
-          must sum up to 1.0
-
-      Returns:
-        an integer of which action to pick.
-      """
-
-      return int(np.argwhere(np.random.multinomial(1, probs) == 1))
-
-    # Convert to probs, since we need to do categorical sampling.
-    probs = np.exp(log_probs)
-
-    # Let's cast up to float64, because that's what numpy does when sampling
-    # and it leads to the sum(pvals[:-1]) > 1.0 error.
-    #
-    # We also re-normalize when we do this.
-    probs = np.float64(probs)
-    probs /= np.sum(probs, axis=1, keepdims=True)
-
-    # Now pick actions from this probs array.
-    return np.apply_along_axis(multinomial_sample, 1, probs)
 
   def gumbel_sample(log_probs):
     """Gumbel sampling."""
@@ -162,7 +132,8 @@ def play_env_problem_with_policy(env,
     assert (B,) == lengths.shape
 
     t1 = time.time()
-    log_prob_actions, _, rng = policy_fun(padded_observations, rng=rng)
+    log_prob_actions, value_predictions, rng = policy_fun(
+        padded_observations, rng=rng)
     policy_application_total_time += (time.time() - t1)
 
     assert (B, T) == log_prob_actions.shape[:2]
@@ -173,13 +144,15 @@ def play_env_problem_with_policy(env,
     index = lengths - 1  # Since we want to index using lengths.
     log_probs = log_prob_actions[np.arange(B)[:, None], index[:, None],
                                  np.arange(A)]
+    value_preds = value_predictions[np.arange(B)[:, None], index[:, None],
+                                    np.arange(1)]
     assert (B, A) == log_probs.shape, \
         "B=%d, A=%d, log_probs.shape=%s" % (B, A, log_probs.shape)
+    assert (B, 1) == value_preds.shape, \
+        "B=%d, value_preds.shape=%s" % (B, value_preds.shape)
 
     actions = None
-    if policy_sampling == CATEGORICAL_SAMPLING:
-      actions = categorical_sample(log_probs)
-    elif policy_sampling == GUMBEL_SAMPLING:
+    if policy_sampling == GUMBEL_SAMPLING:
       actions = gumbel_sample(log_probs)
     elif policy_sampling == EPSILON_GREEDY:
       actions = epsilon_greedy(log_probs)
@@ -188,9 +161,12 @@ def play_env_problem_with_policy(env,
 
     # Step through the env.
     t1 = time.time()
-    _, _, dones, infos = env.step(actions)
+    _, _, dones, env_infos = env.step(
+        actions, infos={"log_prob_actions": log_probs,
+                        "value_predictions": value_preds})
     env_actions_total_time += (time.time() - t1)
-    bare_env_run_time += sum(info["__bare_env_run_time__"] for info in infos)
+    bare_env_run_time += sum(
+        info["__bare_env_run_time__"] for info in env_infos)
 
     # Count the number of done trajectories, the others could just have been
     # truncated.

@@ -56,6 +56,7 @@ import time
 
 from absl import logging
 import cloudpickle as pickle
+import gin
 import gym
 from jax import grad
 from jax import jit
@@ -132,7 +133,7 @@ def optimizer_fn(net_params, step_size=1e-3):
 def collect_trajectories(env,
                          policy_fn,
                          n_trajectories=1,
-                         policy=env_problem_utils.CATEGORICAL_SAMPLING,
+                         policy=env_problem_utils.GUMBEL_SAMPLING,
                          max_timestep=None,
                          epsilon=0.1,
                          reset=True,
@@ -178,7 +179,10 @@ def collect_trajectories(env,
       len_history_for_policy=len_history_for_policy,
       rng=rng)
   # Skip returning raw_rewards here, since they aren't used.
-  return [(t[0], t[1], t[2]) for t in trajs], n_done, timing_info
+
+  # t is the return value of Trajectory.as_numpy, so:
+  # (observation, action, processed_reward, raw_reward, infos)
+  return [(t[0], t[1], t[2], t[4]) for t in trajs], n_done, timing_info
 
 
 # This function can probably be simplified, ask how?
@@ -222,7 +226,7 @@ def pad_trajectories(trajectories, boundary=20):
   """
 
   # Let's compute max(t) over all trajectories.
-  t_max = max(r.shape[0] for (_, _, r) in trajectories)
+  t_max = max(r.shape[0] for (_, _, r, _) in trajectories)
 
   # t_max is rounded to the next multiple of `boundary`
   boundary = int(boundary)
@@ -232,9 +236,11 @@ def pad_trajectories(trajectories, boundary=20):
   padded_observations = []
   padded_actions = []
   padded_rewards = []
+  padded_infos = collections.defaultdict(list)
   padded_lengths = []
   reward_masks = []
-  for (o, a, r) in trajectories:
+
+  for (o, a, r, i) in trajectories:
     # Determine the amount to pad, this holds true for obs, actions and rewards.
     num_to_pad = bucket_length + 1 - o.shape[0]
     padded_lengths.append(num_to_pad)
@@ -243,13 +249,13 @@ def pad_trajectories(trajectories, boundary=20):
       padded_actions.append(a)
       padded_rewards.append(r)
       reward_masks.append(onp.ones_like(r, dtype=np.int32))
+      if i:
+        for k, v in i.items():
+          padded_infos[k].append(v)
       continue
 
     # First pad observations.
-    padding_config = [(0, num_to_pad, 0)]
-    for _ in range(o.ndim - 1):
-      padding_config.append((0, 0, 0))
-    padding_config = tuple(padding_config)
+    padding_config = tuple([(0, num_to_pad, 0)] + [(0, 0, 0)] * (o.ndim - 1))
 
     padding_value = get_padding_value(o.dtype)
     action_padding_value = get_padding_value(a.dtype)
@@ -271,8 +277,20 @@ def pad_trajectories(trajectories, boundary=20):
     reward_mask = onp.ones_like(r, dtype=np.int32)
     reward_masks.append(lax.pad(reward_mask, 0, padding_config))
 
+    if i:
+      for k, v in i.items():
+        # Create a padding configuration for this value.
+        padding_config = [(0, num_to_pad, 0)] + [(0, 0, 0)] * (v.ndim - 1)
+        padded_infos[k].append(lax.pad(v, 0.0, tuple(padding_config)))
+
+  # Now stack these padded_infos if they exist.
+  stacked_padded_infos = None
+  if padded_infos:
+    stacked_padded_infos = {k: np.stack(v) for k, v in padded_infos.items()}
+
   return padded_lengths, np.stack(reward_masks), np.stack(
-      padded_observations), np.stack(padded_actions), np.stack(padded_rewards)
+      padded_observations), np.stack(padded_actions), np.stack(
+          padded_rewards), stacked_padded_infos
 
 
 def rewards_to_go(rewards, mask, gamma=0.99):
@@ -716,39 +734,40 @@ def masked_entropy(log_probs, mask):
 
 def evaluate_policy(eval_env,
                     get_predictions,
+                    temperatures,
                     max_timestep=20000,
                     n_evals=1,
                     len_history_for_policy=32,
                     rng=None):
   """Evaluate the policy."""
 
-  avg_rewards = collections.defaultdict(float)
-  avg_rewards_unclipped = collections.defaultdict(float)
-  for _ in range(n_evals):
-    for policy in [
-        env_problem_utils.CATEGORICAL_SAMPLING,
-        env_problem_utils.GUMBEL_SAMPLING,
-    ]:
+  processed_reward_sums = collections.defaultdict(list)
+  raw_reward_sums = collections.defaultdict(list)
+  for eval_rng in jax_random.split(rng, num=n_evals):
+    for temperature in temperatures:
       trajs, _, _ = env_problem_utils.play_env_problem_with_policy(
           eval_env,
           get_predictions,
           num_trajectories=eval_env.batch_size,
           max_timestep=max_timestep,
           reset=True,
-          policy_sampling=policy,
-          rng=rng,
+          policy_sampling=env_problem_utils.GUMBEL_SAMPLING,
+          temperature=temperature,
+          rng=eval_rng,
           len_history_for_policy=len_history_for_policy)
-      avg_rewards[policy] += float(sum(
-          np.sum(traj[2]) for traj in trajs)) / len(trajs)
-      avg_rewards_unclipped[policy] += float(
-          sum(np.sum(traj[3]) for traj in trajs)) / len(trajs)
+      processed_reward_sums[temperature].extend(sum(traj[2]) for traj in trajs)
+      raw_reward_sums[temperature].extend(sum(traj[3]) for traj in trajs)
 
-  # Now average these out.
-  for k in avg_rewards:
-    avg_rewards[k] /= n_evals
-    avg_rewards_unclipped[k] /= n_evals
-
-  return avg_rewards, avg_rewards_unclipped
+  # Return the mean and standard deviation for each temperature.
+  def compute_stats(reward_dict):
+    return {
+        temperature: {"mean": onp.mean(rewards), "std": onp.std(rewards)}
+        for (temperature, rewards) in reward_dict.items()
+    }
+  return {
+      "processed": compute_stats(processed_reward_sums),
+      "raw": compute_stats(raw_reward_sums),
+  }
 
 
 def maybe_restore_params(output_dir, policy_and_value_net_params):
@@ -779,12 +798,48 @@ def maybe_restore_params(output_dir, policy_and_value_net_params):
   return False, policy_and_value_net_params, 0
 
 
+def write_eval_reward_summaries(reward_stats_by_mode, summary_writer, epoch):
+  """Writes evaluation reward statistics to summary and logs them.
+
+  Args:
+    reward_stats_by_mode: Nested dict of structure:
+      {
+          "raw": {
+              <temperature 1>: {
+                  "mean": <reward mean>,
+                  "std": <reward std>,
+              },
+              <temperature 2>: ...
+          },
+          "processed": ...
+      }
+    summary_writer: jaxboard.SummaryWriter.
+    epoch: Current epoch number.
+  """
+  for (reward_mode, reward_stats_by_temp) in reward_stats_by_mode.items():
+    for (temperature, reward_stats) in reward_stats_by_temp.items():
+      for (stat_name, stat) in reward_stats.items():
+        summary_writer.scalar(
+            "eval/{reward_mode}_reward_{stat_name}/"
+            "temperature_{temperature}".format(reward_mode=reward_mode,
+                                               stat_name=stat_name,
+                                               temperature=temperature),
+            stat, step=epoch)
+      logging.info("Epoch [% 6d] Policy Evaluation (%s reward) "
+                   "[temperature %.2f] = %10.2f (+/- %.2f)",
+                   epoch, reward_mode, temperature,
+                   reward_stats["mean"], reward_stats["std"])
+
+
+@gin.configurable(blacklist=["output_dir"])
 def training_loop(
-    env=None,
+    env,
+    eval_env,
+    env_name,
+    policy_and_value_net_fn,
+    policy_and_value_optimizer_fn,
+    output_dir,
     epochs=EPOCHS,
-    policy_and_value_net_fn=None,
-    policy_and_value_optimizer_fn=None,
-    batch_size=BATCH_TRAJECTORIES,
     n_optimizer_steps=N_OPTIMIZER_STEPS,
     print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
     target_kl=0.01,
@@ -797,20 +852,47 @@ def training_loop(
     epsilon=EPSILON,
     c1=1.0,
     c2=0.01,
-    output_dir=None,
     eval_every_n=1000,
-    eval_env=None,
     done_frac_for_policy_save=0.5,
     enable_early_stopping=True,
-    env_name=None,
     n_evals=1,
     len_history_for_policy=4,
+    eval_temperatures=(1.0, 0.5),
 ):
-  """Runs the training loop for PPO, with fixed policy and value nets."""
-  assert env
-  assert output_dir
-  assert env_name
+  """Runs the training loop for PPO, with fixed policy and value nets.
 
+  Args:
+    env: gym.Env to use for training.
+    eval_env: gym.Env to use for evaluation.
+    env_name: Name of the environment.
+    policy_and_value_net_fn: Function defining the policy and value network.
+    policy_and_value_optimizer_fn: Function defining the optimizer.
+    output_dir: Output dir.
+    epochs: Number of epochs to run for.
+    n_optimizer_steps: Number of optimizer steps.
+    print_every_optimizer_steps: How often to log during the policy optimization
+      process.
+    target_kl: Policy iteration early stopping.
+    boundary: We pad trajectories at integer multiples of this number.
+    max_timestep: If set to an integer, maximum number of time-steps in
+      a trajectory. Used in the collect procedure.
+    max_timestep_eval: If set to an integer, maximum number of time-steps in an
+      evaluation trajectory. Used in the collect procedure.
+    random_seed: Random seed.
+    gamma: Reward discount factor.
+    lambda_: N-step TD-error discount factor in GAE.
+    epsilon: Random action probability in epsilon-greedy sampling.
+    c1: Value loss coefficient.
+    c2: Entropy loss coefficient.
+    eval_every_n: How frequently to eval the policy.
+    done_frac_for_policy_save: Fraction of the trajectories that should be done
+      to checkpoint the policy.
+    enable_early_stopping: Whether to enable early stopping.
+    n_evals: Number of times to evaluate.
+    len_history_for_policy: How much of history to give to the policy.
+    eval_temperatures: Sequence of temperatures to try for categorical sampling
+      during evaluation.
+  """
   gfile.makedirs(output_dir)
 
   # Create summary writers and history.
@@ -885,21 +967,15 @@ def training_loop(
 
       logging.vlog(1, "Epoch [% 6d] evaluating policy.", i)
 
-      avg_reward, avg_reward_unclipped = evaluate_policy(
+      reward_stats = evaluate_policy(
           eval_env,
           get_predictions,
+          temperatures=eval_temperatures,
           max_timestep=max_timestep_eval,
           n_evals=n_evals,
           len_history_for_policy=len_history_for_policy,
           rng=key)
-      for k, v in avg_reward.items():
-        eval_sw.scalar("eval/mean_reward/%s" % k, v, step=i)
-        logging.info("Epoch [% 6d] Policy Evaluation (clipped) [%s] = %10.2f",
-                     i, k, v)
-      for k, v in avg_reward_unclipped.items():
-        eval_sw.scalar("eval/mean_reward_unclipped/%s" % k, v, step=i)
-        logging.info("Epoch [% 6d] Policy Evaluation (unclipped) [%s] = %10.2f",
-                     i, k, v)
+      write_eval_reward_summaries(reward_stats, eval_sw, epoch=i)
     policy_eval_time = get_time(policy_eval_start_time)
 
     trajectory_collection_start_time = time.time()
@@ -908,7 +984,7 @@ def training_loop(
     trajs, n_done, timing_info = collect_trajectories(
         env,
         policy_fn=get_predictions,
-        n_trajectories=batch_size,
+        n_trajectories=env.batch_size,
         max_timestep=max_timestep,
         rng=key,
         len_history_for_policy=len_history_for_policy,
@@ -923,7 +999,7 @@ def training_loop(
     max_reward = max(np.sum(traj[2]) for traj in trajs)
     min_reward = min(np.sum(traj[2]) for traj in trajs)
 
-    train_sw.scalar("train/mean_reward", avg_reward, step=i)
+    train_sw.scalar("train/reward_mean_truncated", avg_reward, step=i)
 
     logging.vlog(1, "Rewards avg=[%0.2f], max=[%0.2f], min=[%0.2f], all=%s",
                  avg_reward, max_reward, min_reward,
@@ -938,7 +1014,7 @@ def training_loop(
 
     padding_start_time = time.time()
     (_, reward_mask, padded_observations, padded_actions,
-     padded_rewards) = pad_trajectories(
+     padded_rewards, padded_infos) = pad_trajectories(
          trajs, boundary=boundary)
     padding_time = get_time(padding_start_time)
 
@@ -949,27 +1025,47 @@ def training_loop(
     logging.vlog(1, "Padded Actions' shape [%s]", str(padded_actions.shape))
     logging.vlog(1, "Padded Rewards' shape [%s]", str(padded_rewards.shape))
 
-    # Calculate log-probabilities and value predictions of the trajectories.
-    # We'll pass these to the loss functions so as to not get recomputed.
-
-    # NOTE:
-    # There is a slight problem here, if the policy network contains
-    # stochasticity in the log-probabilities (ex: dropout), then calculating
-    # these again here is not going to be correct and should be done in the
-    # collect function.
-
-    log_prob_recompute_start_time = time.time()
-    jax_rng_key, key = jax_random.split(jax_rng_key)
-    log_probabs_traj, value_predictions_traj, _ = get_predictions(
-        padded_observations, rng=key)
-    log_prob_recompute_time = get_time(log_prob_recompute_start_time)
-
     # Some assertions.
     B, T = padded_actions.shape  # pylint: disable=invalid-name
     assert (B, T) == padded_rewards.shape
     assert (B, T) == reward_mask.shape
     assert (B, T + 1) == padded_observations.shape[:2]
     assert (B, T + 1) + env.observation_space.shape == padded_observations.shape
+
+    log_prob_recompute_start_time = time.time()
+    assert ("log_prob_actions" in padded_infos and
+            "value_predictions" in padded_infos)
+    # These are the actual log-probabs and value predictions seen while picking
+    # the actions.
+    actual_log_probabs_traj = padded_infos["log_prob_actions"]
+    actual_value_predictions_traj = padded_infos["value_predictions"]
+
+    assert (B, T) == actual_log_probabs_traj.shape[:2]
+    A = actual_log_probabs_traj.shape[2]  # pylint: disable=invalid-name
+    assert (B, T, 1) == actual_value_predictions_traj.shape
+
+    # TODO(afrozm): log-probabs doesn't need to be (B, T+1, A) it can do with
+    # (B, T, A), so make that change throughout.
+
+    # NOTE: We don't have the log-probabs and value-predictions for the last
+    # observation, so we re-calculate for everything, but use the original ones
+    # for all but the last time-step.
+    jax_rng_key, key = jax_random.split(jax_rng_key)
+    log_probabs_traj, value_predictions_traj, _ = get_predictions(
+        padded_observations, rng=key)
+
+    assert (B, T + 1, A) == log_probabs_traj.shape
+    assert (B, T + 1, 1) == value_predictions_traj.shape
+
+    # Concatenate the last time-step's log-probabs and value predictions to the
+    # actual log-probabs and value predictions and use those going forward.
+    log_probabs_traj = np.concatenate(
+        (actual_log_probabs_traj, log_probabs_traj[:, -1:, :]), axis=1)
+    value_predictions_traj = np.concatenate(
+        (actual_value_predictions_traj, value_predictions_traj[:, -1:, :]),
+        axis=1)
+
+    log_prob_recompute_time = get_time(log_prob_recompute_start_time)
 
     # Linear annealing from 0.1 to 0.0
     # epsilon_schedule = epsilon if epochs == 1 else epsilon * (1.0 -
@@ -1095,7 +1191,7 @@ def training_loop(
     policy_save_start_time = time.time()
     n_trajectories_done += n_done
     # TODO(afrozm): Refactor to trax.save_state.
-    if (((n_trajectories_done >= done_frac_for_policy_save * batch_size) and
+    if (((n_trajectories_done >= done_frac_for_policy_save * env.batch_size) and
          (i - last_saved_at > eval_every_n) and
          (((i + 1) % eval_every_n == 0))) or (i == epochs - 1)):
       logging.vlog(1, "Epoch [% 6d] saving model.", i)

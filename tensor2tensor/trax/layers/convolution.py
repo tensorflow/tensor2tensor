@@ -22,9 +22,9 @@ from __future__ import print_function
 import itertools
 import operator
 
-from jax import lax
 import six
 
+from tensor2tensor.trax import backend
 from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.layers import base
 from tensor2tensor.trax.layers import initializers as init
@@ -64,9 +64,9 @@ class Conv(base.Layer):
       self._check_nhwc()
       new_batch_dim = six.moves.reduce(operator.mul, x_shape[:-3])
       x = np.reshape(x, [new_batch_dim] + x_shape[-3:])
-    res = lax.conv_general_dilated(
-        x, w, self._strides, self._padding, self._one, self._one,
-        self._dimension_numbers) + b
+    res = backend.conv(
+        x, w, self._strides, self._padding, self._dimension_numbers,
+        self._one) + b
     if len(x_shape) > 4:
       res = np.reshape(res, x_shape[:-3] + list(res.shape[-3:]))
     return res

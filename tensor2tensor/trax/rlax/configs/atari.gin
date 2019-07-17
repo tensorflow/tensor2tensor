@@ -1,0 +1,22 @@
+import tensor2tensor.trax.rlax
+
+# Parameters for ppo.training_loop:
+# ==============================================================================
+ppo.training_loop.epochs = 40000
+ppo.training_loop.n_optimizer_steps = 4
+ppo.training_loop.target_kl = 0.01
+ppo.training_loop.boundary = 20
+ppo.training_loop.max_timestep = 128
+ppo.training_loop.max_timestep_eval = 20000
+ppo.training_loop.random_seed = 0
+ppo.training_loop.gamma = 0.99
+ppo.training_loop.lambda_ = 0.95
+ppo.training_loop.epsilon = 0.1
+ppo.training_loop.c1 = 1.0
+ppo.training_loop.c2 = 0.01
+ppo.training_loop.eval_every_n = 500
+ppo.training_loop.done_frac_for_policy_save = 0.9
+ppo.training_loop.enable_early_stopping = False
+ppo.training_loop.n_evals = 16
+ppo.training_loop.len_history_for_policy = 4
+ppo.training_loop.eval_temperatures = (1.0, 0.5)

@@ -127,6 +127,17 @@ class Trajectory(object):
     return np.stack([ts.action for ts in self.time_steps[:-1]])
 
   @property
+  def info_np(self):
+    if not self.time_steps or not self.time_steps[0].info:
+      return None
+    info_np_dict = {}
+    for info_key in self.time_steps[0].info:
+      # Same as actions, the last info is missing, so we skip it.
+      info_np_dict[info_key] = np.stack(
+          [ts.info[info_key] for ts in self.time_steps[:-1]])
+    return info_np_dict
+
+  @property
   def rewards_np(self):
     # The first reward is None, so let's skip it.
     return np.stack([ts.processed_reward for ts in self.time_steps[1:]])
@@ -137,8 +148,9 @@ class Trajectory(object):
 
   @property
   def as_numpy(self):
+    # TODO(afrozm): Return a named tuple here, ex: TrajectoryArrays
     return (self.observations_np, self.actions_np, self.rewards_np,
-            self.raw_rewards_np)
+            self.raw_rewards_np, self.info_np)
 
 
 class BatchTrajectory(object):
@@ -271,7 +283,8 @@ class BatchTrajectory(object):
       assert trajectory.is_active
       self._complete_trajectory(trajectory, index)
 
-  def step(self, observations, raw_rewards, processed_rewards, dones, actions):
+  def step(self, observations, raw_rewards, processed_rewards, dones, actions,
+           infos=None):
     """Record the information obtained from taking a step in all envs.
 
     Records (observation, rewards, done) in a new time-step and actions in the
@@ -293,6 +306,8 @@ class BatchTrajectory(object):
       actions: ndarray of first dimension self.batch_size, containing actions
         applied at the current time-step, which leads to the observations
         rewards and done at the next time-step, i.e. a_t
+      infos: (optional) a dictionary of keys and values, where all the values
+        have the first dimension as self.batch_size.
     """
     # Pre-conditions
     assert isinstance(observations, np.ndarray)
@@ -300,6 +315,8 @@ class BatchTrajectory(object):
     assert isinstance(processed_rewards, np.ndarray)
     assert isinstance(dones, np.ndarray)
     assert isinstance(actions, np.ndarray)
+    if infos:
+      assert isinstance(infos, dict)
 
     # We assume that we step in all envs, i.e. not like reset where we can reset
     # some envs and not others.
@@ -308,6 +325,14 @@ class BatchTrajectory(object):
     assert self.batch_size == processed_rewards.shape[0]
     assert self.batch_size == dones.shape[0]
     assert self.batch_size == actions.shape[0]
+    if infos:
+      for _, v in infos.items():
+        assert self.batch_size == len(v)
+
+    def extract_info_at_index(infos, index):
+      if not infos:
+        return None
+      return {k: v[index] for k, v in infos.items()}
 
     for index in range(self.batch_size):
       trajectory = self._trajectories[index]
@@ -320,7 +345,9 @@ class BatchTrajectory(object):
       assert trajectory.is_active
 
       # To this trajectory's last time-step, set actions.
-      trajectory.change_last_time_step(action=actions[index])
+      trajectory.change_last_time_step(
+          action=actions[index],
+          info=extract_info_at_index(infos, index))
 
       # Create a new time-step to add observation, done & rewards (no actions).
       trajectory.add_time_step(

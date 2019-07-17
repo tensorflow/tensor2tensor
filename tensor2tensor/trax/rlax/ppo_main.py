@@ -18,19 +18,18 @@ r"""PPO binary over a gym env.
 Sample invocation:
 
 ENV_PROBLEM_NAME=Acrobot-v1
-COMBINED_NETWORK=false
-EPOCHS=100
 BATCH_SIZE=32
+EPOCHS=100
 RANDOM_SEED=0
 BOUNDARY=100
 
 python trax/rlax/ppo_main.py \
   --env_problem_name=${ENV_PROBLEM_NAME} \
-  --combined_policy_and_value_function=${COMBINED_NETWORK} \
-  --epochs=${EPOCHS} \
   --batch_size=${BATCH_SIZE} \
-  --random_seed=${RANDOM_SEED} \
-  --boundary=${BOUNDARY} \
+  --config=ppo.training_loop.epochs=${EPOCHS} \
+  --config=ppo.training_loop.random_seed=${RANDOM_SEED} \
+  --config=ppo.training_loop.boundary=${BOUNDARY} \
+  --output_dir=${HOME}/ppo_acrobot \
   --vmodule=*/tensor2tensor/*=1 \
   --alsologtostderr \
 """
@@ -40,18 +39,22 @@ from __future__ import division
 from __future__ import print_function
 
 import functools
+import multiprocessing
+import os
 
 from absl import app
 from absl import flags
 from absl import logging
+import gin
 import jax
 from jax.config import config
 import numpy as onp
-from tensor2tensor.envs import env_problem
+from tensor2tensor.envs import gym_env_problem
 from tensor2tensor.envs import rendered_env_problem
 from tensor2tensor.rl import gym_utils
 from tensor2tensor.trax import layers
-from tensor2tensor.trax.models import atari_cnn
+from tensor2tensor.trax import models
+from tensor2tensor.trax.rlax import envs  # pylint: disable=unused-import
 from tensor2tensor.trax.rlax import ppo
 
 
@@ -59,12 +62,6 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_string("env_problem_name", None, "Name of the EnvProblem to make.")
 
-flags.DEFINE_integer("epochs", 100, "Number of epochs to run for.")
-flags.DEFINE_string("random_seed", None, "Random seed.")
-flags.DEFINE_integer("batch_size", 32, "Batch of trajectories needed.")
-
-flags.DEFINE_integer(
-    "boundary", 20, "We pad trajectories at integer multiples of this number.")
 # -1: returns env as is.
 # None: unwraps and returns without TimeLimit wrapper.
 # Any other number: imposes this restriction.
@@ -72,17 +69,6 @@ flags.DEFINE_string(
     "max_timestep", None,
     "If set to an integer, maximum number of time-steps in a "
     "trajectory. The bare env is wrapped with TimeLimit wrapper.")
-
-# This is different from max_timestep is that in the above, the env is wrapped
-# in a TimeLimit wrapper, vs here we use this in the collect function.
-flags.DEFINE_integer(
-    "truncation_timestep", None,
-    "If set to an integer, maximum number of time-steps in a "
-    "trajectory. Used in the collect procedure.")
-flags.DEFINE_integer(
-    "truncation_timestep_eval", 20000,
-    "If set to an integer, maximum number of time-steps in an evaluation "
-    "trajectory. Used in the collect procedure.")
 
 flags.DEFINE_boolean(
     "jax_debug_nans", False,
@@ -100,39 +86,23 @@ flags.DEFINE_bool(
     "In the combined network case should we make one tower or"
     "two.")
 
-# Number of optimizer steps of the combined net, policy net and value net.
-flags.DEFINE_integer("n_optimizer_steps", 100, "Number of optimizer steps.")
-flags.DEFINE_integer(
-    "print_every_optimizer_steps", 1,
-    "How often to log during the policy optimization process.")
-
 # Learning rate of the combined net, policy net and value net.
 flags.DEFINE_float("learning_rate", 1e-3, "Learning rate.")
 
-# Target KL is used for doing early stopping in the
-flags.DEFINE_float("target_kl", 0.01, "Policy iteration early stopping")
-flags.DEFINE_float("value_coef", 1.0,
-                   "Coefficient of Value Loss term in combined loss.")
-flags.DEFINE_float("entropy_coef", 0.01,
-                   "Coefficient of the Entropy Bonus term in combined loss.")
-flags.DEFINE_float("gamma", 0.99, "Policy iteration early stopping")
-flags.DEFINE_float("lambda_", 0.95, "Policy iteration early stopping")
-flags.DEFINE_float("epsilon", 0.1, "Policy iteration early stopping")
-
 flags.DEFINE_string("output_dir", "", "Output dir.")
+flags.DEFINE_multi_string("config_file", None,
+                          "Configuration file with parameters (.gin).")
+flags.DEFINE_multi_string("config", None,
+                          "Configuration parameters (gin string).")
 flags.DEFINE_bool("use_tpu", False, "Whether we're running on TPU.")
-flags.DEFINE_bool("enable_early_stopping", True,
-                  "Whether to enable early stopping.")
 flags.DEFINE_bool("xm", False, "Copy atari roms?")
-flags.DEFINE_integer("eval_every_n", 100, "How frequently to eval the policy.")
+flags.DEFINE_integer("batch_size", 32,
+                     "Number of parallel environments during training.")
 flags.DEFINE_integer("eval_batch_size", 4, "Batch size for evaluation.")
-flags.DEFINE_integer("n_evals", 1, "Number of times to evaluate.")
-flags.DEFINE_float(
-    "done_frac_for_policy_save", 0.5,
-    "Fraction of the trajectories that should be done to "
-    "checkpoint the policy.")
-flags.DEFINE_integer("len_history_for_policy", 4,
-                     "How much of history to give to the policy.")
+flags.DEFINE_bool("clip_rewards", True,
+                  "Whether to clip and discretize the rewards.")
+flags.DEFINE_boolean("parallelize_envs", False,
+                     "If true, sets parallelism to number of cpu cores.")
 
 
 def common_layers():
@@ -144,18 +114,27 @@ def common_layers():
 
 
 def atari_layers():
-  return [atari_cnn.AtariCnn()]
+  return [models.AtariCnn()]
 
 
-def make_env(batch_size=8):
+def make_env(batch_size=8, **env_kwargs):
   """Creates the env."""
+
+  if FLAGS.clip_rewards:
+    env_kwargs.update({"reward_range": (-1, 1), "discrete_rewards": True})
+  else:
+    env_kwargs.update({"discrete_rewards": False})
+
+  # TODO(afrozm): Should we leave out some cores?
+  parallelism = multiprocessing.cpu_count() if FLAGS.parallelize_envs else 1
 
   # No resizing needed, so let's be on the normal EnvProblem.
   if not FLAGS.resize:  # None or False
-    return env_problem.EnvProblem(
+    return gym_env_problem.GymEnvProblem(
         base_env_name=FLAGS.env_problem_name,
         batch_size=batch_size,
-        reward_range=(-1, 1))
+        parallelism=parallelism,
+        **env_kwargs)
 
   max_timestep = None
   try:
@@ -176,8 +155,9 @@ def make_env(batch_size=8):
   return rendered_env_problem.RenderedEnvProblem(
       base_env_name=FLAGS.env_problem_name,
       batch_size=batch_size,
+      parallelism=parallelism,
       env_wrapper_fn=wrapper_fn,
-      reward_range=(-1, 1))
+      **env_kwargs)
 
 
 def get_optimizer_fn(learning_rate):
@@ -197,11 +177,21 @@ def main(argv):
     config.update("jax_platform_name", "gpu")
 
 
+  gin_configs = FLAGS.config or []
+  gin.parse_config_files_and_bindings(FLAGS.config_file, gin_configs)
+
+  # TODO(pkozakowski): Find a better way to determine this.
+  if "OnlineTuneEnv" in FLAGS.env_problem_name:
+    # TODO(pkozakowski): Separate env output dirs by train/eval and epoch.
+    env_kwargs = {"output_dir": os.path.join(FLAGS.output_dir, "envs")}
+  else:
+    env_kwargs = {}
+
   # Make an env here.
-  env = make_env(batch_size=FLAGS.batch_size)
+  env = make_env(batch_size=FLAGS.batch_size, **env_kwargs)
   assert env
 
-  eval_env = make_env(batch_size=FLAGS.eval_batch_size)
+  eval_env = make_env(batch_size=FLAGS.eval_batch_size, **env_kwargs)
   assert eval_env
 
   def run_training_loop():
@@ -214,38 +204,13 @@ def main(argv):
         two_towers=FLAGS.two_towers)
     policy_and_value_optimizer_fn = get_optimizer_fn(FLAGS.learning_rate)
 
-    random_seed = None
-    try:
-      random_seed = int(FLAGS.random_seed)
-    except Exception:  # pylint: disable=broad-except
-      pass
-
     ppo.training_loop(
+        output_dir=FLAGS.output_dir,
         env=env,
-        epochs=FLAGS.epochs,
+        eval_env=eval_env,
+        env_name=str(FLAGS.env_problem_name),
         policy_and_value_net_fn=policy_and_value_net_fn,
         policy_and_value_optimizer_fn=policy_and_value_optimizer_fn,
-        n_optimizer_steps=FLAGS.n_optimizer_steps,
-        print_every_optimizer_steps=FLAGS.print_every_optimizer_steps,
-        batch_size=FLAGS.batch_size,
-        target_kl=FLAGS.target_kl,
-        boundary=FLAGS.boundary,
-        max_timestep=FLAGS.truncation_timestep,
-        max_timestep_eval=FLAGS.truncation_timestep_eval,
-        random_seed=random_seed,
-        c1=FLAGS.value_coef,
-        c2=FLAGS.entropy_coef,
-        gamma=FLAGS.gamma,
-        lambda_=FLAGS.lambda_,
-        epsilon=FLAGS.epsilon,
-        enable_early_stopping=FLAGS.enable_early_stopping,
-        output_dir=FLAGS.output_dir,
-        eval_every_n=FLAGS.eval_every_n,
-        done_frac_for_policy_save=FLAGS.done_frac_for_policy_save,
-        eval_env=eval_env,
-        n_evals=FLAGS.n_evals,
-        env_name=str(FLAGS.env_problem_name),
-        len_history_for_policy=int(FLAGS.len_history_for_policy),
     )
 
   if FLAGS.jax_debug_nans or FLAGS.disable_jit:

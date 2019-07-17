@@ -24,10 +24,11 @@ import os
 import random
 
 import gin
-
-import numpy as np
+import numpy as onp
 
 from tensor2tensor import problems_colab as t2t_problems
+from tensor2tensor.trax import backend
+from tensor2tensor.trax.backend import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
@@ -139,9 +140,9 @@ def random_inputs(
   def random_minibatches():
     """Generate a stream of random mini-batches."""
     if input_dtype in [np.float16, np.float32, np.float64]:
-      rand = np.random.uniform
+      rand = onp.random.uniform
     else:
-      rand = np.random.random_integers
+      rand = onp.random.random_integers
     while True:
       inp = rand(input_range[0], input_range[1], input_shape)
       inp = inp.astype(input_dtype)
@@ -159,7 +160,7 @@ def random_inputs(
 
 def dataset_to_stream(dataset, input_name, n_chunks=0, append_targets=False):
   """Takes a tf.Dataset and creates a numpy stream of ready batches."""
-  for example in tfds.as_numpy(dataset):
+  for example in backend.dataset_as_numpy(dataset):
     inp, out = example[0][input_name], example[1]
     # Some accelerators don't handle uint8 well, cast to int.
     if isinstance(inp, np.uint8):

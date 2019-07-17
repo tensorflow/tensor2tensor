@@ -191,6 +191,10 @@ def main(_):
   if FLAGS.disable_grappler_optimizations:
     run_config.session_config.graph_options.rewrite_options.disable_meta_optimizer = True
 
+  # summary-hook in tf.estimator.EstimatorSpec requires
+  # hparams.model_dir to be set.
+  hp.add_hparam("model_dir", run_config.model_dir)
+
   estimator = trainer_lib.create_estimator(
       FLAGS.model,
       hp,

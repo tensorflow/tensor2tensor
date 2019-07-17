@@ -13,12 +13,3 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Environments defined in T2T. Imports here force registration."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-from tensor2tensor.envs import gym_env_problem
-from tensor2tensor.envs import tic_tac_toe_env
-from tensor2tensor.envs import tic_tac_toe_env_problem

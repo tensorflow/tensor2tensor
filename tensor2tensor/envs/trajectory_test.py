@@ -138,16 +138,23 @@ class TrajectoryTest(tf.test.TestCase):
     observations = np.random.uniform(size=(ts,) + shape)
     actions = np.random.choice(range(num_actions), size=(ts - 1,))
     rewards = np.random.choice([-1, 0, 1], size=(ts - 1,))
+    squares = np.arange(ts - 1) ** 2
+    cubes = np.arange(ts - 1) ** 3
+
+    def get_info(i):
+      return {"sq": squares[i], "cu": cubes[i]}
 
     # First time-step has no reward.
-    t.add_time_step(observation=observations[0], done=False, action=actions[0])
+    t.add_time_step(observation=observations[0], done=False, action=actions[0],
+                    info=get_info(0))
     for i in range(1, ts - 1):
       t.add_time_step(
           observation=observations[i],
           done=False,
           raw_reward=rewards[i - 1],
           processed_reward=rewards[i - 1],
-          action=actions[i])
+          action=actions[i],
+          info=get_info(i))
     # Last time-step has no action.
     t.add_time_step(
         observation=observations[-1],
@@ -160,6 +167,9 @@ class TrajectoryTest(tf.test.TestCase):
     self.assertAllEqual(observations, traj_np[0])
     self.assertAllEqual(actions, traj_np[1])
     self.assertAllEqual(rewards, traj_np[2])
+
+    self.assertAllEqual(squares, traj_np[4]["sq"])
+    self.assertAllEqual(cubes, traj_np[4]["cu"])
 
 
 class BatchTrajectoryTest(tf.test.TestCase):
@@ -457,5 +467,5 @@ class BatchTrajectoryTest(tf.test.TestCase):
       for ts in range(lengths[b], len(padded_obs_np[b])):
         self.assertAllEqual(zero_obs, padded_obs_np[b][ts])
 
-if __name__ == '__main__':
+if __name__ == "__main__":
   tf.test.main()

@@ -13,33 +13,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for Resnet models."""
+"""Tests for Keras-style regularizers."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from absl.testing import absltest
-from tensor2tensor.trax import backend
-from tensor2tensor.trax import layers as tl
-from tensor2tensor.trax.models import resnet
+from tensor2tensor.keras import regularizers
+from tensor2tensor.utils import test_utils
+
+import tensorflow as tf
+import tensorflow_probability as tfp
+ed = tfp.edward2
+tf.compat.v1.enable_eager_execution()
 
 
-class ResnetTest(absltest.TestCase):
+class RegularizersTest(tf.test.TestCase):
 
-  def test_resnet(self):
-    input_shape = (3, 256, 256, 3)
-    model = resnet.Resnet50(d_hidden=8, n_output_classes=10)
-    final_shape = tl.check_shape_agreement(model, input_shape)
-    self.assertEqual((3, 10), final_shape)
-
-  def test_wide_resnet(self):
-    input_shape = (3, 32, 32, 3)
-    model = resnet.WideResnet(n_blocks=1, n_output_classes=10)
-    final_shape = tl.check_shape_agreement(model, input_shape)
-    self.assertEqual((3, 10), final_shape)
-
+  @test_utils.run_in_graph_and_eager_modes
+  def testHalfCauchyKLDivergence(self):
+    shape = (3,)
+    regularizer = regularizers.get('half_cauchy_kl_divergence')
+    variational_posterior = ed.Independent(
+        ed.LogNormal(loc=tf.zeros(shape), scale=1.).distribution,
+        reinterpreted_batch_ndims=1)
+    kl = regularizer(variational_posterior)
+    kl_value = self.evaluate(kl)
+    self.assertGreaterEqual(kl_value, 0.)
 
 
 if __name__ == '__main__':
-  absltest.main()
+  tf.test.main()

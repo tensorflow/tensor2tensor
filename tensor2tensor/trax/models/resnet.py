@@ -132,13 +132,12 @@ def WideResnetGroup(n, channels, strides=(1, 1)):
   ]
 
 
-def WideResnet(n_blocks=3, d_hidden=64, n_output_classes=10,
-               mode='train'):
+def WideResnet(n_blocks=3, widen_factor=1, n_output_classes=10, mode='train'):
   """WideResnet from https://arxiv.org/pdf/1605.07146.pdf.
 
   Args:
-    n_blocks: int, number of blocks in a group.
-    d_hidden: Dimensionality of the first hidden layer (multiplied later).
+    n_blocks: int, number of blocks in a group. total layers = 6n + 4.
+    widen_factor: int, widening factor of each group. k=1 is vanilla resnet.
     n_output_classes: int, number of distinct output classes.
     mode: Whether we are training or evaluating or doing inference.
 
@@ -148,10 +147,10 @@ def WideResnet(n_blocks=3, d_hidden=64, n_output_classes=10,
   del mode
   return tl.Model(
       tl.ToFloat(),
-      tl.Conv(d_hidden, (3, 3), padding='SAME'),
-      WideResnetGroup(n_blocks, d_hidden),
-      WideResnetGroup(n_blocks, d_hidden * 2, (2, 2)),
-      WideResnetGroup(n_blocks, d_hidden * 4, (2, 2)),
+      tl.Conv(16, (3, 3), padding='SAME'),
+      WideResnetGroup(n_blocks, 16 * widen_factor),
+      WideResnetGroup(n_blocks, 32 * widen_factor, (2, 2)),
+      WideResnetGroup(n_blocks, 64 * widen_factor, (2, 2)),
       tl.BatchNorm(),
       tl.Relu(),
       tl.AvgPool(pool_size=(8, 8)),
