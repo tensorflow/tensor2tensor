@@ -611,6 +611,11 @@ class T2TModel(base.Layer):
     # When not in training mode, set all forms of dropout to zero.
     if mode != tf.estimator.ModeKeys.TRAIN:
       for key in hparams.values():
+        # if the hparam ends with 'eval_dropout', we only do not set it to 0.0
+        # in EVAL mode.
+        if key.endswith('eval_dropout') and mode == tf.estimator.ModeKeys.EVAL:
+            log_info("Keeping hparams.%s to ", key)
+            continue
         if key.endswith("dropout") or key == "label_smoothing":
           log_info("Setting hparams.%s to 0.0", key)
           setattr(hparams, key, 0.0)
