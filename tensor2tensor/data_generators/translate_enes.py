@@ -53,6 +53,7 @@ _ENES_TEST_DATASETS = [
     ],
 ]
 
+
 @registry.register_problem
 class TranslateEnesWmt32k(translate.TranslateProblem):
   """En-es translation trained on WMT corpus."""
@@ -70,6 +71,7 @@ class TranslateEnesWmt32k(translate.TranslateProblem):
   def vocab_data_files(self):
     return _ENES_TRAIN_DATASETS
 
+
 @registry.register_problem
 class TranslateEnesWmtClean32k(TranslateEnesWmt32k):
   """En-es translation trained on WMT with further cleaning."""
@@ -82,6 +84,7 @@ class TranslateEnesWmtClean32k(TranslateEnesWmt32k):
   def datatypes_to_clean(self):
     return ["txt"]
 
+
 @registry.register_problem
 class TranslateEnesWmt32kPacked(TranslateEnesWmt32k):
 
@@ -93,6 +96,7 @@ class TranslateEnesWmt32kPacked(TranslateEnesWmt32k):
   def use_vocab_from_other_problem(self):
     return TranslateEnesWmt32k()
 
+
 @registry.register_problem
 class TranslateEnesWmt8k(TranslateEnesWmt32k):
   """Problem spec for WMT En-Es translation."""
@@ -100,6 +104,7 @@ class TranslateEnesWmt8k(TranslateEnesWmt32k):
   @property
   def approx_vocab_size(self):
     return 2**13  # 8192
+
 
 @registry.register_problem
 class TranslateEnesWmt8kPacked(TranslateEnesWmt8k):
@@ -111,6 +116,7 @@ class TranslateEnesWmt8kPacked(TranslateEnesWmt8k):
   @property
   def use_vocab_from_other_problem(self):
     return TranslateEnesWmt8k()
+
 
 @registry.register_problem
 class TranslateEnesWmtCharacters(TranslateEnesWmt8k):
