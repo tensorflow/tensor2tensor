@@ -78,7 +78,7 @@ class Map(tl.Layer):
     return self._layer.initialize(first_shape, input_dtype[0], rng)
 
 
-def FeedForward(d_feature, d_feedforward, dropout, mode):
+def FeedForward(d_model, d_ff, dropout, mode):
   """Feed-forward block with layer normalization at start."""
   # TODO(kitaev): add dropout. Dropout is typically performed by adding noise to
   # the activations, but when the size of the activations is very large it is
@@ -86,9 +86,9 @@ def FeedForward(d_feature, d_feedforward, dropout, mode):
   del dropout, mode
   return [
       tl.LayerNorm(),
-      tl.Dense(d_feedforward),
+      tl.Dense(d_ff),
       tl.Relu(),
-      tl.Dense(d_feature),
+      tl.Dense(d_model),
   ]
 
 
@@ -252,11 +252,11 @@ class ReversibleHalfResidual(ReversibleLayerMixin, tl.Serial):
 @tl.layer(n_inputs=1, n_outputs=1)
 def SplitHeads(x, params, n_heads=1, **kwargs):
   del params, kwargs
-  d_feature = x.shape[-1]
-  assert d_feature % n_heads == 0
-  d_head = d_feature // n_heads
+  d_model = x.shape[-1]
+  assert d_model % n_heads == 0
+  d_head = d_model // n_heads
   n_batch = np.shape(x)[0]
-  # n_batch, seqlen, d_feature --> n_batch, n_heads, seqlen, d_head
+  # n_batch, seqlen, d_model --> n_batch, n_heads, seqlen, d_head
   return np.transpose(
       np.reshape(x, (n_batch, -1, n_heads, d_head)), (0, 2, 1, 3))
 
@@ -266,7 +266,7 @@ def JoinHeads(x, params, **kwargs):
   del params, kwargs
   n_batch = np.shape(x)[0]
   seqlen = np.shape(x)[2]
-  # n_batch, n_heads, seqlen, d_head --> n_batch, seqlen, d_feature
+  # n_batch, n_heads, seqlen, d_head --> n_batch, seqlen, d_model
   return np.reshape(np.transpose(x, (0, 2, 1, 3)), (n_batch, seqlen, -1))
 
 
@@ -631,14 +631,14 @@ class ReversibleSerial(ReversibleLayerMixin, tl.Serial):
       return layer_val, None
 
 
-def DecoderBlock(d_feature, d_feedforward, d_attention_key, d_attention_value,
+def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
                  n_heads, n_attention_chunks, attention_loop_stride,
                  dropout, mode):
   """Reversible transformer decoder layer.
 
   Args:
-    d_feature: int:  depth of embedding
-    d_feedforward: int: depth of feed-forward layer
+    d_model: int:  depth of embedding
+    d_ff: int: depth of feed-forward layer
     d_attention_key: int: depth of key vector for each attention head
     d_attention_value: int: depth of value vector for each attention head
     n_heads: int: number of attention heads
@@ -675,12 +675,12 @@ def DecoderBlock(d_feature, d_feedforward, d_attention_key, d_attention_value,
   # its input (so the backward pass can be computed without knowing the input)
   post_attention = [
       JoinHeads(),  # pylint: disable=no-value-for-parameter
-      tl.Dense(d_feature),
+      tl.Dense(d_model),
       Unchunk(sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
   ]
 
   feed_forward = [
-      FeedForward(d_feature, d_feedforward, dropout, mode=mode),
+      FeedForward(d_model, d_ff, dropout, mode=mode),
   ]
   return [
       ReversibleAttentionHalfResidual(pre_attention, attention, post_attention),
@@ -691,8 +691,8 @@ def DecoderBlock(d_feature, d_feedforward, d_attention_key, d_attention_value,
 
 
 def TransformerRevnetLM(vocab_size,
-                        d_feature=512,
-                        d_feedforward=2048,
+                        d_model=512,
+                        d_ff=2048,
                         d_attention_key=64,
                         d_attention_value=64,
                         n_layers=6,
@@ -707,8 +707,8 @@ def TransformerRevnetLM(vocab_size,
 
   Args:
     vocab_size: int: vocab size
-    d_feature: int:  depth of *each half* of the two-part features
-    d_feedforward: int: depth of feed-forward layer
+    d_model: int:  depth of *each half* of the two-part features
+    d_ff: int: depth of feed-forward layer
     d_attention_key: int: depth of key vector for each attention head
     d_attention_value: int: depth of value vector for each attention head
     n_layers: int: number of decoder layers
@@ -725,7 +725,7 @@ def TransformerRevnetLM(vocab_size,
     the layer.
   """
   positional_embedder = [
-      tl.Embedding(d_feature, vocab_size),
+      tl.Embedding(d_model, vocab_size),
       # TODO(kitaev): add dropout
       tl.PositionalEncoding(max_len=max_len),
   ]
@@ -736,7 +736,7 @@ def TransformerRevnetLM(vocab_size,
       tl.Dup(),
       ReversibleSerial([
           # pylint: disable=g-complex-comprehension
-          DecoderBlock(d_feature, d_feedforward,
+          DecoderBlock(d_model, d_ff,
                        d_attention_key, d_attention_value, n_heads,
                        n_attention_chunks, attention_loop_stride,
                        dropout, mode)

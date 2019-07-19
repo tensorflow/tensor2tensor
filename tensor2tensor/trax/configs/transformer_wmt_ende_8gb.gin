@@ -50,8 +50,8 @@ Adam.eps = 1e-9
 
 # Parameters for Transformer:
 # ==============================================================================
-Transformer.d_feature= 512
-Transformer.d_feedforward = 2048
+Transformer.d_model= 512
+Transformer.d_ff = 2048
 Transformer.dropout = 0.1
 Transformer.max_len = 2048
 Transformer.mode = 'train'

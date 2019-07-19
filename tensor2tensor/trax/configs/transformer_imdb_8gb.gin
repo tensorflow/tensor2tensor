@@ -38,8 +38,8 @@ train.train_steps = 1000
 
 # Parameters for TransformerLM:
 # ==============================================================================
-TransformerEncoder.d_feature = 512
-TransformerEncoder.d_feedforward = 2048
+TransformerEncoder.d_model = 512
+TransformerEncoder.d_ff = 2048
 TransformerEncoder.dropout = 0.1
 TransformerEncoder.max_len = 2048
 TransformerEncoder.mode = 'train'

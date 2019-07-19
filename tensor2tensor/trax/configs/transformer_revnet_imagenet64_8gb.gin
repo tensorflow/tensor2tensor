@@ -34,8 +34,8 @@ train.trainer_class = @MemoryEfficientTrainer
 
 # Parameters for TransformerRevnetLM:
 # ==============================================================================
-TransformerRevnetLM.d_feature = 512
-TransformerRevnetLM.d_feedforward = 2048
+TransformerRevnetLM.d_model = 512
+TransformerRevnetLM.d_ff = 2048
 TransformerRevnetLM.d_attention_key = 32
 TransformerRevnetLM.d_attention_value = 32
 TransformerRevnetLM.dropout = 0.1
