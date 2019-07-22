@@ -32,8 +32,8 @@ tf.compat.v1.enable_eager_execution()
 
 def _log_prob(self, x):
   """Re-implementation of OneHotCategorical._log_prob for gradients wrt x."""
-  x = self._assert_valid_sample(x)
   logits = self.logits_parameter()
+  x = self._maybe_assert_valid_sample(x, dtype=logits.dtype)
   if (not x.shape.is_fully_defined() or
       not logits.shape.is_fully_defined() or
       x.shape != logits.shape):
