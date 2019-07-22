@@ -23,6 +23,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import copy
 import multiprocessing.pool
 import time
 
@@ -161,19 +162,39 @@ class GymEnvProblem(env_problem.EnvProblem):
         tf.logging.error("Env[%d] has action space [%s]", i, env.action_space)
       raise ValueError(err_str)
 
-  def initialize_environments(self, batch_size=1, parallelism=1, **kwargs):
+  def initialize_environments(self,
+                              batch_size=1,
+                              parallelism=1,
+                              per_env_kwargs=None,
+                              **kwargs):
     """Initializes the environments.
 
     Args:
       batch_size: (int) Number of `self.base_env_name` envs to initialize.
       parallelism: (int) If this is greater than one then we run the envs in
         parallel using multi-threading.
+      per_env_kwargs: (list or None) An optional list of dictionaries to pass to
+        gym.make. If not None, length should match `batch_size`.
       **kwargs: (dict) Kwargs to pass to gym.make.
     """
     assert batch_size >= 1
+    if per_env_kwargs is not None:
+      assert batch_size == len(per_env_kwargs)
+    else:
+      per_env_kwargs = [{} for _ in range(batch_size)]
+
+    # By now `per_env_kwargs` is a list of dictionaries of size batch_size.
+    # The individual dictionaries maybe empty.
+
+    def union_dicts(dict1, dict2):
+      """Union `dict1` and `dict2`."""
+      copy_dict1 = copy.copy(dict1)
+      copy_dict1.update(dict2)
+      return copy_dict1
 
     self._envs = [
-        gym.make(self.base_env_name, **kwargs) for _ in range(batch_size)
+        gym.make(self.base_env_name, **union_dicts(kwargs, env_kwarg))
+        for env_kwarg in per_env_kwargs
     ]
     self._parallelism = parallelism
     self._pool = multiprocessing.pool.ThreadPool(self._parallelism)

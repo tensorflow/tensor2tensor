@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import gym
 from gym.spaces import Box
 from gym.spaces import Discrete
 import numpy as np
@@ -379,6 +380,58 @@ class GymEnvProblemTest(tf.test.TestCase):
 
     # Assert that there aren't any completed trajectories in the env now.
     self.assertEqual(env.trajectories.num_completed_trajectories, 0)
+
+  def test_per_env_kwargs(self):
+
+    # Creating a dummy class where we specify the action at which the env
+    # returns done.
+    class TestPerEnvKwargsEnv(gym.Env):
+      """Test environment with the `done action` specified."""
+
+      action_space = Discrete(3)
+      observation_space = Box(low=-1.0, high=1.0, shape=())
+
+      def __init__(self, done_action=0):
+        self._done_action = done_action
+
+      def _generate_ob(self):
+        return self.observation_space.sample()
+
+      def step(self, action):
+        done = self._done_action == action
+        reward = 1 if done else 0
+        return (self._generate_ob(), reward, done, {})
+
+      def reset(self):
+        return self._generate_ob()
+
+    # Registering it with gym.
+    test_env_name = "TestPerEnvKwargsEnv-v0"
+    gym.envs.register(id=test_env_name, entry_point=TestPerEnvKwargsEnv)
+
+    # Creating a batch of those with different done actions.
+    base_env_name = test_env_name
+    batch_size = 2
+    reward_range = (-1, 1)
+    per_env_kwargs = [{"done_action": 1}, {"done_action": 2}]
+
+    env = gym_env_problem.GymEnvProblem(
+        base_env_name=base_env_name,
+        batch_size=batch_size,
+        reward_range=reward_range,
+        per_env_kwargs=per_env_kwargs)
+
+    _ = env.reset()
+
+    # Finally querying the done actions.
+
+    _, _, d, _ = env.step(np.array([0, 0]))
+    self.assertFalse(d[0])
+    self.assertFalse(d[1])
+
+    _, _, d, _ = env.step(np.array([1, 2]))
+    self.assertTrue(d[0])
+    self.assertTrue(d[1])
 
 if __name__ == "__main__":
   tf.test.main()
