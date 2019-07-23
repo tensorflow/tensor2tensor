@@ -138,6 +138,29 @@ class Layer(object):
     """Returns the sublayers contained in / managed by this layer."""
     return ()  # Default is no sublayers; subclasses can override.
 
+  @property
+  def has_custom_grad(self):
+    """Whether to use custom gradients (in which case, see below)."""
+    return False
+
+  def custom_grad(self, inputs, output, grad, params, **kwargs):
+    """Custom backward pass to propagate gradients in a custom way.
+
+    Args:
+      inputs: Input activations; can be a (possibly nested) tuple.
+      output: The result of running this layer on inputs.
+      grad: gradient signal (called cotangent in jax) computed based on
+        subsequent layers. The structure and shape must match output.
+      params: layer parameters
+      **kwargs: kwargs for the layer
+
+    Returns:
+      The custom gradient signal for the input. Note that we need to return
+      a gradient for each argument of call, so it will usually be a triple
+      of signals: the gradient for inputs, parameters, and kwargs.
+    """
+    raise NotImplementedError
+
   # End of subclassing interface, all functions below are internal.
 
   def pseudo_call(self, pseudo_inputs, params):
@@ -209,8 +232,33 @@ class Layer(object):
         params = self._params
       # In this case, we're called for the first time: cache parameters.
       self._params = params
-      f = lambda y: self.call(y, params=params, **kwargs)
-      return f(x)
+
+      if not self.has_custom_grad:
+        return self.call(x, params=params, **kwargs)
+
+      # Custom gradients part.
+      assert backend.get_name() == 'jax', (
+          'Custom gradients are only supported in JAX for now.')
+
+      # See this link for how custom transformations are defined in JAX:
+      # https://jax.readthedocs.io/en/latest/jax.html#jax.custom_transforms
+      @jax.custom_transforms
+      def do_call(y, params, kwargs):
+        return self.call(y, params=params, **kwargs)
+
+      # This is the custom gradient (vector-jacobian product in JAX) function.
+      # For the exact specification of this custom transformation see this link:
+      # https://jax.readthedocs.io/en/latest/jax.html#jax.defjvp_all
+      # Note that we make arguments positional to allow gradients wrt. them.
+      def do_call_vjp(y, params, kwargs):
+        output = self.call(y, params=params, **kwargs)
+        def vjpfun(grad):
+          return self.custom_grad(y, output, grad, params, **kwargs)
+        return output, vjpfun
+
+      jax.defvjp_all(do_call, do_call_vjp)
+      return do_call(x, params, kwargs)
+
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback()
       raise LayerError(name, 'call', self._caller, shapes(x), trace)
@@ -370,7 +418,7 @@ def _shorten_file_path(line):
   return line[:first_quote] + '[...]/' + new_path + line[second_quote + 1:]
 
 
-def _short_traceback(skip=7):
+def _short_traceback(skip=3):
   """Cleaned-up form of traceback."""
   counter, res = 0, []
   # Skipping 3 lines by default: the top (useless) and self-call.

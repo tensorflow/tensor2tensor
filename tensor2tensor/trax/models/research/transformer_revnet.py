@@ -32,16 +32,19 @@ from tensor2tensor.trax.layers.combinators import _pop_rng_and_split
 
 
 class Map(tl.Layer):
-  """Combinator for applying a layer to a list or tuple.
+  """Combinator for applying a layer to a list or tuple."""
 
-  Args:
-    layer: a layer to apply to each element.
+  def __init__(self, layer, n_sections=1, check_shapes=True):
+    """Initialize the combinator.
 
-  Returns:
-    A new layer representing mapping layer to all elements of the input.
-  """
+    Args:
+      layer: a layer to apply to each element.
+      n_sections: how many sections to map to (default: 1).
+      check_shapes: whether to check that shapes are identical (default: true).
 
-  def __init__(self, layer, sections=1, check_shapes=True):
+    Returns:
+      A new layer representing mapping layer to all elements of the input.
+    """
     super(Map, self).__init__()
     if layer is None or isinstance(layer, (list, tuple)):
       layer = tl.Serial(layer)
@@ -52,15 +55,15 @@ class Map(tl.Layer):
     # are valid cases -- e.g., when self._layer has no parameters -- where we
     # can apply Map to different shapes -- set check_shapes=False in such cases.
     self._check_shapes = check_shapes
-    self._sections = sections
+    self._n_sections = n_sections
 
   def n_inputs(self):
     """Specifies how many data tensors this layer expects as input."""
-    return self._sections
+    return self._n_sections
 
   def n_outputs(self):
     """Specifies how many data tensors this layer promises as output."""
-    return self._sections
+    return self._n_sections
 
   def call(self, inputs, params=(), **kwargs):
     rngs = _pop_rng_and_split(kwargs, len(inputs))
@@ -118,7 +121,7 @@ class ReversibleLayerMixin(object):
 
     # Note: jax.vjp does not allow us to use **kwargs in the signature here.
     def _do_call(x, params, kwargs):
-      return super(ReversibleLayerMixin, self).__call__(x, params, **kwargs)
+      return super(ReversibleLayerMixin, self).call(x, params=params, **kwargs)
 
     reconstructed_x, must_be_none = self.inverse_and_vjp(
         output, None, params, **kwargs)
@@ -127,43 +130,27 @@ class ReversibleLayerMixin(object):
     input_ct = vjpfun(ct)
     return reconstructed_x, input_ct
 
-  def __call__(self, x, params=(), **kwargs):
-    assert backend.get_name() == 'jax', (
-        'Reversible layers are only supported in JAX')
+  @property
+  def has_custom_grad(self):
+    return True
 
-    if params is () and self._params:  # pylint: disable=literal-comparison
-      # TODO(kitaev): Figure out why parameter sharing doesn't work (if this
-      # explicit error isn't thrown, a jax tracer error occurs instead)
-      raise NotImplementedError(
-          'Parameter sharing between reversible layers is not implemented.')
-
-    @jax.custom_transforms
-    def do_call(x, params, kwargs):
-      return super(ReversibleLayerMixin, self).__call__(x, params, **kwargs)
-
-    def do_call_vjp(x, params, kwargs):
-      output = super(ReversibleLayerMixin, self).__call__(x, params, **kwargs)
-      def vjpfun(ct):
-        _, input_ct = self.inverse_and_vjp(output, ct, params, **kwargs)
-        return input_ct
-
-      return output, vjpfun
-
-    jax.defvjp_all(do_call, do_call_vjp)
-    return do_call(x, params, kwargs)
+  def custom_grad(self, inputs, output, ct, params, **kwargs):
+    del inputs
+    _, input_ct = self.inverse_and_vjp(output, ct, params, **kwargs)
+    return input_ct
 
 
 class Split(tl.Layer):
   """Splits the input into sections along an axis."""
 
-  def __init__(self, sections=2, axis=-1):
+  def __init__(self, n_sections=2, axis=-1):
     super(Split, self).__init__()
-    self._sections = sections
+    self._n_sections = n_sections
     self._axis = axis
 
   def call(self, inputs, params=(), **kwargs):
     del params, kwargs
-    return tuple(backend.numpy.split(inputs, self._sections, self._axis))
+    return tuple(backend.numpy.split(inputs, self._n_sections, self._axis))
 
   def new_parameters(self, input_shapes, input_dtype, rng):
     return ()
@@ -174,26 +161,26 @@ class Split(tl.Layer):
 
   def n_outputs(self):
     """Specifies how many data tensors this layer promises as output."""
-    return self._sections
+    return self._n_sections
 
 
 @tl.layer()
-def Chunk(x, params, sections=2, **kwargs):
+def Chunk(x, params, n_sections=2, **kwargs):
   del params, kwargs
-  assert x.shape[1] % sections == 0
+  assert x.shape[1] % n_sections == 0
   return backend.numpy.reshape(x, (
-      x.shape[0] * sections,
-      x.shape[1] // sections,
+      x.shape[0] * n_sections,
+      x.shape[1] // n_sections,
       ) + x.shape[2:])
 
 
 @tl.layer()
-def Unchunk(x, params, sections=2, **kwargs):
+def Unchunk(x, params, n_sections=2, **kwargs):
   del params, kwargs
-  assert x.shape[0] % sections == 0
+  assert x.shape[0] % n_sections == 0
   return backend.numpy.reshape(x, (
-      x.shape[0] // sections,
-      x.shape[1] * sections,
+      x.shape[0] // n_sections,
+      x.shape[1] * n_sections,
       ) + x.shape[2:])
 
 
@@ -653,7 +640,7 @@ def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
   """
 
   pre_attention = [
-      Chunk(sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
+      Chunk(n_sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
       tl.LayerNorm(),
       tl.Dup(), tl.Dup(),
       tl.Parallel(
@@ -676,7 +663,7 @@ def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
   post_attention = [
       JoinHeads(),  # pylint: disable=no-value-for-parameter
       tl.Dense(d_model),
-      Unchunk(sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
+      Unchunk(n_sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
   ]
 
   feed_forward = [
@@ -744,10 +731,9 @@ def TransformerRevnetLM(vocab_size,
       ]),
       tl.Parallel(tl.LayerNorm(), tl.LayerNorm()),
       tl.Concatenate(),
-      Split(sections=n_chunks, axis=-2),  # pylint: disable=no-value-for-parameter
+      Split(n_sections=n_chunks, axis=-2),  # pylint: disable=no-value-for-parameter
       Map([
           tl.Dense(vocab_size),
           tl.LogSoftmax(),
-      ], sections=n_chunks),
+      ], n_sections=n_chunks),
   )
-
