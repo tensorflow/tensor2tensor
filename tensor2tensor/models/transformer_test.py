@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 import numpy as np
 
+from tensor2tensor.data_generators import librispeech
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import transformer
 
@@ -41,9 +42,10 @@ def get_model(hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
   hparams.num_heads = 1
   hparams.layer_prepostprocess_dropout = 0.0
 
-  p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE,
-                                                   VOCAB_SIZE,
-                                                   hparams)
+  if hparams.get("problem_hparams", None) is None:
+    p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE,
+                                                     VOCAB_SIZE,
+                                                     hparams)
   if not has_input:
     del p_hparams.modality["inputs"]
   hparams.problem_hparams = p_hparams
@@ -71,6 +73,36 @@ class TransformerTest(tf.test.TestCase):
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, 1, 1, VOCAB_SIZE))
+
+  def testTransformerLibrispeech(self, params=None):
+    model_hparams = transformer.transformer_small()
+    if params is not None:  # Add or Set any provided HParams
+      assert isinstance(params, dict)
+      for param_name in params:
+        if hasattr(model_hparams, param_name):
+          model_hparams.set_hparam(param_name, params[param_name])
+        else:
+          model_hparams.add_hparam(param_name, params[param_name])
+    problem = librispeech.Librispeech()
+    model_hparams.problem_hparams = problem.get_hparams(model_hparams)
+    model_hparams._problem_hparams = model_hparams.problem_hparams
+    model, features = get_model(model_hparams)
+    model._problem_hparams.modality = {"inputs": "speech_recognition",
+                                       "targets": "symbol"}
+    features["inputs"] = np.random.rand(
+        BATCH_SIZE, INPUT_LENGTH, 80, 3).astype("float32")  # modify for speech
+
+    logits, _ = model(features)
+    with self.test_session() as session:
+      session.run(tf.global_variables_initializer())
+      res = session.run(logits)
+    self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, 1, 1, VOCAB_SIZE))
+
+  def testTransformerLibrispeechWithAreaAttention(self):
+    self.testTransformerLibrispeech({"max_area_width": 2,
+                                     "num_area_layers": 1,
+                                     "area_key_mode": "mean",
+                                     "area_value_mode": "sum"})
 
   def testTransformerRelative(self):
     model, features = get_model(transformer.transformer_relative_tiny())
