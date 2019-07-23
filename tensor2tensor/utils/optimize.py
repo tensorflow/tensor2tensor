@@ -69,6 +69,8 @@ def optimize(loss, learning_rate, hparams, use_tpu=False, variables=None, gpu_au
   if os.environ.get('GPU_AUTO_MIXED_PRECISION', default=False) or gpu_auto_mixed_precision:
       if use_tpu:
           raise(RuntimeError("GPU auto mixed precision cannot be used with TPU"))
+      elif _mixed_precision_is_enabled(hparams):
+          raise(RuntimeError("GPU auto mixed precision cannot be used with manual mixed precision"))
       else:
           opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(opt)
 
