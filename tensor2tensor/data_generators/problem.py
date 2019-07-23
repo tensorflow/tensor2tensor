@@ -35,7 +35,7 @@ from tensor2tensor.utils import metrics
 import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
-import models.pretrained.bert.utilities as bert_utilities
+import pretrained_models.bert.utilities as bert_utilities
 
 
 class DatasetSplit(object):
