@@ -66,7 +66,7 @@ def optimize(loss, learning_rate, hparams, use_tpu=False, variables=None, gpu_au
   opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams, use_tpu)
   if use_tpu:
     opt = tf.contrib.tpu.CrossShardOptimizer(opt)
-  if os.environ.get('GPU_AUTO_MIXED_PRECISION', default='0') == '1' or gpu_auto_mixed_precision:
+  if os.environ.get('TF_ENABLE_AUTO_MIXED_PRECISION', default='0') == '1' or gpu_auto_mixed_precision:
       if use_tpu:
           raise(RuntimeError("GPU auto mixed precision cannot be used with TPU"))
       elif _mixed_precision_is_enabled(hparams):
