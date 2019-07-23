@@ -73,6 +73,7 @@ def optimize(loss, learning_rate, hparams, use_tpu=False, variables=None, gpu_au
           raise(RuntimeError("GPU auto mixed precision cannot be used with manual mixed precision"))
       else:
           setattr(opt, '_use_locking', 'True')
+          setattr(opt, '_name', 'ConditionalOptimizer')
           opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(opt)
 
   opt_summaries = []
