@@ -99,7 +99,8 @@ class EnvProblem(Env, problem.Problem):
   def __init__(self,
                batch_size=None,
                discrete_rewards=True,
-               **kwargs):
+               parallelism=1,
+               **env_kwargs):
     """Initializes this class by creating the envs and managing trajectories.
 
     Args:
@@ -107,7 +108,9 @@ class EnvProblem(Env, problem.Problem):
         batched mode.
       discrete_rewards: (bool) whether to round the rewards to the nearest
         integer.
-      **kwargs: (dict) Additional kwargs to pass to `self.initialize`.
+      parallelism: (int) If this is greater than one then we run the envs in
+        parallel using multi-threading.
+      **env_kwargs: (dict) Additional kwargs to pass to the environments.
     """
 
     # Call the super's ctor.
@@ -123,6 +126,8 @@ class EnvProblem(Env, problem.Problem):
     # If set, we discretize the rewards and treat them as integers.
     self._discrete_rewards = discrete_rewards
 
+    self._parallelism = None
+
     # A data structure to hold the `batch_size` currently active trajectories
     # and also the ones that are completed, i.e. done.
     self._trajectories = None
@@ -130,7 +135,7 @@ class EnvProblem(Env, problem.Problem):
     self._batch_size = None
 
     if batch_size is not None:
-      self.initialize(batch_size=batch_size, **kwargs)
+      self.initialize(batch_size=batch_size, **env_kwargs)
 
   @property
   def batch_size(self):
