@@ -110,8 +110,7 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
     del parallelism
 
     model_state = trax.restore_state(self._output_dir)
-    # model_state.params is a pair (model_params, optimizer_state).
-    (self._model_params, _) = model_state.params
+    self._model_params = model_state.opt_state.params
     self._initial_observation_stream = initial_observation_stream
 
     self._history = None

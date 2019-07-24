@@ -93,7 +93,7 @@ class TraxTest(test.TestCase):
       # Predict with final params
       inputs = inputs(1).train_stream()
       model = layers.Serial(model_fn())
-      model(next(inputs)[0], state.params[0])
+      model(next(inputs)[0], state.opt_state.params)
 
   def test_train_eval_predict_sm3(self):
     with self.tmp_dir() as output_dir:
@@ -126,7 +126,35 @@ class TraxTest(test.TestCase):
       # Predict with final params
       inputs = inputs(1).train_stream()
       model = layers.Serial(model_fn())
-      model(next(inputs)[0], state.params[0])
+      model(next(inputs)[0], state.opt_state.params)
+
+  def test_train_restart(self):
+    with self.tmp_dir() as output_dir:
+      # Prepare model and inputs
+      n_classes = 4
+      train_steps = 2
+      eval_steps = 2
+      model_fn = functools.partial(models.MLP,
+                                   d_hidden=16,
+                                   n_output_classes=n_classes)
+      inputs = lambda _: test_inputs(n_classes)
+
+      # Train and evaluate
+      trax.train(output_dir,
+                 model=model_fn,
+                 inputs=inputs,
+                 train_steps=train_steps,
+                 eval_steps=eval_steps)
+
+      # Restart training
+      state = trax.train(output_dir,
+                         model=model_fn,
+                         inputs=inputs,
+                         train_steps=train_steps,
+                         eval_steps=eval_steps)
+
+      # Assert total train steps
+      self.assertEqual(state.step, 2 * train_steps)
 
 
 if __name__ == "__main__":

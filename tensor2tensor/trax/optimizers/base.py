@@ -67,48 +67,73 @@ def tree_unflatten(flat, tree):
 class Optimizer(object):
   """Optimizer object, base class. Maps per-parameter functions to trees."""
 
-  def __init__(self, step_size):
-    """Optimizers take the step size function (learning rate) as argument."""
-    if callable(step_size):
-      self._step_size = step_size
-    else:
-      self._step_size = lambda _: step_size
+  def __init__(self, learning_rate, *init_opt_params):
+    """Initialize the optimizer.
 
-  def init(self, x):
-    """Create optimizer slots for the parameter x."""
+    Takes the initial optimizer parameters as positional arguments. They are fed
+    back to the optimizer in tree_update, in the same order. They can be changed
+    between updates, e.g. for learning rate schedules.
+
+    The constructor should be overridden in derived classes to give names to the
+    optimizer parameters, so the gin configuration can set them.
+
+    Args:
+      learning_rate: The initial learning rate.
+      *init_opt_params: Initial values of any additional optimizer parameters.
+    """
+    self._init_opt_params = tuple(
+        map(np.array, (learning_rate,) + init_opt_params))
+
+  def init(self, params):
+    """Create optimizer slots for the given parameters."""
     raise NotImplementedError
 
-  def update(self, i, g, x, s):
-    """Update the parameter x at step i with gradient g using state s."""
+  def update(self, step, grads, params, slots, opt_params):
+    """Update a single parameter array.
+
+    Args:
+      step: Current step.
+      grads: Gradients.
+      params: Parameters.
+      slots: Optimizer slots (e.g. gradient moments).
+      opt_params: Optimizer (hyper)parameters (e.g. learning rate, momentum).
+
+    Returns:
+      (new_params, new_slots)
+    """
     raise NotImplementedError
 
   # End subclass interface.
 
-  def step_size(self, i):
-    return self._step_size(i)
+  def tree_init(self, param_tree):
+    return (
+        [self.init(param) for param in tree_flatten(param_tree)],
+        self._init_opt_params,
+    )
 
-  def tree_init(self, x_tree):
-    return [self.init(x) for x in tree_flatten(x_tree)]
+  def _update_and_check(self, step, grads, params, slots, opt_params):
+    """Update a single parameter array and check types."""
+    new_params, new_slots = self.update(
+        step, grads, params, slots, opt_params)
+    if isinstance(params, np.ndarray):
+      assert isinstance(new_params, np.ndarray), (
+          "The type of the new parameter values should be np.ndarray; got %s" %
+          type(new_params))
+      assert new_params.dtype == params.dtype, (
+          "The dtype of the new parameter values (%s) is not the same as the "
+          "old one (%s)" % (new_params.dtype, params.dtype))
+    return new_params, new_slots
 
-  def _update_and_check(self, i, g, x, s):
-    new_x, new_s = self.update(i, g, x, s)
-    if isinstance(x, np.ndarray):
-      assert isinstance(new_x, np.ndarray), ("The type of the new parameter "
-                                             "values should be np.ndarray; "
-                                             "got %s" % type(new_x))
-      assert new_x.dtype == x.dtype, ("The dtype of the new parameter values "
-                                      "(%s) is not the same as the old one (%s)"
-                                      % (new_x.dtype, x.dtype))
-    return new_x, new_s
-
-  def tree_update(self, i, grad_tree, x_tree, opt_state):
-    grad_flat = tree_flatten(grad_tree)
-    x_flat = tree_flatten(x_tree)
-    updated_pairs = [self._update_and_check(i, g, x, s)
-                     for (g, x, s) in zip(grad_flat, x_flat, opt_state)]
-    new_x_flat, new_opt_state = zip(*updated_pairs)
-    new_x, _ = tree_unflatten(new_x_flat, x_tree)
-    return new_x, new_opt_state
+  def tree_update(self, step, grad_tree, param_tree, slots, opt_params):
+    grads_flat = tree_flatten(grad_tree)
+    params_flat = tree_flatten(param_tree)
+    updated_pairs = [
+        self._update_and_check(step, grad, param, slot, opt_params)
+        for (grad, param, slot) in zip(grads_flat, params_flat, slots)
+    ]
+    new_params_flat, new_slots = zip(*updated_pairs)
+    new_params, _ = tree_unflatten(new_params_flat, param_tree)
+    return new_params, new_slots
 
 
 # Utilities.
@@ -133,58 +158,59 @@ def clip_grads(grad_tree, max_norm):
 class SGD(Optimizer):
   """Plain SGD optimizer."""
 
-  def init(self, x):
+  def init(self, params):
     return None
 
-  def update(self, i, g, x, state):
-    del state
-    return x - (self.step_size(i) * g).astype(x.dtype), None
+  def update(self, step, grads, params, slots, opt_params):
+    del step
+    del slots
+    (learning_rate,) = opt_params
+    return params - (learning_rate * grads).astype(params.dtype), None
 
 
 class Momentum(Optimizer):
   """Nestrov momentum optimizer."""
 
-  def __init__(self, step_size, mass=0.9):
-    """Initializer with a step size function and mass."""
-    super(Momentum, self).__init__(step_size)
-    self._mass = mass
+  def __init__(self, learning_rate, mass=0.9):  # pylint: disable=useless-super-delegation
+    super(Momentum, self).__init__(learning_rate, mass)
 
-  def init(self, x):
-    return np.zeros_like(x)
+  def init(self, params):
+    return np.zeros_like(params)
 
-  def update(self, i, g, x, velocity):
-    new_velocity = self._mass * velocity - (1. - self._mass) * g
-    return x + (self.step_size(i) * new_velocity).astype(x.dtype), new_velocity
+  def update(self, step, grads, params, velocity, opt_params):
+    del step
+    (learning_rate, mass) = opt_params
+    new_velocity = mass * velocity - (1. - mass) * grads
+    new_params = params + (learning_rate * new_velocity).astype(params.dtype)
+    return (new_params, new_velocity)
 
 
 class RMSProp(Optimizer):
   """RMSProp optimizer."""
 
-  def __init__(self, step_size, gamma=0.9, eps=1e-8):
-    """Initializer with a step size function, gamma and epsilon."""
-    super(RMSProp, self).__init__(step_size)
-    self._gamma = gamma
-    self._epsilon = eps
+  def __init__(self, learning_rate, gamma=0.9, eps=1e-8):  # pylint: disable=useless-super-delegation
+    super(RMSProp, self).__init__(learning_rate, gamma, eps)
 
-  def init(self, x):
-    return np.ones_like(x)
+  def init(self, params):
+    return np.ones_like(params)
 
-  def update(self, i, g, x, avg_sq_grad):
-    avg_sq_grad = avg_sq_grad * self._gamma + g**2 * (1. - self._gamma)
-    x = x - (self.step_size(i) * g /
-             (np.sqrt(avg_sq_grad) + self._epsilon)).astype(x.dtype)
-    return x, avg_sq_grad
+  def update(self, step, grads, params, avg_sq_grad, opt_params):
+    del step
+    (learning_rate, gamma, eps) = opt_params
+    avg_sq_grad = avg_sq_grad * gamma + grads**2 * (1. - gamma)
+    params = params - (learning_rate * grads /
+                       (np.sqrt(avg_sq_grad) + eps)).astype(params.dtype)
+    return params, avg_sq_grad
 
 
 class Adam(Optimizer):
   """Adam optimizer."""
 
-  def __init__(self, step_size, b1=0.9, b2=0.999, eps=1e-8):
+  def __init__(self, learning_rate, b1=0.9, b2=0.999, eps=1e-8):  # pylint: disable=useless-super-delegation
     """Create the Adam optimizer.
 
     Args:
-      step_size: a callable representing a step size schedule
-        that maps the iteration index to positive scalar.
+      learning_rate: a postitive scalar value for the initial learning rate.
       b1: optional, a positive scalar value for beta_1, the exponential decay
         rate for the first moment estimates (default 0.9).
       b2: optional, a positive scalar value for beta_2, the exponential decay
@@ -192,25 +218,23 @@ class Adam(Optimizer):
       eps: optional, a positive scalar value for epsilon, a small constant for
         numerical stability (default 1e-8).
     """
-    super(Adam, self).__init__(step_size)
-    self._b1 = b1
-    self._b2 = b2
-    self._eps = eps
+    super(Adam, self).__init__(learning_rate, b1, b2, eps)
 
-  def init(self, x):
-    m = np.zeros_like(x)
-    v = np.zeros_like(x)
+  def init(self, params):
+    m = np.zeros_like(params)
+    v = np.zeros_like(params)
     return m, v
 
-  def update(self, i, g, x, state):
-    m, v = state
-    b1, b2, eps = self._b1, self._b2, self._eps
-    m = (1 - b1) * g + b1 * m  # First  moment estimate.
-    v = (1 - b2) * (g ** 2) + b2 * v  # Second moment estimate.
-    mhat = m / (1 - b1 ** (i + 1))  # Bias correction.
-    vhat = v / (1 - b2 ** (i + 1))
-    x = x - (self.step_size(i) * mhat / (np.sqrt(vhat) + eps)).astype(x.dtype)
-    return x, (m, v)
+  def update(self, step, grads, params, slots, opt_params):
+    m, v = slots
+    learning_rate, b1, b2, eps = opt_params
+    m = (1 - b1) * grads + b1 * m  # First  moment estimate.
+    v = (1 - b2) * (grads ** 2) + b2 * v  # Second moment estimate.
+    mhat = m / (1 - b1 ** (step + 1))  # Bias correction.
+    vhat = v / (1 - b2 ** (step + 1))
+    params = params - (
+        learning_rate * mhat / (np.sqrt(vhat) + eps)).astype(params.dtype)
+    return params, (m, v)
 
 
 class Adafactor(Optimizer):
@@ -322,32 +346,31 @@ class Adafactor(Optimizer):
 class SM3(Optimizer):
   """SM3 optimizer."""
 
-  def __init__(self, step_size, momentum=0.9):
+  def __init__(self, learning_rate, momentum=0.9):  # pylint: disable=useless-super-delegation
     """Create the SM3 optimizer.
 
     Memory-Efficient Adaptive Optimization for Large-Scale Learning.
     https://arxiv.org/abs/1901.11150
 
     Args:
-      step_size: a callable representing a step size schedule
-        that maps the iteration index to positive scalar.
+      learning_rate: a postitive scalar value for the initial learning rate.
       momentum: optional, a positive scalar value for momentum
     """
-    super(SM3, self).__init__(step_size)
-    self._momentum = momentum
+    super(SM3, self).__init__(learning_rate, momentum)
 
-  def init(self, x):
-    vs = [np.zeros(sz, dtype=x.dtype) for sz in x.shape]
-    return (np.zeros_like(x), vs)
+  def init(self, params):
+    vs = [np.zeros(sz, dtype=params.dtype) for sz in params.shape]
+    return (np.zeros_like(params), vs)
 
-  def _update_diagonal(self, step, g, x, m, v):
-    v[0] += g * g
+  def _update_diagonal(self, grads, params, m, v, opt_params):
+    (learning_rate, momentum) = opt_params
+    v[0] += grads * grads
     preconditioner = np.where(v[0] > 0, 1.0 / np.sqrt(v[0]),
                               np.zeros_like(v[0]))
-    preconditioned_g = preconditioner * g
-    m = (1 - self._momentum) * preconditioned_g + self._momentum * m
-    x = x - (self.step_size(step) * m).astype(x.dtype)
-    return x, (m, v)
+    preconditioned_grads = preconditioner * grads
+    m = (1 - momentum) * preconditioned_grads + momentum * m
+    params = params - (learning_rate * m).astype(params.dtype)
+    return params, (m, v)
 
   def _expanded_shape(self, shape, axis):
     # Replaces a `shape` of [M, N, K] with 1 in all dimensions except for i.
@@ -361,31 +384,33 @@ class SM3(Optimizer):
       minimum = np.minimum(minimum, tensor_list[i])
     return minimum
 
-  def _update_sketched(self, step, g, x, m, v):
+  def _update_sketched(self, grads, params, m, v, opt_params):
     """Update for higher-rank parameters."""
-    shape = x.shape
+    (learning_rate, momentum) = opt_params
+    shape = params.shape
     rank = len(shape)
     reshaped_accumulators = [np.reshape(v[i], self._expanded_shape(shape, i))
                              for i in range(rank)]
     current_accumulator = self._minimum(reshaped_accumulators)
-    current_accumulator += g * g
+    current_accumulator += grads * grads
     accumulator_inv_sqrt = np.where(current_accumulator > 0.0,
                                     1.0 / np.sqrt(current_accumulator),
                                     np.zeros_like(current_accumulator))
-    preconditioned_gradient = g * accumulator_inv_sqrt
-    m = (1.0 - self._momentum) * preconditioned_gradient + self._momentum * m
-    x = x - (self.step_size(step) * m).astype(x.dtype)
+    preconditioned_gradient = grads * accumulator_inv_sqrt
+    m = (1.0 - momentum) * preconditioned_gradient + momentum * m
+    params = params - (learning_rate * m).astype(params.dtype)
     for i in range(len(v)):
       axes = list(range(int(i))) + list(range(int(i) + 1, rank))
       dim_accumulator = np.amax(current_accumulator, axis=axes)
       v[i] = dim_accumulator
-    return x, (m, v)
+    return params, (m, v)
 
-  def update(self, i, g, x, state):
-    m, v = state
-    shape = x.shape
+  def update(self, step, grads, params, slots, opt_params):
+    del step
+    m, v = slots
+    shape = params.shape
     rank = len(shape)
     if rank > 1:
-      return self._update_sketched(i, g, x, m, v)
+      return self._update_sketched(grads, params, m, v, opt_params)
     else:
-      return self._update_diagonal(i, g, x, m, v)
+      return self._update_diagonal(grads, params, m, v, opt_params)

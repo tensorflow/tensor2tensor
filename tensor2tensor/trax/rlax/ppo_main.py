@@ -161,7 +161,7 @@ def make_env(batch_size=8, **env_kwargs):
 
 
 def get_optimizer_fn(learning_rate):
-  return functools.partial(ppo.optimizer_fn, step_size=learning_rate)
+  return functools.partial(ppo.optimizer_fn, learning_rate=learning_rate)
 
 
 def main(argv):

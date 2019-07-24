@@ -124,20 +124,31 @@ def step_log(step, s):
   log("Step % 6d: %s" % (step, s))
 
 
-State = collections.namedtuple("_State", ["step", "params", "history"])
+State = collections.namedtuple("_State", [
+    "step",       # Current training step number.
+    "opt_state",  # OptState.
+    "history",    # trax.history.History.
+])
+
+
+OptState = collections.namedtuple("_OptState", [
+    "params",      # Model parameters.
+    "slots",       # Per-parameter optimizer state, e.g. gradient moments.
+    "opt_params",  # Optimizer (hyper)parameters, e.g. learning rate, momentum.
+])
 
 
 def restore_state(output_dir):
   """Restore State."""
   params_file = os.path.join(output_dir, "model.pkl")
   if not gfile.exists(params_file):
-    return State(step=None, params=None, history=trax_history.History())
+    return State(step=None, opt_state=None, history=trax_history.History())
 
   with gfile.GFile(params_file, "rb") as f:
-    (params, step, history) = pickle.load(f)
+    (opt_state, step, history) = pickle.load(f)
   log("Model loaded from %s at step %d" % (params_file, step))
   logging.debug("From loaded model : history = %s", history)
-  return State(step=step, params=params, history=history)
+  return State(step=step, opt_state=OptState(*opt_state), history=history)
 
 
 def _save_gin(output_dir, sw=None):
@@ -160,11 +171,11 @@ def save_state(state, output_dir, keep=False):
     pkl_module = pickle
   params_file = os.path.join(output_dir, "model.pkl")
   with gfile.GFile(params_file, "wb") as f:
-    pkl_module.dump((state.params, state.step, state.history), f)
+    pkl_module.dump((tuple(state.opt_state), state.step, state.history), f)
   if keep:
     params_file = os.path.join(output_dir, "model_{}.pkl".format(state.step))
     with gfile.GFile(params_file, "wb") as f:
-      pkl_module.dump((state.params, state.step, state.history), f)
+      pkl_module.dump((tuple(state.opt_state), state.step, state.history), f)
   log("Model saved to %s" % params_file, stdout=False)
 
 
@@ -172,21 +183,21 @@ def _save_replicated(opt_state, step, history, n_devices, output_dir, keep):
   """Save state but given a possibly replicated opt_state."""
   if n_devices > 1:
     first_replica = lambda x: x[0]
-    opt_state = layers.nested_map(opt_state, first_replica)
+    opt_state = OptState(*layers.nested_map(opt_state, first_replica))
   # This line, while optional, allows JAX to transfer arrays from the device to
   # the host in parallel, which is particularly important for cloud TPU.
   if backend.get_name() == "jax":
     opt_state = jax.device_get(opt_state)
-  save_state(State(params=opt_state, step=step, history=history),
+  save_state(State(opt_state=opt_state, step=step, history=history),
              output_dir, keep=keep)
 
 
 def _print_n_params(opt_state, n_devices, step):
   """Print out the number of parameters."""
-  sizes = layers.sizes(opt_state[0])
+  sizes = layers.sizes(opt_state.params)
   if n_devices > 1:
     unreplicate = lambda x: x[0]
-    single_params = layers.nested_map(opt_state[0], unreplicate)
+    single_params = layers.nested_map(opt_state.params, unreplicate)
     sizes = layers.sizes(single_params)
   total_size = layers.nested_reduce(sizes, sum)
   step_log(step, "Total trainable parameters size: %d" % total_size)
@@ -370,10 +381,11 @@ def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices, jit=True):
   """Get jit-ed update function for loss, optimizer, learning rate function."""
   if n_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
     def single_update(i, opt_state, batch, rng):
+      params, slots, opt_params = opt_state
       rng, subrng = jax_random.split(rng[0])
-      params, opt_slots = opt_state
-      return optimizer.tree_update(i, backend.grad(loss_fn)(
-          params, batch, predict_fn, rng), params, opt_slots), [subrng]
+      grads = backend.grad(loss_fn)(opt_state.params, batch, predict_fn, rng)
+      return optimizer.tree_update(
+          i, grads, params, slots, opt_params), [subrng]
     if jit:
       return backend.jit(single_update)
     else:
@@ -383,12 +395,13 @@ def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices, jit=True):
   def mapped_update(i, opt_state, batch, rng):
     """This is a multi-device version of the update function above."""
     # We assume all tensors have the first dimension = n_devices.
+    params, slots, opt_params = opt_state
     rng, subrng = jax_random.split(rng)
-    params, opt_slots = opt_state
-    grads = backend.grad(loss_fn)(params, batch, predict_fn, rng)
+    grads = backend.grad(loss_fn)(opt_state.params, batch, predict_fn, rng)
     grads = jax.tree_util.tree_map(
         lambda g: lax.psum(g, "batch"), grads)
-    return optimizer.tree_update(i, grads, params, opt_slots), subrng
+    return optimizer.tree_update(
+        i, grads, params, slots, opt_params), subrng
 
   def update(i, opt_state, batch, rng):
     return mapped_update(numpy.repeat(i, n_devices), opt_state, batch, rng)
@@ -483,15 +496,15 @@ class Trainer(object):
 
     # Setup optimizer and model.
     state = restore_state(output_dir)
+    step = state.step or 0
     history = state.history
     self._lr_fn = lr_schedule(history)
-    opt = optimizer(self._lr_fn)
+    opt = optimizer(learning_rate=self._lr_fn(step))
 
     model_train = model(mode="train")
     model_predict_eval = model(mode="eval")
 
     # Setup state.
-    step = state.step or 0
     rng, init_rng = jax_random.split(rng)
     self._rngs = jax_random.split(rng, n_devices)
     first_shape = inputs.input_shape[0]
@@ -504,20 +517,19 @@ class Trainer(object):
     # Change all None to 1 in input shape.
     model_input_shape = layers.nested_map(
         model_input_shape, lambda x: x if x else 1)
-    if state.params:
-      opt_state = state.params
+    if state.opt_state:
+      opt_state = state.opt_state
     else:
       def initialize(input_shape, input_dtype, init_rng):
         params = model_train.initialize(input_shape, input_dtype, init_rng)
-        opt_state = (params, opt.tree_init(params))
-        return opt_state
+        (slots, opt_params) = opt.tree_init(params)
+        return OptState(params, slots, opt_params)
       if _is_jit_init():
         # JIT parameter initialization to avoid memory fragmentation
         initialize = backend.jit(initialize, static_argnums=(0, 1))
-      opt_state = initialize(model_input_shape, inputs.input_dtype, init_rng)
-    if n_devices > 1:
-      replicate = lambda x: numpy.broadcast_to(x, (n_devices,) + x.shape)
-      opt_state = layers.nested_map(opt_state, replicate)
+      opt_state = initialize(
+          model_input_shape, inputs.input_dtype, init_rng)
+    opt_state = OptState(*layers.nested_map(opt_state, self._maybe_replicate))
 
     # jit model_predict and update so they're fast
     self._jit_model_predict_eval = _jit_predict_fn(
@@ -528,10 +540,11 @@ class Trainer(object):
     self._model_train = model_train
     self._model_predict_eval = model_predict_eval
     self._loss_fn = loss_fn
-    self._optimizer = optimizer
     self._opt_state = opt_state
     self._history = history
     self._lr_schedule = lr_schedule
+
+    self.update_learning_rate()
 
   @property
   def step(self):
@@ -543,7 +556,8 @@ class Trainer(object):
 
   @property
   def state(self):
-    return State(params=self._opt_state, step=self._step, history=self._history)
+    return State(
+        opt_state=self._opt_state, step=self._step, history=self._history)
 
   @property
   def learning_rate(self):
@@ -553,11 +567,32 @@ class Trainer(object):
     with backend.use_backend("numpy"):
       return self._lr_fn(self._step)
 
+  def _maybe_replicate(self, x):
+    if self._n_devices > 1:
+      return numpy.broadcast_to(x, (self._n_devices,) + x.shape)
+    else:
+      return x
+
   def save_gin(self):
     _save_gin(self._output_dir, self._train_sw)
 
   def print_n_params(self):
     _print_n_params(self._opt_state, self._n_devices, self._step)
+
+  def _train_step(self, next_train_batch):
+    """Run one training step and update self._opt_state."""
+    # Calculate the current learning rate.
+    learning_rate = self._maybe_replicate(np.array(self._lr_fn(self._step)))
+    opt_state = self._opt_state
+    opt_params = opt_state.opt_params
+    opt_params = (learning_rate,) + opt_params[1:]
+    opt_state = opt_state._replace(opt_params=opt_params)
+
+    # Run the update.
+    (params, slots), self._rngs = self._jit_update_fn(
+        self._step, opt_state, next_train_batch, self._rngs)
+    self._opt_state = opt_state._replace(params=params, slots=slots)
+    self._step += 1
 
   def train_epoch(self, epoch_steps, eval_steps):
     """Train for one epoch."""
@@ -572,9 +607,8 @@ class Trainer(object):
       next_train_batch = next(self._train_stream)
       if self._n_devices > 1:  # TODO(lukaszkaiser): use everywhere if possible.
         next_train_batch = reshape_by_device(next_train_batch, self._n_devices)
-      self._opt_state, self._rngs = self._jit_update_fn(
-          self._step, self._opt_state, next_train_batch, self._rngs)
-      self._step += 1
+
+      self._train_step(next_train_batch)
 
       if self._step in self._save_steps:
         _save_replicated(self._opt_state, self._step, self._history,
@@ -620,14 +654,8 @@ class Trainer(object):
         eval_sw=self._eval_sw,
         history=self._history)
 
-  def update_learning_rate(self, force_jit=False):
-    old_lr_fn = self._lr_fn
+  def update_learning_rate(self):
     self._lr_fn = self._lr_schedule(self._history)
-    # For performance only jit if it's changed or we force it.
-    if self._lr_fn != old_lr_fn or force_jit:
-      opt = self._optimizer(self._lr_fn)
-      self._jit_update_fn = _jit_update_fn(
-          self._model_train, self._loss_fn, opt, self._n_devices)
 
   def save_computation_graphs(self, save_backward_graph):
     """Dump computation graphs to files."""
@@ -681,16 +709,6 @@ class MemoryEfficientTrainer(Trainer):
         train_sw=self._train_sw,
         eval_sw=self._eval_sw,
         history=self._history)
-
-  def update_learning_rate(self, force_jit=False):
-    old_lr_fn = self._lr_fn
-    self._lr_fn = self._lr_schedule(self._history)
-    if self._lr_fn != old_lr_fn or force_jit:
-      raise NotImplementedError(
-          "Loss function changed or jitting was requested. Garbage collection "
-          "for jitted functions is not implemented in jax, so global "
-          "accelerator memory allocated by the jitted update function with the "
-          "old loss cannot be reclaimed.")
 
   def save_computation_graphs(self, save_backward_graph):
     # TODO(kitaev): implement saving graphs while making sure that no op-by-op

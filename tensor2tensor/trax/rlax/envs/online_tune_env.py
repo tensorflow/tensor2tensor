@@ -150,7 +150,7 @@ class OnlineTuneEnv(gym.Env):
         environment steps. info is an empty dict.
     """
     self._current_lr *= self._action_multipliers[action]
-    self._trainer.update_learning_rate(force_jit=True)
+    self._trainer.update_learning_rate()
     last_metric_value = self._current_metric_value
     self._trainer.train_epoch(self._train_steps, self._eval_steps)
     self._step += 1
