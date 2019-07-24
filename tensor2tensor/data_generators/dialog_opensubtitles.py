@@ -3,7 +3,7 @@ from __future__ import division
 from __future__ import print_function
 import os
 import re
-import gzip
+import zipfile
 from collections import Counter
 
 from tensor2tensor.data_generators import text_encoder
@@ -16,7 +16,7 @@ EOS = text_encoder.EOS_ID
 
 
 @registry.register_problem
-class DialogOpensubtitles64k(dialog_abstract.DialogAbstract):
+class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
   '''
   A class implementing the chatbot problem for the OpenSubtitles dataset.
   http://opus.nlpl.eu/OpenSubtitles-v2018.php
@@ -29,7 +29,27 @@ class DialogOpensubtitles64k(dialog_abstract.DialogAbstract):
   @property
   def dataset_version(self):
     # Year of the opensubtitles dataset creation.
-    return 2012
+    return 2009
+
+  # Extract data and go to the next step.
+  def extract_data(self, train_mode):
+    '''
+    Params:
+      :train_mode:  Whether we are in train or dev mode.
+    '''
+    if self._zipped_data[-3:] == 'zip' or self._zipped_data[-2:] == 'gz':
+      zip_file = zipfile.ZipFile(self._zipped_data, 'r')
+    else:
+      print('problem_log: ' + self._zipped_data +
+            ' is not a .zip or .gz file, so I can\'t extract it.')
+
+    zip_file.extractall(self._raw_data_dir)
+    zip_file.close()
+
+    # Next step is creating the source, target and vocab files.
+    print('problem_log: Creating ' +
+          train_mode + ' files in ' + self._data_dir)
+    self.create_data(train_mode)
 
   # Main function where the preprocessing of the data starts.
   def preprocess_data(self, train_mode):
@@ -72,71 +92,71 @@ class DialogOpensubtitles64k(dialog_abstract.DialogAbstract):
       for file in files:
         if conv_id % 100 == 0:
           print('problem_log: Parsed ' + str(conv_id) + ' files.')
-        if file.endswith('.gz'):
-          source_lines = ''
-          target_lines = ''
-          conv_id += 1
-          dataset_split_counter += 1
 
-          # Open one .gz file and parse it.
-          with gzip.open(os.path.join(root, file), 'r') as txt_file:
-            words = ''
-            line_id = 1
+        source_lines = ''
+        target_lines = ''
+        conv_id += 1
+        dataset_split_counter += 1
 
-            # Parse one line.
-            for line in txt_file:
-              line = str(line)
+        # Open one .xml file and parse it.
+        with open(os.path.join(root, file), 'r', errors='ignore') as txt_file:
+          words = ''
+          line_id = 1
 
-              # Check if it's a new sentence.
-              if line.find('<s id="') != -1:
-                if len(words) > 0:
-                  # Do some cleaning.
-                  words = self.clean_line(words)
+          # Parse one line.
+          for line in txt_file:
+            line = str(line)
 
-                  # Build the vocabulary.
-                  if dataset_split_counter <= self.dataset_split['train']:
-                    word_list = words.split()
-                    for word in word_list:
-                      if word in vocabulary:
-                        vocabulary[word] += 1
-                      else:
-                        vocabulary[word] = 1
+            # Check if it's a new sentence.
+            if line.find('<s id="') != -1:
+              if len(words) > 0:
+                # Do some cleaning.
+                words = self.clean_line(words)
 
-                  # Add the previous line.
-                  source_lines += words + '\n'
-                  if line_id != 1:
-                    target_lines += words + '\n'
-                  line_id += 1
-                words = ''
+                # Build the vocabulary.
+                if dataset_split_counter <= self.dataset_split['train']:
+                  word_list = words.split()
+                  for word in word_list:
+                    if word in vocabulary:
+                      vocabulary[word] += 1
+                    else:
+                      vocabulary[word] = 1
 
-              else:
-                index = line.find('<w id="')
-                if index >= 0:
-                  line = line[index:]
-                  word = line[line.find('>') + 1:line.find('</w')]
-                  words = words + ' ' + word.replace('\t', ' ')
+                # Add the previous line.
+                source_lines += words + '\n'
+                if line_id != 1:
+                  target_lines += words + '\n'
+                line_id += 1
+              words = ''
 
-            # Delete the final source sentence, since it doesn't have a target.
-            source_lines = '\n'.join(source_lines.split('\n')[:-2]) + '\n'
+            else:
+              index = line.find('<w id="')
+              if index >= 0:
+                line = line[index:]
+                word = line[line.find('>') + 1:line.find('</w')]
+                words = words + ' ' + word.replace('\t', ' ')
 
-          # Save the dialog according to the dataset split.
-          if dataset_split_counter <= self.dataset_split['train']:
-            trainSource.write(source_lines)
-            trainTarget.write(target_lines)
-          elif dataset_split_counter <= (self.dataset_split['train'] +
-                                         self.dataset_split['val']):
-            devSource.write(source_lines)
-            devTarget.write(target_lines)
-          else:
-            testSource.write(source_lines)
-            testTarget.write(target_lines)
+          # Delete the final source sentence, since it doesn't have a target.
+          source_lines = '\n'.join(source_lines.split('\n')[:-2]) + '\n'
 
-          # Reset the split counter if we reached 100%.
-          if dataset_split_counter == 100:
-            dataset_split_counter = 0
+        # Save the dialog according to the dataset split.
+        if dataset_split_counter <= self.dataset_split['train']:
+          trainSource.write(source_lines)
+          trainTarget.write(target_lines)
+        elif dataset_split_counter <= (self.dataset_split['train'] +
+                                       self.dataset_split['val']):
+          devSource.write(source_lines)
+          devTarget.write(target_lines)
+        else:
+          testSource.write(source_lines)
+          testTarget.write(target_lines)
 
-          # Check if we reached the desired dataset size.
-          number_of_lines += line_id
+        # Reset the split counter if we reached 100%.
+        if dataset_split_counter == 100:
+          dataset_split_counter = 0
+
+        # Check if we reached the desired dataset size.
+        number_of_lines += line_id
         if (self.targeted_dataset_size != 0 and
                 self.targeted_dataset_size < number_of_lines):
           break
@@ -171,3 +191,43 @@ class DialogOpensubtitles64k(dialog_abstract.DialogAbstract):
     line = re.sub("n't", " n't", line)
 
     return line
+
+
+@registry.register_problem
+class DialogOpensubtitles64k2011(DialogOpensubtitles64k2009):
+  @property
+  def dataset_version(self):
+    # Year of the opensubtitles dataset creation.
+    return 2011
+
+
+@registry.register_problem
+class DialogOpensubtitles64k2012(DialogOpensubtitles64k2009):
+  @property
+  def dataset_version(self):
+    # Year of the opensubtitles dataset creation.
+    return 2012
+
+
+@registry.register_problem
+class DialogOpensubtitles64k2013(DialogOpensubtitles64k2009):
+  @property
+  def dataset_version(self):
+    # Year of the opensubtitles dataset creation.
+    return 2013
+
+
+@registry.register_problem
+class DialogOpensubtitles64k2016(DialogOpensubtitles64k2009):
+  @property
+  def dataset_version(self):
+    # Year of the opensubtitles dataset creation.
+    return 2016
+
+
+@registry.register_problem
+class DialogOpensubtitles64k2018(DialogOpensubtitles64k2009):
+  @property
+  def dataset_version(self):
+    # Year of the opensubtitles dataset creation.
+    return 2018
