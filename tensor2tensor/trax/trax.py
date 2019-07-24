@@ -383,7 +383,7 @@ def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices, jit=True):
     def single_update(i, opt_state, batch, rng):
       params, slots, opt_params = opt_state
       rng, subrng = jax_random.split(rng[0])
-      grads = backend.grad(loss_fn)(opt_state.params, batch, predict_fn, rng)
+      grads = backend.grad(loss_fn)(params, batch, predict_fn, rng)
       return optimizer.tree_update(
           i, grads, params, slots, opt_params), [subrng]
     if jit:
@@ -397,7 +397,7 @@ def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices, jit=True):
     # We assume all tensors have the first dimension = n_devices.
     params, slots, opt_params = opt_state
     rng, subrng = jax_random.split(rng)
-    grads = backend.grad(loss_fn)(opt_state.params, batch, predict_fn, rng)
+    grads = backend.grad(loss_fn)(params, batch, predict_fn, rng)
     grads = jax.tree_util.tree_map(
         lambda g: lax.psum(g, "batch"), grads)
     return optimizer.tree_update(
@@ -470,8 +470,9 @@ class Trainer(object):
   save the training state and access evaluation data.
   """
 
-  def __init__(self, model, loss_fn, optimizer, lr_schedule, inputs, output_dir,
-               random_seed=None, n_devices=None, save_steps=None):
+  def __init__(self, model, loss_fn, optimizer, lr_schedule, inputs,
+               output_dir=None, random_seed=None, n_devices=None,
+               save_steps=None):
     if save_steps is None:
       save_steps = []
     self._save_steps = save_steps
@@ -483,24 +484,13 @@ class Trainer(object):
                        "%d != %d" % (n_devices, device_count))
     self._n_devices = n_devices
     rng = get_random_number_generator_and_set_seed(random_seed)
-    self._output_dir = output_dir
-    gfile.makedirs(output_dir)
-    # Create summary writers and history.
-    self._train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
-    self._eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
-
-    # Create input streams.
     inputs = inputs(n_devices)
     self._inputs = inputs
-    self._train_stream = inputs.train_stream()
 
-    # Setup optimizer and model.
-    state = restore_state(output_dir)
-    step = state.step or 0
-    history = state.history
-    self._lr_fn = lr_schedule(history)
-    opt = optimizer(learning_rate=self._lr_fn(step))
+    # Initialize the learning rate to a dummy value. It will be set in reset().
+    opt = optimizer(learning_rate=0.0)
 
+    # Setup the model.
     model_train = model(mode="train")
     model_predict_eval = model(mode="eval")
 
@@ -517,32 +507,70 @@ class Trainer(object):
     # Change all None to 1 in input shape.
     model_input_shape = layers.nested_map(
         model_input_shape, lambda x: x if x else 1)
-    if state.opt_state:
-      opt_state = state.opt_state
-    else:
-      def initialize(input_shape, input_dtype, init_rng):
-        params = model_train.initialize(input_shape, input_dtype, init_rng)
-        (slots, opt_params) = opt.tree_init(params)
-        return OptState(params, slots, opt_params)
-      if _is_jit_init():
-        # JIT parameter initialization to avoid memory fragmentation
-        initialize = backend.jit(initialize, static_argnums=(0, 1))
-      opt_state = initialize(
-          model_input_shape, inputs.input_dtype, init_rng)
-    opt_state = OptState(*layers.nested_map(opt_state, self._maybe_replicate))
+    def initialize(input_shape, input_dtype, init_rng):
+      params = model_train.initialize(input_shape, input_dtype, init_rng)
+      (slots, opt_params) = opt.tree_init(params)
+      return OptState(params, slots, opt_params)
+    if _is_jit_init():
+      # JIT parameter initialization to avoid memory fragmentation
+      initialize = backend.jit(initialize, static_argnums=(0, 1))
+    self._initialize = lambda: initialize(  # pylint: disable=g-long-lambda
+        model_input_shape, self._inputs.input_dtype, init_rng)
 
     # jit model_predict and update so they're fast
     self._jit_model_predict_eval = _jit_predict_fn(
         model_predict_eval, n_devices)
     self._jit_update_fn = _jit_update_fn(model_train, loss_fn, opt, n_devices)
 
-    self._step = step
     self._model_train = model_train
     self._model_predict_eval = model_predict_eval
     self._loss_fn = loss_fn
-    self._opt_state = opt_state
-    self._history = history
     self._lr_schedule = lr_schedule
+
+    # Those fields will be set in reset().
+    self._output_dir = None
+    self._train_sw = None
+    self._eval_sw = None
+    self._history = None
+    self._lr_fn = None
+    self._opt_state = None
+    self._step = None
+
+    if output_dir is not None:
+      self.reset(output_dir)
+
+  def reset(self, output_dir):
+    """Reset the model parameters.
+
+    Restores the parameters from the given output_dir if a checkpoint exists,
+    otherwise randomly initializes them.
+
+    Does not re-jit the model.
+
+    Args:
+      output_dir: Output directory.
+    """
+    self._output_dir = output_dir
+    gfile.makedirs(output_dir)
+    # Create summary writers and history.
+    self._train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
+    self._eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
+
+    # Reset the training stream.
+    self._train_stream = self._inputs.train_stream()
+
+    # Restore the training state.
+    state = restore_state(output_dir)
+    self._step = state.step or 0
+    history = state.history
+    self._lr_fn = self._lr_schedule(history)
+    self._history = history
+    if state.opt_state:
+      opt_state = state.opt_state
+    else:
+      opt_state = self._initialize()
+    self._opt_state = OptState(*layers.nested_map(
+        opt_state, self._maybe_replicate))
 
     self.update_learning_rate()
 
