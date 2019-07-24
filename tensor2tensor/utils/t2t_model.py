@@ -613,7 +613,7 @@ class T2TModel(base.Layer):
       for key in hparams.values():
         # if the hparam ends with 'eval_dropout', we only do not set it to 0.0
         # in EVAL mode.
-        if key.endswith('eval_dropout') and mode == tf.estimator.ModeKeys.EVAL:
+        if key.endswith('eval_dropout') and mode == tf.estimator.ModeKeys.PREDICT:
             log_info("Keeping hparams.%s to ", key)
             continue
         if key.endswith("dropout") or key == "label_smoothing":
