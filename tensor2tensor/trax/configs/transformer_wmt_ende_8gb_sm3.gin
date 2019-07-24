@@ -22,10 +22,13 @@ masked_mean.mask_id = 0
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================
-# 0.044 ~= 512^-0.5 = feature_depth^-0.5
-MultifactorSchedule.constant = 0.044
-MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
+MultifactorSchedule.constant = 0.1
+MultifactorSchedule.factors = 'constant * linear_warmup'
 MultifactorSchedule.warmup_steps = 8000
+
+# Parameters for SM3:
+# ==============================================================================
+SM3.momentum = 0.9
 
 # Parameters for preprocess_fun:
 # ==============================================================================
@@ -40,13 +43,7 @@ train.eval_steps = 10
 train.inputs = @trax.inputs.inputs
 train.model = @trax.models.Transformer
 train.train_steps = 500000
-train.optimizer = @trax.optimizers.Adam
-
-# Parameters for Adam:
-# ==============================================================================
-Adam.b1 = 0.9
-Adam.b2 = 0.98
-Adam.eps = 1e-9
+train.optimizer = @trax.optimizers.SM3
 
 # Parameters for Transformer:
 # ==============================================================================
