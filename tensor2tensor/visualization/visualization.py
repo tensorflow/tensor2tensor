@@ -58,12 +58,17 @@ class AttentionVisualizer(object):
   def decode(self, integers):
     """List of ints to str."""
     integers = list(np.squeeze(integers))
-    return self.encoders["inputs"].decode(integers)
+    return self.encoders['targets'].decode(integers)
+
+  def encode_list(self, integers):
+    """List of ints to list of str."""
+    integers = list(np.squeeze(integers))
+    return self.encoders['inputs'].decode_list(integers)
 
   def decode_list(self, integers):
     """List of ints to list of str."""
     integers = list(np.squeeze(integers))
-    return self.encoders["inputs"].decode_list(integers)
+    return self.encoders['targets'].decode_list(integers)
 
   def get_vis_data_from_string(self, sess, input_string):
     """Constructs the data needed for visualizing attentions.
@@ -104,7 +109,7 @@ class AttentionVisualizer(object):
     })
 
     output_string = self.decode(out)
-    input_list = self.decode_list(encoded_inputs)
+    input_list = self.encode_list(encoded_inputs)
     output_list = self.decode_list(out)
 
     return output_string, input_list, output_list, att_mats
