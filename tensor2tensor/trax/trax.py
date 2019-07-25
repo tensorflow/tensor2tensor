@@ -571,6 +571,9 @@ class Trainer(object):
       opt_state = self._initialize()
     self._opt_state = OptState(*layers.nested_map(
         opt_state, self._maybe_replicate))
+    if not state.opt_state:
+      _save_replicated(self._opt_state, self._step, self._history,
+                       self._n_devices, self._output_dir, False)
 
     self.update_learning_rate()
 
