@@ -610,7 +610,7 @@ class Trainer(object):
   def _train_step(self, next_train_batch):
     """Run one training step and update self._opt_state."""
     # Calculate the current learning rate.
-    learning_rate = self._maybe_replicate(np.array(self._lr_fn(self._step)))
+    learning_rate = self._maybe_replicate(np.array(self.learning_rate))
     opt_state = self._opt_state
     opt_params = opt_state.opt_params
     opt_params = (learning_rate,) + opt_params[1:]
