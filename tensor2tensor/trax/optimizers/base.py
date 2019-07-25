@@ -240,8 +240,9 @@ class Adam(Optimizer):
 class Adafactor(Optimizer):
   """Adafactor optimizer."""
 
+  # TODO(levskaya): refactor to use newer RL friendly parameter passing.
   def __init__(self,
-               step_size,
+               learning_rate,
                decay_rate=0.8,
                beta1=0.0,
                clipping_threshold=1.0,
@@ -254,7 +255,7 @@ class Adafactor(Optimizer):
     Adafactor is described in https://arxiv.org/abs/1804.04235.
 
     Args:
-      step_size: function i -> float, trax-provided learning rate schedule.
+      learning_rate: float: trax-provided learning rate.
       decay_rate: float: controls second-moment exponential decay schedule.
       beta1: a float value between 0 and 1, enables momentum and uses extra
         memory if nonzero!  Off by default.
@@ -262,19 +263,18 @@ class Adafactor(Optimizer):
       factored: boolean: whether to use factored second-moment estimator for 2d
         variables.
       multiply_by_parameter_scale: boolean: if True, then scale provided
-        step_size by parameter norm. if False, provided step_size is absolute
-        step size.
+        learning_rate by parameter norm. if False, provided learning_rate is
+        absolute step size.
       epsilon1: Regularization constant for squared gradient.
       epsilon2: Regularization constant for parameter scale.
     """
-    super(Adafactor, self).__init__(step_size)
+    super(Adafactor, self).__init__(learning_rate)
     self._multiply_by_parameter_scale = multiply_by_parameter_scale
+    self._factored = factored
     self._beta1 = beta1
     self._clipping_threshold = clipping_threshold
-    self._factored = factored
     self._epsilon1 = epsilon1
     self._epsilon2 = epsilon2
-    self._step_size = step_size
     self._decay_rate = functools.partial(self._decay_rate_pow,
                                          exponent=decay_rate)
 
@@ -284,49 +284,51 @@ class Adafactor(Optimizer):
     t = np.array(i, np.float32) + 1.0
     return 1.0 - t**(-exponent)
 
-  def init(self, x):
-    shape = x.shape
-    state = []
+  def init(self, params):
+    shape = params.shape
+    slots = []
     if self._factored and len(shape) >= 2:
       v_row = np.zeros(shape[:-1], dtype=np.float32)
       v_col = np.zeros(shape[:-2] + shape[-1:], dtype=np.float32)
-      state.extend([v_row, v_col])
+      slots.extend([v_row, v_col])
     else:
-      v = np.zeros_like(x)
-      state.append(v)
+      v = np.zeros_like(params)
+      slots.append(v)
     if self._beta1:
-      m = np.zeros_like(x)
-      state.append(m)
-    return state
+      m = np.zeros_like(params)
+      slots.append(m)
+    return slots
 
-  def update(self, i, g, x, state):
+  def update(self, step, grads, params, slots, opt_params):
     updates = []
-    decay_rate = self._decay_rate(i)
-    update_scale = self._step_size(i)
+    (learning_rate,) = opt_params
+    decay_rate = self._decay_rate(step)
+    update_scale = learning_rate
     if self._multiply_by_parameter_scale:
-      update_scale *= np.maximum(np.sqrt(np.mean(x * x)), self._epsilon2)
+      update_scale *= np.maximum(
+          np.sqrt(np.mean(params * params)), self._epsilon2)
     mixing_rate = 1.0 - decay_rate
 
-    g_sqr = g * g + self._epsilon1
-    if self._factored and len(x.shape) >= 2:
-      v_row = state.pop(0)
-      v_col = state.pop(0)
-      new_v_row = decay_rate * v_row + mixing_rate * np.mean(g_sqr, axis=-1)
-      new_v_col = decay_rate * v_col + mixing_rate * np.mean(g_sqr, axis=-2)
+    grads_sqr = grads * grads + self._epsilon1
+    if self._factored and len(params.shape) >= 2:
+      v_row = slots.pop(0)
+      v_col = slots.pop(0)
+      new_v_row = decay_rate * v_row + mixing_rate * np.mean(grads_sqr, axis=-1)
+      new_v_col = decay_rate * v_col + mixing_rate * np.mean(grads_sqr, axis=-2)
       updates.extend([new_v_row, new_v_col])
       row_col_mean = np.mean(new_v_row, axis=-1, keepdims=True)
       row_factor = (new_v_row / row_col_mean)**-0.5
       col_factor = (new_v_col)**-0.5
       y = (
-          g * np.expand_dims(row_factor, axis=-1) *
+          grads * np.expand_dims(row_factor, axis=-1) *
           np.expand_dims(col_factor, axis=-2))
     else:
-      v = state.pop(0)
-      new_v = decay_rate * v + mixing_rate * g_sqr
+      v = slots.pop(0)
+      new_v = decay_rate * v + mixing_rate * grads_sqr
       updates.append(new_v)
-      y = g * (new_v)**-0.5
+      y = grads * (new_v)**-0.5
 
-    if self._clipping_threshold is not None:
+    if self._clipping_threshold:
       clipping_denom = (
           np.maximum(1.0,
                      np.sqrt(np.mean(y * y)) / self._clipping_threshold))
@@ -334,13 +336,13 @@ class Adafactor(Optimizer):
 
     subtrahend = update_scale * y
     if self._beta1:
-      m = state.pop(0)
+      m = slots.pop(0)
       new_m = self._beta1 * m + (1.0 - self._beta1) * subtrahend
       subtrahend = new_m
       updates.append(new_m)
 
-    new_x = x - subtrahend
-    return new_x, updates
+    new_params = params - subtrahend
+    return new_params, updates
 
 
 class SM3(Optimizer):
