@@ -19,8 +19,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import time
 import numpy as np
+
+from tensor2tensor.envs import gym_env_problem
+from tensor2tensor.envs import rendered_env_problem
+from tensor2tensor.rl import gym_utils
 
 EPSILON_GREEDY = "epsilon-greedy"
 GUMBEL_SAMPLING = "gumbel"
@@ -162,8 +167,11 @@ def play_env_problem_with_policy(env,
     # Step through the env.
     t1 = time.time()
     _, _, dones, env_infos = env.step(
-        actions, infos={"log_prob_actions": log_probs,
-                        "value_predictions": value_preds})
+        actions,
+        infos={
+            "log_prob_actions": log_probs,
+            "value_predictions": value_preds
+        })
     env_actions_total_time += (time.time() - t1)
     bare_env_run_time += sum(
         info["__bare_env_run_time__"] for info in env_infos)
@@ -210,3 +218,51 @@ def play_env_problem_with_policy(env,
   timing_info = {k: round(1000 * v, 2) for k, v in timing_info.items()}
 
   return completed_trajectories, num_done_trajectories, timing_info
+
+
+def make_env(batch_size=1,
+             env_problem_name="",
+             resize=True,
+             resized_height=105,
+             resized_width=80,
+             max_timestep="None",
+             clip_rewards=True,
+             parallelism=1,
+             use_tpu=False,
+             **env_kwargs):
+  """Creates the env."""
+
+  if clip_rewards:
+    env_kwargs.update({"reward_range": (-1, 1), "discrete_rewards": True})
+  else:
+    env_kwargs.update({"discrete_rewards": False})
+
+  # No resizing needed, so let's be on the normal EnvProblem.
+  if not resize:  # None or False
+    return gym_env_problem.GymEnvProblem(
+        base_env_name=env_problem_name,
+        batch_size=batch_size,
+        parallelism=parallelism,
+        **env_kwargs)
+
+  try:
+    max_timestep = int(max_timestep)
+  except Exception:  # pylint: disable=broad-except
+    max_timestep = None
+
+  wrapper_fn = functools.partial(
+      gym_utils.gym_env_wrapper, **{
+          "rl_env_max_episode_steps": max_timestep,
+          "maxskip_env": True,
+          "rendered_env": True,
+          "rendered_env_resize_to": (resized_height, resized_width),
+          "sticky_actions": False,
+          "output_dtype": np.int32 if use_tpu else None,
+      })
+
+  return rendered_env_problem.RenderedEnvProblem(
+      base_env_name=env_problem_name,
+      batch_size=batch_size,
+      parallelism=parallelism,
+      env_wrapper_fn=wrapper_fn,
+      **env_kwargs)

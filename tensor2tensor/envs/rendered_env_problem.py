@@ -55,8 +55,14 @@ class RenderedEnvProblem(gym_env_problem.GymEnvProblem,
     gym_env_problem.GymEnvProblem.__init__(self, *args, **kwargs)
     video_utils.VideoProblem.__init__(self)
 
-  def initialize_environments(self, batch_size=1):
-    gym_env_problem.GymEnvProblem.initialize_environments(self, batch_size)
+  def initialize_environments(self,
+                              batch_size=1,
+                              parallelism=1,
+                              per_env_kwargs=None,
+                              **kwargs):
+    gym_env_problem.GymEnvProblem.initialize_environments(
+        self, batch_size=batch_size, parallelism=parallelism,
+        per_env_kwargs=per_env_kwargs, **kwargs)
     # Assert the underlying gym environment has correct observation space
     assert len(self.observation_spec.shape) == 3
 

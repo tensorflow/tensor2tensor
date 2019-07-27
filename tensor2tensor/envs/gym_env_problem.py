@@ -273,7 +273,20 @@ class GymEnvProblem(env_problem.EnvProblem):
     """
     # This returns a numpy array with first dimension `len(indices)` and the
     # rest being the dimensionality of the observation.
-    return np.stack([self._envs[index].reset() for index in indices])
+
+    num_envs_to_reset = len(indices)
+    observations = [None] * num_envs_to_reset
+
+    def reset_at(idx):
+      observations[idx] = self._envs[indices[idx]].reset()
+
+    if self._parallelism > 1:
+      self._pool.map(reset_at, range(num_envs_to_reset))
+    else:
+      for i in range(num_envs_to_reset):
+        reset_at(i)
+
+    return np.stack(observations)
 
   def _step(self, actions):
     """Takes a step in all environments, shouldn't pre-process or record.

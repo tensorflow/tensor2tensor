@@ -19,6 +19,22 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from gym.envs.registration import register
+
+from tensor2tensor.envs import client_env
 from tensor2tensor.envs import gym_env_problem
 from tensor2tensor.envs import tic_tac_toe_env
 from tensor2tensor.envs import tic_tac_toe_env_problem
+
+
+def register_env(env_class):
+  register(
+      id="{}-v0".format(env_class.__name__),
+      entry_point="tensor2tensor.envs:{}".format(env_class.__name__),
+  )
+  return env_class
+
+
+# TODO(afrozm): Register TicTacToeEnv the same way.
+# register_env(tic_tac_toe_env.TicTacToeEnv)
+ClientEnv = register_env(client_env.ClientEnv)  # pylint: disable=invalid-name

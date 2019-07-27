@@ -126,13 +126,16 @@ class EnvProblem(Env, problem.Problem):
     # If set, we discretize the rewards and treat them as integers.
     self._discrete_rewards = discrete_rewards
 
-    self._parallelism = None
-
     # A data structure to hold the `batch_size` currently active trajectories
     # and also the ones that are completed, i.e. done.
     self._trajectories = None
 
     self._batch_size = None
+
+    self._parallelism = None
+    # The parallelism is passes in via env_kwargs because it will be used by
+    # `GymEnvProblem` to paralellize env actions across a batch.
+    env_kwargs["parallelism"] = parallelism
 
     if batch_size is not None:
       self.initialize(batch_size=batch_size, **env_kwargs)
