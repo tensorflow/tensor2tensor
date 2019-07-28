@@ -70,16 +70,20 @@ class ClientEnv(gym.Env):
     return (gym_action_space, gym_observation_space, reward_range,
             env_info_response.batch_size)
 
-  def __init__(self, remote_env_address=None):
-    logging.vlog(1, "Making a ClientEnv with remote address: [%s]",
-                 remote_env_address)
-    assert remote_env_address is not None
-    # Make a channel and stub on the remote env address.
-    self._remote_env_address = remote_env_address
-
+  def __init__(self, remote_env_address=None, stub=None):
     self._channel = None
     self._stub = None
-    self.initialize_stub()
+    self._remote_env_address = None
+
+    if stub is not None:
+      self._stub = stub
+    else:
+      assert remote_env_address is not None
+      logging.vlog(1, "Making a ClientEnv with remote address: [%s]",
+                   remote_env_address)
+      self._remote_env_address = remote_env_address
+      self.initialize_stub()
+
     assert self._stub is not None
 
     # We now have to do an RPC to determine spaces and reward range.
