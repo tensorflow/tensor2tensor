@@ -19,8 +19,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import functools
-
 from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.layers import base as layers
 
@@ -243,11 +241,13 @@ class Adafactor(Optimizer):
   # TODO(levskaya): refactor to use newer RL friendly parameter passing.
   def __init__(self,
                learning_rate,
-               decay_rate=0.8,
-               beta1=0.0,
-               clipping_threshold=1.0,
                factored=True,
                multiply_by_parameter_scale=True,
+               do_clipping=True,
+               do_momentum=False,
+               beta1=0.0,
+               decay_rate=0.8,
+               clipping_threshold=1.0,
                epsilon1=1e-30,
                epsilon2=1e-3):
     """Create the Adafactor optimizer.
@@ -256,27 +256,29 @@ class Adafactor(Optimizer):
 
     Args:
       learning_rate: float: trax-provided learning rate.
-      decay_rate: float: controls second-moment exponential decay schedule.
-      beta1: a float value between 0 and 1, enables momentum and uses extra
-        memory if nonzero!  Off by default.
-      clipping_threshold: an optional float >= 1, if None no update clipping.
       factored: boolean: whether to use factored second-moment estimator for 2d
         variables.
       multiply_by_parameter_scale: boolean: if True, then scale provided
         learning_rate by parameter norm. if False, provided learning_rate is
         absolute step size.
+      do_clipping: whether to clip gradients; if True, set clipping_theshold.
+      do_momentum: whether to use momentum; if True, set beta1.
+      beta1: a float value between 0 and 1, enables momentum and uses extra
+        memory if nonzero!  Off by default.
+      decay_rate: float: controls second-moment exponential decay schedule.
+      clipping_threshold: an optional float >= 1, if None no update clipping.
       epsilon1: Regularization constant for squared gradient.
       epsilon2: Regularization constant for parameter scale.
     """
-    super(Adafactor, self).__init__(learning_rate)
-    self._multiply_by_parameter_scale = multiply_by_parameter_scale
+    # These 4 parameters are not configurable once the class is created.
     self._factored = factored
-    self._beta1 = beta1
-    self._clipping_threshold = clipping_threshold
-    self._epsilon1 = epsilon1
-    self._epsilon2 = epsilon2
-    self._decay_rate = functools.partial(self._decay_rate_pow,
-                                         exponent=decay_rate)
+    self._multiply_by_parameter_scale = multiply_by_parameter_scale
+    self._do_clipping = do_clipping
+    self._do_momentum = do_momentum
+    # Dynamically configurable parameters will be passed to the update function.
+    super(Adafactor, self).__init__(
+        learning_rate, beta1, decay_rate, clipping_threshold,
+        epsilon1, epsilon2)
 
   @staticmethod
   def _decay_rate_pow(i, exponent=0.8):
@@ -294,22 +296,23 @@ class Adafactor(Optimizer):
     else:
       v = np.zeros_like(params)
       slots.append(v)
-    if self._beta1:
+    if self._do_momentum:
       m = np.zeros_like(params)
       slots.append(m)
     return slots
 
   def update(self, step, grads, params, slots, opt_params):
     updates = []
-    (learning_rate,) = opt_params
-    decay_rate = self._decay_rate(step)
+    (learning_rate, beta1, decay_rate, clipping_threshold,
+     epsilon1, epsilon2) = opt_params
+    decay_rate = self._decay_rate_pow(step, exponent=decay_rate)
     update_scale = learning_rate
     if self._multiply_by_parameter_scale:
       update_scale *= np.maximum(
-          np.sqrt(np.mean(params * params)), self._epsilon2)
+          np.sqrt(np.mean(params * params)), epsilon2)
     mixing_rate = 1.0 - decay_rate
 
-    grads_sqr = grads * grads + self._epsilon1
+    grads_sqr = grads * grads + epsilon1
     if self._factored and len(params.shape) >= 2:
       v_row = slots.pop(0)
       v_col = slots.pop(0)
@@ -328,16 +331,15 @@ class Adafactor(Optimizer):
       updates.append(new_v)
       y = grads * (new_v)**-0.5
 
-    if self._clipping_threshold:
+    if self._do_clipping:
       clipping_denom = (
-          np.maximum(1.0,
-                     np.sqrt(np.mean(y * y)) / self._clipping_threshold))
+          np.maximum(1.0, np.sqrt(np.mean(y * y)) / clipping_threshold))
       y /= clipping_denom
 
     subtrahend = update_scale * y
-    if self._beta1:
+    if self._do_momentum:
       m = slots.pop(0)
-      new_m = self._beta1 * m + (1.0 - self._beta1) * subtrahend
+      new_m = beta1 * m + (1.0 - beta1) * subtrahend
       subtrahend = new_m
       updates.append(new_m)
 
