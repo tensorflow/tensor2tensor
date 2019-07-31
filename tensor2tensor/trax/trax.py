@@ -52,65 +52,88 @@ import tensorflow as tf
 from tensorflow.io import gfile
 
 
-def _make_list(predictions, targets):
-  """Helper: make predictions and targets lists, check they match on length."""
+@gin.configurable
+def unpack_batch(batch, has_weights=False):
+  """Unpacks a training batch into inputs, targets and weights."""
+  if has_weights:
+    assert len(batch) == 3  # (inputs, targets, weights)
+    return batch
+  else:
+    inputs, targets = batch
+    if isinstance(inputs, (list, tuple)):
+      # If weights are not provided, use scalar 1s and rely on broadcasting.
+      weights = [1.0] * len(inputs)
+    else:
+      weights = 1.0
+    return inputs, targets, weights
+
+
+def _make_list(predictions, targets, weights):
+  """Make predictions, targets and weights lists, check they match on length."""
   #  Our models sometimes return predictions in lists, make it a list always.
   # TODO(lukaszkaiser): make abstractions for nested structures and refactor.
   if not isinstance(predictions, (list, tuple)):
     if isinstance(targets, (list, tuple)):
       raise ValueError("Targets are a list or tuple but predictions are not.")
-    predictions, targets = [predictions], [targets]
+    if isinstance(weights, (list, tuple)):
+      raise ValueError("Weights are a list or tuple but predictions are not.")
+    predictions, targets, weights = [predictions], [targets], [weights]
   if len(predictions) != len(targets):
     raise ValueError("Predictions and targets have different lengths.")
-  return list(predictions), list(targets)
+  if len(predictions) != len(weights):
+    raise ValueError("Predictions and weights have different lengths.")
+  return list(predictions), list(targets), list(weights)
 
 
-@gin.configurable(blacklist=["inputs", "targets"])
-def masked_mean(inputs, targets, mask_id=None):
-  """Mean of the inputs but counting only those where targets != mask_id."""
+@gin.configurable(blacklist=["inputs", "targets", "weights"])
+def masked_mean(inputs, targets, weights, mask_id=None):
+  """Weighted mean of the inputs, excluding where targets == mask_id."""
   inputs = [x.astype(np.float32) for x in inputs]
   # We assume all elements in the list contribute equally.
   # TODO(lukaszkaiser): remove this assumption (e.g., when masks differ).
   length = len(inputs)
-  if mask_id is None:
-    # TODO(lukaszkaiser): can we just divide the sum by length? XLA optimizes?
-    return sum([np.mean(x) / length for x in inputs])
-  unmask = [1.0 - np.equal(t, mask_id).astype(np.float32) for t in targets]
-  return sum([np.sum(x * m) / (length * np.sum(m))
-              for x, m in zip(inputs, unmask)])
+  if mask_id is not None:
+    weights = [w * (1.0 - np.equal(t, mask_id).astype(np.float32))
+               for t, w in zip(targets, weights)]
+  weight_sums = [t.size if np.isscalar(w) else np.sum(w)
+                 for w, t in zip(weights, targets)]
+  return sum([np.sum(x * w) / (length * s)
+              for x, w, s in zip(inputs, weights, weight_sums)])
 
 
 def accuracy(batch, model_predictions):
   """Calculate accuracy."""
-  _, targets = batch
-  model_predictions, targets = _make_list(model_predictions, targets)
+  _, targets, weights = unpack_batch(batch)
+  model_predictions, targets, weights = _make_list(
+      model_predictions, targets, weights)
   correct = []
   for (prediction, target) in zip(model_predictions, targets):
     predicted_class = np.argmax(prediction, axis=-1)
     correct.append(np.equal(predicted_class, target))
-  return masked_mean(correct, targets)
+  return masked_mean(correct, targets, weights)
 
 
 def neg_log_perplexity(batch, model_predictions):
   """Calculate negative log perplexity."""
-  _, targets = batch
-  model_predictions, targets = _make_list(model_predictions, targets)
+  _, targets, weights = unpack_batch(batch)
+  model_predictions, targets, weights = _make_list(
+      model_predictions, targets, weights)
   xent = []
   for (prediction, target) in zip(model_predictions, targets):
     hot_target = layers.one_hot(target, prediction.shape[-1])
     xent.append(np.sum(prediction * hot_target, axis=-1))
-  return masked_mean(xent, targets)
+  return masked_mean(xent, targets, weights)
 
 
 def loss(params, batch, model_predict, rng):
   """Calculate loss."""
-  inputs, targets = batch
+  inputs, targets, weights = unpack_batch(batch)
   predictions = model_predict(inputs, params, rng=rng)
-  predictions, targets = _make_list(predictions, targets)
+  predictions, targets, weights = _make_list(predictions, targets, weights)
   xent = []
   for (pred, target) in zip(predictions, targets):
     xent.append(np.sum(pred * layers.one_hot(target, pred.shape[-1]), axis=-1))
-  return - masked_mean(xent, targets)
+  return - masked_mean(xent, targets, weights)
 
 
 def log(s, stdout=True):
