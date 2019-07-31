@@ -64,10 +64,42 @@ def get_model(hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
   return model_cls(hparams, mode, p_hparams), features
 
 
+def small_librispeech_model(param_overrides=None):
+  hparams = transformer.transformer_small()
+  hparams.hidden_size = 8
+  hparams.filter_size = 32
+  hparams.num_heads = 1
+  hparams.layer_prepostprocess_dropout = 0.0
+  p_hparams = librispeech.Librispeech().get_hparams(hparams)
+  p_hparams.vocab_size["targets"] = VOCAB_SIZE
+  hparams.problem_hparams = p_hparams
+  model = transformer.Transformer(hparams, problem_hparams=p_hparams)
+  if param_overrides is not None:  # Add or Set any provided HParams
+    assert isinstance(param_overrides, dict)
+    for param_name in param_overrides:
+      if hasattr(hparams, param_name):
+        hparams.set_hparam(param_name, param_overrides[param_name])
+      else:
+        hparams.add_hparam(param_name, param_overrides[param_name])
+  inputs = np.random.rand(
+      BATCH_SIZE, INPUT_LENGTH, 80, 3).astype("float32")  # modify for speech
+  targets = np.random.randint(
+      VOCAB_SIZE, size=(BATCH_SIZE, TARGET_LENGTH, 1, 1))
+  features = {
+      "inputs": tf.constant(inputs, dtype=tf.float32, name="inputs"),
+      "targets": tf.constant(targets, dtype=tf.int32, name="targets"),
+      "target_space_id": tf.constant(1, dtype=tf.int32)
+  }
+  return model, features
+
+
 class TransformerTest(tf.test.TestCase):
 
-  def testTransformer(self):
-    model, features = get_model(transformer.transformer_small())
+  def testTransformer(self, get_model_fn=None, p=None):
+    if get_model_fn:
+      model, features = get_model_fn(param_overrides=p)
+    else:
+      model, features = get_model(transformer.transformer_small())
     logits, _ = model(features)
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())
@@ -75,30 +107,15 @@ class TransformerTest(tf.test.TestCase):
     self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, 1, 1, VOCAB_SIZE))
 
   def testTransformerLibrispeech(self, params=None):
-    model_hparams = transformer.transformer_small()
-    if params is not None:  # Add or Set any provided HParams
-      assert isinstance(params, dict)
-      for param_name in params:
-        if hasattr(model_hparams, param_name):
-          model_hparams.set_hparam(param_name, params[param_name])
-        else:
-          model_hparams.add_hparam(param_name, params[param_name])
-    problem = librispeech.Librispeech()
-    model_hparams.problem_hparams = problem.get_hparams(model_hparams)
-    model_hparams._problem_hparams = model_hparams.problem_hparams
-    model, features = get_model(model_hparams)
-    model._problem_hparams.modality = {"inputs": "speech_recognition",
-                                       "targets": "symbol"}
-    features["inputs"] = np.random.rand(
-        BATCH_SIZE, INPUT_LENGTH, 80, 3).astype("float32")  # modify for speech
+    self.testTransformer(get_model_fn=small_librispeech_model, p=params)
 
-    logits, _ = model(features)
-    with self.test_session() as session:
-      session.run(tf.global_variables_initializer())
-      res = session.run(logits)
-    self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, 1, 1, VOCAB_SIZE))
+  def testLibrispeechSlowVsFast(self, params=None):
+    self.testSlowVsFast(get_model_fn=small_librispeech_model, p=params)
 
-  def testTransformerLibrispeechWithAreaAttention(self):
+  def testLibrispeechMultihead(self, params=None):
+    self.testTransformerLibrispeech({"num_heads": 2})
+
+  def testLibrispeechWithAreaAttention(self):
     self.testTransformerLibrispeech({"max_area_width": 2,
                                      "num_area_layers": 1,
                                      "area_key_mode": "mean",
@@ -112,8 +129,11 @@ class TransformerTest(tf.test.TestCase):
       res = session.run(logits)
     self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, 1, 1, VOCAB_SIZE))
 
-  def testSlowVsFast(self):
-    model, features = get_model(transformer.transformer_small())
+  def testSlowVsFast(self, get_model_fn=None, p=None):
+    if get_model_fn:
+      model, features = get_model_fn(param_overrides=p)
+    else:
+      model, features = get_model(transformer.transformer_small())
 
     decode_length = 3
 
