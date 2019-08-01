@@ -323,11 +323,11 @@ def batch_fun(dataset, training, shapes, target_names, n_devices,
                            bucket_length, bucket_length * 2,
                            bucket_length * 4, bucket_length * 8,
                            bucket_length * 16]
-      # We will pad to boundaries which pads to bucket_boundary - 1: add 1 here.
-      bucket_boundaries = [b + 1 for b in bucket_boundaries]
       if not training:
         max_eval_length = max_eval_length or bucket_length * 32
         bucket_boundaries[-1] = max_eval_length
+      # We will pad to boundaries which pads to bucket_boundary - 1: add 1 here.
+      bucket_boundaries = [b + 1 for b in bucket_boundaries]
       bucket_batch_sizes = [cur_batch_size * 4, cur_batch_size * 2,
                             cur_batch_size, cur_batch_size // 2,
                             cur_batch_size // 4, cur_batch_size // 8,
