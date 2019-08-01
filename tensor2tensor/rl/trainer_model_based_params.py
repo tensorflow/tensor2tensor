@@ -230,6 +230,19 @@ def rlmb_dqn_guess1_rainbow():
 
 
 @registry.register_hparams
+def rlmb_dqn_rainbow_large_epsilon():
+  """Rainbow rlmb_dqn params."""
+  hparams = rlmb_dqn_guess1()
+  hparams.set_hparam("base_algo_params", "dqn_rainbow_params")
+  hparams.set_hparam("dqn_agent_epsilon_train", 0.1)
+  hparams.add_hparam("real_dqn_agent_epsilon_train", 0.02)
+  simulated_rollout_length = 10
+  hparams.set_hparam("simulated_rollout_length", simulated_rollout_length)
+  hparams.set_hparam("dqn_time_limit", simulated_rollout_length)
+  return hparams
+
+
+@registry.register_hparams
 def rlmb_dqn_guess1_2m_replay_buffer():
   """DQN guess1 params, 2M replay buffer."""
   hparams = rlmb_dqn_guess1()
