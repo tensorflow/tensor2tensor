@@ -1414,22 +1414,20 @@ def transformer_prepare_decoder(targets, hparams, features=None, pad=None):
   return (decoder_input, decoder_self_attention_bias)
 
 
-def transformer_decoder_layer(decoder_input,
-                              decoder_self_attention_bias,
-                              layer_idx,
-                              hparams,
-                              encoder_output=None,
-                              encoder_decoder_attention_bias=None,
-                              cache=None,
-                              decode_loop_step=None,
-                              nonpadding=None,
-                              save_weights_to=None,
-                              make_image_summary=False,
-                              losses=None,
-                              layer_collection=None,
-                              recurrent_memory_by_layer=None,
-                              chunk_number=None):
-  """A single transformer decoder layer."""
+def transformer_self_attention_layer(decoder_input,
+                                     decoder_self_attention_bias,
+                                     layer_idx,
+                                     hparams,
+                                     encoder_output=None,
+                                     encoder_decoder_attention_bias=None,
+                                     cache=None,
+                                     decode_loop_step=None,
+                                     save_weights_to=None,
+                                     make_image_summary=False,
+                                     layer_collection=None,
+                                     recurrent_memory_by_layer=None,
+                                     chunk_number=None):
+  """A single transformer self-attention layer."""
   x = decoder_input
   layer = layer_idx
   layer_name = "layer_%d" % layer
@@ -1528,6 +1526,43 @@ def transformer_decoder_layer(decoder_input,
                 "mode",
                 tf.estimator.ModeKeys.TRAIN) == tf.estimator.ModeKeys.TRAIN))
         x = common_layers.layer_postprocess(x, y, hparams)
+    return x, layer_cache
+
+
+def transformer_decoder_layer(decoder_input,
+                              decoder_self_attention_bias,
+                              layer_idx,
+                              hparams,
+                              encoder_output=None,
+                              encoder_decoder_attention_bias=None,
+                              cache=None,
+                              decode_loop_step=None,
+                              nonpadding=None,
+                              save_weights_to=None,
+                              make_image_summary=False,
+                              losses=None,
+                              layer_collection=None,
+                              recurrent_memory_by_layer=None,
+                              chunk_number=None):
+  """A single transformer decoder layer."""
+  x, layer_cache = transformer_self_attention_layer(
+      decoder_input=decoder_input,
+      decoder_self_attention_bias=decoder_self_attention_bias,
+      layer_idx=layer_idx,
+      hparams=hparams,
+      encoder_output=encoder_output,
+      encoder_decoder_attention_bias=encoder_decoder_attention_bias,
+      cache=cache,
+      decode_loop_step=decode_loop_step,
+      save_weights_to=save_weights_to,
+      make_image_summary=make_image_summary,
+      layer_collection=layer_collection,
+      recurrent_memory_by_layer=recurrent_memory_by_layer,
+      chunk_number=chunk_number)
+
+  layer = layer_idx
+  layer_name = "layer_%d" % layer
+  with tf.variable_scope(layer_name):
     with tf.variable_scope("ffn"):
       y = transformer_ffn_layer(
           common_layers.layer_preprocess(
