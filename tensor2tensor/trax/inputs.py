@@ -219,10 +219,10 @@ def train_and_eval_dataset(dataset_name, data_dir, train_shuffle_files=True,
   if tfds.Split.VALIDATION not in splits:
     eval_split = tfds.Split.TEST
   train = tfds.load(
-      name=dataset_name, split=tfds.Split.TRAIN,
+      name=dataset_name, split=tfds.Split.TRAIN, data_dir=data_dir,
       as_dataset_kwargs={"shuffle_files": train_shuffle_files})
   valid = tfds.load(
-      name=dataset_name, split=eval_split,
+      name=dataset_name, split=eval_split, data_dir=data_dir,
       as_dataset_kwargs={"shuffle_files": test_shuffle_files})
   keys = None
   if info.supervised_keys:
