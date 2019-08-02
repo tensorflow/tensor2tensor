@@ -84,6 +84,9 @@ def inputs(n_devices, dataset_name, data_dir=None, input_name=None,
    input_name, input_shape, input_dtype) = _train_and_eval_batches(
        dataset_name, data_dir, input_name, n_devices)
 
+  if isinstance(input_dtype, tf.DType):
+    input_dtype = input_dtype.as_numpy_dtype
+
   if input_dtype == np.uint8:  # TPUs don't like uint8s, we cast to ints.
     input_dtype = np.int32
 
