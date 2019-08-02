@@ -39,8 +39,13 @@ class MockTrainer(trax.Trainer):
   def __init__(self, metrics_to_report, *args, **kwargs):
     super(MockTrainer, self).__init__(*args, **kwargs)
     self.learning_rates = []
+    self.init_metrics_to_report = metrics_to_report
+    self.metrics_to_report = None
+
+  def reset(self, output_dir):
+    super(MockTrainer, self).reset(output_dir)
     # Copy the sequence to a list so we can modify it later.
-    self.metrics_to_report = list(metrics_to_report)
+    self.metrics_to_report = list(self.init_metrics_to_report)
 
   def train_epoch(self, epoch_steps, eval_steps):
     del epoch_steps

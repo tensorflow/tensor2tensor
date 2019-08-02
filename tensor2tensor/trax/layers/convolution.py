@@ -90,3 +90,37 @@ class Conv(base.Layer):
     w = self._kernel_initializer(kernel_shape, rng)
     b = self._bias_initializer(bias_shape, rng)
     return (w, b)
+
+
+class CausalConv(Conv):
+  """Causal (masked) convolution for [batch x time x depth] sequences.
+
+  Maintains causality along time axis. Used in language modeling tasks.
+  """
+
+  def __init__(self,
+               filters,
+               kernel_width=3,
+               kernel_initializer=None,
+               bias_initializer=init.RandomNormalInitializer(1e-6)):
+    super(CausalConv, self).__init__(
+        filters=filters,
+        kernel_size=(kernel_width,),
+        strides=None,
+        padding='VALID',
+        dimension_numbers=('NWC', 'WIO', 'NWC'),
+        kernel_initializer=kernel_initializer,
+        bias_initializer=bias_initializer)
+
+  def call(self, x, params=(), **kwargs):
+    assert self._padding == 'VALID'
+    # Left pad with 0s. Applying an unmasked valid convolution on top of this
+    # yields a causal convolution.
+    # TODO(ddohan): Support strided and dilated convolutions.
+    rate = 1
+    effective_kernel_size = int((self._kernel_size[0] - 1) * rate + 1)
+    pad = effective_kernel_size - 1
+    x_leftpad = np.pad(x, pad_width=[[0, 0], [pad, 0], [0, 0]], mode='constant')
+
+    res = super(CausalConv, self).call(x_leftpad, params)
+    return res

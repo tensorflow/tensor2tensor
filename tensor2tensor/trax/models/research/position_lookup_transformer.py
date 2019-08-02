@@ -229,51 +229,51 @@ def SumLearnedPick(positions):
   )
 
 
-def AttentionPosition(positions, d_feature, n_heads=8, dropout=0.0,
+def AttentionPosition(positions, d_model, n_heads=8, dropout=0.0,
                       mode='train'):
   """Transformer-style multi-headed attention."""
   return tl.Serial(
       tl.Dup(),
       tl.Dup(),
       tl.Parallel(
-          ApplyAndQueryPositions(tl.Dense(d_feature),
+          ApplyAndQueryPositions(tl.Dense(d_model),
                                  pos=[SumLearnedPick(positions)
                                       for _ in range(n_heads)]),
-          PreservePosition(tl.Dense(d_feature)),
-          PreservePosition(tl.Dense(d_feature)),
+          PreservePosition(tl.Dense(d_model)),
+          PreservePosition(tl.Dense(d_model)),
       ),
       tl.Parallel(
           CopyHeadsPos(h=n_heads),
           MixHeadsPos(h=n_heads),
           MixHeadsPos(h=n_heads),
       ),
-      tl.PureAttention(d_feature=d_feature, n_heads=n_heads, dropout=dropout,
+      tl.PureAttention(d_model=d_model, n_heads=n_heads, dropout=dropout,
                        mode=mode),
       tl.Parallel([], tl.Drop()),  # Drop the mask.
       CombineHeadsPos(h=n_heads),
-      PreservePosition(tl.Dense(d_feature)),
+      PreservePosition(tl.Dense(d_model)),
   )
 
 
-def ResidualFeedForward(d_feature,
-                        d_feedforward,
+def ResidualFeedForward(d_model,
+                        d_ff,
                         dropout,
                         mode):
   """Residual feed-forward layer with normalization at start."""
   stack = tl.Serial(
       tl.LayerNorm(),
-      tl.Dense(d_feedforward),
+      tl.Dense(d_ff),
       tl.Relu(),
       tl.Dropout(rate=dropout, mode=mode),
-      tl.Dense(d_feature),
+      tl.Dense(d_model),
       tl.Dropout(rate=dropout, mode=mode)
   )
   return tl.Residual(PreservePosition(stack))
 
 
 def DecoderLayer(positions,
-                 d_feature,
-                 d_feedforward,
+                 d_model,
+                 d_ff,
                  n_heads,
                  dropout,
                  mode):
@@ -281,8 +281,8 @@ def DecoderLayer(positions,
 
   Args:
     positions: random vectors for positions
-    d_feature: int:  depth of embedding
-    d_feedforward: int: depth of feed-forward layer
+    d_model: int:  depth of embedding
+    d_ff: int: depth of feed-forward layer
     n_heads: int: number of attention heads
     dropout: float: dropout rate (how much to drop out)
     mode: str: 'train' or 'eval'
@@ -296,17 +296,17 @@ def DecoderLayer(positions,
           tl.Dup(),
           tl.Parallel([],  # activation for (q, k, v)
                       tl.CausalMask(axis=-2)),  # attention mask
-          AttentionPosition(positions, d_feature, n_heads=n_heads,
+          AttentionPosition(positions, d_model, n_heads=n_heads,
                             dropout=dropout, mode=mode),
           PreservePosition(tl.Dropout(rate=dropout, mode=mode))
       ),
-      ResidualFeedForward(d_feature, d_feedforward, dropout, mode=mode)
+      ResidualFeedForward(d_model, d_ff, dropout, mode=mode)
   ]
 
 
 def PositionLookupTransformerLM(vocab_size=128,
-                                d_feature=256,
-                                d_feedforward=512,
+                                d_model=256,
+                                d_ff=512,
                                 n_layers=3,
                                 n_heads=4,
                                 dropout=0.1,
@@ -316,8 +316,8 @@ def PositionLookupTransformerLM(vocab_size=128,
 
   Args:
     vocab_size: int: vocab size
-    d_feature: int:  depth of embedding
-    d_feedforward: int: depth of feed-forward layer
+    d_model: int:  depth of embedding
+    d_ff: int: depth of feed-forward layer
     n_layers: int: number of layers
     n_heads: int: number of attention heads
     dropout: float: dropout rate (how much to drop out)
@@ -330,10 +330,10 @@ def PositionLookupTransformerLM(vocab_size=128,
   positions = _POSITIONS[:max_len, :]
   return tl.Serial(
       tl.ShiftRight(),
-      tl.Embedding(d_feature, vocab_size),
+      tl.Embedding(d_model, vocab_size),
       tl.Dropout(rate=dropout, mode=mode),
       NewPositionalEncoding(positions=positions),
-      [DecoderLayer(positions, d_feature, d_feedforward, n_heads, dropout, mode)
+      [DecoderLayer(positions, d_model, d_ff, n_heads, dropout, mode)
        for _ in range(n_layers)],
       PreservePosition(tl.LayerNorm()),
       tl.Dense(vocab_size),

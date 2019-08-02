@@ -127,6 +127,10 @@ class MetricsTest(tf.test.TestCase):
 
   def testWordErrorRateMetric(self):
 
+    # Ensure availability of the WER metric function in the dictionary.
+    assert metrics.Metrics.WORD_ERROR_RATE in metrics.METRICS_FNS
+
+    # Test if WER is computed correctly.
     ref = np.asarray([
         # a b c
         [97, 34, 98, 34, 99],

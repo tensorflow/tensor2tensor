@@ -54,6 +54,9 @@ class EnvProblem(Env, problem.Problem):
 
   Subclasses *should* override the following functions:
   - initialize_environments
+  - observation_space
+  - action_space
+  - reward_range
   - _reset
   - _step
   - _render
@@ -95,7 +98,6 @@ class EnvProblem(Env, problem.Problem):
 
   def __init__(self,
                batch_size=None,
-               reward_range=(-np.inf, np.inf),
                discrete_rewards=True,
                parallelism=1,
                **env_kwargs):
@@ -104,9 +106,6 @@ class EnvProblem(Env, problem.Problem):
     Args:
       batch_size: (int or None) How many envs to make in the non natively
         batched mode.
-      reward_range: (tuple(number, number)) the first element is the minimum
-        reward and the second is the maximum reward, used to clip and process
-        the raw reward in `process_rewards`.
       discrete_rewards: (bool) whether to round the rewards to the nearest
         integer.
       parallelism: (int) If this is greater than one then we run the envs in
@@ -124,23 +123,19 @@ class EnvProblem(Env, problem.Problem):
     # to an appropriate directory.
     self._agent_id = "default"
 
-    # We clip rewards to this range before processing them further, as described
-    # in `process_rewards`.
-    self._reward_range = reward_range
-
     # If set, we discretize the rewards and treat them as integers.
     self._discrete_rewards = discrete_rewards
-
-    self._parallelism = None
-
-    self._observation_space = None
-    self._action_space = None
 
     # A data structure to hold the `batch_size` currently active trajectories
     # and also the ones that are completed, i.e. done.
     self._trajectories = None
 
     self._batch_size = None
+
+    self._parallelism = None
+    # The parallelism is passes in via env_kwargs because it will be used by
+    # `GymEnvProblem` to paralellize env actions across a batch.
+    env_kwargs["parallelism"] = parallelism
 
     if batch_size is not None:
       self.initialize(batch_size=batch_size, **env_kwargs)
@@ -168,10 +163,10 @@ class EnvProblem(Env, problem.Problem):
 
     # Assert that *all* the above are now set, we should do this since
     # subclasses can override `initialize_environments`.
-    assert self._envs is not None
-    assert self._observation_space is not None
-    assert self._action_space is not None
-    assert self._reward_range is not None
+    self.assert_common_preconditions()
+    assert self.observation_space is not None
+    assert self.action_space is not None
+    assert self.reward_range is not None
 
   def initialize_environments(self, batch_size=1, parallelism=1, **kwargs):
     """Initializes the environments.
@@ -189,7 +184,7 @@ class EnvProblem(Env, problem.Problem):
 
   @property
   def observation_space(self):
-    return self._observation_space
+    raise NotImplementedError
 
   @property
   def observation_spec(self):
@@ -210,7 +205,7 @@ class EnvProblem(Env, problem.Problem):
 
   @property
   def action_space(self):
-    return self._action_space
+    raise NotImplementedError
 
   @property
   def action_spec(self):
@@ -228,7 +223,9 @@ class EnvProblem(Env, problem.Problem):
 
   @property
   def reward_range(self):
-    return self._reward_range
+    # We clip rewards to this range before processing them further, as described
+    # in `process_rewards`.
+    raise NotImplementedError
 
   @property
   def is_reward_range_finite(self):

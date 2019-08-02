@@ -32,16 +32,19 @@ from tensor2tensor.trax.layers.combinators import _pop_rng_and_split
 
 
 class Map(tl.Layer):
-  """Combinator for applying a layer to a list or tuple.
+  """Combinator for applying a layer to a list or tuple."""
 
-  Args:
-    layer: a layer to apply to each element.
+  def __init__(self, layer, n_sections=1, check_shapes=True):
+    """Initialize the combinator.
 
-  Returns:
-    A new layer representing mapping layer to all elements of the input.
-  """
+    Args:
+      layer: a layer to apply to each element.
+      n_sections: how many sections to map to (default: 1).
+      check_shapes: whether to check that shapes are identical (default: true).
 
-  def __init__(self, layer, sections=1, check_shapes=True):
+    Returns:
+      A new layer representing mapping layer to all elements of the input.
+    """
     super(Map, self).__init__()
     if layer is None or isinstance(layer, (list, tuple)):
       layer = tl.Serial(layer)
@@ -52,15 +55,15 @@ class Map(tl.Layer):
     # are valid cases -- e.g., when self._layer has no parameters -- where we
     # can apply Map to different shapes -- set check_shapes=False in such cases.
     self._check_shapes = check_shapes
-    self._sections = sections
+    self._n_sections = n_sections
 
   def n_inputs(self):
     """Specifies how many data tensors this layer expects as input."""
-    return self._sections
+    return self._n_sections
 
   def n_outputs(self):
     """Specifies how many data tensors this layer promises as output."""
-    return self._sections
+    return self._n_sections
 
   def call(self, inputs, params=(), **kwargs):
     rngs = _pop_rng_and_split(kwargs, len(inputs))
@@ -78,7 +81,7 @@ class Map(tl.Layer):
     return self._layer.initialize(first_shape, input_dtype[0], rng)
 
 
-def FeedForward(d_feature, d_feedforward, dropout, mode):
+def FeedForward(d_model, d_ff, dropout, mode):
   """Feed-forward block with layer normalization at start."""
   # TODO(kitaev): add dropout. Dropout is typically performed by adding noise to
   # the activations, but when the size of the activations is very large it is
@@ -86,9 +89,9 @@ def FeedForward(d_feature, d_feedforward, dropout, mode):
   del dropout, mode
   return [
       tl.LayerNorm(),
-      tl.Dense(d_feedforward),
+      tl.Dense(d_ff),
       tl.Relu(),
-      tl.Dense(d_feature),
+      tl.Dense(d_model),
   ]
 
 
@@ -118,7 +121,7 @@ class ReversibleLayerMixin(object):
 
     # Note: jax.vjp does not allow us to use **kwargs in the signature here.
     def _do_call(x, params, kwargs):
-      return super(ReversibleLayerMixin, self).__call__(x, params, **kwargs)
+      return super(ReversibleLayerMixin, self).call(x, params=params, **kwargs)
 
     reconstructed_x, must_be_none = self.inverse_and_vjp(
         output, None, params, **kwargs)
@@ -127,43 +130,27 @@ class ReversibleLayerMixin(object):
     input_ct = vjpfun(ct)
     return reconstructed_x, input_ct
 
-  def __call__(self, x, params=(), **kwargs):
-    assert backend.get_name() == 'jax', (
-        'Reversible layers are only supported in JAX')
+  @property
+  def has_custom_grad(self):
+    return True
 
-    if params is () and self._params:  # pylint: disable=literal-comparison
-      # TODO(kitaev): Figure out why parameter sharing doesn't work (if this
-      # explicit error isn't thrown, a jax tracer error occurs instead)
-      raise NotImplementedError(
-          'Parameter sharing between reversible layers is not implemented.')
-
-    @jax.custom_transforms
-    def do_call(x, params, kwargs):
-      return super(ReversibleLayerMixin, self).__call__(x, params, **kwargs)
-
-    def do_call_vjp(x, params, kwargs):
-      output = super(ReversibleLayerMixin, self).__call__(x, params, **kwargs)
-      def vjpfun(ct):
-        _, input_ct = self.inverse_and_vjp(output, ct, params, **kwargs)
-        return input_ct
-
-      return output, vjpfun
-
-    jax.defvjp_all(do_call, do_call_vjp)
-    return do_call(x, params, kwargs)
+  def custom_grad(self, inputs, output, ct, params, **kwargs):
+    del inputs
+    _, input_ct = self.inverse_and_vjp(output, ct, params, **kwargs)
+    return input_ct
 
 
 class Split(tl.Layer):
   """Splits the input into sections along an axis."""
 
-  def __init__(self, sections=2, axis=-1):
+  def __init__(self, n_sections=2, axis=-1):
     super(Split, self).__init__()
-    self._sections = sections
+    self._n_sections = n_sections
     self._axis = axis
 
   def call(self, inputs, params=(), **kwargs):
     del params, kwargs
-    return tuple(backend.numpy.split(inputs, self._sections, self._axis))
+    return tuple(backend.numpy.split(inputs, self._n_sections, self._axis))
 
   def new_parameters(self, input_shapes, input_dtype, rng):
     return ()
@@ -174,26 +161,26 @@ class Split(tl.Layer):
 
   def n_outputs(self):
     """Specifies how many data tensors this layer promises as output."""
-    return self._sections
+    return self._n_sections
 
 
 @tl.layer()
-def Chunk(x, params, sections=2, **kwargs):
+def Chunk(x, params, n_sections=2, **kwargs):
   del params, kwargs
-  assert x.shape[1] % sections == 0
+  assert x.shape[1] % n_sections == 0
   return backend.numpy.reshape(x, (
-      x.shape[0] * sections,
-      x.shape[1] // sections,
+      x.shape[0] * n_sections,
+      x.shape[1] // n_sections,
       ) + x.shape[2:])
 
 
 @tl.layer()
-def Unchunk(x, params, sections=2, **kwargs):
+def Unchunk(x, params, n_sections=2, **kwargs):
   del params, kwargs
-  assert x.shape[0] % sections == 0
+  assert x.shape[0] % n_sections == 0
   return backend.numpy.reshape(x, (
-      x.shape[0] // sections,
-      x.shape[1] * sections,
+      x.shape[0] // n_sections,
+      x.shape[1] * n_sections,
       ) + x.shape[2:])
 
 
@@ -252,11 +239,11 @@ class ReversibleHalfResidual(ReversibleLayerMixin, tl.Serial):
 @tl.layer(n_inputs=1, n_outputs=1)
 def SplitHeads(x, params, n_heads=1, **kwargs):
   del params, kwargs
-  d_feature = x.shape[-1]
-  assert d_feature % n_heads == 0
-  d_head = d_feature // n_heads
+  d_model = x.shape[-1]
+  assert d_model % n_heads == 0
+  d_head = d_model // n_heads
   n_batch = np.shape(x)[0]
-  # n_batch, seqlen, d_feature --> n_batch, n_heads, seqlen, d_head
+  # n_batch, seqlen, d_model --> n_batch, n_heads, seqlen, d_head
   return np.transpose(
       np.reshape(x, (n_batch, -1, n_heads, d_head)), (0, 2, 1, 3))
 
@@ -266,7 +253,7 @@ def JoinHeads(x, params, **kwargs):
   del params, kwargs
   n_batch = np.shape(x)[0]
   seqlen = np.shape(x)[2]
-  # n_batch, n_heads, seqlen, d_head --> n_batch, seqlen, d_feature
+  # n_batch, n_heads, seqlen, d_head --> n_batch, seqlen, d_model
   return np.reshape(np.transpose(x, (0, 2, 1, 3)), (n_batch, seqlen, -1))
 
 
@@ -631,14 +618,14 @@ class ReversibleSerial(ReversibleLayerMixin, tl.Serial):
       return layer_val, None
 
 
-def DecoderBlock(d_feature, d_feedforward, d_attention_key, d_attention_value,
+def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
                  n_heads, n_attention_chunks, attention_loop_stride,
                  dropout, mode):
   """Reversible transformer decoder layer.
 
   Args:
-    d_feature: int:  depth of embedding
-    d_feedforward: int: depth of feed-forward layer
+    d_model: int:  depth of embedding
+    d_ff: int: depth of feed-forward layer
     d_attention_key: int: depth of key vector for each attention head
     d_attention_value: int: depth of value vector for each attention head
     n_heads: int: number of attention heads
@@ -653,7 +640,7 @@ def DecoderBlock(d_feature, d_feedforward, d_attention_key, d_attention_value,
   """
 
   pre_attention = [
-      Chunk(sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
+      Chunk(n_sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
       tl.LayerNorm(),
       tl.Dup(), tl.Dup(),
       tl.Parallel(
@@ -675,12 +662,12 @@ def DecoderBlock(d_feature, d_feedforward, d_attention_key, d_attention_value,
   # its input (so the backward pass can be computed without knowing the input)
   post_attention = [
       JoinHeads(),  # pylint: disable=no-value-for-parameter
-      tl.Dense(d_feature),
-      Unchunk(sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
+      tl.Dense(d_model),
+      Unchunk(n_sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
   ]
 
   feed_forward = [
-      FeedForward(d_feature, d_feedforward, dropout, mode=mode),
+      FeedForward(d_model, d_ff, dropout, mode=mode),
   ]
   return [
       ReversibleAttentionHalfResidual(pre_attention, attention, post_attention),
@@ -691,8 +678,8 @@ def DecoderBlock(d_feature, d_feedforward, d_attention_key, d_attention_value,
 
 
 def TransformerRevnetLM(vocab_size,
-                        d_feature=512,
-                        d_feedforward=2048,
+                        d_model=512,
+                        d_ff=2048,
                         d_attention_key=64,
                         d_attention_value=64,
                         n_layers=6,
@@ -707,8 +694,8 @@ def TransformerRevnetLM(vocab_size,
 
   Args:
     vocab_size: int: vocab size
-    d_feature: int:  depth of *each half* of the two-part features
-    d_feedforward: int: depth of feed-forward layer
+    d_model: int:  depth of *each half* of the two-part features
+    d_ff: int: depth of feed-forward layer
     d_attention_key: int: depth of key vector for each attention head
     d_attention_value: int: depth of value vector for each attention head
     n_layers: int: number of decoder layers
@@ -725,7 +712,7 @@ def TransformerRevnetLM(vocab_size,
     the layer.
   """
   positional_embedder = [
-      tl.Embedding(d_feature, vocab_size),
+      tl.Embedding(d_model, vocab_size),
       # TODO(kitaev): add dropout
       tl.PositionalEncoding(max_len=max_len),
   ]
@@ -736,7 +723,7 @@ def TransformerRevnetLM(vocab_size,
       tl.Dup(),
       ReversibleSerial([
           # pylint: disable=g-complex-comprehension
-          DecoderBlock(d_feature, d_feedforward,
+          DecoderBlock(d_model, d_ff,
                        d_attention_key, d_attention_value, n_heads,
                        n_attention_chunks, attention_loop_stride,
                        dropout, mode)
@@ -744,10 +731,9 @@ def TransformerRevnetLM(vocab_size,
       ]),
       tl.Parallel(tl.LayerNorm(), tl.LayerNorm()),
       tl.Concatenate(),
-      Split(sections=n_chunks, axis=-2),  # pylint: disable=no-value-for-parameter
+      Split(n_sections=n_chunks, axis=-2),  # pylint: disable=no-value-for-parameter
       Map([
           tl.Dense(vocab_size),
           tl.LogSoftmax(),
-      ], sections=n_chunks),
+      ], n_sections=n_chunks),
   )
-

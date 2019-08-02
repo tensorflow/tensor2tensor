@@ -78,6 +78,7 @@ MODULES = [
     "tensor2tensor.data_generators.transduction_problems",
     "tensor2tensor.data_generators.translate_encs",
     "tensor2tensor.data_generators.translate_ende",
+    "tensor2tensor.data_generators.translate_enes",
     "tensor2tensor.data_generators.translate_enet",
     "tensor2tensor.data_generators.translate_enfr",
     "tensor2tensor.data_generators.translate_enid",

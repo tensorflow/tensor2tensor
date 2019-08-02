@@ -826,7 +826,7 @@ class DQNLearner(PolicyLearner):
       agent = runner._agent  # pylint: disable=protected-access
       runner.close()
       del runner
-      agent.eval = True
+      agent.eval_mode = True
 
       for _ in range(hparams.eval_episodes_num):
         # Run single episode

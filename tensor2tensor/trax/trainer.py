@@ -46,8 +46,12 @@ flags.DEFINE_multi_string("config", None,
                           "Configuration parameters (gin string).")
 flags.DEFINE_integer("log_level", logging.INFO, "Log level.")
 flags.DEFINE_bool("use_tpu", False, "Whether we're running on TPU.")
-flags.DEFINE_bool("tf_eager", False, "Whether we're running TF in eager mode.")
-flags.DEFINE_bool("tf_xla", False, "Whether to turn on XLA for TF.")
+flags.DEFINE_bool("tf_eager", True, "Whether we're running TF in eager mode.")
+flags.DEFINE_bool("tf_xla", True, "Whether to turn on XLA for TF.")
+flags.DEFINE_bool("tf_opt_pin_to_host", False, "Whether to turn on TF "
+                  "pin-to-host optimization.")
+flags.DEFINE_bool("tf_opt_layout", False, "Whether to turn on TF layout "
+                  "optimization.")
 
 
 def _default_output_dir():
@@ -94,6 +98,14 @@ def main(_):
 
   if FLAGS.tf_xla:
     tf.config.optimizer.set_jit(True)
+
+  tf.config.optimizer.set_experimental_options(
+      {"pin_to_host_optimization": FLAGS.tf_opt_pin_to_host}
+  )
+
+  tf.config.optimizer.set_experimental_options(
+      {"layout_optimizer": FLAGS.tf_opt_layout}
+  )
 
   _setup_gin()
 

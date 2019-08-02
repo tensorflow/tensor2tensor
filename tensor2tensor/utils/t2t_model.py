@@ -1546,7 +1546,10 @@ class T2TModel(base.Layer):
     return create_host_call(self.hparams.model_dir)
 
   def create_eval_host_call(self):
-    return self.create_train_host_call()
+    eval_dir = os.path.join(
+        self.hparams.model_dir,
+        self.hparams.get("eval_dir_name", "eval"))
+    return create_host_call(eval_dir)
 
   def estimator_spec_train(self, loss, num_async_replicas=1, use_tpu=False):
     """Constructs `tf.estimator.EstimatorSpec` for TRAIN (training) mode."""

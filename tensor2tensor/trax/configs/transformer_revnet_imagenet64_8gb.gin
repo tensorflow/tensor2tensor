@@ -18,9 +18,9 @@ inputs.n_chunks = 16
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================
-MultifactorSchedule.constant = 0.2
-MultifactorSchedule.factors = 'constant * linear_warmup'
-MultifactorSchedule.warmup_steps = 2000
+MultifactorSchedule.constant = 2.0
+MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
+MultifactorSchedule.warmup_steps = 8000
 
 # Parameters for train:
 # ==============================================================================
@@ -28,14 +28,14 @@ train.eval_frequency = 100
 train.eval_steps = 8
 train.inputs = @trax.inputs.inputs
 train.model = @trax.models.TransformerRevnetLM
-train.optimizer = @trax.optimizers.SM3
+train.optimizer = @trax.optimizers.Adafactor
 train.train_steps = 500000
 train.trainer_class = @MemoryEfficientTrainer
 
 # Parameters for TransformerRevnetLM:
 # ==============================================================================
-TransformerRevnetLM.d_feature = 512
-TransformerRevnetLM.d_feedforward = 2048
+TransformerRevnetLM.d_model = 1024
+TransformerRevnetLM.d_ff = 2048
 TransformerRevnetLM.d_attention_key = 32
 TransformerRevnetLM.d_attention_value = 32
 TransformerRevnetLM.dropout = 0.1

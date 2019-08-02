@@ -161,7 +161,7 @@ def make_env(batch_size=8, **env_kwargs):
 
 
 def get_optimizer_fn(learning_rate):
-  return functools.partial(ppo.optimizer_fn, step_size=learning_rate)
+  return functools.partial(ppo.optimizer_fn, learning_rate=learning_rate)
 
 
 def main(argv):
@@ -181,17 +181,26 @@ def main(argv):
   gin.parse_config_files_and_bindings(FLAGS.config_file, gin_configs)
 
   # TODO(pkozakowski): Find a better way to determine this.
+  env_kwargs = {}
+  train_env_kwargs = {}
+  eval_env_kwargs = {}
   if "OnlineTuneEnv" in FLAGS.env_problem_name:
     # TODO(pkozakowski): Separate env output dirs by train/eval and epoch.
-    env_kwargs = {"output_dir": os.path.join(FLAGS.output_dir, "envs")}
-  else:
-    env_kwargs = {}
+    train_env_kwargs = {}
+    train_env_kwargs.update(env_kwargs)
+    train_env_kwargs["output_dir"] = os.path.join(FLAGS.output_dir,
+                                                  "envs/train")
+
+    eval_env_kwargs = {}
+    eval_env_kwargs.update(env_kwargs)
+    eval_env_kwargs["output_dir"] = os.path.join(FLAGS.output_dir,
+                                                 "envs/eval")
 
   # Make an env here.
-  env = make_env(batch_size=FLAGS.batch_size, **env_kwargs)
+  env = make_env(batch_size=FLAGS.batch_size, **train_env_kwargs)
   assert env
 
-  eval_env = make_env(batch_size=FLAGS.eval_batch_size, **env_kwargs)
+  eval_env = make_env(batch_size=FLAGS.eval_batch_size, **eval_env_kwargs)
   assert eval_env
 
   def run_training_loop():

@@ -118,6 +118,8 @@ _NUMPY_BACKEND = {
     "name": "numpy",
     "np": onp,
     "jit": (lambda f: f),
+    "random_get_prng": lambda seed: None,
+    "random_split": lambda prng, num=2: (None,) * num,
 }
 
 
@@ -217,5 +219,8 @@ def use_backend(name):
   global override_backend_name
   prev_name = override_backend_name
   override_backend_name = name
-  yield
-  override_backend_name = prev_name
+  # Run the decorated function in try-finally in case it throws, e.g. for tests.
+  try:
+    yield
+  finally:
+    override_backend_name = prev_name

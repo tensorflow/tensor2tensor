@@ -19,7 +19,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import functools
 import os
 
 import gym
@@ -63,8 +62,7 @@ class OnlineTuneEnv(gym.Env):
     if action_multipliers is None:
       action_multipliers = self.DEFAULT_ACTION_MULTIPLIERS
     self._model = model
-    self._trainer_fn = functools.partial(
-        trainer_class,
+    self._trainer = trainer_class(
         model=model,
         loss_fn=loss_fn,
         optimizer=optimizer,
@@ -77,7 +75,6 @@ class OnlineTuneEnv(gym.Env):
     self._eval_steps = eval_steps
     self._env_steps = env_steps
     self._start_lr = start_lr
-    self._trainer = None
 
     self._output_dir = output_dir
     gfile.makedirs(self._output_dir)
@@ -131,7 +128,7 @@ class OnlineTuneEnv(gym.Env):
   def reset(self):
     self._current_lr = self._start_lr
     self._step = 0
-    self._trainer = self._trainer_fn(output_dir=self._next_trajectory_dir)
+    self._trainer.reset(output_dir=self._next_trajectory_dir)
     self._trainer.evaluate(self._eval_steps)
     return np.array([self._current_metric_value])
 
@@ -150,7 +147,6 @@ class OnlineTuneEnv(gym.Env):
         environment steps. info is an empty dict.
     """
     self._current_lr *= self._action_multipliers[action]
-    self._trainer.update_learning_rate(force_jit=True)
     last_metric_value = self._current_metric_value
     self._trainer.train_epoch(self._train_steps, self._eval_steps)
     self._step += 1

@@ -21,19 +21,19 @@ from __future__ import print_function
 from tensor2tensor.trax import layers as tl
 
 
-def FeedForward(d_feature, d_feedforward, dropout, mode):
+def FeedForward(d_model, d_ff, dropout, mode):
   """Feed-forward block with layer normalization at start."""
   return [
       tl.LayerNorm(),
-      tl.Dense(d_feedforward),
+      tl.Dense(d_ff),
       tl.Relu(),
       tl.Dropout(rate=dropout, mode=mode),
-      tl.Dense(d_feature),
+      tl.Dense(d_model),
       tl.Dropout(rate=dropout, mode=mode),
   ]
 
 
-def EncoderBlock(d_feature, d_feedforward, n_heads, dropout, mode):
+def EncoderBlock(d_model, d_ff, n_heads, dropout, mode):
   """Returns a layer sequence that implements a Transformer encoder block.
 
   The input to the layer sequence is a pair, (activations, mask), where the
@@ -41,8 +41,8 @@ def EncoderBlock(d_feature, d_feedforward, n_heads, dropout, mode):
   padding part of the input.
 
   Args:
-    d_feature: int:  depth of embedding
-    d_feedforward: int: depth of feed-forward layer
+    d_model: int:  depth of embedding
+    d_ff: int: depth of feed-forward layer
     n_heads: int: number of attention heads
     dropout: float: dropout rate (how much to drop out)
     mode: str: 'train' or 'eval'
@@ -53,11 +53,11 @@ def EncoderBlock(d_feature, d_feedforward, n_heads, dropout, mode):
   """
   attention = [
       tl.LayerNorm(),
-      tl.Attention(d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
+      tl.Attention(d_model, n_heads=n_heads, dropout=dropout, mode=mode),
       tl.Dropout(rate=dropout, mode=mode),
   ]
   feed_forward = [
-      FeedForward(d_feature, d_feedforward, dropout, mode=mode),
+      FeedForward(d_model, d_ff, dropout, mode=mode),
   ]
   return [
       tl.Residual(attention),
@@ -67,8 +67,8 @@ def EncoderBlock(d_feature, d_feedforward, n_heads, dropout, mode):
 
 def TransformerEncoder(vocab_size,
                        n_classes=10,
-                       d_feature=512,
-                       d_feedforward=2048,
+                       d_model=512,
+                       d_ff=2048,
                        n_layers=6,
                        n_heads=8,
                        dropout=0.1,
@@ -81,8 +81,8 @@ def TransformerEncoder(vocab_size,
   Args:
     vocab_size: int: vocab size
     n_classes: how many classes on output
-    d_feature: int:  depth of embedding
-    d_feedforward: int: depth of feed-forward layer
+    d_model: int:  depth of embedding
+    d_ff: int: depth of feed-forward layer
     n_layers: int: number of encoder/decoder layers
     n_heads: int: number of attention heads
     dropout: float: dropout rate (how much to drop out)
@@ -94,14 +94,14 @@ def TransformerEncoder(vocab_size,
     activations over a set of output classes.
   """
   embedder = [
-      tl.Embedding(d_feature, vocab_size),
+      tl.Embedding(d_model, vocab_size),
       tl.Dropout(rate=dropout, mode=mode),
       tl.PositionalEncoding(max_len=max_len),
   ]
   return tl.Model([                             #      tokens
       tl.Dup(),                                 # toks toks
       tl.Parallel(embedder, tl.PaddingMask()),  # vecs mask
-      [EncoderBlock(d_feature, d_feedforward, n_heads, dropout, mode)
+      [EncoderBlock(d_model, d_ff, n_heads, dropout, mode)
        for _ in range(n_layers)],               # vecs mask
       tl.Parallel([], tl.Drop()),               # ____  0
       tl.LayerNorm(),                           # vecs
@@ -111,14 +111,14 @@ def TransformerEncoder(vocab_size,
   ])
 
 
-def DecoderBlock(d_feature, d_feedforward, n_heads, dropout, mode):
+def DecoderBlock(d_model, d_ff, n_heads, dropout, mode):
   """Returns a layer sequence that implements a Transformer decoder block.
 
   The input to the layer sequence is an activation tensor.
 
   Args:
-    d_feature: int:  depth of embedding
-    d_feedforward: int: depth of feed-forward layer
+    d_model: int:  depth of embedding
+    d_ff: int: depth of feed-forward layer
     n_heads: int: number of attention heads
     dropout: float: dropout rate (how much to drop out)
     mode: str: 'train' or 'eval'
@@ -130,12 +130,12 @@ def DecoderBlock(d_feature, d_feedforward, n_heads, dropout, mode):
       tl.LayerNorm(),  # vec
       tl.Dup(),  # vec vec
       tl.Parallel([], tl.CausalMask(axis=-2)),  # vec mask
-      tl.Attention(d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
+      tl.Attention(d_model, n_heads=n_heads, dropout=dropout, mode=mode),
       tl.Parallel([], tl.Drop()),  # vec
       tl.Dropout(rate=dropout, mode=mode),  # vec
   ]
   feed_forward = [
-      FeedForward(d_feature, d_feedforward, dropout, mode=mode),
+      FeedForward(d_model, d_ff, dropout, mode=mode),
   ]
   return [
       tl.Residual(self_attention),
@@ -144,8 +144,8 @@ def DecoderBlock(d_feature, d_feedforward, n_heads, dropout, mode):
 
 
 def TransformerLM(vocab_size,
-                  d_feature=512,
-                  d_feedforward=2048,
+                  d_model=512,
+                  d_ff=2048,
                   n_layers=6,
                   n_heads=8,
                   dropout=0.1,
@@ -158,8 +158,8 @@ def TransformerLM(vocab_size,
 
   Args:
     vocab_size: int: vocab size
-    d_feature: int:  depth of embedding
-    d_feedforward: int: depth of feed-forward layer
+    d_model: int:  depth of embedding
+    d_ff: int: depth of feed-forward layer
     n_layers: int: number of encoder/decoder layers
     n_heads: int: number of attention heads
     dropout: float: dropout rate (how much to drop out)
@@ -171,14 +171,14 @@ def TransformerLM(vocab_size,
     to activations over a vocab set.
   """
   embedder = [
-      tl.Embedding(d_feature, vocab_size),
+      tl.Embedding(d_model, vocab_size),
       tl.Dropout(rate=dropout, mode=mode),
       tl.PositionalEncoding(max_len=max_len),
   ]
   return tl.Model(                  # tokens
       tl.ShiftRight(),              # toks
       embedder,                     # vecs
-      [DecoderBlock(d_feature, d_feedforward, n_heads, dropout, mode)
+      [DecoderBlock(d_model, d_ff, n_heads, dropout, mode)
        for _ in range(n_layers)],   # vecs
       tl.LayerNorm(),               # vecs
       tl.Dense(vocab_size),         # vecs
@@ -186,7 +186,7 @@ def TransformerLM(vocab_size,
   )
 
 
-def EncoderDecoder(d_feature, d_feedforward, n_heads, dropout, mode):
+def EncoderDecoder(d_model, d_ff, n_heads, dropout, mode):
   """Transformer encoder-decoder layer.
 
   The input is a triple (decoder_input, mask, encoder) where the mask is
@@ -194,8 +194,8 @@ def EncoderDecoder(d_feature, d_feedforward, n_heads, dropout, mode):
   of the encoder.
 
   Args:
-    d_feature: int:  depth of embedding
-    d_feedforward: int: depth of feed-forward layer
+    d_model: int:  depth of embedding
+    d_ff: int: depth of feed-forward layer
     n_heads: int: number of attention heads
     dropout: float: dropout rate (how much to drop out)
     mode: str: 'train' or 'eval'
@@ -207,7 +207,7 @@ def EncoderDecoder(d_feature, d_feedforward, n_heads, dropout, mode):
       tl.LayerNorm(),                           #        vecs_d   ..... ......
       tl.Dup(),                                 # vecs_d vecs_d   ..... ......
       tl.Parallel([], tl.CausalMask(axis=-2)),  # ______ masks    ..... ......
-      tl.Attention(d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
+      tl.Attention(d_model, n_heads=n_heads, dropout=dropout, mode=mode),
       tl.Parallel([], tl.Drop()),               # ______   0      ..... ......
       tl.Dropout(rate=dropout, mode=mode),      # vecs_d          ..... ......
   ]
@@ -217,11 +217,11 @@ def EncoderDecoder(d_feature, d_feedforward, n_heads, dropout, mode):
       tl.Parallel([], tl.Swap()),         # ______        vecs_e masks  ......
       tl.Parallel([], tl.Dup()),          # ______ vecs_e vecs_e .....  ......
       tl.AttentionQKV(  # (q k v masks ... --> vecs_d masks ...)
-          d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
+          d_model, n_heads=n_heads, dropout=dropout, mode=mode),
       tl.Dropout(rate=dropout, mode=mode),  # vecs_d mask vecs_e
   ]
   feed_forward = [
-      FeedForward(d_feature, d_feedforward, dropout, mode=mode),
+      FeedForward(d_model, d_ff, dropout, mode=mode),
   ]
   return [                                        # vecs_d masks vecs_e
       tl.Residual(decoder_self_attention),        # vecs_d masks vecs_e
@@ -232,8 +232,8 @@ def EncoderDecoder(d_feature, d_feedforward, n_heads, dropout, mode):
 
 def Transformer(input_vocab_size,
                 output_vocab_size=None,
-                d_feature=512,
-                d_feedforward=2048,
+                d_model=512,
+                d_ff=2048,
                 n_layers=6,
                 n_heads=8,
                 dropout=0.1,
@@ -247,8 +247,8 @@ def Transformer(input_vocab_size,
     input_vocab_size: int: vocab size of the source.
     output_vocab_size: int (optional): vocab size of the target. If None, the
       source and target are assumed to have the same vocab.
-    d_feature: int:  depth of embedding
-    d_feedforward: int: depth of feed-forward layer
+    d_model: int:  depth of embedding
+    d_ff: int: depth of feed-forward layer
     n_layers: int: number of encoder/decoder layers
     n_heads: int: number of attention heads
     dropout: float: dropout rate (how much to drop out)
@@ -260,7 +260,7 @@ def Transformer(input_vocab_size,
     activations over a vocab set.
   """
   in_embed = [                                    # tokens
-      tl.Embedding(d_feature, input_vocab_size),  # vecs
+      tl.Embedding(d_model, input_vocab_size),  # vecs
       tl.Dropout(rate=dropout, mode=mode),        # vecs
       tl.PositionalEncoding(max_len=max_len),     # vecs
   ]
@@ -270,17 +270,17 @@ def Transformer(input_vocab_size,
     out_embed = in_embed
   else:
     out_embed = [                                    # tokens
-        tl.Embedding(d_feature, output_vocab_size),  # vecs
+        tl.Embedding(d_model, output_vocab_size),  # vecs
         tl.Dropout(rate=dropout, mode=mode),         # vecs
         tl.PositionalEncoding(max_len=max_len),      # vecs
     ]
 
   encoder_stack = (  # masks vectors --> masks vectors
-      [EncoderBlock(d_feature, d_feedforward, n_heads, dropout, mode)
+      [EncoderBlock(d_model, d_ff, n_heads, dropout, mode)
        for _ in range(n_layers)])
 
   encoder_decoder_stack = (  # vecs_d masks vecs_e --> vecs_d masks vecs_e
-      [EncoderDecoder(d_feature, d_feedforward, n_heads, dropout, mode)
+      [EncoderDecoder(d_model, d_ff, n_heads, dropout, mode)
        for _ in range(n_layers)])
 
   # Input: encoder_side_tokens, decoder_side_tokens

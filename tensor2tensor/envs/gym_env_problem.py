@@ -23,6 +23,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import copy
 import multiprocessing.pool
 import time
 
@@ -75,7 +76,8 @@ class GymEnvProblem(env_problem.EnvProblem):
   the following properties: observation_space, action_space, reward_range.
   """
 
-  def __init__(self, base_env_name=None, env_wrapper_fn=None, **kwargs):
+  def __init__(self, base_env_name=None, env_wrapper_fn=None, reward_range=None,
+               **kwargs):
     """Initializes this class by creating the envs and managing trajectories.
 
     Args:
@@ -83,6 +85,10 @@ class GymEnvProblem(env_problem.EnvProblem):
         environment.
       env_wrapper_fn: (callable(env): env) Applies gym wrappers to the base
         environment.
+      reward_range: (tuple(number, number) or None) the first element is the
+        minimum reward and the second is the maximum reward, used to clip and
+        process the raw reward in `process_rewards`. If None, this is inferred
+        from the inner environments.
       **kwargs: (dict) Arguments passed to the base class.
     """
     # Name for the base environment, will be used in `gym.make` in
@@ -95,6 +101,10 @@ class GymEnvProblem(env_problem.EnvProblem):
     # In practice, this is used only to store (and possibly retrieve) history
     # to an appropriate directory.
     self._agent_id = "default"
+
+    # We clip rewards to this range before processing them further, as described
+    # in `process_rewards`.
+    self._reward_range = reward_range
 
     # Initialize the environment(s).
 
@@ -152,43 +162,44 @@ class GymEnvProblem(env_problem.EnvProblem):
         tf.logging.error("Env[%d] has action space [%s]", i, env.action_space)
       raise ValueError(err_str)
 
-  def initialize_environments(self, batch_size=1, parallelism=1, **kwargs):
+  def initialize_environments(self,
+                              batch_size=1,
+                              parallelism=1,
+                              per_env_kwargs=None,
+                              **kwargs):
     """Initializes the environments.
 
     Args:
       batch_size: (int) Number of `self.base_env_name` envs to initialize.
       parallelism: (int) If this is greater than one then we run the envs in
         parallel using multi-threading.
+      per_env_kwargs: (list or None) An optional list of dictionaries to pass to
+        gym.make. If not None, length should match `batch_size`.
       **kwargs: (dict) Kwargs to pass to gym.make.
     """
     assert batch_size >= 1
+    if per_env_kwargs is not None:
+      assert batch_size == len(per_env_kwargs)
+    else:
+      per_env_kwargs = [{} for _ in range(batch_size)]
+
+    # By now `per_env_kwargs` is a list of dictionaries of size batch_size.
+    # The individual dictionaries maybe empty.
+
+    def union_dicts(dict1, dict2):
+      """Union `dict1` and `dict2`."""
+      copy_dict1 = copy.copy(dict1)
+      copy_dict1.update(dict2)
+      return copy_dict1
 
     self._envs = [
-        gym.make(self.base_env_name, **kwargs) for _ in range(batch_size)
+        gym.make(self.base_env_name, **union_dicts(kwargs, env_kwarg))
+        for env_kwarg in per_env_kwargs
     ]
     self._parallelism = parallelism
     self._pool = multiprocessing.pool.ThreadPool(self._parallelism)
     if self._env_wrapper_fn is not None:
       self._envs = list(map(self._env_wrapper_fn, self._envs))
-
-    # If self.observation_space and self.action_space aren't None, then it means
-    # that this is a re-initialization of this class, in that case make sure
-    # that this matches our previous behaviour.
-    if self._observation_space:
-      assert str(self._observation_space) == str(
-          self._envs[0].observation_space)
-    else:
-      # This means that we are initializing this class for the first time.
-      #
-      # We set this equal to the first env's observation space, later on we'll
-      # verify that all envs have the same observation space.
-      self._observation_space = self._envs[0].observation_space
-
-    # Similarly for action_space
-    if self._action_space:
-      assert str(self._action_space) == str(self._envs[0].action_space)
-    else:
-      self._action_space = self._envs[0].action_space
 
     self._verify_same_spaces()
 
@@ -202,6 +213,25 @@ class GymEnvProblem(env_problem.EnvProblem):
     # NOTE: Even if the env is a NN and can step in all batches concurrently, it
     # is still valuable to store the trajectories separately.
     self._trajectories = trajectory.BatchTrajectory(batch_size=batch_size)
+
+  def assert_common_preconditions(self):
+    # Asserts on the common pre-conditions of:
+    #  - self._envs is initialized.
+    #  - self._envs is a list.
+    assert self._envs
+    assert isinstance(self._envs, list)
+
+  @property
+  def observation_space(self):
+    return self._envs[0].observation_space
+
+  @property
+  def action_space(self):
+    return self._envs[0].action_space
+
+  @property
+  def reward_range(self):
+    return self._reward_range
 
   def seed(self, seed=None):
     if not self._envs:
@@ -243,7 +273,20 @@ class GymEnvProblem(env_problem.EnvProblem):
     """
     # This returns a numpy array with first dimension `len(indices)` and the
     # rest being the dimensionality of the observation.
-    return np.stack([self._envs[index].reset() for index in indices])
+
+    num_envs_to_reset = len(indices)
+    observations = [None] * num_envs_to_reset
+
+    def reset_at(idx):
+      observations[idx] = self._envs[indices[idx]].reset()
+
+    if self._parallelism > 1:
+      self._pool.map(reset_at, range(num_envs_to_reset))
+    else:
+      for i in range(num_envs_to_reset):
+        reset_at(i)
+
+    return np.stack(observations)
 
   def _step(self, actions):
     """Takes a step in all environments, shouldn't pre-process or record.

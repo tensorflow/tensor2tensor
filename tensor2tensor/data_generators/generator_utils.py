@@ -864,7 +864,7 @@ class SequenceDatasetPacker(object):
     shapes = tf.compat.v1.data.get_output_shapes(dataset)
 
     if isinstance(shapes, dict):
-      keys = tuple(shapes.keys())
+      keys = keys or tuple(shapes.keys())
       dataset = dataset.map(lambda x: tuple(x[k] for k in keys))
       shapes = tf.compat.v1.data.get_output_shapes(dataset)
 
