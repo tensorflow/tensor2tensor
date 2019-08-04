@@ -49,12 +49,14 @@ import gin
 import jax
 from jax.config import config
 import numpy as onp
+from tensor2tensor import envs  # pylint: disable=unused-import
 from tensor2tensor.envs import gym_env_problem
 from tensor2tensor.envs import rendered_env_problem
 from tensor2tensor.rl import gym_utils
+from tensor2tensor.rl.google import atari_utils  # GOOGLE-INTERNAL:
 from tensor2tensor.trax import layers
 from tensor2tensor.trax import models
-from tensor2tensor.trax.rlax import envs  # pylint: disable=unused-import
+from tensor2tensor.trax.rlax import envs as rlax_envs  # pylint: disable=unused-import
 from tensor2tensor.trax.rlax import ppo
 
 
@@ -103,6 +105,11 @@ flags.DEFINE_bool("clip_rewards", True,
                   "Whether to clip and discretize the rewards.")
 flags.DEFINE_boolean("parallelize_envs", False,
                      "If true, sets parallelism to number of cpu cores.")
+
+
+# TODO(afrozm): Find a better way to do these configurations.
+flags.DEFINE_string("train_server_bns", "", "Train Server's BNS.")
+flags.DEFINE_string("eval_server_bns", "", "Eval Server's BNS.")
 
 
 def common_layers():
@@ -195,6 +202,15 @@ def main(argv):
     eval_env_kwargs.update(env_kwargs)
     eval_env_kwargs["output_dir"] = os.path.join(FLAGS.output_dir,
                                                  "envs/eval")
+
+  if "ClientEnv" in FLAGS.env_problem_name:
+    train_env_kwargs["per_env_kwargs"] = [{
+        "remote_env_address": os.path.join(FLAGS.train_server_bns, str(replica))
+    } for replica in range(FLAGS.batch_size)]
+
+    eval_env_kwargs["per_env_kwargs"] = [{
+        "remote_env_address": os.path.join(FLAGS.eval_server_bns, str(replica))
+    } for replica in range(FLAGS.eval_batch_size)]
 
   # Make an env here.
   env = make_env(batch_size=FLAGS.batch_size, **train_env_kwargs)
