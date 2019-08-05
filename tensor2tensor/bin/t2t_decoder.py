@@ -233,8 +233,7 @@ def main(_):
       decode_hparams=decode_hp,
       use_tpu=FLAGS.use_tpu)
 
-  #decode(estimator, hp, decode_hp)
-
+  decode(estimator, hp, decode_hp)
 
   # Fathom
   # This xcom is here so that tasks after decode know the local path to the
