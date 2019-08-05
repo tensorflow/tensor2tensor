@@ -30,6 +30,7 @@ from tensor2tensor.trax.layers.core import *
 from tensor2tensor.trax.layers.initializers import *
 from tensor2tensor.trax.layers.normalization import *
 from tensor2tensor.trax.layers.pooling import *
+from tensor2tensor.trax.layers.reversible import *
 from tensor2tensor.trax.layers.rnn import *
 
 

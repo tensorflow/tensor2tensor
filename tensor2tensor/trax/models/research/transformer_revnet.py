@@ -95,51 +95,6 @@ def FeedForward(d_model, d_ff, dropout, mode):
   ]
 
 
-class ReversibleLayerMixin(object):
-  """Reversible Layer Mixin."""
-
-  def inverse_and_vjp(self, output, ct, params=(), **kwargs):
-    """Backward pass: computes the inverse of a layer and propagates gradients.
-
-    Args:
-      output: Output activations; can be a (possibly nested) tuple.
-      ct: gradient signal (cotangent) computed based on subsequent layers. If
-          None, no gradients are propagated. Otherwise the structure and shape
-          must match the output.
-      params: layer parameters
-      **kwargs: kwargs for the layer
-
-    Returns:
-      A tuple (x, x_ct), where x is the reconstructed input and x_ct is the
-      gradient signal for the input. If ct is None, x_ct will also be None.
-    """
-    if ct is None:
-      # Subclasses must override inverse_and_vjp, but in the case where ct is
-      # not None there is an unoptimized implementation below that they can
-      # delegate to.
-      raise NotImplementedError
-
-    # Note: jax.vjp does not allow us to use **kwargs in the signature here.
-    def _do_call(x, params, kwargs):
-      return super(ReversibleLayerMixin, self).call(x, params=params, **kwargs)
-
-    reconstructed_x, must_be_none = self.inverse_and_vjp(
-        output, None, params, **kwargs)
-    assert must_be_none is None
-    _, vjpfun = jax.vjp(_do_call, reconstructed_x, params, kwargs)
-    input_ct = vjpfun(ct)
-    return reconstructed_x, input_ct
-
-  @property
-  def has_custom_grad(self):
-    return True
-
-  def custom_grad(self, inputs, output, ct, params, **kwargs):
-    del inputs
-    _, input_ct = self.inverse_and_vjp(output, ct, params, **kwargs)
-    return input_ct
-
-
 class Split(tl.Layer):
   """Splits the input into sections along an axis."""
 
@@ -184,7 +139,7 @@ def Unchunk(x, params, n_sections=2, **kwargs):
       ) + x.shape[2:])
 
 
-class ReversibleHalfResidual(ReversibleLayerMixin, tl.Serial):
+class ReversibleHalfResidual(tl.ReversibleLayer, tl.Serial):
   """Half of a RevNet-style residual (only updates part of the hidden state)."""
 
   def __init__(self, residual_layers):
@@ -204,36 +159,40 @@ class ReversibleHalfResidual(ReversibleLayerMixin, tl.Serial):
     self.subtract_top = tl.Parallel(tl.SubtractTop(), [])
     self.reverse_layers = [self.compute_residual, self.subtract_top]
 
-  def inverse_and_vjp(self, output, ct, params=(), **kwargs):
+  def reverse(self, output, params=(), **kwargs):
+    reconstructed_x = output
+    rng = kwargs.pop('rng', None)
+    rngs = (None,) * self._n_layers
+    if rng is not None:
+      rngs = backend.random.split(rng, self._n_layers)
+    # Note that self.sublayers() aligns exactly with self.reverse_layers in
+    # terms of parameter and rng usage, so no re-ordering is required.
+    for layer, p, rng in zip(self.reverse_layers, params, rngs):
+      reconstructed_x = layer(reconstructed_x, p, rng=rng, **kwargs)
+    return reconstructed_x
+
+  def reverse_and_grad(self, output, ct, params=(), **kwargs):
     rng = kwargs.pop('rng', None)
     rngs = (None,) * self._n_layers
     if rng is not None:
       rngs = backend.random.split(rng, self._n_layers)
 
-    if ct is None:
-      reconstructed_x = output
-      # Note that self.sublayers() aligns exactly with self.reverse_layers in
-      # terms of parameter and rng usage, so no re-ordering is required.
-      for layer, p, rng in zip(self.reverse_layers, params, rngs):
-        reconstructed_x = layer(reconstructed_x, p, rng=rng, **kwargs)
-      return reconstructed_x, None
-    else:
-      # Note: jax.vjp does not allow us to use **kwargs in the signature here.
-      def call_compute_residual(x, params, kwargs):
-        return self.compute_residual(x, params, **kwargs)
+    # Note: jax.vjp does not allow us to use **kwargs in the signature here.
+    def call_compute_residual(x, params, kwargs):
+      return self.compute_residual(x, params, **kwargs)
 
-      assert len(ct) == 2
-      ct = ((ct[0], ct[0], ct[1]))
+    assert len(ct) == 2
+    ct = ((ct[0], ct[0], ct[1]))
 
-      compute_residual_kwargs = kwargs.copy()
-      compute_residual_kwargs['rng'] = rngs[0]
-      stack_with_residual, vjpfun = jax.vjp(
-          call_compute_residual, output, params[0], compute_residual_kwargs)
-      reconstructed_x = self.subtract_top(
-          stack_with_residual, params[-1], rng=rngs[-1], **kwargs)
+    compute_residual_kwargs = kwargs.copy()
+    compute_residual_kwargs['rng'] = rngs[0]
+    stack_with_residual, vjpfun = jax.vjp(
+        call_compute_residual, output, params[0], compute_residual_kwargs)
+    reconstructed_x = self.subtract_top(
+        stack_with_residual, params[-1], rng=rngs[-1], **kwargs)
 
-      x_ct, residual_params_ct, kwargs_ct = vjpfun(ct)
-      return reconstructed_x, (x_ct, (residual_params_ct, ()), kwargs_ct)
+    x_ct, residual_params_ct, kwargs_ct = vjpfun(ct)
+    return reconstructed_x, (x_ct, (residual_params_ct, ()), kwargs_ct)
 
 
 @tl.layer(n_inputs=1, n_outputs=1)
@@ -439,7 +398,7 @@ class MemoryEfficientDotProductAttention(DotProductAttention):
       return final_vals[1], final_vals[2:]
 
 
-class ReversibleAttentionHalfResidual(ReversibleLayerMixin, tl.Serial):
+class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
   """Half of a RevNet-style residual that performs attention.
 
   If inputs are (x1, x2), then outputs are (x1 + z, x2) where:
@@ -483,139 +442,88 @@ class ReversibleAttentionHalfResidual(ReversibleLayerMixin, tl.Serial):
         self.subtract_top,
     ]
 
-  def inverse_and_vjp(self, output, ct, params=(), **kwargs):
+  def reverse(self, output, params=(), **kwargs):
     rng = kwargs.pop('rng', None)
     rngs = (None,) * self._n_layers
     if rng is not None:
       rngs = backend.random.split(rng, self._n_layers)
 
-    if ct is None:
-      reconstructed_x = output
-      # Note that self.sublayers() aligns exactly with self.reverse_layers in
-      # terms of parameter and rng usage, so no re-ordering is required.
-      for layer, p, rng in zip(self.reverse_layers, params, rngs):
-        reconstructed_x = layer(reconstructed_x, p, rng=rng, **kwargs)
-      return reconstructed_x, None
-    else:
-      # Forward pass through self.pre_attention, while preparing for
-      # later backprop.
-      # Note: jax.vjp does not allow us to use **kwargs in the signature here.
-      def call_pre_attention(x, params, kwargs):
-        return self.pre_attention(x, params, **kwargs)
-      pre_attention_kwargs = kwargs.copy()
-      pre_attention_kwargs['rng'] = rngs[0]
-      stack, pre_attention_vjpfun = jax.vjp(
-          call_pre_attention, output, params[0], pre_attention_kwargs)
+    reconstructed_x = output
+    # Note that self.sublayers() aligns exactly with self.reverse_layers in
+    # terms of parameter and rng usage, so no re-ordering is required.
+    for layer, p, rng in zip(self.reverse_layers, params, rngs):
+      reconstructed_x = layer.reverse(reconstructed_x, p, rng=rng, **kwargs)
+    return reconstructed_x
 
-      # Backprop through adding the residual
-      assert len(ct) == 2
-      ct = saved_ct = (ct[0], ct[0], ct[1])
-
-      # Backprop through self.post_attention with respect to the inputs only
-      call_post_attention_kwargs = kwargs.copy()
-      call_post_attention_kwargs['rng'] = rngs[2]
-      def call_post_attention(x):
-        return self.post_attention(x, params[2], **call_post_attention_kwargs)
-      # Note: these are *not* the actual inputs to self.post_attention.
-      # If self.post_attention is not linear, we will get incorrect gradients.
-      dummy_inputs = (stack[-3], stack[-2], stack[-1])
-      _, post_attention_vjpfun = jax.vjp(call_post_attention, dummy_inputs)
-      (ct,) = post_attention_vjpfun(ct)
-
-      # Simultaneous forward pass and backprop through the attention mechanism
-      attention_kwargs = kwargs.copy()
-      attention_kwargs['rng'] = rngs[1]
-      stack, ct = self.attention.forward_and_vjp(
-          stack, ct, **attention_kwargs)
-      attention_params_ct = ()
-
-      # Backprop through self.pre_attention
-      (x_ct,
-       pre_attention_params_ct,
-       pre_attention_kwargs_ct) = pre_attention_vjpfun(ct)
-
-      # Forward pass for self.post_attention, and backprop with respect to the
-      # parameters only
-      def call_post_attention2(params, kwargs):
-        return self.post_attention(stack, params, **kwargs)
-      stack, post_attention_vjpfun = jax.vjp(
-          call_post_attention2, params[2], call_post_attention_kwargs)
-      (post_attention_params_ct,
-       post_attention_kwargs_ct) = post_attention_vjpfun(saved_ct)
-
-      # Forward pass through subtracting the residual
-      reconstructed_x = self.subtract_top(
-          stack, params[-1], rng=rngs[-1], **kwargs)
-
-      params_ct = (
-          pre_attention_params_ct,
-          attention_params_ct,
-          post_attention_params_ct,
-          (),
-          )
-
-      # We don't actually backprop through the kwargs, but the API requires that
-      # we provide a value for kwargs_ct.
-      kwargs_ct = pre_attention_kwargs_ct
-      del post_attention_kwargs_ct
-
-      return reconstructed_x, (x_ct, params_ct, kwargs_ct)
-
-
-class ReversibleSwap(ReversibleLayerMixin, tl.Swap):
-  """Swap the first two element on the stack."""
-
-  def inverse_and_vjp(self, output, ct, params=(), **kwargs):
-    if ct is None:
-      # Swap is its own inverse
-      return self.call(output, params, **kwargs), None
-    else:
-      return super(ReversibleSwap, self).inverse_and_vjp(
-          output, ct, params, **kwargs)
-
-
-class ReversibleSerial(ReversibleLayerMixin, tl.Serial):
-  """A reversible version of tl.Serial (requires reversible sub-layers)."""
-
-  def __init__(self, *layers):
-    super(ReversibleSerial, self).__init__(*layers)
-
-    # Note that sublayers has already been flattened to remove nested lists.
-    for i, layer in enumerate(self.sublayers()):
-      if not isinstance(layer, ReversibleLayerMixin):
-        raise ValueError(
-            'Sub-layer {} of ReversibleSerial is not reversible: {}'.format(
-                i, layer))
-
-  def inverse_and_vjp(self, output, ct, params=(), **kwargs):
+  def reverse_and_grad(self, output, ct, params=(), **kwargs):
     rng = kwargs.pop('rng', None)
     rngs = (None,) * self._n_layers
     if rng is not None:
       rngs = backend.random.split(rng, self._n_layers)
 
-    layer_val = output
-    if ct is not None:
-      layer_ct = ct
-      params_ct = []
-    for layer, p, rng in reversed(zip(self.sublayers(), params, rngs)):
-      layer_val, layer_ct = layer.inverse_and_vjp(
-          layer_val, layer_ct, p, rng=rng, **kwargs)
-      if ct is not None:
-        layer_ct, p_ct, kwargs_ct = layer_ct
-        params_ct.insert(0, p_ct)
+    # Forward pass through self.pre_attention, while preparing for
+    # later backprop.
+    # Note: jax.vjp does not allow us to use **kwargs in the signature here.
+    def call_pre_attention(x, params, kwargs):
+      return self.pre_attention(x, params, **kwargs)
+    pre_attention_kwargs = kwargs.copy()
+    pre_attention_kwargs['rng'] = rngs[0]
+    stack, pre_attention_vjpfun = jax.vjp(
+        call_pre_attention, output, params[0], pre_attention_kwargs)
 
-    # TODO(kitaev): Handle kwargs_ct properly. However, kwargs generally only
-    # contains the rng, which is non-differentiable.
-    for k in kwargs:
-      if k != 'rng':
-        raise NotImplementedError(
-            'ReversibleSerial does not support differentiation wrt kwargs,'
-            'and the key {} is not known to be non-differentiable.'.format(k))
+    # Backprop through adding the residual
+    assert len(ct) == 2
+    ct = saved_ct = (ct[0], ct[0], ct[1])
 
-    if ct is not None:
-      return layer_val, (layer_ct, params_ct, kwargs_ct)
-    else:
-      return layer_val, None
+    # Backprop through self.post_attention with respect to the inputs only
+    call_post_attention_kwargs = kwargs.copy()
+    call_post_attention_kwargs['rng'] = rngs[2]
+    def call_post_attention(x):
+      return self.post_attention(x, params[2], **call_post_attention_kwargs)
+    # Note: these are *not* the actual inputs to self.post_attention.
+    # If self.post_attention is not linear, we will get incorrect gradients.
+    dummy_inputs = (stack[-3], stack[-2], stack[-1])
+    _, post_attention_vjpfun = jax.vjp(call_post_attention, dummy_inputs)
+    (ct,) = post_attention_vjpfun(ct)
+
+    # Simultaneous forward pass and backprop through the attention mechanism
+    attention_kwargs = kwargs.copy()
+    attention_kwargs['rng'] = rngs[1]
+    stack, ct = self.attention.forward_and_vjp(
+        stack, ct, **attention_kwargs)
+    attention_params_ct = ()
+
+    # Backprop through self.pre_attention
+    (x_ct,
+     pre_attention_params_ct,
+     pre_attention_kwargs_ct) = pre_attention_vjpfun(ct)
+
+    # Forward pass for self.post_attention, and backprop with respect to the
+    # parameters only
+    def call_post_attention2(params, kwargs):
+      return self.post_attention(stack, params, **kwargs)
+    stack, post_attention_vjpfun = jax.vjp(
+        call_post_attention2, params[2], call_post_attention_kwargs)
+    (post_attention_params_ct,
+     post_attention_kwargs_ct) = post_attention_vjpfun(saved_ct)
+
+    # Forward pass through subtracting the residual
+    reconstructed_x = self.subtract_top(
+        stack, params[-1], rng=rngs[-1], **kwargs)
+
+    params_ct = (
+        pre_attention_params_ct,
+        attention_params_ct,
+        post_attention_params_ct,
+        (),
+        )
+
+    # We don't actually backprop through the kwargs, but the API requires that
+    # we provide a value for kwargs_ct.
+    kwargs_ct = pre_attention_kwargs_ct
+    del post_attention_kwargs_ct
+
+    return reconstructed_x, (x_ct, params_ct, kwargs_ct)
 
 
 def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
@@ -671,9 +579,9 @@ def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
   ]
   return [
       ReversibleAttentionHalfResidual(pre_attention, attention, post_attention),
-      ReversibleSwap(),
+      tl.ReversibleSwap(),
       ReversibleHalfResidual(feed_forward),
-      ReversibleSwap(),
+      tl.ReversibleSwap(),
   ]
 
 
@@ -721,7 +629,7 @@ def TransformerRevnetLM(vocab_size,
       tl.ShiftRight(),
       positional_embedder,
       tl.Dup(),
-      ReversibleSerial([
+      tl.ReversibleSerial([
           # pylint: disable=g-complex-comprehension
           DecoderBlock(d_model, d_ff,
                        d_attention_key, d_attention_value, n_heads,
