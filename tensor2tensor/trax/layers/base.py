@@ -23,10 +23,11 @@ import inspect
 import traceback
 
 import jax
-from jax.interpreters import partial_eval as pe
 
 import numpy as onp
 from tensor2tensor.trax import backend
+from tensor2tensor.trax.backend import nested_map
+from tensor2tensor.trax.backend import ShapeType
 
 
 class Layer(object):
@@ -178,16 +179,16 @@ class Layer(object):
       layer has more than one output).
     """
     try:
-      with backend.use_backend('jax'):
-        # Beware: using an actual RNG (as opposed to this ShapeType stub) would
-        # cause a large number of dropout masks to be computed and permanently
-        # stored in global memory.
-        rng = ShapeType(shape=(2,), dtype=onp.uint32)
-        def call_on_input(x, params, rng):
-          return self.call(x, params=params, rng=rng)
-        params_shapes = nested_map(
-            params, lambda x: ShapeType(shape=x.shape, dtype=x.dtype))
-        s = _eval_on_shapes(call_on_input, pseudo_inputs, params_shapes, rng)
+      # Beware: using an actual RNG (as opposed to this ShapeType stub) would
+      # cause a large number of dropout masks to be computed and permanently
+      # stored in global memory.
+      rng = ShapeType(shape=(2,), dtype=onp.uint32)
+      def call_on_input(x, params, rng):
+        return self.call(x, params=params, rng=rng)
+      params_shapes = nested_map(
+          params, lambda x: ShapeType(shape=x.shape, dtype=x.dtype))
+      s = backend.eval_on_shapes(call_on_input)(pseudo_inputs,
+                                                params_shapes, rng)
       return s
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback(skip=3)
@@ -264,17 +265,6 @@ class Layer(object):
       raise LayerError(name, 'call', self._caller, shapes(x), trace)
 
 
-class ShapeType(object):
-  """Store shape and type."""
-
-  def __init__(self, shape, dtype):
-    self.shape = shape
-    self.dtype = dtype
-
-  def __repr__(self):
-    return '[shape:' + str(self.shape) + ', dtype:' + str(self.dtype) + ']'
-
-
 class LayerError(Exception):
   """Exception raised in the layer stack.
 
@@ -302,39 +292,6 @@ class LayerError(Exception):
     return prefix + caller + shapes_str + self._traceback
 
 
-# TODO(lukaszkaiser): remove this function once JAX has an analogue.
-def _eval_on_shapes(f, *args):
-  """Evaluates f given only shapes and types."""
-  def abstractify(x):
-    return jax.abstract_arrays.raise_to_shaped(jax.core.get_aval(x))
-
-  def make_array(arg):
-    return backend.numpy.zeros(shape=arg.shape, dtype=arg.dtype)
-
-  def turn_back_into_pytree(x):
-    if isinstance(x, jax.core.JaxTuple):
-      return tuple([turn_back_into_pytree(y) for y in x])
-    return x
-
-  def get_shapes_and_types(x):
-    if isinstance(x, jax.core.AbstractTuple):
-      return tuple([get_shapes_and_types(y) for y in x])
-    return ShapeType(x.shape, x.dtype)
-
-  def f_jaxtuple(*jaxtuple_args):
-    args = map(turn_back_into_pytree, jaxtuple_args)
-    out = f(*args)
-    res, _ = jax.api_util.pytree_to_jaxtupletree(out)
-    return res
-
-  args_arrays = nested_map(args, make_array)
-  jaxtuple_args, _ = jax.util.unzip2(
-      map(jax.api_util.pytree_to_jaxtupletree, args_arrays))
-  res = pe.abstract_eval_fun(f_jaxtuple, *map(abstractify, jaxtuple_args))
-
-  return get_shapes_and_types(res)
-
-
 def _apply_to_first_n(f, x, n):
   """Helper: apply f to first n elements on the stack x if n > 0."""
   if n < 1:
@@ -351,15 +308,6 @@ def _apply_to_first_n(f, x, n):
   if isinstance(x, tuple):
     result = tuple(result)
   return result
-
-
-def nested_map(x, f):
-  """Map the function f to the nested structure x (dicts, tuples, lists)."""
-  if isinstance(x, list):
-    return [nested_map(y, f) for y in x]
-  if isinstance(x, tuple):
-    return tuple([nested_map(y, f) for y in x])
-  return f(x)
 
 
 def nested_reduce(x, f):

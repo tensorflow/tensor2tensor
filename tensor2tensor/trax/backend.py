@@ -20,11 +20,13 @@ from __future__ import division
 from __future__ import print_function
 
 import contextlib
+import functools
 import gin
 
 import jax
 from jax import lax
 from jax import random as jax_random
+from jax.interpreters import partial_eval as pe
 import jax.numpy as jnp
 import jax.scipy.special as jax_special
 import numpy as onp
@@ -94,6 +96,76 @@ def jax_avg_pool(x, pool_size, strides, padding):
                           pool_size, strides=strides, padding=padding)
 
 
+def nested_map(x, f):
+  """Map the function f to the nested structure x (dicts, tuples, lists)."""
+  if isinstance(x, list):
+    return [nested_map(y, f) for y in x]
+  if isinstance(x, tuple):
+    return tuple([nested_map(y, f) for y in x])
+  return f(x)
+
+
+class ShapeType(object):
+  """Store shape and type."""
+
+  def __init__(self, shape, dtype):
+    self.shape = shape
+    self.dtype = dtype
+
+  def __repr__(self):
+    return "[shape:" + str(self.shape) + ", dtype:" + str(self.dtype) + "]"
+
+
+# TODO(lukaszkaiser): remove this function once JAX has an analogue.
+# pylint: disable=missing-docstring
+def _jax_eval_on_shapes(f, *args):
+  def abstractify(x):
+    return jax.abstract_arrays.raise_to_shaped(jax.core.get_aval(x))
+
+  def make_array(arg):
+    return jnp.zeros(shape=arg.shape, dtype=arg.dtype)
+
+  def turn_back_into_pytree(x):
+    if isinstance(x, jax.core.JaxTuple):
+      return tuple([turn_back_into_pytree(y) for y in x])
+    return x
+
+  def get_shapes_and_types(x):
+    if isinstance(x, jax.core.AbstractTuple):
+      return tuple([get_shapes_and_types(y) for y in x])
+    return ShapeType(x.shape, x.dtype)
+
+  def f_jaxtuple(*jaxtuple_args):
+    args = map(turn_back_into_pytree, jaxtuple_args)
+    out = f(*args)
+    res, _ = jax.api_util.pytree_to_jaxtupletree(out)
+    return res
+
+  args_arrays = nested_map(args, make_array)
+  jaxtuple_args, _ = jax.util.unzip2(
+      map(jax.api_util.pytree_to_jaxtupletree, args_arrays))
+  res = pe.abstract_eval_fun(f_jaxtuple, *map(abstractify, jaxtuple_args))
+
+  return get_shapes_and_types(res)
+
+
+def jax_eval_on_shapes(f):
+  """Returns a function that evaluates `f` given input shapes and dtypes.
+
+  It transforms function `f` to a function that performs the same computation as
+  `f` but only on shapes and dtypes (a.k.a. shape inference).
+
+  Args:
+    f: the function to be transformed.
+
+  Returns:
+    A function whose input arguments can be either the same as `f`'s or only
+    their shapes/dtypes represented by `ShapeType`, and whose return values are
+    `ShapeType`s with the same nested structure as `f`'s return values.
+  """
+  return functools.partial(_jax_eval_on_shapes, f)
+
+
 _JAX_BACKEND = {
     "name": "jax",
     "np": jnp,
@@ -105,6 +177,7 @@ _JAX_BACKEND = {
     "jit": jax.jit,
     "grad": jax.grad,
     "pmap": jax.pmap,
+    "eval_on_shapes": jax_eval_on_shapes,
     "random_uniform": jax_random.uniform,
     "random_normal": jax_random.normal,
     "random_bernoulli": jax_random.bernoulli,
@@ -157,6 +230,10 @@ def grad(*args, **kwargs):
 
 def pmap(*args, **kwargs):
   return backend()["pmap"](*args, **kwargs)
+
+
+def eval_on_shapes(*args, **kwargs):
+  return backend()["eval_on_shapes"](*args, **kwargs)
 
 
 def dataset_as_numpy(*args, **kwargs):
