@@ -2719,6 +2719,17 @@ def transformer_librispeech_tpu_v2():
 
 
 @registry.register_hparams
+def transformer_librispeech_with_area_attention():
+  """HParams for training ASR model on Librispeech on TPU v2."""
+  hparams = transformer_librispeech_tpu_v2()
+  hparams.num_area_layers = 3  # area attn on first 3 encoder and decoder layers
+  hparams.max_area_width = 5
+  hparams.area_key_mode = "concat"
+  hparams.area_value_mode = "sum"
+  return hparams
+
+
+@registry.register_hparams
 def transformer_librispeech():
   """HParams for training ASR model on Librispeech."""
   return transformer_librispeech_v2()
