@@ -28,6 +28,7 @@ from absl import logging
 
 import gin
 import jax
+from tensor2tensor.trax import backend
 from tensor2tensor.trax import trax
 
 import tensorflow as tf
@@ -108,6 +109,12 @@ def main(_):
   )
 
   _setup_gin()
+
+  if FLAGS.tf_eager and backend.get_name() in ("numpy", "jax"):
+    # Numpy backend doesn't benefit from having the input pipeline run on GPU,
+    # and jax backend has GPU memory contention if TF uses the GPU. Gin must be
+    # set up first before determining the backend.
+    tf.config.experimental.set_visible_devices([], "GPU")
 
   # Setup output directory
   output_dir = FLAGS.output_dir or _default_output_dir()
