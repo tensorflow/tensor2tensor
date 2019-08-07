@@ -283,6 +283,9 @@ class MemoryEfficientDotProductAttention(DotProductAttention):
   def __init__(self, loop_stride, dropout, mode):
     super(MemoryEfficientDotProductAttention, self).__init__(dropout, mode)
     self._loop_stride = loop_stride
+    # TODO(kitaev): implement attention dropout
+    assert dropout is None or dropout == 0.0, (
+        'Dropout is not implemented in MemoryEfficientDotProductAttention.')
 
   def call(self, inputs, params=(), **kwargs):
     output, _ = self.forward_and_vjp(inputs, None, params=params, **kwargs)
@@ -527,7 +530,7 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
 
 
 def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
-                 n_heads, n_attention_chunks, attention_loop_stride,
+                 n_heads, n_attention_chunks, attention_type,
                  dropout, mode):
   """Reversible transformer decoder layer.
 
@@ -538,8 +541,7 @@ def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
     d_attention_value: int: depth of value vector for each attention head
     n_heads: int: number of attention heads
     n_attention_chunks: int: number of chunks for attention
-    attention_loop_stride: int: number of query elements to compute attention
-      for in parallel. Set to 0 to disable memory-efficient attention.
+    attention_type: class: attention class to use, such as DotProductAttention.
     dropout: float: dropout rate (how much to drop out)
     mode: str: 'train' or 'eval'
 
@@ -558,13 +560,7 @@ def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
       ),
   ]
 
-  # TODO(kitaev): add dropout
-  if attention_loop_stride < 1:
-    # Use the standard implementation if no loop_stride is provided.
-    attention = DotProductAttention(dropout=None, mode=mode)
-  else:
-    attention = MemoryEfficientDotProductAttention(
-        loop_stride=attention_loop_stride, dropout=None, mode=mode)
+  attention = attention_type(mode=mode)
 
   # ReversibleAttentionHalfResidual requires that post_attention be linear in
   # its input (so the backward pass can be computed without knowing the input)
@@ -596,7 +592,7 @@ def TransformerRevnetLM(vocab_size,
                         max_len=2048,
                         n_chunks=32,
                         n_attention_chunks=8,
-                        attention_loop_stride=0,
+                        attention_type=DotProductAttention,
                         mode='train'):
   """Reversible transformer language model (only uses a decoder, no encoder).
 
@@ -612,8 +608,7 @@ def TransformerRevnetLM(vocab_size,
     max_len: int: maximum symbol length for positional encoding
     n_chunks: int: number of chunks (must match input pipeline)
     n_attention_chunks: int: number of chunks for attention
-    attention_loop_stride: int: number of query elements to compute attention
-      for in parallel. Set to 0 to disable memory-efficient attention.
+    attention_type: class: attention class to use, such as DotProductAttention.
     mode: str: 'train' or 'eval'
 
   Returns:
@@ -633,7 +628,7 @@ def TransformerRevnetLM(vocab_size,
           # pylint: disable=g-complex-comprehension
           DecoderBlock(d_model, d_ff,
                        d_attention_key, d_attention_value, n_heads,
-                       n_attention_chunks, attention_loop_stride,
+                       n_attention_chunks, attention_type,
                        dropout, mode)
           for _ in range(n_layers)
       ]),

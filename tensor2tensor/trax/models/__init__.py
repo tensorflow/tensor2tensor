@@ -47,3 +47,8 @@ TransformerEncoder = model_configure(transformer.TransformerEncoder)
 TransformerLM = model_configure(transformer.TransformerLM)
 TransformerRevnetLM = model_configure(transformer_revnet.TransformerRevnetLM)
 WideResnet = model_configure(resnet.WideResnet)
+
+DotProductAttention = model_configure(
+    transformer_revnet.DotProductAttention, blacklist=["mode"])
+MemoryEfficientDotProductAttention = model_configure(
+    transformer_revnet.MemoryEfficientDotProductAttention, blacklist=["mode"])

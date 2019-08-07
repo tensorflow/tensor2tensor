@@ -32,6 +32,16 @@ train.optimizer = @trax.optimizers.Adafactor
 train.train_steps = 500000
 train.trainer_class = @MemoryEfficientTrainer
 
+# Parameters for DotProductAttention:
+# ==============================================================================
+DotProductAttention.dropout = 0.0
+MemoryEfficientDotProductAttention.loop_stride = 512
+
+# Parameters for MemoryEfficientDotProductAttention:
+# ==============================================================================
+MemoryEfficientDotProductAttention.dropout = 0.0
+MemoryEfficientDotProductAttention.loop_stride = 512
+
 # Parameters for TransformerRevnetLM:
 # ==============================================================================
 TransformerRevnetLM.d_model = 1024
@@ -46,4 +56,5 @@ TransformerRevnetLM.n_layers = 6
 TransformerRevnetLM.vocab_size = 256
 TransformerRevnetLM.n_chunks = 16
 TransformerRevnetLM.n_attention_chunks = 1
-TransformerRevnetLM.attention_loop_stride = 512
+TransformerRevnetLM.attention_type = \
+    @trax.models.MemoryEfficientDotProductAttention
