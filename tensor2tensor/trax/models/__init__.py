@@ -52,3 +52,5 @@ DotProductAttention = model_configure(
     transformer_revnet.DotProductAttention, blacklist=["mode"])
 MemoryEfficientDotProductAttention = model_configure(
     transformer_revnet.MemoryEfficientDotProductAttention, blacklist=["mode"])
+DummyHashedAttention = model_configure(
+    transformer_revnet.DummyHashedAttention, blacklist=["mode"])

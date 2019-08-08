@@ -401,6 +401,117 @@ class MemoryEfficientDotProductAttention(DotProductAttention):
       return final_vals[1], final_vals[2:]
 
 
+class DummyHashedAttention(DotProductAttention):
+  """A stand-in for hash-based attention, but without a real hash function."""
+
+  def __init__(self, dropout, mode, n_bins=64):
+    super(DummyHashedAttention, self).__init__(dropout, mode)
+    self.n_bins = n_bins
+
+  def call(self, inputs, params=(), **kwargs):
+    output, _ = self.forward_and_vjp(inputs, None, params=params, **kwargs)
+    return output
+
+  def forward_and_vjp(self, inputs, ct, params=(), **kwargs):
+    del params, kwargs
+    q, k, v = inputs
+    # q/k/v are n_batch, n_heads, seqlen, d_head
+
+    assert k.shape[2] % self.n_bins == 0
+    bin_size = int(k.shape[2] // self.n_bins)
+
+    # q_bins/kv_bins are n_batch, n_heads, seqlen
+    # They specify which hash bucket the query/key/value vectors fall in. For
+    # now, instead of hashing we just put consecutive items in the same bucket.
+    q_bins = np.arange(q.shape[2], dtype=np.int32) // bin_size
+    q_bins = jax.lax.tie_in(q, q_bins)
+    q_bins = q_bins[None, None, :]
+    q_bins = np.broadcast_to(q_bins, q.shape[:-1])
+    q_bins = -q_bins
+    kv_bins = q_bins * 2
+
+    # q_t/kv_t are n_batch, n_heads, seqlen
+    q_t = jax.lax.tie_in(q, np.arange(q.shape[2]))
+    q_t = np.reshape(q_t, (1, 1, q_t.shape[0]))
+    q_t = np.broadcast_to(q_t, q.shape[:-1])
+    kv_t = q_t
+
+    def chunk_rank3(x):
+      return np.reshape(x, (x.shape[0], x.shape[1], self.n_bins, -1))
+
+    def chunk_rank4(x):
+      return np.reshape(
+          x, (x.shape[0], x.shape[1], self.n_bins, -1, x.shape[-1]))
+
+    def unchunk_rank4(x):
+      return np.reshape(x, (x.shape[0], x.shape[1], -1, x.shape[-1]))
+
+   # Sort everything by bin number (variables starting with "s" are sorted)
+    _, sq_t = jax.lax.sort_key_val(q_bins, q_t, dimension=2)
+
+    sq = np.take_along_axis(q, sq_t[:, :, :, None], axis=2)
+    if ct is not None:
+      so_ct = np.take_along_axis(ct, sq_t[:, :, :, None], axis=2)
+
+    _, skv_t = jax.lax.sort_key_val(kv_bins, kv_t, dimension=2)
+    sk = np.take_along_axis(k, skv_t[:, :, :, None], axis=2)
+    sv = np.take_along_axis(v, skv_t[:, :, :, None], axis=2)
+
+    @jax.jit
+    def binned_attn(sq, sk, sv):
+      """Performs attention on sorted queries/keys/values."""
+      # Split off a "bin" axis so that attention only occurs whithin chunks.
+      bq_t = chunk_rank3(sq_t)
+      bkv_t = chunk_rank3(skv_t)
+      bq = chunk_rank4(sq)
+      bk = chunk_rank4(sk)
+      bv = chunk_rank4(sv)
+
+      dots = np.matmul(bq, np.swapaxes(bk, -1, -2)) / np.sqrt(bq.shape[-1])
+
+      # Causal masking
+      mask = jax.lax.convert_element_type(
+          jax.lax.lt(bq_t[:, :, :, :, None], bkv_t[:, :, :, None, :]),
+          np.float32)
+      dots = dots - 1e9 * mask
+
+      # Softmax.
+      dots = np.exp(dots - dots.max(axis=-1, keepdims=True))
+      dots = dots / dots.sum(axis=-1, keepdims=True)
+      bo = np.matmul(dots, bv)
+
+      so = unchunk_rank4(bo)
+      return so
+
+    @jax.jit
+    def binned_attn_vjp(sq, sk, sv, so_ct):
+      so, vjpfun = jax.vjp(binned_attn, sq, sk, sv)
+      sqkv_ct = vjpfun(so_ct)
+      return so, sqkv_ct
+
+    if ct is None:
+      so = binned_attn(sq, sk, sv)
+      _, undo_q_sort = jax.lax.sort_key_val(sq_t, q_t, dimension=2)
+      out = np.take_along_axis(so, undo_q_sort[:, :, :, None], axis=2)
+      return out, None
+    else:
+      # Jax can construct a backward pass automatically, but it's about 2x
+      # slower than writing our own. The main reason is that the backward pass
+      # of gather is in general a scatter operation, but we know we're dealing
+      # with permutations so we use gather for the backward pass too.
+      so, (sq_ct, sk_ct, sv_ct) = binned_attn_vjp(sq, sk, sv, so_ct)
+
+      _, undo_q_sort = jax.lax.sort_key_val(sq_t, q_t, dimension=2)
+      out = np.take_along_axis(so, undo_q_sort[:, :, :, None], axis=2)
+      q_ct = np.take_along_axis(sq_ct, undo_q_sort[:, :, :, None], axis=2)
+
+      _, undo_kv_sort = jax.lax.sort_key_val(skv_t, kv_t, dimension=2)
+      k_ct = np.take_along_axis(sk_ct, undo_kv_sort[:, :, :, None], axis=2)
+      v_ct = np.take_along_axis(sv_ct, undo_kv_sort[:, :, :, None], axis=2)
+
+      return out, (q_ct, k_ct, v_ct)
+
+
 class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
   """Half of a RevNet-style residual that performs attention.
 

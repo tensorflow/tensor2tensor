@@ -35,12 +35,16 @@ train.trainer_class = @MemoryEfficientTrainer
 # Parameters for DotProductAttention:
 # ==============================================================================
 DotProductAttention.dropout = 0.0
-MemoryEfficientDotProductAttention.loop_stride = 512
 
 # Parameters for MemoryEfficientDotProductAttention:
 # ==============================================================================
 MemoryEfficientDotProductAttention.dropout = 0.0
 MemoryEfficientDotProductAttention.loop_stride = 512
+
+# Parameters for DummyHashedAttention:
+# ==============================================================================
+DummyHashedAttention.dropout = 0.0
+DummyHashedAttention.n_bins = 64
 
 # Parameters for TransformerRevnetLM:
 # ==============================================================================
