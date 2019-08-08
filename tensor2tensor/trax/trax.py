@@ -95,7 +95,7 @@ def masked_mean(inputs, targets, weights, mask_id=None):
   if mask_id is not None:
     weights = [w * (1.0 - np.equal(t, mask_id).astype(np.float32))
                for t, w in zip(targets, weights)]
-  weight_sums = [t.size if np.isscalar(w) else np.sum(w)
+  weight_sums = [np.float32(t.size) if np.isscalar(w) else np.sum(w)
                  for w, t in zip(weights, targets)]
   return sum([np.sum(x * w) / (length * s)
               for x, w, s in zip(inputs, weights, weight_sums)])

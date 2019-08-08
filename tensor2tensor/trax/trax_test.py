@@ -22,11 +22,13 @@ from __future__ import print_function
 import contextlib
 import functools
 import tempfile
+from absl.testing import parameterized
 
 import gin
+import jax
 from jax import test_util  # pylint: disable=unused-import
 from jax.config import config
-import numpy as np
+import numpy as onp
 
 from tensor2tensor.trax import backend
 from tensor2tensor.trax import inputs as inputs_lib
@@ -34,7 +36,9 @@ from tensor2tensor.trax import layers
 from tensor2tensor.trax import models
 from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax import trax
+from tensor2tensor.trax.backend import numpy as np
 
+import tensorflow as tf
 from tensorflow import test
 from tensorflow.io import gfile
 
@@ -45,10 +49,14 @@ def test_inputs(n_classes, with_weights=False):
   input_shape = (6, 6, 3)
 
   def input_stream():
+    key = backend.random.get_prng(0)
     while True:
-      inputs = np.random.rand(*([batch_size] + list(input_shape)))
-      targets = np.random.randint(n_classes, size=batch_size)
-      weights = np.random.rand(batch_size)
+      keys = backend.random.split(key, 4)
+      key = keys[0]
+      inputs = backend.random.uniform(keys[1], [batch_size] + list(input_shape))
+      targets = backend.random.randint(keys[2], [batch_size], dtype=np.int32,
+                                       minval=0, maxval=n_classes)
+      weights = backend.random.uniform(keys[3], [batch_size])
       if with_weights:
         yield inputs, targets, weights
       else:
@@ -62,7 +70,10 @@ def test_inputs(n_classes, with_weights=False):
       input_dtype=np.float32)
 
 
-class TraxTest(test.TestCase):
+BACKENDS = ["jax"]
+
+
+class TraxTest(test.TestCase, parameterized.TestCase):
 
   @contextlib.contextmanager
   def tmp_dir(self):
@@ -70,8 +81,13 @@ class TraxTest(test.TestCase):
     yield tmp
     gfile.rmtree(tmp)
 
-  def test_train_eval_predict(self):
-    with self.tmp_dir() as output_dir:
+  # TODO(wangpeng): Remove `skipTest`'s when tf-numpy's `pmap` is in place
+
+  @parameterized.parameters(BACKENDS)
+  def test_train_eval_predict(self, backend_name):
+    if jax.lib.xla_bridge.device_count() > 1 and backend_name == "tf":
+      self.skipTest("tf-numpy backend doesn't support multi-devices yet.")
+    with backend.use_backend(backend_name), self.tmp_dir() as output_dir:
       # Prepare model and inputs
       n_classes = 4
       train_steps = 2
@@ -95,15 +111,18 @@ class TraxTest(test.TestCase):
       train_acc = state.history.get("train", "metrics/accuracy")
       eval_acc = state.history.get("eval", "metrics/accuracy")
       self.assertEqual(len(train_acc), len(eval_acc))
-      self.assertEqual(2, len(eval_acc))
+      self.assertLen(eval_acc, 2)
 
       # Predict with final params
       inputs = inputs(1).train_stream()
       model = layers.Serial(model_fn())
       model(next(inputs)[0], state.opt_state.params)
 
-  def test_train_eval_predict_sm3(self):
-    with self.tmp_dir() as output_dir:
+  @parameterized.parameters(BACKENDS)
+  def test_train_eval_predict_sm3(self, backend_name):
+    if jax.lib.xla_bridge.device_count() > 1 and backend_name == "tf":
+      self.skipTest("tf-numpy backend doesn't support multi-devices yet.")
+    with backend.use_backend(backend_name), self.tmp_dir() as output_dir:
       # Prepare model and inputs
       n_classes = 4
       train_steps = 2
@@ -128,15 +147,18 @@ class TraxTest(test.TestCase):
       train_acc = state.history.get("train", "metrics/accuracy")
       eval_acc = state.history.get("eval", "metrics/accuracy")
       self.assertEqual(len(train_acc), len(eval_acc))
-      self.assertEqual(2, len(eval_acc))
+      self.assertLen(eval_acc, 2)
 
       # Predict with final params
       inputs = inputs(1).train_stream()
       model = layers.Serial(model_fn())
       model(next(inputs)[0], state.opt_state.params)
 
-  def test_train_restart(self):
-    with self.tmp_dir() as output_dir:
+  @parameterized.parameters(BACKENDS)
+  def test_train_restart(self, backend_name):
+    if jax.lib.xla_bridge.device_count() > 1 and backend_name == "tf":
+      self.skipTest("tf-numpy backend doesn't support multi-devices yet.")
+    with backend.use_backend(backend_name), self.tmp_dir() as output_dir:
       # Prepare model and inputs
       n_classes = 4
       train_steps = 2
@@ -163,8 +185,11 @@ class TraxTest(test.TestCase):
       # Assert total train steps
       self.assertEqual(state.step, 2 * train_steps)
 
-  def test_train_with_weights(self):
-    with self.tmp_dir() as output_dir:
+  @parameterized.parameters(BACKENDS)
+  def test_train_with_weights(self, backend_name):
+    if jax.lib.xla_bridge.device_count() > 1 and backend_name == "tf":
+      self.skipTest("tf-numpy backend doesn't support multi-devices yet.")
+    with backend.use_backend(backend_name), self.tmp_dir() as output_dir:
       gin.bind_parameter("unpack_batch.has_weights", True)
 
       # Prepare model and inputs
@@ -187,39 +212,46 @@ class TraxTest(test.TestCase):
       self.assertEqual(state.step, train_steps)
 
 
-class MaskedMeanTest(test.TestCase):
+MASKED_MEAN_TEST_BACKENDS = ["numpy"]
 
-  def test_computes_basic_mean(self):
-    inputs = [np.array([1, 2, 3])]
-    targets = [np.zeros(3)]
-    weights = [1]
-    with backend.use_backend("numpy"):
+
+class MaskedMeanTest(test.TestCase, parameterized.TestCase):
+
+  @parameterized.parameters(MASKED_MEAN_TEST_BACKENDS)
+  def test_computes_basic_mean(self, backend_name):
+    with backend.use_backend(backend_name):
+      inputs = [np.array([1, 2, 3])]
+      targets = [np.zeros(3)]
+      weights = [1]
       mean = trax.masked_mean(inputs, targets, weights)
-      np.testing.assert_allclose(mean, 2)
+      onp.testing.assert_allclose(mean, 2)
 
-  def test_computes_mean_with_weights(self):
-    inputs = [np.array([1, 2, 3])]
-    targets = [np.zeros(3)]
-    weights = [np.array([3, 1, 0])]
-    with backend.use_backend("numpy"):
+  @parameterized.parameters(MASKED_MEAN_TEST_BACKENDS)
+  def test_computes_mean_with_weights(self, backend_name):
+    with backend.use_backend(backend_name):
+      inputs = [np.array([1, 2, 3])]
+      targets = [np.zeros(3)]
+      weights = [np.array([3, 1, 0])]
       mean = trax.masked_mean(inputs, targets, weights)
-      np.testing.assert_allclose(mean, 1.25)
+      onp.testing.assert_allclose(mean, 1.25)
 
-  def test_computes_mean_with_mask(self):
-    inputs = [np.array([1, 2, 3])]
-    targets = [np.array([1, 0, 0])]
-    weights = [1]
-    with backend.use_backend("numpy"):
+  @parameterized.parameters(MASKED_MEAN_TEST_BACKENDS)
+  def test_computes_mean_with_mask(self, backend_name):
+    with backend.use_backend(backend_name):
+      inputs = [np.array([1, 2, 3])]
+      targets = [np.array([1, 0, 0])]
+      weights = [1]
       mean = trax.masked_mean(inputs, targets, weights, mask_id=1)
-      np.testing.assert_allclose(mean, 2.5)
+      onp.testing.assert_allclose(mean, 2.5)
 
-  def test_computes_mean_with_weights_and_mask(self):
-    inputs = [np.array([1, 2, 4])]
-    targets = [np.array([1, 0, 0])]
-    weights = [np.array([10, 4, 1])]
-    with backend.use_backend("numpy"):
+  @parameterized.parameters(MASKED_MEAN_TEST_BACKENDS)
+  def test_computes_mean_with_weights_and_mask(self, backend_name):
+    with backend.use_backend(backend_name):
+      inputs = [np.array([1, 2, 4])]
+      targets = [np.array([1, 0, 0])]
+      weights = [np.array([10, 4, 1])]
       mean = trax.masked_mean(inputs, targets, weights, mask_id=1)
-      np.testing.assert_allclose(mean, 2.4)
+      onp.testing.assert_allclose(mean, 2.4)
 
 
 if __name__ == "__main__":

@@ -166,6 +166,26 @@ def jax_eval_on_shapes(f):
   return functools.partial(_jax_eval_on_shapes, f)
 
 
+# The default value of dtype is different from jax_random.randint
+def jax_randint(key, shape, minval, maxval, dtype=onp.int32):
+  """Sample uniform random values in [minval, maxval) with given shape/dtype.
+
+  Args:
+    key: a PRNGKey used as the random key.
+    shape: a tuple of nonnegative integers representing the shape.
+    minval: int or array of ints broadcast-compatible with ``shape``, a minimum
+      (inclusive) value for the range.
+    maxval: int or array of ints broadcast-compatible with  ``shape``, a maximum
+      (exclusive) value for the range.
+    dtype: optional, an int dtype for the returned values (default int32).
+
+  Returns:
+    A random array with the specified shape and dtype.
+  """
+  return jax_random.randint(key, shape, minval=minval, maxval=maxval,
+                            dtype=dtype)
+
+
 _JAX_BACKEND = {
     "name": "jax",
     "np": jnp,
@@ -179,6 +199,7 @@ _JAX_BACKEND = {
     "pmap": jax.pmap,
     "eval_on_shapes": jax_eval_on_shapes,
     "random_uniform": jax_random.uniform,
+    "random_randint": jax_randint,
     "random_normal": jax_random.normal,
     "random_bernoulli": jax_random.bernoulli,
     "random_get_prng": jax.jit(jax_random.PRNGKey),
@@ -257,6 +278,9 @@ class RandomBackend(object):
 
   def uniform(self, *args, **kwargs):
     return backend()["random_uniform"](*args, **kwargs)
+
+  def randint(self, *args, **kwargs):
+    return backend()["random_randint"](*args, **kwargs)
 
   def normal(self, *args, **kwargs):
     return backend()["random_normal"](*args, **kwargs)
