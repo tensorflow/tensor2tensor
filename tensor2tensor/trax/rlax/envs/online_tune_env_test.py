@@ -77,8 +77,8 @@ class OnlineTuneTest(test.TestCase):
             output_dtype=np.float32),
         output_dir=output_dir,
         action_multipliers=action_multipliers,
-        history_mode=HISTORY_MODE,
-        metric=METRIC,
+        observation_metrics=[(HISTORY_MODE, METRIC)],
+        reward_metric=(HISTORY_MODE, METRIC),
         train_steps=1,
         eval_steps=1,
         env_steps=(len(metrics_to_report) - 1))

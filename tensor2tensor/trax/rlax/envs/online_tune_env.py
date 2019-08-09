@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import math
 import os
 
 import gym
@@ -53,8 +54,9 @@ class OnlineTuneEnv(gym.Env):
                optimizer=trax_opt.SM3,
                inputs=trax_inputs.inputs,
                action_multipliers=None,
-               history_mode="eval",
-               metric="metrics/accuracy",
+               observation_metrics=(("eval", "metrics/accuracy"),),
+               include_lr_in_observation=False,
+               reward_metric=("eval", "metrics/accuracy"),
                train_steps=100,
                eval_steps=10,
                env_steps=100,
@@ -69,8 +71,9 @@ class OnlineTuneEnv(gym.Env):
         lr_schedule=(lambda history: lambda step: self._current_lr),
         inputs=inputs)
     self._action_multipliers = action_multipliers
-    self._history_mode = history_mode
-    self._metric = metric
+    self._observation_metrics = observation_metrics
+    self._include_lr_in_observation = include_lr_in_observation
+    self._reward_metric = reward_metric
     self._train_steps = train_steps
     self._eval_steps = eval_steps
     self._env_steps = env_steps
@@ -80,10 +83,12 @@ class OnlineTuneEnv(gym.Env):
     gfile.makedirs(self._output_dir)
     # Action is an index in self._action_multipliers.
     self.action_space = gym.spaces.Discrete(len(self._action_multipliers))
-    # Observation is a singleton vector with the value of the metric specified
-    # in self._metric.
+    # Observation is a vector with the values of the metrics specified in
+    # observation_metrics plus optionally the learning rate.
+    observation_dim = (
+        len(self._observation_metrics) + int(self._include_lr_in_observation))
     self.observation_space = gym.spaces.Box(
-        low=float("-inf"), high=float("+inf"), shape=(1,))
+        low=float("-inf"), high=float("+inf"), shape=(observation_dim,))
 
   @property
   def _next_trajectory_dir(self):
@@ -111,13 +116,20 @@ class OnlineTuneEnv(gym.Env):
 
     return os.path.join(self._output_dir, str(next_trajectory_id))
 
-  @property
-  def _current_metric_value(self):
-    metric_sequence = self._trainer.state.history.get(self._history_mode,
-                                                      self._metric)
+  def _current_metric_value(self, metric):
+    metric_sequence = self._trainer.state.history.get(*metric)
     assert metric_sequence
     (_, metric_value) = metric_sequence[-1]
     return metric_value
+
+  @property
+  def _current_observation(self):
+    observation = list(
+        map(self._current_metric_value, self._observation_metrics))
+    if self._include_lr_in_observation:
+      # Logartihm of the learning rate.
+      observation.append(math.log(self._current_lr))
+    return np.array(observation)
 
   @property
   def trainer(self):
@@ -130,7 +142,7 @@ class OnlineTuneEnv(gym.Env):
     self._step = 0
     self._trainer.reset(output_dir=self._next_trajectory_dir)
     self._trainer.evaluate(self._eval_steps)
-    return np.array([self._current_metric_value])
+    return self._current_observation
 
   def step(self, action):
     """Step the environment.
@@ -147,11 +159,11 @@ class OnlineTuneEnv(gym.Env):
         environment steps. info is an empty dict.
     """
     self._current_lr *= self._action_multipliers[action]
-    last_metric_value = self._current_metric_value
+    last_metric_value = self._current_metric_value(self._reward_metric)
     self._trainer.train_epoch(self._train_steps, self._eval_steps)
     self._step += 1
-    current_metric_value = self._current_metric_value
-    observation = np.array([current_metric_value])
+    current_metric_value = self._current_metric_value(self._reward_metric)
+    observation = self._current_observation
     reward = current_metric_value - last_metric_value
     done = self._step == self._env_steps
     return (observation, reward, done, {})
