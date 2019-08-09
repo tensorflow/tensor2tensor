@@ -54,7 +54,6 @@ from tensor2tensor.envs import gym_env_problem
 from tensor2tensor.envs import rendered_env_problem
 from tensor2tensor.rl import gym_utils
 from tensor2tensor.rl.google import atari_utils  # GOOGLE-INTERNAL:
-from tensor2tensor.trax import layers
 from tensor2tensor.trax import models
 from tensor2tensor.trax.rlax import envs as rlax_envs  # pylint: disable=unused-import
 from tensor2tensor.trax.rlax import ppo
@@ -110,18 +109,6 @@ flags.DEFINE_boolean("parallelize_envs", False,
 # TODO(afrozm): Find a better way to do these configurations.
 flags.DEFINE_string("train_server_bns", "", "Train Server's BNS.")
 flags.DEFINE_string("eval_server_bns", "", "Eval Server's BNS.")
-
-
-def common_layers():
-  # TODO(afrozm): Refactor.
-  if "NoFrameskip" in FLAGS.env_problem_name:
-    return atari_layers()
-
-  return [layers.Dense(64), layers.Tanh(), layers.Dense(64), layers.Tanh()]
-
-
-def atari_layers():
-  return [models.AtariCnn()]
 
 
 def make_env(batch_size=8, **env_kwargs):
@@ -219,13 +206,19 @@ def main(argv):
   eval_env = make_env(batch_size=FLAGS.eval_batch_size, **eval_env_kwargs)
   assert eval_env
 
+  # TODO(afrozm): Refactor.
+  if "NoFrameskip" in FLAGS.env_problem_name:
+    bottom_layers_fn = models.AtariCnn
+  else:
+    bottom_layers_fn = models.FrameStackMLP
+
   def run_training_loop():
     """Runs the training loop."""
     logging.info("Starting the training loop.")
 
     policy_and_value_net_fn = functools.partial(
         ppo.policy_and_value_net,
-        bottom_layers_fn=common_layers,
+        bottom_layers_fn=bottom_layers_fn,
         two_towers=FLAGS.two_towers)
     policy_and_value_optimizer_fn = get_optimizer_fn(FLAGS.learning_rate)
 

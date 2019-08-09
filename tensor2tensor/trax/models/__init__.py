@@ -37,6 +37,7 @@ def model_configure(*args, **kwargs):
 
 # pylint: disable=invalid-name
 AtariCnn = model_configure(atari_cnn.AtariCnn)
+FrameStackMLP = model_configure(atari_cnn.FrameStackMLP)
 MLP = model_configure(mlp.MLP)
 NeuralGPU = model_configure(neural_gpu.NeuralGPU)
 PositionLookupTransformerLM = model_configure(

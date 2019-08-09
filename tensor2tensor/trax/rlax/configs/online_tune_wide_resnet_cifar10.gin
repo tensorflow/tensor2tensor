@@ -24,6 +24,10 @@ Momentum.mass = 0.9
 # ==============================================================================
 shuffle_and_batch_data.preprocess_fun = @trax.inputs.cifar10_no_augmentation_preprocess
 
+# Parameters for FrameStackMLP:
+# ==============================================================================
+FrameStackMLP.n_frames = 4
+
 # Parameters for WideResnet:
 # ==============================================================================
 WideResnet.widen_factor = 10
@@ -62,5 +66,5 @@ ppo.training_loop.eval_every_n = 10
 ppo.training_loop.done_frac_for_policy_save = 0
 ppo.training_loop.enable_early_stopping = True
 ppo.training_loop.n_evals = 1
-ppo.training_loop.len_history_for_policy = 1
 ppo.training_loop.eval_temperatures = (1.0,)
+ppo.training_loop.len_history_for_policy = 4
