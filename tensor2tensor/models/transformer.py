@@ -2053,6 +2053,7 @@ def transformer_tall_pretrain_lm():
   hparams.learning_rate_constant = 2e-4
   hparams.learning_rate_schedule = ("linear_warmup*constant*cosdecay")
   hparams.optimizer = "adam_w"
+  hparams.weight_decay = 0.01 * hparams.learning_rate_constant
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.999
   hparams.optimizer_adam_epsilon = 1e-8
@@ -2098,6 +2099,7 @@ def transformer_tall_pretrain_lm_tpu():
   hparams.learning_rate_constant = 2e-4
   hparams.learning_rate_schedule = ("linear_warmup * constant * cosdecay")
   hparams.optimizer = "adam_w"
+  hparams.weight_decay = 0.01 * hparams.learning_rate_constant
   return hparams
 
 

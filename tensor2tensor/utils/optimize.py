@@ -159,16 +159,9 @@ def true_adam(learning_rate, hparams):
 
 @registry.register_optimizer
 def adam_w(learning_rate, hparams):
-  # Openai gpt used weight decay.
-  # Given the internals of AdamW, weight decay dependent on the
-  # learning rate is chosen to match the openai implementation.
-  # The weight decay update to each parameter is applied before the adam
-  # gradients computation, which is different from that described
-  # in the paper and in the openai implementation:
-  # https://arxiv.org/pdf/1711.05101.pdf
   return tf.contrib.opt.AdamWOptimizer(
-      0.01*learning_rate,
-      learning_rate,
+      weight_decay=hparams.weight_decay,
+      learning_rate=learning_rate,
       beta1=hparams.optimizer_adam_beta1,
       beta2=hparams.optimizer_adam_beta2,
       epsilon=hparams.optimizer_adam_epsilon)
