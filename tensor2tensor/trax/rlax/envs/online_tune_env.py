@@ -60,7 +60,10 @@ class OnlineTuneEnv(gym.Env):
                train_steps=100,
                eval_steps=10,
                env_steps=100,
-               start_lr=0.001):
+               start_lr=0.001,
+               # Don't save checkpoints by default, as they tend to use a lot of
+               # space.
+               should_save_checkpoints=False):
     if action_multipliers is None:
       action_multipliers = self.DEFAULT_ACTION_MULTIPLIERS
     self._model = model
@@ -69,7 +72,9 @@ class OnlineTuneEnv(gym.Env):
         loss_fn=loss_fn,
         optimizer=optimizer,
         lr_schedule=(lambda history: lambda step: self._current_lr),
-        inputs=inputs)
+        inputs=inputs,
+        should_save=should_save_checkpoints,
+    )
     self._action_multipliers = action_multipliers
     self._observation_metrics = observation_metrics
     self._include_lr_in_observation = include_lr_in_observation

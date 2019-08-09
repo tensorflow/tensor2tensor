@@ -495,10 +495,11 @@ class Trainer(object):
 
   def __init__(self, model, loss_fn, optimizer, lr_schedule, inputs,
                output_dir=None, random_seed=None, n_devices=None,
-               save_steps=None):
+               save_steps=None, should_save=True):
     if save_steps is None:
       save_steps = []
     self._save_steps = save_steps
+    self._should_save = should_save
     device_count = jax.lib.xla_bridge.device_count()
     n_devices = n_devices or device_count
     # TODO(lukaszkaiser): remove this restriction when possible.
@@ -595,8 +596,7 @@ class Trainer(object):
     self._opt_state = OptState(*layers.nested_map(
         opt_state, self._maybe_replicate))
     if not state.opt_state:
-      _save_replicated(self._opt_state, self._step, self._history,
-                       self._n_devices, self._output_dir, False)
+      self._maybe_save_state(keep=False)
 
     self.update_learning_rate()
 
@@ -626,6 +626,11 @@ class Trainer(object):
       return numpy.broadcast_to(x, (self._n_devices,) + x.shape)
     else:
       return x
+
+  def _maybe_save_state(self, keep):
+    if self._should_save:
+      _save_replicated(self._opt_state, self._step, self._history,
+                       self._n_devices, self._output_dir, keep)
 
   def save_gin(self):
     _save_gin(self._output_dir, self._train_sw)
@@ -665,8 +670,7 @@ class Trainer(object):
       self._train_step(next_train_batch)
 
       if self._step in self._save_steps:
-        _save_replicated(self._opt_state, self._step, self._history,
-                         self._n_devices, self._output_dir, True)
+        self._maybe_save_state(keep=True)
 
       # LR log
       if self._step == 1 or self._step % 10 == 0:
@@ -688,8 +692,7 @@ class Trainer(object):
     self.evaluate(eval_steps)
 
     # Save state
-    _save_replicated(self._opt_state, self._step, self._history,
-                     self._n_devices, self._output_dir, False)
+    self._maybe_save_state(keep=False)
 
     # Flush summary writers
     self._train_sw.flush()
