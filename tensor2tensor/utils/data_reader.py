@@ -558,7 +558,8 @@ def input_fn(dataset,
       example["infer_targets"] = example.pop("targets")
       return example
     else:
-      return example, example["targets"]
+      return example, example[hparams.get(
+          key="labels_feature_name", default="targets")]
 
   dataset = dataset.map(prepare_for_output, num_parallel_calls=num_threads)
   dataset = dataset.prefetch(2)
