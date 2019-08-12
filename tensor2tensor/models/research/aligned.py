@@ -224,6 +224,23 @@ class Aligned(t2t_model.T2TModel):
     decoder_output = dp(tf.expand_dims, x, 2)
     return decoder_output, extra_loss
 
+  def infer(self,
+            features=None,
+            decode_length=1,
+            beam_size=1,
+            top_beams=1,
+            alpha=0.0,
+            use_tpu=False):
+    """Predict."""
+    features["targets"] = tf.identity(features["inputs"])
+    logits, _ = self(features)
+    log_probs = common_layers.log_prob_from_logits(logits)
+    predictions, scores = common_layers.argmax_with_score(log_probs)
+    return {
+        "outputs": predictions,
+        "scores": scores,
+    }
+
 
 def get_batch_coordinate(x):
   """Return a flat int32 tensor of shape [1, batch_size*length, 1]."""
@@ -247,6 +264,7 @@ def aligned_base():
     a hparams object
   """
   hparams = common_hparams.basic_params1()
+  hparams.force_full_predict = True
   hparams.hidden_size = 512
   hparams.batch_size = 5000
   hparams.max_length = 0
