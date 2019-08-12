@@ -19,6 +19,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import itertools
+
+import gin
 import gym
 import mock
 import numpy as np
@@ -29,25 +32,25 @@ from tensor2tensor.trax.rlax import simulated_env_problem
 from tensorflow import test
 
 
-class SimulatedEnvProblemTest(test.TestCase):
+class RawSimulatedEnvProblemTest(test.TestCase):
 
   @staticmethod
   @mock.patch.object(trax, "restore_state", autospec=True)
-  def _create_env(mock_restore_state, model, initial_observations,
+  def _create_env(mock_restore_state, model, histories,
                   trajectory_length):
     # (model_params, opt_state)
     mock_restore_state.return_value.params = (None, None)
     space = gym.spaces.Discrete(100)
-    return simulated_env_problem.SimulatedEnvProblem(
+    return simulated_env_problem.RawSimulatedEnvProblem(
         model=model,
-        history_length=initial_observations.shape[2],
+        history_length=histories.shape[2],
         trajectory_length=trajectory_length,
         batch_size=1,
         observation_space=space,
         action_space=space,
         reward_range=(-1, 1),
         discrete_rewards=True,
-        initial_observation_stream=iter(initial_observations),
+        history_stream=iter(histories),
         output_dir=None,
     )
 
@@ -67,7 +70,7 @@ class SimulatedEnvProblemTest(test.TestCase):
     mock_model = mock_model_fn.return_value
 
     actions_to_take = np.array([[1], [3]])
-    initial_observations = np.array([[[0, 1, 2, 3]]])
+    histories = np.array([[[0, 1, 2, 3]]])
     expected_observations = np.array([[3], [4], [7]])
     expected_rewards = np.array([[1], [0]])
     expected_dones = np.array([[False], [True]])
@@ -77,7 +80,7 @@ class SimulatedEnvProblemTest(test.TestCase):
     with backend.use_backend("numpy"):
       env = self._create_env(  # pylint: disable=no-value-for-parameter
           model=mock_model_fn,
-          initial_observations=initial_observations,
+          histories=histories,
           trajectory_length=len(actions_to_take),
       )
       actual_observations = [env.reset()]
@@ -102,18 +105,80 @@ class SimulatedEnvProblemTest(test.TestCase):
     np.testing.assert_array_equal(actual_histories, expected_histories)
     np.testing.assert_array_equal(actual_actions, expected_actions)
 
-  def test_takes_new_initial_frames(self):
-    initial_observations = np.array([[[0, 1, 2]], [[3, 4, 5]]])
+  def test_takes_new_history(self):
+    histories = np.array([[[0, 1, 2]], [[3, 4, 5]]])
 
     with backend.use_backend("numpy"):
       env = self._create_env(  # pylint: disable=no-value-for-parameter
           model=mock.MagicMock(),
-          initial_observations=initial_observations,
+          histories=histories,
           trajectory_length=2,
       )
       env.reset()
       observation = env.reset()
       np.testing.assert_array_equal(observation, [5])
+
+
+class SerializedSequenceSimulatedEnvProblemTest(test.TestCase):
+
+  @mock.patch.object(trax, "restore_state", autospec=True)
+  def test_communicates_with_model(self, mock_restore_state):
+    gin.bind_parameter("BoxSpaceSerializer.precision", 1)
+    vocab_size = 16
+    # Mock model predicting a fixed sequence of symbols. It is made such that
+    # the first two observations are equal and the last one is different.
+    symbols = [
+        1, 1, 2, 2,  # obs1
+        1, 1, 2, 2,  # obs2
+        1, 2, 2, 1,  # obs3
+    ]
+    def make_prediction(symbol):
+      one_hot = np.eye(vocab_size)[symbol]
+      log_probs = (1 - one_hot) * -100.0  # Virtually deterministic.
+      # (4 obs symbols + 1 action symbol) * 3 timesteps = 15.
+      return np.array([[log_probs] * 15])
+
+    mock_model_fn = mock.MagicMock()
+    mock_model = mock_model_fn.return_value
+    mock_model.side_effect = map(make_prediction, symbols)
+
+    with backend.use_backend("numpy"):
+      # (model_params, opt_state)
+      mock_restore_state.return_value.params = (None, None)
+      env = simulated_env_problem.SerializedSequenceSimulatedEnvProblem(
+          model=mock_model_fn,
+          reward_fn=(lambda _1, _2: np.array([0.5])),
+          done_fn=(lambda _1, _2: np.array([False])),
+          vocab_size=vocab_size,
+          max_trajectory_length=3,
+          batch_size=1,
+          observation_space=gym.spaces.Box(low=0, high=5, shape=(4,)),
+          action_space=gym.spaces.Discrete(2),
+          reward_range=(-1, 1),
+          discrete_rewards=False,
+          history_stream=itertools.repeat(None),
+          output_dir=None,
+      )
+      obs1 = env.reset()
+      ((inputs,), _) = mock_model.call_args
+
+      act1 = 0
+      (obs2, reward, done, _) = env.step(np.array([act1]))
+      ((inputs,), _) = mock_model.call_args
+      self.assertEqual(inputs[0, 4], act1)
+      np.testing.assert_array_equal(inputs[0, :4], symbols[:4])
+      np.testing.assert_array_equal(obs1, obs2)
+      np.testing.assert_array_equal(reward, [0.5])
+      np.testing.assert_array_equal(done, [False])
+
+      act2 = 1
+      (obs3, reward, done, _) = env.step(np.array([act2]))
+      ((inputs,), _) = mock_model.call_args
+      self.assertEqual(inputs[0, 9], act2)
+      np.testing.assert_array_equal(inputs[0, 5:9], symbols[4:8])
+      self.assertFalse(np.array_equal(obs2, obs3))
+      np.testing.assert_array_equal(reward, [0.5])
+      np.testing.assert_array_equal(done, [False])
 
 
 if __name__ == "__main__":

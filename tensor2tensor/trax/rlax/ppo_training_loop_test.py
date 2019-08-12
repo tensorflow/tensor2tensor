@@ -171,10 +171,10 @@ class PpoTrainingLoopTest(test.TestCase):
       )
       trainer.train_epoch(epoch_steps=1, eval_steps=1)
 
-      # Repeat the initial observations over and over again.
+      # Repeat the history over and over again.
       stream = itertools.repeat(np.zeros(history_shape))
       env_fn = functools.partial(
-          simulated_env_problem.SimulatedEnvProblem,
+          simulated_env_problem.RawSimulatedEnvProblem,
           model=model,
           history_length=history_shape[1],
           trajectory_length=3,
@@ -184,7 +184,7 @@ class PpoTrainingLoopTest(test.TestCase):
           action_space=gym.spaces.Discrete(n=n_actions),
           reward_range=(-1, 1),
           discrete_rewards=False,
-          initial_observation_stream=stream,
+          history_stream=stream,
           output_dir=output_dir,
       )
 

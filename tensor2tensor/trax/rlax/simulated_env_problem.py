@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import random
 
 import numpy as np
@@ -27,22 +28,11 @@ from tensor2tensor.envs import env_problem
 from tensor2tensor.trax import backend
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.backend import random as jax_random
+from tensor2tensor.trax.rlax import space_serializer
 
 
 class SimulatedEnvProblem(env_problem.EnvProblem):
-  """EnvProblem for environments simulated by TRAX models.
-
-  Wraps an autoregressive TRAX model of signature
-  (observation_history, action) -> (observation, reward) in an EnvProblem.
-  The model is assumed to take a fixed number of last observations as input
-  and produce a single observation, which is fed back into the model in the
-  next environment step.
-
-  Shape requirements (without the batch dimension):
-    observation: Consistent with observation_space.
-    observation_history: (history_length,) + observation.shape.
-    action: Consistent with action_space.
-    reward: (1,). The singleton dimension is removed in step().
+  """EnvProblem base class for environments simulated by TRAX models.
 
   The initial observations to start the model are taken from
   initial_observation_stream. This iterator in incremented in every reset().
@@ -50,71 +40,66 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
   A checkpoint saved by the TRAX trainer should be available in output_dir.
   """
 
-  def __init__(self, model, history_length, trajectory_length, batch_size,
-               observation_space, action_space, reward_range, discrete_rewards,
-               initial_observation_stream, output_dir):
+  def __init__(self, model, batch_size, observation_space, action_space,
+               reward_range, discrete_rewards, history_stream, output_dir):
     """Initializes the env.
 
     Args:
       model: TRAX model.
-      history_length: (int) Number of last observations fed into the model.
-      trajectory_length: (int) Length of each trajectory unrolled from the
-        model.
       batch_size: (int) Number of simulated environments run in parallel.
       observation_space: (gym.Space) Observation space.
       action_space: (gym.Space) Action space.
       reward_range: (tuple) Pair (min_reward, max_reward).
       discrete_rewards: (bool) Whether to discretize the rewards.
-      initial_observation_stream: Iterator yielding batches of initial
-        observations for the model.
+      history_stream: Iterator yielding batches of initial input data for the
+        model. The format is implementation-specific.
       output_dir: (str) Output dir.
     """
     # TODO(pkozakowski): At some point we will have a "predict" mode which we
     # should use here. When this happens, change the mode.
     self._model_predict = backend.jit(model(mode="eval"))
-    self._history_length = history_length
-    self._trajectory_length = trajectory_length
     self._observation_space = observation_space
     self._action_space = action_space
     self._reward_range = reward_range
     self._output_dir = output_dir
 
-    self._model_params = None
+    self._predict_fn = None
     self._rng = None
-    self._initial_observation_stream = None
-    self._history = None
-    self._steps = None
+    self._history_stream = None
 
     # Call the super's ctor. It will use some of the member fields, so we call
     # it in the end.
     super(SimulatedEnvProblem, self).__init__(
         batch_size=batch_size,
         discrete_rewards=discrete_rewards,
-        initial_observation_stream=initial_observation_stream,
+        history_stream=history_stream,
     )
 
     self.seed()
 
   def initialize_environments(self,
-                              initial_observation_stream,
+                              history_stream,
                               batch_size=1,
                               parallelism=1):
     """Initializes the environments.
 
     Args:
-      initial_observation_stream: Iterator yielding batches of initial
-        observations for the model.
+      history_stream: Iterator yielding batches of initial input data for the
+        model. The format is implementation-specific.
       batch_size: (int) Number of environments in a batch.
       parallelism: (int) Unused.
     """
     del parallelism
 
     model_state = trax.restore_state(self._output_dir)
-    self._model_params = model_state.opt_state.params
-    self._initial_observation_stream = initial_observation_stream
+    model_params = model_state.opt_state.params
+    self._predict_fn = functools.partial(
+        self._model_predict,
+        params=model_params,
+    )
+    self._history_stream = history_stream
 
-    self._history = None
-    self._steps = np.zeros(batch_size)
+    self._steps = np.zeros(batch_size, dtype=np.int32)
 
   @property
   def observation_space(self):
@@ -134,6 +119,37 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
     self._rng = jax_random.get_prng(seed)
     return super(SimulatedEnvProblem, self).seed(seed=seed)
 
+  def _reset_model(self, predict_fn, indices, history, rng):
+    """Resets the environments at the given indices.
+
+    Should be implemented in subclasses.
+
+    Args:
+      predict_fn: Function running prediction with the model.
+      indices: List of indices of underlying envs to call reset on.
+      history: Initial input data for the model.
+      rng: Jax RNG.
+
+    Returns:
+      np.ndarray of batched observations from the reset envs.
+    """
+    raise NotImplementedError
+
+  def _step_model(self, predict_fn, actions, rng):
+    """Takes a step in all environments.
+
+    Should be implemented in subclasses.
+
+    Args:
+      predict_fn: Function running prediction with the model.
+      actions: (np.ndarray) with first dimension equal to the batch size.
+      rng: Jax RNG.
+
+    Returns:
+      a tuple of batched raw observations, rewards and dones.
+    """
+    raise NotImplementedError
+
   def _reset(self, indices):
     """Resets environments at the given indices.
 
@@ -143,7 +159,69 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
     Returns:
       np.ndarray of batched observations from the reset envs.
     """
-    history = next(self._initial_observation_stream)
+    history = next(self._history_stream)
+    (subrng, self._rng) = jax_random.split(self._rng)
+    return self._reset_model(self._predict_fn, indices, history, subrng)
+
+  def _step(self, actions):
+    """Takes a step in all environments.
+
+    Args:
+      actions: (np.ndarray) with first dimension equal to the batch size.
+
+    Returns:
+      a tuple of batched raw observations, raw rewards, dones and infos.
+    """
+    # Predict the next observation.
+    (subrng, self._rng) = jax_random.split(self._rng)
+    (observation, reward, done) = self._step_model(
+        self._predict_fn, actions, subrng)
+    return (observation, reward, done, {})
+
+
+class RawSimulatedEnvProblem(SimulatedEnvProblem):
+  """SimulatedEnvProblem running a model operating on raw tensors.
+
+  Wraps an autoregressive TRAX model of signature
+  (observation_history, action) -> (observation, reward) in an EnvProblem.
+  The model is assumed to take a fixed number of last observations as input
+  and produce a single observation, which is fed back into the model in the
+  next environment step.
+
+  Shape requirements (without the batch dimension):
+    observation: Consistent with observation_space.
+    observation_history: (history_length,) + observation.shape.
+    action: Consistent with action_space.
+    reward: (1,). The singleton dimension is removed in step().
+  """
+
+  def __init__(self, history_length, trajectory_length, *args, **kwargs):
+    """Initializes the env.
+
+    Args:
+      history_length: (int) Number of last observations fed into the model.
+      trajectory_length: (int) Length of each trajectory unrolled from the
+        model.
+      *args: (tuple) Positional arguments passed to the base class.
+      **kwargs: (dict) Keyword arguments passed to the base class.
+    """
+    self._history_length = history_length
+    self._trajectory_length = trajectory_length
+    self._history = None
+    self._steps = None
+
+    super(RawSimulatedEnvProblem, self).__init__(*args, **kwargs)
+
+  def initialize_environments(self, batch_size=1, **kwargs):
+    """Initializes the environments."""
+    self._history = None
+    self._steps = np.zeros(batch_size)
+    return super(RawSimulatedEnvProblem, self).initialize_environments(
+        batch_size=batch_size, **kwargs)
+
+  def _reset_model(self, predict_fn, indices, history, rng):
+    del predict_fn
+    del rng
     assert history.shape == ((self._batch_size, self._history_length) +
                              self.observation_space.shape)
 
@@ -161,20 +239,8 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
     # Return just the last timestep at the given indices.
     return history[:, -1, ...]
 
-  def _step(self, actions):
-    """Takes a step in all environments.
-
-    Args:
-      actions: (np.ndarray) with first dimension equal to the batch size.
-
-    Returns:
-      a tuple of batched raw observations, raw rewards, dones and infos.
-    """
-    # Predict the next observation.
-    (subrng, self._rng) = jax_random.split(self._rng)
-    (observation, reward) = self._model_predict((self._history, actions),
-                                                params=self._model_params,
-                                                rng=subrng)
+  def _step_model(self, predict_fn, actions, rng):
+    (observation, reward) = predict_fn((self._history, actions), rng=rng)
 
     # Roll the history one timestep back and append the new observation.
     self._history = np.roll(self._history, shift=-1, axis=1)
@@ -188,4 +254,143 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
     observation = observation.copy()
     # Reshape the rewards to get rid of the extra dimension.
     reward = np.squeeze(reward.copy(), axis=1)
-    return (observation, reward, done, {})
+    return (observation, reward, done)
+
+
+def index_range_2d(begin_indices, length):
+  # Take all indices along the first dimension. Add another axis that'll
+  # broadcast along the second one.
+  first_dim = np.arange(len(begin_indices))[:, None]
+  # Take a range of indices along the second dimension. Offset it by
+  # begin_indices.
+  # TODO(pkozakowski): This materializes all indices of elements along the
+  # second dimension. Do it more efficiently if needed.
+  second_dim = np.arange(length)[None, :] + begin_indices[:, None]
+  return (first_dim, second_dim)
+
+
+def index_slice(indices):
+  first_dim = np.arange(len(indices))[:, None]
+  second_dim = indices[:, None]
+  return (first_dim, second_dim)
+
+
+class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
+  """SimulatedEnvProblem running a model operating on sequences of symbols.
+
+  Wraps an autoregressive TRAX model of signature past_symbols -> symbol_probs
+  in an EnvProblem. The model is assumed to take a sequence of symbols as input
+  and produce distributions over all symbols in the sequence. The next symbol
+  is sampled and fed back to the model in the next decoding step.
+
+  Shape requirements (without the batch dimension):
+    past_symbols: (max_trajectory_length * L,)
+    symbol_probs: (max_trajectory_length * L, vocab_size)
+  where L is the representation length of one environment step.
+
+  Observations, actions, rewards and done flags are (de)serialized from/to
+  sequences of symbols using an EnvSerializer passed to the constructor.
+  """
+
+  def __init__(self, reward_fn, done_fn, vocab_size, max_trajectory_length,
+               *args, **kwargs):
+    """Initializes the env.
+
+    Args:
+      reward_fn: Function (previous_observation, current_observation) -> reward.
+      done_fn: Function (previous_observation, current_observation) -> done.
+      vocab_size: (int) Number of symbols in the vocabulary.
+      max_trajectory_length: (int) Maximum length of a trajectory unrolled from
+        the model.
+      *args: (tuple) Positional arguments passed to the base class.
+      **kwargs: (dict) Keyword arguments passed to the base class.
+    """
+    self._reward_fn = reward_fn
+    self._done_fn = done_fn
+    self._vocab_size = vocab_size
+    self._max_trajectory_length = max_trajectory_length
+    self._history = None
+    self._steps = None
+    self._observation_space = None
+    self._action_space = None
+    self._last_observations = None
+
+    super(SerializedSequenceSimulatedEnvProblem, self).__init__(*args, **kwargs)
+
+  def initialize_environments(self, batch_size=1, **kwargs):
+    """Initializes the environments."""
+    self._obs_serializer = space_serializer.create(
+        self.observation_space, self._vocab_size)
+    self._action_serializer = space_serializer.create(
+        self.action_space, self._vocab_size)
+    self._obs_repr_length = self._obs_serializer.representation_length
+    self._action_repr_length = self._action_serializer.representation_length
+    self._step_repr_length = self._obs_repr_length + self._action_repr_length
+    self._history = np.zeros((
+        batch_size,
+        self._max_trajectory_length * self._step_repr_length
+    ), dtype=np.int32)
+    self._steps = np.zeros(batch_size, dtype=np.int32)
+    self._last_observations = np.full(
+        (batch_size,) + self._observation_space.shape, np.nan)
+    return super(
+        SerializedSequenceSimulatedEnvProblem, self
+    ).initialize_environments(batch_size=batch_size, **kwargs)
+
+  @property
+  def _obs_repr_indices(self):
+    begin_indices = self._step_repr_length * self._steps
+    return index_range_2d(begin_indices, self._obs_repr_length)
+
+  @property
+  def _action_repr_indices(self):
+    begin_indices = self._step_repr_length * self._steps + self._obs_repr_length
+    return index_range_2d(begin_indices, self._action_repr_length)
+
+  def _predict_obs(self, predict_fn, rng):
+    def gumbel_sample(log_probs):
+      u = np.random.uniform(low=1e-6, high=1.0 - 1e-6, size=log_probs.shape)
+      g = -np.log(-np.log(u))
+      return np.argmax(log_probs + g, axis=-1)
+
+    for (i, subrng) in enumerate(jax_random.split(rng, self._obs_repr_length)):
+      symbol_index = self._steps * self._step_repr_length + i
+      log_probs = predict_fn(self._history, rng=subrng)[:, symbol_index, :]
+      self._history[:, symbol_index] = gumbel_sample(log_probs)
+
+    obs_repr = self._history[self._obs_repr_indices]
+    return self._obs_serializer.deserialize(obs_repr)
+
+  def _reset_model(self, predict_fn, indices, history, rng):
+    # TODO(pkozakowski): Random starts.
+    del history
+
+    self._steps[indices] = 0
+    observation = self._predict_obs(predict_fn, rng)[indices]
+    self._last_observations[indices] = observation
+    return observation
+
+  def _step_model(self, predict_fn, actions, rng):
+    action_repr = self._action_serializer.serialize(actions)
+    self._history[self._action_repr_indices] = action_repr
+    self._steps += 1
+    observation = self._predict_obs(predict_fn, rng)
+    reward = self._reward_fn(self._last_observations, observation)
+    done = self._done_fn(self._last_observations, observation)
+    self._last_observations = observation
+    done = np.logical_or(done, self._steps == self._max_trajectory_length)
+    return (observation, reward, done)
+
+
+def cartpole_done_fn(previous_observation, current_observation):
+  del previous_observation
+  x_threshold = 2.4
+  theta_threshold = 12 * 2 * np.pi / 360
+  x = current_observation[:, 0]
+  theta = current_observation[:, 2]
+  return np.logical_or(np.abs(x) > x_threshold, np.abs(theta) > theta_threshold)
+
+
+def cartpole_reward_fn(previous_observation, current_observation):
+  done = cartpole_done_fn(previous_observation, current_observation)
+  return 1.0 - done  # Unit reward for every timestep until the end.
