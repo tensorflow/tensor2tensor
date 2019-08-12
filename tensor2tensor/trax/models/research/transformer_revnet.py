@@ -81,17 +81,36 @@ class Map(tl.Layer):
     return self._layer.initialize(first_shape, input_dtype[0], rng)
 
 
+@tl.layer()
+def BroadcastedDropout(x, params, rate=0.0, mode='train', broadcast_dims=(-2,),
+                       rng=None, **kwargs):
+  """Dropout, with broadcasting to save memory."""
+  del params, kwargs
+  if rng is None:
+    raise ValueError('BroadcastedDropout requires rng kwarg.')
+  if rate >= 1.0:
+    raise ValueError('Dropout rate (%f) must be lower than 1.' % rate)
+  if mode == 'train' and rate > 0.0:
+    noise_shape = list(x.shape)
+    for dim in broadcast_dims:
+      noise_shape[dim] = 1
+    keep_prob = jax.lax.tie_in(rng, 1.0 - rate)
+    keep = backend.random.bernoulli(rng, keep_prob, tuple(noise_shape))
+    multiplier = keep.astype(x.dtype) / jax.lax.tie_in(keep, keep_prob)
+    return x * multiplier
+  else:
+    return x
+
+
 def FeedForward(d_model, d_ff, dropout, mode):
   """Feed-forward block with layer normalization at start."""
-  # TODO(kitaev): add dropout. Dropout is typically performed by adding noise to
-  # the activations, but when the size of the activations is very large it is
-  # more efficient to add noise to the *parameters* instead.
-  del dropout, mode
   return [
       tl.LayerNorm(),
       tl.Dense(d_ff),
+      BroadcastedDropout(rate=dropout, mode=mode),  # pylint: disable=no-value-for-parameter
       tl.Relu(),
       tl.Dense(d_model),
+      BroadcastedDropout(rate=dropout, mode=mode),  # pylint: disable=no-value-for-parameter
   ]
 
 
@@ -283,15 +302,18 @@ class MemoryEfficientDotProductAttention(DotProductAttention):
   def __init__(self, loop_stride, dropout, mode):
     super(MemoryEfficientDotProductAttention, self).__init__(dropout, mode)
     self._loop_stride = loop_stride
-    # TODO(kitaev): implement attention dropout
-    assert dropout is None or dropout == 0.0, (
-        'Dropout is not implemented in MemoryEfficientDotProductAttention.')
+    if dropout >= 1.0:
+      raise ValueError('Dropout rates must be lower than 1.')
+    if mode == 'train':
+      self.dropout = dropout
+    else:
+      self.dropout = None
 
   def call(self, inputs, params=(), **kwargs):
     output, _ = self.forward_and_vjp(inputs, None, params=params, **kwargs)
     return output
 
-  def forward_and_vjp(self, inputs, ct, params=(), **kwargs):
+  def forward_and_vjp(self, inputs, ct, params=(), rng=None, **kwargs):
     # This is the core of the memory-efficient attention implementation, where
     # we use the jax.lax.while_loop primitive to compute attention for a small
     # set of query positions at a time. Note how in the backwards pass, we
@@ -330,6 +352,16 @@ class MemoryEfficientDotProductAttention(DotProductAttention):
       # Softmax.
       dots = np.exp(dots - dots.max(axis=-1, keepdims=True))
       dots = dots / dots.sum(axis=-1, keepdims=True)
+
+      if self.dropout is not None and self.dropout > 0.0:
+        # Dropout is broadcast across the batch and head dimensions
+        dropout_shape = (1, 1, dots.shape[-2], dots.shape[-1])
+        slice_rng = jax.random.fold_in(rng, q_loop_idx)
+        keep_prob = jax.lax.tie_in(dots, 1.0 - self.dropout)
+        keep = backend.random.bernoulli(slice_rng, keep_prob, dropout_shape)
+        multiplier = keep.astype(dots.dtype) / jax.lax.tie_in(keep, keep_prob)
+        dots = dots * multiplier
+
       out_slice = np.matmul(dots, value)
       return out_slice
 
@@ -679,6 +711,7 @@ def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
       JoinHeads(),  # pylint: disable=no-value-for-parameter
       tl.Dense(d_model),
       Unchunk(n_sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
+      BroadcastedDropout(rate=dropout, mode=mode),  # pylint: disable=no-value-for-parameter
   ]
 
   feed_forward = [
@@ -727,7 +760,7 @@ def TransformerRevnetLM(vocab_size,
   """
   positional_embedder = [
       tl.Embedding(d_model, vocab_size),
-      # TODO(kitaev): add dropout
+      BroadcastedDropout(rate=dropout, mode=mode),  # pylint: disable=no-value-for-parameter
       tl.PositionalEncoding(max_len=max_len),
   ]
   return tl.Model(
