@@ -138,6 +138,67 @@ class Split(tl.Layer):
     return self._n_sections
 
 
+class SplitForOutput(tl.ReversibleLayer):
+  """Splits activations into sections (for use right before the output layer).
+
+  After the reversible portion of the network, there is a final output portion
+  that's non-reversible (which at minimum includes normalization, output
+  projection, and log-softmax). The output portion needs to operate on chunks
+  of the sequence to avoid running out of memory for large vocabulary sizes.
+
+  This layer concatenates the two subparts of the activations along the feature
+  dimension, and then splits into chunks along the time dimension. We implement
+  it is a subclass of tl.ReversibleLayer because we want to ensure that multiple
+  copies of the activations don't exist simultaneously except in the middle of a
+  memory copy operation.
+  """
+
+  def __init__(self, n_sections=2, axis=-2):
+    super(SplitForOutput, self).__init__()
+    self._n_sections = n_sections
+    self._axis = axis
+
+  def n_inputs(self):
+    """Specifies how many data tensors this layer expects as input."""
+    return 2
+
+  def n_outputs(self):
+    """Specifies how many data tensors this layer promises as output."""
+    return self._n_sections
+
+  def new_parameters(self, input_shape, input_dtype, rng):
+    return ()
+
+  def call(self, inputs, params=(), **kwargs):
+    del params, kwargs
+    x1, x2 = inputs
+
+    x1_split = backend.numpy.split(x1, self._n_sections, self._axis)
+    x2_split = backend.numpy.split(x2, self._n_sections, self._axis)
+
+    res = [backend.numpy.concatenate(ys, -1) for ys in zip(x1_split, x2_split)]
+    return tuple(res)
+
+  def reverse(self, output, params=(), **kwargs):
+    del params, kwargs
+
+    x1_split = []
+    x2_split = []
+    for y in output:
+      y1, y2 = backend.numpy.split(y, 2, -1)
+      x1_split.append(y1)
+      x2_split.append(y2)
+
+    x1 = backend.numpy.concatenate(x1_split, self._axis)
+    x2 = backend.numpy.concatenate(x2_split, self._axis)
+
+    return (x1, x2)
+
+  def reverse_and_grad(self, output, ct, params=(), **kwargs):
+    del params, kwargs
+    return self.reverse(output), (self.reverse(ct), (), ())
+
+
 @tl.layer()
 def Chunk(x, params, n_sections=2, **kwargs):
   del params, kwargs
@@ -775,11 +836,14 @@ def TransformerRevnetLM(vocab_size,
                        n_attention_chunks, attention_type,
                        dropout, mode)
           for _ in range(n_layers)
+      ] + [
+          SplitForOutput(n_sections=n_chunks, axis=-2),  # pylint: disable=no-value-for-parameter
       ]),
-      tl.Parallel(tl.LayerNorm(), tl.LayerNorm()),
-      tl.Concatenate(),
-      Split(n_sections=n_chunks, axis=-2),  # pylint: disable=no-value-for-parameter
       Map([
+          # TODO(kitaev): Test whether dropout should go before or after the
+          # LayerNorm, and whether dropout broadcasting is needed here.
+          tl.LayerNorm(),
+          BroadcastedDropout(rate=dropout, mode=mode),  # pylint: disable=no-value-for-parameter
           tl.Dense(vocab_size),
           tl.LogSoftmax(),
       ], n_sections=n_chunks),
