@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""PPO binary over a gym env.
+r"""Trainer for RL environments.
+
+For now we only support PPO as RL algorithm.
 
 Sample invocation:
 
@@ -23,7 +25,7 @@ EPOCHS=100
 RANDOM_SEED=0
 BOUNDARY=100
 
-python trax/rlax/ppo_main.py \
+python trax/rl_trainer.py \
   --env_problem_name=${ENV_PROBLEM_NAME} \
   --batch_size=${BATCH_SIZE} \
   --config=ppo.training_loop.epochs=${EPOCHS} \
@@ -55,8 +57,8 @@ from tensor2tensor.envs import rendered_env_problem
 from tensor2tensor.rl import gym_utils
 from tensor2tensor.rl.google import atari_utils  # GOOGLE-INTERNAL:
 from tensor2tensor.trax import models
-from tensor2tensor.trax.rlax import envs as rlax_envs  # pylint: disable=unused-import
-from tensor2tensor.trax.rlax import ppo
+from tensor2tensor.trax.rl import envs as rl_envs  # pylint: disable=unused-import
+from tensor2tensor.trax.rl import ppo
 
 
 FLAGS = flags.FLAGS

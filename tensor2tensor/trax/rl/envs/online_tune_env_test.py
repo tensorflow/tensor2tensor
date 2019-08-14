@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for tensor2tensor.trax.rlax.online_tune_env."""
+"""Tests for tensor2tensor.trax.rl.online_tune_env."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -26,7 +26,7 @@ import numpy as np
 from tensor2tensor.trax import inputs as trax_inputs
 from tensor2tensor.trax import models
 from tensor2tensor.trax import trax
-from tensor2tensor.trax.rlax.envs import online_tune_env
+from tensor2tensor.trax.rl.envs import online_tune_env
 from tensorflow import test
 from tensorflow.io import gfile
 

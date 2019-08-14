@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for tensor2tensor.trax.rlax.simulated_env_problem."""
+"""Tests for tensor2tensor.trax.rl.simulated_env_problem."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -28,7 +28,7 @@ import numpy as np
 
 from tensor2tensor.trax import backend
 from tensor2tensor.trax import trax
-from tensor2tensor.trax.rlax import simulated_env_problem
+from tensor2tensor.trax.rl import simulated_env_problem
 from tensorflow import test
 
 

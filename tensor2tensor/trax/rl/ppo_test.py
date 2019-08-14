@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for tensor2tensor.trax.rlax.ppo."""
+"""Tests for tensor2tensor.trax.rl.ppo."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -24,7 +24,7 @@ from jax import random as jax_random
 import numpy as np
 from tensor2tensor.trax import layers
 from tensor2tensor.trax import trax
-from tensor2tensor.trax.rlax import ppo
+from tensor2tensor.trax.rl import ppo
 from tensorflow import test
 
 

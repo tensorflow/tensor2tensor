@@ -28,7 +28,7 @@ from tensor2tensor.envs import env_problem
 from tensor2tensor.trax import backend
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.backend import random as jax_random
-from tensor2tensor.trax.rlax import space_serializer
+from tensor2tensor.trax.rl import space_serializer
 
 
 class SimulatedEnvProblem(env_problem.EnvProblem):

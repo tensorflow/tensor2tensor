@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for tensor2tensor.trax.rlax.ppo's training_loop."""
+"""Tests for tensor2tensor.trax.rl.ppo's training_loop."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -37,9 +37,9 @@ from tensor2tensor.trax import learning_rate as lr
 from tensor2tensor.trax import models
 from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax import trax
-from tensor2tensor.trax.rlax import envs  # pylint: disable=unused-import
-from tensor2tensor.trax.rlax import ppo
-from tensor2tensor.trax.rlax import simulated_env_problem
+from tensor2tensor.trax.rl import envs  # pylint: disable=unused-import
+from tensor2tensor.trax.rl import ppo
+from tensor2tensor.trax.rl import simulated_env_problem
 from tensorflow import test
 from tensorflow.io import gfile
 

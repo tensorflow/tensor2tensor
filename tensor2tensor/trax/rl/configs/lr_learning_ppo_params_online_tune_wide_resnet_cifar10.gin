@@ -1,4 +1,4 @@
-import tensor2tensor.trax.rlax
+import tensor2tensor.trax.rl
 
 # Parameters for ppo.training_loop:
 # ==============================================================================

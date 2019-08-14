@@ -13,13 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for tensor2tensor.trax.rlax.fake_env."""
+"""Tests for tensor2tensor.trax.rl.fake_env."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.trax.rlax.envs import fake_env
+from tensor2tensor.trax.rl.envs import fake_env
 from tensorflow import test
 
 

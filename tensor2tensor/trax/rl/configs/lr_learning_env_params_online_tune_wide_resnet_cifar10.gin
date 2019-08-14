@@ -1,8 +1,8 @@
 import tensor2tensor.trax.inputs
 import tensor2tensor.trax.models
 import tensor2tensor.trax.optimizers
-import tensor2tensor.trax.rlax
-import tensor2tensor.trax.rlax.envs
+import tensor2tensor.trax.rl
+import tensor2tensor.trax.rl.envs
 
 # Parameters for batch_fun:
 # ==============================================================================

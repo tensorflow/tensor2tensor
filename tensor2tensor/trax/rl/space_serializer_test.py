@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for tensor2tensor.trax.rlax.space_serializer."""
+"""Tests for tensor2tensor.trax.rl.space_serializer."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -23,7 +23,7 @@ import gin
 import gym
 import numpy as np
 
-from tensor2tensor.trax.rlax import space_serializer
+from tensor2tensor.trax.rl import space_serializer
 from tensorflow import test
 
 

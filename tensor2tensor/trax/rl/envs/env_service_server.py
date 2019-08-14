@@ -33,7 +33,7 @@ import gin
 from tensor2tensor.envs import env_problem_utils
 from tensor2tensor.envs import server_utils
 from tensor2tensor.rl.google import atari_utils
-from tensor2tensor.trax.rlax import envs  # pylint: disable=unused-import
+from tensor2tensor.trax.rl import envs  # pylint: disable=unused-import
 import tensorflow as tf
 
 
