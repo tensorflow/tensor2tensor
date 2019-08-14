@@ -156,9 +156,7 @@ def optimizer_fn(net_params, learning_rate=1e-3):
 def collect_trajectories(env,
                          policy_fn,
                          n_trajectories=1,
-                         policy=env_problem_utils.GUMBEL_SAMPLING,
                          max_timestep=None,
-                         epsilon=0.1,
                          reset=True,
                          len_history_for_policy=32,
                          rng=None):
@@ -168,12 +166,9 @@ def collect_trajectories(env,
     env: A gym env interface, for now this is not-batched.
     policy_fn: observations(B,T+1) -> log-probabs(B,T+1, A) callable.
     n_trajectories: int, number of trajectories.
-    policy: string, "greedy", "epsilon-greedy", or "categorical-sampling" i.e.
-      how to use the policy_fn to return an action.
     max_timestep: int or None, the index of the maximum time-step at which we
       return the trajectory, None for ending a trajectory only when env returns
       done.
-    epsilon: float, the epsilon for `epsilon-greedy` policy.
     reset: bool, true if we want to reset the envs. The envs are also reset if
       max_max_timestep is None or < 0
     len_history_for_policy: int, the maximum history to keep for applying the
@@ -196,8 +191,6 @@ def collect_trajectories(env,
       policy_fn,
       num_trajectories=n_trajectories,
       max_timestep=max_timestep,
-      policy_sampling=policy,
-      eps=epsilon,
       reset=reset,
       len_history_for_policy=len_history_for_policy,
       rng=rng)
@@ -774,7 +767,6 @@ def evaluate_policy(eval_env,
           num_trajectories=eval_env.batch_size,
           max_timestep=max_timestep,
           reset=True,
-          policy_sampling=env_problem_utils.GUMBEL_SAMPLING,
           temperature=temperature,
           rng=eval_rng,
           len_history_for_policy=len_history_for_policy)
@@ -854,165 +846,130 @@ def write_eval_reward_summaries(reward_stats_by_mode, summary_writer, epoch):
                    reward_stats["mean"], reward_stats["std"])
 
 
-@gin.configurable(blacklist=["output_dir"])
-def training_loop(
-    env,
-    eval_env,
-    env_name,
-    policy_and_value_net_fn,
-    policy_and_value_optimizer_fn,
-    output_dir,
-    epochs=EPOCHS,
-    n_optimizer_steps=N_OPTIMIZER_STEPS,
-    print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
-    target_kl=0.01,
-    boundary=20,
-    max_timestep=None,
-    max_timestep_eval=20000,
-    random_seed=None,
-    gamma=GAMMA,
-    lambda_=LAMBDA,
-    epsilon=EPSILON,
-    c1=1.0,
-    c2=0.01,
-    eval_every_n=1000,
-    done_frac_for_policy_save=0.5,
-    enable_early_stopping=True,
-    n_evals=1,
-    len_history_for_policy=4,
-    eval_temperatures=(1.0, 0.5),
-):
-  """Runs the training loop for PPO, with fixed policy and value nets.
+class PPOTrainer(object):
+  """PPO trainer."""
 
-  Args:
-    env: gym.Env to use for training.
-    eval_env: gym.Env to use for evaluation.
-    env_name: Name of the environment.
-    policy_and_value_net_fn: Function defining the policy and value network.
-    policy_and_value_optimizer_fn: Function defining the optimizer.
-    output_dir: Output dir.
-    epochs: Number of epochs to run for.
-    n_optimizer_steps: Number of optimizer steps.
-    print_every_optimizer_steps: How often to log during the policy optimization
-      process.
-    target_kl: Policy iteration early stopping.
-    boundary: We pad trajectories at integer multiples of this number.
-    max_timestep: If set to an integer, maximum number of time-steps in
-      a trajectory. Used in the collect procedure.
-    max_timestep_eval: If set to an integer, maximum number of time-steps in an
-      evaluation trajectory. Used in the collect procedure.
-    random_seed: Random seed.
-    gamma: Reward discount factor.
-    lambda_: N-step TD-error discount factor in GAE.
-    epsilon: Random action probability in epsilon-greedy sampling.
-    c1: Value loss coefficient.
-    c2: Entropy loss coefficient.
-    eval_every_n: How frequently to eval the policy.
-    done_frac_for_policy_save: Fraction of the trajectories that should be done
-      to checkpoint the policy.
-    enable_early_stopping: Whether to enable early stopping.
-    n_evals: Number of times to evaluate.
-    len_history_for_policy: How much of history to give to the policy.
-    eval_temperatures: Sequence of temperatures to try for categorical sampling
-      during evaluation.
-  """
-  gfile.makedirs(output_dir)
+  def __init__(
+      self,
+      train_env,
+      eval_env,
+      policy_and_value_net_fn,
+      policy_and_value_optimizer_fn,
+      output_dir,
+      n_optimizer_steps,
+      print_every_optimizer_steps,
+      target_kl,
+      boundary,
+      max_timestep,
+      max_timestep_eval,
+      random_seed,
+      gamma,
+      lambda_,
+      c1,
+      c2,
+      eval_every_n,
+      done_frac_for_policy_save,
+      n_evals,
+      len_history_for_policy,
+      eval_temperatures,
+  ):
+    self._train_env = train_env
+    self._eval_env = eval_env
+    self._n_optimizer_steps = n_optimizer_steps
+    self._print_every_optimizer_steps = print_every_optimizer_steps
+    self._target_kl = target_kl
+    self._boundary = boundary
+    self._max_timestep = max_timestep
+    self._max_timestep_eval = max_timestep_eval
+    self._gamma = gamma
+    self._lambda_ = lambda_
+    self._c1 = c1
+    self._c2 = c2
+    self._eval_every_n = eval_every_n
+    self._done_frac_for_policy_save = done_frac_for_policy_save
+    self._n_evals = n_evals
+    self._len_history_for_policy = len_history_for_policy
+    self._eval_temperatures = eval_temperatures
 
-  # Create summary writers and history.
-  train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
-  timing_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "timing"))
-  eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
+    assert isinstance(self._train_env.action_space, gym.spaces.Discrete)
+    n_actions = self._train_env.action_space.n
 
-  train_sw.text("env_name", env_name)
-  timing_sw.text("env_name", env_name)
-  eval_sw.text("env_name", env_name)
+    # Batch Observations Shape = [1, 1] + OBS, because we will eventually call
+    # policy and value networks on shape [B, T] +_OBS
+    batch_observations_shape = (1, 1) + self._train_env.observation_space.shape
+    observations_dtype = self._train_env.observation_space.dtype
 
-  jax_rng_key = trax.get_random_number_generator_and_set_seed(random_seed)
+    self._rng = trax.get_random_number_generator_and_set_seed(random_seed)
+    self._rng, key1 = jax_random.split(self._rng, num=2)
 
-  # Batch Observations Shape = [1, 1] + OBS, because we will eventually call
-  # policy and value networks on shape [B, T] +_OBS
-  batch_observations_shape = (1, 1) + env.observation_space.shape
-  observations_dtype = env.observation_space.dtype
+    # Initialize the policy and value network.
+    policy_and_value_net_params, policy_and_value_net_apply = (
+        policy_and_value_net_fn(key1, batch_observations_shape,
+                                observations_dtype, n_actions))
 
-  assert isinstance(env.action_space, gym.spaces.Discrete)
-  n_actions = env.action_space.n
+    self._policy_and_value_net_apply = jit(policy_and_value_net_apply)
 
-  jax_rng_key, key1 = jax_random.split(jax_rng_key, num=2)
+    # Maybe restore the policy params. If there is nothing to restore, then
+    # iteration = 0 and policy_and_value_net_params are returned as is.
+    restored, policy_and_value_net_params, self._epoch = (
+        maybe_restore_params(output_dir, policy_and_value_net_params))
 
-  # Initialize the policy and value network.
-  policy_and_value_net_params, policy_and_value_net_apply = (
-      policy_and_value_net_fn(key1, batch_observations_shape,
-                              observations_dtype, n_actions))
+    if restored:
+      logging.info("Restored parameters from iteration [%d]", self._epoch)
+      # We should start from the next iteration.
+      self._epoch += 1
 
-  # Maybe restore the policy params. If there is nothing to restore, then
-  # iteration = 0 and policy_and_value_net_params are returned as is.
-  restore, policy_and_value_net_params, iteration = (
-      maybe_restore_params(output_dir, policy_and_value_net_params))
+    # Initialize the optimizers.
+    policy_and_value_optimizer = (
+        policy_and_value_optimizer_fn(policy_and_value_net_params))
+    (self._policy_and_value_opt_state, self._policy_and_value_opt_update,
+     self._policy_and_value_get_params) = policy_and_value_optimizer
 
-  if restore:
-    logging.info("Restored parameters from iteration [%d]", iteration)
-    # We should start from the next iteration.
-    iteration += 1
+    self._output_dir = output_dir
+    gfile.makedirs(self._output_dir)
 
-  policy_and_value_net_apply = jit(policy_and_value_net_apply)
+    # Create summary writers and history.
+    self._train_sw = jaxboard.SummaryWriter(
+        os.path.join(self._output_dir, "train"))
+    self._timing_sw = jaxboard.SummaryWriter(
+        os.path.join(self._output_dir, "timing"))
+    self._eval_sw = jaxboard.SummaryWriter(
+        os.path.join(self._output_dir, "eval"))
 
-  # Initialize the optimizers.
-  policy_and_value_optimizer = (
-      policy_and_value_optimizer_fn(policy_and_value_net_params))
-  (policy_and_value_opt_state, policy_and_value_opt_update,
-   policy_and_value_get_params) = policy_and_value_optimizer
+    self._should_reset = True
+    self._n_trajectories_done = 0
 
-  n_trajectories_done = 0
-  last_saved_at = 0
+    self._last_saved_at = 0
 
-  logging.info("Starting the PPO training loop.")
-  for i in range(iteration, epochs):
+  @property
+  def epoch(self):
+    return self._epoch
+
+  def train_epoch(self):
+    """Train one PPO epoch."""
     epoch_start_time = time.time()
-
-    # Params we'll use to collect the trajectories.
-    policy_and_value_net_params = policy_and_value_get_params(
-        policy_and_value_opt_state)
-
-    # A function to get the policy and value predictions.
-    def get_predictions(observations, rng=None):
-      """Returns log-probs, value predictions and key back."""
-      key, key1 = jax_random.split(rng, num=2)
-
-      log_probs, value_preds = policy_and_value_net_apply(
-          observations, policy_and_value_net_params, rng=key1)
-
-      return log_probs, value_preds, key
 
     # Evaluate the policy.
     policy_eval_start_time = time.time()
-    if ((i + 1) % eval_every_n == 0) or (i == epochs - 1):
-      jax_rng_key, key = jax_random.split(jax_rng_key, num=2)
+    if (self._epoch + 1) % self._eval_every_n == 0:
+      self._rng, key = jax_random.split(self._rng, num=2)
+      self.evaluate()
 
-      logging.vlog(1, "Epoch [% 6d] evaluating policy.", i)
-
-      reward_stats = evaluate_policy(
-          eval_env,
-          get_predictions,
-          temperatures=eval_temperatures,
-          max_timestep=max_timestep_eval,
-          n_evals=n_evals,
-          len_history_for_policy=len_history_for_policy,
-          rng=key)
-      write_eval_reward_summaries(reward_stats, eval_sw, epoch=i)
     policy_eval_time = get_time(policy_eval_start_time)
 
     trajectory_collection_start_time = time.time()
-    logging.vlog(1, "Epoch [% 6d] collecting trajectories.", i)
-    jax_rng_key, key = jax_random.split(jax_rng_key)
+    logging.vlog(1, "Epoch [% 6d] collecting trajectories.", self._epoch)
+    self._rng, key = jax_random.split(self._rng)
     trajs, n_done, timing_info = collect_trajectories(
-        env,
-        policy_fn=get_predictions,
-        n_trajectories=env.batch_size,
-        max_timestep=max_timestep,
+        self._train_env,
+        policy_fn=self._get_predictions,
+        n_trajectories=self._train_env.batch_size,
+        max_timestep=self._max_timestep,
         rng=key,
-        len_history_for_policy=len_history_for_policy,
-        reset=(i == 0) or restore,
-        epsilon=(10.0 / (i + 10.0)))  # this is a different epsilon.
+        len_history_for_policy=self._len_history_for_policy,
+        reset=self._should_reset,
+    )
+    self._should_reset = False
     trajectory_collection_time = get_time(trajectory_collection_start_time)
 
     logging.vlog(1, "Collecting trajectories took %0.2f msec.",
@@ -1022,7 +979,8 @@ def training_loop(
     max_reward = max(np.sum(traj[2]) for traj in trajs)
     min_reward = min(np.sum(traj[2]) for traj in trajs)
 
-    train_sw.scalar("train/reward_mean_truncated", avg_reward, step=i)
+    self._train_sw.scalar(
+        "train/reward_mean_truncated", avg_reward, step=self._epoch)
 
     logging.vlog(1, "Rewards avg=[%0.2f], max=[%0.2f], min=[%0.2f], all=%s",
                  avg_reward, max_reward, min_reward,
@@ -1038,7 +996,7 @@ def training_loop(
     padding_start_time = time.time()
     (_, reward_mask, padded_observations, padded_actions,
      padded_rewards, padded_infos) = pad_trajectories(
-         trajs, boundary=boundary)
+         trajs, boundary=self._boundary)
     padding_time = get_time(padding_start_time)
 
     logging.vlog(1, "Padding trajectories took %0.2f msec.",
@@ -1053,7 +1011,8 @@ def training_loop(
     assert (B, T) == padded_rewards.shape
     assert (B, T) == reward_mask.shape
     assert (B, T + 1) == padded_observations.shape[:2]
-    assert (B, T + 1) + env.observation_space.shape == padded_observations.shape
+    assert ((B, T + 1) + self._train_env.observation_space.shape ==
+            padded_observations.shape)
 
     log_prob_recompute_start_time = time.time()
     assert ("log_prob_actions" in padded_infos and
@@ -1073,8 +1032,8 @@ def training_loop(
     # NOTE: We don't have the log-probabs and value-predictions for the last
     # observation, so we re-calculate for everything, but use the original ones
     # for all but the last time-step.
-    jax_rng_key, key = jax_random.split(jax_rng_key)
-    log_probabs_traj, value_predictions_traj, _ = get_predictions(
+    self._rng, key = jax_random.split(self._rng)
+    log_probabs_traj, value_predictions_traj, _ = self._get_predictions(
         padded_observations, rng=key)
 
     assert (B, T + 1, A) == log_probabs_traj.shape
@@ -1090,33 +1049,24 @@ def training_loop(
 
     log_prob_recompute_time = get_time(log_prob_recompute_start_time)
 
-    # Linear annealing from 0.1 to 0.0
-    # epsilon_schedule = epsilon if epochs == 1 else epsilon * (1.0 -
-    #                                                           (i /
-    #                                                            (epochs - 1)))
-
-    # Constant epsilon.
-    epsilon_schedule = epsilon
-
     # Compute value and ppo losses.
-    jax_rng_key, key1 = jax_random.split(jax_rng_key, num=2)
+    self._rng, key1 = jax_random.split(self._rng, num=2)
     logging.vlog(2, "Starting to compute P&V loss.")
     loss_compute_start_time = time.time()
     cur_combined_loss, cur_ppo_loss, cur_value_loss, entropy_bonus = (
         combined_loss(
-            policy_and_value_net_params,
+            self._policy_and_value_net_params,
             log_probabs_traj,
             value_predictions_traj,
-            policy_and_value_net_apply,
+            self._policy_and_value_net_apply,
             padded_observations,
             padded_actions,
             padded_rewards,
             reward_mask,
-            gamma=gamma,
-            lambda_=lambda_,
-            epsilon=epsilon_schedule,
-            c1=c1,
-            c2=c2,
+            gamma=self._gamma,
+            lambda_=self._lambda_,
+            c1=self._c1,
+            c2=self._c2,
             rng=key1))
     loss_compute_time = get_time(loss_compute_start_time)
     logging.vlog(
@@ -1125,44 +1075,40 @@ def training_loop(
         cur_combined_loss, cur_value_loss, cur_ppo_loss, entropy_bonus,
         get_time(loss_compute_start_time))
 
-    jax_rng_key, key1 = jax_random.split(jax_rng_key, num=2)
+    self._rng, key1 = jax_random.split(self._rng, num=2)
     logging.vlog(1, "Policy and Value Optimization")
     optimization_start_time = time.time()
-    keys = jax_random.split(key1, num=n_optimizer_steps)
-    for j in range(n_optimizer_steps):
-      k1, k2, k3 = jax_random.split(keys[j], num=3)
+    keys = jax_random.split(key1, num=self._n_optimizer_steps)
+    for (j, key) in enumerate(keys):
+      k1, k2, k3 = jax_random.split(key, num=3)
       t = time.time()
       # Update the optimizer state.
-      policy_and_value_opt_state = policy_and_value_opt_step(
+      self._policy_and_value_opt_state = policy_and_value_opt_step(
           j,
-          policy_and_value_opt_state,
-          policy_and_value_opt_update,
-          policy_and_value_get_params,
-          policy_and_value_net_apply,
+          self._policy_and_value_opt_state,
+          self._policy_and_value_opt_update,
+          self._policy_and_value_get_params,
+          self._policy_and_value_net_apply,
           log_probabs_traj,
           value_predictions_traj,
           padded_observations,
           padded_actions,
           padded_rewards,
           reward_mask,
-          c1=c1,
-          c2=c2,
-          gamma=gamma,
-          lambda_=lambda_,
-          epsilon=epsilon_schedule,
+          c1=self._c1,
+          c2=self._c2,
+          gamma=self._gamma,
+          lambda_=self._lambda_,
           rng=k1)
 
       # Compute the approx KL for early stopping.
-      new_policy_and_value_net_params = policy_and_value_get_params(
-          policy_and_value_opt_state)
-
-      log_probab_actions_new, _ = policy_and_value_net_apply(
-          padded_observations, new_policy_and_value_net_params, rng=k2)
+      log_probab_actions_new, _ = self._policy_and_value_net_apply(
+          padded_observations, self._policy_and_value_net_params, rng=k2)
 
       approx_kl = approximate_kl(log_probab_actions_new, log_probabs_traj,
                                  reward_mask)
 
-      early_stopping = enable_early_stopping and approx_kl > 1.5 * target_kl
+      early_stopping = approx_kl > 1.5 * self._target_kl
       if early_stopping:
         logging.vlog(
             1, "Early stopping policy and value optimization at iter: %d, "
@@ -1171,24 +1117,23 @@ def training_loop(
         # iteration.
 
       t2 = time.time()
-      if (((j + 1) % print_every_optimizer_steps == 0) or
-          (j == n_optimizer_steps - 1) or early_stopping):
+      if (((j + 1) % self._print_every_optimizer_steps == 0) or
+          (j == self._n_optimizer_steps - 1) or early_stopping):
         # Compute and log the loss.
         (loss_combined, loss_ppo, loss_value, entropy_bonus) = (
             combined_loss(
-                new_policy_and_value_net_params,
+                self._policy_and_value_net_params,
                 log_probabs_traj,
                 value_predictions_traj,
-                policy_and_value_net_apply,
+                self._policy_and_value_net_apply,
                 padded_observations,
                 padded_actions,
                 padded_rewards,
                 reward_mask,
-                gamma=gamma,
-                lambda_=lambda_,
-                epsilon=epsilon_schedule,
-                c1=c1,
-                c2=c2,
+                gamma=self._gamma,
+                lambda_=self._lambda_,
+                c1=self._c1,
+                c2=self._c2,
                 rng=k3))
         logging.vlog(1, "One Policy and Value grad desc took: %0.2f msec",
                      get_time(t, t2))
@@ -1212,30 +1157,21 @@ def training_loop(
     # Also don't save too frequently, enforce a minimum gap.
     # Or if this is the last iteration.
     policy_save_start_time = time.time()
-    n_trajectories_done += n_done
+    self._n_trajectories_done += n_done
     # TODO(afrozm): Refactor to trax.save_state.
-    if (((n_trajectories_done >= done_frac_for_policy_save * env.batch_size) and
-         (i - last_saved_at > eval_every_n) and
-         (((i + 1) % eval_every_n == 0))) or (i == epochs - 1)):
-      logging.vlog(1, "Epoch [% 6d] saving model.", i)
-      old_model_files = gfile.glob(os.path.join(output_dir, "model-??????.pkl"))
-      params_file = os.path.join(output_dir, "model-%06d.pkl" % i)
-      with gfile.GFile(params_file, "wb") as f:
-        pickle.dump(policy_and_value_net_params, f)
-      # Remove the old model files.
-      for path in old_model_files:
-        gfile.remove(path)
-      # Reset this number.
-      n_trajectories_done = 0
-      last_saved_at = i
+    if ((self._n_trajectories_done >=
+         self._done_frac_for_policy_save * self._train_env.batch_size) and
+        (self._epoch - self._last_saved_at > self._eval_every_n) and
+        (((self._epoch + 1) % self._eval_every_n == 0))):
+      self.save()
     policy_save_time = get_time(policy_save_start_time)
 
     epoch_time = get_time(epoch_start_time)
 
     logging.info(
         "Epoch [% 6d], Reward[min, max, avg] [%5.2f,%5.2f,%5.2f], Combined"
-        " Loss(value, ppo, entropy) [%2.5f(%2.5f,%2.5f,%2.5f)]", i, min_reward,
-        max_reward, avg_reward, loss_combined, loss_value, loss_ppo,
+        " Loss(value, ppo, entropy) [%2.5f(%2.5f,%2.5f,%2.5f)]", self._epoch,
+        min_reward, max_reward, avg_reward, loss_combined, loss_value, loss_ppo,
         entropy_bonus)
 
     timing_dict = {
@@ -1252,20 +1188,154 @@ def training_loop(
     timing_dict.update(timing_info)
 
     for k, v in timing_dict.items():
-      timing_sw.scalar("timing/%s" % k, v, step=i)
+      self._timing_sw.scalar("timing/%s" % k, v, step=self._epoch)
 
     max_key_len = max(len(k) for k in timing_dict)
     timing_info_list = [
         "%s : % 10.2f" % (k.rjust(max_key_len + 1), v)
         for k, v in sorted(timing_dict.items())
     ]
-    logging.info("Epoch [% 6d], Timings: \n%s", i, "\n".join(timing_info_list))
+    logging.info(
+        "Epoch [% 6d], Timings: \n%s", self._epoch, "\n".join(timing_info_list))
 
-    # Reset restore.
-    restore = False
+    self._epoch += 1
 
     # Flush summary writers once in a while.
-    if (i + 1) % 1000 == 0 or i == epochs - 1:
-      train_sw.flush()
-      timing_sw.flush()
-      eval_sw.flush()
+    if (self._epoch + 1) % 1000 == 0:
+      self.flush_summaries()
+
+  def evaluate(self):
+    """Evaluate the agent."""
+    logging.vlog(1, "Epoch [% 6d] evaluating policy.", self._epoch)
+    self._rng, key = jax_random.split(self._rng, num=2)
+    reward_stats = evaluate_policy(
+        self._eval_env,
+        self._get_predictions,
+        temperatures=self._eval_temperatures,
+        max_timestep=self._max_timestep_eval,
+        n_evals=self._n_evals,
+        len_history_for_policy=self._len_history_for_policy,
+        rng=key)
+    write_eval_reward_summaries(reward_stats, self._eval_sw, epoch=self._epoch)
+
+  def save(self):
+    """Save the agent parameters."""
+    logging.vlog(1, "Epoch [% 6d] saving model.", self._epoch)
+    old_model_files = gfile.glob(
+        os.path.join(self._output_dir, "model-??????.pkl"))
+    params_file = os.path.join(self._output_dir, "model-%06d.pkl" % self._epoch)
+    with gfile.GFile(params_file, "wb") as f:
+      pickle.dump(self._policy_and_value_net_params, f)
+    # Remove the old model files.
+    for path in old_model_files:
+      gfile.remove(path)
+    # Reset this number.
+    self._n_trajectories_done = 0
+    self._last_saved_at = self._epoch
+
+  def flush_summaries(self):
+    self._train_sw.flush()
+    self._timing_sw.flush()
+    self._eval_sw.flush()
+
+  @property
+  def _policy_and_value_net_params(self):
+    return self._policy_and_value_get_params(self._policy_and_value_opt_state)
+
+  # A function to get the policy and value predictions.
+  def _get_predictions(self, observations, rng=None):
+    """Returns log-probs, value predictions and key back."""
+    key, key1 = jax_random.split(rng, num=2)
+
+    log_probs, value_preds = self._policy_and_value_net_apply(
+        observations, self._policy_and_value_net_params, rng=key1)
+
+    return log_probs, value_preds, key
+
+
+@gin.configurable(blacklist=["output_dir"])
+def training_loop(
+    train_env,
+    eval_env,
+    policy_and_value_net_fn,
+    policy_and_value_optimizer_fn,
+    output_dir,
+    epochs=EPOCHS,
+    n_optimizer_steps=N_OPTIMIZER_STEPS,
+    print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
+    target_kl=0.01,
+    boundary=20,
+    max_timestep=None,
+    max_timestep_eval=20000,
+    random_seed=None,
+    gamma=GAMMA,
+    lambda_=LAMBDA,
+    c1=1.0,
+    c2=0.01,
+    eval_every_n=1000,
+    done_frac_for_policy_save=0.5,
+    n_evals=1,
+    len_history_for_policy=4,
+    eval_temperatures=(1.0, 0.5),
+):
+  """Runs the training loop for PPO, with fixed policy and value nets.
+
+  Args:
+    train_env: gym.Env to use for training.
+    eval_env: gym.Env to use for evaluation.
+    policy_and_value_net_fn: Function defining the policy and value network.
+    policy_and_value_optimizer_fn: Function defining the optimizer.
+    output_dir: Output dir.
+    epochs: Number of epochs to run for.
+    n_optimizer_steps: Number of optimizer steps.
+    print_every_optimizer_steps: How often to log during the policy optimization
+      process.
+    target_kl: Policy iteration early stopping. Set to infinity to disable early
+      stopping.
+    boundary: We pad trajectories at integer multiples of this number.
+    max_timestep: If set to an integer, maximum number of time-steps in
+      a trajectory. Used in the collect procedure.
+    max_timestep_eval: If set to an integer, maximum number of time-steps in an
+      evaluation trajectory. Used in the collect procedure.
+    random_seed: Random seed.
+    gamma: Reward discount factor.
+    lambda_: N-step TD-error discount factor in GAE.
+    c1: Value loss coefficient.
+    c2: Entropy loss coefficient.
+    eval_every_n: How frequently to eval the policy.
+    done_frac_for_policy_save: Fraction of the trajectories that should be done
+      to checkpoint the policy.
+    n_evals: Number of times to evaluate.
+    len_history_for_policy: How much of history to give to the policy.
+    eval_temperatures: Sequence of temperatures to try for categorical sampling
+      during evaluation.
+  """
+  trainer = PPOTrainer(
+      train_env=train_env,
+      eval_env=eval_env,
+      policy_and_value_net_fn=policy_and_value_net_fn,
+      policy_and_value_optimizer_fn=policy_and_value_optimizer_fn,
+      output_dir=output_dir,
+      n_optimizer_steps=n_optimizer_steps,
+      print_every_optimizer_steps=print_every_optimizer_steps,
+      target_kl=target_kl,
+      boundary=boundary,
+      max_timestep=max_timestep,
+      max_timestep_eval=max_timestep_eval,
+      random_seed=random_seed,
+      gamma=gamma,
+      lambda_=lambda_,
+      c1=c1,
+      c2=c2,
+      eval_every_n=eval_every_n,
+      done_frac_for_policy_save=done_frac_for_policy_save,
+      n_evals=n_evals,
+      len_history_for_policy=len_history_for_policy,
+      eval_temperatures=eval_temperatures,
+  )
+  logging.info("Starting the PPO training loop.")
+  for _ in range(trainer.epoch, epochs):
+    trainer.train_epoch()
+  trainer.save()
+  trainer.evaluate()
+  trainer.flush_summaries()

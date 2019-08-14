@@ -69,11 +69,11 @@ class PpoTrainingLoopTest(test.TestCase):
     yield tmp
     gfile.rmtree(tmp)
 
-  def _run_training_loop(self, env, eval_env, output_dir):
+  def _run_training_loop(self, train_env, eval_env, output_dir):
     n_epochs = 2
     # Run the training loop.
     ppo.training_loop(
-        env=env,
+        train_env=train_env,
         eval_env=eval_env,
         epochs=n_epochs,
         policy_and_value_net_fn=functools.partial(
@@ -82,13 +82,12 @@ class PpoTrainingLoopTest(test.TestCase):
         policy_and_value_optimizer_fn=ppo.optimizer_fn,
         n_optimizer_steps=1,
         output_dir=output_dir,
-        env_name="SomeEnv",
         random_seed=0)
 
   def test_training_loop_cartpole(self):
     with self.tmp_dir() as output_dir:
       self._run_training_loop(
-          env=self.get_wrapped_env("CartPole-v0", 2),
+          train_env=self.get_wrapped_env("CartPole-v0", 2),
           eval_env=self.get_wrapped_env("CartPole-v0", 2),
           output_dir=output_dir,
       )
@@ -112,7 +111,7 @@ class PpoTrainingLoopTest(test.TestCase):
       gin.bind_parameter(
           "OnlineTuneEnv.output_dir", os.path.join(output_dir, "envs"))
       self._run_training_loop(
-          env=self.get_wrapped_env("OnlineTuneEnv-v0", 2),
+          train_env=self.get_wrapped_env("OnlineTuneEnv-v0", 2),
           eval_env=self.get_wrapped_env("OnlineTuneEnv-v0", 2),
           output_dir=output_dir,
       )
@@ -189,7 +188,7 @@ class PpoTrainingLoopTest(test.TestCase):
       )
 
       self._run_training_loop(
-          env=env_fn(),
+          train_env=env_fn(),
           eval_env=env_fn(),
           output_dir=output_dir,
       )

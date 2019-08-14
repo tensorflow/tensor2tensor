@@ -27,9 +27,6 @@ from tensor2tensor.envs import gym_env_problem
 from tensor2tensor.envs import rendered_env_problem
 from tensor2tensor.rl import gym_utils
 
-EPSILON_GREEDY = "epsilon-greedy"
-GUMBEL_SAMPLING = "gumbel"
-
 
 def done_indices(dones):
   """Calculates the indices where dones has True."""
@@ -61,9 +58,7 @@ def play_env_problem_with_policy(env,
                                  max_timestep=None,
                                  reset=True,
                                  rng=None,
-                                 policy_sampling=GUMBEL_SAMPLING,
                                  temperature=1.0,
-                                 eps=0.1,
                                  len_history_for_policy=32,
                                  num_to_keep=1):
   """Plays the given env with the policy function to collect trajectories.
@@ -79,10 +74,7 @@ def play_env_problem_with_policy(env,
     reset: bool, true if we want to reset the envs. The envs are also reset if
       max_max_timestep is None or < 0
     rng: jax rng, splittable.
-    policy_sampling: string, how to select an action given a policy, one of:
-      EPSILON_GREEDY, GUMBEL_SAMPLING
     temperature: float, temperature used in Gumbel sampling.
-    eps: float, epsilon to use in epsilon greedy.
     len_history_for_policy: int, the maximum history to keep for applying the
       policy on. We also bucket observations on this number.
     num_to_keep: int, while truncating trajectory how many time-steps to keep.
@@ -97,19 +89,6 @@ def play_env_problem_with_policy(env,
     u = np.random.uniform(low=1e-6, high=1.0 - 1e-6, size=log_probs.shape)
     g = -np.log(-np.log(u))
     return np.argmax((log_probs / temperature) + g, axis=1)
-
-  def epsilon_greedy(log_probs):
-    """Epsilon greedy sampling."""
-    _, A = log_probs.shape  # pylint: disable=invalid-name
-    actions = []
-    for log_prob in log_probs:
-      # Pick the argmax action.
-      action = np.argmax(log_prob)
-      if np.random.uniform() < eps:
-        # Pick an action at random.
-        action = np.random.choice(range(A))
-      actions.append(action)
-    return np.stack(actions)
 
   # We need to reset all environments, if we're coming here the first time.
   if reset or max_timestep is None or max_timestep <= 0:
@@ -156,13 +135,7 @@ def play_env_problem_with_policy(env,
     assert (B, 1) == value_preds.shape, \
         "B=%d, value_preds.shape=%s" % (B, value_preds.shape)
 
-    actions = None
-    if policy_sampling == GUMBEL_SAMPLING:
-      actions = gumbel_sample(log_probs)
-    elif policy_sampling == EPSILON_GREEDY:
-      actions = epsilon_greedy(log_probs)
-    else:
-      raise ValueError("Unknown sampling policy [%s]" % policy_sampling)
+    actions = gumbel_sample(log_probs)
 
     # Step through the env.
     t1 = time.time()
