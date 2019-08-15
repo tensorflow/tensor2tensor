@@ -67,9 +67,9 @@ class Layer(object):
 
   def __init__(self, **kwargs):
     self._init_kwargs = kwargs  # can be used in creating a generic decorator
-    self._needs_init = True
     self._params = ()  # cached parameters
     self._caller = _find_frame(inspect.stack())  # for custom error messages
+    self._init_finished = False
 
   def __repr__(self):
     class_str = self.__class__.__name__
@@ -213,9 +213,9 @@ class Layer(object):
     """
     try:
       # Initialize params once; store them for use when this layer is called.
-      if self._needs_init:
+      if not self._init_finished:
         self._params = self.new_parameters(input_shapes, input_dtype, rng)
-        self._needs_init = False
+        self._init_finished = True
         return self._params
       else:
         return ()
