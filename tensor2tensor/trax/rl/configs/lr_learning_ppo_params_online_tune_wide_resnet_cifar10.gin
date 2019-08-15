@@ -1,3 +1,4 @@
+import tensor2tensor.trax.models
 import tensor2tensor.trax.rl
 
 # Parameters for ppo.training_loop:
@@ -17,3 +18,4 @@ ppo.training_loop.n_evals = 1
 ppo.training_loop.len_history_for_policy = 1  # this needs to be bumped up.
 ppo.training_loop.eval_temperatures = (1.0,)
 ppo.training_loop.epochs = 1000
+ppo.training_loop.policy_and_value_model = @trax.models.TransformerDecoder

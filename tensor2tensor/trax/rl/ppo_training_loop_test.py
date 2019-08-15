@@ -69,20 +69,22 @@ class PpoTrainingLoopTest(test.TestCase):
     yield tmp
     gfile.rmtree(tmp)
 
-  def _run_training_loop(self, train_env, eval_env, output_dir):
+  def _run_training_loop(self, train_env, eval_env, output_dir, model=None):
+    if model is None:
+      model = lambda: [layers.Dense(1)]
     n_epochs = 2
     # Run the training loop.
     ppo.training_loop(
         train_env=train_env,
         eval_env=eval_env,
         epochs=n_epochs,
-        policy_and_value_net_fn=functools.partial(
-            ppo.policy_and_value_net,
-            bottom_layers_fn=lambda: [layers.Dense(1)]),
+        policy_and_value_model=model,
         policy_and_value_optimizer_fn=ppo.optimizer_fn,
         n_optimizer_steps=1,
         output_dir=output_dir,
-        random_seed=0)
+        random_seed=0,
+        boundary=2,
+    )
 
   def test_training_loop_cartpole(self):
     with self.tmp_dir() as output_dir:
@@ -90,6 +92,23 @@ class PpoTrainingLoopTest(test.TestCase):
           train_env=self.get_wrapped_env("CartPole-v0", 2),
           eval_env=self.get_wrapped_env("CartPole-v0", 2),
           output_dir=output_dir,
+      )
+
+  def test_training_loop_cartpole_transformer(self):
+    with self.tmp_dir() as output_dir:
+      self._run_training_loop(
+          train_env=self.get_wrapped_env("CartPole-v0", 2),
+          eval_env=self.get_wrapped_env("CartPole-v0", 2),
+          output_dir=output_dir,
+          model=functools.partial(
+              models.TransformerDecoder,
+              d_model=1,
+              d_ff=1,
+              n_layers=1,
+              n_heads=1,
+              max_len=64,
+              mode="train",
+          ),
       )
 
   def test_training_loop_onlinetune(self):

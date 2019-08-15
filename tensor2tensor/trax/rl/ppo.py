@@ -159,6 +159,7 @@ def collect_trajectories(env,
                          max_timestep=None,
                          reset=True,
                          len_history_for_policy=32,
+                         boundary=32,
                          rng=None):
   """Collect trajectories with the given policy net and behaviour.
 
@@ -171,8 +172,9 @@ def collect_trajectories(env,
       done.
     reset: bool, true if we want to reset the envs. The envs are also reset if
       max_max_timestep is None or < 0
-    len_history_for_policy: int, the maximum history to keep for applying the
-      policy on.
+    len_history_for_policy: int or None, the maximum history to keep for
+      applying the policy on. If None, use the full history.
+    boundary: int, pad the sequences to the multiples of this number.
     rng: jax rng, splittable.
 
   Returns:
@@ -193,6 +195,7 @@ def collect_trajectories(env,
       max_timestep=max_timestep,
       reset=reset,
       len_history_for_policy=len_history_for_policy,
+      boundary=boundary,
       rng=rng)
   # Skip returning raw_rewards here, since they aren't used.
 
@@ -853,8 +856,9 @@ class PPOTrainer(object):
       self,
       train_env,
       eval_env,
-      policy_and_value_net_fn,
+      policy_and_value_model,
       policy_and_value_optimizer_fn,
+      policy_and_value_two_towers,
       output_dir,
       n_optimizer_steps,
       print_every_optimizer_steps,
@@ -904,9 +908,15 @@ class PPOTrainer(object):
 
     # Initialize the policy and value network.
     policy_and_value_net_params, policy_and_value_net_apply = (
-        policy_and_value_net_fn(key1, batch_observations_shape,
-                                observations_dtype, n_actions))
-
+        policy_and_value_net(
+            rng_key=key1,
+            batch_observations_shape=batch_observations_shape,
+            observations_dtype=observations_dtype,
+            n_actions=n_actions,
+            bottom_layers_fn=policy_and_value_model,
+            two_towers=policy_and_value_two_towers,
+        )
+    )
     self._policy_and_value_net_apply = jit(policy_and_value_net_apply)
 
     # Maybe restore the policy params. If there is nothing to restore, then
@@ -967,6 +977,7 @@ class PPOTrainer(object):
         max_timestep=self._max_timestep,
         rng=key,
         len_history_for_policy=self._len_history_for_policy,
+        boundary=self._boundary,
         reset=self._should_reset,
     )
     self._should_reset = False
@@ -1257,9 +1268,10 @@ class PPOTrainer(object):
 def training_loop(
     train_env,
     eval_env,
-    policy_and_value_net_fn,
+    policy_and_value_model,
     policy_and_value_optimizer_fn,
     output_dir,
+    policy_and_value_two_towers=False,
     epochs=EPOCHS,
     n_optimizer_steps=N_OPTIMIZER_STEPS,
     print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
@@ -1283,9 +1295,12 @@ def training_loop(
   Args:
     train_env: gym.Env to use for training.
     eval_env: gym.Env to use for evaluation.
-    policy_and_value_net_fn: Function defining the policy and value network.
+    policy_and_value_model: Function defining the policy and value network,
+      without the policy and value heads.
     policy_and_value_optimizer_fn: Function defining the optimizer.
     output_dir: Output dir.
+    policy_and_value_two_towers: Whether to use two separate models as the
+      policy and value networks. If False, share their parameters.
     epochs: Number of epochs to run for.
     n_optimizer_steps: Number of optimizer steps.
     print_every_optimizer_steps: How often to log during the policy optimization
@@ -1313,8 +1328,9 @@ def training_loop(
   trainer = PPOTrainer(
       train_env=train_env,
       eval_env=eval_env,
-      policy_and_value_net_fn=policy_and_value_net_fn,
+      policy_and_value_model=policy_and_value_model,
       policy_and_value_optimizer_fn=policy_and_value_optimizer_fn,
+      policy_and_value_two_towers=policy_and_value_two_towers,
       output_dir=output_dir,
       n_optimizer_steps=n_optimizer_steps,
       print_every_optimizer_steps=print_every_optimizer_steps,

@@ -44,6 +44,7 @@ PositionLookupTransformerLM = model_configure(
     position_lookup_transformer.PositionLookupTransformerLM)
 Resnet50 = model_configure(resnet.Resnet50)
 Transformer = model_configure(transformer.Transformer)
+TransformerDecoder = model_configure(transformer.TransformerDecoder)
 TransformerEncoder = model_configure(transformer.TransformerEncoder)
 TransformerLM = model_configure(transformer.TransformerLM)
 TransformerRevnetLM = model_configure(transformer_revnet.TransformerRevnetLM)

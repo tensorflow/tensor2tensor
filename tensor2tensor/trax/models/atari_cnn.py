@@ -27,6 +27,8 @@ def FrameStack(n_frames):
   # Input shape: (B, T, ..., C).
   # Output shape: (B, T, ..., C * n_frames).
   assert n_frames >= 1
+  if n_frames == 1:
+    return ()
   return (
       # Make n_frames copies of the input sequence.
       [tl.Dup()] * (n_frames - 1),

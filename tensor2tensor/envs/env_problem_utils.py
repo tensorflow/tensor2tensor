@@ -59,6 +59,7 @@ def play_env_problem_with_policy(env,
                                  reset=True,
                                  rng=None,
                                  temperature=1.0,
+                                 boundary=32,
                                  len_history_for_policy=32,
                                  num_to_keep=1):
   """Plays the given env with the policy function to collect trajectories.
@@ -75,8 +76,9 @@ def play_env_problem_with_policy(env,
       max_max_timestep is None or < 0
     rng: jax rng, splittable.
     temperature: float, temperature used in Gumbel sampling.
-    len_history_for_policy: int, the maximum history to keep for applying the
-      policy on. We also bucket observations on this number.
+    boundary: int, pad the sequences to the multiples of this number.
+    len_history_for_policy: int or None, the maximum history to keep for
+      applying the policy on. If None, use the whole history.
     num_to_keep: int, while truncating trajectory how many time-steps to keep.
 
   Returns:
@@ -107,7 +109,7 @@ def play_env_problem_with_policy(env,
     # Shape is (B, T) + OBS
     # Bucket on whatever length is needed.
     padded_observations, lengths = env.trajectories.observations_np(
-        boundary=len_history_for_policy,
+        boundary=boundary,
         len_history_for_policy=len_history_for_policy)
 
     B, T = padded_observations.shape[:2]  # pylint: disable=invalid-name
