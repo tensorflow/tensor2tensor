@@ -60,9 +60,9 @@ def unpack_batch(batch, has_weights=False):
     return batch
   else:
     inputs, targets = batch
-    if isinstance(inputs, (list, tuple)):
+    if isinstance(targets, (list, tuple)):
       # If weights are not provided, use scalar 1s and rely on broadcasting.
-      weights = [1.0] * len(inputs)
+      weights = [1.0] * len(targets)
     else:
       weights = 1.0
     return inputs, targets, weights

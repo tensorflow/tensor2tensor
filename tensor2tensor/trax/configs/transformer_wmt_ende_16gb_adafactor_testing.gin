@@ -1,0 +1,63 @@
+import tensor2tensor.trax.inputs
+import tensor2tensor.trax.models
+import tensor2tensor.trax.optimizers
+import tensor2tensor.trax.trax
+
+# Parameters for batch_fun:
+# ==============================================================================
+batch_fun.batch_size_per_device = 128
+batch_fun.eval_batch_size = 64
+batch_fun.max_eval_length = 1024
+batch_fun.buckets_include_inputs_in_length=True
+
+# Parameters for inputs:
+# ==============================================================================
+inputs.data_dir = None
+inputs.dataset_name = 't2t_translate_ende_wmt32k'
+inputs.append_targets = True
+
+# Parameters for mask:
+# ==============================================================================
+masked_mean.mask_id = 0
+
+# Parameters for MultifactorSchedule:
+# ==============================================================================
+MultifactorSchedule.constant = 1.0
+MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
+MultifactorSchedule.warmup_steps = 20000
+
+# Parameters for Adafactor:
+# ==============================================================================
+Adafactor.beta1 = 0.0
+Adafactor.decay_rate = 0.8
+Adafactor.clipping_threshold = 1.0
+Adafactor.epsilon1 = 1e-30
+Adafactor.epsilon2 = 0.001
+Adafactor.factored = True
+Adafactor.multiply_by_parameter_scale = True
+
+# Parameters for preprocess_fun:
+# ==============================================================================
+shuffle_and_batch_data.preprocess_fun=@trax.inputs.wmt_preprocess
+wmt_preprocess.max_length = 512
+wmt_preprocess.max_eval_length = 1024
+
+# Parameters for train:
+# ==============================================================================
+train.eval_frequency = 1000
+train.eval_steps = 10
+train.inputs = @trax.inputs.inputs
+train.model = @trax.models.Transformer
+train.train_steps = 100000
+train.optimizer = @trax.optimizers.Adafactor
+
+# Parameters for Transformer:
+# ==============================================================================
+Transformer.d_model = 512
+Transformer.d_ff = 2048
+Transformer.dropout = 0.1
+Transformer.max_len = 2048
+Transformer.mode = 'train'
+Transformer.n_heads = 8
+Transformer.n_layers = 6
+Transformer.input_vocab_size = 33300
