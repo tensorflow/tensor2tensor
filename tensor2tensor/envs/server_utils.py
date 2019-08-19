@@ -23,7 +23,6 @@ import time
 from absl import logging
 from concurrent import futures
 import grpc
-from grpc import loas2
 
 from tensor2tensor.envs import env_service_pb2_grpc
 from tensor2tensor.envs import env_service_servicer
@@ -34,9 +33,7 @@ _ADDRESS_FORMAT = "[::]:{}"
 
 
 def add_port(server, port):
-  server_credentials = loas2.loas2_server_credentials()
-  return server.add_secure_port(
-      _ADDRESS_FORMAT.format(port), server_credentials)
+  return server.add_insecure_port(_ADDRESS_FORMAT.format(port))  # pylint: disable=unreachable
 
 
 def serve(output_dir, env, port):

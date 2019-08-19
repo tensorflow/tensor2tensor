@@ -21,7 +21,6 @@ from __future__ import print_function
 
 from absl import logging
 import grpc
-from grpc import loas2
 import gym
 import numpy as np
 from tensor2tensor.envs import env_service_pb2
@@ -34,8 +33,7 @@ class ClientEnv(gym.Env):
 
   @staticmethod
   def create_channel(remote_env_address):
-    return grpc.secure_channel(remote_env_address,
-                               loas2.loas2_channel_credentials())
+    return grpc.insecure_channel(remote_env_address)  # pylint: disable=unreachable
 
   @staticmethod
   def run_step(stub, discrete_action):
