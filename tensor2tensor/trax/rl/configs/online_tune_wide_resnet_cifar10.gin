@@ -1,8 +1,8 @@
 import tensor2tensor.trax.inputs
 import tensor2tensor.trax.models
 import tensor2tensor.trax.optimizers
-import tensor2tensor.trax.rl
 import tensor2tensor.trax.rl.envs
+import tensor2tensor.trax.rl.trainers
 
 # Parameters for batch_fun:
 # ==============================================================================
@@ -41,7 +41,7 @@ OnlineTuneEnv.model = @trax.models.WideResnet
 OnlineTuneEnv.optimizer = @trax.optimizers.Momentum
 OnlineTuneEnv.start_lr = 0.01
 OnlineTuneEnv.train_steps = 500
-OnlineTuneEnv.eval_steps = 100
+OnlineTuneEnv.eval_steps = 50
 OnlineTuneEnv.env_steps = 100
 OnlineTuneEnv.observation_metrics = [
     ("train", "metrics/accuracy"),
@@ -50,20 +50,26 @@ OnlineTuneEnv.observation_metrics = [
     ("eval", "metrics/loss"),
 ]
 
-# Parameters for ppo.training_loop:
+# Parameters for PPO:
 # ==============================================================================
-ppo.training_loop.n_optimizer_steps = 30
-ppo.training_loop.boundary = 20
-ppo.training_loop.max_timestep = 128
-ppo.training_loop.max_timestep_eval = 20000
-ppo.training_loop.random_seed = 0
-ppo.training_loop.gamma = 0.99
-ppo.training_loop.lambda_ = 0.95
-ppo.training_loop.c1 = 1.0
-ppo.training_loop.c2 = 0.01
-ppo.training_loop.eval_every_n = 10
-ppo.training_loop.done_frac_for_policy_save = 0
-ppo.training_loop.n_evals = 1
-ppo.training_loop.eval_temperatures = (1.0,)
-ppo.training_loop.len_history_for_policy = 4
-ppo.training_loop.policy_and_value_model = @trax.models.TransformerDecoder
+PPO.n_optimizer_steps = 30
+PPO.target_kl = 0.1
+PPO.boundary = 128
+PPO.max_timestep = 128
+PPO.max_timestep_eval = 128
+PPO.random_seed = None
+PPO.gamma = 0.99
+PPO.lambda_ = 0.95
+PPO.c1 = 1.0
+PPO.c2 = 0.01
+PPO.eval_every_n = 10
+PPO.done_frac_for_policy_save = 0
+PPO.n_evals = 1
+PPO.len_history_for_policy = 4
+PPO.eval_temperatures = (1.0, 0.5)
+PPO.policy_and_value_model = @trax.models.FrameStackMLP
+
+# Parameters for train_rl:
+# ==============================================================================
+train_rl.env_name = "OnlineTuneEnv-v0"
+train_rl.n_epochs = 1000

@@ -38,13 +38,13 @@ from tensor2tensor.trax import models
 from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.rl import envs  # pylint: disable=unused-import
-from tensor2tensor.trax.rl import ppo
+from tensor2tensor.trax.rl import ppo_trainer
 from tensor2tensor.trax.rl import simulated_env_problem
 from tensorflow import test
 from tensorflow.io import gfile
 
 
-class PpoTrainingLoopTest(test.TestCase):
+class PpoTrainerTest(test.TestCase):
 
   def get_wrapped_env(self, name="CartPole-v0", max_episode_steps=2):
     wrapper_fn = functools.partial(
@@ -74,17 +74,16 @@ class PpoTrainingLoopTest(test.TestCase):
       model = lambda: [layers.Dense(1)]
     n_epochs = 2
     # Run the training loop.
-    ppo.training_loop(
+    trainer = ppo_trainer.PPO(
         train_env=train_env,
         eval_env=eval_env,
-        epochs=n_epochs,
         policy_and_value_model=model,
-        policy_and_value_optimizer_fn=ppo.optimizer_fn,
         n_optimizer_steps=1,
         output_dir=output_dir,
         random_seed=0,
         boundary=2,
     )
+    trainer.training_loop(n_epochs=n_epochs)
 
   def test_training_loop_cartpole(self):
     with self.tmp_dir() as output_dir:

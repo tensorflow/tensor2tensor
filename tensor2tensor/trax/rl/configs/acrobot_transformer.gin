@@ -1,5 +1,5 @@
 import tensor2tensor.trax.models
-import tensor2tensor.trax.rl
+import tensor2tensor.trax.rl.trainers
 
 # Parameters for TransformerDecoder:
 # ==============================================================================
@@ -9,22 +9,26 @@ TransformerDecoder.dropout = 0.1
 TransformerDecoder.n_heads = 2
 TransformerDecoder.n_layers = 1
 
-# Parameters for ppo.training_loop:
+# Parameters for PPO:
 # ==============================================================================
-ppo.training_loop.epochs = 40000
-ppo.training_loop.n_optimizer_steps = 32
-ppo.training_loop.target_kl = 1000  # Virtually infinite.
-ppo.training_loop.boundary = 512
-ppo.training_loop.max_timestep = 512
-ppo.training_loop.max_timestep_eval = 20000
-ppo.training_loop.random_seed = None
-ppo.training_loop.gamma = 0.99
-ppo.training_loop.lambda_ = 0.95
-ppo.training_loop.c1 = 1.0
-ppo.training_loop.c2 = 0.0
-ppo.training_loop.eval_every_n = 500
-ppo.training_loop.done_frac_for_policy_save = 0.9
-ppo.training_loop.n_evals = 16
-ppo.training_loop.len_history_for_policy = None
-ppo.training_loop.eval_temperatures = (1.0, 0.5)
-ppo.training_loop.policy_and_value_model = @trax.models.TransformerDecoder
+PPO.n_optimizer_steps = 32
+PPO.target_kl = 1000  # Virtually infinite.
+PPO.boundary = 512
+PPO.max_timestep = 512
+PPO.max_timestep_eval = 20000
+PPO.random_seed = None
+PPO.gamma = 0.99
+PPO.lambda_ = 0.95
+PPO.c1 = 1.0
+PPO.c2 = 0.0
+PPO.eval_every_n = 500
+PPO.done_frac_for_policy_save = 0.9
+PPO.n_evals = 16
+PPO.len_history_for_policy = None
+PPO.eval_temperatures = (1.0, 0.5)
+PPO.policy_and_value_model = @trax.models.TransformerDecoder
+
+# Parameters for train_rl:
+# ==============================================================================
+train_rl.env_name = "Acrobot-v1"
+train_rl.n_epochs = 40000
