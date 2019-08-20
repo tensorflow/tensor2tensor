@@ -48,7 +48,7 @@ def VarianceScalingInitializer(scale, mode, distribution):
     if mode not in {"fan_in", "fan_out", "fan_avg"}:
         raise ValueError(f"Invalid mode argument: {mode}, must be either fan_in, fan_out or fan_avg")
 
-    def Init(rng, shape):
+    def Init(shape, rng):
         fan_in, fan_out = _get_fans(shape)
         gain = scale
         if mode == "fan_in":
