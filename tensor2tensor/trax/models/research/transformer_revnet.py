@@ -196,7 +196,7 @@ class SplitForOutput(tl.ReversibleLayer):
 
   def reverse_and_grad(self, output, ct, params=(), **kwargs):
     del params, kwargs
-    return self.reverse(output), (self.reverse(ct), (), ())
+    return self.reverse(output), (self.reverse(ct), ())
 
 
 @tl.layer()
@@ -257,22 +257,19 @@ class ReversibleHalfResidual(tl.ReversibleLayer, tl.Serial):
     if rng is not None:
       rngs = backend.random.split(rng, self._n_layers)
 
-    # Note: jax.vjp does not allow us to use **kwargs in the signature here.
-    def call_compute_residual(x, params, kwargs):
-      return self.compute_residual(x, params, **kwargs)
+    def call_compute_residual(x, params):
+      return self.compute_residual(x, params, rng=rngs[0], **kwargs)
 
     assert len(ct) == 2
     ct = ((ct[0], ct[0], ct[1]))
 
-    compute_residual_kwargs = kwargs.copy()
-    compute_residual_kwargs['rng'] = rngs[0]
     stack_with_residual, vjpfun = jax.vjp(
-        call_compute_residual, output, params[0], compute_residual_kwargs)
+        call_compute_residual, output, params[0])
     reconstructed_x = self.subtract_top(
         stack_with_residual, params[-1], rng=rngs[-1], **kwargs)
 
-    x_ct, residual_params_ct, kwargs_ct = vjpfun(ct)
-    return reconstructed_x, (x_ct, (residual_params_ct, ()), kwargs_ct)
+    x_ct, residual_params_ct = vjpfun(ct)
+    return reconstructed_x, (x_ct, (residual_params_ct, ()))
 
 
 class ComputeAttentionHeads(tl.Layer):
@@ -716,23 +713,17 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
 
     # Forward pass through self.pre_attention, while preparing for
     # later backprop.
-    # Note: jax.vjp does not allow us to use **kwargs in the signature here.
-    def call_pre_attention(x, params, kwargs):
-      return self.pre_attention(x, params, **kwargs)
-    pre_attention_kwargs = kwargs.copy()
-    pre_attention_kwargs['rng'] = rngs[0]
-    stack, pre_attention_vjpfun = jax.vjp(
-        call_pre_attention, output, params[0], pre_attention_kwargs)
+    def call_pre_attention(x, params):
+      return self.pre_attention(x, params, rng=rngs[0], **kwargs)
+    stack, pre_attention_vjpfun = jax.vjp(call_pre_attention, output, params[0])
 
     # Backprop through adding the residual
     assert len(ct) == 2
     ct = saved_ct = (ct[0], ct[0], ct[1])
 
     # Backprop through self.post_attention with respect to the inputs only
-    call_post_attention_kwargs = kwargs.copy()
-    call_post_attention_kwargs['rng'] = rngs[2]
     def call_post_attention(x):
-      return self.post_attention(x, params[2], **call_post_attention_kwargs)
+      return self.post_attention(x, params[2], rng=rngs[2], **kwargs)
     # Note: these are *not* the actual inputs to self.post_attention.
     # If self.post_attention is not linear, we will get incorrect gradients.
     dummy_inputs = (stack[-3], stack[-2], stack[-1])
@@ -740,25 +731,19 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
     (ct,) = post_attention_vjpfun(ct)
 
     # Simultaneous forward pass and backprop through the attention mechanism
-    attention_kwargs = kwargs.copy()
-    attention_kwargs['rng'] = rngs[1]
     stack, ct = self.attention.forward_and_vjp(
-        stack, ct, **attention_kwargs)
+        stack, ct, rng=rngs[1], **kwargs)
     attention_params_ct = ()
 
     # Backprop through self.pre_attention
-    (x_ct,
-     pre_attention_params_ct,
-     pre_attention_kwargs_ct) = pre_attention_vjpfun(ct)
+    x_ct, pre_attention_params_ct = pre_attention_vjpfun(ct)
 
     # Forward pass for self.post_attention, and backprop with respect to the
     # parameters only
-    def call_post_attention2(params, kwargs):
-      return self.post_attention(stack, params, **kwargs)
-    stack, post_attention_vjpfun = jax.vjp(
-        call_post_attention2, params[2], call_post_attention_kwargs)
-    (post_attention_params_ct,
-     post_attention_kwargs_ct) = post_attention_vjpfun(saved_ct)
+    def call_post_attention2(params):
+      return self.post_attention(stack, params, rng=rngs[2], **kwargs)
+    stack, post_attention_vjpfun = jax.vjp(call_post_attention2, params[2])
+    (post_attention_params_ct,) = post_attention_vjpfun(saved_ct)
 
     # Forward pass through subtracting the residual
     reconstructed_x = self.subtract_top(
@@ -771,12 +756,7 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
         (),
         )
 
-    # We don't actually backprop through the kwargs, but the API requires that
-    # we provide a value for kwargs_ct.
-    kwargs_ct = pre_attention_kwargs_ct
-    del post_attention_kwargs_ct
-
-    return reconstructed_x, (x_ct, params_ct, kwargs_ct)
+    return reconstructed_x, (x_ct, params_ct)
 
 
 def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,

@@ -47,17 +47,18 @@ class ReversibleLayer(base.Layer):
       **kwargs: kwargs for the layer
 
     Returns:
-      A tuple (x, x_grad), where x is the reconstructed input and x_grad is the
-      gradient signal for the input.
+      A tuple (x, (x_grad, params_grad)), where x is the reconstructed input,
+      x_grad is the gradient signal for the input, and params_grad is the
+      gradient signal for the parameters.
     """
     # Note: jax.vjp does not allow us to use **kwargs in the signature here.
-    def _do_call(x, params, kwargs):
+    def _do_call(x, params):
       return super(ReversibleLayer, self).call(x, params=params, **kwargs)
 
     reconstructed_x = self.reverse(output, params, **kwargs)
-    _, vjpfun = jax.vjp(_do_call, reconstructed_x, params, kwargs)
-    x_grad = vjpfun(grad)
-    return reconstructed_x, x_grad
+    _, vjpfun = jax.vjp(_do_call, reconstructed_x, params)
+    x_params_grad = vjpfun(grad)
+    return reconstructed_x, x_params_grad
 
   @property
   def has_custom_grad(self):
@@ -65,8 +66,8 @@ class ReversibleLayer(base.Layer):
 
   def custom_grad(self, inputs, output, ct, params, **kwargs):
     del inputs
-    _, input_ct = self.reverse_and_grad(output, ct, params, **kwargs)
-    return input_ct
+    _, inputs_params_ct = self.reverse_and_grad(output, ct, params, **kwargs)
+    return inputs_params_ct
 
 
 class ReversibleSwap(ReversibleLayer, cb.Swap):
@@ -114,15 +115,7 @@ class ReversibleSerial(ReversibleLayer, cb.Serial):
     for layer, p, rng in reversed(zip(self.sublayers(), params, rngs)):
       layer_val, layer_ct = layer.reverse_and_grad(
           layer_val, layer_ct, p, rng=rng, **kwargs)
-      layer_ct, p_ct, kwargs_ct = layer_ct
+      layer_ct, p_ct = layer_ct
       params_ct.insert(0, p_ct)
 
-    # TODO(kitaev): Handle kwargs_ct properly. However, kwargs generally only
-    # contains the rng, which is non-differentiable.
-    for k in kwargs:
-      if k != 'rng':
-        raise NotImplementedError(
-            'ReversibleSerial does not support differentiation wrt kwargs,'
-            'and the key {} is not known to be non-differentiable.'.format(k))
-
-    return layer_val, (layer_ct, params_ct, kwargs_ct)
+    return layer_val, (layer_ct, params_ct)

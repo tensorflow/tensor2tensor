@@ -243,22 +243,22 @@ class Layer(object):
 
       # See this link for how custom transformations are defined in JAX:
       # https://jax.readthedocs.io/en/latest/jax.html#jax.custom_transforms
+      # Note that we capture the kwargs and don't calculate gradients wrt. them.
       @jax.custom_transforms
-      def do_call(y, params, kwargs):
+      def do_call(y, params):
         return self.call(y, params=params, **kwargs)
 
       # This is the custom gradient (vector-jacobian product in JAX) function.
       # For the exact specification of this custom transformation see this link:
       # https://jax.readthedocs.io/en/latest/jax.html#jax.defjvp_all
-      # Note that we make arguments positional to allow gradients wrt. them.
-      def do_call_vjp(y, params, kwargs):
+      def do_call_vjp(y, params):
         output = self.call(y, params=params, **kwargs)
         def vjpfun(grad):
           return self.custom_grad(y, output, grad, params, **kwargs)
         return output, vjpfun
 
       jax.defvjp_all(do_call, do_call_vjp)
-      return do_call(x, params, kwargs)
+      return do_call(x, params)
 
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback()
