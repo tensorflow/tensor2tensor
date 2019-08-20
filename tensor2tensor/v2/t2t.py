@@ -75,8 +75,10 @@ def train_and_eval_dataset(dataset_name, data_dir):
   eval_split = tfds.Split.VALIDATION
   if tfds.Split.VALIDATION not in splits:
     eval_split = tfds.Split.TEST
-  train, valid = tfds.load(
-      name=dataset_name, split=[tfds.Split.TRAIN, eval_split])
+  train = tfds.load(
+      name=dataset_name, split=tfds.Split.TRAIN, shuffle_files=True)
+  valid = tfds.load(
+      name=dataset_name, split=eval_split, shuffle_files=False)
   keys = None
   if info.supervised_keys:
     keys = ([info.supervised_keys[0]], [info.supervised_keys[1]])
