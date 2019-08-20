@@ -470,8 +470,12 @@ class MemoryEfficientDotProductAttention(DotProductAttention):
       return out_slice
 
     def forward_and_vjp_slice(query_slice, q_loop_idx, key, value, ct_slice):
+      # Capture q_loop_idx to avoid calculated gradients wrt. it.
+      def forward_slice_with_q_loop_idx(query_slice, key, value):
+        return forward_slice(query_slice, q_loop_idx, key, value)
+
       output_slice, vjpfun = jax.vjp(
-          forward_slice, query_slice, q_loop_idx, key, value)
+          forward_slice_with_q_loop_idx, query_slice, key, value)
       return output_slice, vjpfun(ct_slice)
 
     q_loop_idx = np.zeros((), dtype=np.int32)
@@ -513,9 +517,8 @@ class MemoryEfficientDotProductAttention(DotProductAttention):
             query_slice, q_loop_idx, key, value, ct_slice)
         query_ct_accum = jax.lax.dynamic_update_slice_in_dim(
             query_ct_accum, partial_ct[0], q_loop_idx, axis=-2)
-        # ignore partial_ct[1], which is wrt the loop idx
-        key_ct_accum = key_ct_accum + partial_ct[2]
-        value_ct_accum = value_ct_accum + partial_ct[3]
+        key_ct_accum = key_ct_accum + partial_ct[1]
+        value_ct_accum = value_ct_accum + partial_ct[2]
       else:
         out_slice = forward_slice(query_slice, q_loop_idx, key, value)
 
