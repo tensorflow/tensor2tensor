@@ -76,7 +76,7 @@ def GlorotNormalInitializer(out_dim=0, in_dim=1, scale=1.):
     return VarianceScalingInitializer(scale, "fan_avg", "truncated_normal")
 
 
-def GlorotUniformInitializer(out_dim=0, in_dim=1):
+def GlorotUniformInitializer(out_dim=0, in_dim=1, scale=1.):
     """An initializer function for random uniform Glorot-scaled coefficients."""
     return VarianceScalingInitializer(scale, "fan_avg", "uniform")    
 
@@ -89,6 +89,7 @@ def LeCunNormalInitializer(out_dim=0, in_dim=1, scale=1.):
 def LeCunUniformInitializer(out_dim=0, in_dim=1):
     """An initializer function for random uniform LeCun-scaled coefficients."""
     return VarianceScalingInitializer(scale, "fan_in", "uniform")    
+
 
 def KaimingNormalInitializer(out_dim=0, in_dim=1, param=0.):
     """An initializer function for random Kaiming-scaled coefficients."""
