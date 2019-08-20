@@ -112,16 +112,17 @@ set_status
 pytest --disable-warnings tensor2tensor/data_generators/allen_brain_test.py
 set_status
 
+# TODO(afrozm): Enable this unconditionally?
 
-# Test models/research only against tf-nightly
-if [[ "$TRAVIS_PYTHON_VERSION" == "2.7"  ]] && [[ "$TF_VERSION" == "tf-nightly"  ]]
-then
-  # Ignores:
-  # * Glow requires the CIFAR-10 dataset to be generated
-  pytest --disable-warnings tensor2tensor/models/research \
-    --ignore=tensor2tensor/models/research/glow_test.py
-  set_status
-fi
+## Test models/research only against tf-nightly
+#if [[ "$TRAVIS_PYTHON_VERSION" == "2.7"  ]]
+#then
+#  # Ignores:
+#  # * Glow requires the CIFAR-10 dataset to be generated
+#  pytest --disable-warnings tensor2tensor/models/research \
+#    --ignore=tensor2tensor/models/research/glow_test.py
+#  set_status
+#fi
 
 if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]
 then
