@@ -56,6 +56,7 @@ setup(
         'six',
         'sympy',
         'tensorflow-datasets',
+        'tensorflow-gan',
         'tensorflow-probability',
         'tqdm',
     ],
