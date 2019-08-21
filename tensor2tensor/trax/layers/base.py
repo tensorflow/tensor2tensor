@@ -258,12 +258,12 @@ class Layer(object):
       #   JAX.
 
       assert state is (), (  # pylint: disable=literal-comparison
-          'Custom gradients do not allow non-trivial start state.')
+          'Custom gradients require trivial start state. Got %s' % str(state))
 
       def check_end_state(output_state):
         output, state = output_state
         assert state is (), (  # pylint: disable=literal-comparison
-            'Custom gradients do not allow non-trivial end state.')
+            'Custom gradients require trivial end state. Got %s' % str(state))
         return output
 
       # See this link for how custom transformations are defined in JAX:

@@ -181,7 +181,7 @@ class Serial(base.Layer):
       raise ValueError('number of params ({}) not equal to number of layers '
                        '({})'.format(len(params), n_layers))
     if n_layers != 1 and len(state) != n_layers:
-      raise ValueError('number of params ({}) not equal to number of layers '
+      raise ValueError('length of state ({}) not equal to number of layers '
                        '({})'.format(len(state), n_layers))
     for layer, p, s, rng in zip(self._sublayers, params, state, rngs):
       is_stack_just_one_item = (_count_items(stack) == 1)
