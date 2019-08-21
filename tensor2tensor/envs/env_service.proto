@@ -1,11 +1,11 @@
 syntax = "proto3";
 option cc_enable_arenas = true;
 
-package third_party.py.tensor2tensor.trax.rlax.envs;
+package tensor2tensor.trax.rlax.envs;
 
-import "third_party/tensorflow/core/framework/tensor.proto";
-import "third_party/tensorflow/core/framework/tensor_shape.proto";
-import "third_party/tensorflow/core/framework/types.proto";
+import "tensorflow/core/framework/tensor.proto";
+import "tensorflow/core/framework/tensor_shape.proto";
+import "tensorflow/core/framework/types.proto";
 
 // We use tensorflow.TensorProto to represent numpy arrays.
 
@@ -89,30 +89,22 @@ message EnvInfoResponse {
 service EnvService {
   // Reset
   rpc Reset(ResetRequest) returns (ResetResponse) {
-    option fail_fast = true;
   }
 
   // Step
   rpc Step(StepRequest) returns (StepResponse) {
-    option fail_fast = true;
   }
 
   // Close
   rpc Close(CloseRequest) returns (CloseResponse) {
-    option fail_fast = true;
-    option deadline = 10;
   }
 
   // Render
   rpc Render(RenderRequest) returns (RenderResponse) {
-    option fail_fast = true;
-    option deadline = 10;
   }
 
   // Observation and Action Space.
   rpc GetEnvInfo(EnvInfoRequest) returns (EnvInfoResponse) {
-    option fail_fast = true;
-    option deadline = 10;
   }
 }
 
