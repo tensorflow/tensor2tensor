@@ -40,11 +40,11 @@ class BaseLayerTest(absltest.TestCase):
 
       def call(self, x, params, **kwargs):
         del params, kwargs
-        return x
+        return x, ()
 
       def new_parameters(self, input_shapes, input_dtype, rng):
         del input_shapes, input_dtype, rng
-        return ()
+        return (), ()
 
       @property
       def has_custom_grad(self):
@@ -59,7 +59,7 @@ class BaseLayerTest(absltest.TestCase):
     input_shape = (9, 17)
     random_input = backend.random.uniform(rng, input_shape, minval=-1.0,
                                           maxval=1.0)
-    f = lambda x: backend.numpy.mean(layer(x, params, rng=rng))
+    f = lambda x: backend.numpy.mean(layer(x, params, rng=rng)[0])
     grad = backend.grad(f)(random_input)
     self.assertEqual(grad.shape, input_shape)  # Gradient for each input.
     self.assertEqual(sum(sum(grad * grad)), 0.0)  # Each one is 0.
@@ -70,11 +70,11 @@ class BaseLayerTest(absltest.TestCase):
 
       def call(self, x, params, **kwargs):
         del params, kwargs
-        return x
+        return x, ()
 
       def new_parameters(self, input_shapes, input_dtype, rng):
         del input_shapes, input_dtype, rng
-        return ()
+        return (), ()
 
       @property
       def has_custom_grad(self):
@@ -89,7 +89,7 @@ class BaseLayerTest(absltest.TestCase):
     input_shape = (9, 17)
     random_input = backend.random.uniform(rng, input_shape, minval=-1.0,
                                           maxval=1.0)
-    f = lambda x: backend.numpy.mean(layer(x, params, rng=rng))
+    f = lambda x: backend.numpy.mean(layer(x, params, rng=rng)[0])
     grad = backend.grad(f)(random_input)
     self.assertEqual(grad.shape, input_shape)  # Gradient for each input.
     self.assertEqual(sum(sum(grad)), sum(sum(random_input)))  # Same as input.

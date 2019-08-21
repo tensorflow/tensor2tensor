@@ -23,56 +23,93 @@ from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.layers import base
 
 
-# Batch normalization.
-def BatchNormParams(input_shape, input_dtype, rng, axis=(0, 1, 2),
-                    center=True, scale=True, **kwargs):
-  """Helper to initialize batch norm params."""
-  del input_dtype, rng, kwargs
-  axis = (axis,) if np.isscalar(axis) else axis
-  shape = tuple(d for i, d in enumerate(input_shape) if i not in axis)
-  beta = np.zeros(shape, dtype='float32') if center else ()
-  gamma = np.ones(shape, dtype='float32') if scale else ()
-  return (beta, gamma)
+class BatchNorm(base.Layer):
+  """Batch normalization."""
 
+  def __init__(self, axis=(0, 1, 2), epsilon=1e-5, center=True, scale=True,
+               momentum=None, mode='train'):
+    super(BatchNorm, self).__init__()
+    self._axis = axis
+    self._epsilon = epsilon
+    self._center = center
+    self._scale = scale
+    self._momentum = momentum
+    self._mode = mode
 
-@base.layer(new_parameters=BatchNormParams)
-def BatchNorm(x, params, axis=(0, 1, 2), epsilon=1e-5,
-              center=True, scale=True, **unused_kwargs):
-  """Layer construction function for a batch normalization layer."""
-  mean = np.mean(x, axis, keepdims=True)
-  # Fast but less numerically-stable variance calculation than np.var.
-  m1 = np.mean(x**2, axis, keepdims=True)
-  var = m1 - mean**2
-  # x mustn't be onp.ndarray here; otherwise `x-mean` will call mean.__rsub__
-  # with each element of x, resulting in an onp.ndarray with dtype `object`.
-  z = (x - mean) / np.sqrt(var + epsilon).astype(x.dtype)
+  def new_parameters(self, input_shape, input_dtype, rng):
+    """Helper to initialize batch norm params."""
+    del input_dtype, rng
+    axis = self._axis
+    axis = (axis,) if np.isscalar(axis) else axis
+    shape = tuple(d for i, d in enumerate(input_shape) if i not in axis)
+    beta = np.zeros(shape, dtype='float32') if self._center else ()
+    gamma = np.ones(shape, dtype='float32') if self._scale else ()
+    def get_stats_axis(i, d):
+      if i in axis:
+        return 1
+      else:
+        return d
+    stats_shape = tuple(get_stats_axis(i, d) for i, d in enumerate(input_shape))
+    running_mean = np.zeros(stats_shape, dtype=np.float32)
+    running_var = np.zeros(stats_shape, dtype=np.float32)
+    num_batches = np.zeros((), dtype=np.int32)
+    return (beta, gamma), (running_mean, running_var, num_batches)
 
-  # Expand the parameters to have the right axes.
-  beta, gamma = params
-  # TODO(phawkins): np.expand_dims should accept an axis tuple.
-  # (https://github.com/numpy/numpy/issues/12290)
-  ed = tuple(None if i in axis else slice(None) for i in range(np.ndim(x)))
-  beta = beta[ed]
-  gamma = gamma[ed]
+  def call(self, x, params, state, **unused_kwargs):
+    """Layer construction function for a batch normalization layer."""
 
-  # Return the z rescaled by the parameters if requested.
-  if center and scale:
-    ret = gamma * z + beta
-  elif center:
-    ret = z + beta
-  elif scale:
-    ret = gamma * z
-  else:
-    ret = z
-  assert ret.dtype == x.dtype, ('The dtype of the output (%s) of batch norm is '
-                                'not the same as the input (%s). Batch norm '
-                                'should not change the dtype' %
-                                (ret.dtype, x.dtype))
-  return ret
+    running_mean, running_var, num_batches = state
+
+    if self._mode == 'train':
+      mean = np.mean(x, self._axis, keepdims=True)
+      # Fast but less numerically-stable variance calculation than np.var.
+      m1 = np.mean(x**2, self._axis, keepdims=True)
+      var = m1 - mean**2
+      num_batches = num_batches + 1
+      if self._momentum is None:
+        # A simple average over all batches seen so far
+        exponential_average_factor = 1.0 / num_batches
+      else:
+        exponential_average_factor = self._momentum
+      def average(factor, new, old):
+        return (factor * new + (1 - factor) * old).astype(old.dtype)
+      running_mean = average(exponential_average_factor, mean, running_mean)
+      running_var = average(exponential_average_factor, var, running_var)
+      state = (running_mean, running_var, num_batches)
+    else:
+      mean = running_mean
+      var = running_var
+
+    z = (x - mean.astype(x.dtype)) / np.sqrt(var +
+                                             self._epsilon).astype(x.dtype)
+
+    # Expand the parameters to have the right axes.
+    beta, gamma = params
+    # TODO(phawkins): np.expand_dims should accept an axis tuple.
+    # (https://github.com/numpy/numpy/issues/12290)
+    ed = tuple(None if i in self._axis else slice(None)
+               for i in range(np.ndim(x)))
+    beta = beta[ed]
+    gamma = gamma[ed]
+
+    # Return the z rescaled by the parameters if requested.
+    if self._center and self._scale:
+      output = gamma * z + beta
+    elif self._center:
+      output = z + beta
+    elif self._scale:
+      output = gamma * z
+    else:
+      output = z
+    assert output.dtype == x.dtype, ('The dtype of the output (%s) of batch '
+                                     'norm is not the same as the input (%s). '
+                                     'Batch norm should not change the dtype' %
+                                     (output.dtype, x.dtype))
+    return output, state
 
 
 # Layer normalization.
-def LayerNormParams(input_shape, input_dtype, rng, epsilon=1e-6):
+def _layer_norm_params(input_shape, input_dtype, rng, epsilon=1e-6):
   """Helper: create layer norm parameters."""
   del input_dtype, rng, epsilon
   features = input_shape[-1]
@@ -81,8 +118,8 @@ def LayerNormParams(input_shape, input_dtype, rng, epsilon=1e-6):
   return (scale, bias)
 
 
-@base.layer(new_parameters=LayerNormParams)
-def LayerNorm(x, params, epsilon=1e-6, **unused_kwargs):
+@base.layer(new_parameters=_layer_norm_params)
+def LayerNorm(x, params, epsilon=1e-6, **unused_kwargs):  # pylint: disable=invalid-name
   (scale, bias) = params
   mean = np.mean(x, axis=-1, keepdims=True)
   variance = np.mean((x - mean)**2, axis=-1, keepdims=True)

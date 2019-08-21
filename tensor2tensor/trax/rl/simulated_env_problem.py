@@ -65,6 +65,7 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
 
     self._predict_fn = None
     self._rng = None
+    self._model_state = None
     self._history_stream = None
 
     # Call the super's ctor. It will use some of the member fields, so we call
@@ -93,6 +94,7 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
 
     model_state = trax.restore_state(self._output_dir)
     model_params = model_state.opt_state.params
+    self._model_state = model_state.model_state
     self._predict_fn = functools.partial(
         self._model_predict,
         params=model_params,
@@ -240,7 +242,8 @@ class RawSimulatedEnvProblem(SimulatedEnvProblem):
     return history[:, -1, ...]
 
   def _step_model(self, predict_fn, actions, rng):
-    (observation, reward) = predict_fn((self._history, actions), rng=rng)
+    (observation, reward), self._model_state = predict_fn(
+        (self._history, actions), state=self._model_state, rng=rng)
 
     # Roll the history one timestep back and append the new observation.
     self._history = np.roll(self._history, shift=-1, axis=1)
@@ -355,7 +358,10 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
 
     for (i, subrng) in enumerate(jax_random.split(rng, self._obs_repr_length)):
       symbol_index = self._steps * self._step_repr_length + i
-      log_probs = predict_fn(self._history, rng=subrng)[:, symbol_index, :]
+      log_probs, self._model_state = predict_fn(self._history,
+                                                state=self._model_state,
+                                                rng=subrng)
+      log_probs = log_probs[:, symbol_index, :]
       self._history[:, symbol_index] = gumbel_sample(log_probs)
 
     obs_repr = self._history[self._obs_repr_indices]

@@ -81,7 +81,7 @@ class Layer(object):
     else:
       return '{}[{}]'.format(class_str, fields_str)
 
-  def call(self, inputs, params=(), **kwargs):
+  def call(self, inputs, params=(), state=(), **kwargs):
     """Applies this layer to given activation tensors, using trainable params.
 
     Args:
@@ -94,6 +94,7 @@ class Layer(object):
           and one for each of this layer's sublayers. If a layer (or sublayer)
           has no trainable parameters, the corresponding params element is an
           empty tuple.
+      state: start state.
       **kwargs: Layer-specific keyword args.
 
     Returns:
@@ -106,6 +107,7 @@ class Layer(object):
     """
     raise NotImplementedError
 
+  # TODO(wangpeng): Should be called `new_parameters_and_state`.
   def new_parameters(self, input_shapes, input_dtype, rng):
     """Creates layer-specific parameters based on data shape, dtype and rng.
 
@@ -144,7 +146,7 @@ class Layer(object):
     """Whether to use custom gradients (in which case, see below)."""
     return False
 
-  def custom_grad(self, inputs, output, grad, params, **kwargs):
+  def custom_grad(self, inputs, output, grad, params, state, **kwargs):
     """Custom backward pass to propagate gradients in a custom way.
 
     Args:
@@ -153,6 +155,7 @@ class Layer(object):
       grad: gradient signal (called cotangent in jax) computed based on
         subsequent layers. The structure and shape must match output.
       params: layer parameters
+      state: start state.
       **kwargs: kwargs for the layer
 
     Returns:
@@ -164,7 +167,7 @@ class Layer(object):
 
   # End of subclassing interface, all functions below are internal.
 
-  def pseudo_call(self, pseudo_inputs, params):
+  def pseudo_call(self, pseudo_inputs, params, state):
     """Computes shapes and types this layer would produce for the given inputs.
 
     Args:
@@ -172,6 +175,7 @@ class Layer(object):
           or a tuple of ShapeType instances, following the same conventions as
           Layer.call's input arg.
       params: Parameters for this layer.
+      state: start state.
 
     Returns:
       A ShapeType instance representing the shape and type of the output (if
@@ -183,12 +187,12 @@ class Layer(object):
       # cause a large number of dropout masks to be computed and permanently
       # stored in global memory.
       rng = ShapeType(shape=(2,), dtype=onp.uint32)
-      def call_on_input(x, params, rng):
-        return self.call(x, params=params, rng=rng)
+      def call_on_input(x, params, state, rng):
+        return self.call(x, params=params, state=state, rng=rng)
       params_shapes = nested_map(
           params, lambda x: ShapeType(shape=x.shape, dtype=x.dtype))
       s = backend.eval_on_shapes(call_on_input)(pseudo_inputs,
-                                                params_shapes, rng)
+                                                params_shapes, state, rng)
       return s
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback(skip=3)
@@ -213,17 +217,23 @@ class Layer(object):
     """
     try:
       # Initialize params once; store them for use when this layer is called.
+      # Needs to call new_parameters regardless of _init_finished because state
+      # also needs to be initialized. After jitting, graph pruning should be
+      # able to remove unnecessary computation.
+      # TODO(lukaszkaiser): Revisit this decision and see whether layers sharing
+      #   params should also share states.
+      params, state = self.new_parameters(input_shapes, input_dtype, rng)
       if not self._init_finished:
-        self._params = self.new_parameters(input_shapes, input_dtype, rng)
         self._init_finished = True
-        return self._params
+        self._params = params
       else:
-        return ()
+        params = ()
+      return (params, state)
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback(skip=3)
       raise LayerError(name, 'initialize', self._caller, input_shapes, trace)
 
-  def __call__(self, x, params=(), **kwargs):
+  def __call__(self, x, params=(), state=(), **kwargs):
     try:
       # If params are nothing, we may be reusing this layer.
       # Use the cached parameters to calculate the value.
@@ -231,34 +241,50 @@ class Layer(object):
       #   use "params is ()" instead of, e.g., "not params" or "params == ()".
       if params is ():  # pylint: disable=literal-comparison
         params = self._params
-      # In this case, we're called for the first time: cache parameters.
-      self._params = params
+      else:
+        # In this case, we're called for the first time: cache parameters.
+        self._params = params
 
       if not self.has_custom_grad:
-        return self.call(x, params=params, **kwargs)
+        return self.call(x, params=params, state=state, **kwargs)
 
       # Custom gradients part.
       assert backend.get_name() == 'jax', (
           'Custom gradients are only supported in JAX for now.')
+
+      # TODO(wangpeng): JAX doesn't support custom grads for functions with
+      #   auxiliary output yet (https://github.com/google/jax/issues/844). Will
+      #   remove the constraints on state below when this feature is added to
+      #   JAX.
+
+      assert state is (), (  # pylint: disable=literal-comparison
+          'Custom gradients do not allow non-trivial start state.')
+
+      def check_end_state(output_state):
+        output, state = output_state
+        assert state is (), (  # pylint: disable=literal-comparison
+            'Custom gradients do not allow non-trivial end state.')
+        return output
 
       # See this link for how custom transformations are defined in JAX:
       # https://jax.readthedocs.io/en/latest/jax.html#jax.custom_transforms
       # Note that we capture the kwargs and don't calculate gradients wrt. them.
       @jax.custom_transforms
       def do_call(y, params):
-        return self.call(y, params=params, **kwargs)
+        return check_end_state(self.call(y, params=params, state=(), **kwargs))
 
       # This is the custom gradient (vector-jacobian product in JAX) function.
       # For the exact specification of this custom transformation see this link:
       # https://jax.readthedocs.io/en/latest/jax.html#jax.defjvp_all
       def do_call_vjp(y, params):
-        output = self.call(y, params=params, **kwargs)
+        output = check_end_state(self.call(y, params=params, state=(),
+                                           **kwargs))
         def vjpfun(grad):
           return self.custom_grad(y, output, grad, params, **kwargs)
         return output, vjpfun
 
       jax.defvjp_all(do_call, do_call_vjp)
-      return do_call(x, params)
+      return do_call(x, params), ()
 
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback()
@@ -413,22 +439,23 @@ def layer(new_parameters=None, n_inputs=1, n_outputs=1):
 
     def _new_parameters(self, input_shapes, input_dtype, rng):
       if new_parameters is None:
-        return ()
+        return (), ()
       kwargs = self._init_kwargs  # pylint: disable=protected-access
-      return new_parameters(input_shapes, input_dtype, rng, **kwargs)
+      return new_parameters(input_shapes, input_dtype, rng, **kwargs), ()
 
     def _is_empty(raw_output):
       return raw_output is None or (isinstance(raw_output, (list, tuple))
                                     and len(raw_output) == 0)  # pylint: disable=g-explicit-length-test
 
-    def _call_with_context(self, x, params=(), **kwargs):
+    def _call_with_context(self, x, params=(), state=(), **kwargs):
       """Calls raw_call_fn with extra keyword args from Layer.__init__."""
       merged_kwargs = kwargs.copy()
       merged_kwargs.update(self._init_kwargs)  # pylint: disable=protected-access
 
       _validate_call_input(x, n_inputs)
       raw_output = raw_call_fn(x, params=params, **merged_kwargs)
-      return () if _is_empty(raw_output) else raw_output
+      output = () if _is_empty(raw_output) else raw_output
+      return (output, state)
 
     # Set docstrings and create the class.
     _call_with_context.__doc__ = raw_call_fn.__doc__
@@ -502,15 +529,15 @@ def check_shape_agreement(layer_fn, input_shapes, integer_inputs=False):
     input_dtype = tuple(input_dtype for _ in input_shapes)
   else:
     pseudo_data = ShapeType(input_shapes, input_dtype)
-  params = layer_fn.initialize(input_shapes, input_dtype, rng1)
-  pseudo_output = layer_fn.pseudo_call(pseudo_data, params)
+  params, state = layer_fn.initialize(input_shapes, input_dtype, rng1)
+  pseudo_output, _ = layer_fn.pseudo_call(pseudo_data, params, state)
   if isinstance(pseudo_output, tuple):
     output_shape = tuple(x.shape for x in pseudo_output)
   else:
     output_shape = pseudo_output.shape
 
   random_input = _random_values(input_shapes, rng2, integer_inputs)
-  real_output = layer_fn(random_input, params, rng=rng3)
+  real_output, _ = layer_fn(random_input, params, state=state, rng=rng3)
   result_shape = shapes(real_output)
 
   msg = 'output shape %s != real result shape %s' % (output_shape, result_shape)

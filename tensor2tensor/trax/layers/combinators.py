@@ -168,14 +168,22 @@ class Serial(base.Layer):
           'number of inputs ({}) to Serial.call less than n_inputs'
           ' ({})'.format(len(xs), self.n_inputs()))
 
-  def call(self, xs, params=(), **kwargs):
+  def call(self, xs, params=(), state=(), **kwargs):
     self._validate_call_inputs(xs)
     rngs = _pop_rng_and_split(kwargs, self._n_layers)
     if not self._sublayers:  # No-op: leave args unchanged.
-      return xs
+      return (xs, state)
 
     stack = xs
-    for layer, p, rng in zip(self._sublayers, params, rngs):
+    new_state = []
+    n_layers = self._n_layers
+    if n_layers != 1 and len(params) != n_layers:
+      raise ValueError('number of params ({}) not equal to number of layers '
+                       '({})'.format(len(params), n_layers))
+    if n_layers != 1 and len(state) != n_layers:
+      raise ValueError('number of params ({}) not equal to number of layers '
+                       '({})'.format(len(state), n_layers))
+    for layer, p, s, rng in zip(self._sublayers, params, state, rngs):
       is_stack_just_one_item = (_count_items(stack) == 1)
 
       # Give layer its args from the stack; treat 1-arg layer specially.
@@ -186,7 +194,8 @@ class Serial(base.Layer):
         inputs = stack[0]
       else:
         inputs = stack[:n_in]
-      outputs = layer(inputs, p, rng=rng, **kwargs)
+      outputs, s = layer(inputs, p, state=s, rng=rng, **kwargs)
+      new_state.append(s)
 
       # Push outputs onto remaining stack (if any).
       if n_in < _count_items(stack):
@@ -196,7 +205,7 @@ class Serial(base.Layer):
       else:
         stack = outputs  # NOTE: can be single value or tuple.
 
-    return stack
+    return stack, new_state
 
   def new_parameters(self, input_shape, input_dtype, rng):
     def MakeShapeType(shape, dtype):
@@ -205,6 +214,7 @@ class Serial(base.Layer):
       return base.ShapeType(shape=shape, dtype=dtype)
 
     params = []
+    states = []
     pseudo_xs = MakeShapeType(input_shape, input_dtype)
     for layer in self._sublayers:
       rng, layer_rng = backend.random.split(rng)
@@ -221,10 +231,10 @@ class Serial(base.Layer):
 
       in_shape = base.nested_map(inputs, lambda x: x.shape)
       in_dtype = base.nested_map(inputs, lambda x: x.dtype)
-      param = layer.initialize(in_shape, in_dtype, layer_rng)
+      param, state = layer.initialize(in_shape, in_dtype, layer_rng)
       pparam = layer._params   # pylint: disable=protected-access
 
-      outputs = layer.pseudo_call(inputs, pparam)
+      outputs, _ = layer.pseudo_call(inputs, pparam, state)
 
       # Push outputs onto remaining pseudo_xs (if any).
       if n_in < _count_items(pseudo_xs):
@@ -235,7 +245,8 @@ class Serial(base.Layer):
         pseudo_xs = outputs  # NOTE: can be single value or tuple.
 
       params.append(param)
-    return params
+      states.append(state)
+    return params, states
 
 
 @base.layer(n_outputs=2)
@@ -330,11 +341,11 @@ class Concatenate(base.Layer):
     return self._n_items
 
   def new_parameters(self, input_shape, input_dtype, rng):
-    return ()
+    return (), ()
 
-  def call(self, xs, params=(), **kwargs):
+  def call(self, xs, params=(), state=(), **kwargs):
     del params, kwargs
-    return backend.numpy.concatenate(xs, self._axis)
+    return backend.numpy.concatenate(xs, self._axis), state
 
 
 class Parallel(base.Layer):
@@ -436,29 +447,37 @@ class Parallel(base.Layer):
       start = end
     return tuple(sub_inputs)
 
-  def call(self, inputs, params=(), **kwargs):
+  def call(self, inputs, params=(), state=(), **kwargs):
     n_layers, layers = self._n_layers, self._sublayers
     sublayer_inputs = self._allot_to_sublayers(inputs)
     rngs = _pop_rng_and_split(kwargs, n_layers)
     assert len(sublayer_inputs) == n_layers
     assert len(params) == n_layers
+    assert len(state) == n_layers
     assert len(rngs) == n_layers
     outputs = []
-    for layer, x, p, r in zip(layers, sublayer_inputs, params, rngs):
+    new_state = []
+    for layer, x, p, s, r in zip(layers, sublayer_inputs, params, state, rngs):
       # Note that zip silently truncates its result if lengths don't match.
-      sub_outputs = layer(x, params=p, rng=r, **kwargs)
+      sub_outputs, s = layer(x, params=p, state=s, rng=r, **kwargs)
       if layer.n_outputs() == 1:
         outputs.append(sub_outputs)
       else:
         outputs.extend(sub_outputs)
-    return outputs[0] if self.n_outputs() == 1 else tuple(outputs)
+      new_state.append(s)
+    output = outputs[0] if self.n_outputs() == 1 else tuple(outputs)
+    return output, new_state
 
   def new_parameters(self, input_shapes, input_dtypes, rng):
     sublayer_shapes = self._allot_to_sublayers(input_shapes)
     sublayer_dtypes = self._allot_to_sublayers(input_dtypes)
     rngs = backend.random.split(rng, self._n_layers)
-    return [layer.initialize(shape, dtype, rng) for layer, shape, dtype, rng
-            in zip(self._sublayers, sublayer_shapes, sublayer_dtypes, rngs)]
+    inits = [layer.initialize(shape, dtype, rng) for layer, shape, dtype, rng
+             in zip(self._sublayers, sublayer_shapes, sublayer_dtypes, rngs)]
+    if not inits:
+      return (), ()
+    else:
+      return tuple(zip(*inits))
 
 
 def Residual(*layers, **kwargs):

@@ -171,10 +171,9 @@ class PpoTrainerTest(test.TestCase):
           input_dtype=(np.float32, np.int32),
       )
 
-    def loss(*args, **kwargs):
-      del args
-      del kwargs
-      return 0.0
+    def loss(params, batch, model_predict, state, rng, **kwargs):
+      del params, batch, model_predict, rng, kwargs
+      return 0.0, state
 
     with self.tmp_dir() as output_dir:
       # Run fake training just to save the parameters.

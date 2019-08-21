@@ -100,8 +100,9 @@ def policy_and_value_net(rng_key,
         )
     ]
   net = tl.Model(layers)
-  params = net.initialize(batch_observations_shape, observations_dtype, rng_key)
-  return params, net
+  params, state = net.initialize(batch_observations_shape, observations_dtype,
+                                 rng_key)
+  return params, state, net
 
 
 def optimizer_fn(optimizer, net_params):
@@ -146,6 +147,7 @@ def collect_trajectories(env,
                          reset=True,
                          len_history_for_policy=32,
                          boundary=32,
+                         state=None,
                          rng=None):
   """Collect trajectories with the given policy net and behaviour.
 
@@ -161,6 +163,7 @@ def collect_trajectories(env,
     len_history_for_policy: int or None, the maximum history to keep for
       applying the policy on. If None, use the full history.
     boundary: int, pad the sequences to the multiples of this number.
+    state: state for `policy_fn`.
     rng: jax rng, splittable.
 
   Returns:
@@ -174,7 +177,7 @@ def collect_trajectories(env,
 
   assert isinstance(env, env_problem.EnvProblem)
   # This is an env_problem, run its collect function.
-  trajs, n_done, timing_info = env_problem_utils.play_env_problem_with_policy(
+  trajs, n_done, timing_info, state = env_problem_utils.play_env_problem_with_policy(
       env,
       policy_fn,
       num_trajectories=n_trajectories,
@@ -182,12 +185,13 @@ def collect_trajectories(env,
       reset=reset,
       len_history_for_policy=len_history_for_policy,
       boundary=boundary,
+      state=state,
       rng=rng)
   # Skip returning raw_rewards here, since they aren't used.
 
   # t is the return value of Trajectory.as_numpy, so:
   # (observation, action, processed_reward, raw_reward, infos)
-  return [(t[0], t[1], t[2], t[4]) for t in trajs], n_done, timing_info
+  return [(t[0], t[1], t[2], t[4]) for t in trajs], n_done, timing_info, state
 
 
 # This function can probably be simplified, ask how?
@@ -625,10 +629,12 @@ def combined_loss(new_params,
                   epsilon=0.2,
                   c1=1.0,
                   c2=0.01,
+                  state=None,
                   rng=None):
   """Computes the combined (clipped loss + value loss) given observations."""
-  log_probab_actions_new, value_predictions_new = policy_and_value_net_apply(
-      padded_observations, new_params, rng=rng)
+  (log_probab_actions_new, value_predictions_new), state = (
+      policy_and_value_net_apply(padded_observations, new_params, state,
+                                 rng=rng))
 
   # (combined_loss, ppo_loss, value_loss, entropy_bonus)
   return combined_loss_given_predictions(
@@ -643,7 +649,7 @@ def combined_loss(new_params,
       lambda_=lambda_,
       epsilon=epsilon,
       c1=c1,
-      c2=c2)
+      c2=c2), state
 
 
 @functools.partial(jit, static_argnums=(2, 3, 4))
@@ -663,13 +669,14 @@ def policy_and_value_opt_step(i,
                               gamma=0.99,
                               lambda_=0.95,
                               epsilon=0.1,
+                              state=None,
                               rng=None):
   """Policy and Value optimizer step."""
 
   # Combined loss function given the new params.
-  def policy_and_value_loss(params):
+  def policy_and_value_loss(params, state):
     """Returns the combined loss given just parameters."""
-    (loss, _, _, _) = combined_loss(
+    (loss, _, _, _), state = combined_loss(
         params,
         log_probab_actions_old,
         value_predictions_old,
@@ -683,13 +690,14 @@ def policy_and_value_opt_step(i,
         gamma=gamma,
         lambda_=lambda_,
         epsilon=epsilon,
+        state=state,
         rng=rng)
-    return loss
+    return loss, state
 
   new_params = get_params(opt_state)
-  g = grad(policy_and_value_loss)(new_params)
+  g, state = grad(policy_and_value_loss, has_aux=True)(new_params, state)
   # TODO(afrozm): Maybe clip gradients?
-  return opt_update(i, g, opt_state)
+  return opt_update(i, g, opt_state), state
 
 
 def get_time(t1, t2=None):
@@ -743,6 +751,7 @@ def evaluate_policy(eval_env,
                     max_timestep=20000,
                     n_evals=1,
                     len_history_for_policy=32,
+                    state=None,
                     rng=None):
   """Evaluate the policy."""
 
@@ -750,13 +759,14 @@ def evaluate_policy(eval_env,
   raw_reward_sums = collections.defaultdict(list)
   for eval_rng in jax_random.split(rng, num=n_evals):
     for temperature in temperatures:
-      trajs, _, _ = env_problem_utils.play_env_problem_with_policy(
+      trajs, _, _, state = env_problem_utils.play_env_problem_with_policy(
           eval_env,
           get_predictions,
           num_trajectories=eval_env.batch_size,
           max_timestep=max_timestep,
           reset=True,
           temperature=temperature,
+          state=state,
           rng=eval_rng,
           len_history_for_policy=len_history_for_policy)
       processed_reward_sums[temperature].extend(sum(traj[2]) for traj in trajs)
@@ -771,15 +781,16 @@ def evaluate_policy(eval_env,
   return {
       "processed": compute_stats(processed_reward_sums),
       "raw": compute_stats(raw_reward_sums),
-  }
+  }, state
 
 
-def maybe_restore_params(output_dir, policy_and_value_net_params):
+def maybe_restore_params(output_dir, policy_and_value_net_params, state):
   """Maybe restore the params from the checkpoint dir.
 
   Args:
     output_dir: Directory where saved model checkpoints are stored.
     policy_and_value_net_params: Default params, returned if model is'nt found.
+    state: policy state.
 
   Returns:
     triple (restore (bool), params, iter(int)) where iter is the epoch from
@@ -790,16 +801,17 @@ def maybe_restore_params(output_dir, policy_and_value_net_params):
     logging.info("Trying to restore model from %s", model_file)
     try:
       with gfile.GFile(model_file, "rb") as f:
-        loaded_policy_and_value_net_params = pickle.load(f)
+        loaded_policy_and_value_net_params, loaded_state = pickle.load(f)
         policy_and_value_net_params = loaded_policy_and_value_net_params
+        state = loaded_state
       model_file_basename = os.path.basename(model_file)  # model-??????.pkl
       i = int(filter(str.isdigit, model_file_basename))
-      return True, policy_and_value_net_params, i
+      return True, policy_and_value_net_params, state, i
     except EOFError as e:
       logging.error("Unable to load model from: %s with %s", model_file, e)
       # Try an older version.
       continue
-  return False, policy_and_value_net_params, 0
+  return False, policy_and_value_net_params, state, 0
 
 
 def write_eval_reward_summaries(reward_stats_by_mode, summary_writer, epoch):

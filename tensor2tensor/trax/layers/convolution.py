@@ -56,7 +56,7 @@ class Conv(base.Layer):
     msg = 'Convolutions on more than 4 dimensions only supported in NHWC.'
     assert self._lhs_spec == self._out_spec == 'NHWC', msg
 
-  def call(self, x, params=(), **kwargs):
+  def call(self, x, params=(), state=(), **kwargs):
     del kwargs
     w, b = params
     x_shape = list(x.shape)
@@ -69,7 +69,7 @@ class Conv(base.Layer):
         self._one) + b
     if len(x_shape) > 4:
       res = np.reshape(res, x_shape[:-3] + list(res.shape[-3:]))
-    return res
+    return res, state
 
   def _kernel_shape(self, input_shape):
     """Helper to calculate the kernel shape."""
@@ -89,7 +89,7 @@ class Conv(base.Layer):
     bias_shape = tuple(itertools.dropwhile(lambda x: x == 1, bias_shape))
     w = self._kernel_initializer(kernel_shape, rng)
     b = self._bias_initializer(bias_shape, rng)
-    return (w, b)
+    return (w, b), ()
 
 
 class CausalConv(Conv):
