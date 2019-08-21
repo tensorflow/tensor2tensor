@@ -42,7 +42,15 @@ def RandomNormalInitializer(stddev=1e-2):
   return Init
 
 
+def RandomUniformInitializer(lim=1.0):
+  """An initializer function for random uniform coefficients."""
+  def Init(shape, rng):
+    return (backend.random.uniform(rng, shape, -lim, lim)).astype('float32')
+  return Init
+
+
 def VarianceScalingInitializer(scale, mode, distribution):
+    """Initializer capable of adapting its scale to the shape of weights tensors."""
     if scale <= 0.:
         raise ValueError(f"scale must be positive float, {scale} given")
     if mode not in {"fan_in", "fan_out", "fan_avg"}:
