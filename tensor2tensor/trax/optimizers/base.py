@@ -204,11 +204,13 @@ class RMSProp(Optimizer):
 class Adam(Optimizer):
   """Adam optimizer."""
 
-  def __init__(self, learning_rate, b1=0.9, b2=0.999, eps=1e-8):  # pylint: disable=useless-super-delegation
+  def __init__(self, learning_rate, weight_decay_rate=1e-5,  # pylint: disable=useless-super-delegation
+               b1=0.9, b2=0.999, eps=1e-5):
     """Create the Adam optimizer.
 
     Args:
       learning_rate: a postitive scalar value for the initial learning rate.
+      weight_decay_rate: rate at which to decay weights.
       b1: optional, a positive scalar value for beta_1, the exponential decay
         rate for the first moment estimates (default 0.9).
       b2: optional, a positive scalar value for beta_2, the exponential decay
@@ -216,7 +218,7 @@ class Adam(Optimizer):
       eps: optional, a positive scalar value for epsilon, a small constant for
         numerical stability (default 1e-8).
     """
-    super(Adam, self).__init__(learning_rate, b1, b2, eps)
+    super(Adam, self).__init__(learning_rate, weight_decay_rate, b1, b2, eps)
 
   def init(self, params):
     m = np.zeros_like(params)
@@ -225,12 +227,12 @@ class Adam(Optimizer):
 
   def update(self, step, grads, params, slots, opt_params):
     m, v = slots
-    learning_rate, b1, b2, eps = opt_params
+    learning_rate, weight_decay_rate, b1, b2, eps = opt_params
     m = (1 - b1) * grads + b1 * m  # First  moment estimate.
     v = (1 - b2) * (grads ** 2) + b2 * v  # Second moment estimate.
     mhat = m / (1 - b1 ** (step + 1))  # Bias correction.
     vhat = v / (1 - b2 ** (step + 1))
-    params = params - (
+    params = (1 - weight_decay_rate) * params - (
         learning_rate * mhat / (np.sqrt(vhat) + eps)).astype(params.dtype)
     return params, (m, v)
 
@@ -238,7 +240,6 @@ class Adam(Optimizer):
 class Adafactor(Optimizer):
   """Adafactor optimizer."""
 
-  # TODO(levskaya): refactor to use newer RL friendly parameter passing.
   def __init__(self,
                learning_rate,
                factored=True,
@@ -248,6 +249,7 @@ class Adafactor(Optimizer):
                beta1=0.0,
                decay_rate=0.8,
                clipping_threshold=1.0,
+               weight_decay_rate=1e-5,
                epsilon1=1e-30,
                epsilon2=1e-3):
     """Create the Adafactor optimizer.
@@ -267,6 +269,7 @@ class Adafactor(Optimizer):
         memory if nonzero!  Off by default.
       decay_rate: float: controls second-moment exponential decay schedule.
       clipping_threshold: an optional float >= 1, if None no update clipping.
+      weight_decay_rate: rate at which to decay weights.
       epsilon1: Regularization constant for squared gradient.
       epsilon2: Regularization constant for parameter scale.
     """
@@ -278,7 +281,7 @@ class Adafactor(Optimizer):
     # Dynamically configurable parameters will be passed to the update function.
     super(Adafactor, self).__init__(
         learning_rate, beta1, decay_rate, clipping_threshold,
-        epsilon1, epsilon2)
+        weight_decay_rate, epsilon1, epsilon2)
 
   @staticmethod
   def _decay_rate_pow(i, exponent=0.8):
@@ -304,7 +307,7 @@ class Adafactor(Optimizer):
   def update(self, step, grads, params, slots, opt_params):
     updates = []
     (learning_rate, beta1, decay_rate, clipping_threshold,
-     epsilon1, epsilon2) = opt_params
+     weight_decay_rate, epsilon1, epsilon2) = opt_params
     decay_rate = self._decay_rate_pow(step, exponent=decay_rate)
     update_scale = learning_rate
     if self._multiply_by_parameter_scale:
@@ -343,7 +346,7 @@ class Adafactor(Optimizer):
       subtrahend = new_m
       updates.append(new_m)
 
-    new_params = params - subtrahend
+    new_params = (1 - weight_decay_rate) * params - subtrahend
     return new_params, updates
 
 
