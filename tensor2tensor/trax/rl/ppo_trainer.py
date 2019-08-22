@@ -155,9 +155,9 @@ class PPO(base_trainer.BaseTrainer):
 
     # Maybe restore the policy params. If there is nothing to restore, then
     # iteration = 0 and policy_and_value_net_params are returned as is.
-    restored, policy_and_value_net_params, self._model_state, self._epoch = (
-        ppo.maybe_restore_params(output_dir, policy_and_value_net_params,
-                                 self._model_state))
+    (restored, policy_and_value_net_params, self._model_state, self._epoch,
+     self._total_opt_step) = ppo.maybe_restore_params(
+         output_dir, policy_and_value_net_params, self._model_state)
 
     if restored:
       logging.info("Restored parameters from iteration [%d]", self._epoch)
@@ -329,24 +329,34 @@ class PPO(base_trainer.BaseTrainer):
       k1, k2, k3 = jax_random.split(key, num=3)
       t = time.time()
       # Update the optimizer state.
-      self._policy_and_value_opt_state, self._model_state = ppo.policy_and_value_opt_step(
-          j,
-          self._policy_and_value_opt_state,
-          self._policy_and_value_opt_update,
-          self._policy_and_value_get_params,
-          self._policy_and_value_net_apply,
-          log_probabs_traj,
-          value_predictions_traj,
-          padded_observations,
-          padded_actions,
-          padded_rewards,
-          reward_mask,
-          c1=self._c1,
-          c2=self._c2,
-          gamma=self._gamma,
-          lambda_=self._lambda_,
-          state=self._model_state,
-          rng=k1)
+      self._policy_and_value_opt_state, self._model_state = (
+          ppo.policy_and_value_opt_step(
+              # We pass the optimizer slots between PPO epochs, so we need to
+              # pass the optimization step as well, so for example the
+              # bias-correction in Adam is calculated properly. Alternatively we
+              # could reset the slots and the step in every PPO epoch, but then
+              # the moment estimates in adaptive optimizers would never have
+              # enough time to warm up. So it makes sense to reuse the slots,
+              # even though we're optimizing a different loss in every new
+              # epoch.
+              self._total_opt_step,
+              self._policy_and_value_opt_state,
+              self._policy_and_value_opt_update,
+              self._policy_and_value_get_params,
+              self._policy_and_value_net_apply,
+              log_probabs_traj,
+              value_predictions_traj,
+              padded_observations,
+              padded_actions,
+              padded_rewards,
+              reward_mask,
+              c1=self._c1,
+              c2=self._c2,
+              gamma=self._gamma,
+              lambda_=self._lambda_,
+              state=self._model_state,
+              rng=k1))
+      self._total_opt_step += 1
 
       # Compute the approx KL for early stopping.
       (log_probab_actions_new, _), self._model_state = (
@@ -478,7 +488,9 @@ class PPO(base_trainer.BaseTrainer):
         os.path.join(self._output_dir, "model-??????.pkl"))
     params_file = os.path.join(self._output_dir, "model-%06d.pkl" % self._epoch)
     with gfile.GFile(params_file, "wb") as f:
-      pickle.dump((self._policy_and_value_net_params, self._model_state), f)
+      pickle.dump(
+          (self._policy_and_value_net_params, self._model_state,
+           self._total_opt_step), f)
     # Remove the old model files.
     for path in old_model_files:
       gfile.remove(path)
