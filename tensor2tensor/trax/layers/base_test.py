@@ -51,7 +51,7 @@ class BaseLayerTest(absltest.TestCase):
         return True
 
       def custom_grad(self, inputs, output, ct, params, **kwargs):
-        return (backend.numpy.zeros_like(ct), None)
+        return (backend.numpy.zeros_like(ct), ())
 
     layer = IdWithZeroGrad()
     rng = backend.random.get_prng(0)
@@ -81,7 +81,7 @@ class BaseLayerTest(absltest.TestCase):
         return True
 
       def custom_grad(self, inputs, output, ct, params, **kwargs):
-        return (inputs, None)
+        return (inputs, ())
 
     layer = IdWithIdGrad()
     rng = backend.random.get_prng(0)
