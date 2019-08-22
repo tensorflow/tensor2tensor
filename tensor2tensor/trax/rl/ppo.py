@@ -793,25 +793,28 @@ def maybe_restore_params(output_dir, policy_and_value_net_params, state):
     state: policy state.
 
   Returns:
-    triple (restore (bool), params, iter(int)) where iter is the epoch from
-    which we restored the params, 0 is restore = False.
+    tuple (restore (bool), params, state, iter (int), opt_step (int)) where iter
+    is the epoch from which we restored the params, 0 is restore = False, and
+    opt_step is the total optimization step (sum of all optimization steps made
+    up to the current epoch).
   """
   model_files = gfile.glob(os.path.join(output_dir, "model-??????.pkl"))
   for model_file in reversed(sorted(model_files)):
     logging.info("Trying to restore model from %s", model_file)
     try:
       with gfile.GFile(model_file, "rb") as f:
-        loaded_policy_and_value_net_params, loaded_state = pickle.load(f)
+        loaded_policy_and_value_net_params, loaded_state, total_opt_step = (
+            pickle.load(f))
         policy_and_value_net_params = loaded_policy_and_value_net_params
         state = loaded_state
       model_file_basename = os.path.basename(model_file)  # model-??????.pkl
       i = int(filter(str.isdigit, model_file_basename))
-      return True, policy_and_value_net_params, state, i
+      return True, policy_and_value_net_params, state, i, total_opt_step
     except EOFError as e:
       logging.error("Unable to load model from: %s with %s", model_file, e)
       # Try an older version.
       continue
-  return False, policy_and_value_net_params, state, 0
+  return False, policy_and_value_net_params, state, 0, 0
 
 
 def write_eval_reward_summaries(reward_stats_by_mode, summary_writer, epoch):

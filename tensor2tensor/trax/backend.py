@@ -20,13 +20,11 @@ from __future__ import division
 from __future__ import print_function
 
 import contextlib
-import functools
 import gin
 
 import jax
 from jax import lax
 from jax import random as jax_random
-from jax.interpreters import partial_eval as pe
 import jax.numpy as jnp
 import jax.scipy.special as jax_special
 import numpy as onp
@@ -116,39 +114,6 @@ class ShapeType(object):
     return "[shape:" + str(self.shape) + ", dtype:" + str(self.dtype) + "]"
 
 
-# TODO(lukaszkaiser): remove this function once JAX has an analogue.
-# pylint: disable=missing-docstring
-def _jax_eval_on_shapes(f, *args):
-  def abstractify(x):
-    return jax.abstract_arrays.raise_to_shaped(jax.core.get_aval(x))
-
-  def make_array(arg):
-    return jnp.zeros(shape=arg.shape, dtype=arg.dtype)
-
-  def turn_back_into_pytree(x):
-    if isinstance(x, jax.core.JaxTuple):
-      return tuple([turn_back_into_pytree(y) for y in x])
-    return x
-
-  def get_shapes_and_types(x):
-    if isinstance(x, jax.core.AbstractTuple):
-      return tuple([get_shapes_and_types(y) for y in x])
-    return ShapeType(x.shape, x.dtype)
-
-  def f_jaxtuple(*jaxtuple_args):
-    args = map(turn_back_into_pytree, jaxtuple_args)
-    out = f(*args)
-    res, _ = jax.api_util.pytree_to_jaxtupletree(out)
-    return res
-
-  args_arrays = nested_map(args, make_array)
-  jaxtuple_args, _ = jax.util.unzip2(
-      map(jax.api_util.pytree_to_jaxtupletree, args_arrays))
-  res = pe.abstract_eval_fun(f_jaxtuple, *map(abstractify, jaxtuple_args))
-
-  return get_shapes_and_types(res)
-
-
 def jax_eval_on_shapes(f):
   """Returns a function that evaluates `f` given input shapes and dtypes.
 
@@ -163,7 +128,10 @@ def jax_eval_on_shapes(f):
     their shapes/dtypes represented by `ShapeType`, and whose return values are
     `ShapeType`s with the same nested structure as `f`'s return values.
   """
-  return functools.partial(_jax_eval_on_shapes, f)
+  def shape_fun(*args, **kwargs):
+    jax_shapes = jax.eval_shape(f, *args, **kwargs)
+    return nested_map(jax_shapes, lambda x: ShapeType(x.shape, x.dtype))
+  return shape_fun
 
 
 # The default value of dtype is different from jax_random.randint
