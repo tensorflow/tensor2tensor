@@ -25,14 +25,15 @@ import tempfile
 from absl.testing import parameterized
 
 import gin
-import jax
 from jax import test_util  # pylint: disable=unused-import
 from jax.config import config
+from jax.lib import xla_bridge
 import numpy as onp
 
 from tensor2tensor.trax import backend
 from tensor2tensor.trax import inputs as inputs_lib
 from tensor2tensor.trax import layers
+from tensor2tensor.trax import learning_rate as lr
 from tensor2tensor.trax import models
 from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax import trax
@@ -45,7 +46,7 @@ from tensorflow.io import gfile
 
 def test_inputs(n_classes, with_weights=False):
   """Make trax.inputs.Inputs."""
-  batch_size = 2
+  batch_size = 2 * xla_bridge.device_count()
   input_shape = (6, 6, 3)
 
   def input_stream():
@@ -85,16 +86,22 @@ class TraxTest(test.TestCase, parameterized.TestCase):
 
   @parameterized.parameters(BACKENDS)
   def test_train_eval_predict(self, backend_name):
-    if jax.lib.xla_bridge.device_count() > 1 and backend_name == "tf":
+    if xla_bridge.device_count() > 1 and backend_name == "tf":
       self.skipTest("tf-numpy backend doesn't support multi-devices yet.")
     with backend.use_backend(backend_name), self.tmp_dir() as output_dir:
       # Prepare model and inputs
       n_classes = 4
       train_steps = 2
       eval_steps = 2
-      model_fn = functools.partial(models.MLP,
-                                   d_hidden=16,
-                                   n_output_classes=n_classes)
+      # Adds Dropout and BatchNorm to test state handling.
+      mlp = functools.partial(models.MLP,
+                              d_hidden=16,
+                              n_output_classes=n_classes)
+      def model_fn(mode="train"):
+        return layers.Model(layers.Dropout(mode=mode, rate=0.1),
+                            layers.BatchNorm(mode=mode),
+                            mlp(mode=mode))
+
       inputs = lambda _: test_inputs(n_classes)
 
       # Train and evaluate
@@ -120,7 +127,7 @@ class TraxTest(test.TestCase, parameterized.TestCase):
 
   @parameterized.parameters(BACKENDS)
   def test_train_eval_predict_sm3(self, backend_name):
-    if jax.lib.xla_bridge.device_count() > 1 and backend_name == "tf":
+    if xla_bridge.device_count() > 1 and backend_name == "tf":
       self.skipTest("tf-numpy backend doesn't support multi-devices yet.")
     with backend.use_backend(backend_name), self.tmp_dir() as output_dir:
       # Prepare model and inputs
@@ -156,7 +163,7 @@ class TraxTest(test.TestCase, parameterized.TestCase):
 
   @parameterized.parameters(BACKENDS)
   def test_train_restart(self, backend_name):
-    if jax.lib.xla_bridge.device_count() > 1 and backend_name == "tf":
+    if xla_bridge.device_count() > 1 and backend_name == "tf":
       self.skipTest("tf-numpy backend doesn't support multi-devices yet.")
     with backend.use_backend(backend_name), self.tmp_dir() as output_dir:
       # Prepare model and inputs
@@ -187,7 +194,7 @@ class TraxTest(test.TestCase, parameterized.TestCase):
 
   @parameterized.parameters(BACKENDS)
   def test_train_with_weights(self, backend_name):
-    if jax.lib.xla_bridge.device_count() > 1 and backend_name == "tf":
+    if xla_bridge.device_count() > 1 and backend_name == "tf":
       self.skipTest("tf-numpy backend doesn't support multi-devices yet.")
     with backend.use_backend(backend_name), self.tmp_dir() as output_dir:
       gin.bind_parameter("unpack_batch.has_weights", True)
@@ -210,6 +217,31 @@ class TraxTest(test.TestCase, parameterized.TestCase):
 
       # Assert total train steps
       self.assertEqual(state.step, train_steps)
+
+  @parameterized.parameters(BACKENDS)
+  def test_reset_twice(self, backend_name):
+    if xla_bridge.device_count() > 1 and backend_name == "tf":
+      self.skipTest("tf-numpy backend doesn't support multi-devices yet.")
+    with backend.use_backend(backend_name), self.tmp_dir() as output_dir1, \
+          self.tmp_dir() as output_dir2:
+      n_classes = 4
+      model_fn = functools.partial(models.MLP,
+                                   d_hidden=16,
+                                   n_output_classes=n_classes)
+      inputs = lambda _: test_inputs(n_classes)
+
+      trainer = trax.Trainer(
+          model=model_fn,
+          loss_fn=trax.loss,
+          optimizer=trax_opt.SM3,
+          lr_schedule=lr.MultifactorSchedule,
+          inputs=inputs,
+      )
+
+      trainer.reset(output_dir1)
+      trainer.evaluate(1)
+      trainer.reset(output_dir2)
+      trainer.evaluate(1)
 
 
 MASKED_MEAN_TEST_BACKENDS = ["numpy"]

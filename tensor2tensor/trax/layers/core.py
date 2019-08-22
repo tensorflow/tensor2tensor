@@ -95,17 +95,17 @@ class Dense(base.Layer):
     self._kernel_initializer = kernel_initializer
     self._bias_initializer = bias_initializer
 
-  def call(self, x, params, **kwargs):
+  def call(self, x, params, state, **kwargs):
     del kwargs
     w, b = params
-    return np.dot(x, w) + b
+    return np.dot(x, w) + b, state
 
   def new_parameters(self, input_shape, input_dtype, rng):
     del input_dtype
     rng1, rng2 = backend.random.split(rng, 2)
     w = self._kernel_initializer((input_shape[-1], self._n_units), rng1)
     b = self._bias_initializer((self._n_units,), rng2)
-    return (w, b)
+    return (w, b), ()
 
 
 class Embedding(base.Layer):
@@ -118,14 +118,14 @@ class Embedding(base.Layer):
     self._vocab_size = vocab_size
     self._kernel_initializer = kernel_initializer
 
-  def call(self, x, params, **kwargs):
+  def call(self, x, params, state, **kwargs):
     del kwargs
-    return np.take(params, x, axis=0)
+    return np.take(params, x, axis=0), state
 
   def new_parameters(self, input_shape, input_dtype, rng):
     del input_dtype
     return self._kernel_initializer(
-        (self._vocab_size, self._d_feature), rng)
+        (self._vocab_size, self._d_feature), rng), ()
 
 
 # Flatten.

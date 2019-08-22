@@ -141,7 +141,7 @@ class PPO(base_trainer.BaseTrainer):
     self._rng, key1 = jax_random.split(self._rng, num=2)
 
     # Initialize the policy and value network.
-    policy_and_value_net_params, policy_and_value_net_apply = (
+    policy_and_value_net_params, self._model_state, policy_and_value_net_apply = (
         ppo.policy_and_value_net(
             rng_key=key1,
             batch_observations_shape=batch_observations_shape,
@@ -155,8 +155,9 @@ class PPO(base_trainer.BaseTrainer):
 
     # Maybe restore the policy params. If there is nothing to restore, then
     # iteration = 0 and policy_and_value_net_params are returned as is.
-    restored, policy_and_value_net_params, self._epoch = (
-        ppo.maybe_restore_params(output_dir, policy_and_value_net_params))
+    restored, policy_and_value_net_params, self._model_state, self._epoch = (
+        ppo.maybe_restore_params(output_dir, policy_and_value_net_params,
+                                 self._model_state))
 
     if restored:
       logging.info("Restored parameters from iteration [%d]", self._epoch)
@@ -200,11 +201,12 @@ class PPO(base_trainer.BaseTrainer):
     trajectory_collection_start_time = time.time()
     logging.vlog(1, "Epoch [% 6d] collecting trajectories.", self._epoch)
     self._rng, key = jax_random.split(self._rng)
-    trajs, n_done, timing_info = ppo.collect_trajectories(
+    trajs, n_done, timing_info, self._model_state = ppo.collect_trajectories(
         self._train_env,
         policy_fn=self._get_predictions,
         n_trajectories=self._train_env.batch_size,
         max_timestep=self._max_timestep,
+        state=self._model_state,
         rng=key,
         len_history_for_policy=self._len_history_for_policy,
         boundary=self._boundary,
@@ -274,8 +276,9 @@ class PPO(base_trainer.BaseTrainer):
     # observation, so we re-calculate for everything, but use the original ones
     # for all but the last time-step.
     self._rng, key = jax_random.split(self._rng)
-    log_probabs_traj, value_predictions_traj, _ = self._get_predictions(
-        padded_observations, rng=key)
+
+    log_probabs_traj, value_predictions_traj, self._model_state, _ = (
+        self._get_predictions(padded_observations, self._model_state, rng=key))
 
     assert (B, T + 1, A) == log_probabs_traj.shape
     assert (B, T + 1, 1) == value_predictions_traj.shape
@@ -294,21 +297,23 @@ class PPO(base_trainer.BaseTrainer):
     self._rng, key1 = jax_random.split(self._rng, num=2)
     logging.vlog(2, "Starting to compute P&V loss.")
     loss_compute_start_time = time.time()
-    cur_combined_loss, cur_ppo_loss, cur_value_loss, entropy_bonus = (
-        ppo.combined_loss(
-            self._policy_and_value_net_params,
-            log_probabs_traj,
-            value_predictions_traj,
-            self._policy_and_value_net_apply,
-            padded_observations,
-            padded_actions,
-            padded_rewards,
-            reward_mask,
-            gamma=self._gamma,
-            lambda_=self._lambda_,
-            c1=self._c1,
-            c2=self._c2,
-            rng=key1))
+    (cur_combined_loss, cur_ppo_loss, cur_value_loss,
+     entropy_bonus), self._model_state = (
+         ppo.combined_loss(
+             self._policy_and_value_net_params,
+             log_probabs_traj,
+             value_predictions_traj,
+             self._policy_and_value_net_apply,
+             padded_observations,
+             padded_actions,
+             padded_rewards,
+             reward_mask,
+             gamma=self._gamma,
+             lambda_=self._lambda_,
+             c1=self._c1,
+             c2=self._c2,
+             state=self._model_state,
+             rng=key1))
     loss_compute_time = ppo.get_time(loss_compute_start_time)
     logging.vlog(
         1,
@@ -324,7 +329,7 @@ class PPO(base_trainer.BaseTrainer):
       k1, k2, k3 = jax_random.split(key, num=3)
       t = time.time()
       # Update the optimizer state.
-      self._policy_and_value_opt_state = ppo.policy_and_value_opt_step(
+      self._policy_and_value_opt_state, self._model_state = ppo.policy_and_value_opt_step(
           j,
           self._policy_and_value_opt_state,
           self._policy_and_value_opt_update,
@@ -340,11 +345,14 @@ class PPO(base_trainer.BaseTrainer):
           c2=self._c2,
           gamma=self._gamma,
           lambda_=self._lambda_,
+          state=self._model_state,
           rng=k1)
 
       # Compute the approx KL for early stopping.
-      log_probab_actions_new, _ = self._policy_and_value_net_apply(
-          padded_observations, self._policy_and_value_net_params, rng=k2)
+      (log_probab_actions_new, _), self._model_state = (
+          self._policy_and_value_net_apply(padded_observations,
+                                           self._policy_and_value_net_params,
+                                           self._model_state, rng=k2))
 
       approx_kl = ppo.approximate_kl(log_probab_actions_new, log_probabs_traj,
                                      reward_mask)
@@ -361,21 +369,23 @@ class PPO(base_trainer.BaseTrainer):
       if (((j + 1) % self._print_every_optimizer_steps == 0) or
           (j == self._n_optimizer_steps - 1) or early_stopping):
         # Compute and log the loss.
-        (loss_combined, loss_ppo, loss_value, entropy_bonus) = (
-            ppo.combined_loss(
-                self._policy_and_value_net_params,
-                log_probabs_traj,
-                value_predictions_traj,
-                self._policy_and_value_net_apply,
-                padded_observations,
-                padded_actions,
-                padded_rewards,
-                reward_mask,
-                gamma=self._gamma,
-                lambda_=self._lambda_,
-                c1=self._c1,
-                c2=self._c2,
-                rng=k3))
+        (loss_combined, loss_ppo, loss_value,
+         entropy_bonus), self._model_state = (
+             ppo.combined_loss(
+                 self._policy_and_value_net_params,
+                 log_probabs_traj,
+                 value_predictions_traj,
+                 self._policy_and_value_net_apply,
+                 padded_observations,
+                 padded_actions,
+                 padded_rewards,
+                 reward_mask,
+                 gamma=self._gamma,
+                 lambda_=self._lambda_,
+                 c1=self._c1,
+                 c2=self._c2,
+                 state=self._model_state,
+                 rng=k3))
         logging.vlog(1, "One Policy and Value grad desc took: %0.2f msec",
                      ppo.get_time(t, t2))
         logging.vlog(
@@ -449,13 +459,14 @@ class PPO(base_trainer.BaseTrainer):
     """Evaluate the agent."""
     logging.vlog(1, "Epoch [% 6d] evaluating policy.", self._epoch)
     self._rng, key = jax_random.split(self._rng, num=2)
-    reward_stats = ppo.evaluate_policy(
+    reward_stats, self._model_state = ppo.evaluate_policy(
         self._eval_env,
         self._get_predictions,
         temperatures=self._eval_temperatures,
         max_timestep=self._max_timestep_eval,
         n_evals=self._n_evals,
         len_history_for_policy=self._len_history_for_policy,
+        state=self._model_state,
         rng=key)
     ppo.write_eval_reward_summaries(
         reward_stats, self._eval_sw, epoch=self._epoch)
@@ -467,7 +478,7 @@ class PPO(base_trainer.BaseTrainer):
         os.path.join(self._output_dir, "model-??????.pkl"))
     params_file = os.path.join(self._output_dir, "model-%06d.pkl" % self._epoch)
     with gfile.GFile(params_file, "wb") as f:
-      pickle.dump(self._policy_and_value_net_params, f)
+      pickle.dump((self._policy_and_value_net_params, self._model_state), f)
     # Remove the old model files.
     for path in old_model_files:
       gfile.remove(path)
@@ -485,11 +496,11 @@ class PPO(base_trainer.BaseTrainer):
     return self._policy_and_value_get_params(self._policy_and_value_opt_state)
 
   # A function to get the policy and value predictions.
-  def _get_predictions(self, observations, rng=None):
+  def _get_predictions(self, observations, state, rng=None):
     """Returns log-probs, value predictions and key back."""
     key, key1 = jax_random.split(rng, num=2)
 
-    log_probs, value_preds = self._policy_and_value_net_apply(
-        observations, self._policy_and_value_net_params, rng=key1)
+    (log_probs, value_preds), state = self._policy_and_value_net_apply(
+        observations, self._policy_and_value_net_params, state, rng=key1)
 
-    return log_probs, value_preds, key
+    return log_probs, value_preds, state, key

@@ -38,14 +38,14 @@ class PpoTest(test.TestCase):
     observation_shape = (3, 4, 5)
     batch_observation_shape = (1, 1) + observation_shape
     n_actions = 2
-    pnv_params, pnv_apply = ppo.policy_and_value_net(
+    pnv_params, pnv_state, pnv_apply = ppo.policy_and_value_net(
         self.rng_key, batch_observation_shape, np.float32, n_actions,
         lambda: [layers.Flatten(n_axes_to_keep=2)])
     batch = 2
     time_steps = 10
     batch_of_observations = np.random.uniform(
         size=(batch, time_steps) + observation_shape)
-    pnv_output = pnv_apply(batch_of_observations, pnv_params)
+    pnv_output, _ = pnv_apply(batch_of_observations, pnv_params, pnv_state)
 
     # Output is a list, first is probab of actions and the next is value output.
     self.assertEqual(2, len(pnv_output))
@@ -392,11 +392,11 @@ class PpoTest(test.TestCase):
     B, T, A, OBS = 2, 10, 2, (28, 28, 3)  # pylint: disable=invalid-name
     batch_observation_shape = (1, 1) + OBS
 
-    old_params, _ = ppo.policy_and_value_net(
+    old_params, _, _ = ppo.policy_and_value_net(
         key1, batch_observation_shape, np.float32, A,
         lambda: [layers.Flatten(n_axes_to_keep=2)])
 
-    new_params, net_apply = ppo.policy_and_value_net(
+    new_params, state, net_apply = ppo.policy_and_value_net(
         key2, batch_observation_shape, np.float32, A,
         lambda: [layers.Flatten(n_axes_to_keep=2)])
 
@@ -408,8 +408,10 @@ class PpoTest(test.TestCase):
     mask = np.ones_like(rewards)
 
     # Just test that this computes at all.
-    new_log_probabs, value_predictions_new = net_apply(observations, new_params)
-    old_log_probabs, value_predictions_old = net_apply(observations, old_params)
+    (new_log_probabs, value_predictions_new), _ = net_apply(observations,
+                                                            new_params, state)
+    (old_log_probabs, value_predictions_old), _ = net_apply(observations,
+                                                            old_params, state)
 
     gamma = 0.99
     lambda_ = 0.95
@@ -431,7 +433,7 @@ class PpoTest(test.TestCase):
         lambda_=lambda_,
         epsilon=epsilon)
 
-    (combined_loss, ppo_loss_2, value_loss_2, entropy_bonus) = (
+    (combined_loss, ppo_loss_2, value_loss_2, entropy_bonus), state = (
         ppo.combined_loss(new_params,
                           old_log_probabs,
                           value_predictions_old,
@@ -444,7 +446,8 @@ class PpoTest(test.TestCase):
                           lambda_=lambda_,
                           epsilon=epsilon,
                           c1=c1,
-                          c2=c2)
+                          c2=c2,
+                          state=state)
     )
 
     # Test that these compute at all and are self consistent.

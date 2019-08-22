@@ -53,7 +53,7 @@ class EnvProblemUtilsTest(tf.test.TestCase):
     # Let's make sure that at-most 4 observations come to the policy function.
     len_history_for_policy = 4
 
-    def policy_fun(observations, rng=None):
+    def policy_fun(observations, state=None, rng=None):
       b, t = observations.shape[:2]
       # Assert that observations from time-step len_history_for_policy onwards
       # are zeros.
@@ -65,11 +65,11 @@ class EnvProblemUtilsTest(tf.test.TestCase):
       p = np.random.uniform(size=(b, t, a))
       p = np.exp(p)
       p = p / np.sum(p, axis=-1, keepdims=True)
-      return np.log(p), np.log(p), rng
+      return np.log(p), np.log(p), state, rng
 
     max_timestep = 15
     num_trajectories = 2
-    trajectories, _, _ = env_problem_utils.play_env_problem_with_policy(
+    trajectories, _, _, _ = env_problem_utils.play_env_problem_with_policy(
         env,
         policy_fun,
         num_trajectories=num_trajectories,

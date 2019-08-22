@@ -57,6 +57,7 @@ def play_env_problem_with_policy(env,
                                  num_trajectories=1,
                                  max_timestep=None,
                                  reset=True,
+                                 state=None,
                                  rng=None,
                                  temperature=1.0,
                                  boundary=32,
@@ -73,7 +74,8 @@ def play_env_problem_with_policy(env,
       trajectory that exceeds this time put it in the completed bin, and *dont*
       reset the env.
     reset: bool, true if we want to reset the envs. The envs are also reset if
-      max_max_timestep is None or < 0
+      max_max_timestep is None or < 0.
+    state: the state for `policy_fn`.
     rng: jax rng, splittable.
     temperature: float, temperature used in Gumbel sampling.
     boundary: int, pad the sequences to the multiples of this number.
@@ -118,8 +120,8 @@ def play_env_problem_with_policy(env,
     assert (B,) == lengths.shape
 
     t1 = time.time()
-    log_prob_actions, value_predictions, rng = policy_fun(
-        padded_observations, rng=rng)
+    log_prob_actions, value_predictions, state, rng = policy_fun(
+        padded_observations, state=state, rng=rng)
     policy_application_total_time += (time.time() - t1)
 
     assert (B, T) == log_prob_actions.shape[:2]
@@ -192,7 +194,7 @@ def play_env_problem_with_policy(env,
   }
   timing_info = {k: round(1000 * v, 2) for k, v in timing_info.items()}
 
-  return completed_trajectories, num_done_trajectories, timing_info
+  return completed_trajectories, num_done_trajectories, timing_info, state
 
 
 def make_env(batch_size=1,

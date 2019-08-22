@@ -53,7 +53,7 @@ class ReversibleLayer(base.Layer):
     """
     # Note: jax.vjp does not allow us to use **kwargs in the signature here.
     def _do_call(x, params):
-      return super(ReversibleLayer, self).call(x, params=params, **kwargs)
+      return super(ReversibleLayer, self).call(x, params=params, **kwargs)[0]
 
     reconstructed_x = self.reverse(output, params, **kwargs)
     _, vjpfun = jax.vjp(_do_call, reconstructed_x, params)

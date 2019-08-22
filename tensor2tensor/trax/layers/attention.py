@@ -169,7 +169,7 @@ def AttentionQKV(d_feature, n_heads=1, dropout=0.0, mode='train'):
           core.Dense(d_feature),
       ),
       PureAttention(  # pylint: disable=no-value-for-parameter
-          d_feature=d_feature, n_heads=n_heads, dropout=dropout, mode=mode),
+          n_heads=n_heads, dropout=dropout, mode=mode),
       core.Dense(d_feature),
   ]
 
