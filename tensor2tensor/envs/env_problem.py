@@ -232,6 +232,10 @@ class EnvProblem(Env, problem.Problem):
     min_reward, max_reward = self.reward_range
     return (min_reward != -np.inf) and (max_reward != np.inf)
 
+  @property
+  def discrete_rewards(self):
+    return self._discrete_rewards
+
   def process_rewards(self, rewards):
     """Clips the rewards, optionally rounds them and casts to integer.
 

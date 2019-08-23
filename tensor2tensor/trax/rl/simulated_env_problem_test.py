@@ -178,7 +178,7 @@ class SerializedSequenceSimulatedEnvProblemTest(test.TestCase):
       np.testing.assert_array_equal(inputs[0, 5:9], symbols[4:8])
       self.assertFalse(np.array_equal(obs2, obs3))
       np.testing.assert_array_equal(reward, [0.5])
-      np.testing.assert_array_equal(done, [False])
+      np.testing.assert_array_equal(done, [True])
 
 
 if __name__ == "__main__":

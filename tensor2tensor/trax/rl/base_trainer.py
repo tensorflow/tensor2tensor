@@ -27,8 +27,9 @@ class BaseTrainer(object):
   """Base class for RL trainers."""
 
   def __init__(self, train_env, eval_env, output_dir):
-    self._train_env = train_env
-    self._eval_env = eval_env
+    # Train and eval envs are settable.
+    self.train_env = train_env
+    self.eval_env = eval_env
     self._output_dir = output_dir
     gfile.makedirs(self._output_dir)
 

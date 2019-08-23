@@ -52,8 +52,7 @@ import tensorflow as tf
 from tensorflow.io import gfile
 
 
-@gin.configurable
-def unpack_batch(batch, has_weights=False):
+def unpack_batch(batch, has_weights):
   """Unpacks a training batch into inputs, targets and weights."""
   if has_weights:
     assert len(batch) == 3  # (inputs, targets, weights)
@@ -101,9 +100,9 @@ def masked_mean(inputs, targets, weights, mask_id=None):
               for x, w, s in zip(inputs, weights, weight_sums)])
 
 
-def accuracy(batch, model_predictions):
+def accuracy(batch, model_predictions, has_weights):
   """Calculate accuracy."""
-  _, targets, weights = unpack_batch(batch)
+  _, targets, weights = unpack_batch(batch, has_weights)
   model_predictions, targets, weights = _make_list(
       model_predictions, targets, weights)
   correct = []
@@ -113,9 +112,9 @@ def accuracy(batch, model_predictions):
   return masked_mean(correct, targets, weights)
 
 
-def neg_log_perplexity(batch, model_predictions):
+def neg_log_perplexity(batch, model_predictions, has_weights):
   """Calculate negative log perplexity."""
-  _, targets, weights = unpack_batch(batch)
+  _, targets, weights = unpack_batch(batch, has_weights)
   model_predictions, targets, weights = _make_list(
       model_predictions, targets, weights)
   xent = []
@@ -125,9 +124,9 @@ def neg_log_perplexity(batch, model_predictions):
   return masked_mean(xent, targets, weights)
 
 
-def loss(params, batch, model_predict, state, rng):
+def loss(params, batch, model_predict, state, rng, has_weights):
   """Calculate loss."""
-  inputs, targets, weights = unpack_batch(batch)
+  inputs, targets, weights = unpack_batch(batch, has_weights)
   predictions, state = model_predict(inputs, params, state, rng=rng)
   predictions, targets, weights = _make_list(predictions, targets, weights)
   xent = []
@@ -236,11 +235,12 @@ def _print_n_params(opt_state, n_devices, step):
 _METRICS = {
     "accuracy": accuracy,
     "neg_log_perplexity": neg_log_perplexity,
-    "loss": lambda x, y: - neg_log_perplexity(x, y),
+    "loss": lambda *args, **kwargs: - neg_log_perplexity(*args, **kwargs),
 }
 
 
 def evaluate_train_and_eval(step, inputs, predict_fn, eval_steps, state, rng,
+                            has_weights,
                             train_sw=None, eval_sw=None, history=None):
   """Evalaute on train and eval data, and log metrics."""
   step_log(step, "Evaluation")
@@ -250,7 +250,9 @@ def evaluate_train_and_eval(step, inputs, predict_fn, eval_steps, state, rng,
         itertools.islice(input_stream(), eval_steps),
         predict_fn,
         _METRICS,
-        state, rng)
+        state,
+        rng,
+        has_weights)
     metrics_list.append(metrics)
   train_metrics, eval_metrics = metrics_list  # pylint: disable=unbalanced-tuple-unpacking
   if train_sw:
@@ -261,7 +263,7 @@ def evaluate_train_and_eval(step, inputs, predict_fn, eval_steps, state, rng,
   return train_metrics, eval_metrics, state
 
 
-def evaluate(inputs_stream, predict_fn, metric_fns, state, rng):
+def evaluate(inputs_stream, predict_fn, metric_fns, state, rng, has_weights):
   """Evaluate.
 
   Args:
@@ -272,6 +274,7 @@ def evaluate(inputs_stream, predict_fn, metric_fns, state, rng):
       and predictions and returns a scalar metric value.
     state: start state for `predict_fn`.
     rng: random number generator.
+    has_weights: bool, whether weights are included in the inputs.
 
   Returns:
     metrics: dict from metric name to metric value averaged over the number of
@@ -285,12 +288,12 @@ def evaluate(inputs_stream, predict_fn, metric_fns, state, rng):
     rng, subrng = jax_random.split(rng)
     preds, state = predict_fn(inp[0], state=state, rng=subrng)
     for m, f in six.iteritems(metric_fns):
-      metrics[m] += f(inp, preds)
+      metrics[m] += f(inp, preds, has_weights=has_weights)
   return {m: v / count for (m, v) in six.iteritems(metrics)}, state
 
 
 def evaluate_loss_train_and_eval(step, inputs, compute_loss_fn, eval_steps,
-                                 state, rngs,
+                                 state, rngs, has_weights,
                                  train_sw=None, eval_sw=None, history=None):
   """More efficient evaluation that logs only the loss on train & eval data."""
   step_log(step, "Evaluation")
@@ -299,7 +302,7 @@ def evaluate_loss_train_and_eval(step, inputs, compute_loss_fn, eval_steps,
     total = 0.0
     count = 0.0
     for inp in itertools.islice(input_stream(), eval_steps):
-      loss_values, state, rngs = compute_loss_fn(inp, state, rngs)
+      loss_values, state, rngs = compute_loss_fn(inp, state, rngs, has_weights)
       total += float(numpy.mean(loss_values))
       count += 1.0
     metrics = {"loss": total / count}
@@ -506,11 +509,13 @@ class Trainer(object):
 
   def __init__(self, model, loss_fn, optimizer, lr_schedule, inputs,
                output_dir=None, random_seed=None, n_devices=None,
-               save_steps=None, should_save=True):
+               save_steps=None, should_save=True, has_weights=False):
     if save_steps is None:
       save_steps = []
     self._save_steps = save_steps
     self._should_save = should_save
+    self._has_weights = has_weights
+    loss_fn = functools.partial(loss_fn, has_weights=self._has_weights)
     device_count = jax.lib.xla_bridge.device_count()
     n_devices = n_devices or device_count
     # TODO(lukaszkaiser): remove this restriction when possible.
@@ -732,7 +737,8 @@ class Trainer(object):
         rng=rng,
         train_sw=self._train_sw,
         eval_sw=self._eval_sw,
-        history=self._history)
+        history=self._history,
+        has_weights=self._has_weights)
 
   def update_learning_rate(self):
     self._lr_fn = self._lr_schedule(self._history)
@@ -789,6 +795,7 @@ class MemoryEfficientTrainer(Trainer):
         eval_steps=eval_steps,
         state=self._model_state,
         rngs=self._rngs,
+        has_weights=self._has_weights,
         train_sw=self._train_sw,
         eval_sw=self._eval_sw,
         history=self._history)
@@ -815,7 +822,8 @@ def train(output_dir,
           n_devices=None,
           random_seed=None,
           save_graphs=True,
-          save_backward_graph=False):
+          save_backward_graph=False,
+          has_weights=False):
   """Train the model on the inputs.
 
   Args:
@@ -839,13 +847,14 @@ def train(output_dir,
     random_seed: the random seed to use; time/os dependent if None (default).
     save_graphs: bool, if True, save computation graph to file.
     save_backward_graph: bool, if True, save backward graph to file too.
+    has_weights: bool, whether weights are included in the inputs.
   Returns:
     trax.State
   """
   trainer = trainer_class(model, loss_fn, optimizer, lr_schedule, inputs,
                           output_dir,
                           random_seed=random_seed, n_devices=n_devices,
-                          save_steps=save_steps)
+                          save_steps=save_steps, has_weights=has_weights)
 
   epoch_steps = [train_steps]  # Only training if eval_frequency is 0 or None
   if eval_frequency and eval_steps > 0:
