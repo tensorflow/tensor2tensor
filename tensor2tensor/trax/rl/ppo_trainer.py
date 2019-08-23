@@ -153,21 +153,21 @@ class PPO(base_trainer.BaseTrainer):
     )
     self._policy_and_value_net_apply = jit(policy_and_value_net_apply)
 
-    # Maybe restore the policy params. If there is nothing to restore, then
-    # iteration = 0 and policy_and_value_net_params are returned as is.
-    (restored, policy_and_value_net_params, self._model_state, self._epoch,
-     self._total_opt_step) = ppo.maybe_restore_params(
-         output_dir, policy_and_value_net_params, self._model_state)
+    # Initialize the optimizer.
+    (policy_and_value_opt_state, self._policy_and_value_opt_update,
+     self._policy_and_value_get_params) = ppo.optimizer_fn(
+         policy_and_value_optimizer, policy_and_value_net_params)
+
+    # Maybe restore the optimization state. If there is nothing to restore, then
+    # iteration = 0 and policy_and_value_opt_state is returned as is.
+    (restored, self._policy_and_value_opt_state, self._model_state, self._epoch,
+     self._total_opt_step) = ppo.maybe_restore_opt_state(
+         output_dir, policy_and_value_opt_state, self._model_state)
 
     if restored:
       logging.info("Restored parameters from iteration [%d]", self._epoch)
       # We should start from the next iteration.
       self._epoch += 1
-
-    # Initialize the optimizer.
-    (self._policy_and_value_opt_state, self._policy_and_value_opt_update,
-     self._policy_and_value_get_params) = ppo.optimizer_fn(
-         policy_and_value_optimizer, policy_and_value_net_params)
 
     # Create summary writers and history.
     self._train_sw = jaxboard.SummaryWriter(
