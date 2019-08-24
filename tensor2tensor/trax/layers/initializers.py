@@ -19,10 +19,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import numpy as onp
 from tensor2tensor.trax import backend
 
 def _get_fans(shape, out_dim=-1, in_dim=-2):
-    receptive_field = backend.numpy.prod(backend.numpy(shape, [in_dim, out_dim]))
+    receptive_field = backend.numpy.prod(onp.delete(shape, [in_dim, out_dim]))
     if len(shape) >= 2:
         fan_in, fan_out = shape[in_dim], shape[out_dim]
     elif len(shape) == 1:
@@ -44,7 +45,7 @@ def RandomNormalInitializer(stddev=1e-2):
 def RandomUniformInitializer(lim=1.0):
   """An initializer function for random uniform coefficients."""
   def Init(shape, rng):
-    return (backend.random.uniform(rng, shape, -lim, lim)).astype('float32')
+    return (backend.random.uniform(rng, shape, backend.numpy.float32, -lim, lim, ))
   return Init
 
 
@@ -75,12 +76,12 @@ def VarianceScalingInitializer(out_dim, in_dim, scale, mode, distribution):
       return backend.random.uniform(rng, shape, minval=-lim, maxval=lim).astype('float32')
     else:
       raise ValueError('invalid distribution for variance scaling Initializer')
-    return Init
+  return Init
 
 
 def GlorotNormalInitializer(out_dim=-1, in_dim=-2, scale=1.):
   """An initializer function for random Glorot-scaled coefficients."""
-  return VarianceScalingInitializer(out_dim, in_dim, scale, 'fan_avg', 'truncated_normal')
+  return VarianceScalingInitializer(out_dim, in_dim, scale, 'fan_avg', 'normal')
 
 
 def GlorotUniformInitializer(out_dim=-1, in_dim=-2, scale=1.):
@@ -90,7 +91,7 @@ def GlorotUniformInitializer(out_dim=-1, in_dim=-2, scale=1.):
 
 def LeCunNormalInitializer(out_dim=-1, in_dim=-2, scale=1.):
   """An initializer function for random LeCun-scaled coefficients."""
-  return VarianceScalingInitializer(out_dim, in_dim, scale, 'fan_in', 'truncated_normal')
+  return VarianceScalingInitializer(out_dim, in_dim, scale, 'fan_in', 'normal')
 
 
 def LeCunUniformInitializer(out_dim=-1, in_dim=-2, scale=1.):
@@ -100,11 +101,11 @@ def LeCunUniformInitializer(out_dim=-1, in_dim=-2, scale=1.):
 
 def KaimingNormalInitializer(out_dim=-1, in_dim=-2, param=0.):
   """An initializer function for random Kaiming-scaled coefficients."""
-  return VarianceScalingInitializer(out_dim, in_dim, 2.0 / backend.np.sqrt(1 + param**2),
-                                    'fan_in', 'truncated_normal')
+  return VarianceScalingInitializer(out_dim, in_dim, 2.0 / backend.numpy.sqrt(1 + param**2),
+                                    'fan_in', 'normal')
 
 
 def KaimingUniformInitializer(out_dim=-1, in_dim=-2, param=0.):
   """An initializer function for random uniform Kaiming-scaled coefficients."""
-  return VarianceScalingInitializer(out_dim, in_dim, 2.0 / backend.np.sqrt(1 + param**2),
+  return VarianceScalingInitializer(out_dim, in_dim, 2.0 / backend.numpy.sqrt(1 + param**2),
                                     'fan_in', 'uniform')
