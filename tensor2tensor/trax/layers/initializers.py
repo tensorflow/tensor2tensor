@@ -93,7 +93,7 @@ def LeCunNormalInitializer(out_dim=-1, in_dim=-2, scale=1.):
   return VarianceScalingInitializer(out_dim, in_dim, scale, 'fan_in', 'truncated_normal')
 
 
-def LeCunUniformInitializer(out_dim=-1, in_dim=-2):
+def LeCunUniformInitializer(out_dim=-1, in_dim=-2, scale=1.):
   """An initializer function for random uniform LeCun-scaled coefficients."""
   return VarianceScalingInitializer(out_dim, in_dim, scale, 'fan_in', 'uniform')    
 
