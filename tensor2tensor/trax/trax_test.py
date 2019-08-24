@@ -24,7 +24,6 @@ import functools
 import tempfile
 from absl.testing import parameterized
 
-import gin
 from jax import test_util  # pylint: disable=unused-import
 from jax.config import config
 from jax.lib import xla_bridge
@@ -197,8 +196,6 @@ class TraxTest(test.TestCase, parameterized.TestCase):
     if xla_bridge.device_count() > 1 and backend_name == "tf":
       self.skipTest("tf-numpy backend doesn't support multi-devices yet.")
     with backend.use_backend(backend_name), self.tmp_dir() as output_dir:
-      gin.bind_parameter("unpack_batch.has_weights", True)
-
       # Prepare model and inputs
       n_classes = 4
       train_steps = 2
@@ -213,7 +210,8 @@ class TraxTest(test.TestCase, parameterized.TestCase):
                          model=model_fn,
                          inputs=inputs,
                          train_steps=train_steps,
-                         eval_steps=eval_steps)
+                         eval_steps=eval_steps,
+                         has_weights=True)
 
       # Assert total train steps
       self.assertEqual(state.step, train_steps)

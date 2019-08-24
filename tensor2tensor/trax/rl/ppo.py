@@ -784,37 +784,47 @@ def evaluate_policy(eval_env,
   }, state
 
 
-def maybe_restore_params(output_dir, policy_and_value_net_params, state):
-  """Maybe restore the params from the checkpoint dir.
+def maybe_restore_opt_state(output_dir, policy_and_value_opt_state,
+                            policy_and_value_state):
+  """Maybe restore the optimization state from the checkpoint dir.
+
+  Optimization state includes parameters and optimizer slots.
 
   Args:
     output_dir: Directory where saved model checkpoints are stored.
-    policy_and_value_net_params: Default params, returned if model is'nt found.
-    state: policy state.
+    policy_and_value_opt_state: Default optimization state, returned if model
+      isn't found.
+    policy_and_value_state: state of the policy and value network.
 
   Returns:
-    tuple (restore (bool), params, state, iter (int), opt_step (int)) where iter
-    is the epoch from which we restored the params, 0 is restore = False, and
-    opt_step is the total optimization step (sum of all optimization steps made
-    up to the current epoch).
+    tuple (restored (bool), opt_state, state, epoch (int),
+    opt_step (int)) where epoch is the epoch from which we restored the
+    optimization state, 0 is restored = False, and opt_step is the total
+    optimization step (sum of all optimization steps made up to the current
+    epoch).
   """
+  restored = False
+  epoch = 0
+  total_opt_step = 0
   model_files = gfile.glob(os.path.join(output_dir, "model-??????.pkl"))
   for model_file in reversed(sorted(model_files)):
     logging.info("Trying to restore model from %s", model_file)
     try:
       with gfile.GFile(model_file, "rb") as f:
-        loaded_policy_and_value_net_params, loaded_state, total_opt_step = (
+        policy_and_value_opt_state, policy_and_value_state, total_opt_step = (
             pickle.load(f))
-        policy_and_value_net_params = loaded_policy_and_value_net_params
-        state = loaded_state
       model_file_basename = os.path.basename(model_file)  # model-??????.pkl
-      i = int(filter(str.isdigit, model_file_basename))
-      return True, policy_and_value_net_params, state, i, total_opt_step
+      restored = True
+      epoch = int(filter(str.isdigit, model_file_basename))
+      break
     except EOFError as e:
       logging.error("Unable to load model from: %s with %s", model_file, e)
       # Try an older version.
       continue
-  return False, policy_and_value_net_params, state, 0, 0
+  return (
+      restored, policy_and_value_opt_state, policy_and_value_state, epoch,
+      total_opt_step,
+  )
 
 
 def write_eval_reward_summaries(reward_stats_by_mode, summary_writer, epoch):

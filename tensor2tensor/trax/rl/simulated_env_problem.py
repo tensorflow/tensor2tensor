@@ -57,7 +57,8 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
     """
     # TODO(pkozakowski): At some point we will have a "predict" mode which we
     # should use here. When this happens, change the mode.
-    self._model_predict = backend.jit(model(mode="eval"))
+    self._model = model
+    self._model_predict = backend.jit(self._model(mode="eval"))
     self._observation_space = observation_space
     self._action_space = action_space
     self._reward_range = reward_range
@@ -152,6 +153,17 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
     """
     raise NotImplementedError
 
+  def trajectory_to_training_examples(self, trajectory):
+    raise NotImplementedError
+
+  @property
+  def model_input_shape(self):
+    raise NotImplementedError
+
+  @property
+  def model_input_dtype(self):
+    raise NotImplementedError
+
   def _reset(self, indices):
     """Resets environments at the given indices.
 
@@ -179,6 +191,10 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
     (observation, reward, done) = self._step_model(
         self._predict_fn, actions, subrng)
     return (observation, reward, done, {})
+
+  @property
+  def model(self):
+    return self._model
 
 
 class RawSimulatedEnvProblem(SimulatedEnvProblem):
@@ -295,16 +311,23 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
   sequences of symbols using an EnvSerializer passed to the constructor.
   """
 
-  def __init__(self, reward_fn, done_fn, vocab_size, max_trajectory_length,
+  def __init__(self, model, reward_fn, done_fn, vocab_size,
+               max_trajectory_length, observation_space, action_space,
                *args, **kwargs):
     """Initializes the env.
 
     Args:
+      model: TRAX model to use for simulation. It's assumed to take keyword
+        arguments vocab_size and mode, where vocab_size is the number of symbols
+        in the vocabulary and mode is either "train" or "eval".
+
       reward_fn: Function (previous_observation, current_observation) -> reward.
       done_fn: Function (previous_observation, current_observation) -> done.
       vocab_size: (int) Number of symbols in the vocabulary.
       max_trajectory_length: (int) Maximum length of a trajectory unrolled from
         the model.
+      observation_space: (gym.Space) Observation space.
+      action_space: (gym.Space) Action space.
       *args: (tuple) Positional arguments passed to the base class.
       **kwargs: (dict) Keyword arguments passed to the base class.
     """
@@ -318,17 +341,27 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
     self._action_space = None
     self._last_observations = None
 
-    super(SerializedSequenceSimulatedEnvProblem, self).__init__(*args, **kwargs)
-
-  def initialize_environments(self, batch_size=1, **kwargs):
-    """Initializes the environments."""
     self._obs_serializer = space_serializer.create(
-        self.observation_space, self._vocab_size)
+        observation_space, self._vocab_size)
     self._action_serializer = space_serializer.create(
-        self.action_space, self._vocab_size)
+        action_space, self._vocab_size)
     self._obs_repr_length = self._obs_serializer.representation_length
     self._action_repr_length = self._action_serializer.representation_length
     self._step_repr_length = self._obs_repr_length + self._action_repr_length
+
+    # We assume that the model takes vocab_size as an argument (e.g.
+    # TransformerLM).
+    model = functools.partial(model, vocab_size=vocab_size)
+    super(SerializedSequenceSimulatedEnvProblem, self).__init__(
+        *args,
+        model=model,
+        observation_space=observation_space,
+        action_space=action_space,
+        **kwargs
+    )
+
+  def initialize_environments(self, batch_size=1, **kwargs):
+    """Initializes the environments."""
     self._history = np.zeros((
         batch_size,
         self._max_trajectory_length * self._step_repr_length
@@ -336,9 +369,8 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
     self._steps = np.zeros(batch_size, dtype=np.int32)
     self._last_observations = np.full(
         (batch_size,) + self._observation_space.shape, np.nan)
-    return super(
-        SerializedSequenceSimulatedEnvProblem, self
-    ).initialize_environments(batch_size=batch_size, **kwargs)
+    super(SerializedSequenceSimulatedEnvProblem, self).initialize_environments(
+        batch_size=batch_size, **kwargs)
 
   @property
   def _obs_repr_indices(self):
@@ -384,8 +416,45 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
     reward = self._reward_fn(self._last_observations, observation)
     done = self._done_fn(self._last_observations, observation)
     self._last_observations = observation
-    done = np.logical_or(done, self._steps == self._max_trajectory_length)
+    done = np.logical_or(done, self._steps == self._max_trajectory_length - 1)
     return (observation, reward, done)
+
+  def trajectory_to_training_examples(self, trajectory):
+    reprs = []
+    weights = []
+    for time_step in trajectory.time_steps:
+      # Serializers work on batches.
+      obs_repr = self._obs_serializer.serialize(
+          np.array([time_step.observation]))[0]
+      reprs.append(obs_repr)
+      # TODO(pkozakowski): Digit weighting.
+      weights.append(np.ones_like(obs_repr))
+      if time_step.action is not None:
+        action_repr = self._action_serializer.serialize(
+            np.array([time_step.action]))[0]
+        reprs.append(action_repr)
+        weights.append(np.zeros_like(action_repr))
+
+    def concat_and_pad(arrays):
+      (desired_length,) = self.model_input_shape
+      flat_array = np.concatenate(arrays, axis=0)
+      (actual_length,) = flat_array.shape
+      assert actual_length <= desired_length
+      return np.pad(
+          flat_array,
+          pad_width=((0, desired_length - actual_length),),
+          mode="constant",
+      )
+    (reprs, weights) = map(concat_and_pad, (reprs, weights))
+    return [(reprs, reprs, weights)]  # (inputs, targets, weights)
+
+  @property
+  def model_input_shape(self):
+    return (self._max_trajectory_length * self._step_repr_length,)
+
+  @property
+  def model_input_dtype(self):
+    return np.int32
 
 
 def cartpole_done_fn(previous_observation, current_observation):
@@ -400,3 +469,15 @@ def cartpole_done_fn(previous_observation, current_observation):
 def cartpole_reward_fn(previous_observation, current_observation):
   done = cartpole_done_fn(previous_observation, current_observation)
   return 1.0 - done  # Unit reward for every timestep until the end.
+
+
+def acrobot_done_fn(previous_observation, current_observation):
+  del previous_observation
+  theta1 = current_observation[:, 0]
+  theta2 = current_observation[:, 1]
+  return -np.cos(theta1) - np.cos(theta2 + theta1) > 1.0
+
+
+def acrobot_reward_fn(previous_observation, current_observation):
+  done = acrobot_done_fn(previous_observation, current_observation)
+  return -1.0 + done  # -1 reward for every timestep until the end.

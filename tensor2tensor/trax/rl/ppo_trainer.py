@@ -129,13 +129,13 @@ class PPO(base_trainer.BaseTrainer):
     self._len_history_for_policy = len_history_for_policy
     self._eval_temperatures = eval_temperatures
 
-    assert isinstance(self._train_env.action_space, gym.spaces.Discrete)
-    n_actions = self._train_env.action_space.n
+    assert isinstance(self.train_env.action_space, gym.spaces.Discrete)
+    n_actions = self.train_env.action_space.n
 
     # Batch Observations Shape = [1, 1] + OBS, because we will eventually call
     # policy and value networks on shape [B, T] +_OBS
-    batch_observations_shape = (1, 1) + self._train_env.observation_space.shape
-    observations_dtype = self._train_env.observation_space.dtype
+    batch_observations_shape = (1, 1) + self.train_env.observation_space.shape
+    observations_dtype = self.train_env.observation_space.dtype
 
     self._rng = trax.get_random_number_generator_and_set_seed(random_seed)
     self._rng, key1 = jax_random.split(self._rng, num=2)
@@ -153,21 +153,21 @@ class PPO(base_trainer.BaseTrainer):
     )
     self._policy_and_value_net_apply = jit(policy_and_value_net_apply)
 
-    # Maybe restore the policy params. If there is nothing to restore, then
-    # iteration = 0 and policy_and_value_net_params are returned as is.
-    (restored, policy_and_value_net_params, self._model_state, self._epoch,
-     self._total_opt_step) = ppo.maybe_restore_params(
-         output_dir, policy_and_value_net_params, self._model_state)
+    # Initialize the optimizer.
+    (policy_and_value_opt_state, self._policy_and_value_opt_update,
+     self._policy_and_value_get_params) = ppo.optimizer_fn(
+         policy_and_value_optimizer, policy_and_value_net_params)
+
+    # Maybe restore the optimization state. If there is nothing to restore, then
+    # iteration = 0 and policy_and_value_opt_state is returned as is.
+    (restored, self._policy_and_value_opt_state, self._model_state, self._epoch,
+     self._total_opt_step) = ppo.maybe_restore_opt_state(
+         output_dir, policy_and_value_opt_state, self._model_state)
 
     if restored:
       logging.info("Restored parameters from iteration [%d]", self._epoch)
       # We should start from the next iteration.
       self._epoch += 1
-
-    # Initialize the optimizer.
-    (self._policy_and_value_opt_state, self._policy_and_value_opt_update,
-     self._policy_and_value_get_params) = ppo.optimizer_fn(
-         policy_and_value_optimizer, policy_and_value_net_params)
 
     # Create summary writers and history.
     self._train_sw = jaxboard.SummaryWriter(
@@ -202,9 +202,9 @@ class PPO(base_trainer.BaseTrainer):
     logging.vlog(1, "Epoch [% 6d] collecting trajectories.", self._epoch)
     self._rng, key = jax_random.split(self._rng)
     trajs, n_done, timing_info, self._model_state = ppo.collect_trajectories(
-        self._train_env,
+        self.train_env,
         policy_fn=self._get_predictions,
-        n_trajectories=self._train_env.batch_size,
+        n_trajectories=self.train_env.batch_size,
         max_timestep=self._max_timestep,
         state=self._model_state,
         rng=key,
@@ -254,7 +254,7 @@ class PPO(base_trainer.BaseTrainer):
     assert (B, T) == padded_rewards.shape
     assert (B, T) == reward_mask.shape
     assert (B, T + 1) == padded_observations.shape[:2]
-    assert ((B, T + 1) + self._train_env.observation_space.shape ==
+    assert ((B, T + 1) + self.train_env.observation_space.shape ==
             padded_observations.shape)
 
     log_prob_recompute_start_time = time.time()
@@ -421,7 +421,7 @@ class PPO(base_trainer.BaseTrainer):
     self._n_trajectories_done += n_done
     # TODO(afrozm): Refactor to trax.save_state.
     if ((self._n_trajectories_done >=
-         self._done_frac_for_policy_save * self._train_env.batch_size) and
+         self._done_frac_for_policy_save * self.train_env.batch_size) and
         (self._epoch - self._last_saved_at > self._eval_every_n) and
         (((self._epoch + 1) % self._eval_every_n == 0))):
       self.save()
@@ -470,7 +470,7 @@ class PPO(base_trainer.BaseTrainer):
     logging.vlog(1, "Epoch [% 6d] evaluating policy.", self._epoch)
     self._rng, key = jax_random.split(self._rng, num=2)
     reward_stats, self._model_state = ppo.evaluate_policy(
-        self._eval_env,
+        self.eval_env,
         self._get_predictions,
         temperatures=self._eval_temperatures,
         max_timestep=self._max_timestep_eval,

@@ -22,6 +22,7 @@ from __future__ import print_function
 import gin
 
 from tensor2tensor.trax.rl import ppo_trainer
+from tensor2tensor.trax.rl import simple_trainer
 
 
 # Ginify
@@ -33,3 +34,4 @@ def trainer_configure(*args, **kwargs):
 
 # pylint: disable=invalid-name
 PPO = trainer_configure(ppo_trainer.PPO)
+SimPLe = trainer_configure(simple_trainer.SimPLe)

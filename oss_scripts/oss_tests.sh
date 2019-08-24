@@ -61,16 +61,13 @@ set_status
 
 
 pytest --disable-warnings \
-  --ignore=tensor2tensor/layers/bayes_test.py \
   --ignore=tensor2tensor/layers/common_attention_test.py \
   --ignore=tensor2tensor/layers/common_layers_test.py \
   --ignore=tensor2tensor/layers/common_video_test.py \
   --ignore=tensor2tensor/layers/discretization_test.py \
-  --ignore=tensor2tensor/layers/gaussian_process_test.py \
   --ignore=tensor2tensor/layers/latent_layers_test.py \
   --ignore=tensor2tensor/layers/modalities_test.py \
   --ignore=tensor2tensor/layers/ngram_test.py \
-  --ignore=tensor2tensor/layers/reversible_layers_test.py \
   tensor2tensor/layers/
 set_status
 
@@ -110,16 +107,11 @@ pytest --disable-warnings \
   tensor2tensor/layers/latent_layers_test.py \
   tensor2tensor/layers/modalities_test.py \
   tensor2tensor/layers/ngram_test.py \
-  tensor2tensor/keras \
   tensor2tensor/utils/t2t_model_test.py \
   tensor2tensor/utils/test_utils_test.py \
   --deselect=tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary
 set_status
 
-# TODO(afrozm): Re-enable once TFP's new release comes out (0.8.0) or modify
-# stuff so that we test against tfp-nightly.
-#pytest --disable-warnings tensor2tensor/layers/reversible_layers_test.py
-#set_status
 
 pytest --disable-warnings tensor2tensor/utils/registry_test.py
 set_status
@@ -143,7 +135,6 @@ pytest --disable-warnings \
   --ignore=tensor2tensor/bin/t2t_trainer_test.py \
   --ignore=tensor2tensor/data_generators \
   --ignore=tensor2tensor/envs \
-  --ignore=tensor2tensor/keras \
   --ignore=tensor2tensor/layers \
   --ignore=tensor2tensor/models \
   --ignore=tensor2tensor/rl \

@@ -1821,10 +1821,11 @@ class T2TModel(base.Layer):
 
     # Only do scheduled sampling on language tasks.
     modality = problem_hparams.modality["targets"]
-    if modality != modalities.ModalityType.SYMBOL:
+    if modality not in [modalities.ModalityType.SYMBOL,
+                        modalities.ModalityType.SYMBOL_WEIGHTS_ALL]:
       assert hparams.scheduled_sampling_prob == 0, (
-          "Scheduled sampling only applies to ModalityType.SYMBOL. Set "
-          "hparams.scheduled_sampling_prob == 0.0.")
+          "Scheduled sampling only applies to ModalityType.{SYMBOL, "
+          "SYMBOL_WEIGHTS_ALL}. Set hparams.scheduled_sampling_prob == 0.0.")
       return (logits, losses)
 
     # Only do scheduled sampling when training.

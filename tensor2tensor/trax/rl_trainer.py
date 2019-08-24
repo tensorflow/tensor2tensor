@@ -201,7 +201,7 @@ def train_rl(
     logging.info("Starting the training loop.")
 
     trainer = trainer_class(
-        output_dir=FLAGS.output_dir,
+        output_dir=output_dir,
         train_env=train_env,
         eval_env=eval_env,
     )
