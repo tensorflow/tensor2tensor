@@ -70,6 +70,7 @@ class SimpleTrainerTest(test.TestCase):
             n_optimizer_steps=1,
         ),
         n_real_epochs=1,
+        data_eval_frac=0.5,
         model_train_batch_size=2,
         simulated_env_problem_class=functools.partial(
             simulated_env_problem.SerializedSequenceSimulatedEnvProblem,
