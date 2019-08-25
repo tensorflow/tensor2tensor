@@ -985,8 +985,6 @@ def _reverse_problem_hparams(p_hparams):
     if "target" in feature_name and reversed_feature_name in p.vocab_size:
       reversed_vocab_size[feature_name] = p.vocab_size[reversed_feature_name]
       reversed_vocab_size[reversed_feature_name] = p.vocab_size[feature_name]
-    else:
-      reversed_vocab_size[feature_name] = p.vocab_size[feature_name]
 
   p.vocab_size = reversed_vocab_size
 
