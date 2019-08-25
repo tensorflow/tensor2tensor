@@ -23,16 +23,23 @@ import numpy as onp
 from tensor2tensor.trax import backend
 
 def _get_fans(shape, out_dim=-1, in_dim=-2):
-    receptive_field = backend.numpy.prod(onp.delete(shape, [in_dim, out_dim]))
-    if len(shape) >= 2:
-        fan_in, fan_out = shape[in_dim], shape[out_dim]
-    elif len(shape) == 1:
-        fan_in, fan_out = shape[0]
-    else:
-        fan_in, fan_out = 1.
+  #temporary fix until numpy.delete supports negative indices
+  if out_dim < 0:
+    out_dim += shape
+  if in_dim < 0:
+    in_dim += shape
+
+
+  receptive_field = backend.numpy.prod(onp.delete(shape, [in_dim, out_dim]))
+  if len(shape) >= 2:
+    fan_in, fan_out = shape[in_dim], shape[out_dim]
+  elif len(shape) == 1:
+    fan_in, fan_out = shape[0]
+  else:
+    fan_in, fan_out = 1.
     fan_in *= receptive_field
     fan_out *= receptive_field
-    return fan_in, fan_out
+  return fan_in, fan_out
 
 
 def RandomNormalInitializer(stddev=1e-2):
@@ -45,7 +52,7 @@ def RandomNormalInitializer(stddev=1e-2):
 def RandomUniformInitializer(lim=1.0):
   """An initializer function for random uniform coefficients."""
   def Init(shape, rng):
-    return (backend.random.uniform(rng, shape, backend.numpy.float32, -lim, lim, ))
+    return (backend.random.uniform(rng, shape, backend.numpy.float32, -lim, lim))
   return Init
 
 
@@ -73,7 +80,7 @@ def VarianceScalingInitializer(out_dim, in_dim, scale, mode, distribution):
       return (backend.random.normal(rng, shape) * backend.numpy.sqrt(gain)).astype('float32')
     elif distribution == 'uniform':
       lim = backend.numpy.sqrt(3. * gain)
-      return backend.random.uniform(rng, shape, minval=-lim, maxval=lim).astype('float32')
+      return (backend.random.uniform(rng, shape, backend.numpy.float32, -lim, lim))
     else:
       raise ValueError('invalid distribution for variance scaling Initializer')
   return Init
