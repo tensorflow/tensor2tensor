@@ -447,7 +447,10 @@ def get_timing_signal_1d(length,
   inv_timescales = min_timescale * tf.exp(
       tf.to_float(tf.range(num_timescales)) * -log_timescale_increment)
   scaled_time = tf.expand_dims(position, 1) * tf.expand_dims(inv_timescales, 0)
-  signal = tf.concat([tf.sin(scaled_time), tf.cos(scaled_time)], axis=1)
+  signals_to_concat = [tf.expand_dims(tf.sin(scaled_time), -1),
+                       tf.expand_dims(tf.cos(scaled_time), -1)]
+  signal = tf.concat(signals_to_concat, axis=-1)
+  signal = tf.reshape(signal, [length, channels])
   signal = tf.pad(signal, [[0, 0], [0, tf.mod(channels, 2)]])
   signal = tf.reshape(signal, [1, length, channels])
   return signal
