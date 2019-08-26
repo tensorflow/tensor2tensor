@@ -69,12 +69,10 @@ class PpoTrainerTest(test.TestCase):
     yield tmp
     gfile.rmtree(tmp)
 
-  def _run_training_loop(self, train_env, eval_env, output_dir, model=None):
+  def _make_trainer(self, train_env, eval_env, output_dir, model=None):
     if model is None:
       model = lambda: [layers.Dense(1)]
-    n_epochs = 2
-    # Run the training loop.
-    trainer = ppo_trainer.PPO(
+    return ppo_trainer.PPO(
         train_env=train_env,
         eval_env=eval_env,
         policy_and_value_model=model,
@@ -83,19 +81,19 @@ class PpoTrainerTest(test.TestCase):
         random_seed=0,
         boundary=2,
     )
-    trainer.training_loop(n_epochs=n_epochs)
 
   def test_training_loop_cartpole(self):
     with self.tmp_dir() as output_dir:
-      self._run_training_loop(
+      trainer = self._make_trainer(
           train_env=self.get_wrapped_env("CartPole-v0", 2),
           eval_env=self.get_wrapped_env("CartPole-v0", 2),
           output_dir=output_dir,
       )
+      trainer.training_loop(n_epochs=2)
 
   def test_training_loop_cartpole_transformer(self):
     with self.tmp_dir() as output_dir:
-      self._run_training_loop(
+      trainer = self._make_trainer(
           train_env=self.get_wrapped_env("CartPole-v0", 2),
           eval_env=self.get_wrapped_env("CartPole-v0", 2),
           output_dir=output_dir,
@@ -109,6 +107,7 @@ class PpoTrainerTest(test.TestCase):
               mode="train",
           ),
       )
+      trainer.training_loop(n_epochs=2)
 
   def test_training_loop_onlinetune(self):
     with self.tmp_dir() as output_dir:
@@ -128,11 +127,12 @@ class PpoTrainerTest(test.TestCase):
       gin.bind_parameter("OnlineTuneEnv.eval_steps", 2)
       gin.bind_parameter(
           "OnlineTuneEnv.output_dir", os.path.join(output_dir, "envs"))
-      self._run_training_loop(
+      trainer = self._make_trainer(
           train_env=self.get_wrapped_env("OnlineTuneEnv-v0", 2),
           eval_env=self.get_wrapped_env("OnlineTuneEnv-v0", 2),
           output_dir=output_dir,
       )
+      trainer.training_loop(n_epochs=2)
 
   def test_training_loop_simulated(self):
     n_actions = 5
@@ -204,11 +204,39 @@ class PpoTrainerTest(test.TestCase):
           output_dir=output_dir,
       )
 
-      self._run_training_loop(
+      trainer = self._make_trainer(
           train_env=env_fn(),
           eval_env=env_fn(),
           output_dir=output_dir,
       )
+      trainer.training_loop(n_epochs=2)
+
+  def test_restarts(self):
+    with self.tmp_dir() as output_dir:
+      train_env = self.get_wrapped_env("CartPole-v0", 2)
+      eval_env = self.get_wrapped_env("CartPole-v0", 2)
+
+      # Train for 1 epoch and save.
+      trainer = self._make_trainer(
+          train_env=train_env,
+          eval_env=eval_env,
+          output_dir=output_dir,
+      )
+      self.assertEqual(trainer.epoch, 0)
+      trainer.training_loop(n_epochs=1)
+
+      # Restore from the saved state.
+      trainer = self._make_trainer(
+          train_env=train_env,
+          eval_env=eval_env,
+          output_dir=output_dir,
+      )
+      # This is 2 instead of 1 because epoch calculation is a little weird right
+      # now.
+      # TODO(pkozakowski): Fix.
+      self.assertEqual(trainer.epoch, 2)
+      # Check that we can continue training from the restored checkpoint.
+      trainer.training_loop(n_epochs=3)
 
 
 if __name__ == "__main__":

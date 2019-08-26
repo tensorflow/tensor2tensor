@@ -489,7 +489,7 @@ class PPO(base_trainer.BaseTrainer):
     params_file = os.path.join(self._output_dir, "model-%06d.pkl" % self._epoch)
     with gfile.GFile(params_file, "wb") as f:
       pickle.dump(
-          (self._policy_and_value_net_params, self._model_state,
+          (self._policy_and_value_opt_state, self._model_state,
            self._total_opt_step), f)
     # Remove the old model files.
     for path in old_model_files:
