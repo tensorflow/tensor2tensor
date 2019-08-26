@@ -102,7 +102,6 @@ pytest --disable-warnings \
   tensor2tensor/layers/common_layers_test.py \
   tensor2tensor/layers/common_video_test.py \
   tensor2tensor/layers/discretization_test.py \
-  tensor2tensor/layers/gaussian_process_test.py \
   tensor2tensor/layers/latent_layers_test.py \
   tensor2tensor/layers/modalities_test.py \
   tensor2tensor/layers/ngram_test.py \
