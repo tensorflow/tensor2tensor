@@ -25,9 +25,9 @@ from tensor2tensor.trax import backend
 def _get_fans(shape, out_dim=-1, in_dim=-2):
   #temporary fix until numpy.delete supports negative indices
   if out_dim < 0:
-    out_dim += shape
+    out_dim += len(shape)
   if in_dim < 0:
-    in_dim += shape
+    in_dim += len(shape)
 
   receptive_field = backend.numpy.prod(onp.delete(shape, [in_dim, out_dim]))
   if len(shape) >= 2:
