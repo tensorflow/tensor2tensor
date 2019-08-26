@@ -51,7 +51,7 @@ class BatchNorm(base.Layer):
         return d
     stats_shape = tuple(get_stats_axis(i, d) for i, d in enumerate(input_shape))
     running_mean = np.zeros(stats_shape, dtype=np.float32)
-    running_var = np.zeros(stats_shape, dtype=np.float32)
+    running_var = np.ones(stats_shape, dtype=np.float32)
     num_batches = np.zeros((), dtype=np.int32)
     return (beta, gamma), (running_mean, running_var, num_batches)
 

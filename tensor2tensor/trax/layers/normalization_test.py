@@ -47,7 +47,7 @@ class NormalizationLayerTest(absltest.TestCase):
     layer = normalization.BatchNorm(axis=(0, 1, 2))
     params, state = layer.initialize(input_shape, input_dtype, rng)
     onp.testing.assert_allclose(state[0], 0)
-    onp.testing.assert_allclose(state[1], 0)
+    onp.testing.assert_allclose(state[1], 1)
     self.assertEqual(state[2], 0)
     out, state = layer(inp1, params, state)
     onp.testing.assert_allclose(state[0], m1)
