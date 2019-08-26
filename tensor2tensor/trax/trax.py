@@ -302,7 +302,7 @@ def evaluate_loss_train_and_eval(step, eval_stream, train_eval_stream,
   for input_stream in [train_eval_stream, eval_stream]:
     total = 0.0
     count = 0.0
-    for inp in itertools.islice(input_stream(), eval_steps):
+    for inp in itertools.islice(input_stream, eval_steps):
       loss_values, state, rngs = compute_loss_fn(inp, state, rngs, has_weights)
       total += float(numpy.mean(loss_values))
       count += 1.0
