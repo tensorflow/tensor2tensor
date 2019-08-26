@@ -239,15 +239,15 @@ _METRICS = {
 }
 
 
-def evaluate_train_and_eval(step, inputs, predict_fn, eval_steps, state, rng,
-                            has_weights,
+def evaluate_train_and_eval(step, eval_stream, train_eval_stream,
+                            predict_fn, eval_steps, state, rng, has_weights,
                             train_sw=None, eval_sw=None, history=None):
   """Evalaute on train and eval data, and log metrics."""
   step_log(step, "Evaluation")
   metrics_list = []
-  for input_stream in [inputs.train_eval_stream, inputs.eval_stream]:
+  for input_stream in [eval_stream, train_eval_stream]:
     metrics, state = evaluate(  # pylint: disable=g-complex-comprehension
-        itertools.islice(input_stream(), eval_steps),
+        itertools.islice(input_stream, eval_steps),
         predict_fn,
         _METRICS,
         state,
@@ -292,13 +292,14 @@ def evaluate(inputs_stream, predict_fn, metric_fns, state, rng, has_weights):
   return {m: v / count for (m, v) in six.iteritems(metrics)}, state
 
 
-def evaluate_loss_train_and_eval(step, inputs, compute_loss_fn, eval_steps,
+def evaluate_loss_train_and_eval(step, eval_stream, train_eval_stream,
+                                 compute_loss_fn, eval_steps,
                                  state, rngs, has_weights,
                                  train_sw=None, eval_sw=None, history=None):
   """More efficient evaluation that logs only the loss on train & eval data."""
   step_log(step, "Evaluation")
   train_eval_metrics = []
-  for input_stream in [inputs.train_eval_stream, inputs.eval_stream]:
+  for input_stream in [train_eval_stream, eval_stream]:
     total = 0.0
     count = 0.0
     for inp in itertools.islice(input_stream(), eval_steps):
@@ -499,6 +500,13 @@ def reshape_by_device(x, n_devices):
       x, lambda x: _reshape_by_device_single(x, n_devices))
 
 
+def _repeat_stream(stream):
+  """Repeat a stream indefinitely."""
+  while True:
+    for example in stream():
+      yield example
+
+
 @gin.configurable(whitelist=[])
 class Trainer(object):
   """Trax trainer.
@@ -601,8 +609,12 @@ class Trainer(object):
     self._train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
     self._eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
 
-    # Reset the training stream.
+    # Reset the train and eval streams.
     self._train_stream = self._inputs.train_stream()
+    # TODO(lukaszkaiser): add an option to evaluate exactly on the full eval
+    #   set by adding a padding and stopping the stream when too large.
+    self._eval_stream = _repeat_stream(self._inputs.eval_stream)
+    self._train_eval_stream = _repeat_stream(self._inputs.train_eval_stream)
 
     # Restore the training state.
     state = restore_state(output_dir)
@@ -729,7 +741,8 @@ class Trainer(object):
     _, rng = jax_random.split(self._rngs[0])
     _, _, self._model_state = evaluate_train_and_eval(
         step=self._step,
-        inputs=self._inputs,
+        eval_stream=self._eval_stream,
+        train_eval_stream=self._train_eval_stream,
         predict_fn=functools.partial(self._jit_model_predict_eval,
                                      params=self._opt_state[0]),
         eval_steps=eval_steps,
@@ -789,7 +802,8 @@ class MemoryEfficientTrainer(Trainer):
     # Evaluate only the loss function (a more efficient, jitted, implementation)
     self._model_state = evaluate_loss_train_and_eval(
         step=self._step,
-        inputs=self._inputs,
+        eval_stream=self._eval_stream,
+        train_eval_stream=self._train_eval_stream,
         compute_loss_fn=functools.partial(self._jit_compute_loss,
                                           self._opt_state),
         eval_steps=eval_steps,
