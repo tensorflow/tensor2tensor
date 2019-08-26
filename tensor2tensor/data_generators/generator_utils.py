@@ -38,6 +38,7 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import mlperf_log
 
 import tensorflow as tf
+import numpy as np
 
 UNSHUFFLED_SUFFIX = "-unshuffled"
 
@@ -48,7 +49,7 @@ def to_example(dictionary):
   for (k, v) in six.iteritems(dictionary):
     if not v:
       raise ValueError("Empty generated field: %s" % str((k, v)))
-    if isinstance(v[0], six.integer_types):
+    if isinstance(v[0], six.integer_types) or isinstance(v[0], np.int64):
       features[k] = tf.train.Feature(int64_list=tf.train.Int64List(value=v))
     elif isinstance(v[0], float):
       features[k] = tf.train.Feature(float_list=tf.train.FloatList(value=v))
