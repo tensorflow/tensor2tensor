@@ -98,12 +98,10 @@ set_status
 # These tests enable eager, so are tested separately.
 pytest --disable-warnings \
   tensor2tensor/data_generators/problem_test.py \
-  tensor2tensor/layers/bayes_test.py \
   tensor2tensor/layers/common_attention_test.py \
   tensor2tensor/layers/common_layers_test.py \
   tensor2tensor/layers/common_video_test.py \
   tensor2tensor/layers/discretization_test.py \
-  tensor2tensor/layers/gaussian_process_test.py \
   tensor2tensor/layers/latent_layers_test.py \
   tensor2tensor/layers/modalities_test.py \
   tensor2tensor/layers/ngram_test.py \

@@ -28,6 +28,7 @@ import random
 import stat
 import tarfile
 import tempfile
+import numpy as np
 import requests
 import six
 from six.moves import range  # pylint: disable=redefined-builtin
@@ -48,7 +49,8 @@ def to_example(dictionary):
   for (k, v) in six.iteritems(dictionary):
     if not v:
       raise ValueError("Empty generated field: %s" % str((k, v)))
-    if isinstance(v[0], six.integer_types):
+    if (isinstance(v[0], six.integer_types) or
+        np.issubdtype(type(v[0]), np.integer)):
       features[k] = tf.train.Feature(int64_list=tf.train.Int64List(value=v))
     elif isinstance(v[0], float):
       features[k] = tf.train.Feature(float_list=tf.train.FloatList(value=v))

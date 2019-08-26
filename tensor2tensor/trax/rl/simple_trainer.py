@@ -24,11 +24,13 @@ import os
 import random
 
 from absl import logging
+import cloudpickle as pickle
 from jax import numpy as np
 from tensor2tensor.trax import inputs as trax_inputs
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.rl import base_trainer
 from tensor2tensor.trax.rl import simulated_env_problem
+from tensorflow.io import gfile
 
 
 class SimPLe(base_trainer.BaseTrainer):
@@ -41,14 +43,18 @@ class SimPLe(base_trainer.BaseTrainer):
       output_dir,
       policy_trainer_class,
       n_real_epochs=10,
-      data_eval_frac=0.05,
+      data_eval_frac=0.125,
       model_train_batch_size=64,
+      n_model_train_steps=1000,
       simulated_env_problem_class=(
           simulated_env_problem.SerializedSequenceSimulatedEnvProblem),
       simulated_batch_size=16,
       n_simulated_epochs=1000,
+      trajectory_dump_dir=None,
+      **kwargs
   ):
-    super(SimPLe, self).__init__(train_env, eval_env, output_dir)
+    super(SimPLe, self).__init__(
+        train_env, eval_env, output_dir, **kwargs)
     self._policy_dir = os.path.join(output_dir, "policy")
     self._policy_trainer = policy_trainer_class(
         train_env=train_env,
@@ -57,9 +63,8 @@ class SimPLe(base_trainer.BaseTrainer):
     )
     self._n_real_epochs = n_real_epochs
     self._model_train_batch_size = model_train_batch_size
+    self._n_model_train_steps = n_model_train_steps
     self._data_eval_frac = data_eval_frac
-    self._train_trajectories = []
-    self._eval_trajectories = []
     self._model_dir = os.path.join(output_dir, "model")
     self._sim_env = simulated_env_problem_class(
         batch_size=None,
@@ -72,17 +77,26 @@ class SimPLe(base_trainer.BaseTrainer):
     )
     self._simulated_batch_size = simulated_batch_size
     self._n_simulated_epochs = n_simulated_epochs
-    self._epoch = 0
+
+    # If trajectory_dump_dir is not provided explicitly, save the trajectories
+    # in output_dir.
+    if trajectory_dump_dir is None:
+      trajectory_dump_dir = os.path.join(output_dir, "trajectories")
+    self._trajectory_dump_root_dir = trajectory_dump_dir
+
+    self._simple_epoch = 0
+    self._policy_epoch = 0
+    self._model_train_step = 0
 
   @property
   def epoch(self):
-    return self._epoch
+    return self._simple_epoch
 
   def train_epoch(self):
     self.collect_trajectories()
     self.train_model()
     self.train_policy()
-    self._epoch += 1
+    self._simple_epoch += 1
 
   def evaluate(self):
     self._policy_trainer.evaluate()
@@ -96,16 +110,29 @@ class SimPLe(base_trainer.BaseTrainer):
     pass
 
   def collect_trajectories(self):
-    logging.info("Epoch %d: collecting data", self._epoch)
+    logging.info("Epoch %d: collecting data", self._simple_epoch)
 
     self._policy_trainer.train_env = self.train_env
-    self._policy_trainer.training_loop(self._n_real_epochs)
-    self.train_env.trajectories.complete_all_trajectories()
-    trajectories = self.train_env.trajectories.completed_trajectories
-    pivot = int(len(trajectories) * (1 - self._data_eval_frac))
-    self._train_trajectories.extend(trajectories[:pivot])
-    self._eval_trajectories.extend(trajectories[pivot:])
-    # TODO(pkozakowski): Save trajectories to disk. Support restoring.
+    self._policy_trainer.trajectory_dump_dir = os.path.join(
+        self._trajectory_dump_root_dir, str(self.epoch))
+    self._policy_epoch += self._n_real_epochs
+    self._policy_trainer.training_loop(self._policy_epoch)
+
+  def _load_trajectories(self, trajectory_dir):
+    train_trajectories = []
+    eval_trajectories = []
+    # Search the entire directory subtree for trajectories.
+    for (subdir, _, filenames) in gfile.walk(trajectory_dir):
+      for filename in filenames:
+        shard_path = os.path.join(subdir, filename)
+        with gfile.GFile(shard_path, "rb") as f:
+          trajectories = pickle.load(f)
+          pivot = int(len(trajectories) * (1 - self._data_eval_frac))
+          train_trajectories.extend(trajectories[:pivot])
+          eval_trajectories.extend(trajectories[pivot:])
+    assert train_trajectories, "Haven't found any training data."
+    assert eval_trajectories, "Haven't found any evaluation data."
+    return (train_trajectories, eval_trajectories)
 
   def _data_stream(self, trajectories, batch_size):
     def make_batch(examples):
@@ -139,12 +166,16 @@ class SimPLe(base_trainer.BaseTrainer):
         yield make_batch(example_list)
 
   def train_model(self):
-    logging.info("Epoch %d: training model", self._epoch)
+    logging.info("Epoch %d: training model", self._simple_epoch)
 
+    # Load data from all epochs.
+    # TODO(pkozakowski): Handle the case when the data won't fit in the memory.
+    (train_trajectories, eval_trajectories) = self._load_trajectories(
+        self._trajectory_dump_root_dir)
     train_stream = lambda: self._data_stream(  # pylint: disable=g-long-lambda
-        self._train_trajectories, self._model_train_batch_size)
+        train_trajectories, self._model_train_batch_size)
     eval_stream = lambda: self._data_stream(  # pylint: disable=g-long-lambda
-        self._eval_trajectories, self._model_train_batch_size)
+        eval_trajectories, self._model_train_batch_size)
     # Ignore n_devices for now.
     inputs = lambda _: trax_inputs.Inputs(  # pylint: disable=g-long-lambda
         train_stream=train_stream,
@@ -153,19 +184,23 @@ class SimPLe(base_trainer.BaseTrainer):
         input_shape=self._sim_env.model_input_shape,
         input_dtype=self._sim_env.model_input_dtype,
     )
+
+    self._model_train_step += self._n_model_train_steps
     trax.train(
         model=self._sim_env.model,
         inputs=inputs,
+        train_steps=self._model_train_step,
         output_dir=self._model_dir,
         has_weights=True,
     )
 
   def train_policy(self):
-    logging.info("Epoch %d: training policy", self._epoch)
+    logging.info("Epoch %d: training policy", self._simple_epoch)
 
     self._sim_env.initialize(
         batch_size=self._simulated_batch_size,
         history_stream=itertools.repeat(None),
     )
     self._policy_trainer.train_env = self._sim_env
-    self._policy_trainer.training_loop(self._n_simulated_epochs)
+    self._policy_epoch += self._n_simulated_epochs
+    self._policy_trainer.training_loop(self._policy_epoch)
