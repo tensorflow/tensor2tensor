@@ -141,7 +141,9 @@ flags.DEFINE_string("job-dir", None,
 flags.DEFINE_integer("log_step_count_steps", 100,
                      "Number of local steps after which progress is printed "
                      "out")
-
+flags.DEFINE_bool("gpu_automatic_mixed_precision", False,
+                  "Whether to employ GPU automatic mixed precision training "
+                  "(via graph rewrite and dynamic loss scaling).")
 
 
 def set_hparams_from_args(args):
