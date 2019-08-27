@@ -245,7 +245,7 @@ def evaluate_train_and_eval(step, eval_stream, train_eval_stream,
   """Evalaute on train and eval data, and log metrics."""
   step_log(step, "Evaluation")
   metrics_list = []
-  for input_stream in [eval_stream, train_eval_stream]:
+  for input_stream in [train_eval_stream, eval_stream]:
     metrics, state = evaluate(  # pylint: disable=g-complex-comprehension
         itertools.islice(input_stream, eval_steps),
         predict_fn,
@@ -254,6 +254,7 @@ def evaluate_train_and_eval(step, eval_stream, train_eval_stream,
         rng,
         has_weights)
     metrics_list.append(metrics)
+  # Unpack in the same order we've iterated over streams in the loop above.
   train_metrics, eval_metrics = metrics_list  # pylint: disable=unbalanced-tuple-unpacking
   if train_sw:
     log_metrics(train_metrics, train_sw, "train", step, history=history)
@@ -310,6 +311,7 @@ def evaluate_loss_train_and_eval(step, eval_stream, train_eval_stream,
       count += 1.0
     metrics = {"loss": total / count}
     train_eval_metrics.append(metrics)
+  # Unpack in the same order we've iterated over streams in the loop above.
   train_metrics, eval_metrics = train_eval_metrics  # pylint: disable=unbalanced-tuple-unpacking
   if train_sw:
     log_metrics(train_metrics, train_sw, "train", step, history=history)
