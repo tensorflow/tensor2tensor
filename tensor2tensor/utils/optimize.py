@@ -45,8 +45,7 @@ def optimize(loss,
              learning_rate,
              hparams,
              use_tpu=False,
-             variables=None,
-             gpu_auto_mixed_precision=False):
+             variables=None):
   """Minimize loss."""
   loss = weight_decay_and_noise(loss, hparams, learning_rate)
   loss = tf.identity(loss, name="total_loss")
@@ -71,7 +70,7 @@ def optimize(loss,
   opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams, use_tpu)
   if use_tpu:
     opt = tf.contrib.tpu.CrossShardOptimizer(opt)
-  if hparams.gpu_automatic_mixed_precision:
+  if tf.flags.FLAGS.gpu_automatic_mixed_precision:
     if use_tpu:
       raise RuntimeError("GPU auto mixed precision cannot be used with TPU")
     elif _mixed_precision_is_enabled(hparams):
