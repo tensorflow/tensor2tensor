@@ -20,7 +20,8 @@ using ::tensorflow::shape_inference::InferenceContext;
 REGISTER_OP("PackSequences2")
     .Input("inputs: int64")
     .Input("targets: int64")
-    .Input("max_length: int32")
+    .Input("inputs_max_length: int32")
+    .Input("targets_max_length: int32")
     .Output("inputs_packed: int64")
     .Output("inputs_segmentation: int32")
     .Output("inputs_position: int32")
@@ -44,12 +45,13 @@ class PackSequences2Op : public OpKernel {
   void Compute(OpKernelContext* ctx) override {
     auto inputs = ctx->input(0).matrix<int64>();
     auto targets = ctx->input(1).matrix<int64>();
-    int max_length = ctx->input(2).scalar<int32>()();
+    int inputs_max_length = ctx->input(2).scalar<int32>()();
+    int targets_max_length = ctx->input(3).scalar<int32>()();
     int n = inputs.dimension(0);
     std::vector<int> inputs_lengths(n);
     std::vector<int> targets_lengths(n);
     int padded_inputs_length = min(static_cast<int>(inputs.dimension(1)),
-                                   max_length);
+                                   inputs_max_length);
     for (int i = 0; i < n; i++) {
       for (int j = 0; j < padded_inputs_length; j++) {
           if (inputs(i, j) != 0)
@@ -57,7 +59,7 @@ class PackSequences2Op : public OpKernel {
       }
     }
     int padded_targets_length = min(static_cast<int>(targets.dimension(1)),
-                                    max_length);
+                                    targets_max_length);
     for (int i = 0; i < n; i++) {
       for (int j = 0; j < padded_targets_length; j++) {
           if (targets(i, j) != 0)
@@ -80,9 +82,9 @@ class PackSequences2Op : public OpKernel {
           break;
         } else if (
             (combined_inputs_length[combined_id] + inputs_length
-             <= max_length) &&
+             <= inputs_max_length) &&
             (combined_targets_length[combined_id] + targets_length
-             <= max_length)) {
+             <= targets_max_length)) {
           combined_inputs_length[combined_id] += inputs_length;
           combined_targets_length[combined_id] += targets_length;
           combined_sequence_ids[combined_id].push_back(seq_id);
@@ -91,40 +93,48 @@ class PackSequences2Op : public OpKernel {
       }
     }
 
-    auto output_shape = TensorShape(
-        {static_cast<int64>(num_combined), static_cast<int64>(max_length)});
+    auto output_shape_inputs = TensorShape(
+        {static_cast<int64>(num_combined),
+         static_cast<int64>(inputs_max_length)});
+    auto output_shape_targets = TensorShape(
+        {static_cast<int64>(num_combined),
+         static_cast<int64>(targets_max_length)});
 
     Tensor* inputs_packed;
-    OP_REQUIRES_OK(ctx, ctx->allocate_output(0, output_shape, &inputs_packed));
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(
+        0, output_shape_inputs, &inputs_packed));
     auto inputs_packed_m = inputs_packed->matrix<int64>();
     inputs_packed_m.setZero();
 
     Tensor* inputs_segmentation;
     OP_REQUIRES_OK(
-        ctx, ctx->allocate_output(1, output_shape, &inputs_segmentation));
+        ctx, ctx->allocate_output(
+            1, output_shape_inputs, &inputs_segmentation));
     auto inputs_segmentation_m = inputs_segmentation->matrix<int32>();
     inputs_segmentation_m.setZero();
 
     Tensor* inputs_position;
     OP_REQUIRES_OK(
-        ctx, ctx->allocate_output(2, output_shape, &inputs_position));
+        ctx, ctx->allocate_output(2, output_shape_inputs, &inputs_position));
     auto inputs_position_m = inputs_position->matrix<int32>();
     inputs_position_m.setZero();
 
     Tensor* targets_packed;
-    OP_REQUIRES_OK(ctx, ctx->allocate_output(3, output_shape, &targets_packed));
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(
+        3, output_shape_targets, &targets_packed));
     auto targets_packed_m = targets_packed->matrix<int64>();
     targets_packed_m.setZero();
 
     Tensor* targets_segmentation;
     OP_REQUIRES_OK(
-        ctx, ctx->allocate_output(4, output_shape, &targets_segmentation));
+        ctx, ctx->allocate_output(
+            4, output_shape_targets, &targets_segmentation));
     auto targets_segmentation_m = targets_segmentation->matrix<int32>();
     targets_segmentation_m.setZero();
 
     Tensor* targets_position;
     OP_REQUIRES_OK(
-        ctx, ctx->allocate_output(5, output_shape, &targets_position));
+        ctx, ctx->allocate_output(5, output_shape_targets, &targets_position));
     auto targets_position_m = targets_position->matrix<int32>();
     targets_position_m.setZero();
 

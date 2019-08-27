@@ -758,7 +758,7 @@ def _pack_with_custom_ops(dataset, keys, length):
     """Map-function."""
     (k1_packed, k1_segmengation, k1_position,
      k2_packed, k2_segmentation, k2_position) = (
-         pack_sequences_ops.pack_sequences2(x[k1], x[k2], length))
+         pack_sequences_ops.pack_sequences2(x[k1], x[k2], length, length))
     packed = {
         k1: k1_packed,
         k1 + "_segmentation": k1_segmengation,
