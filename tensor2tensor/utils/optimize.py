@@ -18,7 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
 import numpy as np
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import adafactor as adafactor_lib
