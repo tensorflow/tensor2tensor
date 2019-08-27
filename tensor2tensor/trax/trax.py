@@ -297,13 +297,15 @@ def evaluate_loss_train_and_eval(step, eval_stream, train_eval_stream,
                                  state, rngs, has_weights,
                                  train_sw=None, eval_sw=None, history=None):
   """More efficient evaluation that logs only the loss on train & eval data."""
+  assert not has_weights, (
+      "MemoryEfficientTrainer doesn't support has_weights")
   step_log(step, "Evaluation")
   train_eval_metrics = []
   for input_stream in [train_eval_stream, eval_stream]:
     total = 0.0
     count = 0.0
     for inp in itertools.islice(input_stream, eval_steps):
-      loss_values, state, rngs = compute_loss_fn(inp, state, rngs, has_weights)
+      loss_values, state, rngs = compute_loss_fn(inp, state, rngs)
       total += float(numpy.mean(loss_values))
       count += 1.0
     metrics = {"loss": total / count}
@@ -453,7 +455,8 @@ def _jit_compute_loss_fn(predict_fn, loss_fn, n_devices, jit=True):
   if n_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
     def single_compute_loss(opt_state, batch, state, rng):
       rng, subrng = jax_random.split(rng[0])
-      return loss_fn(opt_state[0], batch, predict_fn, state, rng), [subrng]
+      loss_val, state = loss_fn(opt_state[0], batch, predict_fn, state, rng)
+      return loss_val, state, [subrng]
     if jit:
       return backend.jit(single_compute_loss)
     else:
@@ -797,10 +800,12 @@ class MemoryEfficientTrainer(Trainer):
     # we only implement computing the loss, and not any other metrics.
     self._jit_compute_loss = _jit_compute_loss_fn(
         self._model_predict_eval, self._loss_fn, self._n_devices)
+    assert not self._has_weights, (
+        "MemoryEfficientTrainer doesn't support has_weights")
 
   def evaluate(self, eval_steps):
     # Evaluate only the loss function (a more efficient, jitted, implementation)
-    self._model_state = evaluate_loss_train_and_eval(
+    _, _, self._model_state = evaluate_loss_train_and_eval(
         step=self._step,
         eval_stream=self._eval_stream,
         train_eval_stream=self._train_eval_stream,

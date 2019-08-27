@@ -257,12 +257,12 @@ class Layer(object):
       #   remove the constraints on state below when this feature is added to
       #   JAX.
 
-      assert state is (), (  # pylint: disable=literal-comparison
+      assert not jax.tree_util.tree_leaves(state), (
           'Custom gradients require trivial start state. Got %s' % str(state))
 
       def check_end_state(output_state):
         output, state = output_state
-        assert state is (), (  # pylint: disable=literal-comparison
+        assert not jax.tree_util.tree_leaves(state), (
             'Custom gradients require trivial end state. Got %s' % str(state))
         return output
 
@@ -271,20 +271,21 @@ class Layer(object):
       # Note that we capture the kwargs and don't calculate gradients wrt. them.
       @jax.custom_transforms
       def do_call(y, params):
-        return check_end_state(self.call(y, params=params, state=(), **kwargs))
+        return check_end_state(self.call(y, params=params, state=state,
+                                         **kwargs))
 
       # This is the custom gradient (vector-jacobian product in JAX) function.
       # For the exact specification of this custom transformation see this link:
       # https://jax.readthedocs.io/en/latest/jax.html#jax.defjvp_all
       def do_call_vjp(y, params):
-        output = check_end_state(self.call(y, params=params, state=(),
+        output = check_end_state(self.call(y, params=params, state=state,
                                            **kwargs))
         def vjpfun(grad):
-          return self.custom_grad(y, output, grad, params, **kwargs)
+          return self.custom_grad(y, output, grad, params, state, **kwargs)
         return output, vjpfun
 
       jax.defvjp_all(do_call, do_call_vjp)
-      return do_call(x, params), ()
+      return do_call(x, params), state
 
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback()
