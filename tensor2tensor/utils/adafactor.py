@@ -237,6 +237,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
       vc = self.get_slot(var, "vc")
       new_vc = (decay_rate * vc + mixing_rate * grad_squared_col_mean)
 
+      '''
       print('grad_squared_row_mean', grad_squared_row_mean)
       print('grad_squared_col_mean', grad_squared_col_mean)
       print('vr', vr)
@@ -254,6 +255,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
       ]
       with tf.control_dependencies(print_ops):
           new_vc = tf.identity(new_vc)
+      '''
       vr_update = tf.assign(vr, new_vr, use_locking=self._use_locking)
       vc_update = tf.assign(vc, new_vc, use_locking=self._use_locking)
       updates = [vr_update, vc_update]
