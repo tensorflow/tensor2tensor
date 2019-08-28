@@ -42,36 +42,18 @@ class NormalizationLayerTest(absltest.TestCase):
     rng = backend.random.get_prng(0)
     inp1 = np.reshape(np.arange(np.prod(input_shape), dtype=input_dtype),
                       input_shape)
-    m1 = 11.5
-    v1 = 47.9167
+    m1 = 11.5  # Mean of this random input.
+    v1 = 47.9167  # Variance of this random input.
     layer = normalization.BatchNorm(axis=(0, 1, 2))
     params, state = layer.initialize(input_shape, input_dtype, rng)
     onp.testing.assert_allclose(state[0], 0)
-    onp.testing.assert_allclose(state[1], 0)
+    onp.testing.assert_allclose(state[1], 1)
     self.assertEqual(state[2], 0)
     out, state = layer(inp1, params, state)
-    onp.testing.assert_allclose(state[0], m1)
-    onp.testing.assert_allclose(state[1], v1, rtol=1e-6)
+    onp.testing.assert_allclose(state[0], m1 * 0.001)
+    onp.testing.assert_allclose(state[1], 0.999 + v1 * 0.001, rtol=1e-6)
     self.assertEqual(state[2], 1)
     onp.testing.assert_allclose(out, (inp1 - m1) / np.sqrt(v1 + eps),
-                                rtol=1e-6)
-    inp2 = inp1 * 2 + 3
-    m2 = m1 * 2 + 3
-    v2 = v1 * 4
-    m12 = (m1 + m2) / 2
-    v12 = (v1 + v2) / 2
-    out, state = layer(inp2, params, state)
-    onp.testing.assert_allclose(state[0], m12)
-    onp.testing.assert_allclose(state[1], v12, rtol=1e-6)
-    self.assertEqual(state[2], 2)
-    onp.testing.assert_allclose(out, (inp2 - m2) / np.sqrt(v2 + eps),
-                                rtol=1e-6)
-    layer = normalization.BatchNorm(axis=(0, 1, 2), mode="eval")
-    inp3 = inp1 * 5 + 7
-    out, state_unchanged = layer(inp3, params, state)
-    for i in range(3):
-      onp.testing.assert_allclose(state_unchanged[i], state[i])
-    onp.testing.assert_allclose(out, (inp3 - m12) / np.sqrt(v12 + eps),
                                 rtol=1e-6)
 
   def test_layer_norm_shape(self):

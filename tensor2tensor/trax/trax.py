@@ -239,21 +239,22 @@ _METRICS = {
 }
 
 
-def evaluate_train_and_eval(step, inputs, predict_fn, eval_steps, state, rng,
-                            has_weights,
+def evaluate_train_and_eval(step, eval_stream, train_eval_stream,
+                            predict_fn, eval_steps, state, rng, has_weights,
                             train_sw=None, eval_sw=None, history=None):
   """Evalaute on train and eval data, and log metrics."""
   step_log(step, "Evaluation")
   metrics_list = []
-  for input_stream in [inputs.train_eval_stream, inputs.eval_stream]:
+  for input_stream in [train_eval_stream, eval_stream]:
     metrics, state = evaluate(  # pylint: disable=g-complex-comprehension
-        itertools.islice(input_stream(), eval_steps),
+        itertools.islice(input_stream, eval_steps),
         predict_fn,
         _METRICS,
         state,
         rng,
         has_weights)
     metrics_list.append(metrics)
+  # Unpack in the same order we've iterated over streams in the loop above.
   train_metrics, eval_metrics = metrics_list  # pylint: disable=unbalanced-tuple-unpacking
   if train_sw:
     log_metrics(train_metrics, train_sw, "train", step, history=history)
@@ -292,21 +293,25 @@ def evaluate(inputs_stream, predict_fn, metric_fns, state, rng, has_weights):
   return {m: v / count for (m, v) in six.iteritems(metrics)}, state
 
 
-def evaluate_loss_train_and_eval(step, inputs, compute_loss_fn, eval_steps,
+def evaluate_loss_train_and_eval(step, eval_stream, train_eval_stream,
+                                 compute_loss_fn, eval_steps,
                                  state, rngs, has_weights,
                                  train_sw=None, eval_sw=None, history=None):
   """More efficient evaluation that logs only the loss on train & eval data."""
+  assert not has_weights, (
+      "MemoryEfficientTrainer doesn't support has_weights")
   step_log(step, "Evaluation")
   train_eval_metrics = []
-  for input_stream in [inputs.train_eval_stream, inputs.eval_stream]:
+  for input_stream in [train_eval_stream, eval_stream]:
     total = 0.0
     count = 0.0
-    for inp in itertools.islice(input_stream(), eval_steps):
-      loss_values, state, rngs = compute_loss_fn(inp, state, rngs, has_weights)
+    for inp in itertools.islice(input_stream, eval_steps):
+      loss_values, state, rngs = compute_loss_fn(inp, state, rngs)
       total += float(numpy.mean(loss_values))
       count += 1.0
     metrics = {"loss": total / count}
     train_eval_metrics.append(metrics)
+  # Unpack in the same order we've iterated over streams in the loop above.
   train_metrics, eval_metrics = train_eval_metrics  # pylint: disable=unbalanced-tuple-unpacking
   if train_sw:
     log_metrics(train_metrics, train_sw, "train", step, history=history)
@@ -452,7 +457,8 @@ def _jit_compute_loss_fn(predict_fn, loss_fn, n_devices, jit=True):
   if n_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
     def single_compute_loss(opt_state, batch, state, rng):
       rng, subrng = jax_random.split(rng[0])
-      return loss_fn(opt_state[0], batch, predict_fn, state, rng), [subrng]
+      loss_val, state = loss_fn(opt_state[0], batch, predict_fn, state, rng)
+      return loss_val, state, [subrng]
     if jit:
       return backend.jit(single_compute_loss)
     else:
@@ -497,6 +503,13 @@ def reshape_by_device(x, n_devices):
   """Reshape possibly nested x into a shape [n_devices, ...]."""
   return layers.nested_map(
       x, lambda x: _reshape_by_device_single(x, n_devices))
+
+
+def _repeat_stream(stream):
+  """Repeat a stream indefinitely."""
+  while True:
+    for example in stream():
+      yield example
 
 
 @gin.configurable(whitelist=[])
@@ -601,8 +614,12 @@ class Trainer(object):
     self._train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
     self._eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
 
-    # Reset the training stream.
+    # Reset the train and eval streams.
     self._train_stream = self._inputs.train_stream()
+    # TODO(lukaszkaiser): add an option to evaluate exactly on the full eval
+    #   set by adding a padding and stopping the stream when too large.
+    self._eval_stream = _repeat_stream(self._inputs.eval_stream)
+    self._train_eval_stream = _repeat_stream(self._inputs.train_eval_stream)
 
     # Restore the training state.
     state = restore_state(output_dir)
@@ -729,7 +746,8 @@ class Trainer(object):
     _, rng = jax_random.split(self._rngs[0])
     _, _, self._model_state = evaluate_train_and_eval(
         step=self._step,
-        inputs=self._inputs,
+        eval_stream=self._eval_stream,
+        train_eval_stream=self._train_eval_stream,
         predict_fn=functools.partial(self._jit_model_predict_eval,
                                      params=self._opt_state[0]),
         eval_steps=eval_steps,
@@ -784,12 +802,15 @@ class MemoryEfficientTrainer(Trainer):
     # we only implement computing the loss, and not any other metrics.
     self._jit_compute_loss = _jit_compute_loss_fn(
         self._model_predict_eval, self._loss_fn, self._n_devices)
+    assert not self._has_weights, (
+        "MemoryEfficientTrainer doesn't support has_weights")
 
   def evaluate(self, eval_steps):
     # Evaluate only the loss function (a more efficient, jitted, implementation)
-    self._model_state = evaluate_loss_train_and_eval(
+    _, _, self._model_state = evaluate_loss_train_and_eval(
         step=self._step,
-        inputs=self._inputs,
+        eval_stream=self._eval_stream,
+        train_eval_stream=self._train_eval_stream,
         compute_loss_fn=functools.partial(self._jit_compute_loss,
                                           self._opt_state),
         eval_steps=eval_steps,

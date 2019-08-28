@@ -25,7 +25,7 @@ import random
 
 from absl import logging
 import cloudpickle as pickle
-from jax import numpy as np
+import numpy as np
 from tensor2tensor.trax import inputs as trax_inputs
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.rl import base_trainer

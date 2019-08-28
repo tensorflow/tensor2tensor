@@ -167,7 +167,7 @@ class SGD(Optimizer):
 
 
 class Momentum(Optimizer):
-  """Nestrov momentum optimizer."""
+  """Nesterov momentum optimizer."""
 
   def __init__(self, learning_rate, mass=0.9):  # pylint: disable=useless-super-delegation
     super(Momentum, self).__init__(learning_rate, mass)

@@ -28,11 +28,11 @@ from tensor2tensor.trax.layers import combinators as cb
 class ReversibleLayer(base.Layer):
   """Reversible Layer."""
 
-  def reverse(self, output, params=(), **kwargs):
+  def reverse(self, output, params=(), state=(), **kwargs):
     """Reverse this layer: compute input given output."""
     raise NotImplementedError
 
-  def reverse_and_grad(self, output, grad, params=(), **kwargs):
+  def reverse_and_grad(self, output, grad, params=(), state=(), **kwargs):
     """Backward pass: computes the inverse of a layer and propagates gradients.
 
     While you may choose to only implement reverse, some layers implement this
@@ -44,6 +44,7 @@ class ReversibleLayer(base.Layer):
       grad: gradient signal (cotangent) computed based on subsequent layers.
         The structure and shape must match the output.
       params: layer parameters
+      state: start state
       **kwargs: kwargs for the layer
 
     Returns:
@@ -53,9 +54,10 @@ class ReversibleLayer(base.Layer):
     """
     # Note: jax.vjp does not allow us to use **kwargs in the signature here.
     def _do_call(x, params):
-      return super(ReversibleLayer, self).call(x, params=params, **kwargs)[0]
+      return super(ReversibleLayer, self).call(
+          x, params=params, state=state, **kwargs)[0]
 
-    reconstructed_x = self.reverse(output, params, **kwargs)
+    reconstructed_x = self.reverse(output, params, state, **kwargs)
     _, vjpfun = jax.vjp(_do_call, reconstructed_x, params)
     x_params_grad = vjpfun(grad)
     return reconstructed_x, x_params_grad
@@ -64,18 +66,19 @@ class ReversibleLayer(base.Layer):
   def has_custom_grad(self):
     return True
 
-  def custom_grad(self, inputs, output, ct, params, **kwargs):
+  def custom_grad(self, inputs, output, ct, params, state, **kwargs):
     del inputs
-    _, inputs_params_ct = self.reverse_and_grad(output, ct, params, **kwargs)
+    _, inputs_params_ct = self.reverse_and_grad(output, ct, params, state,
+                                                **kwargs)
     return inputs_params_ct
 
 
 class ReversibleSwap(ReversibleLayer, cb.Swap):
   """Swap the first two element on the stack."""
 
-  def reverse(self, output, params=(), **kwargs):
-    # Swap is its own inverse
-    return self.call(output, params, **kwargs)
+  def reverse(self, output, params=(), state=(), **kwargs):
+    # Swap is its own inverse, except that reverse doesn't return the state.
+    return self.call(output, params, state, **kwargs)[0]
 
 
 class ReversibleSerial(ReversibleLayer, cb.Serial):
@@ -91,19 +94,20 @@ class ReversibleSerial(ReversibleLayer, cb.Serial):
             'Sub-layer {} of ReversibleSerial is not reversible: {}'.format(
                 i, layer))
 
-  def reverse(self, output, params=(), **kwargs):
+  def reverse(self, output, params=(), state=(), **kwargs):
     rng = kwargs.pop('rng', None)
     rngs = (None,) * self._n_layers
     if rng is not None:
       rngs = backend.random.split(rng, self._n_layers)
 
     layer_val = output
-    for layer, p, rng in reversed(zip(self.sublayers(), params, rngs)):
-      layer_val = layer.reverse(layer_val, p, rng=rng, **kwargs)
+    for layer, p, s, rng in reversed(zip(self.sublayers(),
+                                         params, state, rngs)):
+      layer_val = layer.reverse(layer_val, p, s, rng=rng, **kwargs)
 
     return layer_val
 
-  def reverse_and_grad(self, output, ct, params=(), **kwargs):
+  def reverse_and_grad(self, output, ct, params=(), state=(), **kwargs):
     rng = kwargs.pop('rng', None)
     rngs = (None,) * self._n_layers
     if rng is not None:
@@ -112,9 +116,10 @@ class ReversibleSerial(ReversibleLayer, cb.Serial):
     layer_val = output
     layer_ct = ct
     params_ct = []
-    for layer, p, rng in reversed(zip(self.sublayers(), params, rngs)):
+    for layer, p, s, rng in reversed(zip(self.sublayers(),
+                                         params, state, rngs)):
       layer_val, layer_ct = layer.reverse_and_grad(
-          layer_val, layer_ct, p, rng=rng, **kwargs)
+          layer_val, layer_ct, p, s, rng=rng, **kwargs)
       layer_ct, p_ct = layer_ct
       params_ct.insert(0, p_ct)
 

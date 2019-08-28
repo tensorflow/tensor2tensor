@@ -27,7 +27,7 @@ class BatchNorm(base.Layer):
   """Batch normalization."""
 
   def __init__(self, axis=(0, 1, 2), epsilon=1e-5, center=True, scale=True,
-               momentum=None, mode='train'):
+               momentum=0.999, mode='train'):
     super(BatchNorm, self).__init__()
     self._axis = axis
     self._epsilon = epsilon
@@ -51,7 +51,7 @@ class BatchNorm(base.Layer):
         return d
     stats_shape = tuple(get_stats_axis(i, d) for i, d in enumerate(input_shape))
     running_mean = np.zeros(stats_shape, dtype=np.float32)
-    running_var = np.zeros(stats_shape, dtype=np.float32)
+    running_var = np.ones(stats_shape, dtype=np.float32)
     num_batches = np.zeros((), dtype=np.int32)
     return (beta, gamma), (running_mean, running_var, num_batches)
 
@@ -66,15 +66,10 @@ class BatchNorm(base.Layer):
       m1 = np.mean(x**2, self._axis, keepdims=True)
       var = m1 - mean**2
       num_batches = num_batches + 1
-      if self._momentum is None:
-        # A simple average over all batches seen so far
-        exponential_average_factor = 1.0 / num_batches
-      else:
-        exponential_average_factor = self._momentum
       def average(factor, new, old):
-        return (factor * new + (1 - factor) * old).astype(old.dtype)
-      running_mean = average(exponential_average_factor, mean, running_mean)
-      running_var = average(exponential_average_factor, var, running_var)
+        return (factor * old + (1 - factor) * new).astype(old.dtype)
+      running_mean = average(self._momentum, mean, running_mean)
+      running_var = average(self._momentum, var, running_var)
       state = (running_mean, running_var, num_batches)
     else:
       mean = running_mean

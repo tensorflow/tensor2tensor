@@ -111,6 +111,10 @@ class PPO(base_trainer.BaseTrainer):
       eval_temperatures: Sequence of temperatures to try for categorical
         sampling during evaluation.
     """
+    # Set in base class constructor.
+    self._train_env = None
+    self._should_reset = None
+
     super(PPO, self).__init__(train_env, eval_env, output_dir)
 
     self._n_optimizer_steps = n_optimizer_steps
@@ -177,10 +181,28 @@ class PPO(base_trainer.BaseTrainer):
     self._eval_sw = jaxboard.SummaryWriter(
         os.path.join(self._output_dir, "eval"))
 
-    self._should_reset = True
     self._n_trajectories_done = 0
 
     self._last_saved_at = 0
+
+  @property
+  def train_env(self):
+    return self._train_env
+
+  @train_env.setter
+  def train_env(self, new_train_env):
+    if self._train_env is not None:
+      def assert_same_space(space1, space2):
+        assert space1.shape == space2.shape
+        assert space1.dtype == space2.dtype
+      assert_same_space(
+          new_train_env.observation_space, self._train_env.observation_space)
+      assert_same_space(
+          new_train_env.action_space, self._train_env.action_space)
+      # We don't check the reward range, because PPO will work either way.
+
+    self._train_env = new_train_env
+    self._should_reset = True
 
   @property
   def epoch(self):
@@ -489,7 +511,7 @@ class PPO(base_trainer.BaseTrainer):
     params_file = os.path.join(self._output_dir, "model-%06d.pkl" % self._epoch)
     with gfile.GFile(params_file, "wb") as f:
       pickle.dump(
-          (self._policy_and_value_net_params, self._model_state,
+          (self._policy_and_value_opt_state, self._model_state,
            self._total_opt_step), f)
     # Remove the old model files.
     for path in old_model_files:

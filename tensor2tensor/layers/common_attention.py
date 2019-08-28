@@ -447,6 +447,8 @@ def get_timing_signal_1d(length,
   inv_timescales = min_timescale * tf.exp(
       tf.to_float(tf.range(num_timescales)) * -log_timescale_increment)
   scaled_time = tf.expand_dims(position, 1) * tf.expand_dims(inv_timescales, 0)
+  # Please note that this slightly differs from the published paper.
+  # See a discussion here: https://github.com/tensorflow/tensor2tensor/pull/177
   signal = tf.concat([tf.sin(scaled_time), tf.cos(scaled_time)], axis=1)
   signal = tf.pad(signal, [[0, 0], [0, tf.mod(channels, 2)]])
   signal = tf.reshape(signal, [1, length, channels])
