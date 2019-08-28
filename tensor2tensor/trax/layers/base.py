@@ -65,8 +65,9 @@ class Layer(object):
   outputs are spliced back into the stack.
   """
 
-  def __init__(self, **kwargs):
-    self._init_kwargs = kwargs  # can be used in creating a generic decorator
+  def __init__(self, n_inputs=1, n_outputs=1):
+    self._n_inputs = n_inputs
+    self._n_outputs = n_outputs
     self._params = ()  # cached parameters
     self._caller = _find_frame(inspect.stack())  # for custom error messages
     self._init_finished = False
@@ -131,11 +132,11 @@ class Layer(object):
 
   def n_inputs(self):
     """Specifies how many data tensors this layer expects as input."""
-    return 1  # Default is one input; subclasses can override.
+    return self._n_inputs
 
   def n_outputs(self):
     """Specifies how many data tensors this layer promises as output."""
-    return 1  # Default is one output: subclasses can override.
+    return self._n_outputs
 
   def sublayers(self):
     """Returns the sublayers contained in / managed by this layer."""
@@ -423,25 +424,21 @@ def _validate_call_input(x, n_inputs):
           ' ({})'.format(len(x), n_inputs))
 
 
-def layer(new_parameters=None, n_inputs=1, n_outputs=1):
+def layer(n_inputs=1, n_outputs=1, new_parameters=None):
   """Decorates a function to make it the call method of a new Layer class."""
   # TODO(jonni): Consider renaming new_parameters to new_parameters_fn.
 
   def _build_layer_class(raw_call_fn):
     """Returns a Layer class built around the given call function."""
 
-    def _n_inputs(self):
-      del self
-      return n_inputs
-
-    def _n_outputs(self):
-      del self
-      return n_outputs
+    def _init(self, **kwargs):
+      self._kwargs = kwargs  # pylint: disable=protected-access
+      Layer.__init__(self, n_inputs=n_inputs, n_outputs=n_outputs)
 
     def _new_parameters(self, input_shapes, input_dtype, rng):
       if new_parameters is None:
         return (), ()
-      kwargs = self._init_kwargs  # pylint: disable=protected-access
+      kwargs = self._kwargs  # pylint: disable=protected-access
       return new_parameters(input_shapes, input_dtype, rng, **kwargs), ()
 
     def _is_empty(raw_output):
@@ -451,7 +448,7 @@ def layer(new_parameters=None, n_inputs=1, n_outputs=1):
     def _call_with_context(self, x, params=(), state=(), **kwargs):
       """Calls raw_call_fn with extra keyword args from Layer.__init__."""
       merged_kwargs = kwargs.copy()
-      merged_kwargs.update(self._init_kwargs)  # pylint: disable=protected-access
+      merged_kwargs.update(self._kwargs)  # pylint: disable=protected-access
 
       _validate_call_input(x, n_inputs)
       raw_output = raw_call_fn(x, params=params, **merged_kwargs)
@@ -462,10 +459,9 @@ def layer(new_parameters=None, n_inputs=1, n_outputs=1):
     _call_with_context.__doc__ = raw_call_fn.__doc__
     _new_parameters.__doc__ = new_parameters.__doc__  # None.__doc__ is None
     cls = type(raw_call_fn.__name__, (Layer,),
-               {'call': _call_with_context,
-                'new_parameters': _new_parameters,
-                'n_inputs': _n_inputs,
-                'n_outputs': _n_outputs})
+               {'__init__': _init,
+                'call': _call_with_context,
+                'new_parameters': _new_parameters})
     return cls
 
   return _build_layer_class
