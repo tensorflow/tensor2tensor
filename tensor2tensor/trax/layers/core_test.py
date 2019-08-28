@@ -80,9 +80,10 @@ class CoreLayerTest(absltest.TestCase):
     model1 = combinators.Serial(core.Dense(32), core.Dense(32))
     layer = core.Dense(32)
     model2 = combinators.Serial(layer, layer)
-    rng = backend.random.get_prng(0)
-    params1, _ = model1.initialize((1, 32), onp.float32, rng)
-    params2, _ = model2.initialize((1, 32), onp.float32, rng)
+
+    rng1, rng2 = backend.random.split(backend.random.get_prng(0), 2)
+    params1, _ = model1.initialize((1, 32), onp.float32, rng1)
+    params2, _ = model2.initialize((1, 32), onp.float32, rng2)
     # The first parameters have 2 kernels of size (32, 32).
     self.assertEqual((32, 32), params1[0][0].shape)
     self.assertEqual((32, 32), params1[1][0].shape)
