@@ -35,7 +35,7 @@ def Relu(x, **unused_kwargs):
 
 @base.layer()
 def Sigmoid(x, **unused_kwargs):
-  return 1. / (1. + np.exp(-x))
+  return backend.expit(x)
 
 
 @base.layer()

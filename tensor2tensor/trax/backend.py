@@ -158,6 +158,7 @@ _JAX_BACKEND = {
     "name": "jax",
     "np": jnp,
     "logsumexp": jax_special.logsumexp,
+    "expit": jax_special.expit,
     "conv": jax_conv,
     "avg_pool": jax_avg_pool,
     "max_pool": jax_max_pool,
