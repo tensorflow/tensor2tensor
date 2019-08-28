@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Trax initializers."""
 
 from __future__ import absolute_import
@@ -22,8 +23,9 @@ import numpy as onp
 from tensor2tensor.trax import backend
 
 
-def _get_fans(shape, out_dim=-1, in_dim=-2):
-  #temporary fix until numpy.delete supports negative indices
+def _GetFans(shape, out_dim=-1, in_dim=-2):
+  """Get the fan-in and fan-out sizes for the given shape and dims."""
+  # Temporary fix until numpy.delete supports negative indices.
   if out_dim < 0:
     out_dim += len(shape)
   if in_dim < 0:
@@ -33,9 +35,11 @@ def _get_fans(shape, out_dim=-1, in_dim=-2):
   if len(shape) >= 2:
     fan_in, fan_out = shape[in_dim], shape[out_dim]
   elif len(shape) == 1:
-    fan_in, fan_out = shape[0]
+    fan_in = shape[0]
+    fan_out = shape[0]
   else:
-    fan_in, fan_out = 1.
+    fan_in = 1.
+    fan_out = 1.
     fan_in *= receptive_field
     fan_out *= receptive_field
   return fan_in, fan_out
@@ -61,7 +65,7 @@ def RandomUniformInitializer(lim=1.0):
 
 
 def VarianceScalingInitializer(out_dim, in_dim, scale, mode, distribution):
-  """Initializer capable of adapting its scale to the shape of weights tensors."""
+  """Initializer capable of adapting its scale to the shape of weights."""
   if scale <= 0.:
     raise ValueError('scale must be positive float, {} given'.format(scale))
   if mode not in {'fan_in', 'fan_out', 'fan_avg'}:
@@ -70,7 +74,8 @@ def VarianceScalingInitializer(out_dim, in_dim, scale, mode, distribution):
         .format(mode))
 
   def Init(shape, rng):
-    fan_in, fan_out = _get_fans(shape, out_dim, in_dim)
+    """The initializer function."""
+    fan_in, fan_out = _GetFans(shape, out_dim, in_dim)
     gain = scale
     if mode == 'fan_in':
       gain /= fan_in
