@@ -26,6 +26,7 @@ from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.layers import base
 from tensor2tensor.trax.layers import combinators as cb
 from tensor2tensor.trax.layers import core
+from tensor2tensor.trax.layers import initializers as init
 
 
 @base.layer()
@@ -194,8 +195,11 @@ def Attention(d_feature, n_heads=1, dropout=0.0, mode='train'):
   ]
 
 
-def CausalAttention(d_feature, n_heads=1, dropout=0.0, mode='train'):
+def BasicCausalAttention(d_feature, n_heads=1, dropout=0.0, mode='train'):
   """Transformer-style multi-headed causal attention.
+
+  This implementation is less configurable than the CausalAttention layer
+  defined below, but it shares code with the non-causal attention.
 
   # TODO(jonni,lukaszkaiser): standardize and improve layer comments.
   Accepts inputs of the form x and constructs (q, k, v) and causal mask from x.
@@ -225,3 +229,266 @@ def ShiftRight(x, **unused_kwargs):
   padded = np.pad(x, pad_widths, mode='constant',
                   constant_values=x.dtype.type(0))
   return padded[:, :-1]
+
+
+class ComputeAttentionHeads(base.Layer):
+  """Computes queries/keys/values via linear projection.
+
+  The output shape is (n_batch * n_heads, seqlen, d_head); the batch and head
+  dimensions are fused to allow for more efficient memory layouts.
+  """
+
+  def __init__(self, n_heads=1, d_head=64,
+               kernel_initializer=init.GlorotUniformInitializer()):
+    super(ComputeAttentionHeads, self).__init__()
+    self._n_heads = n_heads
+    self._d_head = d_head
+    self._kernel_initializer = kernel_initializer
+    # The lack of a bias term here is consistent with the tensor2tensor
+    # implementation, and shouldn't have an effect on modeling quality.
+    # Note that AttentionQKV above is different in that it uses a bias term.
+
+  def call(self, x, params, state, **kwargs):
+    del kwargs
+    seqlen = x.shape[1]
+    res = np.dot(x, params)
+
+    # n_batch, seqlen, n_heads*d_head -> n_batch, seqlen, n_heads, d_head
+    res = np.reshape(res, (x.shape[0], seqlen, self._n_heads, self._d_head))
+    # n_batch, seqlen, n_heads, d_head -> n_batch, n_heads, seqlen, d_head
+    res = np.transpose(res, (0, 2, 1, 3))
+    # n_batch, n_heads, seqlen, d_head -> n_batch*n_heads, seqlen, d_head
+    res = np.reshape(res, (-1, seqlen, self._d_head))
+
+    return res, state
+
+  def new_parameters(self, input_shape, input_dtype, rng):
+    del input_dtype
+    w = self._kernel_initializer(
+        (input_shape[-1], self._n_heads * self._d_head), rng)
+    return w, ()
+
+
+class ComputeAttentionOutput(base.Layer):
+  """Joins outputs from different heads via linear projection."""
+
+  def __init__(self, n_heads=1, d_model=1024,
+               kernel_initializer=init.GlorotUniformInitializer()):
+    super(ComputeAttentionOutput, self).__init__()
+    self._n_heads = n_heads
+    self._d_model = d_model
+    self._kernel_initializer = kernel_initializer
+    # The lack of a bias term here is consistent with the tensor2tensor
+    # implementation, and shouldn't have an effect on modeling quality.
+    # Note that AttentionQKV above is different in that it uses a bias term.
+
+  def call(self, x, params, state, **kwargs):
+    del kwargs
+    seqlen = x.shape[1]
+    d_head = x.shape[2]
+
+    x = np.reshape(x, (-1, self._n_heads, seqlen, d_head))
+    x = np.transpose(x, (0, 2, 1, 3))  # -> n_batch, seqlen, n_heads, d_head
+    x = np.reshape(x, (-1, seqlen, self._n_heads * d_head))
+
+    return np.dot(x, params), state
+
+  def new_parameters(self, input_shape, input_dtype, rng):
+    del input_dtype
+    w = self._kernel_initializer(
+        (input_shape[-1] * self._n_heads, self._d_model), rng)
+    return w, ()
+
+
+class BaseCausalAttention(base.Layer):
+  """Base class for variants of causal self-attention.
+
+  This class sets up an API that includes forward_and_vjp, which is required to
+  implement MemoryEfficientCausalAttention.
+  """
+
+  def call(self, inputs, params=(), state=(), rng=None, **kwargs):
+    raise NotImplementedError()
+
+  def forward_and_vjp(self, inputs, ct, params=(), **kwargs):
+    raise NotImplementedError()
+
+  def new_parameters(self, input_shapes, input_dtype, rng):
+    return (), ()
+
+  def n_inputs(self):
+    return 3
+
+  def n_outputs(self):
+    return 1
+
+
+class DotProductCausalAttention(BaseCausalAttention):
+  """A standard (non-memory-efficient) dot product attention implementation."""
+
+  def __init__(self, dropout, mode):
+    super(DotProductCausalAttention, self).__init__()
+    self._dropout = dropout
+    self._mode = mode
+
+  def call(self, inputs, params=(), state=(), rng=None, **kwargs):
+    del params
+    q, k, v = inputs
+    mask_size = q.shape[-2]
+    mask = np.tril(np.ones((1, mask_size, mask_size), dtype=onp.bool_), k=0)
+    res = DotProductAttention(
+        q, k, v, mask, dropout=self._dropout, mode=self._mode, rng=rng)
+    return res, state
+
+  def forward_and_vjp(self, inputs, ct, params=(), **kwargs):
+    assert backend.get_name() == 'jax', (
+        'JAX backend is required to use forward_and_vjp.')
+    # Simultaneous forward pass and backprop through the attention mechanism.
+    def do_call(x):  # pylint: disable=invalid-name
+      res, _ = self.call(x, params, **kwargs)
+      return res
+    output, vjpfun = jax.vjp(do_call, inputs)
+    return output, vjpfun(ct)[0]
+
+
+class MemoryEfficientCausalAttention(BaseCausalAttention):
+  """Memory-efficient dot product attention."""
+
+  def __init__(self, loop_stride, dropout, mode):
+    assert backend.get_name() == 'jax', (
+        'JAX backend is required to use MemoryEfficientCausalAttention.')
+    super(MemoryEfficientCausalAttention, self).__init__()
+    self._loop_stride = loop_stride
+    if dropout >= 1.0:
+      raise ValueError('Dropout rates must be lower than 1.')
+    if mode == 'train':
+      self.dropout = dropout
+    else:
+      self.dropout = None
+
+  def call(self, inputs, params=(), state=(), **kwargs):
+    output, _ = self.forward_and_vjp(inputs, None, params=params, **kwargs)
+    return output, state
+
+  def forward_and_vjp(self, inputs, ct, params=(), rng=None, **kwargs):
+    # This is the core of the memory-efficient attention implementation, where
+    # we use the jax.lax.while_loop primitive to compute attention for a small
+    # set of query positions at a time. Note how in the backwards pass, we
+    # compute both the forward direction (to recover the previous layer's
+    # activations) and the backward direction simultaneously. This allows us to
+    # only use a single loop, where the inner portion of the loop does a slice
+    # of the forward+backward joint computation. Unfortunately we have had to
+    # introduce a large number of wrapper classes (including
+    # ReversibleAttentionHalfResidual and ApplyAttentionWrapper) for the sole
+    # purpose of connecting this implementation of forward_and_vjp with the core
+    # backprop implementation.
+
+    query, key, value = inputs
+    depth = np.shape(query)[-1]
+    do_backprop = ct is not None
+
+    def make_mask(N, M, k):  # pylint: disable=invalid-name
+      x = np.arange(N, dtype=np.int32)
+      y = np.arange(M, dtype=np.int32)
+      mask = jax.lax.lt(
+          (jax.lax.broadcast_in_dim(
+              x, shape=(N, M), broadcast_dimensions=(0,)) + k),
+          jax.lax.broadcast(y, [N]))
+      mask = jax.lax.convert_element_type(mask, np.float32)
+      return mask
+
+    def forward_slice(query_slice, q_loop_idx, key, value):  # pylint: disable=invalid-name
+      """Forward pass for a subset of the query vectors."""
+      dots = np.matmul(
+          query_slice, np.swapaxes(key, -1, -2)) / np.sqrt(depth)
+
+      # Causal masking
+      mask = make_mask(dots.shape[-2], dots.shape[-1], q_loop_idx)
+      dots = dots - 1e9 * mask
+
+      # Softmax.
+      dots = np.exp(dots - dots.max(axis=-1, keepdims=True))
+      dots = dots / dots.sum(axis=-1, keepdims=True)
+
+      if self.dropout is not None and self.dropout > 0.0:
+        # Dropout is broadcast across the batch+head dimension
+        dropout_shape = (1, dots.shape[-2], dots.shape[-1])
+        slice_rng = jax.random.fold_in(rng, q_loop_idx)
+        keep_prob = jax.lax.tie_in(dots, 1.0 - self.dropout)
+        keep = backend.random.bernoulli(slice_rng, keep_prob, dropout_shape)
+        multiplier = keep.astype(dots.dtype) / jax.lax.tie_in(keep, keep_prob)
+        dots = dots * multiplier
+
+      out_slice = np.matmul(dots, value)
+      return out_slice
+
+    def forward_and_vjp_slice(query_slice, q_loop_idx, key, value, ct_slice):  # pylint: disable=invalid-name
+      # Capture q_loop_idx to avoid calculated gradients wrt. it.
+      def forward_slice_with_q_loop_idx(query_slice, key, value):  # pylint: disable=invalid-name
+        return forward_slice(query_slice, q_loop_idx, key, value)
+
+      output_slice, vjpfun = jax.vjp(
+          forward_slice_with_q_loop_idx, query_slice, key, value)
+      return output_slice, vjpfun(ct_slice)
+
+    q_loop_idx = np.zeros((), dtype=np.int32)
+    q_loop_max = query.shape[-2]
+    q_loop_stride = self._loop_stride
+    assert q_loop_max % q_loop_stride == 0, (
+        'Stride must evenly divide the number of query elements.')
+
+    out_accum = np.zeros_like(query)
+    if do_backprop:
+      query_ct_accum = np.zeros_like(query)
+      key_ct_accum = np.zeros_like(key)
+      value_ct_accum = np.zeros_like(value)
+      init_vals = (
+          q_loop_idx, out_accum,
+          query_ct_accum, key_ct_accum, value_ct_accum)
+    else:
+      init_vals = (q_loop_idx, out_accum)
+
+    def cond_fun(vals):  # pylint: disable=invalid-name
+      q_loop_idx = vals[0]
+      return jax.lax.lt(q_loop_idx, q_loop_max)
+
+    def body_fun(vals):  # pylint: disable=invalid-name
+      """Compute a slice of the attention mechanism."""
+      if do_backprop:
+        (q_loop_idx, out_accum,
+         query_ct_accum, key_ct_accum, value_ct_accum) = vals
+      else:
+        q_loop_idx, out_accum = vals
+
+      query_slice = jax.lax.dynamic_slice_in_dim(
+          query, q_loop_idx, q_loop_stride, axis=-2)
+
+      if do_backprop:
+        ct_slice = jax.lax.dynamic_slice_in_dim(
+            ct, q_loop_idx, q_loop_stride, axis=-2)
+        out_slice, partial_ct = forward_and_vjp_slice(
+            query_slice, q_loop_idx, key, value, ct_slice)
+        query_ct_accum = jax.lax.dynamic_update_slice_in_dim(
+            query_ct_accum, partial_ct[0], q_loop_idx, axis=-2)
+        key_ct_accum = key_ct_accum + partial_ct[1]
+        value_ct_accum = value_ct_accum + partial_ct[2]
+      else:
+        out_slice = forward_slice(query_slice, q_loop_idx, key, value)
+
+      out_accum = jax.lax.dynamic_update_slice_in_dim(
+          out_accum, out_slice, q_loop_idx, axis=-2)
+      q_loop_idx = q_loop_idx + q_loop_stride
+
+      if do_backprop:
+        return (q_loop_idx, out_accum,
+                query_ct_accum, key_ct_accum, value_ct_accum)
+      else:
+        return (q_loop_idx, out_accum)
+
+    final_vals = jax.lax.while_loop(cond_fun, body_fun, init_vals)
+
+    if not do_backprop:
+      return final_vals[1], None
+    else:
+      return final_vals[1], final_vals[2:]
+

@@ -50,3 +50,8 @@ Exp = layer_configure(Exp)
 LogSoftmax = layer_configure(LogSoftmax)
 Softmax = layer_configure(Softmax)
 Softplus = layer_configure(Softplus)
+
+DotProductCausalAttention = layer_configure(
+    DotProductCausalAttention, blacklist=["mode"])
+MemoryEfficientCausalAttention = layer_configure(
+    MemoryEfficientCausalAttention, blacklist=["mode"])

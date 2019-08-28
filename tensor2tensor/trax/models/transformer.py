@@ -128,7 +128,8 @@ def DecoderBlock(d_model, d_ff, n_heads, dropout, mode):
   """
   self_attention = [
       tl.LayerNorm(),  # vec
-      tl.CausalAttention(d_model, n_heads=n_heads, dropout=dropout, mode=mode),
+      tl.BasicCausalAttention(
+          d_model, n_heads=n_heads, dropout=dropout, mode=mode),
       tl.Dropout(rate=dropout, mode=mode),  # vec
   ]
   feed_forward = [
@@ -237,7 +238,8 @@ def EncoderDecoder(d_model, d_ff, n_heads, dropout, mode):
   """
   decoder_self_attention = [                    #        vecs_d   pmask vecs_e
       tl.LayerNorm(),                           #        vecs_d   ..... ......
-      tl.CausalAttention(d_model, n_heads=n_heads, dropout=dropout, mode=mode),
+      tl.BasicCausalAttention(
+          d_model, n_heads=n_heads, dropout=dropout, mode=mode),
       tl.Dropout(rate=dropout, mode=mode),      # vecs_d          ..... ......
   ]
   decoder_to_encoder_attention = [        # vecs_d        masks         vecs_e
