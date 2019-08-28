@@ -53,6 +53,10 @@ def Selu(x,
          lmbda=1.0507009873554804934193349852946):
   return lmbda * np.where(x > 0, x, alpha * np.expm1(x))
 
+@base.layer()
+def Gelu(x, **unused_kwargs):
+  return x * backend.erf(x)
+
 
 @base.layer()
 def Sigmoid(x, **unused_kwargs):
