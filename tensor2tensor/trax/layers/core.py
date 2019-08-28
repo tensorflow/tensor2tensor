@@ -30,7 +30,7 @@ from tensor2tensor.trax.layers import initializers as init
 
 @base.layer()
 def Relu(x, **unused_kwargs):
-  return np.maximum(x, np.zeros_like(x))
+  return np.clip(x, a_min=0.)
 
 
 @base.layer()
