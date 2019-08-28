@@ -329,8 +329,8 @@ class T2TModel(base.Layer):
     # and the old version of cast_grad in utils/optimize.py
     # Without both of these changes, we are very slow with
     # large word embeddings on the CPU.
-    #with tf.variable_scope(tf.get_variable_scope(), use_resource=True) as vs:
-    with tf.variable_scope(tf.get_variable_scope(), use_resource=False) as vs:
+    with tf.variable_scope(tf.get_variable_scope(), use_resource=True) as vs:
+    #with tf.variable_scope(tf.get_variable_scope(), use_resource=False) as vs:
       self._add_variable_scope("model_fn", vs)
       transformed_features = self.bottom(features)
 
