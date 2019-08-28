@@ -237,6 +237,12 @@ class AdafactorOptimizer(tf.train.Optimizer):
       vc = self.get_slot(var, "vc")
       new_vc = (decay_rate * vc + mixing_rate * grad_squared_col_mean)
 
+      print('grad_squared_row_mean', grad_squared_row_mean)
+      print('grad_squared_col_mean', grad_squared_col_mean)
+      print('vr', vr)
+      print('vc', vc)
+      print('new_vr', new_vr)
+      print('new_vc', new_vc)
       import sys
       print_ops = [
           tf.print('grad_squared_row_mean', tf.shape(grad_squared_row_mean), grad_squared_row_mean.dtype, output_stream=sys.stdout),
