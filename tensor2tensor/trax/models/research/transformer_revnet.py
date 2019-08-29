@@ -43,7 +43,7 @@ class Map(tl.Layer):
     Returns:
       A new layer representing mapping layer to all elements of the input.
     """
-    super(Map, self).__init__()
+    super(Map, self).__init__(n_inputs=n_sections, n_outputs=n_sections)
     if layer is None or isinstance(layer, (list, tuple)):
       layer = tl.Serial(layer)
     self._layer = layer
@@ -54,14 +54,6 @@ class Map(tl.Layer):
     # can apply Map to different shapes -- set check_shapes=False in such cases.
     self._check_shapes = check_shapes
     self._n_sections = n_sections
-
-  def n_inputs(self):
-    """Specifies how many data tensors this layer expects as input."""
-    return self._n_sections
-
-  def n_outputs(self):
-    """Specifies how many data tensors this layer promises as output."""
-    return self._n_sections
 
   def call(self, inputs, params=(), state=(), **kwargs):
     rngs = _pop_rng_and_split(kwargs, len(inputs))
@@ -119,7 +111,7 @@ class Split(tl.Layer):
   """Splits the input into sections along an axis."""
 
   def __init__(self, n_sections=2, axis=-1):
-    super(Split, self).__init__()
+    super(Split, self).__init__(n_outputs=n_sections)
     self._n_sections = n_sections
     self._axis = axis
 
@@ -130,14 +122,6 @@ class Split(tl.Layer):
 
   def new_parameters(self, input_shapes, input_dtype, rng):
     return (), ()
-
-  def n_inputs(self):
-    """Specifies how many data tensors this layer expects as input."""
-    return 1
-
-  def n_outputs(self):
-    """Specifies how many data tensors this layer promises as output."""
-    return self._n_sections
 
 
 class SplitForOutput(tl.ReversibleLayer):
@@ -156,17 +140,9 @@ class SplitForOutput(tl.ReversibleLayer):
   """
 
   def __init__(self, n_sections=2, axis=-2):
-    super(SplitForOutput, self).__init__()
+    super(SplitForOutput, self).__init__(n_inputs=2, n_outputs=n_sections)
     self._n_sections = n_sections
     self._axis = axis
-
-  def n_inputs(self):
-    """Specifies how many data tensors this layer expects as input."""
-    return 2
-
-  def n_outputs(self):
-    """Specifies how many data tensors this layer promises as output."""
-    return self._n_sections
 
   def new_parameters(self, input_shape, input_dtype, rng):
     return (), ()

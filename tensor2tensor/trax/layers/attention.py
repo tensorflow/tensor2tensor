@@ -307,6 +307,9 @@ class BaseCausalAttention(base.Layer):
   implement MemoryEfficientCausalAttention.
   """
 
+  def __init__(self):
+    super(BaseCausalAttention, self).__init__(n_inputs=3)
+
   def call(self, inputs, params=(), state=(), rng=None, **kwargs):
     raise NotImplementedError()
 
@@ -315,12 +318,6 @@ class BaseCausalAttention(base.Layer):
 
   def new_parameters(self, input_shapes, input_dtype, rng):
     return (), ()
-
-  def n_inputs(self):
-    return 3
-
-  def n_outputs(self):
-    return 1
 
 
 class DotProductCausalAttention(BaseCausalAttention):

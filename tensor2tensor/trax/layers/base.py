@@ -35,11 +35,12 @@ class Layer(object):
 
   A layer is a function from zero or more inputs to zero or more outputs,
   possibly with trainable parameters. A layer is either atomic or composed
-  of sublayers. All layers provide accessor methods for these aspects:
+  of sublayers. These aspects of a layer are set via a layer's constructor,
+  and can be inspected via read-only properties:
 
-    - n_inputs()
-    - n_outputs()
-    - sublayers()
+    - n_inputs
+    - n_outputs
+    - sublayers
 
   The inputs to a layer are activation tensors, packaged according to how many
   there are:
@@ -68,14 +69,15 @@ class Layer(object):
   def __init__(self, n_inputs=1, n_outputs=1):
     self._n_inputs = n_inputs
     self._n_outputs = n_outputs
+    self._sublayers = ()  # Default is no sublayers.
     self._params = ()  # cached parameters
     self._caller = _find_frame(inspect.stack())  # for custom error messages
     self._init_finished = False
 
   def __repr__(self):
     class_str = self.__class__.__name__
-    fields_str = 'in={},out={}'.format(self.n_inputs(), self.n_outputs())
-    objs = self.sublayers()
+    fields_str = 'in={},out={}'.format(self.n_inputs, self.n_outputs)
+    objs = self.sublayers
     if objs:
       objs_str = ', '.join(str(x) for x in objs)
       return '{}[{},layers=[{}]]'.format(class_str, fields_str, objs_str)
@@ -130,17 +132,20 @@ class Layer(object):
     """
     raise NotImplementedError
 
+  @property
   def n_inputs(self):
     """Specifies how many data tensors this layer expects as input."""
     return self._n_inputs
 
+  @property
   def n_outputs(self):
     """Specifies how many data tensors this layer promises as output."""
     return self._n_outputs
 
+  @property
   def sublayers(self):
     """Returns the sublayers contained in / managed by this layer."""
-    return ()  # Default is no sublayers; subclasses can override.
+    return self._sublayers
 
   @property
   def has_custom_grad(self):
