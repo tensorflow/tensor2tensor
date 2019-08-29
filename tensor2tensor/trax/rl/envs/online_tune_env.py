@@ -61,6 +61,7 @@ class OnlineTuneEnv(gym.Env):
                eval_steps=10,
                env_steps=100,
                start_lr=0.001,
+               max_lr=10.0,
                # Don't save checkpoints by default, as they tend to use a lot of
                # space.
                should_save_checkpoints=False):
@@ -83,6 +84,7 @@ class OnlineTuneEnv(gym.Env):
     self._eval_steps = eval_steps
     self._env_steps = env_steps
     self._start_lr = start_lr
+    self._max_lr = max_lr
 
     self._output_dir = output_dir
     gfile.makedirs(self._output_dir)
@@ -163,7 +165,8 @@ class OnlineTuneEnv(gym.Env):
         metric since the last step. done is set after reaching self.env_steps
         environment steps. info is an empty dict.
     """
-    self._current_lr *= self._action_multipliers[action]
+    self._current_lr = min(
+        self._current_lr * self._action_multipliers[action], self._max_lr)
     last_metric_value = self._current_metric_value(self._reward_metric)
     self._trainer.train_epoch(self._train_steps, self._eval_steps)
     self._step += 1
