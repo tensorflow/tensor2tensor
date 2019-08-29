@@ -30,16 +30,6 @@ from tensor2tensor.trax.layers import initializers as init
 
 
 @base.layer()
-def ShiftRight(x, **unused_kwargs):
-  """Layer to shift the tensor to the right by padding on axis 1."""
-  pad_widths = [(0, 0)] * len(x.shape)
-  pad_widths[1] = (1, 0)  # Padding on axis=1
-  padded = np.pad(x, pad_widths, mode='constant',
-                  constant_values=x.dtype.type(0))
-  return padded[:, :-1]
-
-
-@base.layer()
 def CausalMask(x, params, axis=-1, **kwargs):
   del params, kwargs
   size = x.shape[axis]
@@ -231,6 +221,16 @@ def BasicCausalAttention(d_feature, n_heads=1, dropout=0.0, mode='train'):
   ]
 
 
+@base.layer()
+def ShiftRight(x, **unused_kwargs):
+  """Layer to shift the tensor to the right by padding on axis 1."""
+  pad_widths = [(0, 0)] * len(x.shape)
+  pad_widths[1] = (1, 0)  # Padding on axis=1
+  padded = np.pad(x, pad_widths, mode='constant',
+                  constant_values=x.dtype.type(0))
+  return padded[:, :-1]
+
+
 class ComputeAttentionHeads(base.Layer):
   """Computes queries/keys/values via linear projection.
 
@@ -301,46 +301,32 @@ class ComputeAttentionOutput(base.Layer):
 
 
 class BaseCausalAttention(base.Layer):
-  """Base class for variants of causal self-attention."""
+  """Base class for variants of causal self-attention.
 
-  def __init__(self):
-    super(BaseCausalAttention, self).__init__(n_inputs=3, n_outputs=1)
+  This class sets up an API that includes forward_and_vjp, which is required to
+  implement MemoryEfficientCausalAttention.
+  """
 
   def call(self, inputs, params=(), state=(), rng=None, **kwargs):
-    """Forward pass for the attention layer."""
     raise NotImplementedError()
 
-  def call_and_grad(self, inputs, grad, **kwargs):
-    """Performs both forward and backward pass for the attention layer.
-
-    This is used in reversible models: for the backward pass of a reversible
-    model, we need to compute both the forward direction (to recover the
-    previous layer's activations) and the backward direction simultaneously.
-    Some computation can be shared between the forward and backward directions,
-    which makes it more efficient to implement them jointly.
-
-    This method assumes that the layer is stateless and has no parameters.
-
-    Args:
-      inputs: A tuple (q, k, v), where each element has shape
-          n_batch*n_heads, seqlen, d_head
-      grad: gradient signal for the layer output.
-      **kwargs: kwargs for the layer
-
-    Returns:
-      A nested-tuple structure (output, (q_grad, k_grad, v_grad)) that contains
-      the output of the forward pass and the gradient signal for each input.
-    """
+  def forward_and_vjp(self, inputs, ct, params=(), **kwargs):
     raise NotImplementedError()
 
   def new_parameters(self, input_shapes, input_dtype, rng):
     return (), ()
 
+  def n_inputs(self):
+    return 3
+
+  def n_outputs(self):
+    return 1
+
 
 class DotProductCausalAttention(BaseCausalAttention):
   """A standard (non-memory-efficient) dot product attention implementation."""
 
-  def __init__(self, dropout=0.0, mode='train'):
+  def __init__(self, dropout, mode):
     super(DotProductCausalAttention, self).__init__()
     self._dropout = dropout
     self._mode = mode
@@ -349,41 +335,24 @@ class DotProductCausalAttention(BaseCausalAttention):
     del params
     q, k, v = inputs
     mask_size = q.shape[-2]
-    # Not all backends define np.tril. However, using onp.tril is inefficient in
-    # that it creates a large global constant. TODO(kitaev): try to find an
-    # alternative that works across all backends.
-    if backend.get_name() == 'jax':
-      mask = np.tril(np.ones((1, mask_size, mask_size), dtype=onp.bool_), k=0)
-    else:
-      mask = onp.tril(onp.ones((1, mask_size, mask_size), dtype=onp.bool_), k=0)
+    mask = np.tril(np.ones((1, mask_size, mask_size), dtype=onp.bool_), k=0)
     res = DotProductAttention(
         q, k, v, mask, dropout=self._dropout, mode=self._mode, rng=rng)
     return res, state
 
-  def call_and_grad(self, inputs, ct, **kwargs):
+  def forward_and_vjp(self, inputs, ct, params=(), **kwargs):
     assert backend.get_name() == 'jax', (
-        'JAX backend is required to use call_and_grad.')
+        'JAX backend is required to use forward_and_vjp.')
     # Simultaneous forward pass and backprop through the attention mechanism.
     def do_call(x):  # pylint: disable=invalid-name
-      res, _ = self.call(x, **kwargs)
+      res, _ = self.call(x, params, **kwargs)
       return res
     output, vjpfun = jax.vjp(do_call, inputs)
     return output, vjpfun(ct)[0]
 
 
 class MemoryEfficientCausalAttention(BaseCausalAttention):
-  """Memory-efficient dot product attention.
-
-  This layer performs causal attention on long sequences without running out
-  of memory. Instead of computing dot products for all query-key pairs at once,
-  it uses a loop to compute attention for a small set of query positions at a
-  time. The "loop_stride" parameter controls how many query positions are
-  considered at each iteration of the loop.
-
-  Note that this class does not slice along the batch/head dimension. Looping
-  over batch elements and heads instead of query positions is also a viable
-  option. We haven't implemented it, but it may perform well, too.
-  """
+  """Memory-efficient dot product attention."""
 
   def __init__(self, loop_stride, dropout, mode):
     assert backend.get_name() == 'jax', (
@@ -398,37 +367,27 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
       self.dropout = None
 
   def call(self, inputs, params=(), state=(), **kwargs):
-    del params
-    output, _ = self.call_and_grad(inputs, None, **kwargs)
+    output, _ = self.forward_and_vjp(inputs, None, params=params, **kwargs)
     return output, state
 
-  def has_custom_grad(self):
-    return True
+  def forward_and_vjp(self, inputs, ct, params=(), rng=None, **kwargs):
+    # This is the core of the memory-efficient attention implementation, where
+    # we use the jax.lax.while_loop primitive to compute attention for a small
+    # set of query positions at a time. Note how in the backwards pass, we
+    # compute both the forward direction (to recover the previous layer's
+    # activations) and the backward direction simultaneously. This allows us to
+    # only use a single loop, where the inner portion of the loop does a slice
+    # of the forward+backward joint computation. Unfortunately we have had to
+    # introduce a large number of wrapper classes (including
+    # ReversibleAttentionHalfResidual and ApplyAttentionWrapper) for the sole
+    # purpose of connecting this implementation of forward_and_vjp with the core
+    # backprop implementation.
 
-  def custom_grad(self, inputs, output, ct, params=(), state=(), **kwargs):
-    del output, params, state
-    _, inputs_ct = self.call_and_grad(inputs, ct, **kwargs)
-    return inputs_ct, ()
-
-  def call_and_grad(self, inputs, ct, rng=None, **kwargs):
-    del kwargs
     query, key, value = inputs
     depth = np.shape(query)[-1]
     do_backprop = ct is not None
-    # jax uses the term cotangent (ct) to refer to gradient signals, and
-    # vector-Jacobian product (vjp) for back-propagation through a layer.
 
     def make_mask(N, M, k):  # pylint: disable=invalid-name
-      """Constructs a slice of the causal attention mask.
-
-      Args:
-        N: number of query positions
-        M: number of key positions
-        k: position of the initial query element
-
-      Returns:
-        N x M mask, where 1.0 indicates that attention is not allowed.
-      """
       x = np.arange(N, dtype=np.int32)
       y = np.arange(M, dtype=np.int32)
       mask = jax.lax.lt(
@@ -531,40 +490,3 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
       return final_vals[1], None
     else:
       return final_vals[1], final_vals[2:]
-
-
-def CausalAttention(d_feature, n_heads=1,
-                    d_attention_key=None, d_attention_value=None,
-                    attention_type=DotProductCausalAttention, mode='train'):
-  """Transformer-style multi-headed causal attention.
-
-  Args:
-    d_feature: int:  dimensionality of feature embedding
-    n_heads: int: number of attention heads
-    d_attention_key: int: depth of key vector for each attention head
-        (default is d_feature // n_heads)
-    d_attention_value: int: depth of value vector for each attention head
-        (default is d_feature // n_heads)
-    attention_type: subclass of tl.BaseCausalAttention: attention class to use
-    mode: str: 'train' or 'eval'
-
-  Returns:
-    Multi-headed self-attention result.
-  """
-  if d_attention_key is None:
-    assert d_feature % n_heads == 0
-    d_attention_key = d_feature // n_heads
-  if d_attention_value is None:
-    assert d_feature % n_heads == 0
-    d_attention_value = d_feature // n_heads
-
-  return [
-      cb.Dup(), cb.Dup(),
-      cb.Parallel(
-          ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_key),
-          ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_key),
-          ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_value),
-      ),
-      attention_type(mode=mode),
-      ComputeAttentionOutput(n_heads=n_heads, d_model=d_feature),
-  ]

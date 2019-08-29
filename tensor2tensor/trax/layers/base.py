@@ -161,8 +161,8 @@ class Layer(object):
 
     Returns:
       The custom gradient signal for the input. Note that we need to return
-      a gradient for each argument of call, so it will usually be a tuple
-      of signals: the gradient for inputs and parameters.
+      a gradient for each argument of call, so it will usually be a triple
+      of signals: the gradient for inputs, parameters, and kwargs.
     """
     raise NotImplementedError
 

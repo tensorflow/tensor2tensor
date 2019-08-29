@@ -278,21 +278,25 @@ class ReversibleHalfResidual(tl.ReversibleLayer, tl.Serial):
 
 
 class ApplyAttentionWrapper(tl.Parallel):
-  """Same as tl.Parallel(attention, [], []), but implements call_and_grad."""
+  """Same as tl.Parallel(attention, [], []), but implements forward_and_vjp.
+
+  See MemoryEfficientDotProductAttention for why this is needed.
+  """
 
   def __init__(self, attention):
-    assert hasattr(attention, 'call_and_grad')
+    assert hasattr(attention, 'forward_and_vjp')
     super(ApplyAttentionWrapper, self).__init__(attention, [], [])
     self.attention = attention
 
-  def call_and_grad(self, inputs, ct, **kwargs):
+  def forward_and_vjp(self, inputs, ct, params=(), **kwargs):
     # Simultaneous forward pass and backprop through the attention mechanism.
     qkv = inputs[:3]
     passthrough = inputs[3:]
     out_ct = ct[0]
     passthrough_ct = ct[1:]
 
-    out, qkv_ct = self.attention.call_and_grad(qkv, out_ct, **kwargs)
+    out, qkv_ct = self.attention.forward_and_vjp(
+        qkv, out_ct, params=(), **kwargs)
     return (out,) + passthrough, qkv_ct + passthrough_ct
 
 
@@ -302,16 +306,15 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
   If inputs are (x1, x2), then outputs are (x1 + z, x2) where:
   z = post_attention(attention(pre_attention(x1)))
 
-  Other than an efficiency optimization, this layer is equivalent to
-  ReversibleHalfResidual([pre_attention, attention, post_attention]).
-
   The post_attention layers must be linear in their input (typically they will
-  consists of reshaping and dense linear layers), which allows the following
-  optimization. We can back-propagate the gradient signal from the output of
-  ReversibleAttentionHalfResidual to the output of the "attention" portion based
-  only on the network parameters. Then, attention.call_and_grad can be used to
-  recover the output of the "attention" portion while simultaneously performing
-  the backward pass, which allows shared computation between the two directions.
+  consists of reshaping and dense linear layers). This allows back-propagating
+  the gradient signal from the output of ReversibleAttentionHalfResidual to the
+  output of the "attention" portion based only on the network parameters.
+
+  The forward pass is equivalent to using
+  ReversibleHalfResidual([pre_attention, attention, post_attention]), but the
+  backward pass uses attention.forward_and_vjp. See
+  MemoryEfficientDotProductAttention for why forward_and_vjp is helpful.
   """
 
   def __init__(self, pre_attention, attention, post_attention):
@@ -321,7 +324,7 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
         tl.Swap(),
         tl.Parallel(pre_attention, [], []),
     ])
-    assert hasattr(attention, 'call_and_grad')
+    assert hasattr(attention, 'forward_and_vjp')
     self.attention = ApplyAttentionWrapper(attention)
     self.post_attention = tl.Parallel(post_attention, [], [])
 
@@ -384,9 +387,9 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
     (ct,) = post_attention_vjpfun(ct)
 
     # Simultaneous forward pass and backprop through the attention mechanism
-    stack, ct = self.attention.call_and_grad(stack, ct, rng=rngs[1], **kwargs)
-    assert not jax.tree_util.tree_leaves(params[1])
-    attention_params_ct = params[1]  # This is valid when params is empty.
+    stack, ct = self.attention.forward_and_vjp(
+        stack, ct, rng=rngs[1], **kwargs)
+    attention_params_ct = params[1]  # Note: this assumes that params are empty.
 
     # Backprop through self.pre_attention
     x_ct, pre_attention_params_ct = pre_attention_vjpfun(ct)
@@ -428,7 +431,7 @@ def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
     d_attention_value: int: depth of value vector for each attention head
     n_heads: int: number of attention heads
     n_attention_chunks: int: number of chunks for attention
-    attention_type: subclass of tl.BaseCausalAttention: attention class to use
+    attention_type: class: attention class to use, such as DotProductAttention.
     dropout: float: dropout rate (how much to drop out)
     mode: str: 'train' or 'eval'
 
@@ -441,9 +444,9 @@ def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
       tl.LayerNorm(),
       tl.Dup(), tl.Dup(),
       tl.Parallel(
-          tl.ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_key),
-          tl.ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_key),
-          tl.ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_value),
+          [tl.ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_key)],
+          [tl.ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_key)],
+          [tl.ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_value)],
       ),
   ]
 
