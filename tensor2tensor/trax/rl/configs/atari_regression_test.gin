@@ -23,7 +23,7 @@ PPO.policy_and_value_model = @trax.models.AtariCnn
 # Parameters for train_rl:
 # ==============================================================================
 train_rl.env_name = "PongNoFrameskip-v4"
-train_rl.n_epochs = 10000
+train_rl.n_epochs = 4000
 train_rl.clip_rewards = True
 train_rl.max_timestep = 10000
 train_rl.rendered_env = True
