@@ -407,8 +407,7 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
       dots = dots - 1e9 * mask
 
       # Softmax.
-      dots = np.exp(dots - dots.max(axis=-1, keepdims=True))
-      dots = dots / dots.sum(axis=-1, keepdims=True)
+      dots = np.exp(dots - backend.logsumexp(dots, axis=-1, keepdims=True))
 
       if self.dropout is not None and self.dropout > 0.0:
         # Dropout is broadcast across the batch+head dimension
@@ -491,4 +490,3 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
       return final_vals[1], None
     else:
       return final_vals[1], final_vals[2:]
-
