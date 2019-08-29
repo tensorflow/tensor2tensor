@@ -2744,7 +2744,7 @@ def _relative_position_to_absolute_position_unmasked(x):
                           length, 2 * length - 1]
 
   Returns:
-    A Tensor of shape [batch (or batch*num_blocks), heads, length, length-1]
+    A Tensor of shape [batch (or batch*num_blocks), heads, length, length]
   """
   x_shape = common_layers.shape_list(x)
   batch = x_shape[0]
