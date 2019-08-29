@@ -221,7 +221,7 @@ class PPO(base_trainer.BaseTrainer):
     policy_eval_time = ppo.get_time(policy_eval_start_time)
 
     trajectory_collection_start_time = time.time()
-    logging.vlog(1, "Epoch [% 6d] collecting trajectories.", self._epoch)
+    logging.vlog(1, "PPO epoch [% 6d]: collecting trajectories.", self._epoch)
     self._rng, key = jax_random.split(self._rng)
     trajs, n_done, timing_info, self._model_state = ppo.collect_trajectories(
         self.train_env,
@@ -452,7 +452,7 @@ class PPO(base_trainer.BaseTrainer):
     epoch_time = ppo.get_time(epoch_start_time)
 
     logging.info(
-        "Epoch [% 6d], Reward[min, max, avg] [%5.2f,%5.2f,%5.2f], Combined"
+        "PPO epoch [% 6d], Reward[min, max, avg] [%5.2f,%5.2f,%5.2f], Combined"
         " Loss(value, ppo, entropy) [%2.5f(%2.5f,%2.5f,%2.5f)]", self._epoch,
         min_reward, max_reward, avg_reward, loss_combined, loss_value, loss_ppo,
         entropy_bonus)
@@ -479,7 +479,9 @@ class PPO(base_trainer.BaseTrainer):
         for k, v in sorted(timing_dict.items())
     ]
     logging.info(
-        "Epoch [% 6d], Timings: \n%s", self._epoch, "\n".join(timing_info_list))
+        "PPO epoch [% 6d], Timings: \n%s", self._epoch,
+        "\n".join(timing_info_list)
+    )
 
     self._epoch += 1
 
@@ -489,7 +491,7 @@ class PPO(base_trainer.BaseTrainer):
 
   def evaluate(self):
     """Evaluate the agent."""
-    logging.vlog(1, "Epoch [% 6d] evaluating policy.", self._epoch)
+    logging.vlog(1, "PPO epoch [% 6d]: evaluating policy.", self._epoch)
     self._rng, key = jax_random.split(self._rng, num=2)
     reward_stats, self._model_state = ppo.evaluate_policy(
         self.eval_env,
@@ -505,7 +507,7 @@ class PPO(base_trainer.BaseTrainer):
 
   def save(self):
     """Save the agent parameters."""
-    logging.vlog(1, "Epoch [% 6d] saving model.", self._epoch)
+    logging.vlog(1, "PPO epoch [% 6d]: saving model.", self._epoch)
     old_model_files = gfile.glob(
         os.path.join(self._output_dir, "model-??????.pkl"))
     params_file = os.path.join(self._output_dir, "model-%06d.pkl" % self._epoch)

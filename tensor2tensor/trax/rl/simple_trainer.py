@@ -114,7 +114,7 @@ class SimPLe(base_trainer.BaseTrainer):
     pass
 
   def collect_trajectories(self):
-    logging.info("Epoch %d: collecting data", self._simple_epoch)
+    logging.info("SimPLe epoch [% 6d]: collecting data.", self._simple_epoch)
 
     self._policy_trainer.train_env = self.train_env
     self._policy_trainer.trajectory_dump_dir = os.path.join(
@@ -170,7 +170,7 @@ class SimPLe(base_trainer.BaseTrainer):
         yield make_batch(example_list)
 
   def train_model(self):
-    logging.info("Epoch %d: training model", self._simple_epoch)
+    logging.info("SimPLe epoch [% 6d]: training model.", self._simple_epoch)
 
     # Load data from all epochs.
     # TODO(pkozakowski): Handle the case when the data won't fit in the memory.
@@ -199,7 +199,7 @@ class SimPLe(base_trainer.BaseTrainer):
     )
 
   def train_policy(self):
-    logging.info("Epoch %d: training policy", self._simple_epoch)
+    logging.info("SimPLe epoch [% 6d]: training policy.", self._simple_epoch)
 
     self._sim_env.initialize(
         batch_size=self._simulated_batch_size,
