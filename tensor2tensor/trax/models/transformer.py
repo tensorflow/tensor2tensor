@@ -111,7 +111,8 @@ def TransformerEncoder(vocab_size,
   ])
 
 
-def DecoderBlock(d_model, d_ff, n_heads, dropout, mode):
+def DecoderBlock(d_model, d_ff, n_heads, d_attention_key, d_attention_value,
+                 attention_type, dropout, mode):
   """Returns a layer sequence that implements a Transformer decoder block.
 
   The input to the layer sequence is an activation tensor.
@@ -120,6 +121,9 @@ def DecoderBlock(d_model, d_ff, n_heads, dropout, mode):
     d_model: int:  depth of embedding
     d_ff: int: depth of feed-forward layer
     n_heads: int: number of attention heads
+    d_attention_key: int: depth of key vector for each attention head
+    d_attention_value: int: depth of value vector for each attention head
+    attention_type: subclass of tl.BaseCausalAttention: attention class to use
     dropout: float: dropout rate (how much to drop out)
     mode: str: 'train' or 'eval'
 
@@ -128,8 +132,10 @@ def DecoderBlock(d_model, d_ff, n_heads, dropout, mode):
   """
   self_attention = [
       tl.LayerNorm(),  # vec
-      tl.BasicCausalAttention(
-          d_model, n_heads=n_heads, dropout=dropout, mode=mode),
+      tl.CausalAttention(
+          d_model, n_heads=n_heads, d_attention_key=d_attention_key,
+          d_attention_value=d_attention_value, attention_type=attention_type,
+          mode=mode),
       tl.Dropout(rate=dropout, mode=mode),  # vec
   ]
   feed_forward = [
@@ -145,6 +151,9 @@ def TransformerDecoder(d_model=512,
                        d_ff=2048,
                        n_layers=6,
                        n_heads=8,
+                       d_attention_key=None,
+                       d_attention_value=None,
+                       attention_type=tl.DotProductCausalAttention,
                        dropout=0.1,
                        max_len=2048,
                        mode='train'):
@@ -159,6 +168,11 @@ def TransformerDecoder(d_model=512,
     d_ff: int: depth of feed-forward layer
     n_layers: int: number of encoder/decoder layers
     n_heads: int: number of attention heads
+    d_attention_key: int: depth of key vector for each attention head
+        (default is d_model // n_heads)
+    d_attention_value: int: depth of value vector for each attention head
+        (default is d_model // n_heads)
+    attention_type: subclass of tl.BaseCausalAttention: attention class to use
     dropout: float: dropout rate (how much to drop out)
     max_len: int: maximum symbol length for positional encoding
     mode: str: 'train' or 'eval'
@@ -170,7 +184,9 @@ def TransformerDecoder(d_model=512,
   return tl.Model(                  # vecs
       tl.PositionalEncoding(max_len=max_len),
       tl.Dense(d_model),            # vecs
-      [DecoderBlock(d_model, d_ff, n_heads, dropout, mode)
+      [DecoderBlock(  # pylint: disable=g-complex-comprehension
+          d_model, d_ff, n_heads, d_attention_key, d_attention_value,
+          attention_type, dropout, mode)
        for _ in range(n_layers)],   # vecs
       tl.LayerNorm(),               # vecs
   )
@@ -181,6 +197,9 @@ def TransformerLM(vocab_size,
                   d_ff=2048,
                   n_layers=6,
                   n_heads=8,
+                  d_attention_key=None,
+                  d_attention_value=None,
+                  attention_type=tl.DotProductCausalAttention,
                   dropout=0.1,
                   max_len=2048,
                   mode='train'):
@@ -195,6 +214,11 @@ def TransformerLM(vocab_size,
     d_ff: int: depth of feed-forward layer
     n_layers: int: number of encoder/decoder layers
     n_heads: int: number of attention heads
+    d_attention_key: int: depth of key vector for each attention head
+        (default is d_model // n_heads)
+    d_attention_value: int: depth of value vector for each attention head
+        (default is d_model // n_heads)
+    attention_type: subclass of tl.BaseCausalAttention: attention class to use
     dropout: float: dropout rate (how much to drop out)
     max_len: int: maximum symbol length for positional encoding
     mode: str: 'train' or 'eval'
@@ -211,7 +235,9 @@ def TransformerLM(vocab_size,
   return tl.Model(                  # tokens
       tl.ShiftRight(),              # toks
       embedder,                     # vecs
-      [DecoderBlock(d_model, d_ff, n_heads, dropout, mode)
+      [DecoderBlock(  # pylint: disable=g-complex-comprehension
+          d_model, d_ff, n_heads, d_attention_key, d_attention_value,
+          attention_type, dropout, mode)
        for _ in range(n_layers)],   # vecs
       tl.LayerNorm(),               # vecs
       tl.Dense(vocab_size),         # vecs
