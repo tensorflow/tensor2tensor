@@ -29,36 +29,50 @@ from tensorflow import test
 
 class BoxSpaceSerializerTest(test.TestCase):
 
-  def setUp(self):
-    super(BoxSpaceSerializerTest, self).setUp()
+  def _make_space_and_serializer(self, low=-10, high=10, shape=(2,)):
     # Enough precision to represent float32s accurately.
     gin.bind_parameter("BoxSpaceSerializer.precision", 4)
-    self._space = gym.spaces.Box(low=-10, high=10, shape=(2,))
-    self._serializer = space_serializer.create(
-        self._space,
+    space = gym.spaces.Box(low=low, high=high, shape=shape)
+    serializer = space_serializer.create(
+        space,
         # Weird vocab_size to test that it doesn't only work with powers of 2.
         vocab_size=257)
+    return (space, serializer)
 
-  def _sample_batch(self):
-    return np.reshape(self._space.sample(), (1,) + self._space.shape)
+  def _sample_batch(self, space):
+    return np.reshape(space.sample(), (1,) + space.shape)
 
   def test_representation_length(self):
-    input_array = self._sample_batch()
-    representation = self._serializer.serialize(input_array)
+    (space, serializer) = self._make_space_and_serializer()
+    input_array = self._sample_batch(space)
+    representation = serializer.serialize(input_array)
     self.assertEqual(
-        representation.shape, (1, self._serializer.representation_length))
+        representation.shape, (1, serializer.representation_length))
 
   def test_commutes(self):
-    input_array = self._sample_batch()
-    representation = self._serializer.serialize(input_array)
-    output_array = self._serializer.deserialize(representation)
+    (space, serializer) = self._make_space_and_serializer()
+    input_array = self._sample_batch(space)
+    representation = serializer.serialize(input_array)
+    output_array = serializer.deserialize(representation)
     np.testing.assert_array_almost_equal(input_array, output_array)
 
   def test_representation_changes(self):
-    array1 = self._sample_batch()
+    (space, serializer) = self._make_space_and_serializer()
+    array1 = self._sample_batch(space)
     array2 = -array1
-    (repr1, repr2) = tuple(map(self._serializer.serialize, (array1, array2)))
+    (repr1, repr2) = tuple(map(serializer.serialize, (array1, array2)))
     self.assertFalse(np.array_equal(repr1, repr2))
+
+  def test_bounds_space(self):
+    gin.bind_parameter("BoxSpaceSerializer.max_range", (-10.0, 10.0))
+    (_, serializer) = self._make_space_and_serializer(
+        # Too wide range to represent, need to clip.
+        low=-1e18, high=1e18,
+        shape=(1,))
+    input_array = np.array([[1.2345]])
+    representation = serializer.serialize(input_array)
+    output_array = serializer.deserialize(representation)
+    np.testing.assert_array_almost_equal(input_array, output_array)
 
 
 class DiscreteSpaceSerializerTest(test.TestCase):

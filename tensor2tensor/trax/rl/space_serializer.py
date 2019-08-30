@@ -19,6 +19,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import copy
+
+from absl import logging
 import gin
 import gym
 import numpy as np
@@ -86,7 +89,7 @@ def create(space, vocab_size):
   }[type(space)](space, vocab_size)
 
 
-@gin.configurable(whitelist=["precision"])
+@gin.configurable(blacklist=["space", "vocab_size"])
 class BoxSpaceSerializer(SpaceSerializer):
   """Serializer for gym.spaces.Box.
 
@@ -96,10 +99,24 @@ class BoxSpaceSerializer(SpaceSerializer):
 
   space_type = gym.spaces.Box
 
-  def __init__(self, space, vocab_size, precision):
-    super(BoxSpaceSerializer, self).__init__(space, vocab_size)
-    assert space.is_bounded(), "Only bounded spaces are supported."
+  def __init__(self, space, vocab_size, precision=2, max_range=(-100.0, 100.0)):
     self._precision = precision
+
+    # Some gym envs (e.g. CartPole) have unreasonably high bounds for
+    # observations. We clip so we can represent them.
+    bounded_space = copy.copy(space)
+    (min_low, max_high) = max_range
+    bounded_space.low = np.maximum(space.low, min_low)
+    bounded_space.high = np.minimum(space.high, max_high)
+    if (not np.allclose(bounded_space.low, space.low) or
+        not np.allclose(bounded_space.high, space.high)):
+      logging.warning(
+          "Space limits %s, %s out of bounds %s. Clipping to %s, %s.",
+          str(space.low), str(space.high), str(max_range),
+          str(bounded_space.low), str(bounded_space.high)
+      )
+
+    super(BoxSpaceSerializer, self).__init__(bounded_space, vocab_size)
 
   def serialize(self, data):
     array = data
