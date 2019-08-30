@@ -194,7 +194,7 @@ class PpoTest(test.TestCase):
     value_prediction = value_net_apply(random_observations, [])
 
     with jax.disable_jit():
-      value_loss = ppo.value_loss_given_predictions(
+      (value_loss, _) = ppo.value_loss_given_predictions(
           value_prediction,
           rewards,
           rewards_mask,
@@ -419,10 +419,10 @@ class PpoTest(test.TestCase):
     c1 = 1.0
     c2 = 0.01
 
-    value_loss_1 = ppo.value_loss_given_predictions(
+    (value_loss_1, _) = ppo.value_loss_given_predictions(
         value_predictions_new, rewards, mask, gamma=gamma,
         value_prediction_old=value_predictions_old, epsilon=epsilon)
-    ppo_loss_1 = ppo.ppo_loss_given_predictions(
+    (ppo_loss_1, _) = ppo.ppo_loss_given_predictions(
         new_log_probabs,
         old_log_probabs,
         value_predictions_old,
@@ -433,7 +433,7 @@ class PpoTest(test.TestCase):
         lambda_=lambda_,
         epsilon=epsilon)
 
-    (combined_loss, ppo_loss_2, value_loss_2, entropy_bonus), state = (
+    (combined_loss, (ppo_loss_2, value_loss_2, entropy_bonus), _, state) = (
         ppo.combined_loss(new_params,
                           old_log_probabs,
                           value_predictions_old,

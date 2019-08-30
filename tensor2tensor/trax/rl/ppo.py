@@ -389,7 +389,9 @@ def value_loss_given_predictions(value_prediction,
       well. This is from the OpenAI baselines implementation.
 
   Returns:
-    The average L2 value loss, averaged over instances where reward_mask is 1.
+    Pair (value_loss, summaries), where value_loss is the average L2 value loss,
+      averaged over instances where reward_mask is 1. Summaries is a dict of
+      summaries collected during value loss computation.
   """
 
   B, T = rewards.shape  # pylint: disable=invalid-name
@@ -412,7 +414,13 @@ def value_loss_given_predictions(value_prediction,
     loss = np.maximum(v_clipped_loss, loss)
 
   # Take an average on only the points where mask != 0.
-  return np.sum(loss) / np.sum(reward_mask)
+  value_loss = np.sum(loss) / np.sum(reward_mask)
+
+  summaries = {
+      "value_loss": value_loss,
+  }
+
+  return (value_loss, summaries)
 
 
 def deltas(predicted_values, rewards, mask, gamma=0.99):
@@ -560,7 +568,9 @@ def ppo_loss_given_predictions(log_probab_actions_new,
       td_deltas, reward_mask, lambda_=lambda_, gamma=gamma)
 
   # Normalize the advantages.
-  advantages = (advantages - np.mean(advantages)) / np.std(advantages)
+  advantage_mean = np.mean(advantages)
+  advantage_std = np.std(advantages)
+  advantages = (advantages - advantage_mean) / (advantage_std + 1e-8)
 
   # (B, T)
   ratios = compute_probab_ratios(log_probab_actions_new, log_probab_actions_old,
@@ -576,7 +586,15 @@ def ppo_loss_given_predictions(log_probab_actions_new,
   average_objective = np.sum(objective) / np.sum(reward_mask)
 
   # Loss is negative objective.
-  return -average_objective
+  ppo_loss = -average_objective
+
+  summaries = {
+      "ppo_loss": ppo_loss,
+      "advantage_mean": advantage_mean,
+      "advantage_std": advantage_std,
+  }
+
+  return (ppo_loss, summaries)
 
 
 @jit
@@ -593,14 +611,14 @@ def combined_loss_given_predictions(log_probab_actions_new,
                                     c1=1.0,
                                     c2=0.01):
   """Computes the combined (clipped loss + value loss) given predictions."""
-  loss_value = value_loss_given_predictions(
+  (value_loss, value_summaries) = value_loss_given_predictions(
       value_prediction_new,
       padded_rewards,
       reward_mask,
       gamma=gamma,
       value_prediction_old=value_prediction_old,
       epsilon=epsilon)
-  loss_ppo = ppo_loss_given_predictions(
+  (ppo_loss, ppo_summaries) = ppo_loss_given_predictions(
       log_probab_actions_new,
       log_probab_actions_old,
       value_prediction_old,
@@ -611,8 +629,16 @@ def combined_loss_given_predictions(log_probab_actions_new,
       lambda_=lambda_,
       epsilon=epsilon)
   entropy_bonus = masked_entropy(log_probab_actions_new, reward_mask)
-  return (loss_ppo + (c1 * loss_value) - (c2 * entropy_bonus), loss_ppo,
-          loss_value, entropy_bonus)
+  combined_loss_ = ppo_loss + (c1 * value_loss) - (c2 * entropy_bonus)
+
+  summaries = {
+      "combined_loss": combined_loss_,
+      "entropy_bonus": entropy_bonus,
+  }
+  for loss_summaries in (value_summaries, ppo_summaries):
+    summaries.update(loss_summaries)
+
+  return (combined_loss_, (ppo_loss, value_loss, entropy_bonus), summaries)
 
 
 @functools.partial(jit, static_argnums=(3,))
@@ -636,8 +662,7 @@ def combined_loss(new_params,
       policy_and_value_net_apply(padded_observations, new_params, state,
                                  rng=rng))
 
-  # (combined_loss, ppo_loss, value_loss, entropy_bonus)
-  return combined_loss_given_predictions(
+  (loss, component_losses, summaries) = combined_loss_given_predictions(
       log_probab_actions_new,
       log_probab_actions_old,
       value_predictions_new,
@@ -649,7 +674,9 @@ def combined_loss(new_params,
       lambda_=lambda_,
       epsilon=epsilon,
       c1=c1,
-      c2=c2), state
+      c2=c2,
+  )
+  return (loss, component_losses, summaries, state)
 
 
 @functools.partial(jit, static_argnums=(2, 3, 4))
@@ -676,7 +703,7 @@ def policy_and_value_opt_step(i,
   # Combined loss function given the new params.
   def policy_and_value_loss(params, state):
     """Returns the combined loss given just parameters."""
-    (loss, _, _, _), state = combined_loss(
+    (loss, _, _, state) = combined_loss(
         params,
         log_probab_actions_old,
         value_predictions_old,

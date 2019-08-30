@@ -319,35 +319,36 @@ class PPO(base_trainer.BaseTrainer):
     self._rng, key1 = jax_random.split(self._rng, num=2)
     logging.vlog(2, "Starting to compute P&V loss.")
     loss_compute_start_time = time.time()
-    (cur_combined_loss, cur_ppo_loss, cur_value_loss,
-     entropy_bonus), self._model_state = (
-         ppo.combined_loss(
-             self._policy_and_value_net_params,
-             log_probabs_traj,
-             value_predictions_traj,
-             self._policy_and_value_net_apply,
-             padded_observations,
-             padded_actions,
-             padded_rewards,
-             reward_mask,
-             gamma=self._gamma,
-             lambda_=self._lambda_,
-             c1=self._c1,
-             c2=self._c2,
-             state=self._model_state,
-             rng=key1))
+    (cur_combined_loss, component_losses, summaries, self._model_state) = (
+        ppo.combined_loss(
+            self._policy_and_value_net_params,
+            log_probabs_traj,
+            value_predictions_traj,
+            self._policy_and_value_net_apply,
+            padded_observations,
+            padded_actions,
+            padded_rewards,
+            reward_mask,
+            gamma=self._gamma,
+            lambda_=self._lambda_,
+            c1=self._c1,
+            c2=self._c2,
+            state=self._model_state,
+            rng=key1))
     loss_compute_time = ppo.get_time(loss_compute_start_time)
+    (cur_ppo_loss, cur_value_loss, cur_entropy_bonus) = component_losses
     logging.vlog(
         1,
         "Calculating P&V loss [%10.2f(%10.2f, %10.2f, %10.2f)] took %0.2f msec.",
-        cur_combined_loss, cur_value_loss, cur_ppo_loss, entropy_bonus,
+        cur_combined_loss, cur_ppo_loss, cur_value_loss, cur_entropy_bonus,
         ppo.get_time(loss_compute_start_time))
 
     self._rng, key1 = jax_random.split(self._rng, num=2)
     logging.vlog(1, "Policy and Value Optimization")
     optimization_start_time = time.time()
     keys = jax_random.split(key1, num=self._n_optimizer_steps)
-    for (j, key) in enumerate(keys):
+    opt_step = 0
+    for key in keys:
       k1, k2, k3 = jax_random.split(key, num=3)
       t = time.time()
       # Update the optimizer state.
@@ -378,6 +379,7 @@ class PPO(base_trainer.BaseTrainer):
               lambda_=self._lambda_,
               state=self._model_state,
               rng=k1))
+      opt_step += 1
       self._total_opt_step += 1
 
       # Compute the approx KL for early stopping.
@@ -392,38 +394,38 @@ class PPO(base_trainer.BaseTrainer):
       early_stopping = approx_kl > 1.5 * self._target_kl
       if early_stopping:
         logging.vlog(
-            1, "Early stopping policy and value optimization at iter: %d, "
-            "with approx_kl: %0.2f", j, approx_kl)
+            1, "Early stopping policy and value optimization after %d steps, "
+            "with approx_kl: %0.2f", opt_step, approx_kl)
         # We don't return right-away, we want the below to execute on the last
         # iteration.
 
       t2 = time.time()
-      if (((j + 1) % self._print_every_optimizer_steps == 0) or
-          (j == self._n_optimizer_steps - 1) or early_stopping):
+      if (opt_step % self._print_every_optimizer_steps == 0 or
+          opt_step == self._n_optimizer_steps or early_stopping):
         # Compute and log the loss.
-        (loss_combined, loss_ppo, loss_value,
-         entropy_bonus), self._model_state = (
-             ppo.combined_loss(
-                 self._policy_and_value_net_params,
-                 log_probabs_traj,
-                 value_predictions_traj,
-                 self._policy_and_value_net_apply,
-                 padded_observations,
-                 padded_actions,
-                 padded_rewards,
-                 reward_mask,
-                 gamma=self._gamma,
-                 lambda_=self._lambda_,
-                 c1=self._c1,
-                 c2=self._c2,
-                 state=self._model_state,
-                 rng=k3))
+        (combined_loss, component_losses, _, self._model_state) = (
+            ppo.combined_loss(
+                self._policy_and_value_net_params,
+                log_probabs_traj,
+                value_predictions_traj,
+                self._policy_and_value_net_apply,
+                padded_observations,
+                padded_actions,
+                padded_rewards,
+                reward_mask,
+                gamma=self._gamma,
+                lambda_=self._lambda_,
+                c1=self._c1,
+                c2=self._c2,
+                state=self._model_state,
+                rng=k3))
         logging.vlog(1, "One Policy and Value grad desc took: %0.2f msec",
                      ppo.get_time(t, t2))
+        (ppo_loss, value_loss, entropy_bonus) = component_losses
         logging.vlog(
             1, "Combined Loss(value, ppo, entropy_bonus) [%10.2f] ->"
-            " [%10.2f(%10.2f,%10.2f,%10.2f)]", cur_combined_loss, loss_combined,
-            loss_value, loss_ppo, entropy_bonus)
+            " [%10.2f(%10.2f,%10.2f,%10.2f)]", cur_combined_loss, combined_loss,
+            ppo_loss, value_loss, entropy_bonus)
 
       if early_stopping:
         break
@@ -432,7 +434,14 @@ class PPO(base_trainer.BaseTrainer):
 
     logging.vlog(
         1, "Total Combined Loss reduction [%0.2f]%%",
-        (100 * (cur_combined_loss - loss_combined) / np.abs(cur_combined_loss)))
+        (100 * (cur_combined_loss - combined_loss) / np.abs(cur_combined_loss)))
+
+    summaries.update({
+        "n_optimizer_steps": opt_step,
+        "approx_kl": approx_kl,
+    })
+    for (name, value) in summaries.items():
+      self._train_sw.scalar("train/{}".format(name), value, step=self._epoch)
 
     # Save parameters every time we see the end of at least a fraction of batch
     # number of trajectories that are done (not completed -- completed includes
@@ -453,8 +462,8 @@ class PPO(base_trainer.BaseTrainer):
 
     logging.info(
         "PPO epoch [% 6d], Reward[min, max, avg] [%5.2f,%5.2f,%5.2f], Combined"
-        " Loss(value, ppo, entropy) [%2.5f(%2.5f,%2.5f,%2.5f)]", self._epoch,
-        min_reward, max_reward, avg_reward, loss_combined, loss_value, loss_ppo,
+        " Loss(ppo, value, entropy) [%2.5f(%2.5f,%2.5f,%2.5f)]", self._epoch,
+        min_reward, max_reward, avg_reward, combined_loss, ppo_loss, value_loss,
         entropy_bonus)
 
     timing_dict = {
