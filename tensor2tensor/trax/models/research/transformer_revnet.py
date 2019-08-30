@@ -223,7 +223,7 @@ class ReversibleHalfResidual(tl.ReversibleLayer, tl.Serial):
     rngs = (None,) * self._n_layers
     if rng is not None:
       rngs = backend.random.split(rng, self._n_layers)
-    # Note that self.sublayers() aligns exactly with self.reverse_layers in
+    # Note that self.sublayers aligns exactly with self.reverse_layers in
     # terms of parameter and rng usage, so no re-ordering is required.
     for layer, p, s, rng in zip(self.reverse_layers, params, state, rngs):
       reconstructed_x, _ = layer(reconstructed_x, p, s, rng=rng, **kwargs)
@@ -324,7 +324,7 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
       rngs = backend.random.split(rng, self._n_layers)
 
     reconstructed_x = output
-    # Note that self.sublayers() aligns exactly with self.reverse_layers in
+    # Note that self.sublayers aligns exactly with self.reverse_layers in
     # terms of parameter and rng usage, so no re-ordering is required.
     for layer, p, s, rng in zip(self.reverse_layers, params, state, rngs):
       reconstructed_x, _ = layer.reverse(reconstructed_x, p, s, rng=rng,

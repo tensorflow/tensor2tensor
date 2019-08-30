@@ -88,7 +88,7 @@ class ReversibleSerial(ReversibleLayer, cb.Serial):
     super(ReversibleSerial, self).__init__(*layers)
 
     # Note that sublayers has already been flattened to remove nested lists.
-    for i, layer in enumerate(self.sublayers()):
+    for i, layer in enumerate(self.sublayers):
       if not isinstance(layer, ReversibleLayer):
         raise ValueError(
             'Sub-layer {} of ReversibleSerial is not reversible: {}'.format(
@@ -101,7 +101,7 @@ class ReversibleSerial(ReversibleLayer, cb.Serial):
       rngs = backend.random.split(rng, self._n_layers)
 
     layer_val = output
-    for layer, p, s, rng in reversed(zip(self.sublayers(),
+    for layer, p, s, rng in reversed(zip(self.sublayers,
                                          params, state, rngs)):
       layer_val = layer.reverse(layer_val, p, s, rng=rng, **kwargs)
 
@@ -116,7 +116,7 @@ class ReversibleSerial(ReversibleLayer, cb.Serial):
     layer_val = output
     layer_ct = ct
     params_ct = []
-    for layer, p, s, rng in reversed(zip(self.sublayers(),
+    for layer, p, s, rng in reversed(zip(self.sublayers,
                                          params, state, rngs)):
       layer_val, layer_ct = layer.reverse_and_grad(
           layer_val, layer_ct, p, s, rng=rng, **kwargs)
