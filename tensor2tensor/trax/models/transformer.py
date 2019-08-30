@@ -182,8 +182,9 @@ def TransformerDecoder(d_model=512,
     a continuous tensor.
   """
   return tl.Model(                  # vecs
-      tl.PositionalEncoding(max_len=max_len),
       tl.Dense(d_model),            # vecs
+      tl.Dropout(rate=dropout, mode=mode),
+      tl.PositionalEncoding(max_len=max_len),
       [DecoderBlock(  # pylint: disable=g-complex-comprehension
           d_model, d_ff, n_heads, d_attention_key, d_attention_value,
           attention_type, dropout, mode)
