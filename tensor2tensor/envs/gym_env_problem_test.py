@@ -50,7 +50,7 @@ class GymEnvProblemTest(tf.test.TestCase):
 
     # Expectations on the observation space.
     observation_space = ep.observation_space
-    self.assertTrue(isinstance(observation_space, Box))
+    self.assertIsInstance(observation_space, Box)
     self.assertEqual(observation_space.shape, (4,))
     self.assertEqual(observation_space.dtype, np.float32)
 

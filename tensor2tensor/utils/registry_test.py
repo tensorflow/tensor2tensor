@@ -117,7 +117,7 @@ class EnvProblemRegistryTest(tf.test.TestCase):
     self.assertEqual(batch_size, ep.batch_size)
 
     # assert on the type.
-    self.assertTrue(isinstance(ep, EnvProb))
+    self.assertIsInstance(ep, EnvProb)
 
 
 class ModelRegistryTest(tf.test.TestCase):
