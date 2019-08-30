@@ -19,11 +19,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from absl import logging
 import gym
 import gym.wrappers
 import numpy as np
 from PIL import Image
-import tensorflow as tf
 
 
 class StickyActionEnv(gym.Wrapper):
@@ -232,7 +232,7 @@ def register_gym_env(class_entry_point, version="v0", kwargs=None):
   env_name = "T2TEnv-{}-{}".format(class_name, version)
   gym.envs.register(id=env_name, entry_point=class_entry_point, kwargs=kwargs)
 
-  tf.logging.info("Entry Point [%s] registered with id [%s]", class_entry_point,
-                  env_name)
+  logging.info(
+      "Entry Point [%s] registered with id [%s]", class_entry_point, env_name)
 
   return env_name, gym.make(env_name)
