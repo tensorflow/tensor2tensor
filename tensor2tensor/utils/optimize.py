@@ -18,7 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
 import numpy as np
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import adafactor as adafactor_lib
@@ -45,8 +44,7 @@ def optimize(loss,
              learning_rate,
              hparams,
              use_tpu=False,
-             variables=None,
-             gpu_auto_mixed_precision=False):
+             variables=None):
   """Minimize loss."""
   loss = weight_decay_and_noise(loss, hparams, learning_rate)
   loss = tf.identity(loss, name="total_loss")
@@ -71,8 +69,7 @@ def optimize(loss,
   opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams, use_tpu)
   if use_tpu:
     opt = tf.contrib.tpu.CrossShardOptimizer(opt)
-  if gpu_auto_mixed_precision or os.environ.get(
-      "TF_ENABLE_AUTO_MIXED_PRECISION", "0") == "1":
+  if getattr(hparams, "gpu_automatic_mixed_precision", False):
     if use_tpu:
       raise RuntimeError("GPU auto mixed precision cannot be used with TPU")
     elif _mixed_precision_is_enabled(hparams):
