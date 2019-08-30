@@ -139,6 +139,20 @@ class SimPLe(base_trainer.BaseTrainer):
     return (train_trajectories, eval_trajectories)
 
   def _data_stream(self, trajectories, batch_size):
+    def generate_examples():
+      """Creates an infinite stream of shuffled examples."""
+      examples = [
+          example  # pylint: disable=g-complex-comprehension
+          for trajectory_examples in map(
+              self._sim_env.trajectory_to_training_examples, trajectories)
+          for example in trajectory_examples
+      ]
+      assert examples
+      while True:
+        random.shuffle(examples)
+        for example in examples:
+          yield example
+
     def make_batch(examples):
       """Stack a structure of np arrays nested in lists/tuples."""
       assert examples
@@ -148,26 +162,14 @@ class SimPLe(base_trainer.BaseTrainer):
             for i in range(len(examples[0]))
         )
       else:
-        batch = np.stack(examples, axis=0)
-        pad_width = (
-            [(0, batch_size - len(examples))] +
-            [(0, 0)] * (len(batch.shape) - 1)
-        )
-        # Pad with zeros. This doesn't change anything, because we have weights
-        # in the examples.
-        return np.pad(batch, pad_width, mode="constant")
+        return np.stack(examples, axis=0)
 
-    examples = [
-        example  # pylint: disable=g-complex-comprehension
-        for trajectory_examples in map(
-            self._sim_env.trajectory_to_training_examples, trajectories)
-        for example in trajectory_examples
-    ]
+    # Take consecutive batches from an infinite stream. This way there are no
+    # incomplete batches. We might get duplicate examples in the same batch, but
+    # that should be very rare.
+    example_stream = generate_examples()
     while True:
-      random.shuffle(examples)
-      for from_index in range(0, len(examples), batch_size):
-        example_list = examples[from_index:(from_index + batch_size)]
-        yield make_batch(example_list)
+      yield make_batch(list(itertools.islice(example_stream, batch_size)))
 
   def train_model(self):
     logging.info("SimPLe epoch [% 6d]: training model.", self._simple_epoch)
