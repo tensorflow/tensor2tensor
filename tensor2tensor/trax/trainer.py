@@ -111,7 +111,7 @@ def main(_):
 
   _setup_gin()
 
-  if FLAGS.tf_eager and backend.get_name() in ("numpy", "jax"):
+  if FLAGS.enable_eager_execution and backend.get_name() in ("numpy", "jax"):
     # Numpy backend doesn't benefit from having the input pipeline run on GPU,
     # and jax backend has GPU memory contention if TF uses the GPU. Gin must be
     # set up first before determining the backend.
