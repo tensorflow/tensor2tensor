@@ -26,6 +26,7 @@ import gym
 import mock
 import numpy as np
 
+from tensor2tensor.envs import trajectory
 from tensor2tensor.trax import backend
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.rl import simulated_env_problem
@@ -121,6 +122,37 @@ class RawSimulatedEnvProblemTest(test.TestCase):
 
 class SerializedSequenceSimulatedEnvProblemTest(test.TestCase):
 
+  def _make_env(
+      self, observation_space, action_space, vocab_size,
+      predict_fn=None, reward_fn=None, done_fn=None,
+      batch_size=None, max_trajectory_length=None,
+  ):
+    mock_model_fn = mock.MagicMock()
+    if predict_fn is not None:
+      mock_model_fn.return_value = predict_fn
+    return simulated_env_problem.SerializedSequenceSimulatedEnvProblem(
+        model=mock_model_fn,
+        reward_fn=reward_fn,
+        done_fn=done_fn,
+        vocab_size=vocab_size,
+        max_trajectory_length=3,
+        batch_size=batch_size,
+        observation_space=observation_space,
+        action_space=action_space,
+        reward_range=(-1, 1),
+        discrete_rewards=False,
+        history_stream=itertools.repeat(None),
+        output_dir=None,
+    )
+
+  def _make_trajectory(self, observations, actions):
+    assert len(observations) == len(actions) + 1
+    t = trajectory.Trajectory()
+    for (obs, act) in zip(observations, actions):
+      t.add_time_step(observation=obs, action=act, done=False)
+    t.add_time_step(observation=observations[-1], done=True)
+    return t
+
   @mock.patch.object(trax, "restore_state", autospec=True)
   def test_communicates_with_model(self, mock_restore_state):
     gin.bind_parameter("BoxSpaceSerializer.precision", 1)
@@ -138,33 +170,28 @@ class SerializedSequenceSimulatedEnvProblemTest(test.TestCase):
       # (4 obs symbols + 1 action symbol) * 3 timesteps = 15.
       return np.array([[log_probs] * 15]), ()
 
-    mock_model_fn = mock.MagicMock()
-    mock_model = mock_model_fn.return_value
-    mock_model.side_effect = map(make_prediction, symbols)
+    mock_predict_fn = mock.MagicMock()
+    mock_predict_fn.side_effect = map(make_prediction, symbols)
 
     with backend.use_backend("numpy"):
       # (model_params, opt_state)
       mock_restore_state.return_value.params = (None, None)
-      env = simulated_env_problem.SerializedSequenceSimulatedEnvProblem(
-          model=mock_model_fn,
+      env = self._make_env(
+          predict_fn=mock_predict_fn,
           reward_fn=(lambda _1, _2: np.array([0.5])),
           done_fn=(lambda _1, _2: np.array([False])),
           vocab_size=vocab_size,
-          max_trajectory_length=3,
           batch_size=1,
+          max_trajectory_length=3,
           observation_space=gym.spaces.Box(low=0, high=5, shape=(4,)),
           action_space=gym.spaces.Discrete(2),
-          reward_range=(-1, 1),
-          discrete_rewards=False,
-          history_stream=itertools.repeat(None),
-          output_dir=None,
       )
       obs1 = env.reset()
-      ((inputs,), _) = mock_model.call_args
+      ((inputs,), _) = mock_predict_fn.call_args
 
       act1 = 0
       (obs2, reward, done, _) = env.step(np.array([act1]))
-      ((inputs,), _) = mock_model.call_args
+      ((inputs,), _) = mock_predict_fn.call_args
       self.assertEqual(inputs[0, 4], act1)
       np.testing.assert_array_equal(inputs[0, :4], symbols[:4])
       np.testing.assert_array_equal(obs1, obs2)
@@ -173,12 +200,82 @@ class SerializedSequenceSimulatedEnvProblemTest(test.TestCase):
 
       act2 = 1
       (obs3, reward, done, _) = env.step(np.array([act2]))
-      ((inputs,), _) = mock_model.call_args
+      ((inputs,), _) = mock_predict_fn.call_args
       self.assertEqual(inputs[0, 9], act2)
       np.testing.assert_array_equal(inputs[0, 5:9], symbols[4:8])
       self.assertFalse(np.array_equal(obs2, obs3))
       np.testing.assert_array_equal(reward, [0.5])
       np.testing.assert_array_equal(done, [True])
+
+  def test_makes_training_example(self):
+    env = self._make_env(
+        vocab_size=2,
+        observation_space=gym.spaces.Discrete(2),
+        action_space=gym.spaces.Discrete(2),
+        max_trajectory_length=3,
+    )
+    t = self._make_trajectory(observations=[0, 1, 0], actions=[1, 0])
+    examples = env.trajectory_to_training_examples(t)
+
+    # There should be 1 example with the whole trajectory.
+    self.assertEqual(len(examples), 1)
+    [(inputs, targets, weights)] = examples
+    # inputs == targets for autoregressive sequence prediction.
+    np.testing.assert_array_equal(inputs, targets)
+    # Assert array shapes and datatypes.
+    self.assertEqual(inputs.shape, env.model_input_shape)
+    self.assertEqual(inputs.dtype, env.model_input_dtype)
+    self.assertEqual(weights.shape, env.model_input_shape)
+    # Actions should be masked out.
+    self.assertEqual(np.min(weights), 0)
+    # At least part of the observation should have full weight.
+    self.assertEqual(np.max(weights), 1)
+
+  def test_makes_training_examples_from_trajectories_of_different_lengths(self):
+    env = self._make_env(
+        vocab_size=2,
+        observation_space=gym.spaces.Discrete(2),
+        action_space=gym.spaces.Discrete(2),
+        max_trajectory_length=3,
+    )
+    t1 = self._make_trajectory(observations=[0, 1], actions=[1])
+    [(x1, _, w1)] = env.trajectory_to_training_examples(t1)
+    t2 = self._make_trajectory(observations=[0, 1, 0], actions=[1, 0])
+    [(x2, _, w2)] = env.trajectory_to_training_examples(t2)
+
+    # Examples should be padded to the same shape.
+    self.assertEqual(x1.shape, x2.shape)
+    self.assertEqual(w1.shape, w2.shape)
+    # Cumulative weight should increase with trajectory length.
+    self.assertGreater(np.sum(w2), np.sum(w1))
+
+  def test_masked_representation_changes_with_observation(self):
+    env = self._make_env(
+        vocab_size=2,
+        observation_space=gym.spaces.Discrete(2),
+        action_space=gym.spaces.Discrete(2),
+        max_trajectory_length=3,
+    )
+    t1 = self._make_trajectory(observations=[0, 1], actions=[1])
+    [(x1, _, w1)] = env.trajectory_to_training_examples(t1)
+    t2 = self._make_trajectory(observations=[0, 0], actions=[1])
+    [(x2, _, w2)] = env.trajectory_to_training_examples(t2)
+
+    self.assertFalse(np.array_equal(x1 * w1, x2 * w2))
+
+  def test_masked_representation_doesnt_change_with_action(self):
+    env = self._make_env(
+        vocab_size=2,
+        observation_space=gym.spaces.Discrete(2),
+        action_space=gym.spaces.Discrete(2),
+        max_trajectory_length=3,
+    )
+    t1 = self._make_trajectory(observations=[0, 1], actions=[1])
+    [(x1, _, w1)] = env.trajectory_to_training_examples(t1)
+    t2 = self._make_trajectory(observations=[0, 1], actions=[0])
+    [(x2, _, w2)] = env.trajectory_to_training_examples(t2)
+
+    np.testing.assert_array_equal(x1 * w1, x2 * w2)
 
 
 if __name__ == "__main__":

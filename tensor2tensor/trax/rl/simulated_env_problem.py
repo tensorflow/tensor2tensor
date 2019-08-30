@@ -446,6 +446,7 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
           mode="constant",
       )
     (reprs, weights) = map(concat_and_pad, (reprs, weights))
+    reprs = reprs.astype(self.model_input_dtype)
     return [(reprs, reprs, weights)]  # (inputs, targets, weights)
 
   @property
