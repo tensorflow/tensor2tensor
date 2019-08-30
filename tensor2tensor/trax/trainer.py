@@ -47,7 +47,8 @@ flags.DEFINE_multi_string("config", None,
                           "Configuration parameters (gin string).")
 flags.DEFINE_integer("log_level", logging.INFO, "Log level.")
 flags.DEFINE_bool("use_tpu", False, "Whether we're running on TPU.")
-flags.DEFINE_bool("tf_eager", True, "Whether we're running TF in eager mode.")
+flags.DEFINE_bool("enable_eager_execution", True,
+                  "Whether we're running TF in eager mode.")
 flags.DEFINE_bool("tf_xla", True, "Whether to turn on XLA for TF.")
 flags.DEFINE_bool("tf_opt_pin_to_host", False, "Whether to turn on TF "
                   "pin-to-host optimization.")
@@ -94,7 +95,7 @@ def _setup_gin():
 def main(_):
   logging.set_verbosity(FLAGS.log_level)
 
-  if FLAGS.tf_eager:
+  if FLAGS.enable_eager_execution:
     tf.enable_eager_execution()
 
   if FLAGS.tf_xla:
