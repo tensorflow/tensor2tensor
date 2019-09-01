@@ -19,18 +19,16 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import itertools
 import os
-import random
 
 from absl import logging
-import cloudpickle as pickle
-import numpy as np
 from tensor2tensor.trax import inputs as trax_inputs
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.rl import base_trainer
+from tensor2tensor.trax.rl import simple
 from tensor2tensor.trax.rl import simulated_env_problem
-from tensorflow.io import gfile
 
 
 class SimPLe(base_trainer.BaseTrainer):
@@ -51,6 +49,8 @@ class SimPLe(base_trainer.BaseTrainer):
       simulated_batch_size=16,
       n_simulated_epochs=1000,
       trajectory_dump_dir=None,
+      initial_trajectory_dir=None,
+      initial_trajectory_mix_prob=0.5,
       **kwargs
   ):
     super(SimPLe, self).__init__(
@@ -83,6 +83,9 @@ class SimPLe(base_trainer.BaseTrainer):
     if trajectory_dump_dir is None:
       trajectory_dump_dir = os.path.join(output_dir, "trajectories")
     self._trajectory_dump_root_dir = trajectory_dump_dir
+
+    self._initial_trajectory_dir = initial_trajectory_dir
+    self._initial_trajectory_mix_prob = initial_trajectory_mix_prob
 
     self._simple_epoch = 0
     self._policy_epoch = 0
@@ -122,71 +125,15 @@ class SimPLe(base_trainer.BaseTrainer):
     self._policy_epoch += self._n_real_epochs
     self._policy_trainer.training_loop(self._policy_epoch)
 
-  def _load_trajectories(self, trajectory_dir):
-    train_trajectories = []
-    eval_trajectories = []
-    # Search the entire directory subtree for trajectories.
-    for (subdir, _, filenames) in gfile.walk(trajectory_dir):
-      for filename in filenames:
-        shard_path = os.path.join(subdir, filename)
-        with gfile.GFile(shard_path, "rb") as f:
-          trajectories = pickle.load(f)
-          pivot = int(len(trajectories) * (1 - self._data_eval_frac))
-          train_trajectories.extend(trajectories[:pivot])
-          eval_trajectories.extend(trajectories[pivot:])
-    assert train_trajectories, "Haven't found any training data."
-    assert eval_trajectories, "Haven't found any evaluation data."
-    return (train_trajectories, eval_trajectories)
-
-  def _data_stream(self, trajectories, batch_size):
-    def generate_examples():
-      """Creates an infinite stream of shuffled examples."""
-      examples = [
-          example  # pylint: disable=g-complex-comprehension
-          for trajectory_examples in map(
-              self._sim_env.trajectory_to_training_examples, trajectories)
-          for example in trajectory_examples
-      ]
-      assert examples
-      while True:
-        random.shuffle(examples)
-        for example in examples:
-          yield example
-
-    def make_batch(examples):
-      """Stack a structure of np arrays nested in lists/tuples."""
-      assert examples
-      if isinstance(examples[0], (list, tuple)):
-        return type(examples[0])(
-            make_batch([example[i] for example in examples])
-            for i in range(len(examples[0]))
-        )
-      else:
-        return np.stack(examples, axis=0)
-
-    # Take consecutive batches from an infinite stream. This way there are no
-    # incomplete batches. We might get duplicate examples in the same batch, but
-    # that should be very rare.
-    example_stream = generate_examples()
-    while True:
-      yield make_batch(list(itertools.islice(example_stream, batch_size)))
-
   def train_model(self):
     logging.info("SimPLe epoch [% 6d]: training model.", self._simple_epoch)
 
-    # Load data from all epochs.
-    # TODO(pkozakowski): Handle the case when the data won't fit in the memory.
-    (train_trajectories, eval_trajectories) = self._load_trajectories(
-        self._trajectory_dump_root_dir)
-    train_stream = lambda: self._data_stream(  # pylint: disable=g-long-lambda
-        train_trajectories, self._model_train_batch_size)
-    eval_stream = lambda: self._data_stream(  # pylint: disable=g-long-lambda
-        eval_trajectories, self._model_train_batch_size)
+    (train_stream, eval_stream) = self._make_input_streams()
     # Ignore n_devices for now.
     inputs = lambda _: trax_inputs.Inputs(  # pylint: disable=g-long-lambda
-        train_stream=train_stream,
-        train_eval_stream=train_stream,
-        eval_stream=eval_stream,
+        train_stream=(lambda: train_stream),
+        train_eval_stream=(lambda: train_stream),
+        eval_stream=(lambda: eval_stream),
         input_shape=self._sim_env.model_input_shape,
         input_dtype=self._sim_env.model_input_dtype,
     )
@@ -208,5 +155,51 @@ class SimPLe(base_trainer.BaseTrainer):
         history_stream=itertools.repeat(None),
     )
     self._policy_trainer.train_env = self._sim_env
+    # Don't dump trajectories from the simulated environment.
+    self._policy_trainer.trajectory_dump_dir = None
     self._policy_epoch += self._n_simulated_epochs
     self._policy_trainer.training_loop(self._policy_epoch)
+
+  def _make_input_streams(self):
+    def make_example_streams(trajectory_dir):
+      (train_trajs, eval_trajs) = simple.load_trajectories(
+          trajectory_dir, eval_frac=self._data_eval_frac)
+      generate_examples = functools.partial(
+          simple.generate_examples,
+          trajectory_to_training_examples_fn=(
+              self._sim_env.trajectory_to_training_examples),
+      )
+      return tuple(map(generate_examples, (train_trajs, eval_trajs)))
+
+    # We mix two data sources: trajectories collected in this SimPLe training
+    # loop ("own" data) and trajectories collected before, outside of this
+    # training loop ("initial" data).
+    mix_prob = self._initial_trajectory_mix_prob
+
+    if self._initial_trajectory_dir is None:
+      (init_train_stream, init_eval_stream) = (None, None)
+      mix_prob = 0.0  # Take just our own collected data.
+    else:
+      # Load the initial, precollected data.
+      (init_train_stream, init_eval_stream) = make_example_streams(
+          self._initial_trajectory_dir)
+
+    if self._simple_epoch == 0 and self._initial_trajectory_dir is not None:
+      # We start the loop with training the model, so we don't have our own
+      # collected data yet.
+      (own_train_stream, own_eval_stream) = (None, None)
+      mix_prob = 1.0  # Take just the initial data.
+    else:
+      # Load trajectories collected in all epochs so far.
+      (own_train_stream, own_eval_stream) = make_example_streams(
+          self._trajectory_dump_root_dir)
+
+    def mix_and_batch(streams):
+      (init_stream, own_stream) = streams
+      mixed_stream = simple.mix_streams(init_stream, own_stream, mix_prob)
+      return simple.batch_stream(mixed_stream, self._model_train_batch_size)
+
+    return tuple(map(mix_and_batch, (
+        (init_train_stream, own_train_stream),
+        (init_eval_stream, own_eval_stream),
+    )))

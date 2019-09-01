@@ -53,7 +53,6 @@ class SimpleTrainerTest(test.TestCase):
 
   def test_training_loop_acrobot(self):
     gin.bind_parameter("BoxSpaceSerializer.precision", 2)
-    gin.bind_parameter("trax.train.train_steps", 1)
     gin.bind_parameter("trax.train.eval_steps", 1)
     trainer = trainers.SimPLe(
         train_env=self._make_wrapped_env("Acrobot-v1"),
@@ -72,6 +71,7 @@ class SimpleTrainerTest(test.TestCase):
         n_real_epochs=1,
         data_eval_frac=0.5,
         model_train_batch_size=2,
+        n_model_train_steps=1,
         simulated_env_problem_class=functools.partial(
             simulated_env_problem.SerializedSequenceSimulatedEnvProblem,
             model=functools.partial(
