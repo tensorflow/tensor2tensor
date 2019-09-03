@@ -36,10 +36,15 @@ train.trainer_class = @MemoryEfficientTrainer
 MemoryEfficientCausalAttention.dropout = 0.0
 MemoryEfficientCausalAttention.loop_stride = 512
 
+# Parameters for MergedHashedCausalAttention:
+# ==============================================================================
+MergedHashedCausalAttention.dropout = 0.0
+MergedHashedCausalAttention.n_bins = 16
+MergedHashedCausalAttention.bin_by_time = True
 
 # Parameters for TransformerLM:
 # ==============================================================================
-TransformerLM.attention_type = @trax.layers.MemoryEfficientCausalAttention
+TransformerLM.attention_type = @trax.layers.MergedHashedCausalAttention
 TransformerLM.d_model = 1024
 TransformerLM.d_ff = 2048
 TransformerLM.dropout = 0.0

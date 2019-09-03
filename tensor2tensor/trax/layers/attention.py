@@ -533,6 +533,181 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
       return final_vals[1], final_vals[2:]
 
 
+class MergedHashedCausalAttention(BaseCausalAttention):
+  """Hash-based causal attention."""
+
+  def __init__(self, dropout, mode, n_bins=64, bin_by_time=False):
+    del dropout, mode
+    super(MergedHashedCausalAttention, self).__init__()
+    self.n_bins = n_bins
+    self.bin_by_time = bin_by_time
+
+  def call(self, inputs, params=(), state=(), **kwargs):
+    del params
+    output, _ = self.call_and_grad(inputs, None, **kwargs)
+    return output, state
+
+  def has_custom_grad(self):
+    return True
+
+  def custom_grad(self, inputs, output, ct, params=(), state=(), **kwargs):
+    del output, params, state
+    _, inputs_ct = self.call_and_grad(inputs, ct, **kwargs)
+    return inputs_ct, ()
+
+  def bin_vectors_by_time(self, vecs):
+    seqlen = vecs.shape[-2]
+    assert seqlen % self.n_bins == 0
+    bin_size = int(seqlen // self.n_bins)
+
+    bins = np.arange(seqlen, dtype=np.int32) // bin_size
+    bins = jax.lax.tie_in(vecs, bins)
+    bins = bins[None, :]
+    bins = np.broadcast_to(bins, vecs.shape[:-1])
+    return bins
+
+  def make_unit_length(self, x, epsilon=1e-6):
+    variance = np.mean(x**2, axis=-1, keepdims=True)
+    norm_inputs = x / np.sqrt(variance + epsilon)
+    return norm_inputs
+
+  def hash_vectors(self, vecs, rng):
+    if self.bin_by_time:
+      # Instead of hashing, put chunks of consecutive items in the same bin.
+      # This exists as a sanity check for the other parts of this class.
+      return self.bin_vectors_by_time(vecs)
+
+    # See https://arxiv.org/pdf/1509.02897.pdf
+    assert self.n_bins % 2 == 0
+    random_rotation = jax.random.normal(
+        rng, (vecs.shape[-1], self.n_bins//2)).astype('float32')
+
+    # TODO(kitaev): making the vectors unit-length here is probably redundant.
+    vecs = self.make_unit_length(vecs)
+    rotated_vecs = np.matmul(vecs, random_rotation)
+    rotated_vecs = self.make_unit_length(rotated_vecs)
+    rotated_vecs = np.concatenate([rotated_vecs, -rotated_vecs], axis=-1)
+    bins = np.argmax(rotated_vecs, axis=-1)
+    return bins
+
+  def call_and_grad(self, inputs, ct, rng=None, **kwargs):
+    del kwargs
+    # We use the same vector as both a query and a key. For now we haven't
+    # adjusted any of the surrounding code, so we still get a separate "key"
+    # input that we ignore.
+    qk, ignored_k, v = inputs
+    seqlen = qk.shape[-2]
+    # qk/v are n_batch*n_heads, seqlen, d_head
+
+    # bins are n_batch*n_heads, seqlen
+    # They specify which hash bucket the query/key/value vectors fall in.
+    bins = self.hash_vectors(qk, rng=rng)
+
+    # joint_t is n_batch*n_heads, seqlen
+    joint_t = jax.lax.tie_in(qk, np.arange(seqlen))
+    joint_t = np.reshape(joint_t, (1, seqlen))
+    joint_t = np.broadcast_to(joint_t, qk.shape[:-1])
+
+    assert int((self.n_bins + 1) * seqlen) < 2 ** 31, (
+        'Potential 32-bit integer overflow; please double-check the code.')
+    joint_bins_and_t = seqlen * bins + joint_t
+
+    def chunk_scalars(x):  # pylint: disable=invalid-name
+      return np.reshape(x, (x.shape[0], self.n_bins, -1))
+
+    def chunk_vectors(x):  # pylint: disable=invalid-name
+      return np.reshape(
+          x, (x.shape[0], self.n_bins, -1, x.shape[-1]))
+
+    def unchunk_vectors(x):  # pylint: disable=invalid-name
+      return np.reshape(x, (x.shape[0], -1, x.shape[-1]))
+
+    # Sort everything by bin number, with a secondary sort by time
+    # (variables starting with "s" are sorted)
+    _, sjoint_t = jax.lax.sort_key_val(
+        joint_bins_and_t, joint_t, dimension=-1)
+
+    sqk = np.take_along_axis(qk, sjoint_t[:, :, None], axis=-2)
+    sv = np.take_along_axis(v, sjoint_t[:, :, None], axis=-2)
+
+    if ct is not None:
+      so_ct = np.take_along_axis(ct, sjoint_t[:, :, None], axis=-2)
+
+    @jax.jit
+    def binned_attn(sqk, sv):  # pylint: disable=invalid-name
+      """Performs attention on sorted queries/keys/values."""
+      # Split off a "bin" axis so that attention only occurs whithin chunks.
+      bq_t = bkv_t = chunk_scalars(sjoint_t)
+      bqk = chunk_vectors(sqk)
+      bv = chunk_vectors(sv)
+
+      # Hashing operates on unit-length vectors. Unnormalized query vectors are
+      # fine because they effectively provide a learnable temperature for the
+      # attention softmax, but normalizing keys is needed so that similarity for
+      # the purposes of attention correctly corresponds to hash locality.
+      bq = bqk
+      bk = self.make_unit_length(bqk)
+
+      # Allow each chunk to attend within itself, and also one chunk back. Chunk
+      # boundaries might occur in the middle of a sequence of items from the
+      # same bin, so this increases the chances of attending to relevant items.
+      # TODO(kitaev): benchmark whether XLA pad operation is noticeably faster.
+      bk_extra = np.concatenate([bk[:, -1:, :, :], bk[:, :-1, :, :]], axis=1)
+      bk = np.concatenate([bk, bk_extra], axis=2)
+      bv_extra = np.concatenate([bv[:, -1:, :, :], bv[:, :-1, :, :]], axis=1)
+      bv = np.concatenate([bv, bv_extra], axis=2)
+      bkv_t_extra = np.concatenate([bkv_t[:, -1:, :], bkv_t[:, :-1, :]], axis=1)
+      bkv_t = np.concatenate([bkv_t, bkv_t_extra], axis=2)
+
+      # Dot-product attention.
+      dots = np.matmul(bq, np.swapaxes(bk, -1, -2)) / np.sqrt(bq.shape[-1])
+
+      # Causal masking
+      mask = jax.lax.convert_element_type(
+          jax.lax.lt(bq_t[:, :, :, None], bkv_t[:, :, None, :]),
+          np.float32)
+      dots = dots - 1e9 * mask
+
+      # Mask out attention to self except when no other targets are available.
+      self_mask = jax.lax.broadcasted_eye(dots.dtype, dots.shape, (2, 3))
+      self_mask = jax.lax.tie_in(dots, self_mask)
+      dots = dots - 32 * self_mask
+
+      # Softmax.
+      dots = np.exp(dots - dots.max(axis=-1, keepdims=True))
+      dots = dots / dots.sum(axis=-1, keepdims=True)
+      bo = np.matmul(dots, bv)
+
+      so = unchunk_vectors(bo)
+      return so
+
+    @jax.jit
+    def binned_attn_vjp(sqk, sv, so_ct):  # pylint: disable=invalid-name
+      so, vjpfun = jax.vjp(binned_attn, sqk, sv)
+      sqkv_ct = vjpfun(so_ct)
+      return so, sqkv_ct
+
+    if ct is None:
+      so = binned_attn(sqk, sv)
+      _, undo_sort = jax.lax.sort_key_val(sjoint_t, joint_t, dimension=-1)
+      out = np.take_along_axis(so, undo_sort[:, :, None], axis=-2)
+      return out, None
+    else:
+      # Jax can construct a backward pass automatically, but it's about 2x
+      # slower than writing our own. The main reason is that the backward pass
+      # of gather is in general a scatter operation, but we know we're dealing
+      # with permutations so we use gather for the backward pass too.
+      so, (sqk_ct, sv_ct) = binned_attn_vjp(sqk, sv, so_ct)
+
+      _, undo_sort = jax.lax.sort_key_val(sjoint_t, joint_t, dimension=-1)
+      out = np.take_along_axis(so, undo_sort[:, :, None], axis=-2)
+
+      qk_ct = np.take_along_axis(sqk_ct, undo_sort[:, :, None], axis=-2)
+      v_ct = np.take_along_axis(sv_ct, undo_sort[:, :, None], axis=-2)
+
+      return out, (qk_ct, np.zeros_like(ignored_k), v_ct)
+
+
 def CausalAttention(d_feature, n_heads=1,
                     d_attention_key=None, d_attention_value=None,
                     attention_type=DotProductCausalAttention, mode='train'):

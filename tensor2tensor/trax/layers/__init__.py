@@ -55,3 +55,5 @@ DotProductCausalAttention = layer_configure(
     DotProductCausalAttention, blacklist=["mode"])
 MemoryEfficientCausalAttention = layer_configure(
     MemoryEfficientCausalAttention, blacklist=["mode"])
+MergedHashedCausalAttention = layer_configure(
+    MergedHashedCausalAttention, blacklist=["mode"])
