@@ -48,6 +48,7 @@ from tensor2tensor.envs import gym_env_problem
 from tensor2tensor.envs import rendered_env_problem
 from tensor2tensor.rl import gym_utils
 from tensor2tensor.rl.google import atari_utils  # GOOGLE-INTERNAL:
+from tensor2tensor.trax import rl  # pylint: disable=unused-import
 from tensor2tensor.trax.rl import envs as rl_envs  # pylint: disable=unused-import
 from tensor2tensor.trax.rl import trainers as rl_trainers
 

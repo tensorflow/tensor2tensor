@@ -24,9 +24,20 @@ Momentum.mass = 0.9
 # ==============================================================================
 shuffle_and_batch_data.preprocess_fun = @trax.inputs.cifar10_no_augmentation_preprocess
 
-# Parameters for FrameStackMLP:
+# Parameters for Adam:
 # ==============================================================================
-FrameStackMLP.n_frames = 4
+Adam.learning_rate = 1e-3
+Adam.b1 = 0.9
+Adam.b2 = 0.999
+Adam.weight_decay_rate = 0.0
+
+# Parameters for TransformerDecoder:
+# ==============================================================================
+TransformerDecoder.d_model = 64
+TransformerDecoder.d_ff = 128
+TransformerDecoder.dropout = 0.0
+TransformerDecoder.n_heads = 2
+TransformerDecoder.n_layers = 1
 
 # Parameters for WideResnet:
 # ==============================================================================
@@ -52,7 +63,7 @@ OnlineTuneEnv.observation_metrics = [
 
 # Parameters for PPO:
 # ==============================================================================
-PPO.n_optimizer_steps = 30
+PPO.n_optimizer_steps = 10
 PPO.target_kl = 0.1
 PPO.boundary = 128
 PPO.max_timestep = 128
@@ -62,12 +73,11 @@ PPO.gamma = 0.99
 PPO.lambda_ = 0.95
 PPO.c1 = 1.0
 PPO.c2 = 0.01
-PPO.eval_every_n = 10
 PPO.done_frac_for_policy_save = 0
-PPO.n_evals = 1
-PPO.len_history_for_policy = 4
-PPO.eval_temperatures = (1.0, 0.5)
-PPO.policy_and_value_model = @trax.models.FrameStackMLP
+PPO.len_history_for_policy = None
+PPO.separate_eval = False
+PPO.policy_and_value_model = @trax.models.TransformerDecoder
+PPO.policy_and_value_optimizer = @trax.optimizers.Adam
 
 # Parameters for train_rl:
 # ==============================================================================
