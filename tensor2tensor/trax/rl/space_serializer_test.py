@@ -74,6 +74,11 @@ class BoxSpaceSerializerTest(test.TestCase):
     output_array = serializer.deserialize(representation)
     np.testing.assert_array_almost_equal(input_array, output_array)
 
+  def test_significance_map(self):
+    (_, serializer) = self._make_space_and_serializer(shape=(2,))
+    np.testing.assert_array_equal(
+        serializer.significance_map, [0, 1, 2, 3, 0, 1, 2, 3])
+
 
 class DiscreteSpaceSerializerTest(test.TestCase):
 
@@ -102,6 +107,9 @@ class DiscreteSpaceSerializerTest(test.TestCase):
     array2 = 1 - array1
     (repr1, repr2) = tuple(map(self._serializer.serialize, (array1, array2)))
     self.assertFalse(np.array_equal(repr1, repr2))
+
+  def test_significance_map(self):
+    np.testing.assert_array_equal(self._serializer.significance_map, [0])
 
 
 if __name__ == "__main__":

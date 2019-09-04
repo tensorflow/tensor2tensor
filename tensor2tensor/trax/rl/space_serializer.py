@@ -35,10 +35,15 @@ class SpaceSerializer(object):
       to. Should be defined in subclasses.
     representation_length: (int) Number of symbols in the representation of
       every element of the space.
+    significance_map: (np.ndarray) Integer array of the same size as the
+      discrete representation, where elements describe the significance of
+      symbols, e.g. in fixed-precision encoding. 0 is the most significant
+      symbol, 1 the second most significant etc.
   """
 
   space_type = None
   representation_length = None
+  significance_map = None
 
   def __init__(self, space, vocab_size):
     """Creates a SpaceSerializer.
@@ -54,7 +59,7 @@ class SpaceSerializer(object):
     self._vocab_size = vocab_size
 
   def serialize(self, data):
-    """Serializes a batch of space elements into a discrete sequences.
+    """Serializes a batch of space elements into discrete sequences.
 
     Should be defined in subclasses.
 
@@ -146,6 +151,11 @@ class BoxSpaceSerializer(SpaceSerializer):
   def representation_length(self):
     return self._precision * self._space.low.size
 
+  @property
+  def significance_map(self):
+    return np.reshape(np.broadcast_to(
+        np.arange(self._precision), self._space.shape + (self._precision,)), -1)
+
 
 class DiscreteSpaceSerializer(SpaceSerializer):
   """Serializer for gym.spaces.Discrete.
@@ -166,3 +176,7 @@ class DiscreteSpaceSerializer(SpaceSerializer):
 
   def deserialize(self, representation):
     return np.reshape(representation, -1)
+
+  @property
+  def significance_map(self):
+    return np.zeros(1, dtype=np.int32)

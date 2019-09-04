@@ -313,7 +313,7 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
 
   def __init__(self, model, reward_fn, done_fn, vocab_size,
                max_trajectory_length, observation_space, action_space,
-               *args, **kwargs):
+               significance_decay=1.0, **kwargs):
     """Initializes the env.
 
     Args:
@@ -328,13 +328,15 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
         the model.
       observation_space: (gym.Space) Observation space.
       action_space: (gym.Space) Action space.
-      *args: (tuple) Positional arguments passed to the base class.
+      significance_decay: (float) Decay for training weights of progressively
+        less significant symbols in the representation.
       **kwargs: (dict) Keyword arguments passed to the base class.
     """
     self._reward_fn = reward_fn
     self._done_fn = done_fn
     self._vocab_size = vocab_size
     self._max_trajectory_length = max_trajectory_length
+    self._significance_decay = significance_decay
     self._history = None
     self._steps = None
     self._observation_space = None
@@ -353,7 +355,6 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
     # TransformerLM).
     model = functools.partial(model, vocab_size=vocab_size)
     super(SerializedSequenceSimulatedEnvProblem, self).__init__(
-        *args,
         model=model,
         observation_space=observation_space,
         action_space=action_space,
@@ -429,8 +430,11 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
       obs_repr = self._obs_serializer.serialize(
           np.array([time_step.observation]))[0]
       reprs.append(obs_repr)
-      # TODO(pkozakowski): Digit weighting.
-      weights.append(np.ones_like(obs_repr))
+      # significance_map is an array of the same size as the representation,
+      # indicating the significance of each symbol. See
+      # SpaceSerializer.significance_map.
+      weights.append(
+          self._significance_decay ** self._obs_serializer.significance_map)
       if time_step.action is not None:
         action_repr = self._action_serializer.serialize(
             np.array([time_step.action]))[0]
