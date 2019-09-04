@@ -104,9 +104,9 @@ class BatchNorm(base.Layer):
 
 
 # Layer normalization.
-def _layer_norm_params(input_shape, input_dtype, rng, epsilon=1e-6):
+def _layer_norm_params(input_shape, input_dtype, rng):
   """Helper: create layer norm parameters."""
-  del input_dtype, rng, epsilon
+  del input_dtype, rng
   features = input_shape[-1]
   scale = np.ones(features)
   bias = np.zeros(features)
