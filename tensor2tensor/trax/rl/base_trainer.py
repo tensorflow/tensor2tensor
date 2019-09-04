@@ -108,12 +108,13 @@ class BaseTrainer(object):
         pickle.dump(self._trajectory_buffer, f)
       self._trajectory_buffer = []
 
-  def training_loop(self, n_epochs):
+  def training_loop(self, n_epochs, evaluate=True):
     logging.info("Starting the RL training loop.")
     for _ in range(self.epoch, n_epochs):
       self.train_epoch()
       self.dump_trajectories()
     self.save()
     self.dump_trajectories(force=True)
-    self.evaluate()
+    if evaluate:
+      self.evaluate()
     self.flush_summaries()

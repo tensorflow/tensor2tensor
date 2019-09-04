@@ -158,7 +158,7 @@ class SimPLe(base_trainer.BaseTrainer):
     # Don't dump trajectories from the simulated environment.
     self._policy_trainer.trajectory_dump_dir = None
     self._policy_epoch += self._n_simulated_epochs
-    self._policy_trainer.training_loop(self._policy_epoch)
+    self._policy_trainer.training_loop(self._policy_epoch, evaluate=False)
 
   def _make_input_streams(self):
     def make_example_streams(trajectory_dir):
