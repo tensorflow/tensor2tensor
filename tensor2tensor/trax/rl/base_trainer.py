@@ -104,6 +104,12 @@ class BaseTrainer(object):
     if ready or force:
       shard_path = os.path.join(
           self.trajectory_dump_dir, "{}.pkl".format(self.epoch))
+      if gfile.exists(shard_path):
+        # Since we do an extra dump at the end of the training loop, we
+        # sometimes dump 2 times in the same epoch. When this happens, merge the
+        # two sets of trajectories.
+        with gfile.GFile(shard_path, "rb") as f:
+          self._trajectory_buffer = pickle.load(f) + self._trajectory_buffer
       with gfile.GFile(shard_path, "wb") as f:
         pickle.dump(self._trajectory_buffer, f)
       self._trajectory_buffer = []

@@ -76,6 +76,7 @@ class PPO(base_trainer.BaseTrainer):
       n_evals=1,
       len_history_for_policy=4,
       eval_temperatures=(1.0, 0.5),
+      **kwargs
   ):
     """Creates the PPO trainer.
 
@@ -110,12 +111,13 @@ class PPO(base_trainer.BaseTrainer):
       len_history_for_policy: How much of history to give to the policy.
       eval_temperatures: Sequence of temperatures to try for categorical
         sampling during evaluation.
+      **kwargs: Additional keyword arguments passed to the base class.
     """
     # Set in base class constructor.
     self._train_env = None
     self._should_reset = None
 
-    super(PPO, self).__init__(train_env, eval_env, output_dir)
+    super(PPO, self).__init__(train_env, eval_env, output_dir, **kwargs)
 
     self._n_optimizer_steps = n_optimizer_steps
     self._print_every_optimizer_steps = print_every_optimizer_steps

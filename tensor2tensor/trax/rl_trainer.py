@@ -71,6 +71,8 @@ flags.DEFINE_integer("train_batch_size", 32,
 flags.DEFINE_integer("eval_batch_size", 4, "Batch size for evaluation.")
 flags.DEFINE_boolean("parallelize_envs", False,
                      "If true, sets parallelism to number of cpu cores.")
+flags.DEFINE_string(
+    "trajectory_dump_dir", "", "Directory to dump trajectories to.")
 
 
 # TODO(afrozm): Find a better way to do these configurations.
@@ -118,7 +120,7 @@ def make_env(name, batch_size, max_timestep, clip_rewards, rendered_env,
 
 # Not just "train" to avoid a conflict with trax.train in GIN files.
 @gin.configurable(blacklist=[
-    "output_dir", "train_batch_size", "eval_batch_size"])
+    "output_dir", "train_batch_size", "eval_batch_size", "trajectory_dump_dir"])
 def train_rl(
     output_dir,
     train_batch_size,
@@ -130,6 +132,7 @@ def train_rl(
     resize_dims=(105, 80),
     trainer_class=rl_trainers.PPO,
     n_epochs=10000,
+    trajectory_dump_dir=None,
 ):
   """Train the RL agent.
 
@@ -147,6 +150,7 @@ def train_rl(
       observations to.
     trainer_class: RLTrainer class to use.
     n_epochs: Number epochs to run the training for.
+    trajectory_dump_dir: Directory to dump trajectories to.
   """
 
   if FLAGS.jax_debug_nans:
@@ -204,6 +208,7 @@ def train_rl(
         output_dir=output_dir,
         train_env=train_env,
         eval_env=eval_env,
+        trajectory_dump_dir=trajectory_dump_dir,
     )
     trainer.training_loop(n_epochs=n_epochs)
 
@@ -225,6 +230,7 @@ def main(argv):
       output_dir=FLAGS.output_dir,
       train_batch_size=FLAGS.train_batch_size,
       eval_batch_size=FLAGS.eval_batch_size,
+      trajectory_dump_dir=(FLAGS.trajectory_dump_dir or None),
   )
 
 
