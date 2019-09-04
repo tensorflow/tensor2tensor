@@ -120,17 +120,14 @@ class Serial(base.Layer):
     self._sublayers = layers
     self._n_layers = len(layers)
 
-    if not layers:
-      self._n_inputs = 1
-      self._n_outputs = 1
-    else:
+    if layers:
       self._n_inputs, self._n_outputs = self._n_inputs_n_outputs(layers)
 
   def _ensure_flat(self, layers):
     """Ensures that layers is a single flat list of Layer instances."""
     del self
     if len(layers) == 1 and layers[0] is None:
-      layers = []
+      layers = ()
     else:
       layers = _deep_flatten(layers)
     for obj in layers:
