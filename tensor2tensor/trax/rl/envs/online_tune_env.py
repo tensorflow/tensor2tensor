@@ -62,6 +62,7 @@ class OnlineTuneEnv(gym.Env):
                env_steps=100,
                start_lr=0.001,
                max_lr=10.0,
+               observation_range=(0.0, 5.0),
                # Don't save checkpoints by default, as they tend to use a lot of
                # space.
                should_save_checkpoints=False):
@@ -94,8 +95,10 @@ class OnlineTuneEnv(gym.Env):
     # observation_metrics plus optionally the learning rate.
     observation_dim = (
         len(self._observation_metrics) + int(self._include_lr_in_observation))
+    self._observation_range = observation_range
+    (low, high) = self._observation_range
     self.observation_space = gym.spaces.Box(
-        low=float("-inf"), high=float("+inf"), shape=(observation_dim,))
+        low=low, high=high, shape=(observation_dim,))
 
   @property
   def _next_trajectory_dir(self):
@@ -127,7 +130,7 @@ class OnlineTuneEnv(gym.Env):
     metric_sequence = self._trainer.state.history.get(*metric)
     assert metric_sequence
     (_, metric_value) = metric_sequence[-1]
-    return metric_value
+    return np.clip(metric_value, *self._observation_range)
 
   @property
   def _current_observation(self):
