@@ -58,7 +58,7 @@ class BaseTrainer(object):
   def epoch(self):
     raise NotImplementedError
 
-  def train_epoch(self):
+  def train_epoch(self, evaluate=True):
     raise NotImplementedError
 
   def evaluate(self):
@@ -117,7 +117,7 @@ class BaseTrainer(object):
   def training_loop(self, n_epochs, evaluate=True):
     logging.info("Starting the RL training loop.")
     for _ in range(self.epoch, n_epochs):
-      self.train_epoch()
+      self.train_epoch(evaluate=evaluate)
       self.dump_trajectories()
     self.save()
     self.dump_trajectories(force=True)

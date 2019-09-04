@@ -76,6 +76,7 @@ class PPO(base_trainer.BaseTrainer):
       n_evals=1,
       len_history_for_policy=4,
       eval_temperatures=(1.0, 0.5),
+      separate_eval=True,
       **kwargs
   ):
     """Creates the PPO trainer.
@@ -111,6 +112,9 @@ class PPO(base_trainer.BaseTrainer):
       len_history_for_policy: How much of history to give to the policy.
       eval_temperatures: Sequence of temperatures to try for categorical
         sampling during evaluation.
+      separate_eval: Whether to run separate evaluation using a set of
+        temperatures. If False, the training reward is reported as evaluation
+        reward with temperature 1.0.
       **kwargs: Additional keyword arguments passed to the base class.
     """
     # Set in base class constructor.
@@ -134,6 +138,7 @@ class PPO(base_trainer.BaseTrainer):
     self._n_evals = n_evals
     self._len_history_for_policy = len_history_for_policy
     self._eval_temperatures = eval_temperatures
+    self._separate_eval = separate_eval
 
     assert isinstance(self.train_env.action_space, gym.spaces.Discrete)
     n_actions = self.train_env.action_space.n
@@ -210,13 +215,13 @@ class PPO(base_trainer.BaseTrainer):
   def epoch(self):
     return self._epoch
 
-  def train_epoch(self):
+  def train_epoch(self, evaluate=True):
     """Train one PPO epoch."""
     epoch_start_time = time.time()
 
     # Evaluate the policy.
     policy_eval_start_time = time.time()
-    if (self._epoch + 1) % self._eval_every_n == 0:
+    if evaluate and (self._epoch + 1) % self._eval_every_n == 0:
       self._rng, key = jax_random.split(self._rng, num=2)
       self.evaluate()
 
@@ -242,12 +247,17 @@ class PPO(base_trainer.BaseTrainer):
     logging.vlog(1, "Collecting trajectories took %0.2f msec.",
                  trajectory_collection_time)
 
-    avg_reward = float(sum(np.sum(traj[2]) for traj in trajs)) / len(trajs)
-    max_reward = max(np.sum(traj[2]) for traj in trajs)
-    min_reward = min(np.sum(traj[2]) for traj in trajs)
+    rewards = np.array([np.sum(traj[2]) for traj in trajs])
+    avg_reward = np.mean(rewards)
+    std_reward = np.std(rewards)
+    max_reward = np.max(rewards)
+    min_reward = np.min(rewards)
 
     self._train_sw.scalar(
         "train/reward_mean_truncated", avg_reward, step=self._epoch)
+    if evaluate and not self._separate_eval:
+      metrics = {"raw": {1.0: {"mean": avg_reward, "std": std_reward}}}
+      ppo.write_eval_reward_summaries(metrics, self._eval_sw, self._epoch)
 
     logging.vlog(1, "Rewards avg=[%0.2f], max=[%0.2f], min=[%0.2f], all=%s",
                  avg_reward, max_reward, min_reward,
@@ -502,6 +512,8 @@ class PPO(base_trainer.BaseTrainer):
 
   def evaluate(self):
     """Evaluate the agent."""
+    if not self._separate_eval:
+      return
     logging.vlog(1, "PPO epoch [% 6d]: evaluating policy.", self._epoch)
     self._rng, key = jax_random.split(self._rng, num=2)
     reward_stats, self._model_state = ppo.evaluate_policy(
