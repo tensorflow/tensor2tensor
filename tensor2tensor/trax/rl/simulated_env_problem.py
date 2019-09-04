@@ -415,7 +415,9 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
     observation = self._predict_obs(predict_fn, rng)
     reward = self._reward_fn(self._last_observations, observation)
     done = self._done_fn(self._last_observations, observation)
-    self._last_observations = observation
+    # Copy the last observations, so that we don't overwrite data stored in a
+    # trajectory when resetting the environment (see _reset_model).
+    self._last_observations = np.copy(observation)
     done = np.logical_or(done, self._steps == self._max_trajectory_length - 1)
     return (observation, reward, done)
 
