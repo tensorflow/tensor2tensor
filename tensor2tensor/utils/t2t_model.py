@@ -1701,12 +1701,6 @@ class T2TModel(base.Layer):
       outputs = infer_out
       scores = None
 
-    # Workaround for "ValueError: prediction values must be from the default
-    # graph" during TPU model exporting.
-    # TODO(b/130501786): remove tf.identity once default graph mismatch is fixed
-    for name, feature in features.items():
-      features[name] = tf.identity(feature)
-
     inputs = features.get("inputs")
     if inputs is None:
       inputs = features["targets"]
