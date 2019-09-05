@@ -30,14 +30,6 @@ import gin
 from tensor2tensor.trax.backend import numpy as np
 
 
-# A dictionary to memoize results of the MultifactorSchedule below.
-# We memoize because returning exactly the same function objects allows
-# later (in the training loop) to optimize re-compiling the function (for
-# running on an accelerator) only when it changes. Note that this does not
-# affect correctness, it is done purely for performance reasons.
-_memoized_multifactor_schedules = {}
-
-
 @gin.configurable(blacklist=["history"])
 def MultifactorSchedule(history=None,
                         factors="constant * linear_warmup",
@@ -66,10 +58,6 @@ def MultifactorSchedule(history=None,
   """
   del history
 
-  cache_args = (factors, constant, warmup_steps)
-  if cache_args in _memoized_multifactor_schedules:
-    return _memoized_multifactor_schedules[cache_args]
-
   factors = [n.strip() for n in factors.split("*")]
 
   def learning_rate(step):  # pylint: disable=invalid-name
@@ -88,7 +76,6 @@ def MultifactorSchedule(history=None,
         raise ValueError("Unknown factor %s." % name)
     return ret
 
-  _memoized_multifactor_schedules[cache_args] = learning_rate
   return learning_rate
 
 

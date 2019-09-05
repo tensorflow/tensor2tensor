@@ -18,7 +18,7 @@ inputs.dataset_name = 'cifar10'
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================
-EvalAdjustingSchedule.constant = 1.0
+EvalAdjustingSchedule.constant = 4.0
 MultifactorSchedule.factors = 'constant * linear_warmup'
 MultifactorSchedule.warmup_steps = 400
 
@@ -38,7 +38,7 @@ WideResnet.n_output_classes = 10
 
 # Parameters for train:
 # ==============================================================================
-train.eval_frequency = 2000
+train.eval_frequency = 200
 train.eval_steps = 10
 train.inputs = @trax.inputs.inputs
 train.model = @trax.models.WideResnet
