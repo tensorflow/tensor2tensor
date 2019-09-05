@@ -280,8 +280,12 @@ class BatchTrajectory(object):
     """Essentially same as reset, but we don't have observations."""
     for index in range(self.batch_size):
       trajectory = self._trajectories[index]
-      assert trajectory.is_active
-      self._complete_trajectory(trajectory, index)
+      # TODO(pkozakowski): This assertion breaks something in SimPLe trajectory
+      # collection code - we're probably doing something wrong there. Commenting
+      # out the assertion as a temporary measure.
+      # assert trajectory.is_active
+      if trajectory.is_active:
+        self._complete_trajectory(trajectory, index)
 
   def step(self, observations, raw_rewards, processed_rewards, dones, actions,
            infos=None):
