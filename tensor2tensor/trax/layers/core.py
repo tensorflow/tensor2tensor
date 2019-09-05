@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Trax layers library."""
 
 from __future__ import absolute_import
@@ -29,12 +30,12 @@ from tensor2tensor.trax.layers import initializers as init
 
 @base.layer()
 def Relu(x, **unused_kwargs):
-  return np.clip(x, a_min=0.)
+  return np.maximum(x, np.zeros_like(x))
 
 
 @base.layer()
 def ParametricRelu(x, a=1., **unused_kwargs):
-  return np.clip(a * x, a_min=0.)
+  return np.maximum(a * x, np.zeros_like(x))
 
 
 @base.layer()
@@ -52,6 +53,7 @@ def Selu(x,
          alpha=1.6732632423543772848170429916717,
          lmbda=1.0507009873554804934193349852946):
   return lmbda * np.where(x > 0, x, alpha * np.expm1(x))
+
 
 @base.layer()
 def Gelu(x, **unused_kwargs):

@@ -184,6 +184,7 @@ _NUMPY_BACKEND = {
     "jit": (lambda f: f),
     "random_get_prng": lambda seed: None,
     "random_split": lambda prng, num=2: (None,) * num,
+    "expit": (lambda x: 1. / (1. + onp.exp(-x))),
 }
 
 
@@ -193,6 +194,14 @@ def get_name():
 
 def logsumexp(*args, **kwargs):
   return backend()["logsumexp"](*args, **kwargs)
+
+
+def expit(*args, **kwargs):
+  return backend()["expit"](*args, **kwargs)
+
+
+def erf(*args, **kwargs):
+  return backend()["erf"](*args, **kwargs)
 
 
 def conv(*args, **kwargs):
