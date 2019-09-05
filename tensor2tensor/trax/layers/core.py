@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Trax layers library."""
 
 from __future__ import absolute_import
@@ -30,12 +29,38 @@ from tensor2tensor.trax.layers import initializers as init
 
 @base.layer()
 def Relu(x, **unused_kwargs):
-  return np.maximum(x, np.zeros_like(x))
+  return np.clip(x, a_min=0.)
+
+
+@base.layer()
+def ParametricRelu(x, a=1., **unused_kwargs):
+  return np.clip(a * x, a_min=0.)
+
+
+@base.layer()
+def LeakyRelu(x, a=0.01, **unused_kwargs):
+  return np.where(x >= 0, x, a * x)
+
+
+@base.layer()
+def Elu(x, a=1., **unused_kwargs):
+  return np.where(x > 0, x, a * np.expm1(x))
+
+
+@base.layer()
+def Selu(x,
+         alpha=1.6732632423543772848170429916717,
+         lmbda=1.0507009873554804934193349852946):
+  return lmbda * np.where(x > 0, x, alpha * np.expm1(x))
+
+@base.layer()
+def Gelu(x, **unused_kwargs):
+  return x * backend.erf(x)
 
 
 @base.layer()
 def Sigmoid(x, **unused_kwargs):
-  return 1. / (1. + np.exp(-x))
+  return backend.expit(x)
 
 
 @base.layer()
@@ -87,7 +112,8 @@ def ToFloat(x, **unused_kwargs):
 class Dense(base.Layer):
   """Layer constructor function for a dense (fully-connected) layer."""
 
-  def __init__(self, n_units,
+  def __init__(self,
+               n_units,
                kernel_initializer=init.GlorotUniformInitializer(),
                bias_initializer=init.RandomNormalInitializer(1e-6)):
     super(Dense, self).__init__()
@@ -111,7 +137,9 @@ class Dense(base.Layer):
 class Embedding(base.Layer):
   """Layer constructor function for an embedding layer."""
 
-  def __init__(self, d_feature, vocab_size,
+  def __init__(self,
+               d_feature,
+               vocab_size,
                kernel_initializer=init.GlorotUniformInitializer()):
     super(Embedding, self).__init__()
     self._d_feature = d_feature  # feature dimensionality
@@ -124,8 +152,8 @@ class Embedding(base.Layer):
 
   def new_parameters(self, input_shape, input_dtype, rng):
     del input_dtype
-    return self._kernel_initializer(
-        (self._vocab_size, self._d_feature), rng), ()
+    return self._kernel_initializer((self._vocab_size, self._d_feature),
+                                    rng), ()
 
 
 # Flatten.
@@ -133,9 +161,8 @@ class Embedding(base.Layer):
 def Flatten(x, params, n_axes_to_keep=1, **kwargs):
   del params, kwargs
   if n_axes_to_keep >= len(x.shape):
-    raise ValueError(
-        "n_axes_to_keep[%d] should be less than input's rank[%d]" %
-        (n_axes_to_keep, len(x.shape)))
+    raise ValueError("n_axes_to_keep[%d] should be less than input's rank[%d]" %
+                     (n_axes_to_keep, len(x.shape)))
   return np.reshape(x, (x.shape[:n_axes_to_keep] + (-1,)))
 
 

@@ -74,5 +74,53 @@ class InitializersTest(absltest.TestCase):
     self.assertEqual(tuple(init_value.shape), input_shape)
 
 
+  def test_random_uniform(self):
+    initializer = initializers.RandomUniformInitializer()
+    input_shape = (29, 5, 7, 20)
+    init_value = initializer(input_shape, random.get_prng(0))
+    self.assertEqual(tuple(init_value.shape), input_shape)
+
+  def test_glorot_normal(self):
+    initializer = initializers.GlorotNormalInitializer()
+    input_shape = (29, 5, 7, 20)
+    init_value = initializer(input_shape, random.get_prng(0))
+    self.assertEqual(tuple(init_value.shape), input_shape)
+
+
+  def test_glorot_uniform(self):
+    initializer = initializers.GlorotUniformInitializer()
+    input_shape = (29, 5, 7, 20)
+    init_value = initializer(input_shape, random.get_prng(0))
+    self.assertEqual(tuple(init_value.shape), input_shape)
+
+
+  def test_lecun_normal(self):
+    initializer = initializers.LeCunNormalInitializer()
+    input_shape = (29, 5, 7, 20)
+    init_value = initializer(input_shape, random.get_prng(0))
+    self.assertEqual(tuple(init_value.shape), input_shape)
+
+
+  def test_lecun_uniform(self):
+    initializer = initializers.LeCunUniformInitializer()
+    input_shape = (29, 5, 7, 20)
+    init_value = initializer(input_shape, random.get_prng(0))
+    self.assertEqual(tuple(init_value.shape), input_shape)
+
+
+  def test_kaiming_normal(self):
+    initializer = initializers.KaimingNormalInitializer()
+    input_shape = (29, 5, 7, 20)
+    init_value = initializer(input_shape, random.get_prng(0))
+    self.assertEqual(tuple(init_value.shape), input_shape)
+
+
+  def test_kaiming_uniform(self):
+    initializer = initializers.KaimingUniformInitializer()
+    input_shape = (29, 5, 7, 20)
+    init_value = initializer(input_shape, random.get_prng(0))
+    self.assertEqual(tuple(init_value.shape), input_shape)
+
+
 if __name__ == "__main__":
   absltest.main()
