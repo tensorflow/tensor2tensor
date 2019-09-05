@@ -54,12 +54,6 @@ OnlineTuneEnv.start_lr = 0.01
 OnlineTuneEnv.train_steps = 500
 OnlineTuneEnv.eval_steps = 50
 OnlineTuneEnv.env_steps = 100
-OnlineTuneEnv.observation_metrics = [
-    ("train", "metrics/accuracy"),
-    ("train", "metrics/loss"),
-    ("eval", "metrics/accuracy"),
-    ("eval", "metrics/loss"),
-]
 
 # Parameters for PPO:
 # ==============================================================================

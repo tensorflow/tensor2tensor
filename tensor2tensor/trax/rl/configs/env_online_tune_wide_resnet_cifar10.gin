@@ -39,9 +39,3 @@ OnlineTuneEnv.start_lr = 0.01
 OnlineTuneEnv.train_steps = 100
 OnlineTuneEnv.eval_steps = 10
 OnlineTuneEnv.env_steps = 100
-OnlineTuneEnv.observation_metrics = [
-    ("train", "metrics/accuracy"),
-    ("train", "metrics/loss"),
-    ("eval", "metrics/accuracy"),
-    ("eval", "metrics/loss"),
-]

@@ -488,3 +488,23 @@ def acrobot_done_fn(previous_observation, current_observation):
 def acrobot_reward_fn(previous_observation, current_observation):
   done = acrobot_done_fn(previous_observation, current_observation)
   return -1.0 + done  # -1 reward for every timestep until the end.
+
+
+def onlinetune_done_fn(previous_observation, current_observation):
+  del previous_observation
+  del current_observation
+  # Never return "done" from the environment, rely on max_trajectory_length
+  # instead.
+  return False
+
+
+def onlinetune_reward_fn(
+    previous_observation,
+    current_observation,
+    # 2 is the evaluation accuracy metric in the default settings of
+    # OnlineTuneEnv.
+    dim_index=2,
+):
+  prev = previous_observation[:, dim_index]
+  cur = current_observation[:, dim_index]
+  return cur - prev

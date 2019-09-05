@@ -54,7 +54,12 @@ class OnlineTuneEnv(gym.Env):
                optimizer=trax_opt.SM3,
                inputs=trax_inputs.inputs,
                action_multipliers=None,
-               observation_metrics=(("eval", "metrics/accuracy"),),
+               observation_metrics=(
+                   ("train", "metrics/accuracy"),
+                   ("train", "metrics/loss"),
+                   ("eval", "metrics/accuracy"),
+                   ("eval", "metrics/loss"),
+               ),
                include_lr_in_observation=False,
                reward_metric=("eval", "metrics/accuracy"),
                train_steps=100,
