@@ -22,12 +22,12 @@ Momentum.mass = 0.9
 
 # Parameters for shuffle_and_batch_data:
 # ==============================================================================
-shuffle_and_batch_data.preprocess_fun = @trax.inputs.cifar10_no_augmentation_preprocess
+shuffle_and_batch_data.preprocess_fun = @trax.inputs.cifar10_augmentation_preprocess
 
 # Parameters for WideResnet:
 # ==============================================================================
 WideResnet.widen_factor = 10
-WideResnet.n_blocks = 3
+WideResnet.n_blocks = 4
 WideResnet.n_output_classes = 10
 
 # Parameters for OnlineTuneEnv:

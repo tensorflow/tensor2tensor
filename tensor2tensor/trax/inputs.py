@@ -373,6 +373,39 @@ def cifar10_no_augmentation_preprocess(dataset, training):
   return dataset
 
 
+@gin.configurable(blacklist=["dataset", "training"])
+def cifar10_augmentation_preprocess(dataset, training):
+  """Preprocessing for cifar10 with augmentation (see below)."""
+
+  def augment_image(image):
+    """Image augmentation suitable for CIFAR-10/100.
+
+    As described in https://arxiv.org/pdf/1608.06993v3.pdf (page 5).
+
+    Args:
+      image: a Tensor.
+    Returns:
+      Tensor of the same shape as image.
+    """
+    image = tf.image.resize_image_with_crop_or_pad(image, 40, 40)
+    image = tf.random_crop(image, [32, 32, 3])
+    image = tf.image.random_flip_left_right(image)
+    return image
+
+  def augment(features, targets):
+    features["image"] = augment_image(features["image"])
+    return features, targets
+
+  def cast_image(features, targets):
+    features["image"] = tf.cast(features["image"], tf.float32) / 255.0
+    return features, targets
+
+  if training:
+    dataset = dataset.map(augment)
+  dataset = dataset.map(cast_image)
+  return dataset
+
+
 def no_preprocess(dataset, training):
   del training
   return dataset
