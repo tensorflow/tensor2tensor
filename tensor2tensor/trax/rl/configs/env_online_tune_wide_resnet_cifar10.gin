@@ -16,6 +16,11 @@ batch_fun.eval_batch_size = 512
 inputs.data_dir = None
 inputs.dataset_name = 'cifar10'
 
+# Parameters for train_and_eval_dataset:
+# ==============================================================================
+train_and_eval_dataset.eval_holdout_size = 0.05
+train_and_eval_dataset.eval_shuffle_files = True
+
 # Parameters for Momentum:
 # ==============================================================================
 Momentum.mass = 0.9
