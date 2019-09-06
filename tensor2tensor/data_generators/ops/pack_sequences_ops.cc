@@ -50,16 +50,16 @@ class PackSequences2Op : public OpKernel {
     int n = inputs.dimension(0);
     std::vector<int> inputs_lengths(n);
     std::vector<int> targets_lengths(n);
-    int padded_inputs_length = min(static_cast<int>(inputs.dimension(1)),
-                                   inputs_max_length);
+    int padded_inputs_length =
+        std::min(static_cast<int>(inputs.dimension(1)), inputs_max_length);
     for (int i = 0; i < n; i++) {
       for (int j = 0; j < padded_inputs_length; j++) {
           if (inputs(i, j) != 0)
             inputs_lengths[i]++;
       }
     }
-    int padded_targets_length = min(static_cast<int>(targets.dimension(1)),
-                                    targets_max_length);
+    int padded_targets_length =
+        std::min(static_cast<int>(targets.dimension(1)), targets_max_length);
     for (int i = 0; i < n; i++) {
       for (int j = 0; j < padded_targets_length; j++) {
           if (targets(i, j) != 0)
@@ -73,7 +73,8 @@ class PackSequences2Op : public OpKernel {
     for (int seq_id = 0; seq_id < n; seq_id++) {
       int inputs_length = inputs_lengths[seq_id];
       int targets_length = targets_lengths[seq_id];
-      for (int combined_id = max(0, num_combined - 10); true; combined_id++) {
+      for (int combined_id = std::max(0, num_combined - 10); true;
+           combined_id++) {
         if (combined_id == num_combined) {
           combined_inputs_length.push_back(inputs_length);
           combined_targets_length.push_back(targets_length);
