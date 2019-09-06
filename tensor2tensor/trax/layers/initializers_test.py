@@ -73,6 +73,11 @@ class InitializersTest(absltest.TestCase):
     init_value = initializer(input_shape, random.get_prng(0))
     self.assertEqual(tuple(init_value.shape), input_shape)
 
+  def test_orthogonal(self):
+    initializer = initializers.OrthogonalInitializer()
+    input_shape = (29, 5, 7, 20)
+    init_value = initializer(input_shape, random.get_prng(0))
+    self.assertEqual(tuple(init_value.shape), input_shape)
 
 if __name__ == "__main__":
   absltest.main()
