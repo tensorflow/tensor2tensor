@@ -499,8 +499,12 @@ def shuffle_and_batch_data(dataset,
       targets[name] = example[name]
     return (example, targets)
   dataset = dataset.map(append_targets)
+  # TODO(pkozakowski): Repeat both the training and evaluation set, so we don't
+  # have incomplete batches during evaluation. This will be a problem when we
+  # add an option to evaluate on the whole dataset, then we'll need to think of
+  # a different solution.
+  dataset = dataset.repeat()
   if training:
-    dataset = dataset.repeat()
     # Skip a random fraction at the beginning of the stream.  The skip is
     # essential for synchronous highly-parallel training to avoid multiple
     # replicas reading the same data in lock-step.
