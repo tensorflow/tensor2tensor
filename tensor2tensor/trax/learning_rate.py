@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """trax learning rate schedules.
 
 The learning rate schedules here all have the signature:
@@ -71,7 +70,7 @@ def MultifactorSchedule(history=None,
       elif name == "rsqrt_decay":
         ret /= np.sqrt(np.maximum(step, warmup_steps))
       elif name == "decay_every":
-        ret *= (decay_factor ** (step//steps_per_decay))
+        ret *= (decay_factor**(step // steps_per_decay))
       else:
         raise ValueError("Unknown factor %s." % name)
     return ret
@@ -128,3 +127,50 @@ def EvalAdjustingSchedule(history,
       steps_without_improvement = 0
 
   return MultifactorSchedule(history, constant=adjusted)
+
+
+@gin.configurable(blacklist=["history"])
+def PolynomialSchedule(history=None,
+                       learning_rate,
+                       decay_steps,
+                       end_learning_rate=0.0001,
+                       power=1.0,
+                       cycle=False):
+  """Polynomial-based learning rate schedule.
+
+  This schedule applies a polynomial decay function to an optimizer step,
+    given a provided `initial_learning_rate`, to reach an `end_learning_rate`
+    in the given `decay_steps`.
+
+  Args:
+    learning_rate: A scalar `float32` or `float64` `Tensor` or a
+        Python number.  The initial learning rate.
+      decay_steps: A scalar `int32` or `int64` `Tensor` or a Python number.
+        Must be positive.  See the decay computation above.
+      end_learning_rate: A scalar `float32` or `float64` `Tensor` or a
+        Python number.  The minimal end learning rate.
+      power: A scalar `float32` or `float64` `Tensor` or a
+        Python number.  The power of the polynomial. Defaults to linear, 1.0.
+      cycle: A boolean, whether or not it should cycle beyond decay_steps.
+
+  Returns:
+    a function learning_rate(step): float -> float, the step-dependent lr.
+  """
+  del history
+
+  def learning_rate(step):  # pylint: disable=invalid-name
+    """Step to learning rate function."""
+    step_fl = step.astype(np.float32)
+    decay_steps_fl = decay_steps.astype(np.float32)
+
+    if cycle:
+      multiplier = 1.0 if step == 0 else np.ceil(step / decay_steps)
+      decay_steps_fl *= multiplier
+    else:
+      step_fl = np.min(step_fl, decay_steps)
+
+    p = step_fl / decay_steps_fl
+    return (learning_rate - end_learning_rate) * np.power(
+        1. - p, power) + end_learning_rate
+
+  return learning_rate
