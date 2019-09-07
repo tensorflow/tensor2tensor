@@ -210,3 +210,160 @@ def PolynomialSchedule(history=None,
         1. - p, power) + end_learning_rate
 
   return learning_rate
+
+
+@gin.configurable(blacklist=["history"])
+def PiecewiseConstantSchedule(history=None,
+                              boundaries,
+                              values):
+  """Piecewise constant from boundaries and interval values schedule.
+
+  This schedule applies a polynomial decay function to an optimizer step,
+    given a provided `initial_learning_rate`, to reach an `end_learning_rate`
+    in the given `decay_steps`.
+
+  Args:
+    boundaries: A list of `Tensor`s or `int`s or `float`s with strictly
+    increasing entries, and with all elements having the same type as the
+    optimizer step.
+    values: A list of `Tensor`s or `float`s or `int`s that specifies the
+    values for the intervals defined by `boundaries`. It should have one
+    more element than `boundaries`, and all elements should have the same
+    type.
+
+  Returns:
+    a function learning_rate(step): float -> float, the step-dependent lr.
+  """
+  del history
+
+  def learning_rate(step):  # pylint: disable=invalid-name
+    """Step to learning rate function."""
+    step_fl = step.astype(np.float32)
+
+    pos = np.searchsorted(boundaries, step)
+    pos = np.minimun(pos, len(boundaries) - 1)
+    return values[pos]
+
+  return learning_rate
+
+
+@gin.configurable(blacklist=["history"])
+def InverseTimeDecaySchedule(history=None,
+                             initial_learning_rate,
+                             decay_steps,
+                             decay_rate,
+                             staircase=False):
+  """Applies inverse time decay schedule.
+
+  This schedule applies a polynomial decay function to an optimizer step,
+    given a provided `initial_learning_rate`, to reach an `end_learning_rate`
+    in the given `decay_steps`.
+
+  Args:
+    initial_learning_rate: A scalar `float32` or `float64` `Tensor` or a
+        Python number.  The initial learning rate.
+    decay_steps: How often to apply decay.
+    decay_rate: A Python number.  The decay rate.
+    staircase: Whether to apply decay in a discrete staircase, as opposed to
+        continuous, fashion.
+
+  Returns:
+    a function learning_rate(step): float -> float, the step-dependent lr.
+  """
+  del history
+
+  def learning_rate(step):  # pylint: disable=invalid-name
+    """Step to learning rate function."""
+    step_fl = step.astype(np.float32)
+    p = step_fl / decay_steps
+    if staircase:
+      p = np.floor(p)
+
+    denom = 1. + decay_rate * p
+
+    return initial_learning_rate / denom
+
+  return learning_rate
+
+
+@gin.configurable(blacklist=["history"])
+def CosineDecaySchedule(history=None,
+                        initial_learning_rate,
+                        decay_steps,
+                        alpha=0.0):
+  """Applies cosine decay schedule.
+
+  See [Loshchilov & Hutter, ICLR2016], SGDR: Stochastic Gradient Descent
+  with Warm Restarts. https://arxiv.org/abs/1608.03983
+
+  Args:
+    initial_learning_rate: A scalar `float32` or `float64` Tensor or a
+        Python number. The initial learning rate.
+      decay_steps: A scalar `int32` or `int64` `Tensor` or a Python number.
+        Number of steps to decay over.
+      alpha: A scalar `float32` or `float64` Tensor or a Python number.
+        Minimum learning rate value as a fraction of initial_learning_rate.
+
+  Returns:
+    a function learning_rate(step): float -> float, the step-dependent lr.
+  """
+  del history
+
+  def learning_rate(step):  # pylint: disable=invalid-name
+    """Step to learning rate function."""
+    step_fl = np.minimun(step_fl, decay_steps)
+    step_fl = step.astype(np.float32)
+
+    p = step_fl / decay_steps
+    cosine_decayed = 0.5 * (1. + np.cos(p * np.pi))
+    decayed = (1. - alpha) * cosine_decayed + alpha
+    return decayed * initial_learning_rate
+
+  return learning_rate
+
+
+@gin.configurable(blacklist=["history"])
+def CosineDecayRestartsSchedule(history=None,
+                                initial_learning_rate,
+                                first_decay_steps,
+                                t_mul=2.0,
+                                m_mul=1.0,
+                                alpha=0.0):
+  """Applies cosine decay with restarts schedule.
+
+  See [Loshchilov & Hutter, ICLR2016], SGDR: Stochastic Gradient Descent
+  with Warm Restarts. https://arxiv.org/abs/1608.03983
+
+  The learning rate multiplier first decays
+  from 1 to `alpha` for `first_decay_steps` steps. Then, a warm
+  restart is performed. Each new warm restart runs for `t_mul` times more
+  steps and with `m_mul` times smaller initial learning rate.
+
+  Args:
+    initial_learning_rate: A scalar `float32` or `float64` Tensor or a Python
+        number. The initial learning rate.
+      first_decay_steps: A scalar `int32` or `int64` `Tensor` or a Python
+        number. Number of steps to decay over.
+      t_mul: A scalar `float32` or `float64` `Tensor` or a Python number.
+        Used to derive the number of iterations in the i-th period
+      m_mul: A scalar `float32` or `float64` `Tensor` or a Python number.
+        Used to derive the initial learning rate of the i-th period:
+      alpha: A scalar `float32` or `float64` Tensor or a Python number.
+        Minimum learning rate value as a fraction of the initial_learning_rate.
+
+  Returns:
+    a function learning_rate(step): float -> float, the step-dependent lr.
+  """
+  del history
+
+  def learning_rate(step):  # pylint: disable=invalid-name
+    """Step to learning rate function."""
+    step_fl = np.minimun(step_fl, decay_steps)
+    step_fl = step.astype(np.float32)
+
+    p = step_fl / decay_steps
+    cosine_decayed = 0.5 * (1. + np.cos(p * np.pi))
+    decayed = (1. - alpha) * cosine_decayed + alpha
+    return decayed * initial_learning_rate
+
+  return learning_rate
