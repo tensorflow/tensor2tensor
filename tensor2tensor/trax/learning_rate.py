@@ -139,13 +139,20 @@ def ExponentialDecaySchedule(history,
                              staircase=False):
   """Applies exponential decay to the learning rate.
 
+  It is computed as:
+    ```python
+    def decayed_learning_rate(step):
+      return initial_learning_rate * decay_rate ^ (step / decay_steps)
+    ```
+    If the argument `staircase` is `True`, then `step / decay_steps` is
+    an integer division and the decayed learning rate follows a
+    staircase function.
+
   Args:
-   initial_learning_rate: A scalar `float32` or `float64` `Tensor` or a
-        Python number.  The initial learning rate.
-   decay_steps: A scalar `int32` or `int64` `Tensor` or a Python number.
-        Must be positive.  See the decay computation above.
-   decay_rate: A scalar `float32` or `float64` `Tensor` or a
-        Python number.  The decay rate.
+   initial_learning_rate: A scalar `float32`. The initial learning rate.
+   decay_steps: A scalar `int32` or `int64` Must be positive.
+   See the decay computation above.
+   decay_rate: A scalar `float32` or `float64`. The decay rate.
    staircase: Boolean.  If `True` decay the learning rate at discrete
         intervals
 
@@ -179,16 +186,35 @@ def PolynomialSchedule(history,
     given a provided `initial_learning_rate`, to reach an `end_learning_rate`
     in the given `decay_steps`.
 
+   It is computed as:
+    ```python
+    def decayed_learning_rate(step):
+      step = min(step, decay_steps)
+      return ((initial_learning_rate - end_learning_rate) *
+              (1 - step / decay_steps) ^ (power)
+             ) + end_learning_rate
+    ```
+    If `cycle` is True then a multiple of `decay_steps` is used, the first one
+    that is bigger than `step`.
+    ```python
+    def decayed_learning_rate(step):
+      decay_steps = decay_steps * ceil(step / decay_steps)
+      return ((initial_learning_rate - end_learning_rate) *
+              (1 - step / decay_steps) ^ (power)
+             ) + end_learning_rate
+    ```
+
+
   Args:
-    learning_rate: A scalar `float32` or `float64` `Tensor` or a
-        Python number.  The initial learning rate.
-      decay_steps: A scalar `int32` or `int64` `Tensor` or a Python number.
-        Must be positive.  See the decay computation above.
-      end_learning_rate: A scalar `float32` or `float64` `Tensor` or a
-        Python number.  The minimal end learning rate.
-      power: A scalar `float32` or `float64` `Tensor` or a
-        Python number.  The power of the polynomial. Defaults to linear, 1.0.
-      cycle: A boolean, whether or not it should cycle beyond decay_steps.
+    learning_rate: A scalar `float32` or `float64`.
+     The initial learning rate.
+    decay_steps: A scalar `int32` or `int64`. Must be positive.
+    See the decay computation above.
+    end_learning_rate: A scalar `float32` or `float64`.
+    The minimal end learning rate.
+    power: A scalar `float32` or `float64`.
+    The power of the polynomial. Defaults to linear, 1.0.
+    cycle: A boolean, whether or not it should cycle beyond decay_steps.
 
   Returns:
     a function learning_rate(step): float -> float, the step-dependent lr.
@@ -217,15 +243,14 @@ def PolynomialSchedule(history,
 def PiecewiseConstantSchedule(history, boundaries, values):
   """Piecewise constant from boundaries and interval values schedule.
 
-  This schedule applies a polynomial decay function to an optimizer step,
-    given a provided `initial_learning_rate`, to reach an `end_learning_rate`
-    in the given `decay_steps`.
+ Example: use a learning rate that's 1.0 for the first 100001 steps, 0.5
+      for the next 10000 steps, and 0.1 for any additional steps.
 
   Args:
-    boundaries: A list of `Tensor`s or `int`s or `float`s with strictly
+    boundaries: A list of `int`s or `float`s with strictly
     increasing entries, and with all elements having the same type as the
     optimizer step.
-    values: A list of `Tensor`s or `float`s or `int`s that specifies the
+    values: A list of `float`s or `int`s that specifies the
     values for the intervals defined by `boundaries`. It should have one
     more element than `boundaries`, and all elements should have the same
     type.
@@ -240,7 +265,6 @@ def PiecewiseConstantSchedule(history, boundaries, values):
     step_fl = step.astype(np.float32)
 
     pos = onp.searchsorted(boundaries, step_fl)
-    pos = np.minimun(pos, len(boundaries) - 1)
     return values[pos]
 
   return learning_rate
@@ -258,9 +282,20 @@ def InverseTimeDecaySchedule(history,
     given a provided `initial_learning_rate`, to reach an `end_learning_rate`
     in the given `decay_steps`.
 
+  It is computed as:
+    ```python
+    def decayed_learning_rate(step):
+      return initial_learning_rate / (1 + decay_rate * step / decay_step)
+    ```
+    or, if `staircase` is `True`, as:
+    ```python
+    def decayed_learning_rate(step):
+      return initial_learning_rate / (1 + decay_rate * floor(step / decay_step))
+    ```
+
   Args:
-    initial_learning_rate: A scalar `float32` or `float64` `Tensor` or a
-        Python number.  The initial learning rate.
+    initial_learning_rate: A scalar `float32` or `float64`.
+    The initial learning rate.
     decay_steps: How often to apply decay.
     decay_rate: A Python number.  The decay rate.
     staircase: Whether to apply decay in a discrete staircase, as opposed to
@@ -292,13 +327,23 @@ def CosineDecaySchedule(history, initial_learning_rate, decay_steps, alpha=0.0):
   See [Loshchilov & Hutter, ICLR2016], SGDR: Stochastic Gradient Descent
   with Warm Restarts. https://arxiv.org/abs/1608.03983
 
+  It is computed as:
+  ```python
+    def decayed_learning_rate(step):
+      step = min(step, decay_steps)
+      cosine_decay = 0.5 * (1 + cos(pi * step / decay_steps))
+      decayed = (1 - alpha) * cosine_decay + alpha
+      return initial_learning_rate * decayed
+  ```
+
+
   Args:
-    initial_learning_rate: A scalar `float32` or `float64` Tensor or a
-        Python number. The initial learning rate.
-      decay_steps: A scalar `int32` or `int64` `Tensor` or a Python number.
-        Number of steps to decay over.
-      alpha: A scalar `float32` or `float64` Tensor or a Python number.
-        Minimum learning rate value as a fraction of initial_learning_rate.
+    initial_learning_rate: A scalar `float32` or `float64`.
+    The initial learning rate.
+    decay_steps: A scalar `int32` or `int64`.
+    Number of steps to decay over.
+    alpha: A scalar `float32` or `float64`.
+    Minimum learning rate value as a fraction of initial_learning_rate.
 
   Returns:
     a function learning_rate(step): float -> float, the step-dependent lr.
@@ -336,16 +381,16 @@ def CosineDecayRestartsSchedule(history,
   steps and with `m_mul` times smaller initial learning rate.
 
   Args:
-    initial_learning_rate: A scalar `float32` or `float64` Tensor or a Python
-        number. The initial learning rate.
-      first_decay_steps: A scalar `int32` or `int64` `Tensor` or a Python
-        number. Number of steps to decay over.
-      t_mul: A scalar `float32` or `float64` `Tensor` or a Python number.
-        Used to derive the number of iterations in the i-th period
-      m_mul: A scalar `float32` or `float64` `Tensor` or a Python number.
-        Used to derive the initial learning rate of the i-th period:
-      alpha: A scalar `float32` or `float64` Tensor or a Python number.
-        Minimum learning rate value as a fraction of the initial_learning_rate.
+    initial_learning_rate: A scalar `float32` or `float64`.
+    The initial learning rate.
+    first_decay_steps: A scalar `int32` or `int64`.
+    Number of steps to decay over.
+    t_mul: A scalar `float32` or `float64`.
+    Used to derive the number of iterations in the i-th period
+    m_mul: A scalar `float32` or `float64`.
+    Used to derive the initial learning rate of the i-th period:
+    alpha: A scalar `float32` or `float64`.
+    Minimum learning rate value as a fraction of the initial_learning_rate.
 
   Returns:
     a function learning_rate(step): float -> float, the step-dependent lr.
@@ -394,15 +439,27 @@ def LinearCosineDecaySchedule(history,
     Note that linear cosine decay is more aggressive than cosine decay and
     larger initial learning rates can typically be used.
 
+    It is computed as:
+    ```python
+        def decayed_learning_rate(step):
+          step = min(step, decay_steps)
+          linear_decay = (decay_steps - step) / decay_steps
+          cosine_decay = 0.5 * (
+              1 + cos(pi * 2 * num_periods * step / decay_steps))
+          decayed = (alpha + linear_decay) * cosine_decay + beta
+          return initial_learning_rate * decayed
+    ```
+
+
   Args:
-    initial_learning_rate: A scalar `float32` or `float64` Tensor or a Python
-        number. The initial learning rate.
-      decay_steps: A scalar `int32` or `int64` `Tensor` or a Python number.
-        Number of steps to decay over.
-      num_periods: Number of periods in the cosine part of the decay.
-        See computation above.
-      alpha: See computation above.
-      beta: See computation above.
+    initial_learning_rate: A scalar `float32` or `float64`.
+    The initial learning rate.
+    decay_steps: A scalar `int32` or `int64`.
+    Number of steps to decay over.
+    num_periods: Number of periods in the cosine part of the decay.
+    See computation above.
+    alpha: See computation above.
+    beta: See computation above.
 
   Returns:
     a function learning_rate(step): float -> float, the step-dependent lr.
@@ -447,18 +504,30 @@ def NoisyLinearCosineDecaySchedule(history,
     Note that linear cosine decay is more aggressive than cosine decay and
     larger initial learning rates can typically be used.
 
+     ```python
+        def decayed_learning_rate(step):
+          step = min(step, decay_steps)
+          linear_decay = (decay_steps - step) / decay_steps)
+          cosine_decay = 0.5 * (
+              1 + cos(pi * 2 * num_periods * step / decay_steps))
+          decayed = (alpha + linear_decay + eps_t) * cosine_decay + beta
+          return initial_learning_rate * decayed
+    ```
+    where eps_t is 0-centered gaussian noise with variance
+    initial_variance / (1 + global_step) ** variance_decay
+
   Args:
-    initial_learning_rate: A scalar `float32` or `float64` Tensor or a Python
-        number. The initial learning rate.
-      decay_steps: A scalar `int32` or `int64` `Tensor` or a Python number.
-        Number of steps to decay over.
-      initial_variance: initial variance for the noise. See computation above.
-      variance_decay: decay for the noise's variance. See computation above.
-      num_periods: Number of periods in the cosine part of the decay.
-        See computation above.
-      alpha: See computation above.
-      beta: See computation above.
-      rng: Key for random number generation
+    initial_learning_rate: A scalar `float32` or `float64`.
+    The initial learning rate.
+    decay_steps: A scalar `int32` or `int64`.
+    Number of steps to decay over.
+    initial_variance: initial variance for the noise. See computation above.
+    variance_decay: decay for the noise's variance. See computation above.
+    num_periods: Number of periods in the cosine part of the decay.
+    See computation above.
+    alpha: See computation above.
+    beta: See computation above.
+    rng: Key for random number generation
 
   Returns:
     a function learning_rate(step): float -> float, the step-dependent lr.
