@@ -131,10 +131,10 @@ def EvalAdjustingSchedule(history,
 
 @gin.configurable(blacklist=["history"])
 def ExponentialDecaySchedule(history=None,
-                        initial_learning_rate,
-                        decay_steps,
-                        decay_rate,
-                        staircase=False):
+                             initial_learning_rate,
+                             decay_steps,
+                             decay_rate,
+                             staircase=False):
   """Applies exponential decay to the learning rate.
 
   Args:
@@ -162,7 +162,6 @@ def ExponentialDecaySchedule(history=None,
     return initial_learning_rate * np.power(decay_rate, p)
 
   return learning_rate
-
 
 
 @gin.configurable(blacklist=["history"])
@@ -213,9 +212,7 @@ def PolynomialSchedule(history=None,
 
 
 @gin.configurable(blacklist=["history"])
-def PiecewiseConstantSchedule(history=None,
-                              boundaries,
-                              values):
+def PiecewiseConstantSchedule(history=None, boundaries, values):
   """Piecewise constant from boundaries and interval values schedule.
 
   This schedule applies a polynomial decay function to an optimizer step,
@@ -311,8 +308,8 @@ def CosineDecaySchedule(history=None,
 
   def learning_rate(step):  # pylint: disable=invalid-name
     """Step to learning rate function."""
-    step_fl = np.minimun(step_fl, decay_steps)
     step_fl = step.astype(np.float32)
+    step_fl = np.minimun(step_fl, decay_steps)
 
     p = step_fl / decay_steps
     cosine_decayed = 0.5 * (1. + np.cos(p * np.pi))
@@ -358,11 +355,21 @@ def CosineDecayRestartsSchedule(history=None,
 
   def learning_rate(step):  # pylint: disable=invalid-name
     """Step to learning rate function."""
-    step_fl = np.minimun(step_fl, decay_steps)
     step_fl = step.astype(np.float32)
+    completed_fraction = step_fl / first_decay_steps
 
-    p = step_fl / decay_steps
-    cosine_decayed = 0.5 * (1. + np.cos(p * np.pi))
+    if t_mul == 1.0:
+      i_restart = np.floor(completed_fraction)
+      completed_fraction -= i_restart
+    else:
+      i_restart = np.log(1. - completed_fraction * (1. - t_mul) / np.log(t_mul))
+      i_restart = np.floor(i_restart)
+      sum_r = (1. - np.power(t_mul, i_restart)) / (1. - t_mul)
+      completed_fraction = (completed_fraction - sum_r) / np.power(
+          t_mul, i_restart)
+
+    m_fac = np.power(m_mul, i_restart)
+    cosine_decayed = 0.5 * m_fac * (1. + np.cos(completed_fraction * np.pi))
     decayed = (1. - alpha) * cosine_decayed + alpha
     return decayed * initial_learning_rate
 
