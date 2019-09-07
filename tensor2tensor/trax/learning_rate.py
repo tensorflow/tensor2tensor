@@ -26,7 +26,8 @@ from __future__ import division
 from __future__ import print_function
 
 import gin
-import tensor2tensor.trax.backend.random
+import numpy as onp
+import tensor2tensor.trax.backend.random as random
 from tensor2tensor.trax.backend import numpy as np
 
 
@@ -131,7 +132,7 @@ def EvalAdjustingSchedule(history,
 
 
 @gin.configurable(blacklist=["history"])
-def ExponentialDecaySchedule(history=None,
+def ExponentialDecaySchedule(history,
                              initial_learning_rate,
                              decay_steps,
                              decay_rate,
@@ -166,7 +167,7 @@ def ExponentialDecaySchedule(history=None,
 
 
 @gin.configurable(blacklist=["history"])
-def PolynomialSchedule(history=None,
+def PolynomialSchedule(history,
                        initial_learning_rate,
                        decay_steps,
                        end_learning_rate=0.0001,
@@ -213,7 +214,7 @@ def PolynomialSchedule(history=None,
 
 
 @gin.configurable(blacklist=["history"])
-def PiecewiseConstantSchedule(history=None, boundaries, values):
+def PiecewiseConstantSchedule(history, boundaries, values):
   """Piecewise constant from boundaries and interval values schedule.
 
   This schedule applies a polynomial decay function to an optimizer step,
@@ -238,7 +239,7 @@ def PiecewiseConstantSchedule(history=None, boundaries, values):
     """Step to learning rate function."""
     step_fl = step.astype(np.float32)
 
-    pos = np.searchsorted(boundaries, step)
+    pos = onp.searchsorted(boundaries, step_fl)
     pos = np.minimun(pos, len(boundaries) - 1)
     return values[pos]
 
@@ -246,7 +247,7 @@ def PiecewiseConstantSchedule(history=None, boundaries, values):
 
 
 @gin.configurable(blacklist=["history"])
-def InverseTimeDecaySchedule(history=None,
+def InverseTimeDecaySchedule(history,
                              initial_learning_rate,
                              decay_steps,
                              decay_rate,
@@ -285,10 +286,7 @@ def InverseTimeDecaySchedule(history=None,
 
 
 @gin.configurable(blacklist=["history"])
-def CosineDecaySchedule(history=None,
-                        initial_learning_rate,
-                        decay_steps,
-                        alpha=0.0):
+def CosineDecaySchedule(history, initial_learning_rate, decay_steps, alpha=0.0):
   """Applies cosine decay schedule.
 
   See [Loshchilov & Hutter, ICLR2016], SGDR: Stochastic Gradient Descent
@@ -321,7 +319,7 @@ def CosineDecaySchedule(history=None,
 
 
 @gin.configurable(blacklist=["history"])
-def CosineDecayRestartsSchedule(history=None,
+def CosineDecayRestartsSchedule(history,
                                 initial_learning_rate,
                                 first_decay_steps,
                                 t_mul=2.0,
@@ -378,7 +376,7 @@ def CosineDecayRestartsSchedule(history=None,
 
 
 @gin.configurable(blacklist=["history"])
-def LinearCosineDecaySchedule(history=None,
+def LinearCosineDecaySchedule(history,
                               initial_learning_rate,
                               decay_steps,
                               num_periods=0.5,
@@ -428,7 +426,7 @@ def LinearCosineDecaySchedule(history=None,
 
 
 @gin.configurable(blacklist=["history"])
-def NoisyLinearCosineDecaySchedule(history=None,
+def NoisyLinearCosineDecaySchedule(history,
                                    initial_learning_rate,
                                    decay_steps,
                                    initial_variance=1.0,
@@ -436,7 +434,7 @@ def NoisyLinearCosineDecaySchedule(history=None,
                                    num_periods=0.5,
                                    alpha=0.0,
                                    beta=0.001,
-                                   seed=0):
+                                   rng=None):
   """Applies noisy linear cosine decay schedule.
 
     See [Bello et al., ICML2017] Neural Optimizer Search with RL.
@@ -460,14 +458,12 @@ def NoisyLinearCosineDecaySchedule(history=None,
         See computation above.
       alpha: See computation above.
       beta: See computation above.
-      seed: Random seed for key
+      rng: Key for random number generation
 
   Returns:
     a function learning_rate(step): float -> float, the step-dependent lr.
   """
   del history
-
-  key = random.get_prng(seed)
 
   def learning_rate(step):  # pylint: disable=invalid-name
     """Step to learning rate function."""
@@ -475,12 +471,11 @@ def NoisyLinearCosineDecaySchedule(history=None,
     step_fl = np.minimun(step_fl, decay_steps)
 
     variance = initial_variance / (np.power(1. + step_fl, variance_decay))
-    std = np.sqrt(varaiance)
+    std = np.sqrt(variance)
 
     linear_decayed = (decay_steps - step_fl) / decay_steps
-    key, _ = random.split(key)
     noisy_linear_decayed = linear_decayed + random.random_normal(
-        key, shape=linear_decayed.shape) * std
+        rng, shape=linear_decayed.shape) * std
 
     completed_fraction = step_fl / decay_steps
     fraction = 2. * num_periods * completed_fraction
@@ -488,6 +483,6 @@ def NoisyLinearCosineDecaySchedule(history=None,
     cosine_decayed = 0.5 * (1. + np.cos(fraction * np.pi))
     noisy_linear_cosine_decayed = (alpha +
                                    noisy_linear_decayed) * cosine_decayed + beta
-    return linear_cosine_decayed * noisy_initial_learning_rate
+    return noisy_linear_cosine_decayed * initial_learning_rate
 
   return learning_rate
