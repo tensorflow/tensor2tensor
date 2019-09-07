@@ -32,7 +32,7 @@ from tensor2tensor.trax.backend import numpy as np
 
 @gin.configurable(blacklist=["history"])
 def MultifactorSchedule(history=None,
-                        factors="constant * linear_warmup",
+                        factors="constant * linear_warmup * rsqrt_decay",
                         constant=0.1,
                         warmup_steps=400,
                         decay_factor=0.5,

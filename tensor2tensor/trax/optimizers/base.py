@@ -347,7 +347,8 @@ class Adafactor(Optimizer):
       updates.append(new_m)
 
     new_params = (1 - weight_decay_rate) * params - subtrahend
-    return new_params, updates
+    # TODO(lukaszkaiser): why is the astype needed here? Check and correct.
+    return new_params.astype(params.dtype), updates
 
 
 class SM3(Optimizer):
