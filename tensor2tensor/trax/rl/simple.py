@@ -97,8 +97,10 @@ def batch_stream(stream, batch_size):
 
 # TODO(pkozakowski): This is mostly a simplified version of
 # env_problem_utils.play_env_problem_with_policy, generalized to work with
-# policies not being neural networks. Unify if possible.
-def play_env_problem(env, policy):
+# policies not being neural networks. Another difference is that it always
+# collects exactly one trajectory from each environment in the batch. Unify if
+# possible.
+def play_env_problem(env, policy_fn):
   """Plays an EnvProblem using a given policy function."""
   trajectories = [trajectory.Trajectory() for _ in range(env.batch_size)]
   observations = env.reset()
@@ -109,7 +111,7 @@ def play_env_problem(env, policy):
   while not np.all(done_so_far):
     padded_observations, _ = env.trajectories.observations_np(
         len_history_for_policy=None)
-    actions = policy(padded_observations)
+    actions = policy_fn(padded_observations)
     (observations, rewards, dones, _) = env.step(actions)
     for (traj, observation, action, reward, done) in zip(
         trajectories, observations, actions, rewards, dones
@@ -125,19 +127,22 @@ def play_env_problem(env, policy):
 
 def calculate_observation_error(real_trajectories, sim_trajectories):
   """Calculates MSE of observations in two trajectories."""
-  def padded_obs(traj, length_difference):
-    return np.pad(
-        traj.observations_np,
-        pad_width=((0, max(length_difference, 0)), (0, 0)),
-        mode="edge",
-    )
+  def pad_or_truncate(observations, desired_length):
+    (current_length, _) = observations.shape
+    if current_length < desired_length:
+      return np.pad(
+          observations,
+          pad_width=((0, desired_length - current_length), (0, 0)),
+          mode="edge",
+      )
+    else:
+      return observations[:desired_length, :]
 
   def calculate_for_single_pair(real_trajectory, sim_trajectory):
-    diff = sim_trajectory.num_time_steps - real_trajectory.num_time_steps
-    padded_real_obs = padded_obs(real_trajectory, diff)
-    padded_sim_obs = padded_obs(sim_trajectory, -diff)
-    x = np.sum((padded_real_obs - padded_sim_obs) ** 2, axis=0)
-    return x
+    real_obs = real_trajectory.observations_np
+    sim_obs = pad_or_truncate(
+        sim_trajectory.observations_np, real_trajectory.num_time_steps)
+    return np.sum((real_obs - sim_obs) ** 2, axis=0)
 
   return np.mean([
       calculate_for_single_pair(real_traj, sim_traj)
@@ -162,8 +167,38 @@ def plot_observation_error(real_trajectories, sim_trajectories, mpl_plt):
       for (traj, label) in ((real_traj, "real"), (sim_traj, "simulated")):
         obs = traj.observations_np
         ax = axes[dim_index, traj_index]
+        ax.set_title("trajectory {}, observation dimension {}".format(
+            traj_index, dim_index))
         ax.plot(np.arange(obs.shape[0]), obs[:, dim_index], label=label)
         ax.legend()
+
+
+class ReplayPolicy(object):
+  """Policy function repeating actions from a given batch of trajectories."""
+
+  def __init__(self, trajectories, out_of_bounds_action):
+    """Creates ReplayPolicy.
+
+    Args:
+      trajectories: Batch of trajectories to repeat actions from.
+      out_of_bounds_action: Action to play after the replayed trajectory ends.
+    """
+    self._trajectories = trajectories
+    self._out_of_bounds_action = out_of_bounds_action
+    self._step = 0
+
+  def __call__(self, observations):
+    del observations
+
+    def get_action(traj):
+      if self._step < traj.num_time_steps:
+        action = traj.time_steps[self._step].action
+      else:
+        action = None
+      return action or self._out_of_bounds_action
+    actions = np.array(list(map(get_action, self._trajectories)))
+    self._step += 1
+    return actions
 
 
 def evaluate_model(sim_env, real_trajectories, mpl_plt, n_to_plot=3):
@@ -177,19 +212,14 @@ def evaluate_model(sim_env, real_trajectories, mpl_plt, n_to_plot=3):
 
   assert len(real_trajectories) == sim_env.batch_size
 
-  step = [0]
-  def policy(observations):
-    del observations
-    def get_action(traj):
-      if step[0] < traj.num_time_steps:
-        return traj.time_steps[step[0]].action or 0
-      else:
-        return 0
-    actions = np.array([get_action(traj) for traj in real_trajectories])
-    step[0] += 1
-    return actions
+  policy_fn = ReplayPolicy(
+      real_trajectories,
+      # Does not matter which action we play after the real trajetory ends, we
+      # cut the simulated one to match the real one anyway.
+      out_of_bounds_action=sim_env.action_space.sample(),
+  )
 
-  sim_trajectories = play_env_problem(sim_env, policy)
+  sim_trajectories = play_env_problem(sim_env, policy_fn)
   obs_errors = calculate_observation_error(real_trajectories, sim_trajectories)
   plot_observation_error(
       real_trajectories[:n_to_plot], sim_trajectories[:n_to_plot], mpl_plt)
