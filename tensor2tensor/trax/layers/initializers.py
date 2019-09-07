@@ -134,3 +134,40 @@ def KaimingUniformInitializer(out_dim=-1, in_dim=-2, param=0.):
   return VarianceScalingInitializer(out_dim, in_dim,
                                     2.0 / backend.numpy.sqrt(1 + param**2),
                                     'fan_in', 'uniform')
+
+
+def OrthogonalInitializer(stddev=1.0):
+  """Orthogonal Initializer."""
+  def Init(shape, rng):
+    """The orthogonal initializer function."""
+    # Have at least 2 elements in shape.
+    cur_shape = list(shape)
+    while len(cur_shape) < 2:
+      cur_shape = [1] + cur_shape
+
+    # Flatten the input shape with the last dimension remaining.
+    n_rows = 1
+    for dim in cur_shape[:-1]:
+      n_rows *= dim
+    n_cols = cur_shape[-1]
+    flat_shape = (n_cols, n_rows) if n_rows < n_cols else (n_rows, n_cols)
+
+    # Generate a random matrix
+    a = backend.random.normal(rng, flat_shape, dtype=backend.numpy.float32)
+
+    # Compute the qr factorization
+    q, r = backend.numpy.linalg.qr(a)
+
+    # Make Q uniform
+    d = backend.numpy.diag(r)
+    q *= backend.numpy.sign(d)
+
+    # Transpose and reshape back q if needed.
+    if n_rows < n_cols:
+      q = backend.numpy.transpose(q)
+    q = backend.numpy.reshape(q, shape)
+
+    # Return scaled as requested.
+    return stddev * q
+
+  return Init
