@@ -130,8 +130,44 @@ def EvalAdjustingSchedule(history,
 
 
 @gin.configurable(blacklist=["history"])
+def ExponentialDecaySchedule(history=None,
+                        initial_learning_rate,
+                        decay_steps,
+                        decay_rate,
+                        staircase=False):
+  """Applies exponential decay to the learning rate.
+
+  Args:
+   initial_learning_rate: A scalar `float32` or `float64` `Tensor` or a
+        Python number.  The initial learning rate.
+   decay_steps: A scalar `int32` or `int64` `Tensor` or a Python number.
+        Must be positive.  See the decay computation above.
+   decay_rate: A scalar `float32` or `float64` `Tensor` or a
+        Python number.  The decay rate.
+   staircase: Boolean.  If `True` decay the learning rate at discrete
+        intervals
+
+  Returns:
+    a function learning_rate(step): float -> float, the step-dependent lr.
+  """
+  del history
+
+  def learning_rate(step):  # pylint: disable=invalid-name
+    """Step to learning rate function."""
+    p = step.astype(np.float32)
+    p /= decay_steps
+
+    if staircase:
+      p = np.floor(p)
+    return initial_learning_rate * np.power(decay_rate, p)
+
+  return learning_rate
+
+
+
+@gin.configurable(blacklist=["history"])
 def PolynomialSchedule(history=None,
-                       learning_rate,
+                       initial_learning_rate,
                        decay_steps,
                        end_learning_rate=0.0001,
                        power=1.0,
@@ -170,7 +206,7 @@ def PolynomialSchedule(history=None,
       step_fl = np.min(step_fl, decay_steps)
 
     p = step_fl / decay_steps_fl
-    return (learning_rate - end_learning_rate) * np.power(
+    return (initial_learning_rate - end_learning_rate) * np.power(
         1. - p, power) + end_learning_rate
 
   return learning_rate
