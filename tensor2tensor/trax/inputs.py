@@ -22,6 +22,7 @@ from __future__ import print_function
 import collections
 import os
 import random
+import tempfile
 
 import gin
 import numpy as onp
@@ -68,7 +69,8 @@ def inputs(n_devices, dataset_name, data_dir=None, input_name=None,
     n_devices: how many devices to build the inputs for.
     dataset_name: a TFDS or T2T dataset name. If it's a T2T dataset name, prefix
       with "t2t_".
-    data_dir: data directory.
+    data_dir: data directory.  Environment variables are expanded in this
+      string.  Defaults to $TMPDIR/trax.
     input_name: optional, name of the inputs from the dictionary.
     n_chunks: optional, into how many pieces should we chunk (large inputs).
     append_targets: optional, instead of inputs return a pair (inputs, targets)
@@ -77,8 +79,10 @@ def inputs(n_devices, dataset_name, data_dir=None, input_name=None,
   Returns:
     trax.inputs.Inputs
   """
-  assert data_dir, 'Must provide a data directory'
-  data_dir = os.path.expanduser(data_dir)
+  if data_dir:
+    data_dir = os.path.expandvars(os.path.expanduser(data_dir))
+  else:
+    data_dir = os.path.join(tempfile.gettempdir())
 
   (train_batches, train_eval_batches, eval_batches,
    input_name, input_shape, input_dtype) = _train_and_eval_batches(
