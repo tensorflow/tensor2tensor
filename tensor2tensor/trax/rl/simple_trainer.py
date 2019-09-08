@@ -149,12 +149,7 @@ class SimPLe(base_trainer.BaseTrainer):
     trax.train(
         model=self._sim_env.model,
         inputs=inputs,
-        # TODO(pkozakowski): Currently trax.train trains the model for
-        # train_steps more steps, whereas it should train up to train_steps
-        # total steps in order for the restarts to work properly. Change the
-        # argument once this behavior is changed.
-        # train_steps=self._model_train_step,
-        train_steps=self._n_model_train_steps,
+        train_steps=self._model_train_step,
         output_dir=self._model_dir,
         has_weights=True,
     )

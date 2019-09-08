@@ -358,28 +358,36 @@ def get_random_number_generator_and_set_seed(seed=None):
 # * Allow disabling eval
 
 
-def epochs(steps=None, epoch_steps=1):
-  """Iterator over epochs until steps is reached. 1-indexed.
+def epochs(total_steps, steps_to_skip, epoch_steps):
+  """Generates the number of steps in each epoch before reaching total_steps.
 
   Args:
-    steps: int, total number of steps. Infinite if None.
-    epoch_steps: int, number of steps per epoch. Can also be an iterable<int> to
-      enable variable length epochs.
+    total_steps: int, total number of steps.
+    steps_to_skip: int, number of steps to skip because of a restart.
+    epoch_steps: iterable of int, numbers of steps in each epoch.
 
   Yields:
-    (epoch: int, epoch id, epoch_steps: int, number of steps in this epoch)
+    epoch_steps: int, number of steps in this epoch
   """
-  try:
-    iter(epoch_steps)
-  except TypeError:
-    epoch_steps = itertools.repeat(epoch_steps)
+  steps_to_go = total_steps - steps_to_skip
+  epoch_steps = iter(epoch_steps)
 
-  step = 0
-  for epoch, epoch_steps in enumerate(epoch_steps):
-    epoch_steps = min(epoch_steps, steps - step)
-    yield (epoch + 1, epoch_steps)
-    step += epoch_steps
-    if steps and step >= steps:
+  # Remove the desired number of steps from the stream.
+  for steps_this_epoch in epoch_steps:
+    if steps_this_epoch > steps_to_skip:
+      # Put back the number of steps left in the unfinished epoch.
+      epoch_steps = itertools.chain(
+          [steps_this_epoch - steps_to_skip], epoch_steps)
+    if steps_this_epoch >= steps_to_skip:
+      break
+    steps_to_skip -= steps_this_epoch
+
+  # Yield the remaining steps per epoch up to total_steps.
+  for steps_this_epoch in epoch_steps:
+    steps_this_epoch = min(steps_this_epoch, steps_to_go)
+    yield steps_this_epoch
+    steps_to_go -= steps_this_epoch
+    if steps_to_go == 0:
       break
 
 
@@ -885,7 +893,7 @@ def train(output_dir,
   step_log(trainer.step,
            "Starting training using %d devices" % trainer.n_devices)
 
-  for _, epoch_steps in epochs(train_steps, epoch_steps):
+  for epoch_steps in epochs(train_steps, trainer.step, epoch_steps):
     trainer.train_epoch(epoch_steps, eval_steps)
 
     # Update learning rate with new history
