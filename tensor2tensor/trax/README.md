@@ -42,7 +42,7 @@ python -m tensor2tensor.trax.trainer \
 
 ```
 python -m tensor2tensor.trax.trainer \
-  --config_file=$PWD/trax/configs/resnet50_imagenet_8gb.gin
+  --config_file=$PWD/tensor2tensor/trax/configs/resnet50_imagenet_8gb.gin
 ```
 
 #### TransformerDecoder on LM1B
@@ -50,7 +50,7 @@ python -m tensor2tensor.trax.trainer \
 
 ```
 python -m tensor2tensor.trax.trainer \
-  --config_file=$PWD/trax/configs/transformer_lm1b_8gb.gin
+  --config_file=$PWD/tensor2tensor/trax/configs/transformer_lm1b_8gb.gin
 ```
 
 ### How `trax` differs from T2T
