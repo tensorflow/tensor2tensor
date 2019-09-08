@@ -13,7 +13,6 @@ batch_fun.eval_batch_size = 32
 
 # Parameters for inputs:
 # ==============================================================================
-inputs.data_dir = None
 inputs.dataset_name = 't2t_image_imagenet224'
 
 # Parameters for MultifactorSchedule:

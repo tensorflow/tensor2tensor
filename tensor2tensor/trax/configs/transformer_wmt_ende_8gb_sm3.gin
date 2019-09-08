@@ -12,7 +12,6 @@ batch_fun.buckets_include_inputs_in_length=True
 
 # Parameters for inputs:
 # ==============================================================================
-inputs.data_dir = None
 inputs.dataset_name = 't2t_translate_ende_wmt32k'
 inputs.append_targets = True
 

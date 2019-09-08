@@ -11,7 +11,6 @@ batch_fun.max_eval_length = 512
 
 # Parameters for inputs:
 # ==============================================================================
-inputs.data_dir = None
 inputs.dataset_name = 't2t_languagemodel_lm1b32k'
 inputs.input_name = 'targets'
 
