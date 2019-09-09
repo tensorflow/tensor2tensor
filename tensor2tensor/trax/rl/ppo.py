@@ -824,13 +824,11 @@ def maybe_restore_opt_state(output_dir, policy_and_value_opt_state,
     policy_and_value_state: state of the policy and value network.
 
   Returns:
-    tuple (restored (bool), opt_state, state, epoch (int),
-    opt_step (int)) where epoch is the epoch from which we restored the
-    optimization state, 0 is restored = False, and opt_step is the total
-    optimization step (sum of all optimization steps made up to the current
-    epoch).
+    tuple (opt_state, state, epoch (int), opt_step (int)) where epoch is the
+    epoch from which we restored the optimization state, 0 if no checkpoint was
+    found, and opt_step is the total optimization step (sum of all optimization
+    steps made up to the current epoch).
   """
-  restored = False
   epoch = 0
   total_opt_step = 0
   model_files = gfile.glob(os.path.join(output_dir, "model-??????.pkl"))
@@ -841,7 +839,6 @@ def maybe_restore_opt_state(output_dir, policy_and_value_opt_state,
         policy_and_value_opt_state, policy_and_value_state, total_opt_step = (
             pickle.load(f))
       model_file_basename = os.path.basename(model_file)  # model-??????.pkl
-      restored = True
       epoch = int(filter(str.isdigit, model_file_basename))
       break
     except EOFError as e:
@@ -849,7 +846,7 @@ def maybe_restore_opt_state(output_dir, policy_and_value_opt_state,
       # Try an older version.
       continue
   return (
-      restored, policy_and_value_opt_state, policy_and_value_state, epoch,
+      policy_and_value_opt_state, policy_and_value_state, epoch,
       total_opt_step,
   )
 

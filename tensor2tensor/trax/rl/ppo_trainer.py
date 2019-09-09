@@ -72,6 +72,7 @@ class PPO(base_trainer.BaseTrainer):
       c1=1.0,
       c2=0.01,
       eval_every_n=1000,
+      save_every_n=1000,
       done_frac_for_policy_save=0.5,
       n_evals=1,
       len_history_for_policy=4,
@@ -106,6 +107,7 @@ class PPO(base_trainer.BaseTrainer):
       c1: Value loss coefficient.
       c2: Entropy loss coefficient.
       eval_every_n: How frequently to eval the policy.
+      save_every_n: How frequently to save the policy.
       done_frac_for_policy_save: Fraction of the trajectories that should be
         done to checkpoint the policy.
       n_evals: Number of times to evaluate.
@@ -134,6 +136,7 @@ class PPO(base_trainer.BaseTrainer):
     self._c1 = c1
     self._c2 = c2
     self._eval_every_n = eval_every_n
+    self._save_every_n = save_every_n
     self._done_frac_for_policy_save = done_frac_for_policy_save
     self._n_evals = n_evals
     self._len_history_for_policy = len_history_for_policy
@@ -170,15 +173,13 @@ class PPO(base_trainer.BaseTrainer):
          policy_and_value_optimizer, policy_and_value_net_params)
 
     # Maybe restore the optimization state. If there is nothing to restore, then
-    # iteration = 0 and policy_and_value_opt_state is returned as is.
-    (restored, self._policy_and_value_opt_state, self._model_state, self._epoch,
+    # epoch = 0 and policy_and_value_opt_state is returned as is.
+    (self._policy_and_value_opt_state, self._model_state, self._epoch,
      self._total_opt_step) = ppo.maybe_restore_opt_state(
          output_dir, policy_and_value_opt_state, self._model_state)
 
-    if restored:
-      logging.info("Restored parameters from iteration [%d]", self._epoch)
-      # We should start from the next iteration.
-      self._epoch += 1
+    if self._epoch > 0:
+      logging.info("Restored parameters from epoch [%d]", self._epoch)
 
     # Create summary writers and history.
     self._train_sw = jaxboard.SummaryWriter(
@@ -455,28 +456,32 @@ class PPO(base_trainer.BaseTrainer):
     for (name, value) in summaries.items():
       self._train_sw.scalar("train/{}".format(name), value, step=self._epoch)
 
-    # Save parameters every time we see the end of at least a fraction of batch
-    # number of trajectories that are done (not completed -- completed includes
-    # truncated and done).
-    # Also don't save too frequently, enforce a minimum gap.
-    # Or if this is the last iteration.
-    policy_save_start_time = time.time()
-    self._n_trajectories_done += n_done
-    # TODO(afrozm): Refactor to trax.save_state.
-    if ((self._n_trajectories_done >=
-         self._done_frac_for_policy_save * self.train_env.batch_size) and
-        (self._epoch - self._last_saved_at > self._eval_every_n) and
-        (((self._epoch + 1) % self._eval_every_n == 0))):
-      self.save()
-    policy_save_time = ppo.get_time(policy_save_start_time)
-
-    epoch_time = ppo.get_time(epoch_start_time)
-
     logging.info(
         "PPO epoch [% 6d], Reward[min, max, avg] [%5.2f,%5.2f,%5.2f], Combined"
         " Loss(ppo, value, entropy) [%2.5f(%2.5f,%2.5f,%2.5f)]", self._epoch,
         min_reward, max_reward, avg_reward, combined_loss, ppo_loss, value_loss,
         entropy_bonus)
+
+    # Bump the epoch counter before saving a checkpoint, so that a call to
+    # save() after the training loop is a no-op if a checkpoint was saved last
+    # epoch - otherwise it would bump the epoch counter on the checkpoint.
+    last_epoch = self._epoch
+    self._epoch += 1
+
+    # Save parameters every time we see the end of at least a fraction of batch
+    # number of trajectories that are done (not completed -- completed includes
+    # truncated and done).
+    # Also don't save too frequently, enforce a minimum gap.
+    policy_save_start_time = time.time()
+    self._n_trajectories_done += n_done
+    # TODO(afrozm): Refactor to trax.save_state.
+    if (self._n_trajectories_done >=
+        self._done_frac_for_policy_save * self.train_env.batch_size and
+        self._epoch % self._save_every_n == 0):
+      self.save()
+    policy_save_time = ppo.get_time(policy_save_start_time)
+
+    epoch_time = ppo.get_time(epoch_start_time)
 
     timing_dict = {
         "epoch": epoch_time,
@@ -492,7 +497,7 @@ class PPO(base_trainer.BaseTrainer):
     timing_dict.update(timing_info)
 
     for k, v in timing_dict.items():
-      self._timing_sw.scalar("timing/%s" % k, v, step=self._epoch)
+      self._timing_sw.scalar("timing/%s" % k, v, step=last_epoch)
 
     max_key_len = max(len(k) for k in timing_dict)
     timing_info_list = [
@@ -500,14 +505,12 @@ class PPO(base_trainer.BaseTrainer):
         for k, v in sorted(timing_dict.items())
     ]
     logging.info(
-        "PPO epoch [% 6d], Timings: \n%s", self._epoch,
+        "PPO epoch [% 6d], Timings: \n%s", last_epoch,
         "\n".join(timing_info_list)
     )
 
-    self._epoch += 1
-
     # Flush summary writers once in a while.
-    if (self._epoch + 1) % 1000 == 0:
+    if self._epoch % 1000 == 0:
       self.flush_summaries()
 
   def evaluate(self):
@@ -540,7 +543,8 @@ class PPO(base_trainer.BaseTrainer):
            self._total_opt_step), f)
     # Remove the old model files.
     for path in old_model_files:
-      gfile.remove(path)
+      if path != params_file:
+        gfile.remove(path)
     # Reset this number.
     self._n_trajectories_done = 0
     self._last_saved_at = self._epoch

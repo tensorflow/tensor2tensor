@@ -80,6 +80,7 @@ class PpoTrainerTest(test.TestCase):
         output_dir=output_dir,
         random_seed=0,
         boundary=2,
+        save_every_n=1,
     )
 
   def test_training_loop_cartpole(self):
@@ -224,6 +225,7 @@ class PpoTrainerTest(test.TestCase):
       )
       self.assertEqual(trainer.epoch, 0)
       trainer.training_loop(n_epochs=1)
+      self.assertEqual(trainer.epoch, 1)
 
       # Restore from the saved state.
       trainer = self._make_trainer(
@@ -231,12 +233,10 @@ class PpoTrainerTest(test.TestCase):
           eval_env=eval_env,
           output_dir=output_dir,
       )
-      # This is 2 instead of 1 because epoch calculation is a little weird right
-      # now.
-      # TODO(pkozakowski): Fix.
-      self.assertEqual(trainer.epoch, 2)
+      self.assertEqual(trainer.epoch, 1)
       # Check that we can continue training from the restored checkpoint.
-      trainer.training_loop(n_epochs=3)
+      trainer.training_loop(n_epochs=2)
+      self.assertEqual(trainer.epoch, 2)
 
 
 if __name__ == "__main__":
