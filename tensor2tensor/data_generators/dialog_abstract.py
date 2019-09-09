@@ -105,7 +105,6 @@ class DialogAbstract(text_problems.Text2TextProblem):
   def url(self):
     return ''
 
-  ''' Setter methods for the string properties. '''
   @data_dir.setter
   def data_dir(self, value):
     self._data_dir = value
@@ -146,16 +145,16 @@ class DialogAbstract(text_problems.Text2TextProblem):
     '''
 
     # Build the source and target paths.
-    sourcePath = os.path.join(self._data_dir, train_mode + 'Source.txt')
-    targetPath = os.path.join(self._data_dir, train_mode + 'Target.txt')
+    sourcepath = os.path.join(self._data_dir, train_mode + 'Source.txt')
+    targetpath = os.path.join(self._data_dir, train_mode + 'Target.txt')
 
     # If raw data dir doesn't exist, create it.
     if not os.path.exists(self._raw_data_dir):
       os.makedirs(self._raw_data_dir)
 
     # Check whether sourcePath.txt exists.
-    if (os.path.isfile(sourcePath) and os.path.isfile(targetPath) and
-            os.path.isfile(os.path.join(self._data_dir, self.vocab_file))):
+    if (os.path.isfile(sourcepath) and os.path.isfile(targetpath) and
+        os.path.isfile(os.path.join(self._data_dir, self.vocab_file))):
       print('problem_log: Source, target and vocab files exist in ' +
             self._data_dir + ', proceeding with data generation. ' +
             'If you want to rebuild these files, delete them first.')
@@ -275,8 +274,8 @@ class DialogAbstract(text_problems.Text2TextProblem):
                     problem.DatasetSplit.TEST: self.test_filepaths}
 
     split_paths = [(split['split'], filepath_fns[split['split']](
-      data_dir, split['shards'], shuffled=self.already_shuffled))
-      for split in self.dataset_splits]
+        data_dir, split['shards'], shuffled=self.already_shuffled))
+                   for split in self.dataset_splits]
     all_paths = []
     for _, paths in split_paths:
       all_paths.extend(paths)
@@ -313,12 +312,12 @@ class DialogAbstract(text_problems.Text2TextProblem):
     print('problem_log: ' +
           self.mode[data_split] + ' data generation activated.')
 
-    sPath = os.path.join(data_dir, self.mode[data_split] + 'Source.txt')
-    tPath = os.path.join(data_dir, self.mode[data_split] + 'Target.txt')
+    s_path = os.path.join(data_dir, self.mode[data_split] + 'Source.txt')
+    t_path = os.path.join(data_dir, self.mode[data_split] + 'Target.txt')
 
     # Open the files and yield source-target lines.
-    with tf.gfile.GFile(sPath, mode='r') as source_file:
-      with tf.gfile.GFile(tPath, mode='r') as target_file:
+    with tf.gfile.GFile(s_path, mode='r') as source_file:
+      with tf.gfile.GFile(t_path, mode='r') as target_file:
         source, target = source_file.readline(), target_file.readline()
         while source and target:
           yield {'inputs': source.strip(), 'targets': target.strip()}
@@ -343,15 +342,15 @@ class DialogAbstract(text_problems.Text2TextProblem):
 
   # Open the 6 files to write the processed data into.
   def open_6_files(self):
-    trainSource = open(os.path.join(self._data_dir, 'trainSource.txt'), 'w')
-    trainTarget = open(os.path.join(self._data_dir, 'trainTarget.txt'), 'w')
-    devSource = open(os.path.join(self._data_dir, 'devSource.txt'), 'w')
-    devTarget = open(os.path.join(self._data_dir, 'devTarget.txt'), 'w')
-    testSource = open(os.path.join(self._data_dir, 'testSource.txt'), 'w')
-    testTarget = open(os.path.join(self._data_dir, 'testTarget.txt'), 'w')
+    trainsource = open(os.path.join(self._data_dir, 'trainSource.txt'), 'w')
+    traintarget = open(os.path.join(self._data_dir, 'trainTarget.txt'), 'w')
+    devsource = open(os.path.join(self._data_dir, 'devSource.txt'), 'w')
+    devtarget = open(os.path.join(self._data_dir, 'devTarget.txt'), 'w')
+    testsource = open(os.path.join(self._data_dir, 'testSource.txt'), 'w')
+    testtarget = open(os.path.join(self._data_dir, 'testTarget.txt'), 'w')
 
-    return trainSource, trainTarget, devSource, \
-        devTarget, testSource, testTarget
+    return trainsource, traintarget, devsource, \
+        devtarget, testsource, testtarget
 
   # Close the 6 files to write the processed data into.
   def close_n_files(self, files):

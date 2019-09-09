@@ -49,7 +49,7 @@ class DialogDailydialog16k(dialog_abstract.DialogAbstract):
     '''
 
     # Open the 6 files.
-    trainSource, trainTarget, devSource, devTarget, testSource, testTarget = \
+    trainsource, traintarget, devsource, devtarget, testsource, testtarget = \
         self.open_6_files()
 
     # Open the raw data.
@@ -71,15 +71,15 @@ class DialogDailydialog16k(dialog_abstract.DialogAbstract):
 
       # Check which file we should write to.
       if dataset_split_counter <= self.dataset_split['train']:
-        source_file = trainSource
-        target_file = trainTarget
+        source_file = trainsource
+        target_file = traintarget
       elif dataset_split_counter <= (self.dataset_split['train'] +
                                      self.dataset_split['val']):
-        source_file = devSource
-        target_file = devTarget
+        source_file = devsource
+        target_file = devtarget
       else:
-        source_file = testSource
-        target_file = testTarget
+        source_file = testsource
+        target_file = testtarget
 
       # Clean the utterances.
       i = 0
@@ -110,16 +110,16 @@ class DialogDailydialog16k(dialog_abstract.DialogAbstract):
 
       # Check if we reached the desired dataset size.
       if (self.targeted_dataset_size != 0 and
-              self.targeted_dataset_size < line_counter):
+          self.targeted_dataset_size < line_counter):
         break
 
     # Close the files.
-    self.close_n_files([trainSource,
-                       trainTarget,
-                       devSource,
-                       devTarget,
-                       testSource,
-                       testTarget])
+    self.close_n_files([trainsource,
+                        traintarget,
+                        devsource,
+                        devtarget,
+                        testsource,
+                        testtarget])
     dialogs.close()
 
     # Save the vocabulary.

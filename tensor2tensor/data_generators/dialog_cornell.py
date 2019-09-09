@@ -55,7 +55,7 @@ class DialogCornell32k(dialog_abstract.DialogAbstract):
     '''
 
     # Open the 6 files.
-    trainSource, trainTarget, devSource, devTarget, testSource, testTarget = \
+    trainsource, traintarget, devsource, devtarget, testsource, testtarget = \
         self.open_6_files()
 
     # Open the raw data.
@@ -82,7 +82,7 @@ class DialogCornell32k(dialog_abstract.DialogAbstract):
       number_of_lines += 1
       # Check if we reached the desired dataset size.
       if (self.targeted_dataset_size != 0 and
-              self.targeted_dataset_size < number_of_lines):
+          self.targeted_dataset_size < number_of_lines):
         break
 
     counter = 0
@@ -99,7 +99,7 @@ class DialogCornell32k(dialog_abstract.DialogAbstract):
       for utterance in dialog:
         if (utterance != dialog[-1] and
             dialog[i + 1] != 'L211194' and
-                dialog[i + 1] != 'L1045'):
+            dialog[i + 1] != 'L1045'):
           source_line = line_dict[utterance] + '\n'
           target_line = line_dict[dialog[i + 1]] + '\n'
 
@@ -108,21 +108,18 @@ class DialogCornell32k(dialog_abstract.DialogAbstract):
             # Build vocabulary.
             words = source_line.split()
             for word in words:
-              if word in vocabulary:
-                vocabulary[word] += 1
-              else:
-                vocabulary[word] = 1
+              vocabulary[word] = vocabulary.get(word, 0) + 1
 
-            trainSource.write(source_line)
-            trainTarget.write(target_line)
+            trainsource.write(source_line)
+            traintarget.write(target_line)
 
           elif dataset_split_counter <= (self.dataset_split['train'] +
                                          self.dataset_split['val']):
-            devSource.write(source_line)
-            devTarget.write(target_line)
+            devsource.write(source_line)
+            devtarget.write(target_line)
           else:
-            testSource.write(source_line)
-            testTarget.write(target_line)
+            testsource.write(source_line)
+            testtarget.write(target_line)
         i += 1
 
       # Reset the split counter if we reached 100%.
@@ -131,12 +128,12 @@ class DialogCornell32k(dialog_abstract.DialogAbstract):
       counter += 1
 
     # Close the files.
-    self.close_n_files([trainSource,
-                       trainTarget,
-                       devSource,
-                       devTarget,
-                       testSource,
-                       testTarget])
+    self.close_n_files([trainsource,
+                        traintarget,
+                        devsource,
+                        devtarget,
+                        testsource,
+                        testtarget])
     movie_lines.close()
 
     # Save the vocabulary.

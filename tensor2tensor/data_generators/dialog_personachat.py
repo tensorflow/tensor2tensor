@@ -75,7 +75,7 @@ class DialogPersonachat16k(dialog_abstract.DialogAbstract):
     '''
 
     # Open the 6 files.
-    trainSource, trainTarget, devSource, devTarget, testSource, testTarget = \
+    trainsource, traintarget, devsource, devtarget, testsource, testtarget = \
         self.open_6_files()
 
     # Open the raw data.
@@ -113,7 +113,7 @@ class DialogPersonachat16k(dialog_abstract.DialogAbstract):
       dialog_id = line.split()[0]
       # Check if this is a refurbished line.
       if ('__SILENCE__' not in line and
-              ((dialog_silenced and dialog_id == '1') or not dialog_silenced)):
+          ((dialog_silenced and dialog_id == '1') or not dialog_silenced)):
         dialog_silenced = False
         number_of_lines += 1
 
@@ -133,7 +133,7 @@ class DialogPersonachat16k(dialog_abstract.DialogAbstract):
         dialog_silenced = True
 
       if (self.targeted_dataset_size != 0 and
-              self.targeted_dataset_size < number_of_lines):
+          self.targeted_dataset_size < number_of_lines):
         break
     dialogs.close()
 
@@ -147,15 +147,15 @@ class DialogPersonachat16k(dialog_abstract.DialogAbstract):
 
       # Check which file we should write to.
       if dataset_split_counter <= self.dataset_split['train']:
-        source_file = trainSource
-        target_file = trainTarget
+        source_file = trainsource
+        target_file = traintarget
       elif dataset_split_counter <= (self.dataset_split['train'] +
                                      self.dataset_split['val']):
-        source_file = devSource
-        target_file = devTarget
+        source_file = devsource
+        target_file = devtarget
       else:
-        source_file = testSource
-        target_file = testTarget
+        source_file = testsource
+        target_file = testtarget
 
       utterances = dialog.split('__eou__')[:-1]
       i = 0
@@ -184,11 +184,11 @@ class DialogPersonachat16k(dialog_abstract.DialogAbstract):
         dataset_split_counter = 0
 
     # Close the files.
-    self.close_n_files([trainSource,
-                        trainTarget,
-                        devSource,
-                        devTarget,
-                        testSource,
-                        testTarget])
+    self.close_n_files([trainsource,
+                        traintarget,
+                        devsource,
+                        devtarget,
+                        testsource,
+                        testtarget])
     # Save the vocabulary.
     self.save_vocab(vocabulary)

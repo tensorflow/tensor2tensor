@@ -80,7 +80,7 @@ class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
     '''
 
     # open the 6 files
-    trainSource, trainTarget, devSource, devTarget, testSource, testTarget = \
+    trainsource, traintarget, devsource, devtarget, testsource, testtarget = \
         self.open_6_files()
 
     conv_id = 0
@@ -88,7 +88,7 @@ class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
     dataset_split_counter = 0
     vocabulary = Counter()
     # Dind all the files.
-    for root, subfolders, files in os.walk(self._raw_data_dir):
+    for root, _, files in os.walk(self._raw_data_dir):
       for file in files:
         if conv_id % 100 == 0:
           print('problem_log: Parsed ' + str(conv_id) + ' files.')
@@ -109,7 +109,7 @@ class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
 
             # Check if it's a new sentence.
             if line.find('<s id="') != -1:
-              if len(words) > 0:
+              if words:
                 # Do some cleaning.
                 words = self.clean_line(words)
 
@@ -117,10 +117,7 @@ class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
                 if dataset_split_counter <= self.dataset_split['train']:
                   word_list = words.split()
                   for word in word_list:
-                    if word in vocabulary:
-                      vocabulary[word] += 1
-                    else:
-                      vocabulary[word] = 1
+                    vocabulary[word] = vocabulary.get(word, 0) + 1
 
                 # Add the previous line.
                 source_lines += words + '\n'
@@ -141,15 +138,15 @@ class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
 
         # Save the dialog according to the dataset split.
         if dataset_split_counter <= self.dataset_split['train']:
-          trainSource.write(source_lines)
-          trainTarget.write(target_lines)
+          trainsource.write(source_lines)
+          traintarget.write(target_lines)
         elif dataset_split_counter <= (self.dataset_split['train'] +
                                        self.dataset_split['val']):
-          devSource.write(source_lines)
-          devTarget.write(target_lines)
+          devsource.write(source_lines)
+          devtarget.write(target_lines)
         else:
-          testSource.write(source_lines)
-          testTarget.write(target_lines)
+          testsource.write(source_lines)
+          testtarget.write(target_lines)
 
         # Reset the split counter if we reached 100%.
         if dataset_split_counter == 100:
@@ -158,19 +155,19 @@ class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
         # Check if we reached the desired dataset size.
         number_of_lines += line_id
         if (self.targeted_dataset_size != 0 and
-                self.targeted_dataset_size < number_of_lines):
+            self.targeted_dataset_size < number_of_lines):
           break
       else:
         continue
       break
 
     # Close the files.
-    self.close_n_files([trainSource,
-                        trainTarget,
-                        devSource,
-                        devTarget,
-                        testSource,
-                        testTarget])
+    self.close_n_files([trainsource,
+                        traintarget,
+                        devsource,
+                        devtarget,
+                        testsource,
+                        testtarget])
     # Save the vocabulary.
     self.save_vocab(vocabulary)
 
