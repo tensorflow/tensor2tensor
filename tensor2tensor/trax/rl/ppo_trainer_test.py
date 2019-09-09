@@ -170,6 +170,8 @@ class PpoTrainerTest(test.TestCase):
           eval_stream=lambda: stream,
           input_shape=(history_shape[1:], action_shape[1:]),
           input_dtype=(np.float32, np.int32),
+          target_shape=(obs_shape[1:], reward_shape[1:]),
+          target_dtype=(np.float32, np.float32),
       )
 
     def loss(params, batch, model_predict, state, rng, **kwargs):

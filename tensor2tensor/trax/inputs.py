@@ -45,12 +45,14 @@ import tensorflow_datasets as tfds
 # * input_shape: the shape of inputs
 #     the [...] above, without batch size
 # * input_dtype: the data type of inputs
-
+# * target_shape: the shape of targets
+#     the [...] above, without batch size
+# * target_dtype: the data type of targets
 
 Inputs = collections.namedtuple(
     '_Inputs',
     ['train_stream', 'train_eval_stream', 'eval_stream',
-     'input_shape', 'input_dtype']
+     'input_shape', 'input_dtype', 'target_shape', 'target_dtype']
 )
 
 # How many examples from the stream to skip at random during training.
@@ -61,7 +63,7 @@ _MAX_SKIP_EXAMPLES = 1e5
 
 @gin.configurable(blacklist=['n_devices'])
 def inputs(n_devices, dataset_name, data_dir=None, input_name=None,
-           n_chunks=0, append_targets=False):
+           n_chunks=0):
   """Make Inputs for built-in datasets.
 
   Args:
@@ -71,8 +73,6 @@ def inputs(n_devices, dataset_name, data_dir=None, input_name=None,
     data_dir: data directory.
     input_name: optional, name of the inputs from the dictionary.
     n_chunks: optional, into how many pieces should we chunk (large inputs).
-    append_targets: optional, instead of inputs return a pair (inputs, targets)
-      which is useful for autoregressive models.
 
   Returns:
     trax.inputs.Inputs
@@ -81,35 +81,37 @@ def inputs(n_devices, dataset_name, data_dir=None, input_name=None,
   data_dir = os.path.expanduser(data_dir)
 
   (train_batches, train_eval_batches, eval_batches,
-   input_name, input_shape, input_dtype) = _train_and_eval_batches(
+   input_name, input_shape, input_dtype,
+   target_shape, target_dtype) = _train_and_eval_batches(
        dataset_name, data_dir, input_name, n_devices)
 
   if isinstance(input_dtype, tf.DType):
     input_dtype = input_dtype.as_numpy_dtype
+  if isinstance(target_dtype, tf.DType):
+    target_dtype = target_dtype.as_numpy_dtype
 
   if input_dtype == np.uint8:  # TPUs don't like uint8s, we cast to ints.
     input_dtype = np.int32
+  if target_dtype == np.uint8:
+    target_dtype = np.int32
 
   def numpy_stream(dataset):
-    return dataset_to_stream(
-        dataset, input_name,
-        n_chunks=n_chunks, append_targets=append_targets)
+    return dataset_to_stream(dataset, input_name, n_chunks=n_chunks)
 
   if n_chunks > 0:
     length = input_shape[0]
     input_shape = tuple(
         [tuple([length // n_chunks] + list(input_shape)[1:])] * n_chunks)
     input_dtype = tuple([input_dtype] * n_chunks)
-  if append_targets:
-    # TODO(lukaszkaiser): remove the assumption that input and target
-    # shapes are the same, which is used below for now.
-    input_shape = (input_shape, input_shape)
-    input_dtype = (input_dtype, input_dtype)
+    target_shape = tuple(
+        [tuple([length // n_chunks] + list(target_shape)[1:])] * n_chunks)
+    target_dtype = tuple([target_dtype] * n_chunks)
 
   return Inputs(train_stream=lambda: numpy_stream(train_batches),
                 train_eval_stream=lambda: numpy_stream(train_eval_batches),
                 eval_stream=lambda: numpy_stream(eval_batches),
-                input_shape=input_shape, input_dtype=input_dtype)
+                input_shape=input_shape, input_dtype=input_dtype,
+                target_shape=target_shape, target_dtype=target_dtype)
 
 
 @gin.configurable(blacklist=['n_devices'])
@@ -154,14 +156,17 @@ def random_inputs(
       yield inp, out
 
   input_shape_without_batch = list(input_shape)[1:]
+  output_shape_without_batch = list(output_shape)[1:]
   return Inputs(train_stream=random_minibatches,
                 train_eval_stream=random_minibatches,
                 eval_stream=random_minibatches,
                 input_shape=input_shape_without_batch,
-                input_dtype=input_dtype)
+                input_dtype=input_dtype,
+                target_shape=output_shape_without_batch,
+                target_dtype=output_dtype)
 
 
-def dataset_to_stream(dataset, input_name, n_chunks=0, append_targets=False):
+def dataset_to_stream(dataset, input_name, n_chunks=0):
   """Takes a tf.Dataset and creates a numpy stream of ready batches."""
   for example in backend.dataset_as_numpy(dataset):
     inp, out = example[0][input_name], example[1]
@@ -177,8 +182,6 @@ def dataset_to_stream(dataset, input_name, n_chunks=0, append_targets=False):
       if n_chunks > 0:
         inp = tuple(np.split(inp, n_chunks, axis=1))
         out = tuple(np.split(out, n_chunks, axis=1))
-    if append_targets:
-      inp = (inp, out)
     yield inp, out
 
 
@@ -534,5 +537,8 @@ def _train_and_eval_batches(dataset, data_dir, input_name, n_devices):
   input_name = input_name or input_names[0]
   input_shape = features_info[input_name].shape
   input_dtype = features_info[input_name].dtype
+  target_shape = features_info[target_names[0]].shape
+  target_dtype = features_info[target_names[0]].dtype
   return (train_batches, train_eval_batches, eval_batches,
-          input_name, list(input_shape), input_dtype)
+          input_name, list(input_shape), input_dtype,
+          list(target_shape), target_dtype)

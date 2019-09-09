@@ -124,10 +124,31 @@ def neg_log_perplexity(batch, model_predictions, has_weights):
   return masked_mean(xent, targets, weights)
 
 
+def _stack_inputs_targets_and_get_predictions(inputs_and_targets):
+  """Helper to stack inputs and targets and retrieve predictions from output."""
+  # Inputs and targets can be lists - we build a flat one to input to the model.
+  model_inp = []
+  for x in inputs_and_targets:
+    if not isinstance(x, (list, tuple)):
+      model_inp.append(x)
+    else:
+      model_inp.extend(x)
+  # We retrieve as many predictions from model output as many there were inputs.
+  inp = inputs_and_targets[0]
+  inp_len = len(inp) if isinstance(inp, (list, tuple)) else 1
+  get_pred = lambda x: x[0] if inp_len == 1 else x[:inp_len]
+  return tuple(model_inp), get_pred
+
+
 def loss(params, batch, model_predict, state, rng, has_weights):
   """Calculate loss."""
   inputs, targets, weights = unpack_batch(batch, has_weights)
-  predictions, state = model_predict(inputs, params, state, rng=rng)
+  model_input, get_preds = _stack_inputs_targets_and_get_predictions(
+      [inputs, targets])
+  # Call model, predictions will be the returned stack, usually consisting of
+  # the prediction tensor and the targets.
+  predictions, state = model_predict(model_input, params, state, rng=rng)
+  predictions = get_preds(predictions)
   predictions, targets, weights = _make_list(predictions, targets, weights)
   xent = []
   for (pred, target) in zip(predictions, targets):
@@ -287,9 +308,12 @@ def evaluate(inputs_stream, predict_fn, metric_fns, state, rng, has_weights):
   for inp in inputs_stream:
     count += 1
     rng, subrng = jax_random.split(rng)
-    preds, state = predict_fn(inp[0], state=state, rng=subrng)
+    model_inp, get_preds = _stack_inputs_targets_and_get_predictions(inp)
+    # Call model, preds will be the returned stack, usually (pred, targets).
+    preds, state = predict_fn(model_inp, state=state, rng=subrng)
+    pred = get_preds(preds)
     for m, f in six.iteritems(metric_fns):
-      metrics[m] += f(inp, preds, has_weights=has_weights)
+      metrics[m] += f(inp, pred, has_weights=has_weights)
   return {m: v / count for (m, v) in six.iteritems(metrics)}, state
 
 
@@ -563,24 +587,39 @@ class Trainer(object):
     if isinstance(first_shape, (list, tuple)):
       model_input_shape = tuple(
           tuple([None] + list(shape)) for shape in inputs.input_shape)
+      model_target_shape = tuple(
+          tuple([None] + list(shape)) for shape in inputs.target_shape)
     else:  # Otherwise just add [None] to the input shape.
       model_input_shape = tuple([None] + list(inputs.input_shape))
-    # Change all None to 1 in input shape.
+      model_target_shape = tuple([None] + list(inputs.target_shape))
+    # Change all None to 1 in input and target shape.
     model_input_shape = layers.nested_map(
         model_input_shape, lambda x: x if x else 1)
-    def initialize(input_shape, input_dtype, init_rng):
+    model_target_shape = layers.nested_map(
+        model_target_shape, lambda x: x if x else 1)
+    def initialize(input_shape, input_dtype, target_shape, target_dtype, rng):
+      """Helper to initialize the model."""
+      # Combine inputs and targets on the stack.
+      if not isinstance(input_dtype, (list, tuple)):
+        input_dtype = [input_dtype]
+        input_shape = [input_shape]
+      if not isinstance(target_dtype, (list, tuple)):
+        target_dtype = [target_dtype]
+        target_shape = [target_shape]
+      full_type = list(input_dtype) + list(target_dtype)
+      full_shape = list(input_shape) + list(target_shape)
       # We need to create a new model instance and not reuse `model_train` here,
       # because `m.initialize` puts cached parameter values in `m` and hence the
       # next call of `m.initialize` will give wrong results.
-      params, state = model(mode="train").initialize(input_shape, input_dtype,
-                                                     init_rng)
+      params, state = model(mode="train").initialize(full_shape, full_type, rng)
       (slots, opt_params) = opt.tree_init(params)
       return (OptState(params, slots, opt_params), state)
     if _is_jit_init():
       # JIT parameter initialization to avoid memory fragmentation
-      initialize = backend.jit(initialize, static_argnums=(0, 1))
+      initialize = backend.jit(initialize, static_argnums=(0, 1, 2, 3))
     self._initialize = lambda: initialize(  # pylint: disable=g-long-lambda
-        model_input_shape, self._inputs.input_dtype, init_rng)
+        model_input_shape, self._inputs.input_dtype,
+        model_target_shape, self._inputs.target_dtype, init_rng)
 
     # jit model_predict and update so they're fast
     self._jit_model_predict_eval = _jit_predict_fn(
@@ -779,7 +818,7 @@ class Trainer(object):
       next_train_batch = reshape_by_device(next_train_batch, self._n_devices)
     params = self._opt_state[0]
     forward_computation = jax.xla_computation(self._model_predict_eval)(
-        next_train_batch[0], params=params, state=self._model_state,
+        next_train_batch, params=params, state=self._model_state,
         rng=self._rngs[0])
     with gfile.GFile(os.path.join(output_dir, "forward.txt"), "w") as f:
       f.write(forward_computation.GetHloText())

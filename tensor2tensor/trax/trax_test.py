@@ -67,7 +67,9 @@ def test_inputs(n_classes, with_weights=False):
       train_eval_stream=input_stream,
       eval_stream=input_stream,
       input_shape=input_shape,
-      input_dtype=np.float32)
+      input_dtype=np.float32,
+      target_shape=(),
+      target_dtype=np.int32)
 
 
 BACKENDS = ["jax"]

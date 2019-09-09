@@ -143,6 +143,9 @@ class SimPLe(base_trainer.BaseTrainer):
         eval_stream=(lambda: eval_stream),
         input_shape=self._sim_env.model_input_shape,
         input_dtype=self._sim_env.model_input_dtype,
+        # TODO(lukaszkaiser): correct those, they may differ from inputs.
+        target_shape=self._sim_env.model_input_shape,
+        target_dtype=self._sim_env.model_input_dtype
     )
 
     self._model_train_step += self._n_model_train_steps
