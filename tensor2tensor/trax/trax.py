@@ -417,13 +417,10 @@ def epochs(total_steps, steps_to_skip, epoch_steps):
 
 @gin.configurable
 def _jit_predict_fn(model_predict, n_devices, jit=True):
-  """Use jit on model_predict if required."""
+  """Returns a JIT-compiled predict function (unless jit=False)."""
 
   if n_devices == 1:
-    if jit:
-      return backend.jit(model_predict)
-    else:
-      return model_predict
+    return backend.jit(model_predict) if jit else model_predict
 
   # Multi-devices, pmap and run.
   @functools.partial(backend.pmap, axis_name="batch")
@@ -449,28 +446,26 @@ def _jit_predict_fn(model_predict, n_devices, jit=True):
 
 @gin.configurable
 def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices, jit=True):
-  """Get jit-ed update function for loss, optimizer, learning rate function."""
+  """Returns a (JIT-compiled) function that computes updates for one step."""
   if n_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
     def single_update(i, opt_state, batch, state, rng):
       params, slots, opt_params = opt_state
       rng, subrng = jax_random.split(rng[0])
-      grads, state = backend.grad(loss_fn, has_aux=True)(params, batch,
-                                                         predict_fn, state, rng)
+      grad_fn = backend.grad(loss_fn, has_aux=True)
+      grads, state = grad_fn(params, batch, predict_fn, state, rng)
       return optimizer.tree_update(
           i, grads, params, slots, opt_params), state, [subrng]
-    if jit:
-      return backend.jit(single_update)
-    else:
-      return single_update
+    return backend.jit(single_update) if jit else single_update
 
+  # Else, for n_devices > 1:
   @functools.partial(backend.pmap, axis_name="batch")
   def mapped_update(i, opt_state, batch, state, rng):
     """This is a multi-device version of the update function above."""
     # We assume all tensors have the first dimension = n_devices.
     params, slots, opt_params = opt_state
     rng, subrng = jax_random.split(rng)
-    grads, state = backend.grad(loss_fn, has_aux=True)(params, batch,
-                                                       predict_fn, state, rng)
+    grad_fn = backend.grad(loss_fn, has_aux=True)
+    grads, state = grad_fn(params, batch, predict_fn, state, rng)
     grads = jax.tree_util.tree_map(
         lambda g: lax.psum(g, "batch"), grads)
     return optimizer.tree_update(
@@ -485,17 +480,15 @@ def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices, jit=True):
 
 @gin.configurable
 def _jit_compute_loss_fn(predict_fn, loss_fn, n_devices, jit=True):
-  """Get jit-ed function that computes the loss."""
+  """Returns a (JIT-compiled) function that computes the loss for one step."""
   if n_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
     def single_compute_loss(opt_state, batch, state, rng):
       rng, subrng = jax_random.split(rng[0])
       loss_val, state = loss_fn(opt_state[0], batch, predict_fn, state, rng)
       return loss_val, state, [subrng]
-    if jit:
-      return backend.jit(single_compute_loss)
-    else:
-      return single_compute_loss
+    return backend.jit(single_compute_loss) if jit else single_compute_loss
 
+  # Else, for n_devices > 1:
   @functools.partial(backend.pmap, axis_name="batch")
   def mapped_compute_loss(opt_state, batch, state, rng):
     """This is a multi-device version of the update function above."""
