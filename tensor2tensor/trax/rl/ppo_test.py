@@ -26,6 +26,7 @@ from tensor2tensor.trax import layers
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.rl import ppo
 from tensorflow import test
+from tensorflow.io import gfile
 
 
 class PpoTest(test.TestCase):
@@ -33,6 +34,44 @@ class PpoTest(test.TestCase):
   def setUp(self):
     super(PpoTest, self).setUp()
     self.rng_key = trax.get_random_number_generator_and_set_seed(0)
+
+  def test_get_policy_model_files(self):
+    output_dir = self.get_temp_dir()
+
+    def write_policy_model_file(epoch):
+      with gfile.GFile(
+          ppo.get_policy_model_file_from_epoch(output_dir, epoch), "w") as f:
+        f.write("some data")
+
+    epochs = [200, 100, 300]
+
+    # 300, 200, 100
+    expected_policy_model_files = [
+        output_dir + "/model-000300.pkl",
+        output_dir + "/model-000200.pkl",
+        output_dir + "/model-000100.pkl",
+    ]
+
+    for epoch in epochs:
+      write_policy_model_file(epoch)
+
+    policy_model_files = ppo.get_policy_model_files(output_dir)
+
+    self.assertEqual(expected_policy_model_files, policy_model_files)
+
+    gfile.rmtree(output_dir)
+
+  def test_get_epoch_from_policy_model_file(self):
+    self.assertEqual(0,
+                     ppo.get_epoch_from_policy_model_file("model-000000.pkl"))
+    self.assertEqual(123456,
+                     ppo.get_epoch_from_policy_model_file("model-123456.pkl"))
+
+  def test_get_policy_model_file_from_epoch(self):
+    self.assertEqual("/tmp/model-000000.pkl",
+                     ppo.get_policy_model_file_from_epoch("/tmp", 0))
+    self.assertEqual("/tmp/model-123456.pkl",
+                     ppo.get_policy_model_file_from_epoch("/tmp", 123456))
 
   def test_policy_and_value_net(self):
     observation_shape = (3, 4, 5)

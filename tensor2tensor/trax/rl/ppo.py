@@ -52,6 +52,7 @@ from __future__ import print_function
 import collections
 import functools
 import os
+import re
 import time
 
 from absl import logging
@@ -811,6 +812,21 @@ def evaluate_policy(eval_env,
   }, state
 
 
+def get_policy_model_files(output_dir):
+  return list(
+      reversed(
+          sorted(gfile.glob(os.path.join(output_dir, "model-??????.pkl")))))
+
+
+def get_epoch_from_policy_model_file(policy_model_file):
+  base_name = os.path.basename(policy_model_file)
+  return int(re.match(r"model-(\d+).pkl", base_name).groups()[0])
+
+
+def get_policy_model_file_from_epoch(output_dir, epoch):
+  return os.path.join(output_dir, "model-%06d.pkl" % epoch)
+
+
 def maybe_restore_opt_state(output_dir, policy_and_value_opt_state,
                             policy_and_value_state):
   """Maybe restore the optimization state from the checkpoint dir.
@@ -831,15 +847,13 @@ def maybe_restore_opt_state(output_dir, policy_and_value_opt_state,
   """
   epoch = 0
   total_opt_step = 0
-  model_files = gfile.glob(os.path.join(output_dir, "model-??????.pkl"))
-  for model_file in reversed(sorted(model_files)):
+  for model_file in get_policy_model_files(output_dir):
     logging.info("Trying to restore model from %s", model_file)
     try:
       with gfile.GFile(model_file, "rb") as f:
         policy_and_value_opt_state, policy_and_value_state, total_opt_step = (
             pickle.load(f))
-      model_file_basename = os.path.basename(model_file)  # model-??????.pkl
-      epoch = int(filter(str.isdigit, model_file_basename))
+      epoch = get_epoch_from_policy_model_file(model_file)
       break
     except EOFError as e:
       logging.error("Unable to load model from: %s with %s", model_file, e)

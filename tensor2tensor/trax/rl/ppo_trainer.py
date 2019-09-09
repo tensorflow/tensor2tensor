@@ -534,8 +534,7 @@ class PPO(base_trainer.BaseTrainer):
   def save(self):
     """Save the agent parameters."""
     logging.vlog(1, "PPO epoch [% 6d]: saving model.", self._epoch)
-    old_model_files = gfile.glob(
-        os.path.join(self._output_dir, "model-??????.pkl"))
+    old_model_files = ppo.get_policy_model_files(self._output_dir)
     params_file = os.path.join(self._output_dir, "model-%06d.pkl" % self._epoch)
     with gfile.GFile(params_file, "wb") as f:
       pickle.dump(
