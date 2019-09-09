@@ -29,6 +29,10 @@ from tensor2tensor.trax.layers import core
 from tensor2tensor.trax.layers import initializers as init
 
 
+# Layers are always CamelCase, but functions in general are snake_case
+# pylint: disable=invalid-name
+
+
 @base.layer()
 def ShiftRight(x, **unused_kwargs):
   """Layer to shift the tensor to the right by padding on axis 1."""
@@ -705,6 +709,195 @@ class MergedHashedCausalAttention(BaseCausalAttention):
       v_ct = np.take_along_axis(sv_ct, undo_sort[:, :, None], axis=-2)
 
       return out, (qk_ct, np.zeros_like(ignored_k), v_ct)
+
+
+class MergedMultiHashedCausalAttention(BaseCausalAttention):
+  """Hash-based causal attention, with multiple hashes."""
+  # TODO(kitaev): Adapt this layer for use in a reversible network. At the
+  # moment that isn't supported because there's no call_and_grad implementation.
+
+  def __init__(self, dropout, mode, n_bins=64, n_hashes=1, bin_by_time=False):
+    del dropout, mode
+    super(MergedMultiHashedCausalAttention, self).__init__()
+    self.n_bins = n_bins
+    self.n_hashes = n_hashes
+    self.bin_by_time = bin_by_time
+
+  def bin_vectors_by_time(self, vecs):
+    seqlen = vecs.shape[-2]
+    assert seqlen % self.n_bins == 0
+    bin_size = int(seqlen // self.n_bins)
+
+    bins = np.arange(seqlen, dtype=np.int32) // bin_size
+    bins = jax.lax.tie_in(vecs, bins)
+    bins = bins[None, :]
+    bins = np.broadcast_to(bins, vecs.shape[:-1])
+    return bins
+
+  def make_unit_length(self, x, epsilon=1e-6):
+    variance = np.mean(x**2, axis=-1, keepdims=True)
+    norm_inputs = x / np.sqrt(variance + epsilon)
+    return norm_inputs
+
+  def hash_vectors(self, vecs, rng):
+    if self.bin_by_time:
+      # Instead of hashing, put chunks of consecutive items in the same bin.
+      # This exists as a sanity check for the other parts of this class.
+      return self.bin_vectors_by_time(vecs)
+
+    # See https://arxiv.org/pdf/1509.02897.pdf
+    assert self.n_bins % 2 == 0
+    random_rotation = jax.random.normal(
+        rng, (vecs.shape[-1], self.n_bins//2)).astype('float32')
+
+    # TODO(kitaev): making the vectors unit-length here is probably redundant.
+    vecs = self.make_unit_length(vecs)
+    rotated_vecs = np.matmul(vecs, random_rotation)
+    rotated_vecs = self.make_unit_length(rotated_vecs)
+    rotated_vecs = np.concatenate([rotated_vecs, -rotated_vecs], axis=-1)
+    bins = np.argmax(rotated_vecs, axis=-1)
+    return bins
+
+  def call(self, inputs, params=(), state=(), rng=None, **kwargs):
+    del params, kwargs
+    # We use the same vector as both a query and a key. For now we haven't
+    # adjusted any of the surrounding code, so we still get a separate "key"
+    # input that we ignore.
+    qk, _, v = inputs
+    seqlen = qk.shape[-2]
+
+    # qk/v are n_hashes*n_batch*n_heads, seqlen, d_head
+    # TODO(kitaev): is it faster to fuse this tiling into gather/scatter ops?
+    qk = np.tile(qk, (self.n_hashes, 1, 1))
+    v = np.tile(v, (self.n_hashes, 1, 1))
+
+    # bins are n_hashes*n_batch*n_heads, seqlen
+    # They specify which hash bucket the query/key/value vectors fall in.
+    bins = self.hash_vectors(qk, rng=rng)
+
+    # joint_t is n_hashes*n_batch*n_heads, seqlen
+    joint_t = jax.lax.tie_in(qk, np.arange(seqlen))
+    joint_t = np.reshape(joint_t, (1, seqlen))
+    joint_t = np.broadcast_to(joint_t, qk.shape[:-1])
+
+    assert int((self.n_bins + 1) * seqlen) < 2 ** 31, (
+        'Potential 32-bit integer overflow; please double-check the code.')
+    joint_bins_and_t = seqlen * bins + joint_t
+
+    def chunk_scalars(x):  # pylint: disable=invalid-name
+      return np.reshape(x, (x.shape[0], self.n_bins, -1))
+
+    def chunk_vectors(x):  # pylint: disable=invalid-name
+      return np.reshape(
+          x, (x.shape[0], self.n_bins, -1, x.shape[-1]))
+
+    def unchunk_vectors(x):  # pylint: disable=invalid-name
+      return np.reshape(x, (x.shape[0], -1, x.shape[-1]))
+
+    # Sort everything by bin number, with a secondary sort by time
+    # (variables starting with "s" are sorted)
+    _, sjoint_t = jax.lax.sort_key_val(
+        joint_bins_and_t, joint_t, dimension=-1)
+    _, undo_sort = jax.lax.sort_key_val(sjoint_t, joint_t, dimension=-1)
+    # TODO(kitaev): why does jax flag integer indices as differentiable?
+    # If we don't call stop_gradient here, custom gradients below won't work
+    # because the primitive functions close over "differentiable" variables.
+    sjoint_t = jax.lax.stop_gradient(sjoint_t)
+    undo_sort = jax.lax.stop_gradient(undo_sort)
+
+    # The backward pass of gather is in general a scatter operation, but we know
+    # we're dealing with permutations so we use gather for the backward pass
+    # too. This custom gradient should be about 2x faster than having jax infer
+    # one that uses scatter ops instead.
+    def permute_impl(vecs):
+      assert len(vecs.shape) == 3
+      return np.take_along_axis(vecs, sjoint_t[:, :, None], axis=-2)
+
+    def unpermute_impl(vecs):
+      assert len(vecs.shape) == 3
+      return np.take_along_axis(vecs, undo_sort[:, :, None], axis=-2)
+
+    @jax.custom_transforms
+    def permute(vecs):
+      return permute_impl(vecs)
+
+    def permute_vjp(vecs):
+      out_vecs = permute_impl(vecs)
+      def vjpfun(grad):
+        return (unpermute_impl(grad),)
+      return out_vecs, vjpfun
+
+    @jax.custom_transforms
+    def unpermute(vecs):
+      return unpermute_impl(vecs)
+
+    def unpermute_vjp(vecs):
+      out_vecs = unpermute_impl(vecs)
+      def vjpfun(grad):
+        return (permute_impl(grad),)
+      return out_vecs, vjpfun
+
+    jax.defvjp_all(permute, permute_vjp)
+    jax.defvjp_all(unpermute, unpermute_vjp)
+
+    sqk = permute(qk)
+    sv = permute(v)
+
+    # Split off a "bin" axis so that attention only occurs within chunks.
+    bq_t = bkv_t = chunk_scalars(sjoint_t)
+    bqk = chunk_vectors(sqk)
+    bv = chunk_vectors(sv)
+
+    # Hashing operates on unit-length vectors. Unnormalized query vectors are
+    # fine because they effectively provide a learnable temperature for the
+    # attention softmax, but normalizing keys is needed so that similarity for
+    # the purposes of attention correctly corresponds to hash locality.
+    bq = bqk
+    bk = self.make_unit_length(bqk)
+
+    # Allow each chunk to attend within itself, and also one chunk back. Chunk
+    # boundaries might occur in the middle of a sequence of items from the
+    # same bin, so this increases the chances of attending to relevant items.
+    # TODO(kitaev): benchmark whether XLA pad operation is noticeably faster.
+    bk_extra = np.concatenate([bk[:, -1:, :, :], bk[:, :-1, :, :]], axis=1)
+    bk = np.concatenate([bk, bk_extra], axis=2)
+    bv_extra = np.concatenate([bv[:, -1:, :, :], bv[:, :-1, :, :]], axis=1)
+    bv = np.concatenate([bv, bv_extra], axis=2)
+    bkv_t_extra = np.concatenate([bkv_t[:, -1:, :], bkv_t[:, :-1, :]], axis=1)
+    bkv_t = np.concatenate([bkv_t, bkv_t_extra], axis=2)
+
+    # Dot-product attention.
+    dots = np.matmul(bq, np.swapaxes(bk, -1, -2)) / np.sqrt(bq.shape[-1])
+
+    # Causal masking
+    mask = jax.lax.convert_element_type(
+        jax.lax.lt(bq_t[:, :, :, None], bkv_t[:, :, None, :]),
+        np.float32)
+    dots = dots - 1e9 * mask
+
+    # Mask out attention to self except when no other targets are available.
+    self_mask = jax.lax.broadcasted_eye(dots.dtype, dots.shape, (2, 3))
+    self_mask = jax.lax.tie_in(dots, self_mask)
+    dots = dots - 32 * self_mask
+
+    # Softmax.
+    dots_logsumexp = backend.logsumexp(dots, axis=-1, keepdims=True)
+    dots = np.exp(dots - dots_logsumexp)
+
+    bo = np.matmul(dots, bv)
+    so = unchunk_vectors(bo)
+    slogits = unchunk_vectors(dots_logsumexp)
+
+    o = unpermute(so)
+    logits = unpermute(slogits)
+
+    o = np.reshape(o, (self.n_hashes, -1, seqlen, o.shape[-1]))
+    logits = np.reshape(logits, (self.n_hashes, -1, seqlen, 1))
+    probs = np.exp(logits - backend.logsumexp(logits, axis=0, keepdims=True))
+    out = np.sum(o * probs, axis=0)
+    assert out.shape == inputs[2].shape
+
+    return out, state
 
 
 def CausalAttention(d_feature, n_heads=1,
