@@ -32,7 +32,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import functools
 import multiprocessing
 import os
 
@@ -42,11 +41,8 @@ from absl import logging
 import gin
 import jax
 from jax.config import config
-import numpy as onp
 from tensor2tensor import envs  # pylint: disable=unused-import
-from tensor2tensor.envs import gym_env_problem
-from tensor2tensor.envs import rendered_env_problem
-from tensor2tensor.rl import gym_utils
+from tensor2tensor.envs import env_problem_utils
 from tensor2tensor.rl.google import atari_utils  # GOOGLE-INTERNAL:
 from tensor2tensor.trax import rl  # pylint: disable=unused-import
 from tensor2tensor.trax.rl import envs as rl_envs  # pylint: disable=unused-import
@@ -72,56 +68,18 @@ flags.DEFINE_integer("train_batch_size", 32,
 flags.DEFINE_integer("eval_batch_size", 4, "Batch size for evaluation.")
 flags.DEFINE_boolean("parallelize_envs", False,
                      "If true, sets parallelism to number of cpu cores.")
-flags.DEFINE_string(
-    "trajectory_dump_dir", "", "Directory to dump trajectories to.")
-
+flags.DEFINE_string("trajectory_dump_dir", "",
+                    "Directory to dump trajectories to.")
 
 # TODO(afrozm): Find a better way to do these configurations.
 flags.DEFINE_string("train_server_bns", "", "Train Server's BNS.")
 flags.DEFINE_string("eval_server_bns", "", "Eval Server's BNS.")
 
 
-def make_env(name, batch_size, max_timestep, clip_rewards, rendered_env,
-             resize_dims, **env_kwargs):
-  """Creates the env."""
-
-  if clip_rewards:
-    env_kwargs.update({"reward_range": (-1, 1), "discrete_rewards": True})
-  else:
-    env_kwargs.update({"discrete_rewards": False})
-
-  # TODO(afrozm): Should we leave out some cores?
-  parallelism = multiprocessing.cpu_count() if FLAGS.parallelize_envs else 1
-
-  # No resizing needed, so let's be on the normal EnvProblem.
-  if not rendered_env:
-    return gym_env_problem.GymEnvProblem(
-        base_env_name=name,
-        batch_size=batch_size,
-        parallelism=parallelism,
-        **env_kwargs)
-
-  wrapper_fn = functools.partial(
-      gym_utils.gym_env_wrapper, **{
-          "rl_env_max_episode_steps": max_timestep,
-          "maxskip_env": True,
-          "rendered_env": True,
-          "rendered_env_resize_to": resize_dims,
-          "sticky_actions": False,
-          "output_dtype": onp.int32 if FLAGS.use_tpu else None,
-      })
-
-  return rendered_env_problem.RenderedEnvProblem(
-      base_env_name=name,
-      batch_size=batch_size,
-      parallelism=parallelism,
-      env_wrapper_fn=wrapper_fn,
-      **env_kwargs)
-
-
 # Not just "train" to avoid a conflict with trax.train in GIN files.
 @gin.configurable(blacklist=[
-    "output_dir", "train_batch_size", "eval_batch_size", "trajectory_dump_dir"])
+    "output_dir", "train_batch_size", "eval_batch_size", "trajectory_dump_dir"
+])
 def train_rl(
     output_dir,
     train_batch_size,
@@ -145,8 +103,8 @@ def train_rl(
     max_timestep: Int or None, the maximum number of timesteps in a trajectory.
       The environment is wrapped in a TimeLimit wrapper.
     clip_rewards: Whether to clip and discretize the rewards.
-    rendered_env: Whether the environment has visual input. If so,
-      a RenderedEnvProblem will be used.
+    rendered_env: Whether the environment has visual input. If so, a
+      RenderedEnvProblem will be used.
     resize_dims: Pair (height, width), dimensions to resize the visual
       observations to.
     trainer_class: RLTrainer class to use.
@@ -168,12 +126,8 @@ def train_rl(
   eval_env_kwargs = {}
   if "OnlineTuneEnv" in env_name:
     # TODO(pkozakowski): Separate env output dirs by train/eval and epoch.
-    train_env_kwargs = {
-        "output_dir": os.path.join(output_dir, "envs/train")
-    }
-    eval_env_kwargs = {
-        "output_dir": os.path.join(output_dir, "envs/eval")
-    }
+    train_env_kwargs = {"output_dir": os.path.join(output_dir, "envs/train")}
+    eval_env_kwargs = {"output_dir": os.path.join(output_dir, "envs/eval")}
 
   if "ClientEnv" in env_name:
     train_env_kwargs["per_env_kwargs"] = [{
@@ -184,21 +138,31 @@ def train_rl(
         "remote_env_address": os.path.join(FLAGS.eval_server_bns, str(replica))
     } for replica in range(eval_batch_size)]
 
-  common_env_kwargs = {
-      "name": env_name,
-      "max_timestep": max_timestep,
-      "clip_rewards": clip_rewards,
-      "rendered_env": rendered_env,
-      "resize_dims": resize_dims,
-  }
-  train_env_kwargs.update(common_env_kwargs)
-  eval_env_kwargs.update(common_env_kwargs)
+  # TODO(afrozm): Should we leave out some cores?
+  parallelism = multiprocessing.cpu_count() if FLAGS.parallelize_envs else 1
 
-  # Make an env here.
-  train_env = make_env(batch_size=train_batch_size, **train_env_kwargs)
+  train_env = env_problem_utils.make_env(
+      batch_size=train_batch_size,
+      env_problem_name=env_name,
+      resize=rendered_env,
+      resize_dims=resize_dims,
+      max_timestep=max_timestep,
+      clip_rewards=clip_rewards,
+      parallelism=parallelism,
+      use_tpu=FLAGS.use_tpu,
+      **train_env_kwargs)
   assert train_env
 
-  eval_env = make_env(batch_size=eval_batch_size, **eval_env_kwargs)
+  eval_env = env_problem_utils.make_env(
+      batch_size=eval_batch_size,
+      env_problem_name=env_name,
+      resize=rendered_env,
+      resize_dims=resize_dims,
+      max_timestep=max_timestep,
+      clip_rewards=clip_rewards,
+      parallelism=parallelism,
+      use_tpu=FLAGS.use_tpu,
+      **eval_env_kwargs)
   assert eval_env
 
   def run_training_loop():

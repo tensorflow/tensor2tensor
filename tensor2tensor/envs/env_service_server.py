@@ -60,8 +60,7 @@ def main(argv):
       batch_size=1,
       env_problem_name=FLAGS.env_problem_name,
       resize=FLAGS.resize,
-      resized_height=FLAGS.resized_height,
-      resized_width=FLAGS.resized_width,
+      resize_dims=(FLAGS.resized_height, FLAGS.resized_width),
       max_timestep=FLAGS.max_timestep,
       clip_rewards=FLAGS.clip_rewards)
 
