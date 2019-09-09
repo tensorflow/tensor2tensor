@@ -674,8 +674,7 @@ class MergedHashedCausalAttention(BaseCausalAttention):
       dots = dots - 32 * self_mask
 
       # Softmax.
-      dots = np.exp(dots - dots.max(axis=-1, keepdims=True))
-      dots = dots / dots.sum(axis=-1, keepdims=True)
+      dots = np.exp(dots - backend.logsumexp(dots, axis=-1, keepdims=True))
       bo = np.matmul(dots, bv)
 
       so = unchunk_vectors(bo)
