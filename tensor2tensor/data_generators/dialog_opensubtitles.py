@@ -178,9 +178,9 @@ class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
       :line: Line to be processed and returned.
     '''
     line = line.lower()
-    line = re.sub("[^a-z .!?'\t\\\]", '', line)
-    line = re.sub("\\\['] ", " '", line)
-    line = re.sub('[\\\]', ' ', line)
+    line = re.sub("[^a-z .!?'\t\\\\]", '', line)
+    line = re.sub("\\\\['] ", " '", line)
+    line = re.sub('[\\\\]', ' ', line)
     line = re.sub('[.]', ' . ', line)
     line = re.sub('[?]', ' ? ', line)
     line = re.sub('[!]', ' ! ', line)
