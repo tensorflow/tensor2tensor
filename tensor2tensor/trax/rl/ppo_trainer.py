@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import functools
 import os
 import time
@@ -29,6 +30,7 @@ import gym
 from jax import jit
 from jax import numpy as np
 from jax import random as jax_random
+import numpy as onp
 from tensor2tensor.trax import jaxboard
 from tensor2tensor.trax import models as trax_models
 from tensor2tensor.trax import optimizers as trax_opt
@@ -36,7 +38,6 @@ from tensor2tensor.trax import trax
 from tensor2tensor.trax.rl import base_trainer
 from tensor2tensor.trax.rl import ppo
 from tensorflow.io import gfile
-
 
 DEBUG_LOGGING = False
 GAMMA = 0.99
@@ -51,35 +52,33 @@ BATCH_TRAJECTORIES = 32
 class PPO(base_trainer.BaseTrainer):
   """PPO trainer."""
 
-  def __init__(
-      self,
-      train_env,
-      eval_env,
-      output_dir,
-      policy_and_value_model=trax_models.FrameStackMLP,
-      policy_and_value_optimizer=functools.partial(
-          trax_opt.Adam, learning_rate=1e-3),
-      policy_and_value_two_towers=False,
-      n_optimizer_steps=N_OPTIMIZER_STEPS,
-      print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
-      target_kl=0.01,
-      boundary=20,
-      max_timestep=None,
-      max_timestep_eval=20000,
-      random_seed=None,
-      gamma=GAMMA,
-      lambda_=LAMBDA,
-      c1=1.0,
-      c2=0.01,
-      eval_every_n=1000,
-      save_every_n=1000,
-      done_frac_for_policy_save=0.5,
-      n_evals=1,
-      len_history_for_policy=4,
-      eval_temperatures=(1.0, 0.5),
-      separate_eval=True,
-      **kwargs
-  ):
+  def __init__(self,
+               train_env,
+               eval_env,
+               output_dir,
+               policy_and_value_model=trax_models.FrameStackMLP,
+               policy_and_value_optimizer=functools.partial(
+                   trax_opt.Adam, learning_rate=1e-3),
+               policy_and_value_two_towers=False,
+               n_optimizer_steps=N_OPTIMIZER_STEPS,
+               print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
+               target_kl=0.01,
+               boundary=20,
+               max_timestep=None,
+               max_timestep_eval=20000,
+               random_seed=None,
+               gamma=GAMMA,
+               lambda_=LAMBDA,
+               c1=1.0,
+               c2=0.01,
+               eval_every_n=1000,
+               save_every_n=1000,
+               done_frac_for_policy_save=0.5,
+               n_evals=1,
+               len_history_for_policy=4,
+               eval_temperatures=(1.0, 0.5),
+               separate_eval=True,
+               **kwargs):
     """Creates the PPO trainer.
 
     Args:
@@ -97,8 +96,8 @@ class PPO(base_trainer.BaseTrainer):
       target_kl: Policy iteration early stopping. Set to infinity to disable
         early stopping.
       boundary: We pad trajectories at integer multiples of this number.
-      max_timestep: If set to an integer, maximum number of time-steps in
-        a trajectory. Used in the collect procedure.
+      max_timestep: If set to an integer, maximum number of time-steps in a
+        trajectory. Used in the collect procedure.
       max_timestep_eval: If set to an integer, maximum number of time-steps in
         an evaluation trajectory. Used in the collect procedure.
       random_seed: Random seed.
@@ -162,8 +161,8 @@ class PPO(base_trainer.BaseTrainer):
     )
     self._policy_and_value_net_apply = jit(policy_and_value_net)
     policy_and_value_net_params, self._model_state = (
-        policy_and_value_net.initialize(
-            batch_observations_shape, observations_dtype, key1))
+        policy_and_value_net.initialize(batch_observations_shape,
+                                        observations_dtype, key1))
 
     # Initialize the optimizer.
     (policy_and_value_opt_state, self._policy_and_value_opt_update,
@@ -198,13 +197,15 @@ class PPO(base_trainer.BaseTrainer):
   @train_env.setter
   def train_env(self, new_train_env):
     if self._train_env is not None:
+
       def assert_same_space(space1, space2):
         assert space1.shape == space2.shape
         assert space1.dtype == space2.dtype
-      assert_same_space(
-          new_train_env.observation_space, self._train_env.observation_space)
-      assert_same_space(
-          new_train_env.action_space, self._train_env.action_space)
+
+      assert_same_space(new_train_env.observation_space,
+                        self._train_env.observation_space)
+      assert_same_space(new_train_env.action_space,
+                        self._train_env.action_space)
       # We don't check the reward range, because PPO will work either way.
 
     self._train_env = new_train_env
@@ -213,6 +214,48 @@ class PPO(base_trainer.BaseTrainer):
   @property
   def epoch(self):
     return self._epoch
+
+  def collect_trajectories_async(self, env, train=True, n_trajectories=1):
+    """Collects trajectories in an async manner."""
+
+    assert self._async_mode
+    del env
+    del train
+    del n_trajectories
+    raise NotImplementedError
+
+  def collect_trajectories(self, train=True, temperature=1.0):
+    self._rng, key = jax_random.split(self._rng)
+
+    env = self.train_env
+    max_timestep = self._max_timestep
+    should_reset = self._should_reset
+    if not train:  # eval
+      env = self.eval_env
+      max_timestep = self._max_timestep_eval
+      should_reset = True
+
+    n_trajectories = env.batch_size
+
+    # If async, read the required trajectories for the epoch.
+    if self._async_mode:
+      return self.collect_trajectories_async(
+          env, train=train, n_trajectories=n_trajectories)
+
+    trajs, n_done, timing_info, self._model_state = ppo.collect_trajectories(
+        env,
+        policy_fn=self._get_predictions,
+        n_trajectories=n_trajectories,
+        max_timestep=max_timestep,
+        state=self._model_state,
+        rng=key,
+        len_history_for_policy=self._len_history_for_policy,
+        boundary=self._boundary,
+        reset=should_reset,
+        temperature=temperature,
+    )
+
+    return trajs, n_done, timing_info, self._model_state
 
   def train_epoch(self, evaluate=True):
     """Train one PPO epoch."""
@@ -229,17 +272,9 @@ class PPO(base_trainer.BaseTrainer):
     trajectory_collection_start_time = time.time()
     logging.vlog(1, "PPO epoch [% 6d]: collecting trajectories.", self._epoch)
     self._rng, key = jax_random.split(self._rng)
-    trajs, n_done, timing_info, self._model_state = ppo.collect_trajectories(
-        self.train_env,
-        policy_fn=self._get_predictions,
-        n_trajectories=self.train_env.batch_size,
-        max_timestep=self._max_timestep,
-        state=self._model_state,
-        rng=key,
-        len_history_for_policy=self._len_history_for_policy,
-        boundary=self._boundary,
-        reset=self._should_reset,
-    )
+    trajs, n_done, timing_info, self._model_state = self.collect_trajectories(
+        train=True, temperature=1.0)
+    trajs = [(t[0], t[1], t[2], t[4]) for t in trajs]
     self._should_reset = False
     trajectory_collection_time = ppo.get_time(trajectory_collection_start_time)
 
@@ -270,8 +305,8 @@ class PPO(base_trainer.BaseTrainer):
     logging.vlog(2, "Trajectory Lengths: %s", [len(traj[0]) for traj in trajs])
 
     padding_start_time = time.time()
-    (_, reward_mask, padded_observations, padded_actions,
-     padded_rewards, padded_infos) = ppo.pad_trajectories(
+    (_, reward_mask, padded_observations, padded_actions, padded_rewards,
+     padded_infos) = ppo.pad_trajectories(
          trajs, boundary=self._boundary)
     padding_time = ppo.get_time(padding_start_time)
 
@@ -287,8 +322,8 @@ class PPO(base_trainer.BaseTrainer):
     assert (B, T) == padded_rewards.shape
     assert (B, T) == reward_mask.shape
     assert (B, T + 1) == padded_observations.shape[:2]
-    assert ((B, T + 1) + self.train_env.observation_space.shape ==
-            padded_observations.shape)
+    assert ((B, T + 1) +
+            self.train_env.observation_space.shape == padded_observations.shape)
 
     log_prob_recompute_start_time = time.time()
     assert ("log_prob_actions" in padded_infos and
@@ -395,9 +430,11 @@ class PPO(base_trainer.BaseTrainer):
 
       # Compute the approx KL for early stopping.
       (log_probab_actions_new, _), self._model_state = (
-          self._policy_and_value_net_apply(padded_observations,
-                                           self._policy_and_value_net_params,
-                                           self._model_state, rng=k2))
+          self._policy_and_value_net_apply(
+              padded_observations,
+              self._policy_and_value_net_params,
+              self._model_state,
+              rng=k2))
 
       approx_kl = ppo.approximate_kl(log_probab_actions_new, log_probabs_traj,
                                      reward_mask)
@@ -502,10 +539,8 @@ class PPO(base_trainer.BaseTrainer):
         "%s : % 10.2f" % (k.rjust(max_key_len + 1), v)
         for k, v in sorted(timing_dict.items())
     ]
-    logging.info(
-        "PPO epoch [% 6d], Timings: \n%s", last_epoch,
-        "\n".join(timing_info_list)
-    )
+    logging.info("PPO epoch [% 6d], Timings: \n%s", last_epoch,
+                 "\n".join(timing_info_list))
 
     # Flush summary writers once in a while.
     if self._epoch % 1000 == 0:
@@ -516,16 +551,32 @@ class PPO(base_trainer.BaseTrainer):
     if not self._separate_eval:
       return
     logging.vlog(1, "PPO epoch [% 6d]: evaluating policy.", self._epoch)
-    self._rng, key = jax_random.split(self._rng, num=2)
-    reward_stats, self._model_state = ppo.evaluate_policy(
-        self.eval_env,
-        self._get_predictions,
-        temperatures=self._eval_temperatures,
-        max_timestep=self._max_timestep_eval,
-        n_evals=self._n_evals,
-        len_history_for_policy=self._len_history_for_policy,
-        state=self._model_state,
-        rng=key)
+
+    processed_reward_sums = collections.defaultdict(list)
+    raw_reward_sums = collections.defaultdict(list)
+    for _ in range(self._n_evals):
+      for temperature in self._eval_temperatures:
+        trajs, _, _, self._model_state = self.collect_trajectories(
+            train=False, temperature=temperature)
+
+        processed_reward_sums[temperature].extend(
+            sum(traj[2]) for traj in trajs)
+        raw_reward_sums[temperature].extend(sum(traj[3]) for traj in trajs)
+
+    # Return the mean and standard deviation for each temperature.
+    def compute_stats(reward_dict):
+      return {
+          temperature: {  # pylint: disable=g-complex-comprehension
+              "mean": onp.mean(rewards),
+              "std": onp.std(rewards)
+          } for (temperature, rewards) in reward_dict.items()
+      }
+
+    reward_stats = {
+        "processed": compute_stats(processed_reward_sums),
+        "raw": compute_stats(raw_reward_sums),
+    }
+
     ppo.write_eval_reward_summaries(
         reward_stats, self._eval_sw, epoch=self._epoch)
 
@@ -535,9 +586,8 @@ class PPO(base_trainer.BaseTrainer):
     old_model_files = ppo.get_policy_model_files(self._output_dir)
     params_file = os.path.join(self._output_dir, "model-%06d.pkl" % self._epoch)
     with gfile.GFile(params_file, "wb") as f:
-      pickle.dump(
-          (self._policy_and_value_opt_state, self._model_state,
-           self._total_opt_step), f)
+      pickle.dump((self._policy_and_value_opt_state, self._model_state,
+                   self._total_opt_step), f)
     # Remove the old model files.
     for path in old_model_files:
       if path != params_file:
