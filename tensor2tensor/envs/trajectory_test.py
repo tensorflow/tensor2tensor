@@ -467,5 +467,15 @@ class BatchTrajectoryTest(tf.test.TestCase):
       for ts in range(lengths[b], len(padded_obs_np[b])):
         self.assertAllEqual(zero_obs, padded_obs_np[b][ts])
 
+  def test_parse_trajectory_file_name(self):
+    self.assertEqual(
+        (12, 13, "abc"),
+        trajectory.BatchTrajectory.parse_trajectory_file_name(
+            "/tmp/trajectory_epoch_000012_env_id_000013_r_abc.pkl"))
+
+    self.assertIsNone(
+        trajectory.BatchTrajectory.parse_trajectory_file_name(
+            "/tmp/trajectory_epoch_000012_env_id_000013.pkl"))
+
 if __name__ == "__main__":
   tf.test.main()
