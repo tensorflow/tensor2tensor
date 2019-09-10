@@ -155,17 +155,15 @@ class PPO(base_trainer.BaseTrainer):
     self._rng, key1 = jax_random.split(self._rng, num=2)
 
     # Initialize the policy and value network.
-    policy_and_value_net_params, self._model_state, policy_and_value_net_apply = (
-        ppo.policy_and_value_net(
-            rng_key=key1,
-            batch_observations_shape=batch_observations_shape,
-            observations_dtype=observations_dtype,
-            n_actions=n_actions,
-            bottom_layers_fn=policy_and_value_model,
-            two_towers=policy_and_value_two_towers,
-        )
+    policy_and_value_net = ppo.policy_and_value_net(
+        n_actions=n_actions,
+        bottom_layers_fn=policy_and_value_model,
+        two_towers=policy_and_value_two_towers,
     )
-    self._policy_and_value_net_apply = jit(policy_and_value_net_apply)
+    self._policy_and_value_net_apply = jit(policy_and_value_net)
+    policy_and_value_net_params, self._model_state = (
+        policy_and_value_net.initialize(
+            batch_observations_shape, observations_dtype, key1))
 
     # Initialize the optimizer.
     (policy_and_value_opt_state, self._policy_and_value_opt_update,

@@ -63,18 +63,14 @@ from jax import lax
 from jax import numpy as np
 from jax import random as jax_random
 import numpy as onp
+
 from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import env_problem_utils
 from tensor2tensor.trax import layers as tl
 from tensorflow.io import gfile
 
 
-def policy_and_value_net(rng_key,
-                         batch_observations_shape,
-                         observations_dtype,
-                         n_actions,
-                         bottom_layers_fn=(),
-                         two_towers=True):
+def policy_and_value_net(n_actions, bottom_layers_fn, two_towers):
   """A policy and value net function."""
 
   # Layers.
@@ -100,10 +96,7 @@ def policy_and_value_net(rng_key,
             [tl.Dense(1)],
         )
     ]
-  net = tl.Model(layers)
-  params, state = net.initialize(batch_observations_shape, observations_dtype,
-                                 rng_key)
-  return params, state, net
+  return tl.Model(layers)
 
 
 def optimizer_fn(optimizer, net_params):
@@ -827,8 +820,8 @@ def get_policy_model_file_from_epoch(output_dir, epoch):
   return os.path.join(output_dir, "model-%06d.pkl" % epoch)
 
 
-def maybe_restore_opt_state(output_dir, policy_and_value_opt_state,
-                            policy_and_value_state):
+def maybe_restore_opt_state(output_dir, policy_and_value_opt_state=None,
+                            policy_and_value_state=None):
   """Maybe restore the optimization state from the checkpoint dir.
 
   Optimization state includes parameters and optimizer slots.
