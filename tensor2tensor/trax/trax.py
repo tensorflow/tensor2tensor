@@ -758,11 +758,7 @@ class Trainer(object):
 
       # LR log
       if self._step == 1 or self._step % 10 == 0:
-        # TODO(lukaszkaiser): it makes no sense to use an accelerator (e.g. TPU)
-        # in op-by-op mode just to compute the learning rate. However, there
-        # should be a cleaner approach that forceably swapping out the backend.
-        with backend.use_backend("numpy"):
-          self._train_sw.scalar("training/learning rate", self.learning_rate)
+        self._train_sw.scalar("training/learning_rate", self.learning_rate)
 
     # Timer
     epoch_time = time.time() - start_time
@@ -783,6 +779,7 @@ class Trainer(object):
     self._eval_sw.flush()
 
   def evaluate(self, eval_steps):
+    """Evaluate the model and log metrics."""
     _, rng = jax_random.split(self._rngs[0])
     _, _, self._model_state = evaluate_train_and_eval(
         step=self._step,
@@ -797,6 +794,10 @@ class Trainer(object):
         eval_sw=self._eval_sw,
         history=self._history,
         has_weights=self._has_weights)
+
+    # Save the learning rate in the history
+    self._history.append("train", "training/learning_rate", self._step,
+                         self.learning_rate)
 
   def update_learning_rate(self):
     self._lr_fn = self._lr_schedule(self._history)
