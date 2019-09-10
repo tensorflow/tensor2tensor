@@ -235,6 +235,25 @@ def BasicCausalAttention(d_feature, n_heads=1, dropout=0.0, mode='train'):
   ]
 
 
+class ShiftRightLearned(base.Layer):
+  """Layer constructor function for shifting right by a learned vector."""
+
+  def __init__(self, initializer=init.RandomNormalInitializer(0.01)):
+    super(ShiftRightLearned, self).__init__()
+    self._initializer = initializer
+
+  def call(self, x, params, state, **kwargs):
+    del kwargs
+    c = backend.numpy.reshape(params, [1, 1, -1])
+    c += backend.numpy.zeros((x.shape[0], 1, x.shape[2]), dtype=x.dtype)
+    return backend.numpy.concatenate([c, x], axis=1)[:, :-1, :], state
+
+  def new_parameters(self, input_shape, input_dtype, rng):
+    del input_dtype
+    b = self._initializer((input_shape[-1],), rng)
+    return b, ()
+
+
 class ComputeAttentionHeads(base.Layer):
   """Computes queries/keys/values via linear projection.
 
@@ -902,7 +921,8 @@ class MergedMultiHashedCausalAttention(BaseCausalAttention):
 
 def CausalAttention(d_feature, n_heads=1,
                     d_attention_key=None, d_attention_value=None,
-                    attention_type=DotProductCausalAttention, mode='train'):
+                    attention_type=DotProductCausalAttention,
+                    share_kv=False, mode='train'):
   """Transformer-style multi-headed causal attention.
 
   Args:
@@ -912,7 +932,8 @@ def CausalAttention(d_feature, n_heads=1,
         (default is d_feature // n_heads)
     d_attention_value: int: depth of value vector for each attention head
         (default is d_feature // n_heads)
-    attention_type: subclass of tl.BaseCausalAttention: attention class to use
+    attention_type: subclass of BaseCausalAttention: attention class to use
+    share_kv: bool, whether to share keys and values
     mode: str: 'train' or 'eval'
 
   Returns:
@@ -925,13 +946,26 @@ def CausalAttention(d_feature, n_heads=1,
     assert d_feature % n_heads == 0
     d_attention_value = d_feature // n_heads
 
-  return [
-      cb.Dup(), cb.Dup(),
-      cb.Parallel(
-          ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_key),
-          ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_key),
-          ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_value),
-      ),
+  if share_kv:
+    pre_attention = [
+        cb.Dup(),
+        cb.Parallel(
+            ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_key),
+            ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_value),
+        ),
+        cb.Dup(),
+    ]
+  else:
+    pre_attention = [
+        cb.Dup(), cb.Dup(),
+        cb.Parallel(
+            ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_key),
+            ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_key),
+            ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_value),
+        ),
+    ]
+
+  return pre_attention + [
       attention_type(mode=mode),
       ComputeAttentionOutput(n_heads=n_heads, d_model=d_feature),
   ]
