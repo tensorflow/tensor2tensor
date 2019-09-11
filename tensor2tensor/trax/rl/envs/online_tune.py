@@ -22,7 +22,11 @@ from __future__ import print_function
 import numpy as np
 
 
-def historical_metric_values(history, metric, observation_range):
+LEARNING_RATE_METRIC = ("train", "training/learning_rate")
+
+
+def historical_metric_values(
+    history, metric, observation_range=(-np.inf, np.inf)):
   """Converts a metric stream from a trax History object into a numpy array."""
   metric_sequence = history.get(*metric)
   metric_values = np.array([
@@ -40,6 +44,14 @@ def history_to_observations(history, metrics, observation_range, include_lr):
   if include_lr:
     # Logartihm of the learning rate.
     observation_dimensions.append(np.log(historical_metric_values(
-        history, ("train", "training/learning_rate"), observation_range
+        history, LEARNING_RATE_METRIC, observation_range
     )))
   return np.stack(observation_dimensions, axis=1)
+
+
+def new_learning_rate(action, history, action_multipliers, max_lr):
+  """Calculates a new learning rate based on an action."""
+  learning_rates = historical_metric_values(history, LEARNING_RATE_METRIC)
+  assert learning_rates.shape[0] > 0, "No last learning rate found in history."
+  current_lr = learning_rates[-1]
+  return min(current_lr * action_multipliers[action], max_lr)

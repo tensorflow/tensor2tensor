@@ -179,8 +179,12 @@ class OnlineTuneEnv(gym.Env):
         metric since the last step. done is set after reaching self.env_steps
         environment steps. info is an empty dict.
     """
-    self._current_lr = min(
-        self._current_lr * self._action_multipliers[action], self._max_lr)
+    self._current_lr = online_tune.new_learning_rate(
+        action,
+        self._trainer.state.history,
+        self._action_multipliers,
+        self._max_lr,
+    )
     last_reward_metric = self._current_reward_metric
     self._trainer.train_epoch(self._train_steps, self._eval_steps)
     self._step += 1

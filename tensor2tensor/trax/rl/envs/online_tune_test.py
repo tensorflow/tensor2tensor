@@ -83,6 +83,29 @@ class OnlineTuneTest(test.TestCase):
     )
     np.testing.assert_array_equal(observations, [[-2], [2]])
 
+  def test_calculates_new_learning_rate(self):
+    history = trax_history.History()
+    self._append_metrics(
+        history, online_tune.LEARNING_RATE_METRIC, [1e-2, 1e-3])
+    new_lr = online_tune.new_learning_rate(
+        action=2,
+        history=history,
+        action_multipliers=(0.5, 1.0, 2.0),
+        max_lr=1.0,
+    )
+    np.testing.assert_almost_equal(new_lr, 2e-3)
+
+  def test_clips_new_learning_rate(self):
+    history = trax_history.History()
+    self._append_metrics(history, online_tune.LEARNING_RATE_METRIC, [1e-3])
+    new_lr = online_tune.new_learning_rate(
+        action=0,
+        history=history,
+        action_multipliers=(4.0, 1.0, 0.25),
+        max_lr=3e-3,
+    )
+    np.testing.assert_almost_equal(new_lr, 3e-3)
+
 
 if __name__ == "__main__":
   test.main()
