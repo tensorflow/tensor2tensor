@@ -22,7 +22,7 @@ from __future__ import print_function
 import os
 
 from absl import logging
-import cloudpickle as pickle
+from tensor2tensor.trax import utils
 from tensorflow.io import gfile
 
 
@@ -83,6 +83,7 @@ class BaseTrainer(object):
       force: (bool) Whether to complete unfinished trajectories and create
         a new shard even if we have not reached the minimum size.
     """
+    pkl_module = utils.get_pickle_module()
     if self.trajectory_dump_dir is None:
       return
     gfile.makedirs(self.trajectory_dump_dir)
@@ -113,9 +114,9 @@ class BaseTrainer(object):
         # sometimes dump 2 times in the same epoch. When this happens, merge the
         # two sets of trajectories.
         with gfile.GFile(shard_path, "rb") as f:
-          self._trajectory_buffer = pickle.load(f) + self._trajectory_buffer
+          self._trajectory_buffer = pkl_module.load(f) + self._trajectory_buffer
       with gfile.GFile(shard_path, "wb") as f:
-        pickle.dump(self._trajectory_buffer, f)
+        pkl_module.dump(self._trajectory_buffer, f)
       self._trajectory_buffer = []
 
   def training_loop(self, n_epochs, evaluate=True):

@@ -22,7 +22,6 @@ from __future__ import print_function
 import itertools
 import os
 
-import cloudpickle as pickle
 import gin
 import gym
 from matplotlib import pyplot as plt
@@ -32,6 +31,7 @@ import numpy as np
 from tensor2tensor.envs import trajectory
 from tensor2tensor.trax import backend
 from tensor2tensor.trax import trax
+from tensor2tensor.trax import utils
 from tensor2tensor.trax.rl import simple
 from tensor2tensor.trax.rl import simulated_env_problem
 from tensor2tensor.trax.rl import space_serializer  # pylint: disable=unused-import
@@ -47,9 +47,10 @@ class SimpleTest(test.TestCase):
     return t
 
   def _dump_trajectory_pickle(self, observations, path):
+    pkl_module = utils.get_pickle_module()
     trajectories = list(map(self._make_singleton_trajectory, observations))
     with gfile.GFile(path, "wb") as f:
-      pickle.dump(trajectories, f)
+      pkl_module.dump(trajectories, f)
 
   def test_loads_trajectories(self):
     temp_dir = self.get_temp_dir()

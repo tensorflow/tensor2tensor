@@ -23,13 +23,11 @@ import collections
 import functools
 import itertools
 import os
-import pickle
 import random
 import sys
 import time
 
 from absl import logging
-import cloudpickle
 
 import gin
 
@@ -45,6 +43,7 @@ from tensor2tensor.trax import jaxboard
 from tensor2tensor.trax import layers
 from tensor2tensor.trax import learning_rate as lr
 from tensor2tensor.trax import optimizers as trax_opt
+from tensor2tensor.trax import utils
 from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.backend import random as jax_random
 
@@ -189,8 +188,9 @@ def restore_state(output_dir):
     return State(step=None, opt_state=None, history=trax_history.History(),
                  model_state=None)
 
+  pkl_module = utils.get_pickle_module()
   with gfile.GFile(params_file, "rb") as f:
-    (opt_state, step, history, model_state) = pickle.load(f)
+    (opt_state, step, history, model_state) = pkl_module.load(f)
   log("Model loaded from %s at step %d" % (params_file, step))
   logging.debug("From loaded model : history = %s", history)
   return State(step=step, opt_state=OptState(*opt_state), history=history,
@@ -209,12 +209,7 @@ def _save_gin(output_dir, sw=None):
 
 def save_state(state, output_dir, keep=False):
   """Save State and optionally gin config."""
-  # TODO(gilmer, lukaszkaiser): figure out how to use cloudpickle in python3.
-  # Currently the code throws an error when run in python3.
-  if sys.version_info[0] < 3:
-    pkl_module = cloudpickle
-  else:
-    pkl_module = pickle
+  pkl_module = utils.get_pickle_module()
   params_file = os.path.join(output_dir, "model.pkl")
   with gfile.GFile(params_file, "wb") as f:
     pkl_module.dump((tuple(state.opt_state), state.step, state.history,

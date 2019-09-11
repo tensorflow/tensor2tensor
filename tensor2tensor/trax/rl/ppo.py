@@ -56,7 +56,6 @@ import re
 import time
 
 from absl import logging
-import cloudpickle as pickle
 from jax import grad
 from jax import jit
 from jax import lax
@@ -66,6 +65,7 @@ import numpy as onp
 from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import env_problem_utils
 from tensor2tensor.trax import layers as tl
+from tensor2tensor.trax import utils
 from tensorflow.io import gfile
 
 
@@ -804,6 +804,7 @@ def maybe_restore_opt_state(output_dir,
     found, and opt_step is the total optimization step (sum of all optimization
     steps made up to the current epoch).
   """
+  pkl_module = utils.get_pickle_module()
   epoch = 0
   total_opt_step = 0
   for model_file in get_policy_model_files(output_dir):
@@ -811,7 +812,7 @@ def maybe_restore_opt_state(output_dir,
     try:
       with gfile.GFile(model_file, "rb") as f:
         policy_and_value_opt_state, policy_and_value_state, total_opt_step = (
-            pickle.load(f))
+            pkl_module.load(f))
       epoch = get_epoch_from_policy_model_file(model_file)
       break
     except EOFError as e:
@@ -832,10 +833,11 @@ def save_opt_state(output_dir,
                    epoch,
                    total_opt_step):
   """Saves the policy and value network optimization state etc."""
+  pkl_module = utils.get_pickle_module()
   old_model_files = get_policy_model_files(output_dir)
   params_file = os.path.join(output_dir, "model-%06d.pkl" % epoch)
   with gfile.GFile(params_file, "wb") as f:
-    pickle.dump(
+    pkl_module.dump(
         (policy_and_value_opt_state, policy_and_value_state, total_opt_step), f)
   # Remove the old model files.
   for path in old_model_files:
