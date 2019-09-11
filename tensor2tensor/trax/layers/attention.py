@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import random
 import jax
 import numpy as onp
 
@@ -559,11 +560,17 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
 class MergedHashedCausalAttention(BaseCausalAttention):
   """Hash-based causal attention."""
 
-  def __init__(self, dropout, mode, n_bins=64, bin_by_time=False):
+  def __init__(self, dropout, mode, n_bins=64,
+               bin_by_time=False, one_rng=False):
     del dropout, mode
     super(MergedHashedCausalAttention, self).__init__()
     self.n_bins = n_bins
     self.bin_by_time = bin_by_time
+    seed = random.randint(0, 2**31 - 1)
+    self._one_rng = one_rng
+    self._prng = None
+    if one_rng:
+      self._prng = backend.random.get_prng(seed)
 
   def call(self, inputs, params=(), state=(), **kwargs):
     del params
@@ -604,8 +611,12 @@ class MergedHashedCausalAttention(BaseCausalAttention):
     # It's not clear whether sampling a different random rotation for each head
     # and batch element matters here, but see MergedMultiHashedCausalAttention.
     assert self.n_bins % 2 == 0
+    rot_rng = rng
+    if self._one_rng:
+      rot_rng = jax.lax.tie_in(vecs, self._prng)
     random_rotation = jax.random.normal(
-        rng, (vecs.shape[0], vecs.shape[-1], self.n_bins//2)).astype('float32')
+        rot_rng,
+        (vecs.shape[0], vecs.shape[-1], self.n_bins//2)).astype('float32')
 
     # TODO(kitaev): making the vectors unit-length here is probably redundant.
     vecs = self.make_unit_length(vecs)
@@ -735,12 +746,18 @@ class MergedHashedCausalAttention(BaseCausalAttention):
 class MergedMultiHashedCausalAttention(BaseCausalAttention):
   """Hash-based causal attention, with multiple hashes."""
 
-  def __init__(self, dropout, mode, n_bins=64, n_hashes=1, bin_by_time=False):
+  def __init__(self, dropout, mode, n_bins=64, n_hashes=1,
+               bin_by_time=False, one_rng=False):
     del dropout, mode
     super(MergedMultiHashedCausalAttention, self).__init__()
     self.n_bins = n_bins
     self.n_hashes = n_hashes
     self.bin_by_time = bin_by_time
+    seed = random.randint(0, 2**31 - 1)
+    self._one_rng = one_rng
+    self._prng = None
+    if one_rng:
+      self._prng = backend.random.get_prng(seed)
 
   def bin_vectors_by_time(self, vecs):
     seqlen = vecs.shape[-2]
@@ -770,8 +787,12 @@ class MergedMultiHashedCausalAttention(BaseCausalAttention):
     # of vecs. Applying multiple hashes to the same input is important because
     # it increases the probability of being in the same bin as relevant items.
     assert self.n_bins % 2 == 0
+    rot_rng = rng
+    if self._one_rng:
+      rot_rng = jax.lax.tie_in(vecs, self._prng)
     random_rotation = jax.random.normal(
-        rng, (vecs.shape[0], vecs.shape[-1], self.n_bins//2)).astype('float32')
+        rot_rng,
+        (vecs.shape[0], vecs.shape[-1], self.n_bins//2)).astype('float32')
 
     # TODO(kitaev): making the vectors unit-length here is probably redundant.
     vecs = self.make_unit_length(vecs)
