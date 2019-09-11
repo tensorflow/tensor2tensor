@@ -601,9 +601,11 @@ class MergedHashedCausalAttention(BaseCausalAttention):
       return self.bin_vectors_by_time(vecs)
 
     # See https://arxiv.org/pdf/1509.02897.pdf
+    # It's not clear whether sampling a different random rotation for each head
+    # and batch element matters here, but see MergedMultiHashedCausalAttention.
     assert self.n_bins % 2 == 0
     random_rotation = jax.random.normal(
-        rng, (vecs.shape[-1], self.n_bins//2)).astype('float32')
+        rng, (vecs.shape[0], vecs.shape[-1], self.n_bins//2)).astype('float32')
 
     # TODO(kitaev): making the vectors unit-length here is probably redundant.
     vecs = self.make_unit_length(vecs)
@@ -732,8 +734,6 @@ class MergedHashedCausalAttention(BaseCausalAttention):
 
 class MergedMultiHashedCausalAttention(BaseCausalAttention):
   """Hash-based causal attention, with multiple hashes."""
-  # TODO(kitaev): Adapt this layer for use in a reversible network. At the
-  # moment that isn't supported because there's no call_and_grad implementation.
 
   def __init__(self, dropout, mode, n_bins=64, n_hashes=1, bin_by_time=False):
     del dropout, mode
@@ -765,9 +765,13 @@ class MergedMultiHashedCausalAttention(BaseCausalAttention):
       return self.bin_vectors_by_time(vecs)
 
     # See https://arxiv.org/pdf/1509.02897.pdf
+    # We sample a different random rotation for each batch element, head, and
+    # (crucially) each round of hashing. All of these are part of dimension 0
+    # of vecs. Applying multiple hashes to the same input is important because
+    # it increases the probability of being in the same bin as relevant items.
     assert self.n_bins % 2 == 0
     random_rotation = jax.random.normal(
-        rng, (vecs.shape[-1], self.n_bins//2)).astype('float32')
+        rng, (vecs.shape[0], vecs.shape[-1], self.n_bins//2)).astype('float32')
 
     # TODO(kitaev): making the vectors unit-length here is probably redundant.
     vecs = self.make_unit_length(vecs)
@@ -917,6 +921,16 @@ class MergedMultiHashedCausalAttention(BaseCausalAttention):
     assert out.shape == inputs[2].shape
 
     return out, state
+
+  def call_and_grad(self, inputs, ct, rng=None, **kwargs):
+    # TODO(kitaev): is there a manual implementation of call_and_grad that's
+    # faster than having jax infer one? Or are the permute/unpermute custom
+    # gradients defined in call() sufficient for reasonable speed?
+    def _do_call(x):
+      return self.call(x, params=(), state=(), rng=rng, **kwargs)[0]
+
+    output, vjpfun = jax.vjp(_do_call, inputs)
+    return output, vjpfun(ct)[0]
 
 
 def CausalAttention(d_feature, n_heads=1,
