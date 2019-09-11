@@ -31,6 +31,7 @@ docker run -it \
        --ignore=/usr/src/t2t/tensor2tensor/problems_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/data_generators/gym_problems_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/utils/checkpoint_compatibility_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/models/video/ \
        --ignore=/usr/src/t2t/tensor2tensor/models/research/next_frame_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/rl/trainer_model_based_stochastic_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/rl/trainer_model_based_sv2p_test.py \
