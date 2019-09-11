@@ -494,8 +494,8 @@ class BatchTrajectory(object):
                           temperature=None,
                           n_trajectories=None,
                           up_sample=False,
-                          wait_time_secs=10,
-                          max_tries=10):
+                          wait_time_secs=0.1,
+                          max_tries=17):
     """Load trajectories from specified dir and epoch.
 
     Args:
