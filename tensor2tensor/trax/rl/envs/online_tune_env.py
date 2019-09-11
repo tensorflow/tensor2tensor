@@ -26,7 +26,7 @@ import gym
 from tensor2tensor.trax import inputs as trax_inputs
 from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax import trax
-from tensor2tensor.trax.rl.envs import online_tune
+from tensor2tensor.trax.rl import online_tune
 from tensorflow.io import gfile
 
 

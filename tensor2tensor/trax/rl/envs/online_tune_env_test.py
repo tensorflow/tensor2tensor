@@ -26,7 +26,7 @@ import numpy as np
 from tensor2tensor.trax import inputs as trax_inputs
 from tensor2tensor.trax import models
 from tensor2tensor.trax import trax
-from tensor2tensor.trax.rl.envs import online_tune
+from tensor2tensor.trax.rl import online_tune
 from tensor2tensor.trax.rl.envs import online_tune_env
 from tensorflow import test
 from tensorflow.io import gfile
