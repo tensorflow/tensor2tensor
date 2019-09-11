@@ -537,5 +537,16 @@ class PpoTest(test.TestCase):
                     -np.sum(filtered_log_probs) / 5.0,
                     1e-6)
 
+  def test_saves_and_restores_opt_state(self):
+    opt_state = 123
+    state = 456
+    epoch = 7
+    opt_step = 89
+    output_dir = self.get_temp_dir()
+    ppo.save_opt_state(output_dir, opt_state, state, epoch, opt_step)
+    restored_data = ppo.maybe_restore_opt_state(output_dir)
+    self.assertEqual(restored_data, (opt_state, state, epoch, opt_step))
+
+
 if __name__ == "__main__":
   test.main()

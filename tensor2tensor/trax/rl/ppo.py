@@ -826,6 +826,23 @@ def maybe_restore_opt_state(output_dir,
   )
 
 
+def save_opt_state(output_dir,
+                   policy_and_value_opt_state,
+                   policy_and_value_state,
+                   epoch,
+                   total_opt_step):
+  """Saves the policy and value network optimization state etc."""
+  old_model_files = get_policy_model_files(output_dir)
+  params_file = os.path.join(output_dir, "model-%06d.pkl" % epoch)
+  with gfile.GFile(params_file, "wb") as f:
+    pickle.dump(
+        (policy_and_value_opt_state, policy_and_value_state, total_opt_step), f)
+  # Remove the old model files.
+  for path in old_model_files:
+    if path != params_file:
+      gfile.remove(path)
+
+
 def write_eval_reward_summaries(reward_stats_by_mode, summary_writer, epoch):
   """Writes evaluation reward statistics to summary and logs them.
 

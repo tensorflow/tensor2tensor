@@ -25,7 +25,6 @@ import os
 import time
 
 from absl import logging
-import cloudpickle as pickle
 import gym
 from jax import jit
 from jax import numpy as np
@@ -39,7 +38,6 @@ from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.rl import base_trainer
 from tensor2tensor.trax.rl import ppo
-from tensorflow.io import gfile
 
 DEBUG_LOGGING = False
 GAMMA = 0.99
@@ -619,15 +617,13 @@ class PPO(base_trainer.BaseTrainer):
   def save(self):
     """Save the agent parameters."""
     logging.vlog(1, "PPO epoch [% 6d]: saving model.", self._epoch)
-    old_model_files = ppo.get_policy_model_files(self._output_dir)
-    params_file = os.path.join(self._output_dir, "model-%06d.pkl" % self._epoch)
-    with gfile.GFile(params_file, "wb") as f:
-      pickle.dump((self._policy_and_value_opt_state, self._model_state,
-                   self._total_opt_step), f)
-    # Remove the old model files.
-    for path in old_model_files:
-      if path != params_file:
-        gfile.remove(path)
+    ppo.save_opt_state(
+        self._output_dir,
+        self._policy_and_value_opt_state,
+        self._model_state,
+        self._epoch,
+        self._total_opt_step,
+    )
     # Reset this number.
     self._n_trajectories_done = 0
     self._last_saved_at = self._epoch
