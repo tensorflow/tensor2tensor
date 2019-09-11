@@ -52,6 +52,13 @@ def play_env_problem_randomly(env_problem, num_steps):
     env_problem.reset(indices=done_indices(dones))
 
 
+def get_completed_trajectories_from_env(env, n_trajectories):
+  completed_trajectories = []
+  for trajectory in env.trajectories.completed_trajectories[:n_trajectories]:
+    completed_trajectories.append(trajectory.as_numpy)
+  return completed_trajectories
+
+
 def play_env_problem_with_policy(env,
                                  policy_fun,
                                  num_trajectories=1,
@@ -183,9 +190,8 @@ def play_env_problem_with_policy(env,
 
   # We have the trajectories we need, return a list of triples:
   # (observations, actions, rewards)
-  completed_trajectories = []
-  for trajectory in env.trajectories.completed_trajectories[:num_trajectories]:
-    completed_trajectories.append(trajectory.as_numpy)
+  completed_trajectories = get_completed_trajectories_from_env(
+      env, num_trajectories)
 
   timing_info = {
       "trajectory_collection/policy_application": policy_application_total_time,

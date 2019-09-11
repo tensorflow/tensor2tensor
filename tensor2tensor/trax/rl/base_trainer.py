@@ -32,7 +32,7 @@ class BaseTrainer(object):
   def __init__(
       self, train_env, eval_env, output_dir,
       trajectory_dump_dir=None, trajectory_dump_min_count_per_shard=16,
-      async_mode=False, async_mode_trajectory_subdir="trajectories",
+      async_mode=False,
   ):
     """Base class constructor.
 
@@ -47,8 +47,6 @@ class BaseTrainer(object):
         shuffling for model training in SimPLe.
       async_mode: (bool) If True, this means we are in async mode and we read
         trajectories from a location rather than interact with the environment.
-      async_mode_trajectory_subdir: (string) The subdir of output_dir to search
-        for trajectories in async mode.
     """
     self.train_env = train_env
     self.eval_env = eval_env
@@ -58,9 +56,7 @@ class BaseTrainer(object):
     self._trajectory_dump_min_count_per_shard = (
         trajectory_dump_min_count_per_shard)
     self._trajectory_buffer = []
-
     self._async_mode = async_mode
-    self._async_mode_trajectory_subdir = async_mode_trajectory_subdir
 
   @property
   def epoch(self):

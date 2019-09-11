@@ -61,7 +61,6 @@ class SimPLe(base_trainer.BaseTrainer):
         eval_env=eval_env,
         output_dir=self._policy_dir,
         async_mode=self._async_mode,
-        async_mode_trajectory_subdir=self._async_mode_trajectory_subdir,
     )
     self._n_real_epochs = n_real_epochs
     self._model_train_batch_size = model_train_batch_size

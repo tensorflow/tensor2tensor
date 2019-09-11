@@ -31,6 +31,8 @@ from jax import jit
 from jax import numpy as np
 from jax import random as jax_random
 import numpy as onp
+from tensor2tensor.envs import env_problem_utils
+from tensor2tensor.envs import trajectory
 from tensor2tensor.trax import jaxboard
 from tensor2tensor.trax import models as trax_models
 from tensor2tensor.trax import optimizers as trax_opt
@@ -215,14 +217,45 @@ class PPO(base_trainer.BaseTrainer):
   def epoch(self):
     return self._epoch
 
-  def collect_trajectories_async(self, env, train=True, n_trajectories=1):
+  def collect_trajectories_async(self,
+                                 env,
+                                 train=True,
+                                 n_trajectories=1,
+                                 temperature=1.0):
     """Collects trajectories in an async manner."""
 
     assert self._async_mode
-    del env
-    del train
-    del n_trajectories
-    raise NotImplementedError
+
+    trajectory_dir = os.path.join(self._output_dir, "trajectories",
+                                  "train" if train else "eval")
+    epoch = self.epoch
+
+    logging.info(
+        "Loading [%s] trajectories from dir [%s] for epoch [%s] and temperature"
+        " [%s]", n_trajectories, trajectory_dir, epoch, temperature)
+
+    bt = trajectory.BatchTrajectory.load_from_directory(
+        trajectory_dir,
+        epoch=epoch,
+        temperature=temperature,
+        n_trajectories=n_trajectories)
+
+    if bt is None:
+      logging.error(
+          "Couldn't load [%s] trajectories from dir [%s] for epoch [%s] and "
+          "temperature [%s]", n_trajectories, trajectory_dir, epoch,
+          temperature)
+      assert bt
+
+    # Doing this is important, since we want to modify `env` so that it looks
+    # like `env` was actually played and the trajectories came from it.
+    env.trajectories = bt
+
+    trajs = env_problem_utils.get_completed_trajectories_from_env(
+        env, n_trajectories)
+    n_done = len(trajs)
+    timing_info = {}
+    return trajs, n_done, timing_info, self._model_state
 
   def collect_trajectories(self, train=True, temperature=1.0):
     self._rng, key = jax_random.split(self._rng)
@@ -240,7 +273,10 @@ class PPO(base_trainer.BaseTrainer):
     # If async, read the required trajectories for the epoch.
     if self._async_mode:
       return self.collect_trajectories_async(
-          env, train=train, n_trajectories=n_trajectories)
+          env,
+          train=train,
+          n_trajectories=n_trajectories,
+          temperature=temperature)
 
     trajs, n_done, timing_info, self._model_state = ppo.collect_trajectories(
         env,
