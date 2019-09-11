@@ -61,6 +61,39 @@ Inputs = collections.namedtuple(
 _MAX_SKIP_EXAMPLES = 1e5
 
 
+def download_and_prepare(dataset_name, data_dir):
+  """Downloads and prepares T2T or TFDS dataset.
+
+  Args:
+    dataset_name: tfds dataset or t2t problem name prefixed by "t2t_".
+    data_dir: location of existing dataset or None.
+
+  Returns:
+    data_dir: path string of downloaded data.
+  """
+  if not data_dir:
+    data_dir = os.path.expanduser('~/tensorflow_datasets/')
+    dl_dir = os.path.join(data_dir, 'download')
+    tf.logging.info(
+        ('No dataset directory provided. '
+         'Downloading and generating dataset for %s inside data directory %s '
+         'For large datasets it is better to prepare datasets manually!')
+        % (dataset_name, data_dir))
+    if dataset_name.startswith('t2t_'):
+      # Download and run dataset generator for T2T problem.
+      data_dir = os.path.join(data_dir, dataset_name)
+      tf.gfile.MakeDirs(data_dir)
+      tf.gfile.MakeDirs(dl_dir)
+      t2t_problems.problem(dataset_name[4:]).generate_data(data_dir, dl_dir)
+    else:
+      # Download and prepare TFDS dataset.
+      tfds_builder = tfds.builder(dataset_name)
+      tfds_builder.download_and_prepare(download_dir=dl_dir)
+  else:
+    data_dir = os.path.expanduser(data_dir)
+  return data_dir
+
+
 @gin.configurable(blacklist=['n_devices'])
 def inputs(n_devices, dataset_name, data_dir=None, input_name=None,
            n_chunks=0):
@@ -77,8 +110,7 @@ def inputs(n_devices, dataset_name, data_dir=None, input_name=None,
   Returns:
     trax.inputs.Inputs
   """
-  assert data_dir, 'Must provide a data directory'
-  data_dir = os.path.expanduser(data_dir)
+  data_dir = download_and_prepare(dataset_name, data_dir)
 
   (train_batches, train_eval_batches, eval_batches,
    input_name, input_shape, input_dtype,
