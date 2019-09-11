@@ -22,16 +22,24 @@ completed trajectories.
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
 import os
+import pickle
 import re
-import cloudpickle as pickle
+import sys
+import time
+from absl import logging
+import cloudpickle
 import numpy as np
 from tensor2tensor.envs import time_step
 from tensorflow.io import gfile
 
-TRAJECTORY_FILE_REGEXP = r"trajectory_epoch_(\d{6})_env_id_(\d{6})_r_(.*).pkl"
-TRAJECTORY_FILE_GLOB = r"trajectory_epoch_*_env_id_*_r_*.pkl"
+TRAJECTORY_FILE_FORMAT = r"trajectory_epoch_{epoch}_env_id_{env_id}_temperature_{temperature}_r_{r}.pkl"
+
+
+def _get_pickle_module():
+  if sys.version_info[0] < 3:
+    return cloudpickle
+  return pickle
 
 
 class Trajectory(object):
@@ -455,60 +463,111 @@ class BatchTrajectory(object):
   def parse_trajectory_file_name(trajectory_file_name):
     """Parse out the trajectory file's groups and return to caller."""
     base_trajectory_file_name = os.path.basename(trajectory_file_name)
-    compiled_regexp = re.compile(TRAJECTORY_FILE_REGEXP)
+    trajectory_file_regexp = TRAJECTORY_FILE_FORMAT.format(
+        epoch="(.*)",
+        env_id="(.*)",
+        temperature="(.*)",
+        r="(.*)",
+    )
+    compiled_regexp = re.compile(trajectory_file_regexp)
     r = compiled_regexp.match(base_trajectory_file_name)
     if not r:
       return None
     g = r.groups()
     if len(g) is not compiled_regexp.groups:
       return None
-    return (int(g[0]), int(g[1])) + g[2:]
+    # epoch, env_id, temp, random string
+    try:
+      epoch = int(g[0])
+      env_id = int(g[1])
+      temperature = float(g[2])
+      random_string = g[3]
+    except ValueError:
+      logging.error("Trajectory file name isn't parseable: %s",
+                    base_trajectory_file_name)
+      return None
+    return epoch, env_id, temperature, random_string
 
-  # TODO(afrozm): Test this function.
   @staticmethod
-  def load_from_directory(trajectory_dir, epoch=None, n_trajectories=None):
-    """Load trajectories from specified dir and epoch."""
+  def load_from_directory(trajectory_dir,
+                          epoch=None,
+                          temperature=None,
+                          n_trajectories=None,
+                          up_sample=False,
+                          wait_time_secs=10,
+                          max_tries=10):
+    """Load trajectories from specified dir and epoch.
 
-    trajectory_file_glob = TRAJECTORY_FILE_GLOB
+    Args:
+      trajectory_dir: (string) directory to find trajectories.
+      epoch: (int) epoch for which to load trajectories, if None we don't filter
+        on an epoch.
+      temperature: (float) this is used to filter the trajectory files, if None
+        we don't filter on temperature.
+      n_trajectories: (int) This is the batch size of the returned
+        BatchTrajectory object if one is returned. If set to None, then the
+        number of trajectories becomes the batch size. If set to some number,
+        then we wait for those many trajectory files to be available.
+      up_sample: (bool) If there are fewer than required (n_trajectories) number
+        of incomplete trajectories, then we upsample to make up the numbers.
+      wait_time_secs: (float) Waiting time, with exponential backoff to wait for
+        min_trajectories.
+      max_tries: (int) The number of tries to get min_trajectories trajectories.
 
-    # If there is a desired epoch, modify the glob to get that instead.
-    if epoch:
-      trajectory_file_glob = trajectory_file_glob.replace(
-          "epoch_*", "epoch_%06d" % epoch)
+    Returns:
+      A BatchTrajectory object with all the constraints satisfied or None.
+    """
+
+    # Modify the format to get a glob with desired epoch and temperature.
+    trajectory_file_glob = TRAJECTORY_FILE_FORMAT.format(
+        epoch=epoch if epoch is not None else "*",
+        env_id="*",
+        temperature=temperature if temperature is not None else "*",
+        r="*",
+    )
 
     trajectory_files = gfile.glob(
         os.path.join(trajectory_dir, trajectory_file_glob))
 
-    if not trajectory_files:
-      return None
+    if n_trajectories:
+      # We need to get `n_trajectories` number of `trajectory_files`.
+      # This works out to a maximum ~3hr waiting period.
+      while max_tries > 0 and len(trajectory_files) < n_trajectories:
+        logging.info(
+            "Sleeping for %s seconds while waiting for %s trajectories, found "
+            "%s right now.", wait_time_secs, n_trajectories,
+            len(trajectory_files))
+        time.sleep(wait_time_secs)
+        max_tries -= 1
+        wait_time_secs *= 2  # exponential backoff.
+        trajectory_files = gfile.glob(
+            os.path.join(trajectory_dir, trajectory_file_glob))
+
+      # We can't get the required number of files and we can't up-sample either.
+      if (len(trajectory_files) < n_trajectories) and not up_sample:
+        return None
+
+      # Sample up or down as the case maybe.
+      trajectory_files = list(
+          np.random.choice(trajectory_files, n_trajectories))
 
     # We read and load all the files, revisit if this becomes a problem.
     trajectories_buffer = []
-    completed_trajectories_buffer = []
     for trajectory_file in trajectory_files:
       with gfile.GFile(trajectory_file, "rb") as f:
-        list_trajectories = pickle.load(f)
-        assert isinstance(list_trajectories, list)
-        if not list_trajectories:
-          continue
-        assert isinstance(list_trajectories[0], Trajectory)
-        for trajectory in list_trajectories:
-          if trajectory.done:
-            completed_trajectories_buffer.append(trajectory)
-          else:
-            trajectories_buffer.append(trajectory)
+        trajectory = _get_pickle_module().load(f)
+        assert isinstance(trajectory, Trajectory)
+        trajectories_buffer.append(trajectory)
 
-    if not trajectories_buffer and not completed_trajectories_buffer:
+    if not trajectories_buffer:
       return None
 
-    # Randomly sample `n_trajectories` if needed.
-    n_trajectories = None if not n_trajectories else int(n_trajectories)
-    if n_trajectories and n_trajectories > 0:
-      trajectories_buffer = list(
-          np.random.choice(trajectories_buffer, int(trajectories_buffer)))
+    # If n_trajectories wasn't set, then set to the number of trajectories we're
+    # returning.
+    n_trajectories = n_trajectories or len(trajectories_buffer)
 
     # Construct and return a new BatchTrajectory object.
     return BatchTrajectory(
-        batch_size=len(trajectories_buffer),
-        trajectories=trajectories_buffer,
-        completed_trajectories=completed_trajectories_buffer)
+        batch_size=n_trajectories,
+        trajectories=[Trajectory() for _ in range(n_trajectories)],
+        completed_trajectories=trajectories_buffer)

@@ -19,9 +19,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
 import numpy as np
+from tensor2tensor.envs import time_step
 from tensor2tensor.envs import trajectory
 import tensorflow as tf
+from tensorflow.io import gfile
 
 
 class TrajectoryTest(tf.test.TestCase):
@@ -138,15 +141,18 @@ class TrajectoryTest(tf.test.TestCase):
     observations = np.random.uniform(size=(ts,) + shape)
     actions = np.random.choice(range(num_actions), size=(ts - 1,))
     rewards = np.random.choice([-1, 0, 1], size=(ts - 1,))
-    squares = np.arange(ts - 1) ** 2
-    cubes = np.arange(ts - 1) ** 3
+    squares = np.arange(ts - 1)**2
+    cubes = np.arange(ts - 1)**3
 
     def get_info(i):
       return {"sq": squares[i], "cu": cubes[i]}
 
     # First time-step has no reward.
-    t.add_time_step(observation=observations[0], done=False, action=actions[0],
-                    info=get_info(0))
+    t.add_time_step(
+        observation=observations[0],
+        done=False,
+        action=actions[0],
+        info=get_info(0))
     for i in range(1, ts - 1):
       t.add_time_step(
           observation=observations[i],
@@ -469,13 +475,92 @@ class BatchTrajectoryTest(tf.test.TestCase):
 
   def test_parse_trajectory_file_name(self):
     self.assertEqual(
-        (12, 13, "abc"),
+        (12, 13, 1.0, "abc"),
         trajectory.BatchTrajectory.parse_trajectory_file_name(
-            "/tmp/trajectory_epoch_000012_env_id_000013_r_abc.pkl"))
+            "/tmp/trajectory_epoch_000012_env_id_000013_temperature_1.0_r_abc.pkl"
+        ))
 
     self.assertIsNone(
         trajectory.BatchTrajectory.parse_trajectory_file_name(
             "/tmp/trajectory_epoch_000012_env_id_000013.pkl"))
+
+  def test_load_from_directory(self):
+    output_dir = self.get_temp_dir()
+
+    epochs = [0, 1, 2]
+    env_ids = [0, 1, 2]
+    temperatures = [0.5, 1.0]
+    random_strings = ["a", "b"]
+
+    # Write some trajectories.
+    # There are 3x3x2x2 (36) trajectories, and of them 3x2x2 (12) are done.
+    for epoch in epochs:
+      for env_id in env_ids:
+        for temperature in temperatures:
+          for random_string in random_strings:
+            traj = trajectory.Trajectory(time_steps=[
+                time_step.TimeStep(
+                    observation=epoch,
+                    done=(epoch == 0),
+                    raw_reward=1.0,
+                    processed_reward=1.0,
+                    action=env_id,
+                    info={})
+            ])
+
+            trajectory_file_name = trajectory.TRAJECTORY_FILE_FORMAT.format(
+                epoch=epoch,
+                env_id=env_id,
+                temperature=temperature,
+                r=random_string)
+
+            with gfile.GFile(
+                os.path.join(output_dir, trajectory_file_name), "w") as f:
+              trajectory._get_pickle_module().dump(traj, f)
+
+    # Load everything and check.
+    bt = trajectory.BatchTrajectory.load_from_directory(output_dir)
+
+    self.assertIsInstance(bt, trajectory.BatchTrajectory)
+    self.assertEqual(36, bt.num_completed_trajectories)
+    self.assertEqual(36, bt.batch_size)
+
+    bt = trajectory.BatchTrajectory.load_from_directory(output_dir, epoch=0)
+    self.assertEqual(12, bt.num_completed_trajectories)
+    self.assertEqual(12, bt.batch_size)
+
+    # Get 100 trajectories, but there aren't any.
+    bt = trajectory.BatchTrajectory.load_from_directory(
+        output_dir, epoch=0, n_trajectories=100, max_tries=0)
+    self.assertIsNone(bt)
+
+    bt = trajectory.BatchTrajectory.load_from_directory(
+        output_dir, epoch=0, temperature=0.5)
+    self.assertEqual(6, bt.num_completed_trajectories)
+    self.assertEqual(6, bt.batch_size)
+
+    bt = trajectory.BatchTrajectory.load_from_directory(output_dir, epoch=1)
+    self.assertEqual(12, bt.num_completed_trajectories)
+    self.assertEqual(12, bt.batch_size)
+
+    # Constraints cannot be satisfied.
+    bt = trajectory.BatchTrajectory.load_from_directory(
+        output_dir, epoch=1, n_trajectories=100, up_sample=False, max_tries=0)
+    self.assertIsNone(bt)
+
+    # Constraints can be satisfied.
+    bt = trajectory.BatchTrajectory.load_from_directory(
+        output_dir, epoch=1, n_trajectories=100, up_sample=True, max_tries=0)
+    self.assertEqual(100, bt.num_completed_trajectories)
+    self.assertEqual(100, bt.batch_size)
+
+    bt = trajectory.BatchTrajectory.load_from_directory(
+        output_dir, epoch=1, n_trajectories=10)
+    self.assertEqual(10, bt.num_completed_trajectories)
+    self.assertEqual(10, bt.batch_size)
+
+    gfile.rmtree(output_dir)
+
 
 if __name__ == "__main__":
   tf.test.main()
