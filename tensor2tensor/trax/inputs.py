@@ -84,7 +84,8 @@ def download_and_prepare(dataset_name, data_dir):
       data_dir = os.path.join(data_dir, dataset_name)
       tf.gfile.MakeDirs(data_dir)
       tf.gfile.MakeDirs(dl_dir)
-      t2t_problems.problem(dataset_name[4:]).generate_data(data_dir, dl_dir)
+      t2t_problems.problem(
+          dataset_name[len('t2t_'):]).generate_data(data_dir, dl_dir)
     else:
       # Download and prepare TFDS dataset.
       tfds_builder = tfds.builder(dataset_name)
