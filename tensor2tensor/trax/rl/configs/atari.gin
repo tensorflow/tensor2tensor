@@ -1,0 +1,30 @@
+import tensor2tensor.trax.models
+import tensor2tensor.trax.rl.trainers
+
+# Parameters for PPO:
+# ==============================================================================
+PPO.n_optimizer_steps = 4
+PPO.target_kl = 0.01
+PPO.boundary = 20
+PPO.max_timestep = 128
+PPO.max_timestep_eval = 20000
+PPO.random_seed = None
+PPO.gamma = 0.99
+PPO.lambda_ = 0.95
+PPO.c1 = 1.0
+PPO.c2 = 0.01
+PPO.eval_every_n = 500
+PPO.done_frac_for_policy_save = 0.9
+PPO.n_evals = 16
+PPO.len_history_for_policy = 4
+PPO.eval_temperatures = (1.0, 0.5)
+PPO.policy_and_value_model = @trax.models.AtariCnn
+
+# Parameters for train_rl:
+# ==============================================================================
+train_rl.env_name = "PongNoFrameskip-v4"
+train_rl.n_epochs = 40000
+train_rl.clip_rewards = True
+train_rl.max_timestep = 10000
+train_rl.rendered_env = True
+train_rl.resize_dims = (105, 80)

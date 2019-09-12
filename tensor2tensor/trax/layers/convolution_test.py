@@ -38,5 +38,16 @@ class ConvolutionLayerTest(absltest.TestCase):
     self.assertEqual(result_shape, (3, 29, 3, 3, 30))
 
 
+class CausalConvolutionTest(absltest.TestCase):
+
+  def test_causal_conv(self):
+    input_shape = (29, 5, 20)
+    conv = convolution.CausalConv(filters=30, kernel_width=3)
+    result_shape = base.check_shape_agreement(conv, input_shape)
+    self.assertEqual(result_shape, (29, 5, 30))
+
+    # TODO(ddohan): How to test for causality? Gradient check between positions?
+
+
 if __name__ == "__main__":
   absltest.main()

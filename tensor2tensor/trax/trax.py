@@ -23,13 +23,11 @@ import collections
 import functools
 import itertools
 import os
-import pickle
 import random
 import sys
 import time
 
 from absl import logging
-import cloudpickle
 
 import gin
 
@@ -45,6 +43,7 @@ from tensor2tensor.trax import jaxboard
 from tensor2tensor.trax import layers
 from tensor2tensor.trax import learning_rate as lr
 from tensor2tensor.trax import optimizers as trax_opt
+from tensor2tensor.trax import utils
 from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.backend import random as jax_random
 
@@ -52,65 +51,108 @@ import tensorflow as tf
 from tensorflow.io import gfile
 
 
-def _make_list(predictions, targets):
-  """Helper: make predictions and targets lists, check they match on length."""
+def unpack_batch(batch, has_weights):
+  """Unpacks a training batch into inputs, targets and weights."""
+  if has_weights:
+    assert len(batch) == 3  # (inputs, targets, weights)
+    return batch
+  else:
+    inputs, targets = batch
+    if isinstance(targets, (list, tuple)):
+      # If weights are not provided, use scalar 1s and rely on broadcasting.
+      weights = [1.0] * len(targets)
+    else:
+      weights = 1.0
+    return inputs, targets, weights
+
+
+def _make_list(predictions, targets, weights):
+  """Make predictions, targets and weights lists, check they match on length."""
   #  Our models sometimes return predictions in lists, make it a list always.
   # TODO(lukaszkaiser): make abstractions for nested structures and refactor.
   if not isinstance(predictions, (list, tuple)):
     if isinstance(targets, (list, tuple)):
       raise ValueError("Targets are a list or tuple but predictions are not.")
-    predictions, targets = [predictions], [targets]
+    if isinstance(weights, (list, tuple)):
+      raise ValueError("Weights are a list or tuple but predictions are not.")
+    predictions, targets, weights = [predictions], [targets], [weights]
   if len(predictions) != len(targets):
     raise ValueError("Predictions and targets have different lengths.")
-  return list(predictions), list(targets)
+  if len(predictions) != len(weights):
+    raise ValueError("Predictions and weights have different lengths.")
+  return list(predictions), list(targets), list(weights)
 
 
-@gin.configurable(blacklist=["inputs", "targets"])
-def masked_mean(inputs, targets, mask_id=None):
-  """Mean of the inputs but counting only those where targets != mask_id."""
+@gin.configurable(blacklist=["inputs", "targets", "weights"])
+def masked_mean(inputs, targets, weights, mask_id=None):
+  """Weighted mean of the inputs, excluding where targets == mask_id."""
   inputs = [x.astype(np.float32) for x in inputs]
   # We assume all elements in the list contribute equally.
   # TODO(lukaszkaiser): remove this assumption (e.g., when masks differ).
   length = len(inputs)
-  if mask_id is None:
-    # TODO(lukaszkaiser): can we just divide the sum by length? XLA optimizes?
-    return sum([np.mean(x) / length for x in inputs])
-  unmask = [1.0 - np.equal(t, mask_id).astype(np.float32) for t in targets]
-  return sum([np.sum(x * m) / (length * np.sum(m))
-              for x, m in zip(inputs, unmask)])
+  if mask_id is not None:
+    weights = [w * (1.0 - np.equal(t, mask_id).astype(np.float32))
+               for t, w in zip(targets, weights)]
+  weight_sums = [np.float32(t.size) if np.isscalar(w) else np.sum(w)
+                 for w, t in zip(weights, targets)]
+  return sum([np.sum(x * w) / (length * s)
+              for x, w, s in zip(inputs, weights, weight_sums)])
 
 
-def accuracy(batch, model_predictions):
+def accuracy(batch, model_predictions, has_weights):
   """Calculate accuracy."""
-  _, targets = batch
-  model_predictions, targets = _make_list(model_predictions, targets)
+  _, targets, weights = unpack_batch(batch, has_weights)
+  model_predictions, targets, weights = _make_list(
+      model_predictions, targets, weights)
   correct = []
   for (prediction, target) in zip(model_predictions, targets):
     predicted_class = np.argmax(prediction, axis=-1)
     correct.append(np.equal(predicted_class, target))
-  return masked_mean(correct, targets)
+  return masked_mean(correct, targets, weights)
 
 
-def neg_log_perplexity(batch, model_predictions):
+def neg_log_perplexity(batch, model_predictions, has_weights):
   """Calculate negative log perplexity."""
-  _, targets = batch
-  model_predictions, targets = _make_list(model_predictions, targets)
+  _, targets, weights = unpack_batch(batch, has_weights)
+  model_predictions, targets, weights = _make_list(
+      model_predictions, targets, weights)
   xent = []
   for (prediction, target) in zip(model_predictions, targets):
     hot_target = layers.one_hot(target, prediction.shape[-1])
     xent.append(np.sum(prediction * hot_target, axis=-1))
-  return masked_mean(xent, targets)
+  return masked_mean(xent, targets, weights)
 
 
-def loss(params, batch, model_predict, rng):
+def _stack_inputs_targets_and_get_predictions(inputs_and_targets):
+  """Helper to stack inputs and targets and retrieve predictions from output."""
+  # Inputs and targets can be lists - we build a flat one to input to the model.
+  model_inp = []
+  for x in inputs_and_targets:
+    if not isinstance(x, (list, tuple)):
+      model_inp.append(x)
+    else:
+      model_inp.extend(x)
+  # We retrieve as many predictions from model output as many there were inputs.
+  inp = inputs_and_targets[0]
+  inp_len = len(inp) if isinstance(inp, (list, tuple)) else 1
+  get_pred = lambda x: x[0] if inp_len == 1 else x[:inp_len]
+  return tuple(model_inp), get_pred
+
+
+def loss(params, batch, model_predict, state, rng, has_weights):
   """Calculate loss."""
-  inputs, targets = batch
-  predictions = model_predict(inputs, params, rng=rng)
-  predictions, targets = _make_list(predictions, targets)
+  inputs, targets, weights = unpack_batch(batch, has_weights)
+  model_input, get_preds = _stack_inputs_targets_and_get_predictions(
+      [inputs, targets])
+  # Call model, predictions will be the returned stack, usually consisting of
+  # the prediction tensor and the targets.
+  predictions, state = model_predict(model_input, params, state, rng=rng)
+  predictions = get_preds(predictions)
+  predictions, targets, weights = _make_list(predictions, targets, weights)
   xent = []
   for (pred, target) in zip(predictions, targets):
     xent.append(np.sum(pred * layers.one_hot(target, pred.shape[-1]), axis=-1))
-  return - masked_mean(xent, targets)
+  return - masked_mean(xent, targets, weights), state
 
 
 def log(s, stdout=True):
@@ -124,20 +166,35 @@ def step_log(step, s):
   log("Step % 6d: %s" % (step, s))
 
 
-State = collections.namedtuple("_State", ["step", "params", "history"])
+State = collections.namedtuple("_State", [
+    "step",       # Current training step number.
+    "opt_state",  # OptState.
+    "history",    # trax.history.History.
+    "model_state",
+])
+
+
+OptState = collections.namedtuple("_OptState", [
+    "params",      # Model parameters.
+    "slots",       # Per-parameter optimizer state, e.g. gradient moments.
+    "opt_params",  # Optimizer (hyper)parameters, e.g. learning rate, momentum.
+])
 
 
 def restore_state(output_dir):
   """Restore State."""
   params_file = os.path.join(output_dir, "model.pkl")
   if not gfile.exists(params_file):
-    return State(step=None, params=None, history=trax_history.History())
+    return State(step=None, opt_state=None, history=trax_history.History(),
+                 model_state=None)
 
+  pkl_module = utils.get_pickle_module()
   with gfile.GFile(params_file, "rb") as f:
-    (params, step, history) = pickle.load(f)
+    (opt_state, step, history, model_state) = pkl_module.load(f)
   log("Model loaded from %s at step %d" % (params_file, step))
   logging.debug("From loaded model : history = %s", history)
-  return State(step=step, params=params, history=history)
+  return State(step=step, opt_state=OptState(*opt_state), history=history,
+               model_state=model_state)
 
 
 def _save_gin(output_dir, sw=None):
@@ -152,41 +209,39 @@ def _save_gin(output_dir, sw=None):
 
 def save_state(state, output_dir, keep=False):
   """Save State and optionally gin config."""
-  # TODO(gilmer, lukaszkaiser): figure out how to use cloudpickle in python3.
-  # Currently the code throws an error when run in python3.
-  if sys.version_info[0] < 3:
-    pkl_module = cloudpickle
-  else:
-    pkl_module = pickle
+  pkl_module = utils.get_pickle_module()
   params_file = os.path.join(output_dir, "model.pkl")
   with gfile.GFile(params_file, "wb") as f:
-    pkl_module.dump((state.params, state.step, state.history), f)
+    pkl_module.dump((tuple(state.opt_state), state.step, state.history,
+                     state.model_state), f)
   if keep:
     params_file = os.path.join(output_dir, "model_{}.pkl".format(state.step))
     with gfile.GFile(params_file, "wb") as f:
-      pkl_module.dump((state.params, state.step, state.history), f)
+      pkl_module.dump((tuple(state.opt_state), state.step, state.history,
+                       state.model_state), f)
   log("Model saved to %s" % params_file, stdout=False)
 
 
-def _save_replicated(opt_state, step, history, n_devices, output_dir, keep):
+def _save_replicated(opt_state, step, history, model_state, n_devices,
+                     output_dir, keep):
   """Save state but given a possibly replicated opt_state."""
   if n_devices > 1:
     first_replica = lambda x: x[0]
-    opt_state = layers.nested_map(opt_state, first_replica)
+    opt_state = OptState(*layers.nested_map(opt_state, first_replica))
   # This line, while optional, allows JAX to transfer arrays from the device to
   # the host in parallel, which is particularly important for cloud TPU.
   if backend.get_name() == "jax":
     opt_state = jax.device_get(opt_state)
-  save_state(State(params=opt_state, step=step, history=history),
-             output_dir, keep=keep)
+  save_state(State(opt_state=opt_state, step=step, history=history,
+                   model_state=model_state), output_dir, keep=keep)
 
 
 def _print_n_params(opt_state, n_devices, step):
   """Print out the number of parameters."""
-  sizes = layers.sizes(opt_state[0])
+  sizes = layers.sizes(opt_state.params)
   if n_devices > 1:
     unreplicate = lambda x: x[0]
-    single_params = layers.nested_map(opt_state[0], unreplicate)
+    single_params = layers.nested_map(opt_state.params, unreplicate)
     sizes = layers.sizes(single_params)
   total_size = layers.nested_reduce(sizes, sum)
   step_log(step, "Total trainable parameters size: %d" % total_size)
@@ -196,31 +251,36 @@ def _print_n_params(opt_state, n_devices, step):
 _METRICS = {
     "accuracy": accuracy,
     "neg_log_perplexity": neg_log_perplexity,
-    "loss": lambda x, y: - neg_log_perplexity(x, y),
+    "loss": lambda *args, **kwargs: - neg_log_perplexity(*args, **kwargs),
 }
 
 
-def evaluate_train_and_eval(step, inputs, predict_fn, eval_steps, rng,
+def evaluate_train_and_eval(step, eval_stream, train_eval_stream,
+                            predict_fn, eval_steps, state, rng, has_weights,
                             train_sw=None, eval_sw=None, history=None):
   """Evalaute on train and eval data, and log metrics."""
   step_log(step, "Evaluation")
-  train_metrics, eval_metrics = [
-      evaluate(  # pylint: disable=g-complex-comprehension
-          itertools.islice(input_stream(), eval_steps),
-          predict_fn,
-          _METRICS,
-          rng)
-      for input_stream in
-      [inputs.train_eval_stream, inputs.eval_stream]]
+  metrics_list = []
+  for input_stream in [train_eval_stream, eval_stream]:
+    metrics, state = evaluate(  # pylint: disable=g-complex-comprehension
+        itertools.islice(input_stream, eval_steps),
+        predict_fn,
+        _METRICS,
+        state,
+        rng,
+        has_weights)
+    metrics_list.append(metrics)
+  # Unpack in the same order we've iterated over streams in the loop above.
+  train_metrics, eval_metrics = metrics_list  # pylint: disable=unbalanced-tuple-unpacking
   if train_sw:
     log_metrics(train_metrics, train_sw, "train", step, history=history)
   if eval_sw:
     log_metrics(eval_metrics, eval_sw, "eval", step, history=history)
   step_log(step, "Finished evaluation")
-  return train_metrics, eval_metrics
+  return train_metrics, eval_metrics, state
 
 
-def evaluate(inputs_stream, predict_fn, metric_fns, rng):
+def evaluate(inputs_stream, predict_fn, metric_fns, state, rng, has_weights):
   """Evaluate.
 
   Args:
@@ -229,50 +289,60 @@ def evaluate(inputs_stream, predict_fn, metric_fns, rng):
       partially applied.
     metric_fns: dict from metric name to metric function, which takes inputs
       and predictions and returns a scalar metric value.
+    state: start state for `predict_fn`.
     rng: random number generator.
+    has_weights: bool, whether weights are included in the inputs.
 
   Returns:
     metrics: dict from metric name to metric value averaged over the number of
       inputs.
+    state: end state for `predict_fn`.
   """
   metrics = collections.defaultdict(float)
   count = 0
   for inp in inputs_stream:
     count += 1
     rng, subrng = jax_random.split(rng)
-    preds = predict_fn(inp[0], rng=subrng)
+    model_inp, get_preds = _stack_inputs_targets_and_get_predictions(inp)
+    # Call model, preds will be the returned stack, usually (pred, targets).
+    preds, state = predict_fn(model_inp, state=state, rng=subrng)
+    pred = get_preds(preds)
     for m, f in six.iteritems(metric_fns):
-      metrics[m] += f(inp, preds)
-  return {m: v / count for (m, v) in six.iteritems(metrics)}
+      metrics[m] += f(inp, pred, has_weights=has_weights)
+  return {m: v / count for (m, v) in six.iteritems(metrics)}, state
 
 
-def evaluate_loss_train_and_eval(step, inputs, compute_loss_fn, eval_steps,
-                                 rngs,
+def evaluate_loss_train_and_eval(step, eval_stream, train_eval_stream,
+                                 compute_loss_fn, eval_steps,
+                                 state, rngs, has_weights,
                                  train_sw=None, eval_sw=None, history=None):
   """More efficient evaluation that logs only the loss on train & eval data."""
+  assert not has_weights, (
+      "MemoryEfficientTrainer doesn't support has_weights")
   step_log(step, "Evaluation")
   train_eval_metrics = []
-  for input_stream in [inputs.train_eval_stream, inputs.eval_stream]:
+  for input_stream in [train_eval_stream, eval_stream]:
     total = 0.0
     count = 0.0
-    for inp in itertools.islice(input_stream(), eval_steps):
-      loss_values, rngs = compute_loss_fn(inp, rngs)
+    for inp in itertools.islice(input_stream, eval_steps):
+      loss_values, state, rngs = compute_loss_fn(inp, state, rngs)
       total += float(numpy.mean(loss_values))
       count += 1.0
     metrics = {"loss": total / count}
     train_eval_metrics.append(metrics)
+  # Unpack in the same order we've iterated over streams in the loop above.
   train_metrics, eval_metrics = train_eval_metrics  # pylint: disable=unbalanced-tuple-unpacking
   if train_sw:
     log_metrics(train_metrics, train_sw, "train", step, history=history)
   if eval_sw:
     log_metrics(eval_metrics, eval_sw, "eval", step, history=history)
   step_log(step, "Finished evaluation")
-  return train_metrics, eval_metrics
+  return train_metrics, eval_metrics, state
 
 
 def log_metrics(metrics, summ_writer, log_prefix, step, history=None):
   """Log metrics to summary writer and history."""
-  rjust_len = max([len(name) for name in metrics])
+  rjust_len = max([0] + [len(name) for name in metrics])
   for name, value in six.iteritems(metrics):
     step_log(step, "%s %s | % .8f" % (
         log_prefix.ljust(5), name.rjust(rjust_len), value))
@@ -307,118 +377,124 @@ def get_random_number_generator_and_set_seed(seed=None):
 # * Allow disabling eval
 
 
-def epochs(steps=None, epoch_steps=1):
-  """Iterator over epochs until steps is reached. 1-indexed.
+def epochs(total_steps, steps_to_skip, epoch_steps):
+  """Generates the number of steps in each epoch before reaching total_steps.
 
   Args:
-    steps: int, total number of steps. Infinite if None.
-    epoch_steps: int, number of steps per epoch. Can also be an iterable<int> to
-      enable variable length epochs.
+    total_steps: int, total number of steps.
+    steps_to_skip: int, number of steps to skip because of a restart.
+    epoch_steps: iterable of int, numbers of steps in each epoch.
 
   Yields:
-    (epoch: int, epoch id, epoch_steps: int, number of steps in this epoch)
+    epoch_steps: int, number of steps in this epoch
   """
-  try:
-    iter(epoch_steps)
-  except TypeError:
-    epoch_steps = itertools.repeat(epoch_steps)
+  steps_to_go = total_steps - steps_to_skip
+  epoch_steps = iter(epoch_steps)
 
-  step = 0
-  for epoch, epoch_steps in enumerate(epoch_steps):
-    epoch_steps = min(epoch_steps, steps - step)
-    yield (epoch + 1, epoch_steps)
-    step += epoch_steps
-    if steps and step >= steps:
+  # Remove the desired number of steps from the stream.
+  for steps_this_epoch in epoch_steps:
+    if steps_this_epoch > steps_to_skip:
+      # Put back the number of steps left in the unfinished epoch.
+      epoch_steps = itertools.chain(
+          [steps_this_epoch - steps_to_skip], epoch_steps)
+    if steps_this_epoch >= steps_to_skip:
+      break
+    steps_to_skip -= steps_this_epoch
+
+  # Yield the remaining steps per epoch up to total_steps.
+  for steps_this_epoch in epoch_steps:
+    steps_this_epoch = min(steps_this_epoch, steps_to_go)
+    yield steps_this_epoch
+    steps_to_go -= steps_this_epoch
+    if steps_to_go == 0:
       break
 
 
 @gin.configurable
 def _jit_predict_fn(model_predict, n_devices, jit=True):
-  """Use jit on model_predict if required."""
+  """Returns a JIT-compiled predict function (unless jit=False)."""
 
   if n_devices == 1:
-    if jit:
-      return backend.jit(model_predict)
-    else:
-      return model_predict
+    return backend.jit(model_predict) if jit else model_predict
 
   # Multi-devices, pmap and run.
   @functools.partial(backend.pmap, axis_name="batch")
-  def mapped_predict(x, params, rng):
-    return model_predict(x, params, rng=rng)
+  def mapped_predict(x, params, state, rng):
+    return model_predict(x, params, state, rng=rng)
 
-  def predict(x, params=(), rng=None):
+  def predict(x, params=(), state=(), rng=None):
     """Predict function jited and parallelized as requested."""
-    # On one device, jit and run.
-    pred = mapped_predict(
+    pred, state = mapped_predict(
         reshape_by_device(x, n_devices),
         params,
+        state,
         jax_random.split(rng, n_devices))
     # Need to reduce the [device, per-device-batch, ...] tensors back to
     # a [batch, ...] tensor. The tensors may be nested.
-    if not isinstance(pred, (list, tuple)):  # Not nested.
-      batch_size = pred.shape[0] * pred.shape[1]
-      return np.reshape(pred, [batch_size] + list(pred.shape[2:]))
-    batch_size = pred[0].shape[0] * pred[0].shape[1]
-    return [np.reshape(p, [batch_size] + list(p.shape[2:])) for p in pred]
+    def combine(x):
+      batch_size = x.shape[0] * x.shape[1]
+      return np.reshape(x, [batch_size] + list(x.shape[2:]))
+    return layers.nested_map(pred, combine), state
 
   return predict
 
 
 @gin.configurable
 def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices, jit=True):
-  """Get jit-ed update function for loss, optimizer, learning rate function."""
+  """Returns a (JIT-compiled) function that computes updates for one step."""
   if n_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
-    def single_update(i, opt_state, batch, rng):
+    def single_update(i, opt_state, batch, state, rng):
+      params, slots, opt_params = opt_state
       rng, subrng = jax_random.split(rng[0])
-      params, opt_slots = opt_state
-      return optimizer.tree_update(i, backend.grad(loss_fn)(
-          params, batch, predict_fn, rng), params, opt_slots), [subrng]
-    if jit:
-      return backend.jit(single_update)
-    else:
-      return single_update
+      grad_fn = backend.grad(loss_fn, has_aux=True)
+      grads, state = grad_fn(params, batch, predict_fn, state, rng)
+      return optimizer.tree_update(
+          i, grads, params, slots, opt_params), state, [subrng]
+    return backend.jit(single_update) if jit else single_update
 
+  # Else, for n_devices > 1:
   @functools.partial(backend.pmap, axis_name="batch")
-  def mapped_update(i, opt_state, batch, rng):
+  def mapped_update(i, opt_state, batch, state, rng):
     """This is a multi-device version of the update function above."""
     # We assume all tensors have the first dimension = n_devices.
+    params, slots, opt_params = opt_state
     rng, subrng = jax_random.split(rng)
-    params, opt_slots = opt_state
-    grads = backend.grad(loss_fn)(params, batch, predict_fn, rng)
+    grad_fn = backend.grad(loss_fn, has_aux=True)
+    grads, state = grad_fn(params, batch, predict_fn, state, rng)
     grads = jax.tree_util.tree_map(
         lambda g: lax.psum(g, "batch"), grads)
-    return optimizer.tree_update(i, grads, params, opt_slots), subrng
+    return optimizer.tree_update(
+        i, grads, params, slots, opt_params), state, subrng
 
-  def update(i, opt_state, batch, rng):
-    return mapped_update(numpy.repeat(i, n_devices), opt_state, batch, rng)
+  def update(i, opt_state, batch, state, rng):
+    return mapped_update(numpy.repeat(i, n_devices), opt_state, batch, state,
+                         rng)
 
   return update
 
 
 @gin.configurable
 def _jit_compute_loss_fn(predict_fn, loss_fn, n_devices, jit=True):
-  """Get jit-ed function that computes the loss."""
+  """Returns a (JIT-compiled) function that computes the loss for one step."""
   if n_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
-    def single_compute_loss(opt_state, batch, rng):
+    def single_compute_loss(opt_state, batch, state, rng):
       rng, subrng = jax_random.split(rng[0])
-      return loss_fn(opt_state[0], batch, predict_fn, rng), [subrng]
-    if jit:
-      return backend.jit(single_compute_loss)
-    else:
-      return single_compute_loss
+      loss_val, state = loss_fn(opt_state[0], batch, predict_fn, state, rng)
+      return loss_val, state, [subrng]
+    return backend.jit(single_compute_loss) if jit else single_compute_loss
 
+  # Else, for n_devices > 1:
   @functools.partial(backend.pmap, axis_name="batch")
-  def mapped_compute_loss(opt_state, batch, rng):
+  def mapped_compute_loss(opt_state, batch, state, rng):
     """This is a multi-device version of the update function above."""
     # We assume all tensors have the first dimension = n_devices.
     rng, subrng = jax_random.split(rng)
-    loss_val = loss_fn(opt_state[0], batch, predict_fn, rng)
-    return loss_val, subrng
+    loss_val, state = loss_fn(opt_state[0], batch, predict_fn, state, rng)
+    return loss_val, state, subrng
 
-  def compute_loss(opt_state, batch, rng):
+  def compute_loss(opt_state, batch, state, rng):
     return mapped_compute_loss(
-        opt_state, reshape_by_device(batch, n_devices), rng)
+        opt_state, reshape_by_device(batch, n_devices), state, rng)
 
   return compute_loss
 
@@ -449,6 +525,13 @@ def reshape_by_device(x, n_devices):
       x, lambda x: _reshape_by_device_single(x, n_devices))
 
 
+def _repeat_stream(stream):
+  """Repeat a stream indefinitely."""
+  while True:
+    for example in stream():
+      yield example
+
+
 @gin.configurable(whitelist=[])
 class Trainer(object):
   """Trax trainer.
@@ -457,11 +540,15 @@ class Trainer(object):
   save the training state and access evaluation data.
   """
 
-  def __init__(self, model, loss_fn, optimizer, lr_schedule, inputs, output_dir,
-               random_seed=None, n_devices=None, save_steps=None):
+  def __init__(self, model, loss_fn, optimizer, lr_schedule, inputs,
+               output_dir=None, random_seed=None, n_devices=None,
+               save_steps=None, should_save=True, has_weights=False):
     if save_steps is None:
       save_steps = []
     self._save_steps = save_steps
+    self._should_save = should_save
+    self._has_weights = has_weights
+    loss_fn = functools.partial(loss_fn, has_weights=self._has_weights)
     device_count = jax.lib.xla_bridge.device_count()
     n_devices = n_devices or device_count
     # TODO(lukaszkaiser): remove this restriction when possible.
@@ -470,28 +557,17 @@ class Trainer(object):
                        "%d != %d" % (n_devices, device_count))
     self._n_devices = n_devices
     rng = get_random_number_generator_and_set_seed(random_seed)
-    self._output_dir = output_dir
-    gfile.makedirs(output_dir)
-    # Create summary writers and history.
-    self._train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
-    self._eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
-
-    # Create input streams.
     inputs = inputs(n_devices)
     self._inputs = inputs
-    self._train_stream = inputs.train_stream()
 
-    # Setup optimizer and model.
-    state = restore_state(output_dir)
-    history = state.history
-    self._lr_fn = lr_schedule(history)
-    opt = optimizer(self._lr_fn)
+    # Initialize the learning rate to a dummy value. It will be set in reset().
+    opt = optimizer(learning_rate=0.0)
 
+    # Setup the model.
     model_train = model(mode="train")
     model_predict_eval = model(mode="eval")
 
     # Setup state.
-    step = state.step or 0
     rng, init_rng = jax_random.split(rng)
     self._rngs = jax_random.split(rng, n_devices)
     first_shape = inputs.input_shape[0]
@@ -499,39 +575,107 @@ class Trainer(object):
     if isinstance(first_shape, (list, tuple)):
       model_input_shape = tuple(
           tuple([None] + list(shape)) for shape in inputs.input_shape)
+      model_target_shape = tuple(
+          tuple([None] + list(shape)) for shape in inputs.target_shape)
     else:  # Otherwise just add [None] to the input shape.
       model_input_shape = tuple([None] + list(inputs.input_shape))
-    # Change all None to 1 in input shape.
+      model_target_shape = tuple([None] + list(inputs.target_shape))
+    # Change all None to 1 in input and target shape.
     model_input_shape = layers.nested_map(
         model_input_shape, lambda x: x if x else 1)
-    if state.params:
-      opt_state = state.params
-    else:
-      def initialize(input_shape, input_dtype, init_rng):
-        params = model_train.initialize(input_shape, input_dtype, init_rng)
-        opt_state = (params, opt.tree_init(params))
-        return opt_state
-      if _is_jit_init():
-        # JIT parameter initialization to avoid memory fragmentation
-        initialize = backend.jit(initialize, static_argnums=(0, 1))
-      opt_state = initialize(model_input_shape, inputs.input_dtype, init_rng)
-    if n_devices > 1:
-      replicate = lambda x: numpy.broadcast_to(x, (n_devices,) + x.shape)
-      opt_state = layers.nested_map(opt_state, replicate)
+    model_target_shape = layers.nested_map(
+        model_target_shape, lambda x: x if x else 1)
+    def initialize(input_shape, input_dtype, target_shape, target_dtype, rng):
+      """Helper to initialize the model."""
+      # Combine inputs and targets on the stack.
+      if not isinstance(input_dtype, (list, tuple)):
+        input_dtype = [input_dtype]
+        input_shape = [input_shape]
+      if not isinstance(target_dtype, (list, tuple)):
+        target_dtype = [target_dtype]
+        target_shape = [target_shape]
+      full_type = list(input_dtype) + list(target_dtype)
+      full_shape = list(input_shape) + list(target_shape)
+      # We need to create a new model instance and not reuse `model_train` here,
+      # because `m.initialize` puts cached parameter values in `m` and hence the
+      # next call of `m.initialize` will give wrong results.
+      params, state = model(mode="train").initialize(full_shape, full_type, rng)
+      (slots, opt_params) = opt.tree_init(params)
+      return (OptState(params, slots, opt_params), state)
+    if _is_jit_init():
+      # JIT parameter initialization to avoid memory fragmentation
+      initialize = backend.jit(initialize, static_argnums=(0, 1, 2, 3))
+    self._initialize = lambda: initialize(  # pylint: disable=g-long-lambda
+        model_input_shape, self._inputs.input_dtype,
+        model_target_shape, self._inputs.target_dtype, init_rng)
 
     # jit model_predict and update so they're fast
     self._jit_model_predict_eval = _jit_predict_fn(
         model_predict_eval, n_devices)
     self._jit_update_fn = _jit_update_fn(model_train, loss_fn, opt, n_devices)
 
-    self._step = step
     self._model_train = model_train
     self._model_predict_eval = model_predict_eval
     self._loss_fn = loss_fn
-    self._optimizer = optimizer
-    self._opt_state = opt_state
-    self._history = history
     self._lr_schedule = lr_schedule
+
+    # Those fields will be set in reset().
+    self._output_dir = None
+    self._train_sw = None
+    self._eval_sw = None
+    self._history = None
+    self._lr_fn = None
+    self._opt_state = None
+    self._step = None
+    self._model_state = None
+
+    if output_dir is not None:
+      self.reset(output_dir)
+
+  def reset(self, output_dir):
+    """Reset the model parameters.
+
+    Restores the parameters from the given output_dir if a checkpoint exists,
+    otherwise randomly initializes them.
+
+    Does not re-jit the model.
+
+    Args:
+      output_dir: Output directory.
+    """
+    self._output_dir = output_dir
+    gfile.makedirs(output_dir)
+    # Create summary writers and history.
+    self._train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
+    self._eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
+
+    # Reset the train and eval streams.
+    self._train_stream = self._inputs.train_stream()
+    # TODO(lukaszkaiser): add an option to evaluate exactly on the full eval
+    #   set by adding a padding and stopping the stream when too large.
+    self._eval_stream = _repeat_stream(self._inputs.eval_stream)
+    self._train_eval_stream = _repeat_stream(self._inputs.train_eval_stream)
+
+    # Restore the training state.
+    state = restore_state(output_dir)
+    self._step = state.step or 0
+    history = state.history
+    self._lr_fn = self._lr_schedule(history)
+    self._history = history
+    if state.opt_state:
+      opt_state = state.opt_state
+      model_state = state.model_state
+    else:
+      opt_state, model_state = self._initialize()
+      model_state = layers.nested_map(
+          model_state, self._maybe_replicate)
+    self._opt_state = OptState(*layers.nested_map(
+        opt_state, self._maybe_replicate))
+    self._model_state = model_state
+    if not state.opt_state:
+      self._maybe_save_state(keep=False)
+
+    self.update_learning_rate()
 
   @property
   def step(self):
@@ -543,7 +687,9 @@ class Trainer(object):
 
   @property
   def state(self):
-    return State(params=self._opt_state, step=self._step, history=self._history)
+    return State(
+        opt_state=self._opt_state, step=self._step, history=self._history,
+        model_state=self._model_state)
 
   @property
   def learning_rate(self):
@@ -553,11 +699,38 @@ class Trainer(object):
     with backend.use_backend("numpy"):
       return self._lr_fn(self._step)
 
+  def _maybe_replicate(self, x):
+    if self._n_devices > 1:
+      return np.broadcast_to(x, (self._n_devices,) + x.shape)
+    else:
+      return x
+
+  def _maybe_save_state(self, keep):
+    if self._should_save:
+      _save_replicated(self._opt_state, self._step, self._history,
+                       self._model_state, self._n_devices, self._output_dir,
+                       keep)
+
   def save_gin(self):
     _save_gin(self._output_dir, self._train_sw)
 
   def print_n_params(self):
     _print_n_params(self._opt_state, self._n_devices, self._step)
+
+  def _train_step(self, next_train_batch):
+    """Run one training step and update self._opt_state."""
+    # Calculate the current learning rate.
+    learning_rate = self._maybe_replicate(np.array(self.learning_rate))
+    opt_state = self._opt_state
+    opt_params = opt_state.opt_params
+    opt_params = (learning_rate,) + opt_params[1:]
+    opt_state = opt_state._replace(opt_params=opt_params)
+
+    # Run the update.
+    (params, slots), self._model_state, self._rngs = self._jit_update_fn(
+        self._step, opt_state, next_train_batch, self._model_state, self._rngs)
+    self._opt_state = opt_state._replace(params=params, slots=slots)
+    self._step += 1
 
   def train_epoch(self, epoch_steps, eval_steps):
     """Train for one epoch."""
@@ -572,21 +745,15 @@ class Trainer(object):
       next_train_batch = next(self._train_stream)
       if self._n_devices > 1:  # TODO(lukaszkaiser): use everywhere if possible.
         next_train_batch = reshape_by_device(next_train_batch, self._n_devices)
-      self._opt_state, self._rngs = self._jit_update_fn(
-          self._step, self._opt_state, next_train_batch, self._rngs)
-      self._step += 1
+
+      self._train_step(next_train_batch)
 
       if self._step in self._save_steps:
-        _save_replicated(self._opt_state, self._step, self._history,
-                         self._n_devices, self._output_dir, True)
+        self._maybe_save_state(keep=True)
 
       # LR log
       if self._step == 1 or self._step % 10 == 0:
-        # TODO(lukaszkaiser): it makes no sense to use an accelerator (e.g. TPU)
-        # in op-by-op mode just to compute the learning rate. However, there
-        # should be a cleaner approach that forceably swapping out the backend.
-        with backend.use_backend("numpy"):
-          self._train_sw.scalar("training/learning rate", self.learning_rate)
+        self._train_sw.scalar("training/learning_rate", self.learning_rate)
 
     # Timer
     epoch_time = time.time() - start_time
@@ -600,34 +767,35 @@ class Trainer(object):
     self.evaluate(eval_steps)
 
     # Save state
-    _save_replicated(self._opt_state, self._step, self._history,
-                     self._n_devices, self._output_dir, False)
+    self._maybe_save_state(keep=False)
 
     # Flush summary writers
     self._train_sw.flush()
     self._eval_sw.flush()
 
   def evaluate(self, eval_steps):
+    """Evaluate the model and log metrics."""
     _, rng = jax_random.split(self._rngs[0])
-    evaluate_train_and_eval(
+    _, _, self._model_state = evaluate_train_and_eval(
         step=self._step,
-        inputs=self._inputs,
+        eval_stream=self._eval_stream,
+        train_eval_stream=self._train_eval_stream,
         predict_fn=functools.partial(self._jit_model_predict_eval,
                                      params=self._opt_state[0]),
         eval_steps=eval_steps,
+        state=self._model_state,
         rng=rng,
         train_sw=self._train_sw,
         eval_sw=self._eval_sw,
-        history=self._history)
+        history=self._history,
+        has_weights=self._has_weights)
 
-  def update_learning_rate(self, force_jit=False):
-    old_lr_fn = self._lr_fn
+    # Save the learning rate in the history
+    self._history.append("train", "training/learning_rate", self._step,
+                         self.learning_rate)
+
+  def update_learning_rate(self):
     self._lr_fn = self._lr_schedule(self._history)
-    # For performance only jit if it's changed or we force it.
-    if self._lr_fn != old_lr_fn or force_jit:
-      opt = self._optimizer(self._lr_fn)
-      self._jit_update_fn = _jit_update_fn(
-          self._model_train, self._loss_fn, opt, self._n_devices)
 
   def save_computation_graphs(self, save_backward_graph):
     """Dump computation graphs to files."""
@@ -639,13 +807,15 @@ class Trainer(object):
       next_train_batch = reshape_by_device(next_train_batch, self._n_devices)
     params = self._opt_state[0]
     forward_computation = jax.xla_computation(self._model_predict_eval)(
-        next_train_batch[0], params=params, rng=self._rngs[0])
+        next_train_batch, params=params, state=self._model_state,
+        rng=self._rngs[0])
     with gfile.GFile(os.path.join(output_dir, "forward.txt"), "w") as f:
       f.write(forward_computation.GetHloText())
     with gfile.GFile(os.path.join(output_dir, "forward.dot"), "w") as f:
       f.write(forward_computation.GetHloDotGraph())
     backward_computation = jax.xla_computation(self._jit_update_fn)(
-        self._step, self._opt_state, next_train_batch, self._rngs)
+        self._step, self._opt_state, next_train_batch, self._model_state,
+        self._rngs)
     with gfile.GFile(os.path.join(output_dir, "backward.txt"), "w") as f:
       f.write(backward_computation.GetHloText())
     if save_backward_graph:  # Backward graphs can be large so we guard it.
@@ -668,29 +838,24 @@ class MemoryEfficientTrainer(Trainer):
     # we only implement computing the loss, and not any other metrics.
     self._jit_compute_loss = _jit_compute_loss_fn(
         self._model_predict_eval, self._loss_fn, self._n_devices)
+    assert not self._has_weights, (
+        "MemoryEfficientTrainer doesn't support has_weights")
 
   def evaluate(self, eval_steps):
     # Evaluate only the loss function (a more efficient, jitted, implementation)
-    evaluate_loss_train_and_eval(
+    _, _, self._model_state = evaluate_loss_train_and_eval(
         step=self._step,
-        inputs=self._inputs,
+        eval_stream=self._eval_stream,
+        train_eval_stream=self._train_eval_stream,
         compute_loss_fn=functools.partial(self._jit_compute_loss,
                                           self._opt_state),
         eval_steps=eval_steps,
+        state=self._model_state,
         rngs=self._rngs,
+        has_weights=self._has_weights,
         train_sw=self._train_sw,
         eval_sw=self._eval_sw,
         history=self._history)
-
-  def update_learning_rate(self, force_jit=False):
-    old_lr_fn = self._lr_fn
-    self._lr_fn = self._lr_schedule(self._history)
-    if self._lr_fn != old_lr_fn or force_jit:
-      raise NotImplementedError(
-          "Loss function changed or jitting was requested. Garbage collection "
-          "for jitted functions is not implemented in jax, so global "
-          "accelerator memory allocated by the jitted update function with the "
-          "old loss cannot be reclaimed.")
 
   def save_computation_graphs(self, save_backward_graph):
     # TODO(kitaev): implement saving graphs while making sure that no op-by-op
@@ -704,7 +869,7 @@ def train(output_dir,
           model=gin.REQUIRED,
           loss_fn=loss,
           inputs=trax_inputs.inputs,
-          optimizer=trax_opt.SM3,
+          optimizer=trax_opt.Adafactor,
           lr_schedule=lr.MultifactorSchedule,
           trainer_class=Trainer,
           train_steps=1000,
@@ -714,15 +879,16 @@ def train(output_dir,
           n_devices=None,
           random_seed=None,
           save_graphs=True,
-          save_backward_graph=False):
+          save_backward_graph=False,
+          has_weights=False):
   """Train the model on the inputs.
 
   Args:
     output_dir: Directory where to put the logs and checkpoints.
     model: The model to train as a callable returning 2 callables, an init_fn
       and apply_fn.
-    loss_fn: callable with signature: params, trax.inputs.Inputs, model, rng
-      -> loss.
+    loss_fn: callable with signature: params, trax.inputs.Inputs, model, state,
+      rng -> loss.
     inputs: callable returning trax.inputs.Inputs.
     optimizer: The optimizer (see optimizers/base.py for signature).
     lr_schedule: A learning rate schedule as a function that takes history and
@@ -738,13 +904,14 @@ def train(output_dir,
     random_seed: the random seed to use; time/os dependent if None (default).
     save_graphs: bool, if True, save computation graph to file.
     save_backward_graph: bool, if True, save backward graph to file too.
+    has_weights: bool, whether weights are included in the inputs.
   Returns:
     trax.State
   """
   trainer = trainer_class(model, loss_fn, optimizer, lr_schedule, inputs,
                           output_dir,
                           random_seed=random_seed, n_devices=n_devices,
-                          save_steps=save_steps)
+                          save_steps=save_steps, has_weights=has_weights)
 
   epoch_steps = [train_steps]  # Only training if eval_frequency is 0 or None
   if eval_frequency and eval_steps > 0:
@@ -754,7 +921,7 @@ def train(output_dir,
   step_log(trainer.step,
            "Starting training using %d devices" % trainer.n_devices)
 
-  for _, epoch_steps in epochs(train_steps, epoch_steps):
+  for epoch_steps in epochs(train_steps, trainer.step, epoch_steps):
     trainer.train_epoch(epoch_steps, eval_steps)
 
     # Update learning rate with new history

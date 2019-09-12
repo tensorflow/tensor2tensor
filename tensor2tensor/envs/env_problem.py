@@ -23,6 +23,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from absl import logging
 from gym.core import Env
 import numpy as np
 import six
@@ -99,7 +100,8 @@ class EnvProblem(Env, problem.Problem):
   def __init__(self,
                batch_size=None,
                discrete_rewards=True,
-               **kwargs):
+               parallelism=1,
+               **env_kwargs):
     """Initializes this class by creating the envs and managing trajectories.
 
     Args:
@@ -107,7 +109,9 @@ class EnvProblem(Env, problem.Problem):
         batched mode.
       discrete_rewards: (bool) whether to round the rewards to the nearest
         integer.
-      **kwargs: (dict) Additional kwargs to pass to `self.initialize`.
+      parallelism: (int) If this is greater than one then we run the envs in
+        parallel using multi-threading.
+      **env_kwargs: (dict) Additional kwargs to pass to the environments.
     """
 
     # Call the super's ctor.
@@ -129,8 +133,13 @@ class EnvProblem(Env, problem.Problem):
 
     self._batch_size = None
 
+    self._parallelism = None
+    # The parallelism is passes in via env_kwargs because it will be used by
+    # `GymEnvProblem` to paralellize env actions across a batch.
+    env_kwargs["parallelism"] = parallelism
+
     if batch_size is not None:
-      self.initialize(batch_size=batch_size, **kwargs)
+      self.initialize(batch_size=batch_size, **env_kwargs)
 
   @property
   def batch_size(self):
@@ -224,6 +233,10 @@ class EnvProblem(Env, problem.Problem):
     min_reward, max_reward = self.reward_range
     return (min_reward != -np.inf) and (max_reward != np.inf)
 
+  @property
+  def discrete_rewards(self):
+    return self._discrete_rewards
+
   def process_rewards(self, rewards):
     """Clips the rewards, optionally rounds them and casts to integer.
 
@@ -265,10 +278,10 @@ class EnvProblem(Env, problem.Problem):
     # Pre-conditions: reward range is finite.
     #               : processed rewards are discrete.
     if not self.is_reward_range_finite:
-      tf.logging.warn("Infinite reward range, `num_rewards returning None`")
+      logging.warn("Infinite reward range, `num_rewards returning None`")
       return None
     if not self.is_processed_rewards_discrete:
-      tf.logging.warn(
+      logging.warn(
           "Processed rewards are not discrete, `num_rewards` returning None")
       return None
 
@@ -348,7 +361,7 @@ class EnvProblem(Env, problem.Problem):
 
     # If this is empty (not None) then don't do anything, no env was done.
     if indices.size == 0:
-      tf.logging.warning(
+      logging.warning(
           "`reset` called with empty indices array, this is a no-op.")
       return None
 
@@ -605,7 +618,7 @@ class EnvProblem(Env, problem.Problem):
     num_completed_trajectories = self.trajectories.num_completed_trajectories
     num_shards = len(files_list)
     if num_completed_trajectories < num_shards:
-      tf.logging.warning(
+      logging.warning(
           "Number of completed trajectories [%d] is less than "
           "the number of shards [%d], some shards maybe empty.",
           num_completed_trajectories, num_shards)

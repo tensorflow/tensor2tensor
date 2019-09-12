@@ -1,0 +1,65 @@
+import tensor2tensor.trax.inputs
+import tensor2tensor.trax.models
+import tensor2tensor.trax.optimizers
+import tensor2tensor.trax.trax
+
+# Parameters for batch_fun:
+# ==============================================================================
+batch_fun.batch_size_per_device = 2
+batch_fun.eval_batch_size = 16
+batch_fun.max_eval_length = 12288  # 64 * 64 * 3
+
+# Parameters for inputs:
+# ==============================================================================
+inputs.data_dir = None
+inputs.dataset_name = 't2t_image_imagenet64_gen_flat_rev'
+inputs.input_name = 'targets'
+
+# Parameters for MultifactorSchedule:
+# ==============================================================================
+MultifactorSchedule.constant = 2.0
+MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
+MultifactorSchedule.warmup_steps = 8000
+
+# Parameters for train:
+# ==============================================================================
+train.eval_frequency = 500
+train.eval_steps = 64
+train.inputs = @trax.inputs.inputs
+train.model = @trax.models.TransformerLM
+train.optimizer = @trax.optimizers.Adafactor
+train.train_steps = 500000
+train.trainer_class = @MemoryEfficientTrainer
+
+# Parameters for MemoryEfficientCausalAttention:
+# ==============================================================================
+MemoryEfficientCausalAttention.dropout = 0.0
+MemoryEfficientCausalAttention.loop_stride = 512
+
+# Parameters for MergedHashedCausalAttention:
+# ==============================================================================
+MergedHashedCausalAttention.dropout = 0.0
+MergedHashedCausalAttention.n_bins = 16
+MergedHashedCausalAttention.bin_by_time = True
+
+# Parameters for MergedMultiHashedCausalAttention:
+# ==============================================================================
+MergedMultiHashedCausalAttention.dropout = 0.0
+MergedMultiHashedCausalAttention.n_bins = 64
+MergedMultiHashedCausalAttention.n_hashes = 4
+MergedMultiHashedCausalAttention.bin_by_time = False
+
+# Parameters for TransformerLM:
+# ==============================================================================
+TransformerLM.attention_type = @trax.layers.MergedMultiHashedCausalAttention
+TransformerLM.d_attention_key = 64
+TransformerLM.d_attention_value = 256
+TransformerLM.d_model = 1024
+TransformerLM.d_ff = 2048
+TransformerLM.dropout = 0.0
+TransformerLM.max_len = 12288  # 64 * 64 * 3
+TransformerLM.mode = 'train'
+TransformerLM.n_heads = 4
+TransformerLM.n_layers = 3
+TransformerLM.vocab_size = 256
+

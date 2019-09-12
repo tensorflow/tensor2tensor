@@ -100,6 +100,19 @@ class MultistepAdamOptimizer(tf.train.AdamOptimizer):
     return self._apply_cond(
         super(MultistepAdamOptimizer, self)._apply_dense, dense_grad, var)
 
+  def _resource_apply_sparse_duplicate_indices(self, grad, var, indices):
+    tf.logging.warning("MultistepAdamOptimizer does not support sparse updates")
+    # Note that conversion to a dense Tensor handles duplicate `indices`
+    # correctly (summing them). A real sparse implementation will probably want
+    # to override _resource_apply_sparse instead so it gets them de-duplicated
+    # automatically.
+    dense_grad = tf.convert_to_tensor(
+        tf.IndexedSlices(values=grad, indices=indices,
+                         dense_shape=tf.shape(var)))
+    return self._apply_cond(
+        super(MultistepAdamOptimizer, self)._resource_apply_dense,
+        dense_grad, var)
+
   def _finish(self, update_ops, name_scope):
     """Updates beta_power variables every n batches and incrs counter."""
     iter_ = self._get_iter_variable()

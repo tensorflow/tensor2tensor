@@ -19,19 +19,44 @@ from __future__ import division
 from __future__ import print_function
 
 from absl.testing import absltest
+import numpy as onp
+
+from tensor2tensor.trax import backend
+from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.layers import base
 from tensor2tensor.trax.layers import normalization
 
 
 class NormalizationLayerTest(absltest.TestCase):
 
-  def test_batch_norm(self):
+  def test_batch_norm_shape(self):
     input_shape = (29, 5, 7, 20)
     result_shape = base.check_shape_agreement(
         normalization.BatchNorm(), input_shape)
     self.assertEqual(result_shape, input_shape)
 
-  def test_layer_norm(self):
+  def test_batch_norm(self):
+    input_shape = (2, 3, 4)
+    input_dtype = np.float32
+    eps = 1e-5
+    rng = backend.random.get_prng(0)
+    inp1 = np.reshape(np.arange(np.prod(input_shape), dtype=input_dtype),
+                      input_shape)
+    m1 = 11.5  # Mean of this random input.
+    v1 = 47.9167  # Variance of this random input.
+    layer = normalization.BatchNorm(axis=(0, 1, 2))
+    params, state = layer.initialize(input_shape, input_dtype, rng)
+    onp.testing.assert_allclose(state[0], 0)
+    onp.testing.assert_allclose(state[1], 1)
+    self.assertEqual(state[2], 0)
+    out, state = layer(inp1, params, state)
+    onp.testing.assert_allclose(state[0], m1 * 0.001)
+    onp.testing.assert_allclose(state[1], 0.999 + v1 * 0.001, rtol=1e-6)
+    self.assertEqual(state[2], 1)
+    onp.testing.assert_allclose(out, (inp1 - m1) / np.sqrt(v1 + eps),
+                                rtol=1e-6)
+
+  def test_layer_norm_shape(self):
     input_shape = (29, 5, 7, 20)
     result_shape = base.check_shape_agreement(
         normalization.LayerNorm(), input_shape)

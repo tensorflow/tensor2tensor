@@ -56,7 +56,7 @@ class Conv(base.Layer):
     msg = 'Convolutions on more than 4 dimensions only supported in NHWC.'
     assert self._lhs_spec == self._out_spec == 'NHWC', msg
 
-  def call(self, x, params=(), **kwargs):
+  def call(self, x, params=(), state=(), **kwargs):
     del kwargs
     w, b = params
     x_shape = list(x.shape)
@@ -69,7 +69,7 @@ class Conv(base.Layer):
         self._one) + b
     if len(x_shape) > 4:
       res = np.reshape(res, x_shape[:-3] + list(res.shape[-3:]))
-    return res
+    return res, state
 
   def _kernel_shape(self, input_shape):
     """Helper to calculate the kernel shape."""
@@ -89,4 +89,38 @@ class Conv(base.Layer):
     bias_shape = tuple(itertools.dropwhile(lambda x: x == 1, bias_shape))
     w = self._kernel_initializer(kernel_shape, rng)
     b = self._bias_initializer(bias_shape, rng)
-    return (w, b)
+    return (w, b), ()
+
+
+class CausalConv(Conv):
+  """Causal (masked) convolution for [batch x time x depth] sequences.
+
+  Maintains causality along time axis. Used in language modeling tasks.
+  """
+
+  def __init__(self,
+               filters,
+               kernel_width=3,
+               kernel_initializer=None,
+               bias_initializer=init.RandomNormalInitializer(1e-6)):
+    super(CausalConv, self).__init__(
+        filters=filters,
+        kernel_size=(kernel_width,),
+        strides=None,
+        padding='VALID',
+        dimension_numbers=('NWC', 'WIO', 'NWC'),
+        kernel_initializer=kernel_initializer,
+        bias_initializer=bias_initializer)
+
+  def call(self, x, params=(), **kwargs):
+    assert self._padding == 'VALID'
+    # Left pad with 0s. Applying an unmasked valid convolution on top of this
+    # yields a causal convolution.
+    # TODO(ddohan): Support strided and dilated convolutions.
+    rate = 1
+    effective_kernel_size = int((self._kernel_size[0] - 1) * rate + 1)
+    pad = effective_kernel_size - 1
+    x_leftpad = np.pad(x, pad_width=[[0, 0], [pad, 0], [0, 0]], mode='constant')
+
+    res = super(CausalConv, self).call(x_leftpad, params)
+    return res

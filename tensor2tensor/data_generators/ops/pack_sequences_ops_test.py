@@ -39,7 +39,8 @@ class PackSequencesOpsTest(tf.test.TestCase):
     max_length = 5
     (inputs_packed, inputs_segmentation, inputs_position,
      targets_packed, targets_segmentation, targets_position) = (
-         pack_sequences_ops.pack_sequences2(inputs, targets, max_length))
+         pack_sequences_ops.pack_sequences2(
+             inputs, targets, max_length, max_length))
     self.assertAllEqual(
         inputs_packed, [
             [1, 2, 3, 4, 5],

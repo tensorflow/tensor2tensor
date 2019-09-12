@@ -1,0 +1,35 @@
+import tensor2tensor.trax.inputs
+import tensor2tensor.trax.learning_rate
+import tensor2tensor.trax.models
+import tensor2tensor.trax.optimizers
+import tensor2tensor.trax.trax
+
+# Parameters for batch_fun:
+# ==============================================================================
+batch_fun.batch_size_per_device = 256
+batch_fun.eval_batch_size = 256
+
+# Parameters for inputs:
+# ==============================================================================
+inputs.data_dir = None
+inputs.dataset_name = 'mnist'
+
+# Parameters for MLP:
+# ==============================================================================
+MLP.d_hidden = 512
+MLP.n_hidden_layers = 2
+MLP.n_output_classes = 10
+
+# Parameters for MultifactorSchedule:
+# ==============================================================================
+MultifactorSchedule.constant = 0.1
+MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
+MultifactorSchedule.warmup_steps = 400
+
+# Parameters for train:
+# ==============================================================================
+train.optimizer = @trax.optimizers.Adafactor
+train.eval_frequency = 200
+train.eval_steps = 10
+train.model = @trax.models.MLP
+train.train_steps = 2000

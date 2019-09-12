@@ -30,6 +30,7 @@ from tensor2tensor.trax.layers.core import *
 from tensor2tensor.trax.layers.initializers import *
 from tensor2tensor.trax.layers.normalization import *
 from tensor2tensor.trax.layers.pooling import *
+from tensor2tensor.trax.layers.reversible import *
 from tensor2tensor.trax.layers.rnn import *
 
 
@@ -49,3 +50,12 @@ Exp = layer_configure(Exp)
 LogSoftmax = layer_configure(LogSoftmax)
 Softmax = layer_configure(Softmax)
 Softplus = layer_configure(Softplus)
+
+DotProductCausalAttention = layer_configure(
+    DotProductCausalAttention, blacklist=["mode"])
+MemoryEfficientCausalAttention = layer_configure(
+    MemoryEfficientCausalAttention, blacklist=["mode"])
+MergedHashedCausalAttention = layer_configure(
+    MergedHashedCausalAttention, blacklist=["mode"])
+MergedMultiHashedCausalAttention = layer_configure(
+    MergedMultiHashedCausalAttention, blacklist=["mode"])

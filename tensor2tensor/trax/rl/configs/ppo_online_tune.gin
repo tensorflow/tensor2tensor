@@ -1,0 +1,42 @@
+import tensor2tensor.trax.models
+import tensor2tensor.trax.optimizers
+import tensor2tensor.trax.rl.trainers
+
+# Parameters for Adam:
+# ==============================================================================
+Adam.learning_rate = 1e-3
+Adam.b1 = 0.9
+Adam.b2 = 0.999
+Adam.weight_decay_rate = 0.0
+
+# Parameters for TransformerDecoder:
+# ==============================================================================
+TransformerDecoder.d_model = 64
+TransformerDecoder.d_ff = 128
+TransformerDecoder.dropout = 0.0
+TransformerDecoder.n_heads = 2
+TransformerDecoder.n_layers = 1
+
+# Parameters for PPO:
+# ==============================================================================
+PPO.n_optimizer_steps = 10
+PPO.target_kl = 0.1
+PPO.boundary = 128
+PPO.max_timestep = 128
+PPO.max_timestep_eval = 128
+PPO.random_seed = None
+PPO.gamma = 0.99
+PPO.lambda_ = 0.95
+PPO.c1 = 1.0
+PPO.c2 = 0.01
+PPO.done_frac_for_policy_save = 0
+PPO.len_history_for_policy = None
+PPO.separate_eval = False
+PPO.save_every_n = 1
+PPO.policy_and_value_model = @trax.models.TransformerDecoder
+PPO.policy_and_value_optimizer = @trax.optimizers.Adam
+
+# Parameters for train_rl:
+# ==============================================================================
+train_rl.env_name = "ClientEnv-v0"
+train_rl.n_epochs = 1000

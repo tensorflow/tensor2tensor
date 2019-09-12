@@ -645,6 +645,14 @@ def text2text_txt_iterator_with_label(source_txt_path, target_txt_path):
     yield {"inputs": inputs, "targets": targets, "extra_label": [extra_label]}
 
 
+def text2text_txt_iterator_with_index(source_txt_path, target_txt_path):
+  """Yield dicts for Text2TextProblem.generate_samples from lines of files."""
+  for (idx, (inputs, targets)) in enumerate(zip(
+      txt_line_iterator(source_txt_path),
+      txt_line_iterator(target_txt_path))):
+    yield {"inputs": inputs, "targets": targets, "idx": [idx]}
+
+
 def text2text_distill_iterator(source_txt_path, target_txt_path,
                                distill_txt_path):
   """Yield dicts for Text2TextProblem.generate_samples from lines of files."""

@@ -22,7 +22,24 @@ from __future__ import print_function
 from tensor2tensor.trax import layers as tl
 
 
-def AtariCnn(hidden_sizes=(32, 32), output_size=128, mode='train'):
+def FrameStack(n_frames):
+  """Stacks a fixed number of frames along the dimension 1."""
+  # Input shape: (B, T, ..., C).
+  # Output shape: (B, T, ..., C * n_frames).
+  assert n_frames >= 1
+  if n_frames == 1:
+    return ()
+  return (
+      # Make n_frames copies of the input sequence.
+      [tl.Dup()] * (n_frames - 1),
+      # Shift copies to the right by [0, .., n_frames - 1] frames.
+      tl.Parallel(*map(_shift_right, range(n_frames))),
+      # Concatenate along the channel dimension.
+      tl.Concatenate(n_items=n_frames, axis=-1),
+  )
+
+
+def AtariCnn(n_frames=4, hidden_sizes=(32, 32), output_size=128, mode='train'):
   """An Atari CNN."""
   del mode
 
@@ -33,10 +50,8 @@ def AtariCnn(hidden_sizes=(32, 32), output_size=128, mode='train'):
       tl.ToFloat(),
       tl.Div(divisor=255.0),
 
-      # Set up 4 successive game frames, concatenated on the last axis.
-      tl.Dup(), tl.Dup(), tl.Dup(),
-      tl.Parallel(None, _shift_right(1), _shift_right(2), _shift_right(3)),
-      tl.Concatenate(n_items=4, axis=-1),  # (B, T, H, W, 4C)
+      # Set up n_frames successive game frames, concatenated on the last axis.
+      FrameStack(n_frames=n_frames),  # (B, T, H, W, 4C)
 
       tl.Conv(hidden_sizes[0], (5, 5), (2, 2), 'SAME'),
       tl.Relu(),
@@ -45,6 +60,18 @@ def AtariCnn(hidden_sizes=(32, 32), output_size=128, mode='train'):
       tl.Flatten(n_axes_to_keep=2),  # B, T and rest.
       tl.Dense(output_size),
       tl.Relu(),
+  )
+
+
+def FrameStackMLP(n_frames=4, hidden_sizes=(64,), output_size=64,
+                  mode='train'):
+  """MLP operating on a fixed number of last frames."""
+  del mode
+
+  return tl.Model(
+      FrameStack(n_frames=n_frames),
+      [[tl.Dense(d_hidden), tl.Relu()] for d_hidden in hidden_sizes],
+      tl.Dense(output_size),
   )
 
 

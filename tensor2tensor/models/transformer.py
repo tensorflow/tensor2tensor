@@ -372,9 +372,7 @@ class Transformer(t2t_model.T2TModel):
         "dot_product", "dot_product_relative"
     ]):
       # Caching is not guaranteed to work with attention types other than
-      # dot_product.
-      # TODO(petershaw): Support fast decoding when using relative
-      # position representations, i.e. "dot_product_relative" attention.
+      # dot_product and dot_product_relative.
       return self._beam_decode_slow(features, decode_length, beam_size,
                                     top_beams, alpha, use_tpu)
     with tf.variable_scope(self.name):
@@ -1416,22 +1414,20 @@ def transformer_prepare_decoder(targets, hparams, features=None, pad=None):
   return (decoder_input, decoder_self_attention_bias)
 
 
-def transformer_decoder_layer(decoder_input,
-                              decoder_self_attention_bias,
-                              layer_idx,
-                              hparams,
-                              encoder_output=None,
-                              encoder_decoder_attention_bias=None,
-                              cache=None,
-                              decode_loop_step=None,
-                              nonpadding=None,
-                              save_weights_to=None,
-                              make_image_summary=False,
-                              losses=None,
-                              layer_collection=None,
-                              recurrent_memory_by_layer=None,
-                              chunk_number=None):
-  """A single transformer decoder layer."""
+def transformer_self_attention_layer(decoder_input,
+                                     decoder_self_attention_bias,
+                                     layer_idx,
+                                     hparams,
+                                     encoder_output=None,
+                                     encoder_decoder_attention_bias=None,
+                                     cache=None,
+                                     decode_loop_step=None,
+                                     save_weights_to=None,
+                                     make_image_summary=False,
+                                     layer_collection=None,
+                                     recurrent_memory_by_layer=None,
+                                     chunk_number=None):
+  """A single transformer self-attention layer."""
   x = decoder_input
   layer = layer_idx
   layer_name = "layer_%d" % layer
@@ -1530,6 +1526,43 @@ def transformer_decoder_layer(decoder_input,
                 "mode",
                 tf.estimator.ModeKeys.TRAIN) == tf.estimator.ModeKeys.TRAIN))
         x = common_layers.layer_postprocess(x, y, hparams)
+    return x, layer_cache
+
+
+def transformer_decoder_layer(decoder_input,
+                              decoder_self_attention_bias,
+                              layer_idx,
+                              hparams,
+                              encoder_output=None,
+                              encoder_decoder_attention_bias=None,
+                              cache=None,
+                              decode_loop_step=None,
+                              nonpadding=None,
+                              save_weights_to=None,
+                              make_image_summary=False,
+                              losses=None,
+                              layer_collection=None,
+                              recurrent_memory_by_layer=None,
+                              chunk_number=None):
+  """A single transformer decoder layer."""
+  x, layer_cache = transformer_self_attention_layer(
+      decoder_input=decoder_input,
+      decoder_self_attention_bias=decoder_self_attention_bias,
+      layer_idx=layer_idx,
+      hparams=hparams,
+      encoder_output=encoder_output,
+      encoder_decoder_attention_bias=encoder_decoder_attention_bias,
+      cache=cache,
+      decode_loop_step=decode_loop_step,
+      save_weights_to=save_weights_to,
+      make_image_summary=make_image_summary,
+      layer_collection=layer_collection,
+      recurrent_memory_by_layer=recurrent_memory_by_layer,
+      chunk_number=chunk_number)
+
+  layer = layer_idx
+  layer_name = "layer_%d" % layer
+  with tf.variable_scope(layer_name):
     with tf.variable_scope("ffn"):
       y = transformer_ffn_layer(
           common_layers.layer_preprocess(
@@ -2020,6 +2053,7 @@ def transformer_tall_pretrain_lm():
   hparams.learning_rate_constant = 2e-4
   hparams.learning_rate_schedule = ("linear_warmup*constant*cosdecay")
   hparams.optimizer = "adam_w"
+  hparams.weight_decay = 0.01 * hparams.learning_rate_constant
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.999
   hparams.optimizer_adam_epsilon = 1e-8
@@ -2065,6 +2099,7 @@ def transformer_tall_pretrain_lm_tpu():
   hparams.learning_rate_constant = 2e-4
   hparams.learning_rate_schedule = ("linear_warmup * constant * cosdecay")
   hparams.optimizer = "adam_w"
+  hparams.weight_decay = 0.01 * hparams.learning_rate_constant
   return hparams
 
 
@@ -2460,7 +2495,7 @@ def update_hparams_for_tpu(hparams):
   # to a longer length, e.g. the "_packed" problems.
   #
   # For problems with variable sequence lengths, this parameter controls the
-  # maximum sequence length.  Shorter sequences are dropped and longer ones
+  # maximum sequence length. Longer sequences are dropped and shorter ones
   # are padded.
   #
   # For problems with fixed sequence lengths - e.g. the "_packed" problems,
@@ -2682,6 +2717,17 @@ def transformer_librispeech_tpu_v2():
 
   hparams.batch_size = 16
   librispeech.set_librispeech_length_hparams(hparams)
+  return hparams
+
+
+@registry.register_hparams
+def transformer_librispeech_with_area_attention():
+  """HParams for training ASR model on Librispeech on TPU v2."""
+  hparams = transformer_librispeech_tpu_v2()
+  hparams.num_area_layers = 3  # area attn on first 3 encoder and decoder layers
+  hparams.max_area_width = 5
+  hparams.area_key_mode = "concat"
+  hparams.area_value_mode = "sum"
   return hparams
 
 

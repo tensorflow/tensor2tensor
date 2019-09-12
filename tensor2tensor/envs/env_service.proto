@@ -1,0 +1,110 @@
+syntax = "proto3";
+option cc_enable_arenas = true;
+
+package tensor2tensor.trax.rlax.envs;
+
+import "tensorflow/core/framework/tensor.proto";
+import "tensorflow/core/framework/tensor_shape.proto";
+import "tensorflow/core/framework/types.proto";
+
+// We use tensorflow.TensorProto to represent numpy arrays.
+
+message Action {
+  oneof payload {
+    int64 discrete_action = 1;
+    tensorflow.TensorProto continuous_action = 2;
+  }
+}
+
+message Observation {
+  tensorflow.TensorProto observation = 1;
+}
+
+message Info {
+  map<string, double> info_map = 1;
+}
+
+message StepRequest {
+  Action action = 1;
+}
+
+message StepResponse {
+  Observation observation = 1;
+  double reward = 2;
+  bool done = 3;
+  Info info = 4;
+}
+
+message ResetRequest {}
+
+message ResetResponse {
+  Observation observation = 1;
+}
+
+message CloseRequest {}
+message CloseResponse {}
+
+message RenderRequest {
+  string mode = 1;
+}
+
+message RenderResponse {
+  Observation observation = 1;
+}
+
+message EnvInfoRequest {}
+
+message SpaceBox {
+  tensorflow.DataType dtype = 1;
+  tensorflow.TensorShapeProto shape = 2;
+  tensorflow.TensorProto low = 3;
+  tensorflow.TensorProto high = 4;
+}
+
+message SpaceDiscrete {
+  int32 num_actions = 1;
+}
+
+message GymSpace {
+  // TODO(afrozm): Move spaces can be added as needed, or composite spaces.
+  oneof gym_space {
+    bool unimplemented_space = 1;
+    SpaceBox box = 2;
+    SpaceDiscrete discrete = 3;
+  }
+}
+
+message RewardRange {
+  double low = 1;
+  double high = 2;
+}
+
+message EnvInfoResponse {
+  GymSpace observation_space = 1;
+  GymSpace action_space = 2;
+  RewardRange reward_range = 3;
+  int64 batch_size = 4;
+}
+
+service EnvService {
+  // Reset
+  rpc Reset(ResetRequest) returns (ResetResponse) {
+  }
+
+  // Step
+  rpc Step(StepRequest) returns (StepResponse) {
+  }
+
+  // Close
+  rpc Close(CloseRequest) returns (CloseResponse) {
+  }
+
+  // Render
+  rpc Render(RenderRequest) returns (RenderResponse) {
+  }
+
+  // Observation and Action Space.
+  rpc GetEnvInfo(EnvInfoRequest) returns (EnvInfoResponse) {
+  }
+}
+

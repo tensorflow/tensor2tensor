@@ -19,11 +19,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import time
 import numpy as np
 
-EPSILON_GREEDY = "epsilon-greedy"
-GUMBEL_SAMPLING = "gumbel"
+from tensor2tensor.envs import gym_env_problem
+from tensor2tensor.envs import rendered_env_problem
+from tensor2tensor.rl import gym_utils
 
 
 def done_indices(dones):
@@ -50,15 +52,22 @@ def play_env_problem_randomly(env_problem, num_steps):
     env_problem.reset(indices=done_indices(dones))
 
 
+def get_completed_trajectories_from_env(env, n_trajectories):
+  completed_trajectories = []
+  for trajectory in env.trajectories.completed_trajectories[:n_trajectories]:
+    completed_trajectories.append(trajectory.as_numpy)
+  return completed_trajectories
+
+
 def play_env_problem_with_policy(env,
                                  policy_fun,
                                  num_trajectories=1,
                                  max_timestep=None,
                                  reset=True,
+                                 state=None,
                                  rng=None,
-                                 policy_sampling=GUMBEL_SAMPLING,
                                  temperature=1.0,
-                                 eps=0.1,
+                                 boundary=32,
                                  len_history_for_policy=32,
                                  num_to_keep=1):
   """Plays the given env with the policy function to collect trajectories.
@@ -72,14 +81,13 @@ def play_env_problem_with_policy(env,
       trajectory that exceeds this time put it in the completed bin, and *dont*
       reset the env.
     reset: bool, true if we want to reset the envs. The envs are also reset if
-      max_max_timestep is None or < 0
+      max_max_timestep is None or < 0.
+    state: the state for `policy_fn`.
     rng: jax rng, splittable.
-    policy_sampling: string, how to select an action given a policy, one of:
-      EPSILON_GREEDY, GUMBEL_SAMPLING
     temperature: float, temperature used in Gumbel sampling.
-    eps: float, epsilon to use in epsilon greedy.
-    len_history_for_policy: int, the maximum history to keep for applying the
-      policy on. We also bucket observations on this number.
+    boundary: int, pad the sequences to the multiples of this number.
+    len_history_for_policy: int or None, the maximum history to keep for
+      applying the policy on. If None, use the whole history.
     num_to_keep: int, while truncating trajectory how many time-steps to keep.
 
   Returns:
@@ -92,19 +100,6 @@ def play_env_problem_with_policy(env,
     u = np.random.uniform(low=1e-6, high=1.0 - 1e-6, size=log_probs.shape)
     g = -np.log(-np.log(u))
     return np.argmax((log_probs / temperature) + g, axis=1)
-
-  def epsilon_greedy(log_probs):
-    """Epsilon greedy sampling."""
-    _, A = log_probs.shape  # pylint: disable=invalid-name
-    actions = []
-    for log_prob in log_probs:
-      # Pick the argmax action.
-      action = np.argmax(log_prob)
-      if np.random.uniform() < eps:
-        # Pick an action at random.
-        action = np.random.choice(range(A))
-      actions.append(action)
-    return np.stack(actions)
 
   # We need to reset all environments, if we're coming here the first time.
   if reset or max_timestep is None or max_timestep <= 0:
@@ -123,7 +118,7 @@ def play_env_problem_with_policy(env,
     # Shape is (B, T) + OBS
     # Bucket on whatever length is needed.
     padded_observations, lengths = env.trajectories.observations_np(
-        boundary=len_history_for_policy,
+        boundary=boundary,
         len_history_for_policy=len_history_for_policy)
 
     B, T = padded_observations.shape[:2]  # pylint: disable=invalid-name
@@ -132,8 +127,8 @@ def play_env_problem_with_policy(env,
     assert (B,) == lengths.shape
 
     t1 = time.time()
-    log_prob_actions, value_predictions, rng = policy_fun(
-        padded_observations, rng=rng)
+    log_prob_actions, value_predictions, state, rng = policy_fun(
+        padded_observations, state=state, rng=rng)
     policy_application_total_time += (time.time() - t1)
 
     assert (B, T) == log_prob_actions.shape[:2]
@@ -151,19 +146,16 @@ def play_env_problem_with_policy(env,
     assert (B, 1) == value_preds.shape, \
         "B=%d, value_preds.shape=%s" % (B, value_preds.shape)
 
-    actions = None
-    if policy_sampling == GUMBEL_SAMPLING:
-      actions = gumbel_sample(log_probs)
-    elif policy_sampling == EPSILON_GREEDY:
-      actions = epsilon_greedy(log_probs)
-    else:
-      raise ValueError("Unknown sampling policy [%s]" % policy_sampling)
+    actions = gumbel_sample(log_probs)
 
     # Step through the env.
     t1 = time.time()
     _, _, dones, env_infos = env.step(
-        actions, infos={"log_prob_actions": log_probs,
-                        "value_predictions": value_preds})
+        actions,
+        infos={
+            "log_prob_actions": log_probs,
+            "value_predictions": value_preds
+        })
     env_actions_total_time += (time.time() - t1)
     bare_env_run_time += sum(
         info["__bare_env_run_time__"] for info in env_infos)
@@ -198,9 +190,8 @@ def play_env_problem_with_policy(env,
 
   # We have the trajectories we need, return a list of triples:
   # (observations, actions, rewards)
-  completed_trajectories = []
-  for trajectory in env.trajectories.completed_trajectories[:num_trajectories]:
-    completed_trajectories.append(trajectory.as_numpy)
+  completed_trajectories = get_completed_trajectories_from_env(
+      env, num_trajectories)
 
   timing_info = {
       "trajectory_collection/policy_application": policy_application_total_time,
@@ -209,4 +200,51 @@ def play_env_problem_with_policy(env,
   }
   timing_info = {k: round(1000 * v, 2) for k, v in timing_info.items()}
 
-  return completed_trajectories, num_done_trajectories, timing_info
+  return completed_trajectories, num_done_trajectories, timing_info, state
+
+
+def make_env(batch_size=1,
+             env_problem_name="",
+             resize=True,
+             resize_dims=(105, 80),
+             max_timestep="None",
+             clip_rewards=True,
+             parallelism=1,
+             use_tpu=False,
+             **env_kwargs):
+  """Creates the env."""
+
+  if clip_rewards:
+    env_kwargs.update({"reward_range": (-1, 1), "discrete_rewards": True})
+  else:
+    env_kwargs.update({"discrete_rewards": False})
+
+  # No resizing needed, so let's be on the normal EnvProblem.
+  if not resize:  # None or False
+    return gym_env_problem.GymEnvProblem(
+        base_env_name=env_problem_name,
+        batch_size=batch_size,
+        parallelism=parallelism,
+        **env_kwargs)
+
+  try:
+    max_timestep = int(max_timestep)
+  except Exception:  # pylint: disable=broad-except
+    max_timestep = None
+
+  wrapper_fn = functools.partial(
+      gym_utils.gym_env_wrapper, **{
+          "rl_env_max_episode_steps": max_timestep,
+          "maxskip_env": True,
+          "rendered_env": True,
+          "rendered_env_resize_to": resize_dims,
+          "sticky_actions": False,
+          "output_dtype": np.int32 if use_tpu else None,
+      })
+
+  return rendered_env_problem.RenderedEnvProblem(
+      base_env_name=env_problem_name,
+      batch_size=batch_size,
+      parallelism=parallelism,
+      env_wrapper_fn=wrapper_fn,
+      **env_kwargs)

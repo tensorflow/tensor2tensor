@@ -40,8 +40,13 @@ train.model = @trax.models.TransformerLM
 train.optimizer = @trax.optimizers.SM3
 train.train_steps = 500000
 
+# Parameters for DotProductCausalAttention:
+# ==============================================================================
+DotProductCausalAttention.dropout = 0.1
+
 # Parameters for TransformerLM:
 # ==============================================================================
+TransformerLM.attention_type = @trax.layers.DotProductCausalAttention
 TransformerLM.d_model = 512
 TransformerLM.d_ff = 2048
 TransformerLM.dropout = 0.1

@@ -969,12 +969,17 @@ def _reverse_problem_hparams(p_hparams):
   # In the future, remove need for this behavior.
   reversed_modality = {}
   for feature_name in p.modality:
-    reversed_feature_name = feature_name.replace("target", "input")
-    if "target" in feature_name and reversed_feature_name in p.modality:
-      reversed_modality[feature_name] = p.modality[reversed_feature_name]
-      reversed_modality[reversed_feature_name] = p.modality[feature_name]
-    else:
+    # Copy feature as-is.
+    if "target" not in feature_name and "input" not in feature_name:
       reversed_modality[feature_name] = p.modality[feature_name]
+    else:
+      # Change "target" to "input" and vice-versa for this feature.
+      if "target" in feature_name:
+        reversed_feature_name = feature_name.replace("target", "input")
+      else:
+        assert "input" in feature_name, feature_name
+        reversed_feature_name = feature_name.replace("input", "target")
+      reversed_modality[reversed_feature_name] = p.modality[feature_name]
 
   p.modality = reversed_modality
 
@@ -985,8 +990,6 @@ def _reverse_problem_hparams(p_hparams):
     if "target" in feature_name and reversed_feature_name in p.vocab_size:
       reversed_vocab_size[feature_name] = p.vocab_size[reversed_feature_name]
       reversed_vocab_size[reversed_feature_name] = p.vocab_size[feature_name]
-    else:
-      reversed_vocab_size[feature_name] = p.vocab_size[feature_name]
 
   p.vocab_size = reversed_vocab_size
 

@@ -94,10 +94,72 @@ def jax_avg_pool(x, pool_size, strides, padding):
                           pool_size, strides=strides, padding=padding)
 
 
+def nested_map(x, f):
+  """Map the function f to the nested structure x (dicts, tuples, lists)."""
+  if isinstance(x, list):
+    return [nested_map(y, f) for y in x]
+  if isinstance(x, tuple):
+    return tuple([nested_map(y, f) for y in x])
+  return f(x)
+
+
+class ShapeType(object):
+  """Store shape and type."""
+
+  def __init__(self, shape, dtype):
+    self.shape = shape
+    self.dtype = dtype
+
+  def __repr__(self):
+    return "[shape:" + str(self.shape) + ", dtype:" + str(self.dtype) + "]"
+
+
+def jax_eval_on_shapes(f):
+  """Returns a function that evaluates `f` given input shapes and dtypes.
+
+  It transforms function `f` to a function that performs the same computation as
+  `f` but only on shapes and dtypes (a.k.a. shape inference).
+
+  Args:
+    f: the function to be transformed.
+
+  Returns:
+    A function whose input arguments can be either the same as `f`'s or only
+    their shapes/dtypes represented by `ShapeType`, and whose return values are
+    `ShapeType`s with the same nested structure as `f`'s return values.
+  """
+  def shape_fun(*args, **kwargs):
+    jax_shapes = jax.eval_shape(f, *args, **kwargs)
+    return nested_map(jax_shapes, lambda x: ShapeType(x.shape, x.dtype))
+  return shape_fun
+
+
+# The default value of dtype is different from jax_random.randint
+def jax_randint(key, shape, minval, maxval, dtype=onp.int32):
+  """Sample uniform random values in [minval, maxval) with given shape/dtype.
+
+  Args:
+    key: a PRNGKey used as the random key.
+    shape: a tuple of nonnegative integers representing the shape.
+    minval: int or array of ints broadcast-compatible with ``shape``, a minimum
+      (inclusive) value for the range.
+    maxval: int or array of ints broadcast-compatible with  ``shape``, a maximum
+      (exclusive) value for the range.
+    dtype: optional, an int dtype for the returned values (default int32).
+
+  Returns:
+    A random array with the specified shape and dtype.
+  """
+  return jax_random.randint(key, shape, minval=minval, maxval=maxval,
+                            dtype=dtype)
+
+
 _JAX_BACKEND = {
     "name": "jax",
     "np": jnp,
     "logsumexp": jax_special.logsumexp,
+    "expit": jax_special.expit,
+    "erf": jax_special.erf,
     "conv": jax_conv,
     "avg_pool": jax_avg_pool,
     "max_pool": jax_max_pool,
@@ -105,7 +167,9 @@ _JAX_BACKEND = {
     "jit": jax.jit,
     "grad": jax.grad,
     "pmap": jax.pmap,
+    "eval_on_shapes": jax_eval_on_shapes,
     "random_uniform": jax_random.uniform,
+    "random_randint": jax_randint,
     "random_normal": jax_random.normal,
     "random_bernoulli": jax_random.bernoulli,
     "random_get_prng": jax.jit(jax_random.PRNGKey),
@@ -120,6 +184,7 @@ _NUMPY_BACKEND = {
     "jit": (lambda f: f),
     "random_get_prng": lambda seed: None,
     "random_split": lambda prng, num=2: (None,) * num,
+    "expit": (lambda x: 1. / (1. + onp.exp(-x))),
 }
 
 
@@ -129,6 +194,14 @@ def get_name():
 
 def logsumexp(*args, **kwargs):
   return backend()["logsumexp"](*args, **kwargs)
+
+
+def expit(*args, **kwargs):
+  return backend()["expit"](*args, **kwargs)
+
+
+def erf(*args, **kwargs):
+  return backend()["erf"](*args, **kwargs)
 
 
 def conv(*args, **kwargs):
@@ -159,6 +232,10 @@ def pmap(*args, **kwargs):
   return backend()["pmap"](*args, **kwargs)
 
 
+def eval_on_shapes(*args, **kwargs):
+  return backend()["eval_on_shapes"](*args, **kwargs)
+
+
 def dataset_as_numpy(*args, **kwargs):
   return backend()["dataset_as_numpy"](*args, **kwargs)
 
@@ -180,6 +257,9 @@ class RandomBackend(object):
 
   def uniform(self, *args, **kwargs):
     return backend()["random_uniform"](*args, **kwargs)
+
+  def randint(self, *args, **kwargs):
+    return backend()["random_randint"](*args, **kwargs)
 
   def normal(self, *args, **kwargs):
     return backend()["random_normal"](*args, **kwargs)
@@ -219,5 +299,8 @@ def use_backend(name):
   global override_backend_name
   prev_name = override_backend_name
   override_backend_name = name
-  yield
-  override_backend_name = prev_name
+  # Run the decorated function in try-finally in case it throws, e.g. for tests.
+  try:
+    yield
+  finally:
+    override_backend_name = prev_name

@@ -28,6 +28,7 @@ import random
 import stat
 import tarfile
 import tempfile
+import numpy as np
 import requests
 import six
 from six.moves import range  # pylint: disable=redefined-builtin
@@ -48,7 +49,8 @@ def to_example(dictionary):
   for (k, v) in six.iteritems(dictionary):
     if not v:
       raise ValueError("Empty generated field: %s" % str((k, v)))
-    if isinstance(v[0], six.integer_types):
+    if (isinstance(v[0], six.integer_types) or
+        np.issubdtype(type(v[0]), np.integer)):
       features[k] = tf.train.Feature(int64_list=tf.train.Int64List(value=v))
     elif isinstance(v[0], float):
       features[k] = tf.train.Feature(float_list=tf.train.FloatList(value=v))
@@ -756,7 +758,7 @@ def _pack_with_custom_ops(dataset, keys, length):
     """Map-function."""
     (k1_packed, k1_segmengation, k1_position,
      k2_packed, k2_segmentation, k2_position) = (
-         pack_sequences_ops.pack_sequences2(x[k1], x[k2], length))
+         pack_sequences_ops.pack_sequences2(x[k1], x[k2], length, length))
     packed = {
         k1: k1_packed,
         k1 + "_segmentation": k1_segmengation,
@@ -864,7 +866,7 @@ class SequenceDatasetPacker(object):
     shapes = tf.compat.v1.data.get_output_shapes(dataset)
 
     if isinstance(shapes, dict):
-      keys = tuple(shapes.keys())
+      keys = keys or tuple(shapes.keys())
       dataset = dataset.map(lambda x: tuple(x[k] for k in keys))
       shapes = tf.compat.v1.data.get_output_shapes(dataset)
 

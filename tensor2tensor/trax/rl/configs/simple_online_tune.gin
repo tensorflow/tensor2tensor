@@ -1,0 +1,75 @@
+import tensor2tensor.trax.models
+import tensor2tensor.trax.rl
+import tensor2tensor.trax.rl.space_serializer
+import tensor2tensor.trax.rl.trainers
+
+# Parameters for BoxSpaceSerializer:
+# ==============================================================================
+BoxSpaceSerializer.precision = 2
+
+# Parameters for MultifactorSchedule:
+# ==============================================================================
+MultifactorSchedule.constant = 0.1
+MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
+MultifactorSchedule.warmup_steps = 1000
+
+# Parameters for TransformerDecoder:
+# ==============================================================================
+TransformerDecoder.d_model = 64
+TransformerDecoder.d_ff = 128
+TransformerDecoder.dropout = 0.0
+TransformerDecoder.n_heads = 2
+TransformerDecoder.n_layers = 1
+
+# Parameters for PPO:
+# ==============================================================================
+PPO.n_optimizer_steps = 10
+PPO.target_kl = 0.1
+PPO.boundary = 128
+PPO.max_timestep = 128
+PPO.max_timestep_eval = 128
+PPO.random_seed = None
+PPO.gamma = 0.99
+PPO.lambda_ = 0.95
+PPO.c1 = 1.0
+PPO.c2 = 0.01
+PPO.done_frac_for_policy_save = 0
+PPO.len_history_for_policy = None
+PPO.separate_eval = False
+PPO.save_every_n = 1
+PPO.policy_and_value_model = @trax.models.TransformerDecoder
+
+# Parameters for SerializedSequenceSimulatedEnvProblem:
+# ==============================================================================
+SerializedSequenceSimulatedEnvProblem.model = @trax.models.TransformerLM
+SerializedSequenceSimulatedEnvProblem.reward_fn = @trax.rl.onlinetune_reward_fn
+SerializedSequenceSimulatedEnvProblem.done_fn = @trax.rl.onlinetune_done_fn
+SerializedSequenceSimulatedEnvProblem.vocab_size = 128
+SerializedSequenceSimulatedEnvProblem.max_trajectory_length = 101
+SerializedSequenceSimulatedEnvProblem.significance_decay = 1.0
+
+# Parameters for SimPLe:
+# ==============================================================================
+SimPLe.policy_trainer_class = @trax.rl.trainers.PPO
+SimPLe.n_real_epochs = 2
+SimPLe.n_model_train_steps = 100000
+SimPLe.model_train_batch_size = 128
+SimPLe.simulated_env_problem_class = @trax.rl.SerializedSequenceSimulatedEnvProblem
+SimPLe.simulated_batch_size = 128
+SimPLe.n_simulated_epochs = 50
+SimPLe.initial_trajectory_mix_prob = 0.5
+
+# Parameters for TransformerLM:
+# ==============================================================================
+TransformerLM.d_model = 256
+TransformerLM.d_ff = 512
+TransformerLM.n_layers = 2
+TransformerLM.n_heads = 2
+TransformerLM.dropout = 0.1
+TransformerLM.max_len = 1024
+
+# Parameters for train_rl:
+# ==============================================================================
+train_rl.env_name = "ClientEnv-v0"
+train_rl.n_epochs = 100
+train_rl.trainer_class = @trax.rl.trainers.SimPLe

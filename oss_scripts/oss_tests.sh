@@ -28,8 +28,10 @@ fi
 python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
 set_status
 
-# Run tests
-# Ignores:
+# We need to run some tests separately (because they enable eager or due to
+# other reasons). We also test the tests in the top-level-directories separately
+# to get more readable error messages.
+
 # Tested separately:
 #   * registry_test
 #   * trainer_lib_test
@@ -37,23 +39,28 @@ set_status
 #   * trainer_model_based_test
 #   * allen_brain_test
 #   * models/research
+
+
 # algorithmic_math_test: flaky
-# test_utils.py is not a test, but pytest thinks it is.
 # subword_text_encoder_ops_test, pack_sequences_ops_test: interface with C++ ops
-# trax tests need C++
-# TODO(davidso): Re-enable EvolvedTransformer when possible.
-# others (see below) enable eager, so can't be tested along with the others in
-# pytest
 pytest --disable-warnings \
-  --ignore=tensor2tensor/bin/t2t_trainer_test.py \
   --ignore=tensor2tensor/data_generators/algorithmic_math_test.py \
   --ignore=tensor2tensor/data_generators/allen_brain_test.py \
   --ignore=tensor2tensor/data_generators/ops/pack_sequences_ops_test.py \
   --ignore=tensor2tensor/data_generators/ops/subword_text_encoder_ops_test.py \
   --ignore=tensor2tensor/data_generators/problem_test.py \
+  tensor2tensor/data_generators
+set_status
+
+
+pytest --disable-warnings \
   --ignore=tensor2tensor/envs/mujoco_problems_test.py \
   --ignore=tensor2tensor/envs/rendered_env_problem_test.py \
-  --ignore=tensor2tensor/layers/bayes_test.py \
+  tensor2tensor/envs/
+set_status
+
+
+pytest --disable-warnings \
   --ignore=tensor2tensor/layers/common_attention_test.py \
   --ignore=tensor2tensor/layers/common_layers_test.py \
   --ignore=tensor2tensor/layers/common_video_test.py \
@@ -61,32 +68,36 @@ pytest --disable-warnings \
   --ignore=tensor2tensor/layers/latent_layers_test.py \
   --ignore=tensor2tensor/layers/modalities_test.py \
   --ignore=tensor2tensor/layers/ngram_test.py \
-  --ignore=tensor2tensor/layers/reversible_layers_test.py \
+  tensor2tensor/layers/
+set_status
+
+
+# TODO(davidso): Re-enable EvolvedTransformer when possible.
+pytest --disable-warnings \
   --ignore=tensor2tensor/models/evolved_transformer_test.py \
   --ignore=tensor2tensor/models/research \
   --ignore=tensor2tensor/models/video/nfg_conv3d_test.py \
   --ignore=tensor2tensor/models/video/nfg_conv_lstm_test.py \
   --ignore=tensor2tensor/models/video/nfg_conv_test.py \
   --ignore=tensor2tensor/models/video/nfg_uncond_test.py \
-  --ignore=tensor2tensor/rl \
-  --ignore=tensor2tensor/trax \
+  tensor2tensor/models/
+set_status
+
+
+# test_utils.py is not a test, but pytest thinks it is.
+pytest --disable-warnings \
   --ignore=tensor2tensor/utils/registry_test.py \
   --ignore=tensor2tensor/utils/t2t_model_test.py \
   --ignore=tensor2tensor/utils/test_utils.py \
   --ignore=tensor2tensor/utils/test_utils_test.py \
   --ignore=tensor2tensor/utils/trainer_lib_test.py \
-  --ignore=tensor2tensor/visualization/visualization_test.py \
-  --deselect=tensor2tensor/utils/beam_search_test.py::BeamSearchTest::testTPUBeam
+  tensor2tensor/utils/
 set_status
 
-# TODO(afrozm): Enable trax tests they currently need GLIBCXX_3.4.21
-# Travis Error:
-# ImportError: /usr/lib/x86_64-linux-gnu/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by /home/travis/virtualenv/python3.6.3/lib/python3.6/site-packages/jaxlib/_pywrap_xla.so)
 
 # These tests enable eager, so are tested separately.
 pytest --disable-warnings \
   tensor2tensor/data_generators/problem_test.py \
-  tensor2tensor/layers/bayes_test.py \
   tensor2tensor/layers/common_attention_test.py \
   tensor2tensor/layers/common_layers_test.py \
   tensor2tensor/layers/common_video_test.py \
@@ -94,11 +105,11 @@ pytest --disable-warnings \
   tensor2tensor/layers/latent_layers_test.py \
   tensor2tensor/layers/modalities_test.py \
   tensor2tensor/layers/ngram_test.py \
-  tensor2tensor/layers/reversible_layers_test.py \
   tensor2tensor/utils/t2t_model_test.py \
   tensor2tensor/utils/test_utils_test.py \
   --deselect=tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary
 set_status
+
 
 pytest --disable-warnings tensor2tensor/utils/registry_test.py
 set_status
@@ -112,16 +123,37 @@ set_status
 pytest --disable-warnings tensor2tensor/data_generators/allen_brain_test.py
 set_status
 
+# All other tests not tested above.
 
-# Test models/research only against tf-nightly
-if [[ "$TRAVIS_PYTHON_VERSION" == "2.7"  ]] && [[ "$TF_VERSION" == "tf-nightly"  ]]
-then
-  # Ignores:
-  # * Glow requires the CIFAR-10 dataset to be generated
-  pytest --disable-warnings tensor2tensor/models/research \
-    --ignore=tensor2tensor/models/research/glow_test.py
-  set_status
-fi
+# trax tests need C++
+# TODO(afrozm): Enable trax tests they currently need GLIBCXX_3.4.21
+# Travis Error:
+# ImportError: /usr/lib/x86_64-linux-gnu/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by /home/travis/virtualenv/python3.6.3/lib/python3.6/site-packages/jaxlib/_pywrap_xla.so)
+pytest --disable-warnings \
+  --ignore=tensor2tensor/bin/t2t_trainer_test.py \
+  --ignore=tensor2tensor/data_generators \
+  --ignore=tensor2tensor/envs \
+  --ignore=tensor2tensor/layers \
+  --ignore=tensor2tensor/models \
+  --ignore=tensor2tensor/rl \
+  --ignore=tensor2tensor/trax \
+  --ignore=tensor2tensor/utils \
+  --ignore=tensor2tensor/visualization \
+  --deselect=tensor2tensor/utils/beam_search_test.py::BeamSearchTest::testTPUBeam
+set_status
+
+
+# TODO(afrozm): Enable this unconditionally?
+
+## Test models/research only against tf-nightly
+#if [[ "$TRAVIS_PYTHON_VERSION" == "2.7"  ]]
+#then
+#  # Ignores:
+#  # * Glow requires the CIFAR-10 dataset to be generated
+#  pytest --disable-warnings tensor2tensor/models/research \
+#    --ignore=tensor2tensor/models/research/glow_test.py
+#  set_status
+#fi
 
 if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]
 then

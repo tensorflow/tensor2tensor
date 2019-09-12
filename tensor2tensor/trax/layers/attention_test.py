@@ -21,6 +21,7 @@ from __future__ import print_function
 
 import numpy as onp
 from tensor2tensor.trax.layers import attention
+from tensor2tensor.trax.layers import base
 from tensorflow import test
 
 
@@ -30,7 +31,7 @@ class AttentionTest(test.TestCase):
     # Test shifts right on axis=1
     layer = attention.ShiftRight()
     input_np = onp.arange(2*3*3).reshape(2, 3, 3)
-    output_np = layer(input_np)
+    output_np, _ = layer(input_np)
     self.assertEqual(input_np.shape, output_np.shape)
     self.assertAllEqual(onp.array([[[0, 0, 0],
                                     [0, 1, 2],
@@ -49,7 +50,7 @@ class AttentionTest(test.TestCase):
     input_np /= 2.0
     self.assertEqual(input_np.dtype, onp.float32)
 
-    output_np = layer(input_np)
+    output_np, _ = layer(input_np)
     self.assertEqual(input_np.shape, output_np.shape)
     self.assertEqual(output_np.dtype, onp.float32)
 
@@ -61,6 +62,14 @@ class AttentionTest(test.TestCase):
                                     [4.5, 5., 5.5],
                                     [6., 6.5, 7.]]]),
                         output_np)
+
+  def test_merged_hashed_causal_attention(self):
+    qkv_shape = (3, 32, 8)
+    input_shape = (qkv_shape, qkv_shape, qkv_shape)
+    layer = attention.MemoryEfficientCausalAttention(
+        loop_stride=16, dropout=0.1, mode='train')
+    final_shape = base.check_shape_agreement(layer, input_shape)
+    self.assertEqual((3, 32, 8), final_shape)
 
 
 if __name__ == '__main__':

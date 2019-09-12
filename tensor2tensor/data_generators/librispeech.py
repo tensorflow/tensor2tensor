@@ -228,6 +228,54 @@ class LibrispeechTrainFullTestClean(Librispeech):
 
 
 @registry.register_problem()
+class LibrispeechTrainFullTestOther(Librispeech):
+  """Problem to train on full 960h, but evaluate on clean data only."""
+
+  def training_filepaths(self, data_dir, num_shards, shuffled):
+    return Librispeech.training_filepaths(self, data_dir, num_shards, shuffled)
+
+  def dev_filepaths(self, data_dir, num_shards, shuffled):
+    return LibrispeechNoisy.dev_filepaths(self, data_dir, num_shards, shuffled)
+
+  def test_filepaths(self, data_dir, num_shards, shuffled):
+    return LibrispeechNoisy.test_filepaths(self, data_dir, num_shards, shuffled)
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    raise Exception("Generate librispeech and librispeech_noisy data.")
+
+  def filepattern(self, data_dir, mode, shard=None):
+    """Get filepattern for data files for mode.
+
+    Matches mode to a suffix.
+    * DatasetSplit.TRAIN: train
+    * DatasetSplit.EVAL: dev
+    * DatasetSplit.TEST: test
+    * tf.estimator.ModeKeys.PREDICT: dev
+
+    Args:
+      data_dir: str, data directory.
+      mode: DatasetSplit
+      shard: int, if provided, will only read data from the specified shard.
+
+    Returns:
+      filepattern str
+    """
+    shard_str = "-%05d" % shard if shard is not None else ""
+    if mode == problem.DatasetSplit.TRAIN:
+      path = os.path.join(data_dir, "librispeech")
+      suffix = "train"
+    elif mode in [problem.DatasetSplit.EVAL, tf.estimator.ModeKeys.PREDICT]:
+      path = os.path.join(data_dir, "librispeech_noisy")
+      suffix = "dev"
+    else:
+      assert mode == problem.DatasetSplit.TEST
+      path = os.path.join(data_dir, "librispeech_noisy")
+      suffix = "test"
+
+    return "%s-%s%s*" % (path, suffix, shard_str)
+
+
+@registry.register_problem()
 class LibrispeechCleanSmall(Librispeech):
   """Problem spec for Librispeech using 100h clean train and clean eval data."""
 
@@ -249,9 +297,9 @@ class LibrispeechClean(Librispeech):
 
 @registry.register_problem()
 class LibrispeechNoisy(Librispeech):
-  """Problem spec for Librispeech using 400h noisy train and noisy eval data."""
+  """Problem spec for Librispeech using 500h noisy train and noisy eval data."""
 
-  # Select only the clean data
+  # Select only the noisy data
   TRAIN_DATASETS = _LIBRISPEECH_TRAIN_DATASETS[2:]
   DEV_DATASETS = _LIBRISPEECH_DEV_DATASETS[1:]
   TEST_DATASETS = _LIBRISPEECH_TEST_DATASETS[1:]

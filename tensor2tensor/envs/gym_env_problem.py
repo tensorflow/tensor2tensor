@@ -26,12 +26,11 @@ from __future__ import print_function
 import copy
 import multiprocessing.pool
 import time
-
+from absl import logging
 import gym
 import numpy as np
 from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import trajectory
-import tensorflow as tf
 
 
 class GymEnvProblem(env_problem.EnvProblem):
@@ -76,7 +75,10 @@ class GymEnvProblem(env_problem.EnvProblem):
   the following properties: observation_space, action_space, reward_range.
   """
 
-  def __init__(self, base_env_name=None, env_wrapper_fn=None, reward_range=None,
+  def __init__(self,
+               base_env_name=None,
+               env_wrapper_fn=None,
+               reward_range=None,
                **kwargs):
     """Initializes this class by creating the envs and managing trajectories.
 
@@ -133,8 +135,8 @@ class GymEnvProblem(env_problem.EnvProblem):
       raise ValueError("Environments not initialized.")
 
     if not isinstance(self._envs, list):
-      tf.logging.warning("Not checking observation and action space "
-                         "compatibility across envs, since there is just one.")
+      logging.warning("Not checking observation and action space "
+                      "compatibility across envs, since there is just one.")
       return
 
     # NOTE: We compare string representations of observation_space and
@@ -146,20 +148,20 @@ class GymEnvProblem(env_problem.EnvProblem):
         for env in self._envs):
       err_str = ("All environments should have the same observation space, but "
                  "don't.")
-      tf.logging.error(err_str)
+      logging.error(err_str)
       # Log all observation spaces.
       for i, env in enumerate(self._envs):
-        tf.logging.error("Env[%d] has observation space [%s]", i,
-                         env.observation_space)
+        logging.error("Env[%d] has observation space [%s]", i,
+                      env.observation_space)
       raise ValueError(err_str)
 
     if not all(
         str(env.action_space) == str(self.action_space) for env in self._envs):
       err_str = "All environments should have the same action space, but don't."
-      tf.logging.error(err_str)
+      logging.error(err_str)
       # Log all action spaces.
       for i, env in enumerate(self._envs):
-        tf.logging.error("Env[%d] has action space [%s]", i, env.action_space)
+        logging.error("Env[%d] has action space [%s]", i, env.action_space)
       raise ValueError(err_str)
 
   def initialize_environments(self,
@@ -235,14 +237,14 @@ class GymEnvProblem(env_problem.EnvProblem):
 
   def seed(self, seed=None):
     if not self._envs:
-      tf.logging.info("`seed` called on non-existent envs, doing nothing.")
+      logging.info("`seed` called on non-existent envs, doing nothing.")
       return None
 
     if not isinstance(self._envs, list):
-      tf.logging.warning("`seed` called on non-list envs, doing nothing.")
+      logging.warning("`seed` called on non-list envs, doing nothing.")
       return None
 
-    tf.logging.warning(
+    logging.warning(
         "Called `seed` on EnvProblem, calling seed on the underlying envs.")
     for env in self._envs:
       env.seed(seed)
@@ -251,11 +253,11 @@ class GymEnvProblem(env_problem.EnvProblem):
 
   def close(self):
     if not self._envs:
-      tf.logging.info("`close` called on non-existent envs, doing nothing.")
+      logging.info("`close` called on non-existent envs, doing nothing.")
       return
 
     if not isinstance(self._envs, list):
-      tf.logging.warning("`close` called on non-list envs, doing nothing.")
+      logging.warning("`close` called on non-list envs, doing nothing.")
       return
 
     # Call close on all the envs one by one.
@@ -273,7 +275,20 @@ class GymEnvProblem(env_problem.EnvProblem):
     """
     # This returns a numpy array with first dimension `len(indices)` and the
     # rest being the dimensionality of the observation.
-    return np.stack([self._envs[index].reset() for index in indices])
+
+    num_envs_to_reset = len(indices)
+    observations = [None] * num_envs_to_reset
+
+    def reset_at(idx):
+      observations[idx] = self._envs[indices[idx]].reset()
+
+    if self._parallelism > 1:
+      self._pool.map(reset_at, range(num_envs_to_reset))
+    else:
+      for i in range(num_envs_to_reset):
+        reset_at(i)
+
+    return np.stack(observations)
 
   def _step(self, actions):
     """Takes a step in all environments, shouldn't pre-process or record.

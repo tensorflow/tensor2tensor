@@ -1,0 +1,34 @@
+import tensor2tensor.trax.models
+import tensor2tensor.trax.rl.trainers
+
+# Parameters for TransformerDecoder:
+# ==============================================================================
+TransformerDecoder.d_model = 64
+TransformerDecoder.d_ff = 128
+TransformerDecoder.dropout = 0.1
+TransformerDecoder.n_heads = 2
+TransformerDecoder.n_layers = 1
+
+# Parameters for PPO:
+# ==============================================================================
+PPO.n_optimizer_steps = 32
+PPO.target_kl = 1000  # Virtually infinite.
+PPO.boundary = 512
+PPO.max_timestep = 512
+PPO.max_timestep_eval = 20000
+PPO.random_seed = None
+PPO.gamma = 0.99
+PPO.lambda_ = 0.95
+PPO.c1 = 1.0
+PPO.c2 = 0.0
+PPO.eval_every_n = 500
+PPO.done_frac_for_policy_save = 0.9
+PPO.n_evals = 16
+PPO.len_history_for_policy = None
+PPO.eval_temperatures = (1.0, 0.5)
+PPO.policy_and_value_model = @trax.models.TransformerDecoder
+
+# Parameters for train_rl:
+# ==============================================================================
+train_rl.env_name = "Acrobot-v1"
+train_rl.n_epochs = 40000

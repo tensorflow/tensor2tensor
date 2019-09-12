@@ -866,4 +866,5 @@ METRICS_FNS = {
     Metrics.DMOL_PERPLEXITY: dmol_neg_log_perplexity,
     Metrics.ABS_ERR: abs_error,
     Metrics.IMAGE_RMSE: image_rmse,
+    Metrics.WORD_ERROR_RATE: word_error_rate,
 }

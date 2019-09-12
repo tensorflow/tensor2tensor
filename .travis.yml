@@ -14,14 +14,11 @@ env:
     - T2T_PROBLEM=algorithmic_reverse_binary40_test
     - T2T_DATA_DIR=/tmp/t2t-data
     - T2T_TRAIN_DIR=/tmp/t2t-train
-    - TF_LATEST="1.13.*"
+    - TF_LATEST="1.14.*"
     # This is necessary to have gsutil work with Python 2.7
     - BOTO_CONFIG=/dev/null
   matrix:
-    # We test against the latest stable TensorFlow and tf-nightly.
-    # If updating, also update TF_LATEST above
-    - TF_VERSION="1.13.*"
-    - TF_VERSION="tf-nightly"
+    - TF_VERSION="1.14.*"
 install:
   - ./oss_scripts/oss_pip_install.sh
 script:
@@ -32,6 +29,6 @@ script:
   # errors on Travis.
   #
   # TODO(afrozm): Re-enable if this becomes an issue.
-  # - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "tf-nightly"  ]]; then
+  # - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]]; then
   #       pylint -j 2 tensor2tensor;
   #   fi
