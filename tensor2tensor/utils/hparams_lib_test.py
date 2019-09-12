@@ -30,7 +30,8 @@ class HparamsLibTest(tf.test.TestCase):
 
   def testCreateHparamsFromJson(self):
     # Get json_path
-    pkg, _ = os.path.split(__file__)
+    pkg = os.path.abspath(__file__)
+    pkg, _ = os.path.split(pkg)
     pkg, _ = os.path.split(pkg)
     json_path = os.path.join(
         pkg, "test_data", "transformer_test_ckpt", "hparams.json")
