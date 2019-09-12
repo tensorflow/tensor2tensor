@@ -24,15 +24,16 @@ import os
 import random
 
 from absl import logging
-import cloudpickle as pickle
 import numpy as np
 from tensor2tensor.envs import env_problem_utils
 from tensor2tensor.envs import trajectory
+from tensor2tensor.trax import utils
 from tensorflow.io import gfile
 
 
 def load_trajectories(trajectory_dir, eval_frac):
   """Loads trajectories from a possibly nested directory of pickles."""
+  pkl_module = utils.get_pickle_module()
   train_trajectories = []
   eval_trajectories = []
   # Search the entire directory subtree for trajectories.
@@ -40,7 +41,7 @@ def load_trajectories(trajectory_dir, eval_frac):
     for filename in filenames:
       shard_path = os.path.join(subdir, filename)
       with gfile.GFile(shard_path, "rb") as f:
-        trajectories = pickle.load(f)
+        trajectories = pkl_module.load(f)
         pivot = int(len(trajectories) * (1 - eval_frac))
         train_trajectories.extend(trajectories[:pivot])
         eval_trajectories.extend(trajectories[pivot:])

@@ -19,15 +19,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import math
 import os
 
 import gym
-import numpy as np
 
 from tensor2tensor.trax import inputs as trax_inputs
 from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax import trax
+from tensor2tensor.trax.rl import online_tune
 from tensorflow.io import gfile
 
 
@@ -51,7 +50,7 @@ class OnlineTuneEnv(gym.Env):
                output_dir,
                trainer_class=trax.Trainer,
                loss_fn=trax.loss,
-               optimizer=trax_opt.SM3,
+               optimizer=trax_opt.Adafactor,
                inputs=trax_inputs.inputs,
                action_multipliers=None,
                observation_metrics=(
@@ -131,20 +130,27 @@ class OnlineTuneEnv(gym.Env):
 
     return os.path.join(self._output_dir, str(next_trajectory_id))
 
-  def _current_metric_value(self, metric):
-    metric_sequence = self._trainer.state.history.get(*metric)
-    assert metric_sequence
-    (_, metric_value) = metric_sequence[-1]
-    return np.clip(metric_value, *self._observation_range)
+  @property
+  def _current_reward_metric(self):
+    metric_values = online_tune.historical_metric_values(
+        self._trainer.state.history,
+        self._reward_metric,
+        self._observation_range,
+    )
+    assert metric_values.shape[0] > 0, (
+        "No values in history for metric {}.".format(self._reward_metric))
+    return metric_values[-1]
 
   @property
   def _current_observation(self):
-    observation = list(
-        map(self._current_metric_value, self._observation_metrics))
-    if self._include_lr_in_observation:
-      # Logartihm of the learning rate.
-      observation.append(math.log(self._current_lr))
-    return np.array(observation)
+    observations = online_tune.history_to_observations(
+        self._trainer.state.history,
+        self._observation_metrics,
+        self._observation_range,
+        self._include_lr_in_observation,
+    )
+    assert observations.shape[0] > 0, "No values in history for any metric."
+    return observations[-1, :]
 
   @property
   def trainer(self):
@@ -173,13 +179,17 @@ class OnlineTuneEnv(gym.Env):
         metric since the last step. done is set after reaching self.env_steps
         environment steps. info is an empty dict.
     """
-    self._current_lr = min(
-        self._current_lr * self._action_multipliers[action], self._max_lr)
-    last_metric_value = self._current_metric_value(self._reward_metric)
+    self._current_lr = online_tune.new_learning_rate(
+        action,
+        self._trainer.state.history,
+        self._action_multipliers,
+        self._max_lr,
+    )
+    last_reward_metric = self._current_reward_metric
     self._trainer.train_epoch(self._train_steps, self._eval_steps)
     self._step += 1
-    current_metric_value = self._current_metric_value(self._reward_metric)
+    current_reward_metric = self._current_reward_metric
     observation = self._current_observation
-    reward = current_metric_value - last_metric_value
+    reward = current_reward_metric - last_reward_metric
     done = self._step == self._env_steps
     return (observation, reward, done, {})

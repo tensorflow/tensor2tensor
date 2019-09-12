@@ -26,6 +26,7 @@ from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
 from tensor2tensor.utils import registry
+from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
@@ -71,6 +72,30 @@ class EvolvedTransformer(transformer.Transformer):
     self._encoder_function = evolved_transformer_encoder
     self._decoder_function = evolved_transformer_decoder
     self._init_cache_fn = _init_evolved_transformer_cache
+
+    # -1 means train all weights.
+    if self.hparams.get("num_trainable_top_decoder_layers", -1) < 0:
+      t2t_model.log_info(
+          "num_trainable_top_decoder_layers is negative so training all weights."
+      )
+    elif self.hparams.shared_embedding_and_softmax_weights:
+      t2t_model.log_info(
+          "Setting hparams.shared_embedding_and_softmax_weights to False, "
+          "because hparam.num_trainable_top_decoder_layers is being used.")
+
+      # When hparam.num_trainable_top_decoder_layers is set to N >= 0 we will
+      # freeze (not train) every variable except the N top decoder layers and
+      # the (pre-)softmax matrix. For any N >= 0 we will freeze the encoder and
+      # input/target embeddings. This also means we will not share the
+      # (pre-)softmax matrix with input/target embeddings otherwise they will be
+      # trained as well.
+      self.hparams.shared_embedding_and_softmax_weights = False
+
+      # If hparams.shared_embedding_and_softmax_weights was previously True,
+      # then input and target embeddings were being shared.
+      # To make sure it they embeddings continue to be shared, we need to set
+      # hparams.shared_embedding to True.
+      self.hparams.shared_embedding = True
 
 
 def evolved_transformer_encoder(encoder_input,
@@ -289,6 +314,12 @@ def evolved_transformer_decoder(decoder_input,
   """
   del losses
 
+  num_trainable_top_decoder_layers = hparams.get(
+      "num_trainable_top_decoder_layers", -1)  # -1 means train all weights.
+
+  if num_trainable_top_decoder_layers >= 0:
+    encoder_output = tf.stop_gradient(encoder_output)
+
   attention_dropout_broadcast_dims = (
       common_layers.comma_separated_string_to_integer_list(
           getattr(hparams, "attention_dropout_broadcast_dims", "")))
@@ -296,7 +327,10 @@ def evolved_transformer_decoder(decoder_input,
   with tf.variable_scope(name):
     hidden_state = decoder_input
 
-    for layer in range(hparams.num_decoder_layers or hparams.num_hidden_layers):
+    num_layers = hparams.num_decoder_layers or hparams.num_hidden_layers
+    for layer in range(num_layers):
+      if num_trainable_top_decoder_layers == num_layers - layer:
+        hidden_state = tf.stop_gradient(hidden_state)
       layer_name = "layer_%d" % layer
       layer_cache = cache[layer_name] if cache is not None else None
       with tf.variable_scope(layer_name):
@@ -586,7 +620,10 @@ def evolved_transformer_decoder(decoder_input,
           hidden_state = common_layers.layer_postprocess(
               residual_state, hidden_state, hparams)
 
-    return common_layers.layer_preprocess(hidden_state, hparams)
+    decoder_output = common_layers.layer_preprocess(hidden_state, hparams)
+    if num_trainable_top_decoder_layers == 0:
+      decoder_output = tf.stop_gradient(decoder_output)
+    return decoder_output
 
 
 def _add_attend_to_encoder_cache(cache, attention_name, hparams, num_layers,

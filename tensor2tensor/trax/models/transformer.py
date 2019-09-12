@@ -112,7 +112,7 @@ def TransformerEncoder(vocab_size,
 
 
 def DecoderBlock(d_model, d_ff, n_heads, d_attention_key, d_attention_value,
-                 attention_type, dropout, mode):
+                 attention_type, dropout, share_kv, mode):
   """Returns a layer sequence that implements a Transformer decoder block.
 
   The input to the layer sequence is an activation tensor.
@@ -125,6 +125,7 @@ def DecoderBlock(d_model, d_ff, n_heads, d_attention_key, d_attention_value,
     d_attention_value: int: depth of value vector for each attention head
     attention_type: subclass of tl.BaseCausalAttention: attention class to use
     dropout: float: dropout rate (how much to drop out)
+    share_kv: bool, whether to share keys and values
     mode: str: 'train' or 'eval'
 
   Returns:
@@ -135,7 +136,7 @@ def DecoderBlock(d_model, d_ff, n_heads, d_attention_key, d_attention_value,
       tl.CausalAttention(
           d_model, n_heads=n_heads, d_attention_key=d_attention_key,
           d_attention_value=d_attention_value, attention_type=attention_type,
-          mode=mode),
+          share_kv=share_kv, mode=mode),
       tl.Dropout(rate=dropout, mode=mode),  # vec
   ]
   feed_forward = [
@@ -155,6 +156,7 @@ def TransformerDecoder(d_model=512,
                        d_attention_value=None,
                        attention_type=tl.DotProductCausalAttention,
                        dropout=0.1,
+                       share_kv=False,
                        max_len=2048,
                        mode='train'):
   """Returns a Transformer decoder model.
@@ -174,6 +176,7 @@ def TransformerDecoder(d_model=512,
         (default is d_model // n_heads)
     attention_type: subclass of tl.BaseCausalAttention: attention class to use
     dropout: float: dropout rate (how much to drop out)
+    share_kv: bool, whether to share keys and values in decoder attention
     max_len: int: maximum symbol length for positional encoding
     mode: str: 'train' or 'eval'
 
@@ -187,7 +190,7 @@ def TransformerDecoder(d_model=512,
       tl.PositionalEncoding(max_len=max_len),
       [DecoderBlock(  # pylint: disable=g-complex-comprehension
           d_model, d_ff, n_heads, d_attention_key, d_attention_value,
-          attention_type, dropout, mode)
+          attention_type, dropout, share_kv, mode)
        for _ in range(n_layers)],   # vecs
       tl.LayerNorm(),               # vecs
   )
@@ -202,6 +205,7 @@ def TransformerLM(vocab_size,
                   d_attention_value=None,
                   attention_type=tl.DotProductCausalAttention,
                   dropout=0.1,
+                  share_kv=False,
                   max_len=2048,
                   mode='train'):
   """Returns a Transformer language model.
@@ -221,6 +225,7 @@ def TransformerLM(vocab_size,
         (default is d_model // n_heads)
     attention_type: subclass of tl.BaseCausalAttention: attention class to use
     dropout: float: dropout rate (how much to drop out)
+    share_kv: bool, whether to share keys and values in decoder attention
     max_len: int: maximum symbol length for positional encoding
     mode: str: 'train' or 'eval'
 
@@ -238,7 +243,7 @@ def TransformerLM(vocab_size,
       embedder,                     # vecs
       [DecoderBlock(  # pylint: disable=g-complex-comprehension
           d_model, d_ff, n_heads, d_attention_key, d_attention_value,
-          attention_type, dropout, mode)
+          attention_type, dropout, share_kv, mode)
        for _ in range(n_layers)],   # vecs
       tl.LayerNorm(),               # vecs
       tl.Dense(vocab_size),         # vecs

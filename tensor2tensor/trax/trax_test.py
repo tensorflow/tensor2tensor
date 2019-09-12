@@ -67,7 +67,9 @@ def test_inputs(n_classes, with_weights=False):
       train_eval_stream=input_stream,
       eval_stream=input_stream,
       input_shape=input_shape,
-      input_dtype=np.float32)
+      input_dtype=np.float32,
+      target_shape=(),
+      target_dtype=np.int32)
 
 
 BACKENDS = ["jax"]
@@ -185,7 +187,7 @@ class TraxTest(test.TestCase, parameterized.TestCase):
       state = trax.train(output_dir,
                          model=model_fn,
                          inputs=inputs,
-                         train_steps=train_steps,
+                         train_steps=(2 * train_steps),
                          eval_steps=eval_steps)
 
       # Assert total train steps
@@ -240,6 +242,24 @@ class TraxTest(test.TestCase, parameterized.TestCase):
       trainer.evaluate(1)
       trainer.reset(output_dir2)
       trainer.evaluate(1)
+
+
+class EpochsTest(test.TestCase):
+
+  def test_cuts_epoch_when_total_steps_reached(self):
+    epoch_steps = trax.epochs(
+        total_steps=5, steps_to_skip=0, epoch_steps=[1, 2, 3])
+    self.assertEqual(list(epoch_steps), [1, 2, 2])
+
+  def test_skips_full_epoch(self):
+    epoch_steps = trax.epochs(
+        total_steps=4, steps_to_skip=2, epoch_steps=[2, 2])
+    self.assertEqual(list(epoch_steps), [2])
+
+  def test_skips_part_of_epoch(self):
+    epoch_steps = trax.epochs(
+        total_steps=4, steps_to_skip=1, epoch_steps=[2, 2])
+    self.assertEqual(list(epoch_steps), [1, 2])
 
 
 MASKED_MEAN_TEST_BACKENDS = ["numpy"]

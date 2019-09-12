@@ -36,6 +36,7 @@ PPO.c2 = 0.01
 PPO.done_frac_for_policy_save = 0
 PPO.len_history_for_policy = None
 PPO.separate_eval = False
+PPO.save_every_n = 1
 PPO.policy_and_value_model = @trax.models.TransformerDecoder
 
 # Parameters for SerializedSequenceSimulatedEnvProblem:

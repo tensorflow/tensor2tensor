@@ -41,7 +41,8 @@ import tensorflow as tf
 
 
 def get_data_dir():
-  pkg, _ = os.path.split(__file__)
+  pkg = os.path.abspath(__file__)
+  pkg, _ = os.path.split(pkg)
   pkg, _ = os.path.split(pkg)
   return os.path.join(pkg, "test_data")
 

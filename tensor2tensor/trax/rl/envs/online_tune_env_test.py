@@ -26,6 +26,7 @@ import numpy as np
 from tensor2tensor.trax import inputs as trax_inputs
 from tensor2tensor.trax import models
 from tensor2tensor.trax import trax
+from tensor2tensor.trax.rl import online_tune
 from tensor2tensor.trax.rl.envs import online_tune_env
 from tensorflow import test
 from tensorflow.io import gfile
@@ -59,6 +60,12 @@ class MockTrainer(trax.Trainer):
         metric=METRIC,
         step=self.step,
         value=self.metrics_to_report.pop(0))
+    (lr_mode, lr_metric) = online_tune.LEARNING_RATE_METRIC
+    self.state.history.append(
+        mode=lr_mode,
+        metric=lr_metric,
+        step=self.step,
+        value=self.learning_rate)
 
 
 class OnlineTuneTest(test.TestCase):
