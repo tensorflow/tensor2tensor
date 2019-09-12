@@ -147,8 +147,7 @@ class TrainerLibTest(tf.test.TestCase):
 
   def testCreateHparams(self):
     # Get json_path
-    pkg = os.path.abspath(__file__)
-    pkg, _ = os.path.split(pkg)
+    pkg, _ = os.path.split(__file__)
     pkg, _ = os.path.split(pkg)
     json_path = os.path.join(
         pkg, "test_data", "transformer_test_ckpt", "hparams.json")
