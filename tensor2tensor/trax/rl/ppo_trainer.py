@@ -142,8 +142,18 @@ class PPO(base_trainer.BaseTrainer):
     self._eval_temperatures = eval_temperatures
     self._separate_eval = separate_eval
 
-    assert isinstance(self.train_env.action_space, gym.spaces.Discrete)
-    n_actions = self.train_env.action_space.n
+    action_space = self.train_env.action_space
+    assert isinstance(
+        action_space, (gym.spaces.Discrete, gym.spaces.MultiDiscrete))
+    if isinstance(action_space, gym.spaces.Discrete):
+      n_actions = action_space.n
+      n_controls = 1
+    else:
+      (n_controls,) = action_space.nvec.shape
+      assert n_controls > 0
+      assert onp.min(action_space.nvec) == onp.max(action_space.nvec), (
+          "Every control must have the same number of actions.")
+      n_actions = action_space.nvec[0]
 
     # Batch Observations Shape = [1, 1] + OBS, because we will eventually call
     # policy and value networks on shape [B, T] +_OBS
@@ -156,6 +166,7 @@ class PPO(base_trainer.BaseTrainer):
     # Initialize the policy and value network.
     policy_and_value_net = ppo.policy_and_value_net(
         n_actions=n_actions,
+        n_controls=n_controls,
         bottom_layers_fn=policy_and_value_model,
         two_towers=policy_and_value_two_towers,
     )
@@ -351,8 +362,12 @@ class PPO(base_trainer.BaseTrainer):
     logging.vlog(1, "Padded Actions' shape [%s]", str(padded_actions.shape))
     logging.vlog(1, "Padded Rewards' shape [%s]", str(padded_rewards.shape))
 
+    if padded_actions.ndim == 2:
+      # Add control axis.
+      padded_actions = np.expand_dims(padded_actions, axis=-1)
+
     # Some assertions.
-    B, T = padded_actions.shape  # pylint: disable=invalid-name
+    B, T, C = padded_actions.shape  # pylint: disable=invalid-name
     assert (B, T) == padded_rewards.shape
     assert (B, T) == reward_mask.shape
     assert (B, T + 1) == padded_observations.shape[:2]
@@ -367,12 +382,12 @@ class PPO(base_trainer.BaseTrainer):
     actual_log_probabs_traj = padded_infos["log_prob_actions"]
     actual_value_predictions_traj = padded_infos["value_predictions"]
 
-    assert (B, T) == actual_log_probabs_traj.shape[:2]
-    A = actual_log_probabs_traj.shape[2]  # pylint: disable=invalid-name
+    assert (B, T, C) == actual_log_probabs_traj.shape[:3]
+    A = actual_log_probabs_traj.shape[3]  # pylint: disable=invalid-name
     assert (B, T, 1) == actual_value_predictions_traj.shape
 
-    # TODO(afrozm): log-probabs doesn't need to be (B, T+1, A) it can do with
-    # (B, T, A), so make that change throughout.
+    # TODO(afrozm): log-probabs doesn't need to be (B, T+1, C, A) it can do with
+    # (B, T, C, A), so make that change throughout.
 
     # NOTE: We don't have the log-probabs and value-predictions for the last
     # observation, so we re-calculate for everything, but use the original ones
@@ -382,7 +397,7 @@ class PPO(base_trainer.BaseTrainer):
     log_probabs_traj, value_predictions_traj, self._model_state, _ = (
         self._get_predictions(padded_observations, self._model_state, rng=key))
 
-    assert (B, T + 1, A) == log_probabs_traj.shape
+    assert (B, T + 1, C, A) == log_probabs_traj.shape
     assert (B, T + 1, 1) == value_predictions_traj.shape
 
     # Concatenate the last time-step's log-probabs and value predictions to the

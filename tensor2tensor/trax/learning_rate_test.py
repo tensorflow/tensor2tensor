@@ -43,6 +43,7 @@ class PolicyScheduleTest(test.TestCase):
     policy_and_value_model = atari_cnn.FrameStackMLP
     net = ppo.policy_and_value_net(
         n_actions=len(action_multipliers),
+        n_controls=1,
         bottom_layers_fn=policy_and_value_model,
         two_towers=False,
     )

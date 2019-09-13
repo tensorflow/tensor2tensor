@@ -193,6 +193,7 @@ def PolicySchedule(
   # Build the policy network and load its parameters.
   start_time = time.time()
   net = ppo.policy_and_value_net(
+      n_controls=1,
       n_actions=len(action_multipliers),
       bottom_layers_fn=policy_and_value_model,
       two_towers=policy_and_value_two_towers,
@@ -225,5 +226,5 @@ def PolicySchedule(
 
   # Get a new learning rate.
   new_lr = online_tune.new_learning_rate(
-      action, history, action_multipliers, max_lr)
+      action.item(), history, action_multipliers, max_lr)
   return lambda _: new_lr

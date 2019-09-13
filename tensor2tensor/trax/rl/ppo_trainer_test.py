@@ -240,6 +240,20 @@ class PpoTrainerTest(test.TestCase):
       trainer.training_loop(n_epochs=2)
       self.assertEqual(trainer.epoch, 2)
 
+  def test_training_loop_multi_control(self):
+    gym.register(
+        "FakeEnv-v0",
+        entry_point="tensor2tensor.trax.rl.envs.fake_env:FakeEnv",
+        kwargs={"n_actions": 3, "n_controls": 2},
+    )
+    with self.tmp_dir() as output_dir:
+      trainer = self._make_trainer(
+          train_env=self.get_wrapped_env("FakeEnv-v0", 2),
+          eval_env=self.get_wrapped_env("FakeEnv-v0", 2),
+          output_dir=output_dir,
+      )
+      trainer.training_loop(n_epochs=2)
+
 
 if __name__ == "__main__":
   test.main()

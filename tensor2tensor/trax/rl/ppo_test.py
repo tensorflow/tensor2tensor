@@ -77,8 +77,13 @@ class PpoTest(test.TestCase):
     observation_shape = (3, 4, 5)
     batch_observation_shape = (1, 1) + observation_shape
     n_actions = 2
+    n_controls = 3
     pnv_model = ppo.policy_and_value_net(
-        n_actions, lambda: [layers.Flatten(n_axes_to_keep=2)], two_towers=True)
+        n_controls=n_controls,
+        n_actions=n_actions,
+        bottom_layers_fn=lambda: [layers.Flatten(n_axes_to_keep=2)],
+        two_towers=True,
+    )
     pnv_params, pnv_state = pnv_model.initialize(
         batch_observation_shape, np.float32, self.rng_key)
 
@@ -90,7 +95,8 @@ class PpoTest(test.TestCase):
 
     # Output is a list, first is probab of actions and the next is value output.
     self.assertEqual(2, len(pnv_output))
-    self.assertEqual((batch, time_steps, n_actions), pnv_output[0].shape)
+    self.assertEqual(
+        (batch, time_steps, n_controls, n_actions), pnv_output[0].shape)
     self.assertEqual((batch, time_steps, 1), pnv_output[1].shape)
 
   def test_pad_trajectories(self):
@@ -308,18 +314,19 @@ class PpoTest(test.TestCase):
     self.assertAllEqual(expected_gae_advantages, gae_advantages)
 
   def test_chosen_probabs(self):
-    # Shape (2, 2+1, 3)
+    # Shape (2, 2+1, 1, 3)
     probab_observations = np.array(
-        [[[0.1, 0.2, 0.7], [0.4, 0.1, 0.5], [0.2, 0.4, 0.4]],
-         [[0.3, 0.1, 0.6], [0.1, 0.1, 0.8], [0.2, 0.4, 0.4]]]
+        [[[[0.1, 0.2, 0.7]], [[0.4, 0.1, 0.5]], [[0.2, 0.4, 0.4]]],
+         [[[0.3, 0.1, 0.6]], [[0.1, 0.1, 0.8]], [[0.2, 0.4, 0.4]]]]
     )
 
-    # Shape (2, 2)
-    actions = np.array([[1, 2], [0, 1]])
+    # Shape (2, 2, 1)
+    actions = np.array([[[1], [2]], [[0], [1]]])
 
     chosen_probabs = ppo.chosen_probabs(probab_observations, actions)
 
-    self.assertAllEqual(np.array([[0.2, 0.5], [0.3, 0.1]]), chosen_probabs)
+    self.assertAllEqual(
+        np.array([[[0.2], [0.5]], [[0.3], [0.1]]]), chosen_probabs)
 
   def test_compute_probab_ratios(self):
     p_old = np.array([[
@@ -334,7 +341,7 @@ class PpoTest(test.TestCase):
         [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
         [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
         [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
-    ]])
+    ]])[:, :, None]
 
     p_new = np.array([[
         [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
@@ -348,9 +355,9 @@ class PpoTest(test.TestCase):
         [np.log(0.3), np.log(0.1), np.log(0.3), np.log(0.3)],
         [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
         [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
-    ]])
+    ]])[:, :, None]
 
-    actions = np.array([[1, 2, 0, 1], [0, 3, 3, 0]])
+    actions = np.array([[1, 2, 0, 1], [0, 3, 3, 0]])[:, :, None]
 
     mask = np.array([[1, 1, 0, 0], [1, 1, 1, 0]])
 
@@ -360,7 +367,7 @@ class PpoTest(test.TestCase):
         np.array([
             [0.1 / 0.2, 0.1 / 0.4, 0.0, 0.0],
             [0.1 / 0.3, 0.6 / 0.4, 0.3 / 0.1, 0.0],
-        ]), probab_ratios)
+        ])[:, :, None], probab_ratios)
 
   def test_clipped_probab_ratios(self):
     probab_ratios = np.array([
@@ -378,8 +385,8 @@ class PpoTest(test.TestCase):
 
   def test_clipped_objective(self):
     probab_ratios = np.array([
-        [1.5, 2.0, 0.5, 0.7],
-        [2.5, 2.0, 0.1, 1.0],
+        [[1.5], [2.0], [0.5], [0.7]],
+        [[2.5], [2.0], [0.1], [1.0]],
     ])
 
     advantages = np.array([
@@ -392,35 +399,36 @@ class PpoTest(test.TestCase):
     epsilon = 0.1
 
     clipped_probab_ratios = np.array([
-        [1.1, 1.1, 0.9, 0.9],
-        [1.1, 1.1, 0.9, 1.0],
+        [[1.1], [1.1], [0.9], [0.9]],
+        [[1.1], [1.1], [0.9], [1.0]],
     ])
 
     unused_advantages_x_probab_ratios = np.array([
-        [0.15, -0.2, 0.25, 0.49],
-        [5.00, -4.0, 0.20, 2.00]
+        [[0.15], [-0.2], [0.25], [0.49]],
+        [[5.00], [-4.0], [0.20], [2.00]]
     ])
 
     unused_advantages_x_clipped_probab_ratios = np.array([
-        [0.11, -0.11, 0.45, 0.63],
-        [2.20, -2.20, 1.80, 2.00]
+        [[0.11], [-0.11], [0.45], [0.63]],
+        [[2.20], [-2.20], [1.80], [2.00]]
     ])
 
     unused_minimums = np.array([
-        [0.11, -0.2, 0.25, 0.49],
-        [2.20, -4.0, 0.20, 2.00]
+        [[0.11], [-0.2], [0.25], [0.49]],
+        [[2.20], [-4.0], [0.20], [2.00]]
     ])
 
     # minimums * mask
     objective = np.array([
-        [0.11, -0.2, 0.0, 0.],
-        [2.20, -4.0, 0.2, 0.]
+        [[0.11], [-0.2], [0.0], [0.]],
+        [[2.20], [-4.0], [0.2], [0.]]
     ])
 
     # Assert that we computed things correctly in this test.
     self.assertAllClose(
-        np.minimum(probab_ratios * advantages,
-                   clipped_probab_ratios * advantages) * mask,
+        np.minimum(probab_ratios * advantages[:, :, None],
+                   clipped_probab_ratios * advantages[:, :, None]) *
+        mask[:, :, None],
         objective)
 
     self.assertAllClose(
@@ -434,7 +442,11 @@ class PpoTest(test.TestCase):
     batch_observation_shape = (1, 1) + OBS
 
     net = ppo.policy_and_value_net(
-        A, lambda: [layers.Flatten(n_axes_to_keep=2)], two_towers=True)
+        n_controls=1,
+        n_actions=A,
+        bottom_layers_fn=lambda: [layers.Flatten(n_axes_to_keep=2)],
+        two_towers=True,
+    )
 
     old_params, _ = net.initialize(
         batch_observation_shape, np.float32, key1)
@@ -444,7 +456,7 @@ class PpoTest(test.TestCase):
     # Generate a batch of observations.
 
     observations = np.random.uniform(size=(B, T + 1) + OBS)
-    actions = np.random.randint(0, A, size=(B, T))
+    actions = np.random.randint(0, A, size=(B, T, 1))
     rewards = np.random.uniform(0, 1, size=(B, T))
     mask = np.ones_like(rewards)
 
@@ -500,7 +512,7 @@ class PpoTest(test.TestCase):
                     1e-6)
 
   def test_masked_entropy(self):
-    # (2, 4+1, 4)
+    # (2, 4+1, 1, 4)
     log_probs = np.array([[
         [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
         [np.log(0.4), np.log(0.1), np.log(0.4), np.log(0.1)],
@@ -513,7 +525,7 @@ class PpoTest(test.TestCase):
         [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
         [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
         [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
-    ]])
+    ]])[:, :, None, :]
 
     # (2, 4)
     mask = np.array([
@@ -526,11 +538,11 @@ class PpoTest(test.TestCase):
 
     # Removing the last time-step and the masked stuff, gets us this.
     filtered_log_probs = np.array([[
-        [plp(0.1), plp(0.2), plp(0.6), plp(0.1)],
-        [plp(0.4), plp(0.1), plp(0.4), plp(0.1)],
-        [plp(0.3), plp(0.1), plp(0.5), plp(0.1)],
-        [plp(0.1), plp(0.1), plp(0.4), plp(0.4)],
-        [plp(0.3), plp(0.1), plp(0.5), plp(0.1)],
+        [[plp(0.1), plp(0.2), plp(0.6), plp(0.1)]],
+        [[plp(0.4), plp(0.1), plp(0.4), plp(0.1)]],
+        [[plp(0.3), plp(0.1), plp(0.5), plp(0.1)]],
+        [[plp(0.1), plp(0.1), plp(0.4), plp(0.4)]],
+        [[plp(0.3), plp(0.1), plp(0.5), plp(0.1)]],
     ]])
 
     self.assertNear(ppo.masked_entropy(log_probs, mask),

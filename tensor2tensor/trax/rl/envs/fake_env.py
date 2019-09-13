@@ -28,19 +28,23 @@ import gym
 import numpy as np
 
 
-class FakeEnv(object):
+class FakeEnv(gym.Env):
   """A fake env which is either done with a specific action or a time-step."""
 
   def __init__(self,
                input_shape=(4,),
                n_actions=2,
+               n_controls=1,
                done_time_step=None,
                done_action=None):
     self._input_shape = input_shape
     self._done_time_step = done_time_step
     self._done_action = done_action
     self._t = 0
-    self.action_space = gym.spaces.Discrete(n_actions)
+    if n_controls == 1:
+      self.action_space = gym.spaces.Discrete(n_actions)
+    else:
+      self.action_space = gym.spaces.MultiDiscrete([n_actions] * n_controls)
     self.observation_space = gym.spaces.Box(
         low=-1.0, high=1.0, shape=input_shape)
 
@@ -52,6 +56,7 @@ class FakeEnv(object):
     return self._get_random_observation()
 
   def step(self, action):
+    assert self.action_space.contains(action)
     done = False
     if self._done_action is not None:
       done = action == self._done_action

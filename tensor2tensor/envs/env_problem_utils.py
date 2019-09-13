@@ -21,6 +21,8 @@ from __future__ import print_function
 
 import functools
 import time
+
+import gym
 import numpy as np
 
 from tensor2tensor.envs import gym_env_problem
@@ -75,7 +77,7 @@ def play_env_problem_with_policy(env,
   Args:
     env: environment object, should be a subclass of env_problem.EnvProblem.
     policy_fun: callable, taking in observations((B, T) + OBS) and returning
-      back log-probabilities (B, T, A).
+      back log-probabilities (B, T, C, A).
     num_trajectories: int, number of trajectories to collect.
     max_timestep: int or None, if not None or a negative number, we cut any
       trajectory that exceeds this time put it in the completed bin, and *dont*
@@ -99,7 +101,7 @@ def play_env_problem_with_policy(env,
     """Gumbel sampling."""
     u = np.random.uniform(low=1e-6, high=1.0 - 1e-6, size=log_probs.shape)
     g = -np.log(-np.log(u))
-    return np.argmax((log_probs / temperature) + g, axis=1)
+    return np.argmax((log_probs / temperature) + g, axis=-1)
 
   # We need to reset all environments, if we're coming here the first time.
   if reset or max_timestep is None or max_timestep <= 0:
@@ -132,21 +134,25 @@ def play_env_problem_with_policy(env,
     policy_application_total_time += (time.time() - t1)
 
     assert (B, T) == log_prob_actions.shape[:2]
-    A = log_prob_actions.shape[2]  # pylint: disable=invalid-name
+    C = log_prob_actions.shape[2]  # pylint: disable=invalid-name
+    A = log_prob_actions.shape[3]  # pylint: disable=invalid-name
 
     # We need the log_probs of those actions that correspond to the last actual
     # time-step.
     index = lengths - 1  # Since we want to index using lengths.
-    log_probs = log_prob_actions[np.arange(B)[:, None], index[:, None],
-                                 np.arange(A)]
+    log_probs = log_prob_actions[np.arange(B)[:, None, None],
+                                 index[:, None, None],
+                                 np.arange(C)[:, None], np.arange(A)]
     value_preds = value_predictions[np.arange(B)[:, None], index[:, None],
                                     np.arange(1)]
-    assert (B, A) == log_probs.shape, \
-        "B=%d, A=%d, log_probs.shape=%s" % (B, A, log_probs.shape)
+    assert (B, C, A) == log_probs.shape, \
+        "B=%d, C=%d, A=%d, log_probs.shape=%s" % (B, C, A, log_probs.shape)
     assert (B, 1) == value_preds.shape, \
         "B=%d, value_preds.shape=%s" % (B, value_preds.shape)
 
     actions = gumbel_sample(log_probs)
+    if isinstance(env.action_space, gym.spaces.Discrete):
+      actions = np.squeeze(actions, axis=1)
 
     # Step through the env.
     t1 = time.time()
