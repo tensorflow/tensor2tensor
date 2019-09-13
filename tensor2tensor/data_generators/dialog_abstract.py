@@ -1,30 +1,28 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-import tensorflow as tf
-import os
-import requests
-import tarfile
-import re
-import zipfile
-from clint.textui import progress
 
-from tensor2tensor.data_generators import problem
-from tensor2tensor.data_generators import text_problems
-from tensor2tensor.data_generators import text_encoder
+import os
+import re
+import tarfile
+import zipfile
+
+import requests
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.data_generators import problem
+from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators.text_problems import VocabType
-from tensor2tensor.utils import metrics
 from tensor2tensor.layers import modalities
+from tensor2tensor.utils import metrics
+import tensorflow as tf
 
 # End-of-sentence marker.
 EOS = text_encoder.EOS_ID
 
 
+# An abstract base class for word based chatbot problems.
 class DialogAbstract(text_problems.Text2TextProblem):
-  '''
-  An abstract base class for word based chatbot problems.
-  '''
 
   @property
   def vocab_type(self):
@@ -133,16 +131,16 @@ class DialogAbstract(text_problems.Text2TextProblem):
   def create_data(self, train_mode):
     pass
 
-  # Check at which part of the pipeline are we at.
   def data_pipeline_status(self, train_mode):
-    '''
-    This function first check recursively at which point in the
+    """Check at which part of the pipeline are we at.
+
+    This function first checks recursively at which point in the
     data processing point are we (what files can be found on the disk),
     and then proceeds from there.
 
-    Params:
-      :train_mode: Whether we are in train or dev mode.
-    '''
+    Args:
+      train_mode: string, whether we are in train, dev or test mode
+    """
 
     # Build the source and target paths.
     sourcepath = os.path.join(self._data_dir, train_mode + 'Source.txt')
@@ -186,33 +184,31 @@ class DialogAbstract(text_problems.Text2TextProblem):
             'and creating source, target and vocab files.')
       self.download_data(train_mode)
 
-  # Download data from official sources.
   def download_data(self, train_mode):
-    '''
-    Params:
-      :train_mode:  Whether we are in train or dev mode.
-    '''
+    """Download data from official sources.
+
+    Args:
+      train_mode: string, whether we are in train, dev or test mode
+    """
 
     # Open the url and download the data with progress bars.
     data_stream = requests.get(self._url, stream=True)
-    with open(self._zipped_data, 'wb') as file:
-      total_length = int(data_stream.headers.get('content-length'))
-      for chunk in progress.bar(data_stream.iter_content(chunk_size=1024),
-                                expected_size=total_length / 1024 + 1):
+    with open(self._zipped_data, 'wb') as f:
+      for chunk in data_stream.iter_content(1024):
         if chunk:
-          file.write(chunk)
-          file.flush()
+          f.write(chunk)
+          f.flush()
 
     # Next step is extracting the data.
     print('problem_log: Extracting data to ' + self._zipped_data + '.')
     self.extract_data(train_mode)
 
-  # Extract data and go to the next step.
   def extract_data(self, train_mode):
-    '''
-    Params:
-      :train_mode:  Whether we are in train or dev mode.
-    '''
+    """Extract data and go to the next step.
+
+    Args:
+      train_mode:  string, whether we are in train, dev or test mode
+    """
 
     if self._zipped_data[-2:] == 'gz':
       zip_file = tarfile.open(self._zipped_data, 'r:gz')
@@ -294,20 +290,24 @@ class DialogAbstract(text_problems.Text2TextProblem):
 
     generator_utils.shuffle_dataset(all_paths, extra_fn=self._pack_fn())
 
-  # This function generates train and validation pairs in t2t-datagen style.
   def generate_samples(self, data_dir, tmp_dir, data_split):
-    '''
+    """This function generates train and validation pairs in t2t-datagen style.
+
     The function assumes that if you have data at one level of the pipeline,
     you don't want to re-generate it, so for example if the 4 txt files exist,
     the function continues by generating the t2t-datagen format files.
     So if you want to re-download or re-generate data,
     you have to delete it first from the appropriate directories.
 
-    Params:
-      :data_dir: Directory where the data will be generated
-                 The raw data has to be downloaded one directory level higher.
-      :data_split: Which data split to generate samples for.
-    '''
+    Args:
+      data_dir: string, Directory where the data will be generated. The raw
+                        data has to be downloaded one directory level higher.
+      data_split: stromg, which data split to generate samples for
+
+    Yields:
+      dict
+    """
+
     self.data_dir = data_dir
     print('problem_log: ' +
           self.mode[data_split] + ' data generation activated.')
@@ -323,12 +323,12 @@ class DialogAbstract(text_problems.Text2TextProblem):
           yield {'inputs': source.strip(), 'targets': target.strip()}
           source, target = source_file.readline(), target_file.readline()
 
-  # Save the vocabulary to a file.
   def save_vocab(self, vocab):
-    '''
-    Params:
-      :vocab: Vocabulary list.
-    '''
+    """Save the vocabulary to a file.
+
+    Args:
+      vocab: dict
+    """
     voc_file = open(os.path.join(self._data_dir, self.vocab_file), 'w')
 
     # Put the reserved tokens in.
@@ -354,15 +354,18 @@ class DialogAbstract(text_problems.Text2TextProblem):
 
   # Close the 6 files to write the processed data into.
   def close_n_files(self, files):
-    for file in files:
-      file.close()
+    for f in files:
+      f.close()
 
-  # Clean a line with some re rules.
   def clean_line(self, line):
-    '''
-    Params:
-      :line: Line to be processed and returned.
-    '''
+    """Clean a line with some regex rules.
+
+    Args:
+      line: string, line to be processed and returned
+
+    Returns:
+      string
+    """
 
     # 2 functions for more complex replacing.
     def replace(matchobj):

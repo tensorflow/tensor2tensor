@@ -1,14 +1,15 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+from collections import Counter
 import os
 import re
 import zipfile
-from collections import Counter
 
+from tensor2tensor.data_generators import dialog_abstract
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import registry
-from tensor2tensor.data_generators import dialog_abstract
 
 
 # End-of-sentence marker.
@@ -17,10 +18,10 @@ EOS = text_encoder.EOS_ID
 
 @registry.register_problem
 class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
-  '''
-  A class implementing the chatbot problem for the OpenSubtitles dataset.
+  """A class implementing the chatbot problem for the OpenSubtitles dataset.
+
   http://opus.nlpl.eu/OpenSubtitles-v2018.php
-  '''
+  """
 
   @property
   def targeted_vocab_size(self):
@@ -31,12 +32,13 @@ class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
     # Year of the opensubtitles dataset creation.
     return 2009
 
-  # Extract data and go to the next step.
   def extract_data(self, train_mode):
-    '''
-    Params:
-      :train_mode:  Whether we are in train or dev mode.
-    '''
+    """Extract data and go to the next step.
+
+    Args:
+      train_mode: string, whether we are in train, dev or test mode
+    """
+
     if self._zipped_data[-3:] == 'zip' or self._zipped_data[-2:] == 'gz':
       zip_file = zipfile.ZipFile(self._zipped_data, 'r')
     else:
@@ -51,12 +53,12 @@ class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
           train_mode + ' files in ' + self._data_dir)
     self.create_data(train_mode)
 
-  # Main function where the preprocessing of the data starts.
   def preprocess_data(self, train_mode):
-    '''
-    Params:
-      :train_mode: Whether we are in train or dev mode.
-    '''
+    """Main function where the preprocessing of the data starts.
+
+    Args:
+      train_mode: string, whether we are in train, dev or test mode
+    """
 
     year = '' if self.dataset_version == 2009 else str(self.dataset_version)
     # Set the raw data directory and data.
@@ -72,12 +74,12 @@ class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
     # Check at which part of the pipeline are we at.
     self.data_pipeline_status(train_mode)
 
-  # Create the source, target and vocab files.
   def create_data(self, train_mode):
-    '''
-    Params:
-      :train_mode: Whether we are in train or dev mode.
-    '''
+    """Create the source, target and vocab files.
+
+    Args:
+      train_mode: string, whether we are in train, dev or test mode
+    """
 
     # open the 6 files
     trainsource, traintarget, devsource, devtarget, testsource, testtarget = \
@@ -89,7 +91,7 @@ class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
     vocabulary = Counter()
     # Dind all the files.
     for root, _, files in os.walk(self._raw_data_dir):
-      for file in files:
+      for f in files:
         if conv_id % 100 == 0:
           print('problem_log: Parsed ' + str(conv_id) + ' files.')
 
@@ -99,7 +101,7 @@ class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
         dataset_split_counter += 1
 
         # Open one .xml file and parse it.
-        with open(os.path.join(root, file), 'r', errors='ignore') as txt_file:
+        with open(os.path.join(root, f), 'r', errors='ignore') as txt_file:
           words = ''
           line_id = 1
 
@@ -171,12 +173,16 @@ class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
     # Save the vocabulary.
     self.save_vocab(vocabulary)
 
-  # Clean a line with some re rules.
   def clean_line(self, line):
-    '''
-    Params:
-      :line: Line to be processed and returned.
-    '''
+    """Clean a line with some regex rules.
+
+    Args:
+      line: string, line to be processed and returned
+
+    Returns:
+      string
+    """
+
     line = line.lower()
     line = re.sub("[^a-z .!?'\t\\\\]", '', line)
     line = re.sub("\\\\['] ", " '", line)
@@ -192,6 +198,7 @@ class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
 
 @registry.register_problem
 class DialogOpensubtitles64k2011(DialogOpensubtitles64k2009):
+
   @property
   def dataset_version(self):
     # Year of the opensubtitles dataset creation.
@@ -200,6 +207,7 @@ class DialogOpensubtitles64k2011(DialogOpensubtitles64k2009):
 
 @registry.register_problem
 class DialogOpensubtitles64k2012(DialogOpensubtitles64k2009):
+
   @property
   def dataset_version(self):
     # Year of the opensubtitles dataset creation.
@@ -208,6 +216,7 @@ class DialogOpensubtitles64k2012(DialogOpensubtitles64k2009):
 
 @registry.register_problem
 class DialogOpensubtitles64k2013(DialogOpensubtitles64k2009):
+
   @property
   def dataset_version(self):
     # Year of the opensubtitles dataset creation.
@@ -216,6 +225,7 @@ class DialogOpensubtitles64k2013(DialogOpensubtitles64k2009):
 
 @registry.register_problem
 class DialogOpensubtitles64k2016(DialogOpensubtitles64k2009):
+
   @property
   def dataset_version(self):
     # Year of the opensubtitles dataset creation.
@@ -224,6 +234,7 @@ class DialogOpensubtitles64k2016(DialogOpensubtitles64k2009):
 
 @registry.register_problem
 class DialogOpensubtitles64k2018(DialogOpensubtitles64k2009):
+
   @property
   def dataset_version(self):
     # Year of the opensubtitles dataset creation.

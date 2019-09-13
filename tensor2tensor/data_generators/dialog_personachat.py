@@ -1,15 +1,16 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-import tensorflow as tf
+
+from collections import Counter
 import os
 import tarfile
 import zipfile
-from collections import Counter
 
+from tensor2tensor.data_generators import dialog_abstract
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import registry
-from tensor2tensor.data_generators import dialog_abstract
+import tensorflow as tf
 
 FLAGS = tf.flags.FLAGS
 
@@ -19,18 +20,18 @@ EOS = text_encoder.EOS_ID
 
 @registry.register_problem
 class DialogPersonachat16k(dialog_abstract.DialogAbstract):
-  '''
-  A class implementing a simple chatbot for the original Persona-chat dataset.
+  """Implements a simple chatbot for the original Persona-chat dataset.
+
   The personas are not used in this class, only the raw dialogs.
   https://github.com/facebookresearch/ParlAI/tree/master/projects/personachat
-  '''
+  """
 
-  # Main function where the preprocessing of the data starts.
   def preprocess_data(self, train_mode):
-    '''
-    Params:
-      :train_mode: Whether we are in train or dev mode.
-    '''
+    """Main function where the preprocessing of the data starts.
+
+    Args:
+      train_mode: string, whether we are in train, dev or test mode
+    """
 
     # Set the raw data directory and data.
     self.raw_data_dir = os.path.join('/'.join(self._data_dir.split('/')[:-1]),
@@ -44,12 +45,12 @@ class DialogPersonachat16k(dialog_abstract.DialogAbstract):
     # Check at which part of the pipeline are we at.
     self.data_pipeline_status(train_mode)
 
-  # Extract data and go to the next step.
   def extract_data(self, train_mode):
-    '''
-    Params:
-      :train_mode: Whether we are in train or dev mode.
-    '''
+    """Extract data and go to the next step.
+
+    Args:
+      train_mode: string, whether we are in train, dev or test mode
+    """
 
     if self._zipped_data[-2:] == 'gz':
       zip_file = tarfile.open(self._zipped_data, 'r:gz')
@@ -67,12 +68,12 @@ class DialogPersonachat16k(dialog_abstract.DialogAbstract):
           train_mode + ' files in ' + self._data_dir + '.')
     self.create_data(train_mode)
 
-  # Create the source, target and vocab files.
   def create_data(self, train_mode):
-    '''
-    Params:
-      :train_mode: Whether we are in train or dev mode.
-    '''
+    """Create the source, target and vocab files.
+
+    Args:
+      train_mode: string, whether we are in train, dev or test mode
+    """
 
     # Open the 6 files.
     trainsource, traintarget, devsource, devtarget, testsource, testtarget = \
@@ -124,7 +125,7 @@ class DialogPersonachat16k(dialog_abstract.DialogAbstract):
         target = self.clean_line(target.lower())
 
         # Whether this is a new dialog.
-        if dialog_id == '1' and current_dialog != '':
+        if dialog_id == '1' and current_dialog:
           dialog_list.append(current_dialog)
           current_dialog = source + '__eou__' + target + '__eou__'
         else:

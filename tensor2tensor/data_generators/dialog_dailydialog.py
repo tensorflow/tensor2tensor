@@ -1,11 +1,12 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-import os
-from collections import Counter
 
-from tensor2tensor.data_generators import text_encoder
+from collections import Counter
+import os
+
 from tensor2tensor.data_generators import dialog_abstract
+from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import registry
 
 
@@ -15,18 +16,18 @@ EOS = text_encoder.EOS_ID
 
 @registry.register_problem
 class DialogDailydialog16k(dialog_abstract.DialogAbstract):
-  '''
-  https://arxiv.org/abs/1710.03957
-  A class implementing a simple chatbot problem for the DailyDialog dataset.
-  This version doesn't use any auxiliary information.
-  '''
+  """A class implementing a simple chatbot problem for the DailyDialog dataset.
 
-  # Main function where the preprocessing of the data starts.
+  https://arxiv.org/abs/1710.03957
+  This version doesn't use any auxiliary information.
+  """
+
   def preprocess_data(self, train_mode):
-    '''
-    Params:
-      :train_mode: Whether we are in train or dev mode.
-    '''
+    """Main function where the preprocessing of the data starts.
+
+    Args:
+      train_mode: string, whether we are in train, dev or test mode
+    """
 
     # Set the raw data directory and data.
     self.raw_data_dir = os.path.join('/'.join(self._data_dir.split('/')[:-1]),
@@ -41,12 +42,12 @@ class DialogDailydialog16k(dialog_abstract.DialogAbstract):
     # Check at which part of the pipeline are we at.
     self.data_pipeline_status(train_mode)
 
-  # Create the source, target and vocab files.
   def create_data(self, train_mode):
-    '''
-    Params:
-      :train_mode: Whether we are in train or dev mode.
-    '''
+    """Create the source, target and vocab files.
+
+    Args:
+      train_mode: string, whether we are in train, dev or test mode
+    """
 
     # Open the 6 files.
     trainsource, traintarget, devsource, devtarget, testsource, testtarget = \
