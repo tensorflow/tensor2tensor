@@ -1,8 +1,25 @@
+# coding=utf-8
+# Copyright 2019 The Tensor2Tensor Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""OpenSubtitles dataset."""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from collections import Counter
+import collections
 import os
 import re
 import zipfile
@@ -88,7 +105,7 @@ class DialogOpensubtitles64k2009(dialog_abstract.DialogAbstract):
     conv_id = 0
     number_of_lines = 0
     dataset_split_counter = 0
-    vocabulary = Counter()
+    vocabulary = collections.Counter()
     # Dind all the files.
     for root, _, files in os.walk(self._raw_data_dir):
       for f in files:

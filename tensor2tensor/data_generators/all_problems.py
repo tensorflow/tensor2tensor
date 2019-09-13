@@ -19,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 import importlib
+import six
 from six.moves import range  # pylint: disable=redefined-builtin
 
 MODULES = [
@@ -105,6 +106,7 @@ MODULES = [
     "tensor2tensor.envs.tic_tac_toe_env_problem",
 ]
 ALL_MODULES = list(MODULES)
+
 
 
 def _is_import_err_msg(err_str, module):

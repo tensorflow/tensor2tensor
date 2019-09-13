@@ -1,3 +1,20 @@
+# coding=utf-8
+# Copyright 2019 The Tensor2Tensor Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Abstract class for dialog problems."""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -23,6 +40,7 @@ EOS = text_encoder.EOS_ID
 
 # An abstract base class for word based chatbot problems.
 class DialogAbstract(text_problems.Text2TextProblem):
+  """Abstract class for dialog problems."""
 
   @property
   def vocab_type(self):
@@ -302,7 +320,8 @@ class DialogAbstract(text_problems.Text2TextProblem):
     Args:
       data_dir: string, Directory where the data will be generated. The raw
                         data has to be downloaded one directory level higher.
-      data_split: stromg, which data split to generate samples for
+      tmp_dir: string, temp directory.
+      data_split: string, which data split to generate samples for
 
     Yields:
       dict

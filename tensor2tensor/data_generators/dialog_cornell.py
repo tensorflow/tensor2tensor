@@ -1,8 +1,25 @@
+# coding=utf-8
+# Copyright 2019 The Tensor2Tensor Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Cornell Movie Dialog Dataset."""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from collections import Counter
+import collections
 import os
 import re
 
@@ -64,7 +81,7 @@ class DialogCornell32k(dialog_abstract.DialogAbstract):
         os.path.join(self._raw_data, 'movie_lines.txt'), errors='ignore')
     dialog_list = self.extract_dialog_ids()
 
-    vocabulary = Counter()
+    vocabulary = collections.Counter()
     line_dict = {}
     number_of_lines = 0
     # Iterate through file.
