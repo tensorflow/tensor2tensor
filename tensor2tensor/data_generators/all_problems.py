@@ -19,7 +19,6 @@ from __future__ import division
 from __future__ import print_function
 
 import importlib
-import six
 from six.moves import range  # pylint: disable=redefined-builtin
 
 MODULES = [
@@ -39,6 +38,10 @@ MODULES = [
     "tensor2tensor.data_generators.cola",
     "tensor2tensor.data_generators.common_voice",
     "tensor2tensor.data_generators.desc2code",
+    "tensor2tensor.data_generators.dialog_cornell",
+    "tensor2tensor.data_generators.dialog_dailydialog",
+    "tensor2tensor.data_generators.dialog_opensubtitles",
+    "tensor2tensor.data_generators.dialog_personachat",
     "tensor2tensor.data_generators.enwik8",
     "tensor2tensor.data_generators.fsns",
     "tensor2tensor.data_generators.function_docstring",
@@ -102,7 +105,6 @@ MODULES = [
     "tensor2tensor.envs.tic_tac_toe_env_problem",
 ]
 ALL_MODULES = list(MODULES)
-
 
 
 def _is_import_err_msg(err_str, module):
