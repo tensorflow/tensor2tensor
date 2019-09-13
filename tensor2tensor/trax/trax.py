@@ -722,9 +722,7 @@ class Trainer(object):
     # Calculate the current learning rate.
     learning_rate = self._maybe_replicate(np.array(self.learning_rate))
     opt_state = self._opt_state
-    opt_params = opt_state.opt_params
-    opt_params = (learning_rate,) + opt_params[1:]
-    opt_state = opt_state._replace(opt_params=opt_params)
+    opt_state.opt_params["learning_rate"] = learning_rate
 
     # Run the update.
     (params, slots), self._model_state, self._rngs = self._jit_update_fn(
