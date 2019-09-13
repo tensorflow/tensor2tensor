@@ -27,6 +27,7 @@ import numpy as np
 from tensor2tensor.envs import env_problem
 from tensor2tensor.trax import backend
 from tensor2tensor.trax import trax
+from tensor2tensor.trax import utils
 from tensor2tensor.trax.backend import random as jax_random
 from tensor2tensor.trax.rl import space_serializer
 
@@ -384,18 +385,13 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
     return index_range_2d(begin_indices, self._action_repr_length)
 
   def _predict_obs(self, predict_fn, rng):
-    def gumbel_sample(log_probs):
-      u = np.random.uniform(low=1e-6, high=1.0 - 1e-6, size=log_probs.shape)
-      g = -np.log(-np.log(u))
-      return np.argmax(log_probs + g, axis=-1)
-
     for (i, subrng) in enumerate(jax_random.split(rng, self._obs_repr_length)):
       symbol_index = self._steps * self._step_repr_length + i
       log_probs, self._model_state = predict_fn(self._history,
                                                 state=self._model_state,
                                                 rng=subrng)
       log_probs = log_probs[:, symbol_index, :]
-      self._history[:, symbol_index] = gumbel_sample(log_probs)
+      self._history[:, symbol_index] = utils.gumbel_sample(log_probs)
 
     obs_repr = self._history[self._obs_repr_indices]
     return self._obs_serializer.deserialize(obs_repr)

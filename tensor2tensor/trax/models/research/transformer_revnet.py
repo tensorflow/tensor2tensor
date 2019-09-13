@@ -394,7 +394,7 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
 
 def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
                  n_heads, n_attention_chunks, attention_type,
-                 dropout, mode):
+                 dropout, share_kv, mode):
   """Reversible transformer decoder layer.
 
   Args:
@@ -406,22 +406,34 @@ def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
     n_attention_chunks: int: number of chunks for attention
     attention_type: subclass of tl.BaseCausalAttention: attention class to use
     dropout: float: dropout rate (how much to drop out)
+    share_kv: string, whether to share keys and values
     mode: str: 'train' or 'eval'
 
   Returns:
     the layer.
   """
-
-  pre_attention = [
-      Chunk(n_sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
-      tl.LayerNorm(),
-      tl.Dup(), tl.Dup(),
-      tl.Parallel(
-          tl.ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_key),
-          tl.ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_key),
-          tl.ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_value),
-      ),
-  ]
+  if share_kv:
+    pre_attention = [
+        Chunk(n_sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
+        tl.LayerNorm(),
+        tl.Dup(),
+        tl.Parallel(
+            tl.ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_key),
+            tl.ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_value),
+        ),
+        tl.Dup(),
+    ]
+  else:
+    pre_attention = [
+        Chunk(n_sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
+        tl.LayerNorm(),
+        tl.Dup(), tl.Dup(),
+        tl.Parallel(
+            tl.ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_key),
+            tl.ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_key),
+            tl.ComputeAttentionHeads(n_heads=n_heads, d_head=d_attention_value),
+        ),
+    ]
 
   attention = attention_type(mode=mode)
 
@@ -456,6 +468,7 @@ def TransformerRevnetLM(vocab_size,
                         n_chunks=32,
                         n_attention_chunks=8,
                         attention_type=tl.DotProductCausalAttention,
+                        share_kv=False,
                         mode='train'):
   """Reversible transformer language model (only uses a decoder, no encoder).
 
@@ -472,6 +485,7 @@ def TransformerRevnetLM(vocab_size,
     n_chunks: int: number of chunks (must match input pipeline)
     n_attention_chunks: int: number of chunks for attention
     attention_type: class: attention class to use, such as DotProductAttention.
+    share_kv: bool, whether to share keys and values.
     mode: str: 'train' or 'eval'
 
   Returns:
@@ -492,7 +506,7 @@ def TransformerRevnetLM(vocab_size,
           DecoderBlock(d_model, d_ff,
                        d_attention_key, d_attention_value, n_heads,
                        n_attention_chunks, attention_type,
-                       dropout, mode)
+                       dropout, share_kv, mode)
           for _ in range(n_layers)
       ] + [
           SplitForOutput(n_sections=n_chunks, axis=-2),  # pylint: disable=no-value-for-parameter

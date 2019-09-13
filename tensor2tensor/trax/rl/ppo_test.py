@@ -26,6 +26,7 @@ from tensor2tensor.trax import layers
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.rl import ppo
 from tensorflow import test
+from tensorflow.io import gfile
 
 
 class PpoTest(test.TestCase):
@@ -34,18 +35,58 @@ class PpoTest(test.TestCase):
     super(PpoTest, self).setUp()
     self.rng_key = trax.get_random_number_generator_and_set_seed(0)
 
+  def test_get_policy_model_files(self):
+    output_dir = self.get_temp_dir()
+
+    def write_policy_model_file(epoch):
+      with gfile.GFile(
+          ppo.get_policy_model_file_from_epoch(output_dir, epoch), "w") as f:
+        f.write("some data")
+
+    epochs = [200, 100, 300]
+
+    # 300, 200, 100
+    expected_policy_model_files = [
+        output_dir + "/model-000300.pkl",
+        output_dir + "/model-000200.pkl",
+        output_dir + "/model-000100.pkl",
+    ]
+
+    for epoch in epochs:
+      write_policy_model_file(epoch)
+
+    policy_model_files = ppo.get_policy_model_files(output_dir)
+
+    self.assertEqual(expected_policy_model_files, policy_model_files)
+
+    gfile.rmtree(output_dir)
+
+  def test_get_epoch_from_policy_model_file(self):
+    self.assertEqual(0,
+                     ppo.get_epoch_from_policy_model_file("model-000000.pkl"))
+    self.assertEqual(123456,
+                     ppo.get_epoch_from_policy_model_file("model-123456.pkl"))
+
+  def test_get_policy_model_file_from_epoch(self):
+    self.assertEqual("/tmp/model-000000.pkl",
+                     ppo.get_policy_model_file_from_epoch("/tmp", 0))
+    self.assertEqual("/tmp/model-123456.pkl",
+                     ppo.get_policy_model_file_from_epoch("/tmp", 123456))
+
   def test_policy_and_value_net(self):
     observation_shape = (3, 4, 5)
     batch_observation_shape = (1, 1) + observation_shape
     n_actions = 2
-    pnv_params, pnv_state, pnv_apply = ppo.policy_and_value_net(
-        self.rng_key, batch_observation_shape, np.float32, n_actions,
-        lambda: [layers.Flatten(n_axes_to_keep=2)])
+    pnv_model = ppo.policy_and_value_net(
+        n_actions, lambda: [layers.Flatten(n_axes_to_keep=2)], two_towers=True)
+    pnv_params, pnv_state = pnv_model.initialize(
+        batch_observation_shape, np.float32, self.rng_key)
+
     batch = 2
     time_steps = 10
     batch_of_observations = np.random.uniform(
         size=(batch, time_steps) + observation_shape)
-    pnv_output, _ = pnv_apply(batch_of_observations, pnv_params, pnv_state)
+    pnv_output, _ = pnv_model(batch_of_observations, pnv_params, pnv_state)
 
     # Output is a list, first is probab of actions and the next is value output.
     self.assertEqual(2, len(pnv_output))
@@ -392,13 +433,13 @@ class PpoTest(test.TestCase):
     B, T, A, OBS = 2, 10, 2, (28, 28, 3)  # pylint: disable=invalid-name
     batch_observation_shape = (1, 1) + OBS
 
-    old_params, _, _ = ppo.policy_and_value_net(
-        key1, batch_observation_shape, np.float32, A,
-        lambda: [layers.Flatten(n_axes_to_keep=2)])
+    net = ppo.policy_and_value_net(
+        A, lambda: [layers.Flatten(n_axes_to_keep=2)], two_towers=True)
 
-    new_params, state, net_apply = ppo.policy_and_value_net(
-        key2, batch_observation_shape, np.float32, A,
-        lambda: [layers.Flatten(n_axes_to_keep=2)])
+    old_params, _ = net.initialize(
+        batch_observation_shape, np.float32, key1)
+    new_params, state = net.initialize(
+        batch_observation_shape, np.float32, key2)
 
     # Generate a batch of observations.
 
@@ -408,10 +449,10 @@ class PpoTest(test.TestCase):
     mask = np.ones_like(rewards)
 
     # Just test that this computes at all.
-    (new_log_probabs, value_predictions_new), _ = net_apply(observations,
-                                                            new_params, state)
-    (old_log_probabs, value_predictions_old), _ = net_apply(observations,
-                                                            old_params, state)
+    (new_log_probabs, value_predictions_new), _ = net(observations, new_params,
+                                                      state)
+    (old_log_probabs, value_predictions_old), _ = net(observations, old_params,
+                                                      state)
 
     gamma = 0.99
     lambda_ = 0.95
@@ -437,7 +478,7 @@ class PpoTest(test.TestCase):
         ppo.combined_loss(new_params,
                           old_log_probabs,
                           value_predictions_old,
-                          net_apply,
+                          net,
                           observations,
                           actions,
                           rewards,
@@ -495,6 +536,17 @@ class PpoTest(test.TestCase):
     self.assertNear(ppo.masked_entropy(log_probs, mask),
                     -np.sum(filtered_log_probs) / 5.0,
                     1e-6)
+
+  def test_saves_and_restores_opt_state(self):
+    opt_state = 123
+    state = 456
+    epoch = 7
+    opt_step = 89
+    output_dir = self.get_temp_dir()
+    ppo.save_opt_state(output_dir, opt_state, state, epoch, opt_step)
+    restored_data = ppo.maybe_restore_opt_state(output_dir)
+    self.assertEqual(restored_data, (opt_state, state, epoch, opt_step))
+
 
 if __name__ == "__main__":
   test.main()

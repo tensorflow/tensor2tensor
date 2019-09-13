@@ -13,33 +13,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for trainer_lib."""
+"""Utility functions."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
+import pickle
+import sys
 
-from tensor2tensor.utils import hparams_lib
-
-import tensorflow as tf
-
-
-class HparamsLibTest(tf.test.TestCase):
-
-  def testCreateHparamsFromJson(self):
-    # Get json_path
-    pkg = os.path.abspath(__file__)
-    pkg, _ = os.path.split(pkg)
-    pkg, _ = os.path.split(pkg)
-    json_path = os.path.join(
-        pkg, "test_data", "transformer_test_ckpt", "hparams.json")
-
-    # Create hparams
-    hparams = hparams_lib.create_hparams_from_json(json_path)
-    self.assertEqual(75, len(hparams.values()))
+import cloudpickle
+import numpy as np
 
 
-if __name__ == "__main__":
-  tf.test.main()
+def get_pickle_module():
+  """Returns the appropriate pickle module based on Python version."""
+  # TODO(gilmer, lukaszkaiser): figure out how to use cloudpickle in python3.
+  # Currently the code throws an error when run in python3.
+  if sys.version_info[0] < 3:
+    return cloudpickle
+  else:
+    return pickle
+
+
+def gumbel_sample(log_probs):
+  """Gumbel sampling from a categorical distribution."""
+  u = np.random.uniform(low=1e-6, high=1.0 - 1e-6, size=log_probs.shape)
+  g = -np.log(-np.log(u))
+  return np.argmax(log_probs + g, axis=-1)

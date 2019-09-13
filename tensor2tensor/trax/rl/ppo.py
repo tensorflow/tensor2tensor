@@ -52,28 +52,24 @@ from __future__ import print_function
 import collections
 import functools
 import os
+import re
 import time
 
 from absl import logging
-import cloudpickle as pickle
 from jax import grad
 from jax import jit
 from jax import lax
 from jax import numpy as np
-from jax import random as jax_random
 import numpy as onp
+
 from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import env_problem_utils
 from tensor2tensor.trax import layers as tl
+from tensor2tensor.trax import utils
 from tensorflow.io import gfile
 
 
-def policy_and_value_net(rng_key,
-                         batch_observations_shape,
-                         observations_dtype,
-                         n_actions,
-                         bottom_layers_fn=(),
-                         two_towers=True):
+def policy_and_value_net(n_actions, bottom_layers_fn, two_towers):
   """A policy and value net function."""
 
   # Layers.
@@ -86,7 +82,9 @@ def policy_and_value_net(rng_key,
     layers = [
         tl.Dup(),
         tl.Parallel(
-            [bottom_layers_fn(), tl.Dense(n_actions), tl.LogSoftmax()],
+            [bottom_layers_fn(),
+             tl.Dense(n_actions),
+             tl.LogSoftmax()],
             [bottom_layers_fn(), tl.Dense(1)],
         )
     ]
@@ -99,10 +97,7 @@ def policy_and_value_net(rng_key,
             [tl.Dense(1)],
         )
     ]
-  net = tl.Model(layers)
-  params, state = net.initialize(batch_observations_shape, observations_dtype,
-                                 rng_key)
-  return params, state, net
+  return tl.Model(layers)
 
 
 def optimizer_fn(optimizer, net_params):
@@ -148,6 +143,7 @@ def collect_trajectories(env,
                          len_history_for_policy=32,
                          boundary=32,
                          state=None,
+                         temperature=1.0,
                          rng=None):
   """Collect trajectories with the given policy net and behaviour.
 
@@ -164,6 +160,7 @@ def collect_trajectories(env,
       applying the policy on. If None, use the full history.
     boundary: int, pad the sequences to the multiples of this number.
     state: state for `policy_fn`.
+    temperature: (float) temperature to sample action from policy_fn.
     rng: jax rng, splittable.
 
   Returns:
@@ -186,12 +183,13 @@ def collect_trajectories(env,
       len_history_for_policy=len_history_for_policy,
       boundary=boundary,
       state=state,
+      temperature=temperature,
       rng=rng)
   # Skip returning raw_rewards here, since they aren't used.
 
   # t is the return value of Trajectory.as_numpy, so:
   # (observation, action, processed_reward, raw_reward, infos)
-  return [(t[0], t[1], t[2], t[4]) for t in trajs], n_done, timing_info, state
+  return trajs, n_done, timing_info, state
 
 
 # This function can probably be simplified, ask how?
@@ -659,8 +657,8 @@ def combined_loss(new_params,
                   rng=None):
   """Computes the combined (clipped loss + value loss) given observations."""
   (log_probab_actions_new, value_predictions_new), state = (
-      policy_and_value_net_apply(padded_observations, new_params, state,
-                                 rng=rng))
+      policy_and_value_net_apply(
+          padded_observations, new_params, state, rng=rng))
 
   (loss, component_losses, summaries) = combined_loss_given_predictions(
       log_probab_actions_new,
@@ -772,47 +770,24 @@ def masked_entropy(log_probs, mask):
   return -(np.sum(lp * p) / np.sum(mask))
 
 
-def evaluate_policy(eval_env,
-                    get_predictions,
-                    temperatures,
-                    max_timestep=20000,
-                    n_evals=1,
-                    len_history_for_policy=32,
-                    state=None,
-                    rng=None):
-  """Evaluate the policy."""
-
-  processed_reward_sums = collections.defaultdict(list)
-  raw_reward_sums = collections.defaultdict(list)
-  for eval_rng in jax_random.split(rng, num=n_evals):
-    for temperature in temperatures:
-      trajs, _, _, state = env_problem_utils.play_env_problem_with_policy(
-          eval_env,
-          get_predictions,
-          num_trajectories=eval_env.batch_size,
-          max_timestep=max_timestep,
-          reset=True,
-          temperature=temperature,
-          state=state,
-          rng=eval_rng,
-          len_history_for_policy=len_history_for_policy)
-      processed_reward_sums[temperature].extend(sum(traj[2]) for traj in trajs)
-      raw_reward_sums[temperature].extend(sum(traj[3]) for traj in trajs)
-
-  # Return the mean and standard deviation for each temperature.
-  def compute_stats(reward_dict):
-    return {
-        temperature: {"mean": onp.mean(rewards), "std": onp.std(rewards)}
-        for (temperature, rewards) in reward_dict.items()
-    }
-  return {
-      "processed": compute_stats(processed_reward_sums),
-      "raw": compute_stats(raw_reward_sums),
-  }, state
+def get_policy_model_files(output_dir):
+  return list(
+      reversed(
+          sorted(gfile.glob(os.path.join(output_dir, "model-??????.pkl")))))
 
 
-def maybe_restore_opt_state(output_dir, policy_and_value_opt_state,
-                            policy_and_value_state):
+def get_epoch_from_policy_model_file(policy_model_file):
+  base_name = os.path.basename(policy_model_file)
+  return int(re.match(r"model-(\d+).pkl", base_name).groups()[0])
+
+
+def get_policy_model_file_from_epoch(output_dir, epoch):
+  return os.path.join(output_dir, "model-%06d.pkl" % epoch)
+
+
+def maybe_restore_opt_state(output_dir,
+                            policy_and_value_opt_state=None,
+                            policy_and_value_state=None):
   """Maybe restore the optimization state from the checkpoint dir.
 
   Optimization state includes parameters and optimizer slots.
@@ -824,51 +799,63 @@ def maybe_restore_opt_state(output_dir, policy_and_value_opt_state,
     policy_and_value_state: state of the policy and value network.
 
   Returns:
-    tuple (restored (bool), opt_state, state, epoch (int),
-    opt_step (int)) where epoch is the epoch from which we restored the
-    optimization state, 0 is restored = False, and opt_step is the total
-    optimization step (sum of all optimization steps made up to the current
-    epoch).
+    tuple (opt_state, state, epoch (int), opt_step (int)) where epoch is the
+    epoch from which we restored the optimization state, 0 if no checkpoint was
+    found, and opt_step is the total optimization step (sum of all optimization
+    steps made up to the current epoch).
   """
-  restored = False
+  pkl_module = utils.get_pickle_module()
   epoch = 0
   total_opt_step = 0
-  model_files = gfile.glob(os.path.join(output_dir, "model-??????.pkl"))
-  for model_file in reversed(sorted(model_files)):
+  for model_file in get_policy_model_files(output_dir):
     logging.info("Trying to restore model from %s", model_file)
     try:
       with gfile.GFile(model_file, "rb") as f:
         policy_and_value_opt_state, policy_and_value_state, total_opt_step = (
-            pickle.load(f))
-      model_file_basename = os.path.basename(model_file)  # model-??????.pkl
-      restored = True
-      epoch = int(filter(str.isdigit, model_file_basename))
+            pkl_module.load(f))
+      epoch = get_epoch_from_policy_model_file(model_file)
       break
     except EOFError as e:
       logging.error("Unable to load model from: %s with %s", model_file, e)
       # Try an older version.
       continue
   return (
-      restored, policy_and_value_opt_state, policy_and_value_state, epoch,
+      policy_and_value_opt_state,
+      policy_and_value_state,
+      epoch,
       total_opt_step,
   )
+
+
+def save_opt_state(output_dir,
+                   policy_and_value_opt_state,
+                   policy_and_value_state,
+                   epoch,
+                   total_opt_step):
+  """Saves the policy and value network optimization state etc."""
+  pkl_module = utils.get_pickle_module()
+  old_model_files = get_policy_model_files(output_dir)
+  params_file = os.path.join(output_dir, "model-%06d.pkl" % epoch)
+  with gfile.GFile(params_file, "wb") as f:
+    pkl_module.dump(
+        (policy_and_value_opt_state, policy_and_value_state, total_opt_step), f)
+  # Remove the old model files.
+  for path in old_model_files:
+    if path != params_file:
+      gfile.remove(path)
 
 
 def write_eval_reward_summaries(reward_stats_by_mode, summary_writer, epoch):
   """Writes evaluation reward statistics to summary and logs them.
 
   Args:
-    reward_stats_by_mode: Nested dict of structure:
-      {
+    reward_stats_by_mode: Nested dict of structure: {
           "raw": {
               <temperature 1>: {
                   "mean": <reward mean>,
-                  "std": <reward std>,
-              },
-              <temperature 2>: ...
-          },
-          "processed": ...
-      }
+                  "std": <reward std>, },
+              <temperature 2>: ... },
+          "processed": ... }
     summary_writer: jaxboard.SummaryWriter.
     epoch: Current epoch number.
   """
@@ -877,11 +864,13 @@ def write_eval_reward_summaries(reward_stats_by_mode, summary_writer, epoch):
       for (stat_name, stat) in reward_stats.items():
         summary_writer.scalar(
             "eval/{reward_mode}_reward_{stat_name}/"
-            "temperature_{temperature}".format(reward_mode=reward_mode,
-                                               stat_name=stat_name,
-                                               temperature=temperature),
-            stat, step=epoch)
-      logging.info("Epoch [% 6d] Policy Evaluation (%s reward) "
-                   "[temperature %.2f] = %10.2f (+/- %.2f)",
-                   epoch, reward_mode, temperature,
-                   reward_stats["mean"], reward_stats["std"])
+            "temperature_{temperature}".format(
+                reward_mode=reward_mode,
+                stat_name=stat_name,
+                temperature=temperature),
+            stat,
+            step=epoch)
+      logging.info(
+          "Epoch [% 6d] Policy Evaluation (%s reward) "
+          "[temperature %.2f] = %10.2f (+/- %.2f)", epoch, reward_mode,
+          temperature, reward_stats["mean"], reward_stats["std"])

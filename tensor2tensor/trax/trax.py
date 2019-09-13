@@ -23,13 +23,11 @@ import collections
 import functools
 import itertools
 import os
-import pickle
 import random
 import sys
 import time
 
 from absl import logging
-import cloudpickle
 
 import gin
 
@@ -45,6 +43,7 @@ from tensor2tensor.trax import jaxboard
 from tensor2tensor.trax import layers
 from tensor2tensor.trax import learning_rate as lr
 from tensor2tensor.trax import optimizers as trax_opt
+from tensor2tensor.trax import utils
 from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.backend import random as jax_random
 
@@ -124,10 +123,31 @@ def neg_log_perplexity(batch, model_predictions, has_weights):
   return masked_mean(xent, targets, weights)
 
 
+def _stack_inputs_targets_and_get_predictions(inputs_and_targets):
+  """Helper to stack inputs and targets and retrieve predictions from output."""
+  # Inputs and targets can be lists - we build a flat one to input to the model.
+  model_inp = []
+  for x in inputs_and_targets:
+    if not isinstance(x, (list, tuple)):
+      model_inp.append(x)
+    else:
+      model_inp.extend(x)
+  # We retrieve as many predictions from model output as many there were inputs.
+  inp = inputs_and_targets[0]
+  inp_len = len(inp) if isinstance(inp, (list, tuple)) else 1
+  get_pred = lambda x: x[0] if inp_len == 1 else x[:inp_len]
+  return tuple(model_inp), get_pred
+
+
 def loss(params, batch, model_predict, state, rng, has_weights):
   """Calculate loss."""
   inputs, targets, weights = unpack_batch(batch, has_weights)
-  predictions, state = model_predict(inputs, params, state, rng=rng)
+  model_input, get_preds = _stack_inputs_targets_and_get_predictions(
+      [inputs, targets])
+  # Call model, predictions will be the returned stack, usually consisting of
+  # the prediction tensor and the targets.
+  predictions, state = model_predict(model_input, params, state, rng=rng)
+  predictions = get_preds(predictions)
   predictions, targets, weights = _make_list(predictions, targets, weights)
   xent = []
   for (pred, target) in zip(predictions, targets):
@@ -168,8 +188,9 @@ def restore_state(output_dir):
     return State(step=None, opt_state=None, history=trax_history.History(),
                  model_state=None)
 
+  pkl_module = utils.get_pickle_module()
   with gfile.GFile(params_file, "rb") as f:
-    (opt_state, step, history, model_state) = pickle.load(f)
+    (opt_state, step, history, model_state) = pkl_module.load(f)
   log("Model loaded from %s at step %d" % (params_file, step))
   logging.debug("From loaded model : history = %s", history)
   return State(step=step, opt_state=OptState(*opt_state), history=history,
@@ -188,12 +209,7 @@ def _save_gin(output_dir, sw=None):
 
 def save_state(state, output_dir, keep=False):
   """Save State and optionally gin config."""
-  # TODO(gilmer, lukaszkaiser): figure out how to use cloudpickle in python3.
-  # Currently the code throws an error when run in python3.
-  if sys.version_info[0] < 3:
-    pkl_module = cloudpickle
-  else:
-    pkl_module = pickle
+  pkl_module = utils.get_pickle_module()
   params_file = os.path.join(output_dir, "model.pkl")
   with gfile.GFile(params_file, "wb") as f:
     pkl_module.dump((tuple(state.opt_state), state.step, state.history,
@@ -287,9 +303,12 @@ def evaluate(inputs_stream, predict_fn, metric_fns, state, rng, has_weights):
   for inp in inputs_stream:
     count += 1
     rng, subrng = jax_random.split(rng)
-    preds, state = predict_fn(inp[0], state=state, rng=subrng)
+    model_inp, get_preds = _stack_inputs_targets_and_get_predictions(inp)
+    # Call model, preds will be the returned stack, usually (pred, targets).
+    preds, state = predict_fn(model_inp, state=state, rng=subrng)
+    pred = get_preds(preds)
     for m, f in six.iteritems(metric_fns):
-      metrics[m] += f(inp, preds, has_weights=has_weights)
+      metrics[m] += f(inp, pred, has_weights=has_weights)
   return {m: v / count for (m, v) in six.iteritems(metrics)}, state
 
 
@@ -358,40 +377,45 @@ def get_random_number_generator_and_set_seed(seed=None):
 # * Allow disabling eval
 
 
-def epochs(steps=None, epoch_steps=1):
-  """Iterator over epochs until steps is reached. 1-indexed.
+def epochs(total_steps, steps_to_skip, epoch_steps):
+  """Generates the number of steps in each epoch before reaching total_steps.
 
   Args:
-    steps: int, total number of steps. Infinite if None.
-    epoch_steps: int, number of steps per epoch. Can also be an iterable<int> to
-      enable variable length epochs.
+    total_steps: int, total number of steps.
+    steps_to_skip: int, number of steps to skip because of a restart.
+    epoch_steps: iterable of int, numbers of steps in each epoch.
 
   Yields:
-    (epoch: int, epoch id, epoch_steps: int, number of steps in this epoch)
+    epoch_steps: int, number of steps in this epoch
   """
-  try:
-    iter(epoch_steps)
-  except TypeError:
-    epoch_steps = itertools.repeat(epoch_steps)
+  steps_to_go = total_steps - steps_to_skip
+  epoch_steps = iter(epoch_steps)
 
-  step = 0
-  for epoch, epoch_steps in enumerate(epoch_steps):
-    epoch_steps = min(epoch_steps, steps - step)
-    yield (epoch + 1, epoch_steps)
-    step += epoch_steps
-    if steps and step >= steps:
+  # Remove the desired number of steps from the stream.
+  for steps_this_epoch in epoch_steps:
+    if steps_this_epoch > steps_to_skip:
+      # Put back the number of steps left in the unfinished epoch.
+      epoch_steps = itertools.chain(
+          [steps_this_epoch - steps_to_skip], epoch_steps)
+    if steps_this_epoch >= steps_to_skip:
+      break
+    steps_to_skip -= steps_this_epoch
+
+  # Yield the remaining steps per epoch up to total_steps.
+  for steps_this_epoch in epoch_steps:
+    steps_this_epoch = min(steps_this_epoch, steps_to_go)
+    yield steps_this_epoch
+    steps_to_go -= steps_this_epoch
+    if steps_to_go == 0:
       break
 
 
 @gin.configurable
 def _jit_predict_fn(model_predict, n_devices, jit=True):
-  """Use jit on model_predict if required."""
+  """Returns a JIT-compiled predict function (unless jit=False)."""
 
   if n_devices == 1:
-    if jit:
-      return backend.jit(model_predict)
-    else:
-      return model_predict
+    return backend.jit(model_predict) if jit else model_predict
 
   # Multi-devices, pmap and run.
   @functools.partial(backend.pmap, axis_name="batch")
@@ -417,28 +441,26 @@ def _jit_predict_fn(model_predict, n_devices, jit=True):
 
 @gin.configurable
 def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices, jit=True):
-  """Get jit-ed update function for loss, optimizer, learning rate function."""
+  """Returns a (JIT-compiled) function that computes updates for one step."""
   if n_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
     def single_update(i, opt_state, batch, state, rng):
       params, slots, opt_params = opt_state
       rng, subrng = jax_random.split(rng[0])
-      grads, state = backend.grad(loss_fn, has_aux=True)(params, batch,
-                                                         predict_fn, state, rng)
+      grad_fn = backend.grad(loss_fn, has_aux=True)
+      grads, state = grad_fn(params, batch, predict_fn, state, rng)
       return optimizer.tree_update(
           i, grads, params, slots, opt_params), state, [subrng]
-    if jit:
-      return backend.jit(single_update)
-    else:
-      return single_update
+    return backend.jit(single_update) if jit else single_update
 
+  # Else, for n_devices > 1:
   @functools.partial(backend.pmap, axis_name="batch")
   def mapped_update(i, opt_state, batch, state, rng):
     """This is a multi-device version of the update function above."""
     # We assume all tensors have the first dimension = n_devices.
     params, slots, opt_params = opt_state
     rng, subrng = jax_random.split(rng)
-    grads, state = backend.grad(loss_fn, has_aux=True)(params, batch,
-                                                       predict_fn, state, rng)
+    grad_fn = backend.grad(loss_fn, has_aux=True)
+    grads, state = grad_fn(params, batch, predict_fn, state, rng)
     grads = jax.tree_util.tree_map(
         lambda g: lax.psum(g, "batch"), grads)
     return optimizer.tree_update(
@@ -453,17 +475,15 @@ def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices, jit=True):
 
 @gin.configurable
 def _jit_compute_loss_fn(predict_fn, loss_fn, n_devices, jit=True):
-  """Get jit-ed function that computes the loss."""
+  """Returns a (JIT-compiled) function that computes the loss for one step."""
   if n_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
     def single_compute_loss(opt_state, batch, state, rng):
       rng, subrng = jax_random.split(rng[0])
       loss_val, state = loss_fn(opt_state[0], batch, predict_fn, state, rng)
       return loss_val, state, [subrng]
-    if jit:
-      return backend.jit(single_compute_loss)
-    else:
-      return single_compute_loss
+    return backend.jit(single_compute_loss) if jit else single_compute_loss
 
+  # Else, for n_devices > 1:
   @functools.partial(backend.pmap, axis_name="batch")
   def mapped_compute_loss(opt_state, batch, state, rng):
     """This is a multi-device version of the update function above."""
@@ -555,24 +575,39 @@ class Trainer(object):
     if isinstance(first_shape, (list, tuple)):
       model_input_shape = tuple(
           tuple([None] + list(shape)) for shape in inputs.input_shape)
+      model_target_shape = tuple(
+          tuple([None] + list(shape)) for shape in inputs.target_shape)
     else:  # Otherwise just add [None] to the input shape.
       model_input_shape = tuple([None] + list(inputs.input_shape))
-    # Change all None to 1 in input shape.
+      model_target_shape = tuple([None] + list(inputs.target_shape))
+    # Change all None to 1 in input and target shape.
     model_input_shape = layers.nested_map(
         model_input_shape, lambda x: x if x else 1)
-    def initialize(input_shape, input_dtype, init_rng):
+    model_target_shape = layers.nested_map(
+        model_target_shape, lambda x: x if x else 1)
+    def initialize(input_shape, input_dtype, target_shape, target_dtype, rng):
+      """Helper to initialize the model."""
+      # Combine inputs and targets on the stack.
+      if not isinstance(input_dtype, (list, tuple)):
+        input_dtype = [input_dtype]
+        input_shape = [input_shape]
+      if not isinstance(target_dtype, (list, tuple)):
+        target_dtype = [target_dtype]
+        target_shape = [target_shape]
+      full_type = list(input_dtype) + list(target_dtype)
+      full_shape = list(input_shape) + list(target_shape)
       # We need to create a new model instance and not reuse `model_train` here,
       # because `m.initialize` puts cached parameter values in `m` and hence the
       # next call of `m.initialize` will give wrong results.
-      params, state = model(mode="train").initialize(input_shape, input_dtype,
-                                                     init_rng)
+      params, state = model(mode="train").initialize(full_shape, full_type, rng)
       (slots, opt_params) = opt.tree_init(params)
       return (OptState(params, slots, opt_params), state)
     if _is_jit_init():
       # JIT parameter initialization to avoid memory fragmentation
-      initialize = backend.jit(initialize, static_argnums=(0, 1))
+      initialize = backend.jit(initialize, static_argnums=(0, 1, 2, 3))
     self._initialize = lambda: initialize(  # pylint: disable=g-long-lambda
-        model_input_shape, self._inputs.input_dtype, init_rng)
+        model_input_shape, self._inputs.input_dtype,
+        model_target_shape, self._inputs.target_dtype, init_rng)
 
     # jit model_predict and update so they're fast
     self._jit_model_predict_eval = _jit_predict_fn(
@@ -718,11 +753,7 @@ class Trainer(object):
 
       # LR log
       if self._step == 1 or self._step % 10 == 0:
-        # TODO(lukaszkaiser): it makes no sense to use an accelerator (e.g. TPU)
-        # in op-by-op mode just to compute the learning rate. However, there
-        # should be a cleaner approach that forceably swapping out the backend.
-        with backend.use_backend("numpy"):
-          self._train_sw.scalar("training/learning rate", self.learning_rate)
+        self._train_sw.scalar("training/learning_rate", self.learning_rate)
 
     # Timer
     epoch_time = time.time() - start_time
@@ -743,6 +774,7 @@ class Trainer(object):
     self._eval_sw.flush()
 
   def evaluate(self, eval_steps):
+    """Evaluate the model and log metrics."""
     _, rng = jax_random.split(self._rngs[0])
     _, _, self._model_state = evaluate_train_and_eval(
         step=self._step,
@@ -758,6 +790,10 @@ class Trainer(object):
         history=self._history,
         has_weights=self._has_weights)
 
+    # Save the learning rate in the history
+    self._history.append("train", "training/learning_rate", self._step,
+                         self.learning_rate)
+
   def update_learning_rate(self):
     self._lr_fn = self._lr_schedule(self._history)
 
@@ -771,7 +807,7 @@ class Trainer(object):
       next_train_batch = reshape_by_device(next_train_batch, self._n_devices)
     params = self._opt_state[0]
     forward_computation = jax.xla_computation(self._model_predict_eval)(
-        next_train_batch[0], params=params, state=self._model_state,
+        next_train_batch, params=params, state=self._model_state,
         rng=self._rngs[0])
     with gfile.GFile(os.path.join(output_dir, "forward.txt"), "w") as f:
       f.write(forward_computation.GetHloText())
@@ -885,7 +921,7 @@ def train(output_dir,
   step_log(trainer.step,
            "Starting training using %d devices" % trainer.n_devices)
 
-  for _, epoch_steps in epochs(train_steps, epoch_steps):
+  for epoch_steps in epochs(train_steps, trainer.step, epoch_steps):
     trainer.train_epoch(epoch_steps, eval_steps)
 
     # Update learning rate with new history

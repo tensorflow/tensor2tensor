@@ -22,7 +22,7 @@ from __future__ import print_function
 import os
 
 from absl import logging
-import cloudpickle as pickle
+from tensor2tensor.trax import utils
 from tensorflow.io import gfile
 
 
@@ -32,6 +32,7 @@ class BaseTrainer(object):
   def __init__(
       self, train_env, eval_env, output_dir,
       trajectory_dump_dir=None, trajectory_dump_min_count_per_shard=16,
+      async_mode=False,
   ):
     """Base class constructor.
 
@@ -44,6 +45,8 @@ class BaseTrainer(object):
       trajectory_dump_min_count_per_shard: Minimum number of trajectories to
         collect before dumping in a new shard. Sharding is for efficient
         shuffling for model training in SimPLe.
+      async_mode: (bool) If True, this means we are in async mode and we read
+        trajectories from a location rather than interact with the environment.
     """
     self.train_env = train_env
     self.eval_env = eval_env
@@ -53,6 +56,7 @@ class BaseTrainer(object):
     self._trajectory_dump_min_count_per_shard = (
         trajectory_dump_min_count_per_shard)
     self._trajectory_buffer = []
+    self._async_mode = async_mode
 
   @property
   def epoch(self):
@@ -79,6 +83,7 @@ class BaseTrainer(object):
       force: (bool) Whether to complete unfinished trajectories and create
         a new shard even if we have not reached the minimum size.
     """
+    pkl_module = utils.get_pickle_module()
     if self.trajectory_dump_dir is None:
       return
     gfile.makedirs(self.trajectory_dump_dir)
@@ -109,9 +114,9 @@ class BaseTrainer(object):
         # sometimes dump 2 times in the same epoch. When this happens, merge the
         # two sets of trajectories.
         with gfile.GFile(shard_path, "rb") as f:
-          self._trajectory_buffer = pickle.load(f) + self._trajectory_buffer
+          self._trajectory_buffer = pkl_module.load(f) + self._trajectory_buffer
       with gfile.GFile(shard_path, "wb") as f:
-        pickle.dump(self._trajectory_buffer, f)
+        pkl_module.dump(self._trajectory_buffer, f)
       self._trajectory_buffer = []
 
   def training_loop(self, n_epochs, evaluate=True):

@@ -37,32 +37,30 @@ from tensor2tensor.trax.rl import simulated_env_problem
 class SimPLe(base_trainer.BaseTrainer):
   """SimPLe trainer."""
 
-  def __init__(
-      self,
-      train_env,
-      eval_env,
-      output_dir,
-      policy_trainer_class,
-      n_real_epochs=10,
-      data_eval_frac=0.125,
-      model_train_batch_size=64,
-      n_model_train_steps=1000,
-      simulated_env_problem_class=(
-          simulated_env_problem.SerializedSequenceSimulatedEnvProblem),
-      simulated_batch_size=16,
-      n_simulated_epochs=1000,
-      trajectory_dump_dir=None,
-      initial_trajectory_dir=None,
-      initial_trajectory_mix_prob=0.5,
-      **kwargs
-  ):
-    super(SimPLe, self).__init__(
-        train_env, eval_env, output_dir, **kwargs)
+  def __init__(self,
+               train_env,
+               eval_env,
+               output_dir,
+               policy_trainer_class,
+               n_real_epochs=10,
+               data_eval_frac=0.125,
+               model_train_batch_size=64,
+               n_model_train_steps=1000,
+               simulated_env_problem_class=(
+                   simulated_env_problem.SerializedSequenceSimulatedEnvProblem),
+               simulated_batch_size=16,
+               n_simulated_epochs=1000,
+               trajectory_dump_dir=None,
+               initial_trajectory_dir=None,
+               initial_trajectory_mix_prob=0.5,
+               **kwargs):
+    super(SimPLe, self).__init__(train_env, eval_env, output_dir, **kwargs)
     self._policy_dir = os.path.join(output_dir, "policy")
     self._policy_trainer = policy_trainer_class(
         train_env=train_env,
         eval_env=eval_env,
         output_dir=self._policy_dir,
+        async_mode=self._async_mode,
     )
     self._n_real_epochs = n_real_epochs
     self._model_train_batch_size = model_train_batch_size
@@ -143,18 +141,15 @@ class SimPLe(base_trainer.BaseTrainer):
         eval_stream=(lambda: eval_stream),
         input_shape=self._sim_env.model_input_shape,
         input_dtype=self._sim_env.model_input_dtype,
-    )
+        # TODO(lukaszkaiser): correct those, they may differ from inputs.
+        target_shape=self._sim_env.model_input_shape,
+        target_dtype=self._sim_env.model_input_dtype)
 
     self._model_train_step += self._n_model_train_steps
     trax.train(
         model=self._sim_env.model,
         inputs=inputs,
-        # TODO(pkozakowski): Currently trax.train trains the model for
-        # train_steps more steps, whereas it should train up to train_steps
-        # total steps in order for the restarts to work properly. Change the
-        # argument once this behavior is changed.
-        # train_steps=self._model_train_step,
-        train_steps=self._n_model_train_steps,
+        train_steps=self._model_train_step,
         output_dir=self._model_dir,
         has_weights=True,
     )
@@ -181,6 +176,7 @@ class SimPLe(base_trainer.BaseTrainer):
     return self._initial_trajectory_dir is not None
 
   def _make_input_streams(self):
+
     def make_example_streams(trajectory_dir):
       (train_trajs, eval_trajs) = simple.load_trajectories(
           trajectory_dir, eval_frac=self._data_eval_frac)
@@ -198,16 +194,16 @@ class SimPLe(base_trainer.BaseTrainer):
 
     if self._has_initial_data:
       # Load the initial, precollected data.
-      (init_train_stream, init_eval_stream) = make_example_streams(
-          self._initial_trajectory_dir)
+      (init_train_stream,
+       init_eval_stream) = make_example_streams(self._initial_trajectory_dir)
     else:
       (init_train_stream, init_eval_stream) = (None, None)
       mix_prob = 0.0  # Take just our own collected data.
 
     if self._has_own_data:
       # Load trajectories collected in all epochs so far.
-      (own_train_stream, own_eval_stream) = make_example_streams(
-          self._trajectory_dump_root_dir)
+      (own_train_stream,
+       own_eval_stream) = make_example_streams(self._trajectory_dump_root_dir)
     else:
       # We start the loop with training the model, so we don't have our own
       # collected data yet.
@@ -219,10 +215,11 @@ class SimPLe(base_trainer.BaseTrainer):
       mixed_stream = simple.mix_streams(init_stream, own_stream, mix_prob)
       return simple.batch_stream(mixed_stream, self._model_train_batch_size)
 
-    return tuple(map(mix_and_batch, (
-        (init_train_stream, own_train_stream),
-        (init_eval_stream, own_eval_stream),
-    )))
+    return tuple(
+        map(mix_and_batch, (
+            (init_train_stream, own_train_stream),
+            (init_eval_stream, own_eval_stream),
+        )))
 
   def evaluate_model(self):
     logging.info("SimPLe epoch [% 6d]: evaluating model.", self._simple_epoch)

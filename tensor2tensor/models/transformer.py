@@ -2495,7 +2495,7 @@ def update_hparams_for_tpu(hparams):
   # to a longer length, e.g. the "_packed" problems.
   #
   # For problems with variable sequence lengths, this parameter controls the
-  # maximum sequence length.  Shorter sequences are dropped and longer ones
+  # maximum sequence length. Longer sequences are dropped and shorter ones
   # are padded.
   #
   # For problems with fixed sequence lengths - e.g. the "_packed" problems,
