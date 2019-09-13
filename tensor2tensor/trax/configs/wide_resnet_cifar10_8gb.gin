@@ -25,6 +25,7 @@ MultifactorSchedule.warmup_steps = 400
 # Parameters for Momentum:
 # ==============================================================================
 Momentum.mass = 0.9
+Momentum.weight_decay_rate = 5e-4
 
 # Parameters for preprocess_fun:
 # ==============================================================================
