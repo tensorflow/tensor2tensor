@@ -294,11 +294,12 @@ def pad_trajectories(trajectories, boundary=20):
     padded_observations.append(padded_obs)
 
     # Now pad actions and rewards.
-    assert a.ndim == 1 and r.ndim == 1
-    padding_config = ((0, num_to_pad, 0),)
-
+    padding_config = tuple([(0, num_to_pad, 0)] + [(0, 0, 0)] * (a.ndim - 1))
     padded_action = lax.pad(a, action_padding_value, padding_config)
     padded_actions.append(padded_action)
+
+    assert r.ndim == 1
+    padding_config = ((0, num_to_pad, 0),)
     padded_reward = lax.pad(r, reward_padding_value, padding_config)
     padded_rewards.append(padded_reward)
 
