@@ -675,7 +675,7 @@ class Trainer(object):
     if not state.opt_state:
       self._maybe_save_state(keep=False)
 
-    self.update_learning_rate()
+    self.update_optimizer_params()
 
   @property
   def step(self):
@@ -692,7 +692,7 @@ class Trainer(object):
         model_state=self._model_state)
 
   @property
-  def learning_rate(self):
+  def optimizer_params(self):
     # TODO(lukaszkaiser): it makes no sense to use an accelerator (e.g. TPU)
     # in op-by-op mode just to compute the learning rate. However, there
     # should be a cleaner approach that forceably swapping out the backend.
@@ -720,9 +720,11 @@ class Trainer(object):
   def _train_step(self, next_train_batch):
     """Run one training step and update self._opt_state."""
     # Calculate the current learning rate.
-    learning_rate = self._maybe_replicate(np.array(self.learning_rate))
+    opt_param_updates = layers.nested_map(
+        self.optimizer_params, lambda x: self._maybe_replicate(np.array(x))
+    )
     opt_state = self._opt_state
-    opt_state.opt_params["learning_rate"] = learning_rate
+    opt_state.opt_params.update(opt_param_updates)
 
     # Run the update.
     (params, slots), self._model_state, self._rngs = self._jit_update_fn(
@@ -749,9 +751,10 @@ class Trainer(object):
       if self._step in self._save_steps:
         self._maybe_save_state(keep=True)
 
-      # LR log
+      # Log optimizer params (learning rate etc.)
       if self._step == 1 or self._step % 10 == 0:
-        self._train_sw.scalar("training/learning_rate", self.learning_rate)
+        for (name, value) in self.optimizer_params.items():
+          self._train_sw.scalar("training/{}".format(name), value)
 
     # Timer
     epoch_time = time.time() - start_time
@@ -788,11 +791,12 @@ class Trainer(object):
         history=self._history,
         has_weights=self._has_weights)
 
-    # Save the learning rate in the history
-    self._history.append("train", "training/learning_rate", self._step,
-                         self.learning_rate)
+    # Save the optimizer params in the history
+    for (name, value) in self.optimizer_params.items():
+      self._history.append("train", "training/{}".format(name), self._step,
+                           value)
 
-  def update_learning_rate(self):
+  def update_optimizer_params(self):
     self._lr_fn = self._lr_schedule(self._history)
 
   def save_computation_graphs(self, save_backward_graph):
@@ -922,8 +926,8 @@ def train(output_dir,
   for epoch_steps in epochs(train_steps, trainer.step, epoch_steps):
     trainer.train_epoch(epoch_steps, eval_steps)
 
-    # Update learning rate with new history
-    trainer.update_learning_rate()
+    # Update optimizer parameters with new history
+    trainer.update_optimizer_params()
 
     # Bookkeeping we do at the first step
     if trainer.step == 1:

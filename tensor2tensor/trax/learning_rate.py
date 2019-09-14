@@ -16,10 +16,10 @@
 """trax learning rate schedules.
 
 The learning rate schedules here all have the signature:
-  lr: history -> (step -> lr)
+  lr: history -> (step -> {"learning_rate": lr})
 
 That is, they are functions that take a trax.history.History and return a
-function that takes a step and returns a learning rate.
+function that takes a step and returns a dict with entry "learning_rate".
 """
 
 from __future__ import absolute_import
@@ -64,7 +64,8 @@ def MultifactorSchedule(history=None,
     steps_per_decay: How often to decay the learning rate.
 
   Returns:
-    a function learning_rate(step): float -> float, the step-dependent lr.
+    a function learning_rate(step): float -> {"learning_rate": float}, the
+    step-dependent lr.
   """
   del history
 
@@ -84,7 +85,7 @@ def MultifactorSchedule(history=None,
         ret *= (decay_factor ** (step//steps_per_decay))
       else:
         raise ValueError("Unknown factor %s." % name)
-    return ret
+    return {"learning_rate": ret}
 
   return learning_rate
 
@@ -115,7 +116,8 @@ def EvalAdjustingSchedule(history,
     metric: which evaluation metric to use for adjustments.
 
   Returns:
-    a function learning_rate(step): float -> float, the step-dependent lr.
+    a function learning_rate(step): float -> {"learning_rate": float}, the
+    step-dependent lr.
   """
   metrics = history.get(history_mode, metric)
   adjusted = constant
@@ -176,14 +178,20 @@ def PolicySchedule(
     policy_dir: directory with the policy checkpoint.
 
   Returns:
-    a function learning_rate(step): float -> float, the step-dependent lr.
+    a function learning_rate(step): float -> {"learning_rate": float}, the
+    step-dependent lr.
   """
 
   # Turn the history into observations for the policy. If we don't have any,
   # return the initial learning rate.
   start_time = time.time()
+  lr_config = ("learning_rate", start_lr, (1e-9, max_lr), False)
+  if include_lr_in_observation:
+    control_configs = (lr_config,)
+  else:
+    control_configs = None
   observations = online_tune.history_to_observations(
-      history, observation_metrics, observation_range, include_lr_in_observation
+      history, observation_metrics, observation_range, control_configs
   )
   logging.vlog(
       1, "Building observations took %0.2f sec.", time.time() - start_time)
@@ -225,6 +233,7 @@ def PolicySchedule(
   action = utils.gumbel_sample(log_probs[0, -1, :])
 
   # Get a new learning rate.
-  new_lr = online_tune.new_learning_rate(
-      action.item(), history, action_multipliers, max_lr)
-  return lambda _: new_lr
+  new_lr = online_tune.update_control(
+      lr_config, action.item(), history, action_multipliers
+  )
+  return lambda _: {"learning_rate": new_lr}

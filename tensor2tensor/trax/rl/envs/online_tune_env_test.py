@@ -25,6 +25,7 @@ import numpy as np
 
 from tensor2tensor.trax import inputs as trax_inputs
 from tensor2tensor.trax import models
+from tensor2tensor.trax import optimizers
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.rl import online_tune
 from tensor2tensor.trax.rl.envs import online_tune_env
@@ -39,7 +40,7 @@ class MockTrainer(trax.Trainer):
 
   def __init__(self, metrics_to_report, *args, **kwargs):
     super(MockTrainer, self).__init__(*args, **kwargs)
-    self.learning_rates = []
+    self.controls = []
     self.init_metrics_to_report = metrics_to_report
     self.metrics_to_report = None
 
@@ -50,7 +51,7 @@ class MockTrainer(trax.Trainer):
 
   def train_epoch(self, epoch_steps, eval_steps):
     del epoch_steps
-    self.learning_rates.append(self.learning_rate)
+    self.controls.append(self.optimizer_params)
     self.evaluate(eval_steps)
 
   def evaluate(self, eval_steps):
@@ -60,18 +61,21 @@ class MockTrainer(trax.Trainer):
         metric=METRIC,
         step=self.step,
         value=self.metrics_to_report.pop(0))
-    (lr_mode, lr_metric) = online_tune.LEARNING_RATE_METRIC
-    self.state.history.append(
-        mode=lr_mode,
-        metric=lr_metric,
-        step=self.step,
-        value=self.learning_rate)
+    for (name, value) in self.optimizer_params.items():
+      (mode, metric) = online_tune.control_metric(name)
+      self.state.history.append(
+          mode=mode,
+          metric=metric,
+          step=self.step,
+          value=value)
 
 
 class OnlineTuneTest(test.TestCase):
 
   @staticmethod
-  def _create_env(output_dir, metrics_to_report=(0.0,), action_multipliers=()):
+  def _create_env(
+      output_dir, metrics_to_report=(0.0,), action_multipliers=(1,)
+  ):
     return online_tune_env.OnlineTuneEnv(
         trainer_class=functools.partial(MockTrainer, metrics_to_report),
         model=functools.partial(
@@ -82,6 +86,13 @@ class OnlineTuneTest(test.TestCase):
             input_dtype=np.float32,
             output_shape=(1, 1),
             output_dtype=np.float32),
+        optimizer=optimizers.Momentum,
+        control_configs=(
+            ("learning_rate", 1e-3, (1e-9, 10.0), False),
+            ("weight_decay_rate", 1e-5, (1e-9, 0.1), False),
+        ),
+        observation_range=(-1, 1),
+        include_controls_in_observation=False,
         output_dir=output_dir,
         action_multipliers=action_multipliers,
         observation_metrics=[(HISTORY_MODE, METRIC)],
@@ -93,12 +104,16 @@ class OnlineTuneTest(test.TestCase):
   def test_communicates_with_trainer(self):
     action_multipliers = [0.8, 1.0, 1.25]
     metrics_to_report = [0.1, 0.5, 0.8, 0.9]
-    actions_to_take = [0, 1, 2]
+    actions_to_take = [[0, 1], [1, 2], [2, 0]]
     expected_observations = np.expand_dims(metrics_to_report, axis=1)
     # Metric difference in consecutive timesteps.
     expected_rewards = [0.4, 0.3, 0.1]
     expected_dones = [False, False, True]
-    expected_learning_rates = [0.0008, 0.0008, 0.001]
+    expected_controls = [
+        {"learning_rate": 0.0008, "weight_decay_rate": 1e-5},
+        {"learning_rate": 0.0008, "weight_decay_rate": 1.25e-5},
+        {"learning_rate": 0.001, "weight_decay_rate": 1e-5},
+    ]
 
     env = self._create_env(
         output_dir=self.get_temp_dir(),
@@ -116,8 +131,13 @@ class OnlineTuneTest(test.TestCase):
     np.testing.assert_allclose(actual_observations, expected_observations)
     np.testing.assert_allclose(actual_rewards, expected_rewards)
     self.assertEqual(actual_dones, expected_dones)
-    np.testing.assert_allclose(env.trainer.learning_rates,
-                               expected_learning_rates)
+    def get_control(name, controls):
+      return [control[name] for control in controls]
+    for name in ("learning_rate", "weight_decay_rate"):
+      np.testing.assert_allclose(
+          get_control(name, env.trainer.controls),
+          get_control(name, expected_controls),
+      )
 
   def test_creates_new_trajectory_dirs(self):
     output_dir = self.get_temp_dir()

@@ -59,13 +59,17 @@ class OnlineTuneEnv(gym.Env):
                    ("eval", "metrics/accuracy"),
                    ("eval", "metrics/loss"),
                ),
-               include_lr_in_observation=False,
+               include_controls_in_observation=False,
                reward_metric=("eval", "metrics/accuracy"),
                train_steps=100,
                eval_steps=10,
                env_steps=100,
-               start_lr=0.001,
-               max_lr=10.0,
+               # This is a tuple instead of a dict because the controls are
+               # ordered in the action space.
+               control_configs=(
+                   # (name, start, (low, high), flip)
+                   ("learning_rate", 1e-3, (1e-9, 10.0), False),
+               ),
                observation_range=(0.0, 5.0),
                # Don't save checkpoints by default, as they tend to use a lot of
                # space.
@@ -77,28 +81,31 @@ class OnlineTuneEnv(gym.Env):
         model=model,
         loss_fn=loss_fn,
         optimizer=optimizer,
-        lr_schedule=(lambda history: lambda step: self._current_lr),
+        lr_schedule=(lambda history: lambda step: self._current_controls),
         inputs=inputs,
         should_save=should_save_checkpoints,
     )
     self._action_multipliers = action_multipliers
     self._observation_metrics = observation_metrics
-    self._include_lr_in_observation = include_lr_in_observation
+    self._include_controls_in_observation = include_controls_in_observation
     self._reward_metric = reward_metric
     self._train_steps = train_steps
     self._eval_steps = eval_steps
     self._env_steps = env_steps
-    self._start_lr = start_lr
-    self._max_lr = max_lr
+    self._control_configs = control_configs
 
     self._output_dir = output_dir
     gfile.makedirs(self._output_dir)
-    # Action is an index in self._action_multipliers.
-    self.action_space = gym.spaces.Discrete(len(self._action_multipliers))
+    # Actions are indices in self._action_multipliers.
+    self.action_space = gym.spaces.MultiDiscrete(
+        [len(self._action_multipliers)] * len(self._control_configs)
+    )
     # Observation is a vector with the values of the metrics specified in
-    # observation_metrics plus optionally the learning rate.
+    # observation_metrics plus optionally the current controls.
     observation_dim = (
-        len(self._observation_metrics) + int(self._include_lr_in_observation))
+        len(self._observation_metrics) +
+        int(self._include_controls_in_observation) * len(self._control_configs)
+    )
     self._observation_range = observation_range
     (low, high) = self._observation_range
     self.observation_space = gym.spaces.Box(
@@ -135,7 +142,6 @@ class OnlineTuneEnv(gym.Env):
     metric_values = online_tune.historical_metric_values(
         self._trainer.state.history,
         self._reward_metric,
-        self._observation_range,
     )
     assert metric_values.shape[0] > 0, (
         "No values in history for metric {}.".format(self._reward_metric))
@@ -147,7 +153,8 @@ class OnlineTuneEnv(gym.Env):
         self._trainer.state.history,
         self._observation_metrics,
         self._observation_range,
-        self._include_lr_in_observation,
+        self._control_configs if self._include_controls_in_observation
+        else None,
     )
     assert observations.shape[0] > 0, "No values in history for any metric."
     return observations[-1, :]
@@ -159,7 +166,10 @@ class OnlineTuneEnv(gym.Env):
     return self._trainer
 
   def reset(self):
-    self._current_lr = self._start_lr
+    self._current_controls = {
+        name: start_value
+        for (name, start_value, _, _) in self._control_configs
+    }
     self._step = 0
     self._trainer.reset(output_dir=self._next_trajectory_dir)
     self._trainer.evaluate(self._eval_steps)
@@ -179,12 +189,18 @@ class OnlineTuneEnv(gym.Env):
         metric since the last step. done is set after reaching self.env_steps
         environment steps. info is an empty dict.
     """
-    self._current_lr = online_tune.new_learning_rate(
-        action,
-        self._trainer.state.history,
-        self._action_multipliers,
-        self._max_lr,
-    )
+    self._current_controls = {
+        # name: value
+        control_config[0]: online_tune.update_control(  # pylint: disable=g-complex-comprehension
+            control_config,
+            control_action,
+            self._trainer.state.history,
+            self._action_multipliers,
+        )
+        for (control_action, control_config) in zip(
+            action, self._control_configs
+        )
+    }
     last_reward_metric = self._current_reward_metric
     self._trainer.train_epoch(self._train_steps, self._eval_steps)
     self._step += 1
