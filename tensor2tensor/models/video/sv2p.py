@@ -215,6 +215,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
       x = tfcl.layer_norm(x)
       x = tfl.conv2d(x, conv_size[3], [3, 3], strides=(2, 2),
                      activation=tf.nn.relu, name="reward_conv3")
+    return x
 
   def get_extra_loss(self,
                      latent_means=None, latent_stds=None,
