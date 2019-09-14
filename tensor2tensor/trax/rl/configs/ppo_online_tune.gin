@@ -35,8 +35,3 @@ PPO.separate_eval = False
 PPO.save_every_n = 1
 PPO.policy_and_value_model = @trax.models.TransformerDecoder
 PPO.policy_and_value_optimizer = @trax.optimizers.Adam
-
-# Parameters for train_rl:
-# ==============================================================================
-train_rl.env_name = "ClientEnv-v0"
-train_rl.n_epochs = 1000

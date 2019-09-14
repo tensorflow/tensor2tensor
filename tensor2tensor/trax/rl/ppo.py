@@ -155,7 +155,9 @@ def collect_trajectories(env,
                          boundary=32,
                          state=None,
                          temperature=1.0,
-                         rng=None):
+                         rng=None,
+                         abort_fn=None,
+                         raw_trajectory=False,):
   """Collect trajectories with the given policy net and behaviour.
 
   Args:
@@ -173,6 +175,12 @@ def collect_trajectories(env,
     state: state for `policy_fn`.
     temperature: (float) temperature to sample action from policy_fn.
     rng: jax rng, splittable.
+    abort_fn: callable, If not None, then at every env step call and abort the
+      trajectory collection if it returns True, if so reset the env and return
+      None.
+    raw_trajectory: bool, if True a list of trajectory.Trajectory objects is
+      returned, otherwise a list of numpy representations of
+      `trajectory.Trajectory` is returned.
 
   Returns:
     A tuple (trajectory, number of trajectories that are done)
@@ -195,7 +203,10 @@ def collect_trajectories(env,
       boundary=boundary,
       state=state,
       temperature=temperature,
-      rng=rng)
+      rng=rng,
+      abort_fn=abort_fn,
+      raw_trajectory=raw_trajectory,
+  )
   # Skip returning raw_rewards here, since they aren't used.
 
   # t is the return value of Trajectory.as_numpy, so:
@@ -855,8 +866,9 @@ def save_opt_state(output_dir,
   with gfile.GFile(params_file, "wb") as f:
     pkl_module.dump(
         (policy_and_value_opt_state, policy_and_value_state, total_opt_step), f)
-  # Remove the old model files.
-  for path in old_model_files:
+  # Remove the old model files, leave the latest one (it might be in the
+  # process of getting read async) -- this will get cleaned up later.
+  for path in old_model_files[1:]:
     if path != params_file:
       gfile.remove(path)
 

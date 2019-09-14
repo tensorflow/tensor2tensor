@@ -180,14 +180,12 @@ class PPO(base_trainer.BaseTrainer):
      self._policy_and_value_get_params) = ppo.optimizer_fn(
          policy_and_value_optimizer, policy_and_value_net_params)
 
-    # Maybe restore the optimization state. If there is nothing to restore, then
-    # epoch = 0 and policy_and_value_opt_state is returned as is.
-    (self._policy_and_value_opt_state, self._model_state, self._epoch,
-     self._total_opt_step) = ppo.maybe_restore_opt_state(
-         output_dir, policy_and_value_opt_state, self._model_state)
-
-    if self._epoch > 0:
-      logging.info("Restored parameters from epoch [%d]", self._epoch)
+    # Restore the optimizer state.
+    self._policy_and_value_opt_state = policy_and_value_opt_state
+    self._epoch = 0
+    self._total_opt_step = 0
+    self.update_optimization_state(
+        output_dir, policy_and_value_opt_state=policy_and_value_opt_state)
 
     # Create summary writers and history.
     self._train_sw = jaxboard.SummaryWriter(
@@ -200,6 +198,21 @@ class PPO(base_trainer.BaseTrainer):
     self._n_trajectories_done = 0
 
     self._last_saved_at = 0
+    if self._async_mode:
+      logging.info("Saving model on startup to have a model policy file.")
+      self.save()
+
+  # Maybe restore the optimization state. If there is nothing to restore, then
+  # epoch = 0 and policy_and_value_opt_state is returned as is.
+  def update_optimization_state(self,
+                                output_dir,
+                                policy_and_value_opt_state=None):
+    (self._policy_and_value_opt_state, self._model_state, self._epoch,
+     self._total_opt_step) = ppo.maybe_restore_opt_state(
+         output_dir, policy_and_value_opt_state, self._model_state)
+
+    if self._epoch > 0:
+      logging.info("Restored parameters from epoch [%d]", self._epoch)
 
   @property
   def train_env(self):
@@ -235,6 +248,7 @@ class PPO(base_trainer.BaseTrainer):
 
     assert self._async_mode
 
+    # trajectories/train and trajectories/eval are the two subdirectories.
     trajectory_dir = os.path.join(self._output_dir, "trajectories",
                                   "train" if train else "eval")
     epoch = self.epoch
@@ -266,7 +280,11 @@ class PPO(base_trainer.BaseTrainer):
     timing_info = {}
     return trajs, n_done, timing_info, self._model_state
 
-  def collect_trajectories(self, train=True, temperature=1.0):
+  def collect_trajectories(self,
+                           train=True,
+                           temperature=1.0,
+                           abort_fn=None,
+                           raw_trajectory=False):
     self._rng, key = jax_random.split(self._rng)
 
     env = self.train_env
@@ -281,24 +299,29 @@ class PPO(base_trainer.BaseTrainer):
 
     # If async, read the required trajectories for the epoch.
     if self._async_mode:
-      return self.collect_trajectories_async(
+      trajs, n_done, timing_info, self._model_state = self.collect_trajectories_async(
           env,
           train=train,
           n_trajectories=n_trajectories,
           temperature=temperature)
+    else:
+      trajs, n_done, timing_info, self._model_state = ppo.collect_trajectories(
+          env,
+          policy_fn=self._get_predictions,
+          n_trajectories=n_trajectories,
+          max_timestep=max_timestep,
+          state=self._model_state,
+          rng=key,
+          len_history_for_policy=self._len_history_for_policy,
+          boundary=self._boundary,
+          reset=should_reset,
+          temperature=temperature,
+          abort_fn=abort_fn,
+          raw_trajectory=raw_trajectory,
+      )
 
-    trajs, n_done, timing_info, self._model_state = ppo.collect_trajectories(
-        env,
-        policy_fn=self._get_predictions,
-        n_trajectories=n_trajectories,
-        max_timestep=max_timestep,
-        state=self._model_state,
-        rng=key,
-        len_history_for_policy=self._len_history_for_policy,
-        boundary=self._boundary,
-        reset=should_reset,
-        temperature=temperature,
-    )
+    if train:
+      self._n_trajectories_done += n_done
 
     return trajs, n_done, timing_info, self._model_state
 
@@ -317,7 +340,7 @@ class PPO(base_trainer.BaseTrainer):
     trajectory_collection_start_time = time.time()
     logging.vlog(1, "PPO epoch [% 6d]: collecting trajectories.", self._epoch)
     self._rng, key = jax_random.split(self._rng)
-    trajs, n_done, timing_info, self._model_state = self.collect_trajectories(
+    trajs, _, timing_info, self._model_state = self.collect_trajectories(
         train=True, temperature=1.0)
     trajs = [(t[0], t[1], t[2], t[4]) for t in trajs]
     self._should_reset = False
@@ -557,11 +580,10 @@ class PPO(base_trainer.BaseTrainer):
     # truncated and done).
     # Also don't save too frequently, enforce a minimum gap.
     policy_save_start_time = time.time()
-    self._n_trajectories_done += n_done
     # TODO(afrozm): Refactor to trax.save_state.
     if (self._n_trajectories_done >=
         self._done_frac_for_policy_save * self.train_env.batch_size and
-        self._epoch % self._save_every_n == 0):
+        self._epoch % self._save_every_n == 0) or self._async_mode:
       self.save()
     policy_save_time = ppo.get_time(policy_save_start_time)
 

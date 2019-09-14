@@ -75,6 +75,8 @@ flags.DEFINE_string("trajectory_dump_dir", "",
 flags.DEFINE_string("train_server_bns", "", "Train Server's BNS.")
 flags.DEFINE_string("eval_server_bns", "", "Eval Server's BNS.")
 
+flags.DEFINE_bool("async_mode", False, "Async mode.")
+
 
 # Not just "train" to avoid a conflict with trax.train in GIN files.
 @gin.configurable(blacklist=[
@@ -84,7 +86,7 @@ def train_rl(
     output_dir,
     train_batch_size,
     eval_batch_size,
-    env_name="Acrobot-v1",
+    env_name="ClientEnv-v0",
     max_timestep=None,
     clip_rewards=False,
     rendered_env=False,
@@ -174,6 +176,7 @@ def train_rl(
         train_env=train_env,
         eval_env=eval_env,
         trajectory_dump_dir=trajectory_dump_dir,
+        async_mode=FLAGS.async_mode,
     )
     trainer.training_loop(n_epochs=n_epochs)
 

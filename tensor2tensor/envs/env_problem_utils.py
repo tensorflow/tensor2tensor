@@ -54,7 +54,16 @@ def play_env_problem_randomly(env_problem, num_steps):
     env_problem.reset(indices=done_indices(dones))
 
 
-def get_completed_trajectories_from_env(env, n_trajectories):
+def get_completed_trajectories_from_env(env,
+                                        n_trajectories,
+                                        raw_trajectory=False):
+  """Returns completed `n_trajectories` from `env`."""
+
+  # Just the raw trajectories.
+  if raw_trajectory:
+    return env.trajectories.completed_trajectories[:n_trajectories]
+
+  # The numpy version of the above.
   completed_trajectories = []
   for trajectory in env.trajectories.completed_trajectories[:n_trajectories]:
     completed_trajectories.append(trajectory.as_numpy)
@@ -71,7 +80,9 @@ def play_env_problem_with_policy(env,
                                  temperature=1.0,
                                  boundary=32,
                                  len_history_for_policy=32,
-                                 num_to_keep=1):
+                                 num_to_keep=1,
+                                 abort_fn=None,
+                                 raw_trajectory=False):
   """Plays the given env with the policy function to collect trajectories.
 
   Args:
@@ -91,6 +102,12 @@ def play_env_problem_with_policy(env,
     len_history_for_policy: int or None, the maximum history to keep for
       applying the policy on. If None, use the whole history.
     num_to_keep: int, while truncating trajectory how many time-steps to keep.
+    abort_fn: callable, If not None, then at every step call and abort the
+      trajectory collection if it returns True, if so reset the env and return
+      None.
+    raw_trajectory: bool, if True a list of trajectory.Trajectory objects is
+      returned, otherwise a list of numpy representations of
+      `trajectory.Trajectory` is returned.
 
   Returns:
     A tuple, (trajectories, number of completed trajectories). Where
@@ -116,6 +133,13 @@ def play_env_problem_with_policy(env,
   env_actions_total_time = 0
   bare_env_run_time = 0
   while env.trajectories.num_completed_trajectories < num_trajectories:
+    # Check if we should abort and return nothing.
+    if abort_fn and abort_fn():
+      # We should also reset the environment, since it will have some
+      # trajectories (complete and incomplete) that we want to discard.
+      env.reset()
+      return None, 0, {}, state
+
     # Get all the observations for all the active trajectories.
     # Shape is (B, T) + OBS
     # Bucket on whatever length is needed.
@@ -197,7 +221,7 @@ def play_env_problem_with_policy(env,
   # We have the trajectories we need, return a list of triples:
   # (observations, actions, rewards)
   completed_trajectories = get_completed_trajectories_from_env(
-      env, num_trajectories)
+      env, num_trajectories, raw_trajectory=raw_trajectory)
 
   timing_info = {
       "trajectory_collection/policy_application": policy_application_total_time,
