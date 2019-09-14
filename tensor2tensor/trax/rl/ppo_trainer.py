@@ -261,6 +261,7 @@ class PPO(base_trainer.BaseTrainer):
         trajectory_dir,
         epoch=epoch,
         temperature=temperature,
+        wait_forever=True,
         n_trajectories=n_trajectories)
 
     if bt is None:
