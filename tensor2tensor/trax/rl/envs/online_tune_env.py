@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import os
 
 import gym
@@ -77,7 +78,11 @@ class OnlineTuneEnv(gym.Env):
     if action_multipliers is None:
       action_multipliers = self.DEFAULT_ACTION_MULTIPLIERS
     self._model = model
-    self._trainer = trainer_class(
+    # Initialize Trainer in OnlineTuneEnv lazily to prevent long startup in the
+    # async setup, where we just use the environments as containers for
+    # trajectories.
+    self._trainer_fn = functools.partial(
+        trainer_class,
         model=model,
         loss_fn=loss_fn,
         optimizer=optimizer,
@@ -85,6 +90,7 @@ class OnlineTuneEnv(gym.Env):
         inputs=inputs,
         should_save=should_save_checkpoints,
     )
+    self._trainer = None
     self._action_multipliers = action_multipliers
     self._observation_metrics = observation_metrics
     self._include_controls_in_observation = include_controls_in_observation
@@ -166,6 +172,8 @@ class OnlineTuneEnv(gym.Env):
     return self._trainer
 
   def reset(self):
+    if self._trainer is None:
+      self._trainer = self._trainer_fn()
     self._current_controls = {
         name: start_value
         for (name, start_value, _, _) in self._control_configs
