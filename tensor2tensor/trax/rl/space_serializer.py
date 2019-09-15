@@ -91,6 +91,7 @@ def create(space, vocab_size):
   return {
       gym.spaces.Box: BoxSpaceSerializer,
       gym.spaces.Discrete: DiscreteSpaceSerializer,
+      gym.spaces.MultiDiscrete: MultiDiscreteSpaceSerializer,
   }[type(space)](space, vocab_size)
 
 
@@ -180,3 +181,34 @@ class DiscreteSpaceSerializer(SpaceSerializer):
   @property
   def significance_map(self):
     return np.zeros(1, dtype=np.int32)
+
+
+class MultiDiscreteSpaceSerializer(SpaceSerializer):
+  """Serializer for gym.spaces.MultiDiscrete.
+
+  Assumes that the number of categories in each dimension fits in the number of
+  symbols.
+  """
+
+  space_type = gym.spaces.MultiDiscrete
+
+  def __init__(self, space, vocab_size):
+    super(MultiDiscreteSpaceSerializer, self).__init__(space, vocab_size)
+    assert np.max(space.nvec) <= vocab_size, (
+        "MultiDiscrete maximum number of categories should fit in the number "
+        "of symbols."
+    )
+
+  def serialize(self, data):
+    return data
+
+  def deserialize(self, representation):
+    return representation
+
+  @property
+  def representation_length(self):
+    return len(self._space.nvec)
+
+  @property
+  def significance_map(self):
+    return np.zeros(self.representation_length, dtype=np.int32)

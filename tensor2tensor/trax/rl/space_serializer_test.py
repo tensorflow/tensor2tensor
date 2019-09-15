@@ -112,5 +112,37 @@ class DiscreteSpaceSerializerTest(test.TestCase):
     np.testing.assert_array_equal(self._serializer.significance_map, [0])
 
 
+class MultiDiscreteSpaceSerializerTest(test.TestCase):
+
+  def setUp(self):
+    super(MultiDiscreteSpaceSerializerTest, self).setUp()
+    self._space = gym.spaces.MultiDiscrete(nvec=[2, 2])
+    self._serializer = space_serializer.create(self._space, vocab_size=2)
+
+  def _sample_batch(self):
+    return np.reshape(self._space.sample(), (1,) + self._space.shape)
+
+  def test_representation_length(self):
+    input_array = self._sample_batch()
+    representation = self._serializer.serialize(input_array)
+    self.assertEqual(
+        representation.shape, (1, self._serializer.representation_length))
+
+  def test_commutes(self):
+    input_array = self._sample_batch()
+    representation = self._serializer.serialize(input_array)
+    output_array = self._serializer.deserialize(representation)
+    np.testing.assert_array_almost_equal(input_array, output_array)
+
+  def test_representation_changes(self):
+    array1 = self._sample_batch()
+    array2 = 1 - array1
+    (repr1, repr2) = tuple(map(self._serializer.serialize, (array1, array2)))
+    self.assertFalse(np.array_equal(repr1, repr2))
+
+  def test_significance_map(self):
+    np.testing.assert_array_equal(self._serializer.significance_map, [0, 0])
+
+
 if __name__ == "__main__":
   test.main()
