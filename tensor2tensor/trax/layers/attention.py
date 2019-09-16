@@ -747,14 +747,19 @@ class MergedMultiHashedCausalAttention(BaseCausalAttention):
   """Hash-based causal attention, with multiple hashes."""
 
   def __init__(self, dropout, mode, n_bins=64, n_hashes=1,
-               bin_by_time=False, one_rng=False):
-    del dropout, mode
+               n_buckets_per_bin=1, bin_by_time=False, one_rng=False,
+               drop_for_hash_rate=0.0, hard_k=0):
+    del dropout
+    self._mode = mode
     super(MergedMultiHashedCausalAttention, self).__init__()
     self.n_bins = n_bins
     self.n_hashes = n_hashes
+    self.n_buckets_per_bin = n_buckets_per_bin
     self.bin_by_time = bin_by_time
     seed = random.randint(0, 2**31 - 1)
     self._one_rng = one_rng
+    self._drop_for_hash_rate = drop_for_hash_rate
+    self._hard_k = hard_k
     self._prng = None
     if one_rng:
       self._prng = backend.random.get_prng(seed)
@@ -775,6 +780,13 @@ class MergedMultiHashedCausalAttention(BaseCausalAttention):
     norm_inputs = x / np.sqrt(variance + epsilon)
     return norm_inputs
 
+  def drop_for_hash(self, x, rng):
+    rate = self._drop_for_hash_rate
+    if self._mode == 'train' and rate > 0.0:
+      keep = backend.random.bernoulli(rng, 1.0 - rate, x.shape)
+      return np.where(keep, x / (1.0 - rate), np.zeros_like(x))
+    return x
+
   def hash_vectors(self, vecs, rng):
     if self.bin_by_time:
       # Instead of hashing, put chunks of consecutive items in the same bin.
@@ -786,18 +798,20 @@ class MergedMultiHashedCausalAttention(BaseCausalAttention):
     # (crucially) each round of hashing. All of these are part of dimension 0
     # of vecs. Applying multiple hashes to the same input is important because
     # it increases the probability of being in the same bin as relevant items.
-    assert self.n_bins % 2 == 0
+    n_buckets = self.n_buckets_per_bin * self.n_bins
+    assert n_buckets % 2 == 0
     rot_rng = rng
     if self._one_rng:
       rot_rng = jax.lax.tie_in(vecs, self._prng)
     random_rotation = jax.random.normal(
         rot_rng,
-        (vecs.shape[0], vecs.shape[-1], self.n_bins//2)).astype('float32')
+        (vecs.shape[0], vecs.shape[-1], n_buckets // 2)).astype('float32')
 
     # TODO(kitaev): making the vectors unit-length here is probably redundant.
-    vecs = self.make_unit_length(vecs)
+    # vecs = self.make_unit_length(vecs)
+    rng, subrng = backend.random.split(rng)
+    vecs = self.drop_for_hash(vecs, subrng)
     rotated_vecs = np.matmul(vecs, random_rotation)
-    rotated_vecs = self.make_unit_length(rotated_vecs)
     rotated_vecs = np.concatenate([rotated_vecs, -rotated_vecs], axis=-1)
     bins = np.argmax(rotated_vecs, axis=-1)
     return bins
@@ -824,7 +838,7 @@ class MergedMultiHashedCausalAttention(BaseCausalAttention):
     joint_t = np.reshape(joint_t, (1, seqlen))
     joint_t = np.broadcast_to(joint_t, qk.shape[:-1])
 
-    assert int((self.n_bins + 1) * seqlen) < 2 ** 31, (
+    assert int((self.n_buckets_per_bin * self.n_bins + 1) * seqlen) < 2 ** 31, (
         'Potential 32-bit integer overflow; please double-check the code.')
     joint_bins_and_t = seqlen * bins + joint_t
 
@@ -927,6 +941,15 @@ class MergedMultiHashedCausalAttention(BaseCausalAttention):
     # Softmax.
     dots_logsumexp = backend.logsumexp(dots, axis=-1, keepdims=True)
     dots = np.exp(dots - dots_logsumexp)
+
+    if self._hard_k > 0:
+      top_k = np.sort(dots)[..., -self._hard_k]  # Get the top-kth weight.
+      top_k = jax.lax.stop_gradient(top_k)
+      dots -= top_k[..., np.newaxis]  # Subtract (be 0 for lower ones).
+      dots = np.maximum(dots, 0)
+      dots_sum = np.sum(dots, axis=-1, keepdims=True)  # Sum to re-normalize.
+      dots_logsumexp += np.log(dots_sum)  # Add it to the weight.
+      dots /= dots_sum  # Re-normalize.
 
     bo = np.matmul(dots, bv)
     so = unchunk_vectors(bo)
