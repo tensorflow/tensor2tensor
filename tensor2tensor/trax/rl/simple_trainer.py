@@ -23,6 +23,7 @@ import functools
 import itertools
 import os
 import random
+import time
 
 from absl import logging
 from matplotlib import pyplot as plt
@@ -123,6 +124,7 @@ class SimPLe(base_trainer.BaseTrainer):
 
   def collect_trajectories(self, evaluate):
     logging.info("SimPLe epoch [% 6d]: collecting data.", self._simple_epoch)
+    start_time = time.time()
 
     self._policy_trainer.train_env = self.train_env
     self._policy_trainer.trajectory_dump_dir = os.path.join(
@@ -130,8 +132,12 @@ class SimPLe(base_trainer.BaseTrainer):
     self._policy_epoch += self._n_real_epochs
     self._policy_trainer.training_loop(self._policy_epoch, evaluate=evaluate)
 
+    logging.vlog(
+        1, "Collecting trajectories took %0.2f sec.", time.time() - start_time)
+
   def train_model(self):
     logging.info("SimPLe epoch [% 6d]: training model.", self._simple_epoch)
+    start_time = time.time()
 
     (train_stream, eval_stream) = self._make_input_streams()
     # Ignore n_devices for now.
@@ -154,8 +160,12 @@ class SimPLe(base_trainer.BaseTrainer):
         has_weights=True,
     )
 
+    logging.vlog(
+        1, "Training model took %0.2f sec.", time.time() - start_time)
+
   def train_policy(self):
     logging.info("SimPLe epoch [% 6d]: training policy.", self._simple_epoch)
+    start_time = time.time()
 
     self._sim_env.initialize(
         batch_size=self._simulated_batch_size,
@@ -166,6 +176,9 @@ class SimPLe(base_trainer.BaseTrainer):
     self._policy_trainer.trajectory_dump_dir = None
     self._policy_epoch += self._n_simulated_epochs
     self._policy_trainer.training_loop(self._policy_epoch, evaluate=False)
+
+    logging.vlog(
+        1, "Training policy took %0.2f sec.", time.time() - start_time)
 
   @property
   def _has_own_data(self):
@@ -193,17 +206,27 @@ class SimPLe(base_trainer.BaseTrainer):
     mix_prob = self._initial_trajectory_mix_prob
 
     if self._has_initial_data:
+      start_time = time.time()
       # Load the initial, precollected data.
       (init_train_stream,
        init_eval_stream) = make_example_streams(self._initial_trajectory_dir)
+      logging.vlog(
+          1, "Loading initial trajectories took %0.2f sec.",
+          time.time() - start_time
+      )
     else:
       (init_train_stream, init_eval_stream) = (None, None)
       mix_prob = 0.0  # Take just our own collected data.
 
     if self._has_own_data:
+      start_time = time.time()
       # Load trajectories collected in all epochs so far.
       (own_train_stream,
        own_eval_stream) = make_example_streams(self._trajectory_dump_root_dir)
+      logging.vlog(
+          1, "Loading own trajectories took %0.2f sec.",
+          time.time() - start_time
+      )
     else:
       # We start the loop with training the model, so we don't have our own
       # collected data yet.
@@ -223,6 +246,7 @@ class SimPLe(base_trainer.BaseTrainer):
 
   def evaluate_model(self):
     logging.info("SimPLe epoch [% 6d]: evaluating model.", self._simple_epoch)
+    start_time = time.time()
 
     self._sim_env.initialize(
         batch_size=self._simulated_batch_size,
@@ -248,3 +272,6 @@ class SimPLe(base_trainer.BaseTrainer):
       self._summary_writer.plot(
           "simple/model_eval_plot", plt, step=self._simple_epoch)
       self.flush_summaries()
+
+    logging.vlog(
+        1, "Evaluating model took %0.2f sec.", time.time() - start_time)
