@@ -40,11 +40,17 @@ def load_trajectories(trajectory_dir, eval_frac):
   for (subdir, _, filenames) in gfile.walk(trajectory_dir):
     for filename in filenames:
       shard_path = os.path.join(subdir, filename)
-      with gfile.GFile(shard_path, "rb") as f:
-        trajectories = pkl_module.load(f)
+      try:
+        with gfile.GFile(shard_path, "rb") as f:
+          trajectories = pkl_module.load(f)
         pivot = int(len(trajectories) * (1 - eval_frac))
         train_trajectories.extend(trajectories[:pivot])
         eval_trajectories.extend(trajectories[pivot:])
+      except EOFError:
+        logging.warning(
+            "Could not load trajectories from a corrupted shard %s.",
+            shard_path,
+        )
   assert train_trajectories, "Haven't found any training data."
   assert eval_trajectories, "Haven't found any evaluation data."
   return (train_trajectories, eval_trajectories)
