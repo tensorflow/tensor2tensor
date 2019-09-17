@@ -977,7 +977,8 @@ class Problem(object):
             tf.contrib.data.bucket_by_sequence_length(
                 element_length_func=data_reader.example_length,
                 bucket_boundaries=batching_scheme['bucket_boundaries'],
-                bucket_batch_sizes=batching_scheme['bucket_batch_sizes']))
+                bucket_batch_sizes=batching_scheme['bucket_batch_sizes'],
+                pad_to_bucket_boundary=hasattr(hparams, 'bert_max_length')))
 
         if not is_training:
           batch_multiple = num_shards
