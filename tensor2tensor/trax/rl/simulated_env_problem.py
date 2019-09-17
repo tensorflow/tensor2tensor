@@ -29,6 +29,7 @@ from tensor2tensor.trax import backend
 from tensor2tensor.trax import trax
 from tensor2tensor.trax import utils
 from tensor2tensor.trax.backend import random as jax_random
+from tensor2tensor.trax.rl import serialization_utils
 from tensor2tensor.trax.rl import space_serializer
 
 
@@ -419,37 +420,29 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
     return (observation, reward, done)
 
   def trajectory_to_training_examples(self, trajectory):
-    reprs = []
-    weights = []
-    for time_step in trajectory.time_steps:
-      # Serializers work on batches.
-      obs_repr = self._obs_serializer.serialize(
-          np.array([time_step.observation]))[0]
-      reprs.append(obs_repr)
-      # significance_map is an array of the same size as the representation,
-      # indicating the significance of each symbol. See
-      # SpaceSerializer.significance_map.
-      weights.append(
-          self._significance_decay ** self._obs_serializer.significance_map)
-      if time_step.action is not None:
-        action_repr = self._action_serializer.serialize(
-            np.array([time_step.action]))[0]
-        reprs.append(action_repr)
-        weights.append(np.zeros_like(action_repr))
-
-    def concat_and_pad(arrays):
-      (desired_length,) = self.model_input_shape
-      flat_array = np.concatenate(arrays, axis=0)
-      (actual_length,) = flat_array.shape
-      assert actual_length <= desired_length
-      return np.pad(
-          flat_array,
-          pad_width=((0, desired_length - actual_length),),
-          mode="constant",
-      )
-    (reprs, weights) = map(concat_and_pad, (reprs, weights))
-    reprs = reprs.astype(self.model_input_dtype)
-    return [(reprs, reprs, weights)]  # (inputs, targets, weights)
+    (repr_length,) = self.model_input_shape
+    seq_mask = np.ones((1, trajectory.num_time_steps - 1))
+    (reprs, repr_mask) = serialization_utils.serialize_observations_and_actions(
+        # Serialization works on batches, so we add a singleton batch dimension.
+        trajectory.observations_np[None, ...],
+        trajectory.actions_np[None, ...],
+        seq_mask,
+        self._obs_serializer,
+        self._action_serializer,
+        repr_length,
+    )
+    reprs = reprs[0, ...].astype(self.model_input_dtype)
+    sig_weights = (
+        self._significance_decay ** serialization_utils.significance_map(
+            self._obs_serializer, self._action_serializer, repr_length
+        )[None, ...]
+    )
+    obs_mask = serialization_utils.observation_mask(
+        self._obs_serializer, self._action_serializer, repr_length
+    )
+    weights = (sig_weights * obs_mask * repr_mask)[0, ...]
+    # (inputs, targets, weights)
+    return [(reprs, reprs, weights)]
 
   @property
   def model_input_shape(self):
