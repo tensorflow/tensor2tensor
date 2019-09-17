@@ -972,7 +972,7 @@ class Problem(object):
         # On GPU, bucket by length
         dataset = dataset.filter(gpu_valid_size)
         batching_scheme = self._get_batching_scheme(hparams, num_shards)
-        print("Batching out", batching_scheme)
+
         dataset = dataset.apply(
             tf.contrib.data.bucket_by_sequence_length(
                 element_length_func=data_reader.example_length,
