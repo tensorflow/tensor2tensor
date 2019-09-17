@@ -748,6 +748,7 @@ class MergedMultiHashedCausalAttention(BaseCausalAttention):
 
   def __init__(self, dropout, mode, n_bins=64, n_hashes=1,
                n_buckets_per_bin=1, bin_by_time=False, one_rng=False,
+               allow_duplicate_attention=False,
                drop_for_hash_rate=0.0, hard_k=0):
     del dropout
     self._mode = mode
@@ -763,6 +764,7 @@ class MergedMultiHashedCausalAttention(BaseCausalAttention):
     self._prng = None
     if one_rng:
       self._prng = backend.random.get_prng(seed)
+    self._allow_duplicate_attention = allow_duplicate_attention
 
   def bin_vectors_by_time(self, vecs):
     seqlen = vecs.shape[-2]
@@ -937,6 +939,53 @@ class MergedMultiHashedCausalAttention(BaseCausalAttention):
     self_mask = jax.lax.broadcasted_eye(dots.dtype, dots.shape, (2, 3))
     self_mask = jax.lax.tie_in(dots, self_mask)
     dots = dots - 32 * self_mask
+
+    # Mask out later rounds attending to the same items as previous rounds
+    if self.n_hashes > 1 and not self._allow_duplicate_attention:
+      chunks = undo_sort // bq_t.shape[2]  # n_hashes*n_batch*n_heads, seqlen
+      chunks = np.reshape(chunks, (self.n_hashes, -1, seqlen))
+      chunks = np.moveaxis(chunks, 0, -1)
+      chunks = np.tile(chunks, (self.n_hashes, 1, 1))
+      # chunks is now n_hashes*n_batch*n_heads, seqlen, n_hashes
+      schunks = np.take_along_axis(chunks, sjoint_t[:, :, None], axis=-2)
+      bchunks = chunk_vectors(schunks)
+
+      # Queries/keys have shape (n_hashes*n_batch*n_heads, n_bins, binlen). For
+      # each query/key vector, the chunks numbers it's mapped to across each of
+      # the rounds of hashing are stored in bchunks, which has shape
+      # (n_hashes*n_batch*n_heads, n_bins, binlen, n_hashes). Query-key pairs
+      # that fall in the same or consecutive chunks in one hashing round will be
+      # masked out for subsequent rounds.
+      round_counter = jax.lax.tie_in(bchunks, np.arange(self.n_hashes))
+      cur_round = np.tile(
+          np.reshape(round_counter, (-1, 1)),
+          (1, bchunks.shape[0] // self.n_hashes))
+      # cur_round (shape n_hashes*n_batch*n_heads, 1, 1, 1) specifies which
+      # round of hashing a query-key pair belongs to. This shape broadcasts with
+      # (shape n_hashes*n_batch*n_heads, n_bins, binlen, n_hashes). The first
+      # n_batch*n_heads elements along dimension 0 are hash round 0, the next
+      # are round 1, etc.
+      cur_round = np.reshape(cur_round, (-1, 1, 1, 1))
+      # past_round (shape 1, 1, 1, n_hashes) contains round numbers, where the
+      # last dimension has one entry per hashing round.
+      past_round = np.reshape(round_counter, (1, 1, 1, -1))
+      # Set query chunk numbers for future rounds to an out-of-bounds (negative)
+      # value, so they don't match with any keys.
+      bq_chunks = np.where(past_round < cur_round, bchunks, -bchunks)
+
+      bkv_chunks_extra = np.concatenate(
+          [bchunks[:, -1:, :, :], bchunks[:, :-1, :, :]], axis=1)
+      bkv_chunks = np.concatenate([bchunks, bkv_chunks_extra], axis=2)
+
+      dup_mask = np.any(
+          jax.lax.eq(bq_chunks[:, :, :, None, :], bkv_chunks[:, :, None, :, :]),
+          axis=-1)
+      dup_mask = dup_mask | np.any(
+          jax.lax.eq(
+              bq_chunks[:, :, :, None, :], bkv_chunks[:, :, None, :, :] + 1),
+          axis=-1)
+      dup_mask = jax.lax.convert_element_type(dup_mask, np.float32)
+      dots = dots - 30 * dup_mask
 
     # Softmax.
     dots_logsumexp = backend.logsumexp(dots, axis=-1, keepdims=True)
