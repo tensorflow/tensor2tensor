@@ -51,9 +51,9 @@ def load_trajectories(trajectory_dir, eval_frac):
             "Could not load trajectories from a corrupted shard %s.",
             shard_path,
         )
-  assert train_trajectories, "Haven't found any training data."
-  assert eval_trajectories, "Haven't found any evaluation data."
-  return (train_trajectories, eval_trajectories)
+  assert train_trajectories, "Can't find training data in %s" % trajectory_dir
+  assert eval_trajectories, "Can't find evaluation data in %s" % trajectory_dir
+  return train_trajectories, eval_trajectories
 
 
 def generate_examples(trajectories, trajectory_to_training_examples_fn):

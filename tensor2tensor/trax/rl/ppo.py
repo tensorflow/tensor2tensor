@@ -855,6 +855,9 @@ def maybe_restore_opt_state(output_dir,
   )
 
 
+LAST_N_POLICY_MODELS_TO_KEEP = 5
+
+
 def save_opt_state(output_dir,
                    policy_and_value_opt_state,
                    policy_and_value_state,
@@ -867,9 +870,9 @@ def save_opt_state(output_dir,
   with gfile.GFile(params_file, "wb") as f:
     pkl_module.dump(
         (policy_and_value_opt_state, policy_and_value_state, total_opt_step), f)
-  # Remove the old model files, leave the latest one (it might be in the
-  # process of getting read async) -- this will get cleaned up later.
-  for path in old_model_files[1:]:
+  # Keep the last k model files lying around (note k > 1 because the latest
+  # model file might be in the process of getting read async).
+  for path in old_model_files[LAST_N_POLICY_MODELS_TO_KEEP:]:
     if path != params_file:
       gfile.remove(path)
 

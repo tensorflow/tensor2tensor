@@ -85,8 +85,3 @@ TransformerLM.max_len = 1024
 train.eval_frequency = 1000
 train.optimizer = @trax.optimizers.Adafactor
 
-# Parameters for train_rl:
-# ==============================================================================
-train_rl.env_name = "ClientEnv-v0"
-train_rl.n_epochs = 100
-train_rl.trainer_class = @trax.rl.trainers.SimPLe
