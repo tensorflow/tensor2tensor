@@ -409,7 +409,7 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
   option. We haven't implemented it, but it may perform well, too.
   """
 
-  def __init__(self, loop_stride, dropout, mode):
+  def __init__(self, loop_stride, dropout, mode, share_qk=False, hard_k=0):
     assert backend.get_name() == 'jax', (
         'JAX backend is required to use MemoryEfficientCausalAttention.')
     super(MemoryEfficientCausalAttention, self).__init__()
@@ -420,6 +420,8 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
       self.dropout = dropout
     else:
       self.dropout = None
+    self._share_qk = share_qk
+    self._hard_k = hard_k
 
   def call(self, inputs, params=(), state=(), **kwargs):
     del params
@@ -433,6 +435,11 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
     del output, params, state
     _, inputs_ct = self.call_and_grad(inputs, ct, **kwargs)
     return inputs_ct, ()
+
+  def make_unit_length(self, x, epsilon=1e-6):
+    variance = np.mean(x**2, axis=-1, keepdims=True)
+    norm_inputs = x / np.sqrt(variance + epsilon)
+    return norm_inputs
 
   def call_and_grad(self, inputs, ct, rng=None, **kwargs):
     del kwargs
@@ -462,14 +469,42 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
       mask = jax.lax.convert_element_type(mask, np.float32)
       return mask
 
+    def make_self_mask(N, M, k):  # pylint: disable=invalid-name
+      """Masks out elements attending to self.
+
+      Args:
+        N: number of query positions
+        M: number of key positions
+        k: position of the initial query element
+
+      Returns:
+        N x M mask, where 1.0 indicates that attention is not allowed.
+      """
+      x = np.arange(N, dtype=np.int32)
+      y = np.arange(M, dtype=np.int32)
+      mask = jax.lax.eq(
+          (jax.lax.broadcast_in_dim(
+              x, shape=(N, M), broadcast_dimensions=(0,)) + k),
+          jax.lax.broadcast(y, [N]))
+      mask = jax.lax.convert_element_type(mask, np.float32)
+      return mask
+
     def forward_slice(query_slice, q_loop_idx, key, value):  # pylint: disable=invalid-name
       """Forward pass for a subset of the query vectors."""
+      if self._share_qk:
+        key = self.make_unit_length(key)
+
       dots = np.matmul(
           query_slice, np.swapaxes(key, -1, -2)) / np.sqrt(depth)
 
       # Causal masking
       mask = make_mask(dots.shape[-2], dots.shape[-1], q_loop_idx)
       dots = dots - 1e9 * mask
+
+      # Mask out attention to self except when no other targets are available.
+      if self._share_qk:
+        self_mask = make_self_mask(dots.shape[-2], dots.shape[-1], q_loop_idx)
+        dots = dots - 32 * self_mask
 
       # Softmax.
       dots = np.exp(dots - backend.logsumexp(dots, axis=-1, keepdims=True))
@@ -482,6 +517,14 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
         keep = backend.random.bernoulli(slice_rng, keep_prob, dropout_shape)
         multiplier = keep.astype(dots.dtype) / jax.lax.tie_in(keep, keep_prob)
         dots = dots * multiplier
+
+      if self._hard_k > 0:
+        top_k = np.sort(dots)[..., -self._hard_k]  # Get the top-kth weight.
+        top_k = jax.lax.stop_gradient(top_k)
+        dots -= top_k[..., np.newaxis]  # Subtract (be 0 for lower ones).
+        dots = np.maximum(dots, 0)
+        dots_sum = np.sum(dots, axis=-1, keepdims=True)  # Re-normalize.
+        dots /= dots_sum  # Re-normalize.
 
       out_slice = np.matmul(dots, value)
       return out_slice
