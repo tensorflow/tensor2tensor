@@ -186,6 +186,10 @@ def create_run_config(model_name,
         **tpu_config_kwargs)
     run_config_args["tpu_config"] = tpu_config
     # FATHOM: swapped if-else precedence
+    # for cloud_tpu to take precedence over the KUBE_GOOGLE_CLOUD_TPU_ENDPOINTS
+    # check. KUBE_GOOGLE_CLOUD_TPU_ENDPOINTS gets set automatically on GKE pods
+    # with TPUs, but this is not the same as running on ML Engine which is
+    # assumed by T2T, causing errors.
     if not master and cloud_tpu_name:
         # Update run_config to use cluster instead of master/evaluation_master
         # as we need the cluster spec to use Cloud Pods
