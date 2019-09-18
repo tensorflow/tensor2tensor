@@ -59,6 +59,16 @@ class BaseTrainer(object):
     self._async_mode = async_mode
 
   @property
+  def async_mode(self):
+    return self._async_mode
+
+  @async_mode.setter
+  def async_mode(self, async_mode):
+    logging.vlog(1, "Changing async mode from %s to: %s",
+                 self._async_mode, async_mode)
+    self._async_mode = async_mode
+
+  @property
   def epoch(self):
     raise NotImplementedError
 
