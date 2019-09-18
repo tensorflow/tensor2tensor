@@ -81,6 +81,7 @@ class PpoTest(test.TestCase):
     pnv_model = ppo.policy_and_value_net(
         n_controls=n_controls,
         n_actions=n_actions,
+        vocab_size=None,
         bottom_layers_fn=lambda: [layers.Flatten(n_axes_to_keep=2)],
         two_towers=True,
     )
@@ -439,6 +440,7 @@ class PpoTest(test.TestCase):
     net = ppo.policy_and_value_net(
         n_controls=1,
         n_actions=A,
+        vocab_size=None,
         bottom_layers_fn=lambda: [layers.Flatten(n_axes_to_keep=2)],
         two_towers=True,
     )

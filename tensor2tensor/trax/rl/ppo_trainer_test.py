@@ -69,7 +69,9 @@ class PpoTrainerTest(test.TestCase):
     yield tmp
     gfile.rmtree(tmp)
 
-  def _make_trainer(self, train_env, eval_env, output_dir, model=None):
+  def _make_trainer(
+      self, train_env, eval_env, output_dir, model=None, **kwargs
+  ):
     if model is None:
       model = lambda: [layers.Dense(1)]
     return ppo_trainer.PPO(
@@ -81,6 +83,7 @@ class PpoTrainerTest(test.TestCase):
         random_seed=0,
         boundary=2,
         save_every_n=1,
+        **kwargs
     )
 
   def test_training_loop_cartpole(self):
@@ -251,6 +254,26 @@ class PpoTrainerTest(test.TestCase):
           train_env=self.get_wrapped_env("FakeEnv-v0", 2),
           eval_env=self.get_wrapped_env("FakeEnv-v0", 2),
           output_dir=output_dir,
+      )
+      trainer.training_loop(n_epochs=2)
+
+  def test_training_loop_cartpole_serialized(self):
+    gin.bind_parameter("BoxSpaceSerializer.precision", 1)
+    with self.tmp_dir() as output_dir:
+      trainer = self._make_trainer(
+          train_env=self.get_wrapped_env("CartPole-v0", 2),
+          eval_env=self.get_wrapped_env("CartPole-v0", 2),
+          output_dir=output_dir,
+          model=functools.partial(
+              models.TransformerDecoder,
+              d_model=1,
+              d_ff=1,
+              n_layers=1,
+              n_heads=1,
+              max_len=1024,
+              mode="train",
+          ),
+          policy_and_value_vocab_size=4,
       )
       trainer.training_loop(n_epochs=2)
 

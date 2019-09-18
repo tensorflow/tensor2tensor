@@ -91,7 +91,7 @@ def observation_mask(
     Binary mask indicating which symbols in the representation correspond to
     observations.
   """
-  mask = np.zeros(representation_length)
+  mask = np.zeros(representation_length, dtype=np.int32)
   obs_repr_length = observation_serializer.representation_length
   step_repr_length = obs_repr_length + action_serializer.representation_length
   for step_start_index in range(0, representation_length, step_repr_length):

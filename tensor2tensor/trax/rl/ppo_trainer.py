@@ -38,6 +38,8 @@ from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.rl import base_trainer
 from tensor2tensor.trax.rl import ppo
+from tensor2tensor.trax.rl import serialization_utils
+from tensor2tensor.trax.rl import space_serializer
 
 DEBUG_LOGGING = False
 GAMMA = 0.99
@@ -60,6 +62,7 @@ class PPO(base_trainer.BaseTrainer):
                policy_and_value_optimizer=functools.partial(
                    trax_opt.Adam, learning_rate=1e-3),
                policy_and_value_two_towers=False,
+               policy_and_value_vocab_size=None,
                n_optimizer_steps=N_OPTIMIZER_STEPS,
                print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
                target_kl=0.01,
@@ -90,6 +93,9 @@ class PPO(base_trainer.BaseTrainer):
       policy_and_value_optimizer: Function defining the optimizer.
       policy_and_value_two_towers: Whether to use two separate models as the
         policy and value networks. If False, share their parameters.
+      policy_and_value_vocab_size: Vocabulary size of a policy and value network
+        operating on serialized representation. If None, use raw continuous
+        representation.
       n_optimizer_steps: Number of optimizer steps.
       print_every_optimizer_steps: How often to log during the policy
         optimization process.
@@ -154,26 +160,31 @@ class PPO(base_trainer.BaseTrainer):
       assert onp.min(action_space.nvec) == onp.max(action_space.nvec), (
           "Every control must have the same number of actions.")
       n_actions = action_space.nvec[0]
-
-    # Batch Observations Shape = [1, 1] + OBS, because we will eventually call
-    # policy and value networks on shape [B, T] +_OBS
-    batch_observations_shape = (1, 1) + self.train_env.observation_space.shape
-    observations_dtype = self.train_env.observation_space.dtype
+    self._n_actions = n_actions
+    self._n_controls = n_controls
 
     self._rng = trax.get_random_number_generator_and_set_seed(random_seed)
     self._rng, key1 = jax_random.split(self._rng, num=2)
+
+    vocab_size = policy_and_value_vocab_size
+    self._serialized_sequence_policy = vocab_size is not None
+    if self._serialized_sequence_policy:
+      self._serialization_kwargs = self._init_serialization(vocab_size)
+    else:
+      self._serialization_kwargs = {}
 
     # Initialize the policy and value network.
     policy_and_value_net = ppo.policy_and_value_net(
         n_actions=n_actions,
         n_controls=n_controls,
+        vocab_size=vocab_size,
         bottom_layers_fn=policy_and_value_model,
         two_towers=policy_and_value_two_towers,
     )
     self._policy_and_value_net_apply = jit(policy_and_value_net)
+    (batch_obs_shape, obs_dtype) = self._batch_obs_shape_and_dtype
     policy_and_value_net_params, self._model_state = (
-        policy_and_value_net.initialize(batch_observations_shape,
-                                        observations_dtype, key1))
+        policy_and_value_net.initialize(batch_obs_shape, obs_dtype, key1))
 
     # Initialize the optimizer.
     (policy_and_value_opt_state, self._policy_and_value_opt_update,
@@ -202,21 +213,53 @@ class PPO(base_trainer.BaseTrainer):
       logging.info("Saving model on startup to have a model policy file.")
       self.save()
 
-    if isinstance(self.train_env.action_space, gym.spaces.Discrete):
-      n_controls = 1
-    else:
-      n_controls = len(self.train_env.action_space.nvec)
+    self._rewards_to_actions = self._init_rewards_to_actions()
 
+  def _init_serialization(self, vocab_size):
+    obs_serializer = space_serializer.create(
+        self.train_env.observation_space, vocab_size=vocab_size
+    )
+    act_serializer = space_serializer.create(
+        self.train_env.action_space, vocab_size=vocab_size
+    )
+    repr_length = (
+        obs_serializer.representation_length +
+        act_serializer.representation_length
+    ) * (self._max_timestep + 1)
+    return {
+        "observation_serializer": obs_serializer,
+        "action_serializer": act_serializer,
+        "representation_length": repr_length,
+    }
+
+  def _init_rewards_to_actions(self):
     # Linear map from the reward sequence to the action sequence, used for
     # scattering advantages over action log-probs and some other things.
-    # It has one more timestep at the and, so it's compatible with the value
+    # It has one more timestep at the end, so it's compatible with the value
     # predictions.
-    rewards_to_actions = np.eye(max_timestep + 1)[:, None, :]
-    rewards_to_actions = np.broadcast_to(
-        rewards_to_actions, (max_timestep + 1, n_controls, max_timestep + 1)
-    )
-    rewards_to_actions = np.reshape(rewards_to_actions, (max_timestep + 1, -1))
-    self._rewards_to_actions = rewards_to_actions
+    if not self._serialized_sequence_policy:
+      rewards_to_actions = np.eye(self._max_timestep + 1)[:, None, :]
+      rewards_to_actions = np.broadcast_to(
+          rewards_to_actions,
+          (self._max_timestep + 1, self._n_controls, self._max_timestep + 1),
+      )
+      return np.reshape(rewards_to_actions, (self._max_timestep + 1, -1))
+    else:
+      return serialization_utils.rewards_to_actions_map(
+          n_timesteps=(self._max_timestep + 1), **self._serialization_kwargs
+      )
+
+  @property
+  def _batch_obs_shape_and_dtype(self):
+    if not self._serialized_sequence_policy:
+      # Batch Observations Shape = [1, 1] + OBS, because we will eventually call
+      # policy and value networks on shape [B, T] +_OBS
+      shape = (1, 1) + self.train_env.observation_space.shape
+      dtype = self.train_env.observation_space.dtype
+    else:
+      shape = (1, 1)
+      dtype = np.int32
+    return (shape, dtype)
 
   # Maybe restore the optimization state. If there is nothing to restore, then
   # epoch = 0 and policy_and_value_opt_state is returned as is.
@@ -324,8 +367,7 @@ class PPO(base_trainer.BaseTrainer):
     else:
       trajs, n_done, timing_info, self._model_state = ppo.collect_trajectories(
           env,
-          policy_fn=self._get_predictions,
-          action_index_fn=self._action_index_fn,
+          policy_fn=self._policy_fun,
           n_trajectories=n_trajectories,
           max_timestep=max_timestep,
           state=self._model_state,
@@ -407,9 +449,6 @@ class PPO(base_trainer.BaseTrainer):
     B, AT = padded_actions.shape  # pylint: disable=invalid-name
     assert (B, RT) == reward_mask.shape
     assert B == padded_observations.shape[0]
-    assert (
-        self.train_env.observation_space.shape == padded_observations.shape[2:]
-    )
 
     log_prob_recompute_start_time = time.time()
     # TODO(pkozakowski): The following commented out code collects the network
@@ -707,13 +746,36 @@ class PPO(base_trainer.BaseTrainer):
 
   # Prepares the trajectories for policy training.
   def _preprocess_trajectories(self, trajectories):
-    (_, reward_mask, observations, actions, rewards,
-     infos) = ppo.pad_trajectories(trajectories, boundary=self._max_timestep)
-    # Add one timestep at the end, so it's compatible with
-    # self._rewards_to_actions.
-    actions = np.pad(actions, ((0, 0), (0, 1)) + ((0, 0),) * (actions.ndim - 2))
-    actions = np.reshape(actions, (actions.shape[0], -1))
+    (_, reward_mask, observations, actions, rewards, infos) = (
+        ppo.pad_trajectories(trajectories, boundary=self._max_timestep)
+    )
+    assert self.train_env.observation_space.shape == observations.shape[2:]
+    if not self._serialized_sequence_policy:
+      # Add one timestep at the end, so it's compatible with
+      # self._rewards_to_actions.
+      pad_width = ((0, 0), (0, 1)) + ((0, 0),) * (actions.ndim - 2)
+      actions = np.pad(actions, pad_width)
+      actions = np.reshape(actions, (actions.shape[0], -1))
+    else:
+      (observations, actions) = self._serialize_trajectories(
+          observations, actions, reward_mask
+      )
     return (observations, actions, rewards, reward_mask, infos)
+
+  def _serialize_trajectories(self, observations, actions, reward_mask):
+    (reprs, _) = serialization_utils.serialize_observations_and_actions(
+        observations=observations,
+        actions=actions,
+        mask=reward_mask,
+        **self._serialization_kwargs
+    )
+    # Mask out actions in the representation - otherwise we sample an action
+    # based on itself.
+    observations = reprs * serialization_utils.observation_mask(
+        **self._serialization_kwargs
+    )
+    actions = reprs
+    return (observations, actions)
 
   # A function to get the policy and value predictions.
   def _get_predictions(self, observations, state, rng=None):
@@ -725,10 +787,36 @@ class PPO(base_trainer.BaseTrainer):
 
     return log_probs, value_preds, state, key
 
-  def _action_index_fn(self, index):
+  def _policy_fun(self, observations, lengths, state, rng):
+    (batch_size, n_timesteps) = observations.shape[:2]
+    if self._serialized_sequence_policy:
+      actions = np.zeros(
+          (batch_size, n_timesteps - 1) + self.train_env.action_space.shape,
+          dtype=self.train_env.action_space.dtype,
+      )
+      reward_mask = np.ones((batch_size, n_timesteps - 1), dtype=np.int32)
+      (observations, _) = self._serialize_trajectories(
+          observations, actions, reward_mask
+      )
+    (log_probs, value_preds, state, rng) = self._get_predictions(
+        observations, state=state, rng=rng
+    )
+    # We need the log_probs of those actions that correspond to the last actual
+    # time-step.
+    index = lengths - 1  # Since we want to index using lengths.
+    pred_index = self._calc_action_index(index)
+    log_probs = log_probs[
+        np.arange(batch_size)[:, None, None],
+        pred_index[:, :, None],
+        np.arange(self._n_actions),
+    ]
+    value_preds = value_preds[np.arange(batch_size)[:, None], pred_index]
+    return (log_probs, value_preds, state, rng)
+
+  def _calc_action_index(self, reward_index):
     # Project the one-hot position in the reward sequence onto the action
     # sequence to figure out which actions correspond to that position.
-    one_hot_index = np.eye(self._rewards_to_actions.shape[0])[index]
+    one_hot_index = np.eye(self._rewards_to_actions.shape[0])[reward_index]
     action_mask = np.dot(one_hot_index, self._rewards_to_actions)
     # Compute the number of symbols in an action. It's just the number of 1s in
     # the mask.

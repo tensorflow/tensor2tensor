@@ -72,7 +72,6 @@ def get_completed_trajectories_from_env(env,
 
 def play_env_problem_with_policy(env,
                                  policy_fun,
-                                 action_index_fn,
                                  num_trajectories=1,
                                  max_timestep=None,
                                  reset=True,
@@ -90,8 +89,6 @@ def play_env_problem_with_policy(env,
     env: environment object, should be a subclass of env_problem.EnvProblem.
     policy_fun: callable, taking in observations((B, RT) + OBS) and returning
       back log-probabilities (B, AT, A).
-    action_index_fn: function converting timestep indices into indices in the
-      log-probability array.
     num_trajectories: int, number of trajectories to collect.
     max_timestep: int or None, if not None or a negative number, we cut any
       trajectory that exceeds this time put it in the completed bin, and *dont*
@@ -156,26 +153,11 @@ def play_env_problem_with_policy(env,
     assert (B,) == lengths.shape
 
     t1 = time.time()
-    log_prob_actions, value_predictions, state, rng = policy_fun(
-        padded_observations, state=state, rng=rng)
+    log_probs, value_preds, state, rng = policy_fun(
+        padded_observations, lengths, state=state, rng=rng)
     policy_application_total_time += (time.time() - t1)
 
-    assert B == log_prob_actions.shape[0]
-    (_, A) = log_prob_actions.shape[1:]  # pylint: disable=invalid-name
-
-    # We need the log_probs of those actions that correspond to the last actual
-    # time-step.
-    index = lengths - 1  # Since we want to index using lengths.
-    pred_index = action_index_fn(index)
-    log_probs = log_prob_actions[
-        np.arange(B)[:, None, None],
-        pred_index[:, :, None],
-        np.arange(A),
-    ]
-    value_preds = value_predictions[np.arange(B)[:, None], pred_index]
-
     assert B == log_probs.shape[0]
-    assert A == log_probs.shape[2]
 
     actions = gumbel_sample(log_probs)
     if isinstance(env.action_space, gym.spaces.Discrete):

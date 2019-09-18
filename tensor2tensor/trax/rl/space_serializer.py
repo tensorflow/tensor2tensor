@@ -173,7 +173,7 @@ class DiscreteSpaceSerializer(SpaceSerializer):
         "Discrete space size should fit in the number of symbols.")
 
   def serialize(self, data):
-    return np.reshape(data, (-1, 1))
+    return np.reshape(data, (-1, 1)).astype(np.int32)
 
   def deserialize(self, representation):
     return np.reshape(representation, -1)
@@ -200,7 +200,7 @@ class MultiDiscreteSpaceSerializer(SpaceSerializer):
     )
 
   def serialize(self, data):
-    return data
+    return data.astype(np.int32)
 
   def deserialize(self, representation):
     return representation

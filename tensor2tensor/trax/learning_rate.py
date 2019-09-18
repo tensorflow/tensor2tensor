@@ -158,6 +158,7 @@ def PolicySchedule(
     action_multipliers=(1.0 / 1.5, 1.0 / 1.25, 1.0, 1.25, 1.5),
     policy_and_value_model=trax_models.FrameStackMLP,
     policy_and_value_two_towers=False,
+    policy_and_value_vocab_size=None,
     policy_dir=gin.REQUIRED,
 ):
   """Learning rate schedule controlled by a learned policy.
@@ -175,6 +176,9 @@ def PolicySchedule(
     policy_and_value_model: Trax model to use as the policy.
     policy_and_value_two_towers: bool, whether the action distribution and value
       prediction is computed by separate model towers.
+    policy_and_value_vocab_size: Vocabulary size of a policy and value network
+      operating on serialized representation. If None, use raw continuous
+      representation.
     policy_dir: directory with the policy checkpoint.
 
   Returns:
@@ -203,6 +207,7 @@ def PolicySchedule(
   net = ppo.policy_and_value_net(
       n_controls=1,
       n_actions=len(action_multipliers),
+      vocab_size=policy_and_value_vocab_size,
       bottom_layers_fn=policy_and_value_model,
       two_towers=policy_and_value_two_towers,
   )

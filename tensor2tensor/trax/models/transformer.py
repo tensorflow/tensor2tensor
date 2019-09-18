@@ -18,6 +18,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
+
 from tensor2tensor.trax import layers as tl
 
 
@@ -148,7 +150,8 @@ def DecoderBlock(d_model, d_ff, n_heads, d_attention_key, d_attention_value,
   ]
 
 
-def TransformerDecoder(d_model=512,
+def TransformerDecoder(vocab_size=None,
+                       d_model=512,
                        d_ff=2048,
                        n_layers=6,
                        n_heads=8,
@@ -161,11 +164,13 @@ def TransformerDecoder(d_model=512,
                        mode='train'):
   """Returns a Transformer decoder model.
 
-  The input to the model is a continuous tensor. Does not shift the input to the
-  right, i.e. the output for timestep t is based on inputs up to timestep t
-  inclusively.
+  The input to the model is either continuous or discrete - controlled by
+  vocab_size. Does not shift the input to the right, i.e. the output for
+  timestep t is based on inputs up to timestep t inclusively.
 
   Args:
+    vocab_size: int or None: vocab size if running on discrete input, None
+        otherwise.
     d_model: int:  depth of embedding
     d_ff: int: depth of feed-forward layer
     n_layers: int: number of encoder/decoder layers
@@ -181,11 +186,15 @@ def TransformerDecoder(d_model=512,
     mode: str: 'train' or 'eval'
 
   Returns:
-    A Transformer decoder as a layer that maps from a continuous tensor to
-    a continuous tensor.
+    A Transformer decoder as a layer that maps from a continuous or discrete
+    tensor to a continuous tensor.
   """
+  if vocab_size is None:
+    input_layer = tl.Dense
+  else:
+    input_layer = functools.partial(tl.Embedding, vocab_size=vocab_size)
   return tl.Model(                  # vecs
-      tl.Dense(d_model),            # vecs
+      input_layer(d_model),         # vecs
       tl.Dropout(rate=dropout, mode=mode),
       tl.PositionalEncoding(max_len=max_len),
       [DecoderBlock(  # pylint: disable=g-complex-comprehension

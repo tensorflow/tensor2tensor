@@ -71,7 +71,9 @@ from tensor2tensor.trax import utils
 from tensorflow.io import gfile
 
 
-def policy_and_value_net(n_actions, n_controls, bottom_layers_fn, two_towers):
+def policy_and_value_net(
+    n_actions, n_controls, vocab_size, bottom_layers_fn, two_towers
+):
   """A policy and value net function."""
 
   # Layers.
@@ -85,13 +87,22 @@ def policy_and_value_net(n_actions, n_controls, bottom_layers_fn, two_towers):
     """Splits logits for actions in different controls and flattens controls."""
     return np.reshape(x, (x.shape[0], -1, n_actions))
 
-  n_logits = n_controls * n_actions
+  if vocab_size is None:
+    # In continuous policies every element of the output sequence corresponds to
+    # an observation.
+    n_logits = n_controls * n_actions
+    kwargs = {}
+  else:
+    # In discrete policies every element of the output sequence corresponds to
+    # a symbol in the discrete representation, and each control takes 1 symbol.
+    n_logits = n_actions
+    kwargs = {"vocab_size": vocab_size}
 
   if two_towers:
     layers = [
         tl.Dup(),
         tl.Parallel(
-            [bottom_layers_fn(),
+            [bottom_layers_fn(**kwargs),
              tl.Dense(n_logits),
              FlattenControlsIntoTime(),  # pylint: disable=no-value-for-parameter
              tl.LogSoftmax()],
@@ -100,7 +111,7 @@ def policy_and_value_net(n_actions, n_controls, bottom_layers_fn, two_towers):
     ]
   else:
     layers = [
-        bottom_layers_fn(),
+        bottom_layers_fn(**kwargs),
         tl.Dup(),
         tl.Parallel(
             [tl.Dense(n_logits),
@@ -149,7 +160,6 @@ def optimizer_fn(optimizer, net_params):
 # Any other option?
 def collect_trajectories(env,
                          policy_fn,
-                         action_index_fn,
                          n_trajectories=1,
                          max_timestep=None,
                          reset=True,
@@ -165,8 +175,6 @@ def collect_trajectories(env,
   Args:
     env: A gym env interface, for now this is not-batched.
     policy_fn: observations(B,RT+1) -> log-probabs(B, AT, A) callable.
-    action_index_fn: function converting timestep indices into indices in the
-      log-probability array.
     n_trajectories: int, number of trajectories.
     max_timestep: int or None, the index of the maximum time-step at which we
       return the trajectory, None for ending a trajectory only when env returns
@@ -200,7 +208,6 @@ def collect_trajectories(env,
   trajs, n_done, timing_info, state = env_problem_utils.play_env_problem_with_policy(
       env,
       policy_fn,
-      action_index_fn,
       num_trajectories=n_trajectories,
       max_timestep=max_timestep,
       reset=reset,
