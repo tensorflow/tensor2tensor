@@ -198,11 +198,11 @@ class ReplayPolicy(object):
     del observations
 
     def get_action(traj):
+      action = None
       if self._step < traj.num_time_steps:
         action = traj.time_steps[self._step].action
-      else:
-        action = None
-      return action or self._out_of_bounds_action
+        # PS: action can still be None, if this is the last time-step in traj.
+      return action if action is not None else self._out_of_bounds_action
     actions = np.array(list(map(get_action, self._trajectories)))
     self._step += 1
     return actions
