@@ -325,12 +325,9 @@ class T2TModel(base.Layer):
   def model_fn(self, features):
     # Fathom
     # Refer to https://github.com/tensorflow/tensor2tensor/issues/979.
-    # We need `use_resource=False` here
-    # and the old version of cast_grad in utils/optimize.py
-    # Without both of these changes, we are very slow with
-    # large word embeddings on the CPU.
-    #with tf.variable_scope(tf.get_variable_scope(), use_resource=True) as vs:
-    with tf.variable_scope(tf.get_variable_scope(), use_resource=False) as vs:
+    # We used to need `use_resource=False` here
+    # but we don't use word embeddings on the CPU anymore
+    with tf.variable_scope(tf.get_variable_scope(), use_resource=True) as vs:
       self._add_variable_scope("model_fn", vs)
       transformed_features = self.bottom(features)
 
@@ -1650,7 +1647,7 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
   """Create the metrics_fn that TPUEstimatorSpec expects."""
 
   metric_fns = []
-  eval_metrics = problem.eval_metrics()
+  eval_metrics = problem.eval_metric_fns(model_hparams)
 
   tm = problem.get_hparams(model_hparams).target_modality
   if isinstance(tm, dict):
