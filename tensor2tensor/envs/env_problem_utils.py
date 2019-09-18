@@ -72,6 +72,7 @@ def get_completed_trajectories_from_env(env,
 
 def play_env_problem_with_policy(env,
                                  policy_fun,
+                                 action_index_fn,
                                  num_trajectories=1,
                                  max_timestep=None,
                                  reset=True,
@@ -87,8 +88,10 @@ def play_env_problem_with_policy(env,
 
   Args:
     env: environment object, should be a subclass of env_problem.EnvProblem.
-    policy_fun: callable, taking in observations((B, T) + OBS) and returning
-      back log-probabilities (B, T, C, A).
+    policy_fun: callable, taking in observations((B, RT) + OBS) and returning
+      back log-probabilities (B, AT, A).
+    action_index_fn: function converting timestep indices into indices in the
+      log-probability array.
     num_trajectories: int, number of trajectories to collect.
     max_timestep: int or None, if not None or a negative number, we cut any
       trajectory that exceeds this time put it in the completed bin, and *dont*
@@ -141,13 +144,13 @@ def play_env_problem_with_policy(env,
       return None, 0, {}, state
 
     # Get all the observations for all the active trajectories.
-    # Shape is (B, T) + OBS
+    # Shape is (B, RT) + OBS
     # Bucket on whatever length is needed.
     padded_observations, lengths = env.trajectories.observations_np(
         boundary=boundary,
         len_history_for_policy=len_history_for_policy)
 
-    B, T = padded_observations.shape[:2]  # pylint: disable=invalid-name
+    B = padded_observations.shape[0]  # pylint: disable=invalid-name
 
     assert B == env.batch_size
     assert (B,) == lengths.shape
@@ -157,22 +160,22 @@ def play_env_problem_with_policy(env,
         padded_observations, state=state, rng=rng)
     policy_application_total_time += (time.time() - t1)
 
-    assert (B, T) == log_prob_actions.shape[:2]
-    C = log_prob_actions.shape[2]  # pylint: disable=invalid-name
-    A = log_prob_actions.shape[3]  # pylint: disable=invalid-name
+    assert B == log_prob_actions.shape[0]
+    (_, A) = log_prob_actions.shape[1:]  # pylint: disable=invalid-name
 
     # We need the log_probs of those actions that correspond to the last actual
     # time-step.
     index = lengths - 1  # Since we want to index using lengths.
-    log_probs = log_prob_actions[np.arange(B)[:, None, None],
-                                 index[:, None, None],
-                                 np.arange(C)[:, None], np.arange(A)]
-    value_preds = value_predictions[np.arange(B)[:, None], index[:, None],
-                                    np.arange(1)]
-    assert (B, C, A) == log_probs.shape, \
-        "B=%d, C=%d, A=%d, log_probs.shape=%s" % (B, C, A, log_probs.shape)
-    assert (B, 1) == value_preds.shape, \
-        "B=%d, value_preds.shape=%s" % (B, value_preds.shape)
+    pred_index = action_index_fn(index)
+    log_probs = log_prob_actions[
+        np.arange(B)[:, None, None],
+        pred_index[:, :, None],
+        np.arange(A),
+    ]
+    value_preds = value_predictions[np.arange(B)[:, None], pred_index]
+
+    assert B == log_probs.shape[0]
+    assert A == log_probs.shape[2]
 
     actions = gumbel_sample(log_probs)
     if isinstance(env.action_space, gym.spaces.Discrete):
@@ -184,7 +187,7 @@ def play_env_problem_with_policy(env,
         actions,
         infos={
             "log_prob_actions": log_probs,
-            "value_predictions": value_preds
+            "value_predictions": value_preds,
         })
     env_actions_total_time += (time.time() - t1)
     bare_env_run_time += sum(

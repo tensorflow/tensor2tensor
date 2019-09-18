@@ -64,7 +64,7 @@ class PPO(base_trainer.BaseTrainer):
                print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
                target_kl=0.01,
                boundary=20,
-               max_timestep=None,
+               max_timestep=100,
                max_timestep_eval=20000,
                random_seed=None,
                gamma=GAMMA,
@@ -202,6 +202,22 @@ class PPO(base_trainer.BaseTrainer):
       logging.info("Saving model on startup to have a model policy file.")
       self.save()
 
+    if isinstance(self.train_env.action_space, gym.spaces.Discrete):
+      n_controls = 1
+    else:
+      n_controls = len(self.train_env.action_space.nvec)
+
+    # Linear map from the reward sequence to the action sequence, used for
+    # scattering advantages over action log-probs and some other things.
+    # It has one more timestep at the and, so it's compatible with the value
+    # predictions.
+    rewards_to_actions = np.eye(max_timestep + 1)[:, None, :]
+    rewards_to_actions = np.broadcast_to(
+        rewards_to_actions, (max_timestep + 1, n_controls, max_timestep + 1)
+    )
+    rewards_to_actions = np.reshape(rewards_to_actions, (max_timestep + 1, -1))
+    self._rewards_to_actions = rewards_to_actions
+
   # Maybe restore the optimization state. If there is nothing to restore, then
   # epoch = 0 and policy_and_value_opt_state is returned as is.
   def update_optimization_state(self,
@@ -309,6 +325,7 @@ class PPO(base_trainer.BaseTrainer):
       trajs, n_done, timing_info, self._model_state = ppo.collect_trajectories(
           env,
           policy_fn=self._get_predictions,
+          action_index_fn=self._action_index_fn,
           n_trajectories=n_trajectories,
           max_timestep=max_timestep,
           state=self._model_state,
@@ -373,42 +390,47 @@ class PPO(base_trainer.BaseTrainer):
                  min(len(traj[0]) for traj in trajs))
     logging.vlog(2, "Trajectory Lengths: %s", [len(traj[0]) for traj in trajs])
 
-    padding_start_time = time.time()
-    (_, reward_mask, padded_observations, padded_actions, padded_rewards,
-     padded_infos) = ppo.pad_trajectories(
-         trajs, boundary=self._boundary)
-    padding_time = ppo.get_time(padding_start_time)
+    preprocessing_start_time = time.time()
+    (padded_observations, padded_actions, padded_rewards, reward_mask,
+     padded_infos) = self._preprocess_trajectories(trajs)
+    preprocessing_time = ppo.get_time(preprocessing_start_time)
 
-    logging.vlog(1, "Padding trajectories took %0.2f msec.",
-                 ppo.get_time(padding_start_time))
+    logging.vlog(1, "Preprocessing trajectories took %0.2f msec.",
+                 ppo.get_time(preprocessing_start_time))
     logging.vlog(1, "Padded Observations' shape [%s]",
                  str(padded_observations.shape))
     logging.vlog(1, "Padded Actions' shape [%s]", str(padded_actions.shape))
     logging.vlog(1, "Padded Rewards' shape [%s]", str(padded_rewards.shape))
 
-    if padded_actions.ndim == 2:
-      # Add control axis.
-      padded_actions = np.expand_dims(padded_actions, axis=-1)
-
     # Some assertions.
-    B, T, C = padded_actions.shape  # pylint: disable=invalid-name
-    assert (B, T) == padded_rewards.shape
-    assert (B, T) == reward_mask.shape
-    assert (B, T + 1) == padded_observations.shape[:2]
-    assert ((B, T + 1) +
-            self.train_env.observation_space.shape == padded_observations.shape)
+    B, RT = padded_rewards.shape  # pylint: disable=invalid-name
+    B, AT = padded_actions.shape  # pylint: disable=invalid-name
+    assert (B, RT) == reward_mask.shape
+    assert B == padded_observations.shape[0]
+    assert (
+        self.train_env.observation_space.shape == padded_observations.shape[2:]
+    )
 
     log_prob_recompute_start_time = time.time()
-    assert ("log_prob_actions" in padded_infos and
-            "value_predictions" in padded_infos)
+    # TODO(pkozakowski): The following commented out code collects the network
+    # predictions made while stepping the environment and uses them in PPO
+    # training, so that we can use non-deterministic networks (e.g. with
+    # dropout). This does not work well with serialization, so instead we
+    # recompute all network predictions. Let's figure out a solution that will
+    # work with both serialized sequences and non-deterministic networks.
+
+    # assert ("log_prob_actions" in padded_infos and
+    #         "value_predictions" in padded_infos)
     # These are the actual log-probabs and value predictions seen while picking
     # the actions.
-    actual_log_probabs_traj = padded_infos["log_prob_actions"]
-    actual_value_predictions_traj = padded_infos["value_predictions"]
+    # actual_log_probabs_traj = padded_infos["log_prob_actions"]
+    # actual_value_predictions_traj = padded_infos["value_predictions"]
 
-    assert (B, T, C) == actual_log_probabs_traj.shape[:3]
-    A = actual_log_probabs_traj.shape[3]  # pylint: disable=invalid-name
-    assert (B, T, 1) == actual_value_predictions_traj.shape
+    # assert (B, T, C) == actual_log_probabs_traj.shape[:3]
+    # A = actual_log_probabs_traj.shape[3]  # pylint: disable=invalid-name
+    # assert (B, T, 1) == actual_value_predictions_traj.shape
+
+    del padded_infos
 
     # TODO(afrozm): log-probabs doesn't need to be (B, T+1, C, A) it can do with
     # (B, T, C, A), so make that change throughout.
@@ -421,16 +443,18 @@ class PPO(base_trainer.BaseTrainer):
     log_probabs_traj, value_predictions_traj, self._model_state, _ = (
         self._get_predictions(padded_observations, self._model_state, rng=key))
 
-    assert (B, T + 1, C, A) == log_probabs_traj.shape
-    assert (B, T + 1, 1) == value_predictions_traj.shape
+    assert (B, AT) == log_probabs_traj.shape[:2]
+    assert (B, AT) == value_predictions_traj.shape
+
+    # TODO(pkozakowski): Commented out for the same reason as before.
 
     # Concatenate the last time-step's log-probabs and value predictions to the
     # actual log-probabs and value predictions and use those going forward.
-    log_probabs_traj = np.concatenate(
-        (actual_log_probabs_traj, log_probabs_traj[:, -1:, :]), axis=1)
-    value_predictions_traj = np.concatenate(
-        (actual_value_predictions_traj, value_predictions_traj[:, -1:, :]),
-        axis=1)
+    # log_probabs_traj = np.concatenate(
+    #     (actual_log_probabs_traj, log_probabs_traj[:, -1:, :]), axis=1)
+    # value_predictions_traj = np.concatenate(
+    #     (actual_value_predictions_traj, value_predictions_traj[:, -1:, :]),
+    #     axis=1)
 
     log_prob_recompute_time = ppo.get_time(log_prob_recompute_start_time)
 
@@ -446,6 +470,7 @@ class PPO(base_trainer.BaseTrainer):
             self._policy_and_value_net_apply,
             padded_observations,
             padded_actions,
+            self._rewards_to_actions,
             padded_rewards,
             reward_mask,
             gamma=self._gamma,
@@ -490,6 +515,7 @@ class PPO(base_trainer.BaseTrainer):
               value_predictions_traj,
               padded_observations,
               padded_actions,
+              self._rewards_to_actions,
               padded_rewards,
               reward_mask,
               c1=self._c1,
@@ -509,8 +535,11 @@ class PPO(base_trainer.BaseTrainer):
               self._model_state,
               rng=k2))
 
+      action_mask = np.dot(
+          np.pad(reward_mask, ((0, 0), (0, 1))), self._rewards_to_actions
+      )
       approx_kl = ppo.approximate_kl(log_probab_actions_new, log_probabs_traj,
-                                     reward_mask)
+                                     action_mask)
 
       early_stopping = approx_kl > 1.5 * self._target_kl
       if early_stopping:
@@ -532,6 +561,7 @@ class PPO(base_trainer.BaseTrainer):
                 self._policy_and_value_net_apply,
                 padded_observations,
                 padded_actions,
+                self._rewards_to_actions,
                 padded_rewards,
                 reward_mask,
                 gamma=self._gamma,
@@ -594,7 +624,7 @@ class PPO(base_trainer.BaseTrainer):
         "epoch": epoch_time,
         "policy_eval": policy_eval_time,
         "trajectory_collection": trajectory_collection_time,
-        "padding": padding_time,
+        "preprocessing": preprocessing_time,
         "log_prob_recompute": log_prob_recompute_time,
         "loss_compute": loss_compute_time,
         "optimization": optimization_time,
@@ -675,6 +705,16 @@ class PPO(base_trainer.BaseTrainer):
   def _policy_and_value_net_params(self):
     return self._policy_and_value_get_params(self._policy_and_value_opt_state)
 
+  # Prepares the trajectories for policy training.
+  def _preprocess_trajectories(self, trajectories):
+    (_, reward_mask, observations, actions, rewards,
+     infos) = ppo.pad_trajectories(trajectories, boundary=self._max_timestep)
+    # Add one timestep at the end, so it's compatible with
+    # self._rewards_to_actions.
+    actions = np.pad(actions, ((0, 0), (0, 1)) + ((0, 0),) * (actions.ndim - 2))
+    actions = np.reshape(actions, (actions.shape[0], -1))
+    return (observations, actions, rewards, reward_mask, infos)
+
   # A function to get the policy and value predictions.
   def _get_predictions(self, observations, state, rng=None):
     """Returns log-probs, value predictions and key back."""
@@ -684,3 +724,16 @@ class PPO(base_trainer.BaseTrainer):
         observations, self._policy_and_value_net_params, state, rng=key1)
 
     return log_probs, value_preds, state, key
+
+  def _action_index_fn(self, index):
+    # Project the one-hot position in the reward sequence onto the action
+    # sequence to figure out which actions correspond to that position.
+    one_hot_index = np.eye(self._rewards_to_actions.shape[0])[index]
+    action_mask = np.dot(one_hot_index, self._rewards_to_actions)
+    # Compute the number of symbols in an action. It's just the number of 1s in
+    # the mask.
+    action_length = int(np.sum(action_mask[0]))
+    # Argmax stops on the first occurrence, so we use it to find the first 1 in
+    # the mask.
+    action_start_index = np.argmax(action_mask, axis=1)
+    return action_start_index[:, None] + np.arange(action_length)[None, :]

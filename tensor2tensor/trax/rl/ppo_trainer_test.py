@@ -104,7 +104,7 @@ class PpoTrainerTest(test.TestCase):
               d_ff=1,
               n_layers=1,
               n_heads=1,
-              max_len=64,
+              max_len=128,
               mode="train",
           ),
       )

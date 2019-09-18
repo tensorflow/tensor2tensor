@@ -62,16 +62,20 @@ class EnvProblemUtilsTest(tf.test.TestCase):
       self.assertFalse(
           np.all(observations[:, :len_history_for_policy, ...] == 0))
       a = env.action_space.n
-      p = np.random.uniform(size=(b, t, 1, a))
+      p = np.random.uniform(size=(b, t, a))
       p = np.exp(p)
       p = p / np.sum(p, axis=-1, keepdims=True)
       return np.log(p), np.mean(p, axis=-1), state, rng
+
+    def action_index_fn(index):
+      return index[:, None]
 
     max_timestep = 15
     num_trajectories = 2
     trajectories, _, _, _ = env_problem_utils.play_env_problem_with_policy(
         env,
         policy_fun,
+        action_index_fn=action_index_fn,
         num_trajectories=num_trajectories,
         max_timestep=max_timestep,
         len_history_for_policy=len_history_for_policy)

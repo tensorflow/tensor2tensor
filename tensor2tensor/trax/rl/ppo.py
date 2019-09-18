@@ -17,19 +17,20 @@
 
 Notation:
 
-B, scalar  - batch size
-T, scalar  - number of time-steps in a trajectory, or the value of the padded
-             time-step dimension.
-OBS, tuple - shape of a singular observation from the environment.
+B, scalar   - batch size
+RT, scalar  - (reward time) number of time-steps in a trajectory, or the size
+              of the padded reward sequence.
+AT, scalar  - (action time) number of controls in a trajectory, or the size
+              of the policy network output.
+OBS, tuple  - shape of a singular observation from the environment.
              Ex: For CartPole-v0 this is (4,) and Pong-v0 it's (210, 160, 3)
-C, scalar  - Number of controls, i.e. independent groups of actions.
-A, scalar  - Number of actions, assuming a discrete space.
+A, scalar   - Number of actions, assuming a discrete space.
 
 Policy and Value function signatures:
 
-Policy            Function :: [B, T] + OBS ->  [B, T, C, A]
-Value             Function :: [B, T] + OBS ->  [B, T, 1]
-Policy and Value  Function :: [B, T] + OBS -> ([B, T, C, A], [B, T, 1])
+Policy            Function :: [B, RT + 1] + OBS ->  [B, AT, A]
+Value             Function :: [B, RT + 1] + OBS ->  [B, AT]
+Policy and Value  Function :: [B, RT + 1] + OBS -> ([B, AT, A], [B, AT])
 
 i.e. the policy net should take a batch of *trajectories* and at each time-step
 in each batch deliver a probability distribution over actions.
@@ -80,9 +81,9 @@ def policy_and_value_net(n_actions, n_controls, bottom_layers_fn, two_towers):
   # NOTE: The LogSoftmax instead of the Softmax because of numerical stability.
 
   @tl.layer()
-  def SplitActions(x, **unused_kwargs):  # pylint: disable=invalid-name
-    """Splits logits for actions in different controls."""
-    return np.reshape(x, x.shape[:-1] + (n_controls, n_actions))
+  def FlattenControlsIntoTime(x, **unused_kwargs):  # pylint: disable=invalid-name
+    """Splits logits for actions in different controls and flattens controls."""
+    return np.reshape(x, (x.shape[0], -1, n_actions))
 
   n_logits = n_controls * n_actions
 
@@ -92,9 +93,9 @@ def policy_and_value_net(n_actions, n_controls, bottom_layers_fn, two_towers):
         tl.Parallel(
             [bottom_layers_fn(),
              tl.Dense(n_logits),
-             SplitActions(),  # pylint: disable=no-value-for-parameter
+             FlattenControlsIntoTime(),  # pylint: disable=no-value-for-parameter
              tl.LogSoftmax()],
-            [bottom_layers_fn(), tl.Dense(1)],
+            [bottom_layers_fn(), tl.Dense(n_controls), tl.Flatten()],
         )
     ]
   else:
@@ -103,9 +104,9 @@ def policy_and_value_net(n_actions, n_controls, bottom_layers_fn, two_towers):
         tl.Dup(),
         tl.Parallel(
             [tl.Dense(n_logits),
-             SplitActions(),  # pylint: disable=no-value-for-parameter
+             FlattenControlsIntoTime(),  # pylint: disable=no-value-for-parameter
              tl.LogSoftmax()],
-            [tl.Dense(1)],
+            [tl.Dense(n_controls), tl.Flatten()],
         )
     ]
   return tl.Model(layers)
@@ -148,6 +149,7 @@ def optimizer_fn(optimizer, net_params):
 # Any other option?
 def collect_trajectories(env,
                          policy_fn,
+                         action_index_fn,
                          n_trajectories=1,
                          max_timestep=None,
                          reset=True,
@@ -162,7 +164,9 @@ def collect_trajectories(env,
 
   Args:
     env: A gym env interface, for now this is not-batched.
-    policy_fn: observations(B,T+1) -> log-probabs(B,T+1, A) callable.
+    policy_fn: observations(B,RT+1) -> log-probabs(B, AT, A) callable.
+    action_index_fn: function converting timestep indices into indices in the
+      log-probability array.
     n_trajectories: int, number of trajectories.
     max_timestep: int or None, the index of the maximum time-step at which we
       return the trajectory, None for ending a trajectory only when env returns
@@ -187,7 +191,7 @@ def collect_trajectories(env,
     trajectory: list of (observation, action, reward) tuples, where each element
     `i` is a tuple of numpy arrays with shapes as follows:
     observation[i] = (B, T_i + 1)
-    action[i] = (B, T_i, C)
+    action[i] = (B, T_i)
     reward[i] = (B, T_i)
   """
 
@@ -196,6 +200,7 @@ def collect_trajectories(env,
   trajs, n_done, timing_info, state = env_problem_utils.play_env_problem_with_policy(
       env,
       policy_fn,
+      action_index_fn,
       num_trajectories=n_trajectories,
       max_timestep=max_timestep,
       reset=reset,
@@ -247,9 +252,9 @@ def pad_trajectories(trajectories, boundary=20):
 
   Returns:
     tuple: (padding lengths, reward_mask, padded_observations, padded_actions,
-        padded_rewards) where padded_observations is shaped (B, T+1) + OBS and
-        padded_actions, padded_rewards & reward_mask are shaped (B, T).
-        Where T is max(t) rounded up to an integer multiple of boundary.
+        padded_rewards) where padded_observations is shaped (B, RT+1) + OBS and
+        padded_actions, padded_rewards & reward_mask are shaped (B, RT).
+        Where RT is max(t) rounded up to an integer multiple of boundary.
         padded_length is how much padding we've added and
         reward_mask is 1s for actual rewards and 0s for the padding.
   """
@@ -332,16 +337,16 @@ def rewards_to_go(rewards, mask, gamma=0.99):
   r2g_t = \sum_{l=0}^{\infty} (\gamma^{l} * reward_{t+l})
 
   Args:
-    rewards: np.ndarray of shape (B, T) of rewards.
-    mask: np.ndarray of shape (B, T) of mask for the rewards.
+    rewards: np.ndarray of shape (B, RT) of rewards.
+    mask: np.ndarray of shape (B, RT) of mask for the rewards.
     gamma: float, discount factor.
 
   Returns:
-    rewards to go, np.ndarray of shape (B, T).
+    rewards to go, np.ndarray of shape (B, RT).
   """
-  B, T = rewards.shape  # pylint: disable=invalid-name,unused-variable
+  B, RT = rewards.shape  # pylint: disable=invalid-name,unused-variable
 
-  masked_rewards = rewards * mask  # (B, T)
+  masked_rewards = rewards * mask  # (B, RT)
 
   # The lax.scan version of this is slow, but we still show it here for
   # completeness.
@@ -379,14 +384,14 @@ def rewards_to_go(rewards, mask, gamma=0.99):
   r2gs = [masked_rewards[:, -1]]
 
   # Go from T-2 down to 0.
-  for t in reversed(range(T - 1)):
+  for t in reversed(range(RT - 1)):
     r2gs.append(masked_rewards[:, t] + (gamma * r2gs[-1]))
 
-  # The list should have length T.
-  assert T == len(r2gs)
+  # The list should have length RT.
+  assert RT == len(r2gs)
 
-  # First we stack them in the correct way to make it (B, T), but these are
-  # still from newest (T-1) to oldest (0), so then we flip it on time axis.
+  # First we stack them in the correct way to make it (B, RT), but these are
+  # still from newest (RT-1) to oldest (0), so then we flip it on time axis.
   return np.flip(np.stack(r2gs, axis=1), axis=1)
 
 
@@ -400,12 +405,12 @@ def value_loss_given_predictions(value_prediction,
   """Computes the value loss given the prediction of the value function.
 
   Args:
-    value_prediction: np.ndarray of shape (B, T+1, 1)
-    rewards: np.ndarray of shape (B, T) of rewards.
-    reward_mask: np.ndarray of shape (B, T), the mask over rewards.
+    value_prediction: np.ndarray of shape (B, RT+1, 1)
+    rewards: np.ndarray of shape (B, RT) of rewards.
+    reward_mask: np.ndarray of shape (B, RT), the mask over rewards.
     gamma: float, discount factor.
     epsilon: float, clip-fraction, used if value_value_prediction_old isn't None
-    value_prediction_old: np.ndarray of shape (B, T+1, 1) of value predictions
+    value_prediction_old: np.ndarray of shape (B, RT+1, 1) of value predictions
       using the old parameters. If provided, we incorporate this in the loss as
       well. This is from the OpenAI baselines implementation.
 
@@ -415,19 +420,17 @@ def value_loss_given_predictions(value_prediction,
       summaries collected during value loss computation.
   """
 
-  B, T = rewards.shape  # pylint: disable=invalid-name
-  assert (B, T) == reward_mask.shape
-  assert (B, T + 1, 1) == value_prediction.shape
+  B, RT = rewards.shape  # pylint: disable=invalid-name
+  assert (B, RT) == reward_mask.shape
+  assert (B, RT + 1) == value_prediction.shape
 
-  value_prediction = np.squeeze(value_prediction, axis=2)  # (B, T+1)
-  value_prediction = value_prediction[:, :-1] * reward_mask  # (B, T)
-  r2g = rewards_to_go(rewards, reward_mask, gamma=gamma)  # (B, T)
+  value_prediction = value_prediction[:, :-1] * reward_mask  # (B, RT)
+  r2g = rewards_to_go(rewards, reward_mask, gamma=gamma)  # (B, RT)
   loss = (value_prediction - r2g)**2
 
   # From the baselines implementation.
   if value_prediction_old is not None:
-    value_prediction_old = np.squeeze(value_prediction_old, axis=2)  # (B, T+1)
-    value_prediction_old = value_prediction_old[:, :-1] * reward_mask  # (B, T)
+    value_prediction_old = value_prediction_old[:, :-1] * reward_mask  # (B, RT)
 
     v_clipped = value_prediction_old + np.clip(
         value_prediction - value_prediction_old, -epsilon, epsilon)
@@ -452,19 +455,19 @@ def deltas(predicted_values, rewards, mask, gamma=0.99):
   delta_{b,t} = r_{b,t} + \gamma * v_{b,t+1} - v_{b,t}.
 
   Args:
-    predicted_values: ndarray of shape (B, T+1). NOTE: Expects axis 2 was
-      squeezed. These represent V(s_bt) for b < B and t < T+1
-    rewards: ndarray of shape (B, T) of rewards.
-    mask: ndarray of shape (B, T) of mask for rewards.
+    predicted_values: ndarray of shape (B, RT+1). NOTE: Expects axis 2 was
+      squeezed. These represent V(s_bt) for b < B and t < RT+1
+    rewards: ndarray of shape (B, RT) of rewards.
+    mask: ndarray of shape (B, RT) of mask for rewards.
     gamma: float, discount factor.
 
   Returns:
-    ndarray of shape (B, T) of one-step TD-residuals.
+    ndarray of shape (B, RT) of one-step TD-residuals.
   """
 
-  # Predicted values at time t, cutting off the last to have shape (B, T).
+  # Predicted values at time t, cutting off the last to have shape (B, RT).
   predicted_values_bt = predicted_values[:, :-1]
-  # Predicted values at time t+1, by cutting off the first to have shape (B, T)
+  # Predicted values at time t+1, by cutting off the first to have shape (B, RT)
   predicted_values_btplus1 = predicted_values[:, 1:]
   # Return the deltas as defined above.
   return (rewards +
@@ -481,7 +484,7 @@ def gae_advantages(td_deltas, mask, lambda_=0.95, gamma=0.99):
   Internally we just call rewards_to_go, since it is the same computation.
 
   Args:
-    td_deltas: np.ndarray of shape (B, T) of one step TD-residuals.
+    td_deltas: np.ndarray of shape (B, RT) of one step TD-residuals.
     mask: np.ndarray of shape (B, T) of mask for the residuals. It maybe the
       case that the `td_deltas` are already masked correctly since they are
       produced by `deltas(...)`
@@ -499,52 +502,51 @@ def chosen_probabs(probab_actions, actions):
   """Picks out the probabilities of the actions along batch and time-steps.
 
   Args:
-    probab_actions: ndarray of shape `[B, T+1, C, A]`, where
+    probab_actions: ndarray of shape `[B, AT, A]`, where
       probab_actions[b, t, i] contains the log-probability of action = i at
       the t^th time-step in the b^th trajectory.
-    actions: ndarray of shape `[B, T, C]`, with each entry in [0, A) denoting
+    actions: ndarray of shape `[B, AT]`, with each entry in [0, A) denoting
       which action was chosen in the b^th trajectory's t^th time-step.
 
   Returns:
-    `[B, T, C]` ndarray with the log-probabilities of the chosen actions.
+    `[B, AT, A]` ndarray with the log-probabilities of the chosen actions.
   """
-  B, T, C = actions.shape  # pylint: disable=invalid-name
-  assert (B, T + 1, C) == probab_actions.shape[:3]
-  return probab_actions[
-      np.arange(B)[:, None, None], np.arange(T)[:, None], np.arange(C), actions]
+  B, AT = actions.shape  # pylint: disable=invalid-name
+  assert (B, AT) == probab_actions.shape[:2]
+  return probab_actions[np.arange(B)[:, None], np.arange(AT), actions]
 
 
-def compute_probab_ratios(p_new, p_old, actions, reward_mask):
+def compute_probab_ratios(p_new, p_old, actions, action_mask):
   """Computes the probability ratios for each time-step in a trajectory.
 
   Args:
-    p_new: ndarray of shape [B, T+1, C, A] of the log-probabilities that the
+    p_new: ndarray of shape [B, AT, A] of the log-probabilities that the
       policy network assigns to all the actions at each time-step in each batch
       using the old parameters.
-    p_old: ndarray of shape [B, T+1, C, A], same as above, but using old policy
+    p_old: ndarray of shape [B, AT, A], same as above, but using old policy
       network parameters.
-    actions: ndarray of shape [B, T, C] where each element is from [0, A).
-    reward_mask: ndarray of shape [B, T] masking over probabilities.
+    actions: ndarray of shape [B, AT] where each element is from [0, A).
+    action_mask: ndarray of shape [B, T] masking over probabilities.
 
   Returns:
-    probab_ratios: ndarray of shape [B, T, C], where
-    probab_ratios_{b,t, c} = p_new_{b,t,c,action_{b,t,c}} /
-                             p_old_{b,t,c,action_{b,t,c}}
+    probab_ratios: ndarray of shape [B, AT], where
+    probab_ratios_{b,t,} = p_new_{b,t,action_{b,t}} /
+                           p_old_{b,t,action_{b,t}}
   """
 
-  B, T, C = actions.shape  # pylint: disable=invalid-name
-  assert (B, T + 1, C) == p_old.shape[:3]
-  assert (B, T + 1, C) == p_new.shape[:3]
+  B, AT = actions.shape  # pylint: disable=invalid-name
+  assert (B, AT) == p_old.shape[:2]
+  assert (B, AT) == p_new.shape[:2]
 
   logp_old = chosen_probabs(p_old, actions)
   logp_new = chosen_probabs(p_new, actions)
 
-  assert (B, T, C) == logp_old.shape
-  assert (B, T, C) == logp_new.shape
+  assert (B, AT) == logp_old.shape
+  assert (B, AT) == logp_new.shape
 
   # Since these are log-probabilities, we just subtract them.
-  probab_ratios = np.exp(logp_new - logp_old) * reward_mask[:, :, None]
-  assert (B, T, C) == probab_ratios.shape
+  probab_ratios = np.exp(logp_new - logp_old) * action_mask
+  assert (B, AT) == probab_ratios.shape
   return probab_ratios
 
 
@@ -552,12 +554,12 @@ def clipped_probab_ratios(probab_ratios, epsilon=0.2):
   return np.clip(probab_ratios, 1 - epsilon, 1 + epsilon)
 
 
-def clipped_objective(probab_ratios, advantages, reward_mask, epsilon=0.2):
-  advantages = advantages[:, :, None]
+def clipped_objective(probab_ratios, advantages, action_mask, epsilon=0.2):
+  advantages = advantages
   return np.minimum(
       probab_ratios * advantages,
       clipped_probab_ratios(probab_ratios, epsilon=epsilon) *
-      advantages) * reward_mask[:, :, None]
+      advantages) * action_mask
 
 
 @jit
@@ -565,31 +567,34 @@ def ppo_loss_given_predictions(log_probab_actions_new,
                                log_probab_actions_old,
                                value_predictions_old,
                                padded_actions,
+                               rewards_to_actions,
                                padded_rewards,
                                reward_mask,
                                gamma=0.99,
                                lambda_=0.95,
                                epsilon=0.2):
   """PPO objective, with an eventual minus sign, given predictions."""
-  B, T = padded_rewards.shape  # pylint: disable=invalid-name
-  _, _, C, A = log_probab_actions_old.shape  # pylint: disable=invalid-name
+  B, RT = padded_rewards.shape  # pylint: disable=invalid-name
+  _, AT, A = log_probab_actions_old.shape  # pylint: disable=invalid-name
 
-  assert (B, T) == padded_rewards.shape
-  assert (B, T, C) == padded_actions.shape
-  assert (B, T) == reward_mask.shape
+  assert (B, RT) == padded_rewards.shape
+  assert (B, AT) == padded_actions.shape
+  assert (B, RT) == reward_mask.shape
 
-  assert (B, T + 1, 1) == value_predictions_old.shape
-  assert (B, T + 1, C, A) == log_probab_actions_old.shape
-  assert (B, T + 1, C, A) == log_probab_actions_new.shape
+  assert (B, RT + 1) == value_predictions_old.shape
+  assert (B, AT, A) == log_probab_actions_old.shape
+  assert (B, AT, A) == log_probab_actions_new.shape
 
-  # (B, T)
+  assert (RT + 1, AT) == rewards_to_actions.shape
+
+  # (B, RT)
   td_deltas = deltas(
-      np.squeeze(value_predictions_old, axis=2),  # (B, T+1)
+      value_predictions_old,  # (B, RT+1)
       padded_rewards,
       reward_mask,
       gamma=gamma)
 
-  # (B, T)
+  # (B, RT)
   advantages = gae_advantages(
       td_deltas, reward_mask, lambda_=lambda_, gamma=gamma)
 
@@ -598,18 +603,26 @@ def ppo_loss_given_predictions(log_probab_actions_new,
   advantage_std = np.std(advantages)
   advantages = (advantages - advantage_mean) / (advantage_std + 1e-8)
 
-  # (B, T)
-  ratios = compute_probab_ratios(log_probab_actions_new, log_probab_actions_old,
-                                 padded_actions, reward_mask)
-  assert (B, T, C) == ratios.shape
+  # Scatter advantages over padded_actions.
+  # rewards_to_actions is RT + 1 -> AT, so we pad the advantages and the reward
+  # mask by 1.
+  advantages = np.dot(np.pad(advantages, ((0, 0), (0, 1))), rewards_to_actions)
+  action_mask = np.dot(
+      np.pad(reward_mask, ((0, 0), (0, 1))), rewards_to_actions
+  )
 
-  # (B, T)
+  # (B, AT)
+  ratios = compute_probab_ratios(log_probab_actions_new, log_probab_actions_old,
+                                 padded_actions, action_mask)
+  assert (B, AT) == ratios.shape
+
+  # (B, AT)
   objective = clipped_objective(
-      ratios, advantages, reward_mask, epsilon=epsilon)
-  assert (B, T, C) == objective.shape
+      ratios, advantages, action_mask, epsilon=epsilon)
+  assert (B, AT) == objective.shape
 
   # ()
-  average_objective = np.sum(objective) / np.sum(reward_mask)
+  average_objective = np.sum(objective) / np.sum(action_mask)
 
   # Loss is negative objective.
   ppo_loss = -average_objective
@@ -629,6 +642,7 @@ def combined_loss_given_predictions(log_probab_actions_new,
                                     value_prediction_new,
                                     value_prediction_old,
                                     padded_actions,
+                                    rewards_to_actions,
                                     padded_rewards,
                                     reward_mask,
                                     gamma=0.99,
@@ -637,6 +651,14 @@ def combined_loss_given_predictions(log_probab_actions_new,
                                     c1=1.0,
                                     c2=0.01):
   """Computes the combined (clipped loss + value loss) given predictions."""
+  # Sum values over symbols in an action's representation, because it's a simple
+  # way of going from AT to RT+1 and does not decrease the expressive power.
+  value_prediction_old = np.dot(
+      value_prediction_old, rewards_to_actions.transpose()
+  )
+  value_prediction_new = np.dot(
+      value_prediction_new, rewards_to_actions.transpose()
+  )
   (value_loss, value_summaries) = value_loss_given_predictions(
       value_prediction_new,
       padded_rewards,
@@ -649,12 +671,16 @@ def combined_loss_given_predictions(log_probab_actions_new,
       log_probab_actions_old,
       value_prediction_old,
       padded_actions,
+      rewards_to_actions,
       padded_rewards,
       reward_mask,
       gamma=gamma,
       lambda_=lambda_,
       epsilon=epsilon)
-  entropy_bonus = masked_entropy(log_probab_actions_new, reward_mask)
+  # Pad the reward mask to be compatible with rewards_to_actions.
+  padded_reward_mask = np.pad(reward_mask, ((0, 0), (0, 1)))
+  action_mask = np.dot(padded_reward_mask, rewards_to_actions)
+  entropy_bonus = masked_entropy(log_probab_actions_new, action_mask)
   combined_loss_ = ppo_loss + (c1 * value_loss) - (c2 * entropy_bonus)
 
   summaries = {
@@ -674,6 +700,7 @@ def combined_loss(new_params,
                   policy_and_value_net_apply,
                   padded_observations,
                   padded_actions,
+                  rewards_to_actions,
                   padded_rewards,
                   reward_mask,
                   gamma=0.99,
@@ -694,6 +721,7 @@ def combined_loss(new_params,
       value_predictions_new,
       value_predictions_old,
       padded_actions,
+      rewards_to_actions,
       padded_rewards,
       reward_mask,
       gamma=gamma,
@@ -715,6 +743,7 @@ def policy_and_value_opt_step(i,
                               value_predictions_old,
                               padded_observations,
                               padded_actions,
+                              rewards_to_actions,
                               padded_rewards,
                               reward_mask,
                               c1=1.0,
@@ -736,6 +765,7 @@ def policy_and_value_opt_step(i,
         policy_and_value_net_apply,
         padded_observations,
         padded_actions,
+        rewards_to_actions,
         padded_rewards,
         reward_mask,
         c1=c1,
@@ -763,18 +793,16 @@ def approximate_kl(log_prob_new, log_prob_old, mask):
   """Computes the approximate KL divergence between the old and new log-probs.
 
   Args:
-    log_prob_new: (B, T+1, C, A) log probs new
-    log_prob_old: (B, T+1, C, A) log probs old
-    mask: (B, T)
+    log_prob_new: (B, AT, A) log probs new
+    log_prob_old: (B, AT, A) log probs old
+    mask: (B, AT)
 
   Returns:
     Approximate KL.
   """
   diff = log_prob_old - log_prob_new
-  # Cut the last time-step out.
-  diff = diff[:, :-1]
   # Mask out the irrelevant part.
-  diff *= mask[:, :, np.newaxis, np.newaxis]  # make mask (B, T, 1, 1)
+  diff *= mask[:, :, np.newaxis]  # make mask (B, RT, 1)
   # Average on non-masked part.
   return np.sum(diff) / np.sum(mask)
 
@@ -783,17 +811,15 @@ def masked_entropy(log_probs, mask):
   """Computes the entropy for the given log-probs.
 
   Args:
-    log_probs: (B, T+1, C, A) log probs
-    mask: (B, T) mask.
+    log_probs: (B, AT, A) log probs
+    mask: (B, AT) mask.
 
   Returns:
     Entropy.
   """
-  # Cut the last time-step out.
-  lp = log_probs[:, :-1]
   # Mask out the irrelevant part.
-  lp *= mask[:, :, np.newaxis, np.newaxis]  # make mask (B, T, 1, 1)
-  p = np.exp(lp) * mask[:, :, np.newaxis, np.newaxis]  # (B, T, 1, 1)
+  lp = log_probs * mask[:, :, np.newaxis]  # make mask (B, RT, 1)
+  p = np.exp(lp) * mask[:, :, np.newaxis]  # (B, RT, 1)
   # Average on non-masked part and take negative.
   return -(np.sum(lp * p) / np.sum(mask))
 
