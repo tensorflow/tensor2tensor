@@ -640,6 +640,8 @@ class SubwordTextEncoder(TextEncoder):
         self._subtoken_string_to_id[subtoken]
         for subtoken in self._escaped_token_to_subtoken_strings(escaped_token)
     ]
+  def get_subtokens_by_ids(self, ids):
+    return [self._subtoken_id_to_subtoken_string(idx) for idx in ids]
 
   @classmethod
   def build_from_generator(cls,
