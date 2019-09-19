@@ -717,6 +717,28 @@ class Trainer(object):
   def print_n_params(self):
     _print_n_params(self._opt_state, self._n_devices, self._step)
 
+  def _map_to_state_dicts(self, f):
+    """Map the function f to all dicts in model state."""
+    def nested_map(x, f):
+      if isinstance(x, list):
+        return [nested_map(y, f) for y in x]
+      if isinstance(x, tuple):
+        return tuple([nested_map(y, f) for y in x])
+      if isinstance(x, dict) and len(x) == 1:
+        return f(x)
+      return x
+    return nested_map(self._model_state, f)
+
+  def _state_dicts_update(self, state_dict):
+    assert len(state_dict.keys()) == 1
+    key = list(state_dict.keys())[0]
+    value = np.array(state_dict[key])
+    return {key: np.array(self.update_model_state(key, value))}
+
+  def update_model_state(self, key, value):
+    del key
+    return value
+
   def _train_step(self, next_train_batch):
     """Run one training step and update self._opt_state."""
     # Calculate the current learning rate.
@@ -729,6 +751,7 @@ class Trainer(object):
     # Run the update.
     (params, slots), self._model_state, self._rngs = self._jit_update_fn(
         self._step, opt_state, next_train_batch, self._model_state, self._rngs)
+    self._model_state = self._map_to_state_dicts(self._state_dicts_update)
     self._opt_state = opt_state._replace(params=params, slots=slots)
     self._step += 1
 

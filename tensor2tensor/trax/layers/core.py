@@ -168,22 +168,37 @@ def Flatten(x, params, n_axes_to_keep=1, **kwargs):
   return np.reshape(x, (x.shape[:n_axes_to_keep] + (-1,)))
 
 
-@base.layer()
-def Dropout(x, params, rate=0.0, mode='train', rng=None, **kwargs):
-  """Layer construction function for a dropout layer with given rate."""
-  del params, kwargs
-  if rng is None:
-    msg = ('Dropout layer requires apply_fn to be called with a rng keyword '
-           'argument. That is, instead of `Dropout(params, inputs)`, call '
-           'it like `Dropout(params, inputs, rng=key)`.')
-    raise ValueError(msg)
-  if rate >= 1.0:
-    raise ValueError('Dropout rate (%f) must be lower than 1.' % rate)
-  if mode == 'train' and rate > 0.0:
+class Dropout(base.Layer):
+  """Dropout."""
+
+  def __init__(self, rate=0.0, name='dropout', mode='train'):
+    super(Dropout, self).__init__()
+    self._initial_rate = rate
+    # TODO(lukaszkaiser): remove the name property by the end of September'19.
+    # It's only needed for a specific purpose in the short term, will go.
+    self._name = 'dropout_' + name
+    self._mode = mode
+
+  def new_parameters(self, input_shape, input_dtype, rng):
+    """Initialize dropout parameters and state."""
+    del input_shape, input_dtype, rng
+    return (), {self._name: np.array(self._initial_rate)}
+
+  def call(self, x, params, state, rng=None, **unused_kwargs):
+    """Execute dropout."""
+    del params
+    rate = self._initial_rate
+    if isinstance(state, dict) and self._name in state:
+      rate = state[self._name]
+    if rng is None:
+      msg = ('Dropout layer requires apply_fn to be called with a rng keyword '
+             'argument. That is, instead of `Dropout(params, inputs)`, call '
+             'it like `Dropout(params, inputs, rng=key)`.')
+      raise ValueError(msg)
+    if self._mode != 'train':
+      return x, state
     keep = backend.random.bernoulli(rng, 1.0 - rate, x.shape)
-    return np.where(keep, x / (1.0 - rate), np.zeros_like(x))
-  else:
-    return x
+    return np.where(keep, x / (1.0 - rate), np.zeros_like(x)), state
 
 
 @base.layer()
