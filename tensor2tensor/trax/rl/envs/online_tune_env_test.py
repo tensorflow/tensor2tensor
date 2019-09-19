@@ -51,7 +51,7 @@ class MockTrainer(trax.Trainer):
 
   def train_epoch(self, epoch_steps, eval_steps):
     del epoch_steps
-    self.controls.append(self.optimizer_params)
+    self.controls.append(self.nontrainable_params)
     self.evaluate(eval_steps)
 
   def evaluate(self, eval_steps):
@@ -61,7 +61,7 @@ class MockTrainer(trax.Trainer):
         metric=METRIC,
         step=self.step,
         value=self.metrics_to_report.pop(0))
-    for (name, value) in self.optimizer_params.items():
+    for (name, value) in self.nontrainable_params.items():
       (mode, metric) = online_tune.control_metric(name)
       self.state.history.append(
           mode=mode,

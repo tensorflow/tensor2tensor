@@ -580,7 +580,8 @@ class Trainer(object):
 
   def __init__(self, model, loss_fn, optimizer, lr_schedule, inputs,
                output_dir=None, random_seed=None, n_devices=None,
-               save_steps=None, should_save=True, has_weights=False):
+               save_steps=None, should_save=True, has_weights=False,
+               nontrainable_param_map=None):
     if save_steps is None:
       save_steps = []
     self._save_steps = save_steps
@@ -655,7 +656,14 @@ class Trainer(object):
     self._model_train = model_train
     self._model_predict_eval = model_predict_eval
     self._loss_fn = loss_fn
+    # TODO(pkozakowski): "Learning rate schedules" are currently able to control
+    # control all optimizer parameters and model state, so let's rename them
+    # accordingly.
     self._lr_schedule = lr_schedule
+
+    if nontrainable_param_map is None:
+      nontrainable_param_map = {}
+    self._nontrainable_param_map = nontrainable_param_map
 
     # Those fields will be set in reset().
     self._output_dir = None
@@ -713,7 +721,7 @@ class Trainer(object):
     if not state.opt_state:
       self._maybe_save_state(keep=False)
 
-    self.update_optimizer_params()
+    self.update_nontrainable_params()
 
   @property
   def step(self):
@@ -730,7 +738,7 @@ class Trainer(object):
         model_state=self._model_state)
 
   @property
-  def optimizer_params(self):
+  def nontrainable_params(self):
     # TODO(lukaszkaiser): it makes no sense to use an accelerator (e.g. TPU)
     # in op-by-op mode just to compute the learning rate. However, there
     # should be a cleaner approach that forceably swapping out the backend.
@@ -777,14 +785,30 @@ class Trainer(object):
     return {key: np.array(self.update_model_state(key, value))}
 
   def update_model_state(self, key, value):
-    del key
+    """Updates model state based on nontrainable_params."""
+    # Translate model state keys to nontrainable param names.
+    if key in self._nontrainable_param_map:
+      param_name = self._nontrainable_param_map[key]
+    else:
+      # If a key is not in mapping, it stays the same.
+      param_name = key
+    if param_name in self.nontrainable_params:
+      if self._step == 0:
+        log("Mapping model state key {} to nontrainable param {}.".format(
+            key, param_name
+        ))
+        return self._maybe_replicate(
+            np.array(self.nontrainable_params[param_name])
+        )
     return value
 
   def _train_step(self, next_train_batch):
     """Run one training step and update self._opt_state."""
-    # Calculate the current learning rate.
+    # Calculate the current optimizer parameters.
+    # TODO(pkozakowski): Optimizer parameters get polluted with model state,
+    # which doesn't break anything but is weird. Filter it out.
     opt_param_updates = layers.nested_map(
-        self.optimizer_params, lambda x: self._maybe_replicate(np.array(x))
+        self.nontrainable_params, lambda x: self._maybe_replicate(np.array(x))
     )
     opt_state = self._opt_state
     opt_state.opt_params.update(opt_param_updates)
@@ -815,9 +839,9 @@ class Trainer(object):
       if self._step in self._save_steps:
         self._maybe_save_state(keep=True)
 
-      # Log optimizer params (learning rate etc.)
+      # Log nontrainable params (learning rate, dropout etc.)
       if self._step == 1 or self._step % 10 == 0:
-        for (name, value) in self.optimizer_params.items():
+        for (name, value) in self.nontrainable_params.items():
           self._train_sw.scalar("training/{}".format(name), value)
 
     # Timer
@@ -856,11 +880,11 @@ class Trainer(object):
         has_weights=self._has_weights)
 
     # Save the optimizer params in the history
-    for (name, value) in self.optimizer_params.items():
+    for (name, value) in self.nontrainable_params.items():
       self._history.append("train", "training/{}".format(name), self._step,
                            value)
 
-  def update_optimizer_params(self):
+  def update_nontrainable_params(self):
     self._lr_fn = self._lr_schedule(self._history)
 
   def save_computation_graphs(self, save_backward_graph):
@@ -990,8 +1014,8 @@ def train(output_dir,
   for epoch_steps in epochs(train_steps, trainer.step, epoch_steps):
     trainer.train_epoch(epoch_steps, eval_steps)
 
-    # Update optimizer parameters with new history
-    trainer.update_optimizer_params()
+    # Update nontrainable parameters with new history
+    trainer.update_nontrainable_params()
 
     # Bookkeeping we do at the first step
     if trainer.step == 1:

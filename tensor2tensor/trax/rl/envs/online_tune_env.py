@@ -71,6 +71,7 @@ class OnlineTuneEnv(gym.Env):
                    # (name, start, (low, high), flip)
                    ("learning_rate", 1e-3, (1e-9, 10.0), False),
                ),
+               nontrainable_param_map=None,
                metric_range=(0.0, 5.0),
                # Don't save checkpoints by default, as they tend to use a lot of
                # space.
@@ -89,6 +90,7 @@ class OnlineTuneEnv(gym.Env):
         lr_schedule=(lambda history: lambda step: self._current_controls),
         inputs=inputs,
         should_save=should_save_checkpoints,
+        nontrainable_param_map=nontrainable_param_map,
     )
     self._trainer = None
     self._action_multipliers = action_multipliers
