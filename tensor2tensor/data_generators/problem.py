@@ -1032,7 +1032,7 @@ class Problem(object):
     if hasattr(hparams, 'bert_max_length'):
       tf.logging.warn('Splitting sequence into chunks for BERT.')
       batching_scheme = (
-        bert_utilities.hparams_to_bert_batching_scheme(hparams))
+        bert_utilities.hparams_to_bert_batching_scheme(hparams, num_shards))
     else:
       batching_scheme = data_reader.hparams_to_batching_scheme(
         hparams,
@@ -1350,11 +1350,11 @@ def pad_batch(features, batch_multiple):
   for k, feature in features.items():
 
     # Fathom: don't pad string features, because that is unsupported
-    # in tensorflow. 
+    # in tensorflow.
     if feature.dtype == tf.string:
       padded_features[k] = feature
       continue
-      
+
     rank = len(feature.shape)
     paddings = []
     for _ in range(rank):
