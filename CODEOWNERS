@@ -1,0 +1,4 @@
+# Set the owners for the repo. Only these people can approve PRs.
+# For info: https://help.github.com/articles/about-codeowners/
+# NOTE: Subsequent lines override, "Order is important; the last matching pattern takes the most"
+*       @cbockman @rllin-fathom
