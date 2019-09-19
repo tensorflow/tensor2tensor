@@ -253,7 +253,9 @@ def sequence_copy_inputs(
 def dataset_to_stream(dataset, input_name, n_chunks=0):
   """Takes a tf.Dataset and creates a numpy stream of ready batches."""
   for example in backend.dataset_as_numpy(dataset):
-    inp, out = example[0][input_name], example[1]
+    features = example[0]
+    inp, out = features[input_name], example[1]
+    mask = features['mask'] if 'mask' in features else None
     # All input-pipeline processing should be on CPU.
     with tf.device('cpu:0'):
       # Some accelerators don't handle uint8 well, cast to int.
@@ -266,7 +268,7 @@ def dataset_to_stream(dataset, input_name, n_chunks=0):
       if n_chunks > 0:
         inp = tuple(np.split(inp, n_chunks, axis=1))
         out = tuple(np.split(out, n_chunks, axis=1))
-    yield inp, out
+    yield (inp, out) if mask is None else (inp, out, mask)
 
 
 @gin.configurable(whitelist=['train_shuffle_files', 'eval_shuffle_files',
@@ -565,6 +567,24 @@ def wmt_preprocess(dataset, training, max_length=-1, max_eval_length=-1):
   if max_eval_length > 0 and not training:
     dataset = dataset.filter(eval_right_length)
 
+  return dataset
+
+
+@gin.configurable(blacklist=['dataset', 'training'])
+def wmt_concat_preprocess(dataset, training, max_length=-1, max_eval_length=-1):
+  """Preprocessing for WMT: filter exceeding maximum length and concatenate."""
+  dataset = wmt_preprocess(dataset, training, max_length, max_eval_length)
+
+  def concat_and_add_mask(features, targets):
+    inp = features['inputs']
+    pad = tf.expand_dims(tf.zeros_like(inp[0]), axis=0)
+    concat = tf.concat([inp, pad, targets], axis=0)
+    mask = tf.concat([tf.zeros_like(inp), pad, tf.ones_like(targets)], axis=0)
+    features['inputs'] = concat
+    features['mask'] = mask
+    return features, concat
+
+  dataset = dataset.map(concat_and_add_mask)
   return dataset
 
 
