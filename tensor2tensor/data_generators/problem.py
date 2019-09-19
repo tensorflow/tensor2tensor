@@ -935,6 +935,27 @@ class Problem(object):
             "Shapes are not fully defined. Assuming batch_size means tokens.")
         batch_size_means_tokens = True
 
+    # TODO: flag for chunking
+    def pad_to_next_chunk_length(features_to_pad: List[str], length: int) -> Callable:
+
+        def _pad(features):
+            for feature_name in features:
+                if not feature_name in features_to_pad:
+                    continue
+                feature = features[feature_name]
+                _, seq_len, *_ = feature.get_shape().as_list()
+                extra = ((seq_len % length) + 1) * length - seq_len
+                features[feature_name] += [0,] * extra
+
+        return _pad
+
+    if hasattr(hparams, 'bert_max_length')):
+        features_to_pad = [
+            'int', ...
+        ]
+        dataset = dataset.map(
+            pad_to_next_chunk_length(features_to_pad, hparams.bert_max_length))
+
     # Batching
     if not batch_size_means_tokens:
       # Batch size means examples per datashard.
