@@ -641,19 +641,25 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
   def log_alignment(attn, input_ids, input_subtokens, output_ids, output_vocab):
     attn = attn[:, :len(output_ids), :len(input_ids)]
     align_hard = attn_to_alignment(attn)
-    tf.logging.info("Alignment: \"%s\"" % align_hard)
-
-    out_ids_to_strip = list(range(targets_vocab.num_reserved_ids or 0))
-    output_ids = text_encoder.strip_ids(output_ids, out_ids_to_strip)
-    output_subtokens = (
-      targets_vocab.get_subtokens_by_ids(output_ids)
-      if isinstance(targets_vocab, text_encoder.SubwordTextEncoder)
-      else None)
+    tf.logging.info("Output-Input alignment: \"%s\"" % align_hard)
+    output_ids, output_subtokens = get_striped_ids_and_subtokens(output_ids, targets_vocab)
     if input_subtokens and output_subtokens:
+      tf.logging.info("Input subtokens: \"%s\"" % input_subtokens)
+      tf.logging.info("Output subtokens: \"%s\"" % output_subtokens)
       outinp_mapping = [
         f'{output_subtoken} --> {input_subtokens[align_hard[idx]]}'
         for idx, output_subtoken in enumerate(output_subtokens)]
       tf.logging.info("Output-Input mapping: \"%s\"" % outinp_mapping)
+
+  def get_striped_ids_and_subtokens(ids, encoder):
+    """return ids without ending reserved ids and subtokens(if SubwordTextEncoder enabled)"""
+    ids_to_strip = list(range(encoder.num_reserved_ids or 0))
+    ids = text_encoder.strip_ids(ids, ids_to_strip)
+    subtokens = (
+      encoder.get_subtokens_by_ids(ids)
+      if isinstance(encoder, text_encoder.SubwordTextEncoder)
+      else None)
+    return ids, subtokens
 
   result_iter = estimator.predict(input_fn, checkpoint_path=checkpoint_path)
   for result in result_iter:
@@ -661,13 +667,7 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
     targets_vocab = hparams.problem_hparams.vocabulary["targets"]
 
     input_ids = np.squeeze(result['inputs'])
-    in_ids_to_strip = list(range(inputs_vocab.num_reserved_ids or 0))
-    input_ids = text_encoder.strip_ids(input_ids, in_ids_to_strip)
-    input_subtokens = (
-      inputs_vocab.get_subtokens_by_ids(input_ids)
-      if isinstance(inputs_vocab, text_encoder.SubwordTextEncoder)
-      else None)
-
+    input_ids, input_subtokens = get_striped_ids_and_subtokens(input_ids, inputs_vocab)
     if decode_hp.return_beams:
       beams = np.split(result["outputs"], decode_hp.beam_size, axis=0)
       scores = None
@@ -676,7 +676,7 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
           result["scores"] = result["scores"].reshape(1)
         scores = np.split(result["scores"], decode_hp.beam_size, axis=0)
       if "attn_inpout" in result:
-        attns = result.get("attn_inpout", None)
+        attns = result.get("attn_inpout")
         assert len(attns) == len(beams)
       for k, (beam, attn) in enumerate(zip(beams, attns)):
         output_ids = np.squeeze(beam)
@@ -704,8 +704,8 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
             targets_vocab.decode(_save_until_eos(
                 result["outputs"], skip_eos_postprocess)))
 
-      attn = result.get("attn_inpout", None)
-      if attn is not None:
+      if "attn_inpout" in result:
+        attn = result.get("attn_inpout")
         log_alignment(attn, input_ids, input_subtokens, result["outputs"], targets_vocab)
 
 
