@@ -1,0 +1,99 @@
+import tensor2tensor.trax.inputs
+import tensor2tensor.trax.models
+import tensor2tensor.trax.optimizers
+import tensor2tensor.trax.rl
+import tensor2tensor.trax.rl.envs
+
+# Parameters for batch_fun:
+# ==============================================================================
+batch_fun.batch_size_per_device = 128
+batch_fun.eval_batch_size = 128
+batch_fun.bucket_length = 64
+batch_fun.max_eval_length = 512
+batch_fun.buckets_include_inputs_in_length = True
+
+# Parameters for inputs:
+# ==============================================================================
+inputs.data_dir = None
+inputs.dataset_name = 't2t_translate_ende_wmt32k'
+
+# Parameters for train_and_eval_dataset:
+# ==============================================================================
+train_and_eval_dataset.eval_holdout_size = 0.05
+train_and_eval_dataset.eval_shuffle_files = True
+
+# Parameters for mask:
+# ==============================================================================
+masked_mean.mask_id = 0
+
+# Parameters for preprocess_fun:
+# ==============================================================================
+shuffle_and_batch_data.preprocess_fun=@trax.inputs.wmt_concat_preprocess
+wmt_concat_preprocess.max_length = 255
+wmt_concat_preprocess.max_eval_length = 255
+
+# Parameters for TransformerLM:
+# ==============================================================================
+TransformerLM.d_model = 512
+TransformerLM.d_ff = 2048
+TransformerLM.dropout = 0.1
+TransformerLM.max_len = 2048
+TransformerLM.mode = 'train'
+TransformerLM.n_heads = 8
+TransformerLM.n_layers = 6
+TransformerLM.vocab_size = 33300
+
+# Parameters for OnlineTuneEnv:
+# ==============================================================================
+OnlineTuneEnv.inputs = @trax.inputs.inputs
+OnlineTuneEnv.model = @trax.models.TransformerLM
+OnlineTuneEnv.optimizer = @trax.optimizers.Adafactor
+OnlineTuneEnv.control_configs = (
+    ("learning_rate", 1e-3, (1e-9, 1e-2), False),
+    ("weight_decay_rate", 1e-5, (1e-9, 1e-3), False),
+
+    ("dropout_embedding", 0.1, (0.0, 0.9), True),
+
+    ("dropout_attention_initial", 0.1, (0.0, 0.9), True),
+    ("dropout_ff_middle_initial", 0.1, (0.0, 0.9), True),
+    ("dropout_ff_final_initial", 0.1, (0.0, 0.9), True),
+
+    ("dropout_attention_middle", 0.1, (0.0, 0.9), True),
+    ("dropout_ff_middle_middle", 0.1, (0.0, 0.9), True),
+    ("dropout_ff_final_middle", 0.1, (0.0, 0.9), True),
+
+    ("dropout_attention_final", 0.1, (0.0, 0.9), True),
+    ("dropout_ff_middle_final", 0.1, (0.0, 0.9), True),
+    ("dropout_ff_final_final", 0.1, (0.0, 0.9), True),
+)
+OnlineTuneEnv.nontrainable_param_map = {
+    # "dropout_{layer_type}_{block_index}": "dropout_{layer_type}_{block_group}"
+
+    "dropout_attention_0": "dropout_attention_initial",
+    "dropout_ff_middle_0": "dropout_ff_middle_initial",
+    "dropout_ff_final_0": "dropout_ff_final_initial",
+
+    "dropout_attention_1": "dropout_attention_middle",
+    "dropout_ff_middle_1": "dropout_ff_middle_middle",
+    "dropout_ff_final_1": "dropout_ff_final_middle",
+    "dropout_attention_2": "dropout_attention_middle",
+    "dropout_ff_middle_2": "dropout_ff_middle_middle",
+    "dropout_ff_final_2": "dropout_ff_final_middle",
+    "dropout_attention_3": "dropout_attention_middle",
+    "dropout_ff_middle_3": "dropout_ff_middle_middle",
+    "dropout_ff_final_3": "dropout_ff_final_middle",
+    "dropout_attention_4": "dropout_attention_middle",
+    "dropout_ff_middle_4": "dropout_ff_middle_middle",
+    "dropout_ff_final_4": "dropout_ff_final_middle",
+
+    "dropout_attention_5": "dropout_attention_final",
+    "dropout_ff_middle_5": "dropout_ff_middle_final",
+    "dropout_ff_final_5": "dropout_ff_final_final",
+}
+OnlineTuneEnv.include_controls_in_observation = True
+OnlineTuneEnv.train_steps = 500
+OnlineTuneEnv.eval_steps = 1
+OnlineTuneEnv.env_steps = 100
+OnlineTuneEnv.metric_range = (0.0, 10.0)
+OnlineTuneEnv.action_multipliers = (0.5, 0.8, 0.95, 1.0, 1.05, 1.25, 2.0)
+OnlineTuneEnv.has_weights = True

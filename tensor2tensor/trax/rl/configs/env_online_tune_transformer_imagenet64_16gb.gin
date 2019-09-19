@@ -1,0 +1,105 @@
+import tensor2tensor.trax.inputs
+import tensor2tensor.trax.models
+import tensor2tensor.trax.optimizers
+import tensor2tensor.trax.rl
+import tensor2tensor.trax.rl.envs
+
+# Parameters for batch_fun:
+# ==============================================================================
+batch_fun.batch_size_per_device = 1
+batch_fun.eval_batch_size = 16
+batch_fun.max_eval_length = 12288  # 64 * 64 * 3
+
+# Parameters for inputs:
+# ==============================================================================
+inputs.data_dir = None
+inputs.dataset_name = 't2t_image_imagenet64_gen_flat_rev'
+inputs.input_name = 'targets'
+
+# Parameters for train_and_eval_dataset:
+# ==============================================================================
+train_and_eval_dataset.eval_holdout_size = 0.05
+train_and_eval_dataset.eval_shuffle_files = True
+
+# Parameters for MemoryEfficientCausalAttention:
+# ==============================================================================
+MemoryEfficientCausalAttention.dropout = 0.0
+MemoryEfficientCausalAttention.loop_stride = 512
+
+# Parameters for MergedHashedCausalAttention:
+# ==============================================================================
+MergedHashedCausalAttention.dropout = 0.0
+MergedHashedCausalAttention.n_bins = 16
+MergedHashedCausalAttention.bin_by_time = True
+MergedMultiHashedCausalAttention.one_rng = False
+
+# Parameters for MergedMultiHashedCausalAttention:
+# ==============================================================================
+MergedMultiHashedCausalAttention.dropout = 0.0
+MergedMultiHashedCausalAttention.n_bins = 64
+MergedMultiHashedCausalAttention.n_hashes = 2
+MergedMultiHashedCausalAttention.n_buckets_per_bin = 2
+MergedMultiHashedCausalAttention.bin_by_time = False
+MergedMultiHashedCausalAttention.one_rng = False
+MergedMultiHashedCausalAttention.drop_for_hash_rate = 0.1
+MergedMultiHashedCausalAttention.hard_k = 32
+
+# Parameters for TransformerLM:
+# ==============================================================================
+TransformerLM.attention_type = @trax.layers.MergedMultiHashedCausalAttention
+TransformerLM.d_attention_key = 64
+TransformerLM.d_attention_value = 64
+TransformerLM.d_model = 1024
+TransformerLM.d_ff = 2048
+TransformerLM.dropout = 0.0
+TransformerLM.max_len = 12288  # 64 * 64 * 3
+TransformerLM.mode = 'train'
+TransformerLM.n_heads = 4
+TransformerLM.n_layers = 3
+TransformerLM.share_kv = True
+TransformerLM.vocab_size = 256
+
+# Parameters for OnlineTuneEnv:
+# ==============================================================================
+OnlineTuneEnv.inputs = @trax.inputs.inputs
+OnlineTuneEnv.model = @trax.models.TransformerLM
+OnlineTuneEnv.optimizer = @trax.optimizers.Adafactor
+OnlineTuneEnv.control_configs = (
+    ("learning_rate", 1e-3, (1e-9, 1e-2), False),
+    ("weight_decay_rate", 1e-5, (1e-9, 1e-3), False),
+
+    ("dropout_embedding", 0.1, (0.0, 0.9), True),
+
+    ("dropout_attention_initial", 0.1, (0.0, 0.9), True),
+    ("dropout_ff_middle_initial", 0.1, (0.0, 0.9), True),
+    ("dropout_ff_final_initial", 0.1, (0.0, 0.9), True),
+
+    ("dropout_attention_middle", 0.1, (0.0, 0.9), True),
+    ("dropout_ff_middle_middle", 0.1, (0.0, 0.9), True),
+    ("dropout_ff_final_middle", 0.1, (0.0, 0.9), True),
+
+    ("dropout_attention_final", 0.1, (0.0, 0.9), True),
+    ("dropout_ff_middle_final", 0.1, (0.0, 0.9), True),
+    ("dropout_ff_final_final", 0.1, (0.0, 0.9), True),
+)
+OnlineTuneEnv.nontrainable_param_map = {
+    # "dropout_{layer_type}_{block_index}": "dropout_{layer_type}_{block_group}"
+
+    "dropout_attention_0": "dropout_attention_initial",
+    "dropout_ff_middle_0": "dropout_ff_middle_initial",
+    "dropout_ff_final_0": "dropout_ff_final_initial",
+
+    "dropout_attention_1": "dropout_attention_middle",
+    "dropout_ff_middle_1": "dropout_ff_middle_middle",
+    "dropout_ff_final_1": "dropout_ff_final_middle",
+
+    "dropout_attention_2": "dropout_attention_final",
+    "dropout_ff_middle_2": "dropout_ff_middle_final",
+    "dropout_ff_final_2": "dropout_ff_final_final",
+}
+OnlineTuneEnv.include_controls_in_observation = True
+OnlineTuneEnv.train_steps = 150
+OnlineTuneEnv.eval_steps = 2
+OnlineTuneEnv.env_steps = 100
+OnlineTuneEnv.metric_range = (0.0, 10.0)
+OnlineTuneEnv.action_multipliers = (0.5, 0.8, 0.95, 1.0, 1.05, 1.25, 2.0)
