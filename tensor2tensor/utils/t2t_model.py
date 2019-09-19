@@ -1694,12 +1694,14 @@ class T2TModel(base.Layer):
         alpha=decode_hparams.alpha,
         decode_length=decode_hparams.extra_length,
         use_tpu=use_tpu)
+    scores, attn_inpout = None, None
     if isinstance(infer_out, dict):
       outputs = infer_out["outputs"]
       scores = infer_out["scores"]
+      attn_history = infer_out.get("cache", {}).get("attention_history", {})
+      attn_inpout = attn_history.get(f"layer_{len(attn_history) - 1}", [])[:top_beams]
     else:
       outputs = infer_out
-      scores = None
 
     # Workaround for "ValueError: prediction values must be from the default
     # graph" during TPU model exporting.
@@ -1717,6 +1719,7 @@ class T2TModel(base.Layer):
         "scores": scores,
         "inputs": inputs,
         "targets": features.get("infer_targets"),
+        "attn_inpout": attn_inpout
     }
 
     # Pass through remaining features
@@ -1735,6 +1738,8 @@ class T2TModel(base.Layer):
     export_out = {"outputs": predictions["outputs"]}
     if "scores" in predictions:
       export_out["scores"] = predictions["scores"]
+    if "attn_inpout" in predictions:
+      export_out["attn_inpout"] = predictions["attn_inpout"]
 
     # Necessary to rejoin examples in the correct order with the Cloud ML Engine
     # batch prediction API.
