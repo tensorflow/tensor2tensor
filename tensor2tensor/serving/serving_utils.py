@@ -117,11 +117,14 @@ def make_grpc_request_fn(servable_name, server, timeout_secs):
     response = stub.Predict(request, timeout_secs)
     outputs = tf.make_ndarray(response.outputs["outputs"])
     scores = tf.make_ndarray(response.outputs["scores"])
+    attns = tf.make_ndarray(response.outputs["attn_inpout"])
     assert len(outputs) == len(scores)
+    assert len(outputs) == len(attns)
     return [{  # pylint: disable=g-complex-comprehension
         "outputs": output,
-        "scores": score
-    } for output, score in zip(outputs, scores)]
+        "scores": score,
+        "attns": attn
+    } for output, score, attn in zip(outputs, scores, attns)]
 
   return _make_grpc_request
 
@@ -151,6 +154,34 @@ def make_cloud_mlengine_request_fn(credentials, model_name, version):
   return _make_cloud_mlengine_request
 
 
+def get_striped_ids_and_subtokens(ids, encoder):
+  """return ids without ending reserved ids and subtokens(if SubwordTextEncoder enabled)"""
+  ids_to_strip = list(range(encoder.num_reserved_ids or 0))
+  ids = text_encoder.strip_ids(ids, ids_to_strip)
+  subtokens = (
+    encoder.get_subtokens_by_ids(ids)
+    if isinstance(encoder, text_encoder.SubwordTextEncoder)
+    else None)
+  return ids, subtokens
+
+
+def _get_extra_info(prediction, input_ids, in_encoder, out_encoder):
+  def _get_from_result(attn, in_ids, out_ids):
+    in_ids, in_subtokens = get_striped_ids_and_subtokens(in_ids, in_encoder)
+    out_ids, out_subtokens = get_striped_ids_and_subtokens(out_ids, out_encoder)
+    attn = attn.sum(axis=0)
+    attn = attn[:len(out_ids), :len(in_ids)]
+    return (attn, in_subtokens, out_subtokens)
+
+  outputs = prediction["outputs"]
+  attns = prediction["attns"]
+  if len(outputs.shape) > 1:
+    ans = [_get_from_result(attns_beam, input_ids, output_ids) for attns_beam, output_ids in zip(attns, outputs)]
+  else:
+    ans = _get_from_result(attns, input_ids, outputs)
+  return ans
+
+
 def predict(inputs_list, problem, request_fn):
   """Encodes inputs, makes request to deployed TF model, and decodes outputs."""
   assert isinstance(inputs_list, list)
@@ -169,4 +200,7 @@ def predict(inputs_list, problem, request_fn):
        prediction["scores"])
       for prediction in predictions
   ]
-  return outputs
+  extra_info = [
+      _get_extra_info(prediction, input_ids, input_encoder, output_decoder)
+      for prediction, input_ids in zip(predictions, input_ids_list)]
+  return outputs, extra_info

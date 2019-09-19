@@ -22,6 +22,7 @@ import os
 
 from oauth2client.client import GoogleCredentials
 from six.moves import input  # pylint: disable=redefined-builtin
+import numpy as np
 
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.serving import serving_utils
@@ -87,9 +88,11 @@ def main(_):
   request_fn = make_request_fn()
   while True:
     inputs = FLAGS.inputs_once if FLAGS.inputs_once else input(">> ")
-    outputs = serving_utils.predict([inputs], problem, request_fn)
+    outputs, extra_info = serving_utils.predict([inputs], problem, request_fn)
     outputs, = outputs
+    extra_info, = extra_info
     output, score = outputs
+
     if len(score.shape) > 0:  # pylint: disable=g-explicit-length-test
       print_str = """
 Input:
@@ -100,6 +103,28 @@ Output (Scores [{score}]):
         """
       score_text = ",".join(["{:.3f}".format(s) for s in score])
       print(print_str.format(inputs=inputs, output=output, score=score_text))
+
+      align = []
+      input_subtokens = []
+      output_subtokens = []
+      for beam_extra_info in extra_info:
+        beam_attn, beam_in_subtokens, beam_out_subtokens = beam_extra_info
+        beam_align = np.argmax(beam_attn / beam_attn.sum(axis=-1)[:, None], axis=-1)
+        align.append(beam_align)
+        if beam_in_subtokens and beam_out_subtokens:
+          input_subtokens.append(beam_in_subtokens)
+          output_subtokens.append(beam_out_subtokens)
+      print("Alignment:")
+      print(align)
+      if input_subtokens and output_subtokens:
+        alignment_visual = []
+        for beam_align, beam_in_toks, beam_out_toks in zip(align, input_subtokens, output_subtokens):
+          alignment_visual.append([
+            f"{out_tok} --> {beam_in_toks[beam_align[idx]]}"
+            for idx, out_tok in enumerate(beam_out_toks)])
+        print("Output-Input alignment:")
+        print(alignment_visual)
+
     else:
       print_str = """
 Input:
@@ -109,6 +134,15 @@ Output (Score {score:.3f}):
 {output}
         """
       print(print_str.format(inputs=inputs, output=output, score=score))
+
+      attn, input_subtokens, output_subtokens = extra_info
+      align = np.argmax(attn / attn.sum(axis=-1)[:, None], axis=-1)
+      print("Alignment:")
+      print(align)
+      if input_subtokens and output_subtokens:
+        print("Output-Input alignment:")
+        print([f"{out_tok} --> {input_subtokens[align[idx]]}"
+         for idx, out_tok in enumerate(output_subtokens)])
 
     if FLAGS.inputs_once:
       break
