@@ -525,6 +525,44 @@ def reshape_by_device(x, n_devices):
       x, lambda x: _reshape_by_device_single(x, n_devices))
 
 
+def multi_device_put(x, devices=None, reuse=True):
+  """Memory efficient multi-device replication in JAX.
+
+  Args:
+    x: jax DeviceArray or numpy ndarray to be replicated.
+    devices: a jax.devices() list or subset thereof of devices to
+      replicate onto.  Should match the list passed to any pmaps
+      ingesting the replicated array.
+    reuse: bool. If x is a DeviceArray whether to reuse its backing
+      device_buffer in the resulting ShardedDeviceArray.
+
+  Returns:
+    A ShardedDeviceArray with dtype = x.dtype and shape =
+    (n_devices,) + x.shape that's backed by replica
+    device_buffers on each device.
+  """
+  # Convert _FilledConstants that don't have device_buffer, etc.
+  if type(x) != jax.xla.DeviceArray:  # pylint: disable=unidiomatic-typecheck
+    x = np.array(x)
+  if not devices:
+    devices = jax.devices()
+  n_devices = len(devices)
+  x_aval = jax.xla.abstractify(x)
+  broadcast_x_aval = jax.abstract_arrays.ShapedArray(
+      (n_devices,) + x_aval.shape,
+      x_aval.dtype)
+  if reuse:
+    other_device_ordinals = [dv.id for dv in jax.devices()
+                             if dv != x.device_buffer.device()]
+    broadcast_buffers = ([x.device_buffer,] +
+                         [jax.xla.xc.Buffer.from_pyval(x, device=i)
+                          for i in other_device_ordinals])
+  else:
+    broadcast_buffers = [jax.xla.xc.Buffer.from_pyval(x, device=i)
+                         for i in range(n_devices)]
+  return jax.pxla.ShardedDeviceArray(broadcast_x_aval, broadcast_buffers)
+
+
 def _repeat_stream(stream):
   """Repeat a stream indefinitely."""
   while True:
@@ -701,7 +739,10 @@ class Trainer(object):
 
   def _maybe_replicate(self, x):
     if self._n_devices > 1:
-      return np.broadcast_to(x, (self._n_devices,) + x.shape)
+      if backend.get_name() == "jax":
+        return multi_device_put(x)
+      else:
+        return np.broadcast_to(x, (self._n_devices,) + x.shape)
     else:
       return x
 
