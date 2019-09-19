@@ -81,6 +81,7 @@ class PpoTrainerTest(test.TestCase):
         n_optimizer_steps=1,
         output_dir=output_dir,
         random_seed=0,
+        max_timestep=3,
         boundary=2,
         save_every_n=1,
         **kwargs
@@ -127,16 +128,16 @@ class PpoTrainerTest(test.TestCase):
           output_shape=(1, 1),
           output_dtype=np.float32,
       ))
-      gin.bind_parameter("OnlineTuneEnv.train_steps", 2)
-      gin.bind_parameter("OnlineTuneEnv.eval_steps", 2)
+      gin.bind_parameter("OnlineTuneEnv.train_steps", 1)
+      gin.bind_parameter("OnlineTuneEnv.eval_steps", 1)
       gin.bind_parameter(
           "OnlineTuneEnv.output_dir", os.path.join(output_dir, "envs"))
       trainer = self._make_trainer(
-          train_env=self.get_wrapped_env("OnlineTuneEnv-v0", 2),
-          eval_env=self.get_wrapped_env("OnlineTuneEnv-v0", 2),
+          train_env=self.get_wrapped_env("OnlineTuneEnv-v0", 1),
+          eval_env=self.get_wrapped_env("OnlineTuneEnv-v0", 1),
           output_dir=output_dir,
       )
-      trainer.training_loop(n_epochs=2)
+      trainer.training_loop(n_epochs=1)
 
   def test_training_loop_simulated(self):
     n_actions = 5

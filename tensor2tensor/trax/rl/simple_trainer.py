@@ -57,21 +57,25 @@ class SimPLe(base_trainer.BaseTrainer):
                initial_trajectory_dir=None,
                initial_trajectory_mix_prob=0.5,
                initial_model=None,
+               init_policy_from_world_model=False,
                **kwargs):
     super(SimPLe, self).__init__(train_env, eval_env, output_dir, **kwargs)
     self._policy_dir = os.path.join(output_dir, "policy")
+    self._model_dir = os.path.join(output_dir, "model")
     self._policy_trainer = policy_trainer_class(
         train_env=train_env,
         eval_env=eval_env,
         output_dir=self._policy_dir,
         async_mode=self._async_mode,
+        init_policy_from_world_model_output_dir=(
+            self._model_dir if init_policy_from_world_model else None
+        ),
     )
     self._n_real_epochs = n_real_epochs
     self._model_train_batch_size = model_train_batch_size
     self._n_model_initial_train_steps = n_model_initial_train_steps
     self._n_model_train_steps_per_epoch = n_model_train_steps_per_epoch
     self._data_eval_frac = data_eval_frac
-    self._model_dir = os.path.join(output_dir, "model")
 
     gfile.makedirs(self._model_dir)
     if initial_model is not None:

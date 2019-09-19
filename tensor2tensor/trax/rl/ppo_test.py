@@ -19,10 +19,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
+
 import jax
 from jax import random as jax_random
 import numpy as np
 from tensor2tensor.trax import layers
+from tensor2tensor.trax import models
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.rl import ppo
 from tensorflow import test
@@ -558,6 +561,47 @@ class PpoTest(test.TestCase):
     ppo.save_opt_state(output_dir, opt_state, state, epoch, opt_step)
     restored_data = ppo.maybe_restore_opt_state(output_dir)
     self.assertEqual(restored_data, (opt_state, state, epoch, opt_step))
+
+  def test_inits_policy_by_world_model_checkpoint(self):
+    transformer_kwargs = {
+        "d_model": 1,
+        "d_ff": 1,
+        "n_layers": 1,
+        "n_heads": 1,
+        "max_len": 128,
+        "mode": "train",
+    }
+    rng = jax_random.PRNGKey(123)
+    init_kwargs = {
+        "input_shapes": (1, 1),
+        "input_dtype": np.int32,
+        "rng": rng,
+    }
+    model = models.TransformerLM(vocab_size=4, **transformer_kwargs)
+    (model_params, _) = model.initialize(**init_kwargs)
+    policy = ppo.policy_and_value_net(
+        n_actions=3,
+        n_controls=2,
+        vocab_size=4,
+        bottom_layers_fn=functools.partial(
+            models.TransformerDecoder, **transformer_kwargs
+        ),
+        two_towers=False,
+    )
+    (policy_params, policy_state) = policy.initialize(**init_kwargs)
+    output_dir = self.get_temp_dir()
+    # Initialize state by restoring from a nonexistent checkpoint.
+    trax_state = trax.restore_state(output_dir)
+    trax_state = trax_state._replace(opt_state=(model_params, None))
+    # Save world model parameters.
+    trax.save_state(trax_state, output_dir)
+    # Initialize policy parameters from world model parameters.
+    new_policy_params = ppo.init_policy_from_world_model_checkpoint(
+        policy_params, output_dir
+    )
+    # Try to run the policy with new parameters.
+    observations = np.zeros((1, 100), dtype=np.int32)
+    policy(observations, new_policy_params, state=policy_state, rng=rng)
 
 
 if __name__ == "__main__":

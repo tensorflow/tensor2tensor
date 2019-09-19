@@ -81,6 +81,7 @@ class PPO(base_trainer.BaseTrainer):
                len_history_for_policy=4,
                eval_temperatures=(1.0, 0.5),
                separate_eval=True,
+               init_policy_from_world_model_output_dir=None,
                **kwargs):
     """Creates the PPO trainer.
 
@@ -122,6 +123,8 @@ class PPO(base_trainer.BaseTrainer):
       separate_eval: Whether to run separate evaluation using a set of
         temperatures. If False, the training reward is reported as evaluation
         reward with temperature 1.0.
+      init_policy_from_world_model_output_dir: Model output dir for initializing
+        the policy. If None, initialize randomly.
       **kwargs: Additional keyword arguments passed to the base class.
     """
     # Set in base class constructor.
@@ -185,6 +188,10 @@ class PPO(base_trainer.BaseTrainer):
     (batch_obs_shape, obs_dtype) = self._batch_obs_shape_and_dtype
     policy_and_value_net_params, self._model_state = (
         policy_and_value_net.initialize(batch_obs_shape, obs_dtype, key1))
+    if init_policy_from_world_model_output_dir is not None:
+      policy_and_value_net_params = ppo.init_policy_from_world_model_checkpoint(
+          policy_and_value_net_params, init_policy_from_world_model_output_dir
+      )
 
     # Initialize the optimizer.
     (policy_and_value_opt_state, self._policy_and_value_opt_update,

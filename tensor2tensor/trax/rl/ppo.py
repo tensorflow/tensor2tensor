@@ -910,6 +910,20 @@ def save_opt_state(output_dir,
       gfile.remove(path)
 
 
+def init_policy_from_world_model_checkpoint(policy_params, model_output_dir):
+  """Initializes policy parameters from world model parameters."""
+  pkl_module = utils.get_pickle_module()
+  params_file = os.path.join(model_output_dir, "model.pkl")
+  # Don't use trax.restore_state to avoid a circular import.
+  with gfile.GFile(params_file, "rb") as f:
+    model_params = pkl_module.load(f)[0][0]
+  # TODO(pkozakowski): The following, brittle line of code is hardcoded for
+  # transplanting parameters from TransformerLM to TransformerDecoder-based
+  # policy network of the same configuration. Figure out a more general method.
+  policy_params[0] = model_params[1:-2]
+  return policy_params
+
+
 def write_eval_reward_summaries(reward_stats_by_mode, summary_writer, epoch):
   """Writes evaluation reward statistics to summary and logs them.
 
