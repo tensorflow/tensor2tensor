@@ -623,7 +623,8 @@ def create_experiment(
   # Distributed early stopping
   local_schedules = ["train_and_evaluate", "continuous_train_and_eval"]
   use_early_stopping = (
-      schedule not in local_schedules and eval_early_stopping_steps)
+      schedule not in local_schedules and
+      eval_early_stopping_steps and not use_tpu)
   train_hooks, eval_hooks = create_hooks(
       use_tfdbg=use_tfdbg,
       use_dbgprofile=use_dbgprofile,
