@@ -704,9 +704,8 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
             targets_vocab.decode(_save_until_eos(
                 result["outputs"], skip_eos_postprocess)))
 
-      attns = result.get("attn_inpout", None)
-      if attns is not None:
-        attn = attns[0]
+      attn = result.get("attn_inpout", None)
+      if attn is not None:
         log_alignment(attn, input_ids, input_subtokens, result["outputs"], targets_vocab)
 
 

@@ -1699,7 +1699,8 @@ class T2TModel(base.Layer):
       outputs = infer_out["outputs"]
       scores = infer_out["scores"]
       attn_history = infer_out.get("cache", {}).get("attention_history", {})
-      attn_inpout = attn_history.get(f"layer_{len(attn_history) - 1}", [])[:top_beams]
+      attn_last = attn_history.get(f"layer_{len(attn_history) - 1}", [])
+      attn_inpout = attn_last[:, 0, :, :] if top_beams == 1 else attn_last
     else:
       outputs = infer_out
 
