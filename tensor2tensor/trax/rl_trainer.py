@@ -57,6 +57,7 @@ flags.DEFINE_boolean(
 flags.DEFINE_boolean("disable_jit", False, "Setting to true will disable jit.")
 
 flags.DEFINE_string("output_dir", "", "Output dir.")
+flags.DEFINE_string("envs_output_dir", "", "Output dir for the envs.")
 flags.DEFINE_multi_string("config_file", None,
                           "Configuration file with parameters (.gin).")
 flags.DEFINE_multi_string("config", None,
@@ -127,9 +128,11 @@ def train_rl(
   train_env_kwargs = {}
   eval_env_kwargs = {}
   if "OnlineTuneEnv" in env_name:
-    # TODO(pkozakowski): Separate env output dirs by train/eval and epoch.
-    train_env_kwargs = {"output_dir": os.path.join(output_dir, "envs/train")}
-    eval_env_kwargs = {"output_dir": os.path.join(output_dir, "envs/eval")}
+    envs_output_dir = FLAGS.envs_output_dir or os.path.join(output_dir, "envs")
+    train_env_output_dir = os.path.join(envs_output_dir, "train")
+    eval_env_output_dir = os.path.join(envs_output_dir, "eval")
+    train_env_kwargs = {"output_dir": train_env_output_dir}
+    eval_env_kwargs = {"output_dir": eval_env_output_dir}
 
   if "ClientEnv" in env_name:
     train_env_kwargs["per_env_kwargs"] = [{
