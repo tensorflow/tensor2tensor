@@ -1074,8 +1074,10 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
 
   def __init__(self, dropout, mode, n_bins=64, n_hashes=1, n_buckets=64,
                one_rng=False, allow_duplicate_attention=False,
-               attend_across_buckets=False, hard_k=0, rehash_each_round=True):
-    del dropout, mode
+               attend_across_buckets=False, hard_k=0,
+               rehash_each_round=True, drop_for_hash_rate=0.0):
+    del dropout
+    self._mode = mode
     super(MergedMultiHashedCausalAttentionV2, self).__init__()
     assert n_buckets >= n_bins, 'This setting is not recommended: too few bins.'
     assert rehash_each_round or allow_duplicate_attention, (
@@ -1084,7 +1086,7 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
     self.n_bins = n_bins
     self.n_hashes = n_hashes
     self.n_buckets = n_buckets
-
+    self._drop_for_hash_rate = drop_for_hash_rate
     self._one_rng = one_rng
     self._prng = None
     if one_rng:
@@ -1205,6 +1207,13 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
     norm_inputs = x / np.sqrt(variance + epsilon)
     return norm_inputs
 
+  def drop_for_hash(self, x, rng):
+    rate = self._drop_for_hash_rate
+    if self._mode == 'train' and rate > 0.0:
+      keep = backend.random.bernoulli(rng, 1.0 - rate, x.shape)
+      return np.where(keep, x / (1.0 - rate), np.zeros_like(x))
+    return x
+
   def hash_vectors(self, vecs, rng):
     # See https://arxiv.org/pdf/1509.02897.pdf
     # We sample a different random rotation for each round of hashing to
@@ -1215,9 +1224,14 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
         self.n_hashes if self._rehash_each_round else 1,
         self.n_buckets // 2)
 
+    rng = jax.lax.tie_in(vecs, rng)
+    rng, subrng = backend.random.split(rng)
     random_rotations = jax.random.normal(
-        jax.lax.tie_in(vecs, rng), random_rotations_shape).astype('float32')
-    rotated_vecs = np.einsum('tf,fhb->htb', vecs, random_rotations)
+        rng, random_rotations_shape).astype('float32')
+    # TODO(lukaszkaiser): the dropout mask will be used for all rounds of
+    # hashing, so it's shared between them. Check if that's what we want.
+    dropped_vecs = self.drop_for_hash(vecs, subrng)
+    rotated_vecs = np.einsum('tf,fhb->htb', dropped_vecs, random_rotations)
     rotated_vecs = np.concatenate([rotated_vecs, -rotated_vecs], axis=-1)
 
     if self._rehash_each_round:
