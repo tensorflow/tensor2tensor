@@ -1069,6 +1069,313 @@ class MergedMultiHashedCausalAttention(BaseCausalAttention):
     return output, vjpfun(ct)[0]
 
 
+class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
+  """Hash-based causal attention, with multiple hashes (faster version)."""
+
+  def __init__(self, dropout, mode, n_bins=64, n_hashes=1, n_buckets=64,
+               one_rng=False, allow_duplicate_attention=False,
+               attend_across_buckets=False):
+    del dropout, mode
+    super(MergedMultiHashedCausalAttentionV2, self).__init__()
+    assert n_buckets >= n_bins, 'This setting is not recommended: too few bins.'
+    self.n_bins = n_bins
+    self.n_hashes = n_hashes
+    self.n_buckets = n_buckets
+
+    self._one_rng = one_rng
+    self._prng = None
+    if one_rng:
+      seed = random.randint(0, 2**31 - 1)
+      self._prng = backend.random.get_prng(seed)
+
+    self._allow_duplicate_attention = allow_duplicate_attention
+    self._attend_across_buckets = attend_across_buckets
+
+  def call(self, inputs, params=(), state=(), rng=None, **kwargs):
+    del params, kwargs
+    output, _ = self.batch_call_and_or_grad(inputs[0], inputs[2], rng=rng)
+    return output, state
+
+  def call_and_grad(self, inputs, ct, rng=None, **kwargs):
+    del kwargs
+    output, (qk_ct, v_ct) = self.batch_call_and_or_grad(
+        inputs[0], inputs[2], ct=ct, rng=rng)
+    return output, (qk_ct, np.zeros_like(inputs[1]), v_ct)
+
+  def has_custom_grad(self):
+    return True
+
+  def custom_grad(self, inputs, output, ct, params=(), state=(), rng=None,
+                  **kwargs):
+    del output, params, state
+    _, (qk_ct, v_ct) = self.batch_call_and_or_grad(
+        inputs[0], inputs[2], return_output=False, ct=ct, rng=rng)
+    inputs_ct = (qk_ct, np.zeros_like(inputs[1]), v_ct)
+    return inputs_ct, ()
+
+  def batch_call_and_or_grad(self, qk, v, ct=None, return_output=True,
+                             rng=None):
+    assert return_output or ct is not None, 'No work to perform!'
+
+    # The approach here is to perform attention for one batch element and head
+    # at a time. Note that there is absolutely no interaction across examples or
+    # heads: this layer has no parameters, and hashing patterns are also
+    # different across examples/heads. As a result, batching doesn't give any
+    # performance gains except in the case of accelerator under-utilization. We
+    # assume that hash-based attention will be applied primarily to long
+    # sequences, where unbatched attention for a single head has sufficient
+    # computation to fill up the accelerator.
+
+    batch_loop_idx = np.zeros((), dtype=np.int32)
+    batch_loop_max = qk.shape[0]
+
+    init_vals = (batch_loop_idx,)
+    if return_output:
+      out_accum = np.zeros_like(qk)
+      init_vals = init_vals + (out_accum,)
+    if ct is not None:
+      qk_ct_accum = np.zeros_like(qk)
+      v_ct_accum = np.zeros_like(v)
+      init_vals = init_vals + (qk_ct_accum, v_ct_accum)
+
+    def cond_fun(vals):
+      batch_loop_idx = vals[0]
+      return jax.lax.lt(batch_loop_idx, batch_loop_max)
+
+    def body_fun(vals):
+      """Performs attention for a single batch element and head."""
+      batch_loop_idx = vals[0]
+      if self._prng is None:
+        hash_rng = jax.random.fold_in(rng, batch_loop_idx)
+      else:
+        # TODO(kitaev): Maybe use the same RNG across examples (but not heads)?
+        hash_rng = jax.random.fold_in(self._prng, batch_loop_idx)
+      qk_slice = jax.lax.dynamic_index_in_dim(
+          qk, batch_loop_idx, axis=0, keepdims=False)
+      v_slice = jax.lax.dynamic_index_in_dim(
+          v, batch_loop_idx, axis=0, keepdims=False)
+
+      if ct is None:
+        out_slice = self.single_call(qk_slice, v_slice, hash_rng=hash_rng)
+      else:
+        def _do_single_call(qk_slice, v_slice):
+          return self.single_call(qk_slice, v_slice, hash_rng=hash_rng)
+        ct_slice = jax.lax.dynamic_index_in_dim(
+            ct, batch_loop_idx, axis=0, keepdims=False)
+        out_slice, vjpfun = jax.vjp(_do_single_call, qk_slice, v_slice)
+        qk_ct_slice, v_ct_slice = vjpfun(ct_slice)
+
+      new_vals = (batch_loop_idx + 1,)
+      if return_output:
+        out_accum = vals[1]
+        out_accum = jax.lax.dynamic_update_index_in_dim(
+            out_accum, out_slice, batch_loop_idx, axis=0)
+        new_vals = new_vals + (out_accum,)
+      if ct is not None:
+        qk_ct_accum, v_ct_accum = vals[-2:]
+        qk_ct_accum = jax.lax.dynamic_update_index_in_dim(
+            qk_ct_accum, qk_ct_slice, batch_loop_idx, axis=0)
+        v_ct_accum = jax.lax.dynamic_update_index_in_dim(
+            v_ct_accum, v_ct_slice, batch_loop_idx, axis=0)
+        new_vals = new_vals + (qk_ct_accum, v_ct_accum)
+
+      return new_vals
+
+    final_vals = jax.lax.while_loop(cond_fun, body_fun, init_vals)
+
+    if return_output:
+      out = final_vals[1]
+    else:
+      out = None
+
+    if ct is not None:
+      input_ct = final_vals[-2:]
+    else:
+      input_ct = None
+
+    return out, input_ct
+
+  def make_unit_length(self, x, epsilon=1e-6):
+    variance = np.mean(x**2, axis=-1, keepdims=True)
+    norm_inputs = x / np.sqrt(variance + epsilon)
+    return norm_inputs
+
+  def hash_vectors(self, vecs, rng):
+    # See https://arxiv.org/pdf/1509.02897.pdf
+    # We sample a different random rotation for each round of hashing to
+    # decrease the probability of hash misses.
+    assert self.n_buckets % 2 == 0
+    random_rotations = jax.random.normal(
+        jax.lax.tie_in(vecs, rng),
+        (vecs.shape[-1], self.n_hashes, self.n_buckets // 2)).astype('float32')
+
+    rotated_vecs = np.einsum('tf,fhb->htb', vecs, random_rotations)
+    rotated_vecs = np.concatenate([rotated_vecs, -rotated_vecs], axis=-1)
+    buckets = np.argmax(rotated_vecs, axis=-1)
+    # buckets is now (self.n_hashes, seqlen). Next we add offsets so that bucket
+    # numbers from different hashing rounds don't overlap.
+    offsets = jax.lax.tie_in(buckets, np.arange(self.n_hashes))
+    offsets = np.reshape(offsets * self.n_buckets, (-1, 1))
+    buckets = np.reshape(buckets + offsets, (-1,))
+    return buckets
+
+  def single_call(self, qk, v, hash_rng=None):
+    # We use the same vector as both a query and a key.
+    seqlen = qk.shape[-2]
+
+    buckets = self.hash_vectors(qk, rng=hash_rng)
+    assert int(buckets.shape[0]) == self.n_hashes * seqlen
+
+    ticker = jax.lax.tie_in(qk, np.arange(self.n_hashes * seqlen))
+    buckets_and_t = seqlen * buckets + (ticker % seqlen)
+    buckets_and_t = jax.lax.stop_gradient(buckets_and_t)
+
+    # Hash-based sort ("s" at the start of variable names means "sorted")
+    sbuckets_and_t, sticker = jax.lax.sort_key_val(
+        buckets_and_t, ticker, dimension=-1)
+    _, undo_sort = jax.lax.sort_key_val(sticker, ticker, dimension=-1)
+    sbuckets_and_t = jax.lax.stop_gradient(sbuckets_and_t)
+    sticker = jax.lax.stop_gradient(sticker)
+    undo_sort = jax.lax.stop_gradient(undo_sort)
+
+    st = (sticker % seqlen)
+    sqk = np.take(qk, st, axis=0)
+    sv = np.take(v, st, axis=0)
+
+    # Split off a "bin" axis so that attention only occurs within chunks.
+    bq_t = bkv_t = np.reshape(st, (self.n_hashes * self.n_bins, -1))
+    bqk = np.reshape(sqk, (self.n_hashes * self.n_bins, -1, sqk.shape[-1]))
+    bv = np.reshape(sv, (self.n_hashes * self.n_bins, -1, sv.shape[-1]))
+    bq_buckets = bkv_buckets = np.reshape(
+        sbuckets_and_t // seqlen, (self.n_hashes * self.n_bins, -1))
+
+    # Hashing operates on unit-length vectors. Unnormalized query vectors are
+    # fine because they effectively provide a learnable temperature for the
+    # attention softmax, but normalizing keys is needed so that similarity for
+    # the purposes of attention correctly corresponds to hash locality.
+    bq = bqk
+    bk = self.make_unit_length(bqk)
+
+    # Allow each chunk to attend within itself, and also one chunk back. Chunk
+    # boundaries might occur in the middle of a sequence of items from the
+    # same bucket, so this increases the chances of attending to relevant items.
+    # TODO(kitaev): benchmark whether XLA pad operation is noticeably faster.
+    def look_one_back(x):
+      if len(x.shape) == 2:
+        x_extra = np.concatenate([x[-1:, :], x[:-1, :]], axis=0)
+      else:
+        x_extra = np.concatenate([x[-1:, :, :], x[:-1, :, :]], axis=0)
+      return np.concatenate([x, x_extra], axis=1)
+
+    bk = look_one_back(bk)
+    bv = look_one_back(bv)
+    bkv_t = look_one_back(bkv_t)
+    bkv_buckets = look_one_back(bkv_buckets)
+
+    # Dot-product attention.
+    dots = np.matmul(bq, np.swapaxes(bk, -1, -2)) / np.sqrt(bq.shape[-1])
+
+    # Causal masking
+    mask = jax.lax.convert_element_type(
+        jax.lax.lt(bq_t[:, :, None], bkv_t[:, None, :]),
+        np.float32)
+    dots = dots - 1e9 * mask
+
+    # Mask out attention to self except when no other targets are available.
+    self_mask = jax.lax.convert_element_type(
+        jax.lax.eq(bq_t[:, :, None], bkv_t[:, None, :]),
+        np.float32)
+    dots = dots - 1e6 * self_mask
+
+    # Mask out attention to other hash buckets.
+    if not self._attend_across_buckets:
+      bucket_mask = jax.lax.convert_element_type(
+          jax.lax.ne(bq_buckets[:, :, None], bkv_buckets[:, None, :]),
+          np.float32)
+      dots = dots - 1e5 * bucket_mask
+
+    # Don't double-count query-key pairs across multiple rounds of hashing.
+    # The approach here is to count how many times a query-key pair is repeated,
+    # and to lower its log-prob correspondingly at each repetition.
+    if not self._allow_duplicate_attention:
+      locs1 = undo_sort // bq_t.shape[-1]
+      locs2 = (locs1 + 1) % (self.n_hashes * self.n_bins)
+      if not self._attend_across_buckets:
+        locs1 = buckets * (self.n_hashes * self.n_bins) + locs1
+        locs2 = buckets * (self.n_hashes * self.n_bins) + locs2
+      locs = np.moveaxis(np.concatenate([
+          np.reshape(locs1, (self.n_hashes, seqlen)),
+          np.reshape(locs2, (self.n_hashes, seqlen)),
+      ], 0), 0, -1)  # produces shape (seqlen, 2 * self.n_hashes)
+      slocs = np.take(locs, st, axis=0)
+      b_locs = np.reshape(
+          slocs, (self.n_hashes * self.n_bins, -1, 2 * self.n_hashes))
+      # Queries always use the primary location (based on loc1).
+      bq_locs = np.broadcast_to(
+          b_locs[:, :, None, :self.n_hashes],
+          b_locs.shape[:2] + (2, self.n_hashes))
+      bq_locs = np.reshape(bq_locs, b_locs.shape)
+      bkv_locs = look_one_back(b_locs)
+
+      dup_counts = np.sum(
+          jax.lax.convert_element_type(
+              jax.lax.eq(bq_locs[:, :, None, :], bkv_locs[:, None, :, :]),
+              np.float32),
+          axis=-1)
+      assert dup_counts.shape == dots.shape
+      dots = dots - jax.lax.stop_gradient(np.log(dup_counts + 1e-9))
+
+    # Softmax.
+    dots_logsumexp = backend.logsumexp(dots, axis=-1, keepdims=True)
+    dots = np.exp(dots - dots_logsumexp)
+
+    bo = np.matmul(dots, bv)
+    so = np.reshape(bo, (-1, bo.shape[-1]))
+    slogits = np.reshape(dots_logsumexp, (-1,))
+
+    def unsort_for_output_impl(so, slogits):
+      o = np.take(so, undo_sort, axis=0)
+      # Sorting is considerably faster than gather, but first we need to get the
+      # XLA compiler to abandon the idea of fusing this sort with the input sort
+      # (which introduces a computation cycle and leads to a crash).
+      # TODO(kitaev): remove "sticker_" variable if XLA is fixed.
+      sticker_ = sticker + jax.lax.convert_element_type(
+          slogits[0] > 0, sticker.dtype)
+      _, logits = jax.lax.sort_key_val(sticker_, slogits, dimension=-1)
+      return o, logits
+
+    def unsort_for_output_vjp(so, slogits):
+      """Custom gradient for unsort_for_output."""
+      so = jax.lax.stop_gradient(so)
+      slogits = jax.lax.stop_gradient(slogits)
+      o, logits = unsort_for_output_impl(so, slogits)
+      def vjpfun(o_logits_grads):
+        so_grad = np.take(o_logits_grads[0], sticker, axis=0)
+        # TODO(kitaev): this exists to match the forward pass, but I'm not sure
+        # if it's actually required.
+        buckets_and_t_ = buckets_and_t + jax.lax.convert_element_type(
+            o_logits_grads[1][0] > 0, buckets_and_t.dtype)
+        _, slogits_grad = jax.lax.sort_key_val(
+            buckets_and_t_, o_logits_grads[1], dimension=-1)
+        return (so_grad, slogits_grad)
+      return (o, logits), vjpfun
+
+    unsort_for_output = jax.custom_transforms(unsort_for_output_impl)
+    jax.defvjp_all(unsort_for_output, unsort_for_output_vjp)
+    o, logits = unsort_for_output_impl(so, slogits)
+
+    if self.n_hashes == 1:
+      out = o
+    else:
+      o = np.reshape(o, (self.n_hashes, seqlen, o.shape[-1]))
+      logits = np.reshape(logits, (self.n_hashes, seqlen, 1))
+      probs = np.exp(logits - backend.logsumexp(logits, axis=0, keepdims=True))
+      out = np.sum(o * probs, axis=0)
+
+    assert out.shape == v.shape
+    return out
+
+
 def CausalAttention(d_feature, n_heads=1,
                     d_attention_key=None, d_attention_value=None,
                     attention_type=DotProductCausalAttention,

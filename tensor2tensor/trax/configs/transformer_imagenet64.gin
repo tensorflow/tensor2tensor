@@ -54,9 +54,17 @@ MergedMultiHashedCausalAttention.one_rng = False
 MergedMultiHashedCausalAttention.drop_for_hash_rate = 0.1
 MergedMultiHashedCausalAttention.hard_k = 32
 
+# Parameters for MergedMultiHashedCausalAttentionV2:
+# ==============================================================================
+MergedMultiHashedCausalAttentionV2.dropout = 0.0
+MergedMultiHashedCausalAttentionV2.n_bins = 96
+MergedMultiHashedCausalAttentionV2.n_buckets = 256
+MergedMultiHashedCausalAttentionV2.n_hashes = 4
+MergedMultiHashedCausalAttentionV2.one_rng = True
+
 # Parameters for TransformerLM:
 # ==============================================================================
-TransformerLM.attention_type = @trax.layers.MergedMultiHashedCausalAttention
+TransformerLM.attention_type = @trax.layers.MergedMultiHashedCausalAttentionV2
 TransformerLM.d_attention_key = 64
 TransformerLM.d_attention_value = 64
 TransformerLM.d_model = 1024
