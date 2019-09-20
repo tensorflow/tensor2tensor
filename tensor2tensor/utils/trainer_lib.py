@@ -185,20 +185,26 @@ def create_run_config(model_name,
     tpu_config = tf.contrib.tpu.TPUConfig(
         **tpu_config_kwargs)
     run_config_args["tpu_config"] = tpu_config
-    if not master and "KUBE_GOOGLE_CLOUD_TPU_ENDPOINTS" in os.environ:
+    # FATHOM: swapped if-else precedence
+    # for cloud_tpu to take precedence over the KUBE_GOOGLE_CLOUD_TPU_ENDPOINTS
+    # check. KUBE_GOOGLE_CLOUD_TPU_ENDPOINTS gets set automatically on GKE pods
+    # with TPUs, but this is not the same as running on ML Engine which is
+    # assumed by T2T, causing errors.
+    if not master and cloud_tpu_name:
+        # Update run_config to use cluster instead of master/evaluation_master
+        # as we need the cluster spec to use Cloud Pods
+        tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
+            cloud_tpu_name)
+        run_config_args["cluster"] = tpu_cluster_resolver
+        del run_config_args["master"]
+        del run_config_args["evaluation_master"]
+    elif not master and "KUBE_GOOGLE_CLOUD_TPU_ENDPOINTS" in os.environ:
       # If running on TPU but no master is set and the KUBE env var is present
       # then we're running on ML Engine. Set the master.
       run_config_args["master"] = os.environ[
           "KUBE_GOOGLE_CLOUD_TPU_ENDPOINTS"]
       run_config_args["evaluation_master"] = run_config_args["master"]
-    elif not master and cloud_tpu_name:
-      # Update run_config to use cluster instead of master/evaluation_master
-      # as we need the cluster spec to use Cloud Pods
-      tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
-          cloud_tpu_name)
-      run_config_args["cluster"] = tpu_cluster_resolver
-      del run_config_args["master"]
-      del run_config_args["evaluation_master"]
+    # END FATHOM
   elif is_cloud_async_distributed():
     run_config_cls = tf.estimator.RunConfig
     del run_config_args["master"]
@@ -618,6 +624,13 @@ def create_experiment(
   local_schedules = ["train_and_evaluate", "continuous_train_and_eval"]
   use_early_stopping = (
       schedule not in local_schedules and eval_early_stopping_steps)
+
+  # Fathom
+  # Can't add early stopping on TPU
+  if use_tpu:
+      tf.logging.info('Turning off use_early_stopping for use_tpu')
+      use_early_stopping = False
+
   train_hooks, eval_hooks = create_hooks(
       use_tfdbg=use_tfdbg,
       use_dbgprofile=use_dbgprofile,
