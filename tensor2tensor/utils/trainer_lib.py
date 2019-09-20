@@ -627,7 +627,7 @@ def create_experiment(
 
   # Fathom
   # Can't add early stopping on TPU
-  if not use_tpu:
+  if use_tpu:
       tf.logging.info('Turning off use_early_stopping for use_tpu')
   use_early_stopping &= not use_tpu
 
