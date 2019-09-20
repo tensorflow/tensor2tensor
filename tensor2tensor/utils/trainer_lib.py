@@ -629,7 +629,7 @@ def create_experiment(
   # Can't add early stopping on TPU
   if use_tpu:
       tf.logging.info('Turning off use_early_stopping for use_tpu')
-  use_early_stopping &= not use_tpu
+      use_early_stopping = False
 
   train_hooks, eval_hooks = create_hooks(
       use_tfdbg=use_tfdbg,
