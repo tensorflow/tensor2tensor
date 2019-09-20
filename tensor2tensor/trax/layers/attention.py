@@ -1074,10 +1074,13 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
 
   def __init__(self, dropout, mode, n_bins=64, n_hashes=1, n_buckets=64,
                one_rng=False, allow_duplicate_attention=False,
-               attend_across_buckets=False, hard_k=0):
+               attend_across_buckets=False, hard_k=0, rehash_each_round=True):
     del dropout, mode
     super(MergedMultiHashedCausalAttentionV2, self).__init__()
     assert n_buckets >= n_bins, 'This setting is not recommended: too few bins.'
+    assert rehash_each_round or allow_duplicate_attention, (
+        'The setting {allow_duplicate_attention=False, rehash_each_round=False}'
+        ' is not implemented.')
     self.n_bins = n_bins
     self.n_hashes = n_hashes
     self.n_buckets = n_buckets
@@ -1091,6 +1094,7 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
     self._allow_duplicate_attention = allow_duplicate_attention
     self._attend_across_buckets = attend_across_buckets
     self._hard_k = hard_k
+    self._rehash_each_round = rehash_each_round
 
   def call(self, inputs, params=(), state=(), rng=None, **kwargs):
     del params, kwargs
@@ -1206,18 +1210,35 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
     # We sample a different random rotation for each round of hashing to
     # decrease the probability of hash misses.
     assert self.n_buckets % 2 == 0
-    random_rotations = jax.random.normal(
-        jax.lax.tie_in(vecs, rng),
-        (vecs.shape[-1], self.n_hashes, self.n_buckets // 2)).astype('float32')
+    random_rotations_shape = (
+        vecs.shape[-1],
+        self.n_hashes if self._rehash_each_round else 1,
+        self.n_buckets // 2)
 
+    random_rotations = jax.random.normal(
+        jax.lax.tie_in(vecs, rng), random_rotations_shape).astype('float32')
     rotated_vecs = np.einsum('tf,fhb->htb', vecs, random_rotations)
     rotated_vecs = np.concatenate([rotated_vecs, -rotated_vecs], axis=-1)
-    buckets = np.argmax(rotated_vecs, axis=-1)
-    # buckets is now (self.n_hashes, seqlen). Next we add offsets so that bucket
-    # numbers from different hashing rounds don't overlap.
-    offsets = jax.lax.tie_in(buckets, np.arange(self.n_hashes))
-    offsets = np.reshape(offsets * self.n_buckets, (-1, 1))
-    buckets = np.reshape(buckets + offsets, (-1,))
+
+    if self._rehash_each_round:
+      buckets = np.argmax(rotated_vecs, axis=-1)
+      # buckets is now (self.n_hashes, seqlen). Next we add offsets so that
+      # bucket numbers from different hashing rounds don't overlap.
+      offsets = jax.lax.tie_in(buckets, np.arange(self.n_hashes))
+      offsets = np.reshape(offsets * self.n_buckets, (-1, 1))
+      buckets = np.reshape(buckets + offsets, (-1,))
+    else:
+      # In this configuration, we map each item to the top self.n_hashes buckets
+      rotated_vecs = np.squeeze(rotated_vecs, 0)
+      bucket_range = jax.lax.tie_in(vecs, np.arange(rotated_vecs.shape[-1]))
+      bucket_range = np.reshape(bucket_range, (1, -1))
+      bucket_range = np.broadcast_to(bucket_range, rotated_vecs.shape)
+
+      _, buckets = jax.lax.sort_key_val(
+          rotated_vecs, bucket_range, dimension=-1)
+      buckets = buckets[:, -self.n_hashes:]
+      buckets = np.reshape(np.moveaxis(buckets, 0, -1), (-1,))
+
     return buckets
 
   def single_call(self, qk, v, hash_rng=None):
