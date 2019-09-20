@@ -53,4 +53,5 @@ TransformerRevnetLM.n_layers = 12
 TransformerRevnetLM.vocab_size = 258
 TransformerRevnetLM.n_chunks = 16
 TransformerRevnetLM.n_attention_chunks = 1
+TransformerRevnetLM.share_qk = True
 TransformerRevnetLM.attention_type = @trax.layers.MergedHashedCausalAttention

@@ -1455,7 +1455,7 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
 def CausalAttention(d_feature, n_heads=1,
                     d_attention_key=None, d_attention_value=None,
                     attention_type=DotProductCausalAttention,
-                    share_kv=False, mode='train'):
+                    share_qk=False, mode='train'):
   """Transformer-style multi-headed causal attention.
 
   Args:
@@ -1466,7 +1466,7 @@ def CausalAttention(d_feature, n_heads=1,
     d_attention_value: int: depth of value vector for each attention head
         (default is d_feature // n_heads)
     attention_type: subclass of BaseCausalAttention: attention class to use
-    share_kv: bool, whether to share keys and values
+    share_qk: bool, whether to share queries and keys
     mode: str: 'train' or 'eval'
 
   Returns:
@@ -1479,7 +1479,7 @@ def CausalAttention(d_feature, n_heads=1,
     assert d_feature % n_heads == 0
     d_attention_value = d_feature // n_heads
 
-  if share_kv:
+  if share_qk:
     pre_attention = [
         cb.Dup(),
         cb.Parallel(

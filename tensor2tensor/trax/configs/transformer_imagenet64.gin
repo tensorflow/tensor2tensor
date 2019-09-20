@@ -35,6 +35,7 @@ train.trainer_class = @MemoryEfficientTrainer
 # ==============================================================================
 MemoryEfficientCausalAttention.dropout = 0.0
 MemoryEfficientCausalAttention.loop_stride = 512
+MemoryEfficientCausalAttention.share_qk = True  # matches TransformerLM.share_qk
 
 # Parameters for MergedHashedCausalAttention:
 # ==============================================================================
@@ -74,6 +75,6 @@ TransformerLM.max_len = 12288  # 64 * 64 * 3
 TransformerLM.mode = 'train'
 TransformerLM.n_heads = 4
 TransformerLM.n_layers = 3
-TransformerLM.share_kv = True
+TransformerLM.share_qk = True
 TransformerLM.vocab_size = 256
 

@@ -394,7 +394,7 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
 
 def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
                  n_heads, n_attention_chunks, attention_type,
-                 dropout, share_kv, mode):
+                 dropout, share_qk, mode):
   """Reversible transformer decoder layer.
 
   Args:
@@ -406,13 +406,13 @@ def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
     n_attention_chunks: int: number of chunks for attention
     attention_type: subclass of tl.BaseCausalAttention: attention class to use
     dropout: float: dropout rate (how much to drop out)
-    share_kv: string, whether to share keys and values
+    share_qk: string, whether to share queries and keys
     mode: str: 'train' or 'eval'
 
   Returns:
     the layer.
   """
-  if share_kv:
+  if share_qk:
     pre_attention = [
         Chunk(n_sections=n_attention_chunks),  # pylint: disable=no-value-for-parameter
         tl.LayerNorm(),
@@ -468,7 +468,7 @@ def TransformerRevnetLM(vocab_size,
                         n_chunks=32,
                         n_attention_chunks=8,
                         attention_type=tl.DotProductCausalAttention,
-                        share_kv=False,
+                        share_qk=False,
                         mode='train'):
   """Reversible transformer language model (only uses a decoder, no encoder).
 
@@ -485,7 +485,7 @@ def TransformerRevnetLM(vocab_size,
     n_chunks: int: number of chunks (must match input pipeline)
     n_attention_chunks: int: number of chunks for attention
     attention_type: class: attention class to use, such as DotProductAttention.
-    share_kv: bool, whether to share keys and values.
+    share_qk: bool, whether to share queries and keys.
     mode: str: 'train' or 'eval'
 
   Returns:
@@ -506,7 +506,7 @@ def TransformerRevnetLM(vocab_size,
           DecoderBlock(d_model, d_ff,
                        d_attention_key, d_attention_value, n_heads,
                        n_attention_chunks, attention_type,
-                       dropout, share_kv, mode)
+                       dropout, share_qk, mode)
           for _ in range(n_layers)
       ] + [
           SplitForOutput(n_sections=n_chunks, axis=-2),  # pylint: disable=no-value-for-parameter
