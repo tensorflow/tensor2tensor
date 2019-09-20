@@ -1074,7 +1074,7 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
 
   def __init__(self, dropout, mode, n_bins=64, n_hashes=1, n_buckets=64,
                one_rng=False, allow_duplicate_attention=False,
-               attend_across_buckets=False):
+               attend_across_buckets=False, hard_k=0):
     del dropout, mode
     super(MergedMultiHashedCausalAttentionV2, self).__init__()
     assert n_buckets >= n_bins, 'This setting is not recommended: too few bins.'
@@ -1090,6 +1090,7 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
 
     self._allow_duplicate_attention = allow_duplicate_attention
     self._attend_across_buckets = attend_across_buckets
+    self._hard_k = hard_k
 
   def call(self, inputs, params=(), state=(), rng=None, **kwargs):
     del params, kwargs
@@ -1295,8 +1296,11 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
       dots = dots - 1e5 * bucket_mask
 
     # Don't double-count query-key pairs across multiple rounds of hashing.
-    # The approach here is to count how many times a query-key pair is repeated,
-    # and to lower its log-prob correspondingly at each repetition.
+    # There are two possible strategies here. (1) The default is to count how
+    # many times a query-key pair is repeated, and to lower its log-prob
+    # correspondingly at each repetition. (2) When hard_k is set, the code
+    # instead masks all but the first occurence of each query-key pair.
+    # TODO(kitaev): is one strategy faster or more numerically stable?
     if not self._allow_duplicate_attention:
       locs1 = undo_sort // bq_t.shape[-1]
       locs2 = (locs1 + 1) % (self.n_hashes * self.n_bins)
@@ -1310,9 +1314,19 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
       slocs = np.take(locs, st, axis=0)
       b_locs = np.reshape(
           slocs, (self.n_hashes * self.n_bins, -1, 2 * self.n_hashes))
-      # Queries always use the primary location (based on loc1).
+      # Queries always use the primary location (based on locs1).
+      b_locs1 = b_locs[:, :, None, :self.n_hashes]
+      if self._hard_k > 0:
+        range_n_hashes = jax.lax.tie_in(b_locs, np.arange(self.n_hashes))
+        nouse_locs = (range_n_hashes[:, None] > range_n_hashes[None, :])
+        nouse_locs = 2 * nouse_locs - 1  # 1 = use, -1 = don't use
+        nouse_locs = np.reshape(
+            np.broadcast_to(nouse_locs[:, None, :],
+                            (self.n_hashes, self.n_bins, self.n_hashes)),
+            (self.n_hashes * self.n_bins, 1, 1, self.n_hashes))
+        b_locs1 = b_locs1 * nouse_locs
       bq_locs = np.broadcast_to(
-          b_locs[:, :, None, :self.n_hashes],
+          b_locs1,
           b_locs.shape[:2] + (2, self.n_hashes))
       bq_locs = np.reshape(bq_locs, b_locs.shape)
       bkv_locs = look_one_back(b_locs)
@@ -1323,7 +1337,34 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
               np.float32),
           axis=-1)
       assert dup_counts.shape == dots.shape
-      dots = dots - jax.lax.stop_gradient(np.log(dup_counts + 1e-9))
+      if self._hard_k > 0:
+        dots = dots - 1e5 * jax.lax.stop_gradient(dup_counts)
+      else:
+        dots = dots - jax.lax.stop_gradient(np.log(dup_counts + 1e-9))
+
+    # Each query only attends to the top k most relevant keys.
+    if self._hard_k > 0:
+      b_top_dots = np.sort(dots)[..., -self._hard_k:]  # Get the top k dots.
+      b_top_dots = jax.lax.stop_gradient(b_top_dots)
+      s_top_dots = np.reshape(b_top_dots, (-1, self._hard_k))
+      top_dots = np.take(s_top_dots, undo_sort, axis=0)
+
+      merged_top_dots = np.moveaxis(
+          np.reshape(top_dots, (self.n_hashes, seqlen, self._hard_k)), 0, -1)
+      merged_top_dots = np.reshape(merged_top_dots, (seqlen, -1))
+
+      dots_thresh = np.sort(merged_top_dots)[:, -self._hard_k]
+      # It's possible to compute the partition function at this point, but right
+      # now this codepath isn't set up for backprop, and there might also be
+      # issues computing it this way if two dot-products are exactly equal.
+
+      sdots_thresh = dots_thresh[st]
+      bdots_thresh = np.reshape(sdots_thresh, (self.n_hashes * self.n_bins, -1))
+      bdots_thresh = jax.lax.stop_gradient(bdots_thresh)
+
+      top_k_mask = jax.lax.convert_element_type(
+          dots < bdots_thresh[..., None], np.float32)
+      dots = dots - 1e5 * jax.lax.stop_gradient(top_k_mask)
 
     # Softmax.
     dots_logsumexp = backend.logsumexp(dots, axis=-1, keepdims=True)
