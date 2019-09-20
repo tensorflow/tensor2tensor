@@ -159,14 +159,11 @@ class SymbolModality(modality.Modality):
       else:
         body_output = tf.reshape(body_output, [-1, body_output_shape[-1]])
         logits = tf.matmul(body_output, var, transpose_b=True)
-        if (common_layers.is_xla_compiled() and
-            self._model_hparams.mode == tf.estimator.ModeKeys.TRAIN):
-          # TPU does not react kindly to extra dimensions.
-          # TODO(noam): remove this once TPU is more forgiving of extra dims.
-          return logits
-        else:
-          return tf.reshape(logits,
-                            body_output_shape[:-1] + [1, self._vocab_size])
+        # Just reshape like upstream t2t so that body_output
+        # is the expected shape of [B, 1, D]
+        # https://github.com/tensorflow/tensor2tensor/blob/d600c8bb196193596fdb38c2b6e5393c4e240564/tensor2tensor/layers/modalities.py#L1135
+        return tf.reshape(logits,
+                          body_output_shape[:-1] + [1, self._vocab_size])
 
 
 class SymbolModalityWeightsAll(SymbolModality):
