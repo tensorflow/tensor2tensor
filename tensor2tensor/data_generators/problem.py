@@ -971,10 +971,36 @@ class Problem(object):
       # batch_size means tokens per datashard
       if config and config.use_tpu:
         dataset = dataset.filter(tpu_valid_size)
-        padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
+
+        # if we are on TPU and we are chunking input features,
+        # we assume that we have one example per batch that is packed.
+        # we then the input features
+        # we need to pad the features that we chunk to the next nearest
+        # multiple of the chunk length
+        if hasattr(hparams, 'bert_max_length'):
+            dataset = dataset.map(
+                pad_to_next_chunk_length(
+                    length=hparams.bert_max_length,
+                    axis=0,
+                    features_to_pad=[
+                        'inputs', 'input_example', 'input_chunk']),
+                num_parallel_calls=num_threads)
+            # preprocess_common_example already truncates our targets
+            # to max_target_seq_length, so this will pad up to
+            # 1*max_target_seq_length every time.
+            dataset = dataset.map(
+                pad_to_next_chunk_length(
+                    length=hparams.max_target_seq_length,
+                    axis=0,
+                    features_to_pad=['targets']),
+                num_parallel_calls=num_threads)
+        # otherwise we pad out to max for inputs and targets
+        else:
+            padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
         # on TPU, we use params["batch_size"], which specifies the number of
         # examples across all datashards
         batch_size = params["batch_size"]
+
         if hparams.pad_batch:
           tf.logging.warn(
               "Padding the batch to ensure that remainder eval batches are "
@@ -994,12 +1020,22 @@ class Problem(object):
         dataset = dataset.filter(gpu_valid_size)
         batching_scheme = self._get_batching_scheme(hparams, num_shards)
 
+        # if GPU and we are chunking input features,
+        # we need to pad the features that we chunk to the next nearest
+        # multiple of the chunk length
+        if hasattr(hparams, 'bert_max_length'):
+            dataset = dataset.map(
+                pad_to_next_chunk_length(
+                    length=hparams.bert_max_length,
+                    axis=0,
+                    features_to_pad=['inputs']),
+                num_parallel_calls=num_threads)
+
         dataset = dataset.apply(
             tf.contrib.data.bucket_by_sequence_length(
                 element_length_func=data_reader.example_length,
                 bucket_boundaries=batching_scheme['bucket_boundaries'],
-                bucket_batch_sizes=batching_scheme['bucket_batch_sizes'],
-                pad_to_bucket_boundary=hasattr(hparams, 'bert_max_length')))
+                bucket_batch_sizes=batching_scheme['bucket_batch_sizes']))
 
         if not is_training:
           batch_multiple = num_shards
