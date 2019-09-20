@@ -935,27 +935,6 @@ class Problem(object):
             "Shapes are not fully defined. Assuming batch_size means tokens.")
         batch_size_means_tokens = True
 
-    # TODO: flag for chunking
-    def pad_to_next_chunk_length(features_to_pad: List[str], length: int) -> Callable:
-
-        def _pad(features):
-            for feature_name in features:
-                if not feature_name in features_to_pad:
-                    continue
-                feature = features[feature_name]
-                _, seq_len, *_ = feature.get_shape().as_list()
-                extra = ((seq_len % length) + 1) * length - seq_len
-                features[feature_name] += [0,] * extra
-
-        return _pad
-
-    if hasattr(hparams, 'bert_max_length')):
-        features_to_pad = [
-            'int', ...
-        ]
-        dataset = dataset.map(
-            pad_to_next_chunk_length(features_to_pad, hparams.bert_max_length))
-
     # Batching
     if not batch_size_means_tokens:
       # Batch size means examples per datashard.
@@ -974,9 +953,11 @@ class Problem(object):
 
         # if we are on TPU and we are chunking input features,
         # we assume that we have one example per batch that is packed.
-        # we then the input features
+        # we also have multiple input features (inputs, input_example, input_chunk)
         # we need to pad the features that we chunk to the next nearest
         # multiple of the chunk length
+        # this should always be the same length, but convenient to reuse
+        # this function
         if hasattr(hparams, 'bert_max_length'):
             dataset = dataset.map(
                 pad_to_next_chunk_length(
@@ -995,6 +976,7 @@ class Problem(object):
                     features_to_pad=['targets']),
                 num_parallel_calls=num_threads)
         # otherwise we pad out to max for inputs and targets
+        # keep the upstream t2t padding function here for posterity
         else:
             padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
         # on TPU, we use params["batch_size"], which specifies the number of
@@ -1022,7 +1004,8 @@ class Problem(object):
 
         # if GPU and we are chunking input features,
         # we need to pad the features that we chunk to the next nearest
-        # multiple of the chunk length
+        # multiple of the chunk length,
+        # this can differ on the GPU as we do have variable input lengths
         if hasattr(hparams, 'bert_max_length'):
             dataset = dataset.map(
                 pad_to_next_chunk_length(
