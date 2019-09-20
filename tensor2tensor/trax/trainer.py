@@ -93,6 +93,7 @@ def _setup_gin():
 
 
 def main(_):
+
   logging.set_verbosity(FLAGS.log_level)
 
   if FLAGS.enable_eager_execution:
