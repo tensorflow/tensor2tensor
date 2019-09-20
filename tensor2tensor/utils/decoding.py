@@ -647,7 +647,7 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
       tf.logging.info("Input subtokens: \"%s\"" % input_subtokens)
       tf.logging.info("Output subtokens: \"%s\"" % output_subtokens)
       outinp_mapping = [
-        f'{output_subtoken} --> {input_subtokens[align_hard[idx]]}'
+        f"{output_subtoken} --> {input_subtokens[align_hard[idx]]}"
         for idx, output_subtoken in enumerate(output_subtokens)]
       tf.logging.info("Output-Input mapping: \"%s\"" % outinp_mapping)
 
@@ -666,7 +666,7 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
     inputs_vocab = hparams.problem_hparams.vocabulary["inputs"]
     targets_vocab = hparams.problem_hparams.vocabulary["targets"]
 
-    input_ids = np.squeeze(result['inputs'])
+    input_ids = np.squeeze(result["inputs"])
     input_ids, input_subtokens = get_striped_ids_and_subtokens(input_ids, inputs_vocab)
     if decode_hp.return_beams:
       beams = np.split(result["outputs"], decode_hp.beam_size, axis=0)
