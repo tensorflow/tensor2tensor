@@ -1123,6 +1123,14 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
   def batch_call_and_or_grad(self, qk, v, ct=None, return_output=True,
                              rng=None):
     assert return_output or ct is not None, 'No work to perform!'
+    # pylint: disable=protected-access
+    stash_buckets = (return_output and ct is None
+                     and base.Layer._STASH_IN is not None)
+    if return_output and ct is not None and base.Layer._STASH_OUT is not None:
+      buckets = base.Layer._STASH_OUT.pop(self)
+    else:
+      buckets = None
+    # pylint: enable=protected-access
 
     # The approach here is to perform attention for one batch element and head
     # at a time. Note that there is absolutely no interaction across examples or
@@ -1140,6 +1148,10 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
     if return_output:
       out_accum = np.zeros_like(qk)
       init_vals = init_vals + (out_accum,)
+    if stash_buckets:
+      buckets_accum = np.zeros(
+          [qk.shape[0], self.n_hashes * qk.shape[1]], dtype=np.int32)
+      init_vals = init_vals + (buckets_accum,)
     if ct is not None:
       qk_ct_accum = np.zeros_like(qk)
       v_ct_accum = np.zeros_like(v)
@@ -1162,11 +1174,19 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
       v_slice = jax.lax.dynamic_index_in_dim(
           v, batch_loop_idx, axis=0, keepdims=False)
 
+      if buckets is None:
+        buckets_slice = self.hash_vectors(qk_slice, rng=hash_rng)
+      else:
+        buckets_slice = jax.lax.dynamic_index_in_dim(
+            buckets, batch_loop_idx, axis=0, keepdims=False)
+
       if ct is None:
-        out_slice = self.single_call(qk_slice, v_slice, hash_rng=hash_rng)
+        out_slice = self.single_call(
+            qk_slice, v_slice, buckets_slice, hash_rng=hash_rng)
       else:
         def _do_single_call(qk_slice, v_slice):
-          return self.single_call(qk_slice, v_slice, hash_rng=hash_rng)
+          return self.single_call(
+              qk_slice, v_slice, buckets_slice, hash_rng=hash_rng)
         ct_slice = jax.lax.dynamic_index_in_dim(
             ct, batch_loop_idx, axis=0, keepdims=False)
         out_slice, vjpfun = jax.vjp(_do_single_call, qk_slice, v_slice)
@@ -1178,6 +1198,11 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
         out_accum = jax.lax.dynamic_update_index_in_dim(
             out_accum, out_slice, batch_loop_idx, axis=0)
         new_vals = new_vals + (out_accum,)
+      if stash_buckets:
+        buckets_accum = vals[2]
+        buckets_accum = jax.lax.dynamic_update_index_in_dim(
+            buckets_accum, buckets_slice, batch_loop_idx, axis=0)
+        new_vals = new_vals + (buckets_accum,)
       if ct is not None:
         qk_ct_accum, v_ct_accum = vals[-2:]
         qk_ct_accum = jax.lax.dynamic_update_index_in_dim(
@@ -1194,6 +1219,9 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
       out = final_vals[1]
     else:
       out = None
+
+    if stash_buckets:
+      base.Layer._STASH_IN[self] = final_vals[2]  # pylint: disable=protected-access
 
     if ct is not None:
       input_ct = final_vals[-2:]
@@ -1255,11 +1283,9 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
 
     return buckets
 
-  def single_call(self, qk, v, hash_rng=None):
+  def single_call(self, qk, v, buckets, hash_rng=None):
     # We use the same vector as both a query and a key.
     seqlen = qk.shape[-2]
-
-    buckets = self.hash_vectors(qk, rng=hash_rng)
     assert int(buckets.shape[0]) == self.n_hashes * seqlen
 
     ticker = jax.lax.tie_in(qk, np.arange(self.n_hashes * seqlen))

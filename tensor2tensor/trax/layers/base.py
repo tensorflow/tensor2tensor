@@ -239,6 +239,10 @@ class Layer(object):
       name, trace = self.__class__.__name__, _short_traceback(skip=3)
       raise LayerError(name, 'initialize', self._caller, input_shapes, trace)
 
+  # XXX(kitaev):
+  _STASH_IN = None
+  _STASH_OUT = None
+
   def __call__(self, x, params=(), state=(), **kwargs):
     try:
       # If params are nothing, we may be reusing this layer.
@@ -251,7 +255,7 @@ class Layer(object):
         # In this case, we're called for the first time: cache parameters.
         self._params = params
 
-      if not self.has_custom_grad:
+      if not self.has_custom_grad or Layer._STASH_IN is not None:
         return self.call(x, params=params, state=state, **kwargs)
 
       # Custom gradients part.
@@ -284,10 +288,20 @@ class Layer(object):
       # For the exact specification of this custom transformation see this link:
       # https://jax.readthedocs.io/en/latest/jax.html#jax.defjvp_all
       def do_call_vjp(y, params):
+        """Custom gradient (vjp) function."""
+        stash = None
+        if Layer._STASH_IN is None:
+          Layer._STASH_IN = stash = {}
         output = check_end_state(self.call(y, params=params, state=state,
                                            **kwargs))
+        if stash is not None:
+          Layer._STASH_IN = None
         def vjpfun(grad):
-          return self.custom_grad(y, output, grad, params, state, **kwargs)
+          assert Layer._STASH_OUT is None
+          Layer._STASH_OUT = stash
+          res = self.custom_grad(y, output, grad, params, state, **kwargs)
+          Layer._STASH_OUT = None
+          return res
         return output, vjpfun
 
       jax.defvjp_all(do_call, do_call_vjp)
