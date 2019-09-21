@@ -1,0 +1,2 @@
+share_qk: [True, False]
+attn_kv: [64, 128]

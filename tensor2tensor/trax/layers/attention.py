@@ -460,8 +460,8 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
       Returns:
         N x M mask, where 1.0 indicates that attention is not allowed.
       """
-      x = np.arange(N, dtype=np.int32)
-      y = np.arange(M, dtype=np.int32)
+      x = jax.lax.tie_in(k, np.arange(N, dtype=np.int32))
+      y = jax.lax.tie_in(k, np.arange(M, dtype=np.int32))
       mask = jax.lax.lt(
           (jax.lax.broadcast_in_dim(
               x, shape=(N, M), broadcast_dimensions=(0,)) + k),
@@ -480,8 +480,8 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
       Returns:
         N x M mask, where 1.0 indicates that attention is not allowed.
       """
-      x = np.arange(N, dtype=np.int32)
-      y = np.arange(M, dtype=np.int32)
+      x = jax.lax.tie_in(k, np.arange(N, dtype=np.int32))
+      y = jax.lax.tie_in(k, np.arange(M, dtype=np.int32))
       mask = jax.lax.eq(
           (jax.lax.broadcast_in_dim(
               x, shape=(N, M), broadcast_dimensions=(0,)) + k),

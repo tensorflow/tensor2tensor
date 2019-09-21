@@ -5,8 +5,8 @@ import tensor2tensor.trax.trax
 
 # Parameters that will vary between experiments:
 # ==============================================================================
-train.model = @trax.models.TransformerLM
-# inputs.n_chunks = 16  # Uncomment this line iff using TransformerRevnetLM
+train.model = @trax.models.TransformerRevnetLM
+inputs.n_chunks = 16  # Uncomment this line iff using TransformerRevnetLM
 
 TransformerLM.n_layers = 3
 TransformerRevnetLM.n_layers = 3
