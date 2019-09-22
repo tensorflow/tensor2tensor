@@ -27,12 +27,25 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
+
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
+
+# This is the interface between the RNN controller and the neural stack.
+NeuralStackControllerInterface = collections.namedtuple(
+    "NeuralStackControllerInterface",
+    "push_strengths, pop_strengths, write_values, outputs, state")
+
+# This is recurrent state of the neural stack RNN cell.
+NeuralStackState = collections.namedtuple(
+    "NeuralStackState",
+    "controller_state, read_values, memory_values, read_strengths, " +
+    "write_strengths")
 
 
 class NeuralStackCell(tf.nn.rnn_cell.RNNCell):
@@ -72,17 +85,17 @@ class NeuralStackCell(tf.nn.rnn_cell.RNNCell):
     return (tf.TensorShape([self._num_units]),
             tf.TensorShape([self._num_read_heads, self._embedding_size]),
             tf.TensorShape([self._memory_size, self._embedding_size]),
-            tf.TensorShape([self._num_read_heads, self._memory_size, 1]),
+            tf.TensorShape([1, self._memory_size, 1]),
             tf.TensorShape([self._num_write_heads, self._memory_size, 1]))
 
   @property
   def output_size(self):
-    return tf.TensorShape([self._num_read_heads, self._embedding_size])
+    return tf.TensorShape([1, self._embedding_size])
 
   def initialize_write_strengths(self, batch_size):
     """Initialize write strengths to write to the first memory address.
 
-    This is exposed as it's own function so that it can be overridden to provide
+    This is exposed as its own function so that it can be overridden to provide
     alternate write adressing schemes.
 
     Args:
@@ -104,26 +117,47 @@ class NeuralStackCell(tf.nn.rnn_cell.RNNCell):
       dtype: The default datatype to initialize to.
 
     Returns:
-      (controller_state.shape,
-       read_values.shape,
-       memory_values.shape,
-       read_strengths.shape,
-       write_strengths.shape)
+      A new NeuralStackState tuple.
     """
-    state = list(super(NeuralStackCell, self).zero_state(batch_size, dtype))
-    state[4] = self.initialize_write_strengths(batch_size)
-    return tuple(state)
+    parent_state = NeuralStackState(*super(NeuralStackCell, self).zero_state(
+        batch_size, dtype))
+    return NeuralStackState(
+        controller_state=parent_state.controller_state,
+        read_values=parent_state.read_values,
+        memory_values=parent_state.memory_values,
+        read_strengths=parent_state.read_strengths,
+        write_strengths=self.initialize_write_strengths(batch_size))
 
-  def build_read_mask(self):
+  def get_read_mask(self, read_head_index):
     """Creates a mask which allows us to attenuate subsequent read strengths.
 
-    This is exposed as it's own function so that it can be overridden to provide
+    This is exposed as its own function so that it can be overridden to provide
     alternate read adressing schemes.
 
+    Args:
+      read_head_index: Identifies which read head we're getting the mask for.
+
     Returns:
-      A tf.float32 tensor of shape [1, memory_size, memory_size]
+      A tf.float32 tensor of shape [1, 1, memory_size, memory_size]
     """
-    return common_layers.mask_pos_gt(self._memory_size, self._memory_size)
+    return tf.expand_dims(
+        common_layers.mask_pos_lt(self._memory_size, self._memory_size), axis=0)
+
+  def get_write_head_offset(self, write_head_index):
+    """Lookup the offset to shift the write head at each step.
+
+    By default, we move each write head forward by 1.
+
+    This is exposed as its own function so that it can be overridden to provide
+    alternate write adressing schemes.
+
+    Args:
+      write_head_index: Identifies which write head we're getting the index for.
+
+    Returns:
+      An integer offset to move the write head at each step.
+    """
+    return 1
 
   def add_scalar_projection(self, name, size):
     """A helper function for mapping scalar controller outputs.
@@ -193,145 +227,165 @@ class NeuralStackCell(tf.nn.rnn_cell.RNNCell):
           "output", self._num_read_heads)
 
   def build(self, _):
-    """Build the controller, read mask and write shift convolutional filter.
-
-    The write shift convolutional filter is a simple 3x3 convolution which is
-    used to advance the read heads to the next memory address at each step. This
-    filter can be changed to move the read heads in other ways.
+    """Build the controller.
     """
-    self.read_mask = self.build_read_mask()
-    self.write_shift_convolution = tf.reshape(tf.one_hot([[3]], depth=9),
-                                              shape=[3, 3, 1, 1])
     self.build_controller()
-
     self.built = True
 
-  def call_controller(self, inputs, state, batch_size):
+  def get_controller_shape(self, batch_size):
+    """Define the output shapes of the neural stack controller.
+
+    Making this a separate functions so that it can be used in unit tests.
+
+    Args:
+      batch_size: The size of the current batch of data.
+
+    Returns:
+      A tuple of shapes for each output returned from the controller.
+    """
+    return (
+        # push_strengths,
+        [batch_size, self._num_write_heads, 1, 1],
+        # pop_strengths
+        [batch_size, self._num_write_heads, 1, 1],
+        # write_values
+        [batch_size, self._num_write_heads, self._embedding_size],
+        # outputs
+        [batch_size, 1, self._embedding_size],
+        # state
+        [batch_size, self._num_units])
+
+  def call_controller(self, inputs, read_values, prev_state, batch_size):
     """Make a call to the neural stack controller.
 
     See Section 3.1 of Grefenstette et al., 2015.
 
     Args:
-      inputs: The combined inputs to the controller consisting of the current
-         input value concatenated with the read values from the previous
-         timestep with shape [batch_size, (num_write_heads + num_read_heads)
-         * embedding_size].
-      state: The hidden state from the previous time step.
+      inputs: The inputs to the neural stack cell should be a tf.float32 tensor
+        with shape [batch_size, num_write_heads, embedding_size]
+      read_values: The values of the read heads at the previous timestep.
+      prev_state: The hidden state from the previous time step.
       batch_size: The size of the current batch of input values.
 
     Returns:
-      A tuple of outputs and the new hidden state value:
-      (push_strengths, pop_strengths, write_values, outputs, state)
+      A tuple of outputs and the new NeuralStackControllerInterface.
     """
     with tf.name_scope("controller"):
+      # Concatenate the current input values with the read value from the
+      # previous timestep before feeding them into the controller.
+      controller_inputs = tf.concat([
+          tf.contrib.layers.flatten(inputs),
+          tf.contrib.layers.flatten(read_values),
+      ], axis=1)
+
       rnn_input = tf.tanh(tf.nn.bias_add(tf.matmul(
-          inputs, self._input_proj), self._input_bias))
+          controller_inputs, self._input_proj), self._input_bias))
 
-      (rnn_output, state) = self.rnn(rnn_input, state)
+      (rnn_output, state) = self.rnn(rnn_input, prev_state)
 
-      push_strengths = tf.reshape(
-          tf.sigmoid(tf.nn.bias_add(tf.matmul(
-              rnn_output, self._push_proj), self._push_bias)),
-          shape=[batch_size, self._num_write_heads, 1, 1])
+      push_strengths = tf.sigmoid(tf.nn.bias_add(tf.matmul(
+          rnn_output, self._push_proj), self._push_bias))
 
-      pop_strengths = tf.reshape(
-          tf.sigmoid(tf.nn.bias_add(tf.matmul(
-              rnn_output, self._pop_proj), self._pop_bias)),
-          shape=[batch_size, self._num_write_heads, 1, 1])
+      pop_strengths = tf.sigmoid(tf.nn.bias_add(tf.matmul(
+          rnn_output, self._pop_proj), self._pop_bias))
 
-      write_values = tf.reshape(
-          tf.tanh(tf.nn.bias_add(tf.matmul(
-              rnn_output, self._value_proj), self._value_bias)),
-          shape=[batch_size, self._num_read_heads, self._embedding_size])
+      write_values = tf.tanh(tf.nn.bias_add(tf.matmul(
+          rnn_output, self._value_proj), self._value_bias))
 
-      outputs = tf.reshape(
-          tf.tanh(tf.nn.bias_add(tf.matmul(
-              rnn_output, self._output_proj), self._output_bias)),
-          shape=[batch_size, self._num_read_heads, self._embedding_size])
+      outputs = tf.tanh(tf.nn.bias_add(tf.matmul(
+          rnn_output, self._output_proj), self._output_bias))
 
-    return push_strengths, pop_strengths, write_values, outputs, state
+      # Reshape all the outputs according to the shapes specified by
+      # get_controller_shape()
+      projected_outputs = [push_strengths,
+                           pop_strengths,
+                           write_values,
+                           outputs,
+                           state]
+      next_state = [
+          tf.reshape(output, shape=output_shape) for output, output_shape
+          in zip(projected_outputs, self.get_controller_shape(batch_size))]
+      return NeuralStackControllerInterface(*next_state)
 
-  def call(self, inputs, state):
+  def call(self, inputs, prev_state):
     """Evaluates one timestep of the current neural stack cell.
 
     See section 3.4 of Grefenstette et al., 2015.
 
     Args:
       inputs: The inputs to the neural stack cell should be a tf.float32 tensor
-        with shape [batch_size, max_timesteps, 1, embedding_size]
-      state: The tuple of state values from the previous timestep.
+        with shape [batch_size, embedding_size]
+      prev_state: The NeuralStackState from the previous timestep.
 
     Returns:
-      The output value of the stack as well as the new tuple of state values.
-      (outputs, (controller_state, read_values, memory_values, read_strengths,
-                 write_strengths))
+      A tuple of the output of the stack as well as the new NeuralStackState.
     """
-    (controller_state,
-     read_values,
-     memory_values,
-     read_strengths,
-     write_strengths) = state
-
     batch_size = tf.shape(inputs)[0]
 
-    # Concatenate the current input value with the read value from  the previous
-    # timestep before feeding them into the controller.
-    controller_inputs = tf.concat([
-        tf.reshape(
-            read_values,
-            shape=[batch_size, self._num_read_heads * self._embedding_size]),
-        tf.reshape(
-            inputs,
-            shape=[batch_size, self._num_write_heads * self._embedding_size])
-    ], axis=1)
-
     # Call the controller and get controller interface values.
-    with tf.control_dependencies([read_strengths]):
-      (push_strengths, pop_strengths,
-       write_values, outputs, controller_state) = self.call_controller(
-           controller_inputs, controller_state, batch_size)
+    with tf.control_dependencies([prev_state.read_strengths]):
+      controller_output = self.call_controller(
+          inputs, prev_state.read_values, prev_state.controller_state,
+          batch_size)
 
     # Always write input values to memory regardless of push strength.
     # See Equation-1 in Grefenstette et al., 2015.
-    memory_values += tf.reduce_sum(
-        tf.expand_dims(write_values, axis=1) * write_strengths, axis=1)
+    new_memory_values = prev_state.memory_values + tf.reduce_sum(
+        tf.expand_dims(controller_output.write_values, axis=1) *
+        prev_state.write_strengths,
+        axis=1)
 
     # Attenuate the read strengths of existing memory values depending on the
     # current pop strength.
     # See Equation-2 in Grefenstette et al., 2015.
-    read_strengths = tf.nn.relu(
-        read_strengths - tf.nn.relu(pop_strengths - tf.reduce_sum(
-            tf.reshape(read_strengths,
-                       shape=[batch_size, 1, 1, self._memory_size]) *
-            self.read_mask, axis=3, keepdims=True)))
+    new_read_strengths = prev_state.read_strengths
+    for h in range(self._num_read_heads - 1, -1, -1):
+      new_read_strengths = tf.nn.relu(
+          new_read_strengths -
+          tf.nn.relu(controller_output.pop_strengths - tf.expand_dims(
+              tf.reduce_sum(new_read_strengths * self.get_read_mask(h), axis=2),
+              axis=3)))
 
-    # Set read strength for the current timestep based on the push strength.
-    read_strengths = read_strengths + push_strengths * write_strengths
+    # Combine all write heads and their associated push values into a single set
+    # of read weights.
+    new_read_strengths += tf.reduce_sum(
+        controller_output.push_strengths * prev_state.write_strengths,
+        axis=1, keep_dims=True)
 
     # Calculate the "top" value of the stack by looking at read strengths.
     # See Equation-3 in Grefenstette et al., 2015.
-    read_values = tf.reduce_sum(
+    new_read_values = tf.reduce_sum(
         tf.minimum(
-            read_strengths,
-            tf.nn.relu(1 - tf.reshape(
-                tf.reduce_sum(read_strengths * self.read_mask,
-                              axis=2,
-                              keepdims=True),
-                shape=[
-                    batch_size, self._num_read_heads, self._memory_size, 1
-                ]))) * tf.expand_dims(memory_values, axis=1),
+            new_read_strengths,
+            tf.nn.relu(1 - tf.expand_dims(
+                tf.reduce_sum(
+                    new_read_strengths * tf.concat([
+                        self.get_read_mask(h)
+                        for h in range(self._num_read_heads)
+                    ], axis=1),
+                    axis=2),
+                axis=3))
+        ) * tf.expand_dims(new_memory_values, axis=1),
         axis=2)
 
-    # Shift the write strengths forward by one memory address for the next step.
-    write_strengths = tf.nn.conv2d(
-        write_strengths, self.write_shift_convolution, [1, 1, 1, 1],
-        padding="SAME")
+    # Temporarily split write strengths apart so they can be shifted in
+    # different directions.
+    write_strengths_by_head = tf.split(prev_state.write_strengths,
+                                       self._num_write_heads,
+                                       axis=1)
+    # Shift the write strengths for each write head in the direction indicated
+    # by get_write_head_offset().
+    new_write_strengths = tf.concat([
+        tf.roll(write_strength, shift=self.get_write_head_offset(h), axis=2)
+        for h, write_strength in enumerate(write_strengths_by_head)
+    ], axis=1)
 
-    return (outputs, (controller_state,
-                      read_values,
-                      memory_values,
-                      read_strengths,
-                      write_strengths))
+    return (controller_output.outputs, NeuralStackState(
+        controller_state=controller_output.state,
+        read_values=new_read_values,
+        memory_values=new_memory_values,
+        read_strengths=new_read_strengths,
+        write_strengths=new_write_strengths))
 
 
 class NeuralQueueCell(NeuralStackCell):
@@ -340,13 +394,17 @@ class NeuralQueueCell(NeuralStackCell):
   See section 3.2 of Grefenstette et al., 2015.
   """
 
-  def build_read_mask(self):
+  def get_read_mask(self, read_head_index):
     """Uses mask_pos_lt() instead of mask_pos_gt() to reverse read values.
 
+    Args:
+      read_head_index: Identifies which read head we're getting the mask for.
+
     Returns:
-      A tf.float32 tensor of shape [1, memory_size, memory_size].
+      A tf.float32 tensor of shape [1, 1, memory_size, memory_size].
     """
-    return common_layers.mask_pos_lt(self._memory_size, self._memory_size)
+    return tf.expand_dims(
+        common_layers.mask_pos_gt(self._memory_size, self._memory_size), axis=0)
 
 
 @registry.register_model
@@ -357,7 +415,7 @@ class NeuralStackModel(t2t_model.T2TModel):
   def cell(self, hidden_size):
     """Build an RNN cell.
 
-    This is exposed as it's own function so that it can be overridden to provide
+    This is exposed as its own function so that it can be overridden to provide
     different types of RNN cells.
 
     Args:
