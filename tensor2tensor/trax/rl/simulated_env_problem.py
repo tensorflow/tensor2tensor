@@ -57,10 +57,10 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
         model. The format is implementation-specific.
       output_dir: (str) Output dir.
     """
-    # TODO(pkozakowski): At some point we will have a "predict" mode which we
-    # should use here. When this happens, change the mode.
     self._model = model
-    self._model_predict = backend.jit(self._model(mode="eval"))
+    model_predict = self._model(mode="predict")
+    self._model_predict = backend.jit(model_predict)
+    self._model_initialize = model_predict.initialize
     self._observation_space = observation_space
     self._action_space = action_space
     self._reward_range = reward_range
@@ -372,8 +372,13 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
     self._steps = np.zeros(batch_size, dtype=np.int32)
     self._last_observations = np.full(
         (batch_size,) + self._observation_space.shape, np.nan)
+    self._last_symbols = np.zeros((batch_size, 1), dtype=np.int32)
     super(SerializedSequenceSimulatedEnvProblem, self).initialize_environments(
         batch_size=batch_size, **kwargs)
+    (subrng, self._rng) = jax_random.split(self._rng)
+    (_, self._init_model_state) = self._model_initialize(
+        input_shapes=(batch_size, 1), input_dtype=np.int32, rng=subrng
+    )
 
   @property
   def _obs_repr_indices(self):
@@ -388,11 +393,12 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
   def _predict_obs(self, predict_fn, rng):
     for (i, subrng) in enumerate(jax_random.split(rng, self._obs_repr_length)):
       symbol_index = self._steps * self._step_repr_length + i
-      log_probs, self._model_state = predict_fn(self._history,
-                                                state=self._model_state,
-                                                rng=subrng)
-      log_probs = log_probs[:, symbol_index, :]
-      self._history[:, symbol_index] = utils.gumbel_sample(log_probs)
+      log_probs, self._model_state = predict_fn(
+          self._last_symbols, state=self._model_state, rng=subrng,
+      )
+      log_probs = log_probs
+      self._last_symbols = utils.gumbel_sample(log_probs)
+      self._history[:, symbol_index] = self._last_symbols[:, 0]
 
     obs_repr = self._history[self._obs_repr_indices]
     return self._obs_serializer.deserialize(obs_repr)
@@ -401,6 +407,14 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
     # TODO(pkozakowski): Random starts.
     del history
 
+    indices = np.array(indices)
+    assert indices.shape[0] in (0, self._history.shape[0]), (
+        # TODO(pkozakowski): Lift this requirement.
+        "Only resetting all envs at once is supported."
+    )
+
+    self._model_state = self._init_model_state
+    self._last_symbols[indices] = 0
     self._steps[indices] = 0
     observation = self._predict_obs(predict_fn, rng)[indices]
     self._last_observations[indices] = observation

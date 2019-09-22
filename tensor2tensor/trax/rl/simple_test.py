@@ -246,11 +246,10 @@ class SimpleTest(test.TestCase):
 
     gin.bind_parameter("BoxSpaceSerializer.precision", 1)
 
-    seq_length = max_trajectory_length * int(
-        np.prod(observation_space.shape) + np.prod(action_space.shape))
-    predict_output = (np.array([[[0.0]] * seq_length]), ())
+    predict_output = (np.array([[[0.0]]] * batch_size), ())
     mock_model_fn = mock.MagicMock()
     mock_model_fn.return_value.side_effect = itertools.repeat(predict_output)
+    mock_model_fn.return_value.initialize.return_value = ((), ())
 
     return simulated_env_problem.SerializedSequenceSimulatedEnvProblem(
         model=mock_model_fn,

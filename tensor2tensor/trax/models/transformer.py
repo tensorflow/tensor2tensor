@@ -238,7 +238,7 @@ def TransformerLM(vocab_size,
     dropout: float: dropout rate (how much to drop out)
     share_qk: bool, whether to share queries and keys in decoder attention
     max_len: int: maximum symbol length for positional encoding
-    mode: str: 'train' or 'eval'
+    mode: str: 'train', 'eval' or 'predict', predict mode is for fast inference
 
   Returns:
     A Transformer language model as a layer that maps from a tensor of tokens
@@ -247,10 +247,10 @@ def TransformerLM(vocab_size,
   embedder = [
       tl.Embedding(d_model, vocab_size),
       tl.Dropout(rate=dropout, name='embedding', mode=mode),
-      tl.PositionalEncoding(max_len=max_len),
+      tl.PositionalEncoding(max_len=max_len, mode=mode),
   ]
   return tl.Model(                  # tokens
-      tl.ShiftRight(),              # toks
+      tl.ShiftRight(mode=mode),     # toks
       embedder,                     # vecs
       [DecoderBlock(  # pylint: disable=g-complex-comprehension
           d_model, d_ff, n_heads, d_attention_key, d_attention_value,

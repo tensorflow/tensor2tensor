@@ -35,8 +35,12 @@ from tensor2tensor.trax.layers import initializers as init
 
 
 @base.layer()
-def ShiftRight(x, **unused_kwargs):
+def ShiftRight(x, mode='train', **unused_kwargs):
   """Layer to shift the tensor to the right by padding on axis 1."""
+  if mode == 'predict':
+    # Do nothing in predict mode, as then the sequence length is 1.
+    return x
+
   pad_widths = [(0, 0)] * len(x.shape)
   pad_widths[1] = (1, 0)  # Padding on axis=1
   padded = np.pad(x, pad_widths, mode='constant',
@@ -67,27 +71,38 @@ def EncoderDecoderMask(x, **unused_kwargs):
   return padding_mask + np.zeros((1, 1, decoder_input.shape[1], 1))
 
 
-# Positional encoding.
-def _positional_encoding_new_params(  # pylint: disable=invalid-name
-    input_shape, input_dtype, rng, max_len=2048):
-  """Helper: create positional encoding parameters."""
-  del input_dtype, rng
-  d_feature = input_shape[-1]
-  pe = onp.zeros((max_len, d_feature), dtype=onp.float32)
-  position = onp.arange(0, max_len)[:, onp.newaxis]
-  div_term = onp.exp(
-      onp.arange(0, d_feature, 2) * -(onp.log(10000.0) / d_feature))
-  pe[:, 0::2] = onp.sin(position * div_term)
-  pe[:, 1::2] = onp.cos(position * div_term)
-  pe = pe[onp.newaxis, :, :]  # [1, max_len, d_feature]
-  return np.array(pe)  # These are trainable parameters, initialized as above.
-
-
-@base.layer(new_parameters=_positional_encoding_new_params)
-def PositionalEncoding(x, params, **unused_kwargs):
+class PositionalEncoding(base.Layer):
   """Implements bare positional encoding."""
-  symbol_size = np.shape(x)[1]
-  return x + params[:, :symbol_size, :]
+
+  def __init__(self, max_len=2048, mode='train'):
+    super(PositionalEncoding, self).__init__()
+    self._max_len = max_len
+    self._mode = mode
+
+  def call(self, inputs, params, state, **kwargs):
+    if self._mode in ('train', 'eval'):
+      x = inputs
+      symbol_size = np.shape(x)[1]
+      return (x + params[:, :symbol_size, :], state)
+    else:
+      assert self._mode == 'predict'
+      # Fast inference: return consectutive elements of the encoding sequence,
+      # storing the index in state.
+      return (inputs + np.expand_dims(params[:, state, :], 1), state + 1)
+
+  def new_parameters(self, input_shape, input_dtype, rng):
+    del input_dtype, rng
+    d_feature = input_shape[-1]
+    pe = onp.zeros((self._max_len, d_feature), dtype=onp.float32)
+    position = onp.arange(0, self._max_len)[:, onp.newaxis]
+    div_term = onp.exp(
+        onp.arange(0, d_feature, 2) * -(onp.log(10000.0) / d_feature))
+    pe[:, 0::2] = onp.sin(position * div_term)
+    pe[:, 1::2] = onp.cos(position * div_term)
+    pe = pe[onp.newaxis, :, :]  # [1, self._max_len, d_feature]
+    pe = np.array(pe)  # These are trainable parameters, initialized as above.
+    state = 0 if self._mode == 'predict' else ()
+    return (pe, state)
 
 
 def DotProductAttention(query, key, value, mask, dropout, mode, rng):
@@ -372,14 +387,34 @@ class DotProductCausalAttention(BaseCausalAttention):
   def call(self, inputs, params=(), state=(), rng=None, **kwargs):
     del params
     q, k, v = inputs
-    mask_size = q.shape[-2]
-    # Not all backends define np.tril. However, using onp.tril is inefficient in
-    # that it creates a large global constant. TODO(kitaev): try to find an
-    # alternative that works across all backends.
-    if backend.get_name() == 'jax':
-      mask = np.tril(np.ones((1, mask_size, mask_size), dtype=onp.bool_), k=0)
+    if self._mode in ('train', 'eval'):
+      mask_size = q.shape[-2]
+      # Not all backends define np.tril. However, using onp.tril is inefficient
+      # in that it creates a large global constant. TODO(kitaev): try to find an
+      # alternative that works across all backends.
+      if backend.get_name() == 'jax':
+        mask = np.tril(
+            np.ones((1, mask_size, mask_size), dtype=onp.bool_), k=0)
+      else:
+        mask = onp.tril(
+            onp.ones((1, mask_size, mask_size), dtype=onp.bool_), k=0)
     else:
-      mask = onp.tril(onp.ones((1, mask_size, mask_size), dtype=onp.bool_), k=0)
+      assert self._mode == 'predict'
+      assert backend.get_name() == 'jax', (
+          'JAX backend is required to use the predict mode.')
+      for x in (q, k, v):
+        assert x.shape[1] == 1, (
+            'In predict mode the input sequence must be of length 1.')
+      # Fast inference: run with only 1 query in each step, storing the sequence
+      # of keys and values calculated so far in state.
+      (new_k, new_v) = (k, v)
+      (k, v, mask, index) = state
+      k = jax.ops.index_update(k, jax.ops.index[:, index, :], new_k[:, 0, :])
+      v = jax.ops.index_update(v, jax.ops.index[:, index, :], new_v[:, 0, :])
+      new_mask = jax.ops.index_update(mask, jax.ops.index[:, :, index], 1)
+      state = (k, v, new_mask, index + 1)
+      mask = new_mask
+
     res = DotProductAttention(
         q, k, v, mask, dropout=self._dropout, mode=self._mode, rng=rng)
     return res, state
@@ -393,6 +428,26 @@ class DotProductCausalAttention(BaseCausalAttention):
       return res
     output, vjpfun = jax.vjp(do_call, inputs)
     return output, vjpfun(ct)[0]
+
+  def new_parameters(self, input_shapes, input_dtype, rng):
+    if self._mode in ('train', 'eval'):
+      return (), ()
+
+    assert self._mode == 'predict'
+    # Buffer length is hardcoded for now. TODO(pkozakowski): Pass it from the
+    # model.
+    max_len = 2048
+    ((batch_size, _, _), _, _) = input_shapes
+    def initial_state(shape, dtype):
+      (_, _, depth) = shape
+      return np.zeros((batch_size, max_len, depth), dtype=dtype)
+    (_, k, v) = tuple(
+        initial_state(shape, dtype)
+        for (shape, dtype) in zip(input_shapes, input_dtype)
+    )
+    mask = np.zeros((batch_size, 1, max_len))
+    index = 0
+    return (), (k, v, mask, index)
 
 
 class MemoryEfficientCausalAttention(BaseCausalAttention):
