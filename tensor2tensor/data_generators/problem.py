@@ -36,6 +36,7 @@ import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
 import pretrained_models.bert.utilities as bert_utilities
+from fathomt2t_dependencies.common_t2t_utils import pad_to_length
 
 
 class DatasetSplit(object):
@@ -948,9 +949,9 @@ class Problem(object):
         dataset = dataset.batch(batch_size)
     else:
       # batch_size means tokens per datashard
-      if config and config.use_tpu:
-        dataset = dataset.filter(tpu_valid_size)
-
+      #if config and config.use_tpu:
+      if True:
+        # TODO: assert shapes fit
         # if we are on TPU and we are chunking input features,
         # we assume that we have one example per batch that is packed.
         # we also have multiple input features (inputs, input_example, input_chunk)
@@ -958,45 +959,53 @@ class Problem(object):
         # multiple of the chunk length
         # this should always be the same length, but convenient to reuse
         # this function
+        # TODO: just pad where we chunk
         if hasattr(hparams, 'bert_max_length'):
+            # take batch size 1 because packed length has all docs we want to fit
+            dataset = dataset.batch(1)
+            full_packed_len = hparams.bert_max_length * ((hparams.max_length // hparams.bert_max_length) + 1)
+            print('~~~~~~!!!!!!!------chunking', hparams.max_target_seq_length, full_packed_len)
             dataset = dataset.map(
-                pad_to_next_chunk_length(
-                    length=hparams.bert_max_length,
-                    axis=0,
+                pad_to_length(
+                    length=full_packed_len,
+                    axis=1,
+                    exact=True,
                     features_to_pad=[
-                        'inputs', 'input_example', 'input_chunk']),
+                        'inputs', 'inputs_example', 'inputs_chunk']),
                 num_parallel_calls=num_threads)
             # preprocess_common_example already truncates our targets
             # to max_target_seq_length, so this will pad up to
             # 1*max_target_seq_length every time.
             dataset = dataset.map(
-                pad_to_next_chunk_length(
+                pad_to_length(
                     length=hparams.max_target_seq_length,
-                    axis=0,
+                    axis=1,
+                    exact=True,
                     features_to_pad=['targets']),
                 num_parallel_calls=num_threads)
         # otherwise we pad out to max for inputs and targets
         # keep the upstream t2t padding function here for posterity
         else:
+            dataset = dataset.filter(tpu_valid_size)
             padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
-        # on TPU, we use params["batch_size"], which specifies the number of
-        # examples across all datashards
-        batch_size = params["batch_size"]
+            # on TPU, we use params["batch_size"], which specifies the number of
+            # examples across all datashards
+            batch_size = params["batch_size"]
 
-        if hparams.pad_batch:
-          tf.logging.warn(
-              "Padding the batch to ensure that remainder eval batches are "
-              "processed. This may lead to incorrect metrics for "
-              "non-zero-padded features, e.g. images. Use a smaller batch "
-              "size that has no remainder in that case.")
-          dataset = dataset.padded_batch(
-              batch_size, padded_shapes, drop_remainder=False)
-          dataset = dataset.map(
-              functools.partial(pad_batch, batch_multiple=batch_size),
-              num_parallel_calls=num_threads)
-        else:
-          dataset = dataset.padded_batch(
-              batch_size, padded_shapes, drop_remainder=True)
+            if hparams.pad_batch:
+              tf.logging.warn(
+                  "Padding the batch to ensure that remainder eval batches are "
+                  "processed. This may lead to incorrect metrics for "
+                  "non-zero-padded features, e.g. images. Use a smaller batch "
+                  "size that has no remainder in that case.")
+              dataset = dataset.padded_batch(
+                  batch_size, padded_shapes, drop_remainder=False)
+              dataset = dataset.map(
+                  functools.partial(pad_batch, batch_multiple=batch_size),
+                  num_parallel_calls=num_threads)
+            else:
+              dataset = dataset.padded_batch(
+                  batch_size, padded_shapes, drop_remainder=True)
       else:
         # On GPU, bucket by length
         dataset = dataset.filter(gpu_valid_size)
@@ -1008,9 +1017,10 @@ class Problem(object):
         # this can differ on the GPU as we do have variable input lengths
         if hasattr(hparams, 'bert_max_length'):
             dataset = dataset.map(
-                pad_to_next_chunk_length(
+                pad_to_length(
                     length=hparams.bert_max_length,
                     axis=0,
+                    exact=False,
                     features_to_pad=['inputs']),
                 num_parallel_calls=num_threads)
 
