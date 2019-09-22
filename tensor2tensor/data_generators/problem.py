@@ -949,8 +949,8 @@ class Problem(object):
         dataset = dataset.batch(batch_size)
     else:
       # batch_size means tokens per datashard
-      #if config and config.use_tpu:
-      if True:
+      if config and config.use_tpu:
+      # if True:
         # TODO: assert shapes fit
         # if we are on TPU and we are chunking input features,
         # we assume that we have one example per batch that is packed.
@@ -962,9 +962,9 @@ class Problem(object):
         # TODO: just pad where we chunk
         if hasattr(hparams, 'bert_max_length'):
             # take batch size 1 because packed length has all docs we want to fit
+            # TODO: why is batch_size_means_tokens true for text problems?
             dataset = dataset.batch(1)
             full_packed_len = hparams.bert_max_length * ((hparams.max_length // hparams.bert_max_length) + 1)
-            print('~~~~~~!!!!!!!------chunking', hparams.max_target_seq_length, full_packed_len)
             dataset = dataset.map(
                 pad_to_length(
                     length=full_packed_len,
