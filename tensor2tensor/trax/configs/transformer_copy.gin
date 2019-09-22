@@ -43,20 +43,22 @@ train.has_weights = True
 MemoryEfficientCausalAttention.dropout = 0.0
 MemoryEfficientCausalAttention.loop_stride = 512
 
-# Parameters for MergedMultiHashedCausalAttention:
+# Parameters for MergedMultiHashedCausalAttentionV2:
 # ==============================================================================
-MergedMultiHashedCausalAttention.dropout = 0.0
-MergedMultiHashedCausalAttention.n_bins = 32
-MergedMultiHashedCausalAttention.n_hashes = 2
-MergedMultiHashedCausalAttention.n_buckets_per_bin = 1
-MergedMultiHashedCausalAttention.bin_by_time = False
-MergedMultiHashedCausalAttention.one_rng = False
-MergedMultiHashedCausalAttention.drop_for_hash_rate = 0.0
-MergedMultiHashedCausalAttention.hard_k = 16
+MergedMultiHashedCausalAttentionV2.allow_duplicate_attention = False
+MergedMultiHashedCausalAttentionV2.attend_across_buckets = False
+MergedMultiHashedCausalAttentionV2.rehash_each_round = True
+# MergedMultiHashedCausalAttentionV2.n_bins: 32
+# MergedMultiHashedCausalAttentionV2.n_buckets: 64
+# MergedMultiHashedCausalAttentionV2.n_hashes: 4
+MergedMultiHashedCausalAttentionV2.one_rng = False
+MergedMultiHashedCausalAttentionV2.hard_k = 0
+MergedMultiHashedCausalAttentionV2.dropout = 0.0
+# MergedMultiHashedCausalAttentionV2.drop_for_hash_rate: 0.0
 
 # Parameters for TransformerLM:
 # ==============================================================================
-TransformerLM.attention_type = @trax.layers.MergedMultiHashedCausalAttention
+TransformerLM.attention_type = @trax.layers.MergedMultiHashedCausalAttentionV2
 TransformerLM.d_attention_key = 64
 TransformerLM.d_attention_value = 64
 TransformerLM.d_model = 256
@@ -66,5 +68,5 @@ TransformerLM.max_len = 1024
 TransformerLM.mode = 'train'
 TransformerLM.n_heads = 4
 TransformerLM.n_layers = 1
-TransformerLM.share_kv = True
+TransformerLM.share_qk = True
 TransformerLM.vocab_size = 128

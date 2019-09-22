@@ -15,8 +15,10 @@ TransformerRevnetLM.n_layers = 3
 # MemoryEfficientCausalAttention: full attention
 # MergedHashedCausalAttention: timebin
 # MergedMultiHashedCausalAttentionV2: hashbin
-TransformerLM.attention_type = @MemoryEfficientCausalAttention
-TransformerRevnetLM.attention_type = @MemoryEfficientCausalAttention
+# TransformerLM.attention_type = @MemoryEfficientCausalAttention
+# TransformerRevnetLM.attention_type = @MemoryEfficientCausalAttention
+TransformerLM.attention_type = @MergedMultiHashedCausalAttentionV2
+TransformerRevnetLM.attention_type = @MergedMultiHashedCausalAttentionV2
 
 # These three should all be equal, and MergedMultiHashedCausalAttentionV2
 # requires that share_qk be set to True.
@@ -26,7 +28,7 @@ TransformerLM.share_qk = %share_qk
 TransformerRevnetLM.share_qk = %share_qk
 
 # These four should all be equal
-attn_kv = 64
+attn_kv = 128
 TransformerLM.d_attention_key = %attn_kv
 TransformerLM.d_attention_value = %attn_kv
 TransformerRevnetLM.d_attention_key = %attn_kv
