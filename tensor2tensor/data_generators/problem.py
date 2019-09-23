@@ -949,8 +949,8 @@ class Problem(object):
         dataset = dataset.batch(batch_size)
     else:
       # batch_size means tokens per datashard
-      if config and config.use_tpu:
-      # if True:
+      # if config and config.use_tpu:
+      if True:
         # TODO: assert shapes fit
         # if we are on TPU and we are chunking input features,
         # we assume that we have one example per batch that is packed.
