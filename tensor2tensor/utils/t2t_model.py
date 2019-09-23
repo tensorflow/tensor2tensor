@@ -49,6 +49,7 @@ from tensorflow.python.ops import variable_scope
 
 # Fathom
 from fathomt2t_dependencies.common_t2t_utils import combine_shards, FATHOM_DICT_FORMAT
+from fathomtf.utils.tfutils import debug_tfprint
 
 _no_problem_err_str = (
     "The default implementation of %s requires that the "
@@ -1242,6 +1243,8 @@ class T2TModel(base.Layer):
         v = tf.tile(v, tf.to_int32([self._num_datashards]))
       sharded_features[k] = self._data_parallelism(
           tf.identity, tf.split(v, self._num_datashards, 0))
+      v = debug_tfprint('kevincvlam::'+k, tvar=v, print_fn=tf.shape)
+
     return sharded_features
 
   def _to_features_per_datashard(self, features):
