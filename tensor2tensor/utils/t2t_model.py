@@ -1234,7 +1234,7 @@ class T2TModel(base.Layer):
   def _shard_features(self, features):  # pylint: disable=missing-docstring
     sharded_features = dict()
     for k, v in sorted(six.iteritems(features)):
-      v = debug_tfprint('before::'+k, tvar=v, print_fn=tf.shape)
+      # v = debug_tfprint('before::'+k, tvar=v, print_fn=tf.shape)
       v = tf.convert_to_tensor(v)
       v_shape = common_layers.shape_list(v)
       if not v_shape:
@@ -1244,7 +1244,7 @@ class T2TModel(base.Layer):
         v = tf.tile(v, tf.to_int32([self._num_datashards]))
       sharded_features[k] = self._data_parallelism(
           tf.identity, tf.split(v, self._num_datashards, 0))
-      v = debug_tfprint('after::'+k, tvar=v, print_fn=tf.shape)
+      # v = debug_tfprint('after::'+k, tvar=v, print_fn=tf.shape)
 
     return sharded_features
 
