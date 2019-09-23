@@ -1369,7 +1369,7 @@ def _summarize_features(features, num_shards=1):
 def standardize_shapes(features, batch_size=None):
   """Set the right shapes for the features."""
 
-  for fname in ["inputs", "targets"]:
+  for fname in ["inputs", "targets", 'inputs_example', 'inputs_chunk']:
     if fname not in features:
       continue
 
