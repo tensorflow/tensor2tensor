@@ -1370,9 +1370,11 @@ def _summarize_features(features, num_shards=1):
 def set_seq_len(seq_len: int):
     def _set(features):
         for n, t in features.items():
+            if not n.startswith('inputs'):
+                continue
             shape = t.get_shape().as_list()
             shape[1] = seq_len
-            tf.logging.info(f'Assign shape for {n}: {t}, {shape}, {t.get_shape().merge_with(shape)}')
+            tf.logging.info(f'Assign shape for {n}: {t}, {shape}, {t.get_shape()}')
             t.set_shape(t.get_shape().merge_with(shape))
         return features
     return _set
@@ -1397,7 +1399,7 @@ def standardize_shapes(features, batch_size=None):
     for n, t in six.iteritems(features):
       shape = t.get_shape().as_list()
       shape[0] = batch_size
-      tf.logging.info(f'Assign shape for {n}: {t}, {shape}, {t.get_shape().merge_with(shape)}')
+      tf.logging.info(f'Assign shape for {n}: {t}, {shape}, {t.get_shape()}')
       t.set_shape(t.get_shape().merge_with(shape))
       # Assert shapes are fully known
       t.get_shape().assert_is_fully_defined()
