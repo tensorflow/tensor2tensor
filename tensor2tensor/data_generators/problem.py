@@ -1370,8 +1370,7 @@ def _summarize_features(features, num_shards=1):
 def set_seq_len(seq_len: int):
     def _set(features):
         for n, t in features.items():
-            shape = tf.get_shape().as_list()
-            tf.logging.info(f'Assigning seq len for {n}: {t}, {shape}')
+            shape = t.get_shape().as_list()
             shape[1] = seq_len
             tf.logging.info(f'Assign shape for {n}: {t}, {shape}, {t.get_shape().merge_with(shape)}')
             t.set_shape(t.get_shape().merge_with(shape))
