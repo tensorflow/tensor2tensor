@@ -965,7 +965,7 @@ class Problem(object):
 
             def print_features(x):
                 for feature_name, feature in x.items():
-                    tf.Print(feature, [tf.shape[feature]], summarize=1000)
+                    tf.Print(feature, [tf.shape(feature)], summarize=1000)
 
             dataset = dataset.map(print_features, num_parallel_calls=12)
             # take batch size 1 because packed length has all docs we want to fit
