@@ -268,7 +268,8 @@ def create_estimator(model_name,
   if use_tpu or use_tpu_estimator:
     problem = hparams.problem
     batch_size = (
-        problem.tpu_batch_size_per_shard(hparams) *
+        1 *  # FATHOM
+        # problem.tpu_batch_size_per_shard(hparams) *
         run_config.tpu_config.num_shards)
     if getattr(hparams, "mtf_mode", False):
       batch_size = problem.tpu_batch_size_per_shard(hparams)
