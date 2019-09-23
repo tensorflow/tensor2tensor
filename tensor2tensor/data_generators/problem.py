@@ -964,8 +964,6 @@ class Problem(object):
             tf.logging.info('Taking 1 example and chunking it.')
             # take batch size 1 because packed length has all docs we want to fit
             # TODO: why is batch_size_means_tokens true for text problems?
-            dataset = dataset.batch(hparams.batch_size * num_shards)
-            tf.logging.info(f'Grabbing {hparams.batch_size} for each worker {num_shards}')
             full_packed_len = hparams.bert_max_length * ((hparams.max_length // hparams.bert_max_length) + 1)
             dataset = dataset.map(
                 pad_to_length(
@@ -975,6 +973,8 @@ class Problem(object):
                     features_to_pad=[
                         'inputs', 'inputs_example', 'inputs_chunk']),
                 num_parallel_calls=num_threads)
+            dataset = dataset.batch(hparams.batch_size * num_shards)
+            tf.logging.info(f'Grabbing {hparams.batch_size} for each worker {num_shards}')
             # preprocess_common_example already truncates our targets
             # to max_target_seq_length, so this will pad up to
             # 1*max_target_seq_length every time.
