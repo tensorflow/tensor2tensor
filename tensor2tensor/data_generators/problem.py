@@ -962,7 +962,12 @@ class Problem(object):
         # TODO: just pad where we chunk
         if hasattr(hparams, 'bert_max_length'):
             tf.logging.info('Taking 1 example and chunking it.')
-            dataset = dataset.map(lambda x: tf.Print(x, [tf.shape(x)], summarize=1000), num_parallel_calls=12)
+
+            def print_features(x):
+                for feature_name, feature in x.items():
+                    tf.Print(feature, [tf.shape[feature]], summarize=1000)
+
+            dataset = dataset.map(print_features, num_parallel_calls=12)
             # take batch size 1 because packed length has all docs we want to fit
             # TODO: why is batch_size_means_tokens true for text problems?
             tf.logging.info(f'Grabbing {hparams.batch_size} for each worker {num_shards}')
