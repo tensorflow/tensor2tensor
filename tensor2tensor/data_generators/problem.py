@@ -964,7 +964,8 @@ class Problem(object):
             tf.logging.info('Taking 1 example and chunking it.')
             # take batch size 1 because packed length has all docs we want to fit
             # TODO: why is batch_size_means_tokens true for text problems?
-            dataset = dataset.batch(1)
+            # TODO: 1 * num_shards / cores
+            dataset = dataset.batch(8)
             full_packed_len = hparams.bert_max_length * ((hparams.max_length // hparams.bert_max_length) + 1)
             dataset = dataset.map(
                 pad_to_length(
