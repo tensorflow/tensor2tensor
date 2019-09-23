@@ -961,6 +961,7 @@ class Problem(object):
         # this function
         # TODO: just pad where we chunk
         if hasattr(hparams, 'bert_max_length'):
+            tf.logging.info('Taking 1 example and chunking it.')
             # take batch size 1 because packed length has all docs we want to fit
             # TODO: why is batch_size_means_tokens true for text problems?
             dataset = dataset.batch(1)
@@ -1378,8 +1379,10 @@ def standardize_shapes(features, batch_size=None):
 
   if batch_size:
     # Ensure batch size is set on all features
-    for _, t in six.iteritems(features):
+    #for _, t in six.iteritems(features):
+    for n, t in six.iteritems(features):
       shape = t.get_shape().as_list()
+      tf.logging.info(f'Assign shape for {n}: {t}, {shape}')
       shape[0] = batch_size
       t.set_shape(t.get_shape().merge_with(shape))
       # Assert shapes are fully known
