@@ -24,6 +24,8 @@ import numpy as np
 from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import problem as problem_module
 from tensor2tensor.data_generators import problem_hparams
+from tensor2tensor.data_generators.problem import default_model_hparams, \
+  pad_inputs_to_chunk_len
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
@@ -134,6 +136,19 @@ class ProblemTest(tf.test.TestCase):
     p_hparams = problem.get_hparams()
     self.assertEqual(p_hparams.input_modality, {})
     self.assertIsInstance(p_hparams.target_modality, modalities.SymbolModality)
+
+  def testChunkPadding(self):
+    chunk_size = 4
+    with tf.Session() as sess:
+      ex_1_inputs = tf.convert_to_tensor([0, 1 , 2])
+      ex1_targets = tf.convert_to_tensor([2, 3])
+      example = {'inputs': ex_1_inputs,
+               'targets': ex1_targets}
+
+      padded_example = sess.run(pad_inputs_to_chunk_len(example, chunk_size))
+      assert padded_example['inputs'].shape == (4, )
+      # Should be unchanged
+      assert padded_example['targets'].shape == (2, )
 
 if __name__ == "__main__":
   tf.test.main()
