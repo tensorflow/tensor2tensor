@@ -24,7 +24,10 @@ import functools
 import multiprocessing
 import os
 import random
+from typing import Dict
+
 import six
+from tensorflow import Tensor
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
@@ -973,12 +976,21 @@ class Problem(object):
         dataset = dataset.filter(gpu_valid_size)
         batching_scheme = self._get_batching_scheme(hparams, num_shards)
 
+        def pad_inputs_to_chunk_len(example: Dict[str, Tensor], chunk_len):
+          example_length = data_reader.example_length(example)
+          chunked_len = ((example_length // chunk_len) + 1) * chunk_len
+          amount_to_pad = chunked_len - example_length
+          example['inputs'] = tf.pad(example['inputs'], [[0, amount_to_pad]])
+          return example
+
+        if hasattr(hparams, 'bert_max_length'):
+          dataset = dataset.map(lambda x: pad_inputs_to_chunk_len(
+            x, hparams.bert_max_length))
         dataset = dataset.apply(
             tf.contrib.data.bucket_by_sequence_length(
                 element_length_func=data_reader.example_length,
                 bucket_boundaries=batching_scheme['bucket_boundaries'],
-                bucket_batch_sizes=batching_scheme['bucket_batch_sizes'],
-                pad_to_bucket_boundary=hasattr(hparams, 'bert_max_length')))
+                bucket_batch_sizes=batching_scheme['bucket_batch_sizes']))
 
         if not is_training:
           batch_multiple = num_shards
