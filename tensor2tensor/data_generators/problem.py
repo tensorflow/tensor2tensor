@@ -985,7 +985,18 @@ class Problem(object):
                     features_to_pad=['targets']),
                 num_parallel_calls=num_threads)
 
-            dataset = dataset.map(set_seq_len(full_packed_len), num_parallel_calls=num_threads)
+            '''
+            dataset = dataset.map(
+                set_seq_len(
+                    {
+                        'inputs': full_packed_len,
+                        'inputs_example': full_packed_len,
+                        'inputs_chunk': full_packed_len,
+                        'targets': hparams.max_target_seq_length
+                    }
+                ),
+                num_parallel_calls=num_threads)
+            '''
 
         # otherwise we pad out to max for inputs and targets
         # keep the upstream t2t padding function here for posterity
@@ -1367,13 +1378,13 @@ def _summarize_features(features, num_shards=1):
                           tf.reduce_mean(nonpadding))
 
 
-def set_seq_len(seq_len: int):
+def set_seq_len(lengths: Dict[str, int]):
     def _set(features):
         for n, t in features.items():
-            if not n.startswith('inputs'):
+            if n not in lengths:
                 continue
             shape = t.get_shape().as_list()
-            shape[1] = seq_len
+            shape[1] = lengths[n]
             tf.logging.info(f'Assign shape for {n}: {t}, {shape}, {t.get_shape()}')
             t.set_shape(t.get_shape().merge_with(shape))
         return features
