@@ -985,7 +985,7 @@ class Problem(object):
                     features_to_pad=['targets']),
                 num_parallel_calls=num_threads)
 
-            dataset = dataset.map(set_seq_len(hparams.full_packed_len), num_parallel_calls=num_threads)
+            dataset = dataset.map(set_seq_len(full_packed_len), num_parallel_calls=num_threads)
 
         # otherwise we pad out to max for inputs and targets
         # keep the upstream t2t padding function here for posterity
