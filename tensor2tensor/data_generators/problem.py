@@ -984,6 +984,9 @@ class Problem(object):
                     exact=True,
                     features_to_pad=['targets']),
                 num_parallel_calls=num_threads)
+
+            dataset = dataset.map(set_seq_len(hparams.full_packed_len), num_parallel_calls=num_threads)
+
         # otherwise we pad out to max for inputs and targets
         # keep the upstream t2t padding function here for posterity
         else:
@@ -1364,6 +1367,18 @@ def _summarize_features(features, num_shards=1):
                           tf.reduce_mean(nonpadding))
 
 
+def set_seq_len(seq_len: int):
+    def _set(features):
+        for n, t in features.items():
+            shape = tf.get_shape().as_list()
+            tf.logging.info(f'Assigning seq len for {n}: {t}, {shape}')
+            shape[1] = seq_len
+            tf.logging.info(f'Assign shape for {n}: {t}, {shape}, {t.get_shape().merge_with(shape)')
+            t.set_shape(t.get_shape().merge_with(shape))
+        return features
+    return _set
+
+
 def standardize_shapes(features, batch_size=None):
   """Set the right shapes for the features."""
 
@@ -1382,8 +1397,8 @@ def standardize_shapes(features, batch_size=None):
     #for _, t in six.iteritems(features):
     for n, t in six.iteritems(features):
       shape = t.get_shape().as_list()
-      tf.logging.info(f'Assign shape for {n}: {t}, {shape}')
       shape[0] = batch_size
+      tf.logging.info(f'Assign shape for {n}: {t}, {shape}, {t.get_shape().merge_with(shape)')
       t.set_shape(t.get_shape().merge_with(shape))
       # Assert shapes are fully known
       t.get_shape().assert_is_fully_defined()
