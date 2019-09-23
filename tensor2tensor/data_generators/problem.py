@@ -1391,7 +1391,7 @@ def skip_random_fraction(dataset, data_file):
 def pad_inputs_to_chunk_len(example: Dict[str, Tensor], chunk_len):
   # TODO: Refactor this code to use pad_to_length
   #   Once https://github.com/medicode/diseaseTools/pull/4809/files#diff-e19b57d46806e65dae73365376ca62cdR123
-  #   is merged in
+  #   is merged in. See https://app.asana.com/0/823468737354222/1141184554148001
   example_length = data_reader.example_length(example)
   chunked_len = ((example_length // chunk_len) + 1) * chunk_len
   amount_to_pad = chunked_len - example_length
