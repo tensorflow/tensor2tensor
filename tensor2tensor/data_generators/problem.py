@@ -949,8 +949,7 @@ class Problem(object):
         dataset = dataset.batch(batch_size)
     else:
       # batch_size means tokens per datashard
-      # if config and config.use_tpu:
-      if True:
+      if config and config.use_tpu:
         # TODO: assert shapes fit
         # if we are on TPU and we are chunking input features,
         # we assume that we have one example per batch that is packed.
@@ -961,33 +960,10 @@ class Problem(object):
         # this function
         # TODO: just pad where we chunk
         if hasattr(hparams, 'bert_max_length'):
-            tf.logging.info('Taking 1 example and chunking it.')
-            # take batch size 1 because packed length has all docs we want to fit
-            # TODO: why is batch_size_means_tokens true for text problems?
-            tf.logging.info(f'Grabbing {hparams.batch_size} for each worker {num_shards}')
-            full_packed_len = hparams.bert_max_length * ((hparams.max_length // hparams.bert_max_length) + 1)
-            dataset = dataset.map(
-                pad_to_length(
-                    length=full_packed_len,
-                    axis=0,
-                    exact=True,
-                    features_to_pad=[
-                        'inputs', 'inputs_example', 'inputs_chunk']),
-                num_parallel_calls=num_threads)
-            # preprocess_common_example already truncates our targets
-            # to max_target_seq_length, so this will pad up to
-            # 1*max_target_seq_length every time.
-            dataset = dataset.map(
-                pad_to_length(
-                    length=hparams.max_target_seq_length,
-                    axis=0,
-                    exact=True,
-                    features_to_pad=['targets']),
-                num_parallel_calls=num_threads)
-            dataset = dataset.batch(params['batch_size'], drop_remainder=True)
-
-        # otherwise we pad out to max for inputs and targets
-        # keep the upstream t2t padding function here for posterity
+          dataset = batch_packed_dataset_tpu(dataset, hparams, num_threads,
+                                             num_shards, params)
+        # FATHOM we don't use tpus w/o chunking, below else block should
+        # never be entered
         else:
             dataset = dataset.filter(tpu_valid_size)
             padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
@@ -1019,13 +995,7 @@ class Problem(object):
         # multiple of the chunk length,
         # this can differ on the GPU as we do have variable input lengths
         if hasattr(hparams, 'bert_max_length'):
-            dataset = dataset.map(
-                pad_to_length(
-                    length=hparams.bert_max_length,
-                    axis=0,
-                    exact=False,
-                    features_to_pad=['inputs']),
-                num_parallel_calls=num_threads)
+            dataset = _build_chunk_dataset_gpu(dataset, hparams, num_threads)
 
         dataset = dataset.apply(
             tf.contrib.data.bucket_by_sequence_length(
@@ -1430,6 +1400,54 @@ def problem_hparams_to_features(problem_hparams):
       "target_space_id": target_space_id,
   }
 
+def batch_packed_dataset_tpu(packed_dataset, hparams, num_threads, num_shards,
+                             params):
+  """
+  Pads our packed example's inputs and targets, then batches the data.
+  This function should only be used on Fathom Packed datasets,
+  when transformer chunking is also enabled.
+  """
+  tf.logging.info('Taking 1 example and chunking it.')
+  tf.logging.info(f'Grabbing {hparams.batch_size} for each worker {num_shards}')
+  chunk_size = hparams.bert_max_length
+  full_packed_len = hparams.bert_max_length * ((hparams.max_length // chunk_size) + 1)
+  packed_dataset = packed_dataset.map(
+    pad_to_length(
+      length=full_packed_len,
+      axis=0,
+      exact=True,
+      features_to_pad=[
+        'inputs', 'inputs_example', 'inputs_chunk']),
+    num_parallel_calls=num_threads)
+  # preprocess_common_example already truncates our targets
+  # to max_target_seq_length, so this will pad up to
+  # 1*max_target_seq_length every time.
+  packed_dataset = packed_dataset.map(
+    pad_to_length(
+      length=hparams.max_target_seq_length,
+      axis=0,
+      exact=True,
+      features_to_pad=['targets']),
+    num_parallel_calls=num_threads)
+  packed_dataset = packed_dataset.batch(params['batch_size'], drop_remainder=True)
+  return packed_dataset
+
+def _build_chunk_dataset_gpu(dataset, hparams, num_threads):
+  """
+  On gpu, when batch_size_means_tokens, if chunking is enabled then all of our
+    model inputs need to be divisible by chunk_size. We pad all our inputs to
+    the nearest multiple of chunk_size in this function, which in turn
+    ensuers that bucket_by_sequence length will always emit batches padded to a
+    multiple of chunk_len
+  """
+  dataset = dataset.map(
+    pad_to_length(
+      length=hparams.bert_max_length,
+      axis=0,
+      exact=False,
+      features_to_pad=['inputs']),
+    num_parallel_calls=num_threads)
+  return dataset
 
 def skip_random_fraction(dataset, data_file):
   # Skip a random fraction at the beginning of the stream.  The skip is
