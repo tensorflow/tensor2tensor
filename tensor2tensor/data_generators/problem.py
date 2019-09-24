@@ -24,7 +24,10 @@ import functools
 import multiprocessing
 import os
 import random
+from typing import Dict
+
 import six
+from tensorflow import Tensor
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
@@ -36,7 +39,7 @@ import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
 import pretrained_models.bert.utilities as bert_utilities
-from fathomt2t_dependencies.common_t2t_utils import pad_to_length
+from fathomt2t_dependencies.common_t2t_utils import pad_to_max_packed_length_for_tpu, pad_to_next_chunk_length
 
 
 class DatasetSplit(object):
@@ -1412,10 +1415,9 @@ def batch_packed_dataset_tpu(packed_dataset, hparams, num_threads, num_shards,
   chunk_size = hparams.bert_max_length
   full_packed_len = hparams.bert_max_length * ((hparams.max_length // chunk_size) + 1)
   packed_dataset = packed_dataset.map(
-    pad_to_length(
-      length=full_packed_len,
+    pad_to_max_packed_length_for_tpu(
+      packed_max_len=full_packed_len,
       axis=0,
-      exact=True,
       features_to_pad=[
         'inputs', 'inputs_example', 'inputs_chunk']),
     num_parallel_calls=num_threads)
@@ -1423,10 +1425,9 @@ def batch_packed_dataset_tpu(packed_dataset, hparams, num_threads, num_shards,
   # to max_target_seq_length, so this will pad up to
   # 1*max_target_seq_length every time.
   packed_dataset = packed_dataset.map(
-    pad_to_length(
-      length=hparams.max_target_seq_length,
+    pad_to_max_packed_length_for_tpu(
+      packed_max_len=hparams.max_target_seq_length,
       axis=0,
-      exact=True,
       features_to_pad=['targets']),
     num_parallel_calls=num_threads)
   packed_dataset = packed_dataset.batch(params['batch_size'], drop_remainder=True)
@@ -1440,11 +1441,12 @@ def _build_chunk_dataset_gpu(dataset, hparams, num_threads):
     ensuers that bucket_by_sequence length will always emit batches padded to a
     multiple of chunk_len
   """
+  # dataset = dataset.map(lambda x: pad_inputs_to_chunk_len(
+  #   x, hparams.bert_max_length))
   dataset = dataset.map(
-    pad_to_length(
-      length=hparams.bert_max_length,
+    pad_to_next_chunk_length(
+      chunk_length=hparams.bert_max_length,
       axis=0,
-      exact=False,
       features_to_pad=['inputs']),
     num_parallel_calls=num_threads)
   return dataset
