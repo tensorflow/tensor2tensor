@@ -984,7 +984,10 @@ class Problem(object):
                     exact=True,
                     features_to_pad=['targets']),
                 num_parallel_calls=num_threads)
-            dataset = dataset.batch(hparams.batch_size, drop_remainder=True)
+            # TPU:
+            # dataset = dataset.batch(params['batch_size'], drop_remainder=True)
+            # GPU:
+            dataset = dataset.batch(hparams.batch_size * num_shards, drop_remainder=True)
 
         # otherwise we pad out to max for inputs and targets
         # keep the upstream t2t padding function here for posterity
@@ -1373,7 +1376,7 @@ def _summarize_features(features, num_shards=1):
 def standardize_shapes(features, batch_size=None):
   """Set the right shapes for the features."""
 
-  for fname in ["inputs", "targets"]:
+  for fname in ["inputs", "targets", 'inputs_example', 'inputs_chunk']:
     if fname not in features:
       continue
 
