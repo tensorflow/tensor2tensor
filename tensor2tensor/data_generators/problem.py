@@ -1154,9 +1154,7 @@ class Problem(object):
         return max_length
       return min(specified_max_length, max_length)
 
-    #inputs_none_filler = get_filler(hparams.max_input_seq_length)
-    # TODO:
-    inputs_none_filler = get_filler(8192)
+    inputs_none_filler = get_filler(hparams.max_input_seq_length)
     targets_none_filler = get_filler(hparams.max_target_seq_length)
 
     def pad_one_shape(shape, none_filler):
@@ -1167,7 +1165,8 @@ class Problem(object):
     for key, shape in six.iteritems(shapes_dict):
       #if key == "inputs":
       if key.startswith('inputs'):
-        padded_shapes[key] = pad_one_shape(shape, inputs_none_filler)
+        padded_shapes[key] = [8192]
+        #pad_one_shape(shape, inputs_none_filler)
       elif key == "targets":
         padded_shapes[key] = pad_one_shape(shape, targets_none_filler)
       else:
