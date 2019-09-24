@@ -984,7 +984,10 @@ class Problem(object):
                     exact=True,
                     features_to_pad=['targets']),
                 num_parallel_calls=num_threads)
-            dataset = dataset.batch(params['batch_size'], drop_remainder=True)
+            # TPU:
+            # dataset = dataset.batch(params['batch_size'], drop_remainder=True)
+            # GPU:
+            dataset = dataset.batch(hparams.batch_size * num_shards, drop_remainder=True)
 
         # otherwise we pad out to max for inputs and targets
         # keep the upstream t2t padding function here for posterity
