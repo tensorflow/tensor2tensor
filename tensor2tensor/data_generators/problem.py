@@ -999,7 +999,10 @@ class Problem(object):
             tf.logging.info(f'Padding features for TPU: {padded_shapes}')
             # on TPU, we use params["batch_size"], which specifies the number of
             # examples across all datashards
-            batch_size = params["batch_size"]
+            #batch_size = params["batch_size"]
+            # TODO: use hparams.batch_size for GPU
+            batch_size = params.get('batch_size', hparams.batch_size * num_shards)
+            tf.logging.info(f'Batch size: {batch_size}')
 
             if hparams.pad_batch:
               tf.logging.warn(
