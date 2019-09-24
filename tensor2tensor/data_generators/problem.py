@@ -1151,7 +1151,9 @@ class Problem(object):
         return max_length
       return min(specified_max_length, max_length)
 
-    inputs_none_filler = get_filler(hparams.max_input_seq_length)
+    #inputs_none_filler = get_filler(hparams.max_input_seq_length)
+    # TODO:
+    inputs_none_filler = get_filler(8192)
     targets_none_filler = get_filler(hparams.max_target_seq_length)
 
     def pad_one_shape(shape, none_filler):
