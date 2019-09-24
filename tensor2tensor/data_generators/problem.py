@@ -960,8 +960,8 @@ class Problem(object):
         # this should always be the same length, but convenient to reuse
         # this function
         # TODO: just pad where we chunk
+        '''
         if hasattr(hparams, 'bert_max_length'):
-            tf.logging.info('Taking 1 example and chunking it.')
             # take batch size 1 because packed length has all docs we want to fit
             # TODO: why is batch_size_means_tokens true for text problems?
             tf.logging.info(f'Grabbing {hparams.batch_size} for each worker {num_shards}')
@@ -989,8 +989,11 @@ class Problem(object):
         # otherwise we pad out to max for inputs and targets
         # keep the upstream t2t padding function here for posterity
         else:
+        '''
+        if True:
             dataset = dataset.filter(tpu_valid_size)
             padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
+            tf.logging.info(f'Padding features for TPU: {padded_shapes}')
             # on TPU, we use params["batch_size"], which specifies the number of
             # examples across all datashards
             batch_size = params["batch_size"]
@@ -1154,7 +1157,8 @@ class Problem(object):
       ]
 
     for key, shape in six.iteritems(shapes_dict):
-      if key == "inputs":
+      #if key == "inputs":
+      if key.startswith('inputs'):
         padded_shapes[key] = pad_one_shape(shape, inputs_none_filler)
       elif key == "targets":
         padded_shapes[key] = pad_one_shape(shape, targets_none_filler)
