@@ -59,9 +59,9 @@ class PolicyScheduleTest(test.TestCase):
     return learning_rate.PolicySchedule(
         history,
         observation_metrics=observation_metrics,
-        include_lr_in_observation=False,
+        include_controls_in_observation=False,
         action_multipliers=action_multipliers,
-        start_lr=start_lr,
+        control_configs=(("learning_rate", start_lr, (1e-9, 1.0), False),),
         policy_and_value_model=policy_and_value_model,
         policy_and_value_two_towers=False,
         policy_dir=policy_dir,
@@ -70,7 +70,7 @@ class PolicyScheduleTest(test.TestCase):
   def test_returns_start_lr_when_there_are_no_metrics(self):
     history = trax_history.History()
     schedule = self._make_schedule(history, start_lr=1e-3)
-    self.assertEqual(schedule(0), 1e-3)
+    self.assertEqual(schedule(0)["learning_rate"], 1e-3)
 
   def test_changes_lr_when_there_are_some_metrics(self):
     history = trax_history.History()

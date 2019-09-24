@@ -151,56 +151,59 @@ def PolicySchedule(
         ("eval", "metrics/accuracy"),
         ("eval", "metrics/loss"),
     ),
-    include_lr_in_observation=False,
-    observation_range=(0.0, 5.0),
-    start_lr=0.001,
-    max_lr=10.0,
+    include_controls_in_observation=False,
+    control_configs=(
+        # (name, start, (low, high), flip)
+        ("learning_rate", 1e-3, (1e-9, 10.0), False),
+    ),
+    metric_range=(0.0, 5.0),
     action_multipliers=(1.0 / 1.5, 1.0 / 1.25, 1.0, 1.25, 1.5),
     policy_and_value_model=trax_models.FrameStackMLP,
     policy_and_value_two_towers=False,
     policy_and_value_vocab_size=None,
     policy_dir=gin.REQUIRED,
+    temperature=1.0,
 ):
   """Learning rate schedule controlled by a learned policy.
 
   Args:
     history: the history of training and evaluation (History object).
     observation_metrics: list of pairs (mode, metric), as in the History object.
-    include_lr_in_observation: bool, whether to include the learning rate in
+    include_controls_in_observation: bool, whether to include the controls in
       observations.
-    observation_range: tuple (low, high), range to clip the observation to.
-    start_lr: starting learning rate.
-    max_lr: maximum value to clip the learning rate to.
+    control_configs: control configs, see trax.rl.envs.OnlineTuneEnv.
+    metric_range: tuple (low, high), range to clip the metrics to.
     action_multipliers: sequence of LR multipliers that policy actions
       correspond to.
     policy_and_value_model: Trax model to use as the policy.
     policy_and_value_two_towers: bool, whether the action distribution and value
       prediction is computed by separate model towers.
-    policy_and_value_vocab_size: Vocabulary size of a policy and value network
+    policy_and_value_vocab_size: vocabulary size of a policy and value network
       operating on serialized representation. If None, use raw continuous
       representation.
     policy_dir: directory with the policy checkpoint.
+    temperature: temperature for sampling from the policy.
 
   Returns:
-    a function learning_rate(step): float -> {"learning_rate": float}, the
-    step-dependent lr.
+    a function nontrainable_params(step): float -> {"name": float}, the
+    step-dependent schedule for nontrainable parameters.
   """
 
   # Turn the history into observations for the policy. If we don't have any,
   # return the initial learning rate.
   start_time = time.time()
-  lr_config = ("learning_rate", start_lr, (1e-9, max_lr), False)
-  if include_lr_in_observation:
-    control_configs = (lr_config,)
-  else:
-    control_configs = None
   observations = online_tune.history_to_observations(
-      history, observation_metrics, observation_range, control_configs
+      history, observation_metrics, metric_range,
+      control_configs if include_controls_in_observation else None
   )
   logging.vlog(
       1, "Building observations took %0.2f sec.", time.time() - start_time)
   if observations.shape[0] == 0:
-    return lambda _: start_lr
+    controls = {
+        name: start_value
+        for (name, start_value, _, _) in control_configs
+    }
+    return lambda _: controls
 
   # Build the policy network and load its parameters.
   start_time = time.time()
@@ -235,10 +238,16 @@ def PolicySchedule(
       1, "Running the policy took %0.2f sec.", time.time() - start_time
   )
   # Sample from the action distribution for the last timestep.
-  action = utils.gumbel_sample(log_probs[0, -1, :])
-
-  # Get a new learning rate.
-  new_lr = online_tune.update_control(
-      lr_config, action.item(), history, action_multipliers
+  action = utils.gumbel_sample(
+      log_probs[0, -len(control_configs):, :] / temperature
   )
-  return lambda _: {"learning_rate": new_lr}
+
+  # Get new controls.
+  controls = {
+      # name: value
+      control_config[0]: online_tune.update_control(  # pylint: disable=g-complex-comprehension
+          control_config, control_action, history, action_multipliers
+      )
+      for (control_action, control_config) in zip(action, control_configs)
+  }
+  return lambda _: controls
