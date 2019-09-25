@@ -227,3 +227,42 @@ def one_hot(x, size, dtype=np.float32):  # pylint: disable=invalid-name
 def Mean(x, params, axis=-1, keepdims=False, **kwargs):
   del params, kwargs
   return np.mean(x, axis=axis, keepdims=keepdims)
+
+
+def log_gaussian_pdf(x, mu, sigma):  # pylint: disable=invalid-name
+  """Compute log N(x | mu, sigma)."""
+  a = mu.shape[-1] * np.log(2 * np.pi)
+  _, b = np.linalg.slogdet(sigma)
+  y = np.linalg.solve(sigma, x - mu)
+  y = np.expand_dims(y, axis=-1)
+  xm = np.expand_dims(x - mu, axis=-2)
+  c = np.matmul(xm, y)
+  c = np.squeeze(np.squeeze(c, axis=-1), axis=-1)
+  return -0.5 * (a + b + c)
+
+
+def log_gaussian_diag_pdf(x, mu, diag_sigma):  # pylint: disable=invalid-name
+  """Compute log N(x | mu, eye(diag_sigma))."""
+  a = mu.shape[-1] * np.log(2 * np.pi)
+  b = np.sum(np.log(diag_sigma), axis=-1)
+  y = x - mu / diag_sigma
+  y = np.expand_dims(y, axis=-1)
+  xm = np.expand_dims(x - mu, axis=-2)
+  c = np.matmul(xm, y)
+  c = np.squeeze(np.squeeze(c, axis=-1), axis=-1)
+  return -0.5 * (a + b + c)
+
+
+def multigaussian_loss(preds, targets, ngauss=1):  # pylint: disable=invalid-name
+  """Compute mixture of gaussians loss."""
+  ndims = targets.shape[-1]
+  logits = preds[:, :ngauss]
+  mus = preds[:, ngauss:ngauss*(ndims + 1)]
+  sigmas = preds[:, ngauss(ndims + 1):]
+  sigmas = sigmas * sigmas + 1e-6  # Make positive.
+  loglogits = logits - backend.logsumexp(logits, axis=-1, keepdims=True)
+  mus = np.reshape(mus, [-1, ngauss, ndims])
+  sigmas = np.reshape(sigmas, [-1, ngauss, ndims])
+  targets = np.reshape(targets, [-1, 1, ndims])
+  glogprobs = log_gaussian_diag_pdf(targets, mus, sigmas)
+  return backend.logsumexp(loglogits + glogprobs, axis=-1)
