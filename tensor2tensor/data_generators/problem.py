@@ -1127,14 +1127,10 @@ class Problem(object):
           (dim if dim is not None else none_filler) for dim in shape.as_list()
       ]
 
-    padded_len = (
-        hparams.bert_max_length *
-        ((hparams.max_length // hparams.bert_max_length) + 1))
     for key, shape in six.iteritems(shapes_dict):
       #if key == "inputs":
       if key.startswith('inputs'):
-        padded_shapes[key] = [padded_len]
-        #pad_one_shape(shape, inputs_none_filler)
+        padded_shapes[key] = pad_one_shape(shape, inputs_none_filler)
       elif key == "targets":
         padded_shapes[key] = pad_one_shape(shape, targets_none_filler)
       else:
