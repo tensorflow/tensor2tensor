@@ -65,7 +65,7 @@ def tree_unflatten(flat, tree):
 class Optimizer(object):
   """Optimizer object, base class. Maps per-parameter functions to trees."""
 
-  def __init__(self, learning_rate, *init_opt_params):
+  def __init__(self, learning_rate, **init_opt_params):
     """Initialize the optimizer.
 
     Takes the initial optimizer parameters as positional arguments. They are fed
@@ -77,10 +77,12 @@ class Optimizer(object):
 
     Args:
       learning_rate: The initial learning rate.
-      *init_opt_params: Initial values of any additional optimizer parameters.
+      **init_opt_params: Initial values of any additional optimizer parameters.
     """
-    self._init_opt_params = tuple(
-        map(np.array, (learning_rate,) + init_opt_params))
+    init_opt_params["learning_rate"] = learning_rate
+    self._init_opt_params = {
+        name: np.array(value) for (name, value) in init_opt_params.items()
+    }
 
   def init(self, params):
     """Create optimizer slots for the given parameters."""
@@ -162,24 +164,31 @@ class SGD(Optimizer):
   def update(self, step, grads, params, slots, opt_params):
     del step
     del slots
-    (learning_rate,) = opt_params
+    learning_rate = opt_params["learning_rate"]
     return params - (learning_rate * grads).astype(params.dtype), None
 
 
 class Momentum(Optimizer):
   """Nesterov momentum optimizer."""
 
-  def __init__(self, learning_rate, mass=0.9):  # pylint: disable=useless-super-delegation
-    super(Momentum, self).__init__(learning_rate, mass)
+  def __init__(self, learning_rate, mass=0.9, weight_decay_rate=1e-5):  # pylint: disable=useless-super-delegation
+    super(Momentum, self).__init__(
+        learning_rate=learning_rate,
+        mass=mass,
+        weight_decay_rate=weight_decay_rate,
+    )
 
   def init(self, params):
     return np.zeros_like(params)
 
   def update(self, step, grads, params, velocity, opt_params):
     del step
-    (learning_rate, mass) = opt_params
-    new_velocity = mass * velocity - (1. - mass) * grads
-    new_params = params + (learning_rate * new_velocity).astype(params.dtype)
+    learning_rate = opt_params["learning_rate"]
+    mass = opt_params["mass"]
+    weight_decay_rate = opt_params["weight_decay_rate"]
+    new_velocity = mass * velocity + grads
+    new_params = (1 - weight_decay_rate) * params - (
+        learning_rate * (mass * new_velocity + grads)).astype(params.dtype)
     return (new_params, new_velocity)
 
 
@@ -187,14 +196,20 @@ class RMSProp(Optimizer):
   """RMSProp optimizer."""
 
   def __init__(self, learning_rate, gamma=0.9, eps=1e-8):  # pylint: disable=useless-super-delegation
-    super(RMSProp, self).__init__(learning_rate, gamma, eps)
+    super(RMSProp, self).__init__(
+        learning_rate=learning_rate,
+        gamma=gamma,
+        eps=eps,
+    )
 
   def init(self, params):
     return np.ones_like(params)
 
   def update(self, step, grads, params, avg_sq_grad, opt_params):
     del step
-    (learning_rate, gamma, eps) = opt_params
+    learning_rate = opt_params["learning_rate"]
+    gamma = opt_params["gamma"]
+    eps = opt_params["eps"]
     avg_sq_grad = avg_sq_grad * gamma + grads**2 * (1. - gamma)
     params = params - (learning_rate * grads /
                        (np.sqrt(avg_sq_grad) + eps)).astype(params.dtype)
@@ -218,7 +233,13 @@ class Adam(Optimizer):
       eps: optional, a positive scalar value for epsilon, a small constant for
         numerical stability (default 1e-8).
     """
-    super(Adam, self).__init__(learning_rate, weight_decay_rate, b1, b2, eps)
+    super(Adam, self).__init__(
+        learning_rate=learning_rate,
+        weight_decay_rate=weight_decay_rate,
+        b1=b1,
+        b2=b2,
+        eps=eps,
+    )
 
   def init(self, params):
     m = np.zeros_like(params)
@@ -227,7 +248,11 @@ class Adam(Optimizer):
 
   def update(self, step, grads, params, slots, opt_params):
     m, v = slots
-    learning_rate, weight_decay_rate, b1, b2, eps = opt_params
+    learning_rate = opt_params["learning_rate"]
+    weight_decay_rate = opt_params["weight_decay_rate"]
+    b1 = opt_params["b1"]
+    b2 = opt_params["b2"]
+    eps = opt_params["eps"]
     m = (1 - b1) * grads + b1 * m  # First  moment estimate.
     v = (1 - b2) * (grads ** 2) + b2 * v  # Second moment estimate.
     mhat = m / (1 - b1 ** (step + 1))  # Bias correction.
@@ -280,8 +305,14 @@ class Adafactor(Optimizer):
     self._do_momentum = do_momentum
     # Dynamically configurable parameters will be passed to the update function.
     super(Adafactor, self).__init__(
-        learning_rate, beta1, decay_rate, clipping_threshold,
-        weight_decay_rate, epsilon1, epsilon2)
+        learning_rate=learning_rate,
+        beta1=beta1,
+        decay_rate=decay_rate,
+        clipping_threshold=clipping_threshold,
+        weight_decay_rate=weight_decay_rate,
+        epsilon1=epsilon1,
+        epsilon2=epsilon2,
+    )
 
   @staticmethod
   def _decay_rate_pow(i, exponent=0.8):
@@ -306,8 +337,13 @@ class Adafactor(Optimizer):
 
   def update(self, step, grads, params, slots, opt_params):
     updates = []
-    (learning_rate, beta1, decay_rate, clipping_threshold,
-     weight_decay_rate, epsilon1, epsilon2) = opt_params
+    learning_rate = opt_params["learning_rate"]
+    beta1 = opt_params["beta1"]
+    decay_rate = opt_params["decay_rate"]
+    clipping_threshold = opt_params["clipping_threshold"]
+    weight_decay_rate = opt_params["weight_decay_rate"]
+    epsilon1 = opt_params["epsilon1"]
+    epsilon2 = opt_params["epsilon2"]
     decay_rate = self._decay_rate_pow(step, exponent=decay_rate)
     update_scale = learning_rate
     if self._multiply_by_parameter_scale:
@@ -364,14 +400,18 @@ class SM3(Optimizer):
       learning_rate: a postitive scalar value for the initial learning rate.
       momentum: optional, a positive scalar value for momentum
     """
-    super(SM3, self).__init__(learning_rate, momentum)
+    super(SM3, self).__init__(
+        learning_rate=learning_rate,
+        momentum=momentum,
+    )
 
   def init(self, params):
     vs = [np.zeros(sz, dtype=params.dtype) for sz in params.shape]
     return (np.zeros_like(params), vs)
 
   def _update_diagonal(self, grads, params, m, v, opt_params):
-    (learning_rate, momentum) = opt_params
+    learning_rate = opt_params["learning_rate"]
+    momentum = opt_params["momentum"]
     v[0] += grads * grads
     preconditioner = np.where(v[0] > 0, 1.0 / np.sqrt(v[0]),
                               np.zeros_like(v[0]))
@@ -394,7 +434,8 @@ class SM3(Optimizer):
 
   def _update_sketched(self, grads, params, m, v, opt_params):
     """Update for higher-rank parameters."""
-    (learning_rate, momentum) = opt_params
+    learning_rate = opt_params["learning_rate"]
+    momentum = opt_params["momentum"]
     shape = params.shape
     rank = len(shape)
     reshaped_accumulators = [np.reshape(v[i], self._expanded_shape(shape, i))

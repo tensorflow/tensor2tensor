@@ -111,37 +111,41 @@ def Resnet50(d_hidden=64, n_output_classes=1001, mode='train'):
   )
 
 
-def WideResnetBlock(channels, strides=(1, 1), mode='train'):
+def WideResnetBlock(channels, strides=(1, 1), bn_momentum=0.9, mode='train'):
   """WideResnet convolutional block."""
   return [
-      tl.BatchNorm(mode=mode),
+      tl.BatchNorm(momentum=bn_momentum, mode=mode),
       tl.Relu(),
       tl.Conv(channels, (3, 3), strides, padding='SAME'),
-      tl.BatchNorm(mode=mode),
+      tl.BatchNorm(momentum=bn_momentum, mode=mode),
       tl.Relu(),
       tl.Conv(channels, (3, 3), padding='SAME'),
   ]
 
 
-def WideResnetGroup(n, channels, strides=(1, 1), mode='train'):
+def WideResnetGroup(n, channels, strides=(1, 1), bn_momentum=0.9, mode='train'):
   shortcut = [
       tl.Conv(channels, (3, 3), strides, padding='SAME'),
   ]
   return [
-      tl.Residual(WideResnetBlock(channels, strides, mode=mode),
+      tl.Residual(WideResnetBlock(channels, strides, bn_momentum=bn_momentum,
+                                  mode=mode),
                   shortcut=shortcut),
-      tl.Residual([WideResnetBlock(channels, (1, 1), mode=mode)
+      tl.Residual([WideResnetBlock(channels, (1, 1), bn_momentum=bn_momentum,
+                                   mode=mode)
                    for _ in range(n - 1)]),
   ]
 
 
-def WideResnet(n_blocks=3, widen_factor=1, n_output_classes=10, mode='train'):
+def WideResnet(n_blocks=3, widen_factor=1, n_output_classes=10, bn_momentum=0.9,
+               mode='train'):
   """WideResnet from https://arxiv.org/pdf/1605.07146.pdf.
 
   Args:
     n_blocks: int, number of blocks in a group. total layers = 6n + 4.
     widen_factor: int, widening factor of each group. k=1 is vanilla resnet.
     n_output_classes: int, number of distinct output classes.
+    bn_momentum: float, momentum in BatchNorm.
     mode: Whether we are training or evaluating or doing inference.
 
   Returns:
@@ -150,10 +154,13 @@ def WideResnet(n_blocks=3, widen_factor=1, n_output_classes=10, mode='train'):
   return tl.Model(
       tl.ToFloat(),
       tl.Conv(16, (3, 3), padding='SAME'),
-      WideResnetGroup(n_blocks, 16 * widen_factor, mode=mode),
-      WideResnetGroup(n_blocks, 32 * widen_factor, (2, 2), mode=mode),
-      WideResnetGroup(n_blocks, 64 * widen_factor, (2, 2), mode=mode),
-      tl.BatchNorm(mode=mode),
+      WideResnetGroup(n_blocks, 16 * widen_factor, bn_momentum=bn_momentum,
+                      mode=mode),
+      WideResnetGroup(n_blocks, 32 * widen_factor, (2, 2),
+                      bn_momentum=bn_momentum, mode=mode),
+      WideResnetGroup(n_blocks, 64 * widen_factor, (2, 2),
+                      bn_momentum=bn_momentum, mode=mode),
+      tl.BatchNorm(momentum=bn_momentum, mode=mode),
       tl.Relu(),
       tl.AvgPool(pool_size=(8, 8)),
       tl.Flatten(),

@@ -1,0 +1,57 @@
+import tensor2tensor.trax.inputs
+import tensor2tensor.trax.models
+import tensor2tensor.trax.optimizers
+import tensor2tensor.trax.trax
+
+# Parameters for batch_fun:
+# ==============================================================================
+batch_fun.batch_size_per_device = 1
+batch_fun.eval_batch_size = 8
+batch_fun.max_eval_length = 65536
+
+# Parameters for inputs:
+# ==============================================================================
+inputs.data_dir = None
+inputs.dataset_name = 't2t_enwik8_l65k'
+inputs.input_name = 'targets'
+inputs.n_chunks = 16
+
+# Parameters for MultifactorSchedule:
+# ==============================================================================
+MultifactorSchedule.constant = 2.0
+MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
+MultifactorSchedule.warmup_steps = 8000
+
+# Parameters for train:
+# ==============================================================================
+train.eval_frequency = 200
+train.eval_steps = 8
+train.inputs = @trax.inputs.inputs
+train.model = @trax.models.TransformerRevnetLM
+train.optimizer = @trax.optimizers.Adafactor
+train.train_steps = 20000
+train.trainer_class = @MemoryEfficientTrainer
+
+# Parameters for MergedHashedCausalAttention:
+# ==============================================================================
+MergedHashedCausalAttention.dropout = 0.0
+MergedHashedCausalAttention.n_bins = 512
+MergedHashedCausalAttention.bin_by_time = True
+MergedHashedCausalAttention.one_rng = False
+
+# Parameters for TransformerRevnetLM:
+# ==============================================================================
+TransformerRevnetLM.d_model = 512
+TransformerRevnetLM.d_ff = 2048
+TransformerRevnetLM.d_attention_key = 64
+TransformerRevnetLM.d_attention_value = 64
+TransformerRevnetLM.dropout = 0.1
+TransformerRevnetLM.max_len = 65536
+TransformerRevnetLM.mode = 'train'
+TransformerRevnetLM.n_heads = 4
+TransformerRevnetLM.n_layers = 12
+TransformerRevnetLM.vocab_size = 258
+TransformerRevnetLM.n_chunks = 16
+TransformerRevnetLM.n_attention_chunks = 1
+TransformerRevnetLM.share_qk = True
+TransformerRevnetLM.attention_type = @trax.layers.MergedHashedCausalAttention

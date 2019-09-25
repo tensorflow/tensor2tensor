@@ -193,22 +193,37 @@ def Flatten(x, params, n_axes_to_keep=1, **kwargs):
   return np.reshape(x, (x.shape[:n_axes_to_keep] + (-1,)))
 
 
-@base.layer()
-def Dropout(x, params, rate=0.0, mode='train', rng=None, **kwargs):
-  """Layer construction function for a dropout layer with given rate."""
-  del params, kwargs
-  if rng is None:
-    msg = ('Dropout layer requires apply_fn to be called with a rng keyword '
-           'argument. That is, instead of `Dropout(params, inputs)`, call '
-           'it like `Dropout(params, inputs, rng=key)`.')
-    raise ValueError(msg)
-  if rate >= 1.0:
-    raise ValueError('Dropout rate (%f) must be lower than 1.' % rate)
-  if mode == 'train' and rate > 0.0:
+class Dropout(base.Layer):
+  """Dropout."""
+
+  def __init__(self, rate=0.0, name='dropout', mode='train'):
+    super(Dropout, self).__init__()
+    self._initial_rate = rate
+    # TODO(lukaszkaiser): remove the name property by the end of September'19.
+    # It's only needed for a specific purpose in the short term, will go.
+    self._name = 'dropout_' + name
+    self._mode = mode
+
+  def new_parameters(self, input_shape, input_dtype, rng):
+    """Initialize dropout parameters and state."""
+    del input_shape, input_dtype, rng
+    return (), {self._name: np.array(self._initial_rate)}
+
+  def call(self, x, params, state, rng=None, **unused_kwargs):
+    """Execute dropout."""
+    del params
+    rate = self._initial_rate
+    if isinstance(state, dict) and self._name in state:
+      rate = state[self._name]
+    if rng is None:
+      msg = ('Dropout layer requires apply_fn to be called with a rng keyword '
+             'argument. That is, instead of `Dropout(params, inputs)`, call '
+             'it like `Dropout(params, inputs, rng=key)`.')
+      raise ValueError(msg)
+    if self._mode != 'train':
+      return x, state
     keep = backend.random.bernoulli(rng, 1.0 - rate, x.shape)
-    return np.where(keep, x / (1.0 - rate), np.zeros_like(x))
-  else:
-    return x
+    return np.where(keep, x / (1.0 - rate), np.zeros_like(x)), state
 
 
 @base.layer()
@@ -237,3 +252,42 @@ def one_hot(x, size, dtype=np.float32):  # pylint: disable=invalid-name
 def Mean(x, params, axis=-1, keepdims=False, **kwargs):
   del params, kwargs
   return np.mean(x, axis=axis, keepdims=keepdims)
+
+
+def log_gaussian_pdf(x, mu, sigma):  # pylint: disable=invalid-name
+  """Compute log N(x | mu, sigma)."""
+  a = mu.shape[-1] * np.log(2 * np.pi)
+  _, b = np.linalg.slogdet(sigma)
+  y = np.linalg.solve(sigma, x - mu)
+  y = np.expand_dims(y, axis=-1)
+  xm = np.expand_dims(x - mu, axis=-2)
+  c = np.matmul(xm, y)
+  c = np.squeeze(np.squeeze(c, axis=-1), axis=-1)
+  return -0.5 * (a + b + c)
+
+
+def log_gaussian_diag_pdf(x, mu, diag_sigma):  # pylint: disable=invalid-name
+  """Compute log N(x | mu, eye(diag_sigma))."""
+  a = mu.shape[-1] * np.log(2 * np.pi)
+  b = np.sum(np.log(diag_sigma), axis=-1)
+  y = x - mu / diag_sigma
+  y = np.expand_dims(y, axis=-1)
+  xm = np.expand_dims(x - mu, axis=-2)
+  c = np.matmul(xm, y)
+  c = np.squeeze(np.squeeze(c, axis=-1), axis=-1)
+  return -0.5 * (a + b + c)
+
+
+def multigaussian_loss(preds, targets, ngauss=1):  # pylint: disable=invalid-name
+  """Compute mixture of gaussians loss."""
+  ndims = targets.shape[-1]
+  logits = preds[:, :ngauss]
+  mus = preds[:, ngauss:ngauss*(ndims + 1)]
+  sigmas = preds[:, ngauss(ndims + 1):]
+  sigmas = sigmas * sigmas + 1e-6  # Make positive.
+  loglogits = logits - backend.logsumexp(logits, axis=-1, keepdims=True)
+  mus = np.reshape(mus, [-1, ngauss, ndims])
+  sigmas = np.reshape(sigmas, [-1, ngauss, ndims])
+  targets = np.reshape(targets, [-1, 1, ndims])
+  glogprobs = log_gaussian_diag_pdf(targets, mus, sigmas)
+  return backend.logsumexp(loglogits + glogprobs, axis=-1)

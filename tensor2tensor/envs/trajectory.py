@@ -36,7 +36,11 @@ from tensorflow.io import gfile
 TRAJECTORY_FILE_FORMAT = r"trajectory_epoch_{epoch}_env_id_{env_id}_temperature_{temperature}_r_{r}.pkl"
 
 
+<<<<<<< HEAD
 def _get_pickle_module():
+=======
+def get_pickle_module():
+>>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
   if sys.version_info[0] < 3:
     return cloudpickle
   return pickle
@@ -494,8 +498,14 @@ class BatchTrajectory(object):
                           temperature=None,
                           n_trajectories=None,
                           up_sample=False,
+<<<<<<< HEAD
                           wait_time_secs=0.1,
                           max_tries=17):
+=======
+                          sleep_time_secs=0.1,
+                          max_tries=100,
+                          wait_forever=False):
+>>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
     """Load trajectories from specified dir and epoch.
 
     Args:
@@ -510,9 +520,16 @@ class BatchTrajectory(object):
         then we wait for those many trajectory files to be available.
       up_sample: (bool) If there are fewer than required (n_trajectories) number
         of incomplete trajectories, then we upsample to make up the numbers.
+<<<<<<< HEAD
       wait_time_secs: (float) Waiting time, with exponential backoff to wait for
         min_trajectories.
       max_tries: (int) The number of tries to get min_trajectories trajectories.
+=======
+      sleep_time_secs: (float) Sleep time, to wait for min_trajectories. We
+        exponentially back-off this up till a maximum of 10 seconds.
+      max_tries: (int) The number of tries to get min_trajectories trajectories.
+      wait_forever: (bool) If true, overrides max_tries and waits forever.
+>>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
 
     Returns:
       A BatchTrajectory object with all the constraints satisfied or None.
@@ -532,6 +549,7 @@ class BatchTrajectory(object):
     if n_trajectories:
       # We need to get `n_trajectories` number of `trajectory_files`.
       # This works out to a maximum ~3hr waiting period.
+<<<<<<< HEAD
       while max_tries > 0 and len(trajectory_files) < n_trajectories:
         logging.info(
             "Sleeping for %s seconds while waiting for %s trajectories, found "
@@ -540,6 +558,17 @@ class BatchTrajectory(object):
         time.sleep(wait_time_secs)
         max_tries -= 1
         wait_time_secs *= 2  # exponential backoff.
+=======
+      while ((max_tries > 0 or wait_forever) and
+             len(trajectory_files) < n_trajectories):
+        logging.info(
+            "Sleeping for %s seconds while waiting for %s trajectories, found "
+            "%s right now.", sleep_time_secs, n_trajectories,
+            len(trajectory_files))
+        time.sleep(sleep_time_secs)
+        max_tries -= 1
+        sleep_time_secs = min(10.0, sleep_time_secs * 2)
+>>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
         trajectory_files = gfile.glob(
             os.path.join(trajectory_dir, trajectory_file_glob))
 
@@ -555,7 +584,11 @@ class BatchTrajectory(object):
     trajectories_buffer = []
     for trajectory_file in trajectory_files:
       with gfile.GFile(trajectory_file, "rb") as f:
+<<<<<<< HEAD
         trajectory = _get_pickle_module().load(f)
+=======
+        trajectory = get_pickle_module().load(f)
+>>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
         assert isinstance(trajectory, Trajectory)
         trajectories_buffer.append(trajectory)
 

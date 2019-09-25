@@ -73,7 +73,7 @@ class PackSequences2Op : public OpKernel {
     for (int seq_id = 0; seq_id < n; seq_id++) {
       int inputs_length = inputs_lengths[seq_id];
       int targets_length = targets_lengths[seq_id];
-      for (int combined_id = std::max(0, num_combined - 10); true;
+      for (int combined_id = std::max(0, num_combined - 1000); true;
            combined_id++) {
         if (combined_id == num_combined) {
           combined_inputs_length.push_back(inputs_length);

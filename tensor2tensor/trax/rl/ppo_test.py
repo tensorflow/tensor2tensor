@@ -19,10 +19,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
+
 import jax
 from jax import random as jax_random
 import numpy as np
 from tensor2tensor.trax import layers
+from tensor2tensor.trax import models
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.rl import ppo
 from tensorflow import test
@@ -77,8 +80,14 @@ class PpoTest(test.TestCase):
     observation_shape = (3, 4, 5)
     batch_observation_shape = (1, 1) + observation_shape
     n_actions = 2
+    n_controls = 3
     pnv_model = ppo.policy_and_value_net(
-        n_actions, lambda: [layers.Flatten(n_axes_to_keep=2)], two_towers=True)
+        n_controls=n_controls,
+        n_actions=n_actions,
+        vocab_size=None,
+        bottom_layers_fn=lambda: [layers.Flatten(n_axes_to_keep=2)],
+        two_towers=True,
+    )
     pnv_params, pnv_state = pnv_model.initialize(
         batch_observation_shape, np.float32, self.rng_key)
 
@@ -90,8 +99,9 @@ class PpoTest(test.TestCase):
 
     # Output is a list, first is probab of actions and the next is value output.
     self.assertEqual(2, len(pnv_output))
-    self.assertEqual((batch, time_steps, n_actions), pnv_output[0].shape)
-    self.assertEqual((batch, time_steps, 1), pnv_output[1].shape)
+    self.assertEqual(
+        (batch, time_steps * n_controls, n_actions), pnv_output[0].shape)
+    self.assertEqual((batch, time_steps * n_controls), pnv_output[1].shape)
 
   def test_pad_trajectories(self):
     observation_shape = (2, 3, 4)
@@ -229,7 +239,7 @@ class PpoTest(test.TestCase):
       B, T_p_1, OBS = (observations.shape[0], observations.shape[1],
                        observations.shape[2:])
       del OBS
-      return np.ones((B, T_p_1, 1))
+      return np.ones((B, T_p_1))
       # pylint: enable=invalid-name
 
     value_prediction = value_net_apply(random_observations, [])
@@ -308,18 +318,19 @@ class PpoTest(test.TestCase):
     self.assertAllEqual(expected_gae_advantages, gae_advantages)
 
   def test_chosen_probabs(self):
-    # Shape (2, 2+1, 3)
+    # Shape (2, 2, 3)
     probab_observations = np.array(
-        [[[0.1, 0.2, 0.7], [0.4, 0.1, 0.5], [0.2, 0.4, 0.4]],
-         [[0.3, 0.1, 0.6], [0.1, 0.1, 0.8], [0.2, 0.4, 0.4]]]
+        [[[0.1, 0.2, 0.7], [0.4, 0.1, 0.5]],
+         [[0.3, 0.1, 0.6], [0.1, 0.1, 0.8]]]
     )
 
-    # Shape (2, 2)
+    # Shape (2, 2, 1)
     actions = np.array([[1, 2], [0, 1]])
 
     chosen_probabs = ppo.chosen_probabs(probab_observations, actions)
 
-    self.assertAllEqual(np.array([[0.2, 0.5], [0.3, 0.1]]), chosen_probabs)
+    self.assertAllEqual(
+        np.array([[0.2, 0.5], [0.3, 0.1]]), chosen_probabs)
 
   def test_compute_probab_ratios(self):
     p_old = np.array([[
@@ -327,13 +338,11 @@ class PpoTest(test.TestCase):
         [np.log(0.4), np.log(0.1), np.log(0.4), np.log(0.1)],
         [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
         [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
-        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
     ], [
         [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
         [np.log(0.1), np.log(0.1), np.log(0.4), np.log(0.4)],
         [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
         [np.log(0.1), np.log(0.2), np.log(0.6), np.log(0.1)],
-        [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
     ]])
 
     p_new = np.array([[
@@ -341,12 +350,10 @@ class PpoTest(test.TestCase):
         [np.log(0.4), np.log(0.1), np.log(0.1), np.log(0.3)],
         [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
         [np.log(0.3), np.log(0.1), np.log(0.5), np.log(0.1)],
-        [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
     ], [
         [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
         [np.log(0.1), np.log(0.1), np.log(0.2), np.log(0.6)],
         [np.log(0.3), np.log(0.1), np.log(0.3), np.log(0.3)],
-        [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
         [np.log(0.1), np.log(0.2), np.log(0.1), np.log(0.6)],
     ]])
 
@@ -403,7 +410,7 @@ class PpoTest(test.TestCase):
 
     unused_advantages_x_clipped_probab_ratios = np.array([
         [0.11, -0.11, 0.45, 0.63],
-        [2.20, -2.20, 1.80, 2.00]
+        [2.20, -2.20, .80, 2.00]
     ])
 
     unused_minimums = np.array([
@@ -434,7 +441,16 @@ class PpoTest(test.TestCase):
     batch_observation_shape = (1, 1) + OBS
 
     net = ppo.policy_and_value_net(
+<<<<<<< HEAD
         A, lambda: [layers.Flatten(n_axes_to_keep=2)], two_towers=True)
+=======
+        n_controls=1,
+        n_actions=A,
+        vocab_size=None,
+        bottom_layers_fn=lambda: [layers.Flatten(n_axes_to_keep=2)],
+        two_towers=True,
+    )
+>>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
 
     old_params, _ = net.initialize(
         batch_observation_shape, np.float32, key1)
@@ -444,7 +460,7 @@ class PpoTest(test.TestCase):
     # Generate a batch of observations.
 
     observations = np.random.uniform(size=(B, T + 1) + OBS)
-    actions = np.random.randint(0, A, size=(B, T))
+    actions = np.random.randint(0, A, size=(B, T + 1))
     rewards = np.random.uniform(0, 1, size=(B, T))
     mask = np.ones_like(rewards)
 
@@ -460,6 +476,7 @@ class PpoTest(test.TestCase):
     c1 = 1.0
     c2 = 0.01
 
+    rewards_to_actions = np.eye(value_predictions_old.shape[1])
     (value_loss_1, _) = ppo.value_loss_given_predictions(
         value_predictions_new, rewards, mask, gamma=gamma,
         value_prediction_old=value_predictions_old, epsilon=epsilon)
@@ -468,6 +485,7 @@ class PpoTest(test.TestCase):
         old_log_probabs,
         value_predictions_old,
         actions,
+        rewards_to_actions,
         rewards,
         mask,
         gamma=gamma,
@@ -481,6 +499,7 @@ class PpoTest(test.TestCase):
                           net,
                           observations,
                           actions,
+                          rewards_to_actions,
                           rewards,
                           mask,
                           gamma=gamma,
@@ -517,8 +536,8 @@ class PpoTest(test.TestCase):
 
     # (2, 4)
     mask = np.array([
-        [1, 1, 0, 0],
-        [1, 1, 1, 0]
+        [1, 1, 0, 0, 0],
+        [1, 1, 1, 0, 0]
     ])
 
     def plp(p):
@@ -547,6 +566,50 @@ class PpoTest(test.TestCase):
     restored_data = ppo.maybe_restore_opt_state(output_dir)
     self.assertEqual(restored_data, (opt_state, state, epoch, opt_step))
 
+<<<<<<< HEAD
+=======
+  def test_inits_policy_by_world_model_checkpoint(self):
+    transformer_kwargs = {
+        "d_model": 1,
+        "d_ff": 1,
+        "n_layers": 1,
+        "n_heads": 1,
+        "max_len": 128,
+        "mode": "train",
+    }
+    rng = jax_random.PRNGKey(123)
+    init_kwargs = {
+        "input_shapes": (1, 1),
+        "input_dtype": np.int32,
+        "rng": rng,
+    }
+    model = models.TransformerLM(vocab_size=4, **transformer_kwargs)
+    (model_params, _) = model.initialize(**init_kwargs)
+    policy = ppo.policy_and_value_net(
+        n_actions=3,
+        n_controls=2,
+        vocab_size=4,
+        bottom_layers_fn=functools.partial(
+            models.TransformerDecoder, **transformer_kwargs
+        ),
+        two_towers=False,
+    )
+    (policy_params, policy_state) = policy.initialize(**init_kwargs)
+    output_dir = self.get_temp_dir()
+    # Initialize state by restoring from a nonexistent checkpoint.
+    trax_state = trax.restore_state(output_dir)
+    trax_state = trax_state._replace(opt_state=(model_params, None))
+    # Save world model parameters.
+    trax.save_state(trax_state, output_dir)
+    # Initialize policy parameters from world model parameters.
+    new_policy_params = ppo.init_policy_from_world_model_checkpoint(
+        policy_params, output_dir
+    )
+    # Try to run the policy with new parameters.
+    observations = np.zeros((1, 100), dtype=np.int32)
+    policy(observations, new_policy_params, state=policy_state, rng=rng)
+
+>>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
 
 if __name__ == "__main__":
   test.main()

@@ -59,3 +59,8 @@ MergedHashedCausalAttention = layer_configure(
     MergedHashedCausalAttention, blacklist=["mode"])
 MergedMultiHashedCausalAttention = layer_configure(
     MergedMultiHashedCausalAttention, blacklist=["mode"])
+<<<<<<< HEAD
+=======
+MergedMultiHashedCausalAttentionV2 = layer_configure(
+    MergedMultiHashedCausalAttentionV2, blacklist=["mode"])
+>>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564

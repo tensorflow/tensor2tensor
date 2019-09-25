@@ -40,14 +40,25 @@ def load_trajectories(trajectory_dir, eval_frac):
   for (subdir, _, filenames) in gfile.walk(trajectory_dir):
     for filename in filenames:
       shard_path = os.path.join(subdir, filename)
+<<<<<<< HEAD
       with gfile.GFile(shard_path, "rb") as f:
         trajectories = pkl_module.load(f)
+=======
+      try:
+        with gfile.GFile(shard_path, "rb") as f:
+          trajectories = pkl_module.load(f)
+>>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
         pivot = int(len(trajectories) * (1 - eval_frac))
         train_trajectories.extend(trajectories[:pivot])
         eval_trajectories.extend(trajectories[pivot:])
-  assert train_trajectories, "Haven't found any training data."
-  assert eval_trajectories, "Haven't found any evaluation data."
-  return (train_trajectories, eval_trajectories)
+      except EOFError:
+        logging.warning(
+            "Could not load trajectories from a corrupted shard %s.",
+            shard_path,
+        )
+  assert train_trajectories, "Can't find training data in %s" % trajectory_dir
+  assert eval_trajectories, "Can't find evaluation data in %s" % trajectory_dir
+  return train_trajectories, eval_trajectories
 
 
 def generate_examples(trajectories, trajectory_to_training_examples_fn):
@@ -192,11 +203,11 @@ class ReplayPolicy(object):
     del observations
 
     def get_action(traj):
+      action = None
       if self._step < traj.num_time_steps:
         action = traj.time_steps[self._step].action
-      else:
-        action = None
-      return action or self._out_of_bounds_action
+        # PS: action can still be None, if this is the last time-step in traj.
+      return action if action is not None else self._out_of_bounds_action
     actions = np.array(list(map(get_action, self._trajectories)))
     self._step += 1
     return actions

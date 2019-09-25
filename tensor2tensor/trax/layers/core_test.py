@@ -101,6 +101,25 @@ class CoreLayerTest(absltest.TestCase):
         core.Dropout(rate=0.1, mode="eval"), input_shape)
     self.assertEqual(final_shape, output_shape)
 
+  def test_log_gaussian_pdf(self):
+    x = onp.zeros((2, 5), dtype=onp.float32)
+    mu = x
+    dsigma = onp.eye(5)[None, :, :]
+    sigma = onp.concatenate([dsigma, 2*dsigma], axis=0)
+    prob = core.log_gaussian_pdf(x, mu, sigma)
+    self.assertEqual(prob.shape, (2,))
+    self.assertEqual(int(prob[0]), -4)
+    self.assertEqual(int(prob[1]), -6)
+
+  def test_log_gaussian_diag_pdf(self):
+    x = onp.zeros((2, 5), dtype=onp.float32)
+    mu = x
+    sigma = onp.ones((5,))[None, :]
+    sigma = onp.concatenate([sigma, 2*sigma], axis=0)
+    prob = core.log_gaussian_diag_pdf(x, mu, sigma)
+    self.assertEqual(prob.shape, (2,))
+    self.assertEqual(int(prob[0]), -4)
+    self.assertEqual(int(prob[1]), -6)
 
 if __name__ == "__main__":
   absltest.main()

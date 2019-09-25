@@ -19,10 +19,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
+
 from absl.testing import absltest
 from absl.testing import parameterized
+import numpy as onp
 from tensor2tensor.trax import backend
 from tensor2tensor.trax import layers as tl
+from tensor2tensor.trax.backend import numpy as np
 from tensor2tensor.trax.models import transformer
 
 
@@ -52,6 +56,35 @@ class TransformerTest(parameterized.TestCase):
                             [output_vocab_size if output_vocab_size is not None
                              else input_vocab_size]))
     self.assertEqual(expected_shape, final_shape)
+
+  def test_transformer_lm_fast_inference(self):
+    with backend.use_backend('jax'):
+      vocab_size = 16
+      model_fn = functools.partial(
+          transformer.TransformerLM,
+          vocab_size=vocab_size, d_model=4, d_ff=8, n_layers=2, n_heads=2)
+      model_slow = model_fn(mode='eval')
+      model_fast = model_fn(mode='predict')
+      rng = backend.random.get_prng(0)
+      batch_size = 2
+      (params, state_slow) = model_slow.initialize(
+          input_shapes=(batch_size, 1), input_dtype=np.int32, rng=rng)
+      (_, state_fast) = model_fast.initialize(
+          input_shapes=(batch_size, 1), input_dtype=np.int32, rng=rng)
+
+      max_length = 5
+      buf = onp.zeros((batch_size, max_length), dtype=np.int32)
+      next_sym = onp.zeros((batch_size, 1), dtype=onp.int32)
+
+      for index in range(max_length):
+        (logits_slow, state_slow) = model_slow(
+            buf, params=params, state=state_slow, rng=rng)
+        (logits_fast, state_fast) = model_fast(
+            next_sym, params=params, state=state_fast, rng=rng)
+        onp.testing.assert_array_almost_equal(
+            logits_slow[:, index, :], logits_fast[:, 0, :])
+        next_sym = onp.random.randint(vocab_size, size=(batch_size, 1))
+        buf[:, index] = next_sym[:, 0]
 
   @parameterized.named_parameters(
       ('same_vocab', 16, None),

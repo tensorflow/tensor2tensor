@@ -516,7 +516,11 @@ class BatchTrajectoryTest(tf.test.TestCase):
 
             with gfile.GFile(
                 os.path.join(output_dir, trajectory_file_name), "w") as f:
+<<<<<<< HEAD
               trajectory._get_pickle_module().dump(traj, f)
+=======
+              trajectory.get_pickle_module().dump(traj, f)
+>>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
 
     # Load everything and check.
     bt = trajectory.BatchTrajectory.load_from_directory(output_dir)

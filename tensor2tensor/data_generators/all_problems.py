@@ -39,6 +39,13 @@ MODULES = [
     "tensor2tensor.data_generators.cola",
     "tensor2tensor.data_generators.common_voice",
     "tensor2tensor.data_generators.desc2code",
+<<<<<<< HEAD
+=======
+    "tensor2tensor.data_generators.dialog_cornell",
+    "tensor2tensor.data_generators.dialog_dailydialog",
+    "tensor2tensor.data_generators.dialog_opensubtitles",
+    "tensor2tensor.data_generators.dialog_personachat",
+>>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
     "tensor2tensor.data_generators.enwik8",
     "tensor2tensor.data_generators.fsns",
     "tensor2tensor.data_generators.function_docstring",

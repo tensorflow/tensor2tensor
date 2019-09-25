@@ -151,6 +151,11 @@ class EnvProblem(Env, problem.Problem):
   def trajectories(self):
     return self._trajectories
 
+  @trajectories.setter
+  def trajectories(self, trajectories_):
+    assert self.trajectories.batch_size == trajectories_.batch_size
+    self._trajectories = trajectories_
+
   def initialize(self, batch_size=1, **kwargs):
     self.initialize_environments(batch_size=batch_size, **kwargs)
 

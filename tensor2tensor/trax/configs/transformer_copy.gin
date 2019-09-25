@@ -1,0 +1,76 @@
+import tensor2tensor.trax.inputs
+import tensor2tensor.trax.models
+import tensor2tensor.trax.optimizers
+import tensor2tensor.trax.trax
+
+n_symbols = 128
+length = 1024
+batch = 32
+
+# Parameters for batch_fun:
+# ==============================================================================
+batch_fun.batch_size_per_device = %batch
+batch_fun.eval_batch_size = %batch
+batch_fun.max_eval_length = %length
+
+# Parameters for inputs:
+# ==============================================================================
+inputs.data_dir = None
+inputs.dataset_name = 'sequence_copy'
+
+# Parameters for MultifactorSchedule:
+# ==============================================================================
+MultifactorSchedule.constant = 1.0
+MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
+MultifactorSchedule.warmup_steps = 8000
+
+# Parameters for sequence_copy_inputs:
+# ==============================================================================
+sequence_copy_inputs.vocab_size = %n_symbols
+sequence_copy_inputs.batch_size = %batch
+sequence_copy_inputs.train_lengths = [%length]
+sequence_copy_inputs.eval_lengths = [%length]
+sequence_copy_inputs.reverse = False
+
+# Parameters for train:
+# ==============================================================================
+train.eval_frequency = 500
+train.eval_steps = 64
+train.inputs = @trax.inputs.sequence_copy_inputs
+train.model = @trax.models.TransformerLM
+train.optimizer = @trax.optimizers.Adafactor
+train.train_steps = 150000
+train.has_weights = True
+
+# Parameters for MemoryEfficientCausalAttention:
+# ==============================================================================
+MemoryEfficientCausalAttention.dropout = 0.0
+MemoryEfficientCausalAttention.loop_stride = 512
+
+# Parameters for MergedMultiHashedCausalAttentionV2:
+# ==============================================================================
+MergedMultiHashedCausalAttentionV2.allow_duplicate_attention = False
+MergedMultiHashedCausalAttentionV2.attend_across_buckets = False
+MergedMultiHashedCausalAttentionV2.rehash_each_round = True
+MergedMultiHashedCausalAttentionV2.n_bins = 32
+MergedMultiHashedCausalAttentionV2.n_buckets = 64
+MergedMultiHashedCausalAttentionV2.n_hashes = 4
+MergedMultiHashedCausalAttentionV2.one_rng = False
+MergedMultiHashedCausalAttentionV2.hard_k = 0
+MergedMultiHashedCausalAttentionV2.dropout = 0.0
+MergedMultiHashedCausalAttentionV2.drop_for_hash_rate = 0.0
+
+# Parameters for TransformerLM:
+# ==============================================================================
+TransformerLM.attention_type = @trax.layers.MergedMultiHashedCausalAttentionV2
+TransformerLM.d_attention_key = 64
+TransformerLM.d_attention_value = 64
+TransformerLM.d_model = 256
+TransformerLM.d_ff = 256
+TransformerLM.dropout = 0.0
+TransformerLM.max_len = %length
+TransformerLM.mode = 'train'
+TransformerLM.n_heads = 4
+TransformerLM.n_layers = 1
+TransformerLM.share_qk = True
+TransformerLM.vocab_size = %n_symbols
