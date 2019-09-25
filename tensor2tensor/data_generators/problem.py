@@ -959,65 +959,30 @@ class Problem(object):
         # multiple of the chunk length
         # this should always be the same length, but convenient to reuse
         # this function
-        # TODO: just pad where we chunk
-        '''
-        if hasattr(hparams, 'bert_max_length'):
-            # take batch size 1 because packed length has all docs we want to fit
-            # TODO: why is batch_size_means_tokens true for text problems?
-            tf.logging.info(f'Grabbing {hparams.batch_size} for each worker {num_shards}')
-            full_packed_len = hparams.bert_max_length * ((hparams.max_length // hparams.bert_max_length) + 1)
-            dataset = dataset.map(
-                pad_to_length(
-                    length=full_packed_len,
-                    axis=0,
-                    exact=True,
-                    features_to_pad=[
-                        'inputs', 'inputs_example', 'inputs_chunk']),
-                num_parallel_calls=num_threads)
-            # preprocess_common_example already truncates our targets
-            # to max_target_seq_length, so this will pad up to
-            # 1*max_target_seq_length every time.
-            dataset = dataset.map(
-                pad_to_length(
-                    length=hparams.max_target_seq_length,
-                    axis=0,
-                    exact=True,
-                    features_to_pad=['targets']),
-                num_parallel_calls=num_threads)
-            # TPU:
-            # dataset = dataset.batch(params['batch_size'], drop_remainder=True)
-            # GPU:
-            dataset = dataset.batch(hparams.batch_size * num_shards, drop_remainder=True)
+        dataset = dataset.filter(tpu_valid_size)
+        padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
+        tf.logging.info(f'Padding features for TPU: {padded_shapes}')
+        # on TPU, we use params["batch_size"], which specifies the number of
+        # examples across all datashards
+        #batch_size = params["batch_size"]
+        # TODO: use hparams.batch_size for GPU
+        batch_size = params.get('batch_size', hparams.batch_size * num_shards)
+        tf.logging.info(f'Batch size: {batch_size}')
 
-        # otherwise we pad out to max for inputs and targets
-        # keep the upstream t2t padding function here for posterity
+        if hparams.pad_batch:
+          tf.logging.warn(
+              "Padding the batch to ensure that remainder eval batches are "
+              "processed. This may lead to incorrect metrics for "
+              "non-zero-padded features, e.g. images. Use a smaller batch "
+              "size that has no remainder in that case.")
+          dataset = dataset.padded_batch(
+              batch_size, padded_shapes, drop_remainder=False)
+          dataset = dataset.map(
+              functools.partial(pad_batch, batch_multiple=batch_size),
+              num_parallel_calls=num_threads)
         else:
-        '''
-        if True:
-            dataset = dataset.filter(tpu_valid_size)
-            padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
-            tf.logging.info(f'Padding features for TPU: {padded_shapes}')
-            # on TPU, we use params["batch_size"], which specifies the number of
-            # examples across all datashards
-            #batch_size = params["batch_size"]
-            # TODO: use hparams.batch_size for GPU
-            batch_size = params.get('batch_size', hparams.batch_size * num_shards)
-            tf.logging.info(f'Batch size: {batch_size}')
-
-            if hparams.pad_batch:
-              tf.logging.warn(
-                  "Padding the batch to ensure that remainder eval batches are "
-                  "processed. This may lead to incorrect metrics for "
-                  "non-zero-padded features, e.g. images. Use a smaller batch "
-                  "size that has no remainder in that case.")
-              dataset = dataset.padded_batch(
-                  batch_size, padded_shapes, drop_remainder=False)
-              dataset = dataset.map(
-                  functools.partial(pad_batch, batch_multiple=batch_size),
-                  num_parallel_calls=num_threads)
-            else:
-              dataset = dataset.padded_batch(
-                  batch_size, padded_shapes, drop_remainder=True)
+          dataset = dataset.padded_batch(
+              batch_size, padded_shapes, drop_remainder=True)
       else:
         # On GPU, bucket by length
         dataset = dataset.filter(gpu_valid_size)
@@ -1162,10 +1127,13 @@ class Problem(object):
           (dim if dim is not None else none_filler) for dim in shape.as_list()
       ]
 
+    padded_len = (
+        hparams.bert_max_length *
+        ((hparams.max_length // hparams.bert_max_length) + 1))
     for key, shape in six.iteritems(shapes_dict):
       #if key == "inputs":
       if key.startswith('inputs'):
-        padded_shapes[key] = [8192]
+        padded_shapes[key] = [padded_len]
         #pad_one_shape(shape, inputs_none_filler)
       elif key == "targets":
         padded_shapes[key] = pad_one_shape(shape, targets_none_filler)
@@ -1392,14 +1360,15 @@ def standardize_shapes(features, batch_size=None):
 
   if batch_size:
     # Ensure batch size is set on all features
-    #for _, t in six.iteritems(features):
-    for n, t in six.iteritems(features):
+    for _, t in six.iteritems(features):
       shape = t.get_shape().as_list()
       shape[0] = batch_size
-      tf.logging.info(f'Assign shape for {n}: {t}, {shape}, {t.get_shape()}')
       t.set_shape(t.get_shape().merge_with(shape))
       # Assert shapes are fully known
       t.get_shape().assert_is_fully_defined()
+
+  for n, t in features.items():
+      tf.logging.info(f'Shape for {n}: {t}, {t.get_shape().as_list()}')
 
   return features
 
