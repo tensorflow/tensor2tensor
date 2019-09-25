@@ -12,13 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """trax learning rate schedules.
 
 The learning rate schedules here all have the signature:
-  lr: history -> (step -> lr)
+  lr: history -> (step -> {"learning_rate": lr})
 
 That is, they are functions that take a trax.history.History and return a
-function that takes a step and returns a learning rate.
+function that takes a step and returns a dict with entry "learning_rate".
 """
 
 from __future__ import absolute_import
@@ -30,8 +31,8 @@ import time
 
 from absl import logging
 import gin
+
 import numpy as onp
-import tensor2tensor.trax.backend.random as random
 
 from tensor2tensor.trax import models as trax_models
 from tensor2tensor.trax import utils
@@ -65,7 +66,8 @@ def MultifactorSchedule(history=None,
     steps_per_decay: How often to decay the learning rate.
 
   Returns:
-    a function learning_rate(step): float -> float, the step-dependent lr.
+    a function learning_rate(step): float -> {"learning_rate": float}, the
+    step-dependent lr.
   """
   del history
 
@@ -82,10 +84,10 @@ def MultifactorSchedule(history=None,
       elif name == "rsqrt_decay":
         ret /= np.sqrt(np.maximum(step, warmup_steps))
       elif name == "decay_every":
-        ret *= (decay_factor**(step // steps_per_decay))
+        ret *= (decay_factor ** (step//steps_per_decay))
       else:
         raise ValueError("Unknown factor %s." % name)
-    return ret
+    return {"learning_rate": ret}
 
   return learning_rate
 
@@ -116,7 +118,8 @@ def EvalAdjustingSchedule(history,
     metric: which evaluation metric to use for adjustments.
 
   Returns:
-    a function learning_rate(step): float -> float, the step-dependent lr.
+    a function learning_rate(step): float -> {"learning_rate": float}, the
+    step-dependent lr.
   """
   metrics = history.get(history_mode, metric)
   adjusted = constant
@@ -354,14 +357,10 @@ def CosineDecaySchedule(history, initial_learning_rate, decay_steps, alpha=0.0):
     Number of steps to decay over.
     alpha: A scalar `float32` or `float64`.
     Minimum learning rate value as a fraction of initial_learning_rate.
-
-  Returns:
-    a function learning_rate(step): float -> float, the step-dependent lr.
-  """
+ """
   del history
 
   def learning_rate(step):  # pylint: disable=invalid-name
-    """Step to learning rate function."""
     step_fl = step.astype(np.float32)
     step_fl = np.minimun(step_fl, decay_steps)
 
@@ -553,7 +552,7 @@ def NoisyLinearCosineDecaySchedule(history,
     std = np.sqrt(variance)
 
     linear_decayed = (decay_steps - step_fl) / decay_steps
-    noisy_linear_decayed = linear_decayed + random.random_normal(
+    noisy_linear_decayed = linear_decayed + jax_random.random_normal(
         rng, shape=linear_decayed.shape) * std
 
     completed_fraction = step_fl / decay_steps
@@ -566,7 +565,8 @@ def NoisyLinearCosineDecaySchedule(history,
 
   return learning_rate
 
-  def PolicySchedule(
+@gin.configurable(blacklist=["history"])
+def PolicySchedule(
     history,
     observation_metrics=(
         ("train", "metrics/accuracy"),
@@ -574,46 +574,64 @@ def NoisyLinearCosineDecaySchedule(history,
         ("eval", "metrics/accuracy"),
         ("eval", "metrics/loss"),
     ),
-    include_lr_in_observation=False,
-    observation_range=(0.0, 5.0),
-    start_lr=0.001,
-    max_lr=10.0,
+    include_controls_in_observation=False,
+    control_configs=(
+        # (name, start, (low, high), flip)
+        ("learning_rate", 1e-3, (1e-9, 10.0), False),
+    ),
+    metric_range=(0.0, 5.0),
     action_multipliers=(1.0 / 1.5, 1.0 / 1.25, 1.0, 1.25, 1.5),
     policy_and_value_model=trax_models.FrameStackMLP,
     policy_and_value_two_towers=False,
+    policy_and_value_vocab_size=None,
     policy_dir=gin.REQUIRED,
+    temperature=1.0,
 ):
   """Learning rate schedule controlled by a learned policy.
-
   Args:
     history: the history of training and evaluation (History object).
     observation_metrics: list of pairs (mode, metric), as in the History object.
-    include_lr_in_observation: bool, whether to include the learning rate in
+    include_controls_in_observation: bool, whether to include the controls in
       observations.
-    observation_range: tuple (low, high), range to clip the observation to.
-    start_lr: starting learning rate.
-    max_lr: maximum value to clip the learning rate to.
+    control_configs: control configs, see trax.rl.envs.OnlineTuneEnv.
+    metric_range: tuple (low, high), range to clip the metrics to.
     action_multipliers: sequence of LR multipliers that policy actions
       correspond to.
     policy_and_value_model: Trax model to use as the policy.
     policy_and_value_two_towers: bool, whether the action distribution and value
       prediction is computed by separate model towers.
+    policy_and_value_vocab_size: vocabulary size of a policy and value network
+      operating on serialized representation. If None, use raw continuous
+      representation.
     policy_dir: directory with the policy checkpoint.
+    temperature: temperature for sampling from the policy.
+  Returns:
+    a function nontrainable_params(step): float -> {"name": float}, the
+    step-dependent schedule for nontrainable parameters.
+  """
+
   # Turn the history into observations for the policy. If we don't have any,
   # return the initial learning rate.
   start_time = time.time()
   observations = online_tune.history_to_observations(
-      history, observation_metrics, observation_range, include_lr_in_observation
+      history, observation_metrics, metric_range,
+      control_configs if include_controls_in_observation else None
   )
   logging.vlog(
       1, "Building observations took %0.2f sec.", time.time() - start_time)
   if observations.shape[0] == 0:
-    return lambda _: start_lr
+    controls = {
+        name: start_value
+        for (name, start_value, _, _) in control_configs
+    }
+    return lambda _: controls
 
   # Build the policy network and load its parameters.
   start_time = time.time()
   net = ppo.policy_and_value_net(
+      n_controls=1,
       n_actions=len(action_multipliers),
+      vocab_size=policy_and_value_vocab_size,
       bottom_layers_fn=policy_and_value_model,
       two_towers=policy_and_value_two_towers,
   )
@@ -641,9 +659,16 @@ def NoisyLinearCosineDecaySchedule(history,
       1, "Running the policy took %0.2f sec.", time.time() - start_time
   )
   # Sample from the action distribution for the last timestep.
-  action = utils.gumbel_sample(log_probs[0, -1, :])
+  action = utils.gumbel_sample(
+      log_probs[0, -len(control_configs):, :] / temperature
+  )
 
-  # Get a new learning rate.
-  new_lr = online_tune.new_learning_rate(
-      action, history, action_multipliers, max_lr)
-  return lambda _: new_lr
+  # Get new controls.
+  controls = {
+      # name: value
+      control_config[0]: online_tune.update_control(  # pylint: disable=g-complex-comprehension
+          control_config, control_action, history, action_multipliers
+      )
+      for (control_action, control_config) in zip(action, control_configs)
+  }
+  return lambda _: controls
