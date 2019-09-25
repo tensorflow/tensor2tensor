@@ -965,8 +965,8 @@ class Problem(object):
         # on TPU, we use params["batch_size"], which specifies the number of
         # examples across all datashards
         #batch_size = params["batch_size"]
-        # TODO: use hparams.batch_size for GPU
-        batch_size = params.get('batch_size', hparams.batch_size * num_shards)
+        # TODO: use num_shards for GPU
+        batch_size = params.get('batch_size', num_shards)
         tf.logging.info(f'Batch size: {batch_size}')
 
         if hparams.pad_batch:
@@ -1130,7 +1130,8 @@ class Problem(object):
     for key, shape in six.iteritems(shapes_dict):
       #if key == "inputs":
       if key.startswith('inputs'):
-        padded_shapes[key] = pad_one_shape(shape, inputs_none_filler)
+        padded_shapes[key] = [hparams.max_length]
+        #pad_one_shape(shape, inputs_none_filler)
       elif key == "targets":
         padded_shapes[key] = pad_one_shape(shape, targets_none_filler)
       else:
