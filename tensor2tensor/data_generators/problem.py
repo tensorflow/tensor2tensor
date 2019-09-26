@@ -967,7 +967,10 @@ class Problem(object):
         #batch_size = params["batch_size"]
         # TODO: use num_shards for GPU
         batch_size = params.get('batch_size', num_shards)
-        tf.logging.info(f'Batch size: {batch_size}')
+        if hasattr(hparams, 'packs_per_batch'):
+            # TODO: better abstraction?
+            batch_size *= hparams.packs_per_batch
+        tf.logging.info(f'Batch size: {batch_size} per shard ({num_shards})')
 
         if hparams.pad_batch:
           tf.logging.warn(
