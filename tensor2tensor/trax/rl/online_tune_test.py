@@ -36,29 +36,63 @@ class OnlineTuneTest(test.TestCase):
     history = trax_history.History()
     self._append_metrics(history, ("train", "accuracy"), [0.1, 0.73])
     metric_values = online_tune.historical_metric_values(
-        history, metric=("train", "accuracy"), observation_range=(0, 5))
+        history, metric=("train", "accuracy")
+    )
     np.testing.assert_array_equal(metric_values, [0.1, 0.73])
 
-  def test_clips_historical_metric_values(self):
-    history = trax_history.History()
-    self._append_metrics(history, ("train", "loss"), [-10, 10])
-    metric_values = online_tune.historical_metric_values(
-        history, metric=("train", "loss"), observation_range=(-1, 1))
-    np.testing.assert_array_equal(metric_values, [-1, 1])
+  def test_metric_to_observation_rescales(self):
+    metric = np.random.uniform(low=-10, high=10, size=(100,))
+    observation = online_tune.metric_to_observation(metric, (-10, 10))
+    self.assertLess(-1, np.min(observation))
+    self.assertLess(np.min(observation), -0.9)
+    self.assertLess(0.9, np.max(observation))
+    self.assertLess(np.max(observation), 1.0)
 
-  def test_converts_history_to_observations_without_learning_rate(self):
+  def test_metric_to_observation_clips(self):
+    metric = np.random.uniform(low=-10, high=10, size=(100,))
+    observation = online_tune.metric_to_observation(metric, (-2, 2))
+    self.assertEqual(np.min(observation), -1)
+    self.assertEqual(np.max(observation), 1)
+
+  def test_converts_control_to_log_scale_without_flipping(self):
+    config = ("weight_decay", None, (1e-5, 0.1), False)
+    controls = np.array([0.01, 0.02, 0.04])
+    obs = online_tune.control_to_observation(controls, config)
+    np.testing.assert_almost_equal(obs[1] - obs[0], obs[2] - obs[1])
+
+  def test_converts_control_to_log_scale_with_flipping(self):
+    config = ("momentum", None, (0.5, 0.99), True)
+    controls = np.array([0.98, 0.96, 0.92])
+    obs = online_tune.control_to_observation(controls, config)
+    np.testing.assert_almost_equal(obs[1] - obs[0], obs[2] - obs[1])
+
+  def test_clips_control_without_flipping(self):
+    config = ("weight_decay", None, (1e-5, 0.1), False)
+    controls = np.array([0.0, 0.2])
+    obs = online_tune.control_to_observation(controls, config)
+    np.testing.assert_equal(obs, [-1, 1])
+
+  def test_clips_control_with_flipping(self):
+    config = ("momentum", None, (0.5, 0.99), True)
+    controls = np.array([0.4, 1.0])
+    obs = online_tune.control_to_observation(controls, config)
+    np.testing.assert_equal(obs, [1, -1])
+
+  def test_converts_history_to_observations_without_controls(self):
     history = trax_history.History()
-    self._append_metrics(history, ("train", "loss"), [3.0, 1.07])
+    self._append_metrics(history, ("train", "loss"), [1.0, 0.07])
     self._append_metrics(history, ("eval", "accuracy"), [0.12, 0.68])
     observations = online_tune.history_to_observations(
         history,
         metrics=(("eval", "accuracy"), ("train", "loss")),
-        observation_range=(0, 5),
-        include_lr=False,
+        observation_range=(-1, 1),
+        control_configs=None,
     )
-    np.testing.assert_array_equal(observations, [[0.12, 3.0], [0.68, 1.07]])
+    np.testing.assert_array_almost_equal(
+        observations, [[0.12, 1.0], [0.68, 0.07]]
+    )
 
-  def test_converts_history_to_observations_with_learning_rate(self):
+  def test_converts_history_to_observations_with_controls(self):
     history = trax_history.History()
     self._append_metrics(
         history, ("train", "training/learning_rate"), [1e-3, 1e-4])
@@ -66,7 +100,9 @@ class OnlineTuneTest(test.TestCase):
         history,
         metrics=(),
         observation_range=(0, 5),
-        include_lr=True,
+        control_configs=(
+            ("learning_rate", None, (1e-9, 10.0), False),
+        ),
     )
     self.assertEqual(observations.shape, (2, 1))
     ((log_lr_1,), (log_lr_2,)) = observations
@@ -79,32 +115,61 @@ class OnlineTuneTest(test.TestCase):
         history,
         metrics=(("eval", "loss"),),
         observation_range=(-2, 2),
-        include_lr=False,
+        control_configs=None,
     )
-    np.testing.assert_array_equal(observations, [[-2], [2]])
+    np.testing.assert_array_equal(observations, [[-1], [1]])
 
-  def test_calculates_new_learning_rate(self):
+  def test_updates_control_without_flipping(self):
+    config = ("learning_rate", None, (1e-9, 10.0), False)
     history = trax_history.History()
     self._append_metrics(
-        history, online_tune.LEARNING_RATE_METRIC, [1e-2, 1e-3])
-    new_lr = online_tune.new_learning_rate(
+        history, online_tune.control_metric("learning_rate"), [1e-2, 1e-3])
+    new_control = online_tune.update_control(
+        control_config=config,
         action=2,
         history=history,
         action_multipliers=(0.5, 1.0, 2.0),
-        max_lr=1.0,
     )
-    np.testing.assert_almost_equal(new_lr, 2e-3)
+    np.testing.assert_almost_equal(new_control, 2e-3)
 
-  def test_clips_new_learning_rate(self):
+  def test_updates_control_with_flipping(self):
+    config = ("momentum", None, (0.5, 0.99), True)
     history = trax_history.History()
-    self._append_metrics(history, online_tune.LEARNING_RATE_METRIC, [1e-3])
-    new_lr = online_tune.new_learning_rate(
+    self._append_metrics(
+        history, online_tune.control_metric("momentum"), [0.96, 0.98])
+    new_control = online_tune.update_control(
+        control_config=config,
         action=0,
         history=history,
-        action_multipliers=(4.0, 1.0, 0.25),
-        max_lr=3e-3,
+        action_multipliers=(0.5, 1.0, 2.0),
     )
-    np.testing.assert_almost_equal(new_lr, 3e-3)
+    np.testing.assert_almost_equal(new_control, 0.99)
+
+  def test_clips_updated_control_without_flipping(self):
+    config = ("learning_rate", None, (1e-9, 10.0), False)
+    history = trax_history.History()
+    self._append_metrics(
+        history, online_tune.control_metric("learning_rate"), [7.0])
+    new_control = online_tune.update_control(
+        control_config=config,
+        action=2,
+        history=history,
+        action_multipliers=(0.5, 1.0, 2.0),
+    )
+    np.testing.assert_almost_equal(new_control, 10.0)
+
+  def test_clips_updated_control_with_flipping(self):
+    config = ("momentum", None, (0.5, 0.99), True)
+    history = trax_history.History()
+    self._append_metrics(
+        history, online_tune.control_metric("momentum"), [0.985])
+    new_control = online_tune.update_control(
+        control_config=config,
+        action=0,
+        history=history,
+        action_multipliers=(0.5, 1.0, 2.0),
+    )
+    np.testing.assert_almost_equal(new_control, 0.99)
 
 
 if __name__ == "__main__":

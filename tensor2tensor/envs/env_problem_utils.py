@@ -21,6 +21,8 @@ from __future__ import print_function
 
 import functools
 import time
+
+import gym
 import numpy as np
 
 from tensor2tensor.envs import gym_env_problem
@@ -52,7 +54,16 @@ def play_env_problem_randomly(env_problem, num_steps):
     env_problem.reset(indices=done_indices(dones))
 
 
-def get_completed_trajectories_from_env(env, n_trajectories):
+def get_completed_trajectories_from_env(env,
+                                        n_trajectories,
+                                        raw_trajectory=False):
+  """Returns completed `n_trajectories` from `env`."""
+
+  # Just the raw trajectories.
+  if raw_trajectory:
+    return env.trajectories.completed_trajectories[:n_trajectories]
+
+  # The numpy version of the above.
   completed_trajectories = []
   for trajectory in env.trajectories.completed_trajectories[:n_trajectories]:
     completed_trajectories.append(trajectory.as_numpy)
@@ -69,13 +80,15 @@ def play_env_problem_with_policy(env,
                                  temperature=1.0,
                                  boundary=32,
                                  len_history_for_policy=32,
-                                 num_to_keep=1):
+                                 num_to_keep=1,
+                                 abort_fn=None,
+                                 raw_trajectory=False):
   """Plays the given env with the policy function to collect trajectories.
 
   Args:
     env: environment object, should be a subclass of env_problem.EnvProblem.
-    policy_fun: callable, taking in observations((B, T) + OBS) and returning
-      back log-probabilities (B, T, A).
+    policy_fun: callable, taking in observations((B, RT) + OBS) and returning
+      back log-probabilities (B, AT, A).
     num_trajectories: int, number of trajectories to collect.
     max_timestep: int or None, if not None or a negative number, we cut any
       trajectory that exceeds this time put it in the completed bin, and *dont*
@@ -89,6 +102,12 @@ def play_env_problem_with_policy(env,
     len_history_for_policy: int or None, the maximum history to keep for
       applying the policy on. If None, use the whole history.
     num_to_keep: int, while truncating trajectory how many time-steps to keep.
+    abort_fn: callable, If not None, then at every step call and abort the
+      trajectory collection if it returns True, if so reset the env and return
+      None.
+    raw_trajectory: bool, if True a list of trajectory.Trajectory objects is
+      returned, otherwise a list of numpy representations of
+      `trajectory.Trajectory` is returned.
 
   Returns:
     A tuple, (trajectories, number of completed trajectories). Where
@@ -99,7 +118,7 @@ def play_env_problem_with_policy(env,
     """Gumbel sampling."""
     u = np.random.uniform(low=1e-6, high=1.0 - 1e-6, size=log_probs.shape)
     g = -np.log(-np.log(u))
-    return np.argmax((log_probs / temperature) + g, axis=1)
+    return np.argmax((log_probs / temperature) + g, axis=-1)
 
   # We need to reset all environments, if we're coming here the first time.
   if reset or max_timestep is None or max_timestep <= 0:
@@ -114,39 +133,35 @@ def play_env_problem_with_policy(env,
   env_actions_total_time = 0
   bare_env_run_time = 0
   while env.trajectories.num_completed_trajectories < num_trajectories:
+    # Check if we should abort and return nothing.
+    if abort_fn and abort_fn():
+      # We should also reset the environment, since it will have some
+      # trajectories (complete and incomplete) that we want to discard.
+      env.reset()
+      return None, 0, {}, state
+
     # Get all the observations for all the active trajectories.
-    # Shape is (B, T) + OBS
+    # Shape is (B, RT) + OBS
     # Bucket on whatever length is needed.
     padded_observations, lengths = env.trajectories.observations_np(
         boundary=boundary,
         len_history_for_policy=len_history_for_policy)
 
-    B, T = padded_observations.shape[:2]  # pylint: disable=invalid-name
+    B = padded_observations.shape[0]  # pylint: disable=invalid-name
 
     assert B == env.batch_size
     assert (B,) == lengths.shape
 
     t1 = time.time()
-    log_prob_actions, value_predictions, state, rng = policy_fun(
-        padded_observations, state=state, rng=rng)
+    log_probs, value_preds, state, rng = policy_fun(
+        padded_observations, lengths, state=state, rng=rng)
     policy_application_total_time += (time.time() - t1)
 
-    assert (B, T) == log_prob_actions.shape[:2]
-    A = log_prob_actions.shape[2]  # pylint: disable=invalid-name
-
-    # We need the log_probs of those actions that correspond to the last actual
-    # time-step.
-    index = lengths - 1  # Since we want to index using lengths.
-    log_probs = log_prob_actions[np.arange(B)[:, None], index[:, None],
-                                 np.arange(A)]
-    value_preds = value_predictions[np.arange(B)[:, None], index[:, None],
-                                    np.arange(1)]
-    assert (B, A) == log_probs.shape, \
-        "B=%d, A=%d, log_probs.shape=%s" % (B, A, log_probs.shape)
-    assert (B, 1) == value_preds.shape, \
-        "B=%d, value_preds.shape=%s" % (B, value_preds.shape)
+    assert B == log_probs.shape[0]
 
     actions = gumbel_sample(log_probs)
+    if isinstance(env.action_space, gym.spaces.Discrete):
+      actions = np.squeeze(actions, axis=1)
 
     # Step through the env.
     t1 = time.time()
@@ -154,7 +169,7 @@ def play_env_problem_with_policy(env,
         actions,
         infos={
             "log_prob_actions": log_probs,
-            "value_predictions": value_preds
+            "value_predictions": value_preds,
         })
     env_actions_total_time += (time.time() - t1)
     bare_env_run_time += sum(
@@ -191,7 +206,7 @@ def play_env_problem_with_policy(env,
   # We have the trajectories we need, return a list of triples:
   # (observations, actions, rewards)
   completed_trajectories = get_completed_trajectories_from_env(
-      env, num_trajectories)
+      env, num_trajectories, raw_trajectory=raw_trajectory)
 
   timing_info = {
       "trajectory_collection/policy_application": policy_application_total_time,

@@ -1,0 +1,132 @@
+import tensor2tensor.trax.inputs
+import tensor2tensor.trax.models
+import tensor2tensor.trax.optimizers
+import tensor2tensor.trax.trax
+
+# Parameters that will vary between experiments:
+# ==============================================================================
+train.model = @trax.models.TransformerRevnetLM
+inputs.n_chunks = 16  # Uncomment this line iff using TransformerRevnetLM
+
+TransformerLM.n_layers = 3
+TransformerRevnetLM.n_layers = 3
+
+# Attention types:
+# MemoryEfficientCausalAttention: full attention
+# MergedHashedCausalAttention: timebin
+# MergedMultiHashedCausalAttentionV2: hashbin
+# TransformerLM.attention_type = @MemoryEfficientCausalAttention
+# TransformerRevnetLM.attention_type = @MemoryEfficientCausalAttention
+TransformerLM.attention_type = @MergedMultiHashedCausalAttentionV2
+TransformerRevnetLM.attention_type = @MergedMultiHashedCausalAttentionV2
+
+# These three should all be equal, and MergedMultiHashedCausalAttentionV2
+# requires that share_qk be set to True.
+share_qk = True
+MemoryEfficientCausalAttention.share_qk = %share_qk
+TransformerLM.share_qk = %share_qk
+TransformerRevnetLM.share_qk = %share_qk
+
+# These four should all be equal
+attn_kv = 128
+TransformerLM.d_attention_key = %attn_kv
+TransformerLM.d_attention_value = %attn_kv
+TransformerRevnetLM.d_attention_key = %attn_kv
+TransformerRevnetLM.d_attention_value = %attn_kv
+
+# Use MergedHashedCausalAttention for timebin
+MergedHashedCausalAttention.n_bins = 64
+
+# Use MergedMultiHashedCausalAttentionV2 for hashbin
+MergedMultiHashedCausalAttentionV2.n_bins = 96
+MergedMultiHashedCausalAttentionV2.n_buckets = 192  # Always 2 * n_bins
+MergedMultiHashedCausalAttentionV2.n_hashes = 2
+MergedMultiHashedCausalAttentionV2.drop_for_hash_rate = 0.0
+
+# Parameters for batch_fun:
+# ==============================================================================
+batch_fun.batch_size_per_device = 1
+batch_fun.eval_batch_size = 8
+batch_fun.max_eval_length = 12288  # 64 * 64 * 3
+
+# Parameters for inputs:
+# ==============================================================================
+inputs.data_dir = None
+inputs.dataset_name = 't2t_image_imagenet64_gen_flat_rev'
+inputs.input_name = 'targets'
+
+# Parameters for MultifactorSchedule:
+# ==============================================================================
+MultifactorSchedule.constant = 2.0
+MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
+MultifactorSchedule.warmup_steps = 8000
+
+# Parameters for train:
+# ==============================================================================
+train.eval_frequency = 500
+train.eval_steps = 64
+train.inputs = @trax.inputs.inputs
+# train.model: see top
+train.optimizer = @trax.optimizers.Adafactor
+train.train_steps = 500000
+train.trainer_class = @MemoryEfficientTrainer
+train.save_steps = \
+    [1000, 5000, 10000, 20000, 40000, 60000, 80000,
+     100000, 200000, 300000, 400000, 500000]
+
+# Parameters for MemoryEfficientCausalAttention:
+# ==============================================================================
+MemoryEfficientCausalAttention.dropout = 0.0
+MemoryEfficientCausalAttention.loop_stride = 512
+# MemoryEfficientCausalAttention.share_qk: see top
+
+# Parameters for MergedHashedCausalAttention:
+# ==============================================================================
+MergedHashedCausalAttention.dropout = 0.0
+# MergedHashedCausalAttention.n_bins: see top
+MergedHashedCausalAttention.bin_by_time = True
+MergedHashedCausalAttention.one_rng = False
+
+# Parameters for MergedMultiHashedCausalAttentionV2:
+# ==============================================================================
+MergedMultiHashedCausalAttentionV2.allow_duplicate_attention = False
+MergedMultiHashedCausalAttentionV2.attend_across_buckets = False
+MergedMultiHashedCausalAttentionV2.rehash_each_round = True
+# MergedMultiHashedCausalAttentionV2.n_bins: see top
+# MergedMultiHashedCausalAttentionV2.n_buckets: see top
+# MergedMultiHashedCausalAttentionV2.n_hashes: see top
+MergedMultiHashedCausalAttentionV2.one_rng = False
+MergedMultiHashedCausalAttentionV2.hard_k = 0
+MergedMultiHashedCausalAttentionV2.dropout = 0.0
+# MergedMultiHashedCausalAttentionV2.drop_for_hash_rate: see top
+
+# Parameters for TransformerLM:
+# ==============================================================================
+# TransformerLM.attention_type: see top
+# TransformerLM.d_attention_key: see top
+# TransformerLM.d_attention_value: see top
+TransformerLM.d_model = 1024
+TransformerLM.d_ff = 4096
+TransformerLM.dropout = 0.0
+TransformerLM.max_len = 12288  # 64 * 64 * 3
+TransformerLM.mode = 'train'
+TransformerLM.n_heads = 8
+# TransformerLM.n_layers: see top
+# TransformerLM.share_qk: see top
+TransformerLM.vocab_size = 256
+
+# Parameters for TransformerRevnetLM:
+# ==============================================================================
+# TransformerRevnetLM.attention_type: see top
+# TransformerRevnetLM.d_attention_key: see top
+# TransformerRevnetLM.d_attention_value: see top
+TransformerRevnetLM.d_model = 1024
+TransformerRevnetLM.d_ff = 4096
+TransformerRevnetLM.dropout = 0.0
+TransformerRevnetLM.max_len = 12288  # 64 * 64 * 3
+TransformerRevnetLM.mode = 'train'
+TransformerRevnetLM.n_heads = 8
+# TransformerRevnetLM.n_layers: see top
+TransformerRevnetLM.vocab_size = 256
+TransformerRevnetLM.n_chunks = 16
+TransformerRevnetLM.n_attention_chunks = 1

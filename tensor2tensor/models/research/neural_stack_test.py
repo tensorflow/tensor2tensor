@@ -40,123 +40,89 @@ def build_fake_controller(cell):
       trainable=False)
 
 
-def call_fake_controller(push_values, pop_values, read_values, output_values):
+def call_fake_controller(push_values, pop_values, write_values, output_values):
   """Mock a RNN controller from a set of expected outputs.
 
   Args:
     push_values: Expected controller push values.
     pop_values: Expected controller pop values.
-    read_values: Expected controller read values.
+    write_values: Expected controller write values.
     output_values: Expected controller output values.
 
   Returns:
     A callable which behaves like the call method of an NeuralStackCell.
   """
-  def call(cell, inputs, state, batch_size):
+  def call(cell, inputs, prev_read_values, controller_state, batch_size):
     del inputs
+    del prev_read_values
     del batch_size
-    next_step = tf.assign_add(cell.current_step, tf.constant(1))
-    return (
-        tf.slice(tf.constant(push_values), [next_step, 0], [1, -1]),
-        tf.slice(tf.constant(pop_values), [next_step, 0], [1, -1]),
-        tf.slice(tf.constant(read_values), [next_step, 0, 0], [1, -1, -1]),
-        tf.slice(tf.constant(output_values), [next_step, 0, 0], [1, -1, -1]),
-        state
+    next_step = tf.constant(0)
+    if hasattr(cell, "current_step"):
+      next_step = tf.assign_add(cell.current_step, tf.constant(1))
+    return neural_stack.NeuralStackControllerInterface(
+        push_strengths=tf.slice(tf.constant(push_values),
+                                [next_step, 0, 0, 0],
+                                [1, -1, -1, -1]),
+        pop_strengths=tf.slice(tf.constant(pop_values),
+                               [next_step, 0, 0, 0],
+                               [1, -1, -1, -1]),
+        write_values=tf.slice(tf.constant(write_values),
+                              [next_step, 0, 0],
+                              [1, -1, -1]),
+        outputs=tf.slice(tf.constant(output_values),
+                         [next_step, 0, 0],
+                         [1, -1, -1]),
+        state=controller_state
     )
   return call
 
 
+def assert_controller_shapes(test, controller_outputs, controller_shapes):
+  for name, output, shape in zip(controller_outputs._fields, controller_outputs,
+                                 controller_shapes):
+    test.assertEqual(shape, output.shape, "%s shapes don't match" % name)
+
+
+def assert_cell_shapes(test, controller_outputs, zero_state):
+  for name, output, state in zip(controller_outputs._fields, controller_outputs,
+                                 zero_state):
+    test.assertEqual(state.shape, output.shape, "%s shapes don't match" % name)
+
+
 class NeuralStackCellTest(tf.test.TestCase):
 
-  def test_controller_shapes(self):
+  def test_cell_shapes(self):
     """Check that all the NeuralStackCell tensor shapes are correct.
     """
-
     batch_size = 5
     embedding_size = 3
     memory_size = 6
     num_units = 8
 
     stack = neural_stack.NeuralStackCell(num_units, memory_size, embedding_size)
-
     stack.build(None)
 
-    self.assertEqual([1, embedding_size], stack.output_size)
-    self.assertEqual([1, memory_size, memory_size], stack.read_mask.shape)
-    self.assertEqual([3, 3, 1, 1], stack.write_shift_convolution.shape)
+    self.assertEqual([1, 1, memory_size, memory_size],
+                     stack.get_read_mask(0).shape)
 
     stack_input = tf.zeros([batch_size, 1, embedding_size], dtype=tf.float32)
-
     zero_state = stack.zero_state(batch_size, tf.float32)
-
-    (controller_state,
-     previous_values,
-     memory_values,
-     read_strengths,
-     write_strengths) = zero_state
-
-    self.assertEqual([batch_size, num_units], controller_state.shape)
-    self.assertEqual([batch_size, 1, embedding_size], previous_values.shape)
-    self.assertEqual([batch_size, memory_size, embedding_size],
-                     memory_values.shape)
-    self.assertEqual([batch_size, 1, memory_size, 1], read_strengths.shape)
-    self.assertEqual([batch_size, 1, memory_size, 1], write_strengths.shape)
-
-    rnn_input = tf.concat([
-        tf.reshape(
-            previous_values,
-            shape=[batch_size, embedding_size]),
-        tf.reshape(
-            stack_input,
-            shape=[batch_size, embedding_size])
-    ], axis=1)
-    self.assertEqual([batch_size, 2 * embedding_size], rnn_input.shape)
-
-    (push_strengths,
-     pop_strengths,
-     new_values,
-     outputs,
-     controller_next_state) = stack.call_controller(rnn_input,
-                                                    controller_state,
-                                                    batch_size)
-
-    self.assertEqual([batch_size, 1, 1, 1], push_strengths.shape)
-    self.assertEqual([batch_size, 1, 1, 1], pop_strengths.shape)
-    self.assertEqual([batch_size, 1, embedding_size], new_values.shape)
-    self.assertEqual([batch_size, 1, embedding_size], outputs.shape)
-    self.assertEqual([batch_size, num_units], controller_next_state.shape)
-
-    (outputs, (controller_next_state,
-               read_values,
-               next_memory_values,
-               next_read_strengths,
-               next_write_strengths)) = stack.call(stack_input, zero_state)
-
-    self.assertEqual([batch_size, 1, embedding_size], outputs.shape)
-    self.assertEqual([batch_size, num_units], controller_next_state.shape)
-    self.assertEqual([batch_size, 1, embedding_size], read_values.shape)
-    self.assertEqual([batch_size, memory_size, embedding_size],
-                     next_memory_values.shape)
-    self.assertEqual([batch_size, 1, memory_size, 1], next_read_strengths.shape)
-    self.assertEqual([batch_size, 1, memory_size, 1],
-                     next_write_strengths.shape)
+    (outputs, (stack_next_state)) = stack.call(stack_input, zero_state)
 
     # Make sure that stack output shapes match stack input shapes
-    self.assertEqual(controller_next_state.shape, controller_state.shape)
-    self.assertEqual(read_values.shape, previous_values.shape)
-    self.assertEqual(next_memory_values.shape, memory_values.shape)
-    self.assertEqual(next_read_strengths.shape, read_strengths.shape)
-    self.assertEqual(next_write_strengths.shape, write_strengths.shape)
+    self.assertEqual(outputs.shape, stack_input.shape)
+
+    assert_cell_shapes(self, stack_next_state, zero_state)
 
   @mock.patch.object(neural_stack.NeuralStackCell, "build_controller",
                      build_fake_controller)
   @mock.patch.object(neural_stack.NeuralStackCell, "call_controller",
                      call_fake_controller(
-                         push_values=[[1.0], [1.0], [0.0]],
-                         pop_values=[[0.0], [0.0], [1.0]],
-                         read_values=[[[1.0, 0.0, 0.0]],
-                                      [[0.0, 1.0, 0.0]],
-                                      [[0.0, 0.0, 1.0]]],
+                         push_values=[[[[1.0]]], [[[1.0]]], [[[0.0]]]],
+                         pop_values=[[[[0.0]]], [[[0.0]]], [[[1.0]]]],
+                         write_values=[[[1.0, 0.0, 0.0]],
+                                       [[0.0, 1.0, 0.0]],
+                                       [[0.0, 0.0, 1.0]]],
                          output_values=[[[0.0, 0.0, 0.0]],
                                         [[0.0, 0.0, 0.0]],
                                         [[0.0, 0.0, 0.0]]]))
@@ -179,8 +145,20 @@ class NeuralStackCellTest(tf.test.TestCase):
         [[[0.0], [0.0], [0.], [1.0], [0.0], [0.0]]]])
     expected_top = np.array([[[1.0, 0.0, 0.0]]])
 
-    stack = neural_stack.NeuralStackCell(8, 6, 3)
+    batch_size = 1
+    embedding_size = 3
+    memory_size = 6
+    num_units = 8
+
+    stack = neural_stack.NeuralStackCell(num_units, memory_size, embedding_size)
     stack_input = tf.constant(input_values, dtype=tf.float32)
+
+    stack_zero_state = tf.zeros([batch_size, num_units])
+    controller_outputs = stack.call_controller(None, None, stack_zero_state,
+                                               batch_size)
+    assert_controller_shapes(self, controller_outputs,
+                             stack.get_controller_shape(batch_size))
+
     (outputs, state) = tf.nn.dynamic_rnn(cell=stack,
                                          inputs=stack_input,
                                          time_major=False,
@@ -191,10 +169,10 @@ class NeuralStackCellTest(tf.test.TestCase):
       _, state_vals = sess.run([outputs, state])
       (_, stack_top, values, read_strengths, write_strengths) = state_vals
 
-      self.assertAllClose(expected_top, stack_top)
       self.assertAllClose(expected_values, values)
-      self.assertAllClose(expected_read_strengths, read_strengths)
       self.assertAllClose(expected_write_strengths, write_strengths)
+      self.assertAllClose(expected_read_strengths, read_strengths)
+      self.assertAllClose(expected_top, stack_top)
 
 
 class NeuralQueueCellTest(tf.test.TestCase):
@@ -203,11 +181,11 @@ class NeuralQueueCellTest(tf.test.TestCase):
                      build_fake_controller)
   @mock.patch.object(neural_stack.NeuralQueueCell, "call_controller",
                      call_fake_controller(
-                         push_values=[[1.0], [1.0], [0.0]],
-                         pop_values=[[0.0], [0.0], [1.0]],
-                         read_values=[[[1.0, 0.0, 0.0]],
-                                      [[0.0, 1.0, 0.0]],
-                                      [[0.0, 0.0, 1.0]]],
+                         push_values=[[[[1.0]]], [[[1.0]]], [[[0.0]]]],
+                         pop_values=[[[[0.0]]], [[[0.0]]], [[[1.0]]]],
+                         write_values=[[[1.0, 0.0, 0.0]],
+                                       [[0.0, 1.0, 0.0]],
+                                       [[0.0, 0.0, 1.0]]],
                          output_values=[[[0.0, 0.0, 0.0]],
                                         [[0.0, 0.0, 0.0]],
                                         [[0.0, 0.0, 0.0]]]))
@@ -229,8 +207,20 @@ class NeuralQueueCellTest(tf.test.TestCase):
         [[[0.0], [0.0], [0.0], [1.0], [0.0], [0.0]]]])
     expected_front = np.array([[[0.0, 1.0, 0.0]]])
 
-    queue = neural_stack.NeuralQueueCell(8, 6, 3)
+    batch_size = 1
+    num_units = 8
+    embedding_size = 3
+    memory_size = 6
+
+    queue = neural_stack.NeuralQueueCell(num_units, memory_size, embedding_size)
     rnn_input = tf.constant(input_values, dtype=tf.float32)
+
+    queue_zero_state = tf.zeros([batch_size, num_units])
+    controller_outputs = queue.call_controller(None, None, queue_zero_state,
+                                               batch_size)
+    assert_controller_shapes(self, controller_outputs,
+                             queue.get_controller_shape(batch_size))
+
     (outputs, state) = tf.nn.dynamic_rnn(cell=queue,
                                          inputs=rnn_input,
                                          time_major=False,
@@ -241,10 +231,10 @@ class NeuralQueueCellTest(tf.test.TestCase):
       _, state_vals = sess.run([outputs, state])
       (_, queue_front, values, read_strengths, write_strengths) = state_vals
 
-      self.assertAllClose(expected_front, queue_front)
       self.assertAllClose(expected_values, values)
-      self.assertAllClose(expected_read_strengths, read_strengths)
       self.assertAllClose(expected_write_strengths, write_strengths)
+      self.assertAllClose(expected_read_strengths, read_strengths)
+      self.assertAllClose(expected_front, queue_front)
 
 
 class NeuralStackModelTest(tf.test.TestCase):

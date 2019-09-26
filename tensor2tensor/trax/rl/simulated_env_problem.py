@@ -29,6 +29,7 @@ from tensor2tensor.trax import backend
 from tensor2tensor.trax import trax
 from tensor2tensor.trax import utils
 from tensor2tensor.trax.backend import random as jax_random
+from tensor2tensor.trax.rl import serialization_utils
 from tensor2tensor.trax.rl import space_serializer
 
 
@@ -56,10 +57,10 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
         model. The format is implementation-specific.
       output_dir: (str) Output dir.
     """
-    # TODO(pkozakowski): At some point we will have a "predict" mode which we
-    # should use here. When this happens, change the mode.
     self._model = model
-    self._model_predict = backend.jit(self._model(mode="eval"))
+    model_predict = self._model(mode="predict")
+    self._model_predict = backend.jit(model_predict)
+    self._model_initialize = model_predict.initialize
     self._observation_space = observation_space
     self._action_space = action_space
     self._reward_range = reward_range
@@ -371,8 +372,13 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
     self._steps = np.zeros(batch_size, dtype=np.int32)
     self._last_observations = np.full(
         (batch_size,) + self._observation_space.shape, np.nan)
+    self._last_symbols = np.zeros((batch_size, 1), dtype=np.int32)
     super(SerializedSequenceSimulatedEnvProblem, self).initialize_environments(
         batch_size=batch_size, **kwargs)
+    (subrng, self._rng) = jax_random.split(self._rng)
+    (_, self._init_model_state) = self._model_initialize(
+        input_shapes=(batch_size, 1), input_dtype=np.int32, rng=subrng
+    )
 
   @property
   def _obs_repr_indices(self):
@@ -387,11 +393,12 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
   def _predict_obs(self, predict_fn, rng):
     for (i, subrng) in enumerate(jax_random.split(rng, self._obs_repr_length)):
       symbol_index = self._steps * self._step_repr_length + i
-      log_probs, self._model_state = predict_fn(self._history,
-                                                state=self._model_state,
-                                                rng=subrng)
-      log_probs = log_probs[:, symbol_index, :]
-      self._history[:, symbol_index] = utils.gumbel_sample(log_probs)
+      log_probs, self._model_state = predict_fn(
+          self._last_symbols, state=self._model_state, rng=subrng,
+      )
+      log_probs = log_probs
+      self._last_symbols = utils.gumbel_sample(log_probs)
+      self._history[:, symbol_index] = self._last_symbols[:, 0]
 
     obs_repr = self._history[self._obs_repr_indices]
     return self._obs_serializer.deserialize(obs_repr)
@@ -400,6 +407,14 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
     # TODO(pkozakowski): Random starts.
     del history
 
+    indices = np.array(indices)
+    assert indices.shape[0] in (0, self._history.shape[0]), (
+        # TODO(pkozakowski): Lift this requirement.
+        "Only resetting all envs at once is supported."
+    )
+
+    self._model_state = self._init_model_state
+    self._last_symbols[indices] = 0
     self._steps[indices] = 0
     observation = self._predict_obs(predict_fn, rng)[indices]
     self._last_observations[indices] = observation
@@ -419,37 +434,29 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
     return (observation, reward, done)
 
   def trajectory_to_training_examples(self, trajectory):
-    reprs = []
-    weights = []
-    for time_step in trajectory.time_steps:
-      # Serializers work on batches.
-      obs_repr = self._obs_serializer.serialize(
-          np.array([time_step.observation]))[0]
-      reprs.append(obs_repr)
-      # significance_map is an array of the same size as the representation,
-      # indicating the significance of each symbol. See
-      # SpaceSerializer.significance_map.
-      weights.append(
-          self._significance_decay ** self._obs_serializer.significance_map)
-      if time_step.action is not None:
-        action_repr = self._action_serializer.serialize(
-            np.array([time_step.action]))[0]
-        reprs.append(action_repr)
-        weights.append(np.zeros_like(action_repr))
-
-    def concat_and_pad(arrays):
-      (desired_length,) = self.model_input_shape
-      flat_array = np.concatenate(arrays, axis=0)
-      (actual_length,) = flat_array.shape
-      assert actual_length <= desired_length
-      return np.pad(
-          flat_array,
-          pad_width=((0, desired_length - actual_length),),
-          mode="constant",
-      )
-    (reprs, weights) = map(concat_and_pad, (reprs, weights))
-    reprs = reprs.astype(self.model_input_dtype)
-    return [(reprs, reprs, weights)]  # (inputs, targets, weights)
+    (repr_length,) = self.model_input_shape
+    seq_mask = np.ones((1, trajectory.num_time_steps - 1))
+    (reprs, repr_mask) = serialization_utils.serialize_observations_and_actions(
+        # Serialization works on batches, so we add a singleton batch dimension.
+        trajectory.observations_np[None, ...],
+        trajectory.actions_np[None, ...],
+        seq_mask,
+        self._obs_serializer,
+        self._action_serializer,
+        repr_length,
+    )
+    reprs = reprs[0, ...].astype(self.model_input_dtype)
+    sig_weights = (
+        self._significance_decay ** serialization_utils.significance_map(
+            self._obs_serializer, self._action_serializer, repr_length
+        )[None, ...]
+    )
+    obs_mask = serialization_utils.observation_mask(
+        self._obs_serializer, self._action_serializer, repr_length
+    )
+    weights = (sig_weights * obs_mask * repr_mask)[0, ...]
+    # (inputs, targets, weights)
+    return [(reprs, reprs, weights)]
 
   @property
   def model_input_shape(self):

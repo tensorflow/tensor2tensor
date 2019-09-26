@@ -525,6 +525,44 @@ def reshape_by_device(x, n_devices):
       x, lambda x: _reshape_by_device_single(x, n_devices))
 
 
+def multi_device_put(x, devices=None, reuse=True):
+  """Memory efficient multi-device replication in JAX.
+
+  Args:
+    x: jax DeviceArray or numpy ndarray to be replicated.
+    devices: a jax.devices() list or subset thereof of devices to
+      replicate onto.  Should match the list passed to any pmaps
+      ingesting the replicated array.
+    reuse: bool. If x is a DeviceArray whether to reuse its backing
+      device_buffer in the resulting ShardedDeviceArray.
+
+  Returns:
+    A ShardedDeviceArray with dtype = x.dtype and shape =
+    (n_devices,) + x.shape that's backed by replica
+    device_buffers on each device.
+  """
+  # Convert _FilledConstants that don't have device_buffer, etc.
+  if type(x) != jax.xla.DeviceArray:  # pylint: disable=unidiomatic-typecheck
+    x = np.array(x)
+  if not devices:
+    devices = jax.devices()
+  n_devices = len(devices)
+  x_aval = jax.xla.abstractify(x)
+  broadcast_x_aval = jax.abstract_arrays.ShapedArray(
+      (n_devices,) + x_aval.shape,
+      x_aval.dtype)
+  if reuse:
+    other_device_ordinals = [dv.id for dv in jax.devices()
+                             if dv != x.device_buffer.device()]
+    broadcast_buffers = ([x.device_buffer,] +
+                         [jax.xla.xc.Buffer.from_pyval(x, device=i)
+                          for i in other_device_ordinals])
+  else:
+    broadcast_buffers = [jax.xla.xc.Buffer.from_pyval(x, device=i)
+                         for i in range(n_devices)]
+  return jax.pxla.ShardedDeviceArray(broadcast_x_aval, broadcast_buffers)
+
+
 def _repeat_stream(stream):
   """Repeat a stream indefinitely."""
   while True:
@@ -542,7 +580,8 @@ class Trainer(object):
 
   def __init__(self, model, loss_fn, optimizer, lr_schedule, inputs,
                output_dir=None, random_seed=None, n_devices=None,
-               save_steps=None, should_save=True, has_weights=False):
+               save_steps=None, should_save=True, has_weights=False,
+               nontrainable_param_map=None):
     if save_steps is None:
       save_steps = []
     self._save_steps = save_steps
@@ -617,7 +656,14 @@ class Trainer(object):
     self._model_train = model_train
     self._model_predict_eval = model_predict_eval
     self._loss_fn = loss_fn
+    # TODO(pkozakowski): "Learning rate schedules" are currently able to control
+    # control all optimizer parameters and model state, so let's rename them
+    # accordingly.
     self._lr_schedule = lr_schedule
+
+    if nontrainable_param_map is None:
+      nontrainable_param_map = {}
+    self._nontrainable_param_map = nontrainable_param_map
 
     # Those fields will be set in reset().
     self._output_dir = None
@@ -675,7 +721,7 @@ class Trainer(object):
     if not state.opt_state:
       self._maybe_save_state(keep=False)
 
-    self.update_learning_rate()
+    self.update_nontrainable_params()
 
   @property
   def step(self):
@@ -692,7 +738,7 @@ class Trainer(object):
         model_state=self._model_state)
 
   @property
-  def learning_rate(self):
+  def nontrainable_params(self):
     # TODO(lukaszkaiser): it makes no sense to use an accelerator (e.g. TPU)
     # in op-by-op mode just to compute the learning rate. However, there
     # should be a cleaner approach that forceably swapping out the backend.
@@ -701,7 +747,10 @@ class Trainer(object):
 
   def _maybe_replicate(self, x):
     if self._n_devices > 1:
-      return np.broadcast_to(x, (self._n_devices,) + x.shape)
+      if backend.get_name() == "jax":
+        return multi_device_put(x)
+      else:
+        return np.broadcast_to(x, (self._n_devices,) + x.shape)
     else:
       return x
 
@@ -717,18 +766,57 @@ class Trainer(object):
   def print_n_params(self):
     _print_n_params(self._opt_state, self._n_devices, self._step)
 
+  def _map_to_state_dicts(self, f):
+    """Map the function f to all dicts in model state."""
+    def nested_map(x, f):
+      if isinstance(x, list):
+        return [nested_map(y, f) for y in x]
+      if isinstance(x, tuple):
+        return tuple([nested_map(y, f) for y in x])
+      if isinstance(x, dict) and len(x) == 1:
+        return f(x)
+      return x
+    return nested_map(self._model_state, f)
+
+  def _state_dicts_update(self, state_dict):
+    assert len(state_dict.keys()) == 1
+    key = list(state_dict.keys())[0]
+    value = np.array(state_dict[key])
+    return {key: np.array(self.update_model_state(key, value))}
+
+  def update_model_state(self, key, value):
+    """Updates model state based on nontrainable_params."""
+    # Translate model state keys to nontrainable param names.
+    if key in self._nontrainable_param_map:
+      param_name = self._nontrainable_param_map[key]
+    else:
+      # If a key is not in mapping, it stays the same.
+      param_name = key
+    if param_name in self.nontrainable_params:
+      if self._step == 0:
+        log("Mapping model state key {} to nontrainable param {}.".format(
+            key, param_name
+        ))
+        return self._maybe_replicate(
+            np.array(self.nontrainable_params[param_name])
+        )
+    return value
+
   def _train_step(self, next_train_batch):
     """Run one training step and update self._opt_state."""
-    # Calculate the current learning rate.
-    learning_rate = self._maybe_replicate(np.array(self.learning_rate))
+    # Calculate the current optimizer parameters.
+    # TODO(pkozakowski): Optimizer parameters get polluted with model state,
+    # which doesn't break anything but is weird. Filter it out.
+    opt_param_updates = layers.nested_map(
+        self.nontrainable_params, lambda x: self._maybe_replicate(np.array(x))
+    )
     opt_state = self._opt_state
-    opt_params = opt_state.opt_params
-    opt_params = (learning_rate,) + opt_params[1:]
-    opt_state = opt_state._replace(opt_params=opt_params)
+    opt_state.opt_params.update(opt_param_updates)
 
     # Run the update.
     (params, slots), self._model_state, self._rngs = self._jit_update_fn(
         self._step, opt_state, next_train_batch, self._model_state, self._rngs)
+    self._model_state = self._map_to_state_dicts(self._state_dicts_update)
     self._opt_state = opt_state._replace(params=params, slots=slots)
     self._step += 1
 
@@ -751,9 +839,10 @@ class Trainer(object):
       if self._step in self._save_steps:
         self._maybe_save_state(keep=True)
 
-      # LR log
+      # Log nontrainable params (learning rate, dropout etc.)
       if self._step == 1 or self._step % 10 == 0:
-        self._train_sw.scalar("training/learning_rate", self.learning_rate)
+        for (name, value) in self.nontrainable_params.items():
+          self._train_sw.scalar("training/{}".format(name), value)
 
     # Timer
     epoch_time = time.time() - start_time
@@ -790,11 +879,12 @@ class Trainer(object):
         history=self._history,
         has_weights=self._has_weights)
 
-    # Save the learning rate in the history
-    self._history.append("train", "training/learning_rate", self._step,
-                         self.learning_rate)
+    # Save the optimizer params in the history
+    for (name, value) in self.nontrainable_params.items():
+      self._history.append("train", "training/{}".format(name), self._step,
+                           value)
 
-  def update_learning_rate(self):
+  def update_nontrainable_params(self):
     self._lr_fn = self._lr_schedule(self._history)
 
   def save_computation_graphs(self, save_backward_graph):
@@ -924,8 +1014,8 @@ def train(output_dir,
   for epoch_steps in epochs(train_steps, trainer.step, epoch_steps):
     trainer.train_epoch(epoch_steps, eval_steps)
 
-    # Update learning rate with new history
-    trainer.update_learning_rate()
+    # Update nontrainable parameters with new history
+    trainer.update_nontrainable_params()
 
     # Bookkeeping we do at the first step
     if trainer.step == 1:

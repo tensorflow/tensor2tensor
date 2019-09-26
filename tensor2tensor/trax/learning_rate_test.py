@@ -43,6 +43,8 @@ class PolicyScheduleTest(test.TestCase):
     policy_and_value_model = atari_cnn.FrameStackMLP
     net = ppo.policy_and_value_net(
         n_actions=len(action_multipliers),
+        n_controls=1,
+        vocab_size=None,
         bottom_layers_fn=policy_and_value_model,
         two_towers=False,
     )
@@ -57,9 +59,9 @@ class PolicyScheduleTest(test.TestCase):
     return learning_rate.PolicySchedule(
         history,
         observation_metrics=observation_metrics,
-        include_lr_in_observation=False,
+        include_controls_in_observation=False,
         action_multipliers=action_multipliers,
-        start_lr=start_lr,
+        control_configs=(("learning_rate", start_lr, (1e-9, 1.0), False),),
         policy_and_value_model=policy_and_value_model,
         policy_and_value_two_towers=False,
         policy_dir=policy_dir,
@@ -68,19 +70,23 @@ class PolicyScheduleTest(test.TestCase):
   def test_returns_start_lr_when_there_are_no_metrics(self):
     history = trax_history.History()
     schedule = self._make_schedule(history, start_lr=1e-3)
-    self.assertEqual(schedule(0), 1e-3)
+    self.assertEqual(schedule(0)["learning_rate"], 1e-3)
 
   def test_changes_lr_when_there_are_some_metrics(self):
     history = trax_history.History()
     history.append("eval", "metrics/accuracy", step=0, value=0.8)
-    history.append(*online_tune.LEARNING_RATE_METRIC, step=0, value=1e-4)
+    history.append(
+        *online_tune.control_metric("learning_rate"), step=0, value=1e-4
+    )
     schedule = self._make_schedule(
         history,
         observation_metrics=(("eval", "metrics/accuracy"),),
         action_multipliers=(0.5, 2.0),
     )
+    new_lr = schedule(123)["learning_rate"]
     self.assertTrue(
-        onp.allclose(schedule(123), 5e-5) or onp.allclose(schedule(123), 2e-4))
+        onp.allclose(new_lr, 5e-5) or onp.allclose(new_lr, 2e-4)
+    )
 
 
 if __name__ == "__main__":

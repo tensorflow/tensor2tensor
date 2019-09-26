@@ -38,6 +38,8 @@ from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.rl import base_trainer
 from tensor2tensor.trax.rl import ppo
+from tensor2tensor.trax.rl import serialization_utils
+from tensor2tensor.trax.rl import space_serializer
 
 DEBUG_LOGGING = False
 GAMMA = 0.99
@@ -60,11 +62,12 @@ class PPO(base_trainer.BaseTrainer):
                policy_and_value_optimizer=functools.partial(
                    trax_opt.Adam, learning_rate=1e-3),
                policy_and_value_two_towers=False,
+               policy_and_value_vocab_size=None,
                n_optimizer_steps=N_OPTIMIZER_STEPS,
                print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
                target_kl=0.01,
                boundary=20,
-               max_timestep=None,
+               max_timestep=100,
                max_timestep_eval=20000,
                random_seed=None,
                gamma=GAMMA,
@@ -78,6 +81,7 @@ class PPO(base_trainer.BaseTrainer):
                len_history_for_policy=4,
                eval_temperatures=(1.0, 0.5),
                separate_eval=True,
+               init_policy_from_world_model_output_dir=None,
                **kwargs):
     """Creates the PPO trainer.
 
@@ -90,6 +94,9 @@ class PPO(base_trainer.BaseTrainer):
       policy_and_value_optimizer: Function defining the optimizer.
       policy_and_value_two_towers: Whether to use two separate models as the
         policy and value networks. If False, share their parameters.
+      policy_and_value_vocab_size: Vocabulary size of a policy and value network
+        operating on serialized representation. If None, use raw continuous
+        representation.
       n_optimizer_steps: Number of optimizer steps.
       print_every_optimizer_steps: How often to log during the policy
         optimization process.
@@ -116,6 +123,8 @@ class PPO(base_trainer.BaseTrainer):
       separate_eval: Whether to run separate evaluation using a set of
         temperatures. If False, the training reward is reported as evaluation
         reward with temperature 1.0.
+      init_policy_from_world_model_output_dir: Model output dir for initializing
+        the policy. If None, initialize randomly.
       **kwargs: Additional keyword arguments passed to the base class.
     """
     # Set in base class constructor.
@@ -142,41 +151,59 @@ class PPO(base_trainer.BaseTrainer):
     self._eval_temperatures = eval_temperatures
     self._separate_eval = separate_eval
 
-    assert isinstance(self.train_env.action_space, gym.spaces.Discrete)
-    n_actions = self.train_env.action_space.n
-
-    # Batch Observations Shape = [1, 1] + OBS, because we will eventually call
-    # policy and value networks on shape [B, T] +_OBS
-    batch_observations_shape = (1, 1) + self.train_env.observation_space.shape
-    observations_dtype = self.train_env.observation_space.dtype
+    action_space = self.train_env.action_space
+    assert isinstance(
+        action_space, (gym.spaces.Discrete, gym.spaces.MultiDiscrete))
+    if isinstance(action_space, gym.spaces.Discrete):
+      n_actions = action_space.n
+      n_controls = 1
+    else:
+      (n_controls,) = action_space.nvec.shape
+      assert n_controls > 0
+      assert onp.min(action_space.nvec) == onp.max(action_space.nvec), (
+          "Every control must have the same number of actions.")
+      n_actions = action_space.nvec[0]
+    self._n_actions = n_actions
+    self._n_controls = n_controls
 
     self._rng = trax.get_random_number_generator_and_set_seed(random_seed)
     self._rng, key1 = jax_random.split(self._rng, num=2)
 
+    vocab_size = policy_and_value_vocab_size
+    self._serialized_sequence_policy = vocab_size is not None
+    if self._serialized_sequence_policy:
+      self._serialization_kwargs = self._init_serialization(vocab_size)
+    else:
+      self._serialization_kwargs = {}
+
     # Initialize the policy and value network.
     policy_and_value_net = ppo.policy_and_value_net(
         n_actions=n_actions,
+        n_controls=n_controls,
+        vocab_size=vocab_size,
         bottom_layers_fn=policy_and_value_model,
         two_towers=policy_and_value_two_towers,
     )
     self._policy_and_value_net_apply = jit(policy_and_value_net)
+    (batch_obs_shape, obs_dtype) = self._batch_obs_shape_and_dtype
     policy_and_value_net_params, self._model_state = (
-        policy_and_value_net.initialize(batch_observations_shape,
-                                        observations_dtype, key1))
+        policy_and_value_net.initialize(batch_obs_shape, obs_dtype, key1))
+    if init_policy_from_world_model_output_dir is not None:
+      policy_and_value_net_params = ppo.init_policy_from_world_model_checkpoint(
+          policy_and_value_net_params, init_policy_from_world_model_output_dir
+      )
 
     # Initialize the optimizer.
     (policy_and_value_opt_state, self._policy_and_value_opt_update,
      self._policy_and_value_get_params) = ppo.optimizer_fn(
          policy_and_value_optimizer, policy_and_value_net_params)
 
-    # Maybe restore the optimization state. If there is nothing to restore, then
-    # epoch = 0 and policy_and_value_opt_state is returned as is.
-    (self._policy_and_value_opt_state, self._model_state, self._epoch,
-     self._total_opt_step) = ppo.maybe_restore_opt_state(
-         output_dir, policy_and_value_opt_state, self._model_state)
-
-    if self._epoch > 0:
-      logging.info("Restored parameters from epoch [%d]", self._epoch)
+    # Restore the optimizer state.
+    self._policy_and_value_opt_state = policy_and_value_opt_state
+    self._epoch = 0
+    self._total_opt_step = 0
+    self.update_optimization_state(
+        output_dir, policy_and_value_opt_state=policy_and_value_opt_state)
 
     # Create summary writers and history.
     self._train_sw = jaxboard.SummaryWriter(
@@ -189,6 +216,69 @@ class PPO(base_trainer.BaseTrainer):
     self._n_trajectories_done = 0
 
     self._last_saved_at = 0
+    if self._async_mode:
+      logging.info("Saving model on startup to have a model policy file.")
+      self.save()
+
+    self._rewards_to_actions = self._init_rewards_to_actions()
+
+  def _init_serialization(self, vocab_size):
+    obs_serializer = space_serializer.create(
+        self.train_env.observation_space, vocab_size=vocab_size
+    )
+    act_serializer = space_serializer.create(
+        self.train_env.action_space, vocab_size=vocab_size
+    )
+    repr_length = (
+        obs_serializer.representation_length +
+        act_serializer.representation_length
+    ) * (self._max_timestep + 1)
+    return {
+        "observation_serializer": obs_serializer,
+        "action_serializer": act_serializer,
+        "representation_length": repr_length,
+    }
+
+  def _init_rewards_to_actions(self):
+    # Linear map from the reward sequence to the action sequence, used for
+    # scattering advantages over action log-probs and some other things.
+    # It has one more timestep at the end, so it's compatible with the value
+    # predictions.
+    if not self._serialized_sequence_policy:
+      rewards_to_actions = np.eye(self._max_timestep + 1)[:, None, :]
+      rewards_to_actions = np.broadcast_to(
+          rewards_to_actions,
+          (self._max_timestep + 1, self._n_controls, self._max_timestep + 1),
+      )
+      return np.reshape(rewards_to_actions, (self._max_timestep + 1, -1))
+    else:
+      return serialization_utils.rewards_to_actions_map(
+          n_timesteps=(self._max_timestep + 1), **self._serialization_kwargs
+      )
+
+  @property
+  def _batch_obs_shape_and_dtype(self):
+    if not self._serialized_sequence_policy:
+      # Batch Observations Shape = [1, 1] + OBS, because we will eventually call
+      # policy and value networks on shape [B, T] +_OBS
+      shape = (1, 1) + self.train_env.observation_space.shape
+      dtype = self.train_env.observation_space.dtype
+    else:
+      shape = (1, 1)
+      dtype = np.int32
+    return (shape, dtype)
+
+  # Maybe restore the optimization state. If there is nothing to restore, then
+  # epoch = 0 and policy_and_value_opt_state is returned as is.
+  def update_optimization_state(self,
+                                output_dir,
+                                policy_and_value_opt_state=None):
+    (self._policy_and_value_opt_state, self._model_state, self._epoch,
+     self._total_opt_step) = ppo.maybe_restore_opt_state(
+         output_dir, policy_and_value_opt_state, self._model_state)
+
+    if self._epoch > 0:
+      logging.info("Restored parameters from epoch [%d]", self._epoch)
 
   @property
   def train_env(self):
@@ -224,6 +314,7 @@ class PPO(base_trainer.BaseTrainer):
 
     assert self._async_mode
 
+    # trajectories/train and trajectories/eval are the two subdirectories.
     trajectory_dir = os.path.join(self._output_dir, "trajectories",
                                   "train" if train else "eval")
     epoch = self.epoch
@@ -236,6 +327,7 @@ class PPO(base_trainer.BaseTrainer):
         trajectory_dir,
         epoch=epoch,
         temperature=temperature,
+        wait_forever=True,
         n_trajectories=n_trajectories)
 
     if bt is None:
@@ -255,7 +347,11 @@ class PPO(base_trainer.BaseTrainer):
     timing_info = {}
     return trajs, n_done, timing_info, self._model_state
 
-  def collect_trajectories(self, train=True, temperature=1.0):
+  def collect_trajectories(self,
+                           train=True,
+                           temperature=1.0,
+                           abort_fn=None,
+                           raw_trajectory=False):
     self._rng, key = jax_random.split(self._rng)
 
     env = self.train_env
@@ -270,24 +366,29 @@ class PPO(base_trainer.BaseTrainer):
 
     # If async, read the required trajectories for the epoch.
     if self._async_mode:
-      return self.collect_trajectories_async(
+      trajs, n_done, timing_info, self._model_state = self.collect_trajectories_async(
           env,
           train=train,
           n_trajectories=n_trajectories,
           temperature=temperature)
+    else:
+      trajs, n_done, timing_info, self._model_state = ppo.collect_trajectories(
+          env,
+          policy_fn=self._policy_fun,
+          n_trajectories=n_trajectories,
+          max_timestep=max_timestep,
+          state=self._model_state,
+          rng=key,
+          len_history_for_policy=self._len_history_for_policy,
+          boundary=self._boundary,
+          reset=should_reset,
+          temperature=temperature,
+          abort_fn=abort_fn,
+          raw_trajectory=raw_trajectory,
+      )
 
-    trajs, n_done, timing_info, self._model_state = ppo.collect_trajectories(
-        env,
-        policy_fn=self._get_predictions,
-        n_trajectories=n_trajectories,
-        max_timestep=max_timestep,
-        state=self._model_state,
-        rng=key,
-        len_history_for_policy=self._len_history_for_policy,
-        boundary=self._boundary,
-        reset=should_reset,
-        temperature=temperature,
-    )
+    if train:
+      self._n_trajectories_done += n_done
 
     return trajs, n_done, timing_info, self._model_state
 
@@ -306,7 +407,7 @@ class PPO(base_trainer.BaseTrainer):
     trajectory_collection_start_time = time.time()
     logging.vlog(1, "PPO epoch [% 6d]: collecting trajectories.", self._epoch)
     self._rng, key = jax_random.split(self._rng)
-    trajs, n_done, timing_info, self._model_state = self.collect_trajectories(
+    trajs, _, timing_info, self._model_state = self.collect_trajectories(
         train=True, temperature=1.0)
     trajs = [(t[0], t[1], t[2], t[4]) for t in trajs]
     self._should_reset = False
@@ -338,41 +439,47 @@ class PPO(base_trainer.BaseTrainer):
                  min(len(traj[0]) for traj in trajs))
     logging.vlog(2, "Trajectory Lengths: %s", [len(traj[0]) for traj in trajs])
 
-    padding_start_time = time.time()
-    (_, reward_mask, padded_observations, padded_actions, padded_rewards,
-     padded_infos) = ppo.pad_trajectories(
-         trajs, boundary=self._boundary)
-    padding_time = ppo.get_time(padding_start_time)
+    preprocessing_start_time = time.time()
+    (padded_observations, padded_actions, padded_rewards, reward_mask,
+     padded_infos) = self._preprocess_trajectories(trajs)
+    preprocessing_time = ppo.get_time(preprocessing_start_time)
 
-    logging.vlog(1, "Padding trajectories took %0.2f msec.",
-                 ppo.get_time(padding_start_time))
+    logging.vlog(1, "Preprocessing trajectories took %0.2f msec.",
+                 ppo.get_time(preprocessing_start_time))
     logging.vlog(1, "Padded Observations' shape [%s]",
                  str(padded_observations.shape))
     logging.vlog(1, "Padded Actions' shape [%s]", str(padded_actions.shape))
     logging.vlog(1, "Padded Rewards' shape [%s]", str(padded_rewards.shape))
 
     # Some assertions.
-    B, T = padded_actions.shape  # pylint: disable=invalid-name
-    assert (B, T) == padded_rewards.shape
-    assert (B, T) == reward_mask.shape
-    assert (B, T + 1) == padded_observations.shape[:2]
-    assert ((B, T + 1) +
-            self.train_env.observation_space.shape == padded_observations.shape)
+    B, RT = padded_rewards.shape  # pylint: disable=invalid-name
+    B, AT = padded_actions.shape  # pylint: disable=invalid-name
+    assert (B, RT) == reward_mask.shape
+    assert B == padded_observations.shape[0]
 
     log_prob_recompute_start_time = time.time()
-    assert ("log_prob_actions" in padded_infos and
-            "value_predictions" in padded_infos)
+    # TODO(pkozakowski): The following commented out code collects the network
+    # predictions made while stepping the environment and uses them in PPO
+    # training, so that we can use non-deterministic networks (e.g. with
+    # dropout). This does not work well with serialization, so instead we
+    # recompute all network predictions. Let's figure out a solution that will
+    # work with both serialized sequences and non-deterministic networks.
+
+    # assert ("log_prob_actions" in padded_infos and
+    #         "value_predictions" in padded_infos)
     # These are the actual log-probabs and value predictions seen while picking
     # the actions.
-    actual_log_probabs_traj = padded_infos["log_prob_actions"]
-    actual_value_predictions_traj = padded_infos["value_predictions"]
+    # actual_log_probabs_traj = padded_infos["log_prob_actions"]
+    # actual_value_predictions_traj = padded_infos["value_predictions"]
 
-    assert (B, T) == actual_log_probabs_traj.shape[:2]
-    A = actual_log_probabs_traj.shape[2]  # pylint: disable=invalid-name
-    assert (B, T, 1) == actual_value_predictions_traj.shape
+    # assert (B, T, C) == actual_log_probabs_traj.shape[:3]
+    # A = actual_log_probabs_traj.shape[3]  # pylint: disable=invalid-name
+    # assert (B, T, 1) == actual_value_predictions_traj.shape
 
-    # TODO(afrozm): log-probabs doesn't need to be (B, T+1, A) it can do with
-    # (B, T, A), so make that change throughout.
+    del padded_infos
+
+    # TODO(afrozm): log-probabs doesn't need to be (B, T+1, C, A) it can do with
+    # (B, T, C, A), so make that change throughout.
 
     # NOTE: We don't have the log-probabs and value-predictions for the last
     # observation, so we re-calculate for everything, but use the original ones
@@ -382,16 +489,18 @@ class PPO(base_trainer.BaseTrainer):
     log_probabs_traj, value_predictions_traj, self._model_state, _ = (
         self._get_predictions(padded_observations, self._model_state, rng=key))
 
-    assert (B, T + 1, A) == log_probabs_traj.shape
-    assert (B, T + 1, 1) == value_predictions_traj.shape
+    assert (B, AT) == log_probabs_traj.shape[:2]
+    assert (B, AT) == value_predictions_traj.shape
+
+    # TODO(pkozakowski): Commented out for the same reason as before.
 
     # Concatenate the last time-step's log-probabs and value predictions to the
     # actual log-probabs and value predictions and use those going forward.
-    log_probabs_traj = np.concatenate(
-        (actual_log_probabs_traj, log_probabs_traj[:, -1:, :]), axis=1)
-    value_predictions_traj = np.concatenate(
-        (actual_value_predictions_traj, value_predictions_traj[:, -1:, :]),
-        axis=1)
+    # log_probabs_traj = np.concatenate(
+    #     (actual_log_probabs_traj, log_probabs_traj[:, -1:, :]), axis=1)
+    # value_predictions_traj = np.concatenate(
+    #     (actual_value_predictions_traj, value_predictions_traj[:, -1:, :]),
+    #     axis=1)
 
     log_prob_recompute_time = ppo.get_time(log_prob_recompute_start_time)
 
@@ -407,6 +516,7 @@ class PPO(base_trainer.BaseTrainer):
             self._policy_and_value_net_apply,
             padded_observations,
             padded_actions,
+            self._rewards_to_actions,
             padded_rewards,
             reward_mask,
             gamma=self._gamma,
@@ -451,6 +561,7 @@ class PPO(base_trainer.BaseTrainer):
               value_predictions_traj,
               padded_observations,
               padded_actions,
+              self._rewards_to_actions,
               padded_rewards,
               reward_mask,
               c1=self._c1,
@@ -470,8 +581,11 @@ class PPO(base_trainer.BaseTrainer):
               self._model_state,
               rng=k2))
 
+      action_mask = np.dot(
+          np.pad(reward_mask, ((0, 0), (0, 1))), self._rewards_to_actions
+      )
       approx_kl = ppo.approximate_kl(log_probab_actions_new, log_probabs_traj,
-                                     reward_mask)
+                                     action_mask)
 
       early_stopping = approx_kl > 1.5 * self._target_kl
       if early_stopping:
@@ -493,6 +607,7 @@ class PPO(base_trainer.BaseTrainer):
                 self._policy_and_value_net_apply,
                 padded_observations,
                 padded_actions,
+                self._rewards_to_actions,
                 padded_rewards,
                 reward_mask,
                 gamma=self._gamma,
@@ -542,11 +657,10 @@ class PPO(base_trainer.BaseTrainer):
     # truncated and done).
     # Also don't save too frequently, enforce a minimum gap.
     policy_save_start_time = time.time()
-    self._n_trajectories_done += n_done
     # TODO(afrozm): Refactor to trax.save_state.
     if (self._n_trajectories_done >=
         self._done_frac_for_policy_save * self.train_env.batch_size and
-        self._epoch % self._save_every_n == 0):
+        self._epoch % self._save_every_n == 0) or self._async_mode:
       self.save()
     policy_save_time = ppo.get_time(policy_save_start_time)
 
@@ -556,7 +670,7 @@ class PPO(base_trainer.BaseTrainer):
         "epoch": epoch_time,
         "policy_eval": policy_eval_time,
         "trajectory_collection": trajectory_collection_time,
-        "padding": padding_time,
+        "preprocessing": preprocessing_time,
         "log_prob_recompute": log_prob_recompute_time,
         "loss_compute": loss_compute_time,
         "optimization": optimization_time,
@@ -637,6 +751,39 @@ class PPO(base_trainer.BaseTrainer):
   def _policy_and_value_net_params(self):
     return self._policy_and_value_get_params(self._policy_and_value_opt_state)
 
+  # Prepares the trajectories for policy training.
+  def _preprocess_trajectories(self, trajectories):
+    (_, reward_mask, observations, actions, rewards, infos) = (
+        ppo.pad_trajectories(trajectories, boundary=self._max_timestep)
+    )
+    assert self.train_env.observation_space.shape == observations.shape[2:]
+    if not self._serialized_sequence_policy:
+      # Add one timestep at the end, so it's compatible with
+      # self._rewards_to_actions.
+      pad_width = ((0, 0), (0, 1)) + ((0, 0),) * (actions.ndim - 2)
+      actions = np.pad(actions, pad_width)
+      actions = np.reshape(actions, (actions.shape[0], -1))
+    else:
+      (observations, actions) = self._serialize_trajectories(
+          observations, actions, reward_mask
+      )
+    return (observations, actions, rewards, reward_mask, infos)
+
+  def _serialize_trajectories(self, observations, actions, reward_mask):
+    (reprs, _) = serialization_utils.serialize_observations_and_actions(
+        observations=observations,
+        actions=actions,
+        mask=reward_mask,
+        **self._serialization_kwargs
+    )
+    # Mask out actions in the representation - otherwise we sample an action
+    # based on itself.
+    observations = reprs * serialization_utils.observation_mask(
+        **self._serialization_kwargs
+    )
+    actions = reprs
+    return (observations, actions)
+
   # A function to get the policy and value predictions.
   def _get_predictions(self, observations, state, rng=None):
     """Returns log-probs, value predictions and key back."""
@@ -646,3 +793,42 @@ class PPO(base_trainer.BaseTrainer):
         observations, self._policy_and_value_net_params, state, rng=key1)
 
     return log_probs, value_preds, state, key
+
+  def _policy_fun(self, observations, lengths, state, rng):
+    (batch_size, n_timesteps) = observations.shape[:2]
+    if self._serialized_sequence_policy:
+      actions = np.zeros(
+          (batch_size, n_timesteps - 1) + self.train_env.action_space.shape,
+          dtype=self.train_env.action_space.dtype,
+      )
+      reward_mask = np.ones((batch_size, n_timesteps - 1), dtype=np.int32)
+      (observations, _) = self._serialize_trajectories(
+          observations, actions, reward_mask
+      )
+    (log_probs, value_preds, state, rng) = self._get_predictions(
+        observations, state=state, rng=rng
+    )
+    # We need the log_probs of those actions that correspond to the last actual
+    # time-step.
+    index = lengths - 1  # Since we want to index using lengths.
+    pred_index = self._calc_action_index(index)
+    log_probs = log_probs[
+        np.arange(batch_size)[:, None, None],
+        pred_index[:, :, None],
+        np.arange(self._n_actions),
+    ]
+    value_preds = value_preds[np.arange(batch_size)[:, None], pred_index]
+    return (log_probs, value_preds, state, rng)
+
+  def _calc_action_index(self, reward_index):
+    # Project the one-hot position in the reward sequence onto the action
+    # sequence to figure out which actions correspond to that position.
+    one_hot_index = np.eye(self._rewards_to_actions.shape[0])[reward_index]
+    action_mask = np.dot(one_hot_index, self._rewards_to_actions)
+    # Compute the number of symbols in an action. It's just the number of 1s in
+    # the mask.
+    action_length = int(np.sum(action_mask[0]))
+    # Argmax stops on the first occurrence, so we use it to find the first 1 in
+    # the mask.
+    action_start_index = np.argmax(action_mask, axis=1)
+    return action_start_index[:, None] + np.arange(action_length)[None, :]

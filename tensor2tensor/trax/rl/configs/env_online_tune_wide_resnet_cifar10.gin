@@ -40,7 +40,12 @@ WideResnet.n_output_classes = 10
 OnlineTuneEnv.inputs = @trax.inputs.inputs
 OnlineTuneEnv.model = @trax.models.WideResnet
 OnlineTuneEnv.optimizer = @trax.optimizers.Momentum
-OnlineTuneEnv.start_lr = 0.01
+OnlineTuneEnv.control_configs = (
+    ("learning_rate", 0.1, (1e-9, 10.0), False),
+    ("weight_decay_rate", 1e-5, (1e-9, 0.1), False),
+)
+OnlineTuneEnv.include_controls_in_observation = False
+OnlineTuneEnv.action_multipliers = (0.5, 0.8, 0.95, 1.0, 1.05, 1.25, 2.0)
 OnlineTuneEnv.train_steps = 100
 OnlineTuneEnv.eval_steps = 10
 OnlineTuneEnv.env_steps = 100

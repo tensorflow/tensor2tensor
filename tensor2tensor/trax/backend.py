@@ -100,6 +100,8 @@ def nested_map(x, f):
     return [nested_map(y, f) for y in x]
   if isinstance(x, tuple):
     return tuple([nested_map(y, f) for y in x])
+  if isinstance(x, dict):
+    return {k: nested_map(v, f) for (k, v) in x.items()}
   return f(x)
 
 

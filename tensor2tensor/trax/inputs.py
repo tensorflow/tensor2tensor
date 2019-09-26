@@ -199,10 +199,63 @@ def random_inputs(
                 target_dtype=output_dtype)
 
 
+@gin.configurable(blacklist=['n_devices'])
+def sequence_copy_inputs(
+    n_devices, vocab_size=gin.REQUIRED, batch_size=gin.REQUIRED,
+    train_lengths=gin.REQUIRED, eval_lengths=gin.REQUIRED, reverse=False):
+  """Inputs for the sequence copy problem: 0w0w for w in [1..vocab_size-1]*.
+
+  Args:
+    n_devices: how many devices to build the inputs for.
+    vocab_size: how many symbols to use.
+    batch_size: how large are the batches.
+    train_lengths: lengths of w for training.
+    eval_lengths: lengths of w for eval.
+    reverse: bool (optional, false by default): reverse the second sequence.
+
+  Returns:
+    trax.inputs.Inputs
+  """
+  assert batch_size % n_devices == 0
+  def random_minibatches(length_list):
+    """Generate a stream of random mini-batches."""
+    while True:
+      length = random.choice(length_list)
+      assert length % 2 == 0
+      w_length = (length // 2) - 1
+      w = onp.random.randint(low=1, high=vocab_size-1,
+                             size=(batch_size, w_length))
+      zero = onp.zeros([batch_size, 1], onp.int32)
+      loss_weights = onp.concatenate([onp.zeros((batch_size, w_length+2)),
+                                      onp.ones((batch_size, w_length))], axis=1)
+      if reverse:
+        x = onp.concatenate([zero, w, zero, np.flip(w, axis=1)], axis=1)
+      else:
+        x = onp.concatenate([zero, w, zero, w], axis=1)
+      yield (x, x, loss_weights)  # Here inputs and targets are the same.
+
+  # If there's only one length, make the shape known.
+  example_length = None
+  if (len(train_lengths) == 1 and len(eval_lengths) == 1 and
+      train_lengths[0] == eval_lengths[0]):
+    example_length = train_lengths[0]
+
+  return Inputs(
+      train_stream=lambda: random_minibatches(train_lengths),
+      train_eval_stream=lambda: random_minibatches(train_lengths),
+      eval_stream=lambda: random_minibatches(eval_lengths),
+      input_shape=(example_length,),
+      input_dtype=onp.int32,
+      target_shape=(example_length,),
+      target_dtype=onp.int32)
+
+
 def dataset_to_stream(dataset, input_name, n_chunks=0):
   """Takes a tf.Dataset and creates a numpy stream of ready batches."""
   for example in backend.dataset_as_numpy(dataset):
-    inp, out = example[0][input_name], example[1]
+    features = example[0]
+    inp, out = features[input_name], example[1]
+    mask = features['mask'] if 'mask' in features else None
     # All input-pipeline processing should be on CPU.
     with tf.device('cpu:0'):
       # Some accelerators don't handle uint8 well, cast to int.
@@ -215,7 +268,7 @@ def dataset_to_stream(dataset, input_name, n_chunks=0):
       if n_chunks > 0:
         inp = tuple(np.split(inp, n_chunks, axis=1))
         out = tuple(np.split(out, n_chunks, axis=1))
-    yield inp, out
+    yield (inp, out) if mask is None else (inp, out, mask)
 
 
 @gin.configurable(whitelist=['train_shuffle_files', 'eval_shuffle_files',
@@ -514,6 +567,24 @@ def wmt_preprocess(dataset, training, max_length=-1, max_eval_length=-1):
   if max_eval_length > 0 and not training:
     dataset = dataset.filter(eval_right_length)
 
+  return dataset
+
+
+@gin.configurable(blacklist=['dataset', 'training'])
+def wmt_concat_preprocess(dataset, training, max_length=-1, max_eval_length=-1):
+  """Preprocessing for WMT: filter exceeding maximum length and concatenate."""
+  dataset = wmt_preprocess(dataset, training, max_length, max_eval_length)
+
+  def concat_and_add_mask(features, targets):
+    inp = features['inputs']
+    pad = tf.expand_dims(tf.zeros_like(inp[0]), axis=0)
+    concat = tf.concat([inp, pad, targets], axis=0)
+    mask = tf.concat([tf.zeros_like(inp), pad, tf.ones_like(targets)], axis=0)
+    features['inputs'] = concat
+    features['mask'] = mask
+    return features, concat
+
+  dataset = dataset.map(concat_and_add_mask)
   return dataset
 
 

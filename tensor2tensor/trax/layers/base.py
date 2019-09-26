@@ -239,6 +239,10 @@ class Layer(object):
       name, trace = self.__class__.__name__, _short_traceback(skip=3)
       raise LayerError(name, 'initialize', self._caller, input_shapes, trace)
 
+  # XXX(kitaev):
+  _STASH_IN = None
+  _STASH_OUT = None
+
   def __call__(self, x, params=(), state=(), **kwargs):
     try:
       # If params are nothing, we may be reusing this layer.
@@ -251,51 +255,64 @@ class Layer(object):
         # In this case, we're called for the first time: cache parameters.
         self._params = params
 
-      if not self.has_custom_grad:
+      if not self.has_custom_grad or Layer._STASH_IN is not None:
         return self.call(x, params=params, state=state, **kwargs)
-
-      # Custom gradients part.
-      assert backend.get_name() == 'jax', (
-          'Custom gradients are only supported in JAX for now.')
-
-      # TODO(wangpeng): JAX doesn't support custom grads for functions with
-      #   auxiliary output yet (https://github.com/google/jax/issues/844). Will
-      #   remove the constraints on state below when this feature is added to
-      #   JAX.
-
-      assert not jax.tree_util.tree_leaves(state), (
-          'Custom gradients require trivial start state. Got %s' % str(state))
-
-      def check_end_state(output_state):
-        output, state = output_state
-        assert not jax.tree_util.tree_leaves(state), (
-            'Custom gradients require trivial end state. Got %s' % str(state))
-        return output
-
-      # See this link for how custom transformations are defined in JAX:
-      # https://jax.readthedocs.io/en/latest/jax.html#jax.custom_transforms
-      # Note that we capture the kwargs and don't calculate gradients wrt. them.
-      @jax.custom_transforms
-      def do_call(y, params):
-        return check_end_state(self.call(y, params=params, state=state,
-                                         **kwargs))
-
-      # This is the custom gradient (vector-jacobian product in JAX) function.
-      # For the exact specification of this custom transformation see this link:
-      # https://jax.readthedocs.io/en/latest/jax.html#jax.defjvp_all
-      def do_call_vjp(y, params):
-        output = check_end_state(self.call(y, params=params, state=state,
-                                           **kwargs))
-        def vjpfun(grad):
-          return self.custom_grad(y, output, grad, params, state, **kwargs)
-        return output, vjpfun
-
-      jax.defvjp_all(do_call, do_call_vjp)
-      return do_call(x, params), state
+      else:
+        return self._do_custom_gradients(x, params, state, **kwargs)
 
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback()
       raise LayerError(name, 'call', self._caller, shapes(x), trace)
+
+  def _do_custom_gradients(self, x, params, state, **kwargs):
+    """Calls this layer for a forward pass, but with custom gradients."""
+    assert backend.get_name() == 'jax', (
+        'Custom gradients are only supported in JAX for now.')
+
+    # TODO(wangpeng): JAX doesn't support custom grads for functions with
+    #   auxiliary output yet (https://github.com/google/jax/issues/844). Will
+    #   remove the constraints on state below when this feature is added to
+    #   JAX.
+
+    assert not jax.tree_util.tree_leaves(state), (
+        'Custom gradients require trivial start state. Got %s' % str(state))
+
+    def check_end_state(output_state):
+      output, state = output_state
+      assert not jax.tree_util.tree_leaves(state), (
+          'Custom gradients require trivial end state. Got %s' % str(state))
+      return output
+
+    # See this link for how custom transformations are defined in JAX:
+    # https://jax.readthedocs.io/en/latest/jax.html#jax.custom_transforms
+    # Note that we capture the kwargs and don't calculate gradients wrt. them.
+    @jax.custom_transforms
+    def do_call(y, params):
+      return check_end_state(self.call(y, params=params, state=state,
+                                       **kwargs))
+
+    # This is the custom gradient (vector-jacobian product in JAX) function.
+    # For the exact specification of this custom transformation see this link:
+    # https://jax.readthedocs.io/en/latest/jax.html#jax.defjvp_all
+    def do_call_vjp(y, params):
+      """Custom gradient (vjp) function."""
+      stash = None
+      if Layer._STASH_IN is None:
+        Layer._STASH_IN = stash = {}
+      output = check_end_state(self.call(y, params=params, state=state,
+                                         **kwargs))
+      if stash is not None:
+        Layer._STASH_IN = None
+      def vjpfun(grad):
+        assert Layer._STASH_OUT is None
+        Layer._STASH_OUT = stash
+        res = self.custom_grad(y, output, grad, params, state, **kwargs)
+        Layer._STASH_OUT = None
+        return res
+      return output, vjpfun
+
+    jax.defvjp_all(do_call, do_call_vjp)
+    return do_call(x, params), state
 
 
 class LayerError(Exception):
