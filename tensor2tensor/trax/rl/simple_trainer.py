@@ -62,7 +62,11 @@ class SimPLe(base_trainer.BaseTrainer):
     super(SimPLe, self).__init__(train_env, eval_env, output_dir, **kwargs)
     self._policy_dir = os.path.join(output_dir, "policy")
     self._model_dir = os.path.join(output_dir, "model")
-    self._policy_trainer = policy_trainer_class(
+    # Initialize the policy trainer lazily, so in case of initializing the
+    # policy from world model checkpoint, the trainer will try to load the
+    # checkpoint _after_ it's been created in train_model().
+    self._policy_trainer_fn = functools.partial(
+        policy_trainer_class,
         train_env=train_env,
         eval_env=eval_env,
         output_dir=self._policy_dir,
@@ -71,6 +75,7 @@ class SimPLe(base_trainer.BaseTrainer):
             self._model_dir if init_policy_from_world_model else None
         ),
     )
+    self._policy_trainer = None
     self._n_real_epochs = n_real_epochs
     self._model_train_batch_size = model_train_batch_size
     self._n_model_initial_train_steps = n_model_initial_train_steps
@@ -114,6 +119,12 @@ class SimPLe(base_trainer.BaseTrainer):
     self._model_train_step = 0
 
   @property
+  def policy_trainer(self):
+    if self._policy_trainer is None:
+      self._policy_trainer = self._policy_trainer_fn()
+    return self._policy_trainer
+
+  @property
   def epoch(self):
     return self._simple_epoch
 
@@ -136,7 +147,7 @@ class SimPLe(base_trainer.BaseTrainer):
     self._simple_epoch += 1
 
   def evaluate(self):
-    self._policy_trainer.evaluate()
+    self.policy_trainer.evaluate()
 
   def save(self):
     # Nothing to do, as we save stuff continuously.
@@ -149,11 +160,11 @@ class SimPLe(base_trainer.BaseTrainer):
     logging.info("SimPLe epoch [% 6d]: collecting data.", self._simple_epoch)
     start_time = time.time()
 
-    self._policy_trainer.train_env = self.train_env
-    self._policy_trainer.trajectory_dump_dir = os.path.join(
+    self.policy_trainer.train_env = self.train_env
+    self.policy_trainer.trajectory_dump_dir = os.path.join(
         self._trajectory_dump_root_dir, str(self.epoch))
     self._policy_epoch += self._n_real_epochs
-    self._policy_trainer.training_loop(self._policy_epoch, evaluate=evaluate)
+    self.policy_trainer.training_loop(self._policy_epoch, evaluate=evaluate)
 
     logging.vlog(
         1, "Collecting trajectories took %0.2f sec.", time.time() - start_time)
@@ -205,15 +216,15 @@ class SimPLe(base_trainer.BaseTrainer):
         history_stream=itertools.repeat(None),
     )
     # We never want async mode in the simulated env.
-    original_async_mode = self._policy_trainer.async_mode
-    self._policy_trainer.async_mode = False
-    self._policy_trainer.train_env = self._sim_env
+    original_async_mode = self.policy_trainer.async_mode
+    self.policy_trainer.async_mode = False
+    self.policy_trainer.train_env = self._sim_env
     # Don't dump trajectories from the simulated environment.
-    self._policy_trainer.trajectory_dump_dir = None
+    self.policy_trainer.trajectory_dump_dir = None
     self._policy_epoch += self._n_simulated_epochs
-    self._policy_trainer.training_loop(self._policy_epoch, evaluate=False)
+    self.policy_trainer.training_loop(self._policy_epoch, evaluate=False)
     # Revert back to the original async mode in the policy trainer.
-    self._policy_trainer.async_mode = original_async_mode
+    self.policy_trainer.async_mode = original_async_mode
 
     logging.vlog(
         1, "Training policy took %0.2f sec.", time.time() - start_time)
