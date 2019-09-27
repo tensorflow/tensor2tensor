@@ -1138,9 +1138,13 @@ class Problem(object):
         padded_shapes[key] = [hparams.max_length]
         #pad_one_shape(shape, inputs_none_filler)
       elif key == "targets":
-        padded_shapes[key] = pad_one_shape(shape, targets_none_filler)
+        if hasattr(hparams, 'max_docs_per_pack'):
+          padded_shapes[key] = [hparams.max_target_seq_length * hparams.max_docs_per_pack]
+        else:
+          padded_shapes[key] = pad_one_shape(shape, targets_none_filler)
       else:
         padded_shapes[key] = pad_one_shape(shape, max_length)
+      tf.logging.info(f'pad for tpu {key}, {shape}')
     return padded_shapes
 
 
