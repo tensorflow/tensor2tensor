@@ -624,8 +624,9 @@ class Trainer(object):
         model_input_shape, lambda x: x if x else 1)
     model_target_shape = layers.nested_map(
         model_target_shape, lambda x: x if x else 1)
-    def initialize(input_shape, input_dtype, target_shape, target_dtype, rng):
-      """Helper to initialize the model."""
+    def new_opt_state_and_model_state(input_shape, input_dtype, target_shape,
+                                      target_dtype, rng):
+      """Returns optimizer and model states suitable for training a model."""
       # Combine inputs and targets on the stack.
       if not isinstance(input_dtype, (list, tuple)):
         input_dtype = [input_dtype]
@@ -643,10 +644,12 @@ class Trainer(object):
       return (OptState(params, slots, opt_params), state)
     if _is_jit_init():
       # JIT parameter initialization to avoid memory fragmentation
-      initialize = backend.jit(initialize, static_argnums=(0, 1, 2, 3))
-    self._initialize = lambda: initialize(  # pylint: disable=g-long-lambda
-        model_input_shape, self._inputs.input_dtype,
-        model_target_shape, self._inputs.target_dtype, init_rng)
+      new_opt_state_and_model_state = backend.jit(new_opt_state_and_model_state,
+                                                  static_argnums=(0, 1, 2, 3))
+    self._new_opt_state_and_model_state = (
+        lambda: new_opt_state_and_model_state(  # pylint: disable=g-long-lambda
+            model_input_shape, self._inputs.input_dtype,
+            model_target_shape, self._inputs.target_dtype, init_rng))
 
     # jit model_predict and update so they're fast
     self._jit_model_predict_eval = _jit_predict_fn(
@@ -712,7 +715,7 @@ class Trainer(object):
       opt_state = state.opt_state
       model_state = state.model_state
     else:
-      opt_state, model_state = self._initialize()
+      opt_state, model_state = self._new_opt_state_and_model_state()
       model_state = layers.nested_map(
           model_state, self._maybe_replicate)
     self._opt_state = OptState(*layers.nested_map(
