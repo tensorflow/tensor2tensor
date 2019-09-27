@@ -25,9 +25,14 @@ import numpy as np
 def historical_metric_values(history, metric):
   """Converts a metric stream from a trax History object into a numpy array."""
   metric_sequence = history.get(*metric)
-  return np.array([
+  metric_values = np.array([
       metric_value for (_, metric_value) in metric_sequence
   ])
+  if np.any(np.isnan(metric_values)):
+    # Zero out all observations if any element is NaN. This way the agent
+    # doesn't get any rewards, so it learns to avoid those regions.
+    metric_values[:] = 0.0
+  return metric_values
 
 
 def metric_to_observation(metric_values, metric_range):
