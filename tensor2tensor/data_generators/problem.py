@@ -1132,7 +1132,9 @@ class Problem(object):
 
     for key, shape in six.iteritems(shapes_dict):
       #if key == "inputs":
-      if key.startswith('inputs'):
+      if key == 'inputs_chunk_mask':
+        padded_shapes[key] = [hparams.max_length // hparams.bert_max_length * hparams.max_docs_per_pack]
+      elif key.startswith('inputs'):
         padded_shapes[key] = [hparams.max_length]
         #pad_one_shape(shape, inputs_none_filler)
       elif key == "targets":
