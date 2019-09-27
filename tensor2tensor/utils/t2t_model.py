@@ -1506,7 +1506,8 @@ class T2TModel(base.Layer):
           if hasattr(problem, 'max_docs_per_pack'):
             # TODO: 
             # have 1s because this is what metric_fn expects
-            features['targets'] = tf.reshape(features['targets'], [problem.max_docs_per_pack, -1, 1, 1])
+            # TODO: import max_target_seq_length = 350
+            features['targets'] = tf.reshape(features['targets'], [-1, 350, 1, 1])
           # FATHOM
           # NOTE: right now the tf.logging.warning will not trigger.
           # ...consider if we should add
