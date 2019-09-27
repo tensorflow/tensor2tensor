@@ -64,6 +64,7 @@ class PPO(base_trainer.BaseTrainer):
                policy_and_value_two_towers=False,
                policy_and_value_vocab_size=None,
                n_optimizer_steps=N_OPTIMIZER_STEPS,
+               optimizer_batch_size=64,
                print_every_optimizer_steps=PRINT_EVERY_OPTIMIZER_STEP,
                target_kl=0.01,
                boundary=20,
@@ -98,6 +99,7 @@ class PPO(base_trainer.BaseTrainer):
         operating on serialized representation. If None, use raw continuous
         representation.
       n_optimizer_steps: Number of optimizer steps.
+      optimizer_batch_size: Batch size of an optimizer step.
       print_every_optimizer_steps: How often to log during the policy
         optimization process.
       target_kl: Policy iteration early stopping. Set to infinity to disable
@@ -134,6 +136,7 @@ class PPO(base_trainer.BaseTrainer):
     super(PPO, self).__init__(train_env, eval_env, output_dir, **kwargs)
 
     self._n_optimizer_steps = n_optimizer_steps
+    self._optimizer_batch_size = optimizer_batch_size
     self._print_every_optimizer_steps = print_every_optimizer_steps
     self._target_kl = target_kl
     self._boundary = boundary
@@ -538,10 +541,14 @@ class PPO(base_trainer.BaseTrainer):
     optimization_start_time = time.time()
     keys = jax_random.split(key1, num=self._n_optimizer_steps)
     opt_step = 0
-    for key in keys:
+    opt_batch_size = min(self._optimizer_batch_size, B)
+    index_batches = ppo.shuffled_index_batches(
+        dataset_size=B, batch_size=opt_batch_size
+    )
+    for (index_batch, key) in zip(index_batches, keys):
       k1, k2, k3 = jax_random.split(key, num=3)
       t = time.time()
-      # Update the optimizer state.
+      # Update the optimizer state on the sampled minibatch.
       self._policy_and_value_opt_state, self._model_state = (
           ppo.policy_and_value_opt_step(
               # We pass the optimizer slots between PPO epochs, so we need to
@@ -557,13 +564,13 @@ class PPO(base_trainer.BaseTrainer):
               self._policy_and_value_opt_update,
               self._policy_and_value_get_params,
               self._policy_and_value_net_apply,
-              log_probabs_traj,
-              value_predictions_traj,
-              padded_observations,
-              padded_actions,
+              log_probabs_traj[index_batch],
+              value_predictions_traj[index_batch],
+              padded_observations[index_batch],
+              padded_actions[index_batch],
               self._rewards_to_actions,
-              padded_rewards,
-              reward_mask,
+              padded_rewards[index_batch],
+              reward_mask[index_batch],
               c1=self._c1,
               c2=self._c2,
               gamma=self._gamma,
@@ -573,7 +580,8 @@ class PPO(base_trainer.BaseTrainer):
       opt_step += 1
       self._total_opt_step += 1
 
-      # Compute the approx KL for early stopping.
+      # Compute the approx KL for early stopping. Use the whole dataset - as we
+      # only do inference, it should fit in the memory.
       (log_probab_actions_new, _), self._model_state = (
           self._policy_and_value_net_apply(
               padded_observations,

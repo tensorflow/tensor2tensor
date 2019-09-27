@@ -46,7 +46,9 @@ from tensorflow.io import gfile
 
 class PpoTrainerTest(test.TestCase):
 
-  def get_wrapped_env(self, name="CartPole-v0", max_episode_steps=2):
+  def get_wrapped_env(
+      self, name="CartPole-v0", max_episode_steps=2, batch_size=1
+  ):
     wrapper_fn = functools.partial(
         gym_utils.gym_env_wrapper,
         **{
@@ -59,7 +61,7 @@ class PpoTrainerTest(test.TestCase):
         })
 
     return gym_env_problem.GymEnvProblem(base_env_name=name,
-                                         batch_size=1,
+                                         batch_size=batch_size,
                                          env_wrapper_fn=wrapper_fn,
                                          discrete_rewards=False)
 
@@ -275,6 +277,16 @@ class PpoTrainerTest(test.TestCase):
               mode="train",
           ),
           policy_and_value_vocab_size=4,
+      )
+      trainer.training_loop(n_epochs=2)
+
+  def test_training_loop_cartpole_minibatch(self):
+    with self.tmp_dir() as output_dir:
+      trainer = self._make_trainer(
+          train_env=self.get_wrapped_env("CartPole-v0", 2, batch_size=4),
+          eval_env=self.get_wrapped_env("CartPole-v0", 2),
+          output_dir=output_dir,
+          optimizer_batch_size=2,
       )
       trainer.training_loop(n_epochs=2)
 

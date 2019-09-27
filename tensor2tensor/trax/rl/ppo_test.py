@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import functools
+import itertools
 
 import jax
 from jax import random as jax_random
@@ -602,6 +603,31 @@ class PpoTest(test.TestCase):
     # Try to run the policy with new parameters.
     observations = np.zeros((1, 100), dtype=np.int32)
     policy(observations, new_policy_params, state=policy_state, rng=rng)
+
+  def test_shuffled_index_batches_generates_valid_batch(self):
+    dataset_size = 16
+    batch_size = 4
+    stream = ppo.shuffled_index_batches(dataset_size, batch_size)
+    batch = next(stream)
+    self.assertEqual(batch.shape, (batch_size,))
+    # Assert that all indices are different.
+    self.assertEqual(len(set(batch)), batch_size)
+
+  def test_shuffled_index_batches_generates_all_indices(self):
+    dataset_size = 16
+    batch_size = 4
+    stream = ppo.shuffled_index_batches(dataset_size, batch_size)
+    indices = np.reshape(
+        list(itertools.islice(stream, dataset_size // batch_size)), -1
+    )
+    self.assertEqual(set(indices), set(range(dataset_size)))
+
+  def test_shuffled_index_batches_gives_different_permutations(self):
+    dataset_size = 256
+    batch_size = 8
+    stream1 = ppo.shuffled_index_batches(dataset_size, batch_size)
+    stream2 = ppo.shuffled_index_batches(dataset_size, batch_size)
+    self.assertFalse(np.array_equal(next(stream1), next(stream2)))
 
 
 if __name__ == "__main__":

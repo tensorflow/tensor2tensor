@@ -53,6 +53,7 @@ from __future__ import print_function
 
 import collections
 import functools
+import itertools
 import os
 import re
 import time
@@ -953,3 +954,16 @@ def write_eval_reward_summaries(reward_stats_by_mode, summary_writer, epoch):
           "Epoch [% 6d] Policy Evaluation (%s reward) "
           "[temperature %.2f] = %10.2f (+/- %.2f)", epoch, reward_mode,
           temperature, reward_stats["mean"], reward_stats["std"])
+
+
+def shuffled_index_batches(dataset_size, batch_size):
+  """Generates batches of shuffled indices over a dataset."""
+  def shuffled_indices():
+    while True:
+      perm = onp.random.permutation(dataset_size)
+      for x in perm:
+        yield x
+
+  indices = shuffled_indices()
+  while True:
+    yield onp.array(list(itertools.islice(indices, int(batch_size))))
