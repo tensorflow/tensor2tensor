@@ -1503,11 +1503,14 @@ class T2TModel(base.Layer):
             # like actions or rewards.
             tf.logging.warning("No key %s in logits for evaluation." % k)
         else:
-          # FATHOM
-          # NOTE: right now the tf.logging.warning will not trigger.
-          # ...consider if we should add
-          eval_metrics[metric_name] = metric_fn(logits, features,
-                                                features["targets"])
+          if hasattr(problem, 'max_docs_per_pack'):
+            features['targets'] = tf.reshape(features['targets'], [problem.max_docs_per_pack, -1])
+          else:
+            # FATHOM
+            # NOTE: right now the tf.logging.warning will not trigger.
+            # ...consider if we should add
+            eval_metrics[metric_name] = metric_fn(logits, features,
+                                                  features["targets"])
       if isinstance(logits, dict):
         predictions = logits
       else:
