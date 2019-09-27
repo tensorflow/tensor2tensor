@@ -34,6 +34,21 @@ tf.compat.v1.enable_eager_execution()
 class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
 
   @test_utils.run_in_graph_and_eager_modes()
+  def testAttentionBiasLocal(self):
+    length = 5
+    bias = common_attention.attention_bias_local(length, 0, 0)
+    # For length = 5
+    # [[[[-0.e+00 -1.e+09 -1.e+09 -1.e+09 -1.e+09]
+    #    [-1.e+09 -0.e+00 -1.e+09 -1.e+09 -1.e+09]
+    #    [-1.e+09 -1.e+09 -0.e+00 -1.e+09 -1.e+09]
+    #    [-1.e+09 -1.e+09 -1.e+09 -0.e+00 -1.e+09]
+    #    [-1.e+09 -1.e+09 -1.e+09 -1.e+09 -0.e+00]]]]
+    res = self.evaluate(bias)
+    expected_res = -1e9 * np.ones((length, length)) - -1e9 * np.identity(length)
+    expected_res = np.reshape(expected_res, (1, 1, length, length))
+    self.assertAllClose(res, expected_res)
+
+  @test_utils.run_in_graph_and_eager_modes()
   def testAddPositionalEmbedding(self):
     x = np.random.rand(5, 3, 12)
     y = common_attention.add_positional_embedding(
