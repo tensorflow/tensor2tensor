@@ -90,6 +90,7 @@ class SimPLe(base_trainer.BaseTrainer):
           overwrite=True,
       )
     self._initial_model = initial_model
+    self._initial_trajectories = None
 
     self._sim_env = simulated_env_problem_class(
         batch_size=None,
@@ -237,11 +238,27 @@ class SimPLe(base_trainer.BaseTrainer):
   def _has_initial_data(self):
     return self._initial_trajectory_dir is not None
 
-  def _make_input_streams(self):
+  def _load_trajectories(self, initial):
+    # Cache the initial trajectories in memory, as loading them can take a lot
+    # of time and they don't change.
+    if initial:
+      if self._initial_trajectories is not None:
+        return self._initial_trajectories
+      trajectory_dir = self._initial_trajectory_dir
+    else:
+      trajectory_dir = self._trajectory_dump_root_dir
 
-    def make_example_streams(trajectory_dir):
-      (train_trajs, eval_trajs) = simple.load_trajectories(
-          trajectory_dir, eval_frac=self._data_eval_frac)
+    trajectories = simple.load_trajectories(
+        trajectory_dir, self._data_eval_frac
+    )
+
+    if initial:
+      self._initial_trajectories = trajectories
+    return trajectories
+
+  def _make_input_streams(self):
+    def make_example_streams(initial):
+      (train_trajs, eval_trajs) = self._load_trajectories(initial)
       generate_examples = functools.partial(
           simple.generate_examples,
           trajectory_to_training_examples_fn=(
@@ -257,8 +274,7 @@ class SimPLe(base_trainer.BaseTrainer):
     if self._has_initial_data:
       start_time = time.time()
       # Load the initial, precollected data.
-      (init_train_stream,
-       init_eval_stream) = make_example_streams(self._initial_trajectory_dir)
+      (init_train_stream, init_eval_stream) = make_example_streams(initial=True)
       logging.vlog(
           1, "Loading initial trajectories took %0.2f sec.",
           time.time() - start_time
@@ -270,8 +286,7 @@ class SimPLe(base_trainer.BaseTrainer):
     if self._has_own_data:
       start_time = time.time()
       # Load trajectories collected in all epochs so far.
-      (own_train_stream,
-       own_eval_stream) = make_example_streams(self._trajectory_dump_root_dir)
+      (own_train_stream, own_eval_stream) = make_example_streams(initial=False)
       logging.vlog(
           1, "Loading own trajectories took %0.2f sec.",
           time.time() - start_time
@@ -302,13 +317,11 @@ class SimPLe(base_trainer.BaseTrainer):
         history_stream=itertools.repeat(None),
     )
 
-    if self._has_own_data:
-      trajectory_dir = self._trajectory_dump_root_dir
-    else:
-      trajectory_dir = self._initial_trajectory_dir
-
-    (_, eval_trajectories) = simple.load_trajectories(
-        trajectory_dir, eval_frac=self._data_eval_frac)
+    (_, eval_trajectories) = self._load_trajectories(
+        # If we have any trajectories collected in this run, evaluate on them.
+        # Otherwise, use the initial dataset.
+        initial=(not self._has_own_data)
+    )
     chosen_trajectories = [
         random.choice(eval_trajectories)
         for _ in range(self._sim_env.batch_size)
