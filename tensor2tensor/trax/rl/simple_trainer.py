@@ -26,6 +26,7 @@ import random
 import time
 
 from absl import logging
+import gin
 from matplotlib import pyplot as plt
 from tensor2tensor.trax import inputs as trax_inputs
 from tensor2tensor.trax import jaxboard
@@ -196,13 +197,14 @@ class SimPLe(base_trainer.BaseTrainer):
     else:
       train_steps = self._n_model_train_steps_per_epoch
     self._model_train_step += train_steps
-    state = trax.train(
-        model=self._sim_env.model,
-        inputs=inputs,
-        train_steps=self._model_train_step,
-        output_dir=self._model_dir,
-        has_weights=True,
-    )
+    with gin.config_scope("world_model"):
+      state = trax.train(
+          model=self._sim_env.model,
+          inputs=inputs,
+          train_steps=self._model_train_step,
+          output_dir=self._model_dir,
+          has_weights=True,
+      )
 
     logging.vlog(
         1, "Training model took %0.2f sec.", time.time() - start_time)
