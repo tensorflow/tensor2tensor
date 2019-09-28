@@ -65,6 +65,9 @@ SerializedSequenceSimulatedEnvProblem.done_fn = @trax.rl.onlinetune_done_fn
 SerializedSequenceSimulatedEnvProblem.vocab_size = 128
 SerializedSequenceSimulatedEnvProblem.max_trajectory_length = 101
 SerializedSequenceSimulatedEnvProblem.significance_decay = 0.8
+SerializedSequenceSimulatedEnvProblem.model_predict_kwargs = {
+    "attention_type": @trax.layers.DotProductCausalAttention,
+}
 
 # Parameters for SimPLe:
 # ==============================================================================

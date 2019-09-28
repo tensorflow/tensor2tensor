@@ -43,7 +43,8 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
   """
 
   def __init__(self, model, batch_size, observation_space, action_space,
-               reward_range, discrete_rewards, history_stream, output_dir):
+               reward_range, discrete_rewards, history_stream, output_dir,
+               model_predict_kwargs=None):
     """Initializes the env.
 
     Args:
@@ -56,9 +57,15 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
       history_stream: Iterator yielding batches of initial input data for the
         model. The format is implementation-specific.
       output_dir: (str) Output dir.
+      model_predict_kwargs: (dict) Additional model keyword arguments for
+        inference. Useful when different config is needed for training and
+        inference, e.g. train with memory efficient attention and predict with
+        the regular one.
     """
     self._model = model
-    model_predict = self._model(mode="predict")
+    if model_predict_kwargs is None:
+      model_predict_kwargs = {}
+    model_predict = self._model(mode="predict", **model_predict_kwargs)
     self._model_predict = backend.jit(model_predict)
     self._model_initialize = model_predict.initialize
     self._observation_space = observation_space
