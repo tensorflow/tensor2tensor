@@ -22,6 +22,9 @@ That is, they are functions that take a trax.history.History and return a
 function that takes a step and returns a dict with entry "learning_rate".
 """
 
+# TODO(pkozakowski): Revisit the decision to control nontrainable parameters
+# using LR schedules, or at least rename the module.
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -205,10 +208,13 @@ def PolicySchedule(
     }
     return lambda _: controls
 
+  assert policy_and_value_vocab_size is None, (
+      "Serialized policies are not supported yet."
+  )
   # Build the policy network and load its parameters.
   start_time = time.time()
   net = ppo.policy_and_value_net(
-      n_controls=1,
+      n_controls=len(control_configs),
       n_actions=len(action_multipliers),
       vocab_size=policy_and_value_vocab_size,
       bottom_layers_fn=policy_and_value_model,
@@ -238,6 +244,9 @@ def PolicySchedule(
       1, "Running the policy took %0.2f sec.", time.time() - start_time
   )
   # Sample from the action distribution for the last timestep.
+  assert log_probs.shape == (
+      1, len(control_configs) * observations.shape[0], len(action_multipliers)
+  )
   action = utils.gumbel_sample(
       log_probs[0, -len(control_configs):, :] / temperature
   )

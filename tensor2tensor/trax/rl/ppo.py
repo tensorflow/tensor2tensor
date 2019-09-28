@@ -91,12 +91,12 @@ def policy_and_value_net(
   if vocab_size is None:
     # In continuous policies every element of the output sequence corresponds to
     # an observation.
-    n_logits = n_controls * n_actions
+    n_preds_per_input = n_controls
     kwargs = {}
   else:
     # In discrete policies every element of the output sequence corresponds to
     # a symbol in the discrete representation, and each control takes 1 symbol.
-    n_logits = n_actions
+    n_preds_per_input = 1
     kwargs = {"vocab_size": vocab_size}
 
   if two_towers:
@@ -104,10 +104,12 @@ def policy_and_value_net(
         tl.Dup(),
         tl.Parallel(
             [bottom_layers_fn(**kwargs),
-             tl.Dense(n_logits),
+             tl.Dense(n_preds_per_input * n_actions),
              FlattenControlsIntoTime(),  # pylint: disable=no-value-for-parameter
              tl.LogSoftmax()],
-            [bottom_layers_fn(), tl.Dense(n_controls), tl.Flatten()],
+            [bottom_layers_fn(**kwargs),
+             tl.Dense(n_preds_per_input),
+             tl.Flatten()],
         )
     ]
   else:
@@ -115,10 +117,10 @@ def policy_and_value_net(
         bottom_layers_fn(**kwargs),
         tl.Dup(),
         tl.Parallel(
-            [tl.Dense(n_logits),
+            [tl.Dense(n_preds_per_input * n_actions),
              FlattenControlsIntoTime(),  # pylint: disable=no-value-for-parameter
              tl.LogSoftmax()],
-            [tl.Dense(n_controls), tl.Flatten()],
+            [tl.Dense(n_preds_per_input), tl.Flatten()],
         )
     ]
   return tl.Model(layers)

@@ -36,14 +36,14 @@ class PolicyScheduleTest(test.TestCase):
   def _make_schedule(
       self,
       history,
-      start_lr=1e-3,
+      control_configs,
       observation_metrics=(("eval", "metrics/accuracy"),),
       action_multipliers=(1.0,),
   ):
     policy_and_value_model = atari_cnn.FrameStackMLP
     net = ppo.policy_and_value_net(
         n_actions=len(action_multipliers),
-        n_controls=1,
+        n_controls=len(control_configs),
         vocab_size=None,
         bottom_layers_fn=policy_and_value_model,
         two_towers=False,
@@ -61,7 +61,7 @@ class PolicyScheduleTest(test.TestCase):
         observation_metrics=observation_metrics,
         include_controls_in_observation=False,
         action_multipliers=action_multipliers,
-        control_configs=(("learning_rate", start_lr, (1e-9, 1.0), False),),
+        control_configs=control_configs,
         policy_and_value_model=policy_and_value_model,
         policy_and_value_two_towers=False,
         policy_dir=policy_dir,
@@ -69,8 +69,12 @@ class PolicyScheduleTest(test.TestCase):
 
   def test_returns_start_lr_when_there_are_no_metrics(self):
     history = trax_history.History()
-    schedule = self._make_schedule(history, start_lr=1e-3)
-    self.assertEqual(schedule(0)["learning_rate"], 1e-3)
+    start_lr = 1e-3
+    schedule = self._make_schedule(
+        history,
+        control_configs=(("learning_rate", start_lr, (1e-9, 1.0), False),),
+    )
+    self.assertEqual(schedule(0)["learning_rate"], start_lr)
 
   def test_changes_lr_when_there_are_some_metrics(self):
     history = trax_history.History()
@@ -80,6 +84,7 @@ class PolicyScheduleTest(test.TestCase):
     )
     schedule = self._make_schedule(
         history,
+        control_configs=(("learning_rate", 1e-3, (1e-9, 1.0), False),),
         observation_metrics=(("eval", "metrics/accuracy"),),
         action_multipliers=(0.5, 2.0),
     )
@@ -87,6 +92,28 @@ class PolicyScheduleTest(test.TestCase):
     self.assertTrue(
         onp.allclose(new_lr, 5e-5) or onp.allclose(new_lr, 2e-4)
     )
+
+  def test_works_with_multiple_controls(self):
+    history = trax_history.History()
+    history.append("eval", "metrics/accuracy", step=0, value=0.8)
+    history.append(
+        *online_tune.control_metric("learning_rate"), step=0, value=1e-4
+    )
+    history.append(
+        *online_tune.control_metric("weight_decay_rate"), step=0, value=1e-5
+    )
+    schedule = self._make_schedule(
+        history,
+        observation_metrics=(("eval", "metrics/accuracy"),),
+        control_configs=(
+            ("learning_rate", 1e-3, (1e-9, 1.0), False),
+            ("weight_decay_rate", 1e-5, (1e-9, 1.0), False),
+        ),
+        action_multipliers=(1.0,),
+    )
+    new_controls = schedule(123)
+    self.assertIn("learning_rate", new_controls)
+    self.assertIn("weight_decay_rate", new_controls)
 
 
 if __name__ == "__main__":
