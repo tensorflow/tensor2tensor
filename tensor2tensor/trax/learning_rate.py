@@ -159,7 +159,7 @@ def PolicySchedule(
         # (name, start, (low, high), flip)
         ("learning_rate", 1e-3, (1e-9, 10.0), False),
     ),
-    metric_range=(0.0, 5.0),
+    observation_range=(0.0, 10.0),
     action_multipliers=(1.0 / 1.5, 1.0 / 1.25, 1.0, 1.25, 1.5),
     policy_and_value_model=trax_models.FrameStackMLP,
     policy_and_value_two_towers=False,
@@ -175,7 +175,7 @@ def PolicySchedule(
     include_controls_in_observation: bool, whether to include the controls in
       observations.
     control_configs: control configs, see trax.rl.envs.OnlineTuneEnv.
-    metric_range: tuple (low, high), range to clip the metrics to.
+    observation_range: tuple (low, high), range to clip the metrics to.
     action_multipliers: sequence of LR multipliers that policy actions
       correspond to.
     policy_and_value_model: Trax model to use as the policy.
@@ -196,7 +196,7 @@ def PolicySchedule(
   # return the initial learning rate.
   start_time = time.time()
   observations = online_tune.history_to_observations(
-      history, observation_metrics, metric_range,
+      history, observation_metrics, observation_range,
       control_configs if include_controls_in_observation else None
   )
   logging.vlog(
