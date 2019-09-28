@@ -122,7 +122,8 @@ class VideoMovingMnist(video_utils.VideoProblem):
     return sequence.image_sequence
 
   def get_train_iterator(self):
-    mnist_ds = tfds.load("mnist", split=tfds.Split.TRAIN, as_supervised=True)
+    mnist_ds = tfds.load("mnist:3.*.*", split=tfds.Split.TRAIN,
+                         as_supervised=True)
     mnist_ds = mnist_ds.repeat()
     moving_mnist_ds = mnist_ds.map(self.map_fn).batch(2)
     moving_mnist_ds = moving_mnist_ds.map(lambda x: tf.reduce_max(x, axis=0))
