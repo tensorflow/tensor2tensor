@@ -146,18 +146,18 @@ class Serial(base.Layer):
       running_total -= layer.n_outputs
     return running_max, (running_max - running_total)
 
-  def _validate_call_inputs(self, xs):
+  def _validate_forward_inputs(self, xs):
     if not isinstance(xs, tuple) and self._n_inputs != 1:
       raise TypeError(
-          'Serial.call input must be a tuple; instead got {}'.format(xs))
+          'Serial.forward input must be a tuple; instead got {}'.format(xs))
     len_xs = 1 if isinstance(xs, np.ndarray) else len(xs)
     if len_xs < self.n_inputs:
       raise ValueError(
-          'number of inputs ({}) to Serial.call less than n_inputs'
+          'number of inputs ({}) to Serial.forward less than n_inputs'
           ' ({})'.format(len(xs), self.n_inputs))
 
-  def call(self, xs, params=(), state=(), **kwargs):
-    self._validate_call_inputs(xs)
+  def forward(self, xs, params=(), state=(), **kwargs):
+    self._validate_forward_inputs(xs)
     rngs = _pop_rng_and_split(kwargs, self._n_layers)
     if not self.sublayers:  # No-op: leave args unchanged.
       return (xs, state)
@@ -195,7 +195,7 @@ class Serial(base.Layer):
 
     return stack, new_state
 
-  def new_parameters(self, input_shape, input_dtype, rng):
+  def new_params_and_state(self, input_shape, input_dtype, rng):
     def MakeShapeType(shape, dtype):
       if isinstance(dtype, (list, tuple)):
         return tuple(MakeShapeType(s, t) for s, t in zip(shape, dtype))
@@ -219,10 +219,10 @@ class Serial(base.Layer):
 
       in_shape = base.nested_map(inputs, lambda x: x.shape)
       in_dtype = base.nested_map(inputs, lambda x: x.dtype)
-      param, state = layer.initialize(in_shape, in_dtype, layer_rng)
+      param, state = layer.initialize_once(in_shape, in_dtype, layer_rng)
       pparam = layer._params   # pylint: disable=protected-access
 
-      outputs, _ = layer.pseudo_call(inputs, pparam, state)
+      outputs, _ = layer.pseudo_forward(inputs, pparam, state)
 
       # Push outputs onto remaining pseudo_xs (if any).
       if n_in < _count_items(pseudo_xs):
@@ -325,10 +325,10 @@ class Concatenate(base.Layer):
     self._n_items = n_items
     self._axis = axis
 
-  def new_parameters(self, input_shape, input_dtype, rng):
+  def new_params_and_state(self, input_shape, input_dtype, rng):
     return (), ()
 
-  def call(self, xs, params=(), state=(), **kwargs):
+  def forward(self, xs, params=(), state=(), **kwargs):
     del params, kwargs
     return backend.numpy.concatenate(xs, self._axis), state
 
@@ -423,7 +423,7 @@ class Parallel(base.Layer):
       start = end
     return tuple(sub_inputs)
 
-  def call(self, inputs, params=(), state=(), **kwargs):
+  def forward(self, inputs, params=(), state=(), **kwargs):
     n_layers, layers = self._n_layers, self.sublayers
     sublayer_inputs = self._allot_to_sublayers(inputs)
     rngs = _pop_rng_and_split(kwargs, n_layers)
@@ -444,11 +444,12 @@ class Parallel(base.Layer):
     output = outputs[0] if self.n_outputs == 1 else tuple(outputs)
     return output, new_state
 
-  def new_parameters(self, input_shapes, input_dtypes, rng):
+  def new_params_and_state(self, input_shapes, input_dtypes, rng):
     sublayer_shapes = self._allot_to_sublayers(input_shapes)
     sublayer_dtypes = self._allot_to_sublayers(input_dtypes)
     rngs = backend.random.split(rng, self._n_layers)
-    inits = [layer.initialize(shape, dtype, rng) for layer, shape, dtype, rng
+    inits = [layer.initialize_once(shape, dtype, rng)
+             for layer, shape, dtype, rng
              in zip(self.sublayers, sublayer_shapes, sublayer_dtypes, rngs)]
     if not inits:
       return (), ()

@@ -639,7 +639,8 @@ class Trainer(object):
       # We need to create a new model instance and not reuse `model_train` here,
       # because `m.initialize` puts cached parameter values in `m` and hence the
       # next call of `m.initialize` will give wrong results.
-      params, state = model(mode="train").initialize(full_shape, full_type, rng)
+      params, state = model(mode="train").initialize_once(full_shape, full_type,
+                                                          rng)
       (slots, opt_params) = opt.tree_init(params)
       return (OptState(params, slots, opt_params), state)
     if _is_jit_init():

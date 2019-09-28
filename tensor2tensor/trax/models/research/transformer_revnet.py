@@ -55,7 +55,7 @@ class Map(tl.Layer):
     self._check_shapes = check_shapes
     self._n_sections = n_sections
 
-  def call(self, inputs, params=(), state=(), **kwargs):
+  def forward(self, inputs, params=(), state=(), **kwargs):
     rngs = _pop_rng_and_split(kwargs, len(inputs))
     results = [self._layer(x, params=params, state=state, rng=r, **kwargs)
                for x, r in zip(inputs, rngs)]
@@ -64,14 +64,14 @@ class Map(tl.Layer):
     result_states = result_states[0]
     return tuple(result_outputs), tuple(result_states)
 
-  def new_parameters(self, input_shape, input_dtype, rng):
+  def new_params_and_state(self, input_shape, input_dtype, rng):
     first_shape = input_shape[0]
     if self._check_shapes:
       for shape in input_shape:
         if shape != first_shape:
           raise ValueError('Map layer can only be applied to list of elements '
                            'with the same shapes. Shapes: %s' % str(shape))
-    return self._layer.initialize(first_shape, input_dtype[0], rng)
+    return self._layer.initialize_once(first_shape, input_dtype[0], rng)
 
 
 @tl.layer()
@@ -115,12 +115,12 @@ class Split(tl.Layer):
     self._n_sections = n_sections
     self._axis = axis
 
-  def call(self, inputs, params=(), state=(), **kwargs):
+  def forward(self, inputs, params=(), state=(), **kwargs):
     del params, kwargs
     res = tuple(backend.numpy.split(inputs, self._n_sections, self._axis))
     return res, state
 
-  def new_parameters(self, input_shapes, input_dtype, rng):
+  def new_params_and_state(self, input_shapes, input_dtype, rng):
     return (), ()
 
 
@@ -144,10 +144,10 @@ class SplitForOutput(tl.ReversibleLayer):
     self._n_sections = n_sections
     self._axis = axis
 
-  def new_parameters(self, input_shape, input_dtype, rng):
+  def new_params_and_state(self, input_shape, input_dtype, rng):
     return (), ()
 
-  def call(self, inputs, params=(), state=(), **kwargs):
+  def forward(self, inputs, params=(), state=(), **kwargs):
     del params, kwargs
     x1, x2 = inputs
 
@@ -254,21 +254,21 @@ class ReversibleHalfResidual(tl.ReversibleLayer, tl.Serial):
 
 
 class ApplyAttentionWrapper(tl.Parallel):
-  """Same as tl.Parallel(attention, [], []), but implements call_and_grad."""
+  """Like tl.Parallel(attention, [], []) but implements forward_and_backward."""
 
   def __init__(self, attention):
-    assert hasattr(attention, 'call_and_grad')
+    assert hasattr(attention, 'forward_and_backward')
     super(ApplyAttentionWrapper, self).__init__(attention, [], [])
     self.attention = attention
 
-  def call_and_grad(self, inputs, ct, **kwargs):
+  def forward_and_backward(self, inputs, ct, **kwargs):
     # Simultaneous forward pass and backprop through the attention mechanism.
     qkv = inputs[:3]
     passthrough = inputs[3:]
     out_ct = ct[0]
     passthrough_ct = ct[1:]
 
-    out, qkv_ct = self.attention.call_and_grad(qkv, out_ct, **kwargs)
+    out, qkv_ct = self.attention.forward_and_backward(qkv, out_ct, **kwargs)
     return (out,) + passthrough, qkv_ct + passthrough_ct
 
 
@@ -285,9 +285,10 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
   consists of reshaping and dense linear layers), which allows the following
   optimization. We can back-propagate the gradient signal from the output of
   ReversibleAttentionHalfResidual to the output of the "attention" portion based
-  only on the network parameters. Then, attention.call_and_grad can be used to
-  recover the output of the "attention" portion while simultaneously performing
-  the backward pass, which allows shared computation between the two directions.
+  only on the network parameters. Then, attention.forward_and_backward can be
+  used to recover the output of the "attention" portion while simultaneously
+  performing the backward pass, which allows shared computation between the two
+  directions.
   """
 
   def __init__(self, pre_attention, attention, post_attention):
@@ -297,7 +298,7 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
         tl.Swap(),
         tl.Parallel(pre_attention, [], []),
     ])
-    assert hasattr(attention, 'call_and_grad')
+    assert hasattr(attention, 'forward_and_backward')
     self.attention = ApplyAttentionWrapper(attention)
     self.post_attention = tl.Parallel(post_attention, [], [])
 
@@ -360,7 +361,8 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
     (ct,) = post_attention_vjpfun(ct)
 
     # Simultaneous forward pass and backprop through the attention mechanism
-    stack, ct = self.attention.call_and_grad(stack, ct, rng=rngs[1], **kwargs)
+    stack, ct = self.attention.forward_and_backward(stack, ct, rng=rngs[1],
+                                                    **kwargs)
     assert not jax.tree_util.tree_leaves(params[1])
     attention_params_ct = params[1]  # This is valid when params is empty.
 

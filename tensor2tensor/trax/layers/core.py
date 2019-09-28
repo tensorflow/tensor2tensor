@@ -123,12 +123,12 @@ class Dense(base.Layer):
     self._kernel_initializer = kernel_initializer
     self._bias_initializer = bias_initializer
 
-  def call(self, x, params, state, **kwargs):
+  def forward(self, x, params, state, **kwargs):
     del kwargs
     w, b = params
     return np.dot(x, w) + b, state
 
-  def new_parameters(self, input_shape, input_dtype, rng):
+  def new_params_and_state(self, input_shape, input_dtype, rng):
     del input_dtype
     rng1, rng2 = backend.random.split(rng, 2)
     w = self._kernel_initializer((input_shape[-1], self._n_units), rng1)
@@ -148,11 +148,11 @@ class Embedding(base.Layer):
     self._vocab_size = vocab_size
     self._kernel_initializer = kernel_initializer
 
-  def call(self, x, params, state, **kwargs):
+  def forward(self, x, params, state, **kwargs):
     del kwargs
     return np.take(params, x, axis=0), state
 
-  def new_parameters(self, input_shape, input_dtype, rng):
+  def new_params_and_state(self, input_shape, input_dtype, rng):
     del input_dtype
     return self._kernel_initializer((self._vocab_size, self._d_feature),
                                     rng), ()
@@ -179,12 +179,12 @@ class Dropout(base.Layer):
     self._name = 'dropout_' + name
     self._mode = mode
 
-  def new_parameters(self, input_shape, input_dtype, rng):
+  def new_params_and_state(self, input_shape, input_dtype, rng):
     """Initialize dropout parameters and state."""
     del input_shape, input_dtype, rng
     return (), {self._name: np.array(self._initial_rate)}
 
-  def call(self, x, params, state, rng=None, **unused_kwargs):
+  def forward(self, x, params, state, rng=None, **unused_kwargs):
     """Execute dropout."""
     del params
     rate = self._initial_rate

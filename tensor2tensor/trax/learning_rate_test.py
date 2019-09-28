@@ -50,7 +50,7 @@ class PolicyScheduleTest(test.TestCase):
     )
     rng = jax_random.get_prng(seed=0)
     obs_dim = len(observation_metrics)
-    (params, state) = net.initialize((1, 1, obs_dim), np.float32, rng)
+    (params, state) = net.initialize_once((1, 1, obs_dim), np.float32, rng)
     policy_dir = self.get_temp_dir()
     # Optimizer slots should not be used for anything.
     slots = None

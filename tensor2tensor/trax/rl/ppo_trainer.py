@@ -190,7 +190,7 @@ class PPO(base_trainer.BaseTrainer):
     self._policy_and_value_net_apply = jit(policy_and_value_net)
     (batch_obs_shape, obs_dtype) = self._batch_obs_shape_and_dtype
     policy_and_value_net_params, self._model_state = (
-        policy_and_value_net.initialize(batch_obs_shape, obs_dtype, key1))
+        policy_and_value_net.initialize_once(batch_obs_shape, obs_dtype, key1))
     if init_policy_from_world_model_output_dir is not None:
       policy_and_value_net_params = ppo.init_policy_from_world_model_checkpoint(
           policy_and_value_net_params, init_policy_from_world_model_output_dir

@@ -130,7 +130,7 @@ class SerializedSequenceSimulatedEnvProblemTest(test.TestCase):
     mock_model_fn = mock.MagicMock()
     if predict_fn is not None:
       mock_model_fn.return_value = predict_fn
-      mock_model_fn.return_value.initialize.return_value = ((), ())
+      mock_model_fn.return_value.initialize_once.return_value = ((), ())
     return simulated_env_problem.SerializedSequenceSimulatedEnvProblem(
         model=mock_model_fn,
         reward_fn=reward_fn,

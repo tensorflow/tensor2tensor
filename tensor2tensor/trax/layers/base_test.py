@@ -38,19 +38,19 @@ class BaseLayerTest(absltest.TestCase):
 
     class IdWithZeroGrad(base.Layer):
 
-      def call(self, x, params, **kwargs):
+      def forward(self, x, params, **kwargs):
         del params, kwargs
         return x, ()
 
-      def new_parameters(self, input_shapes, input_dtype, rng):
+      def new_params_and_state(self, input_shapes, input_dtype, rng):
         del input_shapes, input_dtype, rng
         return (), ()
 
       @property
-      def has_custom_grad(self):
+      def has_backward(self):
         return True
 
-      def custom_grad(self, inputs, output, ct, params, state, **kwargs):
+      def backward(self, inputs, output, ct, params, state, **kwargs):
         return (backend.numpy.zeros_like(ct), ())
 
     layer = IdWithZeroGrad()
@@ -68,19 +68,19 @@ class BaseLayerTest(absltest.TestCase):
 
     class IdWithIdGrad(base.Layer):
 
-      def call(self, x, params, **kwargs):
+      def forward(self, x, params, **kwargs):
         del params, kwargs
         return x, ()
 
-      def new_parameters(self, input_shapes, input_dtype, rng):
+      def new_params_and_state(self, input_shapes, input_dtype, rng):
         del input_shapes, input_dtype, rng
         return (), ()
 
       @property
-      def has_custom_grad(self):
+      def has_backward(self):
         return True
 
-      def custom_grad(self, inputs, output, ct, params, state, **kwargs):
+      def backward(self, inputs, output, ct, params, state, **kwargs):
         return (inputs, ())
 
     layer = IdWithIdGrad()

@@ -67,9 +67,9 @@ class TransformerTest(parameterized.TestCase):
       model_fast = model_fn(mode='predict')
       rng = backend.random.get_prng(0)
       batch_size = 2
-      (params, state_slow) = model_slow.initialize(
+      (params, state_slow) = model_slow.initialize_once(
           input_shapes=(batch_size, 1), input_dtype=np.int32, rng=rng)
-      (_, state_fast) = model_fast.initialize(
+      (_, state_fast) = model_fast.initialize_once(
           input_shapes=(batch_size, 1), input_dtype=np.int32, rng=rng)
 
       max_length = 5

@@ -67,7 +67,7 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
       model_predict_kwargs = {}
     model_predict = self._model(mode="predict", **model_predict_kwargs)
     self._model_predict = backend.jit(model_predict)
-    self._model_initialize = model_predict.initialize
+    self._model_initialize = model_predict.initialize_once
     self._observation_space = observation_space
     self._action_space = action_space
     self._reward_range = reward_range

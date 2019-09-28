@@ -89,7 +89,7 @@ class PpoTest(test.TestCase):
         bottom_layers_fn=lambda: [layers.Flatten(n_axes_to_keep=2)],
         two_towers=True,
     )
-    pnv_params, pnv_state = pnv_model.initialize(
+    pnv_params, pnv_state = pnv_model.initialize_once(
         batch_observation_shape, np.float32, self.rng_key)
 
     batch = 2
@@ -449,9 +449,9 @@ class PpoTest(test.TestCase):
         two_towers=True,
     )
 
-    old_params, _ = net.initialize(
+    old_params, _ = net.initialize_once(
         batch_observation_shape, np.float32, key1)
-    new_params, state = net.initialize(
+    new_params, state = net.initialize_once(
         batch_observation_shape, np.float32, key2)
 
     # Generate a batch of observations.
@@ -579,7 +579,7 @@ class PpoTest(test.TestCase):
         "rng": rng,
     }
     model = models.TransformerLM(vocab_size=4, **transformer_kwargs)
-    (model_params, _) = model.initialize(**init_kwargs)
+    (model_params, _) = model.initialize_once(**init_kwargs)
     policy = ppo.policy_and_value_net(
         n_actions=3,
         n_controls=2,
@@ -589,7 +589,7 @@ class PpoTest(test.TestCase):
         ),
         two_towers=False,
     )
-    (policy_params, policy_state) = policy.initialize(**init_kwargs)
+    (policy_params, policy_state) = policy.initialize_once(**init_kwargs)
     output_dir = self.get_temp_dir()
     # Initialize state by restoring from a nonexistent checkpoint.
     trax_state = trax.restore_state(output_dir)
