@@ -49,7 +49,7 @@ class NormalizationLayerTest(absltest.TestCase):
     onp.testing.assert_allclose(state[0], 0)
     onp.testing.assert_allclose(state[1], 1)
     self.assertEqual(state[2], 0)
-    out, state = layer(inp1, params, state)
+    out, state = layer(inp1, params=params, state=state)
     onp.testing.assert_allclose(state[0], m1 * 0.001)
     onp.testing.assert_allclose(state[1], 0.999 + v1 * 0.001, rtol=1e-6)
     self.assertEqual(state[2], 1)

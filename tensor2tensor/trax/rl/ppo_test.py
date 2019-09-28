@@ -89,14 +89,14 @@ class PpoTest(test.TestCase):
         bottom_layers_fn=lambda: [layers.Flatten(n_axes_to_keep=2)],
         two_towers=True,
     )
-    pnv_params, pnv_state = pnv_model.initialize_once(
+    _, _ = pnv_model.initialize_once(
         batch_observation_shape, np.float32, self.rng_key)
 
     batch = 2
     time_steps = 10
     batch_of_observations = np.random.uniform(
         size=(batch, time_steps) + observation_shape)
-    pnv_output, _ = pnv_model(batch_of_observations, pnv_params, pnv_state)
+    pnv_output, _ = pnv_model(batch_of_observations)
 
     # Output is a list, first is probab of actions and the next is value output.
     self.assertEqual(2, len(pnv_output))
@@ -462,10 +462,10 @@ class PpoTest(test.TestCase):
     mask = np.ones_like(rewards)
 
     # Just test that this computes at all.
-    (new_log_probabs, value_predictions_new), _ = net(observations, new_params,
-                                                      state)
-    (old_log_probabs, value_predictions_old), _ = net(observations, old_params,
-                                                      state)
+    (new_log_probabs, value_predictions_new), _ = (
+        net(observations, param=new_params, state=state))
+    (old_log_probabs, value_predictions_old), _ = (
+        net(observations, params=old_params, state=state))
 
     gamma = 0.99
     lambda_ = 0.95
@@ -602,7 +602,7 @@ class PpoTest(test.TestCase):
     )
     # Try to run the policy with new parameters.
     observations = np.zeros((1, 100), dtype=np.int32)
-    policy(observations, new_policy_params, state=policy_state, rng=rng)
+    policy(observations, params=new_policy_params, state=policy_state, rng=rng)
 
   def test_shuffled_index_batches_generates_valid_batch(self):
     dataset_size = 16

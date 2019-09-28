@@ -33,37 +33,37 @@ from tensor2tensor.trax.backend import ShapeType
 class Layer(object):
   """Base class for composable layers in a deep learning network.
 
-  A layer is a function from zero or more inputs to zero or more outputs,
-  possibly with trainable parameters. A layer is either atomic or composed
-  of sublayers. These aspects of a layer are set via a layer's constructor,
-  and can be inspected via read-only properties:
+  A layer is a part of a trainable network that can compute a function from
+  zero or more inputs to zero or more outputs. It may make use of trainable
+  parameters as well as non-parameter state for its computation. A layer is
+  either atomic or composed of sublayers. All layers provide accessors for
+  these aspects:
 
-    - n_inputs
-    - n_outputs
-    - sublayers
+    - n_inputs: int
+    - n_outputs: int
+    - params: tuple (empty if the layer has no parameters)
+    - state: tuple (empty if the layer has no non-parameter state)
+    - sublayers: tuple (empty if the layer has no sublayers)
 
-  The inputs to a layer are activation tensors, packaged according to how many
-  there are:
+  The inputs to a layer are tensors, packaged according to how many there are:
 
     - n_inputs = 0: an empty tuple ()
-    _ n_inputs = 1: the activation tensor (NOT wrapped in a tuple)
-    _ n_inputs > 1: a tuple of activation tensors
+    - n_inputs = 1: one tensor (NOT wrapped in a tuple)
+    - n_inputs > 1: a tuple of tensors
 
-  (The special treatment for the single-input case is intended as a
-  simplification for layer writers; this design choice may be revisited in the
-  future.)
+  (The special treatment for the single-input case is meant to simplify the
+  work of layer writers; this design choice may be revisited in the future.)
 
-  The outputs from a layer are also activations tensors, packaged the same as
-  layer inputs:
+  The outputs from a layer are also tensors, packaged the same as layer inputs:
 
     - n_outputs = 0: an empty tuple ()
-    _ n_outputs = 1: the activation tensor (NOT wrapped in a tuple)
-    _ n_outputs > 1: a tuple of activation tensors
+    - n_outputs = 1: the tensor (NOT wrapped in a tuple)
+    - n_outputs > 1: a tuple of tensors
 
-  The runtime maintains a data stack with which layer calls are composed. One
-  can therefore view each layer as a function from stack state to stack state,
-  where the function's inputs are a slice from the stack, and the function's
-  outputs are spliced back into the stack.
+  The Trax runtime maintains a data stack with which layer calls are composed.
+  One can therefore view each layer as a function from stack state to stack
+  state, where the function's inputs are a slice from the stack, and the
+  function's outputs are spliced back into the stack.
   """
 
   def __init__(self, n_inputs=1, n_outputs=1):
@@ -71,6 +71,7 @@ class Layer(object):
     self._n_outputs = n_outputs
     self._sublayers = ()  # Default is no sublayers.
     self._params = ()  # cached parameters
+    self._state = ()
     self._caller = _find_frame(inspect.stack())  # for custom error messages
     self._init_finished = False
 
@@ -80,71 +81,88 @@ class Layer(object):
     objs = self.sublayers
     if objs:
       objs_str = ', '.join(str(x) for x in objs)
-      return '{}[{},layers=[{}]]'.format(class_str, fields_str, objs_str)
+      return '{}{{{},sublayers=[{}]}}'.format(class_str, fields_str, objs_str)
     else:
-      return '{}[{}]'.format(class_str, fields_str)
+      return '{}{{{}}}'.format(class_str, fields_str)
 
   def forward(self, inputs, params=(), state=(), **kwargs):
-    """Applies this layer to given activation tensors, using trainable params.
+    """Uses this layer as part of a forward pass through the model.
+
+    Authors of new Layer subclasses should override this method to define the
+    forward computation that their layer performs.
 
     Args:
-      inputs: Data tensors, matching the number (n_inputs) expected by this
+      inputs: Input tensors, matching the number (n_inputs) expected by this
           layer. Specifically:
             - n_inputs = 0: an empty tuple ()
-            - n_inputs = 1: a data tensor (NOT wrapped in a tuple)
-            - n_inputs > 1: a tuple of data tensors, with n_inputs items
+            - n_inputs = 1: a tensor (NOT wrapped in a tuple)
+            - n_inputs > 1: a tuple of tensors, with n_inputs items
       params: A tuple of trainable parameters, with one element for this layer
-          and one for each of this layer's sublayers. If a layer (or sublayer)
-          has no trainable parameters, the corresponding params element is an
-          empty tuple.
-      state: start state.
-      **kwargs: Layer-specific keyword args.
+          if this layer has no sublayers, or one for each sublayer if this
+          layer has sublayers. If a layer (or sublayer) has no trainable
+          parameters, the corresponding params element is an empty tuple.
+      state: Layer-specific non-parameter state that can update between batches.
+      **kwargs: Often empty; main current use is to carry a PRNG key for random
+          number generation, using the keyword 'rng'.
 
     Returns:
-      Data tensors, matching the number (n_outputs) promised by this layer.
+      Tensors, matching the number (n_outputs) promised by this layer.
       Specifically:
         - n_outputs = 0: an empty tuple
-        - n_outputs = 1: a data tensor (NOT wrapped in a tuple)
-        - n_outputs > 1: a tuple of data tensors, with n_outputs items
-      A tuple of activation tensors, one for each output.
+        - n_outputs = 1: one tensor (NOT wrapped in a tuple)
+        - n_outputs > 1: a tuple of tensors, with n_outputs items
     """
     raise NotImplementedError
 
   def new_params_and_state(self, input_shapes, input_dtype, rng):
-    """Creates layer-specific parameters based on data shape, dtype and rng.
+    """Returns a (params, state) pair suitable for initializing this layer.
+
+    Authors of new Layer subclasses should override this method if their layer
+    uses trainable parameters or has non-parameter state that gets updated
+    between batches. The default implementation works for layers that have
+    no parameters or state.
 
     Args:
-      input_shapes: A tuple, depending on the number of inputs (n_inputs)
-          expected by this layer:
-            - n_inputs = 0: an empty tuple ()
-            - n_inputs = 1: a tuple representing the shape of the input
-            - n_inputs > 1: a tuple of shape tuples, one for each input
-          For example:
-            - 0 inputs: ()
-            - 1 input: (210, 160, 3) [NOTE: no tuple wrapping the shape]
-            - 2 inputs: ((210, 160, 3), (105, 80, 3))
-      input_dtype: numpy dtype of the input.
-      rng: A random number generator.
-
-    Returns:
-      The newly created parameters for this layer.
+      input_shapes: A tuple representing a shape (if this layer takes one input)
+          or a tuple of shapes (if this layer takes more than one input).
+          For example: (210, 160, 3) or ((210, 160, 3), (105, 80, 3)).
+      input_dtype: Numpy dtype(s) for each of the inputs.
+      rng: A PRNG key for random number generation.
     """
     raise NotImplementedError
 
   @property
   def n_inputs(self):
-    """Specifies how many data tensors this layer expects as input."""
+    """Returns how many tensors this layer expects as input."""
     return self._n_inputs
 
   @property
   def n_outputs(self):
-    """Specifies how many data tensors this layer promises as output."""
+    """Returns how many tensors this layer promises as output."""
     return self._n_outputs
 
   @property
   def sublayers(self):
-    """Returns the sublayers contained in / managed by this layer."""
+    """Returns a tuple containing this layer's sublayers; may be empty."""
     return self._sublayers
+
+  @property
+  def params(self):
+    """Returns a tuple containing this layer's parameters; may be empty."""
+    return self._params
+
+  @params.setter
+  def params(self, params):
+    self._params = params
+
+  @property
+  def state(self):
+    """Returns a tuple containing this layer's state; may be empty."""
+    return self._state
+
+  @state.setter
+  def state(self, state):
+    self._state = state
 
   @property
   def has_backward(self):
@@ -232,6 +250,7 @@ class Layer(object):
       if not self._init_finished:
         self._init_finished = True
         self._params = params
+        self._state = state
       else:
         params = ()
       return (params, state)
@@ -244,7 +263,33 @@ class Layer(object):
   _STASH_IN = None
   _STASH_OUT = None
 
-  def __call__(self, x, params=(), state=(), **kwargs):
+  def __call__(self, x, **kwargs):
+    """Makes Layer instances callable; for use in tests or interactive settings.
+
+    This convenience method helps library users play with, test, or otherwise
+    probe the behavior of layers outside of a full training environment. It
+    presents the layer as callable function from inputs to outputs, with the
+    option of manually specifying parameters and non-parameter state per
+    individual call. For convenience, parameters and non-parameter state are
+    cached per layer instance, starting from default values of () and (), and
+    acquiring non-empty values either by initialization or from values
+    explicitly provided via the params and state keyword arguments.
+
+    Args:
+      x: 0 or more input tensors, formatted the same as the inputs to
+          Layer.forward.
+      **kwargs: Additional keyword arguments if needed/desired for this layer.
+          Three possible keyword arguments are especially relevant:
+            - params=... will override any cached params values
+            - state=... will override any cached state values
+            - rng=... will supply a PRNG key for use by the layer
+
+    Returns:
+      An (outputs, state) tuple. The outputs part of the tuple is formatted the
+          same as the outputs from Layer.forward.
+    """
+    params = kwargs.pop('params', self.params)
+    state = kwargs.pop('state', self.state)
     try:
       # If params are nothing, we may be reusing this layer.
       # Use the cached parameters to calculate the value.
@@ -524,15 +569,14 @@ def _is_tuple_of_shapes(shape):
   return isinstance(shape, tuple) and isinstance(shape[0], tuple)
 
 
-def check_shape_agreement(layer_fn, input_shapes, integer_inputs=False):
-  """Checks if the layer's forward output agrees its pseudo_forward predictions.
+def check_shape_agreement(layer_obj, input_shapes, integer_inputs=False):
+  """Checks if the layer's call output agrees its pseudo_forward predictions.
 
   This function helps test layer mechanics and inter-layer connections that
   aren't dependent on specific data values.
 
   Args:
-    layer_fn: A Layer instance, viewed as a function from input shapes to
-        output shapes.
+    layer_obj: A Layer instance.
     input_shapes: A tuple representing a shape (if the layer takes one input)
         or a tuple of shapes (if this layer takes more than one input).
         For example: (210, 160, 3) or ((210, 160, 3), (105, 80, 3)).
@@ -550,15 +594,15 @@ def check_shape_agreement(layer_fn, input_shapes, integer_inputs=False):
     input_dtype = tuple(input_dtype for _ in input_shapes)
   else:
     pseudo_data = ShapeType(input_shapes, input_dtype)
-  params, state = layer_fn.initialize_once(input_shapes, input_dtype, rng1)
-  pseudo_output, _ = layer_fn.pseudo_forward(pseudo_data, params, state)
+  params, state = layer_obj.initialize_once(input_shapes, input_dtype, rng1)
+  pseudo_output, _ = layer_obj.pseudo_forward(pseudo_data, params, state)
   if isinstance(pseudo_output, tuple):
     output_shape = tuple(x.shape for x in pseudo_output)
   else:
     output_shape = pseudo_output.shape
 
   random_input = _random_values(input_shapes, rng2, integer_inputs)
-  real_output, _ = layer_fn(random_input, params, state=state, rng=rng3)
+  real_output, _ = layer_obj(random_input, params=params, state=state, rng=rng3)
   result_shape = shapes(real_output)
 
   msg = 'output shape %s != real result shape %s' % (output_shape, result_shape)

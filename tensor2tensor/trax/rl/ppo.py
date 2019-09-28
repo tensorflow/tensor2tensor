@@ -723,7 +723,7 @@ def combined_loss(new_params,
   """Computes the combined (clipped loss + value loss) given observations."""
   (log_probab_actions_new, value_predictions_new), state = (
       policy_and_value_net_apply(
-          padded_observations, new_params, state, rng=rng))
+          padded_observations, params=new_params, state=state, rng=rng))
 
   (loss, component_losses, summaries) = combined_loss_given_predictions(
       log_probab_actions_new,

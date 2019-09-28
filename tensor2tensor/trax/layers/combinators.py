@@ -156,6 +156,22 @@ class Serial(base.Layer):
           'number of inputs ({}) to Serial.forward less than n_inputs'
           ' ({})'.format(len(xs), self.n_inputs))
 
+  @base.Layer.params.setter
+  def params(self, params):
+    """Recursively sets params on this layer and all sublayers."""
+    self._params = params
+    assert len(params) == self._n_layers
+    for layer, sublayer_params in zip(self.sublayers, params):
+      layer.params = sublayer_params
+
+  @base.Layer.state.setter
+  def state(self, state):
+    """Recursively sets non-param state on this layer and all sublayers."""
+    self._state = state
+    assert len(state) == self._n_layers
+    for layer, sublayer_state in zip(self.sublayers, state):
+      layer.state = sublayer_state
+
   def forward(self, xs, params=(), state=(), **kwargs):
     self._validate_forward_inputs(xs)
     rngs = _pop_rng_and_split(kwargs, self._n_layers)
@@ -182,7 +198,7 @@ class Serial(base.Layer):
         inputs = stack[0]
       else:
         inputs = stack[:n_in]
-      outputs, s = layer(inputs, p, state=s, rng=rng, **kwargs)
+      outputs, s = layer(inputs, params=p, state=s, rng=rng, **kwargs)
       new_state.append(s)
 
       # Push outputs onto remaining stack (if any).
@@ -422,6 +438,22 @@ class Parallel(base.Layer):
         sub_inputs.append(inputs[start:end])
       start = end
     return tuple(sub_inputs)
+
+  @base.Layer.params.setter
+  def params(self, params):
+    """Recursively sets params on this layer and all sublayers."""
+    self._params = params
+    assert len(params) == self._n_layers
+    for layer, sublayer_params in zip(self.sublayers, params):
+      layer.params = sublayer_params
+
+  @base.Layer.state.setter
+  def state(self, state):
+    """Recursively sets non-param state on this layer and all sublayers."""
+    self._state = state
+    assert len(state) == self._n_layers
+    for layer, sublayer_state in zip(self.sublayers, state):
+      layer.state = sublayer_state
 
   def forward(self, inputs, params=(), state=(), **kwargs):
     n_layers, layers = self._n_layers, self.sublayers

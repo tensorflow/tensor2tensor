@@ -124,7 +124,7 @@ class TraxTest(test.TestCase, parameterized.TestCase):
       # Predict with final params
       inputs = inputs(1).train_stream()
       model = layers.Serial(model_fn())
-      model(next(inputs)[0], state.opt_state.params)
+      model(next(inputs)[0], params=state.opt_state.params)
 
   @parameterized.parameters(BACKENDS)
   def test_train_eval_predict_sm3(self, backend_name):
@@ -160,7 +160,7 @@ class TraxTest(test.TestCase, parameterized.TestCase):
       # Predict with final params
       inputs = inputs(1).train_stream()
       model = layers.Serial(model_fn())
-      model(next(inputs)[0], state.opt_state.params)
+      model(next(inputs)[0], params=state.opt_state.params)
 
   @parameterized.parameters(BACKENDS)
   def test_train_restart(self, backend_name):

@@ -239,7 +239,8 @@ def PolicySchedule(
   start_time = time.time()
   # ((log_probs, value_preds), state). We have no way to pass state to the next
   # step, but that should be fine.
-  ((log_probs, _), _) = net(np.array([observations]), params, state, rng=rng)
+  ((log_probs, _), _) = (
+      net(np.array([observations]), params=params, state=state, rng=rng))
   logging.vlog(
       1, "Running the policy took %0.2f sec.", time.time() - start_time
   )

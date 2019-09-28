@@ -146,7 +146,8 @@ def loss(params, batch, model_predict, state, rng, has_weights):
       [inputs, targets])
   # Call model, predictions will be the returned stack, usually consisting of
   # the prediction tensor and the targets.
-  predictions, state = model_predict(model_input, params, state, rng=rng)
+  predictions, state = model_predict(model_input, params=params, state=state,
+                                     rng=rng)
   predictions = get_preds(predictions)
   predictions, targets, weights = _make_list(predictions, targets, weights)
   xent = []
@@ -420,7 +421,7 @@ def _jit_predict_fn(model_predict, n_devices, jit=True):
   # Multi-devices, pmap and run.
   @functools.partial(backend.pmap, axis_name="batch")
   def mapped_predict(x, params, state, rng):
-    return model_predict(x, params, state, rng=rng)
+    return model_predict(x, params=params, state=state, rng=rng)
 
   def predict(x, params=(), state=(), rng=None):
     """Predict function jited and parallelized as requested."""

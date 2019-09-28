@@ -59,7 +59,7 @@ class BaseLayerTest(absltest.TestCase):
     input_shape = (9, 17)
     random_input = backend.random.uniform(rng, input_shape, minval=-1.0,
                                           maxval=1.0)
-    f = lambda x: backend.numpy.mean(layer(x, params, rng=rng)[0])
+    f = lambda x: backend.numpy.mean(layer(x, params=params, rng=rng)[0])
     grad = backend.grad(f)(random_input)
     self.assertEqual(grad.shape, input_shape)  # Gradient for each input.
     self.assertEqual(sum(sum(grad * grad)), 0.0)  # Each one is 0.
@@ -89,7 +89,7 @@ class BaseLayerTest(absltest.TestCase):
     input_shape = (9, 17)
     random_input = backend.random.uniform(rng, input_shape, minval=-1.0,
                                           maxval=1.0)
-    f = lambda x: backend.numpy.mean(layer(x, params, rng=rng)[0])
+    f = lambda x: backend.numpy.mean(layer(x, params=params, rng=rng)[0])
     grad = backend.grad(f)(random_input)
     self.assertEqual(grad.shape, input_shape)  # Gradient for each input.
     self.assertEqual(sum(sum(grad)), sum(sum(random_input)))  # Same as input.

@@ -585,8 +585,8 @@ class PPO(base_trainer.BaseTrainer):
       (log_probab_actions_new, _), self._model_state = (
           self._policy_and_value_net_apply(
               padded_observations,
-              self._policy_and_value_net_params,
-              self._model_state,
+              params=self._policy_and_value_net_params,
+              state=self._model_state,
               rng=k2))
 
       action_mask = np.dot(
@@ -798,7 +798,8 @@ class PPO(base_trainer.BaseTrainer):
     key, key1 = jax_random.split(rng, num=2)
 
     (log_probs, value_preds), state = self._policy_and_value_net_apply(
-        observations, self._policy_and_value_net_params, state, rng=key1)
+        observations, params=self._policy_and_value_net_params, state=state,
+        rng=key1)
 
     return log_probs, value_preds, state, key
 

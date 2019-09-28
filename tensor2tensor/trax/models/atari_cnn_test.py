@@ -37,11 +37,10 @@ class AtariCnnTest(test.TestCase):
         hidden_sizes=hidden_size, output_size=output_size)
     B, T, OBS = 2, 2, (28, 28, 3)  # pylint: disable=invalid-name
     rng_key, key = jax_random.split(rng_key)
-    params, state = model.initialize_once((1, 1) + OBS, onp.float32, key)
+    _, _ = model.initialize_once((1, 1) + OBS, onp.float32, key)
     x = onp.arange(B * (T + 1) * functools.reduce(op.mul, OBS)).reshape(
         B, T + 1, *OBS)
-    rng_key, key = jax_random.split(rng_key)
-    y, _ = model(x, params, state=state, rng=key)
+    y, _ = model(x)
     self.assertEqual((B, T + 1, output_size), y.shape)
 
 
@@ -55,11 +54,10 @@ class FrameStackMLPTest(test.TestCase):
         hidden_sizes=hidden_size, output_size=output_size)
     B, T, OBS = 2, 2, 3  # pylint: disable=invalid-name
     rng_key, key = jax_random.split(rng_key)
-    params, state = model.initialize_once((1, 1, OBS), onp.float32, key)
+    _, _ = model.initialize_once((1, 1, OBS), onp.float32, key)
     x = onp.arange(B * (T + 1) * OBS).reshape(
         B, T + 1, OBS)
-    rng_key, key = jax_random.split(rng_key)
-    y, _ = model(x, params, state=state, rng=key)
+    y, _ = model(x)
     self.assertEqual((B, T + 1, output_size), y.shape)
 
 
