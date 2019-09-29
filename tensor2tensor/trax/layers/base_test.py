@@ -38,13 +38,9 @@ class BaseLayerTest(absltest.TestCase):
 
     class IdWithZeroGrad(base.Layer):
 
-      def forward(self, x, params, **kwargs):
-        del params, kwargs
+      def forward(self, x, params=(), state=(), **kwargs):
+        del kwargs
         return x, ()
-
-      def new_params_and_state(self, input_shapes, input_dtype, rng):
-        del input_shapes, input_dtype, rng
-        return (), ()
 
       @property
       def has_backward(self):
@@ -68,8 +64,8 @@ class BaseLayerTest(absltest.TestCase):
 
     class IdWithIdGrad(base.Layer):
 
-      def forward(self, x, params, **kwargs):
-        del params, kwargs
+      def forward(self, x, params=(), state=(), **kwargs):
+        del kwargs
         return x, ()
 
       def new_params_and_state(self, input_shapes, input_dtype, rng):

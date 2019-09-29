@@ -582,7 +582,7 @@ class PPO(base_trainer.BaseTrainer):
 
       # Compute the approx KL for early stopping. Use the whole dataset - as we
       # only do inference, it should fit in the memory.
-      (log_probab_actions_new, _), self._model_state = (
+      (log_probab_actions_new, _) = (
           self._policy_and_value_net_apply(
               padded_observations,
               params=self._policy_and_value_net_params,
@@ -797,7 +797,7 @@ class PPO(base_trainer.BaseTrainer):
     """Returns log-probs, value predictions and key back."""
     key, key1 = jax_random.split(rng, num=2)
 
-    (log_probs, value_preds), state = self._policy_and_value_net_apply(
+    (log_probs, value_preds) = self._policy_and_value_net_apply(
         observations, params=self._policy_and_value_net_params, state=state,
         rng=key1)
 

@@ -79,7 +79,7 @@ class PositionalEncoding(base.Layer):
     self._max_len = max_len
     self._mode = mode
 
-  def forward(self, inputs, params, state, **kwargs):
+  def forward(self, inputs, params=(), state=(), **kwargs):
     if self._mode in ('train', 'eval'):
       x = inputs
       symbol_size = np.shape(x)[1]
@@ -100,9 +100,9 @@ class PositionalEncoding(base.Layer):
     pe[:, 0::2] = onp.sin(position * div_term)
     pe[:, 1::2] = onp.cos(position * div_term)
     pe = pe[onp.newaxis, :, :]  # [1, self._max_len, d_feature]
-    pe = np.array(pe)  # These are trainable parameters, initialized as above.
+    params = np.array(pe)  # These are trainable parameters, initialized above.
     state = 0 if self._mode == 'predict' else ()
-    return (pe, state)
+    return params, state
 
 
 def DotProductAttention(query, key, value, mask, dropout, mode, rng):
@@ -258,7 +258,7 @@ class ShiftRightLearned(base.Layer):
     super(ShiftRightLearned, self).__init__()
     self._initializer = initializer
 
-  def forward(self, x, params, state, **kwargs):
+  def forward(self, x, params=(), state=(), **kwargs):
     del kwargs
     c = backend.numpy.reshape(params, [1, 1, -1])
     c += backend.numpy.zeros((x.shape[0], 1, x.shape[2]), dtype=x.dtype)
@@ -287,7 +287,7 @@ class ComputeAttentionHeads(base.Layer):
     # implementation, and shouldn't have an effect on modeling quality.
     # Note that AttentionQKV above is different in that it uses a bias term.
 
-  def forward(self, x, params, state, **kwargs):
+  def forward(self, x, params=(), state=(), **kwargs):
     del kwargs
     seqlen = x.shape[1]
     res = np.dot(x, params)
@@ -321,7 +321,7 @@ class ComputeAttentionOutput(base.Layer):
     # implementation, and shouldn't have an effect on modeling quality.
     # Note that AttentionQKV above is different in that it uses a bias term.
 
-  def forward(self, x, params, state, **kwargs):
+  def forward(self, x, params=(), state=(), **kwargs):
     del kwargs
     seqlen = x.shape[1]
     d_head = x.shape[2]
@@ -371,9 +371,6 @@ class BaseCausalAttention(base.Layer):
       the output of the forward pass and the gradient signal for each input.
     """
     raise NotImplementedError()
-
-  def new_params_and_state(self, input_shapes, input_dtype, rng):
-    return (), ()
 
 
 class DotProductCausalAttention(BaseCausalAttention):
@@ -447,7 +444,9 @@ class DotProductCausalAttention(BaseCausalAttention):
     )
     mask = np.zeros((batch_size, 1, max_len))
     index = 0
-    return (), (k, v, mask, index)
+    params = ()
+    state = (k, v, mask, index)
+    return params, state
 
 
 class MemoryEfficientCausalAttention(BaseCausalAttention):

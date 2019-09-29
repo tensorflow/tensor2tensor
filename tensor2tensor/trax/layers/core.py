@@ -88,16 +88,14 @@ def Exp(x, **unused_kwargs):
 
 
 @base.layer()
-def LogSoftmax(x, params, axis=-1, **kwargs):
+def LogSoftmax(x, axis=-1, **unused_kwargs):
   """Apply log softmax to x: log-normalize along the given axis."""
-  del params, kwargs
   return x - backend.logsumexp(x, axis, keepdims=True)
 
 
 @base.layer()
-def Softmax(x, params, axis=-1, **kwargs):
+def Softmax(x, axis=-1, **unused_kwargs):
   """Apply softmax to x: exponentiate and normalize along the given axis."""
-  del params, kwargs
   return np.exp(x - backend.logsumexp(x, axis, keepdims=True))
 
 
@@ -112,7 +110,7 @@ def ToFloat(x, **unused_kwargs):
 
 
 class Dense(base.Layer):
-  """Layer constructor function for a dense (fully-connected) layer."""
+  """A dense (a.k.a. fully-connected, affine) layer."""
 
   def __init__(self,
                n_units,
@@ -123,7 +121,7 @@ class Dense(base.Layer):
     self._kernel_initializer = kernel_initializer
     self._bias_initializer = bias_initializer
 
-  def forward(self, x, params, state, **kwargs):
+  def forward(self, x, params=(), state=(), **kwargs):
     del kwargs
     w, b = params
     return np.dot(x, w) + b, state
@@ -148,20 +146,20 @@ class Embedding(base.Layer):
     self._vocab_size = vocab_size
     self._kernel_initializer = kernel_initializer
 
-  def forward(self, x, params, state, **kwargs):
+  def forward(self, x, params=(), state=(), **kwargs):
     del kwargs
     return np.take(params, x, axis=0), state
 
   def new_params_and_state(self, input_shape, input_dtype, rng):
-    del input_dtype
-    return self._kernel_initializer((self._vocab_size, self._d_feature),
-                                    rng), ()
+    del input_shape, input_dtype
+    out_dim = (self._vocab_size, self._d_feature)
+    params = self._kernel_initializer(out_dim, rng)
+    return params, ()
 
 
 # Flatten.
 @base.layer()
-def Flatten(x, params, n_axes_to_keep=1, **kwargs):
-  del params, kwargs
+def Flatten(x, n_axes_to_keep=1, **unused_kwargs):
   if n_axes_to_keep >= len(x.shape):
     raise ValueError("n_axes_to_keep[%d] should be less than input's rank[%d]" %
                      (n_axes_to_keep, len(x.shape)))
@@ -180,11 +178,12 @@ class Dropout(base.Layer):
     self._mode = mode
 
   def new_params_and_state(self, input_shape, input_dtype, rng):
-    """Initialize dropout parameters and state."""
     del input_shape, input_dtype, rng
-    return (), {self._name: np.array(self._initial_rate)}
+    params = ()
+    state = {self._name: np.array(self._initial_rate)}
+    return params, state
 
-  def forward(self, x, params, state, rng=None, **unused_kwargs):
+  def forward(self, x, params=(), state=(), rng=None, **kwargs):
     """Execute dropout."""
     del params
     rate = self._initial_rate
@@ -202,14 +201,12 @@ class Dropout(base.Layer):
 
 
 @base.layer()
-def Div(x, params, divisor=1.0, **kwargs):
-  del params, kwargs
+def Div(x, divisor=1.0, **unused_kwargs):
   return x / divisor
 
 
 @base.layer()
-def AddConstant(x, params, constant=0.0, **unused_kwargs):
-  del params
+def AddConstant(x, constant=0.0, **unused_kwargs):
   return x + constant
 
 
@@ -224,8 +221,7 @@ def one_hot(x, size, dtype=np.float32):  # pylint: disable=invalid-name
 
 # Mean.
 @base.layer()
-def Mean(x, params, axis=-1, keepdims=False, **kwargs):
-  del params, kwargs
+def Mean(x, axis=-1, keepdims=False, **unused_kwargs):
   return np.mean(x, axis=axis, keepdims=keepdims)
 
 

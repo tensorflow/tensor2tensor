@@ -59,10 +59,8 @@ class Map(tl.Layer):
     rngs = _pop_rng_and_split(kwargs, len(inputs))
     results = [self._layer(x, params=params, state=state, rng=r, **kwargs)
                for x, r in zip(inputs, rngs)]
-    result_outputs, result_states = zip(*results)
     # TODO(kitaev): think about how to merge state across copies in the map.
-    result_states = result_states[0]
-    return tuple(result_outputs), tuple(result_states)
+    return tuple(results), self._layer.state
 
   def new_params_and_state(self, input_shape, input_dtype, rng):
     first_shape = input_shape[0]
@@ -226,7 +224,8 @@ class ReversibleHalfResidual(tl.ReversibleLayer, tl.Serial):
     # Note that self.sublayers aligns exactly with self.reverse_layers in
     # terms of parameter and rng usage, so no re-ordering is required.
     for layer, p, s, rng in zip(self.reverse_layers, params, state, rngs):
-      reconstructed_x, _ = layer(reconstructed_x, p, s, rng=rng, **kwargs)
+      reconstructed_x = layer(reconstructed_x, params=p, state=s, rng=rng,
+                              **kwargs)
     return reconstructed_x
 
   def reverse_and_grad(self, output, ct, params=(), state=(), **kwargs):
@@ -236,7 +235,8 @@ class ReversibleHalfResidual(tl.ReversibleLayer, tl.Serial):
       rngs = backend.random.split(rng, self._n_layers)
 
     def call_compute_residual(x, params):
-      res, _ = self.compute_residual(x, params, state[0], rng=rngs[0], **kwargs)
+      res = self.compute_residual(x, params=params, state=state[0], rng=rngs[0],
+                                  **kwargs)
       return res
 
     assert len(ct) == 2
@@ -244,8 +244,9 @@ class ReversibleHalfResidual(tl.ReversibleLayer, tl.Serial):
 
     stack_with_residual, vjpfun = jax.vjp(
         call_compute_residual, output, params[0])
-    reconstructed_x, _ = self.subtract_top(
-        stack_with_residual, params[-1], state[-1], rng=rngs[-1], **kwargs)
+    reconstructed_x = self.subtract_top(
+        stack_with_residual, params=params[-1], state=state[-1], rng=rngs[-1],
+        **kwargs)
 
     x_ct, residual_params_ct = vjpfun(ct)
     assert not jax.tree_util.tree_leaves(params[-1])
@@ -328,8 +329,8 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
     # Note that self.sublayers aligns exactly with self.reverse_layers in
     # terms of parameter and rng usage, so no re-ordering is required.
     for layer, p, s, rng in zip(self.reverse_layers, params, state, rngs):
-      reconstructed_x, _ = layer.reverse(reconstructed_x, p, s, rng=rng,
-                                         **kwargs)
+      reconstructed_x = layer.reverse(reconstructed_x, params=p, state=s,
+                                      rng=rng, **kwargs)
     return reconstructed_x
 
   def reverse_and_grad(self, output, ct, params=(), state=(), **kwargs):
@@ -341,7 +342,8 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
     # Forward pass through self.pre_attention, while preparing for
     # later backprop.
     def call_pre_attention(x, params):
-      res, _ = self.pre_attention(x, params, state[0], rng=rngs[0], **kwargs)
+      res = self.pre_attention(x, params=params, state=state[0], rng=rngs[0],
+                               **kwargs)
       return res
     stack, pre_attention_vjpfun = jax.vjp(call_pre_attention, output, params[0])
 
@@ -351,8 +353,8 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
 
     # Backprop through self.post_attention with respect to the inputs only
     def call_post_attention(x):
-      res, _ = self.post_attention(x, params[2], state[2], rng=rngs[2],
-                                   **kwargs)
+      res = self.post_attention(x, params=params[2], state=state[2],
+                                rng=rngs[2], **kwargs)
       return res
     # Note: these are *not* the actual inputs to self.post_attention.
     # If self.post_attention is not linear, we will get incorrect gradients.
@@ -372,15 +374,15 @@ class ReversibleAttentionHalfResidual(tl.ReversibleLayer, tl.Serial):
     # Forward pass for self.post_attention, and backprop with respect to the
     # parameters only
     def call_post_attention2(params):
-      res, _ = self.post_attention(stack, params, state[2], rng=rngs[2],
-                                   **kwargs)
+      res = self.post_attention(stack, params=params, state=state[2],
+                                rng=rngs[2], **kwargs)
       return res
     stack, post_attention_vjpfun = jax.vjp(call_post_attention2, params[2])
     (post_attention_params_ct,) = post_attention_vjpfun(saved_ct)
 
     # Forward pass through subtracting the residual
-    reconstructed_x, _ = self.subtract_top(
-        stack, params[-1], state[-1], rng=rngs[-1], **kwargs)
+    reconstructed_x = self.subtract_top(
+        stack, params=params[-1], state=state[-1], rng=rngs[-1], **kwargs)
 
     assert not jax.tree_util.tree_leaves(params[-1])
     add_top_params_ct = params[-1]

@@ -112,7 +112,7 @@ class CausalConv(Conv):
         kernel_initializer=kernel_initializer,
         bias_initializer=bias_initializer)
 
-  def forward(self, x, params=(), **kwargs):
+  def forward(self, x, params=(), state=(), **kwargs):
     assert self._padding == 'VALID'
     # Left pad with 0s. Applying an unmasked valid convolution on top of this
     # yields a causal convolution.

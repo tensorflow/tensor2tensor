@@ -267,7 +267,7 @@ class RawSimulatedEnvProblem(SimulatedEnvProblem):
     return history[:, -1, ...]
 
   def _step_model(self, predict_fn, actions, rng):
-    (observation, reward), self._model_state = predict_fn(
+    (observation, reward) = predict_fn(
         (self._history, actions), state=self._model_state, rng=rng)
 
     # Roll the history one timestep back and append the new observation.
@@ -400,7 +400,7 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
   def _predict_obs(self, predict_fn, rng):
     for (i, subrng) in enumerate(jax_random.split(rng, self._obs_repr_length)):
       symbol_index = self._steps * self._step_repr_length + i
-      log_probs, self._model_state = predict_fn(
+      log_probs = predict_fn(
           self._last_symbols, state=self._model_state, rng=subrng,
       )
       log_probs = log_probs

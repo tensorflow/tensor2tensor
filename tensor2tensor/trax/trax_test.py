@@ -95,13 +95,12 @@ class TraxTest(test.TestCase, parameterized.TestCase):
       train_steps = 2
       eval_steps = 2
       # Adds Dropout and BatchNorm to test state handling.
-      mlp = functools.partial(models.MLP,
-                              d_hidden=16,
-                              n_output_classes=n_classes)
       def model_fn(mode="train"):
         return layers.Model(layers.Dropout(mode=mode, rate=0.1),
                             layers.BatchNorm(mode=mode),
-                            mlp(mode=mode))
+                            models.MLP(d_hidden=16,
+                                       n_output_classes=n_classes,
+                                       mode=mode))
 
       inputs = lambda _: test_inputs(n_classes)
 

@@ -146,9 +146,8 @@ def loss(params, batch, model_predict, state, rng, has_weights):
       [inputs, targets])
   # Call model, predictions will be the returned stack, usually consisting of
   # the prediction tensor and the targets.
-  predictions, state = model_predict(model_input, params=params, state=state,
-                                     rng=rng)
-  predictions = get_preds(predictions)
+  outputs = model_predict(model_input, params=params, state=state, rng=rng)
+  predictions = get_preds(outputs)
   predictions, targets, weights = _make_list(predictions, targets, weights)
   xent = []
   for (pred, target) in zip(predictions, targets):
@@ -306,8 +305,8 @@ def evaluate(inputs_stream, predict_fn, metric_fns, state, rng, has_weights):
     rng, subrng = jax_random.split(rng)
     model_inp, get_preds = _stack_inputs_targets_and_get_predictions(inp)
     # Call model, preds will be the returned stack, usually (pred, targets).
-    preds, state = predict_fn(model_inp, state=state, rng=subrng)
-    pred = get_preds(preds)
+    outputs = predict_fn(model_inp, state=state, rng=subrng)
+    pred = get_preds(outputs)
     for m, f in six.iteritems(metric_fns):
       metrics[m] += f(inp, pred, has_weights=has_weights)
   return {m: v / count for (m, v) in six.iteritems(metrics)}, state
@@ -425,7 +424,7 @@ def _jit_predict_fn(model_predict, n_devices, jit=True):
 
   def predict(x, params=(), state=(), rng=None):
     """Predict function jited and parallelized as requested."""
-    pred, state = mapped_predict(
+    pred = mapped_predict(
         reshape_by_device(x, n_devices),
         params,
         state,
@@ -435,7 +434,7 @@ def _jit_predict_fn(model_predict, n_devices, jit=True):
     def combine(x):
       batch_size = x.shape[0] * x.shape[1]
       return np.reshape(x, [batch_size] + list(x.shape[2:]))
-    return layers.nested_map(pred, combine), state
+    return layers.nested_map(pred, combine)
 
   return predict
 

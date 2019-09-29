@@ -40,7 +40,7 @@ class AtariCnnTest(test.TestCase):
     _, _ = model.initialize_once((1, 1) + OBS, onp.float32, key)
     x = onp.arange(B * (T + 1) * functools.reduce(op.mul, OBS)).reshape(
         B, T + 1, *OBS)
-    y, _ = model(x)
+    y = model(x)
     self.assertEqual((B, T + 1, output_size), y.shape)
 
 
@@ -57,7 +57,7 @@ class FrameStackMLPTest(test.TestCase):
     _, _ = model.initialize_once((1, 1, OBS), onp.float32, key)
     x = onp.arange(B * (T + 1) * OBS).reshape(
         B, T + 1, OBS)
-    y, _ = model(x)
+    y = model(x)
     self.assertEqual((B, T + 1, output_size), y.shape)
 
 

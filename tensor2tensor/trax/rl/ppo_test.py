@@ -96,7 +96,7 @@ class PpoTest(test.TestCase):
     time_steps = 10
     batch_of_observations = np.random.uniform(
         size=(batch, time_steps) + observation_shape)
-    pnv_output, _ = pnv_model(batch_of_observations)
+    pnv_output = pnv_model(batch_of_observations)
 
     # Output is a list, first is probab of actions and the next is value output.
     self.assertEqual(2, len(pnv_output))
@@ -462,9 +462,9 @@ class PpoTest(test.TestCase):
     mask = np.ones_like(rewards)
 
     # Just test that this computes at all.
-    (new_log_probabs, value_predictions_new), _ = (
-        net(observations, param=new_params, state=state))
-    (old_log_probabs, value_predictions_old), _ = (
+    (new_log_probabs, value_predictions_new) = (
+        net(observations, params=new_params, state=state))
+    (old_log_probabs, value_predictions_old) = (
         net(observations, params=old_params, state=state))
 
     gamma = 0.99

@@ -67,20 +67,16 @@ class TransformerTest(parameterized.TestCase):
       model_fast = model_fn(mode='predict')
       rng = backend.random.get_prng(0)
       batch_size = 2
-      (params, state_slow) = model_slow.initialize_once(
-          input_shapes=(batch_size, 1), input_dtype=np.int32, rng=rng)
-      (_, state_fast) = model_fast.initialize_once(
-          input_shapes=(batch_size, 1), input_dtype=np.int32, rng=rng)
+      _, _ = model_slow.initialize_once((batch_size, 1), np.int32, rng)
+      _, _ = model_fast.initialize_once((batch_size, 1), np.int32, rng)
 
       max_length = 5
       buf = onp.zeros((batch_size, max_length), dtype=np.int32)
       next_sym = onp.zeros((batch_size, 1), dtype=onp.int32)
 
       for index in range(max_length):
-        (logits_slow, state_slow) = model_slow(
-            buf, params=params, state=state_slow, rng=rng)
-        (logits_fast, state_fast) = model_fast(
-            next_sym, params=params, state=state_fast, rng=rng)
+        logits_slow = model_slow(buf, rng=rng)
+        logits_fast = model_fast(next_sym, rng=rng)
         onp.testing.assert_array_almost_equal(
             logits_slow[:, index, :], logits_fast[:, 0, :])
         next_sym = onp.random.randint(vocab_size, size=(batch_size, 1))

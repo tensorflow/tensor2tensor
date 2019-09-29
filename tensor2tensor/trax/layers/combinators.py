@@ -111,6 +111,9 @@ class Serial(base.Layer):
 
     - takes layer k's N_out return values (N_out = k.n_outputs) and pushes
       them onto the data stack.
+
+  A Serial instance with no sublayers acts as a special-case (but useful)
+  1-input 1-output no-op.
   """
 
   def __init__(self, *layers):
@@ -198,8 +201,8 @@ class Serial(base.Layer):
         inputs = stack[0]
       else:
         inputs = stack[:n_in]
-      outputs, s = layer(inputs, params=p, state=s, rng=rng, **kwargs)
-      new_state.append(s)
+      outputs = layer(inputs, params=p, state=s, rng=rng, **kwargs)
+      new_state.append(layer.state)
 
       # Push outputs onto remaining stack (if any).
       if n_in < _count_items(stack):
@@ -341,9 +344,6 @@ class Concatenate(base.Layer):
     self._n_items = n_items
     self._axis = axis
 
-  def new_params_and_state(self, input_shape, input_dtype, rng):
-    return (), ()
-
   def forward(self, xs, params=(), state=(), **kwargs):
     del params, kwargs
     return backend.numpy.concatenate(xs, self._axis), state
@@ -467,12 +467,12 @@ class Parallel(base.Layer):
     new_state = []
     for layer, x, p, s, r in zip(layers, sublayer_inputs, params, state, rngs):
       # Note that zip silently truncates its result if lengths don't match.
-      sub_outputs, s = layer(x, params=p, state=s, rng=r, **kwargs)
+      sub_outputs = layer(x, params=p, state=s, rng=r, **kwargs)
       if layer.n_outputs == 1:
         outputs.append(sub_outputs)
       else:
         outputs.extend(sub_outputs)
-      new_state.append(s)
+      new_state.append(layer.state)
     output = outputs[0] if self.n_outputs == 1 else tuple(outputs)
     return output, new_state
 

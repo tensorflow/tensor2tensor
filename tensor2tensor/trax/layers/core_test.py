@@ -61,7 +61,7 @@ class CoreLayerTest(absltest.TestCase):
   def test_div(self):
     layer = core.Div(divisor=2.0)
     input_np = onp.array([[1, 2, 3], [4, 5, 6]], dtype=onp.float32)
-    output_np, _ = layer(input_np)
+    output_np = layer(input_np)
     # absltest doesn't have ndarray equalities.
     expected_output_np = input_np / 2.0
     self.assertAlmostEqual(

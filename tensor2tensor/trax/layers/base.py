@@ -114,7 +114,7 @@ class Layer(object):
     """
     raise NotImplementedError
 
-  def new_params_and_state(self, input_shapes, input_dtype, rng):
+  def new_params_and_state(self, input_shape, input_dtype, rng):
     """Returns a (params, state) pair suitable for initializing this layer.
 
     Authors of new Layer subclasses should override this method if their layer
@@ -123,13 +123,14 @@ class Layer(object):
     no parameters or state.
 
     Args:
-      input_shapes: A tuple representing a shape (if this layer takes one input)
+      input_shape: A tuple representing a shape (if this layer takes one input)
           or a tuple of shapes (if this layer takes more than one input).
           For example: (210, 160, 3) or ((210, 160, 3), (105, 80, 3)).
       input_dtype: Numpy dtype(s) for each of the inputs.
       rng: A PRNG key for random number generation.
     """
-    raise NotImplementedError
+    del input_shape, input_dtype, rng
+    return (), ()
 
   @property
   def n_inputs(self):
@@ -285,8 +286,8 @@ class Layer(object):
             - rng=... will supply a PRNG key for use by the layer
 
     Returns:
-      An (outputs, state) tuple. The outputs part of the tuple is formatted the
-          same as the outputs from Layer.forward.
+      0 or more output tensors, formatted the same as the outputs from
+          Layer.forward.
     """
     params = kwargs.pop('params', self.params)
     state = kwargs.pop('state', self.state)
@@ -302,10 +303,11 @@ class Layer(object):
         self._params = params
 
       if not self.has_backward or Layer._STASH_IN is not None:
-        return self.forward(x, params=params, state=state, **kwargs)
+        outputs, s = self.forward(x, params=params, state=state, **kwargs)
       else:
-        return self._do_custom_gradients(x, params, state, **kwargs)
-
+        outputs, s = self._do_custom_gradients(x, params, state, **kwargs)
+      self._state = s
+      return outputs
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback()
       raise LayerError(name, 'forward', self._caller, shapes(x), trace)
@@ -602,7 +604,7 @@ def check_shape_agreement(layer_obj, input_shapes, integer_inputs=False):
     output_shape = pseudo_output.shape
 
   random_input = _random_values(input_shapes, rng2, integer_inputs)
-  real_output, _ = layer_obj(random_input, params=params, state=state, rng=rng3)
+  real_output = layer_obj(random_input, params=params, state=state, rng=rng3)
   result_shape = shapes(real_output)
 
   msg = 'output shape %s != real result shape %s' % (output_shape, result_shape)
