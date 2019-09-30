@@ -7,11 +7,11 @@ n_symbols = 128
 length = 1024
 batch = 32
 
-# Parameters for batch_fun:
+# Parameters for batch_fn:
 # ==============================================================================
-batch_fun.batch_size_per_device = %batch
-batch_fun.eval_batch_size = %batch
-batch_fun.max_eval_length = %length
+batch_fn.batch_size_per_device = %batch
+batch_fn.eval_batch_size = %batch
+batch_fn.max_eval_length = %length
 
 # Parameters for inputs:
 # ==============================================================================

@@ -44,10 +44,10 @@ class InputsTest(tf.test.TestCase):
   def setUp(self):
     gin.clear_config()
 
-  def test_batch_fun(self):
+  def test_batch_fn(self):
     dataset = test_dataset_ints([32])
     dataset = dataset.repeat(10)
-    batches = inputs.batch_fun(
+    batches = inputs.batch_fn(
         dataset, True, ([None], [None]), [], 1, batch_size=10)
     count = 0
     for example in tfds.as_numpy(batches):
@@ -55,10 +55,10 @@ class InputsTest(tf.test.TestCase):
       self.assertEqual(example[0].shape[0], 10)  # Batch size = 10.
     self.assertEqual(count, 1)  # Just one batch here.
 
-  def test_batch_fun_n_devices(self):
+  def test_batch_fn_n_devices(self):
     dataset = test_dataset_ints([32])
     dataset = dataset.repeat(9)
-    batches = inputs.batch_fun(
+    batches = inputs.batch_fn(
         dataset, True, ([None], [None]), [], 9, batch_size=10)
     count = 0
     for example in tfds.as_numpy(batches):

@@ -4,12 +4,12 @@ import tensor2tensor.trax.models
 import tensor2tensor.trax.optimizers
 import tensor2tensor.trax.trax
 
-# Parameters for batch_fun:
+# Parameters for batch_fn:
 # ==============================================================================
-batch_fun.batch_size_per_device = 256
-batch_fun.bucket_length = 32
-batch_fun.buckets = None
-batch_fun.eval_batch_size = 512
+batch_fn.batch_size_per_device = 256
+batch_fn.bucket_length = 32
+batch_fn.buckets = None
+batch_fn.eval_batch_size = 512
 
 # Parameters for inputs:
 # ==============================================================================

@@ -35,13 +35,13 @@ import tensorflow_datasets as tfds
 # Inputs is the trax tuple defining the input streams and shapes.
 # * train_stream: training data that will be used for training
 #     may include all the augmentation or selection the training wants
-#     the shape of examples is [batch_fun.batch_size, ...]
+#     the shape of examples is [batch_fn.batch_size, ...]
 # * train_eval_stream: training data used for evaluation
 #     examples from training data but usually without augmentation
-#     the shape of examples is [batch_fun.eval_batch_size, ...]
+#     the shape of examples is [batch_fn.eval_batch_size, ...]
 # * eval_stream: evaluation data stream
 #     examples from evaluation data, usually without augmentation
-#     the shape of examples is [batch_fun.eval_batch_size, ...]
+#     the shape of examples is [batch_fn.eval_batch_size, ...]
 # * input_shape: the shape of inputs
 #     the [...] above, without batch size
 # * input_dtype: the data type of inputs
@@ -398,11 +398,11 @@ def _train_and_eval_dataset_v1(problem_name, data_dir):
 
 @gin.configurable(blacklist=['dataset', 'training', 'shapes',
                              'target_names', 'n_devices'])
-def batch_fun(dataset, training, shapes, target_names, n_devices,
-              batch_size_per_device=32, batch_size=None, eval_batch_size=32,
-              bucket_length=32, buckets=None,
-              buckets_include_inputs_in_length=False,
-              batch_shuffle_size=128, max_eval_length=None):
+def batch_fn(dataset, training, shapes, target_names, n_devices,
+             batch_size_per_device=32, batch_size=None, eval_batch_size=32,
+             bucket_length=32, buckets=None,
+             buckets_include_inputs_in_length=False,
+             batch_shuffle_size=128, max_eval_length=None):
   """Batching function."""
   del target_names
   # Batch size is batch_size_per_device * n_devices unless given directly.
@@ -620,7 +620,7 @@ def shuffle_and_batch_data(dataset,
   shapes = {k: features_info[k].shape for k in features_info}
   shapes = (shapes, shapes[target_names[0]])
   dataset = dataset.shuffle(shuffle_buffer_size)
-  dataset = batch_fun(dataset, training, shapes, target_names, n_devices)
+  dataset = batch_fn(dataset, training, shapes, target_names, n_devices)
   return dataset.prefetch(2)
 
 
