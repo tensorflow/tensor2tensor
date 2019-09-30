@@ -95,13 +95,12 @@ class TraxTest(test.TestCase, parameterized.TestCase):
       train_steps = 2
       eval_steps = 2
       # Adds Dropout and BatchNorm to test state handling.
-      mlp = functools.partial(models.MLP,
-                              d_hidden=16,
-                              n_output_classes=n_classes)
       def model_fn(mode="train"):
         return layers.Model(layers.Dropout(mode=mode, rate=0.1),
                             layers.BatchNorm(mode=mode),
-                            mlp(mode=mode))
+                            models.MLP(d_hidden=16,
+                                       n_output_classes=n_classes,
+                                       mode=mode))
 
       inputs = lambda _: test_inputs(n_classes)
 
@@ -124,7 +123,7 @@ class TraxTest(test.TestCase, parameterized.TestCase):
       # Predict with final params
       inputs = inputs(1).train_stream()
       model = layers.Serial(model_fn())
-      model(next(inputs)[0], state.opt_state.params)
+      model(next(inputs)[0], params=state.opt_state.params)
 
   @parameterized.parameters(BACKENDS)
   def test_train_eval_predict_sm3(self, backend_name):
@@ -160,7 +159,7 @@ class TraxTest(test.TestCase, parameterized.TestCase):
       # Predict with final params
       inputs = inputs(1).train_stream()
       model = layers.Serial(model_fn())
-      model(next(inputs)[0], state.opt_state.params)
+      model(next(inputs)[0], params=state.opt_state.params)
 
   @parameterized.parameters(BACKENDS)
   def test_train_restart(self, backend_name):

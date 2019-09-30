@@ -79,7 +79,7 @@ class PositionalEncoding(base.Layer):
     self._max_len = max_len
     self._mode = mode
 
-  def call(self, inputs, params, state, **kwargs):
+  def forward(self, inputs, params=(), state=(), **kwargs):
     if self._mode in ('train', 'eval'):
       x = inputs
       symbol_size = np.shape(x)[1]
@@ -90,7 +90,7 @@ class PositionalEncoding(base.Layer):
       # storing the index in state.
       return (inputs + np.expand_dims(params[:, state, :], 1), state + 1)
 
-  def new_parameters(self, input_shape, input_dtype, rng):
+  def new_params_and_state(self, input_shape, input_dtype, rng):
     del input_dtype, rng
     d_feature = input_shape[-1]
     pe = onp.zeros((self._max_len, d_feature), dtype=onp.float32)
@@ -100,9 +100,9 @@ class PositionalEncoding(base.Layer):
     pe[:, 0::2] = onp.sin(position * div_term)
     pe[:, 1::2] = onp.cos(position * div_term)
     pe = pe[onp.newaxis, :, :]  # [1, self._max_len, d_feature]
-    pe = np.array(pe)  # These are trainable parameters, initialized as above.
+    params = np.array(pe)  # These are trainable parameters, initialized above.
     state = 0 if self._mode == 'predict' else ()
-    return (pe, state)
+    return params, state
 
 
 def DotProductAttention(query, key, value, mask, dropout, mode, rng):
@@ -258,13 +258,13 @@ class ShiftRightLearned(base.Layer):
     super(ShiftRightLearned, self).__init__()
     self._initializer = initializer
 
-  def call(self, x, params, state, **kwargs):
+  def forward(self, x, params=(), state=(), **kwargs):
     del kwargs
     c = backend.numpy.reshape(params, [1, 1, -1])
     c += backend.numpy.zeros((x.shape[0], 1, x.shape[2]), dtype=x.dtype)
     return backend.numpy.concatenate([c, x], axis=1)[:, :-1, :], state
 
-  def new_parameters(self, input_shape, input_dtype, rng):
+  def new_params_and_state(self, input_shape, input_dtype, rng):
     del input_dtype
     b = self._initializer((input_shape[-1],), rng)
     return b, ()
@@ -287,7 +287,7 @@ class ComputeAttentionHeads(base.Layer):
     # implementation, and shouldn't have an effect on modeling quality.
     # Note that AttentionQKV above is different in that it uses a bias term.
 
-  def call(self, x, params, state, **kwargs):
+  def forward(self, x, params=(), state=(), **kwargs):
     del kwargs
     seqlen = x.shape[1]
     res = np.dot(x, params)
@@ -301,7 +301,7 @@ class ComputeAttentionHeads(base.Layer):
 
     return res, state
 
-  def new_parameters(self, input_shape, input_dtype, rng):
+  def new_params_and_state(self, input_shape, input_dtype, rng):
     del input_dtype
     w = self._kernel_initializer(
         (input_shape[-1], self._n_heads * self._d_head), rng)
@@ -321,7 +321,7 @@ class ComputeAttentionOutput(base.Layer):
     # implementation, and shouldn't have an effect on modeling quality.
     # Note that AttentionQKV above is different in that it uses a bias term.
 
-  def call(self, x, params, state, **kwargs):
+  def forward(self, x, params=(), state=(), **kwargs):
     del kwargs
     seqlen = x.shape[1]
     d_head = x.shape[2]
@@ -332,7 +332,7 @@ class ComputeAttentionOutput(base.Layer):
 
     return np.dot(x, params), state
 
-  def new_parameters(self, input_shape, input_dtype, rng):
+  def new_params_and_state(self, input_shape, input_dtype, rng):
     del input_dtype
     w = self._kernel_initializer(
         (input_shape[-1] * self._n_heads, self._d_model), rng)
@@ -345,11 +345,11 @@ class BaseCausalAttention(base.Layer):
   def __init__(self):
     super(BaseCausalAttention, self).__init__(n_inputs=3)
 
-  def call(self, inputs, params=(), state=(), rng=None, **kwargs):
+  def forward(self, inputs, params=(), state=(), rng=None, **kwargs):
     """Forward pass for the attention layer."""
     raise NotImplementedError()
 
-  def call_and_grad(self, inputs, grad, **kwargs):
+  def forward_and_backward(self, inputs, grad, **kwargs):
     """Performs both forward and backward pass for the attention layer.
 
     This is used in reversible models: for the backward pass of a reversible
@@ -372,9 +372,6 @@ class BaseCausalAttention(base.Layer):
     """
     raise NotImplementedError()
 
-  def new_parameters(self, input_shapes, input_dtype, rng):
-    return (), ()
-
 
 class DotProductCausalAttention(BaseCausalAttention):
   """A standard (non-memory-efficient) dot product attention implementation."""
@@ -384,7 +381,7 @@ class DotProductCausalAttention(BaseCausalAttention):
     self._dropout = dropout
     self._mode = mode
 
-  def call(self, inputs, params=(), state=(), rng=None, **kwargs):
+  def forward(self, inputs, params=(), state=(), rng=None, **kwargs):
     del params
     q, k, v = inputs
     if self._mode in ('train', 'eval'):
@@ -419,17 +416,17 @@ class DotProductCausalAttention(BaseCausalAttention):
         q, k, v, mask, dropout=self._dropout, mode=self._mode, rng=rng)
     return res, state
 
-  def call_and_grad(self, inputs, ct, **kwargs):
+  def forward_and_backward(self, inputs, ct, **kwargs):
     assert backend.get_name() == 'jax', (
-        'JAX backend is required to use call_and_grad.')
+        'JAX backend is required to use forward_and_backward.')
     # Simultaneous forward pass and backprop through the attention mechanism.
-    def do_call(x):  # pylint: disable=invalid-name
-      res, _ = self.call(x, **kwargs)
+    def _do_forward(x):  # pylint: disable=invalid-name
+      res, _ = self.forward(x, **kwargs)
       return res
-    output, vjpfun = jax.vjp(do_call, inputs)
+    output, vjpfun = jax.vjp(_do_forward, inputs)
     return output, vjpfun(ct)[0]
 
-  def new_parameters(self, input_shapes, input_dtype, rng):
+  def new_params_and_state(self, input_shapes, input_dtype, rng):
     if self._mode in ('train', 'eval'):
       return (), ()
 
@@ -447,7 +444,9 @@ class DotProductCausalAttention(BaseCausalAttention):
     )
     mask = np.zeros((batch_size, 1, max_len))
     index = 0
-    return (), (k, v, mask, index)
+    params = ()
+    state = (k, v, mask, index)
+    return params, state
 
 
 class MemoryEfficientCausalAttention(BaseCausalAttention):
@@ -478,17 +477,17 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
     self._share_qk = share_qk
     self._hard_k = hard_k
 
-  def call(self, inputs, params=(), state=(), **kwargs):
+  def forward(self, inputs, params=(), state=(), **kwargs):
     del params
-    output, _ = self.call_and_grad(inputs, None, **kwargs)
+    output, _ = self.forward_and_backward(inputs, None, **kwargs)
     return output, state
 
-  def has_custom_grad(self):
+  def has_backward(self):
     return True
 
-  def custom_grad(self, inputs, output, ct, params=(), state=(), **kwargs):
+  def backward(self, inputs, output, ct, params=(), state=(), **kwargs):
     del output, params, state
-    _, inputs_ct = self.call_and_grad(inputs, ct, **kwargs)
+    _, inputs_ct = self.forward_and_backward(inputs, ct, **kwargs)
     return inputs_ct, ()
 
   def make_unit_length(self, x, epsilon=1e-6):
@@ -496,7 +495,7 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
     norm_inputs = x / np.sqrt(variance + epsilon)
     return norm_inputs
 
-  def call_and_grad(self, inputs, ct, rng=None, **kwargs):
+  def forward_and_backward(self, inputs, ct, rng=None, **kwargs):
     del kwargs
     query, key, value = inputs
     depth = np.shape(query)[-1]
@@ -670,17 +669,17 @@ class MergedHashedCausalAttention(BaseCausalAttention):
     if one_rng:
       self._prng = backend.random.get_prng(seed)
 
-  def call(self, inputs, params=(), state=(), **kwargs):
+  def forward(self, inputs, params=(), state=(), **kwargs):
     del params
-    output, _ = self.call_and_grad(inputs, None, **kwargs)
+    output, _ = self.forward_and_backward(inputs, None, **kwargs)
     return output, state
 
-  def has_custom_grad(self):
+  def has_backward(self):
     return True
 
-  def custom_grad(self, inputs, output, ct, params=(), state=(), **kwargs):
+  def backward(self, inputs, output, ct, params=(), state=(), **kwargs):
     del output, params, state
-    _, inputs_ct = self.call_and_grad(inputs, ct, **kwargs)
+    _, inputs_ct = self.forward_and_backward(inputs, ct, **kwargs)
     return inputs_ct, ()
 
   def bin_vectors_by_time(self, vecs):
@@ -724,7 +723,7 @@ class MergedHashedCausalAttention(BaseCausalAttention):
     bins = np.argmax(rotated_vecs, axis=-1)
     return bins
 
-  def call_and_grad(self, inputs, ct, rng=None, **kwargs):
+  def forward_and_backward(self, inputs, ct, rng=None, **kwargs):
     del kwargs
     # We use the same vector as both a query and a key. For now we haven't
     # adjusted any of the surrounding code, so we still get a separate "key"
@@ -916,7 +915,7 @@ class MergedMultiHashedCausalAttention(BaseCausalAttention):
     bins = np.argmax(rotated_vecs, axis=-1)
     return bins
 
-  def call(self, inputs, params=(), state=(), rng=None, **kwargs):
+  def forward(self, inputs, params=(), state=(), rng=None, **kwargs):
     del params, kwargs
     # We use the same vector as both a query and a key. For now we haven't
     # adjusted any of the surrounding code, so we still get a separate "key"
@@ -1113,14 +1112,14 @@ class MergedMultiHashedCausalAttention(BaseCausalAttention):
 
     return out, state
 
-  def call_and_grad(self, inputs, ct, rng=None, **kwargs):
-    # TODO(kitaev): is there a manual implementation of call_and_grad that's
-    # faster than having jax infer one? Or are the permute/unpermute custom
-    # gradients defined in call() sufficient for reasonable speed?
-    def _do_call(x):
-      return self.call(x, params=(), state=(), rng=rng, **kwargs)[0]
+  def forward_and_backward(self, inputs, ct, rng=None, **kwargs):
+    # TODO(kitaev): is there a manual implementation of forward_and_backward
+    # that's faster than having jax infer one? Or are the permute/unpermute
+    # custom gradients defined in forward() sufficient for reasonable speed?
+    def _do_forward(x):
+      return self.forward(x, params=(), state=(), rng=rng, **kwargs)[0]
 
-    output, vjpfun = jax.vjp(_do_call, inputs)
+    output, vjpfun = jax.vjp(_do_forward, inputs)
     return output, vjpfun(ct)[0]
 
 
@@ -1153,22 +1152,22 @@ class MergedMultiHashedCausalAttentionV2(BaseCausalAttention):
     self._hard_k = hard_k
     self._rehash_each_round = rehash_each_round
 
-  def call(self, inputs, params=(), state=(), rng=None, **kwargs):
+  def forward(self, inputs, params=(), state=(), rng=None, **kwargs):
     del params, kwargs
     output, _ = self.batch_call_and_or_grad(inputs[0], inputs[2], rng=rng)
     return output, state
 
-  def call_and_grad(self, inputs, ct, rng=None, **kwargs):
+  def forward_and_backward(self, inputs, ct, rng=None, **kwargs):
     del kwargs
     output, (qk_ct, v_ct) = self.batch_call_and_or_grad(
         inputs[0], inputs[2], ct=ct, rng=rng)
     return output, (qk_ct, np.zeros_like(inputs[1]), v_ct)
 
-  def has_custom_grad(self):
+  def has_backward(self):
     return True
 
-  def custom_grad(self, inputs, output, ct, params=(), state=(), rng=None,
-                  **kwargs):
+  def backward(self, inputs, output, ct, params=(), state=(), rng=None,
+               **kwargs):
     del output, params, state
     _, (qk_ct, v_ct) = self.batch_call_and_or_grad(
         inputs[0], inputs[2], return_output=False, ct=ct, rng=rng)

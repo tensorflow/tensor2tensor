@@ -25,20 +25,18 @@ import numpy as np
 def historical_metric_values(history, metric):
   """Converts a metric stream from a trax History object into a numpy array."""
   metric_sequence = history.get(*metric)
-  return np.array([
+  metric_values = np.array([
       metric_value for (_, metric_value) in metric_sequence
   ])
+  if np.any(np.isnan(metric_values)):
+    # Zero out all observations if any element is NaN. This way the agent
+    # doesn't get any rewards, so it learns to avoid those regions.
+    metric_values[:] = 0.0
+  return metric_values
 
 
-def metric_to_observation(metric_values, metric_range):
-  """Clips and scales the metric to the [-1, 1] interval."""
-  (low, high) = metric_range
-  clipped_values = np.clip(metric_values, low, high)
-  return (clipped_values - low) / (high - low) * 2 - 1
-
-
-def control_to_observation(control_values, control_config):
-  """Flips, logarithms, clips and scales the control to the [-1, 1] interval."""
+def control_to_observation(control_values, control_config, observation_range):
+  """Flips, logarithms, clips and scales the control to observation_range."""
   (_, _, (low, high), flip) = control_config
   def transform(x):
     return np.log(maybe_flip(x, flip))
@@ -47,7 +45,13 @@ def control_to_observation(control_values, control_config):
   )
   if flip:
     (log_low, log_high) = (log_high, log_low)
-  return metric_to_observation(log_control_values, (log_low, log_high))
+  log_control_values = np.clip(log_control_values, log_low, log_high)
+  # Rescale the log control values to the observation range.
+  (obs_low, obs_high) = observation_range
+  return (
+      (log_control_values - log_low) / (log_high - log_low) *
+      (obs_high - obs_low) + obs_low
+  )
 
 
 def control_metric(name):
@@ -76,10 +80,9 @@ def maybe_flip(value, flip):
 def history_to_observations(
     history, metrics, observation_range, control_configs=None):
   """Converts a trax History object into a sequence of observations."""
+  (obs_low, obs_high) = observation_range
   observation_dimensions = [
-      metric_to_observation(  # pylint: disable=g-complex-comprehension
-          historical_metric_values(history, metric), observation_range
-      )
+      np.clip(historical_metric_values(history, metric), obs_low, obs_high)
       for metric in metrics
   ]
   if control_configs is not None:
@@ -88,6 +91,7 @@ def history_to_observations(
       observation_dimensions.append(control_to_observation(
           historical_metric_values(history, control_metric(control_name)),
           control_config,
+          observation_range,
       ))
   return np.stack(observation_dimensions, axis=1)
 

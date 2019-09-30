@@ -53,6 +53,7 @@ from __future__ import print_function
 
 import collections
 import functools
+import itertools
 import os
 import re
 import time
@@ -90,12 +91,12 @@ def policy_and_value_net(
   if vocab_size is None:
     # In continuous policies every element of the output sequence corresponds to
     # an observation.
-    n_logits = n_controls * n_actions
+    n_preds_per_input = n_controls
     kwargs = {}
   else:
     # In discrete policies every element of the output sequence corresponds to
     # a symbol in the discrete representation, and each control takes 1 symbol.
-    n_logits = n_actions
+    n_preds_per_input = 1
     kwargs = {"vocab_size": vocab_size}
 
   if two_towers:
@@ -103,10 +104,12 @@ def policy_and_value_net(
         tl.Dup(),
         tl.Parallel(
             [bottom_layers_fn(**kwargs),
-             tl.Dense(n_logits),
+             tl.Dense(n_preds_per_input * n_actions),
              FlattenControlsIntoTime(),  # pylint: disable=no-value-for-parameter
              tl.LogSoftmax()],
-            [bottom_layers_fn(), tl.Dense(n_controls), tl.Flatten()],
+            [bottom_layers_fn(**kwargs),
+             tl.Dense(n_preds_per_input),
+             tl.Flatten()],
         )
     ]
   else:
@@ -114,10 +117,10 @@ def policy_and_value_net(
         bottom_layers_fn(**kwargs),
         tl.Dup(),
         tl.Parallel(
-            [tl.Dense(n_logits),
+            [tl.Dense(n_preds_per_input * n_actions),
              FlattenControlsIntoTime(),  # pylint: disable=no-value-for-parameter
              tl.LogSoftmax()],
-            [tl.Dense(n_controls), tl.Flatten()],
+            [tl.Dense(n_preds_per_input), tl.Flatten()],
         )
     ]
   return tl.Model(layers)
@@ -718,9 +721,9 @@ def combined_loss(new_params,
                   state=None,
                   rng=None):
   """Computes the combined (clipped loss + value loss) given observations."""
-  (log_probab_actions_new, value_predictions_new), state = (
+  (log_probab_actions_new, value_predictions_new) = (
       policy_and_value_net_apply(
-          padded_observations, new_params, state, rng=rng))
+          padded_observations, params=new_params, state=state, rng=rng))
 
   (loss, component_losses, summaries) = combined_loss_given_predictions(
       log_probab_actions_new,
@@ -953,3 +956,16 @@ def write_eval_reward_summaries(reward_stats_by_mode, summary_writer, epoch):
           "Epoch [% 6d] Policy Evaluation (%s reward) "
           "[temperature %.2f] = %10.2f (+/- %.2f)", epoch, reward_mode,
           temperature, reward_stats["mean"], reward_stats["std"])
+
+
+def shuffled_index_batches(dataset_size, batch_size):
+  """Generates batches of shuffled indices over a dataset."""
+  def shuffled_indices():
+    while True:
+      perm = onp.random.permutation(dataset_size)
+      for x in perm:
+        yield x
+
+  indices = shuffled_indices()
+  while True:
+    yield onp.array(list(itertools.islice(indices, int(batch_size))))

@@ -43,7 +43,8 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
   """
 
   def __init__(self, model, batch_size, observation_space, action_space,
-               reward_range, discrete_rewards, history_stream, output_dir):
+               reward_range, discrete_rewards, history_stream, output_dir,
+               model_predict_kwargs=None):
     """Initializes the env.
 
     Args:
@@ -56,11 +57,17 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
       history_stream: Iterator yielding batches of initial input data for the
         model. The format is implementation-specific.
       output_dir: (str) Output dir.
+      model_predict_kwargs: (dict) Additional model keyword arguments for
+        inference. Useful when different config is needed for training and
+        inference, e.g. train with memory efficient attention and predict with
+        the regular one.
     """
     self._model = model
-    model_predict = self._model(mode="predict")
+    if model_predict_kwargs is None:
+      model_predict_kwargs = {}
+    model_predict = self._model(mode="predict", **model_predict_kwargs)
     self._model_predict = backend.jit(model_predict)
-    self._model_initialize = model_predict.initialize
+    self._model_initialize = model_predict.initialize_once
     self._observation_space = observation_space
     self._action_space = action_space
     self._reward_range = reward_range
@@ -260,7 +267,7 @@ class RawSimulatedEnvProblem(SimulatedEnvProblem):
     return history[:, -1, ...]
 
   def _step_model(self, predict_fn, actions, rng):
-    (observation, reward), self._model_state = predict_fn(
+    (observation, reward) = predict_fn(
         (self._history, actions), state=self._model_state, rng=rng)
 
     # Roll the history one timestep back and append the new observation.
@@ -393,7 +400,7 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
   def _predict_obs(self, predict_fn, rng):
     for (i, subrng) in enumerate(jax_random.split(rng, self._obs_repr_length)):
       symbol_index = self._steps * self._step_repr_length + i
-      log_probs, self._model_state = predict_fn(
+      log_probs = predict_fn(
           self._last_symbols, state=self._model_state, rng=subrng,
       )
       log_probs = log_probs

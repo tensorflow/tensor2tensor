@@ -36,7 +36,7 @@ class BatchNorm(base.Layer):
     self._momentum = momentum
     self._mode = mode
 
-  def new_parameters(self, input_shape, input_dtype, rng):
+  def new_params_and_state(self, input_shape, input_dtype, rng):
     """Helper to initialize batch norm params."""
     del input_dtype, rng
     axis = self._axis
@@ -53,9 +53,11 @@ class BatchNorm(base.Layer):
     running_mean = np.zeros(stats_shape, dtype=np.float32)
     running_var = np.ones(stats_shape, dtype=np.float32)
     num_batches = np.zeros((), dtype=np.int32)
-    return (beta, gamma), (running_mean, running_var, num_batches)
+    params = (beta, gamma)
+    state = (running_mean, running_var, num_batches)
+    return params, state
 
-  def call(self, x, params, state, **unused_kwargs):
+  def forward(self, x, params, state, **unused_kwargs):
     """Layer construction function for a batch normalization layer."""
 
     running_mean, running_var, num_batches = state
@@ -104,16 +106,17 @@ class BatchNorm(base.Layer):
 
 
 # Layer normalization.
-def _layer_norm_params(input_shape, input_dtype, rng):
+def _layer_norm_params_and_state(input_shape, input_dtype, rng):
   """Helper: create layer norm parameters."""
   del input_dtype, rng
   features = input_shape[-1]
   scale = np.ones(features)
   bias = np.zeros(features)
-  return (scale, bias)
+  params = (scale, bias)
+  return params, ()
 
 
-@base.layer(new_parameters=_layer_norm_params)
+@base.layer(new_params_and_state_fn=_layer_norm_params_and_state)
 def LayerNorm(x, params, epsilon=1e-6, **unused_kwargs):  # pylint: disable=invalid-name
   (scale, bias) = params
   mean = np.mean(x, axis=-1, keepdims=True)

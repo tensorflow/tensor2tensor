@@ -61,7 +61,7 @@ class CoreLayerTest(absltest.TestCase):
   def test_div(self):
     layer = core.Div(divisor=2.0)
     input_np = onp.array([[1, 2, 3], [4, 5, 6]], dtype=onp.float32)
-    output_np, _ = layer(input_np)
+    output_np = layer(input_np)
     # absltest doesn't have ndarray equalities.
     expected_output_np = input_np / 2.0
     self.assertAlmostEqual(
@@ -82,8 +82,8 @@ class CoreLayerTest(absltest.TestCase):
     model2 = combinators.Serial(layer, layer)
 
     rng1, rng2 = backend.random.split(backend.random.get_prng(0), 2)
-    params1, _ = model1.initialize((1, 32), onp.float32, rng1)
-    params2, _ = model2.initialize((1, 32), onp.float32, rng2)
+    params1, _ = model1.initialize_once((1, 32), onp.float32, rng1)
+    params2, _ = model2.initialize_once((1, 32), onp.float32, rng2)
     # The first parameters have 2 kernels of size (32, 32).
     self.assertEqual((32, 32), params1[0][0].shape)
     self.assertEqual((32, 32), params1[1][0].shape)
