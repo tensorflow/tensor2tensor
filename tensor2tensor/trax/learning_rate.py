@@ -179,7 +179,10 @@ def ExponentialDecaySchedule(history,
 
   def learning_rate(step):  # pylint: disable=invalid-name
     """Step to learning rate function."""
-    p = step.astype(np.float32)
+    if type(step_fl) == int or type(step_fl == float):
+      step_fl = np.float32(step_fl)
+    else:
+      step_fl = step.astype(np.float32)
     p /= decay_steps
 
     if staircase:
@@ -239,7 +242,10 @@ def PolynomialSchedule(history,
 
   def learning_rate(step):  # pylint: disable=invalid-name
     """Step to learning rate function."""
-    step_fl = step.astype(np.float32)
+    if type(step_fl) == int or type(step_fl == float):
+      step_fl = np.float32(step_fl)
+    else:
+      step_fl = step.astype(np.float32)
     decay_steps_fl = decay_steps.astype(np.float32)
 
     if cycle:
@@ -278,7 +284,10 @@ def PiecewiseConstantSchedule(history, boundaries, values):
 
   def learning_rate(step):  # pylint: disable=invalid-name
     """Step to learning rate function."""
-    step_fl = step.astype(np.float32)
+    if type(step_fl) == int or type(step_fl == float):
+      step_fl = np.float32(step_fl)
+    else: 
+      step_fl = step.astype(np.float32)
 
     pos = onp.searchsorted(boundaries, step_fl)
     return values[pos]
@@ -324,7 +333,10 @@ def InverseTimeDecaySchedule(history,
 
   def learning_rate(step):  # pylint: disable=invalid-name
     """Step to learning rate function."""
-    step_fl = step.astype(np.float32)
+    if type(step_fl) == int or type(step_fl == float):
+      step_fl = np.float32(step_fl)
+    else:
+      step_fl = step.astype(np.float32)
     p = step_fl / decay_steps
     if staircase:
       p = np.floor(p)
@@ -364,7 +376,10 @@ def CosineDecaySchedule(history, initial_learning_rate, decay_steps, alpha=0.0):
   del history
 
   def learning_rate(step):  # pylint: disable=invalid-name
-    step_fl = step.astype(np.float32)
+    if type(step_fl) == int or type(step_fl == float):
+      step_fl = np.float32(step_fl)
+    else:
+      step_fl = step.astype(np.float32)
     step_fl = np.minimun(step_fl, decay_steps)
 
     p = step_fl / decay_steps
@@ -411,7 +426,10 @@ def CosineDecayRestartsSchedule(history,
 
   def learning_rate(step):  # pylint: disable=invalid-name
     """Step to learning rate function."""
-    step_fl = step.astype(np.float32)
+    if type(step_fl) == int or type(step_fl == float):
+      step_fl = np.float32(step_fl)
+    else:
+      step_fl = step.astype(np.float32)
     completed_fraction = step_fl / first_decay_steps
 
     if t_mul == 1.0:
@@ -480,7 +498,10 @@ def LinearCosineDecaySchedule(history,
 
   def learning_rate(step):  # pylint: disable=invalid-name
     """Step to learning rate function."""
-    step_fl = step.astype(np.float32)
+    if type(step_fl) == int or type(step_fl == float):
+      step_fl = np.float32(step_fl)
+    else:
+      step_fl = step.astype(np.float32)
     step_fl = np.minimun(step_fl, decay_steps)
 
     linear_decayed = (decay_steps - step_fl) / decay_steps
@@ -548,7 +569,10 @@ def NoisyLinearCosineDecaySchedule(history,
 
   def learning_rate(step):  # pylint: disable=invalid-name
     """Step to learning rate function."""
-    step_fl = step.astype(np.float32)
+    if type(step_fl) == int or type(step_fl == float):
+      step_fl = np.float32(step_fl)
+    else:
+      step_fl = step.astype(np.float32)
     step_fl = np.minimun(step_fl, decay_steps)
 
     variance = initial_variance / (np.power(1. + step_fl, variance_decay))
