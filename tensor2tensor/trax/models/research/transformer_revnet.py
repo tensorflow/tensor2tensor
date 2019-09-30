@@ -71,6 +71,18 @@ class Map(tl.Layer):
                            'with the same shapes. Shapes: %s' % str(shape))
     return self._layer.initialize_once(first_shape, input_dtype[0], rng)
 
+  @tl.Layer.params.setter
+  def params(self, params):
+    self._params = params
+    assert len(params) == 1
+    self._layer.params = params[0]
+
+  @tl.Layer.state.setter
+  def state(self, state):
+    self._state = state
+    assert len(state) == 1
+    self._layer.state = state[0]
+
 
 @tl.layer()
 def BroadcastedDropout(x, params, rate=0.0, mode='train', broadcast_dims=(-2,),
@@ -118,9 +130,6 @@ class Split(tl.Layer):
     res = tuple(backend.numpy.split(inputs, self._n_sections, self._axis))
     return res, state
 
-  def new_params_and_state(self, input_shapes, input_dtype, rng):
-    return (), ()
-
 
 class SplitForOutput(tl.ReversibleLayer):
   """Splits activations into sections (for use right before the output layer).
@@ -141,9 +150,6 @@ class SplitForOutput(tl.ReversibleLayer):
     super(SplitForOutput, self).__init__(n_inputs=2, n_outputs=n_sections)
     self._n_sections = n_sections
     self._axis = axis
-
-  def new_params_and_state(self, input_shape, input_dtype, rng):
-    return (), ()
 
   def forward(self, inputs, params=(), state=(), **kwargs):
     del params, kwargs

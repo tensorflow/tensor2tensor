@@ -75,7 +75,7 @@ class PpoTrainerTest(test.TestCase):
       self, train_env, eval_env, output_dir, model=None, **kwargs
   ):
     if model is None:
-      model = lambda: [layers.Dense(1)]
+      model = lambda: layers.Serial(layers.Dense(1))
     return ppo_trainer.PPO(
         train_env=train_env,
         eval_env=eval_env,

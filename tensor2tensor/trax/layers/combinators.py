@@ -201,8 +201,9 @@ class Serial(base.Layer):
         inputs = stack[0]
       else:
         inputs = stack[:n_in]
-      outputs = layer(inputs, params=p, state=s, rng=rng, **kwargs)
-      new_state.append(layer.state)
+      outputs, s = layer.apply_forward(inputs, params=p, state=s, rng=rng,
+                                       **kwargs)
+      new_state.append(s)
 
       # Push outputs onto remaining stack (if any).
       if n_in < _count_items(stack):
@@ -467,12 +468,13 @@ class Parallel(base.Layer):
     new_state = []
     for layer, x, p, s, r in zip(layers, sublayer_inputs, params, state, rngs):
       # Note that zip silently truncates its result if lengths don't match.
-      sub_outputs = layer(x, params=p, state=s, rng=r, **kwargs)
+      sub_outputs, sub_state = layer.apply_forward(x, params=p, state=s, rng=r,
+                                                   **kwargs)
       if layer.n_outputs == 1:
         outputs.append(sub_outputs)
       else:
         outputs.extend(sub_outputs)
-      new_state.append(layer.state)
+      new_state.append(sub_state)
     output = outputs[0] if self.n_outputs == 1 else tuple(outputs)
     return output, new_state
 

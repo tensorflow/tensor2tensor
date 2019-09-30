@@ -4,17 +4,15 @@
 
 ## Base layer structure
 
-All layers inherit form the Layer class and need to implement 3 functions:
+All layers inherit from the Layer class and generally need to implement 2
+methods:
 
 ```python
-def forward(self, params, inputs, **kwargs):
-"""Call this layer using the given parameters on the given inputs."""
+def forward(self, inputs, params=(), state=(), **kwargs):
+  """Computes the layer's output as part of a forward pass through the model."""
 
-def output_shape(self, input_shape):
-"""The shape of the output given the shape of the input."""
-
-def new_params_and_state(self, input_shape, rng):
-"""Create new parameters given the shape of the input."""
+def new_params_and_state(self, input_shape, input_dtype, rng):
+  """Returns a (params, state) pair suitable for initializing this layer."""
 ```
 
 The base Layer class wraps these functions and provides initialization

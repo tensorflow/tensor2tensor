@@ -51,11 +51,11 @@ class BaseLayerTest(absltest.TestCase):
 
     layer = IdWithZeroGrad()
     rng = backend.random.get_prng(0)
-    params = ()
     input_shape = (9, 17)
     random_input = backend.random.uniform(rng, input_shape, minval=-1.0,
                                           maxval=1.0)
-    f = lambda x: backend.numpy.mean(layer(x, params=params, rng=rng)[0])
+    layer.initialize_once(input_shape, random_input.dtype, rng)
+    f = lambda x: backend.numpy.mean(layer(x))
     grad = backend.grad(f)(random_input)
     self.assertEqual(grad.shape, input_shape)  # Gradient for each input.
     self.assertEqual(sum(sum(grad * grad)), 0.0)  # Each one is 0.
@@ -68,10 +68,6 @@ class BaseLayerTest(absltest.TestCase):
         del kwargs
         return x, ()
 
-      def new_params_and_state(self, input_shapes, input_dtype, rng):
-        del input_shapes, input_dtype, rng
-        return (), ()
-
       @property
       def has_backward(self):
         return True
@@ -81,11 +77,11 @@ class BaseLayerTest(absltest.TestCase):
 
     layer = IdWithIdGrad()
     rng = backend.random.get_prng(0)
-    params = ()
     input_shape = (9, 17)
     random_input = backend.random.uniform(rng, input_shape, minval=-1.0,
                                           maxval=1.0)
-    f = lambda x: backend.numpy.mean(layer(x, params=params, rng=rng)[0])
+    layer.initialize_once(input_shape, random_input.dtype, rng)
+    f = lambda x: backend.numpy.mean(layer(x))
     grad = backend.grad(f)(random_input)
     self.assertEqual(grad.shape, input_shape)  # Gradient for each input.
     self.assertEqual(sum(sum(grad)), sum(sum(random_input)))  # Same as input.

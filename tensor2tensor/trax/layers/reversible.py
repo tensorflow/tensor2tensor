@@ -78,7 +78,7 @@ class ReversibleSwap(ReversibleLayer, cb.Swap):
 
   def reverse(self, output, params=(), state=(), **kwargs):
     # Swap is its own inverse, except that reverse doesn't return the state.
-    return self.forward(output, params, state, **kwargs)[0]
+    return self.forward(output, params=params, state=state, **kwargs)[0]
 
 
 class ReversibleSerial(ReversibleLayer, cb.Serial):

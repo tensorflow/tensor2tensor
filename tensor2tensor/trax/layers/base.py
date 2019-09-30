@@ -67,6 +67,12 @@ class Layer(object):
   """
 
   def __init__(self, n_inputs=1, n_outputs=1):
+    """Creates a partially initialized, unconnected layer instance.
+
+    Args:
+      n_inputs: Number of inputs expected by this layer.
+      n_outputs: Number of outputs promised by this layer.
+    """
     self._n_inputs = n_inputs
     self._n_outputs = n_outputs
     self._sublayers = ()  # Default is no sublayers.
@@ -86,7 +92,7 @@ class Layer(object):
       return '{}{{{}}}'.format(class_str, fields_str)
 
   def forward(self, inputs, params=(), state=(), **kwargs):
-    """Uses this layer as part of a forward pass through the model.
+    """Computes this layer's output as part of a forward pass through the model.
 
     Authors of new Layer subclasses should override this method to define the
     forward computation that their layer performs.
@@ -167,14 +173,18 @@ class Layer(object):
 
   @property
   def has_backward(self):
-    """Whether to use custom gradients (in which case, see below)."""
+    """Returns True if this layer provides its own (custom) backward pass code.
+
+    A layer subclass that provides custom backward pass code (for custom
+    gradients) must override this method to return True.
+    """
     return False
 
   def backward(self, inputs, output, grad, params, state, **kwargs):
     """Custom backward pass to propagate gradients in a custom way.
 
     Args:
-      inputs: Input activations; can be a (possibly nested) tuple.
+      inputs: Input tensors; can be a (possibly nested) tuple.
       output: The result of running this layer on inputs.
       grad: gradient signal (called cotangent in jax) computed based on
         subsequent layers. The structure and shape must match output.
@@ -202,9 +212,11 @@ class Layer(object):
       state: start state.
 
     Returns:
-      A ShapeType instance representing the shape and type of the output (if
-      this layer has one output) or a tuple of ShapeType instances (if this
-      layer has more than one output).
+      A tuple of (output, state).
+
+      The output part of the tuple is a ShapeType instance representing the
+      shape and type of the output (if this layer has one output) or a tuple
+      of ShapeType instances (if this layer has more than one output).
     """
     try:
       # Beware: using an actual RNG (as opposed to this ShapeType stub) would
@@ -224,21 +236,22 @@ class Layer(object):
                        trace)
 
   def initialize_once(self, input_shapes, input_dtype, rng):
-    """Initialize the layer given an input shape, dtype and rng.
+    """Initializes this layer and its sublayers recursively.
 
-    Returns new_params_and_state(input_shapes, rng) on the first call and () on
-    any subsequent call, as the layer is already initialized. This is used for
-    networks that share parameters, so the layer only produces them once.
+    This method is designed to initialize each layer instance once, even if the
+    same layer instance occurs in multiple places in the network. This enables
+    weight sharing to be implemented as layer sharing.
 
     Args:
       input_shapes: A tuple representing a shape (if this layer takes one input)
           or a tuple of shapes (if this layer takes more than one input).
           For example: (210, 160, 3) or ((210, 160, 3), (105, 80, 3)).
-      input_dtype: numpy dtype of the input.
-      rng: A random number generator.
+      input_dtype: Numpy dtype(s) for each of the inputs.
+      rng: A PRNG key for random number generation.
 
     Returns:
-      Newly created parameters on the first call and () on all subsequent calls.
+      A (params, state) tuple, in which params contains newly created parameters
+          on the first call and () on all subsequent calls.
     """
     try:
       # Initialize params once; store them for use when this layer is called.
@@ -291,6 +304,25 @@ class Layer(object):
     """
     params = kwargs.pop('params', self.params)
     state = kwargs.pop('state', self.state)
+    outputs, _ = self.apply_forward(x, params=params, state=state, **kwargs)
+    return outputs
+
+  def apply_forward(self, x, params=(), state=(), **kwargs):
+    """Applies this layer as part of a forward pass; an internal system method.
+
+    This method is reserved for handling plumbing and other internal affairs
+    as needed by the overall library. Trax library users should use or override
+    the `forward` method instead.
+
+    Args:
+      x: See Layer.forward inputs.
+      params: See Layer.forward.
+      state: See Layer.forward.
+      **kwargs: See Layer.forward.
+
+    Returns:
+      See Layer.forward.
+    """
     try:
       # If params are nothing, we may be reusing this layer.
       # Use the cached parameters to calculate the value.
@@ -307,10 +339,11 @@ class Layer(object):
       else:
         outputs, s = self._do_custom_gradients(x, params, state, **kwargs)
       self._state = s
-      return outputs
+      return outputs, s
+
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback()
-      raise LayerError(name, 'forward', self._caller, shapes(x), trace)
+      raise LayerError(name, 'apply_forward', self._caller, shapes(x), trace)
 
   def _do_custom_gradients(self, x, params, state, **kwargs):
     """Calls this layer for a forward pass, but with custom gradients."""
@@ -373,7 +406,7 @@ class LayerError(Exception):
   def __init__(self, layer_name, function_name, caller,
                input_shapes, traceback_string):
     self._layer_name = layer_name
-    self._function_name = function_name  # Is it forward or initialize_once?
+    self._function_name = function_name
     self._caller = caller  # Python inspect object with init caller info.
     self._traceback = traceback_string
     self._input_shapes = input_shapes
@@ -495,10 +528,10 @@ def _validate_forward_input(x, n_inputs):
 
 
 def layer(n_inputs=1, n_outputs=1, new_params_and_state_fn=None):
-  """Decorates a function to make it the call method of a new Layer class."""
+  """Returns a decorator that converts a function into a Layer class builder."""
 
   def _build_layer_class(raw_fn):
-    """Returns a Layer class built around the given forward function."""
+    """Returns a Layer class whose callable instances execute the function."""
 
     def _init(self, **kwargs):
       self._kwargs = kwargs  # pylint: disable=protected-access
@@ -508,15 +541,14 @@ def layer(n_inputs=1, n_outputs=1, new_params_and_state_fn=None):
       if new_params_and_state_fn is None:
         return (), ()
       kwargs = self._kwargs  # pylint: disable=protected-access
-      return (
-          new_params_and_state_fn(input_shapes, input_dtype, rng, **kwargs), ())
+      return new_params_and_state_fn(input_shapes, input_dtype, rng, **kwargs)
 
     def _is_empty(raw_output):
       return raw_output is None or (isinstance(raw_output, (list, tuple))
                                     and len(raw_output) == 0)  # pylint: disable=g-explicit-length-test
 
     def _forward(self, x, params=(), state=(), **kwargs):
-      """Calls raw_fn with extra keyword args from Layer.__init__."""
+      """Uses this layer as part of a forward pass through the model."""
       merged_kwargs = kwargs.copy()
       merged_kwargs.update(self._kwargs)  # pylint: disable=protected-access
 

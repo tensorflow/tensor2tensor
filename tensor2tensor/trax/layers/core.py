@@ -185,7 +185,7 @@ class Dropout(base.Layer):
 
   def forward(self, x, params=(), state=(), rng=None, **kwargs):
     """Execute dropout."""
-    del params
+    del kwargs
     rate = self._initial_rate
     if isinstance(state, dict) and self._name in state:
       rate = state[self._name]
