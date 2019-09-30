@@ -5,9 +5,9 @@ import tensor2tensor.trax.trax
 
 # Parameters that will vary between experiments:
 # ==============================================================================
-train.model = @trax.models.TransformerRevnetLM
-attn_type = @MergedMultiHashedCausalAttentionV2
-share_qk = True  # Required when using hashed attention
+train.model = @trax.models.ReformerLM
+attn_type = @TimeBinCausalAttention
+share_qk = True  # Required when using LSHCausalAttention
 attn_kv = 64
 n_layers = 3
 dropout = 0.1
@@ -15,14 +15,14 @@ dropout = 0.1
 # MemoryEfficientCausalAttention: full attention
 # (no hparams to vary between experiments)
 
-# MergedHashedCausalAttention: use for timebin
-MergedHashedCausalAttention.n_bins = 512
+# TimeBinCausalAttention: attend to nearby items
+TimeBinCausalAttention.n_bins = 512
 
-# MergedMultiHashedCausalAttentionV2: locality-sensitive hashing (LSH) attention
-MergedMultiHashedCausalAttentionV2.n_bins = 512
-MergedMultiHashedCausalAttentionV2.n_buckets = 1024  # Always 2 * n_bins
-MergedMultiHashedCausalAttentionV2.n_hashes = 2
-MergedMultiHashedCausalAttentionV2.drop_for_hash_rate = 0.0
+# LSHCausalAttention: locality-sensitive hashing (LSH) attention
+LSHCausalAttention.n_bins = 512
+LSHCausalAttention.n_buckets = 1024  # Always 2 * n_bins
+LSHCausalAttention.n_hashes = 2
+LSHCausalAttention.drop_for_hash_rate = 0.0
 
 # Parameters for batch_fn:
 # ==============================================================================
@@ -62,25 +62,24 @@ MemoryEfficientCausalAttention.dropout = 0.0
 MemoryEfficientCausalAttention.loop_stride = 256
 MemoryEfficientCausalAttention.share_qk = %share_qk
 
-# Parameters for MergedHashedCausalAttention:
+# Parameters for TimeBinCausalAttention:
 # ==============================================================================
-MergedHashedCausalAttention.dropout = 0.0
-# MergedHashedCausalAttention.n_bins: see top
-MergedHashedCausalAttention.bin_by_time = True
-MergedHashedCausalAttention.one_rng = False
+TimeBinCausalAttention.dropout = 0.0
+# TimeBinCausalAttention.n_bins: see top
+TimeBinCausalAttention.share_qk = %share_qk
 
-# Parameters for MergedMultiHashedCausalAttentionV2:
+# Parameters for LSHCausalAttention:
 # ==============================================================================
-MergedMultiHashedCausalAttentionV2.allow_duplicate_attention = False
-MergedMultiHashedCausalAttentionV2.attend_across_buckets = False
-MergedMultiHashedCausalAttentionV2.rehash_each_round = True
-# MergedMultiHashedCausalAttentionV2.n_bins: see top
-# MergedMultiHashedCausalAttentionV2.n_buckets: see top
-# MergedMultiHashedCausalAttentionV2.n_hashes: see top
-MergedMultiHashedCausalAttentionV2.one_rng = False
-MergedMultiHashedCausalAttentionV2.hard_k = 0
-MergedMultiHashedCausalAttentionV2.dropout = 0.0
-# MergedMultiHashedCausalAttentionV2.drop_for_hash_rate: see top
+LSHCausalAttention.allow_duplicate_attention = False
+LSHCausalAttention.attend_across_buckets = False
+LSHCausalAttention.rehash_each_round = True
+# LSHCausalAttention.n_bins: see top
+# LSHCausalAttention.n_buckets: see top
+# LSHCausalAttention.n_hashes: see top
+LSHCausalAttention.one_rng = False
+LSHCausalAttention.hard_k = 0
+LSHCausalAttention.dropout = 0.0
+# LSHCausalAttention.drop_for_hash_rate: see top
 
 # Parameters for TransformerLM:
 # ==============================================================================
@@ -98,19 +97,19 @@ TransformerLM.n_chunks = 16
 TransformerLM.share_qk = %share_qk
 TransformerLM.vocab_size = 258  # Includes pad token and unused EOS token
 
-# Parameters for TransformerRevnetLM:
+# Parameters for ReformerLM:
 # ==============================================================================
-TransformerRevnetLM.attention_type = %attn_type
-TransformerRevnetLM.d_attention_key = %attn_kv
-TransformerRevnetLM.d_attention_value = %attn_kv
-TransformerRevnetLM.d_model = 1024
-TransformerRevnetLM.d_ff = 4096
-TransformerRevnetLM.dropout = %dropout
-TransformerRevnetLM.max_len = 65536
-TransformerRevnetLM.mode = 'train'
-TransformerRevnetLM.n_heads = 8
-TransformerRevnetLM.n_layers = %n_layers
-TransformerRevnetLM.vocab_size = 258  # Includes pad token and unused EOS token
-TransformerRevnetLM.n_chunks = 16
-TransformerRevnetLM.n_attention_chunks = 1
-TransformerRevnetLM.share_qk = %share_qk
+ReformerLM.attention_type = %attn_type
+ReformerLM.d_attention_key = %attn_kv
+ReformerLM.d_attention_value = %attn_kv
+ReformerLM.d_model = 1024
+ReformerLM.d_ff = 4096
+ReformerLM.dropout = %dropout
+ReformerLM.max_len = 65536
+ReformerLM.mode = 'train'
+ReformerLM.n_heads = 8
+ReformerLM.n_layers = %n_layers
+ReformerLM.vocab_size = 258  # Includes pad token and unused EOS token
+ReformerLM.n_chunks = 16
+ReformerLM.n_attention_chunks = 1
+ReformerLM.share_qk = %share_qk

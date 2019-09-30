@@ -452,20 +452,20 @@ def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
   ]
 
 
-def TransformerRevnetLM(vocab_size,
-                        d_model=512,
-                        d_ff=2048,
-                        d_attention_key=64,
-                        d_attention_value=64,
-                        n_layers=6,
-                        n_heads=8,
-                        dropout=0.1,
-                        max_len=2048,
-                        n_chunks=32,
-                        n_attention_chunks=8,
-                        attention_type=tl.DotProductCausalAttention,
-                        share_qk=False,
-                        mode='train'):
+def ReformerLM(vocab_size,
+               d_model=512,
+               d_ff=2048,
+               d_attention_key=64,
+               d_attention_value=64,
+               n_layers=6,
+               n_heads=8,
+               dropout=0.1,
+               max_len=2048,
+               n_chunks=32,
+               n_attention_chunks=8,
+               attention_type=tl.DotProductCausalAttention,
+               share_qk=False,
+               mode='train'):
   """Reversible transformer language model (only uses a decoder, no encoder).
 
   Args:
