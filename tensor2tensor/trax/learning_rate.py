@@ -22,6 +22,9 @@ That is, they are functions that take a trax.history.History and return a
 function that takes a step and returns a dict with entry "learning_rate".
 """
 
+# TODO(pkozakowski): Revisit the decision to control nontrainable parameters
+# using LR schedules, or at least rename the module.
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -156,7 +159,7 @@ def PolicySchedule(
         # (name, start, (low, high), flip)
         ("learning_rate", 1e-3, (1e-9, 10.0), False),
     ),
-    metric_range=(0.0, 5.0),
+    observation_range=(0.0, 10.0),
     action_multipliers=(1.0 / 1.5, 1.0 / 1.25, 1.0, 1.25, 1.5),
     policy_and_value_model=trax_models.FrameStackMLP,
     policy_and_value_two_towers=False,
@@ -172,7 +175,7 @@ def PolicySchedule(
     include_controls_in_observation: bool, whether to include the controls in
       observations.
     control_configs: control configs, see trax.rl.envs.OnlineTuneEnv.
-    metric_range: tuple (low, high), range to clip the metrics to.
+    observation_range: tuple (low, high), range to clip the metrics to.
     action_multipliers: sequence of LR multipliers that policy actions
       correspond to.
     policy_and_value_model: Trax model to use as the policy.
@@ -193,7 +196,7 @@ def PolicySchedule(
   # return the initial learning rate.
   start_time = time.time()
   observations = online_tune.history_to_observations(
-      history, observation_metrics, metric_range,
+      history, observation_metrics, observation_range,
       control_configs if include_controls_in_observation else None
   )
   logging.vlog(
@@ -205,10 +208,13 @@ def PolicySchedule(
     }
     return lambda _: controls
 
+  assert policy_and_value_vocab_size is None, (
+      "Serialized policies are not supported yet."
+  )
   # Build the policy network and load its parameters.
   start_time = time.time()
   net = ppo.policy_and_value_net(
-      n_controls=1,
+      n_controls=len(control_configs),
       n_actions=len(action_multipliers),
       vocab_size=policy_and_value_vocab_size,
       bottom_layers_fn=policy_and_value_model,
@@ -233,11 +239,15 @@ def PolicySchedule(
   start_time = time.time()
   # ((log_probs, value_preds), state). We have no way to pass state to the next
   # step, but that should be fine.
-  ((log_probs, _), _) = net(np.array([observations]), params, state, rng=rng)
+  (log_probs, _) = (
+      net(np.array([observations]), params=params, state=state, rng=rng))
   logging.vlog(
       1, "Running the policy took %0.2f sec.", time.time() - start_time
   )
   # Sample from the action distribution for the last timestep.
+  assert log_probs.shape == (
+      1, len(control_configs) * observations.shape[0], len(action_multipliers)
+  )
   action = utils.gumbel_sample(
       log_probs[0, -len(control_configs):, :] / temperature
   )

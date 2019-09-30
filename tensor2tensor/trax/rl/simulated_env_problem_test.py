@@ -64,7 +64,7 @@ class RawSimulatedEnvProblemTest(test.TestCase):
       (observations, actions) = inputs
       new_observations = observations[:, -1] + actions
       rewards = np.array([[int(new_observations % 2 == 0)]])
-      return (new_observations, rewards), ()
+      return (new_observations, rewards)
 
     mock_model_fn = mock.MagicMock()
     mock_model_fn.return_value.side_effect = mock_transition
@@ -130,7 +130,7 @@ class SerializedSequenceSimulatedEnvProblemTest(test.TestCase):
     mock_model_fn = mock.MagicMock()
     if predict_fn is not None:
       mock_model_fn.return_value = predict_fn
-      mock_model_fn.return_value.initialize.return_value = ((), ())
+      mock_model_fn.return_value.initialize_once.return_value = ((), ())
     return simulated_env_problem.SerializedSequenceSimulatedEnvProblem(
         model=mock_model_fn,
         reward_fn=reward_fn,
@@ -169,7 +169,7 @@ class SerializedSequenceSimulatedEnvProblemTest(test.TestCase):
       one_hot = np.eye(vocab_size)[symbol]
       log_probs = (1 - one_hot) * -100.0  # Virtually deterministic.
       # (4 obs symbols + 1 action symbol) * 3 timesteps = 15.
-      return np.array([[log_probs]]), ()
+      return np.array([[log_probs]])
 
     mock_predict_fn = mock.MagicMock()
     mock_predict_fn.side_effect = map(make_prediction, symbols)

@@ -11,9 +11,9 @@ BoxSpaceSerializer.precision = 2
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================
-MultifactorSchedule.constant = 3.0
-MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
-MultifactorSchedule.warmup_steps = 10000
+world_model/MultifactorSchedule.constant = 3.0
+world_model/MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
+world_model/MultifactorSchedule.warmup_steps = 10000
 
 # Parameters for Adam:
 # ==============================================================================
@@ -26,22 +26,23 @@ Adam.weight_decay_rate = 0.0
 # ==============================================================================
 TransformerDecoder.d_model = 64
 TransformerDecoder.d_ff = 128
-TransformerDecoder.dropout = 0.0
+TransformerDecoder.n_layers = 2
 TransformerDecoder.n_heads = 2
-TransformerDecoder.n_layers = 1
+TransformerDecoder.dropout = 0.0
 
 # Parameters for PPO:
 # ==============================================================================
 PPO.n_optimizer_steps = 10
+PPO.optimizer_batch_size = 128
 PPO.target_kl = 0.1
-PPO.boundary = 128
-PPO.max_timestep = 128
-PPO.max_timestep_eval = 128
+PPO.boundary = 100
+PPO.max_timestep = 100
+PPO.max_timestep_eval = 100
 PPO.random_seed = None
 PPO.gamma = 1.0
 PPO.lambda_ = 0.95
 PPO.c1 = 1.0
-PPO.c2 = 0.01
+PPO.c2 = 0.1
 PPO.done_frac_for_policy_save = 0
 PPO.len_history_for_policy = None
 PPO.separate_eval = False
@@ -49,15 +50,24 @@ PPO.save_every_n = 1
 PPO.policy_and_value_model = @trax.models.TransformerDecoder
 PPO.policy_and_value_optimizer = @trax.optimizers.Adam
 PPO.trajectory_dump_min_count_per_shard = 8
+PPO.print_every_optimizer_steps = 1
+
+## Parameters for MemoryEfficientCausalAttention:
+## ==============================================================================
+world_model/MemoryEfficientCausalAttention.dropout = 0.3
+world_model/MemoryEfficientCausalAttention.loop_stride = 2
 
 # Parameters for SerializedSequenceSimulatedEnvProblem:
 # ==============================================================================
-SerializedSequenceSimulatedEnvProblem.model = @trax.models.TransformerLM
+SerializedSequenceSimulatedEnvProblem.model = @world_model/trax.models.TransformerLM
 SerializedSequenceSimulatedEnvProblem.reward_fn = @trax.rl.onlinetune_reward_fn
 SerializedSequenceSimulatedEnvProblem.done_fn = @trax.rl.onlinetune_done_fn
 SerializedSequenceSimulatedEnvProblem.vocab_size = 128
 SerializedSequenceSimulatedEnvProblem.max_trajectory_length = 101
 SerializedSequenceSimulatedEnvProblem.significance_decay = 0.8
+SerializedSequenceSimulatedEnvProblem.model_predict_kwargs = {
+    "attention_type": @trax.layers.DotProductCausalAttention,
+}
 
 # Parameters for SimPLe:
 # ==============================================================================
@@ -68,20 +78,21 @@ SimPLe.n_model_train_steps_per_epoch = 20000
 SimPLe.model_train_batch_size = 64
 SimPLe.simulated_env_problem_class = @trax.rl.SerializedSequenceSimulatedEnvProblem
 SimPLe.simulated_batch_size = 128
-SimPLe.n_simulated_epochs = 30
-SimPLe.initial_trajectory_mix_prob = 0.5
+SimPLe.n_simulated_epochs = 50
+SimPLe.initial_trajectory_mix_prob = 0.9
+SimPLe.init_policy_from_world_model = False
 
 # Parameters for TransformerLM:
 # ==============================================================================
-TransformerLM.d_model = 512
-TransformerLM.d_ff = 1024
-TransformerLM.n_layers = 3
-TransformerLM.n_heads = 4
-TransformerLM.dropout = 0.3
-TransformerLM.max_len = 1024
+world_model/TransformerLM.attention_type = @world_model/trax.layers.MemoryEfficientCausalAttention
+world_model/TransformerLM.d_model = 256
+world_model/TransformerLM.d_ff = 512
+world_model/TransformerLM.n_layers = 3
+world_model/TransformerLM.n_heads = 4
+world_model/TransformerLM.dropout = 0.3
+world_model/TransformerLM.max_len = 2048
 
 # Parameters for train:
 # ==============================================================================
-train.eval_frequency = 1000
-train.optimizer = @trax.optimizers.Adafactor
-
+world_model/train.eval_frequency = 1000
+world_model/train.optimizer = @trax.optimizers.Adafactor

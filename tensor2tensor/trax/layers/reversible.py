@@ -53,20 +53,20 @@ class ReversibleLayer(base.Layer):
       gradient signal for the parameters.
     """
     # Note: jax.vjp does not allow us to use **kwargs in the signature here.
-    def _do_call(x, params):
-      return super(ReversibleLayer, self).call(
+    def _do_forward(x, params):
+      return super(ReversibleLayer, self).forward(
           x, params=params, state=state, **kwargs)[0]
 
     reconstructed_x = self.reverse(output, params, state, **kwargs)
-    _, vjpfun = jax.vjp(_do_call, reconstructed_x, params)
+    _, vjpfun = jax.vjp(_do_forward, reconstructed_x, params)
     x_params_grad = vjpfun(grad)
     return reconstructed_x, x_params_grad
 
   @property
-  def has_custom_grad(self):
+  def has_backward(self):
     return True
 
-  def custom_grad(self, inputs, output, ct, params, state, **kwargs):
+  def backward(self, inputs, output, ct, params, state, **kwargs):
     del inputs
     _, inputs_params_ct = self.reverse_and_grad(output, ct, params, state,
                                                 **kwargs)
@@ -78,7 +78,7 @@ class ReversibleSwap(ReversibleLayer, cb.Swap):
 
   def reverse(self, output, params=(), state=(), **kwargs):
     # Swap is its own inverse, except that reverse doesn't return the state.
-    return self.call(output, params, state, **kwargs)[0]
+    return self.forward(output, params=params, state=state, **kwargs)[0]
 
 
 class ReversibleSerial(ReversibleLayer, cb.Serial):

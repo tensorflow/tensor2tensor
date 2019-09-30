@@ -101,5 +101,5 @@ OnlineTuneEnv.include_controls_in_observation = True
 OnlineTuneEnv.train_steps = 150
 OnlineTuneEnv.eval_steps = 2
 OnlineTuneEnv.env_steps = 100
-OnlineTuneEnv.metric_range = (0.0, 10.0)
+OnlineTuneEnv.observation_range = (0.0, 10.0)
 OnlineTuneEnv.action_multipliers = (0.5, 0.8, 0.95, 1.0, 1.05, 1.25, 2.0)

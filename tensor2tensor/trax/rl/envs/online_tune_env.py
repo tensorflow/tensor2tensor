@@ -72,7 +72,7 @@ class OnlineTuneEnv(gym.Env):
                    ("learning_rate", 1e-3, (1e-9, 10.0), False),
                ),
                nontrainable_param_map=None,
-               metric_range=(0.0, 5.0),
+               observation_range=(0.0, 10.0),
                # Don't save checkpoints by default, as they tend to use a lot of
                # space.
                should_save_checkpoints=False,
@@ -103,7 +103,7 @@ class OnlineTuneEnv(gym.Env):
     self._eval_steps = eval_steps
     self._env_steps = env_steps
     self._control_configs = control_configs
-    self._metric_range = metric_range
+    self._observation_range = observation_range
 
     self._output_dir = output_dir
     gfile.makedirs(self._output_dir)
@@ -117,9 +117,12 @@ class OnlineTuneEnv(gym.Env):
         len(self._observation_metrics) +
         int(self._include_controls_in_observation) * len(self._control_configs)
     )
+
+    (obs_low, obs_high) = observation_range
     self.observation_space = gym.spaces.Box(
-        # Observations are clipped to metric_range and rescaled to [-1, 1].
-        low=-1, high=1, shape=(observation_dim,))
+        # Observations are clipped to this range.
+        low=obs_low, high=obs_high, shape=(observation_dim,),
+    )
 
   @property
   def _next_trajectory_dir(self):
@@ -162,7 +165,7 @@ class OnlineTuneEnv(gym.Env):
     observations = online_tune.history_to_observations(
         self._trainer.state.history,
         self._observation_metrics,
-        self._metric_range,
+        self._observation_range,
         self._control_configs if self._include_controls_in_observation
         else None,
     )

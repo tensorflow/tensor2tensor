@@ -91,7 +91,6 @@ class OnlineTuneTest(test.TestCase):
             ("learning_rate", 1e-3, (1e-9, 10.0), False),
             ("weight_decay_rate", 1e-5, (1e-9, 0.1), False),
         ),
-        metric_range=(-1, 1),
         include_controls_in_observation=False,
         output_dir=output_dir,
         action_multipliers=action_multipliers,

@@ -246,10 +246,10 @@ class SimpleTest(test.TestCase):
 
     gin.bind_parameter("BoxSpaceSerializer.precision", 1)
 
-    predict_output = (np.array([[[0.0]]] * batch_size), ())
+    predict_output = (np.array([[[0.0]]] * batch_size))
     mock_model_fn = mock.MagicMock()
     mock_model_fn.return_value.side_effect = itertools.repeat(predict_output)
-    mock_model_fn.return_value.initialize.return_value = ((), ())
+    mock_model_fn.return_value.initialize_once.return_value = ((), ())
 
     return simulated_env_problem.SerializedSequenceSimulatedEnvProblem(
         model=mock_model_fn,

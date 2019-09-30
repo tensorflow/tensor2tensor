@@ -53,6 +53,7 @@ from __future__ import print_function
 
 import collections
 import functools
+import itertools
 import os
 import re
 import time
@@ -71,13 +72,9 @@ from tensor2tensor.trax import utils
 from tensorflow.io import gfile
 
 
-<<<<<<< HEAD
-def policy_and_value_net(n_actions, bottom_layers_fn, two_towers):
-=======
 def policy_and_value_net(
     n_actions, n_controls, vocab_size, bottom_layers_fn, two_towers
 ):
->>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
   """A policy and value net function."""
 
   # Layers.
@@ -94,30 +91,25 @@ def policy_and_value_net(
   if vocab_size is None:
     # In continuous policies every element of the output sequence corresponds to
     # an observation.
-    n_logits = n_controls * n_actions
+    n_preds_per_input = n_controls
     kwargs = {}
   else:
     # In discrete policies every element of the output sequence corresponds to
     # a symbol in the discrete representation, and each control takes 1 symbol.
-    n_logits = n_actions
+    n_preds_per_input = 1
     kwargs = {"vocab_size": vocab_size}
 
   if two_towers:
     layers = [
         tl.Dup(),
         tl.Parallel(
-<<<<<<< HEAD
-            [bottom_layers_fn(),
-             tl.Dense(n_actions),
-             tl.LogSoftmax()],
-            [bottom_layers_fn(), tl.Dense(1)],
-=======
             [bottom_layers_fn(**kwargs),
-             tl.Dense(n_logits),
+             tl.Dense(n_preds_per_input * n_actions),
              FlattenControlsIntoTime(),  # pylint: disable=no-value-for-parameter
              tl.LogSoftmax()],
-            [bottom_layers_fn(), tl.Dense(n_controls), tl.Flatten()],
->>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
+            [bottom_layers_fn(**kwargs),
+             tl.Dense(n_preds_per_input),
+             tl.Flatten()],
         )
     ]
   else:
@@ -125,10 +117,10 @@ def policy_and_value_net(
         bottom_layers_fn(**kwargs),
         tl.Dup(),
         tl.Parallel(
-            [tl.Dense(n_logits),
+            [tl.Dense(n_preds_per_input * n_actions),
              FlattenControlsIntoTime(),  # pylint: disable=no-value-for-parameter
              tl.LogSoftmax()],
-            [tl.Dense(n_controls), tl.Flatten()],
+            [tl.Dense(n_preds_per_input), tl.Flatten()],
         )
     ]
   return tl.Model(layers)
@@ -178,13 +170,9 @@ def collect_trajectories(env,
                          boundary=32,
                          state=None,
                          temperature=1.0,
-<<<<<<< HEAD
-                         rng=None):
-=======
                          rng=None,
                          abort_fn=None,
                          raw_trajectory=False,):
->>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
   """Collect trajectories with the given policy net and behaviour.
 
   Args:
@@ -230,14 +218,10 @@ def collect_trajectories(env,
       boundary=boundary,
       state=state,
       temperature=temperature,
-<<<<<<< HEAD
-      rng=rng)
-=======
       rng=rng,
       abort_fn=abort_fn,
       raw_trajectory=raw_trajectory,
   )
->>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
   # Skip returning raw_rewards here, since they aren't used.
 
   # t is the return value of Trajectory.as_numpy, so:
@@ -737,9 +721,9 @@ def combined_loss(new_params,
                   state=None,
                   rng=None):
   """Computes the combined (clipped loss + value loss) given observations."""
-  (log_probab_actions_new, value_predictions_new), state = (
+  (log_probab_actions_new, value_predictions_new) = (
       policy_and_value_net_apply(
-          padded_observations, new_params, state, rng=rng))
+          padded_observations, params=new_params, state=state, rng=rng))
 
   (loss, component_losses, summaries) = combined_loss_given_predictions(
       log_probab_actions_new,
@@ -907,12 +891,9 @@ def maybe_restore_opt_state(output_dir,
   )
 
 
-<<<<<<< HEAD
-=======
 LAST_N_POLICY_MODELS_TO_KEEP = 5
 
 
->>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
 def save_opt_state(output_dir,
                    policy_and_value_opt_state,
                    policy_and_value_state,
@@ -925,20 +906,13 @@ def save_opt_state(output_dir,
   with gfile.GFile(params_file, "wb") as f:
     pkl_module.dump(
         (policy_and_value_opt_state, policy_and_value_state, total_opt_step), f)
-<<<<<<< HEAD
-  # Remove the old model files.
-  for path in old_model_files:
-=======
   # Keep the last k model files lying around (note k > 1 because the latest
   # model file might be in the process of getting read async).
   for path in old_model_files[LAST_N_POLICY_MODELS_TO_KEEP:]:
->>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
     if path != params_file:
       gfile.remove(path)
 
 
-<<<<<<< HEAD
-=======
 def init_policy_from_world_model_checkpoint(policy_params, model_output_dir):
   """Initializes policy parameters from world model parameters."""
   pkl_module = utils.get_pickle_module()
@@ -953,7 +927,6 @@ def init_policy_from_world_model_checkpoint(policy_params, model_output_dir):
   return policy_params
 
 
->>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
 def write_eval_reward_summaries(reward_stats_by_mode, summary_writer, epoch):
   """Writes evaluation reward statistics to summary and logs them.
 
@@ -983,3 +956,16 @@ def write_eval_reward_summaries(reward_stats_by_mode, summary_writer, epoch):
           "Epoch [% 6d] Policy Evaluation (%s reward) "
           "[temperature %.2f] = %10.2f (+/- %.2f)", epoch, reward_mode,
           temperature, reward_stats["mean"], reward_stats["std"])
+
+
+def shuffled_index_batches(dataset_size, batch_size):
+  """Generates batches of shuffled indices over a dataset."""
+  def shuffled_indices():
+    while True:
+      perm = onp.random.permutation(dataset_size)
+      for x in perm:
+        yield x
+
+  indices = shuffled_indices()
+  while True:
+    yield onp.array(list(itertools.islice(indices, int(batch_size))))

@@ -146,8 +146,8 @@ def loss(params, batch, model_predict, state, rng, has_weights):
       [inputs, targets])
   # Call model, predictions will be the returned stack, usually consisting of
   # the prediction tensor and the targets.
-  predictions, state = model_predict(model_input, params, state, rng=rng)
-  predictions = get_preds(predictions)
+  outputs = model_predict(model_input, params=params, state=state, rng=rng)
+  predictions = get_preds(outputs)
   predictions, targets, weights = _make_list(predictions, targets, weights)
   xent = []
   for (pred, target) in zip(predictions, targets):
@@ -305,8 +305,8 @@ def evaluate(inputs_stream, predict_fn, metric_fns, state, rng, has_weights):
     rng, subrng = jax_random.split(rng)
     model_inp, get_preds = _stack_inputs_targets_and_get_predictions(inp)
     # Call model, preds will be the returned stack, usually (pred, targets).
-    preds, state = predict_fn(model_inp, state=state, rng=subrng)
-    pred = get_preds(preds)
+    outputs = predict_fn(model_inp, state=state, rng=subrng)
+    pred = get_preds(outputs)
     for m, f in six.iteritems(metric_fns):
       metrics[m] += f(inp, pred, has_weights=has_weights)
   return {m: v / count for (m, v) in six.iteritems(metrics)}, state
@@ -420,11 +420,11 @@ def _jit_predict_fn(model_predict, n_devices, jit=True):
   # Multi-devices, pmap and run.
   @functools.partial(backend.pmap, axis_name="batch")
   def mapped_predict(x, params, state, rng):
-    return model_predict(x, params, state, rng=rng)
+    return model_predict(x, params=params, state=state, rng=rng)
 
   def predict(x, params=(), state=(), rng=None):
     """Predict function jited and parallelized as requested."""
-    pred, state = mapped_predict(
+    pred = mapped_predict(
         reshape_by_device(x, n_devices),
         params,
         state,
@@ -434,7 +434,7 @@ def _jit_predict_fn(model_predict, n_devices, jit=True):
     def combine(x):
       batch_size = x.shape[0] * x.shape[1]
       return np.reshape(x, [batch_size] + list(x.shape[2:]))
-    return layers.nested_map(pred, combine), state
+    return layers.nested_map(pred, combine)
 
   return predict
 
@@ -624,8 +624,9 @@ class Trainer(object):
         model_input_shape, lambda x: x if x else 1)
     model_target_shape = layers.nested_map(
         model_target_shape, lambda x: x if x else 1)
-    def initialize(input_shape, input_dtype, target_shape, target_dtype, rng):
-      """Helper to initialize the model."""
+    def new_opt_state_and_model_state(input_shape, input_dtype, target_shape,
+                                      target_dtype, rng):
+      """Returns optimizer and model states suitable for training a model."""
       # Combine inputs and targets on the stack.
       if not isinstance(input_dtype, (list, tuple)):
         input_dtype = [input_dtype]
@@ -638,15 +639,18 @@ class Trainer(object):
       # We need to create a new model instance and not reuse `model_train` here,
       # because `m.initialize` puts cached parameter values in `m` and hence the
       # next call of `m.initialize` will give wrong results.
-      params, state = model(mode="train").initialize(full_shape, full_type, rng)
+      params, state = model(mode="train").initialize_once(full_shape, full_type,
+                                                          rng)
       (slots, opt_params) = opt.tree_init(params)
       return (OptState(params, slots, opt_params), state)
     if _is_jit_init():
       # JIT parameter initialization to avoid memory fragmentation
-      initialize = backend.jit(initialize, static_argnums=(0, 1, 2, 3))
-    self._initialize = lambda: initialize(  # pylint: disable=g-long-lambda
-        model_input_shape, self._inputs.input_dtype,
-        model_target_shape, self._inputs.target_dtype, init_rng)
+      new_opt_state_and_model_state = backend.jit(new_opt_state_and_model_state,
+                                                  static_argnums=(0, 1, 2, 3))
+    self._new_opt_state_and_model_state = (
+        lambda: new_opt_state_and_model_state(  # pylint: disable=g-long-lambda
+            model_input_shape, self._inputs.input_dtype,
+            model_target_shape, self._inputs.target_dtype, init_rng))
 
     # jit model_predict and update so they're fast
     self._jit_model_predict_eval = _jit_predict_fn(
@@ -712,7 +716,7 @@ class Trainer(object):
       opt_state = state.opt_state
       model_state = state.model_state
     else:
-      opt_state, model_state = self._initialize()
+      opt_state, model_state = self._new_opt_state_and_model_state()
       model_state = layers.nested_map(
           model_state, self._maybe_replicate)
     self._opt_state = OptState(*layers.nested_map(

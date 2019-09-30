@@ -18,7 +18,7 @@ inputs.dataset_name = 't2t_image_imagenet224'
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================
-EvalAdjustingSchedule.constant = 1.0
+EvalAdjustingSchedule.constant = 0.2
 MultifactorSchedule.factors = 'constant * linear_warmup'
 MultifactorSchedule.warmup_steps = 400
 

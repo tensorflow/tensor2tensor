@@ -33,44 +33,51 @@ from tensor2tensor.trax.backend import ShapeType
 class Layer(object):
   """Base class for composable layers in a deep learning network.
 
-  A layer is a function from zero or more inputs to zero or more outputs,
-  possibly with trainable parameters. A layer is either atomic or composed
-  of sublayers. These aspects of a layer are set via a layer's constructor,
-  and can be inspected via read-only properties:
+  A layer is a part of a trainable network that can compute a function from
+  zero or more inputs to zero or more outputs. It may make use of trainable
+  parameters as well as non-parameter state for its computation. A layer is
+  either atomic or composed of sublayers. All layers provide accessors for
+  these aspects:
 
-    - n_inputs
-    - n_outputs
-    - sublayers
+    - n_inputs: int
+    - n_outputs: int
+    - params: tuple (empty if the layer has no parameters)
+    - state: tuple (empty if the layer has no non-parameter state)
+    - sublayers: tuple (empty if the layer has no sublayers)
 
-  The inputs to a layer are activation tensors, packaged according to how many
-  there are:
+  The inputs to a layer are tensors, packaged according to how many there are:
 
     - n_inputs = 0: an empty tuple ()
-    _ n_inputs = 1: the activation tensor (NOT wrapped in a tuple)
-    _ n_inputs > 1: a tuple of activation tensors
+    - n_inputs = 1: one tensor (NOT wrapped in a tuple)
+    - n_inputs > 1: a tuple of tensors
 
-  (The special treatment for the single-input case is intended as a
-  simplification for layer writers; this design choice may be revisited in the
-  future.)
+  (The special treatment for the single-input case is meant to simplify the
+  work of layer writers; this design choice may be revisited in the future.)
 
-  The outputs from a layer are also activations tensors, packaged the same as
-  layer inputs:
+  The outputs from a layer are also tensors, packaged the same as layer inputs:
 
     - n_outputs = 0: an empty tuple ()
-    _ n_outputs = 1: the activation tensor (NOT wrapped in a tuple)
-    _ n_outputs > 1: a tuple of activation tensors
+    - n_outputs = 1: the tensor (NOT wrapped in a tuple)
+    - n_outputs > 1: a tuple of tensors
 
-  The runtime maintains a data stack with which layer calls are composed. One
-  can therefore view each layer as a function from stack state to stack state,
-  where the function's inputs are a slice from the stack, and the function's
-  outputs are spliced back into the stack.
+  The Trax runtime maintains a data stack with which layer calls are composed.
+  One can therefore view each layer as a function from stack state to stack
+  state, where the function's inputs are a slice from the stack, and the
+  function's outputs are spliced back into the stack.
   """
 
   def __init__(self, n_inputs=1, n_outputs=1):
+    """Creates a partially initialized, unconnected layer instance.
+
+    Args:
+      n_inputs: Number of inputs expected by this layer.
+      n_outputs: Number of outputs promised by this layer.
+    """
     self._n_inputs = n_inputs
     self._n_outputs = n_outputs
     self._sublayers = ()  # Default is no sublayers.
     self._params = ()  # cached parameters
+    self._state = ()
     self._caller = _find_frame(inspect.stack())  # for custom error messages
     self._init_finished = False
 
@@ -80,83 +87,104 @@ class Layer(object):
     objs = self.sublayers
     if objs:
       objs_str = ', '.join(str(x) for x in objs)
-      return '{}[{},layers=[{}]]'.format(class_str, fields_str, objs_str)
+      return '{}{{{},sublayers=[{}]}}'.format(class_str, fields_str, objs_str)
     else:
-      return '{}[{}]'.format(class_str, fields_str)
+      return '{}{{{}}}'.format(class_str, fields_str)
 
-  def call(self, inputs, params=(), state=(), **kwargs):
-    """Applies this layer to given activation tensors, using trainable params.
+  def forward(self, inputs, params=(), state=(), **kwargs):
+    """Computes this layer's output as part of a forward pass through the model.
+
+    Authors of new Layer subclasses should override this method to define the
+    forward computation that their layer performs.
 
     Args:
-      inputs: Data tensors, matching the number (n_inputs) expected by this
+      inputs: Input tensors, matching the number (n_inputs) expected by this
           layer. Specifically:
             - n_inputs = 0: an empty tuple ()
-            - n_inputs = 1: a data tensor (NOT wrapped in a tuple)
-            - n_inputs > 1: a tuple of data tensors, with n_inputs items
+            - n_inputs = 1: a tensor (NOT wrapped in a tuple)
+            - n_inputs > 1: a tuple of tensors, with n_inputs items
       params: A tuple of trainable parameters, with one element for this layer
-          and one for each of this layer's sublayers. If a layer (or sublayer)
-          has no trainable parameters, the corresponding params element is an
-          empty tuple.
-      state: start state.
-      **kwargs: Layer-specific keyword args.
+          if this layer has no sublayers, or one for each sublayer if this
+          layer has sublayers. If a layer (or sublayer) has no trainable
+          parameters, the corresponding params element is an empty tuple.
+      state: Layer-specific non-parameter state that can update between batches.
+      **kwargs: Often empty; main current use is to carry a PRNG key for random
+          number generation, using the keyword 'rng'.
 
     Returns:
-      Data tensors, matching the number (n_outputs) promised by this layer.
+      Tensors, matching the number (n_outputs) promised by this layer.
       Specifically:
         - n_outputs = 0: an empty tuple
-        - n_outputs = 1: a data tensor (NOT wrapped in a tuple)
-        - n_outputs > 1: a tuple of data tensors, with n_outputs items
-      A tuple of activation tensors, one for each output.
+        - n_outputs = 1: one tensor (NOT wrapped in a tuple)
+        - n_outputs > 1: a tuple of tensors, with n_outputs items
     """
     raise NotImplementedError
 
-  # TODO(wangpeng): Should be called `new_parameters_and_state`.
-  def new_parameters(self, input_shapes, input_dtype, rng):
-    """Creates layer-specific parameters based on data shape, dtype and rng.
+  def new_params_and_state(self, input_shape, input_dtype, rng):
+    """Returns a (params, state) pair suitable for initializing this layer.
+
+    Authors of new Layer subclasses should override this method if their layer
+    uses trainable parameters or has non-parameter state that gets updated
+    between batches. The default implementation works for layers that have
+    no parameters or state.
 
     Args:
-      input_shapes: A tuple, depending on the number of inputs (n_inputs)
-          expected by this layer:
-            - n_inputs = 0: an empty tuple ()
-            - n_inputs = 1: a tuple representing the shape of the input
-            - n_inputs > 1: a tuple of shape tuples, one for each input
-          For example:
-            - 0 inputs: ()
-            - 1 input: (210, 160, 3) [NOTE: no tuple wrapping the shape]
-            - 2 inputs: ((210, 160, 3), (105, 80, 3))
-      input_dtype: numpy dtype of the input.
-      rng: A random number generator.
-
-    Returns:
-      The newly created parameters for this layer.
+      input_shape: A tuple representing a shape (if this layer takes one input)
+          or a tuple of shapes (if this layer takes more than one input).
+          For example: (210, 160, 3) or ((210, 160, 3), (105, 80, 3)).
+      input_dtype: Numpy dtype(s) for each of the inputs.
+      rng: A PRNG key for random number generation.
     """
-    raise NotImplementedError
+    del input_shape, input_dtype, rng
+    return (), ()
 
   @property
   def n_inputs(self):
-    """Specifies how many data tensors this layer expects as input."""
+    """Returns how many tensors this layer expects as input."""
     return self._n_inputs
 
   @property
   def n_outputs(self):
-    """Specifies how many data tensors this layer promises as output."""
+    """Returns how many tensors this layer promises as output."""
     return self._n_outputs
 
   @property
   def sublayers(self):
-    """Returns the sublayers contained in / managed by this layer."""
+    """Returns a tuple containing this layer's sublayers; may be empty."""
     return self._sublayers
 
   @property
-  def has_custom_grad(self):
-    """Whether to use custom gradients (in which case, see below)."""
+  def params(self):
+    """Returns a tuple containing this layer's parameters; may be empty."""
+    return self._params
+
+  @params.setter
+  def params(self, params):
+    self._params = params
+
+  @property
+  def state(self):
+    """Returns a tuple containing this layer's state; may be empty."""
+    return self._state
+
+  @state.setter
+  def state(self, state):
+    self._state = state
+
+  @property
+  def has_backward(self):
+    """Returns True if this layer provides its own (custom) backward pass code.
+
+    A layer subclass that provides custom backward pass code (for custom
+    gradients) must override this method to return True.
+    """
     return False
 
-  def custom_grad(self, inputs, output, grad, params, state, **kwargs):
+  def backward(self, inputs, output, grad, params, state, **kwargs):
     """Custom backward pass to propagate gradients in a custom way.
 
     Args:
-      inputs: Input activations; can be a (possibly nested) tuple.
+      inputs: Input tensors; can be a (possibly nested) tuple.
       output: The result of running this layer on inputs.
       grad: gradient signal (called cotangent in jax) computed based on
         subsequent layers. The structure and shape must match output.
@@ -166,27 +194,29 @@ class Layer(object):
 
     Returns:
       The custom gradient signal for the input. Note that we need to return
-      a gradient for each argument of call, so it will usually be a tuple
+      a gradient for each argument of forward, so it will usually be a tuple
       of signals: the gradient for inputs and parameters.
     """
     raise NotImplementedError
 
   # End of subclassing interface, all functions below are internal.
 
-  def pseudo_call(self, pseudo_inputs, params, state):
+  def pseudo_forward(self, pseudo_inputs, params, state):
     """Computes shapes and types this layer would produce for the given inputs.
 
     Args:
       pseudo_inputs: A ShapeType instance (input data minus the actual values)
           or a tuple of ShapeType instances, following the same conventions as
-          Layer.call's input arg.
+          Layer.forward's input arg.
       params: Parameters for this layer.
       state: start state.
 
     Returns:
-      A ShapeType instance representing the shape and type of the output (if
-      this layer has one output) or a tuple of ShapeType instances (if this
-      layer has more than one output).
+      A tuple of (output, state).
+
+      The output part of the tuple is a ShapeType instance representing the
+      shape and type of the output (if this layer has one output) or a tuple
+      of ShapeType instances (if this layer has more than one output).
     """
     try:
       # Beware: using an actual RNG (as opposed to this ShapeType stub) would
@@ -194,7 +224,7 @@ class Layer(object):
       # stored in global memory.
       rng = ShapeType(shape=(2,), dtype=onp.uint32)
       def call_on_input(x, params, state, rng):
-        return self.call(x, params=params, state=state, rng=rng)
+        return self.forward(x, params=params, state=state, rng=rng)
       params_shapes = nested_map(
           params, lambda x: ShapeType(shape=x.shape, dtype=x.dtype))
       s = backend.eval_on_shapes(call_on_input)(pseudo_inputs,
@@ -202,48 +232,97 @@ class Layer(object):
       return s
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback(skip=3)
-      raise LayerError(name, 'pseudo_call', self._caller, pseudo_inputs, trace)
+      raise LayerError(name, 'pseudo_forward', self._caller, pseudo_inputs,
+                       trace)
 
-  def initialize(self, input_shapes, input_dtype, rng):
-    """Initialize the layer given an input shape, dtype and rng.
+  def initialize_once(self, input_shapes, input_dtype, rng):
+    """Initializes this layer and its sublayers recursively.
 
-    Returns new_parameters(input_shapes, rng) on the first call and () on any
-    subsequent call, as the layer is already initialized. This is used for
-    networks that share parameters, so the layer only produces them once.
+    This method is designed to initialize each layer instance once, even if the
+    same layer instance occurs in multiple places in the network. This enables
+    weight sharing to be implemented as layer sharing.
 
     Args:
       input_shapes: A tuple representing a shape (if this layer takes one input)
           or a tuple of shapes (if this layer takes more than one input).
           For example: (210, 160, 3) or ((210, 160, 3), (105, 80, 3)).
-      input_dtype: numpy dtype of the input.
-      rng: A random number generator.
+      input_dtype: Numpy dtype(s) for each of the inputs.
+      rng: A PRNG key for random number generation.
 
     Returns:
-      Newly created parameters on the first call and () on all subsequent calls.
+      A (params, state) tuple, in which params contains newly created parameters
+          on the first call and () on all subsequent calls.
     """
     try:
       # Initialize params once; store them for use when this layer is called.
-      # Needs to call new_parameters regardless of _init_finished because state
-      # also needs to be initialized. After jitting, graph pruning should be
-      # able to remove unnecessary computation.
+      # Needs to call new_params_and_state regardless of _init_finished because
+      # state also needs to be initialized. After jitting, graph pruning should
+      # be able to remove unnecessary computation.
       # TODO(lukaszkaiser): Revisit this decision and see whether layers sharing
       #   params should also share states.
-      params, state = self.new_parameters(input_shapes, input_dtype, rng)
+      params, state = self.new_params_and_state(input_shapes, input_dtype, rng)
       if not self._init_finished:
         self._init_finished = True
         self._params = params
+        self._state = state
       else:
         params = ()
       return (params, state)
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback(skip=3)
-      raise LayerError(name, 'initialize', self._caller, input_shapes, trace)
+      raise LayerError(name, 'initialize_once', self._caller, input_shapes,
+                       trace)
 
   # XXX(kitaev):
   _STASH_IN = None
   _STASH_OUT = None
 
-  def __call__(self, x, params=(), state=(), **kwargs):
+  def __call__(self, x, **kwargs):
+    """Makes Layer instances callable; for use in tests or interactive settings.
+
+    This convenience method helps library users play with, test, or otherwise
+    probe the behavior of layers outside of a full training environment. It
+    presents the layer as callable function from inputs to outputs, with the
+    option of manually specifying parameters and non-parameter state per
+    individual call. For convenience, parameters and non-parameter state are
+    cached per layer instance, starting from default values of () and (), and
+    acquiring non-empty values either by initialization or from values
+    explicitly provided via the params and state keyword arguments.
+
+    Args:
+      x: 0 or more input tensors, formatted the same as the inputs to
+          Layer.forward.
+      **kwargs: Additional keyword arguments if needed/desired for this layer.
+          Three possible keyword arguments are especially relevant:
+            - params=... will override any cached params values
+            - state=... will override any cached state values
+            - rng=... will supply a PRNG key for use by the layer
+
+    Returns:
+      0 or more output tensors, formatted the same as the outputs from
+          Layer.forward.
+    """
+    params = kwargs.pop('params', self.params)
+    state = kwargs.pop('state', self.state)
+    outputs, _ = self.apply_forward(x, params=params, state=state, **kwargs)
+    return outputs
+
+  def apply_forward(self, x, params=(), state=(), **kwargs):
+    """Applies this layer as part of a forward pass; an internal system method.
+
+    This method is reserved for handling plumbing and other internal affairs
+    as needed by the overall library. Trax library users should use or override
+    the `forward` method instead.
+
+    Args:
+      x: See Layer.forward inputs.
+      params: See Layer.forward.
+      state: See Layer.forward.
+      **kwargs: See Layer.forward.
+
+    Returns:
+      See Layer.forward.
+    """
     try:
       # If params are nothing, we may be reusing this layer.
       # Use the cached parameters to calculate the value.
@@ -255,14 +334,16 @@ class Layer(object):
         # In this case, we're called for the first time: cache parameters.
         self._params = params
 
-      if not self.has_custom_grad or Layer._STASH_IN is not None:
-        return self.call(x, params=params, state=state, **kwargs)
+      if not self.has_backward or Layer._STASH_IN is not None:
+        outputs, s = self.forward(x, params=params, state=state, **kwargs)
       else:
-        return self._do_custom_gradients(x, params, state, **kwargs)
+        outputs, s = self._do_custom_gradients(x, params, state, **kwargs)
+      self._state = s
+      return outputs, s
 
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback()
-      raise LayerError(name, 'call', self._caller, shapes(x), trace)
+      raise LayerError(name, 'apply_forward', self._caller, shapes(x), trace)
 
   def _do_custom_gradients(self, x, params, state, **kwargs):
     """Calls this layer for a forward pass, but with custom gradients."""
@@ -287,32 +368,32 @@ class Layer(object):
     # https://jax.readthedocs.io/en/latest/jax.html#jax.custom_transforms
     # Note that we capture the kwargs and don't calculate gradients wrt. them.
     @jax.custom_transforms
-    def do_call(y, params):
-      return check_end_state(self.call(y, params=params, state=state,
-                                       **kwargs))
+    def _do_forward(y, params):
+      return check_end_state(self.forward(y, params=params, state=state,
+                                          **kwargs))
 
     # This is the custom gradient (vector-jacobian product in JAX) function.
     # For the exact specification of this custom transformation see this link:
     # https://jax.readthedocs.io/en/latest/jax.html#jax.defjvp_all
-    def do_call_vjp(y, params):
+    def do_forward_vjp(y, params):
       """Custom gradient (vjp) function."""
       stash = None
       if Layer._STASH_IN is None:
         Layer._STASH_IN = stash = {}
-      output = check_end_state(self.call(y, params=params, state=state,
-                                         **kwargs))
+      output = check_end_state(self.forward(y, params=params, state=state,
+                                            **kwargs))
       if stash is not None:
         Layer._STASH_IN = None
       def vjpfun(grad):
         assert Layer._STASH_OUT is None
         Layer._STASH_OUT = stash
-        res = self.custom_grad(y, output, grad, params, state, **kwargs)
+        res = self.backward(y, output, grad, params, state, **kwargs)
         Layer._STASH_OUT = None
         return res
       return output, vjpfun
 
-    jax.defvjp_all(do_call, do_call_vjp)
-    return do_call(x, params), state
+    jax.defvjp_all(_do_forward, do_forward_vjp)
+    return _do_forward(x, params), state
 
 
 class LayerError(Exception):
@@ -325,7 +406,7 @@ class LayerError(Exception):
   def __init__(self, layer_name, function_name, caller,
                input_shapes, traceback_string):
     self._layer_name = layer_name
-    self._function_name = function_name  # Is it call or initialize?
+    self._function_name = function_name
     self._caller = caller  # Python inspect object with init caller info.
     self._traceback = traceback_string
     self._input_shapes = input_shapes
@@ -435,7 +516,7 @@ def _short_traceback(skip=3):
   return '\n'.join(res)
 
 
-def _validate_call_input(x, n_inputs):
+def _validate_forward_input(x, n_inputs):
   if n_inputs != 1:
     if not isinstance(x, tuple):
       raise TypeError(
@@ -446,44 +527,44 @@ def _validate_call_input(x, n_inputs):
           ' ({})'.format(len(x), n_inputs))
 
 
-def layer(n_inputs=1, n_outputs=1, new_parameters=None):
-  """Decorates a function to make it the call method of a new Layer class."""
-  # TODO(jonni): Consider renaming new_parameters to new_parameters_fn.
+def layer(n_inputs=1, n_outputs=1, new_params_and_state_fn=None):
+  """Returns a decorator that converts a function into a Layer class builder."""
 
-  def _build_layer_class(raw_call_fn):
-    """Returns a Layer class built around the given call function."""
+  def _build_layer_class(raw_fn):
+    """Returns a Layer class whose callable instances execute the function."""
 
     def _init(self, **kwargs):
       self._kwargs = kwargs  # pylint: disable=protected-access
       Layer.__init__(self, n_inputs=n_inputs, n_outputs=n_outputs)
 
-    def _new_parameters(self, input_shapes, input_dtype, rng):
-      if new_parameters is None:
+    def _new_params_and_state(self, input_shapes, input_dtype, rng):
+      if new_params_and_state_fn is None:
         return (), ()
       kwargs = self._kwargs  # pylint: disable=protected-access
-      return new_parameters(input_shapes, input_dtype, rng, **kwargs), ()
+      return new_params_and_state_fn(input_shapes, input_dtype, rng, **kwargs)
 
     def _is_empty(raw_output):
       return raw_output is None or (isinstance(raw_output, (list, tuple))
                                     and len(raw_output) == 0)  # pylint: disable=g-explicit-length-test
 
-    def _call_with_context(self, x, params=(), state=(), **kwargs):
-      """Calls raw_call_fn with extra keyword args from Layer.__init__."""
+    def _forward(self, x, params=(), state=(), **kwargs):
+      """Uses this layer as part of a forward pass through the model."""
       merged_kwargs = kwargs.copy()
       merged_kwargs.update(self._kwargs)  # pylint: disable=protected-access
 
-      _validate_call_input(x, n_inputs)
-      raw_output = raw_call_fn(x, params=params, **merged_kwargs)
+      _validate_forward_input(x, n_inputs)
+      raw_output = raw_fn(x, params=params, **merged_kwargs)
       output = () if _is_empty(raw_output) else raw_output
       return (output, state)
 
     # Set docstrings and create the class.
-    _call_with_context.__doc__ = raw_call_fn.__doc__
-    _new_parameters.__doc__ = new_parameters.__doc__  # None.__doc__ is None
-    cls = type(raw_call_fn.__name__, (Layer,),
+    _forward.__doc__ = raw_fn.__doc__
+    _new_params_and_state.__doc__ = new_params_and_state_fn.__doc__
+    # Note: None.__doc__ is None
+    cls = type(raw_fn.__name__, (Layer,),
                {'__init__': _init,
-                'call': _call_with_context,
-                'new_parameters': _new_parameters})
+                'forward': _forward,
+                'new_params_and_state': _new_params_and_state})
     return cls
 
   return _build_layer_class
@@ -522,15 +603,14 @@ def _is_tuple_of_shapes(shape):
   return isinstance(shape, tuple) and isinstance(shape[0], tuple)
 
 
-def check_shape_agreement(layer_fn, input_shapes, integer_inputs=False):
-  """Checks if the layer's call output agrees its pseudo_call predictions.
+def check_shape_agreement(layer_obj, input_shapes, integer_inputs=False):
+  """Checks if the layer's call output agrees its pseudo_forward predictions.
 
   This function helps test layer mechanics and inter-layer connections that
   aren't dependent on specific data values.
 
   Args:
-    layer_fn: A Layer instance, viewed as a function from input shapes to
-        output shapes.
+    layer_obj: A Layer instance.
     input_shapes: A tuple representing a shape (if the layer takes one input)
         or a tuple of shapes (if this layer takes more than one input).
         For example: (210, 160, 3) or ((210, 160, 3), (105, 80, 3)).
@@ -548,15 +628,15 @@ def check_shape_agreement(layer_fn, input_shapes, integer_inputs=False):
     input_dtype = tuple(input_dtype for _ in input_shapes)
   else:
     pseudo_data = ShapeType(input_shapes, input_dtype)
-  params, state = layer_fn.initialize(input_shapes, input_dtype, rng1)
-  pseudo_output, _ = layer_fn.pseudo_call(pseudo_data, params, state)
+  params, state = layer_obj.initialize_once(input_shapes, input_dtype, rng1)
+  pseudo_output, _ = layer_obj.pseudo_forward(pseudo_data, params, state)
   if isinstance(pseudo_output, tuple):
     output_shape = tuple(x.shape for x in pseudo_output)
   else:
     output_shape = pseudo_output.shape
 
   random_input = _random_values(input_shapes, rng2, integer_inputs)
-  real_output, _ = layer_fn(random_input, params, state=state, rng=rng3)
+  real_output = layer_obj(random_input, params=params, state=state, rng=rng3)
   result_shape = shapes(real_output)
 
   msg = 'output shape %s != real result shape %s' % (output_shape, result_shape)

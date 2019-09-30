@@ -111,6 +111,9 @@ class Serial(base.Layer):
 
     - takes layer k's N_out return values (N_out = k.n_outputs) and pushes
       them onto the data stack.
+
+  A Serial instance with no sublayers acts as a special-case (but useful)
+  1-input 1-output no-op.
   """
 
   def __init__(self, *layers):
@@ -146,18 +149,34 @@ class Serial(base.Layer):
       running_total -= layer.n_outputs
     return running_max, (running_max - running_total)
 
-  def _validate_call_inputs(self, xs):
+  def _validate_forward_inputs(self, xs):
     if not isinstance(xs, tuple) and self._n_inputs != 1:
       raise TypeError(
-          'Serial.call input must be a tuple; instead got {}'.format(xs))
+          'Serial.forward input must be a tuple; instead got {}'.format(xs))
     len_xs = 1 if isinstance(xs, np.ndarray) else len(xs)
     if len_xs < self.n_inputs:
       raise ValueError(
-          'number of inputs ({}) to Serial.call less than n_inputs'
+          'number of inputs ({}) to Serial.forward less than n_inputs'
           ' ({})'.format(len(xs), self.n_inputs))
 
-  def call(self, xs, params=(), state=(), **kwargs):
-    self._validate_call_inputs(xs)
+  @base.Layer.params.setter
+  def params(self, params):
+    """Recursively sets params on this layer and all sublayers."""
+    self._params = params
+    assert len(params) == self._n_layers
+    for layer, sublayer_params in zip(self.sublayers, params):
+      layer.params = sublayer_params
+
+  @base.Layer.state.setter
+  def state(self, state):
+    """Recursively sets non-param state on this layer and all sublayers."""
+    self._state = state
+    assert len(state) == self._n_layers
+    for layer, sublayer_state in zip(self.sublayers, state):
+      layer.state = sublayer_state
+
+  def forward(self, xs, params=(), state=(), **kwargs):
+    self._validate_forward_inputs(xs)
     rngs = _pop_rng_and_split(kwargs, self._n_layers)
     if not self.sublayers:  # No-op: leave args unchanged.
       return (xs, state)
@@ -182,7 +201,8 @@ class Serial(base.Layer):
         inputs = stack[0]
       else:
         inputs = stack[:n_in]
-      outputs, s = layer(inputs, p, state=s, rng=rng, **kwargs)
+      outputs, s = layer.apply_forward(inputs, params=p, state=s, rng=rng,
+                                       **kwargs)
       new_state.append(s)
 
       # Push outputs onto remaining stack (if any).
@@ -195,7 +215,7 @@ class Serial(base.Layer):
 
     return stack, new_state
 
-  def new_parameters(self, input_shape, input_dtype, rng):
+  def new_params_and_state(self, input_shape, input_dtype, rng):
     def MakeShapeType(shape, dtype):
       if isinstance(dtype, (list, tuple)):
         return tuple(MakeShapeType(s, t) for s, t in zip(shape, dtype))
@@ -219,10 +239,10 @@ class Serial(base.Layer):
 
       in_shape = base.nested_map(inputs, lambda x: x.shape)
       in_dtype = base.nested_map(inputs, lambda x: x.dtype)
-      param, state = layer.initialize(in_shape, in_dtype, layer_rng)
+      param, state = layer.initialize_once(in_shape, in_dtype, layer_rng)
       pparam = layer._params   # pylint: disable=protected-access
 
-      outputs, _ = layer.pseudo_call(inputs, pparam, state)
+      outputs, _ = layer.pseudo_forward(inputs, pparam, state)
 
       # Push outputs onto remaining pseudo_xs (if any).
       if n_in < _count_items(pseudo_xs):
@@ -325,10 +345,7 @@ class Concatenate(base.Layer):
     self._n_items = n_items
     self._axis = axis
 
-  def new_parameters(self, input_shape, input_dtype, rng):
-    return (), ()
-
-  def call(self, xs, params=(), state=(), **kwargs):
+  def forward(self, xs, params=(), state=(), **kwargs):
     del params, kwargs
     return backend.numpy.concatenate(xs, self._axis), state
 
@@ -423,7 +440,23 @@ class Parallel(base.Layer):
       start = end
     return tuple(sub_inputs)
 
-  def call(self, inputs, params=(), state=(), **kwargs):
+  @base.Layer.params.setter
+  def params(self, params):
+    """Recursively sets params on this layer and all sublayers."""
+    self._params = params
+    assert len(params) == self._n_layers
+    for layer, sublayer_params in zip(self.sublayers, params):
+      layer.params = sublayer_params
+
+  @base.Layer.state.setter
+  def state(self, state):
+    """Recursively sets non-param state on this layer and all sublayers."""
+    self._state = state
+    assert len(state) == self._n_layers
+    for layer, sublayer_state in zip(self.sublayers, state):
+      layer.state = sublayer_state
+
+  def forward(self, inputs, params=(), state=(), **kwargs):
     n_layers, layers = self._n_layers, self.sublayers
     sublayer_inputs = self._allot_to_sublayers(inputs)
     rngs = _pop_rng_and_split(kwargs, n_layers)
@@ -435,20 +468,22 @@ class Parallel(base.Layer):
     new_state = []
     for layer, x, p, s, r in zip(layers, sublayer_inputs, params, state, rngs):
       # Note that zip silently truncates its result if lengths don't match.
-      sub_outputs, s = layer(x, params=p, state=s, rng=r, **kwargs)
+      sub_outputs, sub_state = layer.apply_forward(x, params=p, state=s, rng=r,
+                                                   **kwargs)
       if layer.n_outputs == 1:
         outputs.append(sub_outputs)
       else:
         outputs.extend(sub_outputs)
-      new_state.append(s)
+      new_state.append(sub_state)
     output = outputs[0] if self.n_outputs == 1 else tuple(outputs)
     return output, new_state
 
-  def new_parameters(self, input_shapes, input_dtypes, rng):
+  def new_params_and_state(self, input_shapes, input_dtypes, rng):
     sublayer_shapes = self._allot_to_sublayers(input_shapes)
     sublayer_dtypes = self._allot_to_sublayers(input_dtypes)
     rngs = backend.random.split(rng, self._n_layers)
-    inits = [layer.initialize(shape, dtype, rng) for layer, shape, dtype, rng
+    inits = [layer.initialize_once(shape, dtype, rng)
+             for layer, shape, dtype, rng
              in zip(self.sublayers, sublayer_shapes, sublayer_dtypes, rngs)]
     if not inits:
       return (), ()

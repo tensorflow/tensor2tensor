@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import functools
+import itertools
 
 import jax
 from jax import random as jax_random
@@ -88,14 +89,14 @@ class PpoTest(test.TestCase):
         bottom_layers_fn=lambda: [layers.Flatten(n_axes_to_keep=2)],
         two_towers=True,
     )
-    pnv_params, pnv_state = pnv_model.initialize(
+    _, _ = pnv_model.initialize_once(
         batch_observation_shape, np.float32, self.rng_key)
 
     batch = 2
     time_steps = 10
     batch_of_observations = np.random.uniform(
         size=(batch, time_steps) + observation_shape)
-    pnv_output, _ = pnv_model(batch_of_observations, pnv_params, pnv_state)
+    pnv_output = pnv_model(batch_of_observations)
 
     # Output is a list, first is probab of actions and the next is value output.
     self.assertEqual(2, len(pnv_output))
@@ -452,9 +453,9 @@ class PpoTest(test.TestCase):
     )
 >>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
 
-    old_params, _ = net.initialize(
+    old_params, _ = net.initialize_once(
         batch_observation_shape, np.float32, key1)
-    new_params, state = net.initialize(
+    new_params, state = net.initialize_once(
         batch_observation_shape, np.float32, key2)
 
     # Generate a batch of observations.
@@ -465,10 +466,10 @@ class PpoTest(test.TestCase):
     mask = np.ones_like(rewards)
 
     # Just test that this computes at all.
-    (new_log_probabs, value_predictions_new), _ = net(observations, new_params,
-                                                      state)
-    (old_log_probabs, value_predictions_old), _ = net(observations, old_params,
-                                                      state)
+    (new_log_probabs, value_predictions_new) = (
+        net(observations, params=new_params, state=state))
+    (old_log_probabs, value_predictions_old) = (
+        net(observations, params=old_params, state=state))
 
     gamma = 0.99
     lambda_ = 0.95
@@ -584,7 +585,7 @@ class PpoTest(test.TestCase):
         "rng": rng,
     }
     model = models.TransformerLM(vocab_size=4, **transformer_kwargs)
-    (model_params, _) = model.initialize(**init_kwargs)
+    (model_params, _) = model.initialize_once(**init_kwargs)
     policy = ppo.policy_and_value_net(
         n_actions=3,
         n_controls=2,
@@ -594,7 +595,7 @@ class PpoTest(test.TestCase):
         ),
         two_towers=False,
     )
-    (policy_params, policy_state) = policy.initialize(**init_kwargs)
+    (policy_params, policy_state) = policy.initialize_once(**init_kwargs)
     output_dir = self.get_temp_dir()
     # Initialize state by restoring from a nonexistent checkpoint.
     trax_state = trax.restore_state(output_dir)
@@ -607,7 +608,32 @@ class PpoTest(test.TestCase):
     )
     # Try to run the policy with new parameters.
     observations = np.zeros((1, 100), dtype=np.int32)
-    policy(observations, new_policy_params, state=policy_state, rng=rng)
+    policy(observations, params=new_policy_params, state=policy_state, rng=rng)
+
+  def test_shuffled_index_batches_generates_valid_batch(self):
+    dataset_size = 16
+    batch_size = 4
+    stream = ppo.shuffled_index_batches(dataset_size, batch_size)
+    batch = next(stream)
+    self.assertEqual(batch.shape, (batch_size,))
+    # Assert that all indices are different.
+    self.assertEqual(len(set(batch)), batch_size)
+
+  def test_shuffled_index_batches_generates_all_indices(self):
+    dataset_size = 16
+    batch_size = 4
+    stream = ppo.shuffled_index_batches(dataset_size, batch_size)
+    indices = np.reshape(
+        list(itertools.islice(stream, dataset_size // batch_size)), -1
+    )
+    self.assertEqual(set(indices), set(range(dataset_size)))
+
+  def test_shuffled_index_batches_gives_different_permutations(self):
+    dataset_size = 256
+    batch_size = 8
+    stream1 = ppo.shuffled_index_batches(dataset_size, batch_size)
+    stream2 = ppo.shuffled_index_batches(dataset_size, batch_size)
+    self.assertFalse(np.array_equal(next(stream1), next(stream2)))
 
 >>>>>>> 049b9d8fe681989ad69383ee04fb32b321b4f564
 
