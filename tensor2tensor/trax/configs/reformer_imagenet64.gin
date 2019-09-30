@@ -5,39 +5,19 @@ import tensor2tensor.trax.trax
 
 # Parameters that will vary between experiments:
 # ==============================================================================
-train.model = @trax.models.TransformerLM
-# inputs.n_chunks = 16  # Uncomment this line iff using TransformerRevnetLM
+train.model = @trax.models.TransformerRevnetLM
+attn_type = @MergedMultiHashedCausalAttentionV2
+share_qk = True  # Required when using hashed attention
+attn_kv = 64
+n_layers = 3
 
-TransformerLM.n_layers = 3
-TransformerRevnetLM.n_layers = 3
-
-# Attention types:
 # MemoryEfficientCausalAttention: full attention
-# MergedHashedCausalAttention: timebin
-# MergedMultiHashedCausalAttentionV2: hashbin
-# TransformerLM.attention_type = @MemoryEfficientCausalAttention
-# TransformerRevnetLM.attention_type = @MemoryEfficientCausalAttention
-TransformerLM.attention_type = @MergedMultiHashedCausalAttentionV2
-TransformerRevnetLM.attention_type = @MergedMultiHashedCausalAttentionV2
+# (no hparams to vary between experiments)
 
-# These three should all be equal, and MergedMultiHashedCausalAttentionV2
-# requires that share_qk be set to True.
-share_qk = True
-MemoryEfficientCausalAttention.share_qk = %share_qk
-TransformerLM.share_qk = %share_qk
-TransformerRevnetLM.share_qk = %share_qk
-
-# These four should all be equal
-attn_kv = 128
-TransformerLM.d_attention_key = %attn_kv
-TransformerLM.d_attention_value = %attn_kv
-TransformerRevnetLM.d_attention_key = %attn_kv
-TransformerRevnetLM.d_attention_value = %attn_kv
-
-# Use MergedHashedCausalAttention for timebin
+# MergedHashedCausalAttention: use for timebin
 MergedHashedCausalAttention.n_bins = 64
 
-# Use MergedMultiHashedCausalAttentionV2 for hashbin
+# MergedMultiHashedCausalAttentionV2: locality-sensitive hashing (LSH) attention
 MergedMultiHashedCausalAttentionV2.n_bins = 96
 MergedMultiHashedCausalAttentionV2.n_buckets = 192  # Always 2 * n_bins
 MergedMultiHashedCausalAttentionV2.n_hashes = 2
@@ -54,6 +34,7 @@ batch_fn.max_eval_length = 12288  # 64 * 64 * 3
 inputs.data_dir = None
 inputs.dataset_name = 't2t_image_imagenet64_gen_flat_rev'
 inputs.input_name = 'targets'
+inputs.n_chunks = 16
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================
@@ -78,7 +59,7 @@ train.save_steps = \
 # ==============================================================================
 MemoryEfficientCausalAttention.dropout = 0.0
 MemoryEfficientCausalAttention.loop_stride = 512
-# MemoryEfficientCausalAttention.share_qk: see top
+MemoryEfficientCausalAttention.share_qk = %share_qk
 
 # Parameters for MergedHashedCausalAttention:
 # ==============================================================================
@@ -102,31 +83,33 @@ MergedMultiHashedCausalAttentionV2.dropout = 0.0
 
 # Parameters for TransformerLM:
 # ==============================================================================
-# TransformerLM.attention_type: see top
-# TransformerLM.d_attention_key: see top
-# TransformerLM.d_attention_value: see top
+TransformerLM.attention_type = %attn_type
+TransformerLM.d_attention_key = %attn_kv
+TransformerLM.d_attention_value = %attn_kv
 TransformerLM.d_model = 1024
 TransformerLM.d_ff = 4096
 TransformerLM.dropout = 0.0
 TransformerLM.max_len = 12288  # 64 * 64 * 3
 TransformerLM.mode = 'train'
 TransformerLM.n_heads = 8
-# TransformerLM.n_layers: see top
-# TransformerLM.share_qk: see top
+TransformerLM.n_layers = %n_layers
+TransformerLM.n_chunks = 16
+TransformerLM.share_qk = %share_qk
 TransformerLM.vocab_size = 256
 
 # Parameters for TransformerRevnetLM:
 # ==============================================================================
-# TransformerRevnetLM.attention_type: see top
-# TransformerRevnetLM.d_attention_key: see top
-# TransformerRevnetLM.d_attention_value: see top
+TransformerRevnetLM.attention_type = %attn_type
+TransformerRevnetLM.d_attention_key = %attn_kv
+TransformerRevnetLM.d_attention_value = %attn_kv
 TransformerRevnetLM.d_model = 1024
 TransformerRevnetLM.d_ff = 4096
 TransformerRevnetLM.dropout = 0.0
 TransformerRevnetLM.max_len = 12288  # 64 * 64 * 3
 TransformerRevnetLM.mode = 'train'
 TransformerRevnetLM.n_heads = 8
-# TransformerRevnetLM.n_layers: see top
+TransformerRevnetLM.n_layers = %n_layers
 TransformerRevnetLM.vocab_size = 256
 TransformerRevnetLM.n_chunks = 16
 TransformerRevnetLM.n_attention_chunks = 1
+TransformerRevnetLM.share_qk = %share_qk

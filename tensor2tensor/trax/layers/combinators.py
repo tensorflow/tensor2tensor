@@ -350,6 +350,20 @@ class Concatenate(base.Layer):
     return backend.numpy.concatenate(xs, self._axis), state
 
 
+class Split(base.Layer):
+  """Splits the input into sections along an axis."""
+
+  def __init__(self, n_sections=2, axis=-1):
+    super(Split, self).__init__(n_outputs=n_sections)
+    self._n_sections = n_sections
+    self._axis = axis
+
+  def forward(self, inputs, params=(), state=(), **kwargs):
+    del params, kwargs
+    res = tuple(backend.numpy.split(inputs, self._n_sections, self._axis))
+    return res, state
+
+
 class Parallel(base.Layer):
   """Combinator that applies a list of layers in parallel to its inputs.
 

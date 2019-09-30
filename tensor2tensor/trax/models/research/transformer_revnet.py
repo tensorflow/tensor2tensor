@@ -117,20 +117,6 @@ def FeedForward(d_model, d_ff, dropout, mode):
   ]
 
 
-class Split(tl.Layer):
-  """Splits the input into sections along an axis."""
-
-  def __init__(self, n_sections=2, axis=-1):
-    super(Split, self).__init__(n_outputs=n_sections)
-    self._n_sections = n_sections
-    self._axis = axis
-
-  def forward(self, inputs, params=(), state=(), **kwargs):
-    del params, kwargs
-    res = tuple(backend.numpy.split(inputs, self._n_sections, self._axis))
-    return res, state
-
-
 class SplitForOutput(tl.ReversibleLayer):
   """Splits activations into sections (for use right before the output layer).
 

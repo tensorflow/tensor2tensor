@@ -218,6 +218,7 @@ def TransformerLM(vocab_size,
                   dropout=0.1,
                   share_qk=False,
                   max_len=2048,
+                  n_chunks=0,
                   mode='train'):
   """Returns a Transformer language model.
 
@@ -238,18 +239,27 @@ def TransformerLM(vocab_size,
     dropout: float: dropout rate (how much to drop out)
     share_qk: bool, whether to share queries and keys in decoder attention
     max_len: int: maximum symbol length for positional encoding
+    n_chunks: int: number of chunks (must match input pipeline)
     mode: str: 'train', 'eval' or 'predict', predict mode is for fast inference
 
   Returns:
     A Transformer language model as a layer that maps from a tensor of tokens
     to activations over a vocab set.
   """
+  if n_chunks == 0:
+    concatenate_chunks = split_chunks = []
+  else:
+    concatenate_chunks = tl.Concatenate(n_items=n_chunks)
+    split_chunks = tl.Split(n_sections=n_chunks, axis=-2)
+
   embedder = [
       tl.Embedding(d_model, vocab_size),
       tl.Dropout(rate=dropout, name='embedding', mode=mode),
       tl.PositionalEncoding(max_len=max_len, mode=mode),
   ]
-  return tl.Model(                  # tokens
+
+  return tl.Model(                  # tokens (or chunked tuple of tokens)
+      concatenate_chunks,           # tokens
       tl.ShiftRight(mode=mode),     # toks
       embedder,                     # vecs
       [DecoderBlock(  # pylint: disable=g-complex-comprehension
@@ -259,6 +269,7 @@ def TransformerLM(vocab_size,
       tl.LayerNorm(),               # vecs
       tl.Dense(vocab_size),         # vecs
       tl.LogSoftmax(),              # vecs
+      split_chunks,                 # vecs (or chunked tuple of vecs)
   )
 
 
