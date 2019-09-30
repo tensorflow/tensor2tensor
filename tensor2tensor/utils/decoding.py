@@ -647,8 +647,8 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
       tf.logging.info("Input subtokens: \"%s\"" % input_subtokens)
       tf.logging.info("Output subtokens: \"%s\"" % output_subtokens)
       outinp_mapping = [
-        f"{output_subtoken} --> {input_subtokens[align_hard[idx]]}"
-        for idx, output_subtoken in enumerate(output_subtokens)]
+          "%s --> %s" % (output_subtoken, input_subtokens[align_hard[idx]])
+          for idx, output_subtoken in enumerate(output_subtokens)]
       tf.logging.info("Output-Input mapping: \"%s\"" % outinp_mapping)
 
   def get_striped_ids_and_subtokens(ids, encoder):
@@ -656,9 +656,9 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
     ids_to_strip = list(range(encoder.num_reserved_ids or 0))
     ids = text_encoder.strip_ids(ids, ids_to_strip)
     subtokens = (
-      encoder.get_subtokens_by_ids(ids)
-      if isinstance(encoder, text_encoder.SubwordTextEncoder)
-      else None)
+        encoder.get_subtokens_by_ids(ids)
+        if isinstance(encoder, text_encoder.SubwordTextEncoder)
+        else None)
     return ids, subtokens
 
   result_iter = estimator.predict(input_fn, checkpoint_path=checkpoint_path)
@@ -695,7 +695,7 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
         else:
           tf.logging.info("\"%s\"" % beam_string)
         if attn is not None:
-            log_alignment(attn, input_ids, input_subtokens, output_ids, targets_vocab)
+          log_alignment(attn, input_ids, input_subtokens, output_ids, targets_vocab)
     else:
       if decode_hp.identity_output:
         tf.logging.info(" ".join(map(str, result["outputs"].flatten())))

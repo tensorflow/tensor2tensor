@@ -120,8 +120,8 @@ Output (Scores [{score}]):
         alignment_visual = []
         for beam_align, beam_in_toks, beam_out_toks in zip(align, input_subtokens, output_subtokens):
           alignment_visual.append([
-            f"{out_tok} --> {beam_in_toks[beam_align[idx]]}"
-            for idx, out_tok in enumerate(beam_out_toks)])
+              "%s --> %s" % (out_tok, beam_in_toks[beam_align[idx]])
+              for idx, out_tok in enumerate(beam_out_toks)])
         print("Output-Input alignment:")
         print(alignment_visual)
 
@@ -141,8 +141,8 @@ Output (Score {score:.3f}):
       print(align)
       if input_subtokens and output_subtokens:
         print("Output-Input alignment:")
-        print([f"{out_tok} --> {input_subtokens[align[idx]]}"
-         for idx, out_tok in enumerate(output_subtokens)])
+        print(["%s --> %s" % (out_tok, input_subtokens[align[idx]])
+            for idx, out_tok in enumerate(output_subtokens)])
 
     if FLAGS.inputs_once:
       break

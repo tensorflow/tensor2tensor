@@ -159,9 +159,9 @@ def get_striped_ids_and_subtokens(ids, encoder):
   ids_to_strip = list(range(encoder.num_reserved_ids or 0))
   ids = text_encoder.strip_ids(ids, ids_to_strip)
   subtokens = (
-    encoder.get_subtokens_by_ids(ids)
-    if isinstance(encoder, text_encoder.SubwordTextEncoder)
-    else None)
+      encoder.get_subtokens_by_ids(ids)
+      if isinstance(encoder, text_encoder.SubwordTextEncoder)
+      else None)
   return ids, subtokens
 
 
