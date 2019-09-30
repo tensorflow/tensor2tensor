@@ -558,7 +558,7 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
       # Mask out attention to self except when no other targets are available.
       if self._share_qk:
         self_mask = make_self_mask(dots.shape[-2], dots.shape[-1], q_loop_idx)
-        dots = dots - 32 * self_mask
+        dots = dots - 1e5 * self_mask
 
       # Softmax.
       dots = np.exp(dots - backend.logsumexp(dots, axis=-1, keepdims=True))
@@ -775,7 +775,7 @@ class TimeBinCausalAttention(BaseCausalAttention):
       if self._share_qk:
         self_mask = jax.lax.broadcasted_eye(dots.dtype, dots.shape, (2, 3))
         self_mask = jax.lax.tie_in(dots, self_mask)
-        dots = dots - 32 * self_mask
+        dots = dots - 1e5 * self_mask
 
       # Softmax.
       dots = np.exp(dots - backend.logsumexp(dots, axis=-1, keepdims=True))
@@ -1094,14 +1094,14 @@ class LSHCausalAttention(BaseCausalAttention):
     self_mask = jax.lax.convert_element_type(
         jax.lax.eq(bq_t[:, :, None], bkv_t[:, None, :]),
         np.float32)
-    dots = dots - 1e6 * self_mask
+    dots = dots - 1e5 * self_mask
 
     # Mask out attention to other hash buckets.
     if not self._attend_across_buckets:
       bucket_mask = jax.lax.convert_element_type(
           jax.lax.ne(bq_buckets[:, :, None], bkv_buckets[:, None, :]),
           np.float32)
-      dots = dots - 1e5 * bucket_mask
+      dots = dots - 1e7 * bucket_mask
 
     # Don't double-count query-key pairs across multiple rounds of hashing.
     # There are two possible strategies here. (1) The default is to count how
@@ -1146,7 +1146,7 @@ class LSHCausalAttention(BaseCausalAttention):
           axis=-1)
       assert dup_counts.shape == dots.shape
       if self._hard_k > 0:
-        dots = dots - 1e5 * jax.lax.stop_gradient(dup_counts)
+        dots = dots - 1e7 * jax.lax.stop_gradient(dup_counts)
       else:
         dots = dots - jax.lax.stop_gradient(np.log(dup_counts + 1e-9))
 
@@ -1172,7 +1172,7 @@ class LSHCausalAttention(BaseCausalAttention):
 
       top_k_mask = jax.lax.convert_element_type(
           dots < bdots_thresh[..., None], np.float32)
-      dots = dots - 1e5 * jax.lax.stop_gradient(top_k_mask)
+      dots = dots - 1e7 * jax.lax.stop_gradient(top_k_mask)
 
     # Softmax.
     dots_logsumexp = backend.logsumexp(dots, axis=-1, keepdims=True)
