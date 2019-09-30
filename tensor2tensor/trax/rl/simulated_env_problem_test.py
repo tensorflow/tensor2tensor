@@ -136,7 +136,7 @@ class SerializedSequenceSimulatedEnvProblemTest(test.TestCase):
         reward_fn=reward_fn,
         done_fn=done_fn,
         vocab_size=vocab_size,
-        max_trajectory_length=3,
+        max_trajectory_length=max_trajectory_length,
         batch_size=batch_size,
         observation_space=observation_space,
         action_space=action_space,
@@ -159,11 +159,12 @@ class SerializedSequenceSimulatedEnvProblemTest(test.TestCase):
     gin.bind_parameter("BoxSpaceSerializer.precision", 1)
     vocab_size = 16
     # Mock model predicting a fixed sequence of symbols. It is made such that
-    # the first two observations are equal and the last one is different.
+    # the first two observations are different and the last one is equal to the
+    # first.
     symbols = [
-        1, 1, 2, 2,  # obs1
-        1, 1, 2, 2,  # obs2
-        1, 2, 2, 1,  # obs3
+        1, 1, 2, 2, 0, 0,  # obs1 act1
+        1, 2, 2, 1, 0, 0,  # obs2 act2
+        1, 1, 2, 2,        # obs3
     ]
     def make_prediction(symbol):
       one_hot = np.eye(vocab_size)[symbol]
@@ -185,19 +186,34 @@ class SerializedSequenceSimulatedEnvProblemTest(test.TestCase):
           batch_size=1,
           max_trajectory_length=3,
           observation_space=gym.spaces.Box(low=0, high=5, shape=(4,)),
-          action_space=gym.spaces.Discrete(2),
+          action_space=gym.spaces.MultiDiscrete(nvec=[2, 2]),
       )
-      obs1 = env.reset()
 
-      act1 = 0
-      (obs2, reward, done, _) = env.step(np.array([act1]))
-      np.testing.assert_array_equal(obs1, obs2)
+      def assert_input_suffix(expected_symbols):
+        actual_symbols = np.array([
+            symbol.item() for ((symbol,), _) in mock_predict_fn.call_args_list[
+                -len(expected_symbols):
+            ]
+        ])
+        np.testing.assert_array_equal(actual_symbols, expected_symbols)
+
+      actions = [[0, 1], [1, 0]]
+
+      obs1 = env.reset()
+      assert_input_suffix(symbols[:3])
+
+      (obs2, reward, done, _) = env.step(np.array([actions[0]]))
+      # Symbols going into the decoder when predicting the next observation are:
+      # the last symbol of the previous observation, all action symbols, all
+      # symbols but the last one of the next observation.
+      assert_input_suffix([symbols[3]] + actions[0] + symbols[6:9])
+      self.assertFalse(np.array_equal(obs1, obs2))
       np.testing.assert_array_equal(reward, [0.5])
       np.testing.assert_array_equal(done, [False])
 
-      act2 = 1
-      (obs3, reward, done, _) = env.step(np.array([act2]))
-      self.assertFalse(np.array_equal(obs2, obs3))
+      (obs3, reward, done, _) = env.step(np.array([actions[1]]))
+      assert_input_suffix([symbols[9]] + actions[1] + symbols[12:15])
+      np.testing.assert_array_equal(obs1, obs3)
       np.testing.assert_array_equal(reward, [0.5])
       np.testing.assert_array_equal(done, [True])
 

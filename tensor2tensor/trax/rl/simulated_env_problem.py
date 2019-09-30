@@ -75,7 +75,7 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
 
     self._predict_fn = None
     self._rng = None
-    self._model_state = None
+    self._model_state_override = None
     self._history_stream = None
 
     # Call the super's ctor. It will use some of the member fields, so we call
@@ -102,13 +102,19 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
     """
     del parallelism
 
-    model_state = trax.restore_state(self._output_dir)
-    model_params = model_state.opt_state.params
-    self._model_state = model_state.model_state
-    self._predict_fn = functools.partial(
-        self._model_predict,
-        params=model_params,
-    )
+    trax_state = trax.restore_state(self._output_dir)
+    model_params = trax_state.opt_state.params
+
+    # For initializing model state and resetting it.
+    self._model_state_override = trax_state.model_state
+
+    def predict_fn(*args, **kwargs):
+      kwargs["params"] = model_params
+      if self._model_state_override is not None:
+        kwargs["state"] = self._model_state_override
+      return self._model_predict(*args, **kwargs)
+
+    self._predict_fn = predict_fn
     self._history_stream = history_stream
 
     self._steps = np.zeros(batch_size, dtype=np.int32)
@@ -267,8 +273,7 @@ class RawSimulatedEnvProblem(SimulatedEnvProblem):
     return history[:, -1, ...]
 
   def _step_model(self, predict_fn, actions, rng):
-    (observation, reward) = predict_fn(
-        (self._history, actions), state=self._model_state, rng=rng)
+    (observation, reward) = predict_fn((self._history, actions), rng=rng)
 
     # Roll the history one timestep back and append the new observation.
     self._history = np.roll(self._history, shift=-1, axis=1)
@@ -283,24 +288,6 @@ class RawSimulatedEnvProblem(SimulatedEnvProblem):
     # Reshape the rewards to get rid of the extra dimension.
     reward = np.squeeze(reward.copy(), axis=1)
     return (observation, reward, done)
-
-
-def index_range_2d(begin_indices, length):
-  # Take all indices along the first dimension. Add another axis that'll
-  # broadcast along the second one.
-  first_dim = np.arange(len(begin_indices))[:, None]
-  # Take a range of indices along the second dimension. Offset it by
-  # begin_indices.
-  # TODO(pkozakowski): This materializes all indices of elements along the
-  # second dimension. Do it more efficiently if needed.
-  second_dim = np.arange(length)[None, :] + begin_indices[:, None]
-  return (first_dim, second_dim)
-
-
-def index_slice(indices):
-  first_dim = np.arange(len(indices))[:, None]
-  second_dim = indices[:, None]
-  return (first_dim, second_dim)
 
 
 class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
@@ -346,7 +333,6 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
     self._vocab_size = vocab_size
     self._max_trajectory_length = max_trajectory_length
     self._significance_decay = significance_decay
-    self._history = None
     self._steps = None
     self._observation_space = None
     self._action_space = None
@@ -357,8 +343,8 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
     self._action_serializer = space_serializer.create(
         action_space, self._vocab_size)
     self._obs_repr_length = self._obs_serializer.representation_length
-    self._action_repr_length = self._action_serializer.representation_length
-    self._step_repr_length = self._obs_repr_length + self._action_repr_length
+    self._act_repr_length = self._action_serializer.representation_length
+    self._step_repr_length = self._obs_repr_length + self._act_repr_length
 
     # We assume that the model takes vocab_size as an argument (e.g.
     # TransformerLM).
@@ -372,10 +358,6 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
 
   def initialize_environments(self, batch_size=1, **kwargs):
     """Initializes the environments."""
-    self._history = np.zeros((
-        batch_size,
-        self._max_trajectory_length * self._step_repr_length
-    ), dtype=np.int32)
     self._steps = np.zeros(batch_size, dtype=np.int32)
     self._last_observations = np.full(
         (batch_size,) + self._observation_space.shape, np.nan)
@@ -387,40 +369,34 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
         input_shapes=(batch_size, 1), input_dtype=np.int32, rng=subrng
     )
 
-  @property
-  def _obs_repr_indices(self):
-    begin_indices = self._step_repr_length * self._steps
-    return index_range_2d(begin_indices, self._obs_repr_length)
-
-  @property
-  def _action_repr_indices(self):
-    begin_indices = self._step_repr_length * self._steps + self._obs_repr_length
-    return index_range_2d(begin_indices, self._action_repr_length)
-
   def _predict_obs(self, predict_fn, rng):
+    obs_repr = np.zeros(
+        (self._steps.shape[0], self._obs_repr_length), dtype=np.int32,
+    )
     for (i, subrng) in enumerate(jax_random.split(rng, self._obs_repr_length)):
-      symbol_index = self._steps * self._step_repr_length + i
-      log_probs = predict_fn(
-          self._last_symbols, state=self._model_state, rng=subrng,
-      )
-      log_probs = log_probs
+      log_probs = predict_fn(self._last_symbols, rng=subrng)
       self._last_symbols = utils.gumbel_sample(log_probs)
-      self._history[:, symbol_index] = self._last_symbols[:, 0]
-
-    obs_repr = self._history[self._obs_repr_indices]
+      obs_repr[:, i] = self._last_symbols[:, 0]
     return self._obs_serializer.deserialize(obs_repr)
+
+  def _consume_act(self, actions, predict_fn, rng):
+    act_repr = self._action_serializer.serialize(actions)
+    for (i, subrng) in enumerate(jax_random.split(rng, self._act_repr_length)):
+      # Run the network to update the inference buffers, but ignore the result.
+      predict_fn(self._last_symbols, rng=subrng)
+      self._last_symbols = act_repr[:, i:(i + 1)]
 
   def _reset_model(self, predict_fn, indices, history, rng):
     # TODO(pkozakowski): Random starts.
     del history
 
     indices = np.array(indices)
-    assert indices.shape[0] in (0, self._history.shape[0]), (
+    assert indices.shape[0] in (0, self._steps.shape[0]), (
         # TODO(pkozakowski): Lift this requirement.
         "Only resetting all envs at once is supported."
     )
 
-    self._model_state = self._init_model_state
+    self._model_state_override = self._init_model_state
     self._last_symbols[indices] = 0
     self._steps[indices] = 0
     observation = self._predict_obs(predict_fn, rng)[indices]
@@ -428,8 +404,7 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
     return observation
 
   def _step_model(self, predict_fn, actions, rng):
-    action_repr = self._action_serializer.serialize(actions)
-    self._history[self._action_repr_indices] = action_repr
+    self._consume_act(actions, predict_fn, rng)
     self._steps += 1
     observation = self._predict_obs(predict_fn, rng)
     reward = self._reward_fn(self._last_observations, observation)
