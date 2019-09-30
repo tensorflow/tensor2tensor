@@ -712,7 +712,6 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
 def attn_to_alignment(attn):
   # sum of all multiheads
   attn = attn.sum(axis=0)
-  # get soft alignment
   align_soft = attn / attn.sum(axis=-1)[:, None]
   align_hard = np.argmax(align_soft, axis=-1)
   return align_hard
