@@ -18,7 +18,7 @@ inputs.dataset_name = 'cifar10'
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================
-EvalAdjustingSchedule.constant = 4.0
+EvalAdjustingSchedule.constant = 0.5
 MultifactorSchedule.factors = 'constant * linear_warmup'
 MultifactorSchedule.warmup_steps = 400
 
@@ -39,10 +39,43 @@ WideResnet.n_output_classes = 10
 
 # Parameters for train:
 # ==============================================================================
-train.eval_frequency = 200
+train.eval_frequency = 100
 train.eval_steps = 10
 train.inputs = @trax.inputs.inputs
 train.model = @trax.models.WideResnet
 train.optimizer = @trax.optimizers.Momentum
-train.train_steps = 1000000
+train.train_steps = 10000
 train.lr_schedule = @learning_rate.EvalAdjustingSchedule
+
+# ==============================================================================
+# Parameters for the RL hyperparameter tuner; turn on with
+# train.lr_schedule=@learning_rate.PolicySchedule and set
+# PolicySchedule.policy_dir.
+# ==============================================================================
+
+# Parameters for PolicySchedule:
+# ==============================================================================
+PolicySchedule.observation_metrics = (
+    ("train", "metrics/accuracy"),
+    ("train", "metrics/loss"),
+    ("eval", "metrics/accuracy"),
+    ("eval", "metrics/loss"),
+)
+PolicySchedule.include_controls_in_observation = False
+PolicySchedule.control_configs = (
+    ("learning_rate", 0.1, (1e-9, 10.0), False),
+    ("weight_decay_rate", 1e-5, (1e-9, 0.1), False),
+    ("mass", 0.9, (0.0, 0.99), True),
+)
+PolicySchedule.observation_range = (0.0, 10.0)
+PolicySchedule.action_multipliers = (0.5, 0.8, 0.95, 1.0, 1.05, 1.25, 2.0)
+PolicySchedule.policy_and_value_model = @trax.models.TransformerDecoder
+PolicySchedule.policy_and_value_two_towers = False
+
+# Parameters for TransformerDecoder:
+# ==============================================================================
+TransformerDecoder.d_model = 64
+TransformerDecoder.d_ff = 128
+TransformerDecoder.dropout = 0.0
+TransformerDecoder.n_heads = 2
+TransformerDecoder.n_layers = 2

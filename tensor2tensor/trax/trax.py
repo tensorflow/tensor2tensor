@@ -974,7 +974,8 @@ def train(output_dir,
           random_seed=None,
           save_graphs=True,
           save_backward_graph=False,
-          has_weights=False):
+          has_weights=False,
+          nontrainable_param_map=None):
   """Train the model on the inputs.
 
   Args:
@@ -999,13 +1000,16 @@ def train(output_dir,
     save_graphs: bool, if True, save computation graph to file.
     save_backward_graph: bool, if True, save backward graph to file too.
     has_weights: bool, whether weights are included in the inputs.
+    nontrainable_param_map: dict, mapping from model nontrainable parameter
+      names to control names in PolicySchedule.
   Returns:
     trax.State
   """
   trainer = trainer_class(model, loss_fn, optimizer, lr_schedule, inputs,
                           output_dir,
                           random_seed=random_seed, n_devices=n_devices,
-                          save_steps=save_steps, has_weights=has_weights)
+                          save_steps=save_steps, has_weights=has_weights,
+                          nontrainable_param_map=nontrainable_param_map)
 
   epoch_steps = [train_steps]  # Only training if eval_frequency is 0 or None
   if eval_frequency and eval_steps > 0:

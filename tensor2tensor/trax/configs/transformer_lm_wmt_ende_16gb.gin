@@ -1,43 +1,59 @@
 import tensor2tensor.trax.inputs
 import tensor2tensor.trax.models
 import tensor2tensor.trax.optimizers
-import tensor2tensor.trax.rl
-import tensor2tensor.trax.rl.envs
+import tensor2tensor.trax.trax
 
-# Parameters for batch_fn:
+# Parameters for batch_fun:
 # ==============================================================================
-batch_fn.batch_size_per_device = 256
-batch_fn.eval_batch_size = 256
-batch_fn.max_eval_length = 2048
+batch_fun.batch_size_per_device = 64
+batch_fun.eval_batch_size = 64
+batch_fun.bucket_length=64
+batch_fun.max_eval_length = 1024
+batch_fun.buckets_include_inputs_in_length=True
 
 # Parameters for inputs:
 # ==============================================================================
 inputs.data_dir = None
-inputs.dataset_name = 't2t_languagemodel_lm1b32k'
-inputs.input_name = 'targets'
-
-# Parameters for train_and_eval_dataset:
-# ==============================================================================
-train_and_eval_dataset.eval_holdout_size = 0.05
-train_and_eval_dataset.eval_shuffle_files = True
+inputs.dataset_name = 't2t_translate_ende_wmt32k'
 
 # Parameters for mask:
 # ==============================================================================
 masked_mean.mask_id = 0
 
+# Parameters for MultifactorSchedule:
+# ==============================================================================
+MultifactorSchedule.constant = 1.0
+MultifactorSchedule.factors = 'constant * linear_warmup * rsqrt_decay'
+MultifactorSchedule.warmup_steps = 10000
+
+# Parameters for Adafactor:
+# ==============================================================================
+Adafactor.beta1 = 0.0
+Adafactor.decay_rate = 0.8
+Adafactor.clipping_threshold = 1.0
+Adafactor.epsilon1 = 1e-30
+Adafactor.epsilon2 = 0.001
+Adafactor.factored = True
+Adafactor.multiply_by_parameter_scale = True
+
 # Parameters for preprocess_fun:
 # ==============================================================================
-shuffle_and_batch_data.preprocess_fun=@trax.inputs.lm1b_preprocess
-lm1b_preprocess.max_target_length = 512
-lm1b_preprocess.max_eval_target_length = 2048
+shuffle_and_batch_data.preprocess_fun=@trax.inputs.wmt_concat_preprocess
+wmt_concat_preprocess.max_length = 255
+wmt_concat_preprocess.max_eval_length = 511
 
-# Parameters for DotProductCausalAttention:
+# Parameters for train:
 # ==============================================================================
-DotProductCausalAttention.dropout = 0.1
+train.eval_frequency = 500
+train.eval_steps = 1
+train.inputs = @trax.inputs.inputs
+train.model = @trax.models.TransformerLM
+train.train_steps = 50000
+train.optimizer = @trax.optimizers.Adafactor
+train.has_weights = True
 
 # Parameters for TransformerLM:
 # ==============================================================================
-TransformerLM.attention_type = @trax.layers.DotProductCausalAttention
 TransformerLM.d_model = 512
 TransformerLM.d_ff = 2048
 TransformerLM.dropout = 0.1
@@ -45,17 +61,24 @@ TransformerLM.max_len = 2048
 TransformerLM.mode = 'train'
 TransformerLM.n_heads = 8
 TransformerLM.n_layers = 6
-TransformerLM.vocab_size = 32000
+TransformerLM.vocab_size = 33300
 
-# Parameters for OnlineTuneEnv:
 # ==============================================================================
-OnlineTuneEnv.inputs = @trax.inputs.inputs
-OnlineTuneEnv.model = @trax.models.TransformerLM
-OnlineTuneEnv.optimizer = @trax.optimizers.Adafactor
-OnlineTuneEnv.train_steps = 500
-OnlineTuneEnv.eval_steps = 1
-OnlineTuneEnv.env_steps = 100
-OnlineTuneEnv.control_configs = (
+# Parameters for the RL hyperparameter tuner; turn on with
+# train.lr_schedule=@learning_rate.PolicySchedule and set
+# PolicySchedule.policy_dir.
+# ==============================================================================
+
+# Parameters for PolicySchedule:
+# ==============================================================================
+PolicySchedule.observation_metrics = (
+    ("train", "metrics/accuracy"),
+    ("train", "metrics/loss"),
+    ("eval", "metrics/accuracy"),
+    ("eval", "metrics/loss"),
+)
+PolicySchedule.include_controls_in_observation = False
+PolicySchedule.control_configs = (
     ("learning_rate", 1e-3, (1e-9, 1e-2), False),
     ("weight_decay_rate", 1e-5, (1e-9, 1e-3), False),
 
@@ -73,7 +96,14 @@ OnlineTuneEnv.control_configs = (
     ("dropout_ff_middle_final", 0.1, (0.0, 0.9), True),
     ("dropout_ff_final_final", 0.1, (0.0, 0.9), True),
 )
-OnlineTuneEnv.nontrainable_param_map = {
+PolicySchedule.observation_range = (0.0, 10.0)
+PolicySchedule.action_multipliers = (0.5, 0.8, 0.95, 1.0, 1.05, 1.25, 2.0)
+PolicySchedule.policy_and_value_model = @trax.models.TransformerDecoder
+PolicySchedule.policy_and_value_two_towers = False
+
+# Parameters for train:
+# ==============================================================================
+train.nontrainable_param_map = {
     # "dropout_{layer_type}_{block_index}": "dropout_{layer_type}_{block_group}"
 
     "dropout_attention_0": "dropout_attention_initial",
@@ -97,6 +127,11 @@ OnlineTuneEnv.nontrainable_param_map = {
     "dropout_ff_middle_5": "dropout_ff_middle_final",
     "dropout_ff_final_5": "dropout_ff_final_final",
 }
-OnlineTuneEnv.include_controls_in_observation = False
-OnlineTuneEnv.observation_range = (0.0, 10.0)
-OnlineTuneEnv.action_multipliers = (0.5, 0.8, 0.95, 1.0, 1.05, 1.25, 2.0)
+
+# Parameters for TransformerDecoder:
+# ==============================================================================
+TransformerDecoder.d_model = 64
+TransformerDecoder.d_ff = 128
+TransformerDecoder.dropout = 0.0
+TransformerDecoder.n_heads = 2
+TransformerDecoder.n_layers = 2

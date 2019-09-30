@@ -25,6 +25,7 @@ import os
 import gym
 
 from tensor2tensor.trax import inputs as trax_inputs
+from tensor2tensor.trax import models as trax_models
 from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax import trax
 from tensor2tensor.trax.rl import online_tune
@@ -47,8 +48,8 @@ class OnlineTuneEnv(gym.Env):
   DEFAULT_ACTION_MULTIPLIERS = [1.0 / 1.5, 1.0 / 1.25, 1.0, 1.25, 1.5]
 
   def __init__(self,
-               model,
                output_dir,
+               model=trax_models.TransformerLM,
                trainer_class=trax.Trainer,
                loss_fn=trax.loss,
                optimizer=trax_opt.Adafactor,

@@ -48,6 +48,10 @@ TransformerLM.vocab_size = 33300
 OnlineTuneEnv.inputs = @trax.inputs.inputs
 OnlineTuneEnv.model = @trax.models.TransformerLM
 OnlineTuneEnv.optimizer = @trax.optimizers.Adafactor
+OnlineTuneEnv.train_steps = 500
+OnlineTuneEnv.eval_steps = 1
+OnlineTuneEnv.env_steps = 100
+OnlineTuneEnv.has_weights = True
 OnlineTuneEnv.control_configs = (
     ("learning_rate", 1e-3, (1e-9, 1e-2), False),
     ("weight_decay_rate", 1e-5, (1e-9, 1e-3), False),
@@ -90,10 +94,6 @@ OnlineTuneEnv.nontrainable_param_map = {
     "dropout_ff_middle_5": "dropout_ff_middle_final",
     "dropout_ff_final_5": "dropout_ff_final_final",
 }
-OnlineTuneEnv.include_controls_in_observation = True
-OnlineTuneEnv.train_steps = 500
-OnlineTuneEnv.eval_steps = 1
-OnlineTuneEnv.env_steps = 100
+OnlineTuneEnv.include_controls_in_observation = False
 OnlineTuneEnv.observation_range = (0.0, 10.0)
 OnlineTuneEnv.action_multipliers = (0.5, 0.8, 0.95, 1.0, 1.05, 1.25, 2.0)
-OnlineTuneEnv.has_weights = True
