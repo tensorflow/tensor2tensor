@@ -138,7 +138,7 @@ class ConditionalOptimizer(tf.train.Optimizer):
       """
       if v is not None or g is None:
         return (g, v)
-      if v.dtype.base_dtype = g.dtype.base_dtype:
+      if v.dtype.base_dtype == g.dtype.base_dtype:
         return (g, v)
       return (tf.cast(g, v.dtype), v)
 
