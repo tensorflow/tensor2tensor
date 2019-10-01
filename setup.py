@@ -40,7 +40,6 @@ setup(
         'gevent',
         'gin-config',
         'google-api-python-client',
-        'grpcio',
         'gunicorn',
         'gym',
         'h5py',
