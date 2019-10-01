@@ -134,7 +134,7 @@ class ConditionalOptimizer(tf.train.Optimizer):
           large word embeddings on the CPU.
 
       Sept 30 2019: We tried removing this since we are off word embeddings
-          but seems to still be around
+          but slowdown seems to still be around
       """
       if v is not None or g is None:
         return (g, v)
