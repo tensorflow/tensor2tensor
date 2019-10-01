@@ -656,164 +656,93 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
 
 class TimeBinCausalAttention(BaseCausalAttention):
   """Causal attention where only nearby chunks of items attend to each other."""
-  # TODO(kitaev): rewrite this class to use reshapes only, rather than sorting.
 
   def __init__(self, dropout, mode, n_bins=64, share_qk=False):
-    del dropout, mode
     super(TimeBinCausalAttention, self).__init__()
     self.n_bins = n_bins
     self._share_qk = share_qk
+    if dropout >= 1.0:
+      raise ValueError('Dropout rates must be lower than 1.')
+    if mode == 'train':
+      self.dropout = dropout
+    else:
+      self.dropout = None
 
-  def forward(self, inputs, params=(), state=(), **kwargs):
-    del params
-    output, _ = self.forward_and_backward(inputs, None, **kwargs)
-    return output, state
-
-  def has_backward(self):
-    return True
-
-  def backward(self, inputs, output, ct, params=(), state=(), **kwargs):
-    del output, params, state
-    _, inputs_ct = self.forward_and_backward(inputs, ct, **kwargs)
-    return inputs_ct, ()
-
-  def bin_vectors_by_time(self, vecs):
-    seqlen = vecs.shape[-2]
-    assert seqlen % self.n_bins == 0
-    bin_size = int(seqlen // self.n_bins)
-
-    bins = np.arange(seqlen, dtype=np.int32) // bin_size
-    bins = jax.lax.tie_in(vecs, bins)
-    bins = bins[None, :]
-    bins = np.broadcast_to(bins, vecs.shape[:-1])
-    return bins
+  def forward_and_backward(self, inputs, ct, **kwargs):
+    assert backend.get_name() == 'jax', (
+        'JAX backend is required to use forward_and_backward.')
+    # Simultaneous forward pass and backprop through the attention mechanism.
+    def _do_forward(x):  # pylint: disable=invalid-name
+      res, _ = self.forward(x, **kwargs)
+      return res
+    output, vjpfun = jax.vjp(_do_forward, inputs)
+    return output, vjpfun(ct)[0]
 
   def make_unit_length(self, x, epsilon=1e-6):
     variance = np.mean(x**2, axis=-1, keepdims=True)
     norm_inputs = x / np.sqrt(variance + epsilon)
     return norm_inputs
 
-  def forward_and_backward(self, inputs, ct, **kwargs):
-    del kwargs
-    # We use the same vector as both a query and a key. For now we haven't
-    # adjusted any of the surrounding code, so we still get a separate "key"
-    # input that we ignore.
+  def forward(self, inputs, params=(), state=(), rng=None, **kwargs):
+    del params, kwargs
     q, k, v = inputs
     seqlen = q.shape[-2]
     # q/k/v are n_batch*n_heads, seqlen, d_head
+    t = jax.lax.tie_in(q, np.arange(seqlen))
 
-    # bins are n_batch*n_heads, seqlen
-    # They specify which hash bucket the query/key/value vectors fall in.
-    bins = self.bin_vectors_by_time(q)
-
-    # joint_t is n_batch*n_heads, seqlen
-    joint_t = jax.lax.tie_in(q, np.arange(seqlen))
-    joint_t = np.reshape(joint_t, (1, seqlen))
-    joint_t = np.broadcast_to(joint_t, q.shape[:-1])
-
-    assert int((self.n_bins + 1) * seqlen) < 2 ** 31, (
-        'Potential 32-bit integer overflow; please double-check the code.')
-    joint_bins_and_t = seqlen * bins + joint_t
-
-    def chunk_scalars(x):  # pylint: disable=invalid-name
-      return np.reshape(x, (x.shape[0], self.n_bins, -1))
-
-    def chunk_vectors(x):  # pylint: disable=invalid-name
-      return np.reshape(
-          x, (x.shape[0], self.n_bins, -1, x.shape[-1]))
-
-    def unchunk_vectors(x):  # pylint: disable=invalid-name
-      return np.reshape(x, (x.shape[0], -1, x.shape[-1]))
-
-    # Sort everything by bin number, with a secondary sort by time
-    # (variables starting with "s" are sorted)
-    _, sjoint_t = jax.lax.sort_key_val(
-        joint_bins_and_t, joint_t, dimension=-1)
-
-    sq = np.take_along_axis(q, sjoint_t[:, :, None], axis=-2)
+    # Split off a "bin" axis for chunks of consecutive items.
+    bq_t = np.reshape(t, (self.n_bins, -1))
+    bq = np.reshape(q, (q.shape[0], self.n_bins, -1, q.shape[-1]))
     if self._share_qk:
-      sk = sq
+      bk = self.make_unit_length(bq)
     else:
-      sk = np.take_along_axis(k, sjoint_t[:, :, None], axis=-2)
-    sv = np.take_along_axis(v, sjoint_t[:, :, None], axis=-2)
+      bk = np.reshape(k, (k.shape[0], self.n_bins, -1, k.shape[-1]))
+    bv = np.reshape(v, (v.shape[0], self.n_bins, -1, v.shape[-1]))
 
-    if ct is not None:
-      so_ct = np.take_along_axis(ct, sjoint_t[:, :, None], axis=-2)
-
-    @jax.jit
-    def binned_attn(sq, sk, sv):  # pylint: disable=invalid-name
-      """Performs attention on sorted queries/keys/values."""
-      # Split off a "bin" axis so that attention only occurs whithin chunks.
-      bq_t = bkv_t = chunk_scalars(sjoint_t)
-      bq = chunk_vectors(sq)
-      bk = chunk_vectors(sk)
-      if self._share_qk:
-        bk = self.make_unit_length(bk)
-      bv = chunk_vectors(sv)
-
-      # Allow each chunk to attend within itself, and also one chunk back. Chunk
-      # boundaries might occur in the middle of a sequence of items from the
-      # same bin, so this increases the chances of attending to relevant items.
-      # TODO(kitaev): benchmark whether XLA pad operation is noticeably faster.
-      bk_extra = np.concatenate([bk[:, -1:, :, :], bk[:, :-1, :, :]], axis=1)
-      bk = np.concatenate([bk, bk_extra], axis=2)
-      bv_extra = np.concatenate([bv[:, -1:, :, :], bv[:, :-1, :, :]], axis=1)
-      bv = np.concatenate([bv, bv_extra], axis=2)
-      bkv_t_extra = np.concatenate([bkv_t[:, -1:, :], bkv_t[:, :-1, :]], axis=1)
-      bkv_t = np.concatenate([bkv_t, bkv_t_extra], axis=2)
-
-      # Dot-product attention.
-      dots = np.matmul(bq, np.swapaxes(bk, -1, -2)) / np.sqrt(bq.shape[-1])
-
-      # Causal masking
-      mask = jax.lax.convert_element_type(
-          jax.lax.lt(bq_t[:, :, :, None], bkv_t[:, :, None, :]),
-          np.float32)
-      dots = dots - 1e9 * mask
-
-      # Mask out attention to self except when no other targets are available.
-      if self._share_qk:
-        self_mask = jax.lax.broadcasted_eye(dots.dtype, dots.shape, (2, 3))
-        self_mask = jax.lax.tie_in(dots, self_mask)
-        dots = dots - 1e5 * self_mask
-
-      # Softmax.
-      dots = np.exp(dots - backend.logsumexp(dots, axis=-1, keepdims=True))
-      bo = np.matmul(dots, bv)
-
-      so = unchunk_vectors(bo)
-      return so
-
-    @jax.jit
-    def binned_attn_vjp(sq, sk, sv, so_ct):  # pylint: disable=invalid-name
-      so, vjpfun = jax.vjp(binned_attn, sq, sk, sv)
-      sqkv_ct = vjpfun(so_ct)
-      return so, sqkv_ct
-
-    if ct is None:
-      so = binned_attn(sq, sk, sv)
-      _, undo_sort = jax.lax.sort_key_val(sjoint_t, joint_t, dimension=-1)
-      out = np.take_along_axis(so, undo_sort[:, :, None], axis=-2)
-      return out, None
-    else:
-      # Jax can construct a backward pass automatically, but it's about 2x
-      # slower than writing our own. The main reason is that the backward pass
-      # of gather is in general a scatter operation, but we know we're dealing
-      # with permutations so we use gather for the backward pass too.
-      so, (sq_ct, sk_ct, sv_ct) = binned_attn_vjp(sq, sk, sv, so_ct)
-
-      _, undo_sort = jax.lax.sort_key_val(sjoint_t, joint_t, dimension=-1)
-      out = np.take_along_axis(so, undo_sort[:, :, None], axis=-2)
-
-      if self._share_qk:
-        q_ct = np.take_along_axis(sq_ct + sk_ct, undo_sort[:, :, None], axis=-2)
-        k_ct = np.zeros_like(k)
+    # Allow each chunk to attend within itself, and also one chunk back.
+    def look_one_back(x):
+      if len(x.shape) == 2:
+        x_extra = np.concatenate([x[-1:, :], x[:-1, :]], axis=0)
+        return np.concatenate([x, x_extra], axis=1)
       else:
-        q_ct = np.take_along_axis(sq_ct, undo_sort[:, :, None], axis=-2)
-        k_ct = np.take_along_axis(sk_ct, undo_sort[:, :, None], axis=-2)
-      v_ct = np.take_along_axis(sv_ct, undo_sort[:, :, None], axis=-2)
+        assert len(x.shape) == 4
+        x_extra = np.concatenate([x[:, -1:, :, :], x[:, :-1, :, :]], axis=1)
+        return np.concatenate([x, x_extra], axis=2)
 
-      return out, (q_ct, k_ct, v_ct)
+    bkv_t = look_one_back(bq_t)
+    bk = look_one_back(bk)
+    bv = look_one_back(bv)
+
+    # Dot-product attention.
+    dots = np.matmul(bq, np.swapaxes(bk, -1, -2)) / np.sqrt(bq.shape[-1])
+
+    # Causal masking
+    mask = jax.lax.convert_element_type(
+        jax.lax.lt(bq_t[None, :, :, None], bkv_t[None, :, None, :]),
+        np.float32)
+    dots = dots - 1e9 * mask
+
+    # Mask out attention to self except when no other targets are available.
+    if self._share_qk:
+      self_mask = jax.lax.broadcasted_eye(dots.dtype, dots.shape, (2, 3))
+      self_mask = jax.lax.tie_in(dots, self_mask)
+      dots = dots - 1e5 * self_mask
+
+    if self.dropout is not None and self.dropout > 0.0:
+      # Dropout is broadcast across the batch+head dimension
+      dropout_shape = (1, dots.shape[-3], dots.shape[-2], dots.shape[-1])
+      keep_prob = jax.lax.tie_in(dots, 1.0 - self.dropout)
+      keep = backend.random.bernoulli(rng, keep_prob, dropout_shape)
+      multiplier = keep.astype(dots.dtype) / jax.lax.tie_in(keep, keep_prob)
+      dots = dots * multiplier
+
+    # Softmax.
+    dots = np.exp(dots - backend.logsumexp(dots, axis=-1, keepdims=True))
+    bo = np.matmul(dots, bv)
+
+    output = np.reshape(bo, (bo.shape[0], -1, bo.shape[-1]))
+    assert output.shape == v.shape
+    return output, state
 
 
 class LSHCausalAttention(BaseCausalAttention):
