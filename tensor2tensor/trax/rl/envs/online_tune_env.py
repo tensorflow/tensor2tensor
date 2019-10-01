@@ -25,6 +25,7 @@ import os
 import gym
 
 from tensor2tensor.trax import inputs as trax_inputs
+from tensor2tensor.trax import layers
 from tensor2tensor.trax import models as trax_models
 from tensor2tensor.trax import optimizers as trax_opt
 from tensor2tensor.trax import trax
@@ -51,7 +52,7 @@ class OnlineTuneEnv(gym.Env):
                output_dir,
                model=trax_models.TransformerLM,
                trainer_class=trax.Trainer,
-               loss_fn=trax.loss,
+               loss_fn=layers.CrossEntropyLossScalar,
                optimizer=trax_opt.Adafactor,
                inputs=trax_inputs.inputs,
                action_multipliers=None,

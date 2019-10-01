@@ -15,10 +15,6 @@ inputs.data_dir = None
 inputs.dataset_name = 't2t_languagemodel_lm1b32k'
 inputs.input_name = 'targets'
 
-# Parameters for mask:
-# ==============================================================================
-masked_mean.mask_id = 0
-
 # Parameters for MultifactorSchedule:
 # ==============================================================================
 MultifactorSchedule.constant = 0.3
@@ -39,6 +35,7 @@ train.inputs = @trax.inputs.inputs
 train.model = @trax.models.TransformerLM
 train.optimizer = @trax.optimizers.SM3
 train.train_steps = 500000
+train.mask_id = 0
 
 # Parameters for DotProductCausalAttention:
 # ==============================================================================

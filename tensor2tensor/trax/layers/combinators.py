@@ -269,6 +269,30 @@ def Swap(xs, **unused_kwargs):
   return (xs[1], xs[0])
 
 
+def Dup2():
+  """Copy first 2 elements of the stack: (a, b, ...) -> (a, b, a, b, ...)."""
+  return Serial([
+      # Stack is (a, b, ...)
+      Parallel(Dup(), Dup()),  # pylint: disable=no-value-for-parameter
+      # Stack is (a, a, b, b, ...)
+      Parallel([], Swap()),  # pylint: disable=no-value-for-parameter
+      # Stack is (a, b, a, b, ...)
+  ])
+
+
+def Dup3():
+  """Copy 3 elements of the stack: (a, b, c, ...) -> (a, b, c, a, b, c, ...)."""
+  return Serial([
+      # Stack is (a, b, c, ...)
+      Parallel(Dup(), Dup(), Dup()),  # pylint: disable=no-value-for-parameter
+      # Stack is (a, a, b, b, c, c, ...)
+      Parallel([], Swap(), Swap()),  # pylint: disable=no-value-for-parameter
+      # Stack is (a, b, a, c, b, c, ...)
+      Parallel([], [], Swap()),  # pylint: disable=no-value-for-parameter
+      # Stack is (a, b, c, a, b, c, ...)
+  ])
+
+
 @base.layer(n_outputs=0)
 def Drop(x, **unused_kwargs):
   """Drops one element."""

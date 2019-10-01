@@ -27,7 +27,6 @@ from absl.testing import parameterized
 from jax import test_util  # pylint: disable=unused-import
 from jax.config import config
 from jax.lib import xla_bridge
-import numpy as onp
 
 from tensor2tensor.trax import backend
 from tensor2tensor.trax import inputs as inputs_lib
@@ -233,7 +232,7 @@ class TraxTest(test.TestCase, parameterized.TestCase):
 
       trainer = trax.Trainer(
           model=model_fn,
-          loss_fn=trax.loss,
+          loss_fn=layers.CrossEntropyLossScalar,
           optimizer=trax_opt.SM3,
           lr_schedule=lr.MultifactorSchedule,
           inputs=inputs,
@@ -262,48 +261,6 @@ class EpochsTest(test.TestCase):
     epoch_steps = trax.epochs(
         total_steps=4, steps_to_skip=1, epoch_steps=[2, 2])
     self.assertEqual(list(epoch_steps), [1, 2])
-
-
-MASKED_MEAN_TEST_BACKENDS = ["numpy"]
-
-
-class MaskedMeanTest(test.TestCase, parameterized.TestCase):
-
-  @parameterized.parameters(MASKED_MEAN_TEST_BACKENDS)
-  def test_computes_basic_mean(self, backend_name):
-    with backend.use_backend(backend_name):
-      inputs = [np.array([1, 2, 3])]
-      targets = [np.zeros(3)]
-      weights = [1]
-      mean = trax.masked_mean(inputs, targets, weights)
-      onp.testing.assert_allclose(mean, 2)
-
-  @parameterized.parameters(MASKED_MEAN_TEST_BACKENDS)
-  def test_computes_mean_with_weights(self, backend_name):
-    with backend.use_backend(backend_name):
-      inputs = [np.array([1, 2, 3])]
-      targets = [np.zeros(3)]
-      weights = [np.array([3, 1, 0])]
-      mean = trax.masked_mean(inputs, targets, weights)
-      onp.testing.assert_allclose(mean, 1.25)
-
-  @parameterized.parameters(MASKED_MEAN_TEST_BACKENDS)
-  def test_computes_mean_with_mask(self, backend_name):
-    with backend.use_backend(backend_name):
-      inputs = [np.array([1, 2, 3])]
-      targets = [np.array([1, 0, 0])]
-      weights = [1]
-      mean = trax.masked_mean(inputs, targets, weights, mask_id=1)
-      onp.testing.assert_allclose(mean, 2.5)
-
-  @parameterized.parameters(MASKED_MEAN_TEST_BACKENDS)
-  def test_computes_mean_with_weights_and_mask(self, backend_name):
-    with backend.use_backend(backend_name):
-      inputs = [np.array([1, 2, 4])]
-      targets = [np.array([1, 0, 0])]
-      weights = [np.array([10, 4, 1])]
-      mean = trax.masked_mean(inputs, targets, weights, mask_id=1)
-      onp.testing.assert_allclose(mean, 2.4)
 
 
 if __name__ == "__main__":

@@ -246,7 +246,7 @@ class Layer(object):
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback(skip=3)
       raise LayerError(name, 'pseudo_forward', self._caller, pseudo_inputs,
-                       trace)
+                       None, trace)
 
   def initialize_once(self, input_shapes, input_dtype, rng):
     """Initializes this layer and its sublayers recursively.
@@ -284,7 +284,7 @@ class Layer(object):
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback(skip=3)
       raise LayerError(name, 'initialize_once', self._caller, input_shapes,
-                       trace)
+                       input_dtype, trace)
 
   # XXX(kitaev):
   _STASH_IN = None
@@ -356,7 +356,8 @@ class Layer(object):
 
     except Exception:
       name, trace = self.__class__.__name__, _short_traceback()
-      raise LayerError(name, 'apply_forward', self._caller, shapes(x), trace)
+      raise LayerError(name, 'apply_forward', self._caller,
+                       shapes(x), None, trace)
 
   def _do_custom_gradients(self, x, params, state, **kwargs):
     """Calls this layer for a forward pass, but with custom gradients."""
@@ -417,22 +418,27 @@ class LayerError(Exception):
   """
 
   def __init__(self, layer_name, function_name, caller,
-               input_shapes, traceback_string):
+               input_shapes, input_types, traceback_string):
     self._layer_name = layer_name
     self._function_name = function_name
     self._caller = caller  # Python inspect object with init caller info.
     self._traceback = traceback_string
     self._input_shapes = input_shapes
+    self._input_types = input_types
     super(LayerError, self).__init__(self.message)
 
   @property
   def message(self):
+    """Create error message."""
     prefix = 'Exception passing through layer '
     prefix += '%s (in %s):\n' % (self._layer_name, self._function_name)
     short_path = '[...]/' + '/'.join(self._caller.filename.split('/')[-3:])
     caller = '  layer created in file %s, line %d\n' % (short_path,
                                                         self._caller.lineno)
     shapes_str = '  layer input shapes: %s\n\n' % str(self._input_shapes)
+    if self._input_types is not None:
+      types_str = '  layer input types: %s\n' % str(self._input_types)
+      shapes_str = types_str + shapes_str
     return prefix + caller + shapes_str + self._traceback
 
 

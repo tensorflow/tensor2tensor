@@ -51,78 +51,6 @@ import tensorflow as tf
 from tensorflow.io import gfile
 
 
-def unpack_batch(batch, has_weights):
-  """Unpacks a training batch into inputs, targets and weights."""
-  if has_weights:
-    assert len(batch) == 3  # (inputs, targets, weights)
-    return batch
-  else:
-    inputs, targets = batch
-    if isinstance(targets, (list, tuple)):
-      # If weights are not provided, use scalar 1s and rely on broadcasting.
-      weights = [1.0] * len(targets)
-    else:
-      weights = 1.0
-    return inputs, targets, weights
-
-
-def _make_list(predictions, targets, weights):
-  """Make predictions, targets and weights lists, check they match on length."""
-  #  Our models sometimes return predictions in lists, make it a list always.
-  # TODO(lukaszkaiser): make abstractions for nested structures and refactor.
-  if not isinstance(predictions, (list, tuple)):
-    if isinstance(targets, (list, tuple)):
-      raise ValueError("Targets are a list or tuple but predictions are not.")
-    if isinstance(weights, (list, tuple)):
-      raise ValueError("Weights are a list or tuple but predictions are not.")
-    predictions, targets, weights = [predictions], [targets], [weights]
-  if len(predictions) != len(targets):
-    raise ValueError("Predictions and targets have different lengths.")
-  if len(predictions) != len(weights):
-    raise ValueError("Predictions and weights have different lengths.")
-  return list(predictions), list(targets), list(weights)
-
-
-@gin.configurable(blacklist=["inputs", "targets", "weights"])
-def masked_mean(inputs, targets, weights, mask_id=None):
-  """Weighted mean of the inputs, excluding where targets == mask_id."""
-  inputs = [x.astype(np.float32) for x in inputs]
-  # We assume all elements in the list contribute equally.
-  # TODO(lukaszkaiser): remove this assumption (e.g., when masks differ).
-  length = len(inputs)
-  if mask_id is not None:
-    weights = [w * (1.0 - np.equal(t, mask_id).astype(np.float32))
-               for t, w in zip(targets, weights)]
-  weight_sums = [int(t.size) if np.isscalar(w) else np.sum(w)
-                 for w, t in zip(weights, targets)]
-  return sum([np.sum(x * w) / (length * s)
-              for x, w, s in zip(inputs, weights, weight_sums)])
-
-
-def accuracy(batch, model_predictions, has_weights):
-  """Calculate accuracy."""
-  _, targets, weights = unpack_batch(batch, has_weights)
-  model_predictions, targets, weights = _make_list(
-      model_predictions, targets, weights)
-  correct = []
-  for (prediction, target) in zip(model_predictions, targets):
-    predicted_class = np.argmax(prediction, axis=-1)
-    correct.append(np.equal(predicted_class, target))
-  return masked_mean(correct, targets, weights)
-
-
-def neg_log_perplexity(batch, model_predictions, has_weights):
-  """Calculate negative log perplexity."""
-  _, targets, weights = unpack_batch(batch, has_weights)
-  model_predictions, targets, weights = _make_list(
-      model_predictions, targets, weights)
-  xent = []
-  for (prediction, target) in zip(model_predictions, targets):
-    hot_target = layers.one_hot(target, prediction.shape[-1])
-    xent.append(np.sum(prediction * hot_target, axis=-1))
-  return masked_mean(xent, targets, weights)
-
-
 def _stack_inputs_targets_and_get_predictions(inputs_and_targets):
   """Helper to stack inputs and targets and retrieve predictions from output."""
   # Inputs and targets can be lists - we build a flat one to input to the model.
@@ -137,22 +65,6 @@ def _stack_inputs_targets_and_get_predictions(inputs_and_targets):
   inp_len = len(inp) if isinstance(inp, (list, tuple)) else 1
   get_pred = lambda x: x[0] if inp_len == 1 else x[:inp_len]
   return tuple(model_inp), get_pred
-
-
-def loss(params, batch, model_predict, state, rng, has_weights):
-  """Calculate loss."""
-  inputs, targets, weights = unpack_batch(batch, has_weights)
-  model_input, get_preds = _stack_inputs_targets_and_get_predictions(
-      [inputs, targets])
-  # Call model, predictions will be the returned stack, usually consisting of
-  # the prediction tensor and the targets.
-  outputs = model_predict(model_input, params=params, state=state, rng=rng)
-  predictions = get_preds(outputs)
-  predictions, targets, weights = _make_list(predictions, targets, weights)
-  xent = []
-  for (pred, target) in zip(predictions, targets):
-    xent.append(np.sum(pred * layers.one_hot(target, pred.shape[-1]), axis=-1))
-  return - masked_mean(xent, targets, weights), state
 
 
 def log(s, stdout=True):
@@ -249,49 +161,23 @@ def _print_n_params(opt_state, n_devices, step):
 
 # Metrics to calculate and report.
 _METRICS = {
-    "accuracy": accuracy,
-    "neg_log_perplexity": neg_log_perplexity,
-    "loss": lambda *args, **kwargs: - neg_log_perplexity(*args, **kwargs),
+    "accuracy": layers.AccuracyScalar,
+    "neg_log_perplexity": layers.NegLogPerplexityScalar,
+    "loss": layers.CrossEntropyLossScalar,
 }
 
 
-def evaluate_train_and_eval(step, eval_stream, train_eval_stream,
-                            predict_fn, eval_steps, state, rng, has_weights,
-                            train_sw=None, eval_sw=None, history=None):
-  """Evalaute on train and eval data, and log metrics."""
-  step_log(step, "Evaluation")
-  metrics_list = []
-  for input_stream in [train_eval_stream, eval_stream]:
-    metrics, state = evaluate(  # pylint: disable=g-complex-comprehension
-        itertools.islice(input_stream, eval_steps),
-        predict_fn,
-        _METRICS,
-        state,
-        rng,
-        has_weights)
-    metrics_list.append(metrics)
-  # Unpack in the same order we've iterated over streams in the loop above.
-  train_metrics, eval_metrics = metrics_list  # pylint: disable=unbalanced-tuple-unpacking
-  if train_sw:
-    log_metrics(train_metrics, train_sw, "train", step, history=history)
-  if eval_sw:
-    log_metrics(eval_metrics, eval_sw, "eval", step, history=history)
-  step_log(step, "Finished evaluation")
-  return train_metrics, eval_metrics, state
-
-
-def evaluate(inputs_stream, predict_fn, metric_fns, state, rng, has_weights):
+def evaluation_round(inputs_stream, metric_names, eval_fn, params, state, rng):
   """Evaluate.
 
   Args:
     inputs_stream: iterable of inputs to evaluate on.
-    predict_fn: function from inputs to predictions. params should already be
-      partially applied.
-    metric_fns: dict from metric name to metric function, which takes inputs
-      and predictions and returns a scalar metric value.
-    state: start state for `predict_fn`.
+    metric_names: list of strings, the order in which eval_fn returns metrics.
+    eval_fn: metric function, which takes inputs and predictions (and
+      params, state, rng) and returns a tuple of scalar metric values.
+    params: params for each f in eval_fns.
+    state: state for each f in eval_fns.
     rng: random number generator.
-    has_weights: bool, whether weights are included in the inputs.
 
   Returns:
     metrics: dict from metric name to metric value averaged over the number of
@@ -303,41 +189,14 @@ def evaluate(inputs_stream, predict_fn, metric_fns, state, rng, has_weights):
   for inp in inputs_stream:
     count += 1
     rng, subrng = jax_random.split(rng)
-    model_inp, get_preds = _stack_inputs_targets_and_get_predictions(inp)
-    # Call model, preds will be the returned stack, usually (pred, targets).
-    outputs = predict_fn(model_inp, state=state, rng=subrng)
-    pred = get_preds(outputs)
-    for m, f in six.iteritems(metric_fns):
-      metrics[m] += f(inp, pred, has_weights=has_weights)
+    metric_values = eval_fn(inp, params=params, state=state, rng=subrng)
+    try:
+      metric_values = list(metric_values)
+    except TypeError:
+      metric_values = [float(metric_values)]
+    for m, v in zip(metric_names, metric_values):
+      metrics[m] += v
   return {m: v / count for (m, v) in six.iteritems(metrics)}, state
-
-
-def evaluate_loss_train_and_eval(step, eval_stream, train_eval_stream,
-                                 compute_loss_fn, eval_steps,
-                                 state, rngs, has_weights,
-                                 train_sw=None, eval_sw=None, history=None):
-  """More efficient evaluation that logs only the loss on train & eval data."""
-  assert not has_weights, (
-      "MemoryEfficientTrainer doesn't support has_weights")
-  step_log(step, "Evaluation")
-  train_eval_metrics = []
-  for input_stream in [train_eval_stream, eval_stream]:
-    total = 0.0
-    count = 0.0
-    for inp in itertools.islice(input_stream, eval_steps):
-      loss_values, state, rngs = compute_loss_fn(inp, state, rngs)
-      total += float(numpy.mean(loss_values))
-      count += 1.0
-    metrics = {"loss": total / count}
-    train_eval_metrics.append(metrics)
-  # Unpack in the same order we've iterated over streams in the loop above.
-  train_metrics, eval_metrics = train_eval_metrics  # pylint: disable=unbalanced-tuple-unpacking
-  if train_sw:
-    log_metrics(train_metrics, train_sw, "train", step, history=history)
-  if eval_sw:
-    log_metrics(eval_metrics, eval_sw, "eval", step, history=history)
-  step_log(step, "Finished evaluation")
-  return train_metrics, eval_metrics, state
 
 
 def log_metrics(metrics, summ_writer, log_prefix, step, history=None):
@@ -363,18 +222,6 @@ def get_random_number_generator_and_set_seed(seed=None):
   tf.set_random_seed(seed)
   numpy.random.seed(seed)
   return jax_random.get_prng(seed)
-
-
-# TODO(trax):
-# * Make configurable:
-#   * loss
-#   * metrics
-# * Training loop callbacks/hooks/...
-# * Save/restore: pickle unsafe. Use np.array.savez + MessagePack?
-# * Move metrics to metrics.py
-# * Setup namedtuples for interfaces (e.g. lr fun constructors can take a
-#   LearningRateInit, metric funs, etc.).
-# * Allow disabling eval
 
 
 def epochs(total_steps, steps_to_skip, epoch_steps):
@@ -411,8 +258,9 @@ def epochs(total_steps, steps_to_skip, epoch_steps):
 
 
 @gin.configurable
-def _jit_predict_fn(model_predict, n_devices, jit=True):
+def _jit_predict_fn(model_predict, metric_fn, n_devices, jit=True):
   """Returns a JIT-compiled predict function (unless jit=False)."""
+  model_predict = layers.Serial([model_predict, metric_fn])
 
   if n_devices == 1:
     return backend.jit(model_predict) if jit else model_predict
@@ -432,8 +280,12 @@ def _jit_predict_fn(model_predict, n_devices, jit=True):
     # Need to reduce the [device, per-device-batch, ...] tensors back to
     # a [batch, ...] tensor. The tensors may be nested.
     def combine(x):
-      batch_size = x.shape[0] * x.shape[1]
-      return np.reshape(x, [batch_size] + list(x.shape[2:]))
+      if len(x.shape) > 1:
+        batch_size = x.shape[0] * x.shape[1]
+        return np.reshape(x, [batch_size] + list(x.shape[2:]))
+      # TODO(lukaszkaiser): is returning averages for scalars the right choice?
+      # If it is only scalar, return the average.
+      return np.mean(x, axis=0)
     return layers.nested_map(pred, combine)
 
   return predict
@@ -442,12 +294,17 @@ def _jit_predict_fn(model_predict, n_devices, jit=True):
 @gin.configurable
 def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices, jit=True):
   """Returns a (JIT-compiled) function that computes updates for one step."""
+  model_and_loss = layers.Serial([predict_fn, loss_fn])
+  # Gradients are always wrt. the first argument, so putting params first.
+  def model_and_loss_call(params, batch, state, rng):
+    res = model_and_loss(batch, params=params, state=state, rng=rng)
+    return res, model_and_loss.state
   if n_devices == 1:  # TODO(lukaszkaiser): remove branch when not needed.
     def single_update(i, opt_state, batch, state, rng):
       params, slots, opt_params = opt_state
       rng, subrng = jax_random.split(rng[0])
-      grad_fn = backend.grad(loss_fn, has_aux=True)
-      grads, state = grad_fn(params, batch, predict_fn, state, rng)
+      grad_fn = backend.grad(model_and_loss_call, has_aux=True)
+      grads, state = grad_fn(params, batch, state, rng)
       return optimizer.tree_update(
           i, grads, params, slots, opt_params), state, [subrng]
     return backend.jit(single_update) if jit else single_update
@@ -459,8 +316,8 @@ def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices, jit=True):
     # We assume all tensors have the first dimension = n_devices.
     params, slots, opt_params = opt_state
     rng, subrng = jax_random.split(rng)
-    grad_fn = backend.grad(loss_fn, has_aux=True)
-    grads, state = grad_fn(params, batch, predict_fn, state, rng)
+    grad_fn = backend.grad(model_and_loss_call, has_aux=True)
+    grads, state = grad_fn(params, batch, state, rng)
     grads = jax.tree_util.tree_map(
         lambda g: lax.psum(g, "batch"), grads)
     return optimizer.tree_update(
@@ -581,13 +438,14 @@ class Trainer(object):
   def __init__(self, model, loss_fn, optimizer, lr_schedule, inputs,
                output_dir=None, random_seed=None, n_devices=None,
                save_steps=None, should_save=True, has_weights=False,
-               nontrainable_param_map=None):
+               nontrainable_param_map=None, mask_id=None):
     if save_steps is None:
       save_steps = []
     self._save_steps = save_steps
     self._should_save = should_save
     self._has_weights = has_weights
-    loss_fn = functools.partial(loss_fn, has_weights=self._has_weights)
+    self._mask_id = mask_id
+    loss_fn = loss_fn(has_weights=has_weights, mask_id=mask_id)
     device_count = jax.lib.xla_bridge.device_count()
     n_devices = n_devices or device_count
     # TODO(lukaszkaiser): remove this restriction when possible.
@@ -636,11 +494,14 @@ class Trainer(object):
         target_shape = [target_shape]
       full_type = list(input_dtype) + list(target_dtype)
       full_shape = list(input_shape) + list(target_shape)
+      if self._has_weights:
+        full_shape += list(target_shape)
+        full_type += [np.float32 for _ in target_dtype]
       # We need to create a new model instance and not reuse `model_train` here,
       # because `m.initialize` puts cached parameter values in `m` and hence the
       # next call of `m.initialize` will give wrong results.
-      params, state = model(mode="train").initialize_once(full_shape, full_type,
-                                                          rng)
+      m = layers.Serial([model(mode="train"), loss_fn])
+      params, state = m.initialize_once(full_shape, full_type, rng)
       (slots, opt_params) = opt.tree_init(params)
       return (OptState(params, slots, opt_params), state)
     if _is_jit_init():
@@ -653,8 +514,40 @@ class Trainer(object):
             model_target_shape, self._inputs.target_dtype, init_rng))
 
     # jit model_predict and update so they're fast
-    self._jit_model_predict_eval = _jit_predict_fn(
-        model_predict_eval, n_devices)
+    # TODO(lukaszkaiser): the code below creates a layer computing
+    # multiple metrics from a single model output; re-factor for clarity.
+    dup_layer = layers.Dup3() if self._has_weights else layers.Dup2()
+    def lower(layer):
+      """Apply layer below the current inputs, targets, and possibly weights."""
+      if self._has_weights:
+        # Apply layer below inputs, targets, and loss weights.
+        return layers.Parallel([], [], [], layer)
+      else:
+        # Apply layer below inputs and targets.
+        return layers.Parallel([], [], layer)
+    metrics_layer = []
+    self._metrics = list(sorted(_METRICS.keys()))
+    for i, m in enumerate(reversed(self._metrics)):
+      metric = _METRICS[m](has_weights=self._has_weights, mask_id=self._mask_id)
+      if i != len(self._metrics) - 1:
+        metrics_layer.append(dup_layer)
+        metrics_layer.append(lower(metric))
+      else:
+        metrics_layer.append(metric)
+    # TODO(lukaszkaiser): clean this up once layer API stabilizes.
+    # For now, we need to initialize metric layers somehow, so here we go.
+    # We assume that they do not have any parameters, so this is a dummy.
+    dummy_shape = ((1, 2), (1,), (1,)) if self._has_weights else ((1, 2), (1,))
+    dummy_type = [np.float32] * (3 if self._has_weights else 2)
+    metrics_layer = layers.Serial(metrics_layer)
+    metrics_params, metrics_state = metrics_layer.initialize_once(
+        dummy_shape, tuple(dummy_type), init_rng)
+    self._metrics_params = layers.nested_map(
+        metrics_params, self._maybe_replicate)
+    self._metrics_state = layers.nested_map(
+        metrics_state, self._maybe_replicate)
+    self._jit_eval = _jit_predict_fn(
+        model_predict_eval, metrics_layer, n_devices)
     self._jit_update_fn = _jit_update_fn(model_train, loss_fn, opt, n_devices)
 
     self._model_train = model_train
@@ -869,19 +762,25 @@ class Trainer(object):
   def evaluate(self, eval_steps):
     """Evaluate the model and log metrics."""
     _, rng = jax_random.split(self._rngs[0])
-    _, _, self._model_state = evaluate_train_and_eval(
-        step=self._step,
-        eval_stream=self._eval_stream,
-        train_eval_stream=self._train_eval_stream,
-        predict_fn=functools.partial(self._jit_model_predict_eval,
-                                     params=self._opt_state[0]),
-        eval_steps=eval_steps,
-        state=self._model_state,
-        rng=rng,
-        train_sw=self._train_sw,
-        eval_sw=self._eval_sw,
-        history=self._history,
-        has_weights=self._has_weights)
+    # TODO(lukaszkaiser): both model state and parameters by default include
+    # the loss layer. Currently, we access the pure-model parameters by just
+    # indexing, [0] here. But we should make it more explicit in a better API.
+    params = (self._opt_state[0][0], self._metrics_params)
+    state = (self._model_state[0], self._metrics_state)
+    step_log(self._step, "Evaluation")
+    train_eval_slice = itertools.islice(self._train_eval_stream, eval_steps)
+    train_metrics, _ = evaluation_round(
+        train_eval_slice, self._metrics, self._jit_eval, params, state, rng)
+    if self._train_sw:
+      log_metrics(train_metrics, self._train_sw, "train",
+                  self._step, history=self._history)
+    eval_slice = itertools.islice(self._eval_stream, eval_steps)
+    eval_metrics, _ = evaluation_round(
+        eval_slice, self._metrics, self._jit_eval, params, state, rng)
+    if self._eval_sw:
+      log_metrics(eval_metrics, self._eval_sw, "eval",
+                  self._step, history=self._history)
+    step_log(self._step, "Finished evaluation")
 
     # Save the optimizer params in the history
     for (name, value) in self.nontrainable_params.items():
@@ -899,9 +798,9 @@ class Trainer(object):
     output_dir = self._output_dir
     if self._n_devices > 1:
       next_train_batch = reshape_by_device(next_train_batch, self._n_devices)
-    params = self._opt_state[0]
+    params = self._opt_state[0][0]
     forward_computation = jax.xla_computation(self._model_predict_eval)(
-        next_train_batch, params=params, state=self._model_state,
+        next_train_batch, params=params, state=self._model_state[0],
         rng=self._rngs[0])
     with gfile.GFile(os.path.join(output_dir, "forward.txt"), "w") as f:
       f.write(forward_computation.GetHloText())
@@ -936,20 +835,33 @@ class MemoryEfficientTrainer(Trainer):
         "MemoryEfficientTrainer doesn't support has_weights")
 
   def evaluate(self, eval_steps):
-    # Evaluate only the loss function (a more efficient, jitted, implementation)
-    _, _, self._model_state = evaluate_loss_train_and_eval(
-        step=self._step,
-        eval_stream=self._eval_stream,
-        train_eval_stream=self._train_eval_stream,
-        compute_loss_fn=functools.partial(self._jit_compute_loss,
-                                          self._opt_state),
-        eval_steps=eval_steps,
-        state=self._model_state,
-        rngs=self._rngs,
-        has_weights=self._has_weights,
-        train_sw=self._train_sw,
-        eval_sw=self._eval_sw,
-        history=self._history)
+    """Evaluate only the loss function (efficient, jitted, implementation)."""
+    assert not self._has_weights, (
+        "MemoryEfficientTrainer doesn't support has_weights")
+    step = self._step
+    rngs = self._rngs
+    state = self._model_state
+    history = self._history
+    compute_loss_fn = functools.partial(self._jit_compute_loss,
+                                        self._opt_state)
+    step_log(step, "Evaluation")
+    train_eval_metrics = []
+    for input_stream in [self._train_eval_stream, self._eval_stream]:
+      total = 0.0
+      count = 0.0
+      for inp in itertools.islice(input_stream, eval_steps):
+        loss_values, state, rngs = compute_loss_fn(inp, state, rngs)
+        total += float(numpy.mean(loss_values))
+        count += 1.0
+      metrics = {"loss": total / count}
+      train_eval_metrics.append(metrics)
+    # Unpack in the same order we've iterated over streams in the loop above.
+    train_metrics, eval_metrics = train_eval_metrics  # pylint: disable=unbalanced-tuple-unpacking
+    if self._train_sw:
+      log_metrics(train_metrics, self._train_sw, "train", step, history=history)
+    if self._eval_sw:
+      log_metrics(eval_metrics, self._eval_sw, "eval", step, history=history)
+    step_log(step, "Finished evaluation")
 
   def save_computation_graphs(self, save_backward_graph):
     # TODO(kitaev): implement saving graphs while making sure that no op-by-op
@@ -961,7 +873,7 @@ class MemoryEfficientTrainer(Trainer):
 @gin.configurable(blacklist=["output_dir"])
 def train(output_dir,
           model=gin.REQUIRED,
-          loss_fn=loss,
+          loss_fn=layers.CrossEntropyLossScalar,
           inputs=trax_inputs.inputs,
           optimizer=trax_opt.Adafactor,
           lr_schedule=lr.MultifactorSchedule,
@@ -975,7 +887,8 @@ def train(output_dir,
           save_graphs=True,
           save_backward_graph=False,
           has_weights=False,
-          nontrainable_param_map=None):
+          nontrainable_param_map=None,
+          mask_id=None):
   """Train the model on the inputs.
 
   Args:
@@ -1002,14 +915,18 @@ def train(output_dir,
     has_weights: bool, whether weights are included in the inputs.
     nontrainable_param_map: dict, mapping from model nontrainable parameter
       names to control names in PolicySchedule.
+    mask_id: id to mask out (None by default).
+
   Returns:
     trax.State
   """
+  # TODO(lukaszkaiser): remove has_weights and mask_id later (configure loss).
   trainer = trainer_class(model, loss_fn, optimizer, lr_schedule, inputs,
                           output_dir,
                           random_seed=random_seed, n_devices=n_devices,
                           save_steps=save_steps, has_weights=has_weights,
-                          nontrainable_param_map=nontrainable_param_map)
+                          nontrainable_param_map=nontrainable_param_map,
+                          mask_id=mask_id)
 
   epoch_steps = [train_steps]  # Only training if eval_frequency is 0 or None
   if eval_frequency and eval_steps > 0:

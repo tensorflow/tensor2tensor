@@ -28,6 +28,7 @@ from tensor2tensor.trax.layers.combinators import *
 from tensor2tensor.trax.layers.convolution import *
 from tensor2tensor.trax.layers.core import *
 from tensor2tensor.trax.layers.initializers import *
+from tensor2tensor.trax.layers.metrics import *
 from tensor2tensor.trax.layers.normalization import *
 from tensor2tensor.trax.layers.pooling import *
 from tensor2tensor.trax.layers.reversible import *

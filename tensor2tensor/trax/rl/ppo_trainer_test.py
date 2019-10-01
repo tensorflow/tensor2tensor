@@ -166,10 +166,10 @@ class PpoTrainerTest(test.TestCase):
 
     def inputs(n_devices):
       del n_devices
-      stream = itertools.repeat((
-          (np.zeros(history_shape), np.zeros(action_shape, dtype=np.int32)),
-          (np.zeros(obs_shape), np.zeros(reward_shape)),
-      ))
+      stream = itertools.repeat(
+          (np.zeros(history_shape), np.zeros(action_shape, dtype=np.int32),
+           np.zeros(obs_shape), np.zeros(reward_shape))
+      )
       return trax_inputs.Inputs(
           train_stream=lambda: stream,
           train_eval_stream=lambda: stream,
@@ -180,9 +180,20 @@ class PpoTrainerTest(test.TestCase):
           target_dtype=(np.float32, np.float32),
       )
 
-    def loss(params, batch, model_predict, state, rng, **kwargs):
-      del params, batch, model_predict, rng, kwargs
-      return 0.0, state
+    def loss(mask_id=None, has_weights=False):
+      """Cross-entropy loss as scalar compatible with Trax masking."""
+      return layers.Serial(
+          # Swap from (pred-obs, pred-reward, target-obs, target-reward)
+          # to (pred-obs, target-obs, pred-reward, target-reward).
+          layers.Parallel([], layers.Swap()),
+          # Cross-entropy loss for obs, L2 loss on reward.
+          layers.Parallel(layers.CrossEntropyLossScalar(mask_id, has_weights),
+                          layers.L2LossScalar(mask_id, has_weights)),
+          # Add both losses.
+          layers.Add(),
+          # Zero out in this test.
+          layers.MulConstant(constant=0.0)
+      )
 
     with self.tmp_dir() as output_dir:
       # Run fake training just to save the parameters.

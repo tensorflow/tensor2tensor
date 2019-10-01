@@ -15,10 +15,6 @@ batch_fn.buckets_include_inputs_in_length=True
 inputs.data_dir = None
 inputs.dataset_name = 't2t_translate_ende_wmt32k'
 
-# Parameters for mask:
-# ==============================================================================
-masked_mean.mask_id = 0
-
 # Parameters for MultifactorSchedule:
 # ==============================================================================
 MultifactorSchedule.constant = 0.1
@@ -43,6 +39,7 @@ train.inputs = @trax.inputs.inputs
 train.model = @trax.models.Transformer
 train.train_steps = 500000
 train.optimizer = @trax.optimizers.SM3
+train.mask_id = 0
 
 # Parameters for Transformer:
 # ==============================================================================

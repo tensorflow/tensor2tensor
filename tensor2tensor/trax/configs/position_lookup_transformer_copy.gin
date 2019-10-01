@@ -12,10 +12,6 @@ batch_fn.eval_batch_size = 32
 # ==============================================================================
 inputs.dataset_name = 't2t_algorithmic_identity_vocab95_train20_eval30'
 
-# Parameters for masked_mean:
-# ==============================================================================
-masked_mean.mask_id = 0
-
 # Parameters for preprocess_fun:
 # ==============================================================================
 shuffle_and_batch_data.preprocess_fun=@trax.inputs.concat_preprocess
@@ -43,3 +39,4 @@ train.eval_steps = 10
 train.model = @trax.models.PositionLookupTransformerLM
 train.optimizer = @trax.optimizers.Adam
 train.train_steps = 100000
+train.mask_id = 0

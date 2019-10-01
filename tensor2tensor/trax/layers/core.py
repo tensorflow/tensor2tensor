@@ -210,6 +210,12 @@ def AddConstant(x, constant=0.0, **unused_kwargs):
   return x + constant
 
 
+@base.layer()
+def MulConstant(x, params, constant=1.0, **unused_kwargs):
+  del params
+  return x * constant
+
+
 def one_hot(x, size, dtype=np.float32):  # pylint: disable=invalid-name
   """Make a n+1 dim one-hot array from n dim int-categorical array."""
   arange_size = np.arange(size)

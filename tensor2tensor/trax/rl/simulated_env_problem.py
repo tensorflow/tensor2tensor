@@ -107,8 +107,11 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
     del parallelism
 
     trax_state = trax.restore_state(self._output_dir)
-    model_params = trax_state.opt_state.params
-    self._model_state = trax_state.model_state
+    # TODO(lukaszkaiser): both model state and parameters by default include
+    # the loss layer. Currently, we access the pure-model parameters by just
+    # indexing, [0] here. But we should make it more explicit in a better API.
+    model_params = trax_state.opt_state.params[0]
+    self._model_state = trax_state.model_state[0]
 
     def predict_fn(inputs, rng):
       (output, self._model_state) = self._model_predict(
@@ -118,7 +121,6 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
 
     self._predict_fn = predict_fn
     self._history_stream = history_stream
-
     self._steps = np.zeros(batch_size, dtype=np.int32)
 
   @property

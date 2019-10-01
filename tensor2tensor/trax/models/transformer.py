@@ -371,7 +371,8 @@ def Transformer(input_vocab_size,
 
   # Input: encoder_side_tokens, decoder_side_tokens
   return tl.Model(  # tokens_e tokens_d
-      tl.Swap(),    # toks_d toks_e
+      tl.Parallel([], tl.Dup()),    # toks_e toks_d toks_d (for loss)
+      tl.Swap(),    # toks_d toks_e ....
 
       # Encode.
       tl.Parallel(                                       # toks_d        toks_e

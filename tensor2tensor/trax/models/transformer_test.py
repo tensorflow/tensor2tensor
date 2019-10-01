@@ -55,7 +55,7 @@ class TransformerTest(parameterized.TestCase):
     expected_shape = (tuple(single_input_shape +
                             [output_vocab_size if output_vocab_size is not None
                              else input_vocab_size]))
-    self.assertEqual(expected_shape, final_shape)
+    self.assertEqual(expected_shape, final_shape[0])
 
   def test_transformer_lm_fast_inference(self):
     with backend.use_backend('jax'):
