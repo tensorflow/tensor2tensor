@@ -148,7 +148,7 @@ class ConditionalOptimizer(tf.train.Optimizer):
     cast_grad = (
         cast_grad_TPU
         if common_layers.is_xla_compiled()
-        else cast_grad_GPU)
+        else cast_grad_gpu)
     gradients = [cast_grad(g, v) for g, v in gradients]
     return gradients
 
