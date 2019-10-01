@@ -33,17 +33,29 @@ from tensor2tensor.trax.backend import ShapeType
 class Layer(object):
   """Base class for composable layers in a deep learning network.
 
-  A layer is a part of a trainable network that can compute a function from
-  zero or more inputs to zero or more outputs. It may make use of trainable
-  parameters as well as non-parameter state for its computation. A layer is
-  either atomic or composed of sublayers. All layers provide accessors for
-  these aspects:
+  Layers are the basic building blocks for deep learning models. A Trax layer
+  computes a function from zero or more inputs to zero or more outputs,
+  optionally using trainable parameters (common) and non-parameter state (not
+  common). Authors of new layer subclasses typically override at most two
+  methods of the base `Layer` class:
 
-    - n_inputs: int
-    - n_outputs: int
-    - params: tuple (empty if the layer has no parameters)
-    - state: tuple (empty if the layer has no non-parameter state)
-    - sublayers: tuple (empty if the layer has no sublayers)
+    forward(inputs, params=(), state=(), **kwargs):
+      Computes this layer's output as part of a forward pass through the model.
+
+    new_params_and_state(self, input_shape, input_dtype, rng):
+      Returns a (params, state) pair suitable for initializing this layer.
+
+  A small subset of layer types are combinators -- they organize the computation
+  of their sublayers, e.g., applying their sublayers in series or in parallel.
+
+  All layers have the following properties, with default values implemented
+  in the base `Layer` class:
+
+    - n_inputs: int (default 1)
+    - n_outputs: int (default 1)
+    - params: tuple (default empty -- the layer has no parameters)
+    - state: tuple (default empty -- the layer has no non-parameter state)
+    - sublayers: tuple (default empty -- the layer has no sublayers)
 
   The inputs to a layer are tensors, packaged according to how many there are:
 
@@ -51,7 +63,7 @@ class Layer(object):
     - n_inputs = 1: one tensor (NOT wrapped in a tuple)
     - n_inputs > 1: a tuple of tensors
 
-  (The special treatment for the single-input case is meant to simplify the
+  (The special treatment of the single-input case is meant to simplify the
   work of layer writers; this design choice may be revisited in the future.)
 
   The outputs from a layer are also tensors, packaged the same as layer inputs:
@@ -61,9 +73,10 @@ class Layer(object):
     - n_outputs > 1: a tuple of tensors
 
   The Trax runtime maintains a data stack with which layer calls are composed.
-  One can therefore view each layer as a function from stack state to stack
-  state, where the function's inputs are a slice from the stack, and the
-  function's outputs are spliced back into the stack.
+  For more complex data network architectures, possibly involving multiple data
+  flows, one can view each layer as a function from stack state to stack state,
+  where the function's inputs are a slice from the stack, and the function's
+  outputs are spliced back into the stack.
   """
 
   def __init__(self, n_inputs=1, n_outputs=1):
