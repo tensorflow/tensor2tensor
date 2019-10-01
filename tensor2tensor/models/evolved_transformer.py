@@ -71,7 +71,7 @@ class EvolvedTransformer(transformer.Transformer):
     super(EvolvedTransformer, self).__init__(*args, **kwargs)
     self._encoder_function = evolved_transformer_encoder
     self._decoder_function = evolved_transformer_decoder
-    self._init_cache_fn = _init_evolved_transformer_cache
+    self._init_cache_fn = init_evolved_transformer_cache
 
     # -1 means train all weights.
     if self.hparams.get("num_trainable_top_decoder_layers", -1) < 0:
@@ -654,10 +654,10 @@ def _add_attend_to_encoder_cache(cache, attention_name, hparams, num_layers,
   return cache
 
 
-def _init_evolved_transformer_cache(cache, hparams, batch_size,
-                                    attention_init_length, encoder_output,
-                                    encoder_decoder_attention_bias,
-                                    scope_prefix):
+def init_evolved_transformer_cache(cache, hparams, batch_size,
+                                   attention_init_length, encoder_output,
+                                   encoder_decoder_attention_bias,
+                                   scope_prefix):
   """Create the initial cache for Evolved Transformer fast decoding."""
   key_channels = hparams.attention_key_channels or hparams.hidden_size
   value_channels = hparams.attention_value_channels or hparams.hidden_size
