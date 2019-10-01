@@ -29,14 +29,16 @@ from tensorflow import test
 
 class BoxSpaceSerializerTest(test.TestCase):
 
-  def _make_space_and_serializer(self, low=-10, high=10, shape=(2,)):
-    # Enough precision to represent float32s accurately.
-    gin.bind_parameter("BoxSpaceSerializer.precision", 4)
+  def _make_space_and_serializer(
+      self, low=-10, high=10, shape=(2,),
+      # Weird vocab_size to test that it doesn't only work with powers of 2.
+      vocab_size=257,
+      # Enough precision to represent float32s accurately.
+      precision=4,
+  ):
+    gin.bind_parameter("BoxSpaceSerializer.precision", precision)
     space = gym.spaces.Box(low=low, high=high, shape=shape)
-    serializer = space_serializer.create(
-        space,
-        # Weird vocab_size to test that it doesn't only work with powers of 2.
-        vocab_size=257)
+    serializer = space_serializer.create(space, vocab_size=vocab_size)
     return (space, serializer)
 
   def _sample_batch(self, space):
@@ -78,6 +80,18 @@ class BoxSpaceSerializerTest(test.TestCase):
     (_, serializer) = self._make_space_and_serializer(shape=(2,))
     np.testing.assert_array_equal(
         serializer.significance_map, [0, 1, 2, 3, 0, 1, 2, 3])
+
+  def test_serializes_boundaries(self):
+    vocab_size = 256
+    precision = 4
+    (_, serializer) = self._make_space_and_serializer(
+        low=-1, high=1, shape=(1,), vocab_size=vocab_size, precision=precision,
+    )
+    input_array = np.array([[-1, 1]])
+    representation = serializer.serialize(input_array)
+    np.testing.assert_array_equal(
+        representation, [[0] * precision + [vocab_size - 1] * precision]
+    )
 
 
 class DiscreteSpaceSerializerTest(test.TestCase):

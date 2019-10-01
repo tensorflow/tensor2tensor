@@ -131,7 +131,9 @@ class BoxSpaceSerializer(SpaceSerializer):
     digits = []
     for digit_index in range(-1, -self._precision - 1, -1):
       threshold = self._vocab_size ** digit_index
-      digit = np.array(array / threshold).astype(np.int32) % self._vocab_size
+      digit = np.array(array / threshold).astype(np.int32)
+      # For the corner case of x == high.
+      digit[digit == self._vocab_size] -= 1
       digits.append(digit)
       array -= digit * threshold
     digits = np.stack(digits, axis=-1)
