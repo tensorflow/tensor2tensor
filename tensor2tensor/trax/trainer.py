@@ -92,6 +92,8 @@ def _setup_gin():
   gin.parse_config_files_and_bindings(FLAGS.config_file, configs)
 
 
+
+
 def main(_):
 
   logging.set_verbosity(FLAGS.log_level)
@@ -109,6 +111,7 @@ def main(_):
   tf.config.optimizer.set_experimental_options(
       {"layout_optimizer": FLAGS.tf_opt_layout}
   )
+
 
   _setup_gin()
 

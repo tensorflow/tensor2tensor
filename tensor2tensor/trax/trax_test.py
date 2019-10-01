@@ -43,10 +43,10 @@ from tensorflow import test
 from tensorflow.io import gfile
 
 
-def test_inputs(n_classes, with_weights=False):
+
+def test_inputs(n_classes, with_weights=False, input_shape=(6, 6, 3)):
   """Make trax.inputs.Inputs."""
   batch_size = 2 * xla_bridge.device_count()
-  input_shape = (6, 6, 3)
 
   def input_stream():
     key = backend.random.get_prng(0)
@@ -70,6 +70,8 @@ def test_inputs(n_classes, with_weights=False):
       input_dtype=np.float32,
       target_shape=(),
       target_dtype=np.int32)
+
+
 
 
 BACKENDS = ["jax"]
@@ -241,6 +243,7 @@ class TraxTest(test.TestCase, parameterized.TestCase):
       trainer.evaluate(1)
       trainer.reset(output_dir2)
       trainer.evaluate(1)
+
 
 
 class EpochsTest(test.TestCase):

@@ -88,6 +88,7 @@ def MultifactorSchedule(history=None,
         ret *= (decay_factor ** (step//steps_per_decay))
       else:
         raise ValueError("Unknown factor %s." % name)
+    ret = np.asarray(ret, dtype=np.float32)
     return {"learning_rate": ret}
 
   return learning_rate
