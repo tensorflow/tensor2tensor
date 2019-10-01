@@ -66,8 +66,12 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
     if model_predict_kwargs is None:
       model_predict_kwargs = {}
     model_predict = self._model(mode="predict", **model_predict_kwargs)
-    self._model_predict = backend.jit(model_predict)
+    def predict_with_state(*args, **kwargs):
+      output = model_predict(*args, **kwargs)
+      return (output, model_predict.state)
+    self._model_predict = backend.jit(predict_with_state)
     self._model_initialize = model_predict.initialize_once
+
     self._observation_space = observation_space
     self._action_space = action_space
     self._reward_range = reward_range
@@ -75,7 +79,7 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
 
     self._predict_fn = None
     self._rng = None
-    self._model_state_override = None
+    self._model_state = None
     self._history_stream = None
 
     # Call the super's ctor. It will use some of the member fields, so we call
@@ -104,15 +108,13 @@ class SimulatedEnvProblem(env_problem.EnvProblem):
 
     trax_state = trax.restore_state(self._output_dir)
     model_params = trax_state.opt_state.params
+    self._model_state = trax_state.model_state
 
-    # For initializing model state and resetting it.
-    self._model_state_override = trax_state.model_state
-
-    def predict_fn(*args, **kwargs):
-      kwargs["params"] = model_params
-      if self._model_state_override is not None:
-        kwargs["state"] = self._model_state_override
-      return self._model_predict(*args, **kwargs)
+    def predict_fn(inputs, rng):
+      (output, self._model_state) = self._model_predict(
+          inputs, params=model_params, state=self._model_state, rng=rng
+      )
+      return output
 
     self._predict_fn = predict_fn
     self._history_stream = history_stream
@@ -396,7 +398,7 @@ class SerializedSequenceSimulatedEnvProblem(SimulatedEnvProblem):
         "Only resetting all envs at once is supported."
     )
 
-    self._model_state_override = self._init_model_state
+    self._model_state = self._init_model_state
     self._last_symbols[indices] = 0
     self._steps[indices] = 0
     observation = self._predict_obs(predict_fn, rng)[indices]
