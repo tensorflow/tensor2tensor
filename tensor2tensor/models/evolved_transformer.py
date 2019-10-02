@@ -96,6 +96,7 @@ class EvolvedTransformer(transformer.Transformer):
       # To make sure it they embeddings continue to be shared, we need to set
       # hparams.shared_embedding to True.
       self.hparams.shared_embedding = True
+    self._init_cache_fn = init_evolved_transformer_cache
 
 
 def evolved_transformer_encoder(encoder_input,
