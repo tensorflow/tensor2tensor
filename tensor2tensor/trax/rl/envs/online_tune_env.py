@@ -78,7 +78,8 @@ class OnlineTuneEnv(gym.Env):
                # Don't save checkpoints by default, as they tend to use a lot of
                # space.
                should_save_checkpoints=False,
-               has_weights=False):
+               has_weights=False,
+               mask_id=None):
     if action_multipliers is None:
       action_multipliers = self.DEFAULT_ACTION_MULTIPLIERS
     self._model = model
@@ -95,6 +96,7 @@ class OnlineTuneEnv(gym.Env):
         should_save=should_save_checkpoints,
         nontrainable_param_map=nontrainable_param_map,
         has_weights=has_weights,
+        mask_id=mask_id,
     )
     self._trainer = None
     self._action_multipliers = action_multipliers

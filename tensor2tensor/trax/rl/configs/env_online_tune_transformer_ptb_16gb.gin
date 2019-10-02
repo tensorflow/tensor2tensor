@@ -16,10 +16,6 @@ inputs.data_dir = None
 inputs.dataset_name = 't2t_languagemodel_ptb10k'
 inputs.input_name = 'targets'
 
-# Parameters for mask:
-# ==============================================================================
-masked_mean.mask_id = 0
-
 # Parameters for preprocess_fun:
 # ==============================================================================
 shuffle_and_batch_data.preprocess_fun=@trax.inputs.lm1b_preprocess
@@ -95,3 +91,4 @@ OnlineTuneEnv.nontrainable_param_map = {
 OnlineTuneEnv.include_controls_in_observation = False
 OnlineTuneEnv.observation_range = (0.0, 10.0)
 OnlineTuneEnv.action_multipliers = (0.5, 0.8, 0.95, 1.0, 1.05, 1.25, 2.0)
+OnlineTuneEnv.mask_id = 0
