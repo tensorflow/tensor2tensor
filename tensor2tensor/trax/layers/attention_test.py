@@ -71,6 +71,22 @@ class AttentionTest(test.TestCase):
     final_shape = base.check_shape_agreement(layer, input_shape)
     self.assertEqual((3, 32, 8), final_shape)
 
+  def test_time_bin_causal_attention_bin_length(self):
+    qkv_shape = (3, 57, 8)
+    input_shape = (qkv_shape, qkv_shape, qkv_shape)
+    layer = attention.TimeBinCausalAttention(
+        bin_length=16, dropout=0.1, mode='train')
+    final_shape = base.check_shape_agreement(layer, input_shape)
+    self.assertEqual((3, 57, 8), final_shape)
+
+  def test_time_bin_causal_attention_n_bins(self):
+    qkv_shape = (3, 57, 8)
+    input_shape = (qkv_shape, qkv_shape, qkv_shape)
+    layer = attention.TimeBinCausalAttention(
+        n_bins=4, dropout=0.1, mode='train')
+    final_shape = base.check_shape_agreement(layer, input_shape)
+    self.assertEqual((3, 57, 8), final_shape)
+
 
 if __name__ == '__main__':
   test.main()

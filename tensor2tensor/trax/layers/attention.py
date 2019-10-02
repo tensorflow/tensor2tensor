@@ -18,7 +18,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import math
 import random
+
 import jax
 import numpy as onp
 
@@ -657,8 +659,12 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
 class TimeBinCausalAttention(BaseCausalAttention):
   """Causal attention where only nearby chunks of items attend to each other."""
 
-  def __init__(self, dropout, mode, n_bins=64, share_qk=False):
+  def __init__(self, dropout, mode, bin_length=None, n_bins=None,
+               share_qk=False):
     super(TimeBinCausalAttention, self).__init__()
+    if (bin_length is None) == (n_bins is None):
+      raise ValueError('Exactly one of {bin_length, n_bins} must be set.')
+    self.bin_length = bin_length
     self.n_bins = n_bins
     self._share_qk = share_qk
     if dropout >= 1.0:
@@ -683,21 +689,41 @@ class TimeBinCausalAttention(BaseCausalAttention):
     norm_inputs = x / np.sqrt(variance + epsilon)
     return norm_inputs
 
+  def _pad_inputs(self, inputs):
+    seq_len = inputs[0].shape[-2]
+    n_bins = self.n_bins
+    bin_length = self.bin_length
+    if n_bins is None:
+      n_bins = int(math.ceil(seq_len / bin_length))
+    else:
+      bin_length = int(math.ceil(seq_len / n_bins))
+    pad_len = n_bins * bin_length - seq_len
+
+    def pad_input(x):
+      pad_widths = [(0, 0)] * len(x.shape)
+      pad_widths[-2] = (0, pad_len)  # Padding on axis=-2
+      return np.pad(x, pad_widths, mode='constant',
+                    constant_values=x.dtype.type(0))
+
+    padded_inputs = tuple(map(pad_input, inputs))
+    return (padded_inputs, seq_len, n_bins)
+
   def forward(self, inputs, params=(), state=(), rng=None, **kwargs):
     del params, kwargs
+    (inputs, original_len, n_bins) = self._pad_inputs(inputs)
     q, k, v = inputs
     seqlen = q.shape[-2]
     # q/k/v are n_batch*n_heads, seqlen, d_head
     t = jax.lax.tie_in(q, np.arange(seqlen))
 
     # Split off a "bin" axis for chunks of consecutive items.
-    bq_t = np.reshape(t, (self.n_bins, -1))
-    bq = np.reshape(q, (q.shape[0], self.n_bins, -1, q.shape[-1]))
+    bq_t = np.reshape(t, (n_bins, -1))
+    bq = np.reshape(q, (q.shape[0], n_bins, -1, q.shape[-1]))
     if self._share_qk:
       bk = self.make_unit_length(bq)
     else:
-      bk = np.reshape(k, (k.shape[0], self.n_bins, -1, k.shape[-1]))
-    bv = np.reshape(v, (v.shape[0], self.n_bins, -1, v.shape[-1]))
+      bk = np.reshape(k, (k.shape[0], n_bins, -1, k.shape[-1]))
+    bv = np.reshape(v, (v.shape[0], n_bins, -1, v.shape[-1]))
 
     # Allow each chunk to attend within itself, and also one chunk back.
     def look_one_back(x):
@@ -742,7 +768,7 @@ class TimeBinCausalAttention(BaseCausalAttention):
 
     output = np.reshape(bo, (bo.shape[0], -1, bo.shape[-1]))
     assert output.shape == v.shape
-    return output, state
+    return output[..., :original_len, :], state
 
 
 class LSHCausalAttention(BaseCausalAttention):
