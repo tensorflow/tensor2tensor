@@ -140,8 +140,12 @@ class NeuralStackCell(tf.nn.rnn_cell.RNNCell):
     Returns:
       A tf.float32 tensor of shape [1, 1, memory_size, memory_size]
     """
-    return tf.expand_dims(
-        common_layers.mask_pos_lt(self._memory_size, self._memory_size), axis=0)
+    if read_head_index == 0:
+      return tf.expand_dims(
+          common_layers.mask_pos_lt(self._memory_size, self._memory_size),
+          axis=0)
+    else:
+      raise ValueError("Read head index must be 0 for stack.")
 
   def get_write_head_offset(self, write_head_index):
     """Lookup the offset to shift the write head at each step.
@@ -157,7 +161,10 @@ class NeuralStackCell(tf.nn.rnn_cell.RNNCell):
     Returns:
       An integer offset to move the write head at each step.
     """
-    return 1
+    if write_head_index == 0:
+      return 1
+    else:
+      raise ValueError("Write head index must be 0 for stack.")
 
   def add_scalar_projection(self, name, size):
     """A helper function for mapping scalar controller outputs.
@@ -209,8 +216,7 @@ class NeuralStackCell(tf.nn.rnn_cell.RNNCell):
       self.rnn = tf.contrib.rnn.BasicRNNCell(self._num_units)
       self._input_proj = self.add_variable(
           "input_projection_weights",
-          shape=[(self._embedding_size * self._num_read_heads) +
-                 (self._embedding_size * self._num_write_heads),
+          shape=[self._embedding_size * (self._num_read_heads + 1),
                  self._num_units],
           dtype=self.dtype)
       self._input_bias = self.add_variable(
@@ -224,7 +230,7 @@ class NeuralStackCell(tf.nn.rnn_cell.RNNCell):
       self._value_proj, self._value_bias = self.add_vector_projection(
           "value", self._num_write_heads)
       self._output_proj, self._output_bias = self.add_vector_projection(
-          "output", self._num_read_heads)
+          "output", 1)
 
   def build(self, _):
     """Build the controller.
@@ -255,14 +261,14 @@ class NeuralStackCell(tf.nn.rnn_cell.RNNCell):
         # state
         [batch_size, self._num_units])
 
-  def call_controller(self, inputs, read_values, prev_state, batch_size):
+  def call_controller(self, input_value, read_values, prev_state, batch_size):
     """Make a call to the neural stack controller.
 
     See Section 3.1 of Grefenstette et al., 2015.
 
     Args:
-      inputs: The inputs to the neural stack cell should be a tf.float32 tensor
-        with shape [batch_size, num_write_heads, embedding_size]
+      input_value: The input to the neural stack cell should be a tf.float32
+        tensor with shape [batch_size, 1, embedding_size]
       read_values: The values of the read heads at the previous timestep.
       prev_state: The hidden state from the previous time step.
       batch_size: The size of the current batch of input values.
@@ -271,10 +277,10 @@ class NeuralStackCell(tf.nn.rnn_cell.RNNCell):
       A tuple of outputs and the new NeuralStackControllerInterface.
     """
     with tf.name_scope("controller"):
-      # Concatenate the current input values with the read value from the
+      # Concatenate the current input value with the read values from the
       # previous timestep before feeding them into the controller.
       controller_inputs = tf.concat([
-          tf.contrib.layers.flatten(inputs),
+          tf.contrib.layers.flatten(input_value),
           tf.contrib.layers.flatten(read_values),
       ], axis=1)
 
@@ -331,7 +337,7 @@ class NeuralStackCell(tf.nn.rnn_cell.RNNCell):
     # Always write input values to memory regardless of push strength.
     # See Equation-1 in Grefenstette et al., 2015.
     new_memory_values = prev_state.memory_values + tf.reduce_sum(
-        tf.expand_dims(controller_output.write_values, axis=1) *
+        tf.expand_dims(controller_output.write_values, axis=2) *
         prev_state.write_strengths,
         axis=1)
 
@@ -340,9 +346,11 @@ class NeuralStackCell(tf.nn.rnn_cell.RNNCell):
     # See Equation-2 in Grefenstette et al., 2015.
     new_read_strengths = prev_state.read_strengths
     for h in range(self._num_read_heads - 1, -1, -1):
-      new_read_strengths = tf.nn.relu(
-          new_read_strengths -
-          tf.nn.relu(controller_output.pop_strengths - tf.expand_dims(
+      new_read_strengths = tf.nn.relu(new_read_strengths - tf.nn.relu(
+          tf.slice(controller_output.pop_strengths,
+                   [0, h, 0, 0],
+                   [-1, 1, -1, -1]) -
+          tf.expand_dims(
               tf.reduce_sum(new_read_strengths * self.get_read_mask(h), axis=2),
               axis=3)))
 
@@ -403,8 +411,78 @@ class NeuralQueueCell(NeuralStackCell):
     Returns:
       A tf.float32 tensor of shape [1, 1, memory_size, memory_size].
     """
+    if read_head_index == 0:
+      return tf.expand_dims(
+          common_layers.mask_pos_gt(self._memory_size, self._memory_size),
+          axis=0)
+    else:
+      raise ValueError("Read head index must be 0 for queue.")
+
+
+class NeuralDequeCell(NeuralStackCell):
+  """An subclass of the NeuralStackCell which reads/writes in both directions.
+
+  See section 3.3 of Grefenstette et al., 2015.
+  """
+
+  def __init__(self, num_units, memory_size, embedding_size, reuse=None):
+    # Override constructor to set 2 read/write heads.
+    super(NeuralDequeCell, self).__init__(num_units,
+                                          memory_size,
+                                          embedding_size,
+                                          num_read_heads=2,
+                                          num_write_heads=2,
+                                          reuse=reuse)
+
+  def get_read_mask(self, read_head_index):
+    if read_head_index == 0:
+      # Use the same read mask as the queue for the bottom of the deque.
+      return tf.expand_dims(
+          common_layers.mask_pos_gt(self._memory_size, self._memory_size),
+          axis=0)
+    elif read_head_index == 1:
+      # Use the same read mask as the stack for the top of the deque.
+      return tf.expand_dims(
+          common_layers.mask_pos_lt(self._memory_size, self._memory_size),
+          axis=0)
+    else:
+      raise ValueError("Read head index must be either 0 or 1 for deque.")
+
+  def get_write_head_offset(self, write_head_index):
+    if write_head_index == 0:
+      # Move the bottom write position back at each timestep.
+      return -1
+    elif write_head_index == 1:
+      # Move the top write position forward at each timestep.
+      return 1
+    else:
+      raise ValueError("Write head index must be 0 or 1 for deque.")
+
+  def initialize_write_strengths(self, batch_size):
+    """Initialize write strengths which write in both directions.
+
+    Unlike in Grefenstette et al., It's writing out from the center of the
+    memory so that it doesn't need to shift the entire memory forward at each
+    step.
+
+    Args:
+      batch_size: The size of the current batch.
+
+    Returns:
+      A tf.float32 tensor of shape [num_write_heads, memory_size, 1].
+    """
+    memory_center = self._memory_size // 2
     return tf.expand_dims(
-        common_layers.mask_pos_gt(self._memory_size, self._memory_size), axis=0)
+        tf.concat([
+            # The write strength for the deque bottom.
+            # Should be shifted back at each timestep.
+            tf.one_hot([[memory_center - 1]] * batch_size,
+                       depth=self._memory_size, dtype=tf.float32),
+            # The write strength for the deque top.
+            # Should be shifted forward at each timestep.
+            tf.one_hot([[memory_center]] * batch_size,
+                       depth=self._memory_size, dtype=tf.float32)
+        ], axis=1), axis=3)
 
 
 @registry.register_model
@@ -502,6 +580,25 @@ class NeuralQueueModel(NeuralStackModel):
                            self._hparams.embedding_size)
 
 
+@registry.register_model
+class NeuralDequeModel(NeuralStackModel):
+  """Subclass of NeuralStackModel which implements a double-ended queue.
+  """
+
+  def cell(self, hidden_size):
+    """Build a NeuralDequeCell instead of a NeuralStackCell.
+
+    Args:
+      hidden_size: The hidden size of the cell.
+
+    Returns:
+      A new NeuralDequeCell with the given hidden size.
+    """
+    return NeuralDequeCell(hidden_size,
+                           self._hparams.memory_size,
+                           self._hparams.embedding_size)
+
+
 @registry.register_hparams
 def lstm_transduction():
   """HParams for LSTM base on transduction tasks."""
@@ -537,6 +634,26 @@ def neural_stack():
 
   hparams.add_hparam("controller_layer_sizes", [256, 512])
   hparams.add_hparam("memory_size", 128)
+  hparams.add_hparam("embedding_size", 64)
+  hparams.hidden_size = hparams.embedding_size
+  return hparams
+
+
+@registry.register_hparams
+def neural_deque():
+  """HParams for neural deques."""
+  hparams = common_hparams.basic_params1()
+  hparams.daisy_chain_variables = False
+  hparams.batch_size = 10
+  hparams.clip_grad_norm = 1.0
+  hparams.initializer = "uniform_unit_scaling"
+  hparams.initializer_gain = 1.0
+  hparams.optimizer = "RMSProp"
+  hparams.learning_rate = 0.0001
+  hparams.weight_decay = 0.0
+
+  hparams.add_hparam("controller_layer_sizes", [256, 512])
+  hparams.add_hparam("memory_size", 256)
   hparams.add_hparam("embedding_size", 64)
   hparams.hidden_size = hparams.embedding_size
   return hparams
