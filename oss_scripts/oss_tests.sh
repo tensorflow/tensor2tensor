@@ -49,7 +49,7 @@ pytest --disable-warnings \
   --ignore=tensor2tensor/data_generators/ops/pack_sequences_ops_test.py \
   --ignore=tensor2tensor/data_generators/ops/subword_text_encoder_ops_test.py \
   --ignore=tensor2tensor/data_generators/problem_test.py \
-  --deselect=tensor2tensor/data_generators/generator_utils_test.py::GeneratorUtilsTest.testDatasetPacking \
+  --deselect=tensor2tensor/data_generators/generator_utils_test.py::GeneratorUtilsTest::testDatasetPacking \
   tensor2tensor/data_generators
 set_status
 
