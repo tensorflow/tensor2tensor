@@ -969,7 +969,7 @@ class SequenceDatasetPacker(object):
 
     initial_state = self._scan_initial_state()
     step_fn = functools.partial(
-        _scan_step_fn, packed_length=self._packed_length,
+        tf.autograph.to_graph(_scan_step_fn), packed_length=self._packed_length,
         queue_size=self._queue_size, spacing=self._spacing,
         num_sequences=self._num_sequences, token_dtype=self._token_dtype)
 
@@ -1020,7 +1020,6 @@ class SequenceDatasetPacker(object):
             "segment": segment, "position": position}
 
 
-@tf.autograph.to_graph
 def _scan_step_fn(state, example, packed_length, queue_size, spacing,
                   num_sequences, token_dtype):  # pylint: disable=g-doc-args
   """Transform function used by tf.data.experimental.scan to process an example.
