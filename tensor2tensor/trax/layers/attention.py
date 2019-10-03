@@ -344,7 +344,8 @@ class ComputeAttentionOutput(base.Layer):
 class BaseCausalAttention(base.Layer):
   """Base class for variants of causal self-attention."""
 
-  def __init__(self):
+  def __init__(self, mode='train'):
+    del mode
     super(BaseCausalAttention, self).__init__(n_inputs=3)
 
   def forward(self, inputs, params=(), state=(), rng=None, **kwargs):

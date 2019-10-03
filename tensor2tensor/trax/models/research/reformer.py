@@ -254,14 +254,18 @@ class ApplyAttentionWrapper(tl.Parallel):
     super(ApplyAttentionWrapper, self).__init__(attention, [], [])
     self.attention = attention
 
-  def forward_and_backward(self, inputs, ct, **kwargs):
+  def forward_and_backward(self, inputs, ct, rng=None, **kwargs):
     # Simultaneous forward pass and backprop through the attention mechanism.
     qkv = inputs[:3]
     passthrough = inputs[3:]
     out_ct = ct[0]
     passthrough_ct = ct[1:]
+    if rng is not None:
+      # Adjust RNG to match the forward pass.
+      rng = backend.random.split(rng, self._n_layers)[0]
 
-    out, qkv_ct = self.attention.forward_and_backward(qkv, out_ct, **kwargs)
+    out, qkv_ct = self.attention.forward_and_backward(
+        qkv, out_ct, rng=rng, **kwargs)
     return (out,) + passthrough, qkv_ct + passthrough_ct
 
 

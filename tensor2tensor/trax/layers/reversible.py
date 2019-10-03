@@ -101,8 +101,8 @@ class ReversibleSerial(ReversibleLayer, cb.Serial):
       rngs = backend.random.split(rng, self._n_layers)
 
     layer_val = output
-    for layer, p, s, rng in reversed(zip(self.sublayers,
-                                         params, state, rngs)):
+    for layer, p, s, rng in reversed(list(zip(self.sublayers,
+                                              params, state, rngs))):
       layer_val = layer.reverse(layer_val, p, s, rng=rng, **kwargs)
 
     return layer_val
@@ -116,8 +116,8 @@ class ReversibleSerial(ReversibleLayer, cb.Serial):
     layer_val = output
     layer_ct = ct
     params_ct = []
-    for layer, p, s, rng in reversed(zip(self.sublayers,
-                                         params, state, rngs)):
+    for layer, p, s, rng in reversed(list(zip(self.sublayers,
+                                              params, state, rngs))):
       layer_val, layer_ct = layer.reverse_and_grad(
           layer_val, layer_ct, p, s, rng=rng, **kwargs)
       layer_ct, p_ct = layer_ct
