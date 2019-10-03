@@ -211,8 +211,7 @@ def AddConstant(x, constant=0.0, **unused_kwargs):
 
 
 @base.layer()
-def MulConstant(x, params, constant=1.0, **unused_kwargs):
-  del params
+def MulConstant(x, constant=1.0, **unused_kwargs):
   return x * constant
 
 
