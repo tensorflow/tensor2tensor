@@ -988,6 +988,7 @@ class Problem(object):
           dataset = dataset.padded_batch(
               batch_size, padded_shapes, drop_remainder=True)
         '''
+        dataset = dataset.batch(batch_size, drop_remainder=True)
       else:
         # On GPU, bucket by length
         dataset = dataset.filter(gpu_valid_size)
