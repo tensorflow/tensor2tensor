@@ -995,6 +995,7 @@ class Problem(object):
         # we need to pad the features that we chunk to the next nearest
         # multiple of the chunk length,
         # this can differ on the GPU as we do have variable input lengths
+        '''
         if hasattr(hparams, 'bert_max_length'):
             dataset = dataset.map(
                 pad_to_length(
@@ -1003,6 +1004,7 @@ class Problem(object):
                     exact=False,
                     features_to_pad=['inputs']),
                 num_parallel_calls=num_threads)
+        '''
 
         dataset = dataset.apply(
             tf.contrib.data.bucket_by_sequence_length(
