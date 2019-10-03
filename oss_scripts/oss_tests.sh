@@ -166,9 +166,18 @@ then
     # Can't add disable warning here since it parses flags.
     pytest tensor2tensor/rl/trainer_model_based_test.py
     set_status
-    jupyter nbconvert --ExecutePreprocessor.timeout=600 --to notebook --execute tensor2tensor/notebooks/hello_t2t.ipynb
+fi
+
+if [[ "$TRAVIS_PYTHON_VERSION" == "3.6" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]
+then
+    jupyter nbconvert --ExecutePreprocessor.kernel_name=python3 \
+      --ExecutePreprocessor.timeout=600 --to notebook --execute \
+      tensor2tensor/notebooks/hello_t2t.ipynb;
     set_status
-    jupyter nbconvert --ExecutePreprocessor.timeout=600 --to notebook --execute tensor2tensor/notebooks/t2t_problem.ipynb;
+
+    jupyter nbconvert --ExecutePreprocessor.kernel_name=python3 \
+      --ExecutePreprocessor.timeout=600 --to notebook --execute \
+      tensor2tensor/notebooks/t2t_problem.ipynb;
     set_status
 fi
 
