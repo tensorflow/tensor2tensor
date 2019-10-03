@@ -972,7 +972,6 @@ class Problem(object):
             batch_size *= hparams.packs_per_batch
         tf.logging.info(f'Batch size: {batch_size} per shard ({num_shards})')
 
-        '''
         if hparams.pad_batch:
           tf.logging.warn(
               "Padding the batch to ensure that remainder eval batches are "
@@ -987,8 +986,8 @@ class Problem(object):
         else:
           dataset = dataset.padded_batch(
               batch_size, padded_shapes, drop_remainder=True)
-        '''
-        dataset = dataset.batch(batch_size, drop_remainder=True)
+
+        #dataset = dataset.batch(batch_size, drop_remainder=True)
       else:
         # On GPU, bucket by length
         dataset = dataset.filter(gpu_valid_size)
