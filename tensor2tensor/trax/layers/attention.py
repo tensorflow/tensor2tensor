@@ -375,6 +375,39 @@ class BaseCausalAttention(base.Layer):
     raise NotImplementedError()
 
 
+def _fast_inference_init_state(input_shapes, input_dtypes, buffer_length):
+  """Initializes state of a causal attention layer for fast inference."""
+  ((batch_size, _, _), _, _) = input_shapes
+  def init_buffer(shape, dtype):
+    (_, _, depth) = shape
+    return np.zeros((batch_size, buffer_length, depth), dtype=dtype)
+  (_, k, v) = tuple(
+      init_buffer(shape, dtype)
+      for (shape, dtype) in zip(input_shapes, input_dtypes)
+  )
+  mask = np.zeros((batch_size, 1, buffer_length))
+  index = 0
+  state = (k, v, mask, index)
+  return state
+
+
+def _fast_inference_update_state(inputs, state):
+  """Updates state of a causal attention layer for fast inference."""
+  assert backend.get_name() == 'jax', (
+      'JAX backend is required to use the predict mode.')
+  for x in inputs:
+    assert x.shape[1] == 1, (
+        'In predict mode the input sequence must be of length 1.')
+  # Fast inference: run with only 1 query in each step, storing the sequence
+  # of keys and values calculated so far in state.
+  (_, new_k, new_v) = inputs
+  (ks, vs, mask, index) = state
+  ks = jax.ops.index_update(ks, jax.ops.index[:, index, :], new_k[:, 0, :])
+  vs = jax.ops.index_update(vs, jax.ops.index[:, index, :], new_v[:, 0, :])
+  mask = jax.ops.index_update(mask, jax.ops.index[:, :, index], 1)
+  return (ks, vs, mask, index + 1)
+
+
 class DotProductCausalAttention(BaseCausalAttention):
   """A standard (non-memory-efficient) dot product attention implementation."""
 
@@ -399,20 +432,8 @@ class DotProductCausalAttention(BaseCausalAttention):
             onp.ones((1, mask_size, mask_size), dtype=onp.bool_), k=0)
     else:
       assert self._mode == 'predict'
-      assert backend.get_name() == 'jax', (
-          'JAX backend is required to use the predict mode.')
-      for x in (q, k, v):
-        assert x.shape[1] == 1, (
-            'In predict mode the input sequence must be of length 1.')
-      # Fast inference: run with only 1 query in each step, storing the sequence
-      # of keys and values calculated so far in state.
-      (new_k, new_v) = (k, v)
-      (k, v, mask, index) = state
-      k = jax.ops.index_update(k, jax.ops.index[:, index, :], new_k[:, 0, :])
-      v = jax.ops.index_update(v, jax.ops.index[:, index, :], new_v[:, 0, :])
-      new_mask = jax.ops.index_update(mask, jax.ops.index[:, :, index], 1)
-      state = (k, v, new_mask, index + 1)
-      mask = new_mask
+      state = _fast_inference_update_state(inputs, state)
+      (k, v, mask, _) = state
 
     res = DotProductAttention(
         q, k, v, mask, dropout=self._dropout, mode=self._mode, rng=rng)
@@ -433,21 +454,11 @@ class DotProductCausalAttention(BaseCausalAttention):
       return (), ()
 
     assert self._mode == 'predict'
+    params = ()
     # Buffer length is hardcoded for now. TODO(pkozakowski): Pass it from the
     # model.
     max_len = 2048
-    ((batch_size, _, _), _, _) = input_shapes
-    def initial_state(shape, dtype):
-      (_, _, depth) = shape
-      return np.zeros((batch_size, max_len, depth), dtype=dtype)
-    (_, k, v) = tuple(
-        initial_state(shape, dtype)
-        for (shape, dtype) in zip(input_shapes, input_dtype)
-    )
-    mask = np.zeros((batch_size, 1, max_len))
-    index = 0
-    params = ()
-    state = (k, v, mask, index)
+    state = _fast_inference_init_state(input_shapes, input_dtype, max_len)
     return params, state
 
 
@@ -659,7 +670,7 @@ class MemoryEfficientCausalAttention(BaseCausalAttention):
 class TimeBinCausalAttention(BaseCausalAttention):
   """Causal attention where only nearby chunks of items attend to each other."""
 
-  def __init__(self, dropout, mode, bin_length=None, n_bins=None,
+  def __init__(self, mode, dropout=0.0, bin_length=None, n_bins=None,
                share_qk=False):
     super(TimeBinCausalAttention, self).__init__()
     if (bin_length is None) == (n_bins is None):
@@ -672,7 +683,8 @@ class TimeBinCausalAttention(BaseCausalAttention):
     if mode == 'train':
       self.dropout = dropout
     else:
-      self.dropout = None
+      self.dropout = 0.0
+    self._mode = mode
 
   def forward_and_backward(self, inputs, ct, **kwargs):
     assert backend.get_name() == 'jax', (
@@ -710,10 +722,19 @@ class TimeBinCausalAttention(BaseCausalAttention):
 
   def forward(self, inputs, params=(), state=(), rng=None, **kwargs):
     del params, kwargs
+    if self._mode in ('train', 'eval'):
+      output = self._forward_train_eval(inputs, rng)
+      return (output, state)
+    else:
+      assert self._mode == 'predict'
+      return self._forward_predict(inputs, state, rng)
+
+  def _forward_train_eval(self, inputs, rng):
     (inputs, original_len, n_bins) = self._pad_inputs(inputs)
     q, k, v = inputs
     seqlen = q.shape[-2]
     # q/k/v are n_batch*n_heads, seqlen, d_head
+    # Time indices for causal masking.
     t = jax.lax.tie_in(q, np.arange(seqlen))
 
     # Split off a "bin" axis for chunks of consecutive items.
@@ -727,6 +748,7 @@ class TimeBinCausalAttention(BaseCausalAttention):
 
     # Allow each chunk to attend within itself, and also one chunk back.
     def look_one_back(x):
+      # Output: pairs [ bin_i bin_{i-1} ] concatenated on the time axis.
       if len(x.shape) == 2:
         x_extra = np.concatenate([x[-1:, :], x[:-1, :]], axis=0)
         return np.concatenate([x, x_extra], axis=1)
@@ -742,7 +764,7 @@ class TimeBinCausalAttention(BaseCausalAttention):
     # Dot-product attention.
     dots = np.matmul(bq, np.swapaxes(bk, -1, -2)) / np.sqrt(bq.shape[-1])
 
-    # Causal masking
+    # Causal masking based on the time indices.
     mask = jax.lax.convert_element_type(
         jax.lax.lt(bq_t[None, :, :, None], bkv_t[None, :, None, :]),
         np.float32)
@@ -754,7 +776,7 @@ class TimeBinCausalAttention(BaseCausalAttention):
       self_mask = jax.lax.tie_in(dots, self_mask)
       dots = dots - 1e5 * self_mask
 
-    if self.dropout is not None and self.dropout > 0.0:
+    if self.dropout > 0.0:
       # Dropout is broadcast across the batch+head dimension
       dropout_shape = (1, dots.shape[-3], dots.shape[-2], dots.shape[-1])
       keep_prob = jax.lax.tie_in(dots, 1.0 - self.dropout)
@@ -768,7 +790,62 @@ class TimeBinCausalAttention(BaseCausalAttention):
 
     output = np.reshape(bo, (bo.shape[0], -1, bo.shape[-1]))
     assert output.shape == v.shape
-    return output[..., :original_len, :], state
+    return output[..., :original_len, :]
+
+  def _forward_predict(self, inputs, state, rng):
+    state = _fast_inference_update_state(inputs, state)
+
+    (q, _, _) = inputs
+    (ks, vs, mask, index) = state
+    output = DotProductAttention(
+        q, ks, vs, mask, dropout=self.dropout, mode=self._mode, rng=rng
+    )
+
+    def roll_state(state):
+      """Rolls the buffers backward to make space for new data."""
+      (ks, vs, mask, index) = state
+      # Move the second bin into the first one's place in both buffers.
+      def roll_buffer(buf):
+        return jax.ops.index_update(
+            buf,
+            jax.ops.index[:, :self.bin_length, :],
+            buf[:, self.bin_length:, :],
+        )
+      (ks, vs) = map(roll_buffer, (ks, vs))
+      # Zero out the second bin in the mask.
+      mask = jax.ops.index_update(
+          mask, jax.ops.index[:, :, self.bin_length:], 0
+      )
+      # Update the index to match the rolled buffers.
+      index -= self.bin_length
+      return (ks, vs, mask, index)
+
+    # Once we get to the end of the buffer, move the second bin back to make
+    # space for new data: [ bin_i bin_{i+1} | ] -> [ bin_{i+1} | bin_{i+1} ],
+    # where | is where index points at in the buffer.
+    state = jax.lax.cond(
+        pred=(index == 2 * self.bin_length),
+        true_operand=state,
+        true_fun=roll_state,
+        false_operand=state,
+        false_fun=(lambda x: x),
+    )
+    return (output, state)
+
+  def new_params_and_state(self, input_shapes, input_dtype, rng):
+    if self._mode in ('train', 'eval'):
+      return (), ()
+
+    assert self._mode == 'predict'
+    assert self.bin_length is not None, (
+        'For fast inference, TimeBinCausalAttention must be parameterized by '
+        'bin_length.'
+    )
+    params = ()
+    state = _fast_inference_init_state(
+        input_shapes, input_dtype, 2 * self.bin_length
+    )
+    return params, state
 
 
 class LSHCausalAttention(BaseCausalAttention):

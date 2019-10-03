@@ -57,31 +57,6 @@ class TransformerTest(parameterized.TestCase):
                              else input_vocab_size]))
     self.assertEqual(expected_shape, final_shape[0])
 
-  def test_transformer_lm_fast_inference(self):
-    with backend.use_backend('jax'):
-      vocab_size = 16
-      model_fn = functools.partial(
-          transformer.TransformerLM,
-          vocab_size=vocab_size, d_model=4, d_ff=8, n_layers=2, n_heads=2)
-      model_slow = model_fn(mode='eval')
-      model_fast = model_fn(mode='predict')
-      rng = backend.random.get_prng(0)
-      batch_size = 2
-      _, _ = model_slow.initialize_once((batch_size, 1), np.int32, rng)
-      _, _ = model_fast.initialize_once((batch_size, 1), np.int32, rng)
-
-      max_length = 5
-      buf = onp.zeros((batch_size, max_length), dtype=np.int32)
-      next_sym = onp.zeros((batch_size, 1), dtype=onp.int32)
-
-      for index in range(max_length):
-        logits_slow = model_slow(buf, rng=rng)
-        logits_fast = model_fast(next_sym, rng=rng)
-        onp.testing.assert_array_almost_equal(
-            logits_slow[:, index, :], logits_fast[:, 0, :])
-        next_sym = onp.random.randint(vocab_size, size=(batch_size, 1))
-        buf[:, index] = next_sym[:, 0]
-
   @parameterized.named_parameters(
       ('same_vocab', 16, None),
       ('same_size', 16, 16),
@@ -90,6 +65,40 @@ class TransformerTest(parameterized.TestCase):
     """Run the Transformer forward and check output shape."""
     self._test_transformer_forward_shape(input_vocab_size, output_vocab_size)
 
+
+  def _test_fast_inference(self, attention_type, length):
+    with backend.use_backend('jax'):
+      vocab_size = 16
+      model_fn = functools.partial(
+          transformer.TransformerLM,
+          vocab_size=vocab_size, d_model=4, d_ff=8, n_layers=2, n_heads=2,
+          attention_type=attention_type,
+      )
+      model_slow = model_fn(mode='eval')
+      model_fast = model_fn(mode='predict')
+      rng = backend.random.get_prng(0)
+      batch_size = 2
+      # Given the same rng, both models initialize with the same parameters.
+      model_slow.initialize_once((batch_size, 1), np.int32, rng)
+      model_fast.initialize_once((batch_size, 1), np.int32, rng)
+
+      buf = onp.zeros((batch_size, length), dtype=np.int32)
+      next_sym = onp.zeros((batch_size, 1), dtype=onp.int32)
+
+      for index in range(length):
+        logits_slow = model_slow(buf, rng=rng)
+        logits_fast = model_fast(next_sym, rng=rng)
+        onp.testing.assert_array_almost_equal(
+            logits_slow[:, index, :], logits_fast[:, 0, :])
+        next_sym = onp.random.randint(vocab_size, size=(batch_size, 1))
+        buf[:, index] = next_sym[:, 0]
+
+  def test_dot_product_causal_attention_fast_inference(self):
+    self._test_fast_inference(tl.DotProductCausalAttention, length=5)
+
+  def test_time_bin_causal_attention_fast_inference(self):
+    attention = functools.partial(tl.TimeBinCausalAttention, bin_length=2)
+    self._test_fast_inference(attention, length=7)
 
 if __name__ == '__main__':
   absltest.main()
