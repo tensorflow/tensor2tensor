@@ -972,6 +972,7 @@ class Problem(object):
             batch_size *= hparams.packs_per_batch
         tf.logging.info(f'Batch size: {batch_size} per shard ({num_shards})')
 
+        '''
         if hparams.pad_batch:
           tf.logging.warn(
               "Padding the batch to ensure that remainder eval batches are "
@@ -986,6 +987,7 @@ class Problem(object):
         else:
           dataset = dataset.padded_batch(
               batch_size, padded_shapes, drop_remainder=True)
+        '''
       else:
         # On GPU, bucket by length
         dataset = dataset.filter(gpu_valid_size)
@@ -995,7 +997,6 @@ class Problem(object):
         # we need to pad the features that we chunk to the next nearest
         # multiple of the chunk length,
         # this can differ on the GPU as we do have variable input lengths
-        '''
         if hasattr(hparams, 'bert_max_length'):
             dataset = dataset.map(
                 pad_to_length(
@@ -1004,7 +1005,6 @@ class Problem(object):
                     exact=False,
                     features_to_pad=['inputs']),
                 num_parallel_calls=num_threads)
-        '''
 
         dataset = dataset.apply(
             tf.contrib.data.bucket_by_sequence_length(
