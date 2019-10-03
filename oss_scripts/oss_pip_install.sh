@@ -5,6 +5,10 @@ set -e  # fail and exit on any command erroring
 
 : "${TF_VERSION:?}"
 
+# Make sure we have the latest pip and setuptools installed.
+pip install -q -U pip
+pip install -q -U setuptools
+
 # Make sure we have the latest version of numpy - avoid problems we were
 # seeing with Python 3
 pip install -q -U numpy

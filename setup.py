@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.14.0',
+    version='1.14.1',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -56,7 +56,7 @@ setup(
         'sympy',
         'tensorflow-datasets',
         'tensorflow-gan',
-        'tensorflow-probability',
+        'tensorflow-probability==0.7.0',
         'tqdm',
     ],
     extras_require={
