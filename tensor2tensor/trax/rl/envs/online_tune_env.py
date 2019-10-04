@@ -78,6 +78,8 @@ class OnlineTuneEnv(gym.Env):
                # Don't save checkpoints by default, as they tend to use a lot of
                # space.
                should_save_checkpoints=False,
+               # Same here.
+               should_write_summaries=False,
                has_weights=False,
                mask_id=None):
     if action_multipliers is None:
@@ -93,7 +95,8 @@ class OnlineTuneEnv(gym.Env):
         optimizer=optimizer,
         lr_schedule=(lambda history: lambda step: self._current_controls),
         inputs=inputs,
-        should_save=should_save_checkpoints,
+        should_save_checkpoints=should_save_checkpoints,
+        should_write_summaries=should_write_summaries,
         nontrainable_param_map=nontrainable_param_map,
         has_weights=has_weights,
         mask_id=mask_id,

@@ -437,12 +437,14 @@ class Trainer(object):
 
   def __init__(self, model, loss_fn, optimizer, lr_schedule, inputs,
                output_dir=None, random_seed=None, n_devices=None,
-               save_steps=None, should_save=True, has_weights=False,
+               save_steps=None, should_save_checkpoints=True,
+               should_write_summaries=True, has_weights=False,
                nontrainable_param_map=None, mask_id=None):
     if save_steps is None:
       save_steps = []
     self._save_steps = save_steps
-    self._should_save = should_save
+    self._should_save_checkpoints = should_save_checkpoints
+    self._should_write_summaries = should_write_summaries
     self._has_weights = has_weights
     self._mask_id = mask_id
     loss_fn = loss_fn(has_weights=has_weights, mask_id=mask_id)
@@ -589,8 +591,9 @@ class Trainer(object):
     self._output_dir = output_dir
     gfile.makedirs(output_dir)
     # Create summary writers and history.
-    self._train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
-    self._eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
+    if self._should_write_summaries:
+      self._train_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "train"))
+      self._eval_sw = jaxboard.SummaryWriter(os.path.join(output_dir, "eval"))
 
     # Reset the train and eval streams.
     self._train_stream = self._inputs.train_stream()
@@ -652,7 +655,7 @@ class Trainer(object):
       return x
 
   def _maybe_save_state(self, keep):
-    if self._should_save:
+    if self._should_save_checkpoints:
       _save_replicated(self._opt_state, self._step, self._history,
                        self._model_state, self._n_devices, self._output_dir,
                        keep)
@@ -737,7 +740,7 @@ class Trainer(object):
         self._maybe_save_state(keep=True)
 
       # Log nontrainable params (learning rate, dropout etc.)
-      if self._step == 1 or self._step % 10 == 0:
+      if (self._step == 1 or self._step % 10 == 0) and self._train_sw:
         for (name, value) in self.nontrainable_params.items():
           self._train_sw.scalar("training/{}".format(name), value)
 
@@ -745,7 +748,7 @@ class Trainer(object):
     epoch_time = time.time() - start_time
     step_log(self._step, "Ran %d train steps in %0.2f secs" %
              (epoch_steps, epoch_time))
-    if epoch_steps > 1:
+    if epoch_steps > 1 and self._train_sw:
       self._train_sw.scalar("training/steps per second",
                             epoch_steps / epoch_time, step=self._step)
 
@@ -756,8 +759,9 @@ class Trainer(object):
     self._maybe_save_state(keep=False)
 
     # Flush summary writers
-    self._train_sw.flush()
-    self._eval_sw.flush()
+    if self._train_sw:
+      self._train_sw.flush()
+      self._eval_sw.flush()
 
   def evaluate(self, eval_steps):
     """Evaluate the model and log metrics."""
@@ -771,15 +775,13 @@ class Trainer(object):
     train_eval_slice = itertools.islice(self._train_eval_stream, eval_steps)
     train_metrics, _ = evaluation_round(
         train_eval_slice, self._metrics, self._jit_eval, params, state, rng)
-    if self._train_sw:
-      log_metrics(train_metrics, self._train_sw, "train",
-                  self._step, history=self._history)
+    log_metrics(train_metrics, self._train_sw, "train",
+                self._step, history=self._history)
     eval_slice = itertools.islice(self._eval_stream, eval_steps)
     eval_metrics, _ = evaluation_round(
         eval_slice, self._metrics, self._jit_eval, params, state, rng)
-    if self._eval_sw:
-      log_metrics(eval_metrics, self._eval_sw, "eval",
-                  self._step, history=self._history)
+    log_metrics(eval_metrics, self._eval_sw, "eval",
+                self._step, history=self._history)
     step_log(self._step, "Finished evaluation")
 
     # Save the optimizer params in the history
@@ -857,10 +859,8 @@ class MemoryEfficientTrainer(Trainer):
       train_eval_metrics.append(metrics)
     # Unpack in the same order we've iterated over streams in the loop above.
     train_metrics, eval_metrics = train_eval_metrics  # pylint: disable=unbalanced-tuple-unpacking
-    if self._train_sw:
-      log_metrics(train_metrics, self._train_sw, "train", step, history=history)
-    if self._eval_sw:
-      log_metrics(eval_metrics, self._eval_sw, "eval", step, history=history)
+    log_metrics(train_metrics, self._train_sw, "train", step, history=history)
+    log_metrics(eval_metrics, self._eval_sw, "eval", step, history=history)
     step_log(step, "Finished evaluation")
 
   def save_computation_graphs(self, save_backward_graph):
