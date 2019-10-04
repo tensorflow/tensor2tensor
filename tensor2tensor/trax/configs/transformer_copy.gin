@@ -4,12 +4,12 @@ import tensor2tensor.trax.optimizers
 import tensor2tensor.trax.trax
 
 n_symbols = 128
-length = 1024
-batch = 32
+length = 4096
+batch = 16
 
 # Parameters for batch_fn:
 # ==============================================================================
-batch_fn.batch_size_per_device = %batch
+batch_fn.batch_size = %batch
 batch_fn.eval_batch_size = %batch
 batch_fn.max_eval_length = %length
 
@@ -39,7 +39,7 @@ train.eval_steps = 64
 train.inputs = @trax.inputs.sequence_copy_inputs
 train.model = @trax.models.TransformerLM
 train.optimizer = @trax.optimizers.Adafactor
-train.train_steps = 150000
+train.train_steps = 50000
 train.has_weights = True
 
 # Parameters for MemoryEfficientCausalAttention:
@@ -50,15 +50,16 @@ MemoryEfficientCausalAttention.loop_stride = 512
 # Parameters for LSHCausalAttention:
 # ==============================================================================
 LSHCausalAttention.allow_duplicate_attention = False
-LSHCausalAttention.attend_across_buckets = False
+LSHCausalAttention.attend_across_buckets = True
 LSHCausalAttention.rehash_each_round = True
-LSHCausalAttention.n_bins = 32
-LSHCausalAttention.n_buckets = 64
-LSHCausalAttention.n_hashes = 4
+LSHCausalAttention.n_bins = 64
+LSHCausalAttention.n_buckets = 128
+LSHCausalAttention.n_hashes = 8
 LSHCausalAttention.one_rng = False
 LSHCausalAttention.hard_k = 0
 LSHCausalAttention.dropout = 0.0
-LSHCausalAttention.drop_for_hash_rate = 0.0
+LSHCausalAttention.drop_for_hash_rate = 0.1
+LSHCausalAttention.factorize_hash = True
 
 # Parameters for TransformerLM:
 # ==============================================================================

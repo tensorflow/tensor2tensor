@@ -854,7 +854,7 @@ class LSHCausalAttention(BaseCausalAttention):
 
   def __init__(self, dropout, mode, n_bins=64, n_hashes=1, n_buckets=64,
                one_rng=False, allow_duplicate_attention=False,
-               attend_across_buckets=False, hard_k=0,
+               attend_across_buckets=False, hard_k=0, factorize_hash=False,
                rehash_each_round=True, drop_for_hash_rate=0.0):
     del dropout
     self._mode = mode
@@ -868,6 +868,7 @@ class LSHCausalAttention(BaseCausalAttention):
     self.n_buckets = n_buckets
     self._drop_for_hash_rate = drop_for_hash_rate
     self._one_rng = one_rng
+    self._factorize_hash = factorize_hash
     self._prng = None
     if one_rng:
       seed = random.randint(0, 2**31 - 1)
@@ -1027,10 +1028,38 @@ class LSHCausalAttention(BaseCausalAttention):
     # We sample a different random rotation for each round of hashing to
     # decrease the probability of hash misses.
     assert self.n_buckets % 2 == 0
+
+    # If we factorize the hash, find a factor dividing n_buckets nicely.
+    rot_size, factor_list = self.n_buckets, [self.n_buckets]
+    if self._factorize_hash:
+      # If we are given a list of factors, verify it and use later.
+      if isinstance(self._factorize_hash, list):
+        rot_size, product = 0, 1
+        factor_list = self._factorize_hash
+        for factor in factor_list:
+          assert factor % 2 == 0
+          product *= factor
+          rot_size += factor
+        assert product == self.n_buckets
+      else:  # Find one factor if just set to True.
+        # We want to represent self.n_buckets = factor * rest so that
+        # (1) both factor and rest are even, and (2) factor + rest is minimal.
+        # To compute this we start from factor = sqrt(n_buckets) and go down
+        # with it until we find one that satisfies the constraints above.
+        factor = int(math.sqrt(self.n_buckets))
+        while factor > 0 and not (
+            self.n_buckets % factor == 0 and
+            factor % 2 == 0 and
+            (self.n_buckets // factor) % 2 == 0):
+          factor -= 1
+        if factor > 2:  # Factor of 2 does not warrant the effort.
+          rot_size = factor + (self.n_buckets // factor)
+          factor_list = [factor, self.n_buckets // factor]
+
     random_rotations_shape = (
         vecs.shape[-1],
         self.n_hashes if self._rehash_each_round else 1,
-        self.n_buckets // 2)
+        rot_size // 2)
 
     rng = jax.lax.tie_in(vecs, rng)
     rng, subrng = backend.random.split(rng)
@@ -1040,16 +1069,32 @@ class LSHCausalAttention(BaseCausalAttention):
     # hashing, so it's shared between them. Check if that's what we want.
     dropped_vecs = self.drop_for_hash(vecs, subrng)
     rotated_vecs = np.einsum('tf,fhb->htb', dropped_vecs, random_rotations)
-    rotated_vecs = np.concatenate([rotated_vecs, -rotated_vecs], axis=-1)
 
     if self._rehash_each_round:
-      buckets = np.argmax(rotated_vecs, axis=-1)
+      if self._factorize_hash and len(factor_list) > 1:
+        # We factorized self.n_buckets as the product of factor_list.
+        # Get the buckets for them and combine.
+        buckets, cur_sum, cur_product = None, 0, 1
+        for factor in factor_list:
+          rv = rotated_vecs[..., cur_sum:cur_sum + (factor // 2)]
+          cur_sum += factor // 2
+          rv = np.concatenate([rv, -rv], axis=-1)
+          if buckets is None:
+            buckets = np.argmax(rv, axis=-1)
+          else:
+            buckets += cur_product * np.argmax(rv, axis=-1)
+          cur_product *= factor
+      else:
+        rotated_vecs = np.concatenate([rotated_vecs, -rotated_vecs], axis=-1)
+        buckets = np.argmax(rotated_vecs, axis=-1)
       # buckets is now (self.n_hashes, seqlen). Next we add offsets so that
       # bucket numbers from different hashing rounds don't overlap.
       offsets = jax.lax.tie_in(buckets, np.arange(self.n_hashes))
       offsets = np.reshape(offsets * self.n_buckets, (-1, 1))
       buckets = np.reshape(buckets + offsets, (-1,))
     else:
+      assert not self._factorize_hash
+      rotated_vecs = np.concatenate([rotated_vecs, -rotated_vecs], axis=-1)
       # In this configuration, we map each item to the top self.n_hashes buckets
       rotated_vecs = np.squeeze(rotated_vecs, 0)
       bucket_range = jax.lax.tie_in(vecs, np.arange(rotated_vecs.shape[-1]))
