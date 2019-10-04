@@ -327,11 +327,7 @@ class T2TModel(base.Layer):
     # Refer to https://github.com/tensorflow/tensor2tensor/issues/979.
     # We used to need `use_resource=False` here
     # but we don't use word embeddings on the CPU anymore
-    # NOTE: seems like there is still some slow down on GPU without word embeddings#
-    # use_resource = True when on TPU
-    # use_resource = False when on TPU
-    use_resource = common_layers.is_xla_compiled()
-    with tf.variable_scope(tf.get_variable_scope(), use_resource=use_resource) as vs:
+    with tf.variable_scope(tf.get_variable_scope(), use_resource=True) as vs:
       self._add_variable_scope("model_fn", vs)
       transformed_features = self.bottom(features)
 
