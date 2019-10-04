@@ -25,6 +25,7 @@ import itertools
 import jax
 from jax import random as jax_random
 import numpy as np
+from tensor2tensor.trax import inputs
 from tensor2tensor.trax import layers
 from tensor2tensor.trax import models
 from tensor2tensor.trax import trax
@@ -578,8 +579,21 @@ class PpoTest(test.TestCase):
         "input_dtype": np.int32,
         "rng": rng,
     }
-    model = models.TransformerLM(vocab_size=4, **transformer_kwargs)
-    (model_params, _) = model.initialize_once(**init_kwargs)
+    model_fn = functools.partial(
+        models.TransformerLM, vocab_size=4, **transformer_kwargs
+    )
+    output_dir = self.get_temp_dir()
+    # Initialize a world model checkpoint by running the trainer.
+    trax.train(
+        output_dir,
+        model=model_fn,
+        inputs=functools.partial(
+            inputs.random_inputs, input_shape=(1, 1), output_shape=(1, 1)
+        ),
+        train_steps=1,
+        eval_steps=1,
+    )
+
     policy = ppo.policy_and_value_net(
         n_actions=3,
         n_controls=2,
@@ -590,12 +604,7 @@ class PpoTest(test.TestCase):
         two_towers=False,
     )
     (policy_params, policy_state) = policy.initialize_once(**init_kwargs)
-    output_dir = self.get_temp_dir()
-    # Initialize state by restoring from a nonexistent checkpoint.
-    trax_state = trax.restore_state(output_dir)
-    trax_state = trax_state._replace(opt_state=(model_params, None))
-    # Save world model parameters.
-    trax.save_state(trax_state, output_dir)
+
     # Initialize policy parameters from world model parameters.
     new_policy_params = ppo.init_policy_from_world_model_checkpoint(
         policy_params, output_dir

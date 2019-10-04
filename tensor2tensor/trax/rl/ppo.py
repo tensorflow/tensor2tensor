@@ -923,7 +923,7 @@ def init_policy_from_world_model_checkpoint(policy_params, model_output_dir):
   # TODO(pkozakowski): The following, brittle line of code is hardcoded for
   # transplanting parameters from TransformerLM to TransformerDecoder-based
   # policy network of the same configuration. Figure out a more general method.
-  policy_params[0] = model_params[1:-2]
+  policy_params[0] = model_params[0][1:-2]
   return policy_params
 
 
