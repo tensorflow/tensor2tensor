@@ -24,16 +24,17 @@ Adam.weight_decay_rate = 0.0
 
 # Parameters for TransformerDecoder:
 # ==============================================================================
-TransformerDecoder.d_model = 64
-TransformerDecoder.d_ff = 128
-TransformerDecoder.n_layers = 2
-TransformerDecoder.n_heads = 2
+TransformerDecoder.attention_type = @policy/trax.layers.TimeBinCausalAttention
+TransformerDecoder.d_model = 256
+TransformerDecoder.d_ff = 512
+TransformerDecoder.n_layers = 3
+TransformerDecoder.n_heads = 4
 TransformerDecoder.dropout = 0.0
 
 # Parameters for PPO:
 # ==============================================================================
-PPO.n_optimizer_steps = 10
-PPO.optimizer_batch_size = 128
+PPO.n_optimizer_steps = 20
+PPO.optimizer_batch_size = 64
 PPO.target_kl = 0.1
 PPO.boundary = 100
 PPO.max_timestep = 100
@@ -49,6 +50,7 @@ PPO.separate_eval = False
 PPO.save_every_n = 1
 PPO.policy_and_value_model = @trax.models.TransformerDecoder
 PPO.policy_and_value_optimizer = @trax.optimizers.Adam
+PPO.policy_and_value_vocab_size = 128
 PPO.trajectory_dump_min_count_per_shard = 8
 PPO.print_every_optimizer_steps = 1
 
@@ -56,6 +58,9 @@ PPO.print_every_optimizer_steps = 1
 ## ==============================================================================
 world_model/TimeBinCausalAttention.dropout = 0.1
 world_model/TimeBinCausalAttention.bin_length = 512
+
+policy/TimeBinCausalAttention.dropout = 0.0
+policy/TimeBinCausalAttention.bin_length = 512
 
 # Parameters for SerializedSequenceSimulatedEnvProblem:
 # ==============================================================================
@@ -77,7 +82,7 @@ SimPLe.simulated_env_problem_class = @trax.rl.SerializedSequenceSimulatedEnvProb
 SimPLe.simulated_batch_size = 128
 SimPLe.n_simulated_epochs = 50
 SimPLe.initial_trajectory_mix_prob = 0.9
-SimPLe.init_policy_from_world_model = False
+SimPLe.init_policy_from_world_model = True
 
 # Parameters for TransformerLM:
 # ==============================================================================
