@@ -3,18 +3,18 @@ import tensor2tensor.trax.models
 import tensor2tensor.trax.optimizers
 import tensor2tensor.trax.trax
 
-# Parameters for batch_fn:
-# ==============================================================================
-batch_fn.batch_size_per_device = 32
-batch_fn.eval_batch_size = 32
-
 # Parameters for inputs:
 # ==============================================================================
-inputs.dataset_name = 't2t_algorithmic_identity_vocab95_train20_eval30'
+inputs.data_dir = None
+inputs.dataset_name = 'position_lookup_copy'
 
-# Parameters for preprocess_fun:
+# Parameters for sequence_copy_inputs:
 # ==============================================================================
-shuffle_and_batch_data.preprocess_fun=@trax.inputs.concat_preprocess
+sequence_copy_inputs.vocab_size = 128
+sequence_copy_inputs.batch_size = 16
+sequence_copy_inputs.train_lengths = [20, 30, 40]
+sequence_copy_inputs.eval_lengths = [60]
+sequence_copy_inputs.reverse = False
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================
@@ -27,16 +27,28 @@ MultifactorSchedule.warmup_steps = 16000
 PositionLookupTransformerLM.d_model = 256
 PositionLookupTransformerLM.d_ff = 512
 PositionLookupTransformerLM.dropout = 0.01
-PositionLookupTransformerLM.max_len = 100
+PositionLookupTransformerLM.max_len = 62
 PositionLookupTransformerLM.n_heads = 4
 PositionLookupTransformerLM.n_layers = 3
 PositionLookupTransformerLM.vocab_size = 128
 
+# Parameters for TransformerLM: (same as above, for easy comparisons)
+# ==============================================================================
+TransformerLM.d_model = 256
+TransformerLM.d_ff = 512
+TransformerLM.dropout = 0.01
+TransformerLM.max_len = 62
+TransformerLM.n_heads = 4
+TransformerLM.n_layers = 3
+TransformerLM.vocab_size = 128
+
 # Parameters for train:
 # ==============================================================================
+train.inputs = @trax.inputs.sequence_copy_inputs
 train.eval_frequency = 1000
 train.eval_steps = 10
 train.model = @trax.models.PositionLookupTransformerLM
 train.optimizer = @trax.optimizers.Adam
 train.train_steps = 100000
 train.mask_id = 0
+train.has_weights = True
