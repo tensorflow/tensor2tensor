@@ -146,9 +146,9 @@ class ConditionalOptimizer(tf.train.Optimizer):
     # https://github.com/medicode/tensor2tensor/pull/130/files#diff-2b8e7a5e8b58c8e97ae722ba253dff43
     # preserve speed on gpus
     cast_grad = (
-        cast_grad_tpu
+        cast_grad_TPU
         if common_layers.is_xla_compiled()
-        else cast_grad_gpu)
+        else cast_grad_GPU)
     gradients = [cast_grad(g, v) for g, v in gradients]
     return gradients
 
