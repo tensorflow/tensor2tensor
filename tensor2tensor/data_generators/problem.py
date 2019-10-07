@@ -952,8 +952,10 @@ class Problem(object):
         dataset = dataset.batch(batch_size)
     else:
       # batch_size means tokens per datashard
-      # if config and config.use_tpu:
-      if True:
+
+      packed = hasattr(self, 'packed_length')
+      # if dataset is packed (TPU requires packed dataset)
+      if packed:
         # TODO: assert shapes fit
         # if we are on TPU and we are chunking input features,
         # we assume that we have one example per batch that is packed.
@@ -964,15 +966,18 @@ class Problem(object):
         # this function
         dataset = dataset.filter(tpu_valid_size)
         padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
-        tf.logging.info(f'Padding features for TPU: {padded_shapes}')
-        # on TPU, we use params["batch_size"], which specifies the number of
-        # examples across all datashards
-        #batch_size = params["batch_size"]
-        # TODO: use num_shards for GPU
+        tf.logging.info(f'Padding features for fixed inputs: {padded_shapes}')
+
+        # on TPU, params["batch_size"] is assigned in
+        # https://github.com/medicode/tensor2tensor/blob/1525870c3a8ebc37240824a87532328e31d66887/tensor2tensor/utils/trainer_lib.py#L270
+        # which specifies the number of examples per datashard
+        # on GPU, num_shards specifies the number of examples per datashard
         batch_size = params.get('batch_size', num_shards)
-        if hasattr(hparams, 'packs_per_batch'):
-            # TODO: better abstraction?
-            batch_size *= hparams.packs_per_batch
+        if config and config.use_tpu:
+          batch_size = params.get('batch_size')
+          assert batch_size
+        else:
+          batch_size = num_shards
         tf.logging.info(f'Batch size: {batch_size} per shard ({num_shards})')
 
         if hparams.pad_batch:
@@ -989,10 +994,8 @@ class Problem(object):
         else:
           dataset = dataset.padded_batch(
               batch_size, padded_shapes, drop_remainder=True)
-
-        #dataset = dataset.batch(batch_size, drop_remainder=True)
       else:
-        # On GPU, bucket by length
+        # for unpacked datasets, bucket by length
         dataset = dataset.filter(gpu_valid_size)
         batching_scheme = self._get_batching_scheme(hparams, num_shards)
 
