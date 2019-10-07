@@ -1133,17 +1133,16 @@ class Problem(object):
       ]
 
     for key, shape in six.iteritems(shapes_dict):
-      #if key == "inputs":
-      if key == 'inputs_chunk_mask':
-        padded_shapes[key] = [hparams.max_length // hparams.bert_max_length * hparams.max_docs_per_pack]
-      elif key.startswith('inputs'):
-        padded_shapes[key] = [hparams.max_length]
-        #pad_one_shape(shape, inputs_none_filler)
+      if key.startswith('inputs'):
+        #padded_shapes[key] = [hparams.max_length]
+        padded_shapes[key] = pad_one_shape(shape, inputs_none_filler)
       elif key == "targets":
         if hasattr(hparams, 'max_docs_per_pack'):
           padded_shapes[key] = [hparams.max_target_seq_length * hparams.max_docs_per_pack]
         else:
           padded_shapes[key] = pad_one_shape(shape, targets_none_filler)
+      elif key == 'inputs_chunk_mask':
+        padded_shapes[key] = [hparams.max_length // hparams.bert_max_length * hparams.max_docs_per_pack]
       else:
         padded_shapes[key] = pad_one_shape(shape, max_length)
       tf.logging.info(f'pad for tpu {key}, {shape}')
@@ -1356,15 +1355,16 @@ def _summarize_features(features, num_shards=1):
 def standardize_shapes(features, batch_size=None):
   """Set the right shapes for the features."""
 
-  for fname in ["inputs", "targets", 'inputs_example', 'inputs_chunk']:
-    if fname not in features:
+  features_to_expand = [
+        "inputs", "targets", 'inputs_example', 'inputs_chunk']
+  for fname in features:
+    if fname not in features_to_expand:
       continue
 
-    f = features[fname]
-    while len(f.get_shape()) < 4:
-      f = tf.expand_dims(f, axis=-1)
-
-    features[fname] = f
+    feature = features[fname]
+    while len(feature.get_shape()) < 4:
+      feature = tf.expand_dims(feature, axis=-1)
+    features[fname] = feature
 
   if batch_size:
     # Ensure batch size is set on all features
