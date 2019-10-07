@@ -970,15 +970,17 @@ class Problem(object):
 
         # on TPU, params["batch_size"] is assigned in
         # https://github.com/medicode/tensor2tensor/blob/1525870c3a8ebc37240824a87532328e31d66887/tensor2tensor/utils/trainer_lib.py#L270
-        # which specifies the number of examples per datashard
-        # on GPU, num_shards specifies the number of examples per datashard
+        # to specify the number of examples for all datashards
+        # on GPU, num_shards specifies the number datashards and, thus in the
+        # packed case, also the number of examples for all datashards
         batch_size = params.get('batch_size', num_shards)
         if config and config.use_tpu:
           batch_size = params.get('batch_size')
           assert batch_size
         else:
           batch_size = num_shards
-        tf.logging.info(f'Batch size: {batch_size} per shard ({num_shards})')
+        tf.logging.info(
+            f'Batch size per shard: {batch_size} / {num_shards}')
 
         if hparams.pad_batch:
           tf.logging.warn(
