@@ -545,7 +545,7 @@ def input_fn(dataset,
           new_example[k] = v
         return tf.data.Dataset.from_tensor_slices(new_example)
 
-      dataset = dataset.apply(tf.data.experimental.unbatch())
+      dataset = dataset.unbatch()
       dataset = dataset.window(inferred_batch_size, inferred_batch_size,
                                chunk_stride)
       dataset = dataset.flat_map(collapse_nested_datasets)
