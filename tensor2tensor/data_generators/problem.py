@@ -24,7 +24,10 @@ import functools
 import multiprocessing
 import os
 import random
+from typing import Dict
+
 import six
+from tensorflow import Tensor
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
@@ -998,14 +1001,13 @@ class Problem(object):
         # multiple of the chunk length,
         # this can differ on the GPU as we do have variable input lengths
         if hasattr(hparams, 'bert_max_length'):
-            dataset = dataset.map(
-                pad_to_length(
-                    length=hparams.bert_max_length,
-                    axis=0,
-                    exact=False,
-                    features_to_pad=['inputs']),
-                num_parallel_calls=num_threads)
-
+          dataset = dataset.map(
+            pad_to_next_chunk_length(
+              features_to_pad=['inputs'],
+              length=hparams.bert_max_length,
+              axis=0),
+            num_parallel_calls=num_threads
+          )
         dataset = dataset.apply(
             tf.contrib.data.bucket_by_sequence_length(
                 element_length_func=data_reader.example_length,
@@ -1425,3 +1427,13 @@ def skip_random_fraction(dataset, data_file):
   # replicas reading the same data in lock-step.
   num_skip = random.randint(0, _file_num_records_cached(data_file))
   return dataset.skip(num_skip)
+
+def pad_inputs_to_chunk_len(example: Dict[str, Tensor], chunk_len):
+  # TODO: Refactor this code to use pad_to_length
+  #   Once https://github.com/medicode/diseaseTools/pull/4809/files#diff-e19b57d46806e65dae73365376ca62cdR123
+  #   is merged in. See https://app.asana.com/0/823468737354222/1141184554148001
+  example_length = data_reader.example_length(example)
+  chunked_len = ((example_length // chunk_len) + 1) * chunk_len
+  amount_to_pad = chunked_len - example_length
+  example['inputs'] = tf.pad(example['inputs'], [[0, amount_to_pad]])
+  return example

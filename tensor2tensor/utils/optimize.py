@@ -113,18 +113,36 @@ class ConditionalOptimizer(tf.train.Optimizer):
     else:
       self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
 
-    self._zero_grads = hparams.optimizer_zero_grads
-
   def compute_gradients(self, loss, var_list=None, **kwargs):  # pylint: disable=arguments-differ
     gradients = self._opt.compute_gradients(loss, var_list, **kwargs)
     def cast_grad(g, v):
-      if v is not None and g is not None:
-        g = common_layers.cast_like(g, v)
-      if self._zero_grads and g is None:
-        g = tf.zeros_like(v)
-      return (g, v)
+      """
+      below is old code.
+      need to test new to make sure it is still working
+      (word embedding slowdown problems)
+
+      can delete this block if runs OK
+
+      August 7 2018: We still need the code block below instead
+          Refer to https://github.com/tensorflow/tensor2tensor/issues/979.
+          We need `use_resource=False` in model_fn in utils/t2t_model.py
+          and the old version of cast_grad here.
+          Without both of these changes, we are very slow with
+          large word embeddings on the CPU.
+
+      """
+      if v is None or g is None:
+        return (g, v)
+      # Fathom: Ryan Sepassi said this would help
+      if v.dtype.base_dtype == g.dtype.base_dtype:
+        return (g, v)
+      return (tf.cast(g, v.dtype), v)
+      #if v is not None and g is not None:
+        #g = common_layers.cast_like(g, v)
+      #return (g, v)
     gradients = [cast_grad(g, v) for g, v in gradients]
     return gradients
+    # return self._opt.compute_gradients(loss, var_list, **kwargs)
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
     return self._opt.apply_gradients(
