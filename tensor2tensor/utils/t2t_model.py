@@ -49,7 +49,6 @@ from tensorflow.python.ops import variable_scope
 
 # Fathom
 from fathomt2t_dependencies.common_t2t_utils import combine_shards, FATHOM_DICT_FORMAT
-from fathomtf.utils.tfutils import debug_tfprint
 
 _no_problem_err_str = (
     "The default implementation of %s requires that the "
@@ -1237,7 +1236,6 @@ class T2TModel(base.Layer):
   def _shard_features(self, features):  # pylint: disable=missing-docstring
     sharded_features = dict()
     for k, v in sorted(six.iteritems(features)):
-      # v = debug_tfprint('before::'+k, tvar=v, print_fn=tf.shape)
       v = tf.convert_to_tensor(v)
       v_shape = common_layers.shape_list(v)
       if not v_shape:
@@ -1247,7 +1245,6 @@ class T2TModel(base.Layer):
         v = tf.tile(v, tf.to_int32([self._num_datashards]))
       sharded_features[k] = self._data_parallelism(
           tf.identity, tf.split(v, self._num_datashards, 0))
-      # v = debug_tfprint('after::'+k, tvar=v, print_fn=tf.shape)
 
     return sharded_features
 
@@ -1506,11 +1503,14 @@ class T2TModel(base.Layer):
             # like actions or rewards.
             tf.logging.warning("No key %s in logits for evaluation." % k)
         else:
-          if hasattr(problem, 'max_docs_per_pack'):
-            # TODO: 
-            # have 1s because this is what metric_fn expects
-            # TODO: import max_target_seq_length = 350
-            features['targets'] = tf.reshape(features['targets'], [-1, 350, 1, 1])
+          # if dataset is packed, reshape targets
+          if hasattr(problem, 'packed_length'):
+            assert hasattr(problem, 'max_examples_per_pack')
+            features['targets'] = tf.reshape(
+                tensor=features['targets'],
+                shape=[
+                    problem.max_examples_per_pack,
+                    hparams.max_target_seq_length, 1, 1])
           # FATHOM
           # NOTE: right now the tf.logging.warning will not trigger.
           # ...consider if we should add
