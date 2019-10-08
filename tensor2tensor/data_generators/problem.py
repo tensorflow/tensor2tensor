@@ -956,14 +956,6 @@ class Problem(object):
       packed = hasattr(self, 'packed_length')
       # if dataset is packed (TPU requires packed dataset)
       if packed:
-        # TODO: assert shapes fit
-        # if we are on TPU and we are chunking input features,
-        # we assume that we have one example per batch that is packed.
-        # we also have multiple input features (inputs, input_example, input_chunk)
-        # we need to pad the features that we chunk to the next nearest
-        # multiple of the chunk length
-        # this should always be the same length, but convenient to reuse
-        # this function
         dataset = dataset.filter(tpu_valid_size)
         padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
         tf.logging.info(f'Padding features for fixed inputs: {padded_shapes}')
