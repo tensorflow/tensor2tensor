@@ -1116,7 +1116,12 @@ class Problem(object):
   def _pad_for_tpu(self, shapes_dict, hparams):
     """Pads unknown features' dimensions for TPU.
 
-    NOTE: some packing specific features and shapes
+    If self.packed_length is specified, this will handling packed datasets
+    that are to be chunked.
+    features:
+        inputs_chunk_mask [num_chunks * max_docs_per_pack]
+        inputs_* [max_length
+
     """
     max_length = self.max_length(hparams)
     padded_shapes = {}
@@ -1135,34 +1140,40 @@ class Problem(object):
       ]
 
     for key, shape in six.iteritems(shapes_dict):
+      if key == 'inputs':
+        padded_shapes[key] = pad_one_shape(shape, inputs_none_filler)
+      elif key == "targets":
+        padded_shapes[key] = pad_one_shape(shape, targets_none_filler)
+      else:
+        padded_shapes[key] = pad_one_shape(shape, max_length)
+
+    # Fathom
+    # override shapes for packed datsets that will be chunked
+    packed_length = getattr(self, 'packed_length', False)
+    if packed_length:
+      assert packed_length == max_length
+
       # TODO: rename inputs_chunk_mask as it behaves differently
       # from other inputs_*
       # https://app.asana.com/0/1137246510213018/1143626077249181/f
-      if key == 'inputs_chunk_mask' and self.packed_length:
-        padded_shapes[key] = [
-            hparams.max_length // hparams.bert_max_length *
-            hparams.max_docs_per_pack]
-      elif key.startswith('inputs'):
-        # if dataset is packed, pad out to inputs_* to hparams.max_length
-        if self.packed_length:
-          padded_shapes[key] = [hparams.max_length]
-        else:
-          padded_shapes[key] = pad_one_shape(shape, inputs_none_filler)
-      elif key == "targets":
-        # if dataset is packed, pad targets out to max_target_seq_length
-        # multiplied by number of docs per pack
-        # TODO: i think we can just pad this out normally to max_target_seq_length
-        # even for packed, but need to verify and change problem to not do
-        # max_target_seq_length for each doc
-        # https://app.asana.com/0/1137246510213018/1143626077249177/f
-        if self.packed_length:
-          padded_shapes[key] = [
-                hparams.max_target_seq_length * hparams.max_docs_per_pack]
-        else:
-          padded_shapes[key] = pad_one_shape(shape, targets_none_filler)
-      else:
-        padded_shapes[key] = pad_one_shape(shape, max_length)
-      tf.logging.info(f'pad for tpu {key}, {shape}')
+      padded_shapes['inputs_chunk_mask'] = [
+        packed_length // self.chunk_len *
+        self.max_examples_per_pack]
+
+      # if dataset is packed, pad targets out to max_target_seq_length
+      # multiplied by number of docs per pack
+      # TODO: i think we can just pad this out normally to max_target_seq_length
+      # even for packed, but need to verify and change problem to not do
+      # max_target_seq_length for each doc
+      # https://app.asana.com/0/1137246510213018/1143626077249177/f
+      padded_shapes['targets'] = [
+          hparams.max_target_seq_length * self.max_examples_per_pack]
+
+      # if dataset is packed, pad out to other inputs_* to packed_length
+      padded_shapes['inputs'] = [packed_length]
+      padded_shapes['inputs_example'] = [packed_length]
+      padded_shapes['inputs_chunk'] = [packed_length]
+
     return padded_shapes
 
 
@@ -1442,13 +1453,3 @@ def skip_random_fraction(dataset, data_file):
   # replicas reading the same data in lock-step.
   num_skip = random.randint(0, _file_num_records_cached(data_file))
   return dataset.skip(num_skip)
-
-def pad_inputs_to_chunk_len(example: Dict[str, Tensor], chunk_len):
-  # TODO: Refactor this code to use pad_to_length
-  #   Once https://github.com/medicode/diseaseTools/pull/4809/files#diff-e19b57d46806e65dae73365376ca62cdR123
-  #   is merged in. See https://app.asana.com/0/823468737354222/1141184554148001
-  example_length = data_reader.example_length(example)
-  chunked_len = ((example_length // chunk_len) + 1) * chunk_len
-  amount_to_pad = chunked_len - example_length
-  example['inputs'] = tf.pad(example['inputs'], [[0, amount_to_pad]])
-  return example
