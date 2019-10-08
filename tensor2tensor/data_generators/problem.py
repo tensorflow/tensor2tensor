@@ -1385,10 +1385,10 @@ def standardize_shapes(features, batch_size=None):
 
   # TODO: think of better abstraction for this, presumably should
   # pull this from the problem instance
-  features_to_not_expand = [
+  features_to_expand = [
         'inputs', 'targets', 'inputs_example', 'inputs_chunk']
   for fname in features:
-    if fname not in features_to_not_expand:
+    if fname not in features_to_expand:
       continue
 
     feature = features[fname]
