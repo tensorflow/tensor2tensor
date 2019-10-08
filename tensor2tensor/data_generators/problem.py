@@ -1140,7 +1140,7 @@ class Problem(object):
       ]
 
     for key, shape in six.iteritems(shapes_dict):
-      if key == 'inputs':
+      if key == "inputs":
         padded_shapes[key] = pad_one_shape(shape, inputs_none_filler)
       elif key == "targets":
         padded_shapes[key] = pad_one_shape(shape, targets_none_filler)
