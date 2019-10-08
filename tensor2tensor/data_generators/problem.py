@@ -1122,7 +1122,10 @@ class Problem(object):
         features=features, receiver_tensors=serialized_example)
 
   def _pad_for_tpu(self, shapes_dict, hparams):
-    """Pads unknown features' dimensions for TPU."""
+    """Pads unknown features' dimensions for TPU.
+
+    NOTE: some packing specific features and shapes
+    """
     max_length = self.max_length(hparams)
     padded_shapes = {}
 
@@ -1140,18 +1143,31 @@ class Problem(object):
       ]
 
     for key, shape in six.iteritems(shapes_dict):
-      if key.startswith('inputs'):
+      # TODO: rename inputs_chunk_mask as it behaves differently
+      # from other inputs_*
+      # https://app.asana.com/0/1137246510213018/1143626077249181/f
+      if key == 'inputs_chunk_mask' and self.packed_length:
+        padded_shapes[key] = [
+            hparams.max_length // hparams.bert_max_length *
+            hparams.max_docs_per_pack]
+      elif key.startswith('inputs'):
+        # if dataset is packed, pad out to inputs_* to hparams.max_length
         if self.packed_length:
           padded_shapes[key] = [hparams.max_length]
         else:
           padded_shapes[key] = pad_one_shape(shape, inputs_none_filler)
       elif key == "targets":
+        # if dataset is packed, pad targets out to max_target_seq_length
+        # multiplied by number of docs per pack
+        # TODO: i think we can just pad this out normally to max_target_seq_length
+        # even for packed, but need to verify and change problem to not do
+        # max_target_seq_length for each doc
+        # https://app.asana.com/0/1137246510213018/1143626077249177/f
         if self.packed_length:
-          padded_shapes[key] = [hparams.max_target_seq_length * hparams.max_docs_per_pack]
+          padded_shapes[key] = [
+                hparams.max_target_seq_length * hparams.max_docs_per_pack]
         else:
           padded_shapes[key] = pad_one_shape(shape, targets_none_filler)
-      elif key == 'inputs_chunk_mask' and self.packed_length:
-        padded_shapes[key] = [hparams.max_length // hparams.bert_max_length * hparams.max_docs_per_pack]
       else:
         padded_shapes[key] = pad_one_shape(shape, max_length)
       tf.logging.info(f'pad for tpu {key}, {shape}')
