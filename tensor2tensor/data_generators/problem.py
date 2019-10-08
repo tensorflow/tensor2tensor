@@ -1383,6 +1383,8 @@ def _summarize_features(features, num_shards=1):
 def standardize_shapes(features, batch_size=None):
   """Set the right shapes for the features."""
 
+  # TODO: think of better abstraction for this, presumably should
+  # pull this from the problem instance
   features_to_not_expand = [
         'inputs', 'targets', 'inputs_example', 'inputs_chunk']
   for fname in features:
