@@ -1504,6 +1504,7 @@ class T2TModel(base.Layer):
             tf.logging.warning("No key %s in logits for evaluation." % k)
         else:
           # if dataset is packed, reshape targets
+          '''
           if hasattr(problem, 'packed_length'):
             assert hasattr(problem, 'max_examples_per_pack')
             # TODO: should be able to reshape from
@@ -1512,9 +1513,9 @@ class T2TModel(base.Layer):
             features['targets'] = tf.reshape(
                 tensor=features['targets'],
                 shape=[
-                    -1,
                     problem.max_examples_per_pack,
                     hparams.max_target_seq_length, 1, 1])
+          '''
           # FATHOM
           # NOTE: right now the tf.logging.warning will not trigger.
           # ...consider if we should add
